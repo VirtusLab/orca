@@ -1,2 +1,37 @@
 .devcontainer
 notes.md
+
+# sbt
+target/
+project/target/
+project/project/
+project/boot/
+project/plugins/project/
+project/local-plugins.sbt
+.sbtopts
+.sbt-version
+
+# Scala / Metals / Bloop
+.bloop/
+.metals/
+.scala-build/
+.ammonite/
+metals.sbt
+
+# IDEs
+.idea/
+.idea_modules/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.bsp/
+
+# Build / classes
+*.class
+*.log
+*.cache
+
+# OS
+.DS_Store
+Thumbs.db
