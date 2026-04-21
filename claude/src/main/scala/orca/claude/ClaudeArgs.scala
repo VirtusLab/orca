@@ -2,6 +2,11 @@ package orca.claude
 
 import orca.{AutoApprove, Backend, LlmConfig, SessionId}
 
+/** Maps LlmConfig fields to Claude Code CLI flags. `systemPrompt` is consumed
+  * by the backend (written to a file whose path is passed in via
+  * `systemPromptFile`); `onUnapproved` and `retrySchedule` have no CLI
+  * equivalent and are handled by the orchestrator at runtime.
+  */
 object ClaudeArgs:
 
   def headless(
