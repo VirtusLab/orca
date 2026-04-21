@@ -96,16 +96,16 @@ First real backend. Subprocess-based, testable with a `CliRunner` abstraction.
 
 ---
 
-## Epic 5: Tool Implementations
+## Epic 5: Tool Implementations ✅
 
 Git, GitHub, Fs wrappers. Independently testable.
 
 | # | Task | Description | Status |
 |---|---|---|---|
-| 5.1 | FsTool implementation | Wrap `os.read`, `os.write`, `os.list` with glob support. Unit test against a temp directory. | |
-| 5.2 | GitTool implementation | Wrap `git` CLI via `os.proc`. Unit test against a temp git repo (`git init` in a temp dir). Test: createBranch, checkout, commit, diff, log. | |
-| 5.3 | GitHubTool implementation | Wrap `gh` CLI. `waitForBuild` polls `buildStatus` with a configurable interval. Unit test with stubbed CliRunner for `gh` commands. | |
-| 5.4 | Integration tests | Real `git` commands in a temp repo. Real `gh` commands (gated on GitHub auth). | |
+| 5.1 | FsTool implementation | Wrap `os.read`, `os.write`, `os.list` with glob support. Unit test against a temp directory. | ✅ |
+| 5.2 | GitTool implementation | Wrap `git` CLI via `os.proc`. Unit test against a temp git repo (`git init` in a temp dir). Test: createBranch, checkout, commit, diff, log. | ✅ |
+| 5.3 | GitHubTool implementation | Wrap `gh` CLI. `waitForBuild` polls `buildStatus` with a configurable interval. Unit test with stubbed CliRunner for `gh` commands. | ✅ |
+| 5.4 | Integration tests | Real `git` commands in a temp repo. Real `gh` commands (gated on GitHub auth). | ✅ |
 
 **Exit criteria**: All tool wrappers pass unit tests. Git integration tests run against real repos.
 
