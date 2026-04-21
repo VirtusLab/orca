@@ -120,12 +120,10 @@ private def gatherReviews(
     confidenceThreshold: Double
 )(using FlowContext): ReviewResult =
   val reviewResults: List[ReviewResult] =
-    if reviewers.isEmpty then Nil
-    else
-      supervised:
-        reviewers
-          .map(r => fork(r.result[ReviewResult].prompt(task)))
-          .map(_.join())
+    supervised:
+      reviewers
+        .map(r => fork(r.result[ReviewResult].prompt(task)))
+        .map(_.join())
   val lintResults: List[ReviewResult] =
     lintCommand.toList.map(cmd => lint(cmd, claude.haiku))
   val allIssues = (reviewResults ++ lintResults).flatMap(_.issues)
