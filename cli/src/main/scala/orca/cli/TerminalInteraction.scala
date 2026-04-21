@@ -1,6 +1,7 @@
 package orca.cli
 
 import orca.*
+import org.jline.terminal.TerminalBuilder
 
 import java.io.PrintStream
 
@@ -24,12 +25,27 @@ class TerminalInteraction(
 
   def listeners: List[OrcaListener] = listenersList
 
+  /** Hand the terminal to the backend's child process. Snapshots terminal
+    * attributes beforehand so any raw/cbreak mode the child leaves behind is
+    * restored when control returns. Uses `dumb = true` so the build doesn't
+    * fail when there's no TTY (tests, CI, pipes).
+    */
   def runInteractive(handle: InteractiveHandle[?]): Unit =
-    out.println(paint(fansi.Color.Yellow, "[entering interactive session]"))
+    val terminal = TerminalBuilder
+      .builder()
+      .system(true)
+      .dumb(true)
+      .build()
     try
-      val _ = handle.awaitTermination()
+      val savedAttributes = terminal.getAttributes
+      out.println(paint(fansi.Color.Yellow, "[entering interactive session]"))
+      try
+        val _ = handle.awaitTermination()
+      finally terminal.setAttributes(savedAttributes)
     finally
-      out.println(paint(fansi.Color.Yellow, "[interactive session ended]"))
+      try terminal.close()
+      finally
+        out.println(paint(fansi.Color.Yellow, "[interactive session ended]"))
 
   private class TerminalListener extends OrcaListener:
     import TerminalInteraction.*
