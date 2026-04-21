@@ -43,7 +43,7 @@ lazy val claude = (project in file("claude"))
   .settings(commonSettings)
   .settings(
     name := "orca-claude",
-    libraryDependencies ++= Seq(osLib)
+    libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
   )
 
 lazy val codex = (project in file("codex"))
