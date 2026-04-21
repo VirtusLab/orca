@@ -1,4 +1,4 @@
-package orca.claude
+package orca
 
 case class CliResult(exitCode: Int, stdout: String, stderr: String)
 

@@ -1,4 +1,4 @@
-package orca.claude
+package orca
 
 import java.util.concurrent.atomic.AtomicReference
 
@@ -16,17 +16,22 @@ case class SpawnCall(
 )
 
 /** A `CliRunner` that returns a pre-configured response and records every
-  * invocation for later assertions. Test helper — mutable state is confined to
-  * AtomicReferences.
+  * invocation for later assertions. The response can be swapped via
+  * `setResponse` so tests can simulate external state changes across polls.
+  * Test helper — mutable state is confined to AtomicReferences.
   */
 class StubCliRunner(
-    response: CliResult = CliResult(0, "", ""),
+    initialResponse: CliResult = CliResult(0, "", ""),
     processFactory: () => CliProcess = () => NoopCliProcess
 ) extends CliRunner:
+  private val current: AtomicReference[CliResult] =
+    AtomicReference(initialResponse)
   private val recordedCalls: AtomicReference[List[CliCall]] =
     AtomicReference(Nil)
   private val recordedSpawns: AtomicReference[List[SpawnCall]] =
     AtomicReference(Nil)
+
+  def setResponse(r: CliResult): Unit = current.set(r)
 
   // Calls are prepended (newest-first) and reversed for chronological access.
   def calls: List[CliCall] = recordedCalls.get().reverse
@@ -45,7 +50,7 @@ class StubCliRunner(
       recordedCalls.updateAndGet(cs =>
         CliCall(args.toList, stdin, env, cwd) :: cs
       )
-    response
+    current.get()
 
   def spawn(
       args: Seq[String],

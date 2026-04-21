@@ -7,6 +7,7 @@ case class PrHandle(owner: String, repo: String, number: Int)
 case class Comment(author: String, body: String)
 
 enum BuildOutcome derives CanEqual:
+  case Pending
   case Success
   case Failure
 

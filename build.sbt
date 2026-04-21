@@ -39,7 +39,7 @@ lazy val core = (project in file("core"))
   )
 
 lazy val claude = (project in file("claude"))
-  .dependsOn(core)
+  .dependsOn(core, core % "test->test")
   .settings(commonSettings)
   .settings(
     name := "orca-claude",

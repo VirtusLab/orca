@@ -1,4 +1,4 @@
-package orca.claude
+package orca
 
 class StubCliRunnerTest extends munit.FunSuite:
   test("returns the canned response and records the call"):
