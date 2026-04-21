@@ -89,7 +89,7 @@ trait GitTool:
   def checkout(name: String): Unit           // git checkout (existing)
   def commit(message: String): Unit
   def push(): Unit
-  def currentBranch: String
+  def currentBranch(): String
   def diff(): String
   def log(n: Int = 10): List[CommitInfo]
 

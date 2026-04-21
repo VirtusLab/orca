@@ -32,11 +32,14 @@ class ReviewTypesTest extends munit.FunSuite:
     val parsed = readFromString[ReviewResult](json)
     assertEquals(parsed, original)
 
-  test("IgnoredIssues formats and combines"):
-    val issue = ReviewIssue(Severity.Warning, 0.5, "style", None, None, None)
-    val a = IgnoredIssues(List(IgnoredIssue(issue, "accepted as-is")))
-    val b = IgnoredIssues(List(IgnoredIssue(issue, "deferred")))
-    val combined = a ++ b
-    assertEquals(combined.issues.size, 2)
-    assert(combined.nonEmpty)
-    assert(combined.format.contains("Warning"))
+  private val sampleIssue =
+    ReviewIssue(Severity.Warning, 0.5, "style", None, None, None)
+
+  test("IgnoredIssues ++ concatenates entries"):
+    val a = IgnoredIssues(List(IgnoredIssue(sampleIssue, "accepted")))
+    val b = IgnoredIssues(List(IgnoredIssue(sampleIssue, "deferred")))
+    assertEquals((a ++ b).issues.size, 2)
+
+  test("IgnoredIssues.format renders severity, description, and reason"):
+    val issues = IgnoredIssues(List(IgnoredIssue(sampleIssue, "accepted")))
+    assertEquals(issues.format, "- [Warning] style: accepted")
