@@ -1,12 +1,12 @@
 package orca
 
 trait FlowContext:
-  val claude: ClaudeTool
-  val codex: CodexTool
-  val git: GitTool
-  val gh: GitHubTool
-  val fs: FsTool
-  val userPrompt: String
+  def claude: ClaudeTool
+  def codex: CodexTool
+  def git: GitTool
+  def gh: GitHubTool
+  def fs: FsTool
+  def userPrompt: String
   def emit(event: OrcaEvent): Unit
 
 class OrcaFlowException(message: String) extends RuntimeException(message)
