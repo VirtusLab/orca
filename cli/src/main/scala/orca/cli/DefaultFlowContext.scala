@@ -4,9 +4,9 @@ import _root_.orca.*
 import _root_.orca.claude.ClaudeBackend
 
 /** Production FlowContext wiring. Callers typically construct one via
-  * `orca(...)`, which supplies defaults for all tools. Individual tools can
-  * be replaced by passing overrides to `orca`. `codex` remains stubbed
-  * pending Epic 9.
+  * `orca(...)`, which supplies defaults for all tools. Individual tools can be
+  * replaced by passing overrides to `orca`. `codex` remains stubbed pending
+  * Epic 9.
   */
 class DefaultFlowContext(
     val userPrompt: String,
@@ -24,8 +24,8 @@ class DefaultFlowContext(
 
 object DefaultFlowContext:
 
-  /** Build a context with Orca's default tool implementations, filling in
-    * any `None` override with the production default.
+  /** Build a context with Orca's default tool implementations, filling in any
+    * `None` override with the production default.
     */
   def withDefaults(
       userPrompt: String,

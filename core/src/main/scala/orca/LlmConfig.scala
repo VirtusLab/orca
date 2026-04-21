@@ -16,8 +16,8 @@ object LlmConfig:
 
   /** The default LlmConfig. Implementations may use reference-equality with
     * this singleton as a cheap "caller omitted the arg" sentinel, so always
-    * refer to `LlmConfig.default` rather than constructing a fresh one when
-    * you want default-config semantics.
+    * refer to `LlmConfig.default` rather than constructing a fresh one when you
+    * want default-config semantics.
     */
   val default: LlmConfig = LlmConfig()
   val defaultRetrySchedule: Schedule =

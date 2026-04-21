@@ -4,9 +4,9 @@ import _root_.orca.*
 import ox.supervised
 
 /** Entry point for flow scripts. Creates a FlowContext, registers the
-  * interaction's listeners plus any extras the caller provides, and runs
-  * `body` inside an Ox `supervised` scope so any forked effects are tied
-  * to the flow's lifetime.
+  * interaction's listeners plus any extras the caller provides, and runs `body`
+  * inside an Ox `supervised` scope so any forked effects are tied to the flow's
+  * lifetime.
   *
   * Most scripts use:
   * ```
@@ -15,8 +15,8 @@ import ox.supervised
   *   ...
   * ```
   *
-  * Any tool can be overridden for testing or custom wiring, e.g.
-  * `orca(git = Some(MyGit()), interaction = SlackInteraction(...))`.
+  * Any tool can be overridden for testing or custom wiring, e.g. `orca(git =
+  * Some(MyGit()), interaction = SlackInteraction(...))`.
   */
 def orca(
     args: OrcaArgs = OrcaArgs(),
