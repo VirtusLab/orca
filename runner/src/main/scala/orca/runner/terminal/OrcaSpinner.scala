@@ -1,4 +1,4 @@
-package orca.cli
+package orca.runner.terminal
 
 import java.io.PrintStream
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}

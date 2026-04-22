@@ -1,4 +1,4 @@
-package orca.cli
+package orca.runner.terminal
 
 import _root_.orca.{Interaction, InteractiveHandle, OrcaEvent, OrcaListener}
 import org.jline.terminal.TerminalBuilder

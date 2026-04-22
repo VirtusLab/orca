@@ -1,6 +1,7 @@
 package orca
 
-import _root_.orca.cli.{DefaultFlowContext, OrcaArgs, TerminalInteraction}
+import _root_.orca.runner.DefaultFlowContext
+import _root_.orca.runner.terminal.{OrcaArgs, TerminalInteraction}
 import ox.supervised
 
 /** Entry point for flow scripts. Creates a FlowContext, registers the

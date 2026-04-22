@@ -1,4 +1,4 @@
-package orca.cli
+package orca.runner.terminal
 
 /** Publishes the library to the local Ivy cache and runs a minimal `.sc` script
   * with `scala-cli` to prove the library is consumable end-to-end. Gated on

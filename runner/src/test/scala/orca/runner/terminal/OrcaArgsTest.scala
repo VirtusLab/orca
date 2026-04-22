@@ -1,4 +1,4 @@
-package orca.cli
+package orca.runner.terminal
 
 import mainargs.Flag
 

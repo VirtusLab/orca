@@ -1,4 +1,4 @@
-package orca.cli
+package orca.runner
 
 import _root_.orca.{
   Backend,
@@ -13,6 +13,7 @@ import _root_.orca.{
   fs,
   orca
 }
+import _root_.orca.runner.terminal.TerminalInteraction
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 

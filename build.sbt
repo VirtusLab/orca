@@ -63,16 +63,16 @@ lazy val flow = (project in file("flow"))
     libraryDependencies ++= Seq(ox, jsoniterMacros, jsonSchemaValidator)
   )
 
-lazy val cli = (project in file("cli"))
+lazy val runner = (project in file("runner"))
   .dependsOn(tools, flow, claude, codex)
   .settings(commonSettings)
   .settings(
-    name := "orca-cli",
+    name := "orca-runner",
     libraryDependencies ++= Seq(ox, mainargs, jline, fansi, jsoniterMacros)
   )
 
 lazy val orca = (project in file("."))
-  .aggregate(tools, flow, claude, codex, cli)
+  .aggregate(tools, flow, claude, codex, runner)
   .settings(
     name := "orca",
     publish / skip := true
