@@ -34,8 +34,9 @@ when the prompt already names a specific file, feed the task list from JIRA.
 Save this as `ship.sc` and run it with your task:
 
 ```scala
-//> using dep "com.virtuslab::orca-cli:0.1.0-SNAPSHOT"
-//> using dep "com.virtuslab::orca-core:0.1.0-SNAPSHOT"
+//> using dep "com.virtuslab::orca-runner:0.1.0-SNAPSHOT"
+//> using dep "com.virtuslab::orca-tools:0.1.0-SNAPSHOT"
+//> using dep "com.virtuslab::orca-flow:0.1.0-SNAPSHOT"
 //> using dep "com.virtuslab::orca-claude:0.1.0-SNAPSHOT"
 //> using dep "com.virtuslab::orca-codex:0.1.0-SNAPSHOT"
 //> using repository ivy2Local
@@ -139,28 +140,42 @@ to the runtime requirements above.
 ```
 orca/
 ├── build.sbt / project/
-├── core/       # user-facing API + tools, structured I/O, event bus
-├── claude/     # Claude Code subprocess backend
+├── tools/      # tool interfaces + os-backed impls + structured I/O + event bus
+├── flow/       # FlowContext, stage/fail/fixLoop/reviewAndFix/lint, review types
+├── claude/     # Claude Code backend + DefaultClaudeTool + DefaultLlmCall
 ├── codex/      # Codex backend (skeleton, Epic 9)
-└── cli/        # orca() entry point, DefaultFlowContext, TerminalInteraction
+└── runner/     # orca() entry + DefaultFlowContext + terminal layer
 ```
 
-`cli` depends on `core + claude + codex`; each backend depends only on
-`core`, so a consumer who only wants Claude doesn't pull in sttp.
+Dependency graph:
 
-Inside `core`, only the user-facing surface lives in `package orca`.
-Implementations go into focused subpackages: `orca.tools` (`OsFsTool`,
-`OsGitTool`, `OsGitHubTool`), `orca.subprocess` (`CliRunner`, `OsProcCliRunner`,
-`StubCliRunner`), `orca.io` (`JsonSchemaGen`, `ResponseParser`,
-`DoneMarkerExtractor`).
+```
+tools   (standalone)
+  ├── flow       → tools
+  ├── claude     → tools
+  ├── codex      → tools
+  └── runner     → tools + flow + claude + codex
+```
+
+The runner module owns the `orca()` entry point (`package orca`) and wires
+defaults via `DefaultFlowContext` (`package orca.runner`). Its terminal UI
+lives in its own sub-package, `orca.runner.terminal`, so swapping it for a
+Slack or HTTP equivalent is a matter of substituting one `Interaction` at the
+call site rather than rewiring modules.
+
+Only the user-facing surface lives in `package orca`. Implementation lives in
+focused subpackages: `orca.tools` (os-backed tool impls), `orca.subprocess`
+(subprocess shim), `orca.io` (structured-I/O plumbing), `orca.claude` /
+`orca.codex` (backends), `orca.runner` / `orca.runner.terminal` (wiring and
+terminal UI).
 
 ### Build and test
 
 ```bash
 sbt compile                             # build every module
 sbt test                                # unit tests across all modules
-sbt "core/test"                         # scope to one module
-sbt "core/testOnly orca.FixLoopTest"    # scope to one suite
+sbt "flow/test"                         # scope to one module
+sbt "flow/testOnly orca.FixLoopTest"    # scope to one suite
 ```
 
 Compiler warnings are treated as errors (`-Wunused:all`, `-Wvalue-discard`,
@@ -181,8 +196,8 @@ Some tests shell out to real external tools and skip by default:
 ORCA_INTEGRATION=1 sbt test
 
 ORCA_INTEGRATION=1 sbt "claude/testOnly orca.claude.ClaudeIntegrationTest"
-ORCA_INTEGRATION=1 sbt "core/testOnly orca.tools.OsGitHubIntegrationTest"
-ORCA_INTEGRATION=1 sbt "cli/testOnly orca.cli.ScalaCliSmokeTest"
+ORCA_INTEGRATION=1 sbt "tools/testOnly orca.tools.OsGitHubIntegrationTest"
+ORCA_INTEGRATION=1 sbt "runner/testOnly orca.runner.terminal.ScalaCliSmokeTest"
 ```
 
 | Suite | Needs |
@@ -221,7 +236,7 @@ before a non-trivial change is recommended.
 sbt publishLocal
 ```
 
-Installs `com.virtuslab::orca-{core,claude,codex,cli}:0.1.0-SNAPSHOT` into
+Installs `com.virtuslab::orca-{tools,flow,claude,codex,runner}:0.1.0-SNAPSHOT` into
 `~/.ivy2/local` so a flow script with `//> using repository ivy2Local` can
 resolve them.
 
