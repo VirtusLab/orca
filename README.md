@@ -10,7 +10,6 @@ structured I/O, session management, autonomous and interactive execution, tool
 integrations, and observability.
 
 ```scala
-//> using scala 3.3.6
 //> using dep "com.virtuslab::orca-cli:0.1.0-SNAPSHOT"
 //> using jvm 21
 import orca.*
@@ -100,7 +99,6 @@ sbt publishLocal            # installs com.virtuslab::orca-*:0.1.0-SNAPSHOT
 Write a flow script, `hello.sc`:
 
 ```scala
-//> using scala 3.3.6
 //> using dep "com.virtuslab::orca-cli:0.1.0-SNAPSHOT"
 //> using dep "com.virtuslab::orca-core:0.1.0-SNAPSHOT"
 //> using dep "com.virtuslab::orca-claude:0.1.0-SNAPSHOT"
@@ -157,7 +155,6 @@ Claude to implement it in a fresh branch, and opens a PR — all from a single
 script:
 
 ```scala
-//> using scala 3.3.6
 //> using dep "com.virtuslab::orca-cli:0.1.0-SNAPSHOT"
 //> using dep "com.virtuslab::orca-core:0.1.0-SNAPSHOT"
 //> using dep "com.virtuslab::orca-claude:0.1.0-SNAPSHOT"
@@ -167,8 +164,6 @@ script:
 
 import orca.*
 import orca.cli.orca
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
-import sttp.tapir.Schema
 
 case class TaskPlan(branchName: String, description: String)
     derives Schema, ConfiguredJsonValueCodec
