@@ -1,9 +1,7 @@
 package orca.io
 
-import orca.*
-
-import _root_.io.circe.syntax.*
-import sttp.apispec.circe.*
+import _root_.io.circe.syntax.EncoderOps
+import sttp.apispec.circe.encoderSchema
 import sttp.tapir.Schema
 import sttp.tapir.docs.apispec.schema.TapirSchemaToJsonSchema
 

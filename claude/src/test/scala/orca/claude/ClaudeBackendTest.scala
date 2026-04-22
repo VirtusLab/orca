@@ -1,7 +1,7 @@
 package orca.claude
 
-import orca.*
-import orca.subprocess.*
+import orca.{Backend, LlmConfig, LlmResult, OrcaFlowException, SessionId}
+import orca.subprocess.{CliResult, StubCliRunner}
 
 class ClaudeBackendTest extends munit.FunSuite:
 

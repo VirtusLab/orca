@@ -1,7 +1,7 @@
 package orca.tools
 
-import orca.*
-import orca.subprocess.*
+import orca.PrHandle
+import orca.subprocess.OsProcCliRunner
 
 /** End-to-end tests against the real `gh` CLI. Gated on the `ORCA_INTEGRATION`
   * environment variable and require `gh auth login` on the host. The tests read

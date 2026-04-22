@@ -1,7 +1,7 @@
 package orca.tools
 
-import orca.*
-import orca.subprocess.*
+import orca.{BuildOutcome, Comment, OrcaFlowException, PrHandle}
+import orca.subprocess.{CliResult, StubCliRunner}
 
 import scala.concurrent.duration.DurationInt
 

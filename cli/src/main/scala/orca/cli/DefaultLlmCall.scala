@@ -1,6 +1,15 @@
 package orca.cli
 
-import _root_.orca.*
+import _root_.orca.{
+  AgentInput,
+  Backend,
+  LlmBackend,
+  LlmCall,
+  LlmConfig,
+  OrcaEvent,
+  PromptTemplate,
+  SessionId
+}
 import _root_.orca.io.{JsonSchemaGen, ResponseParser}
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec

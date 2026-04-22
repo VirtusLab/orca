@@ -1,6 +1,6 @@
 package orca.tools
 
-import orca.*
+import orca.OrcaFlowException
 
 class OsGitToolTest extends munit.FunSuite:
 

@@ -1,7 +1,5 @@
 package orca.tools
 
-import orca.*
-
 class OsFsToolTest extends munit.FunSuite:
 
   private def withFs(body: (OsFsTool, os.Path) => Unit): Unit =

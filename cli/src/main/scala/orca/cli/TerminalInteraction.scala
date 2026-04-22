@@ -1,6 +1,6 @@
 package orca.cli
 
-import _root_.orca.*
+import _root_.orca.{Interaction, InteractiveHandle, OrcaEvent, OrcaListener}
 import org.jline.terminal.TerminalBuilder
 
 import java.io.PrintStream

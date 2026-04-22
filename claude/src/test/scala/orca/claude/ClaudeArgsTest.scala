@@ -1,6 +1,6 @@
 package orca.claude
 
-import orca.*
+import orca.{AutoApprove, Backend, LlmConfig, SessionId}
 
 class ClaudeArgsTest extends munit.FunSuite:
 

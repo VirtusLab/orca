@@ -1,7 +1,15 @@
 package orca.claude
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import orca.*
+import orca.{
+  Backend,
+  InteractiveHandle,
+  LlmBackend,
+  LlmConfig,
+  LlmResult,
+  OrcaFlowException,
+  SessionId
+}
 import orca.subprocess.CliRunner
 import ox.Ox
 

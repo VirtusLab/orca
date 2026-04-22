@@ -1,6 +1,13 @@
 package orca.cli
 
-import _root_.orca.*
+import _root_.orca.{
+  Backend,
+  InteractiveHandle,
+  LlmResult,
+  OrcaEvent,
+  SessionId,
+  Usage
+}
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 

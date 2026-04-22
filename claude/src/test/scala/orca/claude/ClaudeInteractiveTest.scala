@@ -1,7 +1,7 @@
 package orca.claude
 
-import orca.*
-import orca.subprocess.*
+import orca.{Backend, LlmConfig, OrcaFlowException, SessionId}
+import orca.subprocess.{CliProcess, StubCliRunner}
 
 import java.util.UUID
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}

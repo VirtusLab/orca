@@ -1,6 +1,15 @@
 package orca.cli
 
-import _root_.orca.*
+import _root_.orca.{
+  Backend,
+  DefaultPromptTemplate,
+  InteractiveHandle,
+  LlmBackend,
+  LlmConfig,
+  LlmResult,
+  SessionId,
+  Usage
+}
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import ox.supervised
 

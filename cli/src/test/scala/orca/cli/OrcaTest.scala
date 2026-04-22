@@ -1,6 +1,6 @@
 package orca.cli
 
-import _root_.orca.*
+import _root_.orca.{FlowContext, OrcaEvent, orca, userPrompt}
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 

@@ -1,6 +1,18 @@
 package orca.cli
 
-import _root_.orca.*
+import _root_.orca.{
+  Backend,
+  ClaudeTool,
+  CostTracker,
+  FlowContext,
+  FsTool,
+  LlmCall,
+  LlmConfig,
+  OrcaEvent,
+  Usage,
+  fs,
+  orca
+}
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 

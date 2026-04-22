@@ -1,6 +1,13 @@
 package orca.claude
 
-import orca.*
+import orca.{
+  Backend,
+  InteractiveHandle,
+  LlmResult,
+  OrcaFlowException,
+  SessionId,
+  Usage
+}
 import orca.subprocess.CliProcess
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}

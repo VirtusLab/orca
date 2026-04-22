@@ -2,7 +2,7 @@ package orca
 
 import ox.scheduling.Schedule
 
-import scala.concurrent.duration.*
+import scala.concurrent.duration.DurationInt
 
 case class LlmConfig(
     model: Option[String] = None,

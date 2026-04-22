@@ -1,6 +1,18 @@
 package orca.cli
 
-import _root_.orca.*
+import _root_.orca.{
+  ClaudeTool,
+  CodexTool,
+  DefaultPromptTemplate,
+  EventDispatcher,
+  FlowContext,
+  FsTool,
+  GitHubTool,
+  GitTool,
+  LlmConfig,
+  OrcaEvent,
+  PromptTemplate
+}
 import _root_.orca.claude.ClaudeBackend
 import _root_.orca.subprocess.OsProcCliRunner
 import _root_.orca.tools.{OsFsTool, OsGitHubTool, OsGitTool}

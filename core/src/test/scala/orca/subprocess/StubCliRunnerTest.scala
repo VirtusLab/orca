@@ -1,7 +1,5 @@
 package orca.subprocess
 
-import orca.*
-
 class StubCliRunnerTest extends munit.FunSuite:
   test("returns the canned response and records the call"):
     val canned = CliResult(exitCode = 0, stdout = "hi", stderr = "")

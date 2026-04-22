@@ -1,6 +1,13 @@
 package orca.tools
 
-import orca.*
+import orca.{
+  BuildOutcome,
+  BuildStatus,
+  Comment,
+  GitHubTool,
+  OrcaFlowException,
+  PrHandle
+}
 import orca.subprocess.CliRunner
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{

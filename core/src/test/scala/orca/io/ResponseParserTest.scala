@@ -1,7 +1,5 @@
 package orca.io
 
-import orca.*
-
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 

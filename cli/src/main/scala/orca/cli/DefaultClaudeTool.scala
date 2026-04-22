@@ -1,6 +1,14 @@
 package orca.cli
 
-import _root_.orca.*
+import _root_.orca.{
+  Backend,
+  ClaudeTool,
+  LlmBackend,
+  LlmCall,
+  LlmConfig,
+  OrcaEvent,
+  PromptTemplate
+}
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import sttp.tapir.Schema
 

@@ -1,7 +1,7 @@
 package orca.claude
 
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
-import orca.*
+import orca.{Backend, LlmResult, SessionId, Usage}
 
 /** Subset of the JSON Claude Code emits when invoked with `--output-format
   * json`. Field names mirror the CLI output.

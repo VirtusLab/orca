@@ -1,6 +1,6 @@
 package orca.tools
 
-import orca.*
+import orca.{CommitInfo, GitTool, OrcaFlowException}
 
 /** Git tool implementation that shells out to the `git` CLI via os-lib.
   * `commit` automatically stages all tracked + untracked changes before

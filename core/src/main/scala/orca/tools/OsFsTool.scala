@@ -1,6 +1,6 @@
 package orca.tools
 
-import orca.*
+import orca.FsTool
 
 import java.nio.file.FileSystems
 

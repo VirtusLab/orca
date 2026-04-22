@@ -1,7 +1,7 @@
 package orca.claude
 
-import orca.*
-import orca.subprocess.*
+import orca.{LlmConfig, OrcaEvent, SessionId}
+import orca.subprocess.OsProcCliRunner
 
 import scala.util.Using
 
