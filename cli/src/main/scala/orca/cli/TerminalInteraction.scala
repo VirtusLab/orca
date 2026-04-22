@@ -24,7 +24,7 @@ class TerminalInteraction(
   private val listener = new TerminalListener
   private val listenersList: List[OrcaListener] = List(listener)
   private val spinner: Option[OrcaSpinner] =
-    if animated then Some(new OrcaSpinner(out)) else None
+    if animated then Some(new OrcaSpinner(out, useColor = useColor)) else None
 
   def listeners: List[OrcaListener] = listenersList
 

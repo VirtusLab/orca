@@ -8,10 +8,18 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
   * in place. `start` is safe to call repeatedly — a new label replaces the
   * previous one; `stop` clears the frame so subsequent terminal output doesn't
   * see the partially-drawn animation.
+  *
+  * With `useColor = true`, waves render cyan and the orca's dorsal and body
+  * render bold white so the animation reads on a dark terminal without stealing
+  * too much visual weight from the label.
   */
-class OrcaSpinner(out: PrintStream, framePeriodMs: Long = 180L):
+class OrcaSpinner(
+    out: PrintStream,
+    framePeriodMs: Long = 180L,
+    useColor: Boolean = true
+):
 
-  import OrcaSpinner.Frames
+  import OrcaSpinner.{Frames, colorize, paintLabel}
 
   private val running = new AtomicBoolean(false)
   private val animator: AtomicReference[Option[Thread]] =
@@ -22,8 +30,8 @@ class OrcaSpinner(out: PrintStream, framePeriodMs: Long = 180L):
     // at a clean spot.
     if running.get() then stop()
     running.set(true)
-    out.println(s"⏳ $label")
-    Frames.head.foreach(out.println)
+    out.println(paintLabel(label, useColor))
+    Frames.head.foreach(line => out.println(colorize(line, useColor)))
     out.flush()
     val t = new Thread(() => animate(), "orca-spinner")
     t.setDaemon(true)
@@ -47,7 +55,7 @@ class OrcaSpinner(out: PrintStream, framePeriodMs: Long = 180L):
         val frame = Frames(idx % Frames.size)
         // Cursor up 4 lines (over the body), redraw each with clear-to-EOL.
         out.print("[4A")
-        frame.foreach(line => out.println(s"[2K$line"))
+        frame.foreach(line => out.println(s"[2K${colorize(line, useColor)}"))
         out.flush()
 
 object OrcaSpinner:
@@ -100,3 +108,27 @@ object OrcaSpinner:
       "   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
     )
   )
+
+  private val OrcaPattern = "(/_o>|__)".r
+  private val WavePattern = "~+".r
+
+  /** Apply fansi colors to a frame line: runs of `~` become cyan, the orca body
+    * (`__` dorsal or `/_o>`) becomes bold white. Leading spaces and the
+    * trailing padding pass through untouched.
+    */
+  def colorize(line: String, useColor: Boolean): String =
+    if !useColor then line
+    else
+      val withOrca =
+        OrcaPattern.replaceAllIn(line, m => fansi.Bold.On(m.matched).render)
+      WavePattern.replaceAllIn(
+        withOrca,
+        m => fansi.Color.Cyan(m.matched).render
+      )
+
+  /** The status line above the animation. Yellow so it stands out against the
+    * blue waves and white orca.
+    */
+  def paintLabel(label: String, useColor: Boolean): String =
+    val text = s"⌛ $label"
+    if useColor then fansi.Color.Yellow(text).render else text
