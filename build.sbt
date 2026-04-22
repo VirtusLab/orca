@@ -67,13 +67,14 @@ lazy val runner = (project in file("runner"))
   .dependsOn(tools, flow, claude, codex)
   .settings(commonSettings)
   .settings(
-    name := "orca-runner",
+    // Published as just "orca" so flow-script coordinates stay short.
+    name := "orca",
     libraryDependencies ++= Seq(ox, mainargs, jline, fansi, jsoniterMacros)
   )
 
-lazy val orca = (project in file("."))
+lazy val orcaRoot = (project in file("."))
   .aggregate(tools, flow, claude, codex, runner)
   .settings(
-    name := "orca",
+    name := "orca-root",
     publish / skip := true
   )

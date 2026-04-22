@@ -35,11 +35,7 @@ class ScalaCliSmokeTest extends munit.FunSuite:
       script,
       """//> using scala 3.3.6
         |//> using repository ivy2Local
-        |//> using dep com.virtuslab::orca-runner:0.1.0-SNAPSHOT
-        |//> using dep com.virtuslab::orca-tools:0.1.0-SNAPSHOT
-        |//> using dep com.virtuslab::orca-flow:0.1.0-SNAPSHOT
-        |//> using dep com.virtuslab::orca-claude:0.1.0-SNAPSHOT
-        |//> using dep com.virtuslab::orca-codex:0.1.0-SNAPSHOT
+        |//> using dep com.virtuslab::orca:0.1.0-SNAPSHOT
         |//> using jvm 21
         |
         |import orca.*

@@ -34,11 +34,7 @@ when the prompt already names a specific file, feed the task list from JIRA.
 Save this as `ship.sc` and run it with your task:
 
 ```scala
-//> using dep "com.virtuslab::orca-runner:0.1.0-SNAPSHOT"
-//> using dep "com.virtuslab::orca-tools:0.1.0-SNAPSHOT"
-//> using dep "com.virtuslab::orca-flow:0.1.0-SNAPSHOT"
-//> using dep "com.virtuslab::orca-claude:0.1.0-SNAPSHOT"
-//> using dep "com.virtuslab::orca-codex:0.1.0-SNAPSHOT"
+//> using dep "com.virtuslab::orca:0.1.0-SNAPSHOT"
 //> using repository ivy2Local
 //> using jvm 21
 
@@ -236,7 +232,8 @@ before a non-trivial change is recommended.
 sbt publishLocal
 ```
 
-Installs `com.virtuslab::orca-{tools,flow,claude,codex,runner}:0.1.0-SNAPSHOT` into
+Installs `com.virtuslab::orca:0.1.0-SNAPSHOT` plus its transitive modules
+(`orca-tools`, `orca-flow`, `orca-claude`, `orca-codex`) into
 `~/.ivy2/local` so a flow script with `//> using repository ivy2Local` can
 resolve them.
 
