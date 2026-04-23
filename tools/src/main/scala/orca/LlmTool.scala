@@ -39,12 +39,14 @@ trait ClaudeTool extends LlmTool[Backend.ClaudeCode.type]:
 trait CodexTool extends LlmTool[Backend.Codex.type]:
   def mini: CodexTool
 
+/** One configured LLM call of a given output type. Obtained via
+  * `tool.result[O]`; the returned value supports every invocation variant
+  * (headless `prompt`, session-based `startSession` / `continueSession`, and
+  * `interactive` / `continueInteractive`) so callers can switch execution
+  * mode without restating `O`.
+  */
 trait LlmCall[B <: Backend, O]:
-  // TODO: I'm wondering what's the most intuitive syntax here is. Specifying the result before the prompt might not be best? Some alternatives:
-  // claude.result[X].prompt("...") -> current
-  // claude.prompt("...").result[X] -> but might be misleading that .prompt(...) doesn't send the request
-  // claude.prompt("...", result[X]) -> result[] might be hard to discover
-  // any ideas?
+  /** Run the call headlessly: a single turn, no session retained. */
   def prompt[I: AgentInput](input: I, config: LlmConfig = LlmConfig.default): O
   // TODO: since we have "interactive", maybe this should be "autonomous" for symmetry?
   def startSession[I: AgentInput](
