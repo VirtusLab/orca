@@ -23,10 +23,10 @@ object LlmConfig:
   val defaultRetrySchedule: Schedule =
     Schedule.exponentialBackoff(1.second).maxRepeats(3)
 
-enum AutoApprove derives CanEqual:
+enum AutoApprove:
   case All
   case Only(tools: Set[String])
 
-enum UnapprovedPolicy derives CanEqual:
+enum UnapprovedPolicy:
   case Deny
   case AskUser

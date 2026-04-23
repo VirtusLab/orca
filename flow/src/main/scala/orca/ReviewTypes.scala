@@ -6,7 +6,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   JsonCodecMaker
 }
 
-enum Severity derives CanEqual:
+enum Severity:
   case Critical
   case Warning
   case Info

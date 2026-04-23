@@ -1,6 +1,6 @@
 package orca
 
-enum Backend derives CanEqual:
+enum Backend:
   case ClaudeCode
   case Codex
 
