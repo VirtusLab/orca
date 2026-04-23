@@ -1,9 +1,9 @@
 package orca
 
 /** Identifier for a concrete LLM backend. Used as the phantom type parameter
-  * on `SessionId[B]`, `LlmResult[B]`, `InteractiveHandle[B]`, `LlmTool[B]`,
-  * and `LlmBackend[B]` so a session id from one backend can't accidentally
-  * flow into another.
+  * on `SessionId[B]`, `LlmResult[B]`, `Conversation[B]`, `LlmTool[B]`, and
+  * `LlmBackend[B]` so a session id from one backend can't accidentally flow
+  * into another.
   */
 enum Backend:
   case ClaudeCode

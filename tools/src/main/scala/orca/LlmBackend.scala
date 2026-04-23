@@ -8,9 +8,6 @@ case class LlmResult[B <: Backend](
     usage: Usage
 )
 
-trait InteractiveHandle[B <: Backend]:
-  def awaitTermination(): LlmResult[B]
-
 trait LlmBackend[B <: Backend]:
   def prepareWorkspace(
       config: LlmConfig,

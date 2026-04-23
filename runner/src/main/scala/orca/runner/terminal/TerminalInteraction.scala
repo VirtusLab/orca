@@ -4,24 +4,21 @@ import orca.{
   Backend,
   Conversation,
   Interaction,
-  InteractiveHandle,
   LlmResult,
   OrcaEvent,
   OrcaListener
 }
-import org.jline.terminal.TerminalBuilder
 
 import java.io.PrintStream
 
 /** Terminal-based `Interaction`. Renders stage transitions, tool uses,
-  * streaming LLM output, and errors to a `PrintStream` (defaults to stderr so
-  * the structured output on stdout stays clean). `runInteractive` relies on
-  * backends having spawned the child with inherited stdio, so nothing more is
-  * needed here than awaiting termination.
+  * streaming LLM output, and errors to a `PrintStream` (defaults to
+  * stderr so the structured output on stdout stays clean). `drive` is a
+  * stub until Task 65 wires the stream-json conversation renderer.
   *
-  * Unicode glyphs require a UTF-8 locale; on platforms with a non-UTF-8 default
-  * charset the caller should pass a PrintStream constructed with `new
-  * PrintStream(out, true, "UTF-8")`.
+  * Unicode glyphs require a UTF-8 locale; on platforms with a non-UTF-8
+  * default charset the caller should pass a PrintStream constructed with
+  * `new PrintStream(out, true, "UTF-8")`.
   */
 class TerminalInteraction(
     out: PrintStream = System.err,
@@ -44,32 +41,6 @@ class TerminalInteraction(
     throw new UnsupportedOperationException(
       "TerminalInteraction.drive is not yet implemented; stream-json UI lands in Task 65"
     )
-
-  /** Hand the terminal to the backend's child process. Snapshots terminal
-    * attributes beforehand so any raw/cbreak mode the child leaves behind is
-    * restored when control returns. Uses `dumb = true` so the build doesn't
-    * fail when there's no TTY (tests, CI, pipes).
-    */
-  def runInteractive[B <: Backend](
-      handle: InteractiveHandle[B]
-  ): LlmResult[B] =
-    // The spinner thread would keep firing `cursor-up + clear` while claude
-    // paints the TTY, overwriting its output. Stop it before handing over.
-    spinner.foreach(_.stop())
-    val terminal = TerminalBuilder
-      .builder()
-      .system(true)
-      .dumb(true)
-      .build()
-    try
-      val savedAttributes = terminal.getAttributes
-      out.println(paint(fansi.Color.Yellow, "[entering interactive session]"))
-      try handle.awaitTermination()
-      finally terminal.setAttributes(savedAttributes)
-    finally
-      try terminal.close()
-      finally
-        out.println(paint(fansi.Color.Yellow, "[interactive session ended]"))
 
   private class TerminalListener extends OrcaListener:
     import TerminalInteraction.*

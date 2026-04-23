@@ -8,11 +8,10 @@ trait CliProcess:
   def waitForExit(): Int
 
 /** A spawned process whose stdin / stdout / stderr are connected to pipes
-  * the caller controls, rather than inherited from the parent TTY. The
-  * driver writes a line at a time to `writeLine` and consumes responses
-  * as they arrive from `stdoutLines`. `closeStdin` signals end-of-input
-  * — claude treats that as "no more user turns" and emits a final
-  * `result`.
+  * the caller controls. The driver writes a line at a time to `writeLine`
+  * and consumes responses as they arrive from `stdoutLines`. `closeStdin`
+  * signals end-of-input — claude treats that as "no more user turns" and
+  * emits a final `result`.
   *
   * Reads on `stdoutLines` / `stderrLines` block until a line is available
   * or the stream closes. Each iterator must be consumed by a single
@@ -41,18 +40,9 @@ trait CliRunner:
       cwd: os.Path = os.pwd
   ): CliResult
 
-  /** Spawn the command with inherited stdio for terminal handoff. Returns a
-    * handle the caller can signal and await.
-    */
-  def spawn(
-      args: Seq[String],
-      env: Map[String, String] = Map.empty,
-      cwd: os.Path = os.pwd
-  ): CliProcess
-
   /** Spawn the command with pipes on stdin / stdout / stderr for
     * programmatic orchestration (stream-json, tool-approval, etc.).
-    * See `PipedCliProcess` for the I/O surface.
+    * See [[PipedCliProcess]] for the I/O surface.
     */
   def spawnPiped(
       args: Seq[String],
@@ -82,22 +72,6 @@ object OsProcCliRunner extends CliRunner:
       )
     CliResult(result.exitCode, result.out.text(), result.err.text())
 
-  def spawn(
-      args: Seq[String],
-      env: Map[String, String],
-      cwd: os.Path
-  ): CliProcess =
-    val sub = os
-      .proc(args)
-      .spawn(
-        cwd = cwd,
-        env = env,
-        stdin = os.Inherit,
-        stdout = os.Inherit,
-        stderr = os.Inherit
-      )
-    new OsInheritedSubProcess(sub)
-
   def spawnPiped(
       args: Seq[String],
       env: Map[String, String],
@@ -114,10 +88,14 @@ object OsProcCliRunner extends CliRunner:
       )
     new OsPipedSubProcess(sub)
 
-/** Shared lifecycle surface — both inherited and piped wrappers delegate
-  * here to avoid re-implementing SIGINT, isAlive, waitForExit.
-  */
-private abstract class OsSubProcessBase(sub: os.SubProcess) extends CliProcess:
+private final class OsPipedSubProcess(sub: os.SubProcess)
+    extends PipedCliProcess:
+
+  // Memoised so repeated calls return the same iterator, avoiding a
+  // second `BufferedReader` leak against the pipe.
+  private lazy val stdoutIterator: Iterator[String] = sub.stdout.lines().iterator
+  private lazy val stderrIterator: Iterator[String] = sub.stderr.lines().iterator
+
   def sendSigInt(): Unit =
     val _ = os
       .proc("kill", "-INT", sub.wrapped.pid.toString)
@@ -128,18 +106,6 @@ private abstract class OsSubProcessBase(sub: os.SubProcess) extends CliProcess:
   def waitForExit(): Int =
     val _ = sub.join()
     sub.exitCode()
-
-private final class OsInheritedSubProcess(sub: os.SubProcess)
-    extends OsSubProcessBase(sub)
-
-private final class OsPipedSubProcess(sub: os.SubProcess)
-    extends OsSubProcessBase(sub)
-    with PipedCliProcess:
-
-  // Memoised so repeated calls return the same iterator, avoiding a
-  // second `BufferedReader` leak against the pipe.
-  private lazy val stdoutIterator: Iterator[String] = sub.stdout.lines().iterator
-  private lazy val stderrIterator: Iterator[String] = sub.stderr.lines().iterator
 
   def writeLine(line: String): Unit =
     sub.stdin.writeLine(line)

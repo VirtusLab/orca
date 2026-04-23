@@ -3,7 +3,6 @@ package orca.tools.claude
 import orca.{
   Backend,
   Interaction,
-  InteractiveHandle,
   JsonData,
   LlmBackend,
   LlmConfig,
@@ -92,9 +91,6 @@ class DefaultLlmCallTest extends munit.FunSuite:
 
   private val stubInteraction: Interaction = new Interaction:
     val listeners: List[OrcaListener] = Nil
-    def runInteractive[B <: Backend](
-        handle: InteractiveHandle[B]
-    ): LlmResult[B] = handle.awaitTermination()
     def drive[B <: Backend](
         conversation: orca.Conversation[B]
     ): LlmResult[B] = throw new UnsupportedOperationException("test stub")
