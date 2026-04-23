@@ -8,7 +8,10 @@ case class LlmConfig(
     model: Option[String] = None,
     systemPrompt: Option[String] = None,
     autoApprove: AutoApprove = AutoApprove.All,
-    // TODO: add a comment that his only works in autonomous mode
+    /** What to do when the agent wants a tool that isn't covered by
+      * `autoApprove`. Only consulted in autonomous stages; in interactive
+      * stages the user is prompted directly by the backend.
+      */
     onUnapproved: UnapprovedPolicy = UnapprovedPolicy.Deny,
     retrySchedule: Schedule = LlmConfig.defaultRetrySchedule
 )
