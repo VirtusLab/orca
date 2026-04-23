@@ -10,6 +10,10 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   * for message fields whose shape varies too much to worth modelling —
   * tool inputs, arbitrary structured-output payloads. The codec reads and
   * writes the raw bytes straight through without re-parsing.
+  *
+  * `nullValue` is the literal four-character string `"null"` — i.e., a
+  * missing field decodes indistinguishably from an actual JSON `null`.
+  * Fields that need to detect absence must wrap `RawJson` in `Option`.
   */
 private[claude] opaque type RawJson = String
 
@@ -25,8 +29,8 @@ private[claude] object RawJson:
       new String(in.readRawValAsBytes(), java.nio.charset.StandardCharsets.UTF_8)
 
     def encodeValue(x: RawJson, out: JsonWriter): Unit =
-      out.writeRawVal(
-        x.value.getBytes(java.nio.charset.StandardCharsets.UTF_8)
-      )
+      // Writing from the String directly avoids an intermediate
+      // `getBytes` allocation — jsoniter's writer converts once.
+      out.writeRawVal(x.value.getBytes(java.nio.charset.StandardCharsets.UTF_8))
 
     def nullValue: RawJson = "null"

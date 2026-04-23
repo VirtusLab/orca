@@ -55,3 +55,25 @@ class InboundMessageTest extends munit.FunSuite:
   test("unknown top-level type collapses to Unknown(rawType)"):
     val msg = InboundMessage.parse("""{"type":"heartbeat"}""")
     assertEquals(msg, InboundMessage.Unknown("heartbeat"))
+
+  test("assistant turn with empty content decodes to an empty block list"):
+    val msg = InboundMessage.parse(
+      """{"type":"assistant","message":{"role":"assistant","content":[]}}"""
+    )
+    assertEquals(msg, InboundMessage.AssistantTurn(Nil))
+
+  test("result with all optional fields absent defaults usage to zero and isError to false"):
+    val msg = InboundMessage.parse(
+      """{"type":"result","subtype":"success","session_id":"sid-x"}"""
+    )
+    val r = msg.asInstanceOf[InboundMessage.Result]
+    assertEquals(r.output, None)
+    assertEquals(r.structuredOutput, None)
+    assertEquals(r.usage, Usage(0L, 0L, None))
+    assertEquals(r.isError, false)
+
+  test("non-init system subtype is namespaced into Unknown"):
+    val msg = InboundMessage.parse(
+      """{"type":"system","subtype":"keepalive"}"""
+    )
+    assertEquals(msg, InboundMessage.Unknown("system.keepalive"))

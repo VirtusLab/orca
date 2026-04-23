@@ -39,7 +39,7 @@ class StreamEventPayloadTest extends munit.FunSuite:
     val payload = StreamEventPayload.parse(
       """{"type":"message_start","message":{}}"""
     )
-    assertEquals(payload, StreamEventPayload.Ignorable("message_start"))
+    assertEquals(payload, StreamEventPayload.Unhandled("message_start"))
 
   test("unknown delta subtype is ignorable with a namespaced label"):
     val payload = StreamEventPayload.parse(
@@ -47,5 +47,5 @@ class StreamEventPayloadTest extends munit.FunSuite:
     )
     assertEquals(
       payload,
-      StreamEventPayload.Ignorable("content_block_delta.magic_delta")
+      StreamEventPayload.Unhandled("content_block_delta.magic_delta")
     )

@@ -5,8 +5,11 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
 /** The inner `event` of a `stream_event` message: one chunk of a partial
   * turn. We care about the block-delta events (text, thinking, tool-input
-  * chunks) because they drive responsive UI; everything else is
-  * `Ignorable` so the driver has a single no-op path for them.
+  * chunks) because they drive responsive UI. Events we recognise but
+  * don't act on (message_start, message_stop, etc.) collapse to
+  * `Unhandled(eventType)` so the driver has one no-op path for them;
+  * this is deliberately distinct from `Unknown` in the other ADTs, which
+  * covers types we don't recognise at all.
   */
 private[claude] enum StreamEventPayload:
   case TextDelta(index: Int, text: String)
@@ -14,7 +17,7 @@ private[claude] enum StreamEventPayload:
   case InputJsonDelta(index: Int, partialJson: String)
   case ContentBlockStart(index: Int, block: ContentBlock)
   case ContentBlockStop(index: Int)
-  case Ignorable(eventType: String)
+  case Unhandled(eventType: String)
 
 private[claude] object StreamEventPayload:
 
@@ -25,7 +28,7 @@ private[claude] object StreamEventPayload:
       case "content_block_delta" => parseBlockDelta(rawJson)
       case "content_block_start" => parseBlockStart(rawJson)
       case "content_block_stop"  => ContentBlockStop(readFromString[BlockStopWire](rawJson).index)
-      case other                 => Ignorable(other)
+      case other                 => Unhandled(other)
 
   private def parseBlockDelta(rawJson: String): StreamEventPayload =
     val outer = readFromString[BlockDeltaOuter](rawJson)
@@ -38,7 +41,7 @@ private[claude] object StreamEventPayload:
       case "input_json_delta" =>
         InputJsonDelta(outer.index, readFromString[InputJsonDeltaWire](outer.delta.value).partial_json)
       case other =>
-        Ignorable(s"content_block_delta.$other")
+        Unhandled(s"content_block_delta.$other")
 
   private def parseBlockStart(rawJson: String): StreamEventPayload =
     val outer = readFromString[BlockStartWire](rawJson)
