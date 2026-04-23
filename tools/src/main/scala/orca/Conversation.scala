@@ -5,14 +5,14 @@ package orca
   *
   * `events` is a single-consumer blocking iterator that yields every
   * [[ConversationEvent]] produced by the subprocess in order. The iterator
-  * terminates when the session ends — either cleanly (call
-  * `result()` to retrieve the outcome) or via cancellation (calling
-  * `result()` then throws [[OrcaInteractiveCancelled]]).
+  * terminates when the session ends — either cleanly (call `awaitResult`
+  * to retrieve the outcome) or via cancellation (`awaitResult` then
+  * throws [[OrcaInteractiveCancelled]]).
   *
-  * `sendUserMessage`, `respondToTool`, and `cancel` are the channel's
-  * levers. They may be called from any thread — implementations are
-  * thread-safe — but each `ApproveTool` event must be answered exactly
-  * once via `respondToTool`.
+  * Tool-approval decisions are delivered via the closure carried on
+  * [[ConversationEvent.ApproveTool]] — the channel does not track
+  * request-ids. `sendUserMessage` injects an unsolicited user turn; it
+  * and `cancel` are safe to call from any thread.
   */
 trait Conversation[B <: Backend]:
 
@@ -27,16 +27,13 @@ trait Conversation[B <: Backend]:
     * (either via `cancel()` or because the subprocess died abnormally).
     * Other failures propagate as [[OrcaFlowException]].
     */
-  def result(): LlmResult[B]
+  def awaitResult(): LlmResult[B]
 
   /** Inject a user turn mid-conversation. */
   def sendUserMessage(text: String): Unit
 
-  /** Respond to an outstanding tool-approval prompt. */
-  def respondToTool(requestId: String, decision: ApprovalDecision): Unit
-
   /** Cancel the current session. The driver tears down the subprocess,
-    * closes the events iterator, and `result()` throws
+    * closes the events iterator, and `awaitResult()` then throws
     * [[OrcaInteractiveCancelled]]. Calling `cancel` twice is a no-op.
     */
   def cancel(): Unit

@@ -1,15 +1,23 @@
 package orca
 
+import java.util.concurrent.atomic.AtomicReference
+
 class ConversationEventTest extends munit.FunSuite:
 
-  test("ApproveTool round-trips its fields"):
-    val evt = ConversationEvent.ApproveTool("req-1", "Bash", """{"cmd":"ls"}""")
+  test("ApproveTool.respond captures the channel's decision exactly once"):
+    val sink = new AtomicReference[Option[ApprovalDecision]](None)
+    val evt = ConversationEvent.ApproveTool(
+      toolName = "Bash",
+      rawInput = """{"cmd":"ls"}""",
+      respond = decision => sink.set(Some(decision))
+    )
     evt match
-      case ConversationEvent.ApproveTool(requestId, toolName, rawInput) =>
-        assertEquals(requestId, "req-1")
-        assertEquals(toolName, "Bash")
-        assertEquals(rawInput, """{"cmd":"ls"}""")
+      case ConversationEvent.ApproveTool(name, input, respond) =>
+        assertEquals(name, "Bash")
+        assertEquals(input, """{"cmd":"ls"}""")
+        respond(ApprovalDecision.Allow())
       case other => fail(s"expected ApproveTool, got $other")
+    assertEquals(sink.get(), Some(ApprovalDecision.Allow()))
 
   test("AssistantTextDelta and AssistantThinkingDelta are distinguishable"):
     val text = ConversationEvent.AssistantTextDelta("hello")
