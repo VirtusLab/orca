@@ -61,17 +61,24 @@ class ClaudeArgsTest extends munit.FunSuite:
     )
     assert(args.containsSlice(Seq("--resume", "sess-abc")))
 
-  test("interactive args omit -p and include --session-id"):
-    val sid = SessionId[Backend.ClaudeCode.type]("sess-int")
-    val args = ClaudeArgs.interactive(
-      prompt = "chat",
-      sessionId = sid,
+  test("streamJson emits --input-format stream-json and --include-partial-messages"):
+    val args = ClaudeArgs.streamJson(
       config = LlmConfig.default,
       systemPromptFile = None
     )
-    assert(!args.contains("-p"))
-    assert(args.containsSlice(Seq("claude", "chat")))
-    assert(args.containsSlice(Seq("--session-id", "sess-int")))
+    assert(args.containsSlice(Seq("--input-format", "stream-json")))
+    assert(args.containsSlice(Seq("--output-format", "stream-json")))
+    assert(args.contains("--include-partial-messages"))
+    assert(args.contains("--print"))
+
+  test("streamJson with --resume carries the session id through"):
+    val sid = SessionId[Backend.ClaudeCode.type]("sess-resume")
+    val args = ClaudeArgs.streamJson(
+      config = LlmConfig.default,
+      systemPromptFile = None,
+      resume = Some(sid)
+    )
+    assert(args.containsSlice(Seq("--resume", "sess-resume")))
 
   test("all mappings compose: model + resume + autoApprove + system-prompt"):
     val file = os.temp()

@@ -8,7 +8,6 @@ import orca.{
   ConversationEvent,
   LlmConfig,
   LlmResult,
-  OrcaEvent,
   OrcaFlowException,
   OrcaInteractiveCancelled,
   SessionId,
@@ -52,8 +51,7 @@ import scala.util.control.NonFatal
   */
 private[claude] class ClaudeConversation(
     process: PipedCliProcess,
-    config: LlmConfig,
-    emit: OrcaEvent => Unit
+    config: LlmConfig
 ) extends Conversation[Backend.ClaudeCode.type]:
 
   import ClaudeConversation.*
@@ -113,8 +111,10 @@ private[claude] class ClaudeConversation(
     try handle(InboundMessage.parse(line))
     catch
       case e: Exception =>
-        emit(
-          OrcaEvent.Error(s"Failed to parse claude stream-json line: ${e.getMessage}")
+        eventQueue.enqueue(
+          ConversationEvent.Error(
+            s"Failed to parse claude stream-json line: ${e.getMessage}"
+          )
         )
 
   private def handle(msg: InboundMessage): Unit = msg match
@@ -131,7 +131,9 @@ private[claude] class ClaudeConversation(
         eventQueue.enqueue(evt)
       }
     case InboundMessage.Unknown(rawType) =>
-      emit(OrcaEvent.Error(s"Unknown stream-json message type: $rawType"))
+      eventQueue.enqueue(
+        ConversationEvent.Error(s"Unknown stream-json message type: $rawType")
+      )
 
   /** Full assistant turn arrives after partials have streamed. Tool-use
     * blocks only reach us here (deltas don't reconstruct them), so we
@@ -172,7 +174,6 @@ private[claude] class ClaudeConversation(
       structured: Option[String],
       usage: Usage
   ): Unit =
-    emit(OrcaEvent.TokensUsed(config.model, usage))
     val result = LlmResult(
       sessionId = SessionId[Backend.ClaudeCode.type](sid),
       output = structured.orElse(output).getOrElse(""),
@@ -195,7 +196,9 @@ private[claude] class ClaudeConversation(
           )
         )
     case ControlRequestBody.Unknown(subtype) =>
-      emit(OrcaEvent.Error(s"Unknown control_request subtype: $subtype"))
+      eventQueue.enqueue(
+        ConversationEvent.Error(s"Unknown control_request subtype: $subtype")
+      )
 
   private def autoApproves(toolName: String): Boolean = config.autoApprove match
     case AutoApprove.All           => true

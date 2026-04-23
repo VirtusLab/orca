@@ -17,25 +17,34 @@ trait LlmBackend[B <: Backend]:
       outputSchema: String,
       workDir: os.Path
   )(using Ox): Unit
+
   def runHeadless(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
   ): LlmResult[B]
+
   def continueHeadless(
       sessionId: SessionId[B],
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
   ): LlmResult[B]
+
+  /** Launch an interactive session and return a live [[Conversation]] the
+    * caller hands to an [[Interaction.drive]] for rendering and user
+    * steering. The backend owns the subprocess and NDJSON parsing; the
+    * channel owns UX.
+    */
   def runInteractive(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
-  ): InteractiveHandle[B]
+  ): Conversation[B]
+
   def continueInteractive(
       sessionId: SessionId[B],
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
-  ): InteractiveHandle[B]
+  ): Conversation[B]

@@ -9,6 +9,9 @@ import orca.{AutoApprove, Backend, LlmConfig, SessionId}
   */
 object ClaudeArgs:
 
+  /** Single-turn headless invocation: `claude -p <prompt>
+    * --output-format json`. The process prints a JSON result and exits.
+    */
   def headless(
       prompt: String,
       config: LlmConfig,
@@ -21,20 +24,35 @@ object ClaudeArgs:
       resumeArgs(resume) ++
       autoApproveArgs(config)
 
-  def interactive(
-      prompt: String,
-      sessionId: SessionId[Backend.ClaudeCode.type],
+  /** Stream-json interactive invocation: `claude --print --input-format
+    * stream-json --output-format stream-json --verbose
+    * --include-partial-messages`. The prompt goes in as the first user
+    * turn on stdin; the caller writes subsequent turns and reads
+    * responses as NDJSON. `--print` is required by the CLI for
+    * `--input-format stream-json` to take effect — despite the name,
+    * the session runs multi-turn because the stdin pipe stays open.
+    */
+  def streamJson(
       config: LlmConfig,
       systemPromptFile: Option[os.Path],
-      resume: Boolean = false
+      resume: Option[SessionId[Backend.ClaudeCode.type]] = None,
+      jsonSchemaFile: Option[os.Path] = None
   ): Seq[String] =
-    val sessionArg =
-      if resume then Seq("--resume", SessionId.value(sessionId))
-      else Seq("--session-id", SessionId.value(sessionId))
-    Seq("claude", prompt) ++ sessionArg ++
+    Seq(
+      "claude",
+      "--print",
+      "--input-format",
+      "stream-json",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      "--include-partial-messages"
+    ) ++
       modelArgs(config) ++
       systemPromptFileArgs(systemPromptFile) ++
-      autoApproveArgs(config)
+      resumeArgs(resume) ++
+      autoApproveArgs(config) ++
+      jsonSchemaArgs(jsonSchemaFile)
 
   private def modelArgs(config: LlmConfig): Seq[String] =
     config.model.toSeq.flatMap(m => Seq("--model", m))
@@ -46,6 +64,9 @@ object ClaudeArgs:
       resume: Option[SessionId[Backend.ClaudeCode.type]]
   ): Seq[String] =
     resume.toSeq.flatMap(id => Seq("--resume", SessionId.value(id)))
+
+  private def jsonSchemaArgs(schemaFile: Option[os.Path]): Seq[String] =
+    schemaFile.toSeq.flatMap(f => Seq("--json-schema", os.read(f)))
 
   private def autoApproveArgs(config: LlmConfig): Seq[String] =
     config.autoApprove match

@@ -3,7 +3,7 @@ package orca.tools.claude
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.{
   Backend,
-  InteractiveHandle,
+  Conversation,
   LlmBackend,
   LlmConfig,
   LlmResult,
@@ -11,16 +11,23 @@ import orca.{
   SessionId
 }
 import orca.subprocess.CliRunner
+import orca.tools.claude.streamjson.OutboundMessage
 import ox.Ox
 
+/** Claude Code backend. Headless calls go through `claude -p --output-format
+  * json` — single-shot, parses the JSON result. Interactive calls drive a
+  * stream-json subprocess through [[ClaudeConversation]]: the prompt is
+  * injected as the first user turn on stdin, the subprocess emits
+  * typed NDJSON responses, the driver translates them into
+  * `ConversationEvent`s the channel renders.
+  */
 class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
 
   def prepareWorkspace(
       config: LlmConfig,
       outputSchema: String,
       workDir: os.Path
-  )(using Ox): Unit =
-    ClaudeStopHook.writeTo(workDir)
+  )(using Ox): Unit = ()
 
   def runHeadless(
       prompt: String,
@@ -41,32 +48,31 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
-  ): InteractiveHandle[Backend.ClaudeCode.type] =
-    val sessionId = SessionId[Backend.ClaudeCode.type](
-      java.util.UUID.randomUUID().toString
-    )
-    invokeInteractive(prompt, sessionId, config, workDir, resume = false)
+  ): Conversation[Backend.ClaudeCode.type] =
+    openConversation(prompt, config, workDir, resume = None)
 
   def continueInteractive(
       sessionId: SessionId[Backend.ClaudeCode.type],
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
-  ): InteractiveHandle[Backend.ClaudeCode.type] =
-    invokeInteractive(prompt, sessionId, config, workDir, resume = true)
+  ): Conversation[Backend.ClaudeCode.type] =
+    openConversation(prompt, config, workDir, resume = Some(sessionId))
 
-  private def invokeInteractive(
+  /** Spawn `claude` in stream-json mode, write the opening user turn,
+    * and wrap the process in a live [[ClaudeConversation]].
+    */
+  private def openConversation(
       prompt: String,
-      sessionId: SessionId[Backend.ClaudeCode.type],
       config: LlmConfig,
       workDir: os.Path,
-      resume: Boolean
-  ): InteractiveHandle[Backend.ClaudeCode.type] =
+      resume: Option[SessionId[Backend.ClaudeCode.type]]
+  ): Conversation[Backend.ClaudeCode.type] =
     val systemPromptFile = writeSystemPromptIfPresent(config, workDir)
-    val args =
-      ClaudeArgs.interactive(prompt, sessionId, config, systemPromptFile, resume)
-    val process = cli.spawn(args, cwd = workDir)
-    new ClaudeInteractiveHandle(process, sessionId)
+    val args = ClaudeArgs.streamJson(config, systemPromptFile, resume)
+    val process = cli.spawnPiped(args, cwd = workDir)
+    process.writeLine(OutboundMessage.toJson(OutboundMessage.UserText(prompt)))
+    new ClaudeConversation(process, config)
 
   private def invokeHeadless(
       prompt: String,

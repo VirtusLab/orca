@@ -6,26 +6,16 @@ import orca.{
   Backend,
   ConversationEvent,
   LlmConfig,
-  OrcaEvent,
   OrcaInteractiveCancelled,
   Usage
 }
 import orca.subprocess.FakePipedCliProcess
 
-import java.util.concurrent.atomic.AtomicReference
-
 class ClaudeConversationTest extends munit.FunSuite:
-
-  private def emitSink: (AtomicReference[List[OrcaEvent]], OrcaEvent => Unit) =
-    val ref = new AtomicReference[List[OrcaEvent]](Nil)
-    val emit: OrcaEvent => Unit = e =>
-      val _ = ref.updateAndGet(e :: _)
-    (ref, emit)
 
   test("stream_event text_delta becomes AssistantTextDelta"):
     val process = new FakePipedCliProcess()
-    val (_, emit) = emitSink
-    val conv = new ClaudeConversation(process, LlmConfig.default, emit)
+    val conv = new ClaudeConversation(process, LlmConfig.default)
 
     process.enqueueStdout(
       """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}}"""
@@ -39,10 +29,9 @@ class ClaudeConversationTest extends munit.FunSuite:
     assertEquals(events, List(ConversationEvent.AssistantTextDelta("hello")))
     val _ = conv.awaitResult()
 
-  test("result message finishes the session and surfaces usage"):
+  test("result message finishes the session and carries usage"):
     val process = new FakePipedCliProcess()
-    val (emitted, emit) = emitSink
-    val conv = new ClaudeConversation(process, LlmConfig.default, emit)
+    val conv = new ClaudeConversation(process, LlmConfig.default)
 
     process.enqueueStdout(
       """{"type":"result","subtype":"success","session_id":"sid-2","result":"done","usage":{"input_tokens":5,"output_tokens":7}}"""
@@ -53,18 +42,12 @@ class ClaudeConversationTest extends munit.FunSuite:
     val result = conv.awaitResult()
     assertEquals(result.output, "done")
     assertEquals(result.usage, Usage(5L, 7L, None))
-    assert(emitted.get().exists {
-      case OrcaEvent.TokensUsed(_, u) => u == Usage(5L, 7L, None)
-      case _                          => false
-    })
 
   test("cancel throws OrcaInteractiveCancelled from awaitResult"):
     val process = new FakePipedCliProcess()
-    val (_, emit) = emitSink
-    val conv = new ClaudeConversation(process, LlmConfig.default, emit)
+    val conv = new ClaudeConversation(process, LlmConfig.default)
 
     conv.cancel()
-    // process.sendSigInt closes stdout; awaitResult should unblock.
     intercept[OrcaInteractiveCancelled](conv.awaitResult())
     assertEquals(process.sigIntCount, 1)
 
@@ -72,11 +55,9 @@ class ClaudeConversationTest extends munit.FunSuite:
     "can_use_tool with autoApprove=All responds allow without emitting an event"
   ):
     val process = new FakePipedCliProcess()
-    val (_, emit) = emitSink
     val conv = new ClaudeConversation(
       process,
-      LlmConfig.default.copy(autoApprove = AutoApprove.All),
-      emit
+      LlmConfig.default.copy(autoApprove = AutoApprove.All)
     )
 
     process.enqueueStdout(
@@ -100,11 +81,9 @@ class ClaudeConversationTest extends munit.FunSuite:
     "can_use_tool with autoApprove=Only not matching emits ApproveTool for the channel"
   ):
     val process = new FakePipedCliProcess()
-    val (_, emit) = emitSink
     val conv = new ClaudeConversation(
       process,
-      LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set("Read"))),
-      emit
+      LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set("Read")))
     )
 
     process.enqueueStdout(
@@ -133,8 +112,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   test("sendUserMessage writes a stream-json user turn to stdin"):
     val process = new FakePipedCliProcess()
-    val (_, emit) = emitSink
-    val conv = new ClaudeConversation(process, LlmConfig.default, emit)
+    val conv = new ClaudeConversation(process, LlmConfig.default)
 
     conv.sendUserMessage("keep going")
     val injected = process.writes.headOption
@@ -142,15 +120,13 @@ class ClaudeConversationTest extends munit.FunSuite:
     assert(injected.get.contains(""""type":"user""""))
     assert(injected.get.contains(""""text":"keep going""""))
 
-    // Clean shutdown so awaitResult doesn't hang the test forever.
     process.enqueueStdout("""{"type":"result","subtype":"success","session_id":"sid-5"}""")
     process.closeStdout()
     val _ = conv.awaitResult()
 
   test("assistant turn with tool_use blocks emits AssistantToolCall + TurnEnd"):
     val process = new FakePipedCliProcess()
-    val (_, emit) = emitSink
-    val conv = new ClaudeConversation(process, LlmConfig.default, emit)
+    val conv = new ClaudeConversation(process, LlmConfig.default)
 
     process.enqueueStdout(
       """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"id-1","name":"Bash","input":{"cmd":"ls"}}]}}"""
@@ -172,10 +148,8 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   test("assistant turn with text falls back to an AssistantTextDelta when no partials streamed"):
     val process = new FakePipedCliProcess()
-    val (_, emit) = emitSink
-    val conv = new ClaudeConversation(process, LlmConfig.default, emit)
+    val conv = new ClaudeConversation(process, LlmConfig.default)
 
-    // No stream_event before the assistant turn → fallback path.
     process.enqueueStdout(
       """{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"no-partials"}]}}"""
     )
@@ -196,8 +170,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   test("user turn with tool_result blocks emits ToolResult events"):
     val process = new FakePipedCliProcess()
-    val (_, emit) = emitSink
-    val conv = new ClaudeConversation(process, LlmConfig.default, emit)
+    val conv = new ClaudeConversation(process, LlmConfig.default)
 
     process.enqueueStdout(
       """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"id-1","content":"output","is_error":false}]}}"""
@@ -214,10 +187,9 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("malformed NDJSON line surfaces as OrcaEvent.Error and the loop continues"):
+  test("malformed NDJSON line surfaces as ConversationEvent.Error and the loop continues"):
     val process = new FakePipedCliProcess()
-    val (emitted, emit) = emitSink
-    val conv = new ClaudeConversation(process, LlmConfig.default, emit)
+    val conv = new ClaudeConversation(process, LlmConfig.default)
 
     process.enqueueStdout("this is not json")
     process.enqueueStdout(
@@ -225,20 +197,21 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     process.closeStdout()
 
-    val _ = conv.events.toList
+    val events = conv.events.toList
+    assert(
+      events.exists {
+        case ConversationEvent.Error(msg) => msg.contains("Failed to parse")
+        case _                            => false
+      },
+      s"expected a parse-error event; got: $events"
+    )
     val _ = conv.awaitResult()
-    assert(emitted.get().exists {
-      case OrcaEvent.Error(msg) => msg.contains("Failed to parse")
-      case _                    => false
-    })
 
   test("autoApprove.Only matches the tool → silent allow"):
     val process = new FakePipedCliProcess()
-    val (_, emit) = emitSink
     val conv = new ClaudeConversation(
       process,
-      LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set("Read"))),
-      emit
+      LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set("Read")))
     )
 
     process.enqueueStdout(
@@ -256,11 +229,9 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   test("multiple back-to-back ApproveTool events carry distinct respond closures"):
     val process = new FakePipedCliProcess()
-    val (_, emit) = emitSink
     val conv = new ClaudeConversation(
       process,
-      LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set.empty)),
-      emit
+      LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set.empty))
     )
 
     process.enqueueStdout(
@@ -273,7 +244,6 @@ class ClaudeConversationTest extends munit.FunSuite:
     val first = conv.events.next()
     val second = conv.events.next()
 
-    // Respond out of order: B first, A second.
     second match
       case ConversationEvent.ApproveTool(_, _, respond) =>
         respond(ApprovalDecision.Deny())

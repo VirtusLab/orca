@@ -120,9 +120,9 @@ class DefaultLlmCall[O](
           throw e
 
   /** Interactive variant. No retry: the user is steering the session and
-    * a parse failure here means the agent didn't write the done-marker
-    * payload correctly — surface the JsonReaderException directly so the
-    * flow sees it rather than silently re-launching claude.
+    * a parse failure here means the session's final payload didn't match
+    * the expected schema — surface the JsonReaderException directly so
+    * the flow sees it rather than silently re-launching claude.
     */
   private def runInteractiveOnce[I](
       input: I,
@@ -133,11 +133,10 @@ class DefaultLlmCall[O](
     val outputSchema = JsonSchemaGen[O]
     val prompt = template.interactive(serialized, outputSchema, config)
     val effective = effectiveConfig(config)
-    val handle = resume match
+    val conversation = resume match
       case Some(sid) =>
         backend.continueInteractive(sid, prompt, effective, workDir)
       case None => backend.runInteractive(prompt, effective, workDir)
-    val result: LlmResult[Backend.ClaudeCode.type] =
-      interaction.runInteractive(handle)
+    val result = interaction.drive(conversation)
     emit(OrcaEvent.TokensUsed(effective.model, result.usage))
     (result.sessionId, ResponseParser.parse[O](result.output))
