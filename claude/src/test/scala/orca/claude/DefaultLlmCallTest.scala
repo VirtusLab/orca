@@ -59,12 +59,12 @@ class SequencedBackend(outputs: List[String])
       config: LlmConfig,
       workDir: os.Path
   ): LlmResult[Backend.ClaudeCode.type] = ???
-  def launchInteractive(
+  def runInteractive(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
   ): InteractiveHandle[Backend.ClaudeCode.type] = ???
-  def resumeInteractive(
+  def continueInteractive(
       sessionId: SessionId[Backend.ClaudeCode.type],
       prompt: String,
       config: LlmConfig,

@@ -37,7 +37,7 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
   ): LlmResult[Backend.ClaudeCode.type] =
     invokeHeadless(prompt, config, workDir, resume = Some(sessionId))
 
-  def launchInteractive(
+  def runInteractive(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
@@ -51,9 +51,9 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
     val process = cli.spawn(args, cwd = workDir)
     new ClaudeInteractiveHandle(process, sessionId)
 
-  // TODO: implement resumeInteractive — same flow as launchInteractive but
+  // TODO: implement continueInteractive — same flow as runInteractive but
   // with --resume <sid> instead of a fresh --session-id.
-  def resumeInteractive(
+  def continueInteractive(
       sessionId: SessionId[Backend.ClaudeCode.type],
       prompt: String,
       config: LlmConfig,

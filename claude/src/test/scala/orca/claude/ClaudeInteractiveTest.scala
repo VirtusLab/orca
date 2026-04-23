@@ -30,10 +30,10 @@ class ClaudeInteractiveTest extends munit.FunSuite:
       if os.exists(sentinel) then
         val _ = os.remove(sentinel)
 
-  test("launchInteractive spawns claude interactively with --session-id"):
+  test("runInteractive spawns claude interactively with --session-id"):
     val cli = new StubCliRunner(processFactory = () => new FakeCliProcess())
     val backend = new ClaudeBackend(cli)
-    val _ = backend.launchInteractive(
+    val _ = backend.runInteractive(
       "plan the work",
       LlmConfig.default,
       os.temp.dir()

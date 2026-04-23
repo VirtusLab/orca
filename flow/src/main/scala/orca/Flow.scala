@@ -90,6 +90,7 @@ private case class FixRequest(issues: List[ReviewIssue])
   * until reviewers report nothing above the threshold or the default iteration
   * cap is reached.
   */
+// TODO: this is also a loop? If so, let's keep the names consistent
 def reviewAndFix[B <: Backend](
     coder: LlmTool[B],
     sessionId: SessionId[B],

@@ -1,5 +1,6 @@
 package orca
 
+// TODO: user-facing type - missing docs
 trait FlowContext:
   def claude: ClaudeTool
   def codex: CodexTool

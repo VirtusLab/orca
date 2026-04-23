@@ -28,12 +28,12 @@ trait LlmBackend[B <: Backend]:
       config: LlmConfig,
       workDir: os.Path
   ): LlmResult[B]
-  def launchInteractive( // TODO: run or launch - stick to single terminology
+  def runInteractive(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
   ): InteractiveHandle[B]
-  def resumeInteractive(
+  def continueInteractive(
       sessionId: SessionId[B],
       prompt: String,
       config: LlmConfig,
