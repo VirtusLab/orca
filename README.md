@@ -40,11 +40,9 @@ Save this as `ship.sc` and run it with your task:
 
 import orca.*
 
-case class Task(branchName: String, description: String)
-    derives Schema, ConfiguredJsonValueCodec
+case class Task(branchName: String, description: String) derives JsonData
 
-case class Plan(tasks: List[Task])
-    derives Schema, ConfiguredJsonValueCodec
+case class Plan(tasks: List[Task]) derives JsonData
 
 orca:
   // 1. Break the user's prompt into concrete subtasks, interactively.

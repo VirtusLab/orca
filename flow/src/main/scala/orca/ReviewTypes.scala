@@ -3,10 +3,8 @@ package orca
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
-  ConfiguredJsonValueCodec,
   JsonCodecMaker
 }
-import sttp.tapir.Schema
 
 enum Severity derives CanEqual:
   case Critical
@@ -14,6 +12,9 @@ enum Severity derives CanEqual:
   case Info
 
 object Severity:
+  // Severity keeps its own Schema + JsonValueCodec so the enum renders as a
+  // plain JSON string ("Critical", "Warning", "Info") in prompts and output
+  // rather than the default object-with-discriminator shape.
   given Schema[Severity] = Schema.derivedEnumeration.defaultStringBased
   given JsonValueCodec[Severity] =
     JsonCodecMaker.make(CodecMakerConfig.withDiscriminatorFieldName(None))
@@ -25,25 +26,19 @@ case class ReviewIssue(
     file: Option[String],
     line: Option[Int],
     suggestion: Option[String]
-) derives Schema,
-      ConfiguredJsonValueCodec
+) derives JsonData
 
 case class ReviewResult(
     issues: List[ReviewIssue],
     summary: String
-) derives Schema,
-      ConfiguredJsonValueCodec
+) derives JsonData
 
 object ReviewResult:
   val empty: ReviewResult = ReviewResult(Nil, "")
 
-case class IgnoredIssue(issue: ReviewIssue, reason: String)
-    derives Schema,
-      ConfiguredJsonValueCodec
+case class IgnoredIssue(issue: ReviewIssue, reason: String) derives JsonData
 
-case class IgnoredIssues(issues: List[IgnoredIssue])
-    derives Schema,
-      ConfiguredJsonValueCodec:
+case class IgnoredIssues(issues: List[IgnoredIssue]) derives JsonData:
   def ++(other: IgnoredIssues): IgnoredIssues = IgnoredIssues(
     issues ++ other.issues
   )
@@ -54,11 +49,8 @@ case class IgnoredIssues(issues: List[IgnoredIssue])
       .mkString("\n")
 
 case class ReviewContext(summary: String, filesChanged: List[String])
-    derives Schema,
-      ConfiguredJsonValueCodec
+    derives JsonData
 
-case class SelectedReviewers(names: List[String])
-    derives Schema,
-      ConfiguredJsonValueCodec:
+case class SelectedReviewers(names: List[String]) derives JsonData:
   def pick(all: List[LlmTool[?]]): List[LlmTool[?]] =
     all.filter(r => names.contains(r.name))

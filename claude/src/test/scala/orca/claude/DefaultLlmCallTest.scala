@@ -4,20 +4,20 @@ import orca.{
   Backend,
   DefaultPromptTemplate,
   InteractiveHandle,
+  JsonData,
   LlmBackend,
   LlmConfig,
   LlmResult,
   SessionId,
-  Usage
+  Usage,
+  schemaFromJsonData,
+  codecFromJsonData
 }
-import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import ox.supervised
 
 import java.util.concurrent.atomic.AtomicReference
 
-case class Answer(value: Int)
-    derives sttp.tapir.Schema,
-      ConfiguredJsonValueCodec
+case class Answer(value: Int) derives JsonData
 
 /** Fake backend that returns a pre-scripted sequence of outputs and records the
   * prompts it was asked to run. The session id is fixed — sessions aren't under
