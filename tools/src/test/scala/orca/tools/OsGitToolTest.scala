@@ -61,3 +61,44 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, _) =>
       val _ = intercept[OrcaFlowException]:
         git.checkout("does-not-exist")
+
+  test("addWorktree creates a new branch and linked working directory"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "x")
+      git.commit("initial")
+      val wtPath = os.temp.dir() / "feature"
+      val wt = git.addWorktree(wtPath, "feature/alpha")
+      assertEquals(wt.branch, "feature/alpha")
+      assert(os.exists(wtPath / "seed.txt"))
+
+  test("addWorktree checks out an existing branch instead of creating"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "x")
+      git.commit("initial")
+      git.createBranch("reuse")
+      git.checkout("main")
+      val wtPath = os.temp.dir() / "reused"
+      val wt = git.addWorktree(wtPath, "reuse")
+      assertEquals(wt.branch, "reuse")
+      assert(os.exists(wtPath / "seed.txt"))
+
+  test("listWorktrees returns the main repo plus each linked worktree"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "x")
+      git.commit("initial")
+      val wtPath = os.temp.dir() / "feature"
+      val _ = git.addWorktree(wtPath, "feature/beta")
+      val branches = git.listWorktrees().map(_.branch).toSet
+      assert(branches.contains("main"))
+      assert(branches.contains("feature/beta"))
+
+  test("removeWorktree unlinks the worktree and drops its directory"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "x")
+      git.commit("initial")
+      val wtPath = os.temp.dir() / "gone"
+      val _ = git.addWorktree(wtPath, "feature/gone")
+      git.removeWorktree(wtPath)
+      assert(!os.exists(wtPath))
+      val branches = git.listWorktrees().map(_.branch).toSet
+      assert(!branches.contains("feature/gone"))

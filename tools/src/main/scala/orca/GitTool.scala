@@ -2,9 +2,14 @@ package orca
 
 case class CommitInfo(hash: String, message: String, author: String)
 
-/** Git adapter usable from flow scripts — the handle behind the `git`
-  * accessor. Wraps branch, commit, diff, and log operations against the
-  * working repository. Worktree support is tracked as a future enhancement.
+/** A linked git worktree — a separate working directory checked out at a
+  * specific branch, sharing the main repository's object store.
+  */
+case class Worktree(path: os.Path, branch: String)
+
+/** Git adapter usable from flow scripts — the handle behind the `git` accessor.
+  * Wraps branch, commit, diff, log, and worktree operations against the working
+  * repository.
   */
 trait GitTool:
   def createBranch(name: String): Unit
@@ -25,3 +30,20 @@ trait GitTool:
   def diff(): String
 
   def log(n: Int = 10): List[CommitInfo]
+
+  /** Create a linked worktree at `path` on `branch`. If the branch already
+    * exists it is checked out in the new worktree; otherwise it is created from
+    * `HEAD`. Lets a flow work on several tasks in parallel without
+    * branch-hopping in a single directory.
+    */
+  def addWorktree(path: os.Path, branch: String): Worktree
+
+  /** Remove the linked worktree rooted at `path`, also deleting the working
+    * directory.
+    */
+  def removeWorktree(path: os.Path): Unit
+
+  /** All linked worktrees attached to the repository, including the main one.
+    * Detached-HEAD worktrees (no branch) are skipped.
+    */
+  def listWorktrees(): List[Worktree]
