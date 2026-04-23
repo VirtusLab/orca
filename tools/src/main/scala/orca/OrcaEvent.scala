@@ -5,7 +5,7 @@ enum OrcaEvent:
   case StageCompleted(name: String, result: String)
   case LlmOutput(text: String)
   case ToolUse(tool: String, args: String)
-  case TokensUsed(usage: Usage)
+  case TokensUsed(model: Option[String], usage: Usage)
   case Error(message: String)
 
 trait OrcaListener:

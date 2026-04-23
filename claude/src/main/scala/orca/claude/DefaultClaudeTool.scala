@@ -44,7 +44,7 @@ class DefaultClaudeTool(
   def ask(prompt: String, callConfig: LlmConfig = LlmConfig.default): String =
     val effective = effectiveConfig(callConfig)
     val result = backend.runHeadless(prompt, effective, workDir)
-    emit(OrcaEvent.TokensUsed(result.usage))
+    emit(OrcaEvent.TokensUsed(effective.model, result.usage))
     result.output
 
   def result[O: Schema: ConfiguredJsonValueCodec]

@@ -45,7 +45,7 @@ class TerminalInteractionTest extends munit.FunSuite:
 
   test("TokensUsed events are ignored (owned by CostTracker)"):
     val output = renderEvents(
-      List(OrcaEvent.TokensUsed(Usage(10L, 5L, None)))
+      List(OrcaEvent.TokensUsed(None, Usage(10L, 5L, None)))
     )
     assertEquals(output, "")
 

@@ -65,7 +65,7 @@ class TerminalInteraction(
       case OrcaEvent.ToolUse(tool, args) =>
         spinner.foreach(_.stop())
         out.println(paint(fansi.Color.DarkGray, s"  → $tool: $args"))
-      case OrcaEvent.TokensUsed(_) =>
+      case OrcaEvent.TokensUsed(_, _) =>
         () // Token accounting is owned by CostTracker.
       case OrcaEvent.Error(message) =>
         spinner.foreach(_.stop())

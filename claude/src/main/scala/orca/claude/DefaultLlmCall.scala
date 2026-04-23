@@ -54,7 +54,7 @@ class DefaultLlmCall[O](
         case Some(f) => template.retry(f.response, f.parserError)
         case None    => initialPrompt
       val result = backend.runHeadless(promptText, effective, workDir)
-      emit(OrcaEvent.TokensUsed(result.usage))
+      emit(OrcaEvent.TokensUsed(effective.model, result.usage))
       try ResponseParser.parse[O](result.output)
       catch
         case e: JsonReaderException =>
