@@ -2,9 +2,10 @@ package orca.tools
 
 import orca.{CommitInfo, GitTool, OrcaFlowException, Worktree}
 
-/** Git tool implementation that shells out to the `git` CLI via os-lib.
-  * `commit` automatically stages all tracked + untracked changes before
-  * committing, matching typical flow-script expectations.
+/** `GitTool` implementation that shells out to the `git` CLI via os-lib.
+  * Contract semantics (commit auto-staging, push upstream setup, diff vs
+  * HEAD, worktree branch-exists handling) are specified on the trait; this
+  * class handles the subprocess plumbing and the worktree-list parser.
   */
 class OsGitTool(workDir: os.Path = os.pwd) extends GitTool:
 
