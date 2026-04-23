@@ -11,7 +11,12 @@ import sttp.tapir.Schema
   */
 trait LlmTool[B <: Backend]:
   def name: String
-  // TODO: add a comment saying that this allows specifying the shape of the call, and can be followed by the prompt. All user-facing method should have some basic usage info.
+  /** Fix the output type of the call, then chain `.prompt(...)` /
+    * `.interactive(...)` / `.continueSession(...)` to actually invoke the
+    * model. `O` must carry a tapir `Schema` (for prompt generation) and a
+    * jsoniter-scala `ConfiguredJsonValueCodec` (for parsing the response) —
+    * `derives JsonData` on `O` provides both.
+    */
   def result[O: Schema: ConfiguredJsonValueCodec]: LlmCall[B, O]
   // TODO: comment that this is a quick version of result[String].(...)
   def ask(prompt: String, config: LlmConfig = LlmConfig.default): String
