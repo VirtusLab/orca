@@ -1,6 +1,6 @@
 package orca.runner.terminal
 
-import _root_.orca.{
+import orca.{
   Backend,
   InteractiveHandle,
   LlmResult,

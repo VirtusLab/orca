@@ -1,7 +1,6 @@
 package orca.runner
 
-// TODO: why the _root_ imports?
-import _root_.orca.{
+import orca.{
   ClaudeTool,
   CodexTool,
   EventDispatcher,
@@ -13,10 +12,10 @@ import _root_.orca.{
   OrcaEvent,
   PromptTemplate
 }
-import _root_.orca.claude.{ClaudeBackend, DefaultClaudeTool}
-import _root_.orca.io.DefaultPromptTemplate
-import _root_.orca.subprocess.OsProcCliRunner
-import _root_.orca.tools.{OsFsTool, OsGitHubTool, OsGitTool}
+import orca.claude.{ClaudeBackend, DefaultClaudeTool}
+import orca.io.DefaultPromptTemplate
+import orca.subprocess.OsProcCliRunner
+import orca.tools.{OsFsTool, OsGitHubTool, OsGitTool}
 
 /** Production FlowContext wiring. Callers typically construct one via
   * `orca(...)`, which supplies defaults for all tools. Individual tools can be

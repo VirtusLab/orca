@@ -1,6 +1,7 @@
 package orca.runner
 
-import _root_.orca.{
+import _root_.orca.runner.terminal.TerminalInteraction
+import orca.{
   Backend,
   ClaudeTool,
   CostTracker,
@@ -13,7 +14,6 @@ import _root_.orca.{
   fs,
   orca
 }
-import _root_.orca.runner.terminal.TerminalInteraction
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 
