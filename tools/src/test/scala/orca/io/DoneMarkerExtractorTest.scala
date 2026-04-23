@@ -1,6 +1,6 @@
 package orca.io
 
-import orca.{DefaultPromptTemplate, OrcaFlowException}
+import orca.OrcaFlowException
 
 class DoneMarkerExtractorTest extends munit.FunSuite:
   private val payload = """{"x":1}"""

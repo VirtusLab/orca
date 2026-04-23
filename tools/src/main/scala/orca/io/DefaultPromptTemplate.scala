@@ -1,6 +1,12 @@
-package orca
+package orca.io
 
-// TODO: move implementations to a sub-package
+import orca.{LlmConfig, PromptTemplate}
+
+/** The `PromptTemplate` Orca uses unless `orca(promptTemplate = ...)`
+  * overrides it. Each method builds the final prompt string via Scala
+  * string interpolation; the `DoneMarker` is exposed so the interactive
+  * backend can watch for it in streamed output.
+  */
 object DefaultPromptTemplate extends PromptTemplate:
 
   val DoneMarker: String = "<<<ORCA_DONE>>>"

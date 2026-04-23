@@ -1,5 +1,6 @@
 package orca
 
+import _root_.orca.io.DefaultPromptTemplate
 import _root_.orca.runner.DefaultFlowContext
 import _root_.orca.runner.terminal.{OrcaArgs, TerminalInteraction}
 import ox.supervised

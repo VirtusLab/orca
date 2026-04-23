@@ -1,4 +1,6 @@
-package orca
+package orca.io
+
+import orca.LlmConfig
 
 class DefaultPromptTemplateTest extends munit.FunSuite:
   private val input = """{"task":"refactor"}"""

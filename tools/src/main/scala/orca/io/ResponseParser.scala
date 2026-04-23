@@ -7,6 +7,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 
 import scala.util.matching.Regex
 
+// TODO: that's an internal utility function, make it private[orca]? same with other utils. Scope code appropriately
 object ResponseParser:
 
   private val FencePattern: Regex =

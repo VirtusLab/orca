@@ -1,6 +1,6 @@
 package orca.io
 
-import orca.{DefaultPromptTemplate, OrcaFlowException}
+import orca.OrcaFlowException
 
 object DoneMarkerExtractor:
 

@@ -2,7 +2,6 @@ package orca.claude
 
 import orca.{
   Backend,
-  DefaultPromptTemplate,
   InteractiveHandle,
   JsonData,
   LlmBackend,
@@ -13,6 +12,7 @@ import orca.{
   schemaFromJsonData,
   codecFromJsonData
 }
+import orca.io.DefaultPromptTemplate
 import ox.supervised
 
 import java.util.concurrent.atomic.AtomicReference

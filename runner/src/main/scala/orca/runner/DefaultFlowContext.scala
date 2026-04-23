@@ -1,9 +1,9 @@
 package orca.runner
 
+// TODO: why the _root_ imports?
 import _root_.orca.{
   ClaudeTool,
   CodexTool,
-  DefaultPromptTemplate,
   EventDispatcher,
   FlowContext,
   FsTool,
@@ -14,6 +14,7 @@ import _root_.orca.{
   PromptTemplate
 }
 import _root_.orca.claude.{ClaudeBackend, DefaultClaudeTool}
+import _root_.orca.io.DefaultPromptTemplate
 import _root_.orca.subprocess.OsProcCliRunner
 import _root_.orca.tools.{OsFsTool, OsGitHubTool, OsGitTool}
 

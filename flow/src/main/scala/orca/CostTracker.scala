@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicReference
   * persists across `onEvent` calls by necessity, with a pure transition
   * (`Usage.+`) applied under a CAS loop.
   */
+// TODO: this should be tracked per-model
 class CostTracker extends OrcaListener:
   private val state: AtomicReference[Usage] = AtomicReference(Usage.empty)
 
