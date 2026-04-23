@@ -88,7 +88,9 @@ class DefaultLlmCallTest extends munit.FunSuite:
       emit = _ => ()
     )
 
-  test("prompt retries on parse failure and eventually returns a parsed value"):
+  test(
+    "autonomous retries on parse failure and eventually returns a parsed value"
+  ):
     val backend = new SequencedBackend(
       List(
         "not even json",
@@ -97,7 +99,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
       )
     )
     supervised:
-      val answer = makeCall(backend).prompt("what is the answer?")
+      val answer = makeCall(backend).autonomous("what is the answer?")
       assertEquals(answer, Answer(42))
       val Seq(first, second, third) = backend.prompts: @unchecked
       assert(
@@ -113,9 +115,9 @@ class DefaultLlmCallTest extends munit.FunSuite:
         "third attempt must quote the second failure"
       )
 
-  test("prompt succeeds on the first attempt when the response parses"):
+  test("autonomous succeeds on the first attempt when the response parses"):
     val backend = new SequencedBackend(List("""{"value":7}"""))
     supervised:
-      val answer = makeCall(backend).prompt("a question")
+      val answer = makeCall(backend).autonomous("a question")
       assertEquals(answer, Answer(7))
       assertEquals(backend.prompts.size, 1)

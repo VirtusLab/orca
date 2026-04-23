@@ -22,7 +22,7 @@ class LintTest extends munit.FunSuite:
     def result[O: Schema: ConfiguredJsonValueCodec]
         : LlmCall[Backend.ClaudeCode.type, O] =
       new LlmCall[Backend.ClaudeCode.type, O]:
-        def prompt[I](i: I, c: LlmConfig = LlmConfig.default)(using
+        def autonomous[I](i: I, c: LlmConfig = LlmConfig.default)(using
             a: AgentInput[I]
         ): O =
           captured = a.serialize(i)

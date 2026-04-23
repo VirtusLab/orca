@@ -11,17 +11,17 @@ import sttp.tapir.Schema
   */
 trait LlmTool[B <: Backend]:
   def name: String
-  /** Fix the output type of the call, then chain `.prompt(...)` /
+  /** Fix the output type of the call, then chain `.autonomous(...)` /
     * `.interactive(...)` / `.continueSession(...)` to actually invoke the
     * model. `O` must carry a tapir `Schema` (for prompt generation) and a
     * jsoniter-scala `ConfiguredJsonValueCodec` (for parsing the response) —
     * `derives JsonData` on `O` provides both.
     */
   def result[O: Schema: ConfiguredJsonValueCodec]: LlmCall[B, O]
-  /** One-shot headless call that takes a string and returns a string —
-    * equivalent to `result[String].prompt(prompt, config)` without the need
-    * for a schema or codec. Use when the response is free-form text rather
-    * than a structured value.
+  /** One-shot autonomous call that takes a string and returns a string —
+    * equivalent to `result[String].autonomous(prompt, config)` without the
+    * need for a schema or codec. Use when the response is free-form text
+    * rather than a structured value.
     */
   def ask(prompt: String, config: LlmConfig = LlmConfig.default): String
   def withConfig(config: LlmConfig): LlmTool[B]
@@ -41,14 +41,18 @@ trait CodexTool extends LlmTool[Backend.Codex.type]:
 
 /** One configured LLM call of a given output type. Obtained via
   * `tool.result[O]`; the returned value supports every invocation variant
-  * (headless `prompt`, session-based `startSession` / `continueSession`, and
+  * (`autonomous`, session-based `startSession` / `continueSession`, and
   * `interactive` / `continueInteractive`) so callers can switch execution
   * mode without restating `O`.
   */
 trait LlmCall[B <: Backend, O]:
-  /** Run the call headlessly: a single turn, no session retained. */
-  def prompt[I: AgentInput](input: I, config: LlmConfig = LlmConfig.default): O
-  // TODO: since we have "interactive", maybe this should be "autonomous" for symmetry?
+  /** Run the call autonomously: a single turn, no session retained, no user
+    * interaction.
+    */
+  def autonomous[I: AgentInput](
+      input: I,
+      config: LlmConfig = LlmConfig.default
+  ): O
   def startSession[I: AgentInput](
       input: I,
       config: LlmConfig = LlmConfig.default

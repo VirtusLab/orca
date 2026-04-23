@@ -122,7 +122,7 @@ private def gatherReviews(
   val reviewResults: List[ReviewResult] =
     supervised:
       reviewers
-        .map(r => fork(r.result[ReviewResult].prompt(task)))
+        .map(r => fork(r.result[ReviewResult].autonomous(task)))
         .map(_.join())
   val lintResults: List[ReviewResult] =
     lintCommand.toList.map(cmd => lint(cmd, claude.haiku))
@@ -151,7 +151,7 @@ def lint(
   else
     llm
       .result[ReviewResult]
-      .prompt(
+      .autonomous(
         s"""Summarize the following lint output into a ReviewResult. Each
            |distinct issue should produce a ReviewIssue; use reasonable
            |confidence based on how actionable the message is.

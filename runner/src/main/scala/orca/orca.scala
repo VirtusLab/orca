@@ -12,7 +12,7 @@ import ox.supervised
   * Most scripts use:
   * ```
   * orca:
-  *   val plan = claude.result[Plan].prompt(userPrompt)
+  *   val plan = claude.result[Plan].autonomous(userPrompt)
   *   ...
   * ```
   *

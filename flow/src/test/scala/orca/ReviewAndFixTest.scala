@@ -8,12 +8,12 @@ import sttp.tapir.Schema
   * because the trait is generic over output type.
   */
 class FakeLlmCall[O](
-    promptOutputs: Iterator[Any],
+    autonomousOutputs: Iterator[Any],
     continueSessionOutputs: Iterator[Any]
 ) extends LlmCall[Backend.ClaudeCode.type, O]:
-  def prompt[I](input: I, config: LlmConfig = LlmConfig.default)(using
+  def autonomous[I](input: I, config: LlmConfig = LlmConfig.default)(using
       AgentInput[I]
-  ): O = promptOutputs.next().asInstanceOf[O]
+  ): O = autonomousOutputs.next().asInstanceOf[O]
   def startSession[I: AgentInput](
       input: I,
       config: LlmConfig = LlmConfig.default

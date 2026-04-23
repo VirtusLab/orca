@@ -36,7 +36,7 @@ class DefaultLlmCall[O](
 )(using schema: Schema[O], codec: ConfiguredJsonValueCodec[O])
     extends LlmCall[Backend.ClaudeCode.type, O]:
 
-  def prompt[I](input: I, config: LlmConfig = LlmConfig.default)(using
+  def autonomous[I](input: I, config: LlmConfig = LlmConfig.default)(using
       ai: AgentInput[I]
   ): O =
     val serialized = ai.serialize(input)
