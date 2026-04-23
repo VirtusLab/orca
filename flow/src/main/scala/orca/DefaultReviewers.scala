@@ -35,7 +35,7 @@ object ReviewerPrompts:
   * wrapped tool. Useful for tagging a base tool with a reviewer identity so
   * `SelectedReviewers.pick` can filter the list by name.
   */
-class NamedLlmTool[B <: Backend](
+private[orca] class NamedLlmTool[B <: Backend](
     override val name: String,
     delegate: LlmTool[B]
 ) extends LlmTool[B]:

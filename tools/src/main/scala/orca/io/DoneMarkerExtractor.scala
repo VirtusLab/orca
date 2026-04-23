@@ -2,7 +2,7 @@ package orca.io
 
 import orca.OrcaFlowException
 
-object DoneMarkerExtractor:
+private[orca] object DoneMarkerExtractor:
 
   private val Marker: String = DefaultPromptTemplate.DoneMarker
 
