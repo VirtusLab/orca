@@ -169,3 +169,126 @@ class ClaudeConversationTest extends munit.FunSuite:
       )
     )
     val _ = conv.awaitResult()
+
+  test("assistant turn with text falls back to an AssistantTextDelta when no partials streamed"):
+    val process = new FakePipedCliProcess()
+    val (_, emit) = emitSink
+    val conv = new ClaudeConversation(process, LlmConfig.default, emit)
+
+    // No stream_event before the assistant turn → fallback path.
+    process.enqueueStdout(
+      """{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"no-partials"}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-fallback"}"""
+    )
+    process.closeStdout()
+
+    val events = conv.events.toList
+    assertEquals(
+      events,
+      List(
+        ConversationEvent.AssistantTextDelta("no-partials"),
+        ConversationEvent.AssistantTurnEnd
+      )
+    )
+    val _ = conv.awaitResult()
+
+  test("user turn with tool_result blocks emits ToolResult events"):
+    val process = new FakePipedCliProcess()
+    val (_, emit) = emitSink
+    val conv = new ClaudeConversation(process, LlmConfig.default, emit)
+
+    process.enqueueStdout(
+      """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"id-1","content":"output","is_error":false}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-tr"}"""
+    )
+    process.closeStdout()
+
+    val events = conv.events.toList
+    assertEquals(
+      events,
+      List(ConversationEvent.ToolResult(toolName = "", ok = true, content = "output"))
+    )
+    val _ = conv.awaitResult()
+
+  test("malformed NDJSON line surfaces as OrcaEvent.Error and the loop continues"):
+    val process = new FakePipedCliProcess()
+    val (emitted, emit) = emitSink
+    val conv = new ClaudeConversation(process, LlmConfig.default, emit)
+
+    process.enqueueStdout("this is not json")
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-malformed"}"""
+    )
+    process.closeStdout()
+
+    val _ = conv.events.toList
+    val _ = conv.awaitResult()
+    assert(emitted.get().exists {
+      case OrcaEvent.Error(msg) => msg.contains("Failed to parse")
+      case _                    => false
+    })
+
+  test("autoApprove.Only matches the tool → silent allow"):
+    val process = new FakePipedCliProcess()
+    val (_, emit) = emitSink
+    val conv = new ClaudeConversation(
+      process,
+      LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set("Read"))),
+      emit
+    )
+
+    process.enqueueStdout(
+      """{"type":"control_request","request_id":"req-ok","request":{"subtype":"can_use_tool","tool_name":"Read","input":{"path":"/etc/hosts"}}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-only"}"""
+    )
+    process.closeStdout()
+
+    val events = conv.events.toList
+    assertEquals(events, Nil)
+    val _ = conv.awaitResult()
+    assert(process.writes.head.contains(""""behavior":"allow""""))
+
+  test("multiple back-to-back ApproveTool events carry distinct respond closures"):
+    val process = new FakePipedCliProcess()
+    val (_, emit) = emitSink
+    val conv = new ClaudeConversation(
+      process,
+      LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set.empty)),
+      emit
+    )
+
+    process.enqueueStdout(
+      """{"type":"control_request","request_id":"req-A","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{}}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"control_request","request_id":"req-B","request":{"subtype":"can_use_tool","tool_name":"Read","input":{}}}"""
+    )
+
+    val first = conv.events.next()
+    val second = conv.events.next()
+
+    // Respond out of order: B first, A second.
+    second match
+      case ConversationEvent.ApproveTool(_, _, respond) =>
+        respond(ApprovalDecision.Deny())
+      case other => fail(s"expected ApproveTool, got $other")
+    first match
+      case ConversationEvent.ApproveTool(_, _, respond) =>
+        respond(ApprovalDecision.Allow())
+      case other => fail(s"expected ApproveTool, got $other")
+
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-parallel"}"""
+    )
+    process.closeStdout()
+    val _ = conv.events.toList
+    val _ = conv.awaitResult()
+
+    assert(process.writes.exists(w => w.contains("req-A") && w.contains("allow")))
+    assert(process.writes.exists(w => w.contains("req-B") && w.contains("deny")))

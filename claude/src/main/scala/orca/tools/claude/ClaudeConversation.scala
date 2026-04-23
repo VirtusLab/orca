@@ -62,6 +62,11 @@ private[claude] class ClaudeConversation(
   private val sessionIdRef = new AtomicReference[String]("")
   private val outcomeRef = new AtomicReference[Option[Outcome]](None)
   private val cancelled = new AtomicBoolean(false)
+  /** Set whenever a delta arrives in the current turn, cleared when the
+    * full turn message lands. Lets `handleAssistantTurn` tell "partials
+    * already streamed" from "partials disabled upstream".
+    */
+  private val deltasSinceTurnBoundary = new AtomicBoolean(false)
 
   private val readerThread: Thread =
     val t = new Thread(() => readLoop(), "claude-conversation-reader")
@@ -121,19 +126,30 @@ private[claude] class ClaudeConversation(
     case InboundMessage.ControlRequest(reqId, body) =>
       handleControlRequest(reqId, body)
     case InboundMessage.StreamEvent(payload) =>
-      translateStreamEvent(payload).foreach(eventQueue.enqueue)
+      translateStreamEvent(payload).foreach { evt =>
+        deltasSinceTurnBoundary.set(true)
+        eventQueue.enqueue(evt)
+      }
     case InboundMessage.Unknown(rawType) =>
       emit(OrcaEvent.Error(s"Unknown stream-json message type: $rawType"))
 
-  /** Full assistant turn arrives after partials have streamed — extract
-    * the tool-use blocks (we can't get them from deltas) and mark the
-    * turn boundary. Text and thinking were already emitted as deltas.
+  /** Full assistant turn arrives after partials have streamed. Tool-use
+    * blocks only reach us here (deltas don't reconstruct them), so we
+    * emit those. Text and thinking are normally already streamed as
+    * deltas, but if partials were disabled upstream we'd silently drop
+    * them — fall back to emitting the whole block as a single delta
+    * when no deltas preceded this turn.
     */
   private def handleAssistantTurn(content: List[ContentBlock]): Unit =
+    val sawDeltasThisTurn = deltasSinceTurnBoundary.getAndSet(false)
     content.foreach:
       case ContentBlock.ToolUse(_, name, rawInput) =>
         eventQueue.enqueue(ConversationEvent.AssistantToolCall(name, rawInput))
-      case _ => () // text / thinking already streamed; unknowns ignored
+      case ContentBlock.Text(text) if !sawDeltasThisTurn =>
+        eventQueue.enqueue(ConversationEvent.AssistantTextDelta(text))
+      case ContentBlock.Thinking(text) if !sawDeltasThisTurn =>
+        eventQueue.enqueue(ConversationEvent.AssistantThinkingDelta(text))
+      case _ => ()
     eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
 
   /** User turns arriving from the subprocess echo our own input, except
@@ -245,14 +261,19 @@ private[claude] object ClaudeConversation:
       val _ = queue.offer(None)
 
     val iterator: Iterator[ConversationEvent] = new Iterator[ConversationEvent]:
-      private val peeked = new AtomicReference[Option[ConversationEvent]](null)
+      // Single-consumer per the Conversation contract; a plain `var`
+      // with a null sentinel is enough. The three states are:
+      //   null      — nothing peeked yet (will block on next `hasNext`)
+      //   Some(e)   — peeked event, returned by next `next()`
+      //   None      — stream closed, `hasNext` stays false forever
+      private var peeked: Option[ConversationEvent] = null
 
       def hasNext: Boolean =
-        if peeked.get() == null then peeked.set(queue.take())
-        peeked.get().isDefined
+        if peeked == null then peeked = queue.take()
+        peeked.isDefined
 
       def next(): ConversationEvent =
         if !hasNext then throw new NoSuchElementException("event stream closed")
-        val value = peeked.get().get
-        peeked.set(null)
+        val value = peeked.get
+        peeked = null
         value
