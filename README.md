@@ -49,15 +49,13 @@ orca:
   val (sessionId, plan) = stage("plan"):
     claude.result[Plan].interactive(userPrompt)
 
-  // 2. Implement each task on its own branch, review, and PR.
+  // 2. Implement each task on its own branch and review locally.
   for task <- plan.tasks do
     stage(s"implement: ${task.description}"):
       git.createBranch(task.branchName)
       claude.continueSession(sessionId, s"Implement ${task.description}")
       git.commit(s"Implement ${task.description}")
-      git.push()
 
-      val pr = gh.createPr(task.description, body = "")
       reviewAndFix(
         coder = claude,
         sessionId = sessionId,
@@ -65,7 +63,6 @@ orca:
         task = task.description,
         lintCommand = Some("sbt scalafmtCheckAll test")
       )
-      gh.waitForBuild(pr, timeout = 30.minutes)
 ```
 
 ```bash

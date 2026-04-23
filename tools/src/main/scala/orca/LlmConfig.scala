@@ -8,6 +8,7 @@ case class LlmConfig(
     model: Option[String] = None,
     systemPrompt: Option[String] = None,
     autoApprove: AutoApprove = AutoApprove.All,
+    // TODO: add a comment that his only works in autonomous mode
     onUnapproved: UnapprovedPolicy = UnapprovedPolicy.Deny,
     retrySchedule: Schedule = LlmConfig.defaultRetrySchedule
 )

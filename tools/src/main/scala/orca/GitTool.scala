@@ -2,6 +2,7 @@ package orca
 
 case class CommitInfo(hash: String, message: String, author: String)
 
+// TODO: implement worktrees integration
 trait GitTool:
   def createBranch(name: String): Unit
   def checkout(name: String): Unit
