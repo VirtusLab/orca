@@ -89,13 +89,89 @@ stream progress back through the event bus.
 - **Java 21+** (Orca uses virtual threads).
 - **[scala-cli](https://scala-cli.virtuslab.org/)** to run the flow script.
 - **[claude](https://docs.claude.com/en/docs/claude-code)** — the Claude Code
-  CLI, signed in (`claude auth login`).
+  CLI, signed in. See [Authenticating the coding agents](#authenticating-the-coding-agents).
 - **[gh](https://cli.github.com/)** — the GitHub CLI, signed in (`gh auth
   login`). Only needed if your flow calls `gh.createPr`, `gh.waitForBuild`,
   etc.
 
 That's it. There's no runtime to install, no long-lived service to manage;
 each flow run is one `scala-cli` process.
+
+## Authenticating the coding agents
+
+Orca shells out to a per-backend CLI for every LLM call — Claude Code for
+the `claude` tool, and (soon) the OpenAI Codex CLI for the `codex` tool.
+Each CLI handles its own auth; Orca itself stores no secrets.
+
+### Claude
+
+1. Install the Claude Code CLI by following the
+   [official install guide](https://docs.claude.com/en/docs/claude-code/setup).
+   On macOS and Linux the one-liner is:
+
+   ```bash
+   curl -fsSL https://claude.ai/install.sh | bash
+   ```
+
+2. Authenticate. Pick one:
+
+   - **Claude.ai subscription / Anthropic Console login** (recommended for
+     interactive use):
+
+     ```bash
+     claude auth login
+     ```
+
+     Follow the browser flow. Credentials are cached in `~/.claude.json`.
+
+   - **API key** (recommended for CI and headless environments):
+
+     ```bash
+     export ANTHROPIC_API_KEY=sk-ant-...
+     ```
+
+     Orca picks it up via the Claude CLI automatically. Store it in your
+     shell profile, or your CI runner's secret store — Orca doesn't read
+     it directly.
+
+   ⚠️ **`ANTHROPIC_API_KEY` wins over OAuth.** The Claude CLI always
+   prefers the env var when it's set, so an old `sk-ant-...` in your
+   `.bashrc` / `.zshrc` / shell history will silently route your orca
+   runs to pay-per-call billing (and trip its own rate limit separately
+   from your subscription) even after a successful `claude auth login`.
+   Run `env | grep ANTHROPIC_API_KEY` before assuming OAuth is active;
+   `unset ANTHROPIC_API_KEY` (or start a fresh shell without it) to fall
+   back to the cached subscription.
+
+3. Verify:
+
+   ```bash
+   claude auth status     # shows which credential path is active
+   claude -p "say hi in three words"
+   ```
+
+   If `auth status` reports the source you intended and the second
+   command prints a short greeting, Orca will reach Claude the same way.
+
+### Codex (preview — not wired up yet)
+
+The `codex` module is a placeholder; Epic 9 will wire it to the
+[OpenAI Codex CLI](https://github.com/openai/codex). Once it lands, setup
+will mirror Claude's:
+
+1. Install the Codex CLI per
+   [OpenAI's docs](https://github.com/openai/codex#installation).
+
+2. Authenticate with either:
+
+   - `codex login` for an interactive ChatGPT-account flow, or
+   - `export OPENAI_API_KEY=sk-...` for headless use.
+
+3. Verify with `codex --version` and a trivial prompt.
+
+Flow scripts that currently invoke `claude` will run unchanged once a
+`codex` handle is available — backends satisfy the same `LlmTool` trait,
+so only the handle you reach for changes.
 
 ## Getting set up
 
