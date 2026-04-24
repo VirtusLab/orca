@@ -72,6 +72,17 @@ private[claude] class ClaudeConversation(
     t.start()
     t
 
+  /** Separate fork for stderr so diagnostics from claude (auth failures,
+    * flag rejections, protocol errors — all of which land on stderr
+    * rather than as a `result` message) surface as
+    * [[ConversationEvent.Error]]s instead of being silently eaten.
+    */
+  private val stderrThread: Thread =
+    val t = new Thread(() => stderrLoop(), "claude-conversation-stderr")
+    t.setDaemon(true)
+    t.start()
+    t
+
   // --- Conversation surface ---
 
   def events: Iterator[ConversationEvent] = eventQueue.iterator
@@ -106,6 +117,13 @@ private[claude] class ClaudeConversation(
       case NonFatal(e) =>
         val _ = outcomeRef.compareAndSet(None, Some(Outcome.Failed(e)))
     finally finalizeLoop()
+
+  private def stderrLoop(): Unit =
+    try
+      for line <- process.stderrLines do
+        if line.trim.nonEmpty then
+          eventQueue.enqueue(ConversationEvent.Error(s"claude: $line"))
+    catch case NonFatal(_) => () // stderr draining is best-effort
 
   private def handleLine(line: String): Unit =
     try handle(InboundMessage.parse(line))
