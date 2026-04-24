@@ -42,13 +42,18 @@ object DefaultPromptTemplate extends PromptTemplate:
       outputSchema: String,
       config: LlmConfig
   ): String =
-    s"""Collaborate with the user on the task described in the input. Respond
-       |normally during intermediate turns. Your final turn — after the task
-       |is complete — must be a single JSON value that conforms to the output
-       |schema below. Rules for the final turn:
-       |$RawJsonRules
-       |Intermediate turns are free-form conversation; only the last turn
-       |needs to be the structured value.
+    s"""Collaborate with the user on the task described in the input. Ask
+       |clarifying questions as free-form text whenever you need more
+       |information from the user before the final answer.
+       |
+       |When — and only when — you are ready to deliver the final answer,
+       |invoke the structured-output tool with a value matching the schema
+       |below. Do not emit the final value as prose; the runtime validates
+       |the structured-output payload against the schema and ignores prose
+       |text for the "final answer" check.
+       |
+       |So: prose replies signal "I have a question for the user";
+       |structured-output tool calls signal "I'm done, here is the answer".
        |
        |Input:
        |$input
