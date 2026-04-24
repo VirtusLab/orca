@@ -5,6 +5,8 @@ import _root_.orca.runner.DefaultFlowContext
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
 
+import scala.util.control.NonFatal
+
 /** Entry point for flow scripts. Takes the parsed CLI args (required) plus
   * any number of overrides, then runs the body inside an Ox `supervised`
   * scope with the resulting `FlowContext` as an ambient given.
@@ -38,18 +40,29 @@ def flow(
     fs: Option[FsTool] = None,
     promptTemplate: PromptTemplate = DefaultPromptTemplate
 )(body: FlowContext ?=> Unit): Unit =
-  supervised:
-    val dispatcher =
-      new EventDispatcher(interaction.listeners ++ extraListeners)
-    val ctx = DefaultFlowContext.withDefaults(
-      userPrompt = args.userPrompt,
-      dispatcher = dispatcher,
-      workDir = workDir,
-      interaction = interaction,
-      claude = claude,
-      git = git,
-      gh = gh,
-      fs = fs,
-      template = promptTemplate
-    )
-    body(using ctx)
+  val debug = sys.env.get("ORCA_DEBUG").contains("1") || args.verbose.value
+  try
+    supervised:
+      val dispatcher =
+        new EventDispatcher(interaction.listeners ++ extraListeners)
+      val ctx = DefaultFlowContext.withDefaults(
+        userPrompt = args.userPrompt,
+        dispatcher = dispatcher,
+        workDir = workDir,
+        interaction = interaction,
+        claude = claude,
+        git = git,
+        gh = gh,
+        fs = fs,
+        template = promptTemplate
+      )
+      body(using ctx)
+  catch
+    // Stage-level Errors have already been emitted through the channel.
+    // The outer `catch` exists to suppress the raw JVM stack trace on
+    // exit — the user has already seen a formatted message. With
+    // `ORCA_DEBUG=1` or `--verbose` we do print the trace for
+    // diagnostics.
+    case NonFatal(e) =>
+      if debug then e.printStackTrace()
+      System.exit(1)

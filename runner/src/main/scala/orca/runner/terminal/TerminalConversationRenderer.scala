@@ -37,8 +37,10 @@ private[terminal] class TerminalConversationRenderer(
   import TerminalConversationRenderer.*
 
   def render[B <: Backend](conversation: Conversation[B]): LlmResult[B] =
-    stopSpinner()
     out.println(paint(fansi.Color.Yellow, "[interactive session]"))
+    // Claude's time-to-first-byte can be 10s+; spin immediately so
+    // the user sees the session is alive while the agent is thinking.
+    spinner.foreach(_.start("thinking"))
     try
       conversation.events.foreach(dispatch(_, conversation))
       conversation.awaitResult()

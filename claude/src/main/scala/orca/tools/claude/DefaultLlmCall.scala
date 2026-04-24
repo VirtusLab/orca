@@ -14,7 +14,7 @@ import orca.{
   SessionId
 }
 import orca.io.{JsonSchemaGen, ResponseParser}
-import com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException
+import orca.io.MalformedAgentOutputException
 import ox.resilience.retry
 
 /** Default implementation of LlmCall for the Claude backend.
@@ -110,12 +110,11 @@ class DefaultLlmCall[O](
       emit(OrcaEvent.TokensUsed(effective.model, result.usage))
       try (result.sessionId, ResponseParser.parse[O](result.output))
       catch
-        case e: JsonReaderException =>
+        case e: MalformedAgentOutputException =>
           lastFailure = Some(
             FailedAttempt(
-              response = result.output,
-              parserError =
-                Option(e.getMessage).getOrElse("unknown parse error")
+              response = e.rawOutput,
+              parserError = e.shortCause
             )
           )
           throw e

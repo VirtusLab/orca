@@ -1,6 +1,5 @@
 package orca.io
 
-import com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
 case class ParsedSample(name: String, count: Int)
@@ -26,6 +25,20 @@ class ResponseParserTest extends munit.FunSuite:
     val fenced = """```{"name":"widget","count":3}```"""
     assertEquals(ResponseParser.parse[ParsedSample](fenced), expected)
 
-  test("throws on malformed JSON"):
-    intercept[JsonReaderException]:
+  test("extracts JSON object when the agent prepends prose"):
+    val raw =
+      "The multiply method already exists.\n\n{\"name\":\"widget\",\"count\":3}"
+    assertEquals(ResponseParser.parse[ParsedSample](raw), expected)
+
+  test("extracts JSON object when the agent appends trailing prose"):
+    val raw = """{"name":"widget","count":3} — all set."""
+    assertEquals(ResponseParser.parse[ParsedSample](raw), expected)
+
+  test("raises MalformedAgentOutputException with raw payload on failure"):
+    val e = intercept[MalformedAgentOutputException]:
       ResponseParser.parse[ParsedSample]("not json at all")
+    assertEquals(e.rawOutput, "not json at all")
+    assert(e.shortCause.nonEmpty)
+    // No hex dump nor multiline buffer in the user-facing message.
+    assert(!e.getMessage.contains("+---"))
+    assert(!e.getMessage.contains("\n"))

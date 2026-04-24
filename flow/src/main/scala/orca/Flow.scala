@@ -20,11 +20,37 @@ def stage[T](name: String)(body: => T)(using ctx: FlowContext): T =
     ctx.emit(OrcaEvent.StageCompleted(name, result.toString))
     result
   catch
-    case e: OrcaFlowException => throw e
+    case e: OrcaFlowException =>
+      // `fail(...)` already emitted its Error; malformed-agent-output
+      // carries additional context (what the agent said) that the
+      // channel should render. OrcaFlowException with a previously-
+      // emitted Error goes through without duplicate emission; the
+      // malformed-output subtype gets an event with the raw snippet.
+      e match
+        case mao: orca.io.MalformedAgentOutputException =>
+          ctx.emit(OrcaEvent.Error(formatMalformedOutput(name, mao)))
+        case _ => ()
+      throw e
     case NonFatal(e) =>
-      val msg = Option(e.getMessage).getOrElse(e.getClass.getName)
+      val msg = Option(e.getMessage).getOrElse(e.getClass.getName).linesIterator
+        .nextOption()
+        .getOrElse(e.getClass.getName)
       ctx.emit(OrcaEvent.Error(s"Stage '$name' failed: $msg"))
       throw e
+
+private def formatMalformedOutput(
+    stage: String,
+    e: orca.io.MalformedAgentOutputException
+): String =
+  val snippet =
+    val collapsed = e.rawOutput.replaceAll("\\s+", " ").trim
+    if collapsed.length <= 200 then collapsed
+    else s"${collapsed.take(200)}…"
+  s"""Stage '$stage' failed: agent output didn't parse as structured JSON.
+     |  cause:  ${e.shortCause}
+     |  agent:  $snippet
+     |  hint:   tighten the system prompt to enforce JSON-only, or set
+     |          ORCA_DEBUG=1 to see the full response.""".stripMargin
 
 def fail(message: String)(using ctx: FlowContext): Nothing =
   ctx.emit(OrcaEvent.Error(message))
