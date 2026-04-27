@@ -108,7 +108,16 @@ cat > ship.sc <<'EOF'
 
 import orca.{*, given}
 
-case class Task(branchName: String, description: String) derives JsonData
+/** A single task in the plan. `summary` is a short user-facing label
+  * (drives the implement-stage name and the printed plan list); `prompt`
+  * is the longer instruction sent verbatim to the LLM. Aim for `summary`
+  * around 60 chars — anything longer truncates in the status bar.
+  */
+case class Task(
+    branchName: String,
+    summary: String,
+    prompt: String
+) derives JsonData
 
 case class Plan(tasks: List[Task]) derives JsonData
 
@@ -116,21 +125,27 @@ case class Plan(tasks: List[Task]) derives JsonData
 // positional + flag arguments (`userPrompt`, `--verbose`, etc.).
 flow(OrcaArgs.from(args.toSeq)):
   // 1. Break the user's prompt into concrete subtasks, interactively.
-  val (sessionId, plan) = stage("plan"):
+  val (sessionId, plan) = stage("Creating a development plan"):
     claude.resultAs[Plan].interactive(userPrompt)
+
+  // The renderer suppresses the agent's raw JSON payload; print the
+  // parsed plan in human-readable form here instead.
+  println(s"● Planned branch: ${plan.tasks.headOption.map(_.branchName).getOrElse("(none)")}")
+  println(s"● Defined ${plan.tasks.size} task(s):")
+  plan.tasks.foreach(t => println(s"  - ${t.summary}"))
 
   // 2. Implement each task on its own branch and review locally.
   for task <- plan.tasks do
-    stage(s"implement: ${task.description}"):
+    stage(s"Implement task: ${task.summary}"):
       git.createBranch(task.branchName)
-      claude.continueSession(sessionId, s"Implement ${task.description}")
-      git.commit(s"Implement ${task.description}")
+      claude.continueSession(sessionId, task.prompt)
+      git.commit(s"Implement ${task.summary}")
 
       reviewAndFixLoop(
         coder = claude,
         sessionId = sessionId,
         reviewers = defaultReviewers(claude),
-        task = task.description,
+        task = task.summary,
         lintCommand = Some("mvn -q test")
       )
 EOF
