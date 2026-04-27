@@ -97,42 +97,29 @@ it as an extra named argument: `flow(args, git = Some(myGit)): ...`.
 scala-cli run ship.sc -- "Add a rate-limiter to the /login endpoint"
 ```
 
-While Orca runs, the terminal shows the active stage and an animated
-braille spinner pinned to the bottom row. Interactive stages (like
-planning) hand the conversation to Claude through Orca's renderer so you can
-steer; autonomous stages stream progress back through the event bus.
+While Orca runs the terminal output is two zones: an **event log** that
+grows line-by-line as stages start and tools fire, and a **status line**
+pinned to the bottom showing the active stage with a braille spinner. Stage
+completions don't print — the next event implicitly tells you the previous
+one finished. Indentation tracks nesting (two spaces per level).
 
-### Reading the output
+Quick legend:
 
-The terminal output is two zones. The **event log** at the top grows
-line-by-line as stages start and tools fire; the **status line** at the
-bottom shows the deepest active stage with a braille spinner glyph and is
-erased when nothing is running. Stage completions are not printed — the next
-event implicitly tells you the previous one finished. Indentation tracks
-stage nesting (two spaces per level).
+| Glyph | Meaning                                                |
+| ----- | ------------------------------------------------------ |
+| `▶`   | Stage starting, or a single-line `Step` (branch switch, etc.) |
+| `▸`   | User's prompt at the start of an interactive session   |
+| `●`   | Assistant prose                                        |
+| `⏺`   | Tool call (path / command / query in grey)             |
+| `⎿`   | Tool result (truncated to one line)                    |
+| `✖`   | Error                                                  |
+| `?`   | Approval request                                       |
 
-Glyphs and colours, in the order you'll see them:
-
-| Glyph | Style | Meaning |
-| ----- | ----- | ------- |
-| `▶`   | cyan  | A stage starting, or a [`Step`](flow/src/main/scala/orca/Flow.scala) — a single instantaneous note in the log (branch switch, "discarded N issues", etc.). Steps never get a closing `✔`; stages don't either. |
-| `▸`   | cyan, bold | The user's prompt at the start of an interactive session. |
-| `●`   | magenta | An assistant prose message. JSON-only payloads (the structured-output the flow asked for) are suppressed; the flow script renders parsed plans / results in its own form. |
-| `·`   | grey | Assistant "thinking" prose. Hidden by default; pass `showThinking = true` if you want it. |
-| `⏺`   | blue, bold | A tool call the agent is making. The headline argument (file path, command, query) follows in grey; paths under `workDir` render relative, others stay absolute so out-of-project access is visible. |
-| `⎿`   | grey | The result of the preceding tool call, truncated to one line. |
-| `✖`   | red | An error. Either an `OrcaEvent.Error` from a stage that threw, or a non-fatal mid-session error from the agent. |
-| `?`   | yellow | An approval request — the agent wants to invoke a tool that isn't auto-approved. The renderer prompts for `[y]es / [n]o`. |
-
-In the status line:
-
-| Glyph | Meaning |
-| ----- | ------- |
-| `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` | Spinner — agent is working. The label next to it is the current (innermost) stage name, truncated to fit one terminal row. |
-
-Colours and animation are auto-disabled when stderr isn't attached to a
-terminal (CI runners, redirected output). `NO_COLOR=1` and
-`ORCA_NO_ANIMATION=1` force them off explicitly.
+Colours and animation auto-disable when stderr isn't a terminal (CI,
+redirected output). `NO_COLOR=1` and `ORCA_NO_ANIMATION=1` force them off.
+The full design — two-zone rationale, suppression rules, the
+subprocess-stderr discipline — lives in
+[ADR 0008](adr/0008-terminal-output-design.md).
 
 ## What you need
 
@@ -252,6 +239,8 @@ the epic-level breakdown.
 
 - [`design.md`](design.md) — full architecture and design rationale.
 - [`plan.md`](plan.md) — development plan with per-epic status.
+- [`adr/`](adr/) — architecture decision records (backend abstraction,
+  stream-json driver, terminal output design, etc.).
 
 ---
 
