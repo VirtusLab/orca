@@ -8,17 +8,20 @@ trait CliProcess:
   def waitForExit(): Int
 
 /** A spawned process whose stdin / stdout / stderr are connected to pipes
-  * the caller controls. The driver writes a line at a time to `writeLine`
-  * and consumes responses as they arrive from `stdoutLines`. `closeStdin`
-  * signals end-of-input — claude treats that as "no more user turns" and
-  * emits a final `result`.
+  * the caller controls. The backend writes the opening user turn (or
+  * any further input) via `writeLine` and consumes responses as they
+  * arrive from `stdoutLines`. `closeStdin` signals end-of-input — the
+  * agent CLI then emits its final result and exits. Both backends
+  * close stdin once the opening turn has been written: claude (with
+  * `--input-format stream-json`) waits for EOF before flushing the
+  * final `result`; codex `exec --json` reads its prompt argv-side
+  * and ignores stdin entirely once the spawn settles.
   *
-  * Reads on `stdoutLines` / `stderrLines` block until a line is available
-  * or the stream closes. Each iterator must be consumed by a single
-  * thread (see `orca.tools.claude.ClaudeConversation`); internal
-  * buffering of pending lines is not thread-safe across readers.
-  * Implementations memoise the iterator so repeated property accesses
-  * return the same underlying stream.
+  * Reads on `stdoutLines` / `stderrLines` block until a line is
+  * available or the stream closes. Each iterator must be consumed by
+  * a single thread; internal buffering of pending lines is not
+  * thread-safe across readers. Implementations memoise the iterator
+  * so repeated property accesses return the same underlying stream.
   */
 trait PipedCliProcess extends CliProcess:
   def writeLine(line: String): Unit

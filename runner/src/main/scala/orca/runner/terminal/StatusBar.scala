@@ -1,7 +1,6 @@
 package orca.runner.terminal
 
 import java.io.PrintStream
-import java.util.concurrent.atomic.AtomicBoolean
 
 /** A persistent single-line status indicator at the bottom of the
   * terminal, with the event log accumulating above. The status line
@@ -13,17 +12,21 @@ import java.util.concurrent.atomic.AtomicBoolean
   *     clears its current status line, writes the log line, then
   *     re-draws the status below it.
   *   - The spinner runs on its own daemon thread, calling
-  *     [[refreshFrame]] to advance the glyph in place without touching
-  *     the log.
+  *     [[refreshIfCurrent]] to advance the glyph in place without
+  *     touching the log.
   *   - When [[animated]] is false (non-TTY output, redirected stderr,
   *     CI), the bar degrades to plain inline output: every appendLog
-  *     just writes the line, and the spinner becomes a no-op. This
-  *     keeps captured logs free of ANSI escapes.
-  *   - All public methods are synchronised on `lock` so the renderer's
-  *     main thread and the spinner's animator can interleave safely.
-  *     `running` is the one field read outside the lock (the
-  *     animator's loop check), which is why it stays an atomic — the
-  *     other fields are plain `var`s under the lock.
+  *     just writes the line, and the spinner becomes a no-op.
+  *
+  * Concurrency: every field is touched only under `lock`. The animator
+  * thread's loop check also takes the lock to read state — which means
+  * `stopStatus` must release the lock *before* joining the animator
+  * (otherwise the animator's next check would deadlock waiting for the
+  * lock `stopStatus` is holding). Stale-thread races (a previous
+  * animator still alive when a fresh one starts) are prevented by the
+  * "is this thread still the recorded animator?" identity check —
+  * `animator.contains(myself)` — rather than a separate `running`
+  * flag.
   */
 private[terminal] class StatusBar(
     out: PrintStream,
@@ -32,28 +35,14 @@ private[terminal] class StatusBar(
     framePeriodMs: Long = 100L
 ):
 
-  import StatusBar.{
-    ClearLine,
-    DefaultLabel,
-    Frames,
-    MaxStatusLineWidth,
-    paint,
-    truncateForOneLine
-  }
+  import StatusBar.{ClearLine, DefaultLabel, Frames, MaxStatusLineWidth, paint}
 
   private val lock = new Object
   // `null` means "no status set"; non-null means "status visible at
-  // the current cursor row, redraw on appendLog / refresh". Touched
-  // only under `lock` so a plain var is sufficient for visibility.
+  // the current cursor row, redraw on appendLog / refresh".
   private var currentLabel: String | Null = null
   private var frameIndex: Int = 0
   private var animator: Option[Thread] = None
-  // Read outside the lock by the animator's loop, so it stays atomic
-  // for visibility. Concurrent start→stop races serialise on the
-  // lock above; in the worst case an exiting animator thread and a
-  // newly-spawned one briefly coexist, but both hold the lock to
-  // touch the terminal so no torn frames result.
-  private val running = new AtomicBoolean(false)
 
   /** Append a chunk of text to the event log above the status line.
     * The chunk may contain `\n`s; trailing newline is normalised so
@@ -95,23 +84,33 @@ private[terminal] class StatusBar(
   /** Hide the status line entirely. The cursor lands at the start of
     * the (now-cleared) status row, so subsequent writes start there.
     */
-  def stopStatus(): Unit = lock.synchronized:
-    val wasShown = currentLabel != null
-    currentLabel = null
-    if wasShown && animated then
-      out.print(ClearLine)
-      out.flush()
-    running.set(false)
-    val t = animator
-    animator = None
-    t.foreach(_.join(200))
+  def stopStatus(): Unit =
+    val toJoin = lock.synchronized:
+      val t = animator
+      animator = None
+      val wasShown = currentLabel != null
+      currentLabel = null
+      if wasShown && animated then
+        out.print(ClearLine)
+        out.flush()
+      t
+    // Join outside the lock so the animator's next loop check (which
+    // takes the lock) can observe `animator == None` and exit cleanly.
+    toJoin.foreach(_.join(200))
 
-  /** Called by the animator to redraw the spinner frame in place. */
-  private def refreshFrame(): Unit = lock.synchronized:
-    if currentLabel != null && animated then
+  /** Called by the animator on each tick — only redraws when this
+    * thread is still the recorded animator. Stale threads (left over
+    * from a stop/start race) see `animator.contains(myself) == false`
+    * and exit without touching the terminal.
+    */
+  private def refreshIfCurrent(myself: Thread): Unit = lock.synchronized:
+    if animator.contains(myself) && currentLabel != null then
       frameIndex = (frameIndex + 1) % Frames.size
       drawStatus()
       out.flush()
+
+  private def isCurrent(myself: Thread): Boolean = lock.synchronized:
+    animator.contains(myself)
 
   private def drawStatus(): Unit =
     val label = currentLabel
@@ -119,31 +118,33 @@ private[terminal] class StatusBar(
       val frame = Frames(frameIndex)
       // Truncate to a single physical row's worth so the redraw on
       // each spinner tick stays anchored to one line. Without this,
-      // a long stage name wraps the terminal, the next `\r[2K`
-      // only clears the wrapped tail, and the user sees a stack of
+      // a long stage name wraps the terminal, the next clear-line
+      // only erases the wrapped tail, and the user sees a stack of
       // partial spinner frames marching down the screen.
-      val truncated = truncateForOneLine(label, MaxStatusLineWidth - frame.length - 2)
+      val truncated = Text.oneLine(label, MaxStatusLineWidth - frame.length - 2)
       out.print(ClearLine)
       out.print(paint(s"$frame $truncated", useColor))
 
   private def ensureAnimator(): Unit =
-    if !running.getAndSet(true) then
+    if animator.isEmpty then
       val t = new Thread(() => animateLoop(), "orca-statusbar")
       t.setDaemon(true)
-      t.start()
       animator = Some(t)
+      t.start()
 
   private def animateLoop(): Unit =
-    while running.get() do
+    val myself = Thread.currentThread()
+    while isCurrent(myself) do
       Thread.sleep(framePeriodMs)
-      if running.get() then refreshFrame()
+      if isCurrent(myself) then refreshIfCurrent(myself)
 
 private[terminal] object StatusBar:
 
-  /** Carriage return + ANSI Erase-In-Line-2 (clear entire line). */
-  // The ESC byte is ``; written explicitly via the unicode
-  // escape so the constant survives copy-paste through tools that
-  // strip control characters.
+  /** Carriage return + ANSI Erase-In-Line-2 (clear entire line). The
+    * ESC character is the literal byte ``; writing it inline
+    * keeps the source readable while preserving the binary value
+    * across tool round-trips.
+    */
   private val ClearLine: String = "\r[2K"
 
   /** Default label when callers don't supply a more specific one. */
@@ -161,15 +162,5 @@ private[terminal] object StatusBar:
     */
   private val MaxStatusLineWidth: Int = 78
 
-  /** Single-line clamp: collapse all whitespace, then cut at `max`
-    * with an ellipsis. Returning a string that still ends with a
-    * partial multi-byte sequence is fine here — the only consumer is
-    * the terminal, and we render through fansi which handles UTF-8.
-    */
-  private def truncateForOneLine(s: String, max: Int): String =
-    val collapsed = s.replaceAll("\\s+", " ").trim
-    if collapsed.length <= max then collapsed
-    else s"${collapsed.take(max - 1)}…"
-
   private def paint(text: String, useColor: Boolean): String =
-    if useColor then fansi.Color.DarkGray(text).render else text
+    Ansi.paint(useColor, fansi.Color.DarkGray, text)

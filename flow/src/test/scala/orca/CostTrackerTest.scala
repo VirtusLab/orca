@@ -5,7 +5,7 @@ class CostTrackerTest extends munit.FunSuite:
   test("starts at zero and ignores non-TokensUsed events"):
     val tracker = new CostTracker
     tracker.onEvent(OrcaEvent.StageStarted("x"))
-    tracker.onEvent(OrcaEvent.LlmOutput("hi"))
+    tracker.onEvent(OrcaEvent.Step("hi"))
     assertEquals(tracker.total, Usage.empty)
 
   test("accumulates input and output tokens across multiple TokensUsed events"):

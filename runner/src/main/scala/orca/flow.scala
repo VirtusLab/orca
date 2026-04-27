@@ -51,7 +51,7 @@ def flow(
     fs: Option[FsTool] = None,
     prompts: Prompts = DefaultPrompts
 )(body: FlowContext ?=> Unit): Unit =
-  val debug = sys.env.get("ORCA_DEBUG").contains("1") || args.verbose.value
+  val debug = OrcaDebug.enabled || args.verbose.value
   // Default to a TerminalInteraction parameterised with the resolved
   // `workDir` — Scala 3 default-arg evaluation can't see prior params
   // in the same list, so the substitution happens here instead.

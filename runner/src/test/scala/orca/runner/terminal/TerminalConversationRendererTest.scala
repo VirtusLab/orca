@@ -30,6 +30,7 @@ class TerminalConversationRendererTest extends munit.FunSuite:
       // `animated = false` makes the bar plain inline writes — no
       // ANSI escapes leak into the captured buffer.
       statusBar = new StatusBar(ps, useColor = false, animated = false),
+      depth = new StageDepth,
       showThinking = showThinking,
       prompter = prompter
     )

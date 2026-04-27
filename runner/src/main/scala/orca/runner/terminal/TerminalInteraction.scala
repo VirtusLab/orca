@@ -86,15 +86,6 @@ class TerminalInteraction(
         activeStages.headOption match
           case Some(parent) => statusBar.startStatus(parent)
           case None         => statusBar.stopStatus()
-      case OrcaEvent.LlmOutput(text) =>
-        // LlmOutput is the legacy token-by-token streaming variant.
-        // It bypasses statusBar (which is line-oriented) and writes
-        // directly to `out` so partial deltas don't each become their
-        // own log line. Real backends use ConversationEvent streaming
-        // through TerminalConversationRenderer; LlmOutput is kept
-        // around for tests and any custom emitters.
-        out.print(text)
-        out.flush()
       case OrcaEvent.ToolUse(tool, args) =>
         statusBar.appendLog(
           depthCounter.contentIndent + paint(fansi.Color.DarkGray, s"  → $tool: $args")
@@ -112,8 +103,8 @@ class TerminalInteraction(
           depthCounter.contentIndent + paint(fansi.Color.Red, s"$ErrorGlyph $message")
         )
 
-  private def paint(attr: fansi.EscapeAttr, text: String): String =
-    if useColor then attr(text).render else text
+  private def paint(attr: fansi.Attrs, text: String): String =
+    Ansi.paint(useColor, attr, text)
 
 object TerminalInteraction:
   val StageStartGlyph: String = "▶"

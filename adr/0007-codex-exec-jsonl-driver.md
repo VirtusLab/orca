@@ -85,7 +85,18 @@ Concretely:
 - `CodexBackend.runHeadless` / `continueHeadless` spawn `codex exec`
   (or `codex exec resume <id>`) with `--json`, consume the JSONL
   stream, and extract `thread_id` + final `agent_message` text +
-  `usage` from `turn.completed` into an `LlmResult`.
+  `usage` from `turn.completed` into an `LlmResult`. Note the
+  divergence from ADR 0006's claude shape: claude emits an explicit
+  terminal `result` message that carries `output` / `structured_output`
+  fields the driver reads directly. Codex has no such terminal
+  message — its `turn.completed` only carries usage. The driver
+  therefore *synthesises* `LlmResult.output` by snapshotting the
+  text of the last `item.completed` of type `agent_message` seen
+  before `turn.completed`. The prompt template instructs the agent
+  to make that final message JSON-only, so the snapshot is the
+  structured payload in practice; in failure modes (the agent emits
+  prose after its JSON, or skips JSON entirely) the post-hoc
+  `ResponseParser` catches it via the corrective-retry loop.
 - `CodexBackend.runInteractive` / `continueInteractive` spawn the
   same process and wrap it in `CodexConversation`, which mirrors
   `ClaudeConversation` structurally (daemon reader, event queue,

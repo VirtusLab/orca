@@ -50,8 +50,8 @@ private[terminal] object ToolInputSummary:
           val displayed =
             if PathFields.contains(field) then relativise(value, workDir)
             else value
-          s"(${truncate(displayed, maxLength)})"
-        case None => truncate(collapsed, maxLength)
+          s"(${Text.truncate(displayed, maxLength)})"
+        case None => Text.truncate(collapsed, maxLength)
 
   /** Convert an absolute path under `workDir` into a relative one;
     * leave anything else (relative paths, paths outside `workDir`,
@@ -68,8 +68,6 @@ private[terminal] object ToolInputSummary:
   private def collapseWhitespace(raw: String): String =
     raw.replaceAll("\\s+", " ").trim
 
-  private def truncate(s: String, maxLength: Int): String =
-    if s.length <= maxLength then s else s"${s.take(maxLength)}…"
 
   /** Matches a `"field":"value"` entry and walks the value honouring
     * `\"` / `\\` escapes. Returns `None` if the field isn't present

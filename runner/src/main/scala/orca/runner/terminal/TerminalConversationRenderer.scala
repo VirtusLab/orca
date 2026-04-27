@@ -37,7 +37,7 @@ private[terminal] class TerminalConversationRenderer(
     out: PrintStream,
     useColor: Boolean,
     statusBar: StatusBar,
-    depth: StageDepth = new StageDepth,
+    depth: StageDepth,
     workDir: Option[os.Path] = None,
     showThinking: Boolean = false,
     prompter: TerminalConversationRenderer.Prompter =
@@ -137,7 +137,7 @@ private[terminal] class TerminalConversationRenderer(
     enterSection(Section.Tool)
     val glyph = if ok then ToolResultGlyph else ToolErrorGlyph
     val style = if ok then ToolResultStyle else ErrorStyle
-    appendBlock(paint(style, s"  $glyph ${truncate(content, MaxInlineContentLength)}"))
+    appendBlock(paint(style, s"  $glyph ${Text.oneLine(content, MaxInlineContentLength)}"))
 
   private def renderError(message: String): Unit =
     enterSection(Section.Prose)
@@ -256,13 +256,9 @@ private[terminal] class TerminalConversationRenderer(
         withoutLeadingNewline.dropRight(3).stripSuffix("\n")
       else withoutLeadingNewline
 
-  private def truncate(raw: String, maxLength: Int): String =
-    val collapsed = raw.replaceAll("\\s+", " ").trim
-    if collapsed.length <= maxLength then collapsed
-    else s"${collapsed.take(maxLength)}…"
 
   private def paint(attr: fansi.Attrs, text: String): String =
-    if useColor then attr(text).render else text
+    Ansi.paint(useColor, attr, text)
 
 private[terminal] object TerminalConversationRenderer:
   val MaxInlineInputLength: Int = 120

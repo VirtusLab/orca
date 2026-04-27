@@ -30,10 +30,6 @@ class TerminalInteractionTest extends munit.FunSuite:
       s"StageCompleted must not render to the event log; got: $output"
     )
 
-  test("LlmOutput is streamed verbatim without a newline appended"):
-    val output = renderEvents(List(OrcaEvent.LlmOutput("hello ")))
-    assertEquals(output, "hello ")
-
   test("Step events render as a single ▶ line, no closing ✔"):
     val output = renderEvents(
       List(

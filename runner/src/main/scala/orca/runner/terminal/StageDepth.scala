@@ -1,37 +1,35 @@
 package orca.runner.terminal
 
-import java.util.concurrent.atomic.AtomicInteger
-
-/** Shared mutable depth counter consulted by both [[TerminalInteraction]]
-  * (the OrcaEvent stage renderer) and [[TerminalConversationRenderer]]
-  * (the per-conversation renderer). Each `StageStarted` event pushes the
-  * counter; each `StageCompleted` pops it. The counter then dictates how
-  * many leading spaces every printed line gets — nested stages indent
-  * their content under the enclosing stage marker.
+/** Mutable depth counter consulted by [[TerminalInteraction]] (the
+  * OrcaEvent stage listener) and [[TerminalConversationRenderer]]
+  * (the per-conversation renderer). Each `StageStarted` event pushes
+  * the counter; each `StageCompleted` pops it. The counter dictates
+  * how many leading spaces every printed line gets — nested stages
+  * indent their content under the enclosing stage marker.
   *
-  * `current` is the depth of the *content* under the most recent open
-  * stage; the stage's own glyph line sits one level shallower.
+  * Single-threaded: stage events flow from the listener thread, and
+  * the conversation renderer drives [[Conversation.events]] from the
+  * same flow-main thread (`interaction.drive` is synchronous). A
+  * plain `var` is sufficient — no atomics needed.
   */
 private[terminal] class StageDepth:
-  private val depth = new AtomicInteger(0)
+  private var depth: Int = 0
 
-  /** Increment after a `StageStarted` is rendered (so the stage marker
-    * itself uses the pre-increment depth and its content the post-).
+  /** Increment after a `StageStarted` is rendered. Stage markers
+    * print *before* the matching push (and after the matching pop on
+    * close), so opening and closing markers align with the parent
+    * stage's content indent.
     */
-  def push(): Unit =
-    val _ = depth.incrementAndGet()
+  def push(): Unit = depth += 1
 
-  /** Decrement before a `StageCompleted` is rendered (so the closing
-    * marker aligns with its opening one).
+  /** Decrement before a `StageCompleted` is rendered. Clamped at zero
+    * so a stray `pop` from a malformed event stream can't wrap into
+    * a giant indent.
     */
-  def pop(): Unit =
-    val _ = depth.updateAndGet(d => math.max(0, d - 1))
+  def pop(): Unit = depth = math.max(0, depth - 1)
 
   /** Indent string for the current depth. Two spaces per level — tight
     * enough that deeply-nested flows don't march off the right edge,
-    * visible enough to separate stages. Stage markers print at this
-    * indent before the matching push (start) or after the matching pop
-    * (end), so opening and closing markers align with each other and
-    * with the parent stage's content lines.
+    * visible enough to separate stages.
     */
-  def contentIndent: String = "  " * depth.get()
+  def contentIndent: String = "  " * depth

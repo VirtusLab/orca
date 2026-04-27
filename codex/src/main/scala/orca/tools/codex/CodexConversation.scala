@@ -1,33 +1,24 @@
 package orca.tools.codex
 
-import orca.{
-  Backend,
-  Conversation,
-  ConversationEvent,
-  LlmResult,
-  OrcaFlowException,
-  OrcaInteractiveCancelled,
-  SessionId,
-  Usage
-}
-import orca.subprocess.PipedCliProcess
+import orca.{Backend, ConversationEvent, LlmResult, OrcaFlowException, SessionId, Usage}
+import orca.subprocess.{PipedCliProcess, StreamConversation}
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
-import java.util.concurrent.LinkedBlockingQueue
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
-import scala.util.control.NonFatal
+import java.util.concurrent.atomic.AtomicReference
 
-/** Drives a `codex exec --json` session to completion. Owns the
-  * subprocess, a daemon reader thread that parses JSONL events, and
-  * the event queue the channel consumes. Mirrors [[orca.tools.claude.ClaudeConversation]]
-  * structurally; the differences are downstream of the codex JSONL
-  * protocol (see [[../../../adr/0007-codex-exec-jsonl-driver.md ADR
-  * 0007]] for the probe findings).
+/** Drives a `codex exec --json` session to completion.
   *
-  * Notable parity gaps vs. claude:
+  * Boilerplate (reader thread, event queue, outcome lifecycle, stderr
+  * drain) lives in [[StreamConversation]]; this class supplies the
+  * codex-specific protocol translation: JSONL → [[InboundEvent]] →
+  * `ConversationEvent`s.
+  *
+  * Notable parity gaps vs. claude (deliberate, driven by codex's
+  * JSONL protocol — see [[../../../adr/0007-codex-exec-jsonl-driver.md
+  * ADR 0007]]):
   *   - codex emits whole `agent_message` items, not per-token deltas.
   *     Each agent message becomes one [[ConversationEvent.AssistantTextDelta]]
   *     followed by [[ConversationEvent.AssistantTurnEnd]].
@@ -39,135 +30,87 @@ import scala.util.control.NonFatal
   *     spawning a fresh `codex exec resume`. So `sendUserMessage` is a
   *     no-op (write to a closed pipe) — the channel reaches the next
   *     turn via [[orca.LlmBackend.continueInteractive]].
+  *   - **`LlmResult.output` is synthesised, not delivered.** ADR 0006's
+  *     "the final result message carries the structured output"
+  *     description fits claude (an explicit `result` line on stdout
+  *     with a `result` field). codex has no equivalent terminal
+  *     message — it just emits `turn.completed` with usage. We treat
+  *     the *last* `item.completed` of type `agent_message` before
+  *     `turn.completed` as the structured payload, snapshotting its
+  *     text into [[lastAgentMessage]] on every agent message and
+  *     building the `LlmResult` from that snapshot when the turn
+  *     closes. The `DefaultPromptTemplate` already instructs the
+  *     agent to make its final message JSON-only, so the snapshot
+  *     contract holds in practice.
   */
 private[codex] class CodexConversation(
     process: PipedCliProcess,
     initialPrompt: String = ""
-) extends Conversation[Backend.Codex.type]:
+) extends StreamConversation[Backend.Codex.type](
+      process = process,
+      backendName = "codex",
+      initialPrompt = initialPrompt
+    ):
 
   import CodexConversation.*
+  import StreamConversation.Outcome
 
-  private val eventQueue = new EventQueue
   private val sessionIdRef = new AtomicReference[String]("")
-  private val outcomeRef = new AtomicReference[Option[Outcome]](None)
-  private val cancelled = new AtomicBoolean(false)
-  /** The most recent agent_message text the model produced. codex
-    * doesn't tag a "final" message; the convention from the probes is
-    * that the message immediately preceding `turn.completed` is the
-    * structured payload. We keep updating this on every agent_message
-    * and snapshot it when `turn.completed` arrives.
+  /** The most recent agent_message text the model produced. See
+    * the class scaladoc for why we synthesise rather than receive.
     */
   private val lastAgentMessage = new AtomicReference[String]("")
 
-  // Surface the opening prompt so the channel has something to anchor
-  // the eventual agent response against. Same shape as ClaudeConversation.
-  if initialPrompt.nonEmpty then
-    eventQueue.enqueue(ConversationEvent.UserMessage(initialPrompt))
-
-  private val readerThread: Thread =
-    val t = new Thread(() => readLoop(), "codex-conversation-reader")
-    t.setDaemon(true)
-    t.start()
-    t
-
-  /** Stderr drain. codex emits a benign "Reading additional input from
-    * stdin..." line on every session; that's filtered out. Real errors
-    * (auth failures, resume failures, protocol issues) surface as
-    * [[ConversationEvent.Error]]s.
-    */
-  private val stderrThread: Thread =
-    val t = new Thread(() => stderrLoop(), "codex-conversation-stderr")
-    t.setDaemon(true)
-    t.start()
-    t
-
   // --- Conversation surface ---
 
-  def events: Iterator[ConversationEvent] = eventQueue.iterator
-
-  def awaitResult(): Either[OrcaInteractiveCancelled, LlmResult[Backend.Codex.type]] =
-    readerThread.join()
-    outcomeRef.get() match
-      case Some(Outcome.Success(r)) => Right(r)
-      case Some(Outcome.Cancelled)  => Left(new OrcaInteractiveCancelled())
-      case Some(Outcome.Failed(e))  => throw e
-      case None =>
-        throw new OrcaFlowException(
-          "codex interactive session ended without producing a result"
-        )
-
-  /** Codex exec consumes its prompt argv-side and closes stdin after
-    * EOF, so injecting more user turns mid-session isn't supported.
-    * The contract still requires a callable method; this is a no-op.
+  /** Codex exec consumes its prompt argv-side and ignores stdin
+    * thereafter; injecting more user turns mid-session isn't
+    * supported. The contract still requires a callable method —
+    * this is a no-op.
     */
   def sendUserMessage(text: String): Unit = ()
 
-  def cancel(): Unit =
-    if cancelled.compareAndSet(false, true) then
-      process.sendSigInt()
+  // --- Reader hooks ---
 
-  // --- Reader thread ---
-
-  /** Debug switch: set `ORCA_DEBUG_STREAM=1` to dump every inbound
-    * stdout / stderr line verbatim before parsing — same lever as the
-    * claude driver.
-    */
-  private val debugStream: Boolean =
-    sys.env.get("ORCA_DEBUG_STREAM").contains("1")
-
-  private def debugLog(channel: String, line: String): Unit =
-    if debugStream then
-      System.err.println(s"[orca-debug $channel] $line")
-
-  private def readLoop(): Unit =
-    try
-      for line <- process.stdoutLines do
-        debugLog("stdout", line)
-        if !cancelled.get() then handleLine(line)
-    catch
-      case NonFatal(e) =>
-        debugLog("stdout-error", e.toString)
-        val _ = outcomeRef.compareAndSet(None, Some(Outcome.Failed(e)))
-    finally finalizeLoop()
-
-  private def stderrLoop(): Unit =
-    try
-      for line <- process.stderrLines do
-        debugLog("stderr", line)
-        if isReportableStderr(line) then
-          eventQueue.enqueue(ConversationEvent.Error(s"codex: ${line.trim}"))
-    catch case NonFatal(_) => () // stderr draining is best-effort
+  override protected def handleLine(line: String): Unit =
+    handle(InboundEvent.parse(line))
 
   /** codex prints `Reading additional input from stdin...` on every
     * exec invocation when stdin is piped (regardless of whether we
-    * actually feed it anything). It's pure noise; skip it. Empty
-    * lines too.
+    * actually feed it anything). Filter that and empty lines; pass
+    * the rest through with the default backend-prefixed Error event.
     */
-  private def isReportableStderr(line: String): Boolean =
+  override protected def handleStderr(line: String): Unit =
     val trimmed = line.trim
-    trimmed.nonEmpty &&
-      !trimmed.startsWith("Reading additional input from stdin")
+    if trimmed.nonEmpty &&
+       !trimmed.startsWith("Reading additional input from stdin")
+    then
+      eventQueue.enqueue(ConversationEvent.Error(s"codex: $trimmed"))
 
-  private def handleLine(line: String): Unit =
-    try handle(InboundEvent.parse(line))
-    catch
-      case e: Exception =>
-        eventQueue.enqueue(
-          ConversationEvent.Error(
-            s"Failed to parse codex JSONL line: ${e.getMessage}"
-          )
-        )
+  /** Bounded wait for the stderr drain so any trailing error lines
+    * (which the consumer can't see once we close the queue) reach
+    * the events queue. The cap is short — by the time stdout EOFs,
+    * the process has exited and stderr should EOF nearly
+    * simultaneously; if it doesn't, we'd rather lose a late stderr
+    * line than hold `awaitResult` hostage on a stalled child.
+    */
+  override protected def onFinalize(): Unit =
+    try stderrDrainThread.join(StderrDrainTimeoutMs)
+    catch case _: InterruptedException => ()
+
+  override protected def cleanExitWithoutResult(): Throwable =
+    new OrcaFlowException(
+      "codex exited cleanly but never sent a turn.completed event"
+    )
+
+  // --- Per-event dispatch ---
 
   private def handle(event: InboundEvent): Unit = event match
-    case InboundEvent.ThreadStarted(threadId) =>
-      sessionIdRef.set(threadId)
-    case InboundEvent.TurnStarted => ()
-    case InboundEvent.TurnCompleted(usage) =>
-      handleTurnCompleted(usage)
-    case InboundEvent.ItemStarted(item) =>
-      handleItemStarted(item)
-    case InboundEvent.ItemCompleted(item) =>
-      handleItemCompleted(item)
+    case InboundEvent.ThreadStarted(threadId) => sessionIdRef.set(threadId)
+    case InboundEvent.TurnStarted             => ()
+    case InboundEvent.TurnCompleted(usage)    => handleTurnCompleted(usage)
+    case InboundEvent.ItemStarted(item)       => handleItemStarted(item)
+    case InboundEvent.ItemCompleted(item)     => handleItemCompleted(item)
     case InboundEvent.Unknown(_) =>
       // Forward-compat: codex may add new top-level event types; drop
       // them silently rather than rendering ✖.
@@ -228,35 +171,6 @@ private[codex] class CodexConversation(
     )
     val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
 
-  private def finalizeLoop(): Unit =
-    val finalOutcome = outcomeRef.get() match
-      case Some(existing) => existing
-      case None if cancelled.get() => Outcome.Cancelled
-      case None => outcomeFromExit(process.tryExitCode)
-    val _ = outcomeRef.compareAndSet(None, Some(finalOutcome))
-    // Bounded wait for the stderr drain so any trailing error lines
-    // (which the consumer can't see once we close the queue) reach
-    // the events queue. The cap is short — by the time stdout EOFs,
-    // the process has exited and stderr should EOF nearly
-    // simultaneously; if it doesn't, we'd rather lose a late
-    // stderr line than hold `awaitResult` hostage on a stalled child.
-    try stderrThread.join(StderrDrainTimeoutMs)
-    catch case _: InterruptedException => ()
-    eventQueue.close()
-
-  private def outcomeFromExit(exitCode: Option[Int]): Outcome = exitCode match
-    case Some(0) =>
-      Outcome.Failed(
-        new OrcaFlowException(
-          "codex exited cleanly but never sent a turn.completed event"
-        )
-      )
-    case Some(code) =>
-      Outcome.Failed(
-        new OrcaFlowException(s"codex exited with code $code")
-      )
-    case None => Outcome.Cancelled
-
   private def toWire(c: FileChangeDetail): FileChangeWire =
     FileChangeWire(c.path, c.kind)
 
@@ -268,12 +182,6 @@ private[codex] object CodexConversation:
     * `awaitResult`.
     */
   private val StderrDrainTimeoutMs: Long = 500L
-
-  /** Internal outcome of the session as the reader sees it. */
-  private enum Outcome:
-    case Success(result: LlmResult[Backend.Codex.type])
-    case Cancelled
-    case Failed(error: Throwable)
 
   /** Synthetic JSON the driver hands the renderer for `bash` tool
     * calls — codex's `command_execution` items don't natively carry
@@ -288,33 +196,3 @@ private[codex] object CodexConversation:
 
   private case class FileChangeInput(changes: List[FileChangeWire])
       derives ConfiguredJsonValueCodec
-
-  /** Blocking queue + single-consumer iterator. `close()` signals
-    * end-of-stream. Mirrors the claude implementation.
-    */
-  private final class EventQueue:
-    private val queue = new LinkedBlockingQueue[Option[ConversationEvent]]()
-
-    def enqueue(event: ConversationEvent): Unit =
-      val _ = queue.offer(Some(event))
-
-    def close(): Unit =
-      val _ = queue.offer(None)
-
-    val iterator: Iterator[ConversationEvent] = new Iterator[ConversationEvent]:
-      // Single-consumer per the Conversation contract; a plain `var`
-      // with a null sentinel is enough. The three states are:
-      //   null      — nothing peeked yet (will block on next `hasNext`)
-      //   Some(e)   — peeked event, returned by next `next()`
-      //   None      — stream closed, `hasNext` stays false forever
-      private var peeked: Option[ConversationEvent] = null
-
-      def hasNext: Boolean =
-        if peeked == null then peeked = queue.take()
-        peeked.isDefined
-
-      def next(): ConversationEvent =
-        if !hasNext then throw new NoSuchElementException("event stream closed")
-        val value = peeked.get
-        peeked = null
-        value
