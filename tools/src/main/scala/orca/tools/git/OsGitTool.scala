@@ -26,6 +26,28 @@ class OsGitTool(
     val _ = git("checkout", name)
     emit(OrcaEvent.Step(s"Switched to branch '$name'"))
 
+  def checkoutOrCreate(name: String): Unit =
+    if currentBranch() == name then
+      // Already on the target — no work to do, no event to emit.
+      ()
+    else
+      val exists = git("branch", "--list", name).trim.nonEmpty
+      if exists then checkout(name)
+      else createBranch(name)
+
+  def ensureClean(stashMessage: String): Boolean =
+    val dirty = git("status", "--porcelain").trim.nonEmpty
+    if dirty then
+      val _ = git("stash", "push", "-u", "-m", stashMessage)
+      emit(
+        OrcaEvent.Step(
+          s"Working tree wasn't clean — stashed pending changes ($stashMessage). Recover with `git stash pop`."
+        )
+      )
+      true
+    else
+      false
+
   def commit(message: String): Unit =
     val _ = git("add", "-A")
     val _ = git("commit", "-m", message)

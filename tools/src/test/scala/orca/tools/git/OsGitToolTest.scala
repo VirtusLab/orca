@@ -118,6 +118,53 @@ class OsGitToolTest extends munit.FunSuite:
       val branches = git.listWorktrees().map(_.branch).toSet
       assert(!branches.contains("feature/gone"))
 
+  test("checkoutOrCreate creates a missing branch"):
+    withRepo: (git, dir) =>
+      os.write(dir / "x.txt", "x")
+      git.commit("seed")
+      git.checkoutOrCreate("feature/new")
+      assertEquals(git.currentBranch(), "feature/new")
+
+  test("checkoutOrCreate switches to an existing branch"):
+    withRepo: (git, dir) =>
+      os.write(dir / "x.txt", "x")
+      git.commit("seed")
+      git.createBranch("feature/existing")
+      git.checkout("main")
+      git.checkoutOrCreate("feature/existing")
+      assertEquals(git.currentBranch(), "feature/existing")
+
+  test("checkoutOrCreate is a no-op (no event) when already on the target branch"):
+    withRepoCapturingEvents: (git, dir, seen) =>
+      os.write(dir / "x.txt", "x")
+      git.commit("seed")
+      git.createBranch("feature/here")
+      val before = seen.get().size
+      git.checkoutOrCreate("feature/here")
+      assertEquals(seen.get().size, before, "no new events should fire")
+
+  test("ensureClean returns false on a clean tree"):
+    withRepo: (git, dir) =>
+      os.write(dir / "x.txt", "x")
+      git.commit("seed")
+      assertEquals(git.ensureClean("test stash"), false)
+
+  test("ensureClean stashes pending changes and emits a Step"):
+    withRepoCapturingEvents: (git, dir, seen) =>
+      os.write(dir / "x.txt", "initial")
+      git.commit("seed")
+      os.write.over(dir / "x.txt", "dirty")
+      val stashed = git.ensureClean("orca: pre-flow")
+      assertEquals(stashed, true)
+      assertEquals(git.diff().trim, "")
+      val steps = seen.get().reverse.collect {
+        case orca.OrcaEvent.Step(msg) => msg
+      }
+      assert(
+        steps.exists(_.contains("Working tree wasn't clean")),
+        s"expected a stash Step; got: $steps"
+      )
+
   test("createBranch / commit / checkout each emit a Step event"):
     withRepoCapturingEvents: (git, dir, seen) =>
       os.write(dir / "seed.txt", "x")

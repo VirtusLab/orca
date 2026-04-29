@@ -15,6 +15,14 @@ trait GitTool:
   def createBranch(name: String): Unit
   def checkout(name: String): Unit
 
+  /** Switch to `name`, creating it from `HEAD` if it doesn't exist
+    * yet. Idempotent: calling on the current branch is a no-op (no
+    * `Step` event emitted in that case). Useful for resumable flows
+    * that may run against a repo where the branch was already
+    * created on a previous attempt.
+    */
+  def checkoutOrCreate(name: String): Unit
+
   /** Stage all tracked + untracked changes, then commit them with `message`.
     * Flow scripts rarely want to manage the index separately, so staging is
     * part of the commit contract.
@@ -30,6 +38,17 @@ trait GitTool:
   def diff(): String
 
   def log(n: Int = 10): List[CommitInfo]
+
+  /** Verify the working tree is clean. If it isn't, `git stash push`
+    * with the supplied message and emit a `Step` event so the user
+    * can recover the changes later via `git stash pop`. Used by
+    * resumable flows that need a known-clean starting state without
+    * silently destroying the user's work-in-progress.
+    *
+    * Returns `true` if a stash was created, `false` if the tree was
+    * already clean.
+    */
+  def ensureClean(stashMessage: String): Boolean
 
   /** Create a linked worktree at `path` on `branch`. If the branch already
     * exists it is checked out in the new worktree; otherwise it is created from

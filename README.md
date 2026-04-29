@@ -39,22 +39,7 @@ Save this as `ship.sc` and run it with your task:
 //> using jvm 21
 
 import orca.{*, given}
-
-/** A single task in the plan. `summary` is a short user-facing label
-  * (used for the implement-stage name and the printed plan list);
-  * `prompt` is the longer instruction sent verbatim to the LLM.
-  * Splitting them keeps stage-name lines short while letting the
-  * prompt carry whatever detail the model needs. Aim for `summary`
-  * around 60 characters — anything longer truncates in the status
-  * bar (and crowds the event log).
-  */
-case class Task(
-    branchName: String,
-    summary: String,
-    prompt: String
-) derives JsonData
-
-case class Plan(tasks: List[Task]) derives JsonData
+import orca.plan.simple.{Plan, Task}
 
 // `args` is scala-cli's script argv; `OrcaArgs.from` parses the
 // positional prompt and flags. Pass `OrcaArgs()` for scripts that take
@@ -65,11 +50,10 @@ flow(OrcaArgs.from(args.toSeq)):
   val (sessionId, plan) = stage("Creating a development plan"):
     claude.resultAs[Plan].interactive(userPrompt)
 
-  // The terminal renderer suppresses the agent's raw JSON payload; the
-  // flow prints the parsed plan in human-readable form instead.
-  println(s"● Planned branch: ${plan.tasks.headOption.map(_.branchName).getOrElse("(none)")}")
-  println(s"● Defined ${plan.tasks.size} task(s):")
-  plan.tasks.foreach(t => println(s"  - ${t.summary}"))
+  // The terminal renderer suppresses the agent's raw JSON payload;
+  // `logTo` surfaces the parsed plan via the event bus so it lands in
+  // whichever channel the flow is wired to (terminal, Slack, HTTP).
+  plan.logTo
 
   // 2. Implement each task on its own branch and review locally.
   for task <- plan.tasks do
