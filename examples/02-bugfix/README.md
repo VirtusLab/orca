@@ -43,6 +43,15 @@ agent makes up front.
 - The repo has a CI workflow that runs the relevant test suite.
 - `com.virtuslab::orca:0.1.0-SNAPSHOT` published locally (`sbt publishLocal`).
 
+## Seeded test project
+
+The sibling [`create-test-project.sh`](create-test-project.sh)
+copies a Calculator project (with a naïve `add` that overflows on
+`Integer.MIN_VALUE`) plus a minimal `.github/workflows/ci.yml`
+from [`test-project/`](test-project/) into a temp dir. Push it to
+a real GitHub repo (the script prints the `gh repo create` line)
+so the flow can open a PR and watch CI.
+
 ## Run
 
 ```bash

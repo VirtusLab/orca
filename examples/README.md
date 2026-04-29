@@ -17,14 +17,20 @@ All three examples expect:
 - `claude` CLI logged in (`claude auth login` — see the
   [repo root README](../README.md#authenticating-the-coding-agents)).
 - Orca published locally: `cd <orca-sandbox> && sbt publishLocal`.
-- A target project. The seed script
-  [`create-test-project.sh`](create-test-project.sh) creates a tiny
-  Java calculator project useful for smoke-testing examples 01 and 03:
+- A target project. Each example ships a `create-test-project.sh`
+  next to its flow script that copies a tiny Java calculator
+  starter (in the example's `test-project/` directory) into a
+  temp dir and inits git. Edit the seed files there, not the
+  script, if you want a different starter:
 
   ```bash
-  ./examples/create-test-project.sh /tmp/orca-demo
-  cd /tmp/orca-demo
+  ./examples/01-simple/create-test-project.sh
+  # or pass an explicit destination:
+  ./examples/01-simple/create-test-project.sh /tmp/orca-demo
   ```
+
+  Each script prints the next-step command (a `scala-cli run` of
+  the example's `.sc` file) when it's done.
 
 Example 02 additionally needs:
 

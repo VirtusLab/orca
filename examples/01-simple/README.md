@@ -31,16 +31,22 @@ Use this when the task is small enough to finish in one session.
   sbt publishLocal
   ```
 
-- A target project to run against. The seed script
-  [`examples/create-test-project.sh`](../create-test-project.sh)
-  creates a tiny Java project for smoke-testing:
+- A target project to run against. The sibling
+  [`create-test-project.sh`](create-test-project.sh) seeds a
+  tiny Java calculator from the [`test-project/`](test-project/)
+  directory into a temp dir and inits git:
 
   ```bash
-  ./examples/create-test-project.sh /tmp/orca-demo
-  cd /tmp/orca-demo
+  ./examples/01-simple/create-test-project.sh
+  # → "Test project ready at: /tmp/orca-01-simple-…"
   ```
 
+  Edit `test-project/` if you want a different starter.
+
 ## Run
+
+The seed script prints the exact `scala-cli run` line to invoke;
+in shape it's:
 
 ```bash
 scala-cli run <path-to-orca>/examples/01-simple/ship.sc -- \

@@ -108,6 +108,10 @@ becomes "we trust your file" — useful for handcrafted epics.
 - `claude` and `codex` CLIs both logged in (see the repo root
   README for auth setup).
 - `com.virtuslab::orca:0.1.0-SNAPSHOT` published locally (`sbt publishLocal`).
+- A target project. The sibling
+  [`create-test-project.sh`](create-test-project.sh) copies a
+  Calculator starter from [`test-project/`](test-project/) into
+  a temp dir and inits git.
 
 ## Run
 
