@@ -1,10 +1,12 @@
-# Example 03 — extended planning with a resumable plan file
+# Example 03 — multi-agent review on a resumable plan
 
-A more involved flow than [01-simple](../01-simple/): the plan lives
-on disk in a file the human can read, edit before running, and
-inspect mid-flow. Crashes don't lose progress — each task's `[x]`
-checkbox is committed before the next one starts, and a re-run
-picks up where the previous run stopped.
+A more involved flow than [01-simple](../01-simple/): the plan
+lives on disk in a file the human can read, edit before running,
+and inspect mid-flow; and after each task lands, both Claude and
+Codex review the result in parallel. Crashes don't lose
+progress — each task's `[x]` checkbox is committed before the
+next one starts, and a re-run picks up where the previous run
+stopped.
 
 ## When to reach for this
 
@@ -12,6 +14,9 @@ picks up where the previous run stopped.
   visibility into what's planned before hitting "go".
 - The agent might fail partway through (long sequences, flaky
   tools, cost ceilings). Resume should be free.
+- One model's blind spots shouldn't decide whether a task ships.
+  Cross-backend review is cheap insurance against a single
+  vendor's failure modes.
 - A reviewer wants to read the plan as a markdown document, not a
   JSON blob.
 
@@ -58,12 +63,27 @@ splice it into their own custom planner prompt can.
 4. **For each incomplete task**:
    - `claude.continueSession(sessionId, task.prompt)`.
    - `git.commit("task: <name>")`.
-   - `Plan.persistComplete(file, task.name)` — flips the checkbox in
-     `dev.md` so a future run skips this task.
+   - `reviewAndFixLoop(...)` with reviewers
+     `defaultReviewers(claude) ++ defaultReviewers(codex)` —
+     both backends run all five canonical reviewer dimensions
+     (performance, readability, test coverage, code
+     functionality, abstraction) in parallel; fixes go back
+     through the original Claude session.
+   - `Plan.persistComplete(file, task.name)` — flips the checkbox
+     in `dev.md` so a future run skips this task.
 5. **Update documentation** — agent updates README / doc-comments
    to reflect the changes, and commits.
 6. **Remove plan file** — `os.remove(devMd)`, committed as the
    final cleanup.
+
+## Why two backends?
+
+A single backend's reviewer is a strong filter, not a perfect
+one. The same model that wrote the code is unlikely to flag the
+class of mistakes its training distribution makes. Running the
+review prompt against a second backend (`codex`) on the same
+diff is a cheap way to widen coverage: when the two backends
+disagree, that's the interesting case worth surfacing.
 
 ## Resume semantics
 
@@ -80,14 +100,16 @@ becomes "we trust your file" — useful for handcrafted plans.
 
 ## Prerequisites
 
-- JDK 21+, scala-cli, `claude` logged in.
+- JDK 21+, scala-cli.
+- `claude` and `codex` CLIs both logged in (see the repo root
+  README for auth setup).
 - `com.virtuslab::orca:0.1.0-SNAPSHOT` published locally (`sbt publishLocal`).
 
 ## Run
 
 ```bash
 cd <project>
-scala-cli run <orca-sandbox>/examples/03-extended-planning/dev.sc -- \
+scala-cli run <orca-sandbox>/examples/03-multi-agent-review/dev.sc -- \
   "Add a divide method to Calculator with full test coverage"
 ```
 
@@ -95,7 +117,8 @@ scala-cli run <orca-sandbox>/examples/03-extended-planning/dev.sc -- \
 
 The renderer's status bar shows the current stage. The event log
 shows each task's start, the agent's tool calls (file reads, edits,
-tests), and any Step events from `git` and the loop machinery
-(branch switches, plan-file reuse, etc.). When something fails, the
-plan file's checkboxes are the truth — anything still `[ ]` will run
-on the next attempt.
+tests), the parallel reviewer turns from both backends, and any
+Step events from `git` and the loop machinery (branch switches,
+plan-file reuse, etc.). When something fails, the plan file's
+checkboxes are the truth — anything still `[ ]` will run on the
+next attempt.

@@ -2,14 +2,24 @@
 //> using repository ivy2Local
 //> using jvm 21
 
-/** Extended planning flow with a markdown-backed, resumable plan.
+/** Cross-agent review on a resumable, on-disk plan.
   *
-  * The plan lives in `dev.md` at the root of the working directory.
-  * On a fresh run the agent generates it; on a resume the existing
-  * file is reused and execution restarts from the first incomplete
-  * task. Each task's `Status: [x]` checkbox is committed back to
-  * `dev.md` after the task lands, so a crash mid-flow doesn't lose
-  * progress.
+  * Two layers are stacked here:
+  *
+  * 1. **The plan is on disk.** `dev.md` at the working-directory
+  *    root holds the task list; on a fresh run the agent
+  *    generates it, on a resume the existing file is reused and
+  *    execution restarts from the first incomplete task. Each
+  *    task's `Status: [x]` checkbox is committed back to `dev.md`
+  *    as the task lands, so a crash mid-flow loses no progress.
+  *
+  * 2. **Each task is reviewed by both backends.** After Claude
+  *    implements a task, `defaultReviewers(claude)` *and*
+  *    `defaultReviewers(codex)` run in parallel against the same
+  *    diff. Disagreement is the point — when one backend misses a
+  *    bug the other catches, the task doesn't ship until the
+  *    agent has fixed it. This needs both `claude` and `codex`
+  *    CLIs logged in.
   *
   * At the end of a successful run the documentation step updates
   * the project README based on what changed, and the plan file is
@@ -18,7 +28,7 @@
   * Run from the project's working directory:
   *
   * ```bash
-  * scala-cli run <orca-sandbox>/examples/03-extended-planning/dev.sc -- \
+  * scala-cli run <orca-sandbox>/examples/03-multi-agent-review/dev.sc -- \
   *   "Add a divide method to Calculator with full test coverage"
   * ```
   */
@@ -58,6 +68,14 @@ flow(OrcaArgs(args)):
        |on.""".stripMargin
   )
 
+  // Cross-agent reviewer set: each canonical reviewer dimension
+  // (performance, readability, test coverage, code functionality,
+  // abstraction) runs once on Claude and once on Codex, all in
+  // parallel inside `reviewAndFixLoop`. Fixes go back through the
+  // same Claude session that did the implementation.
+  val reviewers: List[LlmTool[?]] =
+    defaultReviewers(claude) ++ defaultReviewers(codex)
+
   // Loop while there's still an incomplete task. We re-read the
   // plan after each task so persisted completion markers shape
   // the next iteration even on resume.
@@ -67,6 +85,12 @@ flow(OrcaArgs(args)):
     stage(s"Implement task: ${task.name}"):
       val _ = claude.continueSession(sessionId, task.prompt)
       git.commit(s"task: ${task.name}")
+      reviewAndFixLoop(
+        coder = claude,
+        sessionId = sessionId,
+        reviewers = reviewers,
+        task = task.name
+      )
       Plan.persistComplete(planFile, task.name)
     currentPlan = Plan.parse(os.read(planFile))
 
