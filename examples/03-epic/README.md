@@ -110,16 +110,25 @@ becomes "we trust your file" — useful for handcrafted epics.
 - `com.virtuslab::orca:0.1.0-SNAPSHOT` published locally (`sbt publishLocal`).
 - A target project. The sibling
   [`create-test-project.sh`](create-test-project.sh) copies a
-  Calculator starter from [`test-project/`](test-project/) into
-  a temp dir and inits git.
+  tiny todo-CLI starter from [`test-project/`](test-project/)
+  into a temp dir and inits git. The starter is deliberately
+  feature-incomplete (no persistence, no `done`/`delete`,
+  no priorities) so the example prompt below decomposes
+  into several tasks rather than one.
 
 ## Run
 
 ```bash
 cd <project>
 scala-cli run <orca-sandbox>/examples/03-epic/epic.sc -- \
-  "Add a divide method to Calculator with full test coverage"
+  "Persist tasks to a JSON file at ~/.todo/tasks.json (load on startup, save on every change), \
+   add 'done <id>' and 'delete <id>' commands, and support priority levels (low/medium/high) \
+   with a 'list --priority' filter"
 ```
+
+The agent should plan something like four tasks (persistence,
+the two new commands, the priority field + filter) before it
+starts implementing.
 
 ## Watching it work
 

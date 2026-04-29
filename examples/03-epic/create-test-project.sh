@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 #
-# Seeds the calculator scratch project for example 03-epic into a temp
-# directory (or a path you supply) and inits a git repo. The epic flow
-# generates `epic.md` on first run and resumes from it on re-runs, so
-# the seed itself stays plain — same shape as the 01-simple starter.
+# Seeds the todo-cli scratch project for example 03-epic into a temp
+# directory (or a path you supply) and inits a git repo. The starter
+# is intentionally feature-incomplete (no persistence, no done/delete
+# commands, no priorities) so the epic prompt below decomposes into
+# several distinct tasks rather than collapsing into one.
 #
 # Usage:
 #   examples/03-epic/create-test-project.sh                # mktemp
@@ -27,7 +28,7 @@ cd "$DEST"
 git init -q -b main
 git -c user.name=orca-seed -c user.email=orca-seed@example.com add . > /dev/null
 git -c user.name=orca-seed -c user.email=orca-seed@example.com \
-    commit -q -m "Initial calculator project"
+    commit -q -m "Initial todo-cli project"
 
 cat <<EOF
 
@@ -36,5 +37,7 @@ Test project ready at: $DEST
 Next steps:
   cd $DEST
   scala-cli run $SCRIPT_DIR/epic.sc -- \\
-    "Add a divide method to Calculator with full test coverage"
+    "Persist tasks to a JSON file at ~/.todo/tasks.json (load on startup, save on every change), \\
+     add 'done <id>' and 'delete <id>' commands, and support priority levels (low/medium/high) \\
+     with a 'list --priority' filter"
 EOF
