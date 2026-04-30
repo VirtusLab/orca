@@ -50,16 +50,16 @@ align with their parent's content. `Step` events (single-line
 notes — `git.createBranch`'s "Switched to branch X", `fixLoop`'s
 "Discarded N issues") render at the current content indent.
 
-**Nothing the agent produced is hidden.** Earlier the renderer
-suppressed JSON-only assistant turns on the assumption they were
-the structured-output payload the flow would re-render itself.
-That heuristic was lossy and surprised users; the rationale and
-replacement live in
-[ADR 0009](0009-announce-typeclass.md). The renderer now flushes
-every assistant turn verbatim and the library auto-emits an
-`OrcaEvent.Step` carrying an `Announce[O]` summary, so a plan run
-shows the raw JSON *and* a friendly "Planned N tasks on branch '…'"
-line — both visible, neither hidden.
+**Structured-mode rendering is event-driven, not heuristic.** When
+the conversation was launched with an `outputSchema` (i.e. the
+caller is on a `claude.resultAs[O]` path), the renderer suppresses
+the streamed JSON at `AssistantTurnEnd` and the library emits a
+single `OrcaEvent.StructuredResult(raw, summary)`. The listener
+chooses what to render: the `Announce[O]`-derived summary as `▶`
+when present, or the raw text under `●` when not. Either way the
+user sees one canonical line per result, never the JSON twice. The
+full design rationale lives in
+[ADR 0009](0009-announce-typeclass.md).
 
 **Tool-call paths under `workDir` show as relative.** Absolute paths
 outside `workDir` stay absolute, so out-of-project file access is
@@ -84,7 +84,7 @@ Used in the event log:
 | ----- | ------ | ------- |
 | `▶` | cyan | Stage start, or a `Step` (single-line note: branch switch, "discarded N issues"). No closing glyph for either. |
 | `▸` | cyan, bold | The user's prompt at the start of an interactive session. |
-| `●` | magenta, bold | An assistant prose message. Structured-output JSON renders verbatim; flow scripts opt into a friendly `Step` summary via `Announce[O]`. |
+| `●` | magenta, bold | An assistant prose message. In structured-output mode the JSON is suppressed during streaming and surfaced via `OrcaEvent.StructuredResult`; the listener renders the `Announce[O]` summary as `▶` if available, falling back to the raw payload under `●`. |
 | `·` | grey | Assistant "thinking" prose. Hidden by default; `showThinking = true` reveals it. |
 | `⏺` | blue, bold | A tool call the agent is making. The headline argument follows in grey. |
 | `⎿` | grey | The result of the preceding tool call, truncated to one line. |

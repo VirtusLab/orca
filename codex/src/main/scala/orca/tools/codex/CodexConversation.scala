@@ -45,7 +45,8 @@ import java.util.concurrent.atomic.AtomicReference
   */
 private[codex] class CodexConversation(
     process: PipedCliProcess,
-    initialPrompt: String = ""
+    initialPrompt: String = "",
+    val outputSchema: Option[String] = None
 ) extends StreamConversation[Backend.Codex.type](
       process = process,
       backendName = "codex",

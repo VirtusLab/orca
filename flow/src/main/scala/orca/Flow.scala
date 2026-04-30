@@ -63,44 +63,81 @@ def fail(message: String)(using ctx: FlowContext): Nothing =
   * bails out are folded into the returned IgnoredIssues with a reason so
   * callers can surface them to users.
   *
+  * Each iteration is rendered as a nested stage (`Iteration N`) so the status
+  * bar's breadcrumb shows where we are in the loop. Inside the stage the
+  * sequence is: a `Running N review agents` step (when `agentCount > 0`), the
+  * found-issues summary, one step per issue, then either `Fixed review
+  * comments` or `Unable to fix review comments` once the fix attempt returns.
+  *
   * `maxIterations` counts fix attempts — the loop may `evaluate` once more than
   * that, since the final re-evaluation is what determines whether the final fix
-  * stuck.
+  * stuck. `agentCount` is purely cosmetic (drives the "Running N" step) and
+  * defaults to 0 for callers that don't want that line.
   */
 def fixLoop(
     evaluate: () => ReviewResult,
     fix: List[ReviewIssue] => IgnoredIssues,
-    maxIterations: Int = 10
+    maxIterations: Int = 10,
+    agentCount: Int = 0
 )(using ctx: FlowContext): IgnoredIssues =
-  @scala.annotation.tailrec
-  def loop(
-      accumulated: IgnoredIssues,
-      ignoredSet: Set[ReviewIssue],
-      iteration: Int
-  ): IgnoredIssues =
-    val remaining = evaluate().issues.filterNot(ignoredSet.contains)
-    if remaining.isEmpty then accumulated
-    else if iteration >= maxIterations then
-      accumulated ++ capReason(
-        remaining,
-        s"max iterations ($maxIterations) reached"
-      )
-    else
-      // Each iteration is its own (sibling) stage so the renderer
-      // shows progress at the parent stage's content depth. The fix
-      // call lives inside the stage; the tail-recursive `loop` call
-      // sits outside, so termination/staging stays clear.
-      val newlyIgnored = stage(
-        s"In iteration ${iteration + 1}, found ${remaining.size} review comment${if remaining.size == 1 then "" else "s"}"
-      ):
+
+  /** Run one iteration's evaluate + report inside `stage("Iteration N")`,
+    * call `fix`, and emit the closing per-iteration step. Returns the
+    * fixer's `IgnoredIssues` so the outer `loop` can decide whether to
+    * continue. The post-fix "Fixed" / "Unable to fix" lives here, inside
+    * the stage, so the breadcrumb stays accurate while it's printed.
+    */
+  def runIteration(
+      iteration: Int,
+      ignoredSet: Set[ReviewIssue]
+  ): (List[ReviewIssue], IgnoredIssues) =
+    stage(s"Iteration ${iteration + 1}"):
+      if agentCount > 0 then
+        ctx.emit(OrcaEvent.Step(
+          s"Running $agentCount review agent${if agentCount == 1 then "" else "s"}"
+        ))
+      val remaining = evaluate().issues.filterNot(ignoredSet.contains)
+      if remaining.isEmpty then
+        ctx.emit(OrcaEvent.Step("No review comments"))
+        (Nil, IgnoredIssues(Nil))
+      else
+        ctx.emit(OrcaEvent.Step(
+          s"Found ${remaining.size} review comment${if remaining.size == 1 then "" else "s"}"
+        ))
         // Surface each comment in the event log before handing them
         // to `fix`. Without this the user only sees the count and
         // has to dig into the agent transcript to learn what was
         // actually flagged.
         remaining.foreach: issue =>
           ctx.emit(OrcaEvent.Step(formatIssue(issue)))
-        fix(remaining)
-      if newlyIgnored.issues.isEmpty then
+        val newlyIgnored = fix(remaining)
+        if newlyIgnored.issues.isEmpty then
+          ctx.emit(OrcaEvent.Step("Unable to fix review comments"))
+        else
+          ctx.emit(OrcaEvent.Step("Fixed review comments"))
+        (remaining, newlyIgnored)
+
+  @scala.annotation.tailrec
+  def loop(
+      accumulated: IgnoredIssues,
+      ignoredSet: Set[ReviewIssue],
+      iteration: Int
+  ): IgnoredIssues =
+    if iteration >= maxIterations then
+      // Re-evaluate one last time so the bail-out has a current view of
+      // what's still outstanding. Don't open a new iteration stage —
+      // we're past the cap.
+      val remaining = evaluate().issues.filterNot(ignoredSet.contains)
+      if remaining.isEmpty then accumulated
+      else
+        accumulated ++ capReason(
+          remaining,
+          s"max iterations ($maxIterations) reached"
+        )
+    else
+      val (remaining, newlyIgnored) = runIteration(iteration, ignoredSet)
+      if remaining.isEmpty then accumulated
+      else if newlyIgnored.issues.isEmpty then
         // Fix neither addressed nor ignored anything: evaluate will return
         // the same issues indefinitely, so bail out now.
         accumulated ++ capReason(remaining, "fix made no progress")
@@ -113,16 +150,16 @@ def fixLoop(
         )
 
   val result = loop(IgnoredIssues(Nil), Set.empty, 0)
-  // Closing note in the event log so the user can tell how the loop
-  // ended. Three outcomes worth distinguishing:
-  //   - clean re-evaluation: nothing ignored.
-  //   - bail-out: capReason marks issues as "max iterations…" or
-  //     "fix made no progress" — those aren't *discarded*, they're
-  //     unresolved. Report them as such with the reason attached.
-  //   - intentional discard: `fix` returned `IgnoredIssues` with
-  //     domain-meaningful reasons; the loop chose to ignore them.
-  ctx.emit(OrcaEvent.Step(closingMessage(result)))
-  result
+  // Closing note in the event log when the loop ended with
+  // *unresolved or discarded* issues — bail-out paths and
+  // domain-meaningful "won't fix" decisions both leave entries in
+  // `result.issues`. The all-clean case ("No review comments") is
+  // already surfaced inside the final iteration's stage, so we skip
+  // the closing step there to avoid printing the same line twice.
+  if result.issues.isEmpty then result
+  else
+    ctx.emit(OrcaEvent.Step(closingMessage(result)))
+    result
 
 /** Format a single review comment as a multi-line `Step` body.
   *
@@ -188,7 +225,10 @@ def reviewAndFixLoop[B <: Backend](
     confidenceThreshold: Double = 0.7
 )(using FlowContext): IgnoredIssues =
   // The stage doesn't repeat `task` in its label — the enclosing
-  // implement-task stage already names it.
+  // implement-task stage already names it. `agentCount` is the
+  // reviewer fan-out plus an optional lint pass, surfaced in each
+  // iteration's "Running N review agents" step.
+  val agentCount = reviewers.size + (if lintCommand.isDefined then 1 else 0)
   stage("Review & fix"):
     fixLoop(
       evaluate =
@@ -196,7 +236,8 @@ def reviewAndFixLoop[B <: Backend](
       fix = issues =>
         coder
           .resultAs[IgnoredIssues]
-          .continueSession(sessionId, FixRequest(issues), LlmConfig.default)
+          .continueSession(sessionId, FixRequest(issues), LlmConfig.default),
+      agentCount = agentCount
     )
 
 /** Run each reviewer in parallel, optionally include the lint summary,

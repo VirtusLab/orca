@@ -21,6 +21,7 @@ class TerminalConversationRendererTest extends munit.FunSuite:
   private def renderer(
       out: ByteArrayOutputStream,
       showThinking: Boolean = false,
+      structuredMode: Boolean = false,
       prompter: Prompter = ScriptedPrompter(Nil)
   ): TerminalConversationRenderer =
     val ps = new PrintStream(out)
@@ -32,6 +33,7 @@ class TerminalConversationRendererTest extends munit.FunSuite:
       statusBar = new StatusBar(ps, useColor = false, animated = false),
       depth = new StageDepth,
       showThinking = showThinking,
+      structuredMode = structuredMode,
       prompter = prompter
     )
 
@@ -45,7 +47,8 @@ class TerminalConversationRendererTest extends munit.FunSuite:
     */
   private class ScriptedConversation[B <: Backend](
       scripted: List[ConversationEvent],
-      outcome: Either[Throwable, LlmResult[B]]
+      outcome: Either[Throwable, LlmResult[B]],
+      val outputSchema: Option[String] = None
   ) extends Conversation[B]:
     val cancelled = new AtomicReference[Boolean](false)
     def events: Iterator[ConversationEvent] = scripted.iterator
@@ -85,10 +88,10 @@ class TerminalConversationRendererTest extends munit.FunSuite:
     val _ = renderer(buf).render(conv)
     assert(buf.toString.contains("hello "))
 
-  test("a JSON-only delta + TurnEnd is rendered like any other prose"):
-    // The renderer no longer second-guesses the agent's output. Flow
-    // scripts opt into a friendly summary via `Announce[O]`; the
-    // raw JSON stays visible so nothing the agent produced is hidden.
+  test("non-structured mode: assistant text flushes verbatim at TurnEnd"):
+    // Off the structured-output path, the renderer doesn't
+    // second-guess the agent's output — JSON-shaped or not, it
+    // streams as `●` prose like everything else.
     val buf = new ByteArrayOutputStream()
     val conv = new ScriptedConversation(
       List(
@@ -101,6 +104,25 @@ class TerminalConversationRendererTest extends munit.FunSuite:
     assert(
       buf.toString.contains("tasks"),
       s"JSON payload should be rendered verbatim; got: ${buf.toString}"
+    )
+
+  test("structured mode: assistant text is suppressed (StructuredResult takes over)"):
+    // When the conversation was launched with an `outputSchema`,
+    // the agent's final text is the structured payload. Suppressing
+    // it here lets the listener pick the canonical render via
+    // `OrcaEvent.StructuredResult` (raw or summary, never both).
+    val buf = new ByteArrayOutputStream()
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("""{"tasks":[{"id":1}]}"""),
+        ConversationEvent.AssistantTurnEnd
+      ),
+      Right(sampleResult)
+    )
+    val _ = renderer(buf, structuredMode = true).render(conv)
+    assert(
+      !buf.toString.contains("tasks"),
+      s"structured-mode renderer should not render the JSON payload; got: ${buf.toString}"
     )
 
   test("plain prose flushes on TurnEnd"):

@@ -39,8 +39,10 @@ That worked, but two things were wrong:
 ## Decision
 
 Introduce an `Announce[O]` typeclass and let the library auto-emit
-its message after every successful parse. The renderer stops
-guessing — it flushes JSON verbatim like any other prose.
+the agent's parsed result via a single `OrcaEvent.StructuredResult`
+event that carries both the raw payload and the optional summary —
+so the consumer (terminal listener, Slack adapter, structured log)
+chooses the rendering instead of the renderer guessing.
 
 ```scala
 trait Announce[O]:
@@ -49,34 +51,45 @@ trait Announce[O]:
 object Announce:
   given default[O]: Announce[O] = _ => ""
   def from[O](f: O => String): Announce[O] = ...
+
+enum OrcaEvent:
+  ...
+  case StructuredResult(raw: String, summary: Option[String])
 ```
 
 - **Catch-all default given returns `""`.** Every type has an
   `Announce[O]` resolvable — the empty string is the contract for
-  "no announcement to make". The auto-announce path skips the
-  emit when the message is empty, which keeps the new context
-  bound transparent to callers that don't care about summaries.
+  "no announcement to make". `DefaultLlmCall` normalises the
+  empty-string sentinel to `None` so listeners can pattern-match
+  on `summary` cleanly.
 - **Specific instances win via Scala 3's specificity rules.**
   `given Announce[Plan] = Announce.from(...)` in `Plan`'s companion
   is more specific than the catch-all and resolves preferentially.
 - **`LlmCall.resultAs[O]` adds the bound:**
   `def resultAs[O: JsonData : Announce]`. `DefaultLlmCall` consumes
-  the instance via a `using` parameter and emits an `OrcaEvent.Step`
-  carrying the announce message after parsing — on every invocation
-  variant (`autonomous`, `startSession`, `continueSession`,
+  the instance via a `using` parameter and emits a single
+  `StructuredResult(raw, summary)` event after parsing — on every
+  invocation variant (`autonomous`, `startSession`, `continueSession`,
   `interactive`, `continueInteractive`).
 - **Manual trigger lives in the flow module.** `value.announce` is
   an extension method that requires `FlowContext`, so it lives in
   `flow/src/main/scala/orca/announceExtension.scala`. The typeclass
   itself ships from `tools/` and has no `FlowContext` dependency,
   which keeps the module-dependency direction (`flow → tools`) intact.
-- **Renderer change.** `TerminalConversationRenderer` drops
-  `looksLikeStructuredJson` + `stripMarkdownFences` and unconditionally
-  flushes buffered deltas at `AssistantTurnEnd`.
+- **Conversation suppresses the JSON during structured-mode
+  streaming.** `Conversation.outputSchema: Option[String]` exposes
+  whether the call was launched in structured-output mode. The
+  terminal renderer reads it and drops the assistant-text buffer at
+  `AssistantTurnEnd` in that case — so the JSON doesn't stream char
+  by char as `●` and then get duplicated by a separate friendly
+  summary. The single `StructuredResult` event is the canonical
+  surface; the listener decides what to render.
 
-Net effect for a `Plan` flow: the user sees the agent's JSON in the
-transcript (under the `●` glyph) *and* the friendly "Planned N tasks
-on branch 'X'" summary as a `▶` step. Both visible, neither hidden.
+Net effect for a `Plan` flow: the user sees the agent's tool calls
+(`⏺ Glob`, `⏺ Read`, …), then a single `▶ Planned N tasks on branch
+'X'` line — no raw JSON in between. If a domain type doesn't define
+an `Announce` instance, the listener falls back to rendering the
+`raw` field under the `●` glyph so the result remains visible.
 
 ## Why typeclass over trait
 

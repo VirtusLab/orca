@@ -105,7 +105,12 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
     try
       process.writeLine(OutboundMessage.toJson(OutboundMessage.UserText(prompt)))
       process.closeStdin()
-      new ClaudeConversation(process, config, initialPrompt = displayPrompt)
+      new ClaudeConversation(
+        process,
+        config,
+        initialPrompt = displayPrompt,
+        outputSchema = outputSchema
+      )
     catch
       case e: Exception =>
         process.sendSigInt()

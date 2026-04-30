@@ -159,9 +159,10 @@ class DefaultLlmCallTest extends munit.FunSuite:
         "second attempt must quote the first failure as a corrective prompt"
       )
 
-  test("autonomous emits an Announce-derived Step after parsing"):
+  test("autonomous emits a StructuredResult with raw + Announce-derived summary"):
     // A specific Announce[Answer] wins over Announce.default; the call
-    // should emit a Step carrying that message after parsing succeeds.
+    // emits a single StructuredResult event carrying both the raw
+    // payload (the agent's JSON) and the summary derived from Announce.
     given orca.Announce[Answer] =
       orca.Announce.from(a => s"answer is ${a.value}")
     val backend = new SequencedBackend(List("""{"value":99}"""))
@@ -177,15 +178,15 @@ class DefaultLlmCallTest extends munit.FunSuite:
     )
     supervised:
       val _ = call.autonomous("anything")
-      val steps = seen.get().collect { case orca.OrcaEvent.Step(m) => m }
-      assert(
-        steps.contains("answer is 99"),
-        s"expected the Announce-derived Step; saw: $steps"
-      )
+      val structured = seen.get().collect {
+        case orca.OrcaEvent.StructuredResult(raw, summary) => (raw, summary)
+      }
+      assertEquals(structured, List(("""{"value":99}""", Some("answer is 99"))))
 
-  test("autonomous skips the Step when no specific Announce is in scope"):
+  test("autonomous emits StructuredResult with summary=None under default Announce"):
     // The library's catch-all `Announce.default` returns an empty
-    // string, which the auto-announce path treats as "nothing to say".
+    // string, which DefaultLlmCall normalises to `None` so listeners
+    // can pattern-match without an empty-string sentinel.
     val backend = new SequencedBackend(List("""{"value":1}"""))
     val seen = AtomicReference[List[orca.OrcaEvent]](Nil)
     supervised:
@@ -198,5 +199,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
         interaction = stubInteraction,
         defaultModel = "claude"
       ).autonomous("anything")
-      val steps = seen.get().collect { case orca.OrcaEvent.Step(_) => () }
-      assertEquals(steps, Nil, "no Step should be emitted under the default Announce")
+      val structured = seen.get().collect {
+        case orca.OrcaEvent.StructuredResult(raw, summary) => (raw, summary)
+      }
+      assertEquals(structured, List(("""{"value":1}""", None)))

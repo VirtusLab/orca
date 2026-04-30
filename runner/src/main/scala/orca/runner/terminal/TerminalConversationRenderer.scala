@@ -40,6 +40,16 @@ private[terminal] class TerminalConversationRenderer(
     depth: StageDepth,
     workDir: Option[os.Path] = None,
     showThinking: Boolean = false,
+    /** When non-empty the conversation is in structured-output mode —
+      * the agent's final assistant text is the JSON payload the
+      * library will deserialize and surface via
+      * `OrcaEvent.StructuredResult`. We swallow the streamed text to
+      * avoid showing the raw JSON twice (once mid-stream as `●`, once
+      * via the structured-result event); the listener decides what
+      * to render based on whether an `Announce[O]` summary is
+      * available.
+      */
+    structuredMode: Boolean = false,
     prompter: TerminalConversationRenderer.Prompter =
       TerminalConversationRenderer.JLinePrompter
 ):
@@ -53,9 +63,8 @@ private[terminal] class TerminalConversationRenderer(
 
   /** Buffer for assistant text in the current turn. Flushed as a single
     * block at `AssistantTurnEnd` so the prose lands together rather than
-    * delta-by-delta. Structured-output payloads (JSON, etc.) are flushed
-    * verbatim like any other prose — flow scripts opt into a friendly
-    * summary via `Announce[O]`, the renderer no longer second-guesses.
+    * delta-by-delta. In structured-output mode the buffer is dropped
+    * instead of flushed — see the `structuredMode` constructor doc.
     */
   private val textBuffer = new StringBuilder
 
@@ -141,9 +150,12 @@ private[terminal] class TerminalConversationRenderer(
     enterSection(Section.Prose)
     appendBlock(paint(ErrorStyle, s"$ErrorGlyph $message"))
 
-  /** Render the buffered text as a single prose block. Always clears
-    * `pendingProseStyling`, so an empty-buffer turn doesn't leak
-    * captured styling into the next turn.
+  /** Render the buffered text as a single prose block. In
+    * structured-output mode the buffer is dropped — the structured
+    * payload arrives via `OrcaEvent.StructuredResult` instead, so
+    * showing the raw JSON inline would just duplicate. Either way,
+    * `pendingProseStyling` and the buffer are cleared so an
+    * empty-buffer turn doesn't leak state.
     */
   private def flushBufferedText(): Unit =
     val styling = pendingProseStyling.getOrElse(
@@ -151,6 +163,10 @@ private[terminal] class TerminalConversationRenderer(
     )
     pendingProseStyling = None
     if textBuffer.isEmpty then ()
+    else if structuredMode then
+      // Drop. The `StructuredResult` event will carry the canonical
+      // text and the listener decides what to render.
+      val _ = textBuffer.delete(0, textBuffer.length)
     else
       val text = textBuffer.toString
       textBuffer.clear()

@@ -63,7 +63,8 @@ class TerminalInteraction(
       useColor = useColor,
       statusBar = statusBar,
       depth = depthCounter,
-      workDir = workDir
+      workDir = workDir,
+      structuredMode = conversation.outputSchema.isDefined
     ).render(conversation)
 
   private class TerminalListener extends OrcaListener:
@@ -72,17 +73,16 @@ class TerminalInteraction(
         appendIndented(paint(fansi.Color.Cyan, s"$StageStartGlyph $name"))
         depthCounter.push()
         activeStages = name :: activeStages
-        statusBar.startStatus(name)
+        statusBar.startStatus(breadcrumb)
       case OrcaEvent.StageCompleted(_, _) =>
         // Stage completions don't print to the event log — starting
         // the next event implicitly tells the user the previous one
-        // finished. The status bar pops back to the parent stage's
-        // label, or hides entirely if no stage is active.
+        // finished. The status bar pops back to the parent breadcrumb,
+        // or hides entirely if no stage is active.
         depthCounter.pop()
         activeStages = activeStages.drop(1)
-        activeStages.headOption match
-          case Some(parent) => statusBar.startStatus(parent)
-          case None         => statusBar.stopStatus()
+        if activeStages.isEmpty then statusBar.stopStatus()
+        else statusBar.startStatus(breadcrumb)
       case OrcaEvent.ToolUse(tool, args) =>
         appendIndented(paint(fansi.Color.DarkGray, s"  → $tool: $args"))
       case OrcaEvent.TokensUsed(_, _) =>
@@ -94,8 +94,30 @@ class TerminalInteraction(
         // hanging-indented continuation lines) re-indents on each
         // newline so the body stays aligned under the glyph.
         appendIndented(paint(fansi.Color.Cyan, s"$StageStartGlyph $message"))
+      case OrcaEvent.StructuredResult(raw, summary) =>
+        // The conversation renderer suppresses the agent's raw JSON
+        // when in structured mode, so this is the *only* place the
+        // result lands on screen. With a summary we render it
+        // Step-style (cyan ▶); without one we surface the raw text
+        // under the assistant glyph (●) so the user still sees what
+        // the agent produced.
+        summary match
+          case Some(s) =>
+            appendIndented(paint(fansi.Color.Cyan, s"$StageStartGlyph $s"))
+          case None =>
+            val glyph = paint(fansi.Color.Magenta ++ fansi.Bold.On, "● ")
+            appendIndented(glyph + raw)
       case OrcaEvent.Error(message) =>
         appendIndented(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
+
+  /** Stage breadcrumb shown on the status line. Joins the active stack
+    * (outermost first) with " > " so a deep run shows the full path
+    * like "Implement task: foo > Review & fix > Iteration 2". The
+    * StatusBar truncates to one terminal row, so very deep nesting
+    * gracefully degrades to "<oldest>… <newest>".
+    */
+  private def breadcrumb: String =
+    activeStages.reverse.mkString(" > ")
 
   /** Append a (possibly multi-line) block to the event log, prefixing
     * the current stage indent on the first line and on every embedded

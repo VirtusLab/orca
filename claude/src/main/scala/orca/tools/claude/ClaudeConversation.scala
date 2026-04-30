@@ -35,7 +35,8 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 private[claude] class ClaudeConversation(
     process: PipedCliProcess,
     config: LlmConfig,
-    initialPrompt: String = ""
+    initialPrompt: String = "",
+    val outputSchema: Option[String] = None
 ) extends StreamConversation[Backend.ClaudeCode.type](
       process = process,
       backendName = "claude",

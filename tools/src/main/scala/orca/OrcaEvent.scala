@@ -19,6 +19,22 @@ enum OrcaEvent:
     * can key on it directly without an `Option`/unknown fallback.
     */
   case TokensUsed(model: String, usage: Usage)
+
+  /** The agent's final structured payload, after parsing succeeded.
+    * `raw` is the verbatim text the agent produced (typically the JSON
+    * the parser saw); `summary` is the `Announce[O]`-derived
+    * human-readable form, or `None` if no specific instance is
+    * provided (the catch-all default returns an empty string, which
+    * the library normalises to `None`).
+    *
+    * Listeners decide what to render: a terminal channel typically
+    * prints `summary` if present and falls back to `raw` otherwise,
+    * since the conversation's assistant-text stream for the
+    * structured turn is suppressed elsewhere. Other listeners (a
+    * Slack adapter, a structured log) can carry both fields through
+    * unchanged.
+    */
+  case StructuredResult(raw: String, summary: Option[String])
   case Error(message: String)
 
 trait OrcaListener:

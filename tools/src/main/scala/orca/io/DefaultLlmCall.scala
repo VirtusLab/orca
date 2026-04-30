@@ -49,14 +49,24 @@ class DefaultLlmCall[B <: Backend, O](
   private given com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[O] =
     jd.codec
 
-  /** Emit the announce-typeclass message for `value` as a `Step`.
-    * No-op if the message is empty (the default given returns ""),
-    * which is what makes the new context bound transparent to
-    * callers that don't define a specific `Announce[O]`.
+  /** Emit a `StructuredResult` event carrying the raw payload and the
+    * `Announce[O]`-derived summary (if any). The default `Announce`
+    * given returns "", which we normalise to `None` so listeners can
+    * pattern-match `summary` without tripping over an empty-string
+    * sentinel.
+    *
+    * The `raw` field carries whatever the parser saw (typically the
+    * agent's JSON output). Terminal channels normally show `summary`
+    * if present and fall back to `raw` when it isn't, so this single
+    * event drives the visible "what did the agent return?" rendering
+    * — replacing the older "stream JSON live, then announce as a
+    * separate Step" pattern that ended up duplicating the payload on
+    * screen.
     */
-  private def announceParsed(value: O): Unit =
+  private def emitStructuredResult(raw: String, value: O): Unit =
     val msg = announce.message(value)
-    if msg.nonEmpty then emit(OrcaEvent.Step(msg))
+    val summary = if msg.isEmpty then None else Some(msg)
+    emit(OrcaEvent.StructuredResult(raw, summary))
 
   def autonomous[I](input: I, config: LlmConfig = LlmConfig.default)(using
       ai: AgentInput[I]
@@ -121,7 +131,7 @@ class DefaultLlmCall[B <: Backend, O](
       emit(OrcaEvent.TokensUsed(effective.model.getOrElse(defaultModel), result.usage))
       try
         val parsed = ResponseParser.parse[O](result.output)
-        announceParsed(parsed)
+        emitStructuredResult(result.output, parsed)
         (result.sessionId, parsed)
       catch
         case e: MalformedAgentOutputException =>
@@ -172,5 +182,5 @@ class DefaultLlmCall[B <: Backend, O](
     // authoritative to emit at cancel time.
     emit(OrcaEvent.TokensUsed(effective.model.getOrElse(defaultModel), result.usage))
     val parsed = ResponseParser.parse[O](result.output)
-    announceParsed(parsed)
+    emitStructuredResult(result.output, parsed)
     (result.sessionId, parsed)

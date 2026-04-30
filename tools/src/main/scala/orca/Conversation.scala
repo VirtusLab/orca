@@ -15,6 +15,19 @@ package orca
   */
 trait Conversation[B <: Backend]:
 
+  /** The JSON-schema string the conversation was launched with, when
+    * the caller asked for a structured payload via
+    * `claude.resultAs[O].interactive(...)` or similar. `None` means the
+    * conversation is free-form prose.
+    *
+    * Renderers and channels can consult this to decide whether the
+    * agent's final assistant text is the structured payload (and
+    * therefore noise to suppress in favour of an
+    * `OrcaEvent.StructuredResult` event), or genuine prose to flush
+    * verbatim.
+    */
+  def outputSchema: Option[String]
+
   /** Events from the subprocess, in arrival order. Blocks on `next()`
     * until a line has been parsed or the session ends. `hasNext` returns
     * false once the terminal event has been consumed.

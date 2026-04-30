@@ -48,7 +48,7 @@ class FixLoopTest extends munit.FunSuite:
     )
     assertEquals(result.issues.head.reason, "by design")
 
-  test("each iteration emits its own stage event with the issue count"):
+  test("each iteration emits its own stage and a found-N step"):
     val seen = new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener = new OrcaListener:
       def onEvent(event: OrcaEvent): Unit =
@@ -67,9 +67,16 @@ class FixLoopTest extends munit.FunSuite:
     val starts = seen.get().reverse.collect {
       case OrcaEvent.StageStarted(name) => name
     }
+    val steps = seen.get().reverse.collect {
+      case OrcaEvent.Step(msg) => msg
+    }
+    // Iteration 1 (issue found, fix attempted) and Iteration 2
+    // (re-eval clean) each open a stage; the count + per-issue
+    // surfacing happens via Steps inside the stage.
+    assertEquals(starts.filter(_.startsWith("Iteration ")), List("Iteration 1", "Iteration 2"))
     assert(
-      starts.exists(_.contains("In iteration 1, found 1 review comment")),
-      s"expected the iteration stage event; got: $starts"
+      steps.exists(_ == "Found 1 review comment"),
+      s"expected a 'Found 1 review comment' step; got: $steps"
     )
 
   test("each remaining issue surfaces as a Step in the iteration stage"):

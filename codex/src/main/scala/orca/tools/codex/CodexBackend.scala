@@ -106,7 +106,11 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
       // child stops waiting on stdin EOF. Same reflex as claude's
       // single-shot stream-json path.
       process.closeStdin()
-      new CodexConversation(process, initialPrompt = displayPrompt)
+      new CodexConversation(
+        process,
+        initialPrompt = displayPrompt,
+        outputSchema = outputSchema
+      )
     catch
       case e: Exception =>
         process.sendSigInt()
