@@ -57,22 +57,37 @@ def fail(message: String)(using ctx: FlowContext): Nothing =
   ctx.emit(OrcaEvent.Error(message))
   throw OrcaFlowException(message)
 
+/** Outcome of a single review/fix iteration. Consumed by `fixLoop`'s
+  * recursive driver and by `closingMessage` (via the bail kind) for
+  * the final summary.
+  */
+private enum IterationOutcome:
+  case Clean
+  case Progressed(newlyIgnored: IgnoredIssues)
+  case NoProgress(remaining: List[ReviewIssue])
+  case Capped(remaining: List[ReviewIssue], max: Int)
+
+private enum BailKind:
+  case MaxIterations(max: Int)
+  case NoProgress
+
 /** Evaluate, fix, re-evaluate until the reviewer reports only issues that are
   * already in the caller's "ignored" set, `fix` makes no progress, or
   * `maxIterations` fix attempts have been made. Remaining issues after the loop
   * bails out are folded into the returned IgnoredIssues with a reason so
   * callers can surface them to users.
   *
-  * Each iteration is rendered as a nested stage (`Iteration N`) so the status
-  * bar's breadcrumb shows where we are in the loop. Inside the stage the
-  * sequence is: a `Running N review agents` step (when `agentCount > 0`), the
-  * found-issues summary, one step per issue, then either `Fixed review
-  * comments` or `Unable to fix review comments` once the fix attempt returns.
+  * Each call to `evaluate` is rendered as a nested stage (`Iteration N`) so
+  * the status bar's breadcrumb shows where we are in the loop. Inside the
+  * stage the sequence is: a `Running N review agents` step (when
+  * `agentCount > 0`), the found-issues summary, one step per issue, then
+  * the iteration's closing line (`Fixed review comments` / `Unable to fix
+  * review comments` / `No review comments`).
   *
-  * `maxIterations` counts fix attempts — the loop may `evaluate` once more than
-  * that, since the final re-evaluation is what determines whether the final fix
-  * stuck. `agentCount` is purely cosmetic (drives the "Running N" step) and
-  * defaults to 0 for callers that don't want that line.
+  * `maxIterations` counts fix attempts — the cap-reaching iteration runs
+  * `evaluate` one last time to see what's still outstanding but skips
+  * `fix`. `agentCount` is purely cosmetic (drives the "Running N" step)
+  * and defaults to 0 for callers that don't want that line.
   */
 def fixLoop(
     evaluate: () => ReviewResult,
@@ -81,85 +96,76 @@ def fixLoop(
     agentCount: Int = 0
 )(using ctx: FlowContext): IgnoredIssues =
 
-  /** Run one iteration's evaluate + report inside `stage("Iteration N")`,
-    * call `fix`, and emit the closing per-iteration step. Returns the
-    * fixer's `IgnoredIssues` so the outer `loop` can decide whether to
-    * continue. The post-fix "Fixed" / "Unable to fix" lives here, inside
-    * the stage, so the breadcrumb stays accurate while it's printed.
+  def emitStep(msg: String): Unit = ctx.emit(OrcaEvent.Step(msg))
+
+  /** One full iteration: open the stage, evaluate, optionally fix,
+    * emit the per-iteration summary line, return a structured outcome.
+    * The cap check lives here so every `evaluate` call (including the
+    * final one) is uniformly framed as `Iteration N` — there's no
+    * separate "post-cap" code path the reader has to special-case.
     */
   def runIteration(
       iteration: Int,
       ignoredSet: Set[ReviewIssue]
-  ): (List[ReviewIssue], IgnoredIssues) =
+  ): IterationOutcome =
     stage(s"Iteration ${iteration + 1}"):
       if agentCount > 0 then
-        ctx.emit(OrcaEvent.Step(
-          s"Running $agentCount review agent${if agentCount == 1 then "" else "s"}"
-        ))
+        emitStep(s"Running ${pluralize(agentCount, "review agent")}")
       val remaining = evaluate().issues.filterNot(ignoredSet.contains)
       if remaining.isEmpty then
-        ctx.emit(OrcaEvent.Step("No review comments"))
-        (Nil, IgnoredIssues(Nil))
+        emitStep("No review comments")
+        IterationOutcome.Clean
       else
-        ctx.emit(OrcaEvent.Step(
-          s"Found ${remaining.size} review comment${if remaining.size == 1 then "" else "s"}"
-        ))
+        emitStep(s"Found ${pluralize(remaining.size, "review comment")}")
         // Surface each comment in the event log before handing them
         // to `fix`. Without this the user only sees the count and
         // has to dig into the agent transcript to learn what was
         // actually flagged.
         remaining.foreach: issue =>
-          ctx.emit(OrcaEvent.Step(formatIssue(issue)))
-        val newlyIgnored = fix(remaining)
-        if newlyIgnored.issues.isEmpty then
-          ctx.emit(OrcaEvent.Step("Unable to fix review comments"))
+          emitStep(formatIssue(issue))
+        if iteration >= maxIterations then
+          emitStep(s"Reached max iterations ($maxIterations); bailing out")
+          IterationOutcome.Capped(remaining, maxIterations)
         else
-          ctx.emit(OrcaEvent.Step("Fixed review comments"))
-        (remaining, newlyIgnored)
+          val newlyIgnored = fix(remaining)
+          if newlyIgnored.issues.isEmpty then
+            emitStep("Unable to fix review comments")
+            IterationOutcome.NoProgress(remaining)
+          else
+            emitStep("Fixed review comments")
+            IterationOutcome.Progressed(newlyIgnored)
 
   @scala.annotation.tailrec
   def loop(
       accumulated: IgnoredIssues,
       ignoredSet: Set[ReviewIssue],
       iteration: Int
-  ): IgnoredIssues =
-    if iteration >= maxIterations then
-      // Re-evaluate one last time so the bail-out has a current view of
-      // what's still outstanding. Don't open a new iteration stage —
-      // we're past the cap.
-      val remaining = evaluate().issues.filterNot(ignoredSet.contains)
-      if remaining.isEmpty then accumulated
-      else
-        accumulated ++ capReason(
-          remaining,
-          s"max iterations ($maxIterations) reached"
-        )
-    else
-      val (remaining, newlyIgnored) = runIteration(iteration, ignoredSet)
-      if remaining.isEmpty then accumulated
-      else if newlyIgnored.issues.isEmpty then
-        // Fix neither addressed nor ignored anything: evaluate will return
-        // the same issues indefinitely, so bail out now.
-        accumulated ++ capReason(remaining, "fix made no progress")
-      else
-        val addedToSet = newlyIgnored.issues.map(_.issue)
+  ): (IgnoredIssues, Option[BailKind]) =
+    runIteration(iteration, ignoredSet) match
+      case IterationOutcome.Clean =>
+        (accumulated, None)
+      case IterationOutcome.Progressed(newlyIgnored) =>
         loop(
           accumulated ++ newlyIgnored,
-          ignoredSet ++ addedToSet,
+          ignoredSet ++ newlyIgnored.issues.map(_.issue),
           iteration + 1
         )
+      case IterationOutcome.NoProgress(remaining) =>
+        (accumulated ++ capReason(remaining, "fix made no progress"),
+         Some(BailKind.NoProgress))
+      case IterationOutcome.Capped(remaining, max) =>
+        (accumulated ++ capReason(remaining, s"max iterations ($max) reached"),
+         Some(BailKind.MaxIterations(max)))
 
-  val result = loop(IgnoredIssues(Nil), Set.empty, 0)
-  // Closing note in the event log when the loop ended with
-  // *unresolved or discarded* issues — bail-out paths and
-  // domain-meaningful "won't fix" decisions both leave entries in
-  // `result.issues`. The all-clean case ("No review comments") is
-  // already surfaced inside the final iteration's stage, so we skip
-  // the closing step there to avoid printing the same line twice.
-  if result.issues.isEmpty then result
-  else
-    ctx.emit(OrcaEvent.Step(closingMessage(result)))
-    result
+  val (result, bail) = loop(IgnoredIssues(Nil), Set.empty, 0)
+  // Closing summary when issues remain — bail-out paths and
+  // domain-meaningful "won't fix" decisions both populate
+  // `result.issues`. The all-clean case is already surfaced as
+  // "No review comments" inside the final iteration's stage, so we
+  // skip the closing line there to avoid duplicating the same note.
+  if result.issues.nonEmpty then
+    emitStep(closingMessage(result, bail))
+  result
 
 /** Format a single review comment as a multi-line `Step` body.
   *
@@ -184,23 +190,33 @@ private[orca] def formatIssue(issue: ReviewIssue): String =
     TextWrap.wrap(s"  suggestion: $s", maxWidth = 74, continuation = "    ")
   List(Some(header), location, suggestion).flatten.mkString("\n")
 
-private def closingMessage(result: IgnoredIssues): String =
-  // Empty `result.issues` means the loop never entered an iteration —
-  // the very first evaluate came back clean. (Iterations that ran and
-  // returned IgnoredIssues add to `result.issues`; the bail-out paths
-  // mark issues with capReason. A truly clean run leaves it empty.)
-  if result.issues.isEmpty then "No review comments"
-  else
-    val bailOut = result.issues.collectFirst:
-      case ii if ii.reason.contains("max iterations") ||
-                 ii.reason.contains("no progress") => ii.reason
-    val n = result.issues.size
-    val plural = if n == 1 then "" else "s"
-    bailOut match
-      case Some(reason) =>
-        s"Bailed out with $n unresolved review comment$plural ($reason)"
-      case None =>
-        s"Discarded $n review comment$plural"
+/** Final summary line, only emitted when `result.issues` is non-empty.
+  * The clean-exit path is surfaced as `Step("No review comments")`
+  * inside the last iteration's stage; reaching this function means
+  * either the loop bailed (explicit `BailKind`) or `fix` returned
+  * domain-meaningful "won't fix" reasons across iterations.
+  */
+private def closingMessage(
+    result: IgnoredIssues,
+    bail: Option[BailKind]
+): String =
+  val count = pluralize(result.issues.size, "review comment")
+  bail match
+    case Some(BailKind.MaxIterations(max)) =>
+      s"Bailed out with $count unresolved (max iterations ($max) reached)"
+    case Some(BailKind.NoProgress) =>
+      s"Bailed out with $count unresolved (fix made no progress)"
+    case None =>
+      s"Discarded $count"
+
+/** Pluralize an English noun by appending "s" when `n != 1`. The same
+  * count goes into the rendered string (`"1 review comment"` /
+  * `"3 review comments"`), so this also encodes the count. Centralised
+  * here so iteration-stage steps and the closing summary stay
+  * consistent in wording.
+  */
+private[orca] def pluralize(n: Int, singular: String): String =
+  s"$n $singular${if n == 1 then "" else "s"}"
 
 private def capReason(
     issues: List[ReviewIssue],

@@ -41,14 +41,9 @@ class TerminalInteraction(
 
   private val depthCounter = new StageDepth
   private val statusBar = new StatusBar(out, useColor = useColor, animated = animated)
+  private val stages = new StageStack
   private val listener = new TerminalListener
   private val listenersList: List[OrcaListener] = List(listener)
-  /** Stack of active stage names, head = most-recently-started. The
-    * status line always shows the head; on StageCompleted we pop and
-    * restore the parent (or hide the bar if the stack is empty).
-    * Touched only from the listener thread; no synchronisation needed.
-    */
-  private var activeStages: List[String] = Nil
 
   def listeners: List[OrcaListener] = listenersList
 
@@ -70,54 +65,65 @@ class TerminalInteraction(
   private class TerminalListener extends OrcaListener:
     def onEvent(event: OrcaEvent): Unit = event match
       case OrcaEvent.StageStarted(name) =>
-        appendIndented(paint(fansi.Color.Cyan, s"$StageStartGlyph $name"))
+        emitStepLine(name)
         depthCounter.push()
-        activeStages = name :: activeStages
-        statusBar.startStatus(breadcrumb)
+        stages.push(name)
+        showCurrentBreadcrumb()
       case OrcaEvent.StageCompleted(_, _) =>
         // Stage completions don't print to the event log — starting
         // the next event implicitly tells the user the previous one
-        // finished. The status bar pops back to the parent breadcrumb,
-        // or hides entirely if no stage is active.
+        // finished.
         depthCounter.pop()
-        activeStages = activeStages.drop(1)
-        if activeStages.isEmpty then statusBar.stopStatus()
-        else statusBar.startStatus(breadcrumb)
+        stages.pop()
+        showCurrentBreadcrumb()
       case OrcaEvent.ToolUse(tool, args) =>
         appendIndented(paint(fansi.Color.DarkGray, s"  → $tool: $args"))
       case OrcaEvent.TokensUsed(_, _) =>
         () // Token accounting is owned by CostTracker.
       case OrcaEvent.Step(message) =>
-        // Same glyph as a stage start, but no completion ✔ ever
-        // follows — Step is a single instantaneous note in the log.
         // Multi-line `message` (e.g. a wrapped review comment with
         // hanging-indented continuation lines) re-indents on each
         // newline so the body stays aligned under the glyph.
-        appendIndented(paint(fansi.Color.Cyan, s"$StageStartGlyph $message"))
+        emitStepLine(message)
       case OrcaEvent.StructuredResult(raw, summary) =>
         // The conversation renderer suppresses the agent's raw JSON
         // when in structured mode, so this is the *only* place the
-        // result lands on screen. With a summary we render it
-        // Step-style (cyan ▶); without one we surface the raw text
-        // under the assistant glyph (●) so the user still sees what
-        // the agent produced.
+        // result lands on screen. Summary present → Step-style (▶);
+        // summary absent → assistant glyph (●) so the user still
+        // sees what the agent produced. The ●-styling matches
+        // streamed assistant prose exactly so a fallback render is
+        // visually consistent with the non-structured path.
         summary match
-          case Some(s) =>
-            appendIndented(paint(fansi.Color.Cyan, s"$StageStartGlyph $s"))
-          case None =>
-            val glyph = paint(fansi.Color.Magenta ++ fansi.Bold.On, "● ")
-            appendIndented(glyph + raw)
+          case Some(s) => emitStepLine(s)
+          case None    => emitAssistantLine(raw)
       case OrcaEvent.Error(message) =>
         appendIndented(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
 
-  /** Stage breadcrumb shown on the status line. Joins the active stack
-    * (outermost first) with " > " so a deep run shows the full path
-    * like "Implement task: foo > Review & fix > Iteration 2". The
-    * StatusBar truncates to one terminal row, so very deep nesting
-    * gracefully degrades to "<oldest>… <newest>".
+    /** A `▶` step line at the current stage indent. */
+    private def emitStepLine(message: String): Unit =
+      appendIndented(paint(fansi.Color.Cyan, s"$StageStartGlyph $message"))
+
+    /** A `●` assistant-prose line — same glyph and styling as
+      * [[TerminalConversationRenderer.AssistantGlyph]] so the
+      * structured-result fallback render stays in lockstep with
+      * streamed prose if either side ever changes.
+      */
+    private def emitAssistantLine(text: String): Unit =
+      val glyph = paint(
+        TerminalConversationRenderer.AssistantGlyphStyle,
+        s"${TerminalConversationRenderer.AssistantGlyph} "
+      )
+      appendIndented(glyph + text)
+
+  /** Push the current breadcrumb to the bar (or hide it when the
+    * stack is empty). Centralised so every push/pop site does the
+    * same thing — `startStatus(label)` for non-empty, `stopStatus()`
+    * for empty.
     */
-  private def breadcrumb: String =
-    activeStages.reverse.mkString(" > ")
+  private def showCurrentBreadcrumb(): Unit =
+    stages.breadcrumb match
+      case Some(label) => statusBar.startStatus(label)
+      case None        => statusBar.stopStatus()
 
   /** Append a (possibly multi-line) block to the event log, prefixing
     * the current stage indent on the first line and on every embedded
@@ -130,6 +136,19 @@ class TerminalInteraction(
 
   private def paint(attr: fansi.Attrs, text: String): String =
     Ansi.paint(useColor, attr, text)
+
+/** Stack of active stage names, head = most-recently-started.
+  * `breadcrumb` joins the stack outermost-first with `" > "` for the
+  * status bar; `None` means no stage is active. Touched only from
+  * the [[TerminalListener]] thread.
+  */
+private class StageStack:
+  private var stack: List[String] = Nil
+  def push(name: String): Unit = stack = name :: stack
+  def pop(): Unit = stack = stack.drop(1)
+  def breadcrumb: Option[String] =
+    if stack.isEmpty then None
+    else Some(stack.reverse.mkString(" > "))
 
 object TerminalInteraction:
   val StageStartGlyph: String = "▶"

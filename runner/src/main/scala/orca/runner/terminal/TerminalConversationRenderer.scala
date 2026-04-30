@@ -166,7 +166,7 @@ private[terminal] class TerminalConversationRenderer(
     else if structuredMode then
       // Drop. The `StructuredResult` event will carry the canonical
       // text and the listener decides what to render.
-      val _ = textBuffer.delete(0, textBuffer.length)
+      textBuffer.clear()
     else
       val text = textBuffer.toString
       textBuffer.clear()
