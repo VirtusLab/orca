@@ -38,5 +38,5 @@ Test project ready at: $DEST
 
 Next steps:
   cd $DEST
-  scala-cli run $SCRIPT_DIR/ship.sc -- "Add a multiply function to the calculator crate"
+  scala-cli run implement.sc -- "Add a multiply function to the calculator crate"
 EOF

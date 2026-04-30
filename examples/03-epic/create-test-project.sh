@@ -36,7 +36,7 @@ Test project ready at: $DEST
 
 Next steps:
   cd $DEST
-  scala-cli run $SCRIPT_DIR/epic.sc -- \\
+  scala-cli run epic.sc -- \\
     "Persist tasks to a JSON file at ~/.todo/tasks.json (load on startup, save on every change), \\
      add 'done <id>' and 'delete <id>' commands, and support priority levels (low/medium/high) \\
      with a 'list --priority' filter"

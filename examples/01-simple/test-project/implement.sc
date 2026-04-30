@@ -9,14 +9,14 @@
   * plan, and each task is implemented on its own branch with a
   * review-and-fix loop afterwards.
   *
-  * Run it from inside a project's working directory:
+  * Lives alongside the seeded calculator crate so a user can run it
+  * from the project's root after `examples/01-simple/create-test-project.sh`:
   *
   * ```bash
-  * scala-cli run examples/01-simple/ship.sc -- "Add a multiply function to the calculator crate"
+  * scala-cli run implement.sc -- "Add a multiply function to the calculator crate"
   * ```
   *
-  * The seeded calculator crate from `examples/01-simple/create-test-project.sh`
-  * is the easiest target. Requires `claude` logged in and `cargo` on PATH.
+  * Requires `claude` logged in and `cargo` on PATH.
   */
 
 import orca.{*, given}

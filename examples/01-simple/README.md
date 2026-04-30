@@ -33,25 +33,28 @@ Use this when the task is small enough to finish in one session.
 
 - `cargo` on PATH — the seed is a small Rust crate so the lint
   command is `cargo test --quiet`. Swap the `lintCommand` line in
-  `ship.sc` if you point the flow at a non-Rust project.
+  `implement.sc` if you point the flow at a non-Rust project.
 - A target project to run against. The sibling
   [`create-test-project.sh`](create-test-project.sh) seeds a
-  tiny Rust calculator crate from the [`test-project/`](test-project/)
-  directory into a temp dir and inits git:
+  tiny Rust calculator crate plus the flow script itself —
+  [`test-project/implement.sc`](test-project/implement.sc) — into
+  a temp dir and inits git:
 
   ```bash
   ./examples/01-simple/create-test-project.sh
   # → "Test project ready at: /tmp/orca-01-simple-…"
   ```
 
-  Edit `test-project/` if you want a different starter.
+  Edit `test-project/` if you want a different starter or a
+  different flow.
 
 ## Run
 
-The seed script prints the exact `scala-cli run` line to invoke;
-in shape it's:
+The seed script prints the exact `scala-cli run` line. Because
+`implement.sc` is copied into the temp dir alongside the crate,
+the invocation is just the file name — no `<path-to-orca>` chasing:
 
 ```bash
-scala-cli run <path-to-orca>/examples/01-simple/ship.sc -- \
-  "Add a multiply function to the calculator crate"
+cd /tmp/orca-01-simple-…
+scala-cli run implement.sc -- "Add a multiply function to the calculator crate"
 ```

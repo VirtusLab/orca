@@ -42,8 +42,8 @@ for CI. Push the seed somewhere first:
   cd $DEST
   gh repo create <your-name>/orca-bugfix-demo --source=. --private --push
 
-Then drive the flow at the same working directory:
+Then drive the flow from the same working directory:
 
-  scala-cli run $SCRIPT_DIR/bugfix.sc -- \\
+  scala-cli run bugfix.sc -- \\
     "Calculator.add overflows when one argument is Integer.MIN_VALUE"
 EOF

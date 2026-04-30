@@ -25,11 +25,15 @@
   * the project README based on what changed, and the epic file is
   * removed (committed as the wrap-up).
   *
-  * Run from the project's working directory:
+  * Lives alongside the seeded todo-cli project so a user can run
+  * it from the project's root after
+  * `examples/03-epic/create-test-project.sh`:
   *
   * ```bash
-  * scala-cli run <orca-sandbox>/examples/03-epic/epic.sc -- \
-  *   "Add a divide method to Calculator with full test coverage"
+  * scala-cli run epic.sc -- \
+  *   "Persist tasks to a JSON file at ~/.todo/tasks.json (load on startup, save on every change), \
+  *    add 'done <id>' and 'delete <id>' commands, and support priority levels (low/medium/high) \
+  *    with a 'list --priority' filter"
   * ```
   */
 

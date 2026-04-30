@@ -68,11 +68,15 @@ class ScalaCliSmokeTest extends munit.FunSuite:
       s"expected stdout to contain 'userPrompt=smoke test', got: $runOutput"
     )
 
-  /** Add new examples here so they're picked up by the compile-check loop. */
-  private val examples: Seq[(String, String)] = Seq(
-    "01-simple" -> "ship.sc",
-    "02-bugfix" -> "bugfix.sc",
-    "03-epic"   -> "epic.sc"
+  /** Add new examples here so they're picked up by the compile-check loop.
+    * Each entry is a path under `examples/` (the seed scripts copy these
+    * `.sc` files into the user's project, so they live inside
+    * `test-project/`).
+    */
+  private val examples: Seq[String] = Seq(
+    "01-simple/test-project/implement.sc",
+    "02-bugfix/test-project/bugfix.sc",
+    "03-epic/test-project/epic.sc"
   )
 
   /** Each example flow script is a real-world consumer of the library — when
@@ -81,17 +85,17 @@ class ScalaCliSmokeTest extends munit.FunSuite:
     * the gap between sbt's internal compile (which doesn't see `examples/`)
     * and what a fresh user actually runs.
     */
-  for (dir, script) <- examples do
-    test(s"example $dir/$script compiles via scala-cli"):
+  for relPath <- examples do
+    test(s"example $relPath compiles via scala-cli"):
       val repoRoot = publishedRepo()
-      val scriptPath = repoRoot / "examples" / dir / script
+      val scriptPath = repoRoot / "examples" / os.RelPath(relPath)
       val result = os
         .proc("scala-cli", "compile", scriptPath.toString)
         .call(cwd = repoRoot, check = false, mergeErrIntoOut = true)
       assertEquals(
         result.exitCode,
         0,
-        s"scala-cli compile failed for $dir/$script:\n${result.out.text()}"
+        s"scala-cli compile failed for $relPath:\n${result.out.text()}"
       )
 
   /** Walk up from the test's working directory until we see a build.sbt. */

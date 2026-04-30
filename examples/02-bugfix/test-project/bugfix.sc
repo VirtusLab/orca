@@ -21,10 +21,13 @@
   *   6. Implements the fix on the same branch. Reviews + lints.
   *   7. Pushes the fix; waits for CI to go green.
   *
-  * Run from the bugged project's working directory:
+  * Lives alongside the seeded buggy project so a user can run it
+  * from the project's root after `examples/02-bugfix/create-test-project.sh`
+  * (push the seed to a real GitHub repo first — the seed script
+  * prints the `gh repo create` line):
   *
   * ```bash
-  * scala-cli run <orca-sandbox>/examples/02-bugfix/bugfix.sc -- \
+  * scala-cli run bugfix.sc -- \
   *   "Calculator.add returns a wrong value when one argument is Integer.MIN_VALUE"
   * ```
   *

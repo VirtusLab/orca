@@ -47,7 +47,8 @@ agent makes up front.
 
 The sibling [`create-test-project.sh`](create-test-project.sh)
 copies a Calculator project (with a naïve `add` that overflows on
-`Integer.MIN_VALUE`) plus a minimal `.github/workflows/ci.yml`
+`Integer.MIN_VALUE`), a minimal `.github/workflows/ci.yml`, and the
+flow script itself — [`test-project/bugfix.sc`](test-project/bugfix.sc) —
 from [`test-project/`](test-project/) into a temp dir. Push it to
 a real GitHub repo (the script prints the `gh repo create` line)
 so the flow can open a PR and watch CI.
@@ -55,8 +56,8 @@ so the flow can open a PR and watch CI.
 ## Run
 
 ```bash
-cd <buggy-project>
-scala-cli run <orca-sandbox>/examples/02-bugfix/bugfix.sc -- \
+cd /tmp/orca-02-bugfix-…   # the seed-script's temp dir
+scala-cli run bugfix.sc -- \
   "Calculator.add returns Integer.MAX_VALUE when one input is Integer.MIN_VALUE"
 ```
 

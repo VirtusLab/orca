@@ -110,17 +110,18 @@ becomes "we trust your file" — useful for handcrafted epics.
 - `com.virtuslab::orca:0.1.0-SNAPSHOT` published locally (`sbt publishLocal`).
 - A target project. The sibling
   [`create-test-project.sh`](create-test-project.sh) copies a
-  tiny todo-CLI starter from [`test-project/`](test-project/)
-  into a temp dir and inits git. The starter is deliberately
-  feature-incomplete (no persistence, no `done`/`delete`,
-  no priorities) so the example prompt below decomposes
-  into several tasks rather than one.
+  tiny todo-CLI starter plus the flow script itself —
+  [`test-project/epic.sc`](test-project/epic.sc) — from
+  [`test-project/`](test-project/) into a temp dir and inits git.
+  The starter is deliberately feature-incomplete (no persistence,
+  no `done`/`delete`, no priorities) so the example prompt below
+  decomposes into several tasks rather than one.
 
 ## Run
 
 ```bash
-cd <project>
-scala-cli run <orca-sandbox>/examples/03-epic/epic.sc -- \
+cd /tmp/orca-03-epic-…   # the seed-script's temp dir
+scala-cli run epic.sc -- \
   "Persist tasks to a JSON file at ~/.todo/tasks.json (load on startup, save on every change), \
    add 'done <id>' and 'delete <id>' commands, and support priority levels (low/medium/high) \
    with a 'list --priority' filter"
