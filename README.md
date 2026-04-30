@@ -51,19 +51,22 @@ flow(OrcaArgs(args)):
     claude.resultAs[Plan].interactive(userPrompt)
 
   // 2. Implement each task on its own branch and review locally.
+  // Commit *after* the review-and-fix loop so any review-driven
+  // edits land in the same commit as the original implementation.
   for task <- plan.tasks do
-    stage(s"Implement task: ${task.summary}"):
+    stage(s"Implement task: ${task.shortSummary}"):
       git.createBranch(task.branchName)
-      claude.continueSession(sessionId, task.prompt)
-      git.commit(s"Implement ${task.summary}")
+      claude.continueSession(sessionId, task.description)
 
       reviewAndFixLoop(
         coder = claude,
         sessionId = sessionId,
         reviewers = defaultReviewers(claude),
-        task = task.summary,
+        task = task.shortSummary,
         lintCommand = Some("sbt scalafmtCheckAll test")
       )
+
+      git.commit(s"Implement ${task.shortSummary}")
 ```
 
 The `{*, given}` selector is load-bearing: plain `import orca.*` leaves
