@@ -45,18 +45,16 @@ case class ReviewResult(
 object ReviewResult:
   val empty: ReviewResult = ReviewResult(Nil, "")
 
-  /** Per-reviewer announce: silent for clean reviews, otherwise a
-    * one-line "found N issues" summary with each issue's shortSummary
-    * as a bullet. This is what shows up under `▶` after each reviewer
-    * runs in `gatherReviews` — the alternative would be the raw JSON
-    * the agent produced, which reads as noise.
+  /** ReviewResult intentionally has no auto-announce. Per-reviewer
+    * Steps are emitted by [[reviewAndFixLoop]]'s evaluate closure
+    * with the reviewer's name in the line — provenance the
+    * type-level `Announce[ReviewResult]` can't see, since the
+    * reviewer name lives on the `LlmTool` and not on the result.
+    * Returning `""` lets the terminal listener treat the per-call
+    * `StructuredResult` as silent so it doesn't compete with the
+    * named per-reviewer line.
     */
-  given Announce[ReviewResult] = Announce.from: r =>
-    if r.issues.isEmpty then ""
-    else
-      val bullets = r.issues.map(i => s"  - [${i.severity}] ${i.shortSummary}").mkString("\n")
-      val plural = if r.issues.size == 1 then "" else "s"
-      s"Found ${r.issues.size} issue$plural:\n$bullets"
+  given Announce[ReviewResult] = Announce.from(_ => "")
 
 case class IgnoredIssue(issue: ReviewIssue, reason: String) derives JsonData
 
@@ -71,20 +69,12 @@ case class IgnoredIssues(issues: List[IgnoredIssue]) derives JsonData:
       .mkString("\n")
 
 object IgnoredIssues:
-  /** Per-fix-call announce: silent when nothing was ignored, otherwise
-    * a "marked N as won't-fix" line so the user can see at a glance
-    * what the fixing agent decided to set aside. Empty `issues` is the
-    * "agent attempted to fix everything" case — still surfaced via
-    * the iteration's "Fixed/Unable to fix" closing step.
+  /** Silent like `ReviewResult` — the fix loop already names what
+    * happened via "Fixed review comments" / "Unable to fix" / "All
+    * N marked as won't-fix" steps inside the iteration stage, so
+    * an additional auto-announce would just duplicate.
     */
-  given Announce[IgnoredIssues] = Announce.from: ii =>
-    if ii.issues.isEmpty then ""
-    else
-      val plural = if ii.issues.size == 1 then "" else "s"
-      val bullets = ii.issues.map: i =>
-        s"  - [${i.issue.severity}] ${i.issue.shortSummary} — ${i.reason}"
-      .mkString("\n")
-      s"Marked ${ii.issues.size} review comment$plural as won't-fix:\n$bullets"
+  given Announce[IgnoredIssues] = Announce.from(_ => "")
 
 case class ReviewContext(summary: String, filesChanged: List[String])
     derives JsonData

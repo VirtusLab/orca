@@ -118,34 +118,29 @@ def fixLoop(
   ): IterationOutcome =
     stage(s"Iteration ${iteration + 1}"):
       val remaining = evaluate().issues.filterNot(ignoredSet.contains)
+      // Per-issue surfacing happens inside `evaluate` — the caller
+      // formats each reviewer's outcome with provenance there. The
+      // iteration body just drives the fix decision.
       if remaining.isEmpty then
         emitStep("No review comments")
         IterationOutcome.Clean
+      else if iteration >= maxIterations then
+        emitStep(s"Reached max iterations ($maxIterations); bailing out")
+        IterationOutcome.Capped(remaining, maxIterations)
       else
-        emitStep(s"Found ${pluralize(remaining.size, "review comment")}")
-        // Surface each comment in the event log before handing them
-        // to `fix`. Without this the user only sees the count and
-        // has to dig into the agent transcript to learn what was
-        // actually flagged.
-        remaining.foreach: issue =>
-          emitStep(formatIssue(issue))
-        if iteration >= maxIterations then
-          emitStep(s"Reached max iterations ($maxIterations); bailing out")
-          IterationOutcome.Capped(remaining, maxIterations)
+        val newlyIgnored = fix(remaining)
+        if newlyIgnored.issues.isEmpty then
+          emitStep("Unable to fix review comments")
+          IterationOutcome.NoProgress(remaining)
+        else if newlyIgnored.issues.size >= remaining.size then
+          // Agent claimed nothing was actually fixed in code —
+          // every remaining issue came back as ignored. Re-running
+          // reviewers would just rediscover the same things; halt.
+          emitStep(s"All ${pluralize(remaining.size, "review comment")} marked as won't-fix")
+          IterationOutcome.AllIgnored(newlyIgnored)
         else
-          val newlyIgnored = fix(remaining)
-          if newlyIgnored.issues.isEmpty then
-            emitStep("Unable to fix review comments")
-            IterationOutcome.NoProgress(remaining)
-          else if newlyIgnored.issues.size >= remaining.size then
-            // Agent claimed nothing was actually fixed in code —
-            // every remaining issue came back as ignored. Re-running
-            // reviewers would just rediscover the same things; halt.
-            emitStep(s"All ${pluralize(remaining.size, "review comment")} marked as won't-fix")
-            IterationOutcome.AllIgnored(newlyIgnored)
-          else
-            emitStep("Fixed review comments")
-            IterationOutcome.Progressed(newlyIgnored)
+          emitStep("Fixed review comments")
+          IterationOutcome.Progressed(newlyIgnored)
 
   @scala.annotation.tailrec
   def loop(
@@ -184,29 +179,46 @@ def fixLoop(
     emitStep(closingMessage(result, bail))
   result
 
-/** Format a single review comment as a multi-line `Step` body.
+/** Format a single review comment as the body lines of a `Step`.
   *
-  * Shape: `[Severity] shortSummary ...wrapped to ~76 cols...`,
-  * optionally followed by `at file:line` and a `suggestion: …` line,
-  * each on their own line indented two spaces (under the summary's
-  * first character once the renderer prepends the `▶ ` glyph). The
-  * `description` field is intentionally not rendered — it's the
+  * Shape: `- [Severity] shortSummary ...wrapped to ~76 cols...`,
+  * optionally followed by `  at file:line` and a `  suggestion: …`
+  * line. The leading `- ` makes the issue a bullet within a multi-
+  * issue body; outer indentation is added by the caller (typically
+  * [[formatReviewerOutcome]]).
+  *
+  * The `description` field is intentionally not rendered — it's the
   * longer form fed back to the fixing agent; the user sees the short
   * form on screen.
   */
 private[orca] def formatIssue(issue: ReviewIssue): String =
   val header = TextWrap.wrap(
-    s"[${issue.severity}] ${issue.shortSummary}",
+    s"- [${issue.severity}] ${issue.shortSummary}",
     maxWidth = 74,
     continuation = "  "
   )
   val location = (issue.file, issue.line) match
-    case (Some(f), Some(l)) => Some(s"  at $f:$l")
-    case (Some(f), None)    => Some(s"  at $f")
+    case (Some(f), Some(l)) => Some(s"    at $f:$l")
+    case (Some(f), None)    => Some(s"    at $f")
     case _                  => None
   val suggestion = issue.suggestion.map: s =>
-    TextWrap.wrap(s"  suggestion: $s", maxWidth = 74, continuation = "    ")
+    TextWrap.wrap(s"    suggestion: $s", maxWidth = 74, continuation = "      ")
   List(Some(header), location, suggestion).flatten.mkString("\n")
+
+/** Format a reviewer's outcome as a `▶`-step body — heading line
+  * names the reviewer + issue count, then bulleted issue details
+  * indented under it. Clean reviews collapse to a single
+  * "<name>: 0 issues" line.
+  */
+private[orca] def formatReviewerOutcome(
+    reviewerName: String,
+    result: ReviewResult
+): String =
+  if result.issues.isEmpty then s"$reviewerName: 0 issues"
+  else
+    val header = s"$reviewerName: ${pluralize(result.issues.size, "issue")}"
+    val bullets = result.issues.map(formatIssue).mkString("\n")
+    s"$header\n$bullets"
 
 /** Final summary line, only emitted when `result.issues` is non-empty.
   * The clean-exit path is surfaced as `Step("No review comments")`
@@ -326,8 +338,16 @@ def reviewAndFixLoop[B <: Backend](
           .map((r, f) => r -> f.join())
     val batch = ReviewBatch(reviewerOutcomes)
     history = batch :: history
-    val lintIssues = lintCommand.toList.flatMap(cmd => lint(cmd, claude.haiku).issues)
-    val all = batch.allIssues ++ lintIssues
+    // Surface each reviewer's outcome with provenance: agent name +
+    // count + per-issue summary, location, and suggestion. The
+    // per-call `StructuredResult` event is silenced via
+    // `Announce[ReviewResult] = ""`; this is the named replacement.
+    reviewerOutcomes.foreach: (reviewer, result) =>
+      ctx.emit(OrcaEvent.Step(formatReviewerOutcome(reviewer.name, result)))
+    val lintResult = lintCommand.toList.map(cmd => "lint" -> lint(cmd, claude.haiku))
+    lintResult.foreach: (name, result) =>
+      ctx.emit(OrcaEvent.Step(formatReviewerOutcome(name, result)))
+    val all = batch.allIssues ++ lintResult.flatMap(_._2.issues)
     val kept = all.filter(_.confidence >= confidenceThreshold)
     ReviewResult(
       issues = kept,

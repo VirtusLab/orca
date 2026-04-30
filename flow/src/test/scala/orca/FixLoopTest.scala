@@ -76,17 +76,15 @@ class FixLoopTest extends munit.FunSuite:
       case OrcaEvent.Step(msg) => msg
     }
     assertEquals(starts.filter(_.startsWith("Iteration ")), List("Iteration 1", "Iteration 2"))
-    assert(
-      steps.exists(_ == "Found 2 review comments"),
-      s"expected a 'Found 2 review comments' step; got: $steps"
-    )
+    // Per-iteration outcome lines. Iteration 1 had 2 issues, fix
+    // ignored 1 (Progressed); iteration 2's eval was empty (Clean).
+    assert(steps.contains("Fixed review comments"), s"got: $steps")
+    assert(steps.contains("No review comments"), s"got: $steps")
 
-  test("each remaining issue surfaces as a Step in the iteration stage"):
-    val seen = new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
-    val listener = new OrcaListener:
-      def onEvent(event: OrcaEvent): Unit =
-        val _ = seen.updateAndGet(event :: _)
-    given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
+  test("formatIssue includes severity, summary, location, and suggestion"):
+    // `fixLoop` no longer emits per-issue Steps — that's `evaluate`'s
+    // job, via `formatReviewerOutcome` which delegates to
+    // `formatIssue`. Pin the rendering directly.
     val real = ReviewIssue(
       severity = Severity.Warning,
       confidence = 0.9,
@@ -96,32 +94,11 @@ class FixLoopTest extends munit.FunSuite:
       line = Some(42),
       suggestion = Some("stream batches instead of buffering")
     )
-    val _ = fixLoop(
-      evaluate = scripted(
-        List(
-          ReviewResult(issues = List(real), summary = "1 finding"),
-          ReviewResult.empty
-        )
-      ),
-      fix = found => IgnoredIssues(found.map(IgnoredIssue(_, "won't fix")))
-    )
-    val steps = seen.get().reverse.collect {
-      case OrcaEvent.Step(msg) => msg
-    }
-    val issueStep = steps.find(_.contains("Unbounded growth"))
-      .getOrElse(fail(s"expected an issue Step; got: $steps"))
-    assert(
-      issueStep.contains("[Warning]"),
-      s"expected severity prefix; got: $issueStep"
-    )
-    assert(
-      issueStep.contains("at src/main/Foo.scala:42"),
-      s"expected location line; got: $issueStep"
-    )
-    assert(
-      issueStep.contains("suggestion: stream batches"),
-      s"expected suggestion line; got: $issueStep"
-    )
+    val rendered = orca.formatIssue(real)
+    assert(rendered.contains("[Warning]"), s"missing severity; got: $rendered")
+    assert(rendered.contains("Unbounded growth"), s"missing summary; got: $rendered")
+    assert(rendered.contains("at src/main/Foo.scala:42"), s"missing location; got: $rendered")
+    assert(rendered.contains("suggestion: stream batches"), s"missing suggestion; got: $rendered")
 
   test("loop emits a 'Discarded' Step when fix only ignores issues"):
     val seen = new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)

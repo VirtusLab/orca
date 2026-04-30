@@ -56,6 +56,13 @@ case class BugTriage(
     summary: String
 ) derives JsonData
 
+object BugTriage:
+  given Announce[BugTriage] = Announce.from: t =>
+    val approach =
+      if t.canTest then s"failing test at ${t.failingTestPath.getOrElse("?")}"
+      else "documenting reproduction steps"
+    s"Triage: ${t.summary} — $approach on branch '${t.branchName}'"
+
 case class BugReportMatch(
     /** Whether the failing-test output (or reproduction artefact)
       * is a faithful reproduction of what the original report
@@ -65,6 +72,11 @@ case class BugReportMatch(
     /** Short justification for the verdict. */
     explanation: String
 ) derives JsonData
+
+object BugReportMatch:
+  given Announce[BugReportMatch] = Announce.from: m =>
+    val verdict = if m.matches then "Reproduction confirmed" else "Reproduction MISMATCH"
+    s"$verdict: ${m.explanation}"
 
 flow(OrcaArgs(args)):
 

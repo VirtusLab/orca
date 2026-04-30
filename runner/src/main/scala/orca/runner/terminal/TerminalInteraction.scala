@@ -85,35 +85,26 @@ class TerminalInteraction(
         // hanging-indented continuation lines) re-indents on each
         // newline so the body stays aligned under the glyph.
         emitStepLine(message)
-      case OrcaEvent.StructuredResult(raw, summary) =>
-        // The conversation renderer suppresses the agent's raw JSON
-        // when in structured mode, so this is the *only* place the
-        // result lands on screen. Summary present → Step-style (▶);
-        // summary absent → assistant glyph (●) so the user still
-        // sees what the agent produced. The ●-styling matches
-        // streamed assistant prose exactly so a fallback render is
-        // visually consistent with the non-structured path.
-        summary match
-          case Some(s) => emitStepLine(s)
-          case None    => emitAssistantLine(raw)
+      case OrcaEvent.StructuredResult(_, summary) =>
+        // The conversation renderer suppresses the agent's streamed
+        // JSON when in structured mode; this event is what surfaces
+        // the result. We render only when an `Announce[O]` summary
+        // is provided — falling back to raw JSON would just reverse
+        // the suppression we did upstream. Types that want to stay
+        // visible without a typeclass-driven summary should define
+        // an `Announce[O]` that returns the desired text.
+        summary.foreach(emitStepLine)
       case OrcaEvent.Error(message) =>
         appendIndented(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
 
-    /** A `▶` step line at the current stage indent. */
-    private def emitStepLine(message: String): Unit =
-      appendIndented(paint(fansi.Color.Cyan, s"$StageStartGlyph $message"))
-
-    /** A `●` assistant-prose line — same glyph and styling as
-      * [[TerminalConversationRenderer.AssistantGlyph]] so the
-      * structured-result fallback render stays in lockstep with
-      * streamed prose if either side ever changes.
+    /** A `▶` step line: magenta-bold glyph, neutral body. Matches
+      * the assistant-prose styling (magenta `●` + neutral text) so
+      * the dominant accent across the event log is consistent —
+      * stages, steps, and prose are all "primary content".
       */
-    private def emitAssistantLine(text: String): Unit =
-      val glyph = paint(
-        TerminalConversationRenderer.AssistantGlyphStyle,
-        s"${TerminalConversationRenderer.AssistantGlyph} "
-      )
-      appendIndented(glyph + text)
+    private def emitStepLine(message: String): Unit =
+      val glyph = paint(StepGlyphStyle, s"$StageStartGlyph ")
+      appendIndented(glyph + message)
 
   /** Push the current breadcrumb to the bar (or hide it when the
     * stack is empty). Centralised so every push/pop site does the
@@ -154,6 +145,13 @@ object TerminalInteraction:
   val StageStartGlyph: String = "▶"
   val StageDoneGlyph: String = "✔"
   val ErrorGlyph: String = "✖"
+
+  /** Stages, steps, and structured-result summaries share the
+    * same magenta-bold glyph — the dominant accent for "primary
+    * content" in the event log. Pulled into a constant so the
+    * three render paths can't drift.
+    */
+  val StepGlyphStyle: fansi.Attrs = fansi.Color.Magenta ++ fansi.Bold.On
 
   /** ANSI colors default off when stderr isn't attached to a terminal
     * (no controlling console), the `NO_COLOR` convention is honoured,

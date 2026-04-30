@@ -245,12 +245,21 @@ private[terminal] object TerminalConversationRenderer:
   val ErrorGlyph: String      = "✖"
   val ApprovalGlyph: String   = "?"
 
+  // Palette: magenta-bold glyphs are the dominant accent (stages,
+  // steps, assistant prose) — they pop against neutral body text
+  // without the previous wash of cyan/blue. Tool calls move to
+  // yellow-bold so the "the agent is doing something external"
+  // signal stands out from the magenta-bold "primary content"
+  // signal. Secondary text (tool args, tool results, thinking) all
+  // stays dark-gray. User prompts keep cyan as their distinctive
+  // colour since they're rare and want to be visually anchored at
+  // the top of an interactive session.
   val UserHeaderStyle: fansi.Attrs     = fansi.Color.Cyan ++ fansi.Bold.On
   val UserBodyStyle: fansi.Attrs       = fansi.Color.Cyan
   val AssistantGlyphStyle: fansi.Attrs = fansi.Color.Magenta ++ fansi.Bold.On
   val AssistantTextStyle: fansi.Attrs  = fansi.Attrs.Empty
   val ThinkingStyle: fansi.Attrs       = fansi.Color.DarkGray
-  val ToolNameStyle: fansi.Attrs       = fansi.Color.Blue ++ fansi.Bold.On
+  val ToolNameStyle: fansi.Attrs       = fansi.Color.Yellow ++ fansi.Bold.On
   val ToolArgsStyle: fansi.Attrs       = fansi.Color.DarkGray
   val ToolResultStyle: fansi.Attrs     = fansi.Color.DarkGray
   val ErrorStyle: fansi.Attrs          = fansi.Color.Red
