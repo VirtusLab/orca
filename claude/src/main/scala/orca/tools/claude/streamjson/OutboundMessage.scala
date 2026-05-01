@@ -6,9 +6,9 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 /** Messages the driver writes back to claude's stdin.
   *
   * The inbound schema is reverse-engineered from third-party references
-  * (`claude-code-parser` etc.) — Anthropic does not publish the stdin
-  * wire format. Covered by integration tests pinned against the
-  * installed CLI version so drift is caught on CI.
+  * (`claude-code-parser` etc.) — Anthropic does not publish the stdin wire
+  * format. Covered by integration tests pinned against the installed CLI
+  * version so drift is caught on CI.
   */
 private[claude] enum OutboundMessage:
   /** A user turn, as text. */

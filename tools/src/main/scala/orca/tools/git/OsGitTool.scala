@@ -4,14 +4,14 @@ import orca.{CommitInfo, GitTool, OrcaEvent, OrcaFlowException, Worktree}
 import orca.subprocess.QuietProc
 
 /** `GitTool` implementation that shells out to the `git` CLI via os-lib.
-  * Contract semantics (commit auto-staging, push upstream setup, diff vs
-  * HEAD, worktree branch-exists handling) are specified on the trait; this
-  * class handles the subprocess plumbing and the worktree-list parser.
+  * Contract semantics (commit auto-staging, push upstream setup, diff vs HEAD,
+  * worktree branch-exists handling) are specified on the trait; this class
+  * handles the subprocess plumbing and the worktree-list parser.
   *
-  * `emit` lets the tool publish [[OrcaEvent.Step]]s for the operations the
-  * user cares to see in the event log (branch switches, commits, pushes).
-  * It's optional — defaults to a no-op so callers that don't yet wire a
-  * dispatcher still work.
+  * `emit` lets the tool publish [[OrcaEvent.Step]]s for the operations the user
+  * cares to see in the event log (branch switches, commits, pushes). It's
+  * optional — defaults to a no-op so callers that don't yet wire a dispatcher
+  * still work.
   */
 class OsGitTool(
     workDir: os.Path = os.pwd,
@@ -45,8 +45,7 @@ class OsGitTool(
         )
       )
       true
-    else
-      false
+    else false
 
   def commit(message: String): Unit =
     val _ = git("add", "-A")

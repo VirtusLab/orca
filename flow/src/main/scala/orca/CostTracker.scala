@@ -2,11 +2,10 @@ package orca
 
 import java.util.concurrent.atomic.AtomicReference
 
-/** Listener that accumulates `TokensUsed` events into a running total,
-  * keyed by model. State is held in an AtomicReference so the tracker
-  * is safe to register across concurrent LLM calls. The model key is
-  * always a real string per [[OrcaEvent.TokensUsed]]'s contract — no
-  * `<unknown>` bucket needed.
+/** Listener that accumulates `TokensUsed` events into a running total, keyed by
+  * model. State is held in an AtomicReference so the tracker is safe to
+  * register across concurrent LLM calls. The model key is always a real string
+  * per [[OrcaEvent.TokensUsed]]'s contract — no `<unknown>` bucket needed.
   */
 class CostTracker extends OrcaListener:
   private val state: AtomicReference[Map[String, Usage]] =

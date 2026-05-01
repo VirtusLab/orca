@@ -5,21 +5,21 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
 import orca.Usage
 
-/** One message parsed off of claude's stdout when running with
-  * `--output-format stream-json --verbose --include-partial-messages`.
-  * Each variant carries only the fields the driver actually inspects;
-  * the rest of the JSON is dropped. Unknown top-level types collapse to
-  * [[Unknown]] so protocol drift doesn't crash the pipeline.
+/** One message parsed off of claude's stdout when running with `--output-format
+  * stream-json --verbose --include-partial-messages`. Each variant carries only
+  * the fields the driver actually inspects; the rest of the JSON is dropped.
+  * Unknown top-level types collapse to [[Unknown]] so protocol drift doesn't
+  * crash the pipeline.
   */
 private[claude] enum InboundMessage:
   case SystemInit(sessionId: String)
   case AssistantTurn(content: List[ContentBlock])
   case UserTurn(content: List[ContentBlock])
+
   /** Final turn result. When the session ran with `--json-schema`, the
-    * validated value lands in `structuredOutput` as raw JSON; without
-    * the flag (or in error cases) the agent's free-form reply lands in
-    * `output`. Callers that need a single value should prefer
-    * `structuredOutput.orElse(output)`.
+    * validated value lands in `structuredOutput` as raw JSON; without the flag
+    * (or in error cases) the agent's free-form reply lands in `output`. Callers
+    * that need a single value should prefer `structuredOutput.orElse(output)`.
     */
   case Result(
       subtype: String,
@@ -35,10 +35,9 @@ private[claude] enum InboundMessage:
 
 private[claude] object InboundMessage:
 
-  /** Parse one NDJSON line. The dispatch reads the `type` field, then
-    * re-reads the line into the appropriate case class. Malformed JSON
-    * propagates `JsonReaderException` — callers decide whether to skip
-    * or fail.
+  /** Parse one NDJSON line. The dispatch reads the `type` field, then re-reads
+    * the line into the appropriate case class. Malformed JSON propagates
+    * `JsonReaderException` — callers decide whether to skip or fail.
     */
   def parse(line: String): InboundMessage =
     val envelope = readFromString[TopEnvelope](line)
@@ -95,12 +94,15 @@ private[claude] object InboundMessage:
   private case class TopEnvelope(`type`: String)
       derives ConfiguredJsonValueCodec
 
-  private case class SystemWire(subtype: String, session_id: Option[String] = None)
-      derives ConfiguredJsonValueCodec
+  private case class SystemWire(
+      subtype: String,
+      session_id: Option[String] = None
+  ) derives ConfiguredJsonValueCodec
 
   private case class InnerMessage(content: List[RawJson] = Nil)
       derives ConfiguredJsonValueCodec:
-    def toBlocks: List[ContentBlock] = content.map(b => ContentBlock.parse(b.value))
+    def toBlocks: List[ContentBlock] =
+      content.map(b => ContentBlock.parse(b.value))
 
   private case class MessageWire(message: InnerMessage)
       derives ConfiguredJsonValueCodec

@@ -7,9 +7,9 @@ import ox.supervised
 
 import scala.util.control.NonFatal
 
-/** Entry point for flow scripts. Takes the parsed CLI args (required) plus
-  * any number of overrides, then runs the body inside an Ox `supervised`
-  * scope with the resulting `FlowContext` as an ambient given.
+/** Entry point for flow scripts. Takes the parsed CLI args (required) plus any
+  * number of overrides, then runs the body inside an Ox `supervised` scope with
+  * the resulting `FlowContext` as an ambient given.
   *
   * ```
   * flow(OrcaArgs(args)):
@@ -28,17 +28,17 @@ import scala.util.control.NonFatal
   *   ...
   * ```
   *
-  * `interaction` is `Option[Interaction]` (rather than a direct
-  * `Interaction` with a default `new TerminalInteraction()`) so the
-  * default can be parameterised by `workDir`, which Scala 3's
-  * default-arg evaluation can't see across params in the same list.
-  * Pass `Some(myInteraction)` to override; leave it out and the
-  * resolved `workDir` flows into the default `TerminalInteraction`.
+  * `interaction` is `Option[Interaction]` (rather than a direct `Interaction`
+  * with a default `new TerminalInteraction()`) so the default can be
+  * parameterised by `workDir`, which Scala 3's default-arg evaluation can't see
+  * across params in the same list. Pass `Some(myInteraction)` to override;
+  * leave it out and the resolved `workDir` flows into the default
+  * `TerminalInteraction`.
   *
   * The two-parameter-list shape is deliberate: Scala 3's fewer-braces
-  * propagates the `FlowContext ?=>` given into the body only when the
-  * block lands in a list of its own. `flow(...): body` satisfies that
-  * because the first list is closed by `(...)` before the block starts.
+  * propagates the `FlowContext ?=>` given into the body only when the block
+  * lands in a list of its own. `flow(...): body` satisfies that because the
+  * first list is closed by `(...)` before the block starts.
   */
 def flow(
     args: OrcaArgs,

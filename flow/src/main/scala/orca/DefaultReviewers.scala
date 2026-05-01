@@ -1,11 +1,10 @@
 package orca
 
-/** Canonical system prompts for the reviewers the library ships with.
-  * Exposed so callers can tune or extend the set without rewriting the
-  * defaults. The set mirrors Claude Code's built-in review agents
-  * (performance, readability, test, code-functionality, abstraction)
-  * so flow scripts that lean on the defaults get the same coverage
-  * regardless of backend.
+/** Canonical system prompts for the reviewers the library ships with. Exposed
+  * so callers can tune or extend the set without rewriting the defaults. The
+  * set mirrors Claude Code's built-in review agents (performance, readability,
+  * test, code-functionality, abstraction) so flow scripts that lean on the
+  * defaults get the same coverage regardless of backend.
   */
 object ReviewerPrompts:
   val Performance: String =
@@ -75,7 +74,7 @@ private[orca] class NamedLlmTool[B <: Backend](
     new NamedLlmTool(name, delegate.withConfig(config))
   def withSystemPrompt(prompt: String): LlmTool[B] =
     new NamedLlmTool(name, delegate.withSystemPrompt(prompt))
-  def resultAs[O: JsonData : Announce]: LlmCall[B, O] = delegate.resultAs[O]
+  def resultAs[O: JsonData: Announce]: LlmCall[B, O] = delegate.resultAs[O]
 
 /** Pre-configured reviewer agents built atop the supplied base tool. Each
   * reviewer has its own `name` and system prompt; callers pass them (or a

@@ -1,20 +1,19 @@
 package orca
 
 /** Builds the literal prompt strings Orca sends to the LLM for each invocation
-  * mode. Each method takes the serialized user input, the generated JSON
-  * Schema for the expected output, and the active `LlmConfig`, and returns
-  * the final prompt text. Swap the default ([[orca.io.DefaultPrompts]]) by
-  * passing `prompts = ...` to `flow(...)` when you want to customise
-  * phrasing, add guardrails, or use a different structured-output
-  * convention.
+  * mode. Each method takes the serialized user input, the generated JSON Schema
+  * for the expected output, and the active `LlmConfig`, and returns the final
+  * prompt text. Swap the default ([[orca.io.DefaultPrompts]]) by passing
+  * `prompts = ...` to `flow(...)` when you want to customise phrasing, add
+  * guardrails, or use a different structured-output convention.
   *
-  * The schema is a parameter (rather than something the backend always
-  * threads in via `--json-schema`/`--output-schema`) because not every
-  * code path enforces structured output at the CLI: claude headless
-  * (`-p --output-format json`) doesn't, codex `exec resume` rejects the
-  * flag, and codex headless calls don't carry one. Embedding the schema
-  * in the prompt is the only signal those paths get; for paths where
-  * the backend also enforces it, it's belt-and-suspenders.
+  * The schema is a parameter (rather than something the backend always threads
+  * in via `--json-schema`/`--output-schema`) because not every code path
+  * enforces structured output at the CLI: claude headless (`-p --output-format
+  * json`) doesn't, codex `exec resume` rejects the flag, and codex headless
+  * calls don't carry one. Embedding the schema in the prompt is the only signal
+  * those paths get; for paths where the backend also enforces it, it's
+  * belt-and-suspenders.
   */
 trait Prompts:
   /** Prompt for a non-interactive call: the model is expected to emit the

@@ -25,12 +25,12 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 
 /** Drives a stream-json conversation with claude to completion.
   *
-  * Boilerplate (reader thread, event queue, outcome lifecycle,
-  * stderr drain) lives in [[StreamConversation]]; this class supplies
-  * the claude-specific protocol translation: NDJSON → [[InboundMessage]]
-  * → `ConversationEvent`s, plus auto-approve policy for tools listed
-  * in `config.autoApprove`. Outbound writes (user turns, tool-approval
-  * responses) happen on the channel's thread via `writeOutbound`.
+  * Boilerplate (reader thread, event queue, outcome lifecycle, stderr drain)
+  * lives in [[StreamConversation]]; this class supplies the claude-specific
+  * protocol translation: NDJSON → [[InboundMessage]] → `ConversationEvent`s,
+  * plus auto-approve policy for tools listed in `config.autoApprove`. Outbound
+  * writes (user turns, tool-approval responses) happen on the channel's thread
+  * via `writeOutbound`.
   */
 private[claude] class ClaudeConversation(
     process: PipedCliProcess,
@@ -46,9 +46,10 @@ private[claude] class ClaudeConversation(
   import StreamConversation.Outcome
 
   private val sessionIdRef = new AtomicReference[String]("")
-  /** Set whenever a delta arrives in the current turn, cleared when the
-    * full turn message lands. Lets `handleAssistantTurn` tell "partials
-    * already streamed" from "partials disabled upstream".
+
+  /** Set whenever a delta arrives in the current turn, cleared when the full
+    * turn message lands. Lets `handleAssistantTurn` tell "partials already
+    * streamed" from "partials disabled upstream".
     */
   private val deltasSinceTurnBoundary = new AtomicBoolean(false)
 
@@ -89,12 +90,11 @@ private[claude] class ClaudeConversation(
       // can act on, so drop silently rather than rendering ✖.
       ()
 
-  /** Full assistant turn arrives after partials have streamed. Tool-use
-    * blocks only reach us here (deltas don't reconstruct them), so we
-    * emit those. Text and thinking are normally already streamed as
-    * deltas, but if partials were disabled upstream we'd silently drop
-    * them — fall back to emitting the whole block as a single delta
-    * when no deltas preceded this turn.
+  /** Full assistant turn arrives after partials have streamed. Tool-use blocks
+    * only reach us here (deltas don't reconstruct them), so we emit those. Text
+    * and thinking are normally already streamed as deltas, but if partials were
+    * disabled upstream we'd silently drop them — fall back to emitting the
+    * whole block as a single delta when no deltas preceded this turn.
     */
   private def handleAssistantTurn(content: List[ContentBlock]): Unit =
     val sawDeltasThisTurn = deltasSinceTurnBoundary.getAndSet(false)
@@ -108,18 +108,20 @@ private[claude] class ClaudeConversation(
       case _ => ()
     eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
 
-  /** User turns arriving from the subprocess echo our own input, except
-    * they also carry `tool_result` blocks the SDK injected after running
-    * a tool — surface those so the channel can render the outcome.
+  /** User turns arriving from the subprocess echo our own input, except they
+    * also carry `tool_result` blocks the SDK injected after running a tool —
+    * surface those so the channel can render the outcome.
     */
   private def handleUserTurn(content: List[ContentBlock]): Unit =
     content.foreach:
       case ContentBlock.ToolResult(_, body, isError) =>
-        eventQueue.enqueue(ConversationEvent.ToolResult(
-          toolName = "",
-          ok = !isError,
-          content = body
-        ))
+        eventQueue.enqueue(
+          ConversationEvent.ToolResult(
+            toolName = "",
+            ok = !isError,
+            content = body
+          )
+        )
       case _ => ()
 
   private def handleResult(
@@ -135,27 +137,32 @@ private[claude] class ClaudeConversation(
     )
     val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
 
-  /** Claude sets `is_error: true` for out-of-band failures (API errors,
-    * rate limits, auth problems) that happen at the CLI boundary rather
-    * than inside a turn. Treat these as session-ending failures rather
-    * than feeding the error body into the downstream response parser,
-    * which might otherwise accept a `{"type":"error",...}` payload as
-    * a structurally valid agent output.
+  /** Claude sets `is_error: true` for out-of-band failures (API errors, rate
+    * limits, auth problems) that happen at the CLI boundary rather than inside
+    * a turn. Treat these as session-ending failures rather than feeding the
+    * error body into the downstream response parser, which might otherwise
+    * accept a `{"type":"error",...}` payload as a structurally valid agent
+    * output.
     *
-    * If text deltas have already streamed in this turn, the user has
-    * already seen the body — emit a short marker rather than repeating
-    * the full text. The `Outcome.Failed` always carries the full
-    * message for `awaitResult` to surface.
+    * If text deltas have already streamed in this turn, the user has already
+    * seen the body — emit a short marker rather than repeating the full text.
+    * The `Outcome.Failed` always carries the full message for `awaitResult` to
+    * surface.
     */
   private def handleResultError(output: Option[String]): Unit =
-    val message = output.filter(_.nonEmpty).getOrElse("claude reported is_error")
+    val message =
+      output.filter(_.nonEmpty).getOrElse("claude reported is_error")
     val displayed =
       if deltasSinceTurnBoundary.get() then "session failed (see message above)"
       else message
     eventQueue.enqueue(ConversationEvent.Error(displayed))
     val _ = outcomeRef.compareAndSet(
       None,
-      Some(Outcome.Failed(new OrcaFlowException(s"claude session failed: $message")))
+      Some(
+        Outcome.Failed(
+          new OrcaFlowException(s"claude session failed: $message")
+        )
+      )
     )
 
   private def handleControlRequest(

@@ -15,11 +15,10 @@ trait GitTool:
   def createBranch(name: String): Unit
   def checkout(name: String): Unit
 
-  /** Switch to `name`, creating it from `HEAD` if it doesn't exist
-    * yet. Idempotent: calling on the current branch is a no-op (no
-    * `Step` event emitted in that case). Useful for resumable flows
-    * that may run against a repo where the branch was already
-    * created on a previous attempt.
+  /** Switch to `name`, creating it from `HEAD` if it doesn't exist yet.
+    * Idempotent: calling on the current branch is a no-op (no `Step` event
+    * emitted in that case). Useful for resumable flows that may run against a
+    * repo where the branch was already created on a previous attempt.
     */
   def checkoutOrCreate(name: String): Unit
 
@@ -39,14 +38,14 @@ trait GitTool:
 
   def log(n: Int = 10): List[CommitInfo]
 
-  /** Verify the working tree is clean. If it isn't, `git stash push`
-    * with the supplied message and emit a `Step` event so the user
-    * can recover the changes later via `git stash pop`. Used by
-    * resumable flows that need a known-clean starting state without
-    * silently destroying the user's work-in-progress.
+  /** Verify the working tree is clean. If it isn't, `git stash push` with the
+    * supplied message and emit a `Step` event so the user can recover the
+    * changes later via `git stash pop`. Used by resumable flows that need a
+    * known-clean starting state without silently destroying the user's
+    * work-in-progress.
     *
-    * Returns `true` if a stash was created, `false` if the tree was
-    * already clean.
+    * Returns `true` if a stash was created, `false` if the tree was already
+    * clean.
     */
   def ensureClean(stashMessage: String): Boolean
 

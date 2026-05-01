@@ -16,10 +16,9 @@ import orca.{
 import orca.io.DefaultLlmCall
 
 /** Default [[CodexTool]] implementation that routes calls through a
-  * [[LlmBackend]][Backend.Codex.type]]. Mirrors `DefaultClaudeTool` —
-  * the tool is immutable; `withConfig`, `withSystemPrompt`, and
-  * `mini` return new instances so flow scripts can chain without
-  * side effects.
+  * [[LlmBackend]][Backend.Codex.type]]. Mirrors `DefaultClaudeTool` — the tool
+  * is immutable; `withConfig`, `withSystemPrompt`, and `mini` return new
+  * instances so flow scripts can chain without side effects.
   */
 class DefaultCodexTool(
     backend: LlmBackend[Backend.Codex.type],
@@ -32,10 +31,10 @@ class DefaultCodexTool(
 
   val name: String = "codex"
 
-  /** Pin the cheap-and-fast model variant. The literal model id matches
-    * what's available in the installed `codex-cli` (gpt-5.4-mini in
-    * 0.125.0); newer codex versions may rename, in which case callers
-    * override via `withConfig(LlmConfig(model = Some("..."))`.
+  /** Pin the cheap-and-fast model variant. The literal model id matches what's
+    * available in the installed `codex-cli` (gpt-5.4-mini in 0.125.0); newer
+    * codex versions may rename, in which case callers override via
+    * `withConfig(LlmConfig(model = Some("..."))`.
     */
   def mini: CodexTool = withModel("gpt-5.4-mini")
 
@@ -70,7 +69,7 @@ class DefaultCodexTool(
     emitTokens(effective, result.usage)
     result.output
 
-  def resultAs[O: JsonData : Announce]: LlmCall[Backend.Codex.type, O] =
+  def resultAs[O: JsonData: Announce]: LlmCall[Backend.Codex.type, O] =
     new DefaultLlmCall[Backend.Codex.type, O](
       backend,
       effectiveConfig,

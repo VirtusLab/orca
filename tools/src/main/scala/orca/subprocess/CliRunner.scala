@@ -7,21 +7,20 @@ trait CliProcess:
   def isAlive: Boolean
   def waitForExit(): Int
 
-/** A spawned process whose stdin / stdout / stderr are connected to pipes
-  * the caller controls. The backend writes the opening user turn (or
-  * any further input) via `writeLine` and consumes responses as they
-  * arrive from `stdoutLines`. `closeStdin` signals end-of-input — the
-  * agent CLI then emits its final result and exits. Both backends
-  * close stdin once the opening turn has been written: claude (with
-  * `--input-format stream-json`) waits for EOF before flushing the
-  * final `result`; codex `exec --json` reads its prompt argv-side
-  * and ignores stdin entirely once the spawn settles.
+/** A spawned process whose stdin / stdout / stderr are connected to pipes the
+  * caller controls. The backend writes the opening user turn (or any further
+  * input) via `writeLine` and consumes responses as they arrive from
+  * `stdoutLines`. `closeStdin` signals end-of-input — the agent CLI then emits
+  * its final result and exits. Both backends close stdin once the opening turn
+  * has been written: claude (with `--input-format stream-json`) waits for EOF
+  * before flushing the final `result`; codex `exec --json` reads its prompt
+  * argv-side and ignores stdin entirely once the spawn settles.
   *
-  * Reads on `stdoutLines` / `stderrLines` block until a line is
-  * available or the stream closes. Each iterator must be consumed by
-  * a single thread; internal buffering of pending lines is not
-  * thread-safe across readers. Implementations memoise the iterator
-  * so repeated property accesses return the same underlying stream.
+  * Reads on `stdoutLines` / `stderrLines` block until a line is available or
+  * the stream closes. Each iterator must be consumed by a single thread;
+  * internal buffering of pending lines is not thread-safe across readers.
+  * Implementations memoise the iterator so repeated property accesses return
+  * the same underlying stream.
   */
 trait PipedCliProcess extends CliProcess:
   def writeLine(line: String): Unit
@@ -29,9 +28,9 @@ trait PipedCliProcess extends CliProcess:
   def stdoutLines: Iterator[String]
   def stderrLines: Iterator[String]
 
-  /** Non-blocking exit probe. `None` while still running; `Some(code)`
-    * once the process has exited. The reader fork uses this to tell a
-    * clean EOF from a crash.
+  /** Non-blocking exit probe. `None` while still running; `Some(code)` once the
+    * process has exited. The reader fork uses this to tell a clean EOF from a
+    * crash.
     */
   def tryExitCode: Option[Int]
 
@@ -43,16 +42,16 @@ trait CliRunner:
       cwd: os.Path = os.pwd
   ): CliResult
 
-  /** Spawn the command with pipes on stdin / stdout / stderr for
-    * programmatic orchestration (stream-json, tool-approval, etc.).
-    * See [[PipedCliProcess]] for the I/O surface.
+  /** Spawn the command with pipes on stdin / stdout / stderr for programmatic
+    * orchestration (stream-json, tool-approval, etc.). See [[PipedCliProcess]]
+    * for the I/O surface.
     *
-    * `pipeStderr = false` (default) inherits the child's stderr to the
-    * parent's terminal — appropriate for chatty CLIs whose stderr can
-    * fill the pipe buffer faster than the driver drains it (claude with
-    * `--verbose`). Set to `true` when the driver wants to see stderr
-    * lines as `ConversationEvent.Error`s and the child's stderr volume
-    * is bounded enough that a 64KB pipe is safe.
+    * `pipeStderr = false` (default) inherits the child's stderr to the parent's
+    * terminal — appropriate for chatty CLIs whose stderr can fill the pipe
+    * buffer faster than the driver drains it (claude with `--verbose`). Set to
+    * `true` when the driver wants to see stderr lines as
+    * `ConversationEvent.Error`s and the child's stderr volume is bounded enough
+    * that a 64KB pipe is safe.
     */
   def spawnPiped(
       args: Seq[String],
@@ -120,7 +119,8 @@ private final class OsPipedSubProcess(
 
   // Memoised so repeated calls return the same iterator, avoiding a
   // second `BufferedReader` leak against the pipe.
-  private lazy val stdoutIterator: Iterator[String] = sub.stdout.lines().iterator
+  private lazy val stdoutIterator: Iterator[String] =
+    sub.stdout.lines().iterator
   // When stderr is inherited to the parent, expose an empty iterator so
   // the `PipedCliProcess` contract still holds without reading from a
   // nonexistent pipe; when piped, expose the actual stream.

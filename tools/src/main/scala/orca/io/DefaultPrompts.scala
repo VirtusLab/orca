@@ -2,16 +2,15 @@ package orca.io
 
 import orca.{LlmConfig, Prompts}
 
-/** Default [[Prompts]] implementation. Each method builds the final
-  * prompt string via Scala string interpolation.
+/** Default [[Prompts]] implementation. Each method builds the final prompt
+  * string via Scala string interpolation.
   *
-  * Autonomous calls ship the JSON Schema inline in the prompt — they
-  * route through `claude -p --output-format json` with no structured
-  * validation on the CLI side. Interactive calls rely on `--json-schema`
-  * for enforcement and let the agent reply in natural conversation until
-  * it has the final structured value; the schema is still summarised in
-  * the prompt so the model knows the target shape, but no magic marker
-  * is required.
+  * Autonomous calls ship the JSON Schema inline in the prompt — they route
+  * through `claude -p --output-format json` with no structured validation on
+  * the CLI side. Interactive calls rely on `--json-schema` for enforcement and
+  * let the agent reply in natural conversation until it has the final
+  * structured value; the schema is still summarised in the prompt so the model
+  * knows the target shape, but no magic marker is required.
   */
 object DefaultPrompts extends Prompts:
 

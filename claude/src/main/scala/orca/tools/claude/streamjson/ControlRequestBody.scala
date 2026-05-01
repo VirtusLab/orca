@@ -3,8 +3,8 @@ package orca.tools.claude.streamjson
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
-/** The `request` sub-object of a `control_request` message. Today the
-  * only subtype we act on is `can_use_tool` — everything else becomes
+/** The `request` sub-object of a `control_request` message. Today the only
+  * subtype we act on is `can_use_tool` — everything else becomes
   * `Unknown(rawSubtype)` so the driver can log and move on.
   */
 private[claude] enum ControlRequestBody:

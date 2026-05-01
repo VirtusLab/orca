@@ -33,7 +33,9 @@ def stage[T](name: String)(body: => T)(using ctx: FlowContext): T =
         case _ => ()
       throw e
     case NonFatal(e) =>
-      val msg = Option(e.getMessage).getOrElse(e.getClass.getName).linesIterator
+      val msg = Option(e.getMessage)
+        .getOrElse(e.getClass.getName)
+        .linesIterator
         .nextOption()
         .getOrElse(e.getClass.getName)
       ctx.emit(OrcaEvent.Error(s"Stage '$name' failed: $msg"))
@@ -57,14 +59,13 @@ def fail(message: String)(using ctx: FlowContext): Nothing =
   ctx.emit(OrcaEvent.Error(message))
   throw OrcaFlowException(message)
 
-/** Outcome of a single review/fix iteration. Consumed by `fixLoop`'s
-  * recursive driver and by `closingMessage` (via the bail kind) for
-  * the final summary.
+/** Outcome of a single review/fix iteration. Consumed by `fixLoop`'s recursive
+  * driver and by `closingMessage` (via the bail kind) for the final summary.
   *
-  * `AllIgnored` covers the "fixer says it can't address any of these"
-  * case — common when the reviewer flagged something environmental
-  * like a missing CLI. There's no value in re-evaluating, so the
-  * loop halts and the discarded issues fall into the closing summary.
+  * `AllIgnored` covers the "fixer says it can't address any of these" case —
+  * common when the reviewer flagged something environmental like a missing CLI.
+  * There's no value in re-evaluating, so the loop halts and the discarded
+  * issues fall into the closing summary.
   */
 private enum IterationOutcome:
   case Clean
@@ -79,20 +80,20 @@ private enum BailKind:
 
 /** Evaluate, fix, re-evaluate until the reviewer reports only issues that are
   * already in the caller's "ignored" set, `fix` makes no progress, every
-  * remaining issue is marked as won't-fix, or `maxIterations` fix attempts
-  * have been made. Remaining issues after a bail-out are folded into the
-  * returned IgnoredIssues with a reason so callers can surface them.
+  * remaining issue is marked as won't-fix, or `maxIterations` fix attempts have
+  * been made. Remaining issues after a bail-out are folded into the returned
+  * IgnoredIssues with a reason so callers can surface them.
   *
-  * Each call to `evaluate` is rendered as a nested stage (`Iteration N`)
-  * so the status bar's breadcrumb shows where we are. Inside the stage:
-  * found-issues summary, one step per issue, then the iteration's closing
-  * line (`Fixed review comments` / `Unable to fix review comments` / `All
-  * N marked as won't-fix` / `No review comments`).
+  * Each call to `evaluate` is rendered as a nested stage (`Iteration N`) so the
+  * status bar's breadcrumb shows where we are. Inside the stage: found-issues
+  * summary, one step per issue, then the iteration's closing line (`Fixed
+  * review comments` / `Unable to fix review comments` / `All N marked as
+  * won't-fix` / `No review comments`).
   *
   * `maxIterations` counts fix attempts — the cap-reaching iteration runs
   * `evaluate` one last time but skips `fix`. Callers that want to surface
-  * "Running N review agents" (or anything before evaluate) emit it
-  * themselves from inside the supplied `evaluate` closure.
+  * "Running N review agents" (or anything before evaluate) emit it themselves
+  * from inside the supplied `evaluate` closure.
   */
 def fixLoop(
     evaluate: () => ReviewResult,
@@ -102,15 +103,15 @@ def fixLoop(
 
   def emitStep(msg: String): Unit = ctx.emit(OrcaEvent.Step(msg))
 
-  /** One full iteration: open the stage, evaluate, optionally fix,
-    * emit the per-iteration summary line, return a structured outcome.
-    * The cap check lives here so every `evaluate` call (including the
-    * final one) is uniformly framed as `Iteration N` — there's no
-    * separate "post-cap" code path the reader has to special-case.
+  /** One full iteration: open the stage, evaluate, optionally fix, emit the
+    * per-iteration summary line, return a structured outcome. The cap check
+    * lives here so every `evaluate` call (including the final one) is uniformly
+    * framed as `Iteration N` — there's no separate "post-cap" code path the
+    * reader has to special-case.
     *
-    * Callers (e.g. `reviewAndFixLoop`) emit their own "Running N
-    * agents" step from inside `evaluate`, so this function stays
-    * domain-agnostic — no agentCount knob.
+    * Callers (e.g. `reviewAndFixLoop`) emit their own "Running N agents" step
+    * from inside `evaluate`, so this function stays domain-agnostic — no
+    * agentCount knob.
     */
   def runIteration(
       iteration: Int,
@@ -136,7 +137,9 @@ def fixLoop(
           // Agent claimed nothing was actually fixed in code —
           // every remaining issue came back as ignored. Re-running
           // reviewers would just rediscover the same things; halt.
-          emitStep(s"All ${pluralize(remaining.size, "review comment")} marked as won't-fix")
+          emitStep(
+            s"All ${pluralize(remaining.size, "review comment")} marked as won't-fix"
+          )
           IterationOutcome.AllIgnored(newlyIgnored)
         else
           emitStep("Fixed review comments")
@@ -163,11 +166,15 @@ def fixLoop(
         // is "Discarded N", not "Bailed out".
         (accumulated ++ newlyIgnored, None)
       case IterationOutcome.NoProgress(remaining) =>
-        (accumulated ++ capReason(remaining, "fix made no progress"),
-         Some(BailKind.NoProgress))
+        (
+          accumulated ++ capReason(remaining, "fix made no progress"),
+          Some(BailKind.NoProgress)
+        )
       case IterationOutcome.Capped(remaining, max) =>
-        (accumulated ++ capReason(remaining, s"max iterations ($max) reached"),
-         Some(BailKind.MaxIterations(max)))
+        (
+          accumulated ++ capReason(remaining, s"max iterations ($max) reached"),
+          Some(BailKind.MaxIterations(max))
+        )
 
   val (result, bail) = loop(IgnoredIssues(Nil), Set.empty, 0)
   // Closing summary when issues remain — bail-out paths and
@@ -175,21 +182,18 @@ def fixLoop(
   // `result.issues`. The all-clean case is already surfaced as
   // "No review comments" inside the final iteration's stage, so we
   // skip the closing line there to avoid duplicating the same note.
-  if result.issues.nonEmpty then
-    emitStep(closingMessage(result, bail))
+  if result.issues.nonEmpty then emitStep(closingMessage(result, bail))
   result
 
 /** Format a single review comment as the body lines of a `Step`.
   *
-  * Shape: `- [Severity] shortSummary ...wrapped to ~76 cols...`,
-  * optionally followed by `  at file:line` and a `  suggestion: …`
-  * line. The leading `- ` makes the issue a bullet within a multi-
-  * issue body; outer indentation is added by the caller (typically
-  * [[formatReviewerOutcome]]).
+  * Shape: `- [Severity] shortSummary ...wrapped to ~76 cols...`, optionally
+  * followed by ` at file:line` and a ` suggestion: …` line. The leading `- `
+  * makes the issue a bullet within a multi- issue body; outer indentation is
+  * added by the caller (typically [[formatReviewerOutcome]]).
   *
-  * The `description` field is intentionally not rendered — it's the
-  * longer form fed back to the fixing agent; the user sees the short
-  * form on screen.
+  * The `description` field is intentionally not rendered — it's the longer form
+  * fed back to the fixing agent; the user sees the short form on screen.
   */
 private[orca] def formatIssue(issue: ReviewIssue): String =
   val header = TextWrap.wrap(
@@ -205,10 +209,9 @@ private[orca] def formatIssue(issue: ReviewIssue): String =
     TextWrap.wrap(s"    suggestion: $s", maxWidth = 74, continuation = "      ")
   List(Some(header), location, suggestion).flatten.mkString("\n")
 
-/** Format a reviewer's outcome as a `▶`-step body — heading line
-  * names the reviewer + issue count, then bulleted issue details
-  * indented under it. Clean reviews collapse to a single
-  * "<name>: 0 issues" line.
+/** Format a reviewer's outcome as a `▶`-step body — heading line names the
+  * reviewer + issue count, then bulleted issue details indented under it. Clean
+  * reviews collapse to a single "<name>: 0 issues" line.
   */
 private[orca] def formatReviewerOutcome(
     reviewerName: String,
@@ -220,11 +223,11 @@ private[orca] def formatReviewerOutcome(
     val bullets = result.issues.map(formatIssue).mkString("\n")
     s"$header\n$bullets"
 
-/** Final summary line, only emitted when `result.issues` is non-empty.
-  * The clean-exit path is surfaced as `Step("No review comments")`
-  * inside the last iteration's stage; reaching this function means
-  * either the loop bailed (explicit `BailKind`) or `fix` returned
-  * domain-meaningful "won't fix" reasons across iterations.
+/** Final summary line, only emitted when `result.issues` is non-empty. The
+  * clean-exit path is surfaced as `Step("No review comments")` inside the last
+  * iteration's stage; reaching this function means either the loop bailed
+  * (explicit `BailKind`) or `fix` returned domain-meaningful "won't fix"
+  * reasons across iterations.
   */
 private def closingMessage(
     result: IgnoredIssues,
@@ -239,11 +242,10 @@ private def closingMessage(
     case None =>
       s"Discarded $count"
 
-/** Pluralize an English noun by appending "s" when `n != 1`. The same
-  * count goes into the rendered string (`"1 review comment"` /
-  * `"3 review comments"`), so this also encodes the count. Centralised
-  * here so iteration-stage steps and the closing summary stay
-  * consistent in wording.
+/** Pluralize an English noun by appending "s" when `n != 1`. The same count
+  * goes into the rendered string (`"1 review comment"` / `"3 review
+  * comments"`), so this also encodes the count. Centralised here so
+  * iteration-stage steps and the closing summary stay consistent in wording.
   */
 private[orca] def pluralize(n: Int, singular: String): String =
   s"$n $singular${if n == 1 then "" else "s"}"
@@ -254,11 +256,10 @@ private def capReason(
 ): IgnoredIssues =
   IgnoredIssues(issues.map(IgnoredIssue(_, reason)))
 
-/** One round of reviews, with each reviewer's individual outcome
-  * preserved. The list keeps the order callers configured (so
-  * positions match `defaultReviewers(claude)` etc.), and lets the
-  * loop decide which reviewers to re-run on the next iteration based
-  * on which ones found issues this time.
+/** One round of reviews, with each reviewer's individual outcome preserved. The
+  * list keeps the order callers configured (so positions match
+  * `defaultReviewers(claude)` etc.), and lets the loop decide which reviewers
+  * to re-run on the next iteration based on which ones found issues this time.
   */
 case class ReviewBatch(outcomes: List[(LlmTool[?], ReviewResult)]):
   def reviewersWithIssues: List[LlmTool[?]] =
@@ -266,30 +267,29 @@ case class ReviewBatch(outcomes: List[(LlmTool[?], ReviewResult)]):
   def allIssues: List[ReviewIssue] =
     outcomes.flatMap(_._2.issues)
 
-/** Picks which reviewers to run on each iteration of
-  * [[reviewAndFixLoop]]. `history` holds prior batches with the most
-  * recent first; `all` is the originally configured set, useful for
-  * the very first iteration when there's no history yet.
+/** Picks which reviewers to run on each iteration of [[reviewAndFixLoop]].
+  * `history` holds prior batches with the most recent first; `all` is the
+  * originally configured set, useful for the very first iteration when there's
+  * no history yet.
   */
 type ReviewerSelector =
   (history: List[ReviewBatch], all: List[LlmTool[?]]) => List[LlmTool[?]]
 
 object ReviewerSelector:
 
-  /** Default. First iteration runs every reviewer; subsequent rounds
-    * re-run only those that found something last round. Saves API
-    * spend on consistently-quiet reviewers; the trade-off is that a
-    * reviewer who'd catch a regression introduced by a fix won't see
-    * the fix.
+  /** Default. First iteration runs every reviewer; subsequent rounds re-run
+    * only those that found something last round. Saves API spend on
+    * consistently-quiet reviewers; the trade-off is that a reviewer who'd catch
+    * a regression introduced by a fix won't see the fix.
     */
   val onlyChangedDimensions: ReviewerSelector = (history, all) =>
     history.headOption match
       case None        => all
       case Some(batch) => batch.reviewersWithIssues
 
-  /** Costlier but thorough: every reviewer runs every iteration,
-    * regardless of whether it's been quiet so far. Pick this when
-    * regression coverage matters more than tokens.
+  /** Costlier but thorough: every reviewer runs every iteration, regardless of
+    * whether it's been quiet so far. Pick this when regression coverage matters
+    * more than tokens.
     */
   val allEveryRound: ReviewerSelector = (_, all) => all
 
@@ -298,17 +298,16 @@ private case class FixRequest(
     issues: List[ReviewIssue]
 ) derives JsonData
 
-/** Run reviewers in parallel against `task`, gather per-reviewer
-  * outcomes, hand any issues above `confidenceThreshold` to `coder`
-  * via `continueSession`, and loop. Each iteration's reviewer set is
-  * picked by `reviewerSelection`; the default re-runs only reviewers
-  * that found issues last round.
+/** Run reviewers in parallel against `task`, gather per-reviewer outcomes, hand
+  * any issues above `confidenceThreshold` to `coder` via `continueSession`, and
+  * loop. Each iteration's reviewer set is picked by `reviewerSelection`; the
+  * default re-runs only reviewers that found issues last round.
   *
-  * The fix step instructs the agent explicitly: fix what you can,
-  * mark anything else (environmental, out-of-scope, false positive)
-  * as ignored with a reason. When the agent marks every remaining
-  * issue as ignored, the loop halts cleanly — there's no point
-  * re-evaluating something the agent has already disclaimed.
+  * The fix step instructs the agent explicitly: fix what you can, mark anything
+  * else (environmental, out-of-scope, false positive) as ignored with a reason.
+  * When the agent marks every remaining issue as ignored, the loop halts
+  * cleanly — there's no point re-evaluating something the agent has already
+  * disclaimed.
   */
 def reviewAndFixLoop[B <: Backend](
     coder: LlmTool[B],
@@ -317,7 +316,8 @@ def reviewAndFixLoop[B <: Backend](
     task: String,
     lintCommand: Option[String] = None,
     confidenceThreshold: Double = 0.7,
-    reviewerSelection: ReviewerSelector = ReviewerSelector.onlyChangedDimensions,
+    reviewerSelection: ReviewerSelector =
+      ReviewerSelector.onlyChangedDimensions,
     maxIterations: Int = 10
 )(using ctx: FlowContext): IgnoredIssues =
   // Threaded across iterations via the closure: each evaluate appends
@@ -330,7 +330,9 @@ def reviewAndFixLoop[B <: Backend](
     val active = reviewerSelection(history, reviewers)
     val totalAgents = active.size + (if lintCommand.isDefined then 1 else 0)
     if totalAgents > 0 then
-      ctx.emit(OrcaEvent.Step(s"Running ${pluralize(totalAgents, "review agent")}"))
+      ctx.emit(
+        OrcaEvent.Step(s"Running ${pluralize(totalAgents, "review agent")}")
+      )
     val reviewerOutcomes: List[(LlmTool[?], ReviewResult)] =
       supervised:
         active
@@ -344,20 +346,26 @@ def reviewAndFixLoop[B <: Backend](
     // `Announce[ReviewResult] = ""`; this is the named replacement.
     reviewerOutcomes.foreach: (reviewer, result) =>
       ctx.emit(OrcaEvent.Step(formatReviewerOutcome(reviewer.name, result)))
-    val lintResult = lintCommand.toList.map(cmd => "lint" -> lint(cmd, claude.haiku))
+    val lintResult =
+      lintCommand.toList.map(cmd => "lint" -> lint(cmd, claude.haiku))
     lintResult.foreach: (name, result) =>
       ctx.emit(OrcaEvent.Step(formatReviewerOutcome(name, result)))
     val all = batch.allIssues ++ lintResult.flatMap(_._2.issues)
     val kept = all.filter(_.confidence >= confidenceThreshold)
     ReviewResult(
       issues = kept,
-      summary = s"${kept.size} issue(s) at or above confidence $confidenceThreshold"
+      summary =
+        s"${kept.size} issue(s) at or above confidence $confidenceThreshold"
     )
 
   def fix(issues: List[ReviewIssue]): IgnoredIssues =
     coder
       .resultAs[IgnoredIssues]
-      .continueSession(sessionId, FixRequest(FixInstructions, issues), LlmConfig.default)
+      .continueSession(
+        sessionId,
+        FixRequest(FixInstructions, issues),
+        LlmConfig.default
+      )
 
   // The stage doesn't repeat `task` in its label — the enclosing
   // implement-task stage already names it.
@@ -368,13 +376,12 @@ def reviewAndFixLoop[B <: Backend](
       maxIterations = maxIterations
     )
 
-/** Prompt sent alongside `FixRequest` so the fixing agent knows what
-  * the loop expects: fix in code where possible, otherwise mark as
-  * ignored with a brief reason. Without this guidance the agent
-  * tends to re-attempt unfixable items every round (the same
-  * "cargo: command not found" comes back from each reviewer because
-  * nothing changed in the environment). Marking it as ignored once
-  * lets the loop exit cleanly via the `AllIgnored` outcome.
+/** Prompt sent alongside `FixRequest` so the fixing agent knows what the loop
+  * expects: fix in code where possible, otherwise mark as ignored with a brief
+  * reason. Without this guidance the agent tends to re-attempt unfixable items
+  * every round (the same "cargo: command not found" comes back from each
+  * reviewer because nothing changed in the environment). Marking it as ignored
+  * once lets the loop exit cleanly via the `AllIgnored` outcome.
   */
 private val FixInstructions: String =
   """For each review comment below: fix it directly in the codebase

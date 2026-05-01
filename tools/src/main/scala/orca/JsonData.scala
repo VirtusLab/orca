@@ -18,9 +18,8 @@ import scala.deriving.Mirror
   * `given`s below exist for a narrower reason: when tapir's `Schema.derived`
   * expands a nested case class inside `derives JsonData`, it looks for
   * `Schema[Child]` in lexical scope, and the forwarder bridges it from the
-  * child's own `derives JsonData`. User scripts must import them with
-  * `import orca.{*, given}` — Scala 3's plain wildcard imports exclude
-  * givens.
+  * child's own `derives JsonData`. User scripts must import them with `import
+  * orca.{*, given}` — Scala 3's plain wildcard imports exclude givens.
   */
 trait JsonData[A]:
   def schema: Schema[A]
@@ -28,14 +27,14 @@ trait JsonData[A]:
 
 object JsonData:
 
-  /** Stricter-than-default jsoniter config. `requireCollectionFields`
-    * makes missing `List` / `Set` / `Map` fields a parse error instead
-    * of silently defaulting to empty; without this an agent reply that
-    * has the right overall `{...}` structure but the wrong fields (an
-    * API error body, a partial document) decodes as a valid case class
-    * with every collection empty — and downstream code sees a
-    * "success" with no content. `transientEmpty = false` is required
-    * because the two flags are mutually exclusive in jsoniter.
+  /** Stricter-than-default jsoniter config. `requireCollectionFields` makes
+    * missing `List` / `Set` / `Map` fields a parse error instead of silently
+    * defaulting to empty; without this an agent reply that has the right
+    * overall `{...}` structure but the wrong fields (an API error body, a
+    * partial document) decodes as a valid case class with every collection
+    * empty — and downstream code sees a "success" with no content.
+    * `transientEmpty = false` is required because the two flags are mutually
+    * exclusive in jsoniter.
     */
   inline def strictCodecConfig: CodecMakerConfig =
     CodecMakerConfig

@@ -9,8 +9,8 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 /** A single block inside an assistant or user message's `content` array.
   *
   * Claude Code emits several block shapes; we model the ones the driver
-  * actually routes on. Unknown block types collapse to `Unknown(rawType)`
-  * so protocol drift doesn't crash the parser.
+  * actually routes on. Unknown block types collapse to `Unknown(rawType)` so
+  * protocol drift doesn't crash the parser.
   */
 private[claude] enum ContentBlock:
   case Text(text: String)
@@ -35,8 +35,7 @@ private[claude] object ContentBlock:
   private case class BlockEnvelope(`type`: String)
       derives ConfiguredJsonValueCodec
 
-  private case class TextWire(text: String)
-      derives ConfiguredJsonValueCodec:
+  private case class TextWire(text: String) derives ConfiguredJsonValueCodec:
     def toBlock: ContentBlock = Text(text)
 
   private case class ThinkingWire(thinking: String)
@@ -51,10 +50,10 @@ private[claude] object ContentBlock:
     def toBlock: ContentBlock =
       ToolUse(id = id, name = name, rawInput = input.value)
 
-  /** Claude's tool_result `content` field is either a plain string or a
-    * list of nested blocks (text / tool_reference / etc.). Capture it
-    * as RawJson and reduce to a displayable string at the domain
-    * boundary; callers that need structure can re-parse.
+  /** Claude's tool_result `content` field is either a plain string or a list of
+    * nested blocks (text / tool_reference / etc.). Capture it as RawJson and
+    * reduce to a displayable string at the domain boundary; callers that need
+    * structure can re-parse.
     */
   private case class ToolResultWire(
       tool_use_id: String,
@@ -68,11 +67,11 @@ private[claude] object ContentBlock:
         isError = is_error.getOrElse(false)
       )
 
-  /** Claude sends `content` as either a JSON string literal or an array
-    * of nested blocks (currently: text blocks and tool_reference
-    * blocks). We flatten to a human-readable string so the renderer
-    * can truncate without leaking `[{"type":"text",...}]` scaffolding
-    * into the terminal. Unknown shapes fall back to the raw JSON.
+  /** Claude sends `content` as either a JSON string literal or an array of
+    * nested blocks (currently: text blocks and tool_reference blocks). We
+    * flatten to a human-readable string so the renderer can truncate without
+    * leaking `[{"type":"text",...}]` scaffolding into the terminal. Unknown
+    * shapes fall back to the raw JSON.
     */
   private def renderToolResultContent(raw: String): String =
     val trimmed = raw.trim
@@ -86,18 +85,21 @@ private[claude] object ContentBlock:
 
   private def decodeNestedBlocks(raw: String): String =
     try
-      val flat = flattenBlocks(readFromString[List[NestedBlock]](raw)(using nestedBlocksCodec))
+      val flat = flattenBlocks(
+        readFromString[List[NestedBlock]](raw)(using nestedBlocksCodec)
+      )
       if flat.nonEmpty then flat else raw
     catch case _: Throwable => raw
 
   /** Concatenate the legible bits of each block: text prose as-is, and
-    * tool_reference lists (ToolSearch results) as a comma-joined name
-    * list — easier to skim than `<Name1> <Name2>`. Returns an empty
-    * string if the blocks carry nothing renderable, so the caller can
-    * fall back to the raw JSON.
+    * tool_reference lists (ToolSearch results) as a comma-joined name list —
+    * easier to skim than `<Name1> <Name2>`. Returns an empty string if the
+    * blocks carry nothing renderable, so the caller can fall back to the raw
+    * JSON.
     */
   private def flattenBlocks(blocks: List[NestedBlock]): String =
-    val texts = blocks.flatMap(_.asText).map(_.trim).filter(_.nonEmpty).mkString(" ")
+    val texts =
+      blocks.flatMap(_.asText).map(_.trim).filter(_.nonEmpty).mkString(" ")
     val toolNames = blocks.flatMap(_.asToolName).mkString(", ")
     List(texts, toolNames).filter(_.nonEmpty).mkString(" ")
 
@@ -115,5 +117,7 @@ private[claude] object ContentBlock:
     JsonCodecMaker.make
 
   private given nestedBlocksCodec
-      : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[List[NestedBlock]] =
+      : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[List[
+        NestedBlock
+      ]] =
     JsonCodecMaker.make

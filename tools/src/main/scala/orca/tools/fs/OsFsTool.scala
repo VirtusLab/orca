@@ -4,10 +4,10 @@ import orca.FsTool
 
 import java.nio.file.FileSystems
 
-/** `FsTool` implementation backed by os-lib. Path resolution and glob
-  * semantics are specified on the trait; this class wires them to
-  * `os.read` / `os.write.over` / `os.walk.stream` and narrows the `list`
-  * traversal to the deepest wildcard-free prefix of the glob.
+/** `FsTool` implementation backed by os-lib. Path resolution and glob semantics
+  * are specified on the trait; this class wires them to `os.read` /
+  * `os.write.over` / `os.walk.stream` and narrows the `list` traversal to the
+  * deepest wildcard-free prefix of the glob.
   */
 class OsFsTool(base: os.Path = os.pwd) extends FsTool:
 

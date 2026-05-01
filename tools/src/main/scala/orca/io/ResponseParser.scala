@@ -9,11 +9,11 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 import scala.annotation.tailrec
 import scala.util.matching.Regex
 
-/** Thrown when the agent returned output that doesn't parse as `O`. Carries
-  * the raw (possibly truncated) response and a short human-readable cause
-  * message; the underlying jsoniter exception (with its hex buffer dump) is
-  * attached as `getCause` for `--verbose` inspection without being part of
-  * the default message.
+/** Thrown when the agent returned output that doesn't parse as `O`. Carries the
+  * raw (possibly truncated) response and a short human-readable cause message;
+  * the underlying jsoniter exception (with its hex buffer dump) is attached as
+  * `getCause` for `--verbose` inspection without being part of the default
+  * message.
   */
 class MalformedAgentOutputException(
     val rawOutput: String,
@@ -30,13 +30,12 @@ private[orca] object ResponseParser:
     """(?s)\A```(?:\w+)?\n?(.*?)\n?```\z""".r
 
   /** Parse an LLM-returned JSON string into `O`, tolerating markdown code
-    * fences (optionally with a language tag) and prose preamble/coda
-    * around the JSON body. Tries candidates from the *right* first, so
-    * a final answer `{...}` at the end of the response wins over an
-    * incidental `{ ... }` in prose (e.g. a Java snippet quoted in the
-    * explanation). On a total parse failure, raises a
-    * [[MalformedAgentOutputException]] carrying the raw output and a
-    * short cause — never jsoniter's hex buffer dump.
+    * fences (optionally with a language tag) and prose preamble/coda around the
+    * JSON body. Tries candidates from the *right* first, so a final answer
+    * `{...}` at the end of the response wins over an incidental `{ ... }` in
+    * prose (e.g. a Java snippet quoted in the explanation). On a total parse
+    * failure, raises a [[MalformedAgentOutputException]] carrying the raw
+    * output and a short cause — never jsoniter's hex buffer dump.
     */
   def parse[O](raw: String)(using JsonValueCodec[O]): O =
     val trimmed = stripFences(raw)
@@ -65,10 +64,10 @@ private[orca] object ResponseParser:
       case FencePattern(inner) => inner.trim
       case unfenced            => unfenced
 
-  /** Every balanced `{...}` substring in the input, in source order.
-    * The parser tries these right-to-left so an incidental code snippet
-    * in prose doesn't preempt the real final answer that agents tend to
-    * place at the end of a response.
+  /** Every balanced `{...}` substring in the input, in source order. The parser
+    * tries these right-to-left so an incidental code snippet in prose doesn't
+    * preempt the real final answer that agents tend to place at the end of a
+    * response.
     */
   private def extractJsonObjects(s: String): List[String] =
     @tailrec
@@ -81,8 +80,8 @@ private[orca] object ResponseParser:
           case None      => loop(i + 1, acc)
     loop(0, Nil)
 
-  /** Cursor over the in-string escape state while scanning for a
-    * matching `}`. Tracking it explicitly keeps the scan tail-recursive.
+  /** Cursor over the in-string escape state while scanning for a matching `}`.
+    * Tracking it explicitly keeps the scan tail-recursive.
     */
   private enum ScanMode:
     case Normal, InString, Escaped
@@ -112,9 +111,9 @@ private[orca] object ResponseParser:
               case _ => loop(i + 1, depth, ScanMode.Normal)
     loop(open, 0, ScanMode.Normal)
 
-  /** jsoniter's default `getMessage` bundles the offset + a hex buffer
-    * dump — useful in logs, intimidating in a user-facing error. Keep
-    * only the first line.
+  /** jsoniter's default `getMessage` bundles the offset + a hex buffer dump —
+    * useful in logs, intimidating in a user-facing error. Keep only the first
+    * line.
     */
   private def shortMessage(e: JsonReaderException): String =
     val msg = Option(e.getMessage).getOrElse(e.getClass.getSimpleName)

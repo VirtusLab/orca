@@ -22,8 +22,8 @@ import orca.io.DefaultLlmCall
   *
   * Headless calls (`ask`, `startSession`, `continueSession`, and the full
   * `resultAs[O]` shape) go straight through the backend. Interactive calls
-  * spawn claude in stream-json mode and wrap the subprocess in a
-  * `Conversation` that the supplied `interaction` drives to completion.
+  * spawn claude in stream-json mode and wrap the subprocess in a `Conversation`
+  * that the supplied `interaction` drives to completion.
   */
 class DefaultClaudeTool(
     backend: LlmBackend[Backend.ClaudeCode.type],
@@ -71,7 +71,7 @@ class DefaultClaudeTool(
     emitTokens(effective, result.usage)
     result.output
 
-  def resultAs[O: JsonData : Announce]: LlmCall[Backend.ClaudeCode.type, O] =
+  def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
     new DefaultLlmCall[Backend.ClaudeCode.type, O](
       backend,
       effectiveConfig,

@@ -2,31 +2,28 @@ package orca.runner.terminal
 
 import java.io.PrintStream
 
-/** A persistent single-line status indicator at the bottom of the
-  * terminal, with the event log accumulating above. The status line
-  * shows the current activity (stage name + spinner glyph); each log
-  * write transparently scrolls it down by one row.
+/** A persistent single-line status indicator at the bottom of the terminal,
+  * with the event log accumulating above. The status line shows the current
+  * activity (stage name + spinner glyph); each log write transparently scrolls
+  * it down by one row.
   *
   * Design:
-  *   - All event-log output flows through [[appendLog]]. The bar
-  *     clears its current status line, writes the log line, then
-  *     re-draws the status below it.
-  *   - The spinner runs on its own daemon thread, calling
-  *     [[refreshIfCurrent]] to advance the glyph in place without
-  *     touching the log.
-  *   - When [[animated]] is false (non-TTY output, redirected stderr,
-  *     CI), the bar degrades to plain inline output: every appendLog
-  *     just writes the line, and the spinner becomes a no-op.
+  *   - All event-log output flows through [[appendLog]]. The bar clears its
+  *     current status line, writes the log line, then re-draws the status below
+  *     it.
+  *   - The spinner runs on its own daemon thread, calling [[refreshIfCurrent]]
+  *     to advance the glyph in place without touching the log.
+  *   - When [[animated]] is false (non-TTY output, redirected stderr, CI), the
+  *     bar degrades to plain inline output: every appendLog just writes the
+  *     line, and the spinner becomes a no-op.
   *
-  * Concurrency: every field is touched only under `lock`. The animator
-  * thread's loop check also takes the lock to read state — which means
-  * `stopStatus` must release the lock *before* joining the animator
-  * (otherwise the animator's next check would deadlock waiting for the
-  * lock `stopStatus` is holding). Stale-thread races (a previous
-  * animator still alive when a fresh one starts) are prevented by the
-  * "is this thread still the recorded animator?" identity check —
-  * `animator.contains(myself)` — rather than a separate `running`
-  * flag.
+  * Concurrency: every field is touched only under `lock`. The animator thread's
+  * loop check also takes the lock to read state — which means `stopStatus` must
+  * release the lock *before* joining the animator (otherwise the animator's
+  * next check would deadlock waiting for the lock `stopStatus` is holding).
+  * Stale-thread races (a previous animator still alive when a fresh one starts)
+  * are prevented by the "is this thread still the recorded animator?" identity
+  * check — `animator.contains(myself)` — rather than a separate `running` flag.
   */
 private[terminal] class StatusBar(
     out: PrintStream,
@@ -44,11 +41,10 @@ private[terminal] class StatusBar(
   private var frameIndex: Int = 0
   private var animator: Option[Thread] = None
 
-  /** Append a chunk of text to the event log above the status line.
-    * The chunk may contain `\n`s; trailing newline is normalised so
-    * each appended chunk ends one logical row. Empty input emits
-    * just the trailing newline (used by callers as a section
-    * separator).
+  /** Append a chunk of text to the event log above the status line. The chunk
+    * may contain `\n`s; trailing newline is normalised so each appended chunk
+    * ends one logical row. Empty input emits just the trailing newline (used by
+    * callers as a section separator).
     */
   def appendLog(text: String): Unit = lock.synchronized:
     if !animated || currentLabel == null then
@@ -65,13 +61,12 @@ private[terminal] class StatusBar(
       drawStatus()
       out.flush()
 
-  /** Show (or relabel) the status line. Idempotent; calling twice
-    * with the same label just refreshes the frame.
+  /** Show (or relabel) the status line. Idempotent; calling twice with the same
+    * label just refreshes the frame.
     *
-    * When `animated = false` this is a no-op — non-TTY output has no
-    * persistent bottom line, and the event log will have already
-    * shown the same label as a `▶ <stage>` entry, so duplicating it
-    * inline would just create noise.
+    * When `animated = false` this is a no-op — non-TTY output has no persistent
+    * bottom line, and the event log will have already shown the same label as a
+    * `▶ <stage>` entry, so duplicating it inline would just create noise.
     */
   def startStatus(label: String = DefaultLabel): Unit = lock.synchronized:
     if animated then
@@ -81,8 +76,8 @@ private[terminal] class StatusBar(
       out.flush()
       ensureAnimator()
 
-  /** Hide the status line entirely. The cursor lands at the start of
-    * the (now-cleared) status row, so subsequent writes start there.
+  /** Hide the status line entirely. The cursor lands at the start of the
+    * (now-cleared) status row, so subsequent writes start there.
     */
   def stopStatus(): Unit =
     val toJoin = lock.synchronized:
@@ -98,10 +93,10 @@ private[terminal] class StatusBar(
     // takes the lock) can observe `animator == None` and exit cleanly.
     toJoin.foreach(_.join(200))
 
-  /** Called by the animator on each tick — only redraws when this
-    * thread is still the recorded animator. Stale threads (left over
-    * from a stop/start race) see `animator.contains(myself) == false`
-    * and exit without touching the terminal.
+  /** Called by the animator on each tick — only redraws when this thread is
+    * still the recorded animator. Stale threads (left over from a stop/start
+    * race) see `animator.contains(myself) == false` and exit without touching
+    * the terminal.
     */
   private def refreshIfCurrent(myself: Thread): Unit = lock.synchronized:
     if animator.contains(myself) && currentLabel != null then
@@ -140,10 +135,9 @@ private[terminal] class StatusBar(
 
 private[terminal] object StatusBar:
 
-  /** Carriage return + ANSI Erase-In-Line-2 (clear entire line). The
-    * ESC character is the literal byte ``; writing it inline
-    * keeps the source readable while preserving the binary value
-    * across tool round-trips.
+  /** Carriage return + ANSI Erase-In-Line-2 (clear entire line). The ESC
+    * character is the literal byte ``; writing it inline keeps the source
+    * readable while preserving the binary value across tool round-trips.
     */
   private val ClearLine: String = "\r[2K"
 
@@ -153,12 +147,12 @@ private[terminal] object StatusBar:
   val Frames: Vector[String] =
     Vector("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
-  /** Maximum characters in the rendered status line before we truncate.
-    * Picked to fit a typical 80-column terminal without wrapping;
-    * narrower terminals will wrap once on the truncation boundary,
-    * which still avoids the staircase-spinner bug. Querying the real
-    * terminal width would be cleaner but requires JLine's terminal
-    * API and adds startup cost for marginal payoff.
+  /** Maximum characters in the rendered status line before we truncate. Picked
+    * to fit a typical 80-column terminal without wrapping; narrower terminals
+    * will wrap once on the truncation boundary, which still avoids the
+    * staircase-spinner bug. Querying the real terminal width would be cleaner
+    * but requires JLine's terminal API and adds startup cost for marginal
+    * payoff.
     */
   private val MaxStatusLineWidth: Int = 78
 

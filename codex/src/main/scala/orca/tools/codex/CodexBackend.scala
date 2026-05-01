@@ -15,18 +15,16 @@ import orca.tools.codex.jsonl.{InboundEvent, Item}
 
 import java.util.concurrent.atomic.AtomicReference
 
-/** Codex backend. Both headless and interactive paths drive
-  * `codex exec --json` over stdio: stdout JSONL is parsed into
-  * [[InboundEvent]]s, and the assistant message preceding
-  * `turn.completed` becomes the result. See
-  * [[../../../adr/0007-codex-exec-jsonl-driver.md ADR 0007]] for the
-  * shape of the protocol and the rationale for not using the
-  * experimental WebSocket app-server.
+/** Codex backend. Both headless and interactive paths drive `codex exec --json`
+  * over stdio: stdout JSONL is parsed into [[InboundEvent]]s, and the assistant
+  * message preceding `turn.completed` becomes the result. See
+  * [[../../../adr/0007-codex-exec-jsonl-driver.md ADR 0007]] for the shape of
+  * the protocol and the rationale for not using the experimental WebSocket
+  * app-server.
   *
-  * Interactive sessions wrap the same subprocess in a
-  * [[CodexConversation]] so the channel can render events live.
-  * Multi-turn happens via `continueInteractive`, which spawns a fresh
-  * `codex exec resume <thread_id>`.
+  * Interactive sessions wrap the same subprocess in a [[CodexConversation]] so
+  * the channel can render events live. Multi-turn happens via
+  * `continueInteractive`, which spawns a fresh `codex exec resume <thread_id>`.
   */
 class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
 
@@ -82,9 +80,9 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
     )
 
   /** Spawn `codex exec --json` and wrap the process in a live
-    * [[CodexConversation]]. Stdin is closed immediately — codex
-    * consumes the prompt argv-side and reads stdin only as an
-    * appended `<stdin>` block, which we don't use.
+    * [[CodexConversation]]. Stdin is closed immediately — codex consumes the
+    * prompt argv-side and reads stdin only as an appended `<stdin>` block,
+    * which we don't use.
     */
   private def openConversation(
       prompt: String,
@@ -118,11 +116,11 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
           s"Failed to open codex session: ${e.getMessage}"
         )
 
-  /** Headless invocation: spawn the subprocess, drain the JSONL
-    * stream, and assemble an [[LlmResult]] from the thread id, last
-    * agent message, and `turn.completed` usage. Unlike claude, codex's
-    * `--json` exec stream is the only output format — no separate
-    * batched-JSON shape, so headless and interactive share the parser.
+  /** Headless invocation: spawn the subprocess, drain the JSONL stream, and
+    * assemble an [[LlmResult]] from the thread id, last agent message, and
+    * `turn.completed` usage. Unlike claude, codex's `--json` exec stream is the
+    * only output format — no separate batched-JSON shape, so headless and
+    * interactive share the parser.
     */
   private def invokeHeadless(
       prompt: String,
@@ -137,7 +135,8 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
     // `--output-schema` in any case.
     val args = resume match
       case Some(sid) => CodexArgs.execResume(sid, finalPrompt, config)
-      case None      => CodexArgs.exec(finalPrompt, config, outputSchemaFile = None, workDir)
+      case None =>
+        CodexArgs.exec(finalPrompt, config, outputSchemaFile = None, workDir)
     val process = cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
     try
       process.closeStdin()
@@ -146,10 +145,10 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
         case Left(msg) => throw OrcaFlowException(s"codex CLI failed: $msg")
     finally if process.isAlive then process.sendSigInt()
 
-  /** Walk the JSONL stream end-to-end, accumulating the artifacts a
-    * headless caller cares about: thread id, last agent message,
-    * usage. Returns Left with a diagnostic on any failure path
-    * (process exit non-zero, parse error, unexpected EOF).
+  /** Walk the JSONL stream end-to-end, accumulating the artifacts a headless
+    * caller cares about: thread id, last agent message, usage. Returns Left
+    * with a diagnostic on any failure path (process exit non-zero, parse error,
+    * unexpected EOF).
     */
   private def drainHeadless(
       process: PipedCliProcess
@@ -158,30 +157,31 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
       AtomicReference(Vector.empty)
     val stderrThread = new Thread(
       () =>
-        try process.stderrLines.foreach: line =>
-          if isReportableStderr(line) then
-            val _ = stderrBuf.updateAndGet(_ :+ line.trim)
-        catch case _: Throwable => (),
-      "codex-headless-stderr"
+        try
+          process.stderrLines.foreach: line =>
+            if isReportableStderr(line) then
+              val _ = stderrBuf.updateAndGet(_ :+ line.trim)
+        catch case _: Throwable => (), "codex-headless-stderr"
     )
     stderrThread.setDaemon(true)
     stderrThread.start()
 
     val foldResult = foldStdout(process, HeadlessAccumulator.empty)
     val exit = process.waitForExit()
-    try stderrThread.join() catch case _: InterruptedException => ()
+    try stderrThread.join()
+    catch case _: InterruptedException => ()
 
     foldResult match
       case Left(msg) => Left(msg)
       case Right(acc) =>
         if exit != 0 then
           val stderr = stderrBuf.get()
-          val diag = if stderr.nonEmpty then stderr.mkString("; ") else "no stderr"
+          val diag =
+            if stderr.nonEmpty then stderr.mkString("; ") else "no stderr"
           Left(s"exit $exit: $diag")
         else if !acc.sawTurnCompleted then
           Left("codex exited without a turn.completed event")
-        else
-          Right(acc.toLlmResult)
+        else Right(acc.toLlmResult)
 
   private def foldStdout(
       process: PipedCliProcess,
@@ -193,10 +193,11 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
       while it.hasNext do
         val line = it.next()
         try acc = acc.absorb(InboundEvent.parse(line))
-        catch case e: Exception =>
-          return Left(
-            s"failed to parse codex JSONL line: ${e.getMessage} | line=$line"
-          )
+        catch
+          case e: Exception =>
+            return Left(
+              s"failed to parse codex JSONL line: ${e.getMessage} | line=$line"
+            )
       Right(acc)
     catch
       case e: Throwable =>
@@ -205,16 +206,16 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
   private def isReportableStderr(line: String): Boolean =
     val trimmed = line.trim
     trimmed.nonEmpty &&
-      !trimmed.startsWith("Reading additional input from stdin")
+    !trimmed.startsWith("Reading additional input from stdin")
 
-  /** codex `exec` has no `--system-prompt` flag (codex picks up
-    * `AGENTS.md` files in the working directory for static
-    * instructions). Fold a configured `systemPrompt` into the user
-    * prompt as a preamble — a low-tech but predictable substitute.
+  /** codex `exec` has no `--system-prompt` flag (codex picks up `AGENTS.md`
+    * files in the working directory for static instructions). Fold a configured
+    * `systemPrompt` into the user prompt as a preamble — a low-tech but
+    * predictable substitute.
     */
   private def mergeSystemPrompt(config: LlmConfig, userPrompt: String): String =
     config.systemPrompt match
-      case None       => userPrompt
+      case None => userPrompt
       case Some(body) =>
         s"""System guidance:
            |$body
@@ -231,10 +232,9 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
       os.write.over(file, body, createFolders = true)
       file
 
-/** Fold state for `drainHeadless` — keeps the JSONL→LlmResult
-  * reduction explicit instead of scattered across method-scope vars.
-  * `absorb` is the per-event step; `toLlmResult` finalises after the
-  * stream is exhausted.
+/** Fold state for `drainHeadless` — keeps the JSONL→LlmResult reduction
+  * explicit instead of scattered across method-scope vars. `absorb` is the
+  * per-event step; `toLlmResult` finalises after the stream is exhausted.
   */
 private case class HeadlessAccumulator(
     threadId: String,
@@ -244,7 +244,7 @@ private case class HeadlessAccumulator(
 ):
   def absorb(event: InboundEvent): HeadlessAccumulator = event match
     case InboundEvent.ThreadStarted(id) => copy(threadId = id)
-    case InboundEvent.TurnCompleted(u)  =>
+    case InboundEvent.TurnCompleted(u) =>
       copy(usage = u, sawTurnCompleted = true)
     case InboundEvent.ItemCompleted(Item.AgentMessage(_, text)) =>
       copy(lastMessage = text)

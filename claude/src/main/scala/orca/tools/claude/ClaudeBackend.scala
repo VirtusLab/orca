@@ -16,9 +16,9 @@ import orca.tools.claude.streamjson.OutboundMessage
 /** Claude Code backend. Headless calls go through `claude -p --output-format
   * json` — single-shot, parses the JSON result. Interactive calls drive a
   * stream-json subprocess through [[ClaudeConversation]]: the prompt is
-  * injected as the first user turn on stdin, the subprocess emits
-  * typed NDJSON responses, the driver translates them into
-  * `ConversationEvent`s the channel renders.
+  * injected as the first user turn on stdin, the subprocess emits typed NDJSON
+  * responses, the driver translates them into `ConversationEvent`s the channel
+  * renders.
   */
 class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
 
@@ -70,25 +70,24 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
       outputSchema
     )
 
-  /** Spawn `claude` in stream-json mode, write the opening user turn,
-    * close stdin, and wrap the process in a live [[ClaudeConversation]].
+  /** Spawn `claude` in stream-json mode, write the opening user turn, close
+    * stdin, and wrap the process in a live [[ClaudeConversation]].
     *
-    * claude's `--print --input-format stream-json` mode batches all
-    * stdin user turns until EOF, then processes and emits the
-    * assistant response(s). Keeping stdin open after the initial turn
-    * makes claude sit waiting for more user input forever. For Orca's
-    * current single-structured-result contract, that's never what we
-    * want — close stdin immediately so claude starts producing output.
+    * claude's `--print --input-format stream-json` mode batches all stdin user
+    * turns until EOF, then processes and emits the assistant response(s).
+    * Keeping stdin open after the initial turn makes claude sit waiting for
+    * more user input forever. For Orca's current single-structured-result
+    * contract, that's never what we want — close stdin immediately so claude
+    * starts producing output.
     *
-    * Consequence: `conversation.sendUserMessage(...)` is a no-op on
-    * this backend (write-to-closed-pipe). Multi-turn interactive —
-    * where the user answers clarifying questions mid-session — needs
-    * a different spawn path (stdin left open, renderer that prompts
-    * on `AskUserQuestion` tool calls). Future work.
+    * Consequence: `conversation.sendUserMessage(...)` is a no-op on this
+    * backend (write-to-closed-pipe). Multi-turn interactive — where the user
+    * answers clarifying questions mid-session — needs a different spawn path
+    * (stdin left open, renderer that prompts on `AskUserQuestion` tool calls).
+    * Future work.
     *
-    * If the initial write fails (claude exec'd then died, broken
-    * pipe, etc.) we SIGINT the process before surfacing the error so
-    * no subprocess leaks.
+    * If the initial write fails (claude exec'd then died, broken pipe, etc.) we
+    * SIGINT the process before surfacing the error so no subprocess leaks.
     */
   private def openConversation(
       prompt: String,
@@ -103,7 +102,9 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
       ClaudeArgs.streamJson(config, systemPromptFile, resume, outputSchema)
     val process = cli.spawnPiped(args, cwd = workDir)
     try
-      process.writeLine(OutboundMessage.toJson(OutboundMessage.UserText(prompt)))
+      process.writeLine(
+        OutboundMessage.toJson(OutboundMessage.UserText(prompt))
+      )
       process.closeStdin()
       new ClaudeConversation(
         process,

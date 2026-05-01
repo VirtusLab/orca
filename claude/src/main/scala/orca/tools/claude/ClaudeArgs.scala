@@ -9,8 +9,8 @@ import orca.{AutoApprove, Backend, LlmConfig, SessionId}
   */
 object ClaudeArgs:
 
-  /** Single-turn headless invocation: `claude -p <prompt>
-    * --output-format json`. The process prints a JSON result and exits.
+  /** Single-turn headless invocation: `claude -p <prompt> --output-format
+    * json`. The process prints a JSON result and exits.
     */
   def headless(
       prompt: String,
@@ -26,11 +26,11 @@ object ClaudeArgs:
 
   /** Stream-json interactive invocation: `claude --print --input-format
     * stream-json --output-format stream-json --verbose
-    * --include-partial-messages`. The prompt goes in as the first user
-    * turn on stdin; the caller writes subsequent turns and reads
-    * responses as NDJSON. `--print` is required by the CLI for
-    * `--input-format stream-json` to take effect — despite the name,
-    * the session runs multi-turn because the stdin pipe stays open.
+    * --include-partial-messages`. The prompt goes in as the first user turn on
+    * stdin; the caller writes subsequent turns and reads responses as NDJSON.
+    * `--print` is required by the CLI for `--input-format stream-json` to take
+    * effect — despite the name, the session runs multi-turn because the stdin
+    * pipe stays open.
     */
   def streamJson(
       config: LlmConfig,
@@ -66,10 +66,10 @@ object ClaudeArgs:
     resume.toSeq.flatMap(id => Seq("--resume", SessionId.value(id)))
 
   /** claude's CLI only accepts `--json-schema <inline>` — there's no
-    * `--json-schema-file` form. For typical Orca schemas (a few KB)
-    * inlining is fine; `ARG_MAX` gives us ~128KB of headroom on Linux
-    * and ~256KB of total argv on macOS. If someone builds a flow with
-    * a schema that large, the exec will fail loudly.
+    * `--json-schema-file` form. For typical Orca schemas (a few KB) inlining is
+    * fine; `ARG_MAX` gives us ~128KB of headroom on Linux and ~256KB of total
+    * argv on macOS. If someone builds a flow with a schema that large, the exec
+    * will fail loudly.
     */
   private def jsonSchemaArgs(schema: Option[String]): Seq[String] =
     schema.toSeq.flatMap(s => Seq("--json-schema", s))

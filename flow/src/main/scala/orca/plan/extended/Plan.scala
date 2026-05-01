@@ -3,19 +3,18 @@ package orca.plan.extended
 import orca.{FlowContext, LlmTool, OrcaEvent}
 
 /** A single task in an extended (file-backed) plan. Unlike
-  * [[orca.plan.simple.Task]], this one has a `completed` checkbox so
-  * a partially-finished run can resume on rerun.
+  * [[orca.plan.simple.Task]], this one has a `completed` checkbox so a
+  * partially-finished run can resume on rerun.
   */
 case class Task(name: String, prompt: String, completed: Boolean):
   def markComplete: Task = copy(completed = true)
 
-/** A markdown-backed plan persisted to a file (typically `dev.md`)
-  * so resuming a flow doesn't re-plan from scratch. The branch name
-  * is part of the plan; the runtime checks out / creates that branch
-  * before iterating tasks.
+/** A markdown-backed plan persisted to a file (typically `dev.md`) so resuming
+  * a flow doesn't re-plan from scratch. The branch name is part of the plan;
+  * the runtime checks out / creates that branch before iterating tasks.
   *
-  * On-disk format (the renderer round-trips it; the parser is strict
-  * because we control the writer):
+  * On-disk format (the renderer round-trips it; the parser is strict because we
+  * control the writer):
   *
   * {{{
   * # Plan: <branchName>
@@ -33,33 +32,31 @@ case class Task(name: String, prompt: String, completed: Boolean):
   */
 case class Plan(branchName: String, tasks: List[Task]):
 
-  /** Mark the named task complete, leaving the others untouched.
-    * Returns the same plan if `name` doesn't match any task — the
-    * caller decides whether that's an error.
+  /** Mark the named task complete, leaving the others untouched. Returns the
+    * same plan if `name` doesn't match any task — the caller decides whether
+    * that's an error.
     */
   def markComplete(name: String): Plan =
     copy(tasks = tasks.map(t => if t.name == name then t.markComplete else t))
 
-  /** First task whose `completed` flag is false, in declaration
-    * order. None means the plan is fully done.
+  /** First task whose `completed` flag is false, in declaration order. None
+    * means the plan is fully done.
     */
   def firstIncomplete: Option[Task] = tasks.find(!_.completed)
 
 object Plan:
 
-  /** Idempotent plan acquisition. If `file` already exists, parse
-    * and return it (and log a Step explaining we're reusing it).
-    * Otherwise, ask `llm` to produce a plan in the schema, write it
-    * to `file`, and return the parsed result.
+  /** Idempotent plan acquisition. If `file` already exists, parse and return it
+    * (and log a Step explaining we're reusing it). Otherwise, ask `llm` to
+    * produce a plan in the schema, write it to `file`, and return the parsed
+    * result.
     *
-    * The reuse path is the resume contract: a flow that crashed
-    * mid-loop can be re-run without re-planning from scratch and
-    * without losing the per-task `[x]` progress markers the previous
-    * run committed.
+    * The reuse path is the resume contract: a flow that crashed mid-loop can be
+    * re-run without re-planning from scratch and without losing the per-task
+    * `[x]` progress markers the previous run committed.
     *
-    * Parse failures throw [[PlanParseException]] — the caller
-    * decides whether to delete the file and retry or surface the
-    * error.
+    * Parse failures throw [[PlanParseException]] — the caller decides whether
+    * to delete the file and retry or surface the error.
     */
   def loadOrGenerate(
       file: os.Path,
@@ -88,19 +85,18 @@ object Plan:
       os.write.over(file, render(parsed), createFolders = true)
       parsed
 
-  /** Mark `taskName` complete in the plan stored at `file`. Reads
-    * the file, applies the change, writes it back. Use after a task
-    * is committed so a subsequent run resumes at the next pending
-    * task.
+  /** Mark `taskName` complete in the plan stored at `file`. Reads the file,
+    * applies the change, writes it back. Use after a task is committed so a
+    * subsequent run resumes at the next pending task.
     */
   def persistComplete(file: os.Path, taskName: String): Unit =
     val current = parse(os.read(file))
     val updated = current.markComplete(taskName)
     os.write.over(file, render(updated))
 
-  /** The schema description we hand to the planner LLM so it
-    * generates plans we can parse. Kept as a constant so flows can
-    * reference it without copying the format definition.
+  /** The schema description we hand to the planner LLM so it generates plans we
+    * can parse. Kept as a constant so flows can reference it without copying
+    * the format definition.
     */
   val SchemaDescription: String =
     """A development plan is a markdown document with this exact
@@ -134,29 +130,25 @@ object Plan:
       |""".stripMargin
 
   /** Parse a plan from its markdown representation. Strict — throws
-    * [[PlanParseException]] on any deviation from the schema. We
-    * write these files ourselves (or have the LLM write them under
-    * a strict schema prompt) so format drift is a real bug, not
-    * something to silently absorb.
+    * [[PlanParseException]] on any deviation from the schema. We write these
+    * files ourselves (or have the LLM write them under a strict schema prompt)
+    * so format drift is a real bug, not something to silently absorb.
     *
-    * CRLF line endings and a leading BOM are normalised first so
-    * editor-saved or LLM-emitted files don't fail with confusing
-    * "expected `# Plan:` got ?" diagnostics over a single invisible
-    * codepoint.
+    * CRLF line endings and a leading BOM are normalised first so editor-saved
+    * or LLM-emitted files don't fail with confusing "expected `# Plan:` got ?"
+    * diagnostics over a single invisible codepoint.
     */
   def parse(markdown: String): Plan =
     val normalised = markdown.stripPrefix("﻿").replace("\r\n", "\n")
     val lines = normalised.linesIterator.toList
     val branchName = parseHeader(lines)
     val taskBlocks = splitTaskBlocks(lines)
-    if taskBlocks.isEmpty then
-      throw PlanParseException("Plan has no tasks")
+    if taskBlocks.isEmpty then throw PlanParseException("Plan has no tasks")
     Plan(branchName, taskBlocks.map(parseTask))
 
-  /** Render a plan back into the on-disk format. Output round-trips
-    * through [[parse]] without information loss; we use this to
-    * write the file when first generated and again when a task's
-    * status flips.
+  /** Render a plan back into the on-disk format. Output round-trips through
+    * [[parse]] without information loss; we use this to write the file when
+    * first generated and again when a task's status flips.
     */
   def render(plan: Plan): String =
     val header = s"# Plan: ${plan.branchName}\n"
@@ -190,8 +182,7 @@ object Plan:
         if inTask then blocks += current.toList
         current = collection.mutable.ListBuffer(line)
         inTask = true
-      else if inTask then
-        current += line
+      else if inTask then current += line
     if inTask then blocks += current.toList
     blocks.toList
 

@@ -21,21 +21,19 @@ trait LlmBackend[B <: Backend]:
   ): LlmResult[B]
 
   /** Launch an interactive session and return a live [[Conversation]] the
-    * caller hands to an [[Interaction.drive]] for rendering and user
-    * steering. The backend owns the subprocess and NDJSON parsing; the
-    * channel owns UX.
+    * caller hands to an [[Interaction.drive]] for rendering and user steering.
+    * The backend owns the subprocess and NDJSON parsing; the channel owns UX.
     *
-    * `prompt` is the full wire-level message sent to the agent (with
-    * template scaffolding, schema, rules). `displayPrompt` is what the
-    * channel shows the user to anchor the session — typically just the
-    * user's raw input. Keeping them separate prevents the renderer from
-    * dumping the whole templated system prompt into the terminal.
+    * `prompt` is the full wire-level message sent to the agent (with template
+    * scaffolding, schema, rules). `displayPrompt` is what the channel shows the
+    * user to anchor the session — typically just the user's raw input. Keeping
+    * them separate prevents the renderer from dumping the whole templated
+    * system prompt into the terminal.
     *
-    * `outputSchema` is the JSON Schema the agent's final reply must
-    * conform to, or `None` for free-form text. Backends that support
-    * structured-output validation (claude's `--json-schema`) enforce
-    * it; those that don't can ignore the parameter and let the caller
-    * validate post-hoc.
+    * `outputSchema` is the JSON Schema the agent's final reply must conform to,
+    * or `None` for free-form text. Backends that support structured-output
+    * validation (claude's `--json-schema`) enforce it; those that don't can
+    * ignore the parameter and let the caller validate post-hoc.
     */
   def runInteractive(
       prompt: String,

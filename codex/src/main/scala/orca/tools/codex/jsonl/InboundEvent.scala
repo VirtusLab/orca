@@ -7,10 +7,10 @@ import orca.Usage
 
 /** One event parsed off codex's stdout when it runs with `exec --json`.
   *
-  * The shape is documented in [[../../../adr/0007-codex-exec-jsonl-driver.md
-  * ADR 0007]]; each variant carries only the fields the driver
-  * actually inspects. Unknown top-level types collapse to [[Unknown]]
-  * so protocol drift doesn't crash the pipeline.
+  * The shape is documented in
+  * [[../../../adr/0007-codex-exec-jsonl-driver.md ADR 0007]]; each variant
+  * carries only the fields the driver actually inspects. Unknown top-level
+  * types collapse to [[Unknown]] so protocol drift doesn't crash the pipeline.
   */
 private[codex] enum InboundEvent:
   /** First event in a session — carries the thread / session id. */
@@ -21,9 +21,9 @@ private[codex] enum InboundEvent:
   case ItemCompleted(item: Item)
   case Unknown(rawType: String)
 
-/** A unit of work codex announces during a turn. `agent_message` is the
-  * model's prose; the rest are tool calls of various flavours. Items
-  * that don't match a modelled shape collapse to [[Other]].
+/** A unit of work codex announces during a turn. `agent_message` is the model's
+  * prose; the rest are tool calls of various flavours. Items that don't match a
+  * modelled shape collapse to [[Other]].
   */
 private[codex] enum Item:
   case AgentMessage(id: String, text: String)
@@ -42,8 +42,8 @@ private[codex] case class FileChangeDetail(path: String, kind: String)
 
 private[codex] object InboundEvent:
 
-  /** Parse one JSONL line. Malformed JSON propagates
-    * `JsonReaderException` — callers decide whether to skip or fail.
+  /** Parse one JSONL line. Malformed JSON propagates `JsonReaderException` —
+    * callers decide whether to skip or fail.
     */
   def parse(line: String): InboundEvent =
     val envelope = readFromString[TopEnvelope](line)
@@ -90,9 +90,9 @@ private[codex] object InboundEvent:
       case "file_change" =>
         Item.FileChange(
           id = item.id,
-          changes = item.changes.getOrElse(Nil).map(c =>
-            FileChangeDetail(c.path, c.kind)
-          ),
+          changes = item.changes
+            .getOrElse(Nil)
+            .map(c => FileChangeDetail(c.path, c.kind)),
           status = item.status.getOrElse("")
         )
       case other =>
@@ -130,5 +130,4 @@ private[codex] object InboundEvent:
       changes: Option[List[FileChangeWire]] = None
   ) derives ConfiguredJsonValueCodec
 
-  private case class ItemWire(item: ItemBody)
-      derives ConfiguredJsonValueCodec
+  private case class ItemWire(item: ItemBody) derives ConfiguredJsonValueCodec

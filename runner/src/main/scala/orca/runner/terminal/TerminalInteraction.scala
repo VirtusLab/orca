@@ -12,23 +12,23 @@ import orca.{
 import java.io.PrintStream
 
 /** Terminal-based `Interaction`. Renders stage transitions, tool uses,
-  * streaming LLM output, and errors to a `PrintStream` (defaults to
-  * stderr so the structured output on stdout stays clean).
+  * streaming LLM output, and errors to a `PrintStream` (defaults to stderr so
+  * the structured output on stdout stays clean).
   *
   * The output is split in two zones:
-  *   - The **event log** at the top, growing line-by-line as stages
-  *     start and tools fire.
-  *   - A **status line** pinned at the bottom, showing the current
-  *     activity with an animated spinner glyph.
+  *   - The **event log** at the top, growing line-by-line as stages start and
+  *     tools fire.
+  *   - A **status line** pinned at the bottom, showing the current activity
+  *     with an animated spinner glyph.
   *
-  * Both are owned by [[StatusBar]]: each event-log write transparently
-  * scrolls the status row down by one. When the renderer doesn't own
-  * a TTY (CI, redirected stderr, `NO_COLOR`/`ORCA_NO_ANIMATION`), the
-  * `StatusBar` degrades to plain inline output without ANSI escapes.
+  * Both are owned by [[StatusBar]]: each event-log write transparently scrolls
+  * the status row down by one. When the renderer doesn't own a TTY (CI,
+  * redirected stderr, `NO_COLOR`/`ORCA_NO_ANIMATION`), the `StatusBar` degrades
+  * to plain inline output without ANSI escapes.
   *
-  * Unicode glyphs require a UTF-8 locale; on platforms with a non-UTF-8
-  * default charset the caller should pass a PrintStream constructed
-  * with `new PrintStream(out, true, "UTF-8")`.
+  * Unicode glyphs require a UTF-8 locale; on platforms with a non-UTF-8 default
+  * charset the caller should pass a PrintStream constructed with `new
+  * PrintStream(out, true, "UTF-8")`.
   */
 class TerminalInteraction(
     out: PrintStream = System.err,
@@ -40,7 +40,8 @@ class TerminalInteraction(
   import TerminalInteraction.*
 
   private val depthCounter = new StageDepth
-  private val statusBar = new StatusBar(out, useColor = useColor, animated = animated)
+  private val statusBar =
+    new StatusBar(out, useColor = useColor, animated = animated)
   private val stages = new StageStack
   private val listener = new TerminalListener
   private val listenersList: List[OrcaListener] = List(listener)
@@ -49,8 +50,8 @@ class TerminalInteraction(
 
   /** Drive a live conversation to completion. Delegates to
     * [[TerminalConversationRenderer]] for the per-event rendering +
-    * approval-prompt machinery; this class retains responsibility for
-    * the ambient status bar and the `OrcaListener` surface.
+    * approval-prompt machinery; this class retains responsibility for the
+    * ambient status bar and the `OrcaListener` surface.
     */
   def drive[B <: Backend](conversation: Conversation[B]): LlmResult[B] =
     new TerminalConversationRenderer(
@@ -97,29 +98,28 @@ class TerminalInteraction(
       case OrcaEvent.Error(message) =>
         appendIndented(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
 
-    /** A `▶` step line: magenta-bold glyph, neutral body. Matches
-      * the assistant-prose styling (magenta `●` + neutral text) so
-      * the dominant accent across the event log is consistent —
-      * stages, steps, and prose are all "primary content".
+    /** A `▶` step line: magenta-bold glyph, neutral body. Matches the
+      * assistant-prose styling (magenta `●` + neutral text) so the dominant
+      * accent across the event log is consistent — stages, steps, and prose are
+      * all "primary content".
       */
     private def emitStepLine(message: String): Unit =
       val glyph = paint(StepGlyphStyle, s"$StageStartGlyph ")
       appendIndented(glyph + message)
 
-  /** Push the current breadcrumb to the bar (or hide it when the
-    * stack is empty). Centralised so every push/pop site does the
-    * same thing — `startStatus(label)` for non-empty, `stopStatus()`
-    * for empty.
+  /** Push the current breadcrumb to the bar (or hide it when the stack is
+    * empty). Centralised so every push/pop site does the same thing —
+    * `startStatus(label)` for non-empty, `stopStatus()` for empty.
     */
   private def showCurrentBreadcrumb(): Unit =
     stages.breadcrumb match
       case Some(label) => statusBar.startStatus(label)
       case None        => statusBar.stopStatus()
 
-  /** Append a (possibly multi-line) block to the event log, prefixing
-    * the current stage indent on the first line and on every embedded
-    * `\n`. Mirrors `TerminalConversationRenderer.appendBlock` so all
-    * event-log writes share the same indent discipline.
+  /** Append a (possibly multi-line) block to the event log, prefixing the
+    * current stage indent on the first line and on every embedded `\n`. Mirrors
+    * `TerminalConversationRenderer.appendBlock` so all event-log writes share
+    * the same indent discipline.
     */
   private def appendIndented(text: String): Unit =
     val indent = depthCounter.contentIndent
@@ -128,10 +128,9 @@ class TerminalInteraction(
   private def paint(attr: fansi.Attrs, text: String): String =
     Ansi.paint(useColor, attr, text)
 
-/** Stack of active stage names, head = most-recently-started.
-  * `breadcrumb` joins the stack outermost-first with `" > "` for the
-  * status bar; `None` means no stage is active. Touched only from
-  * the [[TerminalListener]] thread.
+/** Stack of active stage names, head = most-recently-started. `breadcrumb`
+  * joins the stack outermost-first with `" > "` for the status bar; `None`
+  * means no stage is active. Touched only from the [[TerminalListener]] thread.
   */
 private class StageStack:
   private var stack: List[String] = Nil
@@ -146,23 +145,22 @@ object TerminalInteraction:
   val StageDoneGlyph: String = "✔"
   val ErrorGlyph: String = "✖"
 
-  /** Stages, steps, and structured-result summaries share the
-    * same magenta-bold glyph — the dominant accent for "primary
-    * content" in the event log. Pulled into a constant so the
-    * three render paths can't drift.
+  /** Stages, steps, and structured-result summaries share the same magenta-bold
+    * glyph — the dominant accent for "primary content" in the event log. Pulled
+    * into a constant so the three render paths can't drift.
     */
   val StepGlyphStyle: fansi.Attrs = fansi.Color.Magenta ++ fansi.Bold.On
 
-  /** ANSI colors default off when stderr isn't attached to a terminal
-    * (no controlling console), the `NO_COLOR` convention is honoured,
-    * or we detect a CI runner.
+  /** ANSI colors default off when stderr isn't attached to a terminal (no
+    * controlling console), the `NO_COLOR` convention is honoured, or we detect
+    * a CI runner.
     */
   def defaultUseColor: Boolean =
     !sys.env.contains("NO_COLOR") && consolePresent && !ciDetected
 
-  /** Animation is strictly a subset of colour — it additionally
-    * writes cursor-control escapes in a tight loop, so suppressing it
-    * when we suspect the output is being captured is doubly important.
+  /** Animation is strictly a subset of colour — it additionally writes
+    * cursor-control escapes in a tight loop, so suppressing it when we suspect
+    * the output is being captured is doubly important.
     */
   def defaultAnimated: Boolean =
     defaultUseColor && !sys.env.contains("ORCA_NO_ANIMATION")

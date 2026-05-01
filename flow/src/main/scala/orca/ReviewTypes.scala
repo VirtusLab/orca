@@ -20,12 +20,11 @@ object Severity:
   given JsonValueCodec[Severity] =
     JsonCodecMaker.make(CodecMakerConfig.withDiscriminatorFieldName(None))
 
-/** A single review finding. `shortSummary` is the one-line user-facing
-  * label (rendered in the event log under `▶`); `description` is the
-  * longer form fed back to the fixing agent and includes whatever
-  * context the reviewer gave. The split mirrors `Plan.Task`'s
-  * shortSummary/description pair so flow scripts that handle issues
-  * and tasks can use the same field names.
+/** A single review finding. `shortSummary` is the one-line user-facing label
+  * (rendered in the event log under `▶`); `description` is the longer form fed
+  * back to the fixing agent and includes whatever context the reviewer gave.
+  * The split mirrors `Plan.Task`'s shortSummary/description pair so flow
+  * scripts that handle issues and tasks can use the same field names.
   */
 case class ReviewIssue(
     severity: Severity,
@@ -45,14 +44,13 @@ case class ReviewResult(
 object ReviewResult:
   val empty: ReviewResult = ReviewResult(Nil, "")
 
-  /** ReviewResult intentionally has no auto-announce. Per-reviewer
-    * Steps are emitted by [[reviewAndFixLoop]]'s evaluate closure
-    * with the reviewer's name in the line — provenance the
-    * type-level `Announce[ReviewResult]` can't see, since the
-    * reviewer name lives on the `LlmTool` and not on the result.
-    * Returning `""` lets the terminal listener treat the per-call
-    * `StructuredResult` as silent so it doesn't compete with the
-    * named per-reviewer line.
+  /** ReviewResult intentionally has no auto-announce. Per-reviewer Steps are
+    * emitted by [[reviewAndFixLoop]]'s evaluate closure with the reviewer's
+    * name in the line — provenance the type-level `Announce[ReviewResult]`
+    * can't see, since the reviewer name lives on the `LlmTool` and not on the
+    * result. Returning `""` lets the terminal listener treat the per-call
+    * `StructuredResult` as silent so it doesn't compete with the named
+    * per-reviewer line.
     */
   given Announce[ReviewResult] = Announce.from(_ => "")
 
@@ -69,10 +67,10 @@ case class IgnoredIssues(issues: List[IgnoredIssue]) derives JsonData:
       .mkString("\n")
 
 object IgnoredIssues:
-  /** Silent like `ReviewResult` — the fix loop already names what
-    * happened via "Fixed review comments" / "Unable to fix" / "All
-    * N marked as won't-fix" steps inside the iteration stage, so
-    * an additional auto-announce would just duplicate.
+  /** Silent like `ReviewResult` — the fix loop already names what happened via
+    * "Fixed review comments" / "Unable to fix" / "All N marked as won't-fix"
+    * steps inside the iteration stage, so an additional auto-announce would
+    * just duplicate.
     */
   given Announce[IgnoredIssues] = Announce.from(_ => "")
 
