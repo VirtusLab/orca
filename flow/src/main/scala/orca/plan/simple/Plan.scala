@@ -11,6 +11,7 @@ import orca.{Announce, JsonData, given}
   * Aim for `shortSummary` around 60 characters — anything longer truncates in
   * the status bar (and crowds the event log).
   */
+// TODO: use the same Task class for simple & extended plans. Move the class to the parent `plan` package
 case class Task(
     branchName: String,
     shortSummary: String,
@@ -24,18 +25,13 @@ case class Task(
   * The "simple" variant fits in one LLM round-trip: the agent produces the
   * JSON; the runtime parses it; the flow iterates.
   */
+// TODO: rename to SimplePlan
 case class Plan(tasks: List[Task]) derives JsonData
 
 object Plan:
-  /** Friendly summary picked up by `claude.resultAs[Plan]` (or any `LlmCall[_,
-    * Plan]`). The library auto-emits this as a `Step` after parsing the agent's
-    * JSON, so flow scripts get the human-readable plan listing without an
-    * explicit `announce` call.
-    *
-    * Empty on an empty plan: a `Plan(Nil)` from the planner is a planning
-    * failure worth surfacing where it happened, not a thing to render quietly.
-    * `Announce`'s contract treats an empty string as "no message", so the
-    * `Step` is dropped.
+  /** Empty plans render as nothing — surfacing "0 tasks planned" muddies
+    * the picture; a planning failure is more useful as an explicit
+    * `fail(...)` from the script.
     */
   given Announce[Plan] = Announce.from: plan =>
     if plan.tasks.isEmpty then ""
