@@ -4,13 +4,12 @@
 
 /** Simple in-memory planning + coding flow.
   *
-  * Mirrors the README example. The agent breaks the user's prompt
-  * into a list of tasks (one structured turn), the flow surfaces the
-  * plan, and each task is implemented on its own branch with a
-  * review-and-fix loop afterwards.
+  * Mirrors the README example. The agent breaks the user's prompt into a list
+  * of tasks (one structured turn), the flow surfaces the plan, and each task is
+  * implemented on its own branch with a review-and-fix loop afterwards.
   *
-  * Lives alongside the seeded calculator crate so a user can run it
-  * from the project's root after `examples/01-simple/create-test-project.sh`:
+  * Lives alongside the seeded calculator crate so a user can run it from the
+  * project's root after `examples/01-simple/create-test-project.sh`:
   *
   * ```bash
   * scala-cli run implement.sc -- "Add a multiply function to the calculator crate"
@@ -20,12 +19,12 @@
   */
 
 import orca.{*, given}
-import orca.plan.simple.{Plan, Task}
+import orca.plan.simple.{SimplePlan, Task}
 
 flow(OrcaArgs(args)):
   // 1. Break the user's prompt into concrete subtasks, interactively.
   val (sessionId, plan) = stage("Creating a development plan"):
-    claude.resultAs[Plan].interactive(userPrompt)
+    claude.resultAs[SimplePlan].interactive(userPrompt)
 
   // 2. Implement each task on its own branch and review locally.
   // The review-and-fix loop may modify files in response to reviewer
@@ -44,5 +43,7 @@ flow(OrcaArgs(args)):
         task = task.shortSummary,
         lintCommand = Some("cargo test --quiet")
       )
+
+      // TODO: add a step to format the code. Also to the other examples, before commiting and after generating the code
 
       git.commit(s"Implement ${task.shortSummary}")

@@ -25,15 +25,14 @@ case class Task(
   * The "simple" variant fits in one LLM round-trip: the agent produces the
   * JSON; the runtime parses it; the flow iterates.
   */
-// TODO: rename to SimplePlan
-case class Plan(tasks: List[Task]) derives JsonData
+case class SimplePlan(tasks: List[Task]) derives JsonData
 
-object Plan:
+object SimplePlan:
   /** Empty plans render as nothing — surfacing "0 tasks planned" muddies
     * the picture; a planning failure is more useful as an explicit
     * `fail(...)` from the script.
     */
-  given Announce[Plan] = Announce.from: plan =>
+  given Announce[SimplePlan] = Announce.from: plan =>
     if plan.tasks.isEmpty then ""
     else
       val plural = if plan.tasks.size == 1 then "" else "s"

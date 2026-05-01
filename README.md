@@ -1,5 +1,7 @@
 # Orca
 
+// TODO: make the readme more concise. Keep only essential and relevant details for the end-user
+
 **Describe what you want, ship it.** Orca turns a one-line prompt into a
 sequence of concrete coding tasks, implements each one through an LLM coding
 agent (Claude Code or Codex), reviews the changes with a pod of
@@ -39,7 +41,7 @@ Save this as `ship.sc` and run it with your task:
 //> using jvm 21
 
 import orca.{*, given}
-import orca.plan.simple.{Plan, Task}
+import orca.plan.simple.{SimplePlan, Task}
 
 // `args` is scala-cli's script argv; `OrcaArgs(args)` parses the
 // positional prompt and flags. Pass `OrcaArgs()` for scripts that take
@@ -48,7 +50,7 @@ import orca.plan.simple.{Plan, Task}
 flow(OrcaArgs(args)):
   // 1. Break the user's prompt into concrete subtasks, interactively.
   val (sessionId, plan) = stage("Creating a development plan"):
-    claude.resultAs[Plan].interactive(userPrompt)
+    claude.resultAs[SimplePlan].interactive(userPrompt)
 
   // 2. Implement each task on its own branch and review locally.
   // Commit *after* the review-and-fix loop so any review-driven

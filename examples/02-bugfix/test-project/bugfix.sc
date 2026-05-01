@@ -6,48 +6,44 @@
   *
   * Given a bug report (the user's prompt), the flow:
   *
-  *   1. Triages the bug — interactively asks the agent whether a
-  *      failing test can reproduce it, what the reproduction steps
-  *      are otherwise, and where to put any reproduction artefact.
-  *   2. Writes the failing artefact (a unit test if possible, a
-  *      `REPRODUCTION.md` otherwise) and commits it.
-  *   3. Pushes a branch, opens a PR.
-  *   4. Waits for CI to come back red — fails the stage if CI was
-  *      green (the agent claimed the test reproduced; CI says
-  *      otherwise).
-  *   5. Comments on the PR with the failing-test output, and asks
-  *      the agent to confirm the failure matches the original
-  *      report. Fails the stage on a mismatch.
-  *   6. Implements the fix on the same branch. Reviews + lints.
-  *   7. Pushes the fix; waits for CI to go green.
+  *   1. Triages the bug — interactively asks the agent whether a failing test
+  *      can reproduce it, what the reproduction steps are otherwise, and where
+  *      to put any reproduction artefact. 2. Writes the failing artefact (a
+  *      unit test if possible, a `REPRODUCTION.md` otherwise) and commits it.
+  *      3. Pushes a branch, opens a PR. 4. Waits for CI to come back red —
+  *      fails the stage if CI was green (the agent claimed the test reproduced;
+  *      CI says otherwise). 5. Comments on the PR with the failing-test output,
+  *      and asks the agent to confirm the failure matches the original report.
+  *      Fails the stage on a mismatch. 6. Implements the fix on the same
+  *      branch. Reviews + lints. 7. Pushes the fix; waits for CI to go green.
   *
-  * Lives alongside the seeded buggy project so a user can run it
-  * from the project's root after `examples/02-bugfix/create-test-project.sh`
-  * (push the seed to a real GitHub repo first — the seed script
-  * prints the `gh repo create` line):
+  * Lives alongside the seeded buggy project so a user can run it from the
+  * project's root after `examples/02-bugfix/create-test-project.sh` (push the
+  * seed to a real GitHub repo first — the seed script prints the `gh repo
+  * create` line):
   *
   * ```bash
   * scala-cli run bugfix.sc -- \
   *   "Calculator.add returns a wrong value when one argument is Integer.MIN_VALUE"
   * ```
   *
-  * Requires `claude` and `gh` both authenticated; the target repo
-  * must have a CI workflow that runs the test suite.
+  * Requires `claude` and `gh` both authenticated; the target repo must have a
+  * CI workflow that runs the test suite.
   */
 
 import orca.{*, given}
 import scala.concurrent.duration.DurationInt
 
+// TODO: move to a .bug package in the flow and just use in the script here
 case class BugTriage(
     /** True if a focused unit test can reproduce the bug. */
     canTest: Boolean,
-    /** Free-form reproduction steps the agent inferred from the
-      * report — used when `canTest` is false (we can't write a test,
-      * so we document instead).
+    /** Free-form reproduction steps the agent inferred from the report — used
+      * when `canTest` is false (we can't write a test, so we document instead).
       */
     reproductionSteps: String,
-    /** Path of the test file the agent will create when `canTest`
-      * is true. None otherwise.
+    /** Path of the test file the agent will create when `canTest` is true. None
+      * otherwise.
       */
     failingTestPath: Option[String],
     /** Short branch name. Lowercase kebab-case; no spaces. */
@@ -64,9 +60,8 @@ object BugTriage:
     s"Triage: ${t.summary} — $approach on branch '${t.branchName}'"
 
 case class BugReportMatch(
-    /** Whether the failing-test output (or reproduction artefact)
-      * is a faithful reproduction of what the original report
-      * described.
+    /** Whether the failing-test output (or reproduction artefact) is a faithful
+      * reproduction of what the original report described.
       */
     matches: Boolean,
     /** Short justification for the verdict. */
@@ -75,7 +70,8 @@ case class BugReportMatch(
 
 object BugReportMatch:
   given Announce[BugReportMatch] = Announce.from: m =>
-    val verdict = if m.matches then "Reproduction confirmed" else "Reproduction MISMATCH"
+    val verdict =
+      if m.matches then "Reproduction confirmed" else "Reproduction MISMATCH"
     s"$verdict: ${m.explanation}"
 
 flow(OrcaArgs(args)):
@@ -83,8 +79,10 @@ flow(OrcaArgs(args)):
   // 1. Triage the bug interactively. The agent reads the report,
   // explores the code, and tells us how to reproduce.
   val (sessionId, triage) = stage("Triage the bug"):
-    claude.resultAs[BugTriage].interactive(
-      s"""You are triaging this bug report:
+    claude
+      .resultAs[BugTriage]
+      .interactive(
+        s"""You are triaging this bug report:
          |
          |$userPrompt
          |
@@ -97,7 +95,7 @@ flow(OrcaArgs(args)):
          |
          |Pick a short kebab-case branch name and a one-line summary
          |suitable for a PR title.""".stripMargin
-    )
+      )
 
   git.checkoutOrCreate(triage.branchName)
 
@@ -125,15 +123,17 @@ flow(OrcaArgs(args)):
     git.push()
     gh.createPr(
       title = triage.summary,
-      body =
-        s"""## Bug
+      body = s"""## Bug
            |
            |$userPrompt
            |
            |## Reproduction
            |
-           |${if triage.canTest then s"Failing test at `${triage.failingTestPath.get}`."
-            else triage.reproductionSteps}""".stripMargin
+           |${
+                 if triage.canTest then
+                   s"Failing test at `${triage.failingTestPath.get}`."
+                 else triage.reproductionSteps
+               }""".stripMargin
     )
 
   // 4. Wait for CI. If CI is green here, the agent's "this fails" is
@@ -157,16 +157,18 @@ flow(OrcaArgs(args)):
     )
 
   stage("Verify failure matches the report"):
-    val verdict = claude.resultAs[BugReportMatch].continueSession(
-      sessionId,
-      s"""Here's the CI failure log:
+    val verdict = claude
+      .resultAs[BugReportMatch]
+      .continueSession(
+        sessionId,
+        s"""Here's the CI failure log:
          |
          |${redBuild.log}
          |
          |Does this match the original report? Be strict: a
          |different stack trace or a different assertion error
          |counts as a mismatch.""".stripMargin
-    )
+      )
     if !verdict.matches then
       fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
 
@@ -200,4 +202,6 @@ flow(OrcaArgs(args)):
   stage("Wait for CI to pass"):
     val status = gh.waitForBuild(pr, 15.minutes)
     if status.outcome != BuildOutcome.Success then
-      fail(s"CI didn't go green after the fix. Last log:\n${status.log.take(2000)}")
+      fail(
+        s"CI didn't go green after the fix. Last log:\n${status.log.take(2000)}"
+      )
