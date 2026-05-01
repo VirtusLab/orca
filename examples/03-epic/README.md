@@ -2,11 +2,11 @@
 
 A more involved flow than [01-simple](../01-simple/): the epic
 lives on disk in a file the human can read, edit before running,
-and inspect mid-flow; and after each task lands, both Claude and
-Codex review the result in parallel. Crashes don't lose
-progress — each task's `[x]` checkbox is committed before the
-next one starts, and a re-run picks up where the previous run
-stopped.
+and inspect mid-flow; and after each task lands, the *other*
+backend reviews the result. Claude implements; Codex reviews.
+Crashes don't lose progress — each task's `[x]` checkbox is
+committed before the next one starts, and a re-run picks up
+where the previous run stopped.
 
 We use "epic" in the agile sense: a multi-task workstream big
 enough that you want it written down before starting, broken
@@ -18,9 +18,9 @@ into smaller reviewable tasks, and resumable across sessions.
   visibility into what's planned before hitting "go".
 - The agent might fail partway through (long sequences, flaky
   tools, cost ceilings). Resume should be free.
-- One model's blind spots shouldn't decide whether a task ships.
-  Cross-backend review is cheap insurance against a single
-  vendor's failure modes.
+- The implementing agent shouldn't be its own reviewer. Routing
+  reviews through a different backend widens coverage with
+  little extra cost.
 - A reviewer wants to read the epic as a markdown document, not a
   JSON blob.
 
@@ -67,12 +67,11 @@ splice it into their own custom planner prompt can.
 4. **For each incomplete task**:
    - `claude.continueSession(sessionId, task.prompt)`.
    - `git.commit("task: <name>")`.
-   - `reviewAndFixLoop(...)` with reviewers
-     `defaultReviewers(claude) ++ defaultReviewers(codex)` —
-     both backends run all five canonical reviewer dimensions
+   - `reviewAndFixLoop(...)` with `reviewers =
+     defaultReviewers(codex)` — five reviewer dimensions
      (performance, readability, test coverage, code
-     functionality, abstraction) in parallel; fixes go back
-     through the original Claude session.
+     functionality, abstraction) all run on Codex in parallel;
+     fixes go back through the original Claude session.
    - `Plan.persistComplete(file, task.name)` — flips the checkbox
      in `epic.md` so a future run skips this task.
 5. **Update documentation** — agent updates README / doc-comments
@@ -80,14 +79,16 @@ splice it into their own custom planner prompt can.
 6. **Remove epic file** — `os.remove(epicMd)`, committed as the
    final cleanup.
 
-## Why two backends?
+## Why split implementer and reviewer?
 
 A single backend's reviewer is a strong filter, not a perfect
 one. The same model that wrote the code is unlikely to flag the
 class of mistakes its training distribution makes. Running the
-review prompt against a second backend (`codex`) on the same
-diff is a cheap way to widen coverage: when the two backends
-disagree, that's the interesting case worth surfacing.
+review against a *different* backend (Codex while Claude
+implements, here) is a cheap way to widen coverage — and shifts
+the failure mode away from "Claude rubber-stamps Claude".
+Swap which side is which by editing the script's
+`val reviewers = defaultReviewers(codex)` line.
 
 ## Resume semantics
 
@@ -135,7 +136,7 @@ starts implementing.
 
 The renderer's status bar shows the current stage. The event log
 shows each task's start, the agent's tool calls (file reads, edits,
-tests), the parallel reviewer turns from both backends, and any
+tests), the parallel reviewer turns from Codex, and any
 Step events from `git` and the loop machinery (branch switches,
 epic-file reuse, etc.). When something fails, the epic file's
 checkboxes are the truth — anything still `[ ]` will run on the

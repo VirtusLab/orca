@@ -12,11 +12,11 @@
   *      incomplete task. Each task's `Status: [x]` checkbox is committed back
   *      to `epic.md` as the task lands, so a crash mid-flow loses no progress.
   *
-  * 2. **Each task is reviewed by both backends.** After Claude implements a
-  * task, `defaultReviewers(claude)` *and* `defaultReviewers(codex)` run in
-  * parallel against the same diff. Disagreement is the point — when one backend
-  * misses a bug the other catches, the task doesn't ship until the agent has
-  * fixed it. This needs both `claude` and `codex` CLIs logged in.
+  *   2. **Tasks are reviewed by the *other* backend.** Claude
+  *      implements; codex reviews. The implementing agent is its own
+  *      worst critic — running reviewers on a separate model widens
+  *      coverage without much extra cost. Fixes go back to the same
+  *      Claude session. Both CLIs need to be logged in.
   *
   * At the end of a successful run the documentation step updates the project
   * README based on what changed, and the epic file is removed (committed as the
@@ -68,14 +68,11 @@ flow(OrcaArgs(args)):
        |on.""".stripMargin
   )
 
-  // TODO: run the reviews only using codex
-  // Cross-agent reviewer set: each canonical reviewer dimension
-  // (performance, readability, test coverage, code functionality,
-  // abstraction) runs once on Claude and once on Codex, all in
-  // parallel inside `reviewAndFixLoop`. Fixes go back through the
-  // same Claude session that did the implementation.
-  val reviewers: List[LlmTool[?]] =
-    defaultReviewers(claude) ++ defaultReviewers(codex)
+  // Reviewers run on codex (not claude — the implementing agent
+  // is its own worst critic). Claude still drives the fix step,
+  // so the same session that implemented the task receives the
+  // findings and addresses them in code.
+  val reviewers: List[LlmTool[?]] = defaultReviewers(codex)
 
   // Loop while there's still an incomplete task. We re-read the
   // epic after each task so persisted completion markers shape
