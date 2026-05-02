@@ -130,9 +130,3 @@ sbt "~publishLocal"
 ```
 
 Every save rebuilds the affected module and refreshes `~/.ivy2/local`.
-Re-run a flow script with Coursier's cache bypassed so the freshly-
-published snapshot is picked up:
-
-```bash
-scala-cli run --ttl 0 examples/spinner-demo.scala
-```
