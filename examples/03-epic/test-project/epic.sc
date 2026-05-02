@@ -99,7 +99,7 @@ flow(OrcaArgs(args)):
         coder = claude,
         sessionId = sessionId,
         reviewers = reviewers,
-        task = task.title
+        task = task.title.value
       )
       ExtendedPlan.persistComplete(planFile, task.title)
       git.commit(s"task: ${task.title}")

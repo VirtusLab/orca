@@ -7,7 +7,8 @@ import orca.{
   OrcaEvent,
   OrcaListener,
   SessionId,
-  TestFlowContext
+  TestFlowContext,
+  Title
 }
 
 import java.util.concurrent.atomic.AtomicReference
@@ -29,7 +30,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
     ReviewIssue(
       severity = Severity.Warning,
       confidence = confidence,
-      title = desc,
+      title = Title(desc),
       description = desc,
       file = None,
       line = None,
@@ -47,8 +48,9 @@ class ReviewFixFlowTest extends munit.FunSuite:
     )
     val coder = new FakeLlmTool(
       name = "coder",
-      continueSessionOutputs =
-        List(FixOutcome(Nil, List(IgnoredIssue("real problem", "trade-off"))))
+      continueSessionOutputs = List(
+        FixOutcome(Nil, List(IgnoredIssue(Title("real problem"), "trade-off")))
+      )
     )
 
     val _ = reviewAndFixLoop(
@@ -88,7 +90,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
     val coder = new FakeLlmTool(
       name = "fixer",
       continueSessionOutputs =
-        List.fill(20)(FixOutcome(List("never ends"), Nil))
+        List.fill(20)(FixOutcome(List(Title("never ends")), Nil))
     )
 
     val result = reviewAndFixLoop(

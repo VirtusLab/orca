@@ -1,29 +1,35 @@
 package orca.plan
 
-import com.github.plokhotnyuk.jsoniter_scala.core.{readFromString, writeToString}
-import orca.JsonData
+import com.github.plokhotnyuk.jsoniter_scala.core.{
+  readFromString,
+  writeToString
+}
+import orca.{JsonData, Title}
 
 class SimplePlanTest extends munit.FunSuite:
 
-  /** The library's structured-call surface bounds on `JsonData[O]`,
-    * which derives the codec we need; this test pins the round-trip
-    * so a `derives JsonData` regression is caught early.
+  /** The library's structured-call surface bounds on `JsonData[O]`, which
+    * derives the codec we need; this test pins the round-trip so a `derives
+    * JsonData` regression is caught early.
     */
   test("SimplePlan round-trips through JSON via the JsonData codec"):
     val plan = SimplePlan(
       epicId = "calculator-features",
       tasks = List(
         Task(
-          title = "Add multiply",
+          title = Title("Add multiply"),
           description = "Add a multiply(int a, int b) method to Calculator."
         ),
         Task(
-          title = "Add divide",
-          description = "Add a divide(int, int) method with a zero-divisor guard."
+          title = Title("Add divide"),
+          description =
+            "Add a divide(int, int) method with a zero-divisor guard."
         )
       )
     )
-    given codec: com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[SimplePlan] =
+    given codec: com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[
+      SimplePlan
+    ] =
       summon[JsonData[SimplePlan]].codec
     val json = writeToString(plan)
     val parsed = readFromString[SimplePlan](json)
@@ -33,11 +39,12 @@ class SimplePlanTest extends munit.FunSuite:
     val plan = SimplePlan(
       epicId = "feat-pair",
       tasks = List(
-        Task("Add feature A", "do A"),
-        Task("Add feature B", "do B")
+        Task(Title("Add feature A"), "do A"),
+        Task(Title("Add feature B"), "do B")
       )
     )
-    val msg = summon[orca.Announce[SimplePlan]].message(plan)
+    val msg = summon[orca.Announce[SimplePlan]]
+      .message(plan)
       .getOrElse(fail("expected a non-empty announce message"))
     assert(
       msg.startsWith("Planned 2 tasks on branch 'feat-pair'"),

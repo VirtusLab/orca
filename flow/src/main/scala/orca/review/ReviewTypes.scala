@@ -5,7 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   JsonCodecMaker
 }
-import orca.{Announce, JsonData, LlmTool, given}
+import orca.{Announce, JsonData, LlmTool, Title, given}
 import sttp.tapir.Schema
 
 enum Severity:
@@ -30,7 +30,7 @@ object Severity:
 case class ReviewIssue(
     severity: Severity,
     confidence: Double,
-    title: String,
+    title: Title,
     description: String,
     file: Option[String],
     line: Option[Int],
@@ -49,7 +49,7 @@ object ReviewResult:
     */
   given Announce[ReviewResult] = Announce.from(_ => "")
 
-case class IgnoredIssue(title: String, reason: String) derives JsonData
+case class IgnoredIssue(title: Title, reason: String) derives JsonData
 
 case class IgnoredIssues(issues: List[IgnoredIssue]) derives JsonData:
   def ++(other: IgnoredIssues): IgnoredIssues = IgnoredIssues(

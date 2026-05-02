@@ -11,7 +11,8 @@ import orca.{
   LlmConfig,
   LlmTool,
   SessionId,
-  TestFlowContext
+  TestFlowContext,
+  Title
 }
 
 /** Fake LlmCall whose `autonomous` and `continueSession` each return a scripted
@@ -77,7 +78,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     ReviewIssue(
       severity = Severity.Warning,
       confidence = confidence,
-      title = desc,
+      title = Title(desc),
       description = desc,
       file = None,
       line = None,
@@ -113,7 +114,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val coder = new FakeLlmTool(
       name = "coder",
       continueSessionOutputs =
-        List(FixOutcome(Nil, List(IgnoredIssue("real bug", "accepted"))))
+        List(FixOutcome(Nil, List(IgnoredIssue(Title("real bug"), "accepted"))))
     )
     val result = reviewAndFixLoop(
       coder = coder,
@@ -122,7 +123,10 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = "build the widget",
       confidenceThreshold = 0.7
     )
-    assertEquals(result.issues, List(IgnoredIssue("real bug", "accepted")))
+    assertEquals(
+      result.issues,
+      List(IgnoredIssue(Title("real bug"), "accepted"))
+    )
 
   test("runs multiple reviewers and merges their issues"):
     given FlowContext = ctx
@@ -141,7 +145,10 @@ class ReviewAndFixTest extends munit.FunSuite:
       continueSessionOutputs = List(
         FixOutcome(
           fixed = Nil,
-          ignored = List(IgnoredIssue("A", "ok-a"), IgnoredIssue("B", "ok-b"))
+          ignored = List(
+            IgnoredIssue(Title("A"), "ok-a"),
+            IgnoredIssue(Title("B"), "ok-b")
+          )
         )
       )
     )
@@ -151,4 +158,4 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(reviewerA, reviewerB),
       task = "multi"
     )
-    assertEquals(result.issues.map(_.title).toSet, Set("A", "B"))
+    assertEquals(result.issues.map(_.title).toSet, Set(Title("A"), Title("B")))

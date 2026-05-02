@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.given
+import orca.{Title, given}
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
   writeToString
@@ -13,7 +13,7 @@ class ReviewTypesTest extends munit.FunSuite:
         ReviewIssue(
           severity = Severity.Critical,
           confidence = 0.95,
-          title = "Null pointer risk",
+          title = Title("Null pointer risk"),
           description = "null pointer risk",
           file = Some("Foo.scala"),
           line = Some(42),
@@ -22,7 +22,7 @@ class ReviewTypesTest extends munit.FunSuite:
         ReviewIssue(
           severity = Severity.Info,
           confidence = 0.4,
-          title = "Stylistic nitpick",
+          title = Title("Stylistic nitpick"),
           description = "stylistic nitpick",
           file = None,
           line = None,
@@ -35,10 +35,11 @@ class ReviewTypesTest extends munit.FunSuite:
     assertEquals(parsed, original)
 
   test("IgnoredIssues ++ concatenates entries"):
-    val a = IgnoredIssues(List(IgnoredIssue("Style nit", "accepted")))
-    val b = IgnoredIssues(List(IgnoredIssue("Style nit", "deferred")))
+    val a = IgnoredIssues(List(IgnoredIssue(Title("Style nit"), "accepted")))
+    val b = IgnoredIssues(List(IgnoredIssue(Title("Style nit"), "deferred")))
     assertEquals((a ++ b).issues.size, 2)
 
   test("IgnoredIssues.format renders title and reason"):
-    val issues = IgnoredIssues(List(IgnoredIssue("Style nit", "accepted")))
+    val issues =
+      IgnoredIssues(List(IgnoredIssue(Title("Style nit"), "accepted")))
     assertEquals(issues.format, "- Style nit: accepted")

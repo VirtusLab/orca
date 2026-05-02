@@ -11,7 +11,8 @@ import orca.{
   LlmConfig,
   LlmTool,
   SessionId,
-  TestFlowContext
+  TestFlowContext,
+  Title
 }
 
 class LintTest extends munit.FunSuite:
@@ -72,7 +73,7 @@ class LintTest extends munit.FunSuite:
         ReviewIssue(
           Severity.Warning,
           0.8,
-          "Unused import",
+          Title("Unused import"),
           "unused import",
           None,
           None,

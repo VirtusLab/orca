@@ -1,6 +1,6 @@
 package orca.plan
 
-import orca.{FlowContext, LlmTool, OrcaEvent}
+import orca.{FlowContext, LlmTool, OrcaEvent, Title}
 
 /** A markdown-backed plan persisted to a file (typically `epic.md`) so resuming
   * a flow doesn't re-plan from scratch. `epicId` is the kebab-case identifier
@@ -28,7 +28,7 @@ case class ExtendedPlan(epicId: String, tasks: List[Task]):
   /** Mark the task with the given `title` complete, leaving the others
     * untouched. Returns the same plan if no task matches.
     */
-  def markComplete(title: String): ExtendedPlan =
+  def markComplete(title: Title): ExtendedPlan =
     copy(tasks = tasks.map(t => if t.title == title then t.markComplete else t))
 
   /** First task whose `completed` flag is false, in declaration order. None
@@ -81,7 +81,7 @@ object ExtendedPlan:
     * the file, applies the change, writes it back. Use after a task is
     * committed so a subsequent run resumes at the next pending task.
     */
-  def persistComplete(file: os.Path, title: String): Unit =
+  def persistComplete(file: os.Path, title: Title): Unit =
     val current = parse(os.read(file))
     val updated = current.markComplete(title)
     os.write.over(file, render(updated))
@@ -198,6 +198,6 @@ object ExtendedPlan:
     val description = afterStatus.mkString("\n").trim
     if description.isEmpty then
       throw PlanParseException(s"Task '$title' has no prompt body")
-    Task(title = title, description = description, completed = completed)
+    Task(title = Title(title), description = description, completed = completed)
 
 class PlanParseException(message: String) extends RuntimeException(message)

@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.given
+import orca.{Title, given}
 import orca.io.JsonSchemaGen
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
@@ -15,7 +15,15 @@ class JsonSchemaGenTest extends munit.FunSuite:
   test("generated schema validates a well-formed ReviewResult"):
     val sample = ReviewResult(
       issues = List(
-        ReviewIssue(Severity.Info, 0.8, "Hello", "hello", None, None, None)
+        ReviewIssue(
+          Severity.Info,
+          0.8,
+          Title("Hello"),
+          "hello",
+          None,
+          None,
+          None
+        )
       )
     )
     val errors =

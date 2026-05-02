@@ -51,7 +51,7 @@ flow(OrcaArgs(args)):
         coder = claude,
         sessionId = sessionId,
         reviewers = defaultReviewers(claude),
-        task = task.title,
+        task = task.title.value,
         lintCommand = Some("cargo test --quiet")
       )
 

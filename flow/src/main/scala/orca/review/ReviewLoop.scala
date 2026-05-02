@@ -8,6 +8,7 @@ import orca.{
   LlmTool,
   OrcaEvent,
   SessionId,
+  Title,
   given
 }
 import orca.io.TextWrap
@@ -19,7 +20,7 @@ import ox.{fork, supervised}
   * any title showing up in neither is silently dropped by the loop.
   */
 case class FixOutcome(
-    fixed: List[String],
+    fixed: List[Title],
     ignored: List[IgnoredIssue]
 ) derives JsonData
 

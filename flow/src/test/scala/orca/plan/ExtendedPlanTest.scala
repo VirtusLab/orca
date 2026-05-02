@@ -1,5 +1,7 @@
 package orca.plan
 
+import orca.Title
+
 class ExtendedPlanTest extends munit.FunSuite:
 
   private val sample =
@@ -25,16 +27,19 @@ class ExtendedPlanTest extends munit.FunSuite:
   test("parse splits the file into tasks and reads each status checkbox"):
     val plan = ExtendedPlan.parse(sample)
     assertEquals(plan.tasks.size, 2)
-    assertEquals(plan.tasks.head.title, "add-divide")
+    assertEquals(plan.tasks.head.title, Title("add-divide"))
     assertEquals(plan.tasks.head.completed, false)
-    assertEquals(plan.tasks(1).title, "add-divide-test")
+    assertEquals(plan.tasks(1).title, Title("add-divide-test"))
     assertEquals(plan.tasks(1).completed, true)
 
   test("parse keeps the multi-line description body intact"):
     val plan = ExtendedPlan.parse(sample)
     val description = plan.tasks.head.description
     assert(description.startsWith("Add a `divide"), s"got: $description")
-    assert(description.contains("IllegalArgumentException"), s"got: $description")
+    assert(
+      description.contains("IllegalArgumentException"),
+      s"got: $description"
+    )
 
   test("render + parse round-trips the plan"):
     val original = ExtendedPlan.parse(sample)
@@ -43,16 +48,16 @@ class ExtendedPlanTest extends munit.FunSuite:
 
   test("markComplete flips one task's checkbox without touching others"):
     val plan = ExtendedPlan.parse(sample)
-    val updated = plan.markComplete("add-divide")
+    val updated = plan.markComplete(Title("add-divide"))
     assertEquals(updated.tasks.head.completed, true)
     assertEquals(updated.tasks(1).completed, true)
     // markComplete on a title that doesn't exist is a no-op (caller decides).
-    assertEquals(plan.markComplete("ghost"), plan)
+    assertEquals(plan.markComplete(Title("ghost")), plan)
 
   test("firstIncomplete returns the first task with [ ] in declaration order"):
     val plan = ExtendedPlan.parse(sample)
-    assertEquals(plan.firstIncomplete.map(_.title), Some("add-divide"))
-    val complete = plan.markComplete("add-divide")
+    assertEquals(plan.firstIncomplete.map(_.title), Some(Title("add-divide")))
+    val complete = plan.markComplete(Title("add-divide"))
     assertEquals(complete.firstIncomplete, None)
 
   test("parse throws on a missing # Plan header"):
@@ -100,7 +105,8 @@ class ExtendedPlanTest extends munit.FunSuite:
     intercept[PlanParseException](ExtendedPlan.parse(bad))
 
   test("loadOrGenerate parses and reuses an existing file (no LLM call)"):
-    val seen = new java.util.concurrent.atomic.AtomicReference[List[orca.OrcaEvent]](Nil)
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[orca.OrcaEvent]](Nil)
     val listener = new orca.OrcaListener:
       def onEvent(event: orca.OrcaEvent): Unit =
         val _ = seen.updateAndGet(event :: _)
@@ -109,19 +115,21 @@ class ExtendedPlanTest extends munit.FunSuite:
     )
     val tmp = os.temp(suffix = ".md")
     os.write.over(tmp, sample)
-    val llm = new ExplodingLlm("loadOrGenerate must not call ask when file exists")
+    val llm =
+      new ExplodingLlm("loadOrGenerate must not call ask when file exists")
     val plan = ExtendedPlan.loadOrGenerate(tmp, "ignored", llm)
     assertEquals(plan.epicId, "add-divide-method")
     assert(
       seen.get().exists {
         case orca.OrcaEvent.Step(msg) => msg.contains("Reusing existing plan")
-        case _ => false
+        case _                        => false
       },
       s"expected a 'Reusing' Step; got: ${seen.get()}"
     )
 
   test("loadOrGenerate writes a new file when none exists"):
-    given orca.FlowContext = new orca.TestFlowContext(new orca.EventDispatcher(Nil))
+    given orca.FlowContext =
+      new orca.TestFlowContext(new orca.EventDispatcher(Nil))
     val dir = os.temp.dir()
     val target = dir / "dev.md"
     val canned = sample
@@ -135,7 +143,7 @@ class ExtendedPlanTest extends munit.FunSuite:
   test("persistComplete updates the on-disk plan"):
     val tmp = os.temp(suffix = ".md")
     os.write.over(tmp, sample)
-    ExtendedPlan.persistComplete(tmp, "add-divide")
+    ExtendedPlan.persistComplete(tmp, Title("add-divide"))
     val reread = ExtendedPlan.parse(os.read(tmp))
     assertEquals(reread.tasks.head.completed, true)
     assertEquals(reread.tasks(1).completed, true)

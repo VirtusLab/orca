@@ -5,7 +5,8 @@ import orca.{
   FlowContext,
   OrcaEvent,
   OrcaListener,
-  TestFlowContext
+  TestFlowContext,
+  Title
 }
 
 import java.util.concurrent.atomic.AtomicReference
@@ -19,7 +20,7 @@ class FixLoopTest extends munit.FunSuite:
     ReviewIssue(
       severity = Severity.Warning,
       confidence = 1.0,
-      title = title,
+      title = Title(title),
       description = title,
       file = None,
       line = None,
@@ -79,11 +80,17 @@ class FixLoopTest extends munit.FunSuite:
       // Round 1: fix `a`, ignore `b`. Round 2: fix `c`. Round 3 isn't reached
       // because evaluator returns clean before fix is called.
       fix = found =>
-        if found.map(_.title).toSet == Set("a", "b") then
-          FixOutcome(List("a"), List(IgnoredIssue("b", "out of scope")))
-        else FixOutcome(List("c"), Nil)
+        if found.map(_.title.value).toSet == Set("a", "b") then
+          FixOutcome(
+            fixed = List(Title("a")),
+            ignored = List(IgnoredIssue(Title("b"), "out of scope"))
+          )
+        else FixOutcome(fixed = List(Title("c")), ignored = Nil)
     )
-    assertEquals(result.issues, List(IgnoredIssue("b", "out of scope")))
+    assertEquals(
+      result.issues,
+      List(IgnoredIssue(Title("b"), "out of scope"))
+    )
     assertEquals(
       rec.stageNames.filter(_.startsWith("Iteration ")),
       List("Iteration 1", "Iteration 2", "Iteration 3")
@@ -98,10 +105,10 @@ class FixLoopTest extends munit.FunSuite:
         evaluates += 1
         ReviewResult(List(i))
       ,
-      fix = _ => FixOutcome(Nil, List(IgnoredIssue("x", "won't fix")))
+      fix = _ => FixOutcome(Nil, List(IgnoredIssue(Title("x"), "won't fix")))
     )
     assertEquals(evaluates, 1, "must not re-evaluate when nothing was fixed")
-    assertEquals(result.issues, List(IgnoredIssue("x", "won't fix")))
+    assertEquals(result.issues, List(IgnoredIssue(Title("x"), "won't fix")))
 
   test("caps at maxIterations and marks remaining issues with that reason"):
     given FlowContext = ctx
@@ -110,19 +117,19 @@ class FixLoopTest extends munit.FunSuite:
     val stubborn = issue("infinite")
     val result = fixLoop(
       evaluate = () => ReviewResult(List(stubborn)),
-      fix = _ => FixOutcome(List("infinite"), Nil),
+      fix = _ => FixOutcome(List(Title("infinite")), Nil),
       maxIterations = 2
     )
     assertEquals(
       result.issues,
-      List(IgnoredIssue("infinite", "max iterations (2) reached"))
+      List(IgnoredIssue(Title("infinite"), "max iterations (2) reached"))
     )
 
   test("formatIssue renders severity, title, location, and suggestion"):
     val real = ReviewIssue(
       severity = Severity.Warning,
       confidence = 0.9,
-      title = "Unbounded growth in `processBatch`",
+      title = Title("Unbounded growth in `processBatch`"),
       description = "Unbounded growth in `processBatch`",
       file = Some("src/main/Foo.scala"),
       line = Some(42),
