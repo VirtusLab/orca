@@ -14,9 +14,9 @@ import orca.{
   TestFlowContext
 }
 
-/** Fake LlmCall whose `prompt` returns a scripted list of outputs and whose
-  * `continueSession` returns scripted IgnoredIssues — both cast through Any
-  * because the trait is generic over output type.
+/** Fake LlmCall whose `autonomous` and `continueSession` each return a scripted
+  * sequence of outputs — cast through `Any` because the trait is generic over
+  * output type.
   */
 class FakeLlmCall[O](
     autonomousOutputs: Iterator[Any],
@@ -52,7 +52,7 @@ class FakeLlmTool(
   private val promptIt = promptOutputs.iterator
   private val continueIt = continueSessionOutputs.iterator
 
-  def resultAs[O: JsonData : Announce]: LlmCall[Backend.ClaudeCode.type, O] =
+  def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
     new FakeLlmCall[O](promptIt, continueIt)
 
   def ask(prompt: String, config: LlmConfig = LlmConfig.default): String = ""
@@ -77,7 +77,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     ReviewIssue(
       severity = Severity.Warning,
       confidence = confidence,
-      shortSummary = desc,
+      title = desc,
       description = desc,
       file = None,
       line = None,
@@ -101,22 +101,19 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("filters issues below the confidence threshold"):
     given FlowContext = ctx
-    // Reviewer reports two issues: one above and one below threshold.
-    // After filtering, only the high-confidence one reaches the coder, which
-    // ignores it. Re-evaluation produces the same two issues (filtered to one),
-    // which is already ignored, so the loop terminates.
+    // Reviewer reports two issues every round; only the high-confidence one
+    // survives the threshold and reaches the coder, which ignores it without
+    // a fix. With `fixed` empty the loop halts after one round.
     val noisyIssue = issue("flaky", confidence = 0.3)
     val realIssue = issue("real bug", confidence = 0.95)
     val reviewer = new FakeLlmTool(
       name = "loud",
-      promptOutputs = List.fill(10)(
-        ReviewResult(List(noisyIssue, realIssue), "two")
-      )
+      promptOutputs = List(ReviewResult(List(noisyIssue, realIssue)))
     )
     val coder = new FakeLlmTool(
       name = "coder",
       continueSessionOutputs =
-        List(IgnoredIssues(List(IgnoredIssue(realIssue, "accepted"))))
+        List(FixOutcome(Nil, List(IgnoredIssue("real bug", "accepted"))))
     )
     val result = reviewAndFixLoop(
       coder = coder,
@@ -125,8 +122,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = "build the widget",
       confidenceThreshold = 0.7
     )
-    assertEquals(result.issues.map(_.issue), List(realIssue))
-    assertEquals(result.issues.map(_.reason), List("accepted"))
+    assertEquals(result.issues, List(IgnoredIssue("real bug", "accepted")))
 
   test("runs multiple reviewers and merges their issues"):
     given FlowContext = ctx
@@ -134,20 +130,18 @@ class ReviewAndFixTest extends munit.FunSuite:
     val issueB = issue("B")
     val reviewerA = new FakeLlmTool(
       name = "a",
-      promptOutputs = List.fill(10)(ReviewResult(List(issueA), "a"))
+      promptOutputs = List(ReviewResult(List(issueA)))
     )
     val reviewerB = new FakeLlmTool(
       name = "b",
-      promptOutputs = List.fill(10)(ReviewResult(List(issueB), "b"))
+      promptOutputs = List(ReviewResult(List(issueB)))
     )
     val coder = new FakeLlmTool(
       name = "coder",
       continueSessionOutputs = List(
-        IgnoredIssues(
-          List(
-            IgnoredIssue(issueA, "ok-a"),
-            IgnoredIssue(issueB, "ok-b")
-          )
+        FixOutcome(
+          fixed = Nil,
+          ignored = List(IgnoredIssue("A", "ok-a"), IgnoredIssue("B", "ok-b"))
         )
       )
     )
@@ -157,4 +151,4 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(reviewerA, reviewerB),
       task = "multi"
     )
-    assertEquals(result.issues.map(_.issue).toSet, Set(issueA, issueB))
+    assertEquals(result.issues.map(_.title).toSet, Set("A", "B"))

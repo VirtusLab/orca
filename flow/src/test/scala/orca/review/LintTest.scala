@@ -19,9 +19,9 @@ class LintTest extends munit.FunSuite:
   private def ctx: FlowContext =
     new TestFlowContext(new EventDispatcher(Nil))
 
-  /** LlmTool that records the serialized prompt passed to `resultAs.autonomous` and
-    * returns a canned ReviewResult. Method-scope mutable var holds the captured
-    * string.
+  /** LlmTool that records the serialized prompt passed to `resultAs.autonomous`
+    * and returns a canned ReviewResult. Method-scope mutable var holds the
+    * captured string.
     */
   private class CapturingLlmTool(canned: ReviewResult)
       extends LlmTool[Backend.ClaudeCode.type]:
@@ -39,7 +39,7 @@ class LintTest extends munit.FunSuite:
     ): String = ???
     def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
     def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] = this
-    def resultAs[O: JsonData : Announce]: LlmCall[Backend.ClaudeCode.type, O] =
+    def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
       new LlmCall[Backend.ClaudeCode.type, O]:
         def autonomous[I](i: I, c: LlmConfig = LlmConfig.default)(using
             a: AgentInput[I]
@@ -78,8 +78,7 @@ class LintTest extends munit.FunSuite:
           None,
           None
         )
-      ),
-      summary = "1 issue"
+      )
     )
     val mock = new CapturingLlmTool(expected)
     val result = lint("echo 'unused import in Foo.scala'", mock)

@@ -13,7 +13,7 @@ class ReviewTypesTest extends munit.FunSuite:
         ReviewIssue(
           severity = Severity.Critical,
           confidence = 0.95,
-          shortSummary = "Null pointer risk",
+          title = "Null pointer risk",
           description = "null pointer risk",
           file = Some("Foo.scala"),
           line = Some(42),
@@ -22,27 +22,23 @@ class ReviewTypesTest extends munit.FunSuite:
         ReviewIssue(
           severity = Severity.Info,
           confidence = 0.4,
-          shortSummary = "Stylistic nitpick",
+          title = "Stylistic nitpick",
           description = "stylistic nitpick",
           file = None,
           line = None,
           suggestion = None
         )
-      ),
-      summary = "one critical, one info"
+      )
     )
     val json = writeToString(original)
     val parsed = readFromString[ReviewResult](json)
     assertEquals(parsed, original)
 
-  private val sampleIssue =
-    ReviewIssue(Severity.Warning, 0.5, "Style nit", "style", None, None, None)
-
   test("IgnoredIssues ++ concatenates entries"):
-    val a = IgnoredIssues(List(IgnoredIssue(sampleIssue, "accepted")))
-    val b = IgnoredIssues(List(IgnoredIssue(sampleIssue, "deferred")))
+    val a = IgnoredIssues(List(IgnoredIssue("Style nit", "accepted")))
+    val b = IgnoredIssues(List(IgnoredIssue("Style nit", "deferred")))
     assertEquals((a ++ b).issues.size, 2)
 
-  test("IgnoredIssues.format renders severity, description, and reason"):
-    val issues = IgnoredIssues(List(IgnoredIssue(sampleIssue, "accepted")))
-    assertEquals(issues.format, "- [Warning] Style nit: accepted")
+  test("IgnoredIssues.format renders title and reason"):
+    val issues = IgnoredIssues(List(IgnoredIssue("Style nit", "accepted")))
+    assertEquals(issues.format, "- Style nit: accepted")

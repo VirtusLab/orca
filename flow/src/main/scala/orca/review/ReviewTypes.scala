@@ -21,16 +21,16 @@ object Severity:
   given JsonValueCodec[Severity] =
     JsonCodecMaker.make(CodecMakerConfig.withDiscriminatorFieldName(None))
 
-/** A single review finding. `shortSummary` is the one-line user-facing label
-  * (rendered in the event log under `▶`); `description` is the longer form fed
-  * back to the fixing agent and includes whatever context the reviewer gave.
-  * The split mirrors `Plan.Task`'s shortSummary/description pair so flow
-  * scripts that handle issues and tasks can use the same field names.
+/** A single review finding. `title` is the one-line user-facing label (rendered
+  * in the event log under `▶`); `description` is the longer form fed back to
+  * the fixing agent and includes whatever context the reviewer gave. The split
+  * mirrors `Plan.Task`'s title/description pair so flow scripts that handle
+  * issues and tasks can use the same field names.
   */
 case class ReviewIssue(
     severity: Severity,
     confidence: Double,
-    shortSummary: String,
+    title: String,
     description: String,
     file: Option[String],
     line: Option[Int],
@@ -38,19 +38,18 @@ case class ReviewIssue(
 ) derives JsonData
 
 case class ReviewResult(
-    issues: List[ReviewIssue],
-    summary: String
+    issues: List[ReviewIssue]
 ) derives JsonData
 
 object ReviewResult:
-  val empty: ReviewResult = ReviewResult(Nil, "")
+  val empty: ReviewResult = ReviewResult(Nil)
 
-  /** Silent — `reviewAndFixLoop` emits per-reviewer Steps with the
-    * reviewer's name; this would compete.
+  /** Silent — `reviewAndFixLoop` emits per-reviewer Steps with the reviewer's
+    * name; this would compete.
     */
   given Announce[ReviewResult] = Announce.from(_ => "")
 
-case class IgnoredIssue(issue: ReviewIssue, reason: String) derives JsonData
+case class IgnoredIssue(title: String, reason: String) derives JsonData
 
 case class IgnoredIssues(issues: List[IgnoredIssue]) derives JsonData:
   def ++(other: IgnoredIssues): IgnoredIssues = IgnoredIssues(
@@ -58,9 +57,7 @@ case class IgnoredIssues(issues: List[IgnoredIssue]) derives JsonData:
   )
   def nonEmpty: Boolean = issues.nonEmpty
   def format: String =
-    issues
-      .map(i => s"- [${i.issue.severity}] ${i.issue.shortSummary}: ${i.reason}")
-      .mkString("\n")
+    issues.map(i => s"- ${i.title}: ${i.reason}").mkString("\n")
 
 object IgnoredIssues:
   /** Silent — the fix loop already announces its outcome per iteration. */

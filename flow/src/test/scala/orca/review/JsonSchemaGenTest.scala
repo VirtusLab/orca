@@ -14,8 +14,9 @@ class JsonSchemaGenTest extends munit.FunSuite:
 
   test("generated schema validates a well-formed ReviewResult"):
     val sample = ReviewResult(
-      issues = List(ReviewIssue(Severity.Info, 0.8, "Hello", "hello", None, None, None)),
-      summary = "a summary"
+      issues = List(
+        ReviewIssue(Severity.Info, 0.8, "Hello", "hello", None, None, None)
+      )
     )
     val errors =
       compiledSchema.validate(writeToString(sample), InputFormat.JSON)
@@ -23,6 +24,6 @@ class JsonSchemaGenTest extends munit.FunSuite:
 
   test("generated schema rejects an unknown severity value"):
     val invalid =
-      """{"issues":[{"severity":"Bogus","confidence":0.5,"description":"x"}],"summary":"s"}"""
+      """{"issues":[{"severity":"Bogus","confidence":0.5,"description":"x"}]}"""
     val errors = compiledSchema.validate(invalid, InputFormat.JSON)
     assert(!errors.isEmpty, "Schema should reject unknown severity values")

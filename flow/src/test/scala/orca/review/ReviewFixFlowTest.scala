@@ -12,10 +12,10 @@ import orca.{
 
 import java.util.concurrent.atomic.AtomicReference
 
-/** Integration-style test for the higher-level flow helpers
-  * (`reviewAndFixLoop` / `fixLoop`) wired together inside a FlowContext
-  * that records every OrcaEvent. Uses in-memory fakes for the LLM — no
-  * backend, no sbt, no network.
+/** Integration-style test for the higher-level flow helpers (`reviewAndFixLoop`
+  * / `fixLoop`) wired together inside a FlowContext that records every
+  * OrcaEvent. Uses in-memory fakes for the LLM — no backend, no sbt, no
+  * network.
   */
 class ReviewFixFlowTest extends munit.FunSuite:
 
@@ -29,98 +29,76 @@ class ReviewFixFlowTest extends munit.FunSuite:
     ReviewIssue(
       severity = Severity.Warning,
       confidence = confidence,
-      shortSummary = desc,
+      title = desc,
       description = desc,
       file = None,
       line = None,
       suggestion = None
     )
 
-  test(
-    "reviewAndFixLoop wraps the loop in stage events and returns accumulated ignored issues"
-  ):
+  test("reviewAndFixLoop wraps the loop in a `Review & fix` stage"):
     val listener = new RecordingListener
-    val dispatcher = new EventDispatcher(List(listener))
-    given FlowContext = new TestFlowContext(dispatcher)
+    given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
 
     val real = issue("real problem", confidence = 0.9)
-    val noise = issue("wishful", confidence = 0.3)
-
-    // One reviewer flags both a real issue and a low-confidence nit on every
-    // run; once the real issue is marked ignored, the filter below
-    // confidenceThreshold drops the nit, so the loop terminates.
     val reviewer = new FakeLlmTool(
       name = "perf",
-      promptOutputs = List.fill(5)(
-        ReviewResult(List(real, noise), "2 findings")
-      )
+      promptOutputs = List(ReviewResult(List(real)))
     )
     val coder = new FakeLlmTool(
       name = "coder",
       continueSessionOutputs =
-        List(IgnoredIssues(List(IgnoredIssue(real, "accepted as trade-off"))))
+        List(FixOutcome(Nil, List(IgnoredIssue("real problem", "trade-off"))))
     )
 
-    val result = reviewAndFixLoop(
+    val _ = reviewAndFixLoop(
       coder = coder,
       sessionId = SessionId[Backend.ClaudeCode.type]("s"),
       reviewers = List(reviewer),
-      task = "optimize cache",
-      confidenceThreshold = 0.7
+      task = "optimize cache"
     )
-
-    assertEquals(
-      result.issues.map(_.issue.description),
-      List("real problem")
-    )
-    assertEquals(result.issues.map(_.reason), List("accepted as trade-off"))
 
     val events = listener.events
-    val stageName = "Review & fix"
     assert(
-      events.collectFirst {
-        case OrcaEvent.StageStarted(n) if n == stageName => n
-      }.isDefined,
-      s"missing StageStarted($stageName), got: $events"
+      events.exists {
+        case OrcaEvent.StageStarted("Review & fix") => true; case _ => false
+      },
+      s"missing StageStarted(Review & fix); got: $events"
     )
     assert(
-      events.collectFirst {
-        case OrcaEvent.StageCompleted(n, _) if n == stageName => n
-      }.isDefined,
-      s"missing StageCompleted($stageName), got: $events"
+      events.exists {
+        case OrcaEvent.StageCompleted("Review & fix", _) => true;
+        case _                                           => false
+      },
+      s"missing StageCompleted(Review & fix); got: $events"
     )
 
-  test("max iterations path surfaces leftover issues with a visible reason"):
+  test("max iterations path surfaces leftover issues with the cap reason"):
     val listener = new RecordingListener
     given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
 
-    // Reviewer reports two fresh issues every round; coder ignores
-    // exactly one (Progressed, not AllIgnored). The other leaks
-    // forward — `maxIterations` ultimately caps the loop with the
-    // pending leftover.
-    val freshGroups = (1 to 100).grouped(2).map(g => g.map(n => issue(s"issue-$n")).toList)
+    // Reviewer keeps reporting the same issue every round; coder claims it
+    // fixed it every round (so the loop sees progress) but the next eval
+    // still finds it. The cap is the only thing that can stop this.
+    val stubborn = issue("never ends")
     val reviewer = new FakeLlmTool(
       name = "loud",
-      promptOutputs = (1 to 20)
-        .map(_ => ReviewResult(freshGroups.next(), "next"))
-        .toList
+      promptOutputs = List.fill(20)(ReviewResult(List(stubborn)))
     )
     val coder = new FakeLlmTool(
       name = "fixer",
       continueSessionOutputs =
-        List.fill(20)(IgnoredIssues(List(IgnoredIssue(issue("pass"), "ack"))))
+        List.fill(20)(FixOutcome(List("never ends"), Nil))
     )
 
     val result = reviewAndFixLoop(
       coder = coder,
       sessionId = SessionId[Backend.ClaudeCode.type]("s"),
       reviewers = List(reviewer),
-      task = "never ending"
+      task = "never ending",
+      maxIterations = 2
     )
-
-    val reasons = result.issues.map(_.reason).distinct
     assert(
-      reasons.exists(_.contains("max iterations")) ||
-        reasons.exists(_.contains("no progress")),
-      s"expected a bailout reason, got: $reasons"
+      result.issues.exists(_.reason.contains("max iterations")),
+      s"expected a max-iterations reason; got: ${result.issues}"
     )
