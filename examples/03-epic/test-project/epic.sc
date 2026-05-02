@@ -34,7 +34,7 @@
   */
 
 import orca.{*, given}
-import orca.plan.extended.Plan
+import orca.plan.ExtendedPlan
 import orca.review.{defaultReviewers, reviewAndFixLoop}
 
 flow(OrcaArgs(args)):
@@ -44,7 +44,7 @@ flow(OrcaArgs(args)):
   // 1. Epic: generate or reuse. The Step inside `loadOrGenerate`
   // tells the user when an existing file is being reused.
   val plan = stage("Acquiring epic"):
-    Plan.loadOrGenerate(planFile, userPrompt, claude.opus)
+    ExtendedPlan.loadOrGenerate(planFile, userPrompt, claude.opus)
 
   // 2. Make sure the working tree is clean before we touch it. If
   // it's dirty, stash so the user can recover with `git stash pop`
@@ -95,9 +95,9 @@ flow(OrcaArgs(args)):
         reviewers = reviewers,
         task = task.name
       )
-      Plan.persistComplete(planFile, task.name)
+      ExtendedPlan.persistComplete(planFile, task.name)
       git.commit(s"task: ${task.name}")
-    currentPlan = Plan.parse(os.read(planFile))
+    currentPlan = ExtendedPlan.parse(os.read(planFile))
 
   // 5. Documentation pass — update relevant docs based on what
   // changed in this branch.

@@ -1,6 +1,6 @@
-package orca.plan.extended
+package orca.plan
 
-class PlanTest extends munit.FunSuite:
+class ExtendedPlanTest extends munit.FunSuite:
 
   private val sample =
     """# Plan: add-divide-method
@@ -19,11 +19,11 @@ class PlanTest extends munit.FunSuite:
       |""".stripMargin
 
   test("parse extracts the branch name from the H1"):
-    val plan = Plan.parse(sample)
+    val plan = ExtendedPlan.parse(sample)
     assertEquals(plan.branchName, "add-divide-method")
 
   test("parse splits the file into tasks and reads each status checkbox"):
-    val plan = Plan.parse(sample)
+    val plan = ExtendedPlan.parse(sample)
     assertEquals(plan.tasks.size, 2)
     assertEquals(plan.tasks.head.name, "add-divide")
     assertEquals(plan.tasks.head.completed, false)
@@ -31,18 +31,18 @@ class PlanTest extends munit.FunSuite:
     assertEquals(plan.tasks(1).completed, true)
 
   test("parse keeps the multi-line description body intact"):
-    val plan = Plan.parse(sample)
+    val plan = ExtendedPlan.parse(sample)
     val description = plan.tasks.head.description
     assert(description.startsWith("Add a `divide"), s"got: $description")
     assert(description.contains("IllegalArgumentException"), s"got: $description")
 
   test("render + parse round-trips the plan"):
-    val original = Plan.parse(sample)
-    val redacted = Plan.parse(Plan.render(original))
+    val original = ExtendedPlan.parse(sample)
+    val redacted = ExtendedPlan.parse(ExtendedPlan.render(original))
     assertEquals(redacted, original)
 
   test("markComplete flips one task's checkbox without touching others"):
-    val plan = Plan.parse(sample)
+    val plan = ExtendedPlan.parse(sample)
     val updated = plan.markComplete("add-divide")
     assertEquals(updated.tasks.head.completed, true)
     assertEquals(updated.tasks(1).completed, true)
@@ -50,14 +50,14 @@ class PlanTest extends munit.FunSuite:
     assertEquals(plan.markComplete("ghost"), plan)
 
   test("firstIncomplete returns the first task with [ ] in declaration order"):
-    val plan = Plan.parse(sample)
+    val plan = ExtendedPlan.parse(sample)
     assertEquals(plan.firstIncomplete.map(_.name), Some("add-divide"))
     val complete = plan.markComplete("add-divide")
     assertEquals(complete.firstIncomplete, None)
 
   test("parse throws on a missing # Plan header"):
     intercept[PlanParseException]:
-      Plan.parse("## Task: orphan\nStatus: [ ]\n\nbody\n")
+      ExtendedPlan.parse("## Task: orphan\nStatus: [ ]\n\nbody\n")
 
   test("parse throws on a task missing the Status line"):
     val bad =
@@ -67,7 +67,7 @@ class PlanTest extends munit.FunSuite:
         |
         |body
         |""".stripMargin
-    intercept[PlanParseException](Plan.parse(bad))
+    intercept[PlanParseException](ExtendedPlan.parse(bad))
 
   test("parse throws on an unrecognised status checkbox"):
     val bad =
@@ -78,15 +78,15 @@ class PlanTest extends munit.FunSuite:
         |
         |body
         |""".stripMargin
-    intercept[PlanParseException](Plan.parse(bad))
+    intercept[PlanParseException](ExtendedPlan.parse(bad))
 
   test("parse throws on a plan with no tasks"):
-    intercept[PlanParseException](Plan.parse("# Plan: empty\n"))
+    intercept[PlanParseException](ExtendedPlan.parse("# Plan: empty\n"))
 
   test("parse normalises CRLF line endings and a leading BOM"):
     val crlf = sample.replace("\n", "\r\n")
     val withBom = "﻿" + crlf
-    val plan = Plan.parse(withBom)
+    val plan = ExtendedPlan.parse(withBom)
     assertEquals(plan.branchName, "add-divide-method")
     assertEquals(plan.tasks.size, 2)
 
@@ -97,7 +97,7 @@ class PlanTest extends munit.FunSuite:
         |## Task: t
         |Status: [ ]
         |""".stripMargin
-    intercept[PlanParseException](Plan.parse(bad))
+    intercept[PlanParseException](ExtendedPlan.parse(bad))
 
   test("loadOrGenerate parses and reuses an existing file (no LLM call)"):
     val seen = new java.util.concurrent.atomic.AtomicReference[List[orca.OrcaEvent]](Nil)
@@ -110,7 +110,7 @@ class PlanTest extends munit.FunSuite:
     val tmp = os.temp(suffix = ".md")
     os.write.over(tmp, sample)
     val llm = new ExplodingLlm("loadOrGenerate must not call ask when file exists")
-    val plan = Plan.loadOrGenerate(tmp, "ignored", llm)
+    val plan = ExtendedPlan.loadOrGenerate(tmp, "ignored", llm)
     assertEquals(plan.branchName, "add-divide-method")
     assert(
       seen.get().exists {
@@ -126,16 +126,16 @@ class PlanTest extends munit.FunSuite:
     val target = dir / "dev.md"
     val canned = sample
     val llm = new CannedLlm(canned)
-    val plan = Plan.loadOrGenerate(target, "Add a divide method", llm)
+    val plan = ExtendedPlan.loadOrGenerate(target, "Add a divide method", llm)
     assert(os.exists(target))
     assertEquals(plan.branchName, "add-divide-method")
-    val onDisk = Plan.parse(os.read(target))
+    val onDisk = ExtendedPlan.parse(os.read(target))
     assertEquals(onDisk, plan)
 
   test("persistComplete updates the on-disk plan"):
     val tmp = os.temp(suffix = ".md")
     os.write.over(tmp, sample)
-    Plan.persistComplete(tmp, "add-divide")
-    val reread = Plan.parse(os.read(tmp))
+    ExtendedPlan.persistComplete(tmp, "add-divide")
+    val reread = ExtendedPlan.parse(os.read(tmp))
     assertEquals(reread.tasks.head.completed, true)
     assertEquals(reread.tasks(1).completed, true)

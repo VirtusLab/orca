@@ -1,11 +1,9 @@
-package orca.plan.simple
+package orca.plan
 
 import orca.{Announce, JsonData, given}
-import orca.plan.Task
 
 /** A list of tasks the agent should work through in order. Plans stored on disk
-  * use a richer markdown-backed representation; see [[orca.plan.extended]] for
-  * that.
+  * use the richer markdown-backed [[ExtendedPlan]].
   *
   * The "simple" variant fits in one LLM round-trip: the agent produces the
   * JSON; the runtime parses it; the flow iterates. Each task's `name`

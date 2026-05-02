@@ -1,4 +1,4 @@
-package orca.plan.extended
+package orca.plan
 
 import orca.{
   Announce,
@@ -14,7 +14,7 @@ import orca.{
   * methods aren't exercised by the extended-plan tests; they throw
   * to make accidental use loud.
   */
-private[extended] class CannedLlm(reply: String)
+private[plan] class CannedLlm(reply: String)
     extends LlmTool[Backend.ClaudeCode.type]:
   val name: String = "stub"
   def ask(prompt: String, config: LlmConfig = LlmConfig.default): String = reply
@@ -27,7 +27,7 @@ private[extended] class CannedLlm(reply: String)
 /** Test double that throws on every method — used to assert that a
   * code path doesn't call the LLM.
   */
-private[extended] class ExplodingLlm(reason: String)
+private[plan] class ExplodingLlm(reason: String)
     extends LlmTool[Backend.ClaudeCode.type]:
   val name: String = "exploding"
   def ask(p: String, c: LlmConfig = LlmConfig.default): String =

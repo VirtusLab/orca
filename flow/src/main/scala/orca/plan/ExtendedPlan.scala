@@ -1,9 +1,7 @@
-package orca.plan.extended
+package orca.plan
 
 import orca.{FlowContext, LlmTool, OrcaEvent}
-import orca.plan.Task
 
-// TODO: let's move both this class (renamed as ExtendedPlan) and SimplePlan to the `plan` package. No point in having subpackages if there's only one class
 /** A markdown-backed plan persisted to a file (typically `dev.md`) so resuming
   * a flow doesn't re-plan from scratch. The branch name is part of the plan;
   * the runtime checks out / creates that branch before iterating tasks.
@@ -25,13 +23,13 @@ import orca.plan.Task
   * <prompt body>
   * }}}
   */
-case class Plan(branchName: String, tasks: List[Task]):
+case class ExtendedPlan(branchName: String, tasks: List[Task]):
 
   /** Mark the named task complete, leaving the others untouched. Returns the
     * same plan if `name` doesn't match any task — the caller decides whether
     * that's an error.
     */
-  def markComplete(name: String): Plan =
+  def markComplete(name: String): ExtendedPlan =
     copy(tasks = tasks.map(t => if t.name == name then t.markComplete else t))
 
   /** First task whose `completed` flag is false, in declaration order. None
@@ -39,7 +37,7 @@ case class Plan(branchName: String, tasks: List[Task]):
     */
   def firstIncomplete: Option[Task] = tasks.find(!_.completed)
 
-object Plan:
+object ExtendedPlan:
 
   /** Idempotent plan acquisition. If `file` already exists, parse and return it
     * (and log a Step explaining we're reusing it). Otherwise, ask `llm` to
@@ -57,7 +55,7 @@ object Plan:
       file: os.Path,
       userPrompt: String,
       llm: LlmTool[?]
-  )(using ctx: FlowContext): Plan =
+  )(using ctx: FlowContext): ExtendedPlan =
     if os.exists(file) then
       val parsed = parse(os.read(file))
       ctx.emit(
@@ -133,19 +131,19 @@ object Plan:
     * or LLM-emitted files don't fail with confusing "expected `# Plan:` got ?"
     * diagnostics over a single invisible codepoint.
     */
-  def parse(markdown: String): Plan =
+  def parse(markdown: String): ExtendedPlan =
     val normalised = markdown.stripPrefix("﻿").replace("\r\n", "\n")
     val lines = normalised.linesIterator.toList
     val branchName = parseHeader(lines)
     val taskBlocks = splitTaskBlocks(lines)
     if taskBlocks.isEmpty then throw PlanParseException("Plan has no tasks")
-    Plan(branchName, taskBlocks.map(parseTask))
+    ExtendedPlan(branchName, taskBlocks.map(parseTask))
 
   /** Render a plan back into the on-disk format. Output round-trips through
     * [[parse]] without information loss; we use this to write the file when
     * first generated and again when a task's status flips.
     */
-  def render(plan: Plan): String =
+  def render(plan: ExtendedPlan): String =
     val header = s"# Plan: ${plan.branchName}\n"
     val body = plan.tasks
       .map: t =>

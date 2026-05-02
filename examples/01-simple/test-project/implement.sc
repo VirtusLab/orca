@@ -19,7 +19,7 @@
   */
 
 import orca.{*, given}
-import orca.plan.simple.SimplePlan
+import orca.plan.SimplePlan
 import orca.review.{defaultReviewers, reviewAndFixLoop}
 
 flow(OrcaArgs(args)):

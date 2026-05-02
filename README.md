@@ -35,7 +35,7 @@ Save this as `ship.sc` and run it with your task:
 //> using jvm 21
 
 import orca.{*, given}
-import orca.plan.simple.SimplePlan
+import orca.plan.SimplePlan
 import orca.review.{defaultReviewers, reviewAndFixLoop}
 
 flow(OrcaArgs(args)):
@@ -118,9 +118,9 @@ for full regression coverage every iteration.
 Common types you'll see in flow scripts. All `derives JsonData`, so the
 agent generates them as structured output via `claude.resultAs[T]`.
 
-- **`orca.plan.simple.SimplePlan(tasks)`** — in-memory list of tasks the
+- **`orca.plan.SimplePlan(tasks)`** — in-memory list of tasks the
   agent generates in one round-trip.
-- **`orca.plan.extended.Plan`** — markdown-backed plan persisted to a
+- **`orca.plan.ExtendedPlan`** — markdown-backed plan persisted to a
   file (`epic.md` by convention) for resumable runs.
 - **`orca.plan.Task(name, shortSummary, description, completed?)`** —
   shared by both plan variants. `name` doubles as the git branch in

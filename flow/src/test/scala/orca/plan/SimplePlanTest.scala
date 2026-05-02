@@ -1,8 +1,7 @@
-package orca.plan.simple
+package orca.plan
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{readFromString, writeToString}
 import orca.JsonData
-import orca.plan.Task
 
 class SimplePlanTest extends munit.FunSuite:
 
