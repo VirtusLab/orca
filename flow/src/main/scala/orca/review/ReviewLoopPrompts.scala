@@ -22,7 +22,9 @@ object ReviewLoopPrompts:
   /** Used by [[reviewAndFixLoop]]'s fix step. Tells the agent to classify every
     * input issue as either `fixed` (title listed) or `ignored` (title +
     * reason). The loop relies on `fixed` being non-empty to justify
-    * re-evaluating, so any override should preserve that contract.
+    * re-evaluating, so any override should preserve that contract. The
+    * minimal-change clause is here because fixers otherwise tend to refactor
+    * widely while addressing one issue.
     */
   val Fix: String =
     """For each review comment below: fix it directly in the codebase
@@ -30,7 +32,13 @@ object ReviewLoopPrompts:
       |the issue is environmental (missing tooling, network), out of
       |scope for this task, or a false positive — list its title and a
       |brief reason under `ignored`. Every input issue should appear in
-      |exactly one of the two lists.""".stripMargin
+      |exactly one of the two lists.
+      |
+      |Make the smallest change that resolves each issue. Don't refactor
+      |unrelated code, rename things that aren't part of the comment, or
+      |touch files outside the scope the comment points at. If a fix
+      |seems to require a wider change, ignore the issue with a reason
+      |that explains why a focused fix isn't possible.""".stripMargin
 
   /** Used by [[ReviewerSelector.llmDriven]] to decide which reviewers to run
     * for a given task. Agents are picked from the supplied `availableReviewers`
