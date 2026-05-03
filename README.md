@@ -30,12 +30,19 @@ you might need to publish the library locally first, see below):
 import orca.{*, given}
 import orca.plan.Plan
 import orca.review.{defaultReviewers, reviewAndFixLoop}
+import ox.either.orThrow
 
 flow(OrcaArgs(args)):
+  // Plan.from wraps userPrompt with PlanPrompts.Planning so the agent stays
+  // in plan-only mode this turn. Returns the session id so the implementer
+  // turns below run on the same context.
   val (sessionId, plan) = stage("Creating a development plan"):
     Plan.from(userPrompt, claude)
 
   // Single branch for the whole epic; tasks become commits on it.
+  // git.createBranch returns Either[BranchAlreadyExists, Unit]; .orThrow
+  // turns the recoverable Left into the same exception we'd surface for a
+  // genuinely unexpected git failure, which is what we want here.
   git.createBranch(plan.epicId).orThrow
 
   for task <- plan.tasks do
@@ -45,7 +52,7 @@ flow(OrcaArgs(args)):
         coder = claude,
         sessionId = sessionId,
         reviewers = defaultReviewers(claude),
-        task = task.title,
+        task = task.title.value,
         lintCommand = Some("sbt scalafmtCheckAll test")
       )
       git.commit(s"Implement ${task.title}").orThrow
@@ -70,11 +77,11 @@ The following are available inside a `flow(...) { ... }`:
 
 | Tool | Methods | Purpose |
 |---|---|---|
-| `claude` | `ask`, `startSession`, `continueSession`, `resultAs[O]`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt` | Claude Code coding/reviewing agent. |
-| `codex` | `ask`, `startSession`, `continueSession`, `resultAs[O]`, `mini`, `withConfig`, `withSystemPrompt` | OpenAI Codex coding/reviewing agent. |
-| `git` | `createBranch`, `checkoutOrCreate`, `ensureClean`, `commit`, `push`, `currentBranch`, `diff`, `log` | Git operations against the working tree. |
-| `gh` | `createPr`, `writeComment`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. |
-| `fs` | `read`, `write` | Working-tree file I/O. |
+| `claude` | `ask`, `startSession`, `continueSession`, `resultAs[O]`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt`, `withName` | Claude Code coding/reviewing agent. |
+| `codex` | `ask`, `startSession`, `continueSession`, `resultAs[O]`, `mini`, `withConfig`, `withSystemPrompt`, `withName` | OpenAI Codex coding/reviewing agent. |
+| `git` | `createBranch`, `checkout`, `checkoutOrCreate`, `ensureClean`, `commit`, `push`, `currentBranch`, `diff`, `log`, `addWorktree`, `removeWorktree`, `listWorktrees` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushRejected`, `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. |
+| `gh` | `createPr`, `readComments`, `writeComment`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` returns `Either[PrCreateFailed, …]` (covers `PrAlreadyExists` / `NoCommitsToPr`); `waitForBuild` returns `Either[BuildTimedOut, …]`. |
+| `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
 
 For the LLM interfaces, `resultAs[O]` defines the shape of the structured
 output. The `O` type needs a `JsonData[O]` (provided by `derives JsonData` on a
@@ -153,15 +160,22 @@ can generate them as structured output via `claude.resultAs[T]`:
 - **`orca.plan.Task(title, description, completed?)`** — `title` is the
   human-readable label shown in the event log and used as the
   `## Task: <title>` markdown header when persisted.
+- **`orca.Title`** — opaque alias of `String` shared by `Task.title` and
+  `ReviewIssue.title`. Construct via `Title("…")`; recover the string with
+  `.value`. Keeps short labels from being silently swapped with descriptions
+  or raw user input.
 - **`orca.bug.BugTriage`** / **`orca.bug.BugReportMatch`** — the agent's
   decision on whether a bug can be reproduced as a unit test, and whether a CI
   failure matches the report.
 - **`orca.review.ReviewIssue` / `ReviewResult`** — what reviewer agents return.
-  Issues carry severity, confidence, a short summary (shown), and a long
-  description (sent to the fixer).
-- **`orca.review.IgnoredIssues(issues: List[IgnoredIssue])`** — what the fix
-  step returns: each entry is an issue the fixer chose to set aside, with a
-  reason.
+  Issues carry severity, confidence, a `title` (shown), and a long
+  `description` (sent to the fixer).
+- **`orca.review.FixOutcome(fixed, ignored)`** — what the fix step returns:
+  the titles of issues actually fixed in code, plus titles + reasons for
+  issues set aside (environmental, out of scope, false positive). The loop
+  re-evaluates iff `fixed` is non-empty.
+- **`orca.review.IgnoredIssues`** — accumulated `IgnoredIssue(title, reason)`
+  entries surfaced by `reviewAndFixLoop` once it halts.
 
 ## Output
 
