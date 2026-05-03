@@ -12,12 +12,12 @@ package orca.review
   *   sessionId = sessionId,
   *   reviewers = defaultReviewers(claude),
   *   task = title,
-  *   fixInstructions = ReviewPrompts.Fix +
+  *   fixInstructions = ReviewLoopPrompts.Fix +
   *     "\n\nIf you delete a test, mention it in the ignored reason."
   * )
   * }}}
   */
-object ReviewPrompts:
+object ReviewLoopPrompts:
 
   /** Used by [[reviewAndFixLoop]]'s fix step. Tells the agent to classify every
     * input issue as either `fixed` (title listed) or `ignored` (title +

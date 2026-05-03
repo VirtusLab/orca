@@ -49,19 +49,6 @@ case class Plan(epicId: String, tasks: List[Task]) derives JsonData:
 
 object Plan:
 
-  /** Empty plans render as nothing — surfacing "0 tasks planned" muddies the
-    * picture; a planning failure is more useful as an explicit `fail(...)` from
-    * the script.
-    */
-  given Announce[Plan] = Announce.from: plan =>
-    if plan.tasks.isEmpty then ""
-    else
-      val plural = if plan.tasks.size == 1 then "" else "s"
-      val header =
-        s"Planned ${plan.tasks.size} task$plural on branch '${plan.epicId}':"
-      val body = plan.tasks.map(t => s"  - ${t.title}").mkString("\n")
-      s"$header\n$body"
-
   /** Interactive planning helpers — the LLM call opens a conversation the user
     * can drive (clarifying questions, refinements) before producing the plan.
     * `from` returns `(SessionId, Plan)` so the caller can `continueSession` for
@@ -142,6 +129,19 @@ object Plan:
       val plan = generate()
       os.write.over(file, render(plan), createFolders = true)
       plan
+
+  /** Empty plans render as nothing — surfacing "0 tasks planned" muddies the
+    * picture; a planning failure is more useful as an explicit `fail(...)` from
+    * the script.
+    */
+  given Announce[Plan] = Announce.from: plan =>
+    if plan.tasks.isEmpty then ""
+    else
+      val plural = if plan.tasks.size == 1 then "" else "s"
+      val header =
+        s"Planned ${plan.tasks.size} task$plural on branch '${plan.epicId}':"
+      val body = plan.tasks.map(t => s"  - ${t.title}").mkString("\n")
+      s"$header\n$body"
 
   /** Mark the task with `title` complete in the plan stored at `file`. Reads
     * the file, applies the change, writes it back. Use after a task is

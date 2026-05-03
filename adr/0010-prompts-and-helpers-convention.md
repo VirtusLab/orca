@@ -37,7 +37,7 @@ For every domain helper that bundles an LLM brief, follow this pattern:
 1. **Place a public `object XxxPrompts` beside the helper**, in the same
    package. Each entry is a complete instruction block as a `val`.
    - `orca.plan.PlanPrompts` — `Planning`
-   - `orca.review.ReviewPrompts` — `Fix`, `SelectReviewers`, `SummarizeLint`
+   - `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummarizeLint`
    - `orca.review.ReviewerPrompts` — per-reviewer system prompts
      (`Performance`, `Readability`, …)
    - For per-call wrappers, the equivalent stays the `Prompts` trait + flow-
@@ -50,14 +50,14 @@ For every domain helper that bundles an LLM brief, follow this pattern:
    def lint(
        command: String,
        llm: LlmTool[?],
-       instructions: String = ReviewPrompts.SummarizeLint
+       instructions: String = ReviewLoopPrompts.SummarizeLint
    )(using FlowContext): ReviewResult
    ```
 
    Three call shapes fall out for free:
    - I want defaults → `lint(cmd, claude.haiku)`
    - I want a different brief → `lint(cmd, claude.haiku, instructions = "...")`
-   - I want to extend → `instructions = ReviewPrompts.SummarizeLint + "\n\n..."`
+   - I want to extend → `instructions = ReviewLoopPrompts.SummarizeLint + "\n\n..."`
 
 3. **For helpers that produce many configurations** (e.g.
    `defaultReviewers`), the same `XxxPrompts` object hosts the prompts; the
@@ -87,7 +87,7 @@ For every domain helper that bundles an LLM brief, follow this pattern:
 - A small public object per domain that has prompts. Acceptable; the
   alternative (one library-wide prompts object) would couple unrelated
   packages.
-- `ReviewPrompts` and `ReviewerPrompts` sit in the same package with similar
+- `ReviewLoopPrompts` and `ReviewerPrompts` sit in the same package with similar
   names but different roles (operational instructions vs reviewer system
   prompts). Doc comments on each make the distinction explicit.
 

@@ -166,7 +166,7 @@ object ReviewerSelector:
       llm: LlmTool[?],
       taskTitle: Title,
       changedFiles: List[String],
-      instructions: String = ReviewPrompts.SelectReviewers
+      instructions: String = ReviewLoopPrompts.SelectReviewers
   ): ReviewerSelector =
     var cached: Option[List[String]] = None
     (_, all) =>
@@ -225,7 +225,7 @@ def reviewAndFixLoop[B <: Backend](
     reviewerSelection: ReviewerSelector =
       ReviewerSelector.onlyPreviouslyReporting,
     maxIterations: Int = 10,
-    fixInstructions: String = ReviewPrompts.Fix
+    fixInstructions: String = ReviewLoopPrompts.Fix
 )(using ctx: FlowContext): IgnoredIssues =
   require(
     lintCommand.isEmpty || lintLlm.isDefined,
@@ -297,7 +297,7 @@ def reviewAndFixLoop[B <: Backend](
 def lint(
     command: String,
     llm: LlmTool[?],
-    instructions: String = ReviewPrompts.SummarizeLint
+    instructions: String = ReviewLoopPrompts.SummarizeLint
 )(using FlowContext): ReviewResult =
   val proc = os
     .proc("bash", "-c", command)
