@@ -1,6 +1,7 @@
 package orca.tools.git
 
-import orca.{OrcaEvent, OrcaFlowException}
+import orca.{BranchAlreadyExists, BranchNotFound, OrcaEvent}
+import ox.either.orThrow
 import java.util.concurrent.atomic.AtomicReference
 
 class OsGitToolTest extends munit.FunSuite:
@@ -32,16 +33,32 @@ class OsGitToolTest extends munit.FunSuite:
       // Need at least one commit before creating a branch (to have HEAD).
       os.write(dir / "initial.txt", "seed")
       git.commit("initial")
-      git.createBranch("feature/x")
+      git.createBranch("feature/x").orThrow
       assertEquals(git.currentBranch(), "feature/x")
 
   test("checkout switches to an existing branch"):
     withRepo: (git, dir) =>
       os.write(dir / "a.txt", "a")
       git.commit("add a")
-      git.createBranch("feature/y")
-      git.checkout("main")
+      git.createBranch("feature/y").orThrow
+      git.checkout("main").orThrow
       assertEquals(git.currentBranch(), "main")
+
+  test(
+    "createBranch returns Left(BranchAlreadyExists) when the branch is taken"
+  ):
+    withRepo: (git, dir) =>
+      os.write(dir / "x.txt", "x")
+      git.commit("seed")
+      git.createBranch("dup").orThrow
+      git.checkout("main").orThrow
+      assert(
+        git.createBranch("dup").left.exists(_.isInstanceOf[BranchAlreadyExists])
+      )
+
+  test("checkout returns Left(BranchNotFound) when the branch doesn't exist"):
+    withRepo: (git, _) =>
+      assert(git.checkout("ghost").left.exists(_.isInstanceOf[BranchNotFound]))
 
   test("commit stages all changes and records the message"):
     withRepo: (git, dir) =>
@@ -72,11 +89,6 @@ class OsGitToolTest extends munit.FunSuite:
       assertEquals(recent.map(_.message), List("third", "second"))
       assertEquals(recent.map(_.author).distinct, List("Test"))
 
-  test("failed git commands throw OrcaFlowException"):
-    withRepo: (git, _) =>
-      val _ = intercept[OrcaFlowException]:
-        git.checkout("does-not-exist")
-
   test("addWorktree creates a new branch and linked working directory"):
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "x")
@@ -90,8 +102,8 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "x")
       git.commit("initial")
-      git.createBranch("reuse")
-      git.checkout("main")
+      git.createBranch("reuse").orThrow
+      git.checkout("main").orThrow
       val wtPath = os.temp.dir() / "reused"
       val wt = git.addWorktree(wtPath, "reuse")
       assertEquals(wt.branch, "reuse")
@@ -129,8 +141,8 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, dir) =>
       os.write(dir / "x.txt", "x")
       git.commit("seed")
-      git.createBranch("feature/existing")
-      git.checkout("main")
+      git.createBranch("feature/existing").orThrow
+      git.checkout("main").orThrow
       git.checkoutOrCreate("feature/existing")
       assertEquals(git.currentBranch(), "feature/existing")
 
@@ -140,7 +152,7 @@ class OsGitToolTest extends munit.FunSuite:
     withRepoCapturingEvents: (git, dir, seen) =>
       os.write(dir / "x.txt", "x")
       git.commit("seed")
-      git.createBranch("feature/here")
+      git.createBranch("feature/here").orThrow
       val before = seen.get().size
       git.checkoutOrCreate("feature/here")
       assertEquals(seen.get().size, before, "no new events should fire")
@@ -171,8 +183,8 @@ class OsGitToolTest extends munit.FunSuite:
     withRepoCapturingEvents: (git, dir, seen) =>
       os.write(dir / "seed.txt", "x")
       git.commit("initial seed")
-      git.createBranch("feature/emit")
-      git.checkout("main")
+      git.createBranch("feature/emit").orThrow
+      git.checkout("main").orThrow
 
       val steps = seen.get().reverse.collect { case OrcaEvent.Step(msg) =>
         msg

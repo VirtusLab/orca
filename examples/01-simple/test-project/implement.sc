@@ -22,6 +22,7 @@
 import orca.{*, given}
 import orca.plan.SimplePlan
 import orca.review.{defaultReviewers, reviewAndFixLoop}
+import ox.either.orThrow
 
 flow(OrcaArgs(args)):
   // 1. Break the user's prompt into concrete subtasks, interactively.
@@ -30,7 +31,7 @@ flow(OrcaArgs(args)):
 
   // 2. Single branch for the whole epic; tasks become commits on it.
   stage(s"Branch: ${plan.epicId}"):
-    git.createBranch(plan.epicId)
+    git.createBranch(plan.epicId).orThrow
 
   // 3. Implement each task as a commit on that branch. The review-and-fix
   // loop may modify files in response to reviewer findings, so we commit

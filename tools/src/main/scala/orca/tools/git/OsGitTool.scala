@@ -1,6 +1,15 @@
 package orca.tools.git
 
-import orca.{CommitInfo, GitTool, OrcaEvent, OrcaFlowException, Worktree}
+import orca.{
+  BranchAlreadyExists,
+  BranchNotFound,
+  CommitInfo,
+  GitTool,
+  OrcaEvent,
+  OrcaFlowException,
+  Worktree
+}
+import ox.either.orThrow
 import orca.subprocess.QuietProc
 
 /** `GitTool` implementation that shells out to the `git` CLI via os-lib.
@@ -18,22 +27,29 @@ class OsGitTool(
     emit: OrcaEvent => Unit = _ => ()
 ) extends GitTool:
 
-  def createBranch(name: String): Unit =
-    val _ = git("checkout", "-b", name)
-    emit(OrcaEvent.Step(s"Switched to a new branch '$name'"))
+  def createBranch(name: String): Either[BranchAlreadyExists, Unit] =
+    if branchExists(name) then Left(new BranchAlreadyExists(name))
+    else
+      val _ = git("checkout", "-b", name)
+      emit(OrcaEvent.Step(s"Switched to a new branch '$name'"))
+      Right(())
 
-  def checkout(name: String): Unit =
-    val _ = git("checkout", name)
-    emit(OrcaEvent.Step(s"Switched to branch '$name'"))
+  def checkout(name: String): Either[BranchNotFound, Unit] =
+    if !branchExists(name) then Left(new BranchNotFound(name))
+    else
+      val _ = git("checkout", name)
+      emit(OrcaEvent.Step(s"Switched to branch '$name'"))
+      Right(())
 
   def checkoutOrCreate(name: String): Unit =
     if currentBranch() == name then
       // Already on the target — no work to do, no event to emit.
       ()
-    else
-      val exists = git("branch", "--list", name).trim.nonEmpty
-      if exists then checkout(name)
-      else createBranch(name)
+    else if branchExists(name) then checkout(name).orThrow
+    else createBranch(name).orThrow
+
+  private def branchExists(name: String): Boolean =
+    git("branch", "--list", name).trim.nonEmpty
 
   def ensureClean(stashMessage: String): Boolean =
     val dirty = git("status", "--porcelain").trim.nonEmpty

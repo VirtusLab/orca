@@ -36,7 +36,7 @@ flow(OrcaArgs(args)):
     claude.resultAs[SimplePlan].interactive(userPrompt)
 
   // Single branch for the whole epic; tasks become commits on it.
-  git.createBranch(plan.epicId)
+  git.createBranch(plan.epicId).orThrow
 
   for task <- plan.tasks do
     stage(s"Implement task: ${task.title}"):

@@ -7,15 +7,39 @@ case class CommitInfo(hash: String, message: String, author: String)
   */
 case class Worktree(path: os.Path, branch: String)
 
+/** Returned in the `Left` of [[GitTool.createBranch]] when a branch by that
+  * name already exists. Distinguished from system-level git failures (binary
+  * missing, IO error) which surface as thrown `OrcaFlowException`. Subclasses
+  * `OrcaFlowException` so callers can `.orThrow` to recover the throwing
+  * behaviour when the case is genuinely unexpected.
+  */
+class BranchAlreadyExists(name: String)
+    extends OrcaFlowException(s"branch '$name' already exists")
+
+/** Returned in the `Left` of [[GitTool.checkout]] when no branch by that name
+  * exists. Same throw-or-handle contract as [[BranchAlreadyExists]].
+  */
+class BranchNotFound(name: String)
+    extends OrcaFlowException(s"branch '$name' not found")
+
 /** Git adapter usable from flow scripts — the handle behind the `git` accessor.
   * Wraps branch, commit, diff, log, and worktree operations against the working
   * repository.
   */
 trait GitTool:
-  def createBranch(
-      name: String
-  ): Unit // TOOD: there are no comments here. What's the difference betwen createBranch and checkout? Shouldn't this return an Either, as it might fail?
-  def checkout(name: String): Unit
+
+  /** Create `name` from HEAD and switch to it (`git checkout -b`). Returns
+    * `Left(BranchAlreadyExists)` when a branch by that name already exists —
+    * the working tree is unchanged in that case. Throws `OrcaFlowException` for
+    * system-level failures (git binary, IO).
+    */
+  def createBranch(name: String): Either[BranchAlreadyExists, Unit]
+
+  /** Switch to an existing branch `name` (`git checkout`). Returns
+    * `Left(BranchNotFound)` when no such branch exists — the working tree is
+    * unchanged. Throws `OrcaFlowException` for system-level failures.
+    */
+  def checkout(name: String): Either[BranchNotFound, Unit]
 
   /** Switch to `name`, creating it from `HEAD` if it doesn't exist yet.
     * Idempotent: calling on the current branch is a no-op (no `Step` event
