@@ -2,6 +2,7 @@ package orca.tools.codex
 
 import orca.{
   Announce,
+  AutonomousTextCall,
   Backend,
   CodexTool,
   Interaction,
@@ -46,30 +47,27 @@ class DefaultCodexTool(
 
   def withName(newName: String): CodexTool = copy(name = newName)
 
-  def ask(prompt: String, callConfig: LlmConfig = LlmConfig.default): String =
-    val effective = effectiveConfig(callConfig)
-    val result = backend.runHeadless(prompt, effective, workDir)
-    emitTokens(effective, result)
-    result.output
+  val autonomous: AutonomousTextCall[Backend.Codex.type] =
+    new AutonomousTextCall[Backend.Codex.type]:
+      def run(
+          prompt: String,
+          callConfig: LlmConfig = LlmConfig.default
+      ): String =
+        runHeadless(prompt, callConfig, resume = None).output
 
-  def startSession(
-      prompt: String,
-      callConfig: LlmConfig = LlmConfig.default
-  ): (SessionId[Backend.Codex.type], String) =
-    val effective = effectiveConfig(callConfig)
-    val result = backend.runHeadless(prompt, effective, workDir)
-    emitTokens(effective, result)
-    (result.sessionId, result.output)
+      def startSession(
+          prompt: String,
+          callConfig: LlmConfig = LlmConfig.default
+      ): (SessionId[Backend.Codex.type], String) =
+        val result = runHeadless(prompt, callConfig, resume = None)
+        (result.sessionId, result.output)
 
-  def continueSession(
-      sessionId: SessionId[Backend.Codex.type],
-      prompt: String,
-      callConfig: LlmConfig = LlmConfig.default
-  ): String =
-    val effective = effectiveConfig(callConfig)
-    val result = backend.continueHeadless(sessionId, prompt, effective, workDir)
-    emitTokens(effective, result)
-    result.output
+      def continueSession(
+          sessionId: SessionId[Backend.Codex.type],
+          prompt: String,
+          callConfig: LlmConfig = LlmConfig.default
+      ): String =
+        runHeadless(prompt, callConfig, resume = Some(sessionId)).output
 
   def resultAs[O: JsonData: Announce]: LlmCall[Backend.Codex.type, O] =
     new DefaultLlmCall[Backend.Codex.type, O](
@@ -106,6 +104,19 @@ class DefaultCodexTool(
 
   private def effectiveConfig(callConfig: LlmConfig): LlmConfig =
     if callConfig eq LlmConfig.default then config else callConfig
+
+  private def runHeadless(
+      prompt: String,
+      callConfig: LlmConfig,
+      resume: Option[SessionId[Backend.Codex.type]]
+  ): orca.LlmResult[Backend.Codex.type] =
+    val effective = effectiveConfig(callConfig)
+    val result = resume match
+      case Some(sid) =>
+        backend.continueHeadless(sid, prompt, effective, workDir)
+      case None => backend.runHeadless(prompt, effective, workDir)
+    emitTokens(effective, result)
+    result
 
   private def emitTokens(
       effective: LlmConfig,

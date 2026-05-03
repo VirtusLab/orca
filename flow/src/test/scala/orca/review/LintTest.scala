@@ -3,9 +3,12 @@ package orca.review
 import orca.{
   AgentInput,
   Announce,
+  AutonomousLlmCall,
+  AutonomousTextCall,
   Backend,
   EventDispatcher,
   FlowContext,
+  InteractiveLlmCall,
   JsonData,
   LlmCall,
   LlmConfig,
@@ -20,52 +23,37 @@ class LintTest extends munit.FunSuite:
   private def ctx: FlowContext =
     new TestFlowContext(new EventDispatcher(Nil))
 
-  /** LlmTool that records the serialized prompt passed to `resultAs.autonomous`
-    * and returns a canned ReviewResult. Method-scope mutable var holds the
-    * captured string.
+  /** LlmTool that records the serialized prompt passed to
+    * `resultAs.autonomous.run` and returns a canned ReviewResult. Method-scope
+    * mutable var holds the captured string.
     */
   private class CapturingLlmTool(canned: ReviewResult)
       extends LlmTool[Backend.ClaudeCode.type]:
     var captured: String = ""
     val name = "mock"
-    def ask(p: String, c: LlmConfig = LlmConfig.default): String = ???
-    def startSession(
-        p: String,
-        c: LlmConfig = LlmConfig.default
-    ): (SessionId[Backend.ClaudeCode.type], String) = ???
-    def continueSession(
-        s: SessionId[Backend.ClaudeCode.type],
-        p: String,
-        c: LlmConfig = LlmConfig.default
-    ): String = ???
+    def autonomous: AutonomousTextCall[Backend.ClaudeCode.type] = ???
     def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
     def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] = this
     def withName(n: String): LlmTool[Backend.ClaudeCode.type] = this
     def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
       new LlmCall[Backend.ClaudeCode.type, O]:
-        def autonomous[I](i: I, c: LlmConfig = LlmConfig.default)(using
-            a: AgentInput[I]
-        ): O =
-          captured = a.serialize(i)
-          canned.asInstanceOf[O]
-        def startSession[I: AgentInput](
-            i: I,
-            c: LlmConfig = LlmConfig.default
-        ): (SessionId[Backend.ClaudeCode.type], O) = ???
-        def continueSession[I: AgentInput](
-            sid: SessionId[Backend.ClaudeCode.type],
-            i: I,
-            c: LlmConfig = LlmConfig.default
-        ): O = ???
-        def interactive[I: AgentInput](
-            i: I,
-            c: LlmConfig = LlmConfig.default
-        ): (SessionId[Backend.ClaudeCode.type], O) = ???
-        def continueInteractive[I: AgentInput](
-            sid: SessionId[Backend.ClaudeCode.type],
-            i: I,
-            c: LlmConfig = LlmConfig.default
-        ): O = ???
+        val autonomous: AutonomousLlmCall[Backend.ClaudeCode.type, O] =
+          new AutonomousLlmCall[Backend.ClaudeCode.type, O]:
+            def run[I](i: I, c: LlmConfig = LlmConfig.default)(using
+                a: AgentInput[I]
+            ): O =
+              captured = a.serialize(i)
+              canned.asInstanceOf[O]
+            def startSession[I: AgentInput](
+                i: I,
+                c: LlmConfig = LlmConfig.default
+            ): (SessionId[Backend.ClaudeCode.type], O) = ???
+            def continueSession[I: AgentInput](
+                sid: SessionId[Backend.ClaudeCode.type],
+                i: I,
+                c: LlmConfig = LlmConfig.default
+            ): O = ???
+        def interactive: InteractiveLlmCall[Backend.ClaudeCode.type, O] = ???
 
   test("lint runs the command, passes output to the LLM, returns its result"):
     given FlowContext = ctx

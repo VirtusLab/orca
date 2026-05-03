@@ -44,7 +44,8 @@ flow(OrcaArgs(args)):
   val (sessionId, triage) = stage("Triage the bug"):
     claude
       .resultAs[BugTriage]
-      .interactive(
+      .interactive
+      .startSession(
         s"""You are triaging this bug report:
          |
          |$userPrompt
@@ -68,7 +69,7 @@ flow(OrcaArgs(args)):
       val testPath = triage.failingTestPath.getOrElse(
         fail("triage.canTest = true but failingTestPath was missing")
       )
-      val _ = claude.continueSession(
+      val _ = claude.autonomous.continueSession(
         sessionId,
         s"""Now write the failing unit test at `$testPath`. The test
            |must FAIL on the current code — that's how we confirm the
@@ -140,7 +141,7 @@ flow(OrcaArgs(args)):
   // after to clean up; commit captures both at once so the PR's
   // history shows fix + cleanup as a single entry.
   stage(s"Implement the fix: ${triage.summary}"):
-    val _ = claude.continueSession(
+    val _ = claude.autonomous.continueSession(
       sessionId,
       s"""The failing test (or documented reproduction) is in place
          |on branch `${triage.branchName}`. Implement the fix.

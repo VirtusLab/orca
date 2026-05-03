@@ -2,6 +2,7 @@ package orca.tools.claude
 
 import orca.{
   Announce,
+  AutonomousTextCall,
   Backend,
   ClaudeTool,
   Interaction,
@@ -21,10 +22,12 @@ import orca.io.DefaultLlmCall
   * `withSystemPrompt`, and the model accessors return new instances so flow
   * scripts can chain without side effects.
   *
-  * Headless calls (`ask`, `startSession`, `continueSession`, and the full
-  * `resultAs[O]` shape) go straight through the backend. Interactive calls
-  * spawn claude in stream-json mode and wrap the subprocess in a `Conversation`
-  * that the supplied `interaction` drives to completion.
+  * Free-form text calls (`autonomous.run` / `startSession` / `continueSession`)
+  * and the structured-output `resultAs[O].autonomous.*` shape go through the
+  * backend's headless mode. Interactive structured calls (`resultAs[O]
+  * .interactive.startSession`) spawn claude in stream-json mode and wrap the
+  * subprocess in a `Conversation` that the supplied `interaction` drives to
+  * completion.
   */
 class DefaultClaudeTool(
     backend: LlmBackend[Backend.ClaudeCode.type],
@@ -48,30 +51,27 @@ class DefaultClaudeTool(
 
   def withName(newName: String): ClaudeTool = copy(name = newName)
 
-  def ask(prompt: String, callConfig: LlmConfig = LlmConfig.default): String =
-    val effective = effectiveConfig(callConfig)
-    val result = backend.runHeadless(prompt, effective, workDir)
-    emitTokens(effective, result)
-    result.output
+  val autonomous: AutonomousTextCall[Backend.ClaudeCode.type] =
+    new AutonomousTextCall[Backend.ClaudeCode.type]:
+      def run(
+          prompt: String,
+          callConfig: LlmConfig = LlmConfig.default
+      ): String =
+        runHeadless(prompt, callConfig, resume = None).output
 
-  def startSession(
-      prompt: String,
-      callConfig: LlmConfig = LlmConfig.default
-  ): (SessionId[Backend.ClaudeCode.type], String) =
-    val effective = effectiveConfig(callConfig)
-    val result = backend.runHeadless(prompt, effective, workDir)
-    emitTokens(effective, result)
-    (result.sessionId, result.output)
+      def startSession(
+          prompt: String,
+          callConfig: LlmConfig = LlmConfig.default
+      ): (SessionId[Backend.ClaudeCode.type], String) =
+        val result = runHeadless(prompt, callConfig, resume = None)
+        (result.sessionId, result.output)
 
-  def continueSession(
-      sessionId: SessionId[Backend.ClaudeCode.type],
-      prompt: String,
-      callConfig: LlmConfig = LlmConfig.default
-  ): String =
-    val effective = effectiveConfig(callConfig)
-    val result = backend.continueHeadless(sessionId, prompt, effective, workDir)
-    emitTokens(effective, result)
-    result.output
+      def continueSession(
+          sessionId: SessionId[Backend.ClaudeCode.type],
+          prompt: String,
+          callConfig: LlmConfig = LlmConfig.default
+      ): String =
+        runHeadless(prompt, callConfig, resume = Some(sessionId)).output
 
   def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
     new DefaultLlmCall[Backend.ClaudeCode.type, O](
@@ -111,6 +111,22 @@ class DefaultClaudeTool(
     // set them. Detection is reference-based: a caller who omitted the arg
     // receives the shared LlmConfig.default singleton.
     if callConfig eq LlmConfig.default then config else callConfig
+
+  /** One headless turn — handles the resume/no-resume split and the TokensUsed
+    * emission so the `autonomous` methods stay one-liners.
+    */
+  private def runHeadless(
+      prompt: String,
+      callConfig: LlmConfig,
+      resume: Option[SessionId[Backend.ClaudeCode.type]]
+  ): orca.LlmResult[Backend.ClaudeCode.type] =
+    val effective = effectiveConfig(callConfig)
+    val result = resume match
+      case Some(sid) =>
+        backend.continueHeadless(sid, prompt, effective, workDir)
+      case None => backend.runHeadless(prompt, effective, workDir)
+    emitTokens(effective, result)
+    result
 
   private def emitTokens(
       effective: LlmConfig,

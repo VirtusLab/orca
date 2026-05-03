@@ -29,8 +29,9 @@ object FlowCanary:
   def structuredResult(): Unit =
     flow(OrcaArgs()):
       stage("plan"):
-        val (_, _) = claude.resultAs[FlowPlan].interactive(userPrompt)
-        val _ = claude.resultAs[FlowPlan].autonomous(userPrompt)
+        val (_, _) =
+          claude.resultAs[FlowPlan].interactive.startSession(userPrompt)
+        val _ = claude.resultAs[FlowPlan].autonomous.run(userPrompt)
 
   /** Free-form text prompts and session continuation; the shape the README
     * promises for per-task implementation.
@@ -38,9 +39,9 @@ object FlowCanary:
   def continuedSession(): Unit =
     flow(OrcaArgs()):
       stage("impl"):
-        val (sessionId, _) = claude.startSession("kick off")
-        val _ = claude.continueSession(sessionId, "keep going")
-        val _ = claude.ask("one-shot")
+        val (sessionId, _) = claude.autonomous.startSession("kick off")
+        val _ = claude.autonomous.continueSession(sessionId, "keep going")
+        val _ = claude.autonomous.run("one-shot")
 
   /** Every top-level accessor must resolve from `import orca.*` alone.
     */
@@ -60,7 +61,7 @@ object FlowCanary:
   def reviewLoop(): Unit =
     flow(OrcaArgs()):
       val (sessionId, plan) = stage("plan"):
-        claude.resultAs[FlowPlan].interactive(userPrompt)
+        claude.resultAs[FlowPlan].interactive.startSession(userPrompt)
       for task <- plan.tasks do
         stage(task.description):
           reviewAndFixLoop(
@@ -77,7 +78,7 @@ object FlowCanary:
   def configured(): Unit =
     flow(args = OrcaArgs("hello"), workDir = os.pwd):
       stage("cfg"):
-        val _ = claude.ask(userPrompt)
+        val _ = claude.autonomous.run(userPrompt)
 
   /** Typical scripted entry: parse the CLI argv and hand it straight to `flow`.
     * `args` here stands in for the scala-cli script's top-level `args:
@@ -86,4 +87,4 @@ object FlowCanary:
   def fromCliArgs(args: Array[String]): Unit =
     flow(OrcaArgs(args)):
       stage("start"):
-        val _ = claude.ask(userPrompt)
+        val _ = claude.autonomous.run(userPrompt)

@@ -3,9 +3,12 @@ package orca.review
 import orca.{
   AgentInput,
   Announce,
+  AutonomousLlmCall,
+  AutonomousTextCall,
   Backend,
   EventDispatcher,
   FlowContext,
+  InteractiveLlmCall,
   JsonData,
   LlmCall,
   LlmConfig,
@@ -15,35 +18,30 @@ import orca.{
   Title
 }
 
-/** Fake LlmCall whose `autonomous` and `continueSession` each return a scripted
-  * sequence of outputs — cast through `Any` because the trait is generic over
-  * output type.
+/** Fake LlmCall whose `autonomous.run` and `autonomous.continueSession` each
+  * return a scripted sequence of outputs — cast through `Any` because the trait
+  * is generic over output type.
   */
 class FakeLlmCall[O](
-    autonomousOutputs: Iterator[Any],
+    runOutputs: Iterator[Any],
     continueSessionOutputs: Iterator[Any]
 ) extends LlmCall[Backend.ClaudeCode.type, O]:
-  def autonomous[I](input: I, config: LlmConfig = LlmConfig.default)(using
-      AgentInput[I]
-  ): O = autonomousOutputs.next().asInstanceOf[O]
-  def startSession[I: AgentInput](
-      input: I,
-      config: LlmConfig = LlmConfig.default
-  ): (SessionId[Backend.ClaudeCode.type], O) = ???
-  def continueSession[I: AgentInput](
-      sessionId: SessionId[Backend.ClaudeCode.type],
-      input: I,
-      config: LlmConfig = LlmConfig.default
-  ): O = continueSessionOutputs.next().asInstanceOf[O]
-  def interactive[I: AgentInput](
-      input: I,
-      config: LlmConfig = LlmConfig.default
-  ): (SessionId[Backend.ClaudeCode.type], O) = ???
-  def continueInteractive[I: AgentInput](
-      sessionId: SessionId[Backend.ClaudeCode.type],
-      input: I,
-      config: LlmConfig = LlmConfig.default
-  ): O = ???
+  val autonomous: AutonomousLlmCall[Backend.ClaudeCode.type, O] =
+    new AutonomousLlmCall[Backend.ClaudeCode.type, O]:
+      def run[I: AgentInput](
+          input: I,
+          config: LlmConfig = LlmConfig.default
+      ): O = runOutputs.next().asInstanceOf[O]
+      def startSession[I: AgentInput](
+          input: I,
+          config: LlmConfig = LlmConfig.default
+      ): (SessionId[Backend.ClaudeCode.type], O) = ???
+      def continueSession[I: AgentInput](
+          sessionId: SessionId[Backend.ClaudeCode.type],
+          input: I,
+          config: LlmConfig = LlmConfig.default
+      ): O = continueSessionOutputs.next().asInstanceOf[O]
+  def interactive: InteractiveLlmCall[Backend.ClaudeCode.type, O] = ???
 
 class FakeLlmTool(
     override val name: String,
@@ -53,19 +51,11 @@ class FakeLlmTool(
   private val promptIt = promptOutputs.iterator
   private val continueIt = continueSessionOutputs.iterator
 
+  def autonomous: AutonomousTextCall[Backend.ClaudeCode.type] = ???
+
   def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
     new FakeLlmCall[O](promptIt, continueIt)
 
-  def ask(prompt: String, config: LlmConfig = LlmConfig.default): String = ""
-  def startSession(
-      prompt: String,
-      config: LlmConfig = LlmConfig.default
-  ): (SessionId[Backend.ClaudeCode.type], String) = (SessionId("s"), "")
-  def continueSession(
-      sessionId: SessionId[Backend.ClaudeCode.type],
-      prompt: String,
-      config: LlmConfig = LlmConfig.default
-  ): String = ""
   def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] = this
   def withName(n: String): LlmTool[Backend.ClaudeCode.type] = this

@@ -81,8 +81,8 @@ The following are available inside a `flow(...) { ... }`:
 
 | Tool | Methods | Purpose |
 |---|---|---|
-| `claude` | `ask`, `startSession`, `continueSession`, `resultAs[O]`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt`, `withName` | Claude Code coding/reviewing agent. |
-| `codex` | `ask`, `startSession`, `continueSession`, `resultAs[O]`, `mini`, `withConfig`, `withSystemPrompt`, `withName` | OpenAI Codex coding/reviewing agent. |
+| `claude` | `autonomous.{run,startSession,continueSession}`, `resultAs[O].{autonomous,interactive}.{run,startSession,continueSession}`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt`, `withName` | Claude Code coding/reviewing agent. The `autonomous` vs `interactive` mode is always visible at the call site (interactive lives only on `resultAs[O]`). |
+| `codex` | `autonomous.{run,startSession,continueSession}`, `resultAs[O].{autonomous,interactive}.{run,startSession,continueSession}`, `mini`, `withConfig`, `withSystemPrompt`, `withName` | OpenAI Codex coding/reviewing agent. |
 | `git` | `createBranch`, `checkout`, `checkoutOrCreate`, `ensureClean`, `commit`, `push`, `currentBranch`, `diff`, `log`, `addWorktree`, `removeWorktree`, `listWorktrees` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushRejected`, `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. |
 | `gh` | `createPr`, `readComments`, `writeComment`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` returns `Either[PrCreateFailed, …]` (covers `PrAlreadyExists` / `NoCommitsToPr`); `waitForBuild` returns `Either[BuildTimedOut, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |

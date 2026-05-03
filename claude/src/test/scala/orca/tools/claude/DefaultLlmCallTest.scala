@@ -116,7 +116,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
       )
     )
     supervised:
-      val answer = makeCall(backend).autonomous("what is the answer?")
+      val answer = makeCall(backend).autonomous.run("what is the answer?")
       assertEquals(answer, Answer(42))
       val Seq(first, second, third) = backend.prompts: @unchecked
       assert(
@@ -135,7 +135,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
   test("autonomous succeeds on the first attempt when the response parses"):
     val backend = new SequencedBackend(List("""{"value":7}"""))
     supervised:
-      val answer = makeCall(backend).autonomous("a question")
+      val answer = makeCall(backend).autonomous.run("a question")
       assertEquals(answer, Answer(7))
       assertEquals(backend.prompts.size, 1)
 
@@ -147,7 +147,8 @@ class DefaultLlmCallTest extends munit.FunSuite:
     )
     val sid = SessionId[Backend.ClaudeCode.type]("sess-under-test")
     supervised:
-      val answer = makeCall(backend).continueSession(sid, "next step")
+      val answer =
+        makeCall(backend).autonomous.continueSession(sid, "next step")
       assertEquals(answer, Answer(11))
       val Seq(first, second) = backend.prompts: @unchecked
       assert(
@@ -179,7 +180,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
       agentName = "claude"
     )
     supervised:
-      val _ = call.autonomous("anything")
+      val _ = call.autonomous.run("anything")
       val structured = seen.get().collect {
         case orca.OrcaEvent.StructuredResult(raw, summary) => (raw, summary)
       }
@@ -202,7 +203,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
         events = (e: orca.OrcaEvent) => { val _ = seen.updateAndGet(e :: _) },
         interaction = stubInteraction,
         agentName = "claude"
-      ).autonomous("anything")
+      ).autonomous.run("anything")
       val structured = seen.get().collect {
         case orca.OrcaEvent.StructuredResult(raw, summary) => (raw, summary)
       }

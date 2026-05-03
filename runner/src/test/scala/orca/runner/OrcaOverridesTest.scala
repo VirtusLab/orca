@@ -3,6 +3,7 @@ package orca.runner
 import _root_.orca.runner.terminal.TerminalInteraction
 import orca.{
   Announce,
+  AutonomousTextCall,
   Backend,
   ClaudeTool,
   CostTracker,
@@ -54,17 +55,19 @@ class OrcaOverridesTest extends munit.FunSuite:
       def withConfig(c: LlmConfig) = this
       def withSystemPrompt(p: String) = this
       def withName(n: String) = this
-      def ask(prompt: String, config: LlmConfig = LlmConfig.default): String =
-        s"echo: $prompt"
-      def startSession(
-          p: String,
-          c: LlmConfig = LlmConfig.default
-      ): (SessionId[Backend.ClaudeCode.type], String) = ???
-      def continueSession(
-          s: SessionId[Backend.ClaudeCode.type],
-          p: String,
-          c: LlmConfig = LlmConfig.default
-      ): String = ???
+      val autonomous: AutonomousTextCall[Backend.ClaudeCode.type] =
+        new AutonomousTextCall[Backend.ClaudeCode.type]:
+          def run(p: String, c: LlmConfig = LlmConfig.default): String =
+            s"echo: $p"
+          def startSession(
+              p: String,
+              c: LlmConfig = LlmConfig.default
+          ): (SessionId[Backend.ClaudeCode.type], String) = ???
+          def continueSession(
+              s: SessionId[Backend.ClaudeCode.type],
+              p: String,
+              c: LlmConfig = LlmConfig.default
+          ): String = ???
       def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
         ???
     var observed: String = ""
@@ -73,7 +76,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       claude = Some(fakeClaude),
       interaction = Some(silentInteraction)
     ) {
-      observed = summon[FlowContext].claude.ask("hi")
+      observed = summon[FlowContext].claude.autonomous.run("hi")
     }
     assertEquals(observed, "echo: hi")
 

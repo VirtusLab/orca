@@ -60,7 +60,7 @@ flow(OrcaArgs(args)):
 
   // 4. Iterate from the first incomplete task. We open a session
   // once and continue it across tasks so the agent retains context.
-  val (sessionId, _) = claude.startSession(
+  val (sessionId, _) = claude.autonomous.startSession(
     s"""You are working on the epic at $planFile.
        |
        |The epic defines tasks with short names and prompts. I will
@@ -90,7 +90,7 @@ flow(OrcaArgs(args)):
     val task = currentPlan.firstIncomplete.get
     stage(s"Implement task: ${task.title}"):
       stage("Implementation"):
-        val _ = claude.continueSession(sessionId, task.description)
+        val _ = claude.autonomous.continueSession(sessionId, task.description)
       // Format before review so reviewers don't waste turns on
       // style nits the toolchain would fix automatically. Spotless
       // is wired into the seed pom.

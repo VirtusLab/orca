@@ -74,7 +74,10 @@ object Plan:
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext): (SessionId[B], Plan) =
-      llm.resultAs[Plan].interactive(s"$userPrompt\n\n$instructions")
+      llm
+        .resultAs[Plan]
+        .interactive
+        .startSession(s"$userPrompt\n\n$instructions")
 
     def loadOrGenerate(
         file: os.Path,
@@ -84,7 +87,12 @@ object Plan:
     )(using FlowContext): Plan =
       loadOrGenerateImpl(
         file,
-        () => llm.resultAs[Plan].interactive(s"$userPrompt\n\n$instructions")._2
+        () =>
+          llm
+            .resultAs[Plan]
+            .interactive
+            .startSession(s"$userPrompt\n\n$instructions")
+            ._2
       )
 
   /** Autonomous planning helpers — a single agentic turn, no human in the loop.
@@ -97,7 +105,10 @@ object Plan:
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext): (SessionId[B], Plan) =
-      llm.resultAs[Plan].startSession(s"$userPrompt\n\n$instructions")
+      llm
+        .resultAs[Plan]
+        .autonomous
+        .startSession(s"$userPrompt\n\n$instructions")
 
     def loadOrGenerate(
         file: os.Path,
@@ -107,7 +118,7 @@ object Plan:
     )(using FlowContext): Plan =
       loadOrGenerateImpl(
         file,
-        () => llm.resultAs[Plan].autonomous(s"$userPrompt\n\n$instructions")
+        () => llm.resultAs[Plan].autonomous.run(s"$userPrompt\n\n$instructions")
       )
 
   /** Common load-or-generate body: read+log on resume, otherwise call

@@ -173,7 +173,8 @@ object ReviewerSelector:
       val names = cached.getOrElse:
         val picked = llm
           .resultAs[SelectedReviewers]
-          .autonomous(
+          .autonomous
+          .run(
             ReviewerSelectionRequest(
               taskTitle = taskTitle,
               changedFiles = changedFiles,
@@ -238,7 +239,9 @@ def reviewAndFixLoop[B <: Backend](
       )
     val reviewerOutcomes: List[(LlmTool[?], ReviewResult)] =
       par(
-        active.map(r => () => r -> r.resultAs[ReviewResult].autonomous(task))
+        active.map(r =>
+          () => r -> r.resultAs[ReviewResult].autonomous.run(task)
+        )
       ).toList
     val batch = ReviewBatch(reviewerOutcomes)
     history = batch :: history
@@ -256,6 +259,7 @@ def reviewAndFixLoop[B <: Backend](
   def fix(issues: List[ReviewIssue]): FixOutcome =
     coder
       .resultAs[FixOutcome]
+      .autonomous
       .continueSession(
         sessionId,
         FixRequest(fixInstructions, issues),
@@ -290,4 +294,5 @@ def lint(
   else
     llm
       .resultAs[ReviewResult]
-      .autonomous(s"$instructions\n\nLint output:\n$output")
+      .autonomous
+      .run(s"$instructions\n\nLint output:\n$output")

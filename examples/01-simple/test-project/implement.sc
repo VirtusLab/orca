@@ -45,7 +45,7 @@ flow(OrcaArgs(args)):
   for task <- plan.tasks do
     stage(s"Implement task: ${task.title}"):
       stage("Implementation"):
-        claude.continueSession(sessionId, task.description)
+        claude.autonomous.continueSession(sessionId, task.description)
 
       reviewAndFixLoop(
         coder = claude,

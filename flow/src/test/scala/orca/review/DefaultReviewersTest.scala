@@ -2,12 +2,12 @@ package orca.review
 
 import orca.{
   Announce,
+  AutonomousTextCall,
   Backend,
   JsonData,
   LlmCall,
   LlmConfig,
-  LlmTool,
-  SessionId
+  LlmTool
 }
 
 class DefaultReviewersTest extends munit.FunSuite:
@@ -23,7 +23,7 @@ class DefaultReviewersTest extends munit.FunSuite:
         collection.mutable.ListBuffer.empty
   ) extends LlmTool[Backend.ClaudeCode.type]:
     def seen: List[String] = systemPromptsSeen.toList
-    def ask(p: String, c: LlmConfig = LlmConfig.default): String = ""
+    def autonomous: AutonomousTextCall[Backend.ClaudeCode.type] = ???
     def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
     def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] =
       val _ = systemPromptsSeen += p
@@ -32,15 +32,6 @@ class DefaultReviewersTest extends munit.FunSuite:
       new RecordingTool(n, systemPromptsSeen)
     def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
       ???
-    def startSession(
-        p: String,
-        c: LlmConfig = LlmConfig.default
-    ): (SessionId[Backend.ClaudeCode.type], String) = (SessionId("s"), "")
-    def continueSession(
-        s: SessionId[Backend.ClaudeCode.type],
-        p: String,
-        c: LlmConfig = LlmConfig.default
-    ): String = ""
 
   test(
     "defaultReviewers exposes the full canonical reviewer set"

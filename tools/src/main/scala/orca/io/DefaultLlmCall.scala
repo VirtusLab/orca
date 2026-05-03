@@ -3,8 +3,10 @@ package orca.io
 import orca.{
   AgentInput,
   Announce,
+  AutonomousLlmCall,
   Backend,
   Interaction,
+  InteractiveLlmCall,
   JsonData,
   LlmBackend,
   LlmCall,
@@ -18,14 +20,18 @@ import ox.resilience.retry
 
 /** Default implementation of [[LlmCall]] for any backend.
   *
-  * All structured headless calls share a retry-with-corrective-prompt loop:
-  * when the response fails to parse as `O`, the next attempt's prompt includes
-  * the failed output and the parser error so the model can self-correct. Only
-  * the final successful attempt's session id is returned. Headless variants
-  * (`autonomous`, `startSession`, `continueSession`) go through
-  * `backend.runHeadless` / `backend.continueHeadless`; interactive variants
-  * open a [[orca.Conversation]] via the backend and hand it to the supplied
-  * [[Interaction]] for rendering and user steering.
+  * The trait splits into `autonomous` and `interactive` sibling objects so the
+  * call site shows which mode it picked. This class wires both:
+  *
+  *   - The autonomous shape goes through `backend.runHeadless` /
+  *     `backend.continueHeadless` and shares a retry-with-corrective-prompt
+  *     loop: if the response fails to parse as `O`, the next attempt's prompt
+  *     includes the failed output and the parser error so the model can
+  *     self-correct.
+  *   - The interactive shape opens a [[orca.Conversation]] via the backend and
+  *     hands it to the supplied [[Interaction]] for rendering and user
+  *     steering. No retry: the user is steering, and a parse failure on the
+  *     final payload is more useful surfaced than silently relaunched.
   */
 private case class FailedAttempt(response: String, parserError: String)
 
@@ -49,6 +55,33 @@ class DefaultLlmCall[B <: Backend, O](
   private given com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[O] =
     jd.codec
 
+  val autonomous: AutonomousLlmCall[B, O] = new AutonomousLlmCall[B, O]:
+    def run[I: AgentInput](input: I, config: LlmConfig = LlmConfig.default): O =
+      runHeadlessWithRetry(input, config, resume = None)._2
+
+    def startSession[I: AgentInput](
+        input: I,
+        config: LlmConfig = LlmConfig.default
+    ): (SessionId[B], O) = runHeadlessWithRetry(input, config, resume = None)
+
+    def continueSession[I: AgentInput](
+        sessionId: SessionId[B],
+        input: I,
+        config: LlmConfig = LlmConfig.default
+    ): O = runHeadlessWithRetry(input, config, resume = Some(sessionId))._2
+
+  val interactive: InteractiveLlmCall[B, O] = new InteractiveLlmCall[B, O]:
+    def startSession[I: AgentInput](
+        input: I,
+        config: LlmConfig = LlmConfig.default
+    ): (SessionId[B], O) = runInteractiveOnce(input, config, resume = None)
+
+    def continueSession[I: AgentInput](
+        sessionId: SessionId[B],
+        input: I,
+        config: LlmConfig = LlmConfig.default
+    ): O = runInteractiveOnce(input, config, resume = Some(sessionId))._2
+
   /** Emit a `StructuredResult` event carrying the raw payload and the
     * `Announce[O]`-derived summary (if any). The terminal listener renders
     * `summary` when present and skips otherwise; non-terminal listeners (Slack,
@@ -57,42 +90,10 @@ class DefaultLlmCall[B <: Backend, O](
   private def emitStructuredResult(raw: String, value: O): Unit =
     events.onEvent(OrcaEvent.StructuredResult(raw, announce.message(value)))
 
-  def autonomous[I](input: I, config: LlmConfig = LlmConfig.default)(using
-      ai: AgentInput[I]
-  ): O = runHeadlessWithRetry(input, config, resume = None)._2
-
-  def startSession[I: AgentInput](
-      input: I,
-      config: LlmConfig = LlmConfig.default
-  ): (SessionId[B], O) =
-    runHeadlessWithRetry(input, config, resume = None)
-
-  /** Continue the given session with a structured input. If the response fails
-    * to parse as `O`, each retry resumes the same session with the corrective
-    * prompt, which means the transcript a later `continueSession` sees will
-    * include those stale corrective turns. That's the price of self-correction
-    * against a persistent session.
-    */
-  def continueSession[I: AgentInput](
-      sessionId: SessionId[B],
-      input: I,
-      config: LlmConfig = LlmConfig.default
-  ): O = runHeadlessWithRetry(input, config, resume = Some(sessionId))._2
-
-  def interactive[I: AgentInput](
-      input: I,
-      config: LlmConfig = LlmConfig.default
-  ): (SessionId[B], O) = runInteractiveOnce(input, config, resume = None)
-
-  def continueInteractive[I: AgentInput](
-      sessionId: SessionId[B],
-      input: I,
-      config: LlmConfig = LlmConfig.default
-  ): O = runInteractiveOnce(input, config, resume = Some(sessionId))._2
-
-  /** Headless retry loop used by autonomous/startSession/continueSession. On a
-    * parse failure the next attempt swaps the original prompt for a corrective
-    * one; the returned session id is whichever one succeeded.
+  /** Headless retry loop used by autonomous.run / startSession /
+    * continueSession. On a parse failure the next attempt swaps the original
+    * prompt for a corrective one; the returned session id is whichever one
+    * succeeded.
     */
   private def runHeadlessWithRetry[I](
       input: I,

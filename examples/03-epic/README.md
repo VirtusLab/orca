@@ -63,7 +63,7 @@ Status: [x]
 3. **Checkout branch** — `git.checkoutOrCreate(plan.branchName)`.
    No-op if we're already on the branch (resume case).
 4. **For each incomplete task**:
-   - `claude.continueSession(sessionId, task.prompt)`.
+   - `claude.autonomous.continueSession(sessionId, task.prompt)`.
    - `git.commit("task: <name>")`.
    - `reviewAndFixLoop(...)` with `reviewers =
      defaultReviewers(codex)` — five reviewer dimensions
