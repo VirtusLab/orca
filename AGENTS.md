@@ -107,7 +107,6 @@ outside of `os.temp.dir()`.
 - Recoverable failures return `Either[E, T]` where `E <: OrcaFlowException`;
   system failures throw. Use Ox's `.orThrow` at the call site when the
   failure case is genuinely unexpected.
-- `ox.par(seq)` for parallel fan-out, not manual `supervised { fork(…) }`.
 
 ### Code style
 
@@ -118,9 +117,7 @@ outside of `os.temp.dir()`.
 
 ### Library
 
-- Tool event sinks take `OrcaListener` (default `OrcaListener.noop`);
-  `EventDispatcher` extends `OrcaListener` so wiring sites pass the
-  dispatcher directly.
+- Tool event sinks take `OrcaListener` (default `OrcaListener.noop`).
 - Domain helpers that bundle an LLM brief follow
   [ADR 0010](adr/0010-prompts-and-helpers-convention.md): sibling
   `XxxPrompts` object + `instructions: String = …` parameter.
