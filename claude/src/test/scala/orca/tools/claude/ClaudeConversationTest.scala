@@ -58,7 +58,11 @@ class ClaudeConversationTest extends munit.FunSuite:
 
     val events = conv.events.toList
     val errors = events.collect { case ConversationEvent.Error(msg) => msg }
-    assertEquals(errors.size, 1, s"expected exactly one Error event; got: $errors")
+    assertEquals(
+      errors.size,
+      1,
+      s"expected exactly one Error event; got: $errors"
+    )
     assert(
       !errors.head.contains("400 quota exceeded"),
       s"the error event should not duplicate the streamed body; got: ${errors.head}"
@@ -69,7 +73,9 @@ class ClaudeConversationTest extends munit.FunSuite:
       s"awaitResult should still carry the full body; got: ${failure.getMessage}"
     )
 
-  test("result message with is_error=true fails the session and surfaces the message"):
+  test(
+    "result message with is_error=true fails the session and surfaces the message"
+  ):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, LlmConfig.default)
 
@@ -82,7 +88,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     assert(
       events.exists {
         case ConversationEvent.Error(msg) => msg.contains("rate limited")
-        case _                             => false
+        case _                            => false
       },
       s"expected an Error event carrying the result body; got: $events"
     )
@@ -96,7 +102,8 @@ class ClaudeConversationTest extends munit.FunSuite:
     conv.cancel()
     conv.awaitResult() match
       case Left(_: OrcaInteractiveCancelled) => ()
-      case other => fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
+      case other =>
+        fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
     assertEquals(process.sigIntCount, 1)
 
   test(
@@ -155,7 +162,10 @@ class ClaudeConversationTest extends munit.FunSuite:
     val _ = conv.awaitResult()
 
     val denyLine = process.writes.find(_.contains(""""behavior":"deny""""))
-    assert(denyLine.isDefined, s"expected deny response; writes: ${process.writes}")
+    assert(
+      denyLine.isDefined,
+      s"expected deny response; writes: ${process.writes}"
+    )
     assert(denyLine.get.contains("too risky"))
 
   test("sendUserMessage writes a stream-json user turn to stdin"):
@@ -168,7 +178,9 @@ class ClaudeConversationTest extends munit.FunSuite:
     assert(injected.get.contains(""""type":"user""""))
     assert(injected.get.contains(""""text":"keep going""""))
 
-    process.enqueueStdout("""{"type":"result","subtype":"success","session_id":"sid-5"}""")
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-5"}"""
+    )
     process.closeStdout()
     val _ = conv.awaitResult()
 
@@ -194,7 +206,9 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("assistant turn with text falls back to an AssistantTextDelta when no partials streamed"):
+  test(
+    "assistant turn with text falls back to an AssistantTextDelta when no partials streamed"
+  ):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, LlmConfig.default)
 
@@ -231,11 +245,19 @@ class ClaudeConversationTest extends munit.FunSuite:
     val events = conv.events.toList
     assertEquals(
       events,
-      List(ConversationEvent.ToolResult(toolName = "", ok = true, content = "output"))
+      List(
+        ConversationEvent.ToolResult(
+          toolName = "",
+          ok = true,
+          content = "output"
+        )
+      )
     )
     val _ = conv.awaitResult()
 
-  test("malformed NDJSON line surfaces as ConversationEvent.Error and the loop continues"):
+  test(
+    "malformed NDJSON line surfaces as ConversationEvent.Error and the loop continues"
+  ):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, LlmConfig.default)
 
@@ -275,7 +297,9 @@ class ClaudeConversationTest extends munit.FunSuite:
     val _ = conv.awaitResult()
     assert(process.writes.head.contains(""""behavior":"allow""""))
 
-  test("multiple back-to-back ApproveTool events carry distinct respond closures"):
+  test(
+    "multiple back-to-back ApproveTool events carry distinct respond closures"
+  ):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(
       process,
@@ -308,5 +332,9 @@ class ClaudeConversationTest extends munit.FunSuite:
     val _ = conv.events.toList
     val _ = conv.awaitResult()
 
-    assert(process.writes.exists(w => w.contains("req-A") && w.contains("allow")))
-    assert(process.writes.exists(w => w.contains("req-B") && w.contains("deny")))
+    assert(
+      process.writes.exists(w => w.contains("req-A") && w.contains("allow"))
+    )
+    assert(
+      process.writes.exists(w => w.contains("req-B") && w.contains("deny"))
+    )

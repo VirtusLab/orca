@@ -18,7 +18,10 @@ class OrcaTest extends munit.FunSuite:
     "flow runs the body and userPrompt accessor resolves against FlowContext"
   ):
     var seen: String = ""
-    flow(args = OrcaArgs("hello world"), interaction = Some(silentInteraction)) {
+    flow(
+      args = OrcaArgs("hello world"),
+      interaction = Some(silentInteraction)
+    ) {
       seen = userPrompt // top-level accessor resolves the ambient FlowContext
     }
     assertEquals(seen, "hello world")

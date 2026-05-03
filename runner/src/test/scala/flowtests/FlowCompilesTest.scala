@@ -71,17 +71,17 @@ object FlowCanary:
             lintCommand = Some("mvn -q test")
           )
 
-  /** Config overrides must be reachable as unqualified names so users can
-    * write `flow(args = ..., workDir = ...)` straight from `import orca.*`.
+  /** Config overrides must be reachable as unqualified names so users can write
+    * `flow(args = ..., workDir = ...)` straight from `import orca.*`.
     */
   def configured(): Unit =
     flow(args = OrcaArgs("hello"), workDir = os.pwd):
       stage("cfg"):
         val _ = claude.ask(userPrompt)
 
-  /** Typical scripted entry: parse the CLI argv and hand it straight to
-    * `flow`. `args` here stands in for the scala-cli script's top-level
-    * `args: Array[String]`.
+  /** Typical scripted entry: parse the CLI argv and hand it straight to `flow`.
+    * `args` here stands in for the scala-cli script's top-level `args:
+    * Array[String]`.
     */
   def fromCliArgs(args: Array[String]): Unit =
     flow(OrcaArgs(args)):

@@ -107,10 +107,10 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     // path, the driver simply won't see an ApproveTool event — the
     // test will then fail with a clearer signal than a silent gap.
     val conversation = backend.runInteractive(
-      prompt =
-        "Read the file at /etc/hostname and reply with its contents.",
+      prompt = "Read the file at /etc/hostname and reply with its contents.",
       displayPrompt = "read /etc/hostname",
-      config = LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set.empty)),
+      config =
+        LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set.empty)),
       workDir = os.temp.dir(),
       outputSchema = None
     )

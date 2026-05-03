@@ -4,9 +4,9 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 
 class StatusBarTest extends munit.FunSuite:
 
-  /** ANSI clear-to-EOL is ESC `[2K`; we match on the bytes-after-ESC
-    * here because escape characters round-trip through tooling
-    * unreliably (Edit-tool strips, terminals consume them, etc.).
+  /** ANSI clear-to-EOL is ESC `[2K`; we match on the bytes-after-ESC here
+    * because escape characters round-trip through tooling unreliably (Edit-tool
+    * strips, terminals consume them, etc.).
     */
   private val ClearSuffix = "[2K"
   private val Esc: Char = ''

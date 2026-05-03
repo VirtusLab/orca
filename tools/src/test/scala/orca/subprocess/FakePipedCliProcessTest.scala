@@ -73,6 +73,6 @@ class FakePipedCliProcessTest extends munit.FunSuite:
     assertEquals(p.tryExitCode, None)
     p.sendSigInt()
     assertEquals(p.tryExitCode, Some(0))
-    p.sendSigInt()  // idempotent — still dead, still Some
+    p.sendSigInt() // idempotent — still dead, still Some
     assertEquals(p.tryExitCode, Some(0))
     assertEquals(p.sigIntCount, 2)

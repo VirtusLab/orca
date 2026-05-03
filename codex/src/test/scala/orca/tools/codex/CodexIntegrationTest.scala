@@ -4,14 +4,14 @@ import orca.{AutoApprove, ConversationEvent, LlmConfig, SessionId}
 import orca.subprocess.OsProcCliRunner
 
 /** End-to-end tests against the real `codex` CLI. Gated on the
-  * `ORCA_INTEGRATION` environment variable so `sbt test` without the
-  * flag behaves like a pure unit suite. Requires `codex` to be
-  * installed and authenticated on the host.
+  * `ORCA_INTEGRATION` environment variable so `sbt test` without the flag
+  * behaves like a pure unit suite. Requires `codex` to be installed and
+  * authenticated on the host.
   *
   * Sandbox-aware: the tests use [[AutoApprove.All]] (i.e.
-  * `--dangerously-bypass-approvals-and-sandbox`) so they don't depend
-  * on bubblewrap or unprivileged user namespaces, which aren't
-  * available in every CI environment.
+  * `--dangerously-bypass-approvals-and-sandbox`) so they don't depend on
+  * bubblewrap or unprivileged user namespaces, which aren't available in every
+  * CI environment.
   */
 class CodexIntegrationTest extends munit.FunSuite:
 
@@ -30,7 +30,8 @@ class CodexIntegrationTest extends munit.FunSuite:
 
   test("headless prompt returns the requested literal output"):
     val result = backend.runHeadless(
-      prompt = "Reply with the single word: READY. Reply with that word and nothing else.",
+      prompt =
+        "Reply with the single word: READY. Reply with that word and nothing else.",
       config = unsandboxed,
       workDir = os.temp.dir()
     )
@@ -49,7 +50,8 @@ class CodexIntegrationTest extends munit.FunSuite:
     )
     val second = backend.continueHeadless(
       sessionId = first.sessionId,
-      prompt = "What number did I ask you to remember? Reply with just the number.",
+      prompt =
+        "What number did I ask you to remember? Reply with just the number.",
       config = unsandboxed,
       workDir = workDir
     )

@@ -2,7 +2,9 @@ package orca.tools.claude.streamjson
 
 class OutboundMessageTest extends munit.FunSuite:
 
-  test("UserText serializes as {type: user, message: {role: user, content: [text block]}}"):
+  test(
+    "UserText serializes as {type: user, message: {role: user, content: [text block]}}"
+  ):
     val json = OutboundMessage.toJson(OutboundMessage.UserText("hello"))
     assertEquals(
       json,
@@ -28,7 +30,9 @@ class OutboundMessageTest extends munit.FunSuite:
     assert(json.contains(""""behavior":"allow""""))
     assert(json.contains(""""updatedInput":{"cmd":"rm -rf /"}"""))
 
-  test("ControlResponse deny with reason sets behavior: deny and carries the message"):
+  test(
+    "ControlResponse deny with reason sets behavior: deny and carries the message"
+  ):
     val json = OutboundMessage.toJson(
       OutboundMessage.ControlResponse(
         "req-2",

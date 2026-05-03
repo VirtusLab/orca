@@ -61,7 +61,9 @@ class ClaudeArgsTest extends munit.FunSuite:
     )
     assert(args.containsSlice(Seq("--resume", "sess-abc")))
 
-  test("streamJson emits --input-format stream-json and --include-partial-messages"):
+  test(
+    "streamJson emits --input-format stream-json and --include-partial-messages"
+  ):
     val args = ClaudeArgs.streamJson(
       config = LlmConfig.default,
       systemPromptFile = None

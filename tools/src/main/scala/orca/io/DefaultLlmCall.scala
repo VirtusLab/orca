@@ -49,10 +49,9 @@ class DefaultLlmCall[B <: Backend, O](
     jd.codec
 
   /** Emit a `StructuredResult` event carrying the raw payload and the
-    * `Announce[O]`-derived summary (if any). The terminal listener
-    * renders `summary` when present and skips otherwise; non-terminal
-    * listeners (Slack, structured logs) can carry `raw` through
-    * unchanged.
+    * `Announce[O]`-derived summary (if any). The terminal listener renders
+    * `summary` when present and skips otherwise; non-terminal listeners (Slack,
+    * structured logs) can carry `raw` through unchanged.
     */
   private def emitStructuredResult(raw: String, value: O): Unit =
     emit(OrcaEvent.StructuredResult(raw, announce.message(value)))

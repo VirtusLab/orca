@@ -23,7 +23,10 @@ class TextWrapTest extends munit.FunSuite:
     )
 
   test("a token longer than maxWidth is emitted on its own line"):
-    val out = TextWrap.wrap("short verylongtokenthatcannotbebrokenup tail", maxWidth = 10)
+    val out = TextWrap.wrap(
+      "short verylongtokenthatcannotbebrokenup tail",
+      maxWidth = 10
+    )
     val lines = out.split('\n').toList
     assert(
       lines.exists(_.contains("verylongtokenthatcannotbebrokenup")),
@@ -31,7 +34,8 @@ class TextWrapTest extends munit.FunSuite:
     )
 
   test("custom continuation prefix is used on wrap"):
-    val out = TextWrap.wrap("alpha beta gamma delta", maxWidth = 8, continuation = "→ ")
+    val out =
+      TextWrap.wrap("alpha beta gamma delta", maxWidth = 8, continuation = "→ ")
     val lines = out.split('\n').toList
     assert(
       lines.tail.forall(_.startsWith("→ ")),

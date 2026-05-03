@@ -10,10 +10,10 @@ import orca.subprocess.{
 
 import java.util.concurrent.atomic.AtomicReference
 
-/** Test runner that hands out a pre-scripted [[FakePipedCliProcess]] each
-  * time the subject calls `spawnPiped`. Records the args so the test
-  * can assert flag mapping. Single-call: each prepared process is
-  * consumed by exactly one spawn.
+/** Test runner that hands out a pre-scripted [[FakePipedCliProcess]] each time
+  * the subject calls `spawnPiped`. Records the args so the test can assert flag
+  * mapping. Single-call: each prepared process is consumed by exactly one
+  * spawn.
   */
 private class SpawnStubCliRunner(prepared: List[FakePipedCliProcess])
     extends CliRunner:
@@ -39,8 +39,12 @@ private class SpawnStubCliRunner(prepared: List[FakePipedCliProcess])
       pipeStderr: Boolean
   ): PipedCliProcess =
     val _ = recorded.updateAndGet(args.toList :: _)
-    val next = queue.getAndUpdate(_.drop(1)).headOption
-      .getOrElse(throw new IllegalStateException("ran out of prepared processes"))
+    val next = queue
+      .getAndUpdate(_.drop(1))
+      .headOption
+      .getOrElse(
+        throw new IllegalStateException("ran out of prepared processes")
+      )
     next
 
 class CodexBackendTest extends munit.FunSuite:
@@ -86,7 +90,9 @@ class CodexBackendTest extends munit.FunSuite:
     intercept[OrcaFlowException]:
       backend.runHeadless("q", LlmConfig.default, os.temp.dir())
 
-  test("runHeadless surfaces stderr in the failure message when codex exits non-zero"):
+  test(
+    "runHeadless surfaces stderr in the failure message when codex exits non-zero"
+  ):
     // FakePipedCliProcess.waitForExit hardcodes 0; subclass to drive a
     // non-zero exit so the stderr-diagnostic branch can fire.
     val p = new FakePipedCliProcess(initiallyAlive = false):
@@ -151,7 +157,9 @@ class CodexBackendTest extends munit.FunSuite:
     val args = runner.calls.head
     assert(args.containsSlice(Seq("--output-schema", schemaFile.toString)))
 
-  test("continueInteractive does NOT pass --output-schema (codex resume rejects it)"):
+  test(
+    "continueInteractive does NOT pass --output-schema (codex resume rejects it)"
+  ):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     val backend = new CodexBackend(runner)
     val sid = SessionId[Backend.Codex.type]("thr-old")

@@ -3,21 +3,20 @@ package orca.bug
 import orca.{Announce, JsonData}
 
 /** Outcome of an interactive triage turn against a bug report. The agent
-  * decides whether the bug can be reproduced as a focused unit test and
-  * picks a branch name + PR title; flow scripts use the structured fields
-  * to drive the rest of the bugfix loop (where to write the failing
-  * artefact, what to commit, what to push).
+  * decides whether the bug can be reproduced as a focused unit test and picks a
+  * branch name + PR title; flow scripts use the structured fields to drive the
+  * rest of the bugfix loop (where to write the failing artefact, what to
+  * commit, what to push).
   */
 case class BugTriage(
     /** True if a focused unit test can reproduce the bug. */
     canTest: Boolean,
-    /** Free-form reproduction steps the agent inferred from the report —
-      * used when `canTest` is false (we can't write a test, so we
-      * document instead).
+    /** Free-form reproduction steps the agent inferred from the report — used
+      * when `canTest` is false (we can't write a test, so we document instead).
       */
     reproductionSteps: String,
-    /** Path of the test file the agent will create when `canTest` is
-      * true. None otherwise.
+    /** Path of the test file the agent will create when `canTest` is true. None
+      * otherwise.
       */
     failingTestPath: Option[String],
     /** Short branch name. Lowercase kebab-case; no spaces. */
@@ -33,14 +32,13 @@ object BugTriage:
       else "documenting reproduction steps"
     s"Triage: ${t.summary} — $approach on branch '${t.branchName}'"
 
-/** The agent's verdict on whether a CI failure (or other reproduction
-  * artefact) actually matches the original bug report. Used after CI
-  * comes back red to confirm we're chasing the right defect before
-  * implementing a fix.
+/** The agent's verdict on whether a CI failure (or other reproduction artefact)
+  * actually matches the original bug report. Used after CI comes back red to
+  * confirm we're chasing the right defect before implementing a fix.
   */
 case class BugReportMatch(
-    /** Whether the failing-test output (or reproduction artefact) is a
-      * faithful reproduction of what the original report described.
+    /** Whether the failing-test output (or reproduction artefact) is a faithful
+      * reproduction of what the original report described.
       */
     matches: Boolean,
     /** Short justification for the verdict. */

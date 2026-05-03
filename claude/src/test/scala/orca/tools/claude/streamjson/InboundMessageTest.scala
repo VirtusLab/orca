@@ -62,7 +62,9 @@ class InboundMessageTest extends munit.FunSuite:
     )
     assertEquals(msg, InboundMessage.AssistantTurn(Nil))
 
-  test("result with all optional fields absent defaults usage to zero and isError to false"):
+  test(
+    "result with all optional fields absent defaults usage to zero and isError to false"
+  ):
     val msg = InboundMessage.parse(
       """{"type":"result","subtype":"success","session_id":"sid-x"}"""
     )

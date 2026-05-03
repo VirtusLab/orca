@@ -12,7 +12,9 @@ case class Worktree(path: os.Path, branch: String)
   * repository.
   */
 trait GitTool:
-  def createBranch(name: String): Unit
+  def createBranch(
+      name: String
+  ): Unit // TOOD: there are no comments here. What's the difference betwen createBranch and checkout? Shouldn't this return an Either, as it might fail?
   def checkout(name: String): Unit
 
   /** Switch to `name`, creating it from `HEAD` if it doesn't exist yet.

@@ -1,17 +1,19 @@
 package orca.subprocess
 
 import java.util.concurrent.{LinkedBlockingQueue, TimeUnit}
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger, AtomicReference}
+import java.util.concurrent.atomic.{
+  AtomicBoolean,
+  AtomicInteger,
+  AtomicReference
+}
 
 /** Test double for `PipedCliProcess`. Tests push stdout lines via
-  * `enqueueStdout` (optionally in response to observed writes) and read
-  * what the subject wrote to stdin via `writes`. Both queues are
-  * thread-safe so a test can drive the subject from one thread while
-  * asserting on another.
+  * `enqueueStdout` (optionally in response to observed writes) and read what
+  * the subject wrote to stdin via `writes`. Both queues are thread-safe so a
+  * test can drive the subject from one thread while asserting on another.
   *
-  * `stdoutLines` blocks on read, same as the real piped process; tests
-  * that might deadlock a driver should call `closeStdout()` to signal
-  * EOF.
+  * `stdoutLines` blocks on read, same as the real piped process; tests that
+  * might deadlock a driver should call `closeStdout()` to signal EOF.
   */
 class FakePipedCliProcess(
     initiallyAlive: Boolean = true

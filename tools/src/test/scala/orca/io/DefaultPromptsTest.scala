@@ -21,7 +21,9 @@ class DefaultPromptsTest extends munit.FunSuite:
     assert(prompt.contains(error))
     assert(prompt.contains("no markdown code fences"))
 
-  test("interactive prompt embeds input and schema and does not ask for a marker"):
+  test(
+    "interactive prompt embeds input and schema and does not ask for a marker"
+  ):
     val prompt = DefaultPrompts.interactive(input, schema, config)
     assert(prompt.contains(input))
     assert(prompt.contains(schema))

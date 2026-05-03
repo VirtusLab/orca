@@ -1,6 +1,12 @@
 package orca.tools.codex
 
-import orca.{ConversationEvent, OrcaFlowException, OrcaInteractiveCancelled, SessionId, Usage}
+import orca.{
+  ConversationEvent,
+  OrcaFlowException,
+  OrcaInteractiveCancelled,
+  SessionId,
+  Usage
+}
 import orca.subprocess.FakePipedCliProcess
 
 class CodexConversationTest extends munit.FunSuite:
@@ -115,7 +121,9 @@ class CodexConversationTest extends munit.FunSuite:
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
-    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-fail"}""")
+    process.enqueueStdout(
+      """{"type":"thread.started","thread_id":"thr-fail"}"""
+    )
     process.enqueueStdout(
       """{"type":"item.started","item":{"id":"item_0","type":"command_execution","command":"false","exit_code":null,"status":"in_progress"}}"""
     )
@@ -129,9 +137,11 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStderr()
 
     val events = conv.events.toList
-    val toolResult = events.collectFirst {
-      case r: ConversationEvent.ToolResult => r
-    }.getOrElse(fail("expected a ToolResult"))
+    val toolResult = events
+      .collectFirst { case r: ConversationEvent.ToolResult =>
+        r
+      }
+      .getOrElse(fail("expected a ToolResult"))
     assertEquals(toolResult.ok, false)
     val _ = conv.awaitResult()
 
@@ -153,14 +163,20 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStderr()
 
     val events = conv.events.toList
-    val toolCall = events.collectFirst {
-      case c: ConversationEvent.AssistantToolCall if c.toolName == "file_change" => c
-    }.getOrElse(fail("expected file_change AssistantToolCall"))
+    val toolCall = events
+      .collectFirst {
+        case c: ConversationEvent.AssistantToolCall
+            if c.toolName == "file_change" =>
+          c
+      }
+      .getOrElse(fail("expected file_change AssistantToolCall"))
     assert(toolCall.rawInput.contains("/x/y.txt"))
     assert(toolCall.rawInput.contains("update"))
-    val toolResult = events.collectFirst {
-      case r: ConversationEvent.ToolResult if r.toolName == "file_change" => r
-    }.getOrElse(fail("expected file_change ToolResult"))
+    val toolResult = events
+      .collectFirst {
+        case r: ConversationEvent.ToolResult if r.toolName == "file_change" => r
+      }
+      .getOrElse(fail("expected file_change ToolResult"))
     assertEquals(toolResult.ok, true)
     val _ = conv.awaitResult()
 
@@ -194,10 +210,13 @@ class CodexConversationTest extends munit.FunSuite:
     conv.cancel()
     conv.awaitResult() match
       case Left(_: OrcaInteractiveCancelled) => ()
-      case other => fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
+      case other =>
+        fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
     assertEquals(process.sigIntCount, 1)
 
-  test("clean process exit without turn.completed surfaces as OrcaFlowException"):
+  test(
+    "clean process exit without turn.completed surfaces as OrcaFlowException"
+  ):
     val process = new FakePipedCliProcess(initiallyAlive = false)
     val conv = new CodexConversation(process)
 
@@ -212,7 +231,9 @@ class CodexConversationTest extends munit.FunSuite:
       s"expected the missing-turn.completed message; got: ${ex.getMessage}"
     )
 
-  test("malformed JSONL line surfaces as ConversationEvent.Error and the loop continues"):
+  test(
+    "malformed JSONL line surfaces as ConversationEvent.Error and the loop continues"
+  ):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -277,8 +298,9 @@ class CodexConversationTest extends munit.FunSuite:
     val events = conv.events.toList
     assert(
       events.exists {
-        case ConversationEvent.Error(msg) => msg.contains("thread/resume failed")
-        case _                            => false
+        case ConversationEvent.Error(msg) =>
+          msg.contains("thread/resume failed")
+        case _ => false
       },
       s"expected a stderr-derived Error event; got: $events"
     )
@@ -290,7 +312,9 @@ class CodexConversationTest extends munit.FunSuite:
     conv.sendUserMessage("ignored")
     assertEquals(process.writes, Nil)
 
-    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-noop"}""")
+    process.enqueueStdout(
+      """{"type":"thread.started","thread_id":"thr-noop"}"""
+    )
     process.enqueueStdout(
       """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}"""
     )

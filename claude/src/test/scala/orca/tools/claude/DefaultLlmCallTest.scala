@@ -37,8 +37,8 @@ class SequencedBackend(outputs: List[String])
       workDir: os.Path
   ): LlmResult[Backend.ClaudeCode.type] = nextResult(prompt)
 
-  /** Record a continuation call tagged with its sessionId so tests can
-    * assert the same session is being resumed across retries.
+  /** Record a continuation call tagged with its sessionId so tests can assert
+    * the same session is being resumed across retries.
     */
   def continueHeadless(
       sessionId: SessionId[Backend.ClaudeCode.type],
@@ -159,7 +159,9 @@ class DefaultLlmCallTest extends munit.FunSuite:
         "second attempt must quote the first failure as a corrective prompt"
       )
 
-  test("autonomous emits a StructuredResult with raw + Announce-derived summary"):
+  test(
+    "autonomous emits a StructuredResult with raw + Announce-derived summary"
+  ):
     // A specific Announce[Answer] wins over Announce.default; the call
     // emits a single StructuredResult event carrying both the raw
     // payload (the agent's JSON) and the summary derived from Announce.
@@ -183,7 +185,9 @@ class DefaultLlmCallTest extends munit.FunSuite:
       }
       assertEquals(structured, List(("""{"value":99}""", Some("answer is 99"))))
 
-  test("autonomous emits StructuredResult with summary=None under default Announce"):
+  test(
+    "autonomous emits StructuredResult with summary=None under default Announce"
+  ):
     // The library's catch-all `Announce.default` returns an empty
     // string, which DefaultLlmCall normalises to `None` so listeners
     // can pattern-match without an empty-string sentinel.

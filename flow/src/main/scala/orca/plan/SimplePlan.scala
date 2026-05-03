@@ -13,9 +13,9 @@ import orca.{Announce, JsonData, given}
 case class SimplePlan(epicId: String, tasks: List[Task]) derives JsonData
 
 object SimplePlan:
-  /** Empty plans render as nothing — surfacing "0 tasks planned" muddies
-    * the picture; a planning failure is more useful as an explicit
-    * `fail(...)` from the script.
+  /** Empty plans render as nothing — surfacing "0 tasks planned" muddies the
+    * picture; a planning failure is more useful as an explicit `fail(...)` from
+    * the script.
     */
   given Announce[SimplePlan] = Announce.from: plan =>
     if plan.tasks.isEmpty then ""
