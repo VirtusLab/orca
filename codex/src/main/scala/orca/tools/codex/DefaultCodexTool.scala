@@ -10,6 +10,7 @@ import orca.{
   LlmCall,
   LlmConfig,
   OrcaEvent,
+  OrcaListener,
   Prompts,
   SessionId
 }
@@ -25,7 +26,7 @@ class DefaultCodexTool(
     config: LlmConfig,
     prompts: Prompts,
     workDir: os.Path,
-    emit: OrcaEvent => Unit,
+    events: OrcaListener,
     interaction: Interaction,
     val name: String = "codex"
 ) extends CodexTool:
@@ -76,7 +77,7 @@ class DefaultCodexTool(
       effectiveConfig,
       prompts,
       workDir,
-      emit,
+      events,
       interaction,
       defaultModel = name
     )
@@ -89,7 +90,7 @@ class DefaultCodexTool(
       config: LlmConfig = config,
       prompts: Prompts = prompts,
       workDir: os.Path = workDir,
-      emit: OrcaEvent => Unit = emit,
+      events: OrcaListener = events,
       interaction: Interaction = interaction,
       name: String = name
   ): DefaultCodexTool =
@@ -98,7 +99,7 @@ class DefaultCodexTool(
       config,
       prompts,
       workDir,
-      emit,
+      events,
       interaction,
       name
     )
@@ -111,4 +112,4 @@ class DefaultCodexTool(
       result: orca.LlmResult[Backend.Codex.type]
   ): Unit =
     val bucket = result.model.orElse(effective.model).getOrElse(name)
-    emit(OrcaEvent.TokensUsed(bucket, result.usage))
+    events.onEvent(OrcaEvent.TokensUsed(bucket, result.usage))

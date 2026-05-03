@@ -20,7 +20,7 @@ class EventDispatcherTest extends munit.FunSuite:
       OrcaEvent.Step("hello"),
       OrcaEvent.StageCompleted("plan", "ok")
     )
-    events.foreach(dispatcher.dispatch)
+    events.foreach(dispatcher.onEvent)
 
     assertEquals(a.events, events)
     assertEquals(b.events, events)
@@ -32,16 +32,16 @@ class EventDispatcherTest extends munit.FunSuite:
         val _ = order.updateAndGet(tag :: _)
     val dispatcher =
       new EventDispatcher(List(tagger("a"), tagger("b"), tagger("c")))
-    dispatcher.dispatch(OrcaEvent.StageStarted("s"))
+    dispatcher.onEvent(OrcaEvent.StageStarted("s"))
     assertEquals(order.get().reverse, List("a", "b", "c"))
 
   test("dispatch with no listeners is a no-op"):
-    new EventDispatcher(Nil).dispatch(OrcaEvent.StageStarted("x"))
+    new EventDispatcher(Nil).onEvent(OrcaEvent.StageStarted("x"))
 
   test("a throwing listener propagates and stops later listeners from running"):
     val after = new RecordingListener
     val throwing: OrcaListener = _ => throw new RuntimeException("boom")
     val dispatcher = new EventDispatcher(List(throwing, after))
     val _ = intercept[RuntimeException]:
-      dispatcher.dispatch(OrcaEvent.StageStarted("x"))
+      dispatcher.onEvent(OrcaEvent.StageStarted("x"))
     assertEquals(after.events, Nil)

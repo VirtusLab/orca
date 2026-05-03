@@ -28,3 +28,9 @@ enum OrcaEvent:
 
 trait OrcaListener:
   def onEvent(event: OrcaEvent): Unit
+
+object OrcaListener:
+  /** Drops every event. The default for tools that may run without a wired-up
+    * dispatcher (unit tests, lightweight scripts).
+    */
+  val noop: OrcaListener = (_: OrcaEvent) => ()

@@ -5,6 +5,7 @@ import orca.{
   BranchNotFound,
   NothingToCommit,
   OrcaEvent,
+  OrcaListener,
   WorktreeAddFailed,
   WorktreeNotFound
 }
@@ -31,9 +32,9 @@ class OsGitToolTest extends munit.FunSuite:
       os.proc("git", "config", "user.email", "test@example.com").call(cwd = dir)
     val _ = os.proc("git", "config", "user.name", "Test").call(cwd = dir)
     val seen = new AtomicReference[List[OrcaEvent]](Nil)
-    val emit: OrcaEvent => Unit = e =>
+    val listener: OrcaListener = (e: OrcaEvent) =>
       val _ = seen.updateAndGet(e :: _)
-    body(new OsGitTool(dir, emit), dir, seen)
+    body(new OsGitTool(dir, listener), dir, seen)
 
   test("createBranch switches to the new branch"):
     withRepo: (git, dir) =>

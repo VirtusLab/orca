@@ -18,4 +18,4 @@ class TestFlowContext(
   lazy val gh: GitHubTool = stub("gh")
   lazy val fs: FsTool = stub("fs")
 
-  def emit(event: OrcaEvent): Unit = dispatcher.dispatch(event)
+  def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)

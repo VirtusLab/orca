@@ -8,6 +8,7 @@ import orca.{
   NothingToCommit,
   OrcaEvent,
   OrcaFlowException,
+  OrcaListener,
   PushRejected,
   Worktree,
   WorktreeAddFailed,
@@ -21,28 +22,28 @@ import ox.either.orThrow
   * worktree branch-exists handling) are specified on the trait; this class
   * handles the subprocess plumbing and the worktree-list parser.
   *
-  * `emit` lets the tool publish [[OrcaEvent.Step]]s for the operations the user
-  * cares to see in the event log (branch switches, commits, pushes). It's
-  * optional — defaults to a no-op so callers that don't yet wire a dispatcher
-  * still work.
+  * `events` lets the tool publish [[OrcaEvent.Step]]s for the operations the
+  * user cares to see in the event log (branch switches, commits, pushes). It's
+  * optional — defaults to `OrcaListener.noop` so callers that don't yet wire a
+  * dispatcher still work.
   */
 class OsGitTool(
     workDir: os.Path = os.pwd,
-    emit: OrcaEvent => Unit = _ => ()
+    events: OrcaListener = OrcaListener.noop
 ) extends GitTool:
 
   def createBranch(name: String): Either[BranchAlreadyExists, Unit] =
     if branchExists(name) then Left(new BranchAlreadyExists(name))
     else
       val _ = git("checkout", "-b", name)
-      emit(OrcaEvent.Step(s"Switched to a new branch '$name'"))
+      events.onEvent(OrcaEvent.Step(s"Switched to a new branch '$name'"))
       Right(())
 
   def checkout(name: String): Either[BranchNotFound, Unit] =
     if !branchExists(name) then Left(new BranchNotFound(name))
     else
       val _ = git("checkout", name)
-      emit(OrcaEvent.Step(s"Switched to branch '$name'"))
+      events.onEvent(OrcaEvent.Step(s"Switched to branch '$name'"))
       Right(())
 
   def checkoutOrCreate(name: String): Unit =
@@ -59,7 +60,7 @@ class OsGitTool(
     val dirty = git("status", "--porcelain").trim.nonEmpty
     if dirty then
       val _ = git("stash", "push", "-u", "-m", stashMessage)
-      emit(
+      events.onEvent(
         OrcaEvent.Step(
           s"Working tree wasn't clean — stashed pending changes ($stashMessage). Recover with `git stash pop`."
         )
@@ -74,7 +75,7 @@ class OsGitTool(
     if git("status", "--porcelain").trim.isEmpty then Left(new NothingToCommit)
     else
       val _ = git("commit", "-m", message)
-      emit(OrcaEvent.Step(s"Committed: $message"))
+      events.onEvent(OrcaEvent.Step(s"Committed: $message"))
       Right(())
 
   def push(): Either[PushRejected, Unit] =
@@ -87,7 +88,7 @@ class OsGitTool(
       cwd = workDir
     )
     if result.exitCode == 0 then
-      emit(OrcaEvent.Step("Pushed to origin"))
+      events.onEvent(OrcaEvent.Step("Pushed to origin"))
       Right(())
     else
       val stderr = result.err.text()
@@ -132,7 +133,9 @@ class OsGitTool(
       else Seq("worktree", "add", "-b", branch, path.toString)
     val result = QuietProc.call("git" +: cmd, cwd = workDir)
     if result.exitCode == 0 then
-      emit(OrcaEvent.Step(s"Added worktree at $path on branch '$branch'"))
+      events.onEvent(
+        OrcaEvent.Step(s"Added worktree at $path on branch '$branch'")
+      )
       Right(Worktree(path, branch))
     else
       val stderr = result.err.text().trim
@@ -151,7 +154,7 @@ class OsGitTool(
       Left(new WorktreeNotFound(path))
     else
       val _ = git("worktree", "remove", path.toString)
-      emit(OrcaEvent.Step(s"Removed worktree at $path"))
+      events.onEvent(OrcaEvent.Step(s"Removed worktree at $path"))
       Right(())
 
   def listWorktrees(): List[Worktree] =

@@ -10,6 +10,7 @@ import orca.{
   LlmCall,
   LlmConfig,
   OrcaEvent,
+  OrcaListener,
   Prompts,
   SessionId
 }
@@ -33,7 +34,7 @@ class DefaultLlmCall[B <: Backend, O](
     effectiveConfig: LlmConfig => LlmConfig,
     prompts: Prompts,
     workDir: os.Path,
-    emit: OrcaEvent => Unit,
+    events: OrcaListener,
     interaction: Interaction,
     /** Used as the model identifier on `OrcaEvent.TokensUsed` when
       * `LlmConfig.model` isn't pinned — typically the owning `LlmTool.name`
@@ -54,7 +55,7 @@ class DefaultLlmCall[B <: Backend, O](
     * structured logs) can carry `raw` through unchanged.
     */
   private def emitStructuredResult(raw: String, value: O): Unit =
-    emit(OrcaEvent.StructuredResult(raw, announce.message(value)))
+    events.onEvent(OrcaEvent.StructuredResult(raw, announce.message(value)))
 
   def autonomous[I](input: I, config: LlmConfig = LlmConfig.default)(using
       ai: AgentInput[I]
@@ -116,7 +117,7 @@ class DefaultLlmCall[B <: Backend, O](
         case Some(sid) =>
           backend.continueHeadless(sid, promptText, effective, workDir)
         case None => backend.runHeadless(promptText, effective, workDir)
-      emit(
+      events.onEvent(
         OrcaEvent.TokensUsed(
           result.model.orElse(effective.model).getOrElse(defaultModel),
           result.usage
@@ -173,7 +174,7 @@ class DefaultLlmCall[B <: Backend, O](
     // mid-session, drive throws before this line — and the wire
     // protocols don't always carry partial usage, so there's nothing
     // authoritative to emit at cancel time.
-    emit(
+    events.onEvent(
       OrcaEvent.TokensUsed(
         result.model.orElse(effective.model).getOrElse(defaultModel),
         result.usage

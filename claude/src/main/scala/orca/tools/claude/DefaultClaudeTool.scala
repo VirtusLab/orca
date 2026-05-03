@@ -10,6 +10,7 @@ import orca.{
   LlmCall,
   LlmConfig,
   OrcaEvent,
+  OrcaListener,
   Prompts,
   SessionId
 }
@@ -30,7 +31,7 @@ class DefaultClaudeTool(
     config: LlmConfig,
     prompts: Prompts,
     workDir: os.Path,
-    emit: OrcaEvent => Unit,
+    events: OrcaListener,
     interaction: Interaction,
     val name: String = "claude"
 ) extends ClaudeTool:
@@ -78,7 +79,7 @@ class DefaultClaudeTool(
       effectiveConfig,
       prompts,
       workDir,
-      emit,
+      events,
       interaction,
       defaultModel = name
     )
@@ -91,7 +92,7 @@ class DefaultClaudeTool(
       config: LlmConfig = config,
       prompts: Prompts = prompts,
       workDir: os.Path = workDir,
-      emit: OrcaEvent => Unit = emit,
+      events: OrcaListener = events,
       interaction: Interaction = interaction,
       name: String = name
   ): DefaultClaudeTool =
@@ -100,7 +101,7 @@ class DefaultClaudeTool(
       config,
       prompts,
       workDir,
-      emit,
+      events,
       interaction,
       name
     )
@@ -118,4 +119,4 @@ class DefaultClaudeTool(
     // Prefer the model the response actually reports (most precise);
     // fall back to a pinned config model, then to the tool's own name.
     val bucket = result.model.orElse(effective.model).getOrElse(name)
-    emit(OrcaEvent.TokensUsed(bucket, result.usage))
+    events.onEvent(OrcaEvent.TokensUsed(bucket, result.usage))

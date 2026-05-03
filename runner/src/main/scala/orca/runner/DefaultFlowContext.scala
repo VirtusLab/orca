@@ -35,7 +35,7 @@ class DefaultFlowContext(
     val fs: FsTool
 ) extends FlowContext:
 
-  def emit(event: OrcaEvent): Unit = dispatcher.dispatch(event)
+  def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
 object DefaultFlowContext:
 
@@ -63,7 +63,7 @@ object DefaultFlowContext:
           config = LlmConfig.default,
           prompts = prompts,
           workDir = workDir,
-          emit = dispatcher.dispatch,
+          events = dispatcher,
           interaction = interaction
         )
       ),
@@ -73,11 +73,11 @@ object DefaultFlowContext:
           config = LlmConfig.default,
           prompts = prompts,
           workDir = workDir,
-          emit = dispatcher.dispatch,
+          events = dispatcher,
           interaction = interaction
         )
       ),
-      git = git.getOrElse(new OsGitTool(workDir, dispatcher.dispatch)),
+      git = git.getOrElse(new OsGitTool(workDir, dispatcher)),
       gh = gh.getOrElse(new OsGitHubTool(OsProcCliRunner, workDir)),
       fs = fs.getOrElse(new OsFsTool(workDir))
     )

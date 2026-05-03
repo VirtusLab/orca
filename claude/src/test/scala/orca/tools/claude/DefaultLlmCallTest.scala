@@ -100,7 +100,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
       effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
       workDir = os.pwd,
-      emit = _ => (),
+      events = orca.OrcaListener.noop,
       interaction = stubInteraction,
       defaultModel = "claude"
     )
@@ -174,7 +174,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
       effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
       workDir = os.pwd,
-      emit = e => { val _ = seen.updateAndGet(e :: _) },
+      events = (e: orca.OrcaEvent) => { val _ = seen.updateAndGet(e :: _) },
       interaction = stubInteraction,
       defaultModel = "claude"
     )
@@ -199,7 +199,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
         effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
         workDir = os.pwd,
-        emit = e => { val _ = seen.updateAndGet(e :: _) },
+        events = (e: orca.OrcaEvent) => { val _ = seen.updateAndGet(e :: _) },
         interaction = stubInteraction,
         defaultModel = "claude"
       ).autonomous("anything")
