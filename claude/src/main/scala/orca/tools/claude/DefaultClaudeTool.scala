@@ -50,7 +50,7 @@ class DefaultClaudeTool(
   def ask(prompt: String, callConfig: LlmConfig = LlmConfig.default): String =
     val effective = effectiveConfig(callConfig)
     val result = backend.runHeadless(prompt, effective, workDir)
-    emitTokens(effective, result.usage)
+    emitTokens(effective, result)
     result.output
 
   def startSession(
@@ -59,7 +59,7 @@ class DefaultClaudeTool(
   ): (SessionId[Backend.ClaudeCode.type], String) =
     val effective = effectiveConfig(callConfig)
     val result = backend.runHeadless(prompt, effective, workDir)
-    emitTokens(effective, result.usage)
+    emitTokens(effective, result)
     (result.sessionId, result.output)
 
   def continueSession(
@@ -69,7 +69,7 @@ class DefaultClaudeTool(
   ): String =
     val effective = effectiveConfig(callConfig)
     val result = backend.continueHeadless(sessionId, prompt, effective, workDir)
-    emitTokens(effective, result.usage)
+    emitTokens(effective, result)
     result.output
 
   def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
@@ -111,5 +111,11 @@ class DefaultClaudeTool(
     // receives the shared LlmConfig.default singleton.
     if callConfig eq LlmConfig.default then config else callConfig
 
-  private def emitTokens(effective: LlmConfig, usage: orca.Usage): Unit =
-    emit(OrcaEvent.TokensUsed(effective.model.getOrElse(name), usage))
+  private def emitTokens(
+      effective: LlmConfig,
+      result: orca.LlmResult[Backend.ClaudeCode.type]
+  ): Unit =
+    // Prefer the model the response actually reports (most precise);
+    // fall back to a pinned config model, then to the tool's own name.
+    val bucket = result.model.orElse(effective.model).getOrElse(name)
+    emit(OrcaEvent.TokensUsed(bucket, result.usage))

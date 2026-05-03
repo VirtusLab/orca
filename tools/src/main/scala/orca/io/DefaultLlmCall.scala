@@ -118,7 +118,7 @@ class DefaultLlmCall[B <: Backend, O](
         case None => backend.runHeadless(promptText, effective, workDir)
       emit(
         OrcaEvent.TokensUsed(
-          effective.model.getOrElse(defaultModel),
+          result.model.orElse(effective.model).getOrElse(defaultModel),
           result.usage
         )
       )
@@ -175,7 +175,7 @@ class DefaultLlmCall[B <: Backend, O](
     // authoritative to emit at cancel time.
     emit(
       OrcaEvent.TokensUsed(
-        effective.model.getOrElse(defaultModel),
+        result.model.orElse(effective.model).getOrElse(defaultModel),
         result.usage
       )
     )

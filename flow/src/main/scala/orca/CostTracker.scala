@@ -24,17 +24,20 @@ class CostTracker extends OrcaListener:
   /** Per-model usage breakdown. */
   def perModel: Map[String, Usage] = state.get()
 
+  /** Per-model token tallies, one line each, sorted by model name. Empty when
+    * no `TokensUsed` events have been observed.
+    */
   def summary: String =
-    val lines = perModel.toList
+    perModel.toList
       .sortBy(_._1)
       .map: (model, u) =>
-        val costStr = u.cost.map(c => s" (cost: $$${c.toString})").getOrElse("")
-        s"  $model: ${u.inputTokens} in, ${u.outputTokens} out$costStr"
-    val header =
-      val t = total
-      val costStr = t.cost.map(c => s" (cost: $$${c.toString})").getOrElse("")
-      s"Tokens used: ${t.inputTokens} in, ${t.outputTokens} out$costStr"
-    if lines.isEmpty then header
-    else s"$header\n${lines.mkString("\n")}"
+        s"$model: ${u.inputTokens} in, ${u.outputTokens} out"
+      .mkString("\n")
 
-  def printSummary(): Unit = println(summary)
+  /** Print the summary on its own block. Leading newline keeps the output from
+    * landing on top of an active terminal status row; trailing newline ensures
+    * the last line is committed.
+    */
+  def printSummary(): Unit =
+    val s = summary
+    if s.nonEmpty then println(s"\n$s")

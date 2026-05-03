@@ -48,7 +48,7 @@ class DefaultCodexTool(
   def ask(prompt: String, callConfig: LlmConfig = LlmConfig.default): String =
     val effective = effectiveConfig(callConfig)
     val result = backend.runHeadless(prompt, effective, workDir)
-    emitTokens(effective, result.usage)
+    emitTokens(effective, result)
     result.output
 
   def startSession(
@@ -57,7 +57,7 @@ class DefaultCodexTool(
   ): (SessionId[Backend.Codex.type], String) =
     val effective = effectiveConfig(callConfig)
     val result = backend.runHeadless(prompt, effective, workDir)
-    emitTokens(effective, result.usage)
+    emitTokens(effective, result)
     (result.sessionId, result.output)
 
   def continueSession(
@@ -67,7 +67,7 @@ class DefaultCodexTool(
   ): String =
     val effective = effectiveConfig(callConfig)
     val result = backend.continueHeadless(sessionId, prompt, effective, workDir)
-    emitTokens(effective, result.usage)
+    emitTokens(effective, result)
     result.output
 
   def resultAs[O: JsonData: Announce]: LlmCall[Backend.Codex.type, O] =
@@ -106,5 +106,9 @@ class DefaultCodexTool(
   private def effectiveConfig(callConfig: LlmConfig): LlmConfig =
     if callConfig eq LlmConfig.default then config else callConfig
 
-  private def emitTokens(effective: LlmConfig, usage: orca.Usage): Unit =
-    emit(OrcaEvent.TokensUsed(effective.model.getOrElse(name), usage))
+  private def emitTokens(
+      effective: LlmConfig,
+      result: orca.LlmResult[Backend.Codex.type]
+  ): Unit =
+    val bucket = result.model.orElse(effective.model).getOrElse(name)
+    emit(OrcaEvent.TokensUsed(bucket, result.usage))

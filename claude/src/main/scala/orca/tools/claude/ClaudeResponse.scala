@@ -11,7 +11,10 @@ case class ClaudeHeadlessResponse(
     result: String,
     usage: ClaudeUsage,
     total_cost_usd: Option[BigDecimal] = None,
-    is_error: Option[Boolean] = None
+    is_error: Option[Boolean] = None,
+    // claude -p --output-format json includes the resolved model id (e.g.
+    // "claude-opus-4-7"); older CLI builds may omit it, hence Option.
+    model: Option[String] = None
 ) derives ConfiguredJsonValueCodec:
 
   def toLlmResult: LlmResult[Backend.ClaudeCode.type] =
@@ -22,7 +25,8 @@ case class ClaudeHeadlessResponse(
         inputTokens = usage.input_tokens,
         outputTokens = usage.output_tokens,
         cost = total_cost_usd
-      )
+      ),
+      model = model
     )
 
 case class ClaudeUsage(

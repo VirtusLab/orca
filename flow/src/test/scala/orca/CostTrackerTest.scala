@@ -55,18 +55,19 @@ class CostTrackerTest extends munit.FunSuite:
     tracker.onEvent(OrcaEvent.TokensUsed("m1", Usage(1L, 1L, None)))
     assertEquals(tracker.total.cost, None)
 
-  test("summary includes token totals and cost when present"):
+  test("summary lists each model's tokens, sorted by name, no costs"):
     val tracker = new CostTracker
     tracker.onEvent(
-      OrcaEvent.TokensUsed(
-        "m1",
-        Usage(100L, 50L, Some(BigDecimal("0.0123")))
-      )
+      OrcaEvent.TokensUsed("m1", Usage(100L, 50L, Some(BigDecimal("0.0123"))))
     )
-    val s = tracker.summary
-    assert(s.contains("100 in"))
-    assert(s.contains("50 out"))
-    assert(s.contains("0.0123"))
+    tracker.onEvent(OrcaEvent.TokensUsed("a-model", Usage(7L, 3L, None)))
+    assertEquals(
+      tracker.summary,
+      "a-model: 7 in, 3 out\nm1: 100 in, 50 out"
+    )
+
+  test("summary is empty when nothing has been recorded"):
+    assertEquals(new CostTracker().summary, "")
 
   test("perModel breaks the running total down by model name"):
     val tracker = new CostTracker

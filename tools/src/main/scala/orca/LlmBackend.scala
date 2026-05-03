@@ -3,7 +3,13 @@ package orca
 case class LlmResult[B <: Backend](
     sessionId: SessionId[B],
     output: String,
-    usage: Usage
+    usage: Usage,
+    /** Model the backend reports it actually served the call with — usually
+      * present for headless calls (the CLI returns it), absent for some
+      * conversation paths. Used as the bucket key in `CostTracker` so spend is
+      * attributed to the concrete model rather than just the tool name.
+      */
+    model: Option[String] = None
 )
 
 trait LlmBackend[B <: Backend]:
