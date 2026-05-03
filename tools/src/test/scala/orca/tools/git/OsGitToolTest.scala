@@ -1,6 +1,13 @@
 package orca.tools.git
 
-import orca.{BranchAlreadyExists, BranchNotFound, OrcaEvent}
+import orca.{
+  BranchAlreadyExists,
+  BranchNotFound,
+  NothingToCommit,
+  OrcaEvent,
+  WorktreeAddFailed,
+  WorktreeNotFound
+}
 import ox.either.orThrow
 import java.util.concurrent.atomic.AtomicReference
 
@@ -32,14 +39,14 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, dir) =>
       // Need at least one commit before creating a branch (to have HEAD).
       os.write(dir / "initial.txt", "seed")
-      git.commit("initial")
+      git.commit("initial").orThrow
       git.createBranch("feature/x").orThrow
       assertEquals(git.currentBranch(), "feature/x")
 
   test("checkout switches to an existing branch"):
     withRepo: (git, dir) =>
       os.write(dir / "a.txt", "a")
-      git.commit("add a")
+      git.commit("add a").orThrow
       git.createBranch("feature/y").orThrow
       git.checkout("main").orThrow
       assertEquals(git.currentBranch(), "main")
@@ -49,7 +56,7 @@ class OsGitToolTest extends munit.FunSuite:
   ):
     withRepo: (git, dir) =>
       os.write(dir / "x.txt", "x")
-      git.commit("seed")
+      git.commit("seed").orThrow
       git.createBranch("dup").orThrow
       git.checkout("main").orThrow
       assert(
@@ -63,7 +70,7 @@ class OsGitToolTest extends munit.FunSuite:
   test("commit stages all changes and records the message"):
     withRepo: (git, dir) =>
       os.write(dir / "file.txt", "content")
-      git.commit("add file")
+      git.commit("add file").orThrow
       val entries = git.log(1)
       assertEquals(entries.size, 1)
       assertEquals(entries.head.message, "add file")
@@ -71,7 +78,7 @@ class OsGitToolTest extends munit.FunSuite:
   test("diff returns the unstaged changes"):
     withRepo: (git, dir) =>
       os.write(dir / "file.txt", "first")
-      git.commit("initial")
+      git.commit("initial").orThrow
       os.write.over(dir / "file.txt", "second")
       val d = git.diff()
       assert(d.contains("-first"))
@@ -80,11 +87,11 @@ class OsGitToolTest extends munit.FunSuite:
   test("log respects the limit, returns newest-first, and parses the author"):
     withRepo: (git, dir) =>
       os.write(dir / "a.txt", "a")
-      git.commit("first")
+      git.commit("first").orThrow
       os.write(dir / "b.txt", "b")
-      git.commit("second")
+      git.commit("second").orThrow
       os.write(dir / "c.txt", "c")
-      git.commit("third")
+      git.commit("third").orThrow
       val recent = git.log(2)
       assertEquals(recent.map(_.message), List("third", "second"))
       assertEquals(recent.map(_.author).distinct, List("Test"))
@@ -92,29 +99,29 @@ class OsGitToolTest extends munit.FunSuite:
   test("addWorktree creates a new branch and linked working directory"):
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "x")
-      git.commit("initial")
+      git.commit("initial").orThrow
       val wtPath = os.temp.dir() / "feature"
-      val wt = git.addWorktree(wtPath, "feature/alpha")
+      val wt = git.addWorktree(wtPath, "feature/alpha").orThrow
       assertEquals(wt.branch, "feature/alpha")
       assert(os.exists(wtPath / "seed.txt"))
 
   test("addWorktree checks out an existing branch instead of creating"):
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "x")
-      git.commit("initial")
+      git.commit("initial").orThrow
       git.createBranch("reuse").orThrow
       git.checkout("main").orThrow
       val wtPath = os.temp.dir() / "reused"
-      val wt = git.addWorktree(wtPath, "reuse")
+      val wt = git.addWorktree(wtPath, "reuse").orThrow
       assertEquals(wt.branch, "reuse")
       assert(os.exists(wtPath / "seed.txt"))
 
   test("listWorktrees returns the main repo plus each linked worktree"):
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "x")
-      git.commit("initial")
+      git.commit("initial").orThrow
       val wtPath = os.temp.dir() / "feature"
-      val _ = git.addWorktree(wtPath, "feature/beta")
+      val _ = git.addWorktree(wtPath, "feature/beta").orThrow
       val branches = git.listWorktrees().map(_.branch).toSet
       assert(branches.contains("main"))
       assert(branches.contains("feature/beta"))
@@ -122,10 +129,10 @@ class OsGitToolTest extends munit.FunSuite:
   test("removeWorktree unlinks the worktree and drops its directory"):
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "x")
-      git.commit("initial")
+      git.commit("initial").orThrow
       val wtPath = os.temp.dir() / "gone"
-      val _ = git.addWorktree(wtPath, "feature/gone")
-      git.removeWorktree(wtPath)
+      val _ = git.addWorktree(wtPath, "feature/gone").orThrow
+      git.removeWorktree(wtPath).orThrow
       assert(!os.exists(wtPath))
       val branches = git.listWorktrees().map(_.branch).toSet
       assert(!branches.contains("feature/gone"))
@@ -133,14 +140,14 @@ class OsGitToolTest extends munit.FunSuite:
   test("checkoutOrCreate creates a missing branch"):
     withRepo: (git, dir) =>
       os.write(dir / "x.txt", "x")
-      git.commit("seed")
+      git.commit("seed").orThrow
       git.checkoutOrCreate("feature/new")
       assertEquals(git.currentBranch(), "feature/new")
 
   test("checkoutOrCreate switches to an existing branch"):
     withRepo: (git, dir) =>
       os.write(dir / "x.txt", "x")
-      git.commit("seed")
+      git.commit("seed").orThrow
       git.createBranch("feature/existing").orThrow
       git.checkout("main").orThrow
       git.checkoutOrCreate("feature/existing")
@@ -151,7 +158,7 @@ class OsGitToolTest extends munit.FunSuite:
   ):
     withRepoCapturingEvents: (git, dir, seen) =>
       os.write(dir / "x.txt", "x")
-      git.commit("seed")
+      git.commit("seed").orThrow
       git.createBranch("feature/here").orThrow
       val before = seen.get().size
       git.checkoutOrCreate("feature/here")
@@ -160,13 +167,13 @@ class OsGitToolTest extends munit.FunSuite:
   test("ensureClean returns false on a clean tree"):
     withRepo: (git, dir) =>
       os.write(dir / "x.txt", "x")
-      git.commit("seed")
+      git.commit("seed").orThrow
       assertEquals(git.ensureClean("test stash"), false)
 
   test("ensureClean stashes pending changes and emits a Step"):
     withRepoCapturingEvents: (git, dir, seen) =>
       os.write(dir / "x.txt", "initial")
-      git.commit("seed")
+      git.commit("seed").orThrow
       os.write.over(dir / "x.txt", "dirty")
       val stashed = git.ensureClean("orca: pre-flow")
       assertEquals(stashed, true)
@@ -182,7 +189,7 @@ class OsGitToolTest extends munit.FunSuite:
   test("createBranch / commit / checkout each emit a Step event"):
     withRepoCapturingEvents: (git, dir, seen) =>
       os.write(dir / "seed.txt", "x")
-      git.commit("initial seed")
+      git.commit("initial seed").orThrow
       git.createBranch("feature/emit").orThrow
       git.checkout("main").orThrow
 
@@ -200,4 +207,28 @@ class OsGitToolTest extends munit.FunSuite:
       assert(
         steps.exists(_ == "Switched to branch 'main'"),
         s"expected checkout step; got: $steps"
+      )
+
+  test("commit returns Left(NothingToCommit) on a clean tree"):
+    withRepo: (git, dir) =>
+      os.write(dir / "x.txt", "x")
+      git.commit("seed").orThrow
+      assert(git.commit("noop").left.exists(_.isInstanceOf[NothingToCommit]))
+
+  test("addWorktree returns Left(WorktreeAddFailed) when the path is taken"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "x")
+      git.commit("initial").orThrow
+      val wtPath = os.temp.dir() / "occupied"
+      val _ = git.addWorktree(wtPath, "feature/first").orThrow
+      val again = git.addWorktree(wtPath, "feature/first")
+      assert(again.left.exists(_.isInstanceOf[WorktreeAddFailed]))
+
+  test(
+    "removeWorktree returns Left(WorktreeNotFound) when the path isn't a worktree"
+  ):
+    withRepo: (git, _) =>
+      val ghost = os.temp.dir() / "ghost"
+      assert(
+        git.removeWorktree(ghost).left.exists(_.isInstanceOf[WorktreeNotFound])
       )

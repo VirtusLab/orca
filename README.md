@@ -48,7 +48,7 @@ flow(OrcaArgs(args)):
         task = task.title,
         lintCommand = Some("sbt scalafmtCheckAll test")
       )
-      git.commit(s"Implement ${task.title}")
+      git.commit(s"Implement ${task.title}").orThrow
 ```
 
 ```bash

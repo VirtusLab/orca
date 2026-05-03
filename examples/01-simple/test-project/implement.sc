@@ -56,4 +56,4 @@ flow(OrcaArgs(args)):
         lintCommand = Some("cargo test --quiet")
       )
 
-      git.commit(s"Implement ${task.title}")
+      git.commit(s"Implement ${task.title}").orThrow

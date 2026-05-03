@@ -10,13 +10,17 @@ class OsFsToolTest extends munit.FunSuite:
     withFs: (fs, tmp) =>
       fs.write("nested/dir/file.txt", "hello")
       assert(os.exists(tmp / "nested" / "dir" / "file.txt"))
-      assertEquals(fs.read("nested/dir/file.txt"), "hello")
+      assertEquals(fs.read("nested/dir/file.txt"), Some("hello"))
 
   test("write overwrites an existing file"):
     withFs: (fs, _) =>
       fs.write("a.txt", "first")
       fs.write("a.txt", "second")
-      assertEquals(fs.read("a.txt"), "second")
+      assertEquals(fs.read("a.txt"), Some("second"))
+
+  test("read returns None when the file is missing"):
+    withFs: (fs, _) =>
+      assertEquals(fs.read("does/not/exist.txt"), None)
 
   test("list returns files matching a shallow glob"):
     withFs: (fs, _) =>

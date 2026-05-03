@@ -34,6 +34,7 @@
 import orca.{*, given}
 import orca.bug.{BugTriage, BugReportMatch}
 import orca.review.{defaultReviewers, reviewAndFixLoop}
+import ox.either.orThrow
 import scala.concurrent.duration.DurationInt
 
 flow(OrcaArgs(args)):
@@ -74,15 +75,15 @@ flow(OrcaArgs(args)):
            |bug. Run it locally if you can to verify it actually
            |fails.""".stripMargin
       )
-      git.commit(s"Add failing test: ${triage.summary}")
+      git.commit(s"Add failing test: ${triage.summary}").orThrow
   else
     stage("Document reproduction steps"):
       fs.write("REPRODUCTION.md", triage.reproductionSteps)
-      git.commit(s"Document reproduction: ${triage.summary}")
+      git.commit(s"Document reproduction: ${triage.summary}").orThrow
 
   // 3. Push & open the PR.
   val pr = stage("Push and open PR"):
-    git.push()
+    git.push().orThrow
     gh.createPr(
       title = triage.summary,
       body = s"""## Bug
@@ -96,12 +97,12 @@ flow(OrcaArgs(args)):
                    s"Failing test at `${triage.failingTestPath.get}`."
                  else triage.reproductionSteps
                }""".stripMargin
-    )
+    ).orThrow
 
   // 4. Wait for CI. If CI is green here, the agent's "this fails" is
   // wrong — surface it loudly rather than silently moving on.
   val redBuild = stage("Wait for CI to fail"):
-    val status = gh.waitForBuild(pr, 10.minutes)
+    val status = gh.waitForBuild(pr, 10.minutes).orThrow
     status.outcome match
       case BuildOutcome.Success =>
         fail(
@@ -162,14 +163,14 @@ flow(OrcaArgs(args)):
       lintCommand = Some("mvn -q test")
     )
 
-    git.commit(s"Fix: ${triage.summary}")
+    git.commit(s"Fix: ${triage.summary}").orThrow
 
   // 7. Push and wait for green.
   stage("Push the fix"):
-    git.push()
+    git.push().orThrow
 
   stage("Wait for CI to pass"):
-    val status = gh.waitForBuild(pr, 15.minutes)
+    val status = gh.waitForBuild(pr, 15.minutes).orThrow
     if status.outcome != BuildOutcome.Success then
       fail(
         s"CI didn't go green after the fix. Last log:\n${status.log.take(2000)}"

@@ -5,12 +5,16 @@ import orca.{
   BranchNotFound,
   CommitInfo,
   GitTool,
+  NothingToCommit,
   OrcaEvent,
   OrcaFlowException,
-  Worktree
+  PushRejected,
+  Worktree,
+  WorktreeAddFailed,
+  WorktreeNotFound
 }
-import ox.either.orThrow
 import orca.subprocess.QuietProc
+import ox.either.orThrow
 
 /** `GitTool` implementation that shells out to the `git` CLI via os-lib.
   * Contract semantics (commit auto-staging, push upstream setup, diff vs HEAD,
@@ -63,15 +67,36 @@ class OsGitTool(
       true
     else false
 
-  def commit(message: String): Unit =
+  def commit(message: String): Either[NothingToCommit, Unit] =
     val _ = git("add", "-A")
-    val _ = git("commit", "-m", message)
-    emit(OrcaEvent.Step(s"Committed: $message"))
+    // `git status --porcelain` after staging is the cheapest "are there
+    // changes?" check that doesn't depend on parsing localised git output.
+    if git("status", "--porcelain").trim.isEmpty then Left(new NothingToCommit)
+    else
+      val _ = git("commit", "-m", message)
+      emit(OrcaEvent.Step(s"Committed: $message"))
+      Right(())
 
-  def push(): Unit =
+  def push(): Either[PushRejected, Unit] =
     // `-u origin HEAD` sets upstream on first push and is a no-op afterwards.
-    val _ = git("push", "-u", "origin", "HEAD")
-    emit(OrcaEvent.Step("Pushed to origin"))
+    // We need to inspect stderr on failure to distinguish the recoverable
+    // "non-fast-forward" case from auth/network errors, so call QuietProc
+    // directly rather than going through `git` (which throws on non-zero exit).
+    val result = QuietProc.call(
+      Seq("git", "push", "-u", "origin", "HEAD"),
+      cwd = workDir
+    )
+    if result.exitCode == 0 then
+      emit(OrcaEvent.Step("Pushed to origin"))
+      Right(())
+    else
+      val stderr = result.err.text()
+      if stderr.contains("non-fast-forward") || stderr.contains("rejected") then
+        Left(new PushRejected(stderr.trim))
+      else
+        throw OrcaFlowException(
+          s"git push failed (exit ${result.exitCode}): $stderr"
+        )
 
   def currentBranch(): String =
     git("rev-parse", "--abbrev-ref", "HEAD").trim
@@ -95,21 +120,39 @@ class OsGitTool(
             throw OrcaFlowException(s"Unexpected git log line: $line")
       .toList
 
-  def addWorktree(path: os.Path, branch: String): Worktree =
+  def addWorktree(
+      path: os.Path,
+      branch: String
+  ): Either[WorktreeAddFailed, Worktree] =
     // Check out existing branch if it already exists; otherwise branch off
     // HEAD. `git branch --list <name>` prints the branch when it exists,
     // empty when not.
-    val branchExists = git("branch", "--list", branch).trim.nonEmpty
     val cmd =
-      if branchExists then Seq("worktree", "add", path.toString, branch)
+      if branchExists(branch) then Seq("worktree", "add", path.toString, branch)
       else Seq("worktree", "add", "-b", branch, path.toString)
-    val _ = git(cmd*)
-    emit(OrcaEvent.Step(s"Added worktree at $path on branch '$branch'"))
-    Worktree(path, branch)
+    val result = QuietProc.call("git" +: cmd, cwd = workDir)
+    if result.exitCode == 0 then
+      emit(OrcaEvent.Step(s"Added worktree at $path on branch '$branch'"))
+      Right(Worktree(path, branch))
+    else
+      val stderr = result.err.text().trim
+      // git surfaces both expected cases ("already exists", "is already
+      // checked out") via stderr. Anything else is a system-level failure.
+      if stderr.contains("already exists") ||
+        stderr.contains("already checked out")
+      then Left(new WorktreeAddFailed(path, stderr))
+      else
+        throw OrcaFlowException(
+          s"git worktree add failed (exit ${result.exitCode}): $stderr"
+        )
 
-  def removeWorktree(path: os.Path): Unit =
-    val _ = git("worktree", "remove", path.toString)
-    emit(OrcaEvent.Step(s"Removed worktree at $path"))
+  def removeWorktree(path: os.Path): Either[WorktreeNotFound, Unit] =
+    if !listWorktrees().exists(_.path == path) then
+      Left(new WorktreeNotFound(path))
+    else
+      val _ = git("worktree", "remove", path.toString)
+      emit(OrcaEvent.Step(s"Removed worktree at $path"))
+      Right(())
 
   def listWorktrees(): List[Worktree] =
     OsGitTool.parseWorktreeList(git("worktree", "list", "--porcelain"))

@@ -36,6 +36,7 @@
 import orca.{*, given}
 import orca.plan.ExtendedPlan
 import orca.review.{defaultReviewers, reviewAndFixLoop}
+import ox.either.orThrow
 
 flow(OrcaArgs(args)):
 
@@ -102,7 +103,7 @@ flow(OrcaArgs(args)):
         task = task.title.value
       )
       ExtendedPlan.persistComplete(planFile, task.title)
-      git.commit(s"task: ${task.title}")
+      git.commit(s"task: ${task.title}").orThrow
     currentPlan = ExtendedPlan.parse(os.read(planFile))
 
   // 5. Documentation pass — update relevant docs based on what
@@ -115,9 +116,9 @@ flow(OrcaArgs(args)):
         |stale, etc.) based on the changes you made. Don't invent
         |new docs sections — only update what's affected.""".stripMargin
     )
-    git.commit("docs: update for completed work")
+    git.commit("docs: update for completed work").orThrow
 
   // 6. Wrap-up: remove the epic file so the branch ships cleanly.
   stage("Remove epic file"):
     os.remove(planFile)
-    git.commit("chore: remove epic.md")
+    git.commit("chore: remove epic.md").orThrow

@@ -1,7 +1,16 @@
 package orca.tools.github
 
-import orca.{BuildOutcome, Comment, OrcaFlowException, PrHandle}
+import orca.{
+  BuildOutcome,
+  BuildTimedOut,
+  Comment,
+  NoCommitsToPr,
+  OrcaFlowException,
+  PrAlreadyExists,
+  PrHandle
+}
 import orca.subprocess.{CliResult, StubCliRunner}
+import ox.either.orThrow
 
 import scala.concurrent.duration.DurationInt
 
@@ -17,7 +26,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     val (cli, gh) = stubGh(
       CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
     )
-    val pr = gh.createPr("feat: hi", "hello")
+    val pr = gh.createPr("feat: hi", "hello").orThrow
     assertEquals(pr, samplePr)
     val args = cli.lastCall.getOrElse(fail("expected a call")).args
     assert(args.containsSlice(Seq("gh", "pr", "create")))
@@ -27,6 +36,20 @@ class OsGitHubToolTest extends munit.FunSuite:
   test("createPr throws when gh output does not contain a PR URL"):
     val (_, gh) = stubGh(CliResult(0, "no url here", ""))
     val _ = intercept[OrcaFlowException](gh.createPr("t", "b"))
+
+  test("createPr returns Left(PrAlreadyExists) when gh reports a duplicate"):
+    val (_, gh) = stubGh(
+      CliResult(1, "", "a pull request for branch 'feat' already exists")
+    )
+    assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[PrAlreadyExists]))
+
+  test(
+    "createPr returns Left(NoCommitsToPr) when the branch has nothing to push"
+  ):
+    val (_, gh) = stubGh(
+      CliResult(1, "", "must first push the current branch")
+    )
+    assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[NoCommitsToPr]))
 
   test("readComments maps gh api JSON into Comment values"):
     val json =
@@ -82,14 +105,16 @@ class OsGitHubToolTest extends munit.FunSuite:
       cli.setResponse(CliResult(0, successJson, ""))
     )
     watcher.start()
-    val status = gh.waitForBuild(samplePr, timeout = 5.seconds)
+    val status = gh.waitForBuild(samplePr, timeout = 5.seconds).orThrow
     watcher.join()
     assertEquals(status.outcome, BuildOutcome.Success)
 
-  test("waitForBuild throws when the timeout elapses while still pending"):
+  test("waitForBuild returns Left(BuildTimedOut) when the deadline elapses"):
     val pendingJson =
       """{"statusCheckRollup":[{"status":"IN_PROGRESS","name":"t"}]}"""
     val (_, gh) = stubGh(CliResult(0, pendingJson, ""))
-    val _ = intercept[OrcaFlowException](
+    assert(
       gh.waitForBuild(samplePr, timeout = 30.millis)
+        .left
+        .exists(_.isInstanceOf[BuildTimedOut])
     )

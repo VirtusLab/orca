@@ -11,6 +11,12 @@ package orca
   * directory.
   */
 trait FsTool:
-  def read(path: String): String
+
+  /** Read the file at `path`. Returns `None` when no file exists at that
+    * location — a recoverable miss the caller can branch on. Throws for
+    * system-level failures (permission, IO).
+    */
+  def read(path: String): Option[String]
+
   def write(path: String, content: String): Unit
   def list(glob: String): List[String]

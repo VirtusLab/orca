@@ -3,9 +3,13 @@ package orca.tools.github
 import orca.{
   BuildOutcome,
   BuildStatus,
+  BuildTimedOut,
   Comment,
   GitHubTool,
+  NoCommitsToPr,
   OrcaFlowException,
+  PrAlreadyExists,
+  PrCreateFailed,
   PrHandle
 }
 import orca.subprocess.CliRunner
@@ -59,12 +63,33 @@ class OsGitHubTool(
   private val PrUrlPattern =
     """https://github\.com/([^/]+)/([^/]+)/pull/(\d+)""".r
 
-  def createPr(title: String, body: String): PrHandle =
-    val output = gh("pr", "create", "--title", title, "--body", body).trim
-    PrUrlPattern.findFirstMatchIn(output) match
-      case Some(m) => PrHandle(m.group(1), m.group(2), m.group(3).toInt)
-      case None =>
-        throw OrcaFlowException(s"Unexpected output from gh pr create: $output")
+  def createPr(title: String, body: String): Either[PrCreateFailed, PrHandle] =
+    // Inspect exit code + stderr ourselves so we can split the recoverable
+    // "branch already has a PR" / "no commits to push" cases out from
+    // genuine system failures.
+    val result = cli.run(
+      Seq("gh", "pr", "create", "--title", title, "--body", body),
+      cwd = workDir
+    )
+    if result.exitCode == 0 then
+      val output = result.stdout.trim
+      PrUrlPattern.findFirstMatchIn(output) match
+        case Some(m) =>
+          Right(PrHandle(m.group(1), m.group(2), m.group(3).toInt))
+        case None =>
+          throw OrcaFlowException(
+            s"Unexpected output from gh pr create: $output"
+          )
+    else
+      val combined = (result.stdout + "\n" + result.stderr).toLowerCase
+      if combined.contains("already exists") then Left(new PrAlreadyExists)
+      else if combined.contains("no commits") ||
+        combined.contains("must first push")
+      then Left(new NoCommitsToPr)
+      else
+        throw OrcaFlowException(
+          s"gh pr create failed (exit ${result.exitCode}): ${result.stderr}"
+        )
 
   def readComments(pr: PrHandle): List[Comment] =
     val output = gh(
@@ -108,17 +133,18 @@ class OsGitHubTool(
       .mkString("\n")
     BuildStatus(outcome, log)
 
-  def waitForBuild(pr: PrHandle, timeout: FiniteDuration): BuildStatus =
+  def waitForBuild(
+      pr: PrHandle,
+      timeout: FiniteDuration
+  ): Either[BuildTimedOut, BuildStatus] =
     val deadline = System.nanoTime() + timeout.toNanos
 
     @scala.annotation.tailrec
-    def loop(): BuildStatus =
+    def loop(): Either[BuildTimedOut, BuildStatus] =
       val status = buildStatus(pr)
-      if status.outcome != BuildOutcome.Pending then status
+      if status.outcome != BuildOutcome.Pending then Right(status)
       else if System.nanoTime() >= deadline then
-        throw OrcaFlowException(
-          s"Build for PR ${pr.number} did not finish within $timeout"
-        )
+        Left(new BuildTimedOut(timeout))
       else
         Thread.sleep(pollInterval.toMillis)
         loop()

@@ -22,6 +22,33 @@ class BranchAlreadyExists(name: String)
 class BranchNotFound(name: String)
     extends OrcaFlowException(s"branch '$name' not found")
 
+/** Returned in the `Left` of [[GitTool.commit]] when the working tree has no
+  * pending changes. Some flows skip-and-continue when nothing changed; others
+  * `.orThrow` to abort.
+  */
+class NothingToCommit
+    extends OrcaFlowException("nothing to commit; working tree is clean")
+
+/** Returned in the `Left` of [[GitTool.push]] when the remote rejected the push
+  * as non-fast-forward (the branch moved on the remote). The caller can recover
+  * by fetching and rebasing. Other push failures (auth, network) remain thrown
+  * — they aren't locally recoverable.
+  */
+class PushRejected(reason: String)
+    extends OrcaFlowException(s"push rejected: $reason")
+
+/** Returned in the `Left` of [[GitTool.addWorktree]] when the target `path` is
+  * already a worktree, or the `branch` is checked out in another worktree.
+  */
+class WorktreeAddFailed(path: os.Path, reason: String)
+    extends OrcaFlowException(s"could not add worktree at $path: $reason")
+
+/** Returned in the `Left` of [[GitTool.removeWorktree]] when no worktree is
+  * registered at `path`.
+  */
+class WorktreeNotFound(path: os.Path)
+    extends OrcaFlowException(s"no worktree at $path")
+
 /** Git adapter usable from flow scripts — the handle behind the `git` accessor.
   * Wraps branch, commit, diff, log, and worktree operations against the working
   * repository.
@@ -50,12 +77,16 @@ trait GitTool:
 
   /** Stage all tracked + untracked changes, then commit them with `message`.
     * Flow scripts rarely want to manage the index separately, so staging is
-    * part of the commit contract.
+    * part of the commit contract. Returns `Left(NothingToCommit)` when the tree
+    * is already clean.
     */
-  def commit(message: String): Unit
+  def commit(message: String): Either[NothingToCommit, Unit]
 
-  /** Push the current branch, setting upstream on first push. */
-  def push(): Unit
+  /** Push the current branch, setting upstream on first push. Returns
+    * `Left(PushRejected)` when the remote rejected as non-fast-forward (caller
+    * can fetch + rebase). Other failures (auth, network) throw.
+    */
+  def push(): Either[PushRejected, Unit]
 
   def currentBranch(): String
 
@@ -78,14 +109,20 @@ trait GitTool:
   /** Create a linked worktree at `path` on `branch`. If the branch already
     * exists it is checked out in the new worktree; otherwise it is created from
     * `HEAD`. Lets a flow work on several tasks in parallel without
-    * branch-hopping in a single directory.
+    * branch-hopping in a single directory. Returns `Left(WorktreeAddFailed)`
+    * when the path is already a worktree or the branch is checked out
+    * elsewhere.
     */
-  def addWorktree(path: os.Path, branch: String): Worktree
+  def addWorktree(
+      path: os.Path,
+      branch: String
+  ): Either[WorktreeAddFailed, Worktree]
 
   /** Remove the linked worktree rooted at `path`, also deleting the working
-    * directory.
+    * directory. Returns `Left(WorktreeNotFound)` when no worktree is registered
+    * at that path.
     */
-  def removeWorktree(path: os.Path): Unit
+  def removeWorktree(path: os.Path): Either[WorktreeNotFound, Unit]
 
   /** All linked worktrees attached to the repository, including the main one.
     * Detached-HEAD worktrees (no branch) are skipped.

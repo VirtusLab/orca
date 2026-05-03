@@ -32,10 +32,10 @@ class OrcaOverridesTest extends munit.FunSuite:
 
   test("flow uses a custom FsTool when supplied"):
     val fake = new FsTool:
-      def read(path: String): String = "canned content"
+      def read(path: String): Option[String] = Some("canned content")
       def write(path: String, content: String): Unit = ()
       def list(glob: String): List[String] = List("custom")
-    var observed: String = ""
+    var observed: Option[String] = None
     flow(
       args = OrcaArgs(),
       fs = Some(fake),
@@ -43,7 +43,7 @@ class OrcaOverridesTest extends munit.FunSuite:
     ) {
       observed = fs.read("ignored")
     }
-    assertEquals(observed, "canned content")
+    assertEquals(observed, Some("canned content"))
 
   test("flow uses a custom ClaudeTool when supplied"):
     val fakeClaude = new ClaudeTool:

@@ -48,7 +48,7 @@ object FlowCanary:
     flow(OrcaArgs()):
       stage("tools"):
         val _ = git.createBranch("x")
-        git.commit("msg")
+        val _ = git.commit("msg")
         val _ = gh
         val _ = fs
         val _ = codex

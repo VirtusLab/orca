@@ -11,8 +11,9 @@ import java.nio.file.FileSystems
   */
 class OsFsTool(base: os.Path = os.pwd) extends FsTool:
 
-  def read(path: String): String =
-    os.read(resolve(path))
+  def read(path: String): Option[String] =
+    val p = resolve(path)
+    if os.isFile(p) then Some(os.read(p)) else None
 
   def write(path: String, content: String): Unit =
     os.write.over(resolve(path), content, createFolders = true)
