@@ -216,12 +216,21 @@ def reviewAndFixLoop[B <: Backend](
     reviewers: List[LlmTool[?]],
     task: String,
     lintCommand: Option[String] = None,
+    /** LLM that summarises lint output into a `ReviewResult`. Required when
+      * `lintCommand` is set; ignored otherwise. Use a cheap model
+      * (`claude.haiku`, `codex.mini`) — the lint summary is a small fold.
+      */
+    lintLlm: Option[LlmTool[?]] = None,
     confidenceThreshold: Double = 0.7,
     reviewerSelection: ReviewerSelector =
       ReviewerSelector.onlyPreviouslyReporting,
     maxIterations: Int = 10,
     fixInstructions: String = ReviewPrompts.Fix
 )(using ctx: FlowContext): IgnoredIssues =
+  require(
+    lintCommand.isEmpty || lintLlm.isDefined,
+    "reviewAndFixLoop: lintCommand requires lintLlm"
+  )
   // Threaded across iterations via the closure: each evaluate appends
   // its batch and the selector reads back over the list. Method-scope
   // var allowed by the project's FP conventions; the loop is single-
@@ -249,7 +258,11 @@ def reviewAndFixLoop[B <: Backend](
     reviewerOutcomes.foreach: (reviewer, result) =>
       ctx.emit(OrcaEvent.Step(formatReviewerOutcome(reviewer.name, result)))
     val lintResult =
-      lintCommand.toList.map(cmd => "lint" -> lint(cmd, orca.claude.haiku))
+      lintCommand
+        .zip(lintLlm)
+        .toList
+        .map: (cmd, llm) =>
+          "lint" -> lint(cmd, llm)
     lintResult.foreach: (name, result) =>
       ctx.emit(OrcaEvent.Step(formatReviewerOutcome(name, result)))
     val all = batch.allIssues ++ lintResult.flatMap(_._2.issues)

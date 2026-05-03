@@ -110,7 +110,7 @@ flow(OrcaArgs(args)):
   // 5. Documentation pass — update relevant docs based on what
   // changed in this branch.
   stage("Update documentation"):
-    val _ = claude.continueSession(
+    val _ = claude.autonomous.continueSession(
       sessionId,
       """All tasks are done. Now update the project's documentation
         |(README, in-code doc-comments where they obviously got

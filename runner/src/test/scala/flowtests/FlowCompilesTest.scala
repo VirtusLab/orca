@@ -29,8 +29,18 @@ object FlowCanary:
   def structuredResult(): Unit =
     flow(OrcaArgs()):
       stage("plan"):
-        val (_, _) =
+        val (sessionId, _) =
           claude.resultAs[FlowPlan].interactive.startSession(userPrompt)
+        val _ = claude
+          .resultAs[FlowPlan]
+          .interactive
+          .continueSession(sessionId, "refine")
+        val (sid2, _) =
+          claude.resultAs[FlowPlan].autonomous.startSession(userPrompt)
+        val _ = claude
+          .resultAs[FlowPlan]
+          .autonomous
+          .continueSession(sid2, "follow up")
         val _ = claude.resultAs[FlowPlan].autonomous.run(userPrompt)
 
   /** Free-form text prompts and session continuation; the shape the README
@@ -69,7 +79,8 @@ object FlowCanary:
             sessionId = sessionId,
             reviewers = defaultReviewers(claude),
             task = task.description,
-            lintCommand = Some("mvn -q test")
+            lintCommand = Some("mvn -q test"),
+            lintLlm = Some(claude.haiku)
           )
 
   /** Config overrides must be reachable as unqualified names so users can write

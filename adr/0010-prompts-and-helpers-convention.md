@@ -36,7 +36,7 @@ For every domain helper that bundles an LLM brief, follow this pattern:
 
 1. **Place a public `object XxxPrompts` beside the helper**, in the same
    package. Each entry is a complete instruction block as a `val`.
-   - `orca.plan.PlanPrompts` — `Planning`, `Generate`
+   - `orca.plan.PlanPrompts` — `Planning`
    - `orca.review.ReviewPrompts` — `Fix`, `SelectReviewers`, `SummarizeLint`
    - `orca.review.ReviewerPrompts` — per-reviewer system prompts
      (`Performance`, `Readability`, …)

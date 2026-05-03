@@ -52,7 +52,8 @@ flow(OrcaArgs(args)):
         sessionId = sessionId,
         reviewers = defaultReviewers(claude),
         task = task.title.value,
-        lintCommand = Some("cargo test --quiet")
+        lintCommand = Some("cargo test --quiet"),
+        lintLlm = Some(claude.haiku)
       )
 
       git.commit(s"Implement ${task.title}").orThrow

@@ -57,7 +57,8 @@ flow(OrcaArgs(args)):
         sessionId = sessionId,
         reviewers = defaultReviewers(claude),
         task = task.title.value,
-        lintCommand = Some("sbt scalafmtCheckAll test")
+        lintCommand = Some("sbt scalafmtCheckAll test"),
+        lintLlm = Some(claude.haiku)
       )
       git.commit(s"Implement ${task.title}").orThrow
 ```

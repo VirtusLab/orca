@@ -13,7 +13,7 @@ import scala.util.control.NonFatal
   *
   * ```
   * flow(OrcaArgs(args)):
-  *   val plan = claude.resultAs[Plan].autonomous(userPrompt)
+  *   val plan = claude.resultAs[Plan].autonomous.run(userPrompt)
   *   ...
   * ```
   *

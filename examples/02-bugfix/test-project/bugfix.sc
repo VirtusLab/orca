@@ -123,6 +123,7 @@ flow(OrcaArgs(args)):
   stage("Verify failure matches the report"):
     val verdict = claude
       .resultAs[BugReportMatch]
+      .autonomous
       .continueSession(
         sessionId,
         s"""Here's the CI failure log:
@@ -161,7 +162,8 @@ flow(OrcaArgs(args)):
       sessionId = sessionId,
       reviewers = defaultReviewers(claude),
       task = triage.summary,
-      lintCommand = Some("mvn -q test")
+      lintCommand = Some("mvn -q test"),
+      lintLlm = Some(claude.haiku)
     )
 
     git.commit(s"Fix: ${triage.summary}").orThrow
