@@ -14,6 +14,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SEED_DIR="$SCRIPT_DIR/test-project"
+# Flow scripts live in the top-level `plans/` directory so the test-project
+# folders stay free of orca-runtime artefacts. Resolved relative to this
+# script so a checkout in any location still works.
+PLANS_DIR="$(cd "$SCRIPT_DIR/../../plans" && pwd)"
 
 DEST="${1:-}"
 if [[ -z "$DEST" ]]; then
@@ -25,6 +29,7 @@ fi
 # `cp -R src/.` copies the directory's *contents*, including dotfiles
 # (.gitignore here) but not the wrapping `test-project` dir itself.
 cp -R "$SEED_DIR/." "$DEST/"
+cp "$PLANS_DIR/implement.sc" "$DEST/implement.sc"
 
 cd "$DEST"
 git init -q -b main

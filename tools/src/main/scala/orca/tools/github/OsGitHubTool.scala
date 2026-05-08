@@ -6,6 +6,8 @@ import orca.{
   BuildTimedOut,
   Comment,
   GitHubTool,
+  Issue,
+  IssueHandle,
   NoCommitsToPr,
   OrcaFlowException,
   PrAlreadyExists,
@@ -45,6 +47,15 @@ private[orca] case class GhCommentJson(
 
 private[orca] case class GhUserJson(login: String)
     derives ConfiguredJsonValueCodec
+
+private[orca] case class GhIssueJson(
+    title: String,
+    // Issues without a body return `null` from the API; the codec
+    // treats a missing key as None and a null literal as None too.
+    body: Option[String] = None,
+    user: GhUserJson,
+    state: String
+) derives ConfiguredJsonValueCodec
 
 private[orca] given JsonValueCodec[List[GhCommentJson]] = JsonCodecMaker.make
 
@@ -91,11 +102,38 @@ class OsGitHubTool(
           s"gh pr create failed (exit ${result.exitCode}): ${result.stderr}"
         )
 
-  def readComments(pr: PrHandle): List[Comment] =
+  def readIssue(issue: IssueHandle): Issue =
+    val output = gh(
+      "api",
+      s"repos/${issue.owner}/${issue.repo}/issues/${issue.number}"
+    )
+    val parsed = readFromString[GhIssueJson](output)
+    Issue(
+      title = parsed.title,
+      body = parsed.body.getOrElse(""),
+      author = parsed.user.login,
+      state = parsed.state
+    )
+
+  def readIssueComments(issue: IssueHandle): List[Comment] =
+    readCommentsAt(issue.owner, issue.repo, issue.number)
+
+  def readPrComments(pr: PrHandle): List[Comment] =
+    // GitHub's `/issues/{n}/comments` endpoint returns the conversation
+    // comments for both issues and PRs (a PR is an issue in the data
+    // model). Line-level review comments live at `/pulls/{n}/comments`
+    // and aren't covered here.
+    readCommentsAt(pr.owner, pr.repo, pr.number)
+
+  private def readCommentsAt(
+      owner: String,
+      repo: String,
+      number: Int
+  ): List[Comment] =
     val output = gh(
       "api",
       "--paginate",
-      s"repos/${pr.owner}/${pr.repo}/issues/${pr.number}/comments"
+      s"repos/$owner/$repo/issues/$number/comments"
     )
     readFromString[List[GhCommentJson]](output).map: c =>
       Comment(author = c.user.login, body = c.body)

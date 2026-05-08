@@ -11,6 +11,10 @@ class PlanTest extends munit.FunSuite:
   private val sample =
     """# Plan: add-divide-method
       |
+      |Extend Calculator with safe integer division. The current API
+      |covers add/subtract/multiply but not divide, and callers have
+      |started rolling their own with inconsistent zero-handling.
+      |
       |## Task: add-divide
       |Status: [ ]
       |
@@ -29,6 +33,7 @@ class PlanTest extends munit.FunSuite:
   test("Plan round-trips through JSON via the JsonData codec"):
     val plan = Plan(
       epicId = "calculator-features",
+      description = "Round out Calculator with the missing arithmetic ops.",
       tasks = List(
         Task(
           title = Title("Add multiply"),
@@ -51,6 +56,7 @@ class PlanTest extends munit.FunSuite:
   test("Announce[Plan] produces a header + per-task bullet summary"):
     val plan = Plan(
       epicId = "feat-pair",
+      description = "",
       tasks = List(
         Task(Title("Add feature A"), "do A"),
         Task(Title("Add feature B"), "do B")
@@ -65,7 +71,7 @@ class PlanTest extends munit.FunSuite:
 
   test("Announce[Plan] returns None for an empty plan (no Step emitted)"):
     assertEquals(
-      summon[orca.Announce[Plan]].message(Plan("empty", Nil)),
+      summon[orca.Announce[Plan]].message(Plan("empty", "", Nil)),
       None
     )
 
@@ -73,6 +79,24 @@ class PlanTest extends munit.FunSuite:
 
   test("parse extracts the branch name from the H1"):
     assertEquals(Plan.parse(sample).epicId, "add-divide-method")
+
+  test("parse extracts the epic description between the H1 and the first task"):
+    val description = Plan.parse(sample).description
+    assert(description.startsWith("Extend Calculator"))
+    assert(description.contains("inconsistent zero-handling"))
+    // The description must not bleed into the first task block.
+    assert(!description.contains("## Task"))
+
+  test("parse yields an empty description when the file has no preamble"):
+    val noPreamble =
+      """# Plan: x
+        |
+        |## Task: t
+        |Status: [ ]
+        |
+        |body
+        |""".stripMargin
+    assertEquals(Plan.parse(noPreamble).description, "")
 
   test("parse splits the file into tasks and reads each status checkbox"):
     val plan = Plan.parse(sample)

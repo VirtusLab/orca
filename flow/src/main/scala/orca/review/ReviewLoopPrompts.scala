@@ -53,3 +53,35 @@ object ReviewLoopPrompts:
     """Summarize the following lint output into a ReviewResult. Each
       |distinct issue should produce a ReviewIssue; use reasonable
       |confidence based on how actionable the message is.""".stripMargin
+
+  /** Initial reviewer call: pin the agent to the supplied diff so it doesn't
+    * fan out across the whole project. The same prompt template is used for
+    * every reviewer; the reviewer's identity comes from its system prompt.
+    */
+  def initialReview(task: String, diff: String): String =
+    val diffBlock =
+      if diff.trim.isEmpty then "(no diff captured — review the working tree)"
+      else s"```diff\n$diff\n```"
+    s"""Task: $task
+       |
+       |Review the following changes only — do NOT survey unrelated
+       |files in the project. Focus your findings strictly on what the
+       |diff modifies and on code that interacts directly with it.
+       |
+       |Diff (working tree vs HEAD at the start of the review loop):
+       |
+       |$diffBlock
+       |
+       |Output a ReviewResult.""".stripMargin
+
+  /** Continuation prompt for a reviewer's session on iterations after the
+    * first. The session already contains the original diff and the reviewer's
+    * earlier findings; the working tree may have changed in response to a fix.
+    */
+  val ReReview: String =
+    """Fixes have been applied to the working tree based on your earlier
+      |review. Re-review the current state — focus on whether your
+      |earlier findings were addressed and on any new issues introduced
+      |by the fix. Stay scoped to the same changes you reviewed
+      |initially; do not expand to unrelated files. Output a
+      |ReviewResult.""".stripMargin

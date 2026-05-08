@@ -68,14 +68,14 @@ class TerminalInteraction(
         emitStepLine(name)
         depthCounter.push()
         stages.push(name)
-        showCurrentBreadcrumb()
+        showCurrentStage()
       case OrcaEvent.StageCompleted(_, _) =>
         // Stage completions don't print to the event log — starting
         // the next event implicitly tells the user the previous one
         // finished.
         depthCounter.pop()
         stages.pop()
-        showCurrentBreadcrumb()
+        showCurrentStage()
       case OrcaEvent.ToolUse(tool, args) =>
         appendIndented(paint(fansi.Color.DarkGray, s"  → $tool: $args"))
       case OrcaEvent.TokensUsed(_, _, _) =>
@@ -106,12 +106,17 @@ class TerminalInteraction(
       val glyph = paint(StepGlyphStyle, s"$StageStartGlyph ")
       appendIndented(glyph + message)
 
-  /** Push the current breadcrumb to the bar (or hide it when the stack is
+  /** Push the current innermost stage to the bar (or hide it when the stack is
     * empty). Centralised so every push/pop site does the same thing —
     * `startStatus(label)` for non-empty, `stopStatus()` for empty.
+    *
+    * Only the innermost stage label is shown so the bar stays compact even when
+    * outer stages carry long titles (e.g. an "Implement task: <full title>"
+    * wrapper). The full breadcrumb is preserved in the event log via the
+    * indented `▶ <stage>` lines, so context isn't lost.
     */
-  private def showCurrentBreadcrumb(): Unit =
-    stages.breadcrumb match
+  private def showCurrentStage(): Unit =
+    stages.innermost match
       case Some(label) => statusBar.startStatus(label)
       case None        => statusBar.stopStatus()
 
@@ -127,17 +132,16 @@ class TerminalInteraction(
   private def paint(attr: fansi.Attrs, text: String): String =
     Ansi.paint(useColor, attr, text)
 
-/** Stack of active stage names, head = most-recently-started. `breadcrumb`
-  * joins the stack outermost-first with `" > "` for the status bar; `None`
-  * means no stage is active. Touched only from the [[TerminalListener]] thread.
+/** Stack of active stage names, head = most-recently-started. `innermost`
+  * returns the deepest stage (the most recently pushed), which is what the
+  * status bar surfaces; `None` means no stage is active. Touched only from the
+  * [[TerminalListener]] thread.
   */
 private class StageStack:
   private var stack: List[String] = Nil
   def push(name: String): Unit = stack = name :: stack
   def pop(): Unit = stack = stack.drop(1)
-  def breadcrumb: Option[String] =
-    if stack.isEmpty then None
-    else Some(stack.reverse.mkString(" > "))
+  def innermost: Option[String] = stack.headOption
 
 object TerminalInteraction:
   val StageStartGlyph: String = "▶"

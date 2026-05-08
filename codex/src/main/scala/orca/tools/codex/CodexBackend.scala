@@ -6,6 +6,7 @@ import orca.{
   LlmBackend,
   LlmConfig,
   LlmResult,
+  OrcaDebug,
   OrcaFlowException,
   SessionId,
   Usage
@@ -14,6 +15,7 @@ import orca.subprocess.{CliRunner, PipedCliProcess}
 import orca.tools.codex.jsonl.{InboundEvent, Item}
 
 import java.util.concurrent.atomic.AtomicReference
+import scala.util.control.NonFatal
 
 /** Codex backend. Both headless and interactive paths drive `codex exec --json`
   * over stdio: stdout JSONL is parsed into [[InboundEvent]]s, and the assistant
@@ -160,7 +162,20 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
         process.stderrLines.foreach: line =>
           if isReportableStderr(line) then
             val _ = stderrBuf.updateAndGet(_ :+ line.trim)
-      catch case _: Throwable => ()
+      catch
+        case _: InterruptedException =>
+          // Daemon thread is being shut down; preserve the flag so
+          // any caller observing it sees the request.
+          Thread.currentThread().interrupt()
+        case NonFatal(t) =>
+          // Best-effort drain; the main thread doesn't depend on
+          // stderr to make progress. Surface in debug so a real bug
+          // isn't masked.
+          if OrcaDebug.streamTrace || OrcaDebug.enabled then
+            System.err.println(
+              s"[orca-debug codex-stderr-drain] ${t.getClass.getName}: " +
+                s"${Option(t.getMessage).getOrElse("")}"
+            )
     val stderrThread = new Thread(drainStderr, "codex-headless-stderr")
     stderrThread.setDaemon(true)
     stderrThread.start()
@@ -168,7 +183,11 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
     val foldResult = foldStdout(process, HeadlessAccumulator.empty)
     val exit = process.waitForExit()
     try stderrThread.join()
-    catch case _: InterruptedException => ()
+    catch
+      // Interrupt while joining means the parent is shutting down;
+      // restoring the flag is the right thing to do but there's
+      // nothing else useful to log here.
+      case _: InterruptedException => Thread.currentThread().interrupt()
 
     foldResult match
       case Left(msg) => Left(msg)

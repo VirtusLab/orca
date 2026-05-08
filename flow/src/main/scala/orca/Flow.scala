@@ -19,22 +19,28 @@ def stage[T](name: String)(body: => T)(using ctx: FlowContext): T =
     result
   catch
     case e: OrcaFlowException =>
-      // Malformed-output is the one subtype that carries extra render
-      // context (the agent's raw reply); other OrcaFlowExceptions
-      // already emitted their own Error inside `fail(...)`.
+      // Three sub-cases. Malformed-output carries extra render context.
+      // Exceptions from `fail(...)` carry `alreadyEmitted = true` and
+      // need no further emission. Anything else (tool adapters that
+      // throw directly) lands here without a prior emit, and would be
+      // invisible if we didn't surface it.
       e match
         case mao: orca.io.MalformedAgentOutputException =>
           ctx.emit(OrcaEvent.Error(formatMalformedOutput(name, mao)))
-        case _ => ()
+        case _ if e.alreadyEmitted => ()
+        case _ =>
+          ctx.emit(OrcaEvent.Error(s"Stage '$name' failed: ${shortMessage(e)}"))
       throw e
     case NonFatal(e) =>
-      val msg = Option(e.getMessage)
-        .getOrElse(e.getClass.getName)
-        .linesIterator
-        .nextOption()
-        .getOrElse(e.getClass.getName)
-      ctx.emit(OrcaEvent.Error(s"Stage '$name' failed: $msg"))
+      ctx.emit(OrcaEvent.Error(s"Stage '$name' failed: ${shortMessage(e)}"))
       throw e
+
+private def shortMessage(e: Throwable): String =
+  Option(e.getMessage)
+    .getOrElse(e.getClass.getName)
+    .linesIterator
+    .nextOption()
+    .getOrElse(e.getClass.getName)
 
 private def formatMalformedOutput(
     stage: String,
@@ -52,7 +58,7 @@ private def formatMalformedOutput(
 
 def fail(message: String)(using ctx: FlowContext): Nothing =
   ctx.emit(OrcaEvent.Error(message))
-  throw OrcaFlowException(message)
+  throw new OrcaFlowException(message, alreadyEmitted = true)
 
 /** Pluralize an English noun by appending "s" when `n != 1`. The same count
   * goes into the rendered string (`"1 review comment"` / `"3 review

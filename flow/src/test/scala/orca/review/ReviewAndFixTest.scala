@@ -18,14 +18,22 @@ import orca.{
   Title
 }
 
-/** Fake LlmCall whose `autonomous.run` and `autonomous.continueSession` each
-  * return a scripted sequence of outputs — cast through `Any` because the trait
-  * is generic over output type.
+/** Fake LlmCall whose `autonomous.run` / `autonomous.startSession` /
+  * `autonomous.continueSession` return scripted sequences of outputs — cast
+  * through `Any` because the trait is generic over output type.
+  *
+  * `runOutputs` feeds both `run` and `startSession` (the first call in a
+  * structured-session shape consumes from this list); `continueSessionOutputs`
+  * feeds `continueSession` for follow-up calls.
   */
 class FakeLlmCall[O](
     runOutputs: Iterator[Any],
     continueSessionOutputs: Iterator[Any]
 ) extends LlmCall[Backend.ClaudeCode.type, O]:
+  // A shared counter so each startSession produces a distinct session id,
+  // letting tests assert on which id flows where.
+  private val sessionCounter = new java.util.concurrent.atomic.AtomicInteger(0)
+
   val autonomous: AutonomousLlmCall[Backend.ClaudeCode.type, O] =
     new AutonomousLlmCall[Backend.ClaudeCode.type, O]:
       def run[I: AgentInput](
@@ -35,7 +43,11 @@ class FakeLlmCall[O](
       def startSession[I: AgentInput](
           input: I,
           config: LlmConfig = LlmConfig.default
-      ): (SessionId[Backend.ClaudeCode.type], O) = ???
+      ): (SessionId[Backend.ClaudeCode.type], O) =
+        val sid = SessionId[Backend.ClaudeCode.type](
+          s"fake-session-${sessionCounter.incrementAndGet()}"
+        )
+        (sid, runOutputs.next().asInstanceOf[O])
       def continueSession[I: AgentInput](
           sessionId: SessionId[Backend.ClaudeCode.type],
           input: I,
@@ -87,7 +99,8 @@ class ReviewAndFixTest extends munit.FunSuite:
       coder = coder,
       sessionId = SessionId[Backend.ClaudeCode.type]("s"),
       reviewers = List(silentReviewer),
-      task = "do the thing"
+      task = "do the thing",
+      initialDiff = Some("")
     )
     assertEquals(result, IgnoredIssues(Nil))
 
@@ -112,7 +125,8 @@ class ReviewAndFixTest extends munit.FunSuite:
       sessionId = SessionId[Backend.ClaudeCode.type]("s"),
       reviewers = List(reviewer),
       task = "build the widget",
-      confidenceThreshold = 0.7
+      confidenceThreshold = 0.7,
+      initialDiff = Some("")
     )
     assertEquals(
       result.issues,
@@ -147,9 +161,86 @@ class ReviewAndFixTest extends munit.FunSuite:
       coder = coder,
       sessionId = SessionId[Backend.ClaudeCode.type]("s"),
       reviewers = List(reviewerA, reviewerB),
-      task = "multi"
+      task = "multi",
+      initialDiff = Some("")
     )
     assertEquals(result.issues.map(_.title).toSet, Set(Title("A"), Title("B")))
+
+  test(
+    "first reviewer call uses startSession; subsequent iterations continueSession"
+  ):
+    given FlowContext = ctx
+    val stubborn = issue("never ends")
+    // promptOutputs has exactly one entry — proves the first iteration
+    // consumes from startSession, not run. continueSessionOutputs supplies
+    // the follow-up iterations.
+    val reviewer = new FakeLlmTool(
+      name = "loud",
+      promptOutputs = List(ReviewResult(List(stubborn))),
+      continueSessionOutputs = List.fill(3)(ReviewResult(List(stubborn)))
+    )
+    val coder = new FakeLlmTool(
+      name = "fixer",
+      continueSessionOutputs =
+        List.fill(3)(FixOutcome(List(Title("never ends")), Nil))
+    )
+    val _ = reviewAndFixLoop(
+      coder = coder,
+      sessionId = SessionId[Backend.ClaudeCode.type]("s"),
+      reviewers = List(reviewer),
+      task = "never ending",
+      maxIterations = 2,
+      initialDiff = Some("")
+    )
+    // If the loop had used `run` for the first call, the empty
+    // `runOutputs` iterator would have thrown NoSuchElement before the
+    // continueSessionOutputs were ever drained — passing this test
+    // confirms the session-based path was taken.
+
+  test("initialDiff is embedded in the reviewer's first prompt"):
+    given FlowContext = ctx
+    var capturedFirst: Option[String] = None
+    val captureReviewer = new LlmTool[Backend.ClaudeCode.type]:
+      val name = "capturing"
+      def autonomous: AutonomousTextCall[Backend.ClaudeCode.type] = ???
+      def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
+      def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] = this
+      def withName(n: String): LlmTool[Backend.ClaudeCode.type] = this
+      def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
+        new LlmCall[Backend.ClaudeCode.type, O]:
+          val autonomous: AutonomousLlmCall[Backend.ClaudeCode.type, O] =
+            new AutonomousLlmCall[Backend.ClaudeCode.type, O]:
+              def run[I: AgentInput](
+                  i: I,
+                  c: LlmConfig = LlmConfig.default
+              ): O = ???
+              def startSession[I: AgentInput](
+                  i: I,
+                  c: LlmConfig = LlmConfig.default
+              ): (SessionId[Backend.ClaudeCode.type], O) =
+                capturedFirst = Some(i.toString)
+                (
+                  SessionId[Backend.ClaudeCode.type]("s"),
+                  ReviewResult.empty.asInstanceOf[O]
+                )
+              def continueSession[I: AgentInput](
+                  s: SessionId[Backend.ClaudeCode.type],
+                  i: I,
+                  c: LlmConfig = LlmConfig.default
+              ): O = ???
+          def interactive: InteractiveLlmCall[Backend.ClaudeCode.type, O] = ???
+
+    val coder = new FakeLlmTool("coder")
+    val _ = reviewAndFixLoop(
+      coder = coder,
+      sessionId = SessionId[Backend.ClaudeCode.type]("s"),
+      reviewers = List(captureReviewer),
+      task = "do thing",
+      initialDiff = Some("--- a/Foo.scala\n+++ b/Foo.scala\n+ added line")
+    )
+    val sent = capturedFirst.getOrElse(fail("startSession was never called"))
+    assert(sent.contains("--- a/Foo.scala"), s"diff missing from prompt: $sent")
+    assert(sent.contains("do thing"), s"task missing from prompt: $sent")
 
   test("ReviewerSelector.llmDriven asks the LLM once and caches"):
     val perf = new FakeLlmTool(name = "performance")

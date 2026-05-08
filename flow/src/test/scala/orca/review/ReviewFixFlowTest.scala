@@ -57,7 +57,8 @@ class ReviewFixFlowTest extends munit.FunSuite:
       coder = coder,
       sessionId = SessionId[Backend.ClaudeCode.type]("s"),
       reviewers = List(reviewer),
-      task = "optimize cache"
+      task = "optimize cache",
+      initialDiff = Some("")
     )
 
     val events = listener.events
@@ -82,10 +83,13 @@ class ReviewFixFlowTest extends munit.FunSuite:
     // Reviewer keeps reporting the same issue every round; coder claims it
     // fixed it every round (so the loop sees progress) but the next eval
     // still finds it. The cap is the only thing that can stop this.
+    // The first reviewer call is a startSession (consumes from
+    // promptOutputs); each subsequent iteration is a continueSession.
     val stubborn = issue("never ends")
     val reviewer = new FakeLlmTool(
       name = "loud",
-      promptOutputs = List.fill(20)(ReviewResult(List(stubborn)))
+      promptOutputs = List(ReviewResult(List(stubborn))),
+      continueSessionOutputs = List.fill(20)(ReviewResult(List(stubborn)))
     )
     val coder = new FakeLlmTool(
       name = "fixer",
@@ -98,7 +102,8 @@ class ReviewFixFlowTest extends munit.FunSuite:
       sessionId = SessionId[Backend.ClaudeCode.type]("s"),
       reviewers = List(reviewer),
       task = "never ending",
-      maxIterations = 2
+      maxIterations = 2,
+      initialDiff = Some("")
     )
     assert(
       result.issues.exists(_.reason.contains("max iterations")),

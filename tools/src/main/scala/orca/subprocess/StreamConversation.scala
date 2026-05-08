@@ -154,7 +154,12 @@ private[orca] abstract class StreamConversation[B <: Backend](
       for line <- process.stderrLines do
         debugLog("stderr", line)
         handleStderr(line)
-    catch case NonFatal(_) => () // stderr draining is best-effort
+    catch
+      case NonFatal(t) =>
+        // stderr draining is best-effort — the main thread doesn't
+        // depend on it. Surface the swallowed throwable under
+        // ORCA_DEBUG so a real bug isn't masked.
+        debugLog("stderr-error", s"${t.getClass.getName}: ${t.getMessage}")
 
   protected def debugLog(channel: String, line: String): Unit =
     if OrcaDebug.streamTrace then

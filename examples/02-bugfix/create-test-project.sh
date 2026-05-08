@@ -16,6 +16,9 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SEED_DIR="$SCRIPT_DIR/test-project"
+# Flow scripts live in the top-level `plans/` directory so the test-project
+# folders stay free of orca-runtime artefacts.
+PLANS_DIR="$(cd "$SCRIPT_DIR/../../plans" && pwd)"
 
 DEST="${1:-}"
 if [[ -z "$DEST" ]]; then
@@ -25,6 +28,7 @@ else
 fi
 
 cp -R "$SEED_DIR/." "$DEST/"
+cp "$PLANS_DIR/bugfix.sc" "$DEST/bugfix.sc"
 
 cd "$DEST"
 git init -q -b main

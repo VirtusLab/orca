@@ -34,7 +34,11 @@ import orca.{
   * methods consume Orca's auto-generated JSON schema; no caller-side
   * serialization is needed.
   */
-case class Plan(epicId: String, tasks: List[Task]) derives JsonData:
+case class Plan(
+    epicId: String,
+    description: String,
+    tasks: List[Task]
+) derives JsonData:
 
   /** Mark the task with the given `title` complete, leaving the others
     * untouched. Returns the same plan if no task matches.
@@ -160,9 +164,10 @@ object Plan:
     val normalised = markdown.stripPrefix("﻿").replace("\r\n", "\n")
     val lines = normalised.linesIterator.toList
     val epicId = parseHeader(lines)
+    val description = parseDescription(lines)
     val taskBlocks = splitTaskBlocks(lines)
     if taskBlocks.isEmpty then throw PlanParseException("Plan has no tasks")
-    Plan(epicId, taskBlocks.map(parseTask))
+    Plan(epicId, description, taskBlocks.map(parseTask))
 
   /** Render a plan back into the on-disk format. Output round-trips through
     * [[parse]] without information loss; we use this to write the file when
@@ -170,12 +175,15 @@ object Plan:
     */
   def render(plan: Plan): String =
     val header = s"# Plan: ${plan.epicId}\n"
+    val descriptionBlock =
+      if plan.description.trim.isEmpty then ""
+      else s"\n${plan.description.stripLineEnd}\n"
     val body = plan.tasks
       .map: t =>
         val checkbox = if t.completed then "[x]" else "[ ]"
         s"\n## Task: ${t.title}\nStatus: $checkbox\n\n${t.description.stripLineEnd}\n"
       .mkString
-    header + body
+    header + descriptionBlock + body
 
   // --- Parser internals ---
 
@@ -190,6 +198,16 @@ object Plan:
         throw PlanParseException(
           s"Expected first non-blank line to match `# Plan: <epicId>`; got: ${other.getOrElse("(empty file)")}"
         )
+
+  /** Description sits between the `# Plan:` header and the first `## Task:`
+    * heading. Empty when the file goes straight from the header into tasks.
+    */
+  private def parseDescription(lines: List[String]): String =
+    val afterHeader = lines.dropWhile(l => !HeaderPattern.matches(l)).drop(1)
+    afterHeader
+      .takeWhile(l => !TaskHeaderPattern.matches(l))
+      .mkString("\n")
+      .trim
 
   private def splitTaskBlocks(lines: List[String]): List[List[String]] =
     val blocks = collection.mutable.ListBuffer[List[String]]()

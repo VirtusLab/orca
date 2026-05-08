@@ -99,3 +99,17 @@ object FlowCanary:
     flow(OrcaArgs(args)):
       stage("start"):
         val _ = claude.autonomous.run(userPrompt)
+
+  /** Issue/PR-comment surface on `gh` — exercised by the issue-pr plan in
+    * `plans/`. If any of these signatures move, the canary fails.
+    */
+  def issueAndPrSurface(): Unit =
+    flow(OrcaArgs()):
+      stage("gh"):
+        val issueHandle = IssueHandle("acme", "widgets", 7)
+        val issue: Issue = gh.readIssue(issueHandle)
+        val _ = issue.title
+        val _ = issue.body
+        val _ = gh.readIssueComments(issueHandle)
+        val pr = PrHandle("acme", "widgets", 7)
+        val _ = gh.readPrComments(pr)

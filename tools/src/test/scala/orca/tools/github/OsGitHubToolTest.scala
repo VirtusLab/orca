@@ -4,6 +4,8 @@ import orca.{
   BuildOutcome,
   BuildTimedOut,
   Comment,
+  Issue,
+  IssueHandle,
   NoCommitsToPr,
   OrcaFlowException,
   PrAlreadyExists,
@@ -51,14 +53,50 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[NoCommitsToPr]))
 
-  test("readComments maps gh api JSON into Comment values"):
+  test("readPrComments maps gh api JSON into Comment values"):
     val json =
       """[{"body":"looks good","user":{"login":"alice"}},
         | {"body":"ship it","user":{"login":"bob"}}]""".stripMargin
     val (_, gh) = stubGh(CliResult(0, json, ""))
     assertEquals(
-      gh.readComments(samplePr),
+      gh.readPrComments(samplePr),
       List(Comment("alice", "looks good"), Comment("bob", "ship it"))
+    )
+
+  test("readIssue parses title, body, author, and state"):
+    val json =
+      """{"title":"Crash on save","body":"Steps:\n1. open\n2. save",
+        | "user":{"login":"reporter"},"state":"open"}""".stripMargin
+    val (cli, gh) = stubGh(CliResult(0, json, ""))
+    val issue = gh.readIssue(IssueHandle("acme", "widgets", 7))
+    assertEquals(
+      issue,
+      Issue(
+        title = "Crash on save",
+        body = "Steps:\n1. open\n2. save",
+        author = "reporter",
+        state = "open"
+      )
+    )
+    val args = cli.lastCall.getOrElse(fail("expected a call")).args
+    assert(args.containsSlice(Seq("api", "repos/acme/widgets/issues/7")))
+
+  test("readIssue treats a missing body as empty string"):
+    val json =
+      """{"title":"No body","body":null,"user":{"login":"a"},"state":"open"}"""
+    val (_, gh) = stubGh(CliResult(0, json, ""))
+    assertEquals(gh.readIssue(IssueHandle("a", "b", 1)).body, "")
+
+  test("readIssueComments hits the issues/{n}/comments endpoint"):
+    val json = """[{"body":"+1","user":{"login":"u"}}]"""
+    val (cli, gh) = stubGh(CliResult(0, json, ""))
+    val comments = gh.readIssueComments(IssueHandle("acme", "widgets", 7))
+    assertEquals(comments, List(Comment("u", "+1")))
+    val args = cli.lastCall.getOrElse(fail("expected a call")).args
+    assert(
+      args.containsSlice(
+        Seq("api", "--paginate", "repos/acme/widgets/issues/7/comments")
+      )
     )
 
   test("writeComment invokes gh pr comment with the body"):

@@ -58,3 +58,17 @@ class FlowTest extends munit.FunSuite:
     val thrown = intercept[OrcaFlowException](orca.fail("no good")(using ctx))
     assertEquals(thrown.getMessage, "no good")
     assertEquals(listener.events, List(OrcaEvent.Error("no good")))
+
+  test("stage emits Error when body throws OrcaFlowException directly"):
+    // Tool adapters throw `OrcaFlowException` outside `fail(...)`; the
+    // stage catch must surface them or the user sees `exit 1` with no
+    // diagnostic.
+    val (listener, ctx) = fixture
+    given FlowContext = ctx
+    val _ = intercept[OrcaFlowException]:
+      stage("tool-call") { throw new OrcaFlowException("git push failed") }
+    val errors = listener.events.collect { case e: OrcaEvent.Error => e }
+    assertEquals(
+      errors,
+      List(OrcaEvent.Error("Stage 'tool-call' failed: git push failed"))
+    )

@@ -47,11 +47,11 @@ agent makes up front.
 
 The sibling [`create-test-project.sh`](create-test-project.sh)
 copies a Calculator project (with a naïve `add` that overflows on
-`Integer.MIN_VALUE`), a minimal `.github/workflows/ci.yml`, and the
-flow script itself — [`test-project/bugfix.sc`](test-project/bugfix.sc) —
-from [`test-project/`](test-project/) into a temp dir. Push it to
-a real GitHub repo (the script prints the `gh repo create` line)
-so the flow can open a PR and watch CI.
+`Integer.MIN_VALUE`) and a minimal `.github/workflows/ci.yml` from
+[`test-project/`](test-project/) into a temp dir, then drops the
+flow script — [`plans/bugfix.sc`](../../plans/bugfix.sc) — alongside
+it. Push the seeded dir to a real GitHub repo (the script prints
+the `gh repo create` line) so the flow can open a PR and watch CI.
 
 ## Run
 

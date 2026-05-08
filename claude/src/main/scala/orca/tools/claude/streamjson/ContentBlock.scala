@@ -5,6 +5,9 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   ConfiguredJsonValueCodec,
   JsonCodecMaker
 }
+import orca.OrcaDebug
+
+import scala.util.control.NonFatal
 
 /** A single block inside an assistant or user message's `content` array.
   *
@@ -81,7 +84,15 @@ private[claude] object ContentBlock:
 
   private def decodeStringLiteral(raw: String): String =
     try readFromString[String](raw)(using stringCodec)
-    catch case _: Throwable => raw
+    catch
+      case NonFatal(t) =>
+        // The fallback to the raw payload is intentional — claude
+        // occasionally sends malformed string literals and we'd rather
+        // show something than crash. Surface the detail under
+        // ORCA_DEBUG so a real bug isn't masked. Fatal errors (VM
+        // errors, InterruptedException, etc.) propagate.
+        logSwallowedDecode("decodeStringLiteral", raw, t)
+        raw
 
   private def decodeNestedBlocks(raw: String): String =
     try
@@ -89,7 +100,23 @@ private[claude] object ContentBlock:
         readFromString[List[NestedBlock]](raw)(using nestedBlocksCodec)
       )
       if flat.nonEmpty then flat else raw
-    catch case _: Throwable => raw
+    catch
+      case NonFatal(t) =>
+        logSwallowedDecode("decodeNestedBlocks", raw, t)
+        raw
+
+  private def logSwallowedDecode(
+      where: String,
+      raw: String,
+      t: Throwable
+  ): Unit =
+    if OrcaDebug.streamTrace || OrcaDebug.enabled then
+      val snippet =
+        if raw.length > 200 then s"${raw.take(200)}…" else raw
+      System.err.println(
+        s"[orca-debug claude.$where] swallowed ${t.getClass.getName}: " +
+          s"${Option(t.getMessage).getOrElse("")} | raw=$snippet"
+      )
 
   /** Concatenate the legible bits of each block: text prose as-is, and
     * tool_reference lists (ToolSearch results) as a comma-joined name list —

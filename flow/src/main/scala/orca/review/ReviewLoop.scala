@@ -225,22 +225,66 @@ def reviewAndFixLoop[B <: Backend](
     reviewerSelection: ReviewerSelector =
       ReviewerSelector.onlyPreviouslyReporting,
     maxIterations: Int = 10,
-    fixInstructions: String = ReviewLoopPrompts.Fix
+    fixInstructions: String = ReviewLoopPrompts.Fix,
+    /** Diff handed to each reviewer in its initial prompt. Defaults to the
+      * working-tree diff vs HEAD captured at the start of the loop, so
+      * reviewers stay scoped to the changes the fix-and-review pass should
+      * cover. Pass an explicit value to override (e.g. for tests, or when the
+      * change set has already been committed).
+      */
+    initialDiff: Option[String] = None
 )(using ctx: FlowContext): IgnoredIssues =
   require(
     lintCommand.isEmpty || lintLlm.isDefined,
     "reviewAndFixLoop: lintCommand requires lintLlm"
   )
+  require(
+    reviewers.map(_.name).distinct.size == reviewers.size,
+    "reviewAndFixLoop: reviewer names must be unique — " +
+      "the per-reviewer session map is keyed by name"
+  )
+  val effectiveDiff = initialDiff.getOrElse(ctx.git.diff())
   // Threaded across iterations via the closure: each evaluate appends
   // its batch and the selector reads back over the list. Method-scope
   // var allowed by the project's FP conventions; the loop is single-
   // threaded so visibility isn't a concern.
   var history: List[ReviewBatch] = Nil
 
+  // Per-reviewer SessionId, keyed by reviewer name. The SessionId carries
+  // a backend phantom type that varies per reviewer; we erase to AnyRef on
+  // store and re-cast on read using the reviewer's own backend witness.
+  // The cast is sound because `name → backend` is fixed for the lifetime
+  // of the loop (enforced by the uniqueness precondition above), so the
+  // entry retrieved with a given reviewer's `RB` was written under that
+  // same `RB`. ConcurrentHashMap because reviewers fan out via `par` —
+  // different entries are written from different threads on the first
+  // iteration.
+  val reviewerSessions =
+    new java.util.concurrent.ConcurrentHashMap[String, AnyRef]()
+
   def filterByConfidence(result: ReviewResult): ReviewResult =
     ReviewResult(issues =
       result.issues.filter(_.confidence >= confidenceThreshold)
     )
+
+  /** Run a reviewer for one iteration. The first call starts a session and pins
+    * the reviewer to the captured diff; subsequent calls resume the session
+    * with a re-review prompt so the reviewer keeps continuity across iterations
+    * and stays scoped to the original change set.
+    */
+  def reviewWithSession[RB <: Backend](r: LlmTool[RB]): ReviewResult =
+    val call = r.resultAs[ReviewResult].autonomous
+    Option(reviewerSessions.get(r.name)) match
+      case Some(stored) =>
+        val sid = stored.asInstanceOf[SessionId[RB]]
+        call.continueSession(sid, ReviewLoopPrompts.ReReview)
+      case None =>
+        val (sid, result) =
+          call.startSession(
+            ReviewLoopPrompts.initialReview(task, effectiveDiff)
+          )
+        reviewerSessions.put(r.name, sid.asInstanceOf[AnyRef])
+        result
 
   def evaluate(): ReviewResult =
     val active = reviewerSelection(history, reviewers)
@@ -256,12 +300,7 @@ def reviewAndFixLoop[B <: Backend](
     // per-reviewer but silently dropped from the fix payload.
     val reviewerOutcomes: List[(LlmTool[?], ReviewResult)] =
       par(
-        active.map(r =>
-          () =>
-            r -> filterByConfidence(
-              r.resultAs[ReviewResult].autonomous.run(task)
-            )
-        )
+        active.map(r => () => r -> filterByConfidence(reviewWithSession(r)))
       ).toList
     val batch = ReviewBatch(reviewerOutcomes)
     history = batch :: history

@@ -86,6 +86,35 @@ class TerminalInteractionTest extends munit.FunSuite:
     )
     assertEquals(output, "")
 
+  test(
+    "status bar shows only the innermost stage (no breadcrumb concatenation)"
+  ):
+    val buf = new ByteArrayOutputStream()
+    val interaction = new TerminalInteraction(
+      out = new PrintStream(buf),
+      useColor = false,
+      animated = true
+    )
+    val listener = interaction.listeners.head
+    val outerName = "Implement task: very long task title that would dominate"
+    val innerName = "Implementation"
+    listener.onEvent(OrcaEvent.StageStarted(outerName))
+    listener.onEvent(OrcaEvent.StageStarted(innerName))
+    val rendered = buf.toString
+    // Find the most recent status redraw — the bytes after the last
+    // ClearLine escape (`\r[2K`). Both names land in the event
+    // log via the `▶` lines, but the status bar should only pin the
+    // innermost.
+    val tail = rendered.split("\\[2K").last
+    assert(
+      tail.contains(innerName),
+      s"status bar should pin the innermost stage; tail was: '$tail'"
+    )
+    assert(
+      !tail.contains(outerName),
+      s"outer stage title leaked into the status bar; tail was: '$tail'"
+    )
+
   test("nested stages indent inner content; no ✔ ever appears in the log"):
     val output = renderEvents(
       List(

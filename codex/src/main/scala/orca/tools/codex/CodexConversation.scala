@@ -99,7 +99,10 @@ private[codex] class CodexConversation(
     */
   override protected def onFinalize(): Unit =
     try stderrDrainThread.join(StderrDrainTimeoutMs)
-    catch case _: InterruptedException => ()
+    catch
+      // Interrupt while joining means the parent is shutting down.
+      // Restore the flag so callers up-stack can react.
+      case _: InterruptedException => Thread.currentThread().interrupt()
 
   override protected def cleanExitWithoutResult(): Throwable =
     new OrcaFlowException(
