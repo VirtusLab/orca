@@ -24,7 +24,7 @@ Use this when the task is small enough to finish in one session.
 
 - JDK 21+, [scala-cli](https://scala-cli.virtuslab.org/).
 - `claude` logged in (see the repo root README).
-- `org.virtuslab::orca:0.1.0-SNAPSHOT` published locally:
+- `org.virtuslab::orca:0.0.0` published locally:
 
   ```bash
   cd <orca-sandbox>

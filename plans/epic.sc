@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.1.0-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.0.0"
 //> using repository ivy2Local
 //> using jvm 21
 
@@ -12,11 +12,10 @@
   *      incomplete task. Each task's `Status: [x]` checkbox is committed back
   *      to `epic.md` as the task lands, so a crash mid-flow loses no progress.
   *
-  *   2. **Tasks are reviewed by the *other* backend.** Claude
-  *      implements; codex reviews. The implementing agent is its own
-  *      worst critic — running reviewers on a separate model widens
-  *      coverage without much extra cost. Fixes go back to the same
-  *      Claude session. Both CLIs need to be logged in.
+  * 2. **Tasks are reviewed by the *other* backend.** Claude implements; codex
+  * reviews. The implementing agent is its own worst critic — running reviewers
+  * on a separate model widens coverage without much extra cost. Fixes go back
+  * to the same Claude session. Both CLIs need to be logged in.
   *
   * At the end of a successful run the documentation step updates the project
   * README based on what changed, and the epic file is removed (committed as the
@@ -92,7 +91,8 @@ flow(OrcaArgs(args)):
       // style nits the toolchain would fix automatically. Spotless
       // is wired into the seed pom.
       stage("Format"):
-        val _ = os.proc("mvn", "-q", "spotless:apply")
+        val _ = os
+          .proc("mvn", "-q", "spotless:apply")
           .call(cwd = os.pwd, check = false)
       reviewAndFixLoop(
         coder = claude,

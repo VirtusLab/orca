@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.1.0-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.0.0"
 //> using repository ivy2Local
 //> using jvm 21
 
@@ -151,7 +151,8 @@ flow(OrcaArgs(args)):
     // nits the toolchain would fix automatically. Spotless is wired
     // into the seed pom.
     stage("Format"):
-      val _ = os.proc("mvn", "-q", "spotless:apply")
+      val _ = os
+        .proc("mvn", "-q", "spotless:apply")
         .call(cwd = os.pwd, check = false)
 
     reviewAndFixLoop(

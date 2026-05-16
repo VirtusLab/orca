@@ -1,13 +1,13 @@
-//> using dep "org.virtuslab::orca:0.1.0-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.0.0"
 //> using repository ivy2Local
 //> using jvm 21
 
 /** Simple in-memory planning + coding flow.
   *
   * Mirrors the README example. The agent breaks the user's prompt into a list
-  * of tasks (one structured turn), the flow surfaces the plan, and each task
-  * is implemented in sequence on a single epic branch with a review-and-fix
-  * loop after each.
+  * of tasks (one structured turn), the flow surfaces the plan, and each task is
+  * implemented in sequence on a single epic branch with a review-and-fix loop
+  * after each.
   *
   * Lives alongside the seeded calculator crate so a user can run it from the
   * project's root after `examples/01-simple/create-test-project.sh`:

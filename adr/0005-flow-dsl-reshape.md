@@ -80,7 +80,7 @@ Five Scala-3-specific constraints pin this shape:
 - A user's minimum ceremony is:
 
   ```scala
-  //> using dep "com.virtuslab::orca:0.1.0-SNAPSHOT"
+  //> using dep "com.virtuslab::orca:0.0.0"
   import orca.{*, given}
   case class Plan(...) derives JsonData
   flow(OrcaArgs.from(args.toSeq)):

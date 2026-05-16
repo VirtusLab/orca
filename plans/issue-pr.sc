@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.1.0-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.0.0"
 //> using repository ivy2Local
 //> using jvm 21
 
@@ -6,16 +6,15 @@
   *
   * Given a `<owner>/<repo>#<number>` reference (the user's prompt), the flow:
   *
-  *   1. Reads the issue from GitHub (title, body, author).
-  *   2. Plans an implementation, decomposing the issue body into a list of
-  *      tasks on a single branch. Re-uses the planning session for
-  *      implementation so the agent doesn't have to relearn context.
-  *   3. Implements each task, runs the review-and-fix loop, commits.
-  *   4. Pushes the branch.
-  *   5. Asks a cheap model (`claude.haiku`) to summarise the diff into a PR
-  *      title and description — the implementing model already paid for the
-  *      thinking, so the PR write-up doesn't need an opus-class call.
-  *   6. Opens the PR via `gh`.
+  *   1. Reads the issue from GitHub (title, body, author). 2. Plans an
+  *      implementation, decomposing the issue body into a list of tasks on a
+  *      single branch. Re-uses the planning session for implementation so the
+  *      agent doesn't have to relearn context. 3. Implements each task, runs
+  *      the review-and-fix loop, commits. 4. Pushes the branch. 5. Asks a cheap
+  *      model (`claude.haiku`) to summarise the diff into a PR title and
+  *      description — the implementing model already paid for the thinking, so
+  *      the PR write-up doesn't need an opus-class call. 6. Opens the PR via
+  *      `gh`.
   *
   * Usage — pass `<owner>/<repo>#<number>`:
   *
@@ -28,8 +27,8 @@
 
 import orca.{*, given}
 
-/** Output shape for the cheap-model PR write-up turn. Top-level so the
-  * `derives JsonData` macro evaluates outside a method body.
+/** Output shape for the cheap-model PR write-up turn. Top-level so the `derives
+  * JsonData` macro evaluates outside a method body.
   */
 case class PrSummary(title: String, body: String) derives JsonData
 
@@ -47,8 +46,10 @@ flow(OrcaArgs(args)):
       )
 
   // 1. Pull the issue from GitHub.
-  val issue = stage(s"Read issue ${issueHandle.owner}/" +
-    s"${issueHandle.repo}#${issueHandle.number}"):
+  val issue = stage(
+    s"Read issue ${issueHandle.owner}/" +
+      s"${issueHandle.repo}#${issueHandle.number}"
+  ):
     gh.readIssue(issueHandle)
 
   // The full payload to plan against — title + body. We don't include

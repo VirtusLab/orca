@@ -41,7 +41,7 @@ agent makes up front.
 - JDK 21+, scala-cli, `claude` logged in (see repo root README).
 - `gh` authenticated against the target repo.
 - The repo has a CI workflow that runs the relevant test suite.
-- `org.virtuslab::orca:0.1.0-SNAPSHOT` published locally (`sbt publishLocal`).
+- `org.virtuslab::orca:0.0.0` published locally (`sbt publishLocal`).
 
 ## Seeded test project
 
