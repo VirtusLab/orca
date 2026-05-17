@@ -10,6 +10,13 @@ on:
 # `ORCA_INTEGRATION=1` (Claude / GitHub / scala-cli round-trips) are
 # skipped. Run them locally with `ORCA_INTEGRATION=1 sbt test` when you
 # need the cross-process coverage.
+#
+# Publish runs inline (rather than reusing
+# softwaremill/github-actions-workflows) because `secrets: inherit` only
+# works across the same org or enterprise, and orca lives in VirtusLab.
+permissions:
+  contents: write
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -26,9 +33,35 @@ jobs:
       - run: sbt +test
 
   publish:
-    uses: softwaremill/github-actions-workflows/.github/workflows/publish-release.yml@main
     needs: [test]
-    if: github.event_name != 'pull_request' && (startsWith(github.ref, 'refs/tags/v'))
-    secrets: inherit
-    with:
-      java-version: '21'
+    if: github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - uses: coursier/cache-action@v6
+      - name: Publish artifacts
+        run: sbt ci-release
+        env:
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+          SONATYPE_USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          SONATYPE_PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+      - name: Extract version from tag
+        run: echo "VERSION=${GITHUB_REF/refs\/tags\/v/}" >> "$GITHUB_ENV"
+      - uses: release-drafter/release-drafter@v6
+        with:
+          config-name: release-drafter.yml
+          publish: true
+          name: "v${{ env.VERSION }}"
+          tag: "v${{ env.VERSION }}"
+          version: "v${{ env.VERSION }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
