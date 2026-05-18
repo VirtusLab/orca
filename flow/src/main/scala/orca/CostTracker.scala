@@ -46,6 +46,11 @@ class CostTracker extends OrcaListener:
   def perModel: Map[Option[String], Usage] = state.get().byModel
 
   /** Two sections — by-agent then by-model — sorted alphabetically within each.
+    * Cache hits and reasoning tokens are shown parenthetically when non-zero,
+    * so a typical Claude line reads
+    *   `general: 12500 in (12453 cached), 1781 out`
+    * and a codex line that produced reasoning reads
+    *   `coder: 800 in (640 cached), 1200 out (300 reasoning)`.
     * Empty string when no `TokensUsed` events have been observed.
     */
   def summary: String =
@@ -54,19 +59,26 @@ class CostTracker extends OrcaListener:
     else
       val agentLines = s.byAgent.toList
         .sortBy(_._1)
-        .map((agent, u) =>
-          s"  $agent: ${u.inputTokens} in, ${u.outputTokens} out"
-        )
+        .map((agent, u) => s"  $agent: ${formatUsage(u)}")
       val modelLines = s.byModel.toList
         .sortBy(_._1.getOrElse("(unknown)"))
         .map: (model, u) =>
-          val label = model.getOrElse("(unknown)")
-          s"  $label: ${u.inputTokens} in, ${u.outputTokens} out"
+          s"  ${model.getOrElse("(unknown)")}: ${formatUsage(u)}"
       s"""By agent:
          |${agentLines.mkString("\n")}
          |
          |By model:
          |${modelLines.mkString("\n")}""".stripMargin
+
+  private def formatUsage(u: Usage): String =
+    val cached =
+      if u.cachedInputTokens > 0 then s" (${u.cachedInputTokens} cached)"
+      else ""
+    val reasoning =
+      if u.reasoningOutputTokens > 0 then
+        s" (${u.reasoningOutputTokens} reasoning)"
+      else ""
+    s"${u.inputTokens} in$cached, ${u.outputTokens} out$reasoning"
 
   /** Print the summary on its own block. Leading newline keeps the output from
     * landing on top of an active terminal status row; trailing newline ensures

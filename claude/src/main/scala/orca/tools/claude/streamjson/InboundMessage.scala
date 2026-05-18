@@ -71,15 +71,24 @@ private[claude] object InboundMessage:
 
   private def parseResult(line: String): InboundMessage =
     val wire = readFromString[ResultWire](line)
+    val u = wire.usage.getOrElse(UsageWire())
+    // Claude Code splits input across `input_tokens` (new portion of the
+    // turn), `cache_creation_input_tokens` (first turn pays for the cached
+    // system prompt + tool defs), and `cache_read_input_tokens` (every later
+    // turn re-reads the cached prefix). The three are separate categories,
+    // so the billed total is the sum, with cached = creation + read.
+    val cached = u.cache_creation_input_tokens.getOrElse(0L) +
+      u.cache_read_input_tokens.getOrElse(0L)
     Result(
       subtype = wire.subtype,
       sessionId = wire.session_id,
       output = wire.result,
       structuredOutput = wire.structured_output.map(_.value),
       usage = Usage(
-        inputTokens = wire.usage.flatMap(_.input_tokens).getOrElse(0L),
-        outputTokens = wire.usage.flatMap(_.output_tokens).getOrElse(0L),
-        cost = wire.total_cost_usd
+        inputTokens = u.input_tokens.getOrElse(0L) + cached,
+        outputTokens = u.output_tokens.getOrElse(0L),
+        cost = wire.total_cost_usd,
+        cachedInputTokens = cached
       ),
       isError = wire.is_error.getOrElse(false),
       model = wire.model
@@ -117,7 +126,9 @@ private[claude] object InboundMessage:
 
   private case class UsageWire(
       input_tokens: Option[Long] = None,
-      output_tokens: Option[Long] = None
+      output_tokens: Option[Long] = None,
+      cache_creation_input_tokens: Option[Long] = None,
+      cache_read_input_tokens: Option[Long] = None
   ) derives ConfiguredJsonValueCodec
 
   private case class ResultWire(

@@ -41,11 +41,11 @@ class DefaultReviewersTest extends munit.FunSuite:
     assertEquals(
       names,
       List(
-        "performance",
-        "readability",
-        "test-coverage",
-        "code-functionality",
-        "abstraction"
+        "reviewer: performance",
+        "reviewer: readability",
+        "reviewer: test-coverage",
+        "reviewer: code-functionality",
+        "reviewer: abstraction"
       )
     )
 
@@ -68,5 +68,9 @@ class DefaultReviewersTest extends munit.FunSuite:
     val base = new RecordingTool
     val all = defaultReviewers(base)
     val picked =
-      SelectedReviewers(List("performance", "test-coverage")).pick(all)
-    assertEquals(picked.map(_.name), List("performance", "test-coverage"))
+      SelectedReviewers(List("reviewer: performance", "reviewer: test-coverage"))
+        .pick(all)
+    assertEquals(
+      picked.map(_.name),
+      List("reviewer: performance", "reviewer: test-coverage")
+    )

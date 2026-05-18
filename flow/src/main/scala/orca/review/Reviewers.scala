@@ -55,8 +55,12 @@ object ReviewerPrompts:
   * subset via `SelectedReviewers.pick`) to `reviewAndFixLoop`.
   */
 def defaultReviewers[B <: Backend](base: LlmTool[B]): List[LlmTool[B]] =
+  // Names are prefixed with `reviewer: ` so the per-agent token breakdown
+  // groups every reviewer dimension together (matching `lint`, which the
+  // review loop labels `reviewer: lint`). The non-reviewer driver agent
+  // keeps its default name (`main`).
   def reviewer(name: String, prompt: String): LlmTool[B] =
-    base.withSystemPrompt(prompt).withName(name)
+    base.withSystemPrompt(prompt).withName(s"reviewer: $name")
   List(
     reviewer("performance", ReviewerPrompts.Performance),
     reviewer("readability", ReviewerPrompts.Readability),

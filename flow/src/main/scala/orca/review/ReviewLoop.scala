@@ -374,7 +374,10 @@ def reviewAndFixLoop[B <: Backend](
         .zip(lintLlm)
         .toList
         .map: (cmd, llm) =>
-          "lint" -> filterByConfidence(lint(cmd, llm))
+          // Group lint tokens under the same `reviewer: …` prefix as the
+          // dimension reviewers; the renamed copy stays local to this call.
+          val labelled = llm.withName("reviewer: lint")
+          "reviewer: lint" -> filterByConfidence(lint(cmd, labelled))
     lintResult.foreach: (name, result) =>
       ctx.emit(OrcaEvent.Step(formatReviewerOutcome(name, result)))
     ReviewResult(issues =

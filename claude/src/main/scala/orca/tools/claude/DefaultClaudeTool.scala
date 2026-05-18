@@ -28,7 +28,7 @@ class DefaultClaudeTool(
     workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
-    val name: String = "general"
+    val name: String = "main"
 ) extends AbstractDefaultLlmTool[Backend.ClaudeCode.type, ClaudeTool](
       backend,
       config,
