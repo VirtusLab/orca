@@ -19,12 +19,10 @@ Orca assumes that it has configured, logged-in access to Claude, Codex
 
 ## An example flow
 
-Save this as `implement.sc` and run it with your task (until Orca is published,
-you might need to publish the library locally first, see below):
+Save this as `implement.sc` and run it with your task:
 
 ```scala
 //> using dep "org.virtuslab::orca:0.0.2"
-//> using repository ivy2Local
 //> using jvm 21
 
 import orca.{*, given}
@@ -214,15 +212,8 @@ Each CLI handles its own auth; Orca itself stores no secrets.
 
 ## Getting set up
 
-Until Orca lands on Maven Central, one bootstrap step publishes the artifacts to
-your local cache:
-
-```bash
-git clone <this repo> && cd orca-sandbox
-sbt publishLocal            # first time only
-```
-
-After that, run flow scripts directly with `scala-cli`:
+Orca is published to Maven Central — `scala-cli` fetches the artifacts on first
+run:
 
 ```bash
 scala-cli run implement.sc -- "your task here"

@@ -16,7 +16,6 @@ All three examples expect:
 - **JDK 21+** and [scala-cli](https://scala-cli.virtuslab.org/).
 - `claude` CLI logged in (`claude auth login` — see the
   [repo root README](../README.md#authenticating-the-coding-agents)).
-- Orca published locally: `cd <orca-sandbox> && sbt publishLocal`.
 - A target project. Each example ships a `create-test-project.sh`
   next to its flow script that copies a small starter (in the
   example's `test-project/` directory) into a temp dir and inits
@@ -34,6 +33,22 @@ All three examples expect:
 
   Each script prints the next-step command (a `scala-cli run` of
   the example's `.sc` file) when it's done.
+
+### Running against a local Orca build (`--local`)
+
+If you're hacking on Orca itself and want the example to pick up
+your in-tree changes rather than the published Maven Central
+artifact, pass `--local` to any of the seed scripts:
+
+```bash
+./examples/01-simple/create-test-project.sh --local
+./examples/02-bugfix/create-test-project.sh --local /tmp/orca-demo
+```
+
+The flag runs `sbt publishLocal` in the orca checkout, reads the
+dynver-derived version, and rewrites the copied flow script to pin
+that version with `//> using repository ivy2Local`. Default
+(without `--local`) is to resolve from Maven Central.
 
 Example 02 additionally needs:
 

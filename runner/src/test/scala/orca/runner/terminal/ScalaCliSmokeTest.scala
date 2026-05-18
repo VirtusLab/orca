@@ -30,8 +30,10 @@ class ScalaCliSmokeTest extends munit.FunSuite:
     override def apply(): Published = resolved
     override def beforeAll(): Unit =
       val repoRoot = findRepoRoot()
+      // `sbt --client` reuses a running sbt server when one exists, so the
+      // second invocation (print version) skips the JVM cold-start.
       val publishResult = os
-        .proc("sbt", "publishLocal")
+        .proc("sbt", "--client", "publishLocal")
         .call(cwd = repoRoot, check = false)
       assertEquals(
         publishResult.exitCode,
@@ -39,14 +41,25 @@ class ScalaCliSmokeTest extends munit.FunSuite:
         s"publishLocal failed: ${publishResult.err.text()}"
       )
       val versionResult = os
-        .proc("sbt", "--error", "print version")
+        .proc("sbt", "--client", "--error", "print version")
         .call(cwd = repoRoot, check = false)
       assertEquals(
         versionResult.exitCode,
         0,
         s"reading version failed: ${versionResult.err.text()}"
       )
-      resolved = Published(repoRoot, versionResult.out.text().trim)
+      // `print version` aggregates across every subproject; pick the first
+      // version line (starts with whitespace + a digit) — they're all the
+      // same dynver value. `sbt --client` decorates output with ANSI escapes,
+      // so strip them before matching.
+      val ansiEscape = "\u001b\\[[0-9;]*[A-Za-z]".r
+      val version = versionResult.out
+        .lines()
+        .iterator
+        .map(line => ansiEscape.replaceAllIn(line, "").trim)
+        .find(s => s.headOption.exists(_.isDigit))
+        .getOrElse(fail("could not parse orca version from sbt output"))
+      resolved = Published(repoRoot, version)
 
   override def munitFixtures: Seq[munit.AnyFixture[?]] = Seq(publishedRepo)
 

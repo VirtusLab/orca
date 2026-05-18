@@ -106,7 +106,6 @@ becomes "we trust your file" — useful for handcrafted epics.
 - JDK 21+, scala-cli.
 - `claude` and `codex` CLIs both logged in (see the repo root
   README for auth setup).
-- `org.virtuslab::orca:0.0.2` published locally (`sbt publishLocal`).
 - A target project. The sibling
   [`create-test-project.sh`](create-test-project.sh) copies a
   tiny todo-CLI starter from [`test-project/`](test-project/)

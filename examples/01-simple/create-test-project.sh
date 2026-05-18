@@ -7,8 +7,10 @@
 # the starter to look different.
 #
 # Usage:
-#   examples/01-simple/create-test-project.sh                # mktemp
-#   examples/01-simple/create-test-project.sh /path/to/dir   # explicit dest
+#   examples/01-simple/create-test-project.sh                    # mktemp, Maven Central
+#   examples/01-simple/create-test-project.sh /path/to/dir       # explicit dest
+#   examples/01-simple/create-test-project.sh --local            # publishLocal + pin
+#   examples/01-simple/create-test-project.sh --local /path/...  # both
 
 set -euo pipefail
 
@@ -18,24 +20,15 @@ SEED_DIR="$SCRIPT_DIR/test-project"
 # folders stay free of orca-runtime artefacts. Resolved relative to this
 # script so a checkout in any location still works.
 PLANS_DIR="$(cd "$SCRIPT_DIR/../../plans" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-DEST="${1:-}"
-if [[ -z "$DEST" ]]; then
-  DEST="$(mktemp -d -t orca-01-simple-XXXXXX)"
-else
-  mkdir -p "$DEST"
-fi
+# shellcheck source=../_seed_lib.sh
+. "$SCRIPT_DIR/../_seed_lib.sh"
 
-# `cp -R src/.` copies the directory's *contents*, including dotfiles
-# (.gitignore here) but not the wrapping `test-project` dir itself.
-cp -R "$SEED_DIR/." "$DEST/"
-cp "$PLANS_DIR/implement.sc" "$DEST/implement.sc"
-
-cd "$DEST"
-git init -q -b main
-git -c user.name=orca-seed -c user.email=orca-seed@example.com add . > /dev/null
-git -c user.name=orca-seed -c user.email=orca-seed@example.com \
-    commit -q -m "Initial calculator crate"
+parse_args "$@"
+resolve_dest "orca-01-simple"
+init_destination "$SEED_DIR" "$PLANS_DIR" "implement.sc" "Initial calculator crate"
+apply_local_flag "$REPO_ROOT" "$DEST/implement.sc"
 
 cat <<EOF
 

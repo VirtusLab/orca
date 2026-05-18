@@ -24,13 +24,6 @@ Use this when the task is small enough to finish in one session.
 
 - JDK 21+, [scala-cli](https://scala-cli.virtuslab.org/).
 - `claude` logged in (see the repo root README).
-- `org.virtuslab::orca:0.0.2` published locally:
-
-  ```bash
-  cd <orca-sandbox>
-  sbt publishLocal
-  ```
-
 - `cargo` on PATH — the seed is a small Rust crate so the lint
   command is `cargo test --quiet`. Swap the `lintCommand` line in
   `implement.sc` if you point the flow at a non-Rust project.

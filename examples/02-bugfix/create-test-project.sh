@@ -9,8 +9,10 @@
 # on a real GitHub repo — see "Next steps" at the end of this script.
 #
 # Usage:
-#   examples/02-bugfix/create-test-project.sh                # mktemp
-#   examples/02-bugfix/create-test-project.sh /path/to/dir   # explicit dest
+#   examples/02-bugfix/create-test-project.sh                    # mktemp, Maven Central
+#   examples/02-bugfix/create-test-project.sh /path/to/dir       # explicit dest
+#   examples/02-bugfix/create-test-project.sh --local            # publishLocal + pin
+#   examples/02-bugfix/create-test-project.sh --local /path/...  # both
 
 set -euo pipefail
 
@@ -19,22 +21,15 @@ SEED_DIR="$SCRIPT_DIR/test-project"
 # Flow scripts live in the top-level `plans/` directory so the test-project
 # folders stay free of orca-runtime artefacts.
 PLANS_DIR="$(cd "$SCRIPT_DIR/../../plans" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-DEST="${1:-}"
-if [[ -z "$DEST" ]]; then
-  DEST="$(mktemp -d -t orca-02-bugfix-XXXXXX)"
-else
-  mkdir -p "$DEST"
-fi
+# shellcheck source=../_seed_lib.sh
+. "$SCRIPT_DIR/../_seed_lib.sh"
 
-cp -R "$SEED_DIR/." "$DEST/"
-cp "$PLANS_DIR/bugfix.sc" "$DEST/bugfix.sc"
-
-cd "$DEST"
-git init -q -b main
-git -c user.name=orca-seed -c user.email=orca-seed@example.com add . > /dev/null
-git -c user.name=orca-seed -c user.email=orca-seed@example.com \
-    commit -q -m "Initial buggy calculator project"
+parse_args "$@"
+resolve_dest "orca-02-bugfix"
+init_destination "$SEED_DIR" "$PLANS_DIR" "bugfix.sc" "Initial buggy calculator project"
+apply_local_flag "$REPO_ROOT" "$DEST/bugfix.sc"
 
 cat <<EOF
 

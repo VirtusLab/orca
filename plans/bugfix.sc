@@ -1,5 +1,4 @@
 //> using dep "org.virtuslab::orca:0.0.2"
-//> using repository ivy2Local
 //> using jvm 21
 
 /** Bugfix flow: red-test-first, against a real PR.

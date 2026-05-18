@@ -7,8 +7,10 @@
 # several distinct tasks rather than collapsing into one.
 #
 # Usage:
-#   examples/03-epic/create-test-project.sh                # mktemp
-#   examples/03-epic/create-test-project.sh /path/to/dir   # explicit dest
+#   examples/03-epic/create-test-project.sh                    # mktemp, Maven Central
+#   examples/03-epic/create-test-project.sh /path/to/dir       # explicit dest
+#   examples/03-epic/create-test-project.sh --local            # publishLocal + pin
+#   examples/03-epic/create-test-project.sh --local /path/...  # both
 
 set -euo pipefail
 
@@ -17,22 +19,15 @@ SEED_DIR="$SCRIPT_DIR/test-project"
 # Flow scripts live in the top-level `plans/` directory so the test-project
 # folders stay free of orca-runtime artefacts.
 PLANS_DIR="$(cd "$SCRIPT_DIR/../../plans" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-DEST="${1:-}"
-if [[ -z "$DEST" ]]; then
-  DEST="$(mktemp -d -t orca-03-epic-XXXXXX)"
-else
-  mkdir -p "$DEST"
-fi
+# shellcheck source=../_seed_lib.sh
+. "$SCRIPT_DIR/../_seed_lib.sh"
 
-cp -R "$SEED_DIR/." "$DEST/"
-cp "$PLANS_DIR/epic.sc" "$DEST/epic.sc"
-
-cd "$DEST"
-git init -q -b main
-git -c user.name=orca-seed -c user.email=orca-seed@example.com add . > /dev/null
-git -c user.name=orca-seed -c user.email=orca-seed@example.com \
-    commit -q -m "Initial todo-cli project"
+parse_args "$@"
+resolve_dest "orca-03-epic"
+init_destination "$SEED_DIR" "$PLANS_DIR" "epic.sc" "Initial todo-cli project"
+apply_local_flag "$REPO_ROOT" "$DEST/epic.sc"
 
 cat <<EOF
 

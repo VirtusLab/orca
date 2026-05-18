@@ -1,5 +1,4 @@
 //> using dep "org.virtuslab::orca:0.0.2"
-//> using repository ivy2Local
 //> using jvm 21
 
 /** Run an epic: a multi-task workstream with cross-agent review.
