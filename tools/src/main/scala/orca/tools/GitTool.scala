@@ -1,4 +1,4 @@
-package orca.tools.git
+package orca.tools
 
 import orca.OrcaFlowException
 import orca.events.{OrcaEvent, OrcaListener}

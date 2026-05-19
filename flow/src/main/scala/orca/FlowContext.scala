@@ -1,9 +1,9 @@
 package orca
 
 import orca.events.OrcaEvent
-import orca.tools.fs.FsTool
-import orca.tools.git.GitTool
-import orca.tools.github.GitHubTool
+import orca.tools.FsTool
+import orca.tools.GitTool
+import orca.tools.GitHubTool
 import orca.llm.{ClaudeTool, CodexTool}
 
 /** Ambient context a flow script operates in. Bundles every tool the top- level

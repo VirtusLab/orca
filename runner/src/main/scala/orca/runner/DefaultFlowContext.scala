@@ -1,9 +1,9 @@
 package orca.runner
 
 import orca.{FlowContext}
-import orca.tools.git.{GitTool}
-import orca.tools.github.{GitHubTool}
-import orca.tools.fs.{FsTool}
+import orca.tools.{GitTool}
+import orca.tools.{GitHubTool}
+import orca.tools.{FsTool}
 import orca.llm.{ClaudeTool, CodexTool, LlmConfig, Prompts}
 import orca.events.{EventDispatcher, OrcaEvent}
 
@@ -12,9 +12,9 @@ import orca.tools.claude.{ClaudeBackend, DefaultClaudeTool}
 import orca.tools.codex.{CodexBackend, DefaultCodexTool}
 import orca.llm.DefaultPrompts
 import orca.subprocess.OsProcCliRunner
-import orca.tools.fs.OsFsTool
-import orca.tools.git.OsGitTool
-import orca.tools.github.OsGitHubTool
+import orca.tools.OsFsTool
+import orca.tools.OsGitTool
+import orca.tools.OsGitHubTool
 
 /** Production FlowContext wiring. Callers typically construct one via
   * `flow(args, ...)`, which supplies defaults for all tools. Individual tools

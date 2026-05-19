@@ -38,7 +38,7 @@ export orca.review.{
   ReviewIssue,
   ReviewResult
 }
-export orca.tools.github.{
+export orca.tools.{
   BuildOutcome,
   BuildStatus,
   Comment,

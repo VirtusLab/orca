@@ -1,4 +1,4 @@
-package orca.tools.fs
+package orca.tools
 
 class OsFsToolTest extends munit.FunSuite:
 

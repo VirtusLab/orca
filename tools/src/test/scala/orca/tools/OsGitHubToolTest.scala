@@ -1,4 +1,4 @@
-package orca.tools.github
+package orca.tools
 
 import orca.OrcaFlowException
 import orca.subprocess.{CliResult, StubCliRunner}

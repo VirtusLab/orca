@@ -18,8 +18,8 @@ package orca.subprocess
   * frames.*
   *
   * Subprocess errors aren't dropped: stderr is captured into `result.err`,
-  * which the caller surfaces in error messages (see
-  * [[orca.tools.git.OsGitTool]]'s `git` helper).
+  * which the caller surfaces in error messages (see [[orca.tools.OsGitTool]]'s
+  * `git` helper).
   */
 private[orca] object QuietProc:
 

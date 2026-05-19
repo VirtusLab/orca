@@ -1,4 +1,4 @@
-package orca.tools.github
+package orca.tools
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonValueCodec,
