@@ -1,5 +1,7 @@
 package orca.review
 
+import orca.util.PromptResource
+
 /** Default prompt fragments for the helpers in this package. Each `val` is a
   * complete instruction block that the helper sends as part of its LLM call.
   * Override by passing a different string to the helper's `instructions`
@@ -16,6 +18,8 @@ package orca.review
   *     "\n\nIf you delete a test, mention it in the ignored reason."
   * )
   * }}}
+  *
+  * Source text lives in `src/main/resources/orca/review/prompts/`.
   */
 object ReviewLoopPrompts:
 
@@ -25,34 +29,24 @@ object ReviewLoopPrompts:
     * re-evaluating, so any override should preserve that contract.
     */
   val Fix: String =
-    """For each review comment below: fix it directly in the codebase
-      |if you can, then list its title under `fixed`. Otherwise — when
-      |the issue is environmental, out of scope, or a false positive —
-      |list its title and a brief reason under `ignored`. Every input
-      |issue should appear in exactly one of the two lists.
-      |
-      |Prefer minimal, scoped fixes.""".stripMargin
+    PromptResource.load("/orca/review/prompts/fix.md")
 
   /** Used by [[ReviewerSelector.llmDriven]] to decide which reviewers to run
     * for a given task. Agents are picked from the supplied `availableReviewers`
     * list by name.
     */
   val SelectReviewers: String =
-    """Pick the subset of `availableReviewers` whose dimension is most
-      |relevant to this task — judging by the title and the changed
-      |files. Skip reviewers whose dimension clearly doesn't apply (e.g.
-      |a test-coverage reviewer when no production code changed). Reply
-      |with a SelectedReviewers containing only names from
-      |`availableReviewers`.""".stripMargin
+    PromptResource.load("/orca/review/prompts/select-reviewers.md")
 
   /** Used by [[lint]] to fold a shell-lint's combined output into a
     * `ReviewResult`. Override when the lint produces unusual shapes the default
     * phrasing doesn't fit.
     */
   val SummarizeLint: String =
-    """Summarize the following lint output into a ReviewResult. Each
-      |distinct issue should produce a ReviewIssue; use reasonable
-      |confidence based on how actionable the message is.""".stripMargin
+    PromptResource.load("/orca/review/prompts/summarize-lint.md")
+
+  private val InitialReviewTemplate: String =
+    PromptResource.load("/orca/review/prompts/initial-review.md")
 
   /** Initial reviewer call: pin the agent to the supplied diff so it doesn't
     * fan out across the whole project. The same prompt template is used for
@@ -62,26 +56,15 @@ object ReviewLoopPrompts:
     val diffBlock =
       if diff.trim.isEmpty then "(no diff captured — review the working tree)"
       else s"```diff\n$diff\n```"
-    s"""Task: $task
-       |
-       |Review the following changes only — do NOT survey unrelated
-       |files in the project. Focus your findings strictly on what the
-       |diff modifies and on code that interacts directly with it.
-       |
-       |Diff (working tree vs HEAD at the start of the review loop):
-       |
-       |$diffBlock
-       |
-       |Output a ReviewResult.""".stripMargin
+    PromptResource.render(
+      InitialReviewTemplate,
+      "task" -> task,
+      "diffBlock" -> diffBlock
+    )
 
   /** Continuation prompt for a reviewer's session on iterations after the
     * first. The session already contains the original diff and the reviewer's
     * earlier findings; the working tree may have changed in response to a fix.
     */
   val ReReview: String =
-    """Fixes have been applied to the working tree based on your earlier
-      |review. Re-review the current state — focus on whether your
-      |earlier findings were addressed and on any new issues introduced
-      |by the fix. Stay scoped to the same changes you reviewed
-      |initially; do not expand to unrelated files. Output a
-      |ReviewResult.""".stripMargin
+    PromptResource.load("/orca/review/prompts/re-review.md")

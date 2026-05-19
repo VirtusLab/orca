@@ -1,5 +1,7 @@
 package orca.llm
 
+import orca.util.PromptResource
+
 /** Builds the literal prompt strings Orca sends to the LLM for each invocation
   * mode. Each method takes the serialized user input, the generated JSON Schema
   * for the expected output, and the active `LlmConfig`, and returns the final
@@ -31,8 +33,8 @@ trait Prompts:
     */
   def retry(failedResponse: String, parseError: String): String
 
-/** Default [[Prompts]] implementation. Each method builds the final prompt
-  * string via Scala string interpolation.
+/** Default [[Prompts]] implementation. Templates live as `.md` resources under
+  * `src/main/resources/orca/llm/prompts/` and are loaded once at object init.
   *
   * Autonomous calls ship the JSON Schema inline in the prompt — they route
   * through `claude -p --output-format json` with no structured validation on
@@ -44,65 +46,51 @@ trait Prompts:
 object DefaultPrompts extends Prompts:
 
   private val RawJsonRules: String =
-    """- no surrounding prose or commentary
-      |- no markdown code fences
-      |- raw JSON only""".stripMargin
+    PromptResource.load("/orca/llm/prompts/raw-json-rules.md")
+
+  // Substitute the shared rules fragment once at init so each call only pays
+  // for the dynamic `{{input}}` / `{{outputSchema}}` / `{{failedResponse}}` /
+  // `{{parseError}}` replacements.
+  private val AutonomousTemplate: String =
+    PromptResource
+      .load("/orca/llm/prompts/autonomous.md")
+      .replace("{{rawJsonRules}}", RawJsonRules)
+
+  private val InteractiveTemplate: String =
+    PromptResource
+      .load("/orca/llm/prompts/interactive.md")
+      .replace("{{rawJsonRules}}", RawJsonRules)
+
+  private val RetryTemplate: String =
+    PromptResource
+      .load("/orca/llm/prompts/retry.md")
+      .replace("{{rawJsonRules}}", RawJsonRules)
 
   def autonomous(
       input: String,
       outputSchema: String,
       config: LlmConfig
   ): String =
-    s"""Complete the task described in the input. Respond with a JSON value that
-       |conforms to the output schema below. Rules:
-       |$RawJsonRules
-       |
-       |Input:
-       |$input
-       |
-       |Output schema:
-       |$outputSchema
-       |""".stripMargin
+    PromptResource.render(
+      AutonomousTemplate,
+      "input" -> input,
+      "outputSchema" -> outputSchema
+    )
 
   def interactive(
       input: String,
       outputSchema: String,
       config: LlmConfig
   ): String =
-    s"""Collaborate with the user on the task described in the input. Use
-       |prose for status updates, questions to the user, and progress
-       |commentary — any of these can appear mid-session and will not be
-       |interpreted as the final answer.
-       |
-       |When you are ready to deliver the final answer, send one last
-       |message containing ONLY a JSON value that conforms to the schema
-       |below. Rules for the final answer:
-       |$RawJsonRules
-       |
-       |Do not invoke any "structured-output" or "final-answer" tool —
-       |no such tool exists in this environment. The final JSON-only
-       |message IS the delivery mechanism; the runtime parses it.
-       |
-       |Input:
-       |$input
-       |
-       |Output schema:
-       |$outputSchema
-       |""".stripMargin
+    PromptResource.render(
+      InteractiveTemplate,
+      "input" -> input,
+      "outputSchema" -> outputSchema
+    )
 
   def retry(failedResponse: String, parseError: String): String =
-    s"""Your previous response could not be parsed as a JSON value matching the
-       |required schema.
-       |
-       |Parser error:
-       |$parseError
-       |
-       |Previous response:
-       |--- BEGIN RESPONSE ---
-       |$failedResponse
-       |--- END RESPONSE ---
-       |
-       |Please produce a valid JSON value matching the schema from the original
-       |instructions. Rules:
-       |$RawJsonRules
-       |""".stripMargin
+    PromptResource.render(
+      RetryTemplate,
+      "failedResponse" -> failedResponse,
+      "parseError" -> parseError
+    )

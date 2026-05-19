@@ -1,0 +1,3 @@
+- no surrounding prose or commentary
+- no markdown code fences
+- raw JSON only
