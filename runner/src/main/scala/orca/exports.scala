@@ -7,6 +7,10 @@ package orca
 // stay self-documenting at the call site rather than fading into the
 // wildcard.
 
+// flow DSL (flow, stage, fail, accessors, OrcaArgs, FlowContext) lives at
+// top-level `orca` so its symbols sit at the heart of the user surface; no
+// re-export needed.
+
 export orca.events.{OrcaEvent, OrcaListener}
 export orca.llm.{
   LlmTool,

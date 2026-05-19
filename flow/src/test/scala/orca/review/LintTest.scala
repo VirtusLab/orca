@@ -1,5 +1,6 @@
 package orca.review
 
+import orca.{FlowContext}
 import orca.plan.Title
 import orca.llm.{
   AgentInput,
@@ -15,7 +16,7 @@ import orca.llm.{
   SessionId
 }
 import orca.events.{EventDispatcher}
-import orca.{FlowContext, TestFlowContext}
+import orca.{TestFlowContext}
 
 class LintTest extends munit.FunSuite:
 

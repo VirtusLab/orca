@@ -1,8 +1,8 @@
 package orca.runner
 
+import orca.{FlowContext, OrcaArgs, flow, userPrompt}
 import orca.events.{OrcaEvent}
 import _root_.orca.runner.terminal.TerminalInteraction
-import orca.{FlowContext, OrcaArgs, flow, userPrompt}
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 

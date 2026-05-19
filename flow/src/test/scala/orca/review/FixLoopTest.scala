@@ -1,8 +1,9 @@
 package orca.review
 
+import orca.{FlowContext}
 import orca.plan.Title
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
-import orca.{FlowContext, TestFlowContext}
+import orca.{TestFlowContext}
 
 import java.util.concurrent.atomic.AtomicReference
 

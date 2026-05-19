@@ -1,5 +1,6 @@
 package orca
 
+import orca.OrcaFlowException
 import orca.events.OrcaEvent
 
 import scala.util.control.NonFatal

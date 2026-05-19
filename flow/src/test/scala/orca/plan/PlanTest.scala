@@ -71,7 +71,7 @@ class PlanTest extends munit.FunSuite:
         Task(Title("Add feature B"), "do B")
       )
     )
-    val msg = summon[orca.Announce[Plan]]
+    val msg = summon[orca.llm.Announce[Plan]]
       .message(plan)
       .getOrElse(fail("expected a non-empty announce message"))
     assert(msg.startsWith("Planned 2 tasks on branch 'feat-pair'"))
@@ -80,7 +80,7 @@ class PlanTest extends munit.FunSuite:
 
   test("Announce[Plan] returns None for an empty plan (no Step emitted)"):
     assertEquals(
-      summon[orca.Announce[Plan]].message(Plan("empty", "", Nil)),
+      summon[orca.llm.Announce[Plan]].message(Plan("empty", "", Nil)),
       None
     )
 
