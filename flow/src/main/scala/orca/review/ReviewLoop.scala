@@ -251,26 +251,15 @@ def reviewAndFixLoop[B <: BackendTag](
     )
     case Lint(result: ReviewResult)
 
-  /** Run every active reviewer plus the optional lint summariser concurrently,
-    * emitting one Step per agent as it finishes. State flows through as a
-    * parameter — no mutation of enclosing state — so the parallel block never
-    * reads a moving `var`.
-    *
-    * `Flow.mapParUnordered` runs the tasks in parallel forks; `.tap` runs on
-    * the consumer thread (this method's caller), so the *per-agent Step* events
-    * land on listeners serially. Note that LLM-internal events (`TokensUsed`,
-    * `StructuredResult`) still emit from inside the fork bodies via `LlmCall` —
-    * those bypass this Flow and can race with each other across reviewers.
-    * Today's listeners absorb that: `CostTracker` uses an `AtomicReference` and
-    * the terminal renderer treats `TokensUsed` as a no-op; the synchronized
-    * `StatusBar` serialises any actual terminal writes. Future listeners that
-    * touch shared state on those event variants must add their own
-    * synchronization.
+  /** Run every active reviewer plus the optional lint summariser concurrently
+    * via `Flow.mapParUnordered`, emitting one Step per agent as it finishes.
+    * State is a parameter, not a closure capture — the parallel block never
+    * reads a moving var. LLM-internal events (`TokensUsed`, `StructuredResult`)
+    * emit from fork threads; [[OrcaListener]] requires implementations to be
+    * thread-safe.
     *
     * The diff is sampled once per call so all first-time reviewers see the same
-    * payload — git.diff() from a parallel fork would also be safe (the working
-    * tree is stable during the read-only fan-out) but pre-sampling avoids
-    * redundant shell-outs.
+    * payload — pre-sampling also avoids redundant shell-outs.
     */
   def runReviewersAndLint(
       active: List[LlmTool[?]],

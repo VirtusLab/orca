@@ -7,10 +7,11 @@ package orca.runner.terminal
   * printed line gets — nested stages indent their content under the enclosing
   * stage marker.
   *
-  * Single-threaded: stage events flow from the listener thread, and the
-  * conversation renderer drives [[Conversation.events]] from the same flow-main
-  * thread (`interaction.drive` is synchronous). A plain `var` is sufficient —
-  * no atomics needed.
+  * Not thread-safe on its own. Stage events may arrive on `TerminalListener`
+  * from parallel agent forks, so `TerminalInteraction` wraps every push/pop
+  * (and any indent snapshot) under its `stateLock`. The conversation renderer
+  * is single-threaded — `interaction.drive` runs synchronously on the flow's
+  * main thread — and reads this directly without needing the lock.
   */
 private[terminal] class StageDepth:
   private var depth: Int = 0

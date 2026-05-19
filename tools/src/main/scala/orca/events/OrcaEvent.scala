@@ -44,6 +44,17 @@ enum OrcaEvent:
   case StructuredResult(raw: String, summary: Option[String])
   case Error(message: String)
 
+/** Sink for [[OrcaEvent]]s.
+  *
+  * **Implementations MUST be thread-safe.** `onEvent` is called from parallel
+  * agent forks (e.g. concurrent reviewers via `reviewAndFixLoop`, concurrent
+  * LLM calls via `ox.par`), often without any external synchronization on the
+  * caller side. Listeners that mutate shared state must do so atomically
+  * (`AtomicReference`, `synchronized`, etc.); listeners that delegate to other
+  * sinks must ensure those sinks tolerate concurrent calls too. Throwing from
+  * `onEvent` propagates up to the caller — return cleanly or swallow as the
+  * concrete listener sees fit.
+  */
 trait OrcaListener:
   def onEvent(event: OrcaEvent): Unit
 

@@ -39,6 +39,14 @@ class TerminalInteraction(
   private val statusBar =
     new StatusBar(out, useColor = useColor, animated = animated)
   private val stages = new StageStack
+  // Protects the combined push/pop+show-status updates triggered by
+  // StageStarted / StageCompleted; emitted from parallel forks would
+  // otherwise race the var-backed StageDepth and StageStack.
+  // Step / Error / StructuredResult / ToolUse handlers route through the
+  // already-synchronized StatusBar.appendLog; they take stateLock only
+  // briefly to snapshot the indent so the indent and the printed text
+  // stay consistent across concurrent emits.
+  private val stateLock = new Object
   private val listener = new TerminalListener
   private val listenersList: List[OrcaListener] = List(listener)
 
@@ -61,17 +69,19 @@ class TerminalInteraction(
   private class TerminalListener extends OrcaListener:
     def onEvent(event: OrcaEvent): Unit = event match
       case OrcaEvent.StageStarted(name) =>
-        emitStepLine(name)
-        depthCounter.push()
-        stages.push(name)
-        showCurrentStage()
+        stateLock.synchronized:
+          emitStepLine(name)
+          depthCounter.push()
+          stages.push(name)
+          showCurrentStage()
       case OrcaEvent.StageCompleted(_, _) =>
         // Stage completions don't print to the event log — starting
         // the next event implicitly tells the user the previous one
         // finished.
-        depthCounter.pop()
-        stages.pop()
-        showCurrentStage()
+        stateLock.synchronized:
+          depthCounter.pop()
+          stages.pop()
+          showCurrentStage()
       case OrcaEvent.ToolUse(tool, args) =>
         appendIndented(paint(fansi.Color.DarkGray, s"  → $tool: $args"))
       case OrcaEvent.TokensUsed(_, _, _) =>
@@ -120,9 +130,15 @@ class TerminalInteraction(
     * current stage indent on the first line and on every embedded `\n`. Mirrors
     * `TerminalConversationRenderer.appendBlock` so all event-log writes share
     * the same indent discipline.
+    *
+    * The indent is sampled under `stateLock` so it can't shift mid-emit if a
+    * concurrent StageStarted/StageCompleted is updating the depth counter. The
+    * actual write goes through `statusBar.appendLog`, which has its own
+    * synchronization, so two indented blocks from different threads land
+    * sequentially without interleaving.
     */
   private def appendIndented(text: String): Unit =
-    val indent = depthCounter.contentIndent
+    val indent = stateLock.synchronized(depthCounter.contentIndent)
     statusBar.appendLog(indent + text.replace("\n", "\n" + indent))
 
   private def paint(attr: fansi.Attrs, text: String): String =
@@ -130,8 +146,9 @@ class TerminalInteraction(
 
 /** Stack of active stage names, head = most-recently-started. `innermost`
   * returns the deepest stage (the most recently pushed), which is what the
-  * status bar surfaces; `None` means no stage is active. Touched only from the
-  * [[TerminalListener]] thread.
+  * status bar surfaces; `None` means no stage is active. Not thread-safe on its
+  * own — `TerminalInteraction` guards all reads and writes under its
+  * `stateLock`.
   */
 private class StageStack:
   private var stack: List[String] = Nil
