@@ -6,7 +6,7 @@ import orca.llm.{BackendTag, JsonData, LlmConfig, LlmTool, SessionId, given}
 import orca.events.OrcaEvent
 
 import orca.util.TextWrap
-import ox.par
+import ox.flow.Flow
 
 /** What the fixing agent reports back per iteration: the titles of issues it
   * actually fixed in the code, and the issues it chose not to fix along with a
@@ -239,50 +239,94 @@ def reviewAndFixLoop[B <: BackendTag](
           )
         (result, Some(r.name -> SessionId.Untyped.from(sid)))
 
-  /** A single reviewer's contribution from one parallel pass: identity,
-    * filtered result, and any new session entry the caller should fold in. The
-    * `SessionId.Untyped` payload is the `SessionId[RB]` for the `LlmTool[RB]`
-    * in the first slot — re-cast on read keyed by reviewer name.
+  /** One parallel agent's contribution. The `Reviewer` variant carries the
+    * configured tool and any new session entry that needs folding into the loop
+    * state; `Lint` carries only its filtered result (no LLM session).
     */
-  type ReviewerOutcome =
-    (LlmTool[?], ReviewResult, Option[(String, SessionId.Untyped)])
-
-  /** Run all `active` reviewers concurrently against the same snapshot, then
-    * fold the new session entries into a fresh state and emit per-reviewer Step
-    * events. Splits the parallel + sequential phases so state is touched only
-    * after every fork has returned.
-    *
-    * The diff is sampled once per call so all first-time reviewers in this
-    * iteration see the same payload — `git.diff()` from a parallel fork would
-    * also be safe (the working tree is stable during the read-only fan-out) but
-    * pre-sampling avoids redundant shell-outs.
-    */
-  def runReviewers(
-      active: List[LlmTool[?]],
-      snapshot: ReviewLoopState
-  ): (List[(LlmTool[?], ReviewResult)], ReviewLoopState) =
-    val needsDiff = active.exists(r => !snapshot.sessions.contains(r.name))
-    val currentDiff = if needsDiff then sampleDiff() else ""
-    val outcomes: List[ReviewerOutcome] =
-      par(
-        active.map: r =>
-          () =>
-            val (result, entry) =
-              reviewWithSession(r, snapshot.sessions, currentDiff)
-            (r, filterByConfidence(result), entry)
-      ).toList
-    val newSessions = outcomes.foldLeft(snapshot.sessions):
-      case (acc, (_, _, Some(entry))) => acc + entry
-      case (acc, _)                   => acc
-    val results = outcomes.map((r, res, _) => (r, res))
-    val batch = ReviewBatch(results)
-    val nextState = ReviewLoopState(
-      history = batch :: snapshot.history,
-      sessions = newSessions
+  enum AgentOutcome:
+    case Reviewer(
+        tool: LlmTool[?],
+        result: ReviewResult,
+        entry: Option[(String, SessionId.Untyped)]
     )
-    results.foreach: (reviewer, result) =>
-      ctx.emit(OrcaEvent.Step(formatReviewerOutcome(reviewer.name, result)))
-    (results, nextState)
+    case Lint(result: ReviewResult)
+
+  /** Run every active reviewer plus the optional lint summariser concurrently,
+    * emitting one Step per agent as it finishes. State flows through as a
+    * parameter — no mutation of enclosing state — so the parallel block never
+    * reads a moving `var`.
+    *
+    * `Flow.mapParUnordered` runs the tasks in parallel forks; `.tap` runs on
+    * the consumer thread (this method's caller), so the *per-agent Step* events
+    * land on listeners serially. Note that LLM-internal events (`TokensUsed`,
+    * `StructuredResult`) still emit from inside the fork bodies via `LlmCall` —
+    * those bypass this Flow and can race with each other across reviewers.
+    * Today's listeners absorb that: `CostTracker` uses an `AtomicReference` and
+    * the terminal renderer treats `TokensUsed` as a no-op; the synchronized
+    * `StatusBar` serialises any actual terminal writes. Future listeners that
+    * touch shared state on those event variants must add their own
+    * synchronization.
+    *
+    * The diff is sampled once per call so all first-time reviewers see the same
+    * payload — git.diff() from a parallel fork would also be safe (the working
+    * tree is stable during the read-only fan-out) but pre-sampling avoids
+    * redundant shell-outs.
+    */
+  def runReviewersAndLint(
+      active: List[LlmTool[?]],
+      currentState: ReviewLoopState
+  ): (
+      List[(LlmTool[?], ReviewResult)],
+      Option[ReviewResult],
+      ReviewLoopState
+  ) =
+    val needsDiff = active.exists(r => !currentState.sessions.contains(r.name))
+    val currentDiff = if needsDiff then sampleDiff() else ""
+
+    val reviewerTasks: List[() => AgentOutcome] = active.map: r =>
+      () =>
+        val (result, entry) =
+          reviewWithSession(r, currentState.sessions, currentDiff)
+        AgentOutcome.Reviewer(r, filterByConfidence(result), entry)
+
+    val lintTaskOpt: Option[() => AgentOutcome] =
+      lintCommand
+        .zip(lintLlm)
+        .map: (cmd, llm) =>
+          () =>
+            // Group lint tokens under the same `reviewer: …` prefix as the
+            // dimension reviewers; the renamed copy stays local to this call.
+            val labelled = llm.withName("reviewer: lint")
+            AgentOutcome.Lint(filterByConfidence(lint(cmd, labelled)))
+
+    val tasks = reviewerTasks ++ lintTaskOpt.toList
+    if tasks.isEmpty then (Nil, None, currentState)
+    else
+      val outcomes: List[AgentOutcome] =
+        Flow
+          .fromIterable(tasks)
+          .mapParUnordered(tasks.size)(_.apply())
+          .tap:
+            case AgentOutcome.Reviewer(r, res, _) =>
+              ctx.emit(OrcaEvent.Step(formatReviewerOutcome(r.name, res)))
+            case AgentOutcome.Lint(res) =>
+              ctx.emit(
+                OrcaEvent.Step(formatReviewerOutcome("reviewer: lint", res))
+              )
+          .runToList()
+
+      val reviewerOutcomes = outcomes.collect:
+        case AgentOutcome.Reviewer(r, res, _) => (r, res)
+      val lintOutcome = outcomes.collectFirst:
+        case AgentOutcome.Lint(res) => res
+      val newSessions = outcomes.foldLeft(currentState.sessions):
+        case (acc, AgentOutcome.Reviewer(_, _, Some(entry))) => acc + entry
+        case (acc, _)                                        => acc
+      val nextState = ReviewLoopState(
+        history = ReviewBatch(reviewerOutcomes) :: currentState.history,
+        sessions = newSessions
+      )
+      (reviewerOutcomes, lintOutcome, nextState)
 
   def evaluate(): ReviewResult =
     val active = reviewerSelection(state.history, reviewers)
@@ -296,31 +340,10 @@ def reviewAndFixLoop[B <: BackendTag](
     // Apply the confidence filter before display so what's shown matches
     // what the fixer receives — otherwise low-confidence issues are listed
     // per-reviewer but silently dropped from the fix payload.
-    //
-    // Reviewers and lint run concurrently when both are present — `par` joins
-    // on the slowest of the two branches, so wall time is max(reviewers,
-    // lint) rather than their sum. The snapshot capture is defensive: `state`
-    // is a class-level var only the main thread writes, but reading it into
-    // a val before the parallel fork keeps that contract explicit.
-    val snapshot = state
-    val ((results, nextState), lintResult) =
-      lintCommand.zip(lintLlm) match
-        case Some((cmd, llm)) =>
-          // Group lint tokens under the same `reviewer: …` prefix as the
-          // dimension reviewers; the renamed copy stays local to this call.
-          val labelled = llm.withName("reviewer: lint")
-          val (r, l) = par(
-            runReviewers(active, snapshot),
-            "reviewer: lint" -> filterByConfidence(lint(cmd, labelled))
-          )
-          (r, Some(l))
-        case None =>
-          (runReviewers(active, snapshot), None)
+    val (results, lintResult, nextState) = runReviewersAndLint(active, state)
     state = nextState
-    lintResult.foreach: (name, result) =>
-      ctx.emit(OrcaEvent.Step(formatReviewerOutcome(name, result)))
     ReviewResult(issues =
-      results.flatMap(_._2.issues) ++ lintResult.toList.flatMap(_._2.issues)
+      results.flatMap(_._2.issues) ++ lintResult.toList.flatMap(_.issues)
     )
 
   def fix(issues: List[ReviewIssue]): FixOutcome =

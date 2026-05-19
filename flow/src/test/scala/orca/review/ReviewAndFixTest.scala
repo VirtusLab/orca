@@ -15,7 +15,7 @@ import orca.llm.{
   LlmTool,
   SessionId
 }
-import orca.events.{EventDispatcher}
+import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.{TestFlowContext}
 
 /** Fake LlmCall whose `autonomous.run` / `autonomous.startSession` /
@@ -273,6 +273,93 @@ class ReviewAndFixTest extends munit.FunSuite:
       select(List(fakeBatch), all).map(_.name),
       List("performance", "test-coverage")
     )
+
+  test("each agent's Step lands on listeners as it finishes, not at end"):
+    // Two reviewers gated on latches we control: gate2 releases first, so
+    // the second reviewer must finish first; its Step must be visible to a
+    // listener BEFORE the slower first reviewer's Step. A serialised
+    // (collect-then-emit) implementation would emit them in configured
+    // order regardless of completion — this test would fail.
+    val gate1 = new java.util.concurrent.CountDownLatch(1)
+    val gate2 = new java.util.concurrent.CountDownLatch(1)
+    val firstStepAt =
+      new java.util.concurrent.atomic.AtomicReference[String]("")
+    val secondStepFinishedLatch = new java.util.concurrent.CountDownLatch(1)
+    val listener: OrcaListener = (e: OrcaEvent) =>
+      e match
+        case OrcaEvent.Step(msg) if msg.contains("slow:") =>
+          val _ = firstStepAt.compareAndSet("", "slow")
+        case OrcaEvent.Step(msg) if msg.contains("fast:") =>
+          val _ = firstStepAt.compareAndSet("", "fast")
+          secondStepFinishedLatch.countDown()
+        case _ => ()
+    given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
+
+    class GatedReviewer(
+        label: String,
+        gate: java.util.concurrent.CountDownLatch
+    ) extends LlmTool[BackendTag.ClaudeCode.type]:
+      val name = label
+      def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
+      def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
+      def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] =
+        this
+      def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
+      def resultAs[O: JsonData: Announce]
+          : LlmCall[BackendTag.ClaudeCode.type, O] =
+        new LlmCall[BackendTag.ClaudeCode.type, O]:
+          val autonomous: AutonomousLlmCall[BackendTag.ClaudeCode.type, O] =
+            new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
+              def run[I: AgentInput](
+                  i: I,
+                  c: LlmConfig = LlmConfig.default
+              ): O =
+                ???
+              def startSession[I: AgentInput](
+                  i: I,
+                  c: LlmConfig = LlmConfig.default
+              ): (SessionId[BackendTag.ClaudeCode.type], O) =
+                val ok = gate.await(2, java.util.concurrent.TimeUnit.SECONDS)
+                assert(ok, s"$label gate never opened")
+                (
+                  SessionId[BackendTag.ClaudeCode.type](s"sid-$label"),
+                  ReviewResult.empty.asInstanceOf[O]
+                )
+              def continueSession[I: AgentInput](
+                  s: SessionId[BackendTag.ClaudeCode.type],
+                  i: I,
+                  c: LlmConfig = LlmConfig.default
+              ): O = ???
+          def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] =
+            ???
+
+    val slow = new GatedReviewer("slow", gate1)
+    val fast = new GatedReviewer("fast", gate2)
+    val runner = new Thread(() =>
+      val _ = reviewAndFixLoop(
+        coder = new FakeLlmTool("coder"),
+        sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+        reviewers = List(slow, fast),
+        task = "ordering check",
+        initialDiff = Some("")
+      )
+    )
+    runner.start()
+    // Release the second reviewer first, wait for its Step, then release the
+    // first one — proves the fast finisher emits without being held back.
+    gate2.countDown()
+    val gotFast = secondStepFinishedLatch.await(
+      2,
+      java.util.concurrent.TimeUnit.SECONDS
+    )
+    assert(gotFast, "the fast reviewer's Step never reached the listener")
+    assertEquals(
+      firstStepAt.get(),
+      "fast",
+      "expected the fast reviewer's Step to land first, not the slow one's"
+    )
+    gate1.countDown()
+    runner.join(5000)
 
   test("lint runs concurrently with reviewers (deterministic via latch)"):
     given FlowContext = ctx
