@@ -1,5 +1,6 @@
 package orca.plan
 
+import orca.plan.Title
 import orca.llm.{JsonData}
 import orca.events.{
   CostTracker,
@@ -13,7 +14,6 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
   writeToString
 }
-import orca.{Title}
 
 class PlanTest extends munit.FunSuite:
 

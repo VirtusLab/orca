@@ -1,8 +1,9 @@
 package orca.plan
 
+import orca.plan.Title
 import orca.llm.{Announce, BackendTag, JsonData, LlmTool, SessionId, given}
 import orca.events.OrcaEvent
-import orca.{FlowContext, Title}
+import orca.{FlowContext}
 
 /** A development plan: an ordered list of [[Task]]s the agent will work
   * through, all on a single branch named by `epicId` (kebab-case, used directly

@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.Title
+import orca.plan.Title
 import orca.llm.given
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,

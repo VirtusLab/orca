@@ -6,7 +6,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   JsonCodecMaker
 }
-import orca.Title
+import orca.plan.Title
 import sttp.tapir.Schema
 
 enum Severity:

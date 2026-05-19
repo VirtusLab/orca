@@ -1,8 +1,9 @@
 package orca.review
 
+import orca.plan.Title
 import orca.llm.{BackendTag, JsonData, LlmConfig, LlmTool, SessionId, given}
 import orca.events.OrcaEvent
-import orca.{FlowContext, Title}
+import orca.{FlowContext}
 import orca.io.TextWrap
 import ox.par
 

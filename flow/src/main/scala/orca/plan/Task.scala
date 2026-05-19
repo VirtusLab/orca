@@ -1,7 +1,7 @@
 package orca.plan
 
+import orca.plan.Title
 import orca.llm.{JsonData}
-import orca.{Title}
 
 /** A single task in a [[Plan]]. The same type covers both the in-memory
   * (`Plan.from`) and markdown-backed (`Plan.loadOrGenerate`) shapes.
