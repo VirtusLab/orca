@@ -10,7 +10,7 @@ import orca.backend.LlmResult
 /** Subset of the JSON Claude Code emits when invoked with `--output-format
   * json`. Field names mirror the CLI output.
   */
-case class ClaudeHeadlessResponse(
+private[claude] case class ClaudeHeadlessResponse(
     session_id: String,
     result: String,
     usage: ClaudeUsage,
@@ -44,7 +44,7 @@ case class ClaudeHeadlessResponse(
   * `cache_read_input_tokens` on every subsequent turn. The total billable input
   * is the sum; the cached portion is `cache_creation + cache_read`.
   */
-case class ClaudeUsage(
+private[claude] case class ClaudeUsage(
     input_tokens: Long,
     output_tokens: Long,
     cache_creation_input_tokens: Option[Long] = None,

@@ -4,7 +4,8 @@ import orca.llm.{BackendTag, SessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, LlmResult}
-import orca.subprocess.{PipedCliProcess, StreamConversation}
+import orca.backend.StreamConversation
+import orca.subprocess.PipedCliProcess
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString

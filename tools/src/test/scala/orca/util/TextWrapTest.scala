@@ -1,4 +1,4 @@
-package orca.io
+package orca.util
 
 class TextWrapTest extends munit.FunSuite:
 

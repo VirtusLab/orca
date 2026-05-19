@@ -1,4 +1,4 @@
-package orca.io
+package orca.llm
 
 import orca.llm.{LlmConfig, Prompts}
 

@@ -91,11 +91,12 @@ implementers and advanced callers opt into explicitly.
 |---|---|
 | `orca` | Flow DSL — `flow`, `stage`, `fail`, accessors (`claude`, `codex`, `git`, `gh`, `fs`, `userPrompt`), `OrcaArgs`, `FlowContext`, `OrcaFlowException`, `OrcaInteractiveCancelled`, `OrcaDebug`. Plus a thin `exports.scala` re-exporting the user surface from sub-packages. |
 | `orca.events` | Flow-wide event log: `OrcaEvent`, `OrcaListener`, `EventDispatcher`, `CostTracker`, `Usage`. |
-| `orca.llm` | LLM call API: `LlmTool` / `ClaudeTool` / `CodexTool` / `LlmCall`, `LlmConfig`, `AutoApprove`, `UnapprovedPolicy`, `BackendTag`, `SessionId`, `JsonData`, `Announce`, `AgentInput`, `Prompts`. |
-| `orca.backend` | LLM SPI (implemented per backend, never named in scripts): `LlmBackend`, `LlmResult`, `Conversation`, `ConversationEvent` (+ `ApprovalDecision`), `Interaction`. |
+| `orca.llm` | LLM call API + default implementations: `LlmTool` / `ClaudeTool` / `CodexTool` / `LlmCall`, `LlmConfig`, `AutoApprove`, `UnapprovedPolicy`, `BackendTag`, `SessionId`, `JsonData`, `Announce`, `AgentInput`, `Prompts`, plus the `AbstractDefaultLlmTool`, `DefaultLlmCall`, `DefaultPrompts`, `ResponseParser` defaults backend tools extend. |
+| `orca.backend` | LLM SPI (implemented per backend, never named in scripts): `LlmBackend`, `LlmResult`, `Conversation`, `ConversationEvent` (+ `ApprovalDecision`), `Interaction`, `StreamConversation`. |
 | `orca.tools.git`, `orca.tools.github`, `orca.tools.fs` | Tool traits (`GitTool`, `GitHubTool`, `FsTool`) co-located with their default `Os*` implementations. User-facing data types from `orca.tools.github` (`Issue`, `IssueHandle`, `PrHandle`, `Comment`, `BuildStatus`, `BuildOutcome`) are re-exported from `orca`. |
-| `orca.plan`, `orca.bug`, `orca.review` | Higher-level workflow APIs and their domain types. The user-callable entry points are re-exported from `orca`. |
-| `orca.io`, `orca.subprocess` | Internal helpers (default prompts, CLI runner, schema generation, stream parsing); not part of the user surface. |
+| `orca.plan`, `orca.review` | Higher-level workflow APIs and their domain types. The user-callable entry points are re-exported from `orca`. Bug-triage types live in `orca.plan` alongside `Plan`/`Task`. |
+| `orca.subprocess` | CLI-runner internals: `CliRunner`, `PipedCliProcess`, `OsProcCliRunner`, `QuietProc`. |
+| `orca.util` | Small leaf utilities — `JsonSchemaGen`, `TextWrap`. |
 | `orca.tools.{claude, codex}` | Concrete LLM backend implementations. |
 
 `orca/exports.scala` re-exports the user-facing subset of every sub-package

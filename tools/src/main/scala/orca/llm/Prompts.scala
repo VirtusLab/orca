@@ -3,7 +3,7 @@ package orca.llm
 /** Builds the literal prompt strings Orca sends to the LLM for each invocation
   * mode. Each method takes the serialized user input, the generated JSON Schema
   * for the expected output, and the active `LlmConfig`, and returns the final
-  * prompt text. Swap the default ([[orca.io.DefaultPrompts]]) by passing
+  * prompt text. Swap the default ([[orca.llm.DefaultPrompts]]) by passing
   * `prompts = ...` to `flow(...)` when you want to customise phrasing, add
   * guardrails, or use a different structured-output convention.
   */

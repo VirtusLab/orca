@@ -4,7 +4,7 @@ import orca.llm.{BackendTag, JsonData, LlmConfig, SessionId}
 import orca.events.{OrcaListener, Usage}
 
 import orca.backend.{Interaction, LlmBackend, LlmResult}
-import orca.io.{DefaultLlmCall, DefaultPrompts}
+import orca.llm.{DefaultLlmCall, DefaultPrompts}
 import ox.supervised
 
 import java.util.concurrent.atomic.AtomicReference

@@ -1,4 +1,4 @@
-package orca.bug
+package orca.plan
 
 import orca.llm.{Announce, JsonData}
 

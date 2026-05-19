@@ -28,7 +28,7 @@ def stage[T](name: String)(body: => T)(using ctx: FlowContext): T =
       // throw directly) lands here without a prior emit, and would be
       // invisible if we didn't surface it.
       e match
-        case mao: orca.io.MalformedAgentOutputException =>
+        case mao: orca.llm.MalformedAgentOutputException =>
           ctx.emit(OrcaEvent.Error(formatMalformedOutput(name, mao)))
         case _ if e.alreadyEmitted => ()
         case _ =>
@@ -47,7 +47,7 @@ private def shortMessage(e: Throwable): String =
 
 private def formatMalformedOutput(
     stage: String,
-    e: orca.io.MalformedAgentOutputException
+    e: orca.llm.MalformedAgentOutputException
 ): String =
   val snippet =
     val collapsed = e.rawOutput.replaceAll("\\s+", " ").trim

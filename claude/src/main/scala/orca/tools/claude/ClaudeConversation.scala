@@ -4,7 +4,8 @@ import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ApprovalDecision, ConversationEvent, LlmResult}
-import orca.subprocess.{PipedCliProcess, StreamConversation}
+import orca.backend.StreamConversation
+import orca.subprocess.PipedCliProcess
 import orca.tools.claude.streamjson.{
   ContentBlock,
   ControlDecision,

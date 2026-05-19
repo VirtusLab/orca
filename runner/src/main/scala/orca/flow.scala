@@ -2,7 +2,7 @@ package orca
 
 import orca.backend.Interaction
 import orca.events.{CostTracker, EventDispatcher, OrcaListener}
-import orca.io.DefaultPrompts
+import orca.llm.DefaultPrompts
 import orca.llm.{ClaudeTool, CodexTool, Prompts}
 import orca.runner.DefaultFlowContext
 import orca.runner.terminal.TerminalInteraction

@@ -1,4 +1,4 @@
-package orca.io
+package orca.util
 
 import _root_.io.circe.syntax.EncoderOps
 import sttp.apispec.circe.encoderSchema

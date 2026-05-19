@@ -1,19 +1,7 @@
-package orca.io
-
-import orca.llm.{
-  Announce,
-  AutonomousTextCall,
-  BackendTag,
-  JsonData,
-  LlmCall,
-  LlmConfig,
-  LlmTool,
-  Prompts,
-  SessionId
-}
-import orca.events.{OrcaEvent, OrcaListener}
+package orca.llm
 
 import orca.backend.{Interaction, LlmBackend, LlmResult}
+import orca.events.{OrcaEvent, OrcaListener}
 
 /** Skeleton shared by Claude and Codex's default tools — and by any future
   * backend that follows the same `LlmBackend` contract. Centralises the

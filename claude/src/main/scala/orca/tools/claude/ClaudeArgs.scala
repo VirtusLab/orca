@@ -7,7 +7,7 @@ import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
   * `systemPromptFile`); `onUnapproved` and `retrySchedule` have no CLI
   * equivalent and are handled by the orchestrator at runtime.
   */
-object ClaudeArgs:
+private[claude] object ClaudeArgs:
 
   /** Single-turn headless invocation: `claude -p <prompt> --output-format
     * json`. The process prints a JSON result and exits.

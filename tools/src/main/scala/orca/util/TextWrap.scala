@@ -1,4 +1,4 @@
-package orca.io
+package orca.util
 
 /** Simple word-wrapping helper. Used to format multi-line event-log messages
   * (review comments etc.) so they fit a fixed display width with a hanging

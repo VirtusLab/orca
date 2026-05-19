@@ -2,7 +2,7 @@ package orca.review
 
 import orca.plan.Title
 import orca.llm.given
-import orca.io.JsonSchemaGen
+import orca.util.JsonSchemaGen
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.networknt.schema.{InputFormat, JsonSchemaFactory, SpecVersion}

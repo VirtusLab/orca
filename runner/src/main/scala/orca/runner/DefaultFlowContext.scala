@@ -10,7 +10,7 @@ import orca.events.{EventDispatcher, OrcaEvent}
 import orca.backend.Interaction
 import orca.tools.claude.{ClaudeBackend, DefaultClaudeTool}
 import orca.tools.codex.{CodexBackend, DefaultCodexTool}
-import orca.io.DefaultPrompts
+import orca.llm.DefaultPrompts
 import orca.subprocess.OsProcCliRunner
 import orca.tools.fs.OsFsTool
 import orca.tools.git.OsGitTool
@@ -20,7 +20,7 @@ import orca.tools.github.OsGitHubTool
   * `flow(args, ...)`, which supplies defaults for all tools. Individual tools
   * can be replaced by passing overrides as named arguments to `flow`.
   */
-class DefaultFlowContext(
+private[orca] class DefaultFlowContext(
     val userPrompt: String,
     dispatcher: EventDispatcher,
     val claude: ClaudeTool,
@@ -32,7 +32,7 @@ class DefaultFlowContext(
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
-object DefaultFlowContext:
+private[orca] object DefaultFlowContext:
 
   /** Build a context with Orca's default tool implementations, filling in any
     * `None` override with the production default.

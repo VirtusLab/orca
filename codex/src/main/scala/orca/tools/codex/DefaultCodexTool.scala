@@ -4,7 +4,7 @@ import orca.llm.{BackendTag, CodexTool, LlmConfig, Prompts}
 import orca.events.{OrcaListener}
 
 import orca.backend.{Interaction, LlmBackend}
-import orca.io.AbstractDefaultLlmTool
+import orca.llm.AbstractDefaultLlmTool
 
 /** Default [[CodexTool]] implementation. Inherits the autonomous-text +
   * `resultAs[O]` plumbing from [[AbstractDefaultLlmTool]] and only adds the

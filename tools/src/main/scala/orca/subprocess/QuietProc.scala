@@ -21,7 +21,7 @@ package orca.subprocess
   * which the caller surfaces in error messages (see
   * [[orca.tools.git.OsGitTool]]'s `git` helper).
   */
-object QuietProc:
+private[orca] object QuietProc:
 
   /** Run `args` to completion. stdout + stderr are captured into the returned
     * [[os.CommandResult]]; `check = false` means non-zero exits don't throw —

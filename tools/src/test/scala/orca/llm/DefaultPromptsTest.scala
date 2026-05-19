@@ -1,4 +1,4 @@
-package orca.io
+package orca.llm
 
 import orca.llm.{LlmConfig}
 class DefaultPromptsTest extends munit.FunSuite:

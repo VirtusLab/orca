@@ -5,7 +5,7 @@ import orca.plan.Title
 import orca.llm.{BackendTag, JsonData, LlmConfig, LlmTool, SessionId, given}
 import orca.events.OrcaEvent
 
-import orca.io.TextWrap
+import orca.util.TextWrap
 import ox.par
 
 /** What the fixing agent reports back per iteration: the titles of issues it
