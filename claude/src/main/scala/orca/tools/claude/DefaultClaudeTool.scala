@@ -1,14 +1,7 @@
 package orca.tools.claude
 
-import orca.{
-  Backend,
-  ClaudeTool,
-  Interaction,
-  LlmBackend,
-  LlmConfig,
-  OrcaListener,
-  Prompts
-}
+import orca.{BackendTag, ClaudeTool, LlmConfig, OrcaListener, Prompts}
+import orca.backend.{Interaction, LlmBackend}
 import orca.io.AbstractDefaultLlmTool
 
 /** Default ClaudeTool implementation. Inherits the autonomous-text +
@@ -22,14 +15,14 @@ import orca.io.AbstractDefaultLlmTool
   * that the supplied `interaction` drives to completion.
   */
 class DefaultClaudeTool(
-    backend: LlmBackend[Backend.ClaudeCode.type],
+    backend: LlmBackend[BackendTag.ClaudeCode.type],
     config: LlmConfig,
     prompts: Prompts,
     workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
     val name: String = "main"
-) extends AbstractDefaultLlmTool[Backend.ClaudeCode.type, ClaudeTool](
+) extends AbstractDefaultLlmTool[BackendTag.ClaudeCode.type, ClaudeTool](
       backend,
       config,
       prompts,

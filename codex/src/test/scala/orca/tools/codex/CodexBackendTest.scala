@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.{Backend, LlmConfig, OrcaFlowException, SessionId}
+import orca.{BackendTag, LlmConfig, OrcaFlowException, SessionId}
 import orca.subprocess.{
   CliResult,
   CliRunner,
@@ -150,7 +150,7 @@ class CodexBackendTest extends munit.FunSuite:
       List(successfulProcess("thr-resumed"))
     )
     val backend = new CodexBackend(runner)
-    val sid = SessionId[Backend.Codex.type]("thr-original")
+    val sid = SessionId[BackendTag.Codex.type]("thr-original")
     val result = backend.continueHeadless(
       sid,
       "next step",
@@ -181,7 +181,7 @@ class CodexBackendTest extends munit.FunSuite:
   ):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     val backend = new CodexBackend(runner)
-    val sid = SessionId[Backend.Codex.type]("thr-old")
+    val sid = SessionId[BackendTag.Codex.type]("thr-old")
     val _ = backend.continueInteractive(
       sid,
       prompt = "next",

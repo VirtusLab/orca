@@ -1,8 +1,8 @@
 package orca.runner.terminal
 
-import orca.{
+import orca.BackendTag
+import orca.backend.{
   ApprovalDecision,
-  Backend,
   Conversation,
   ConversationEvent,
   LlmResult
@@ -76,7 +76,7 @@ private[terminal] class TerminalConversationRenderer(
     * conversation API stays honest (Either) at its layer; the renderer is the
     * converter.
     */
-  def render[B <: Backend](conversation: Conversation[B]): LlmResult[B] =
+  def render[B <: BackendTag](conversation: Conversation[B]): LlmResult[B] =
     try
       conversation.events.foreach(dispatch(_, conversation))
       // A well-behaved backend ends each turn with AssistantTurnEnd,
@@ -88,7 +88,7 @@ private[terminal] class TerminalConversationRenderer(
         case Left(cancelled) => throw cancelled
     finally closePrompter()
 
-  private def dispatch[B <: Backend](
+  private def dispatch[B <: BackendTag](
       event: ConversationEvent,
       conversation: Conversation[B]
   ): Unit = event match
@@ -190,7 +190,7 @@ private[terminal] class TerminalConversationRenderer(
 
   // --- Prompts ---
 
-  private def promptApproval[B <: Backend](
+  private def promptApproval[B <: BackendTag](
       toolName: String,
       rawInput: String,
       respond: ApprovalDecision => Unit,

@@ -2,7 +2,7 @@ package orca.plan
 
 import orca.{
   Announce,
-  Backend,
+  BackendTag,
   FlowContext,
   JsonData,
   LlmTool,
@@ -62,7 +62,7 @@ object Plan:
     * markdown yourself with `Plan.render`.
     */
   object interactive:
-    def from[B <: Backend](
+    def from[B <: BackendTag](
         userPrompt: String,
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
@@ -93,7 +93,7 @@ object Plan:
     * call site (`Plan.autonomous.from(...)` vs `Plan.interactive.from(...)`).
     */
   object autonomous:
-    def from[B <: Backend](
+    def from[B <: BackendTag](
         userPrompt: String,
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning

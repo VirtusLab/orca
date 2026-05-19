@@ -1,12 +1,7 @@
 package orca.tools.claude
 
-import orca.{
-  ApprovalDecision,
-  AutoApprove,
-  ConversationEvent,
-  LlmConfig,
-  SessionId
-}
+import orca.{AutoApprove, LlmConfig, SessionId}
+import orca.backend.{ApprovalDecision, ConversationEvent}
 import orca.subprocess.OsProcCliRunner
 
 /** End-to-end tests against the real `claude` CLI. Gated on the

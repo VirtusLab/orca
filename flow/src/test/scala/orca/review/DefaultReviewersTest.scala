@@ -3,7 +3,7 @@ package orca.review
 import orca.{
   Announce,
   AutonomousTextCall,
-  Backend,
+  BackendTag,
   JsonData,
   LlmCall,
   LlmConfig,
@@ -21,16 +21,17 @@ class DefaultReviewersTest extends munit.FunSuite:
       val name: String = "base",
       systemPromptsSeen: collection.mutable.ListBuffer[String] =
         collection.mutable.ListBuffer.empty
-  ) extends LlmTool[Backend.ClaudeCode.type]:
+  ) extends LlmTool[BackendTag.ClaudeCode.type]:
     def seen: List[String] = systemPromptsSeen.toList
-    def autonomous: AutonomousTextCall[Backend.ClaudeCode.type] = ???
-    def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
-    def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] =
+    def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
+    def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
+    def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] =
       val _ = systemPromptsSeen += p
       this
-    def withName(n: String): LlmTool[Backend.ClaudeCode.type] =
+    def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] =
       new RecordingTool(n, systemPromptsSeen)
-    def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
+    def resultAs[O: JsonData: Announce]
+        : LlmCall[BackendTag.ClaudeCode.type, O] =
       ???
 
   test(
@@ -68,7 +69,9 @@ class DefaultReviewersTest extends munit.FunSuite:
     val base = new RecordingTool
     val all = defaultReviewers(base)
     val picked =
-      SelectedReviewers(List("reviewer: performance", "reviewer: test-coverage"))
+      SelectedReviewers(
+        List("reviewer: performance", "reviewer: test-coverage")
+      )
         .pick(all)
     assertEquals(
       picked.map(_.name),

@@ -8,11 +8,11 @@ import orca.{
   FsTool,
   GitHubTool,
   GitTool,
-  Interaction,
   LlmConfig,
   OrcaEvent,
   Prompts
 }
+import orca.backend.Interaction
 import orca.tools.claude.{ClaudeBackend, DefaultClaudeTool}
 import orca.tools.codex.{CodexBackend, DefaultCodexTool}
 import orca.io.DefaultPrompts

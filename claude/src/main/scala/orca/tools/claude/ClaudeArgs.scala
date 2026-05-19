@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.{AutoApprove, Backend, LlmConfig, SessionId}
+import orca.{AutoApprove, BackendTag, LlmConfig, SessionId}
 
 /** Maps LlmConfig fields to Claude Code CLI flags. `systemPrompt` is consumed
   * by the backend (written to a file whose path is passed in via
@@ -16,7 +16,7 @@ object ClaudeArgs:
       prompt: String,
       config: LlmConfig,
       systemPromptFile: Option[os.Path],
-      resume: Option[SessionId[Backend.ClaudeCode.type]] = None
+      resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None
   ): Seq[String] =
     Seq("claude", "-p", prompt, "--output-format", "json") ++
       modelArgs(config) ++
@@ -35,7 +35,7 @@ object ClaudeArgs:
   def streamJson(
       config: LlmConfig,
       systemPromptFile: Option[os.Path],
-      resume: Option[SessionId[Backend.ClaudeCode.type]] = None,
+      resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
       jsonSchema: Option[String] = None
   ): Seq[String] =
     Seq(
@@ -61,7 +61,7 @@ object ClaudeArgs:
     file.toSeq.flatMap(f => Seq("--append-system-prompt-file", f.toString))
 
   private def resumeArgs(
-      resume: Option[SessionId[Backend.ClaudeCode.type]]
+      resume: Option[SessionId[BackendTag.ClaudeCode.type]]
   ): Seq[String] =
     resume.toSeq.flatMap(id => Seq("--resume", SessionId.value(id)))
 

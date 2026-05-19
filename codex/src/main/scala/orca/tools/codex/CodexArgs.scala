@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.{AutoApprove, Backend, LlmConfig, SessionId}
+import orca.{AutoApprove, BackendTag, LlmConfig, SessionId}
 
 /** Maps `LlmConfig` fields to `codex exec` CLI flags. `systemPrompt` is not
   * handled here — codex doesn't accept an `--append-system-prompt` equivalent
@@ -47,7 +47,7 @@ private[codex] object CodexArgs:
     * always finds a rollout.
     */
   def execResume(
-      sessionId: SessionId[Backend.Codex.type],
+      sessionId: SessionId[BackendTag.Codex.type],
       prompt: String,
       config: LlmConfig
   ): Seq[String] =

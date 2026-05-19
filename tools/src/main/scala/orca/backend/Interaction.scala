@@ -1,4 +1,6 @@
-package orca
+package orca.backend
+
+import orca.{BackendTag, OrcaListener}
 
 /** The channel that connects a flow to its user. `listeners` are registered on
   * the event dispatcher so the channel can show stage progress, streamed
@@ -16,4 +18,4 @@ trait Interaction:
     * cancelled mid-session, or any [[OrcaFlowException]] subtype for other
     * failures.
     */
-  def drive[B <: Backend](conversation: Conversation[B]): LlmResult[B]
+  def drive[B <: BackendTag](conversation: Conversation[B]): LlmResult[B]

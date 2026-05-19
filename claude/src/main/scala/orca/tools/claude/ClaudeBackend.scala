@@ -1,15 +1,8 @@
 package orca.tools.claude
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
-import orca.{
-  Backend,
-  Conversation,
-  LlmBackend,
-  LlmConfig,
-  LlmResult,
-  OrcaFlowException,
-  SessionId
-}
+import orca.{BackendTag, LlmConfig, OrcaFlowException, SessionId}
+import orca.backend.{Conversation, LlmBackend, LlmResult}
 import orca.subprocess.CliRunner
 import orca.tools.claude.streamjson.OutboundMessage
 
@@ -20,21 +13,22 @@ import orca.tools.claude.streamjson.OutboundMessage
   * responses, the driver translates them into `ConversationEvent`s the channel
   * renders.
   */
-class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
+class ClaudeBackend(cli: CliRunner)
+    extends LlmBackend[BackendTag.ClaudeCode.type]:
 
   def runHeadless(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
-  ): LlmResult[Backend.ClaudeCode.type] =
+  ): LlmResult[BackendTag.ClaudeCode.type] =
     invokeHeadless(prompt, config, workDir, resume = None)
 
   def continueHeadless(
-      sessionId: SessionId[Backend.ClaudeCode.type],
+      sessionId: SessionId[BackendTag.ClaudeCode.type],
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
-  ): LlmResult[Backend.ClaudeCode.type] =
+  ): LlmResult[BackendTag.ClaudeCode.type] =
     invokeHeadless(prompt, config, workDir, resume = Some(sessionId))
 
   def runInteractive(
@@ -43,7 +37,7 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
       config: LlmConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): Conversation[Backend.ClaudeCode.type] =
+  ): Conversation[BackendTag.ClaudeCode.type] =
     openConversation(
       prompt,
       displayPrompt,
@@ -54,13 +48,13 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
     )
 
   def continueInteractive(
-      sessionId: SessionId[Backend.ClaudeCode.type],
+      sessionId: SessionId[BackendTag.ClaudeCode.type],
       prompt: String,
       displayPrompt: String,
       config: LlmConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): Conversation[Backend.ClaudeCode.type] =
+  ): Conversation[BackendTag.ClaudeCode.type] =
     openConversation(
       prompt,
       displayPrompt,
@@ -94,9 +88,9 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
       displayPrompt: String,
       config: LlmConfig,
       workDir: os.Path,
-      resume: Option[SessionId[Backend.ClaudeCode.type]],
+      resume: Option[SessionId[BackendTag.ClaudeCode.type]],
       outputSchema: Option[String]
-  ): Conversation[Backend.ClaudeCode.type] =
+  ): Conversation[BackendTag.ClaudeCode.type] =
     val systemPromptFile = writeSystemPromptIfPresent(config, workDir)
     val args =
       ClaudeArgs.streamJson(config, systemPromptFile, resume, outputSchema)
@@ -123,8 +117,8 @@ class ClaudeBackend(cli: CliRunner) extends LlmBackend[Backend.ClaudeCode.type]:
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
-      resume: Option[SessionId[Backend.ClaudeCode.type]]
-  ): LlmResult[Backend.ClaudeCode.type] =
+      resume: Option[SessionId[BackendTag.ClaudeCode.type]]
+  ): LlmResult[BackendTag.ClaudeCode.type] =
     val systemPromptFile = writeSystemPromptIfPresent(config, workDir)
     val args = ClaudeArgs.headless(prompt, config, systemPromptFile, resume)
     // Retries for transient failures live one layer up in DefaultLlmCall —

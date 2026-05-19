@@ -1,7 +1,7 @@
 package orca.review
 
 import orca.{
-  Backend,
+  BackendTag,
   FlowContext,
   JsonData,
   LlmConfig,
@@ -222,7 +222,7 @@ private object ReviewLoopState:
   * The loop only re-evaluates when something was fixed — if `fixed` is empty
   * there's nothing new for the reviewers to find, so the loop halts.
   */
-def reviewAndFixLoop[B <: Backend](
+def reviewAndFixLoop[B <: BackendTag](
     coder: LlmTool[B],
     sessionId: SessionId[B],
     reviewers: List[LlmTool[?]],
@@ -293,7 +293,7 @@ def reviewAndFixLoop[B <: Backend](
     * above): the entry retrieved with a given reviewer's `RB` was written under
     * that same `RB`.
     */
-  def reviewWithSession[RB <: Backend](
+  def reviewWithSession[RB <: BackendTag](
       r: LlmTool[RB],
       sessions: Map[String, AnyRef],
       currentDiff: String

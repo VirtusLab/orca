@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.{AutoApprove, Backend, LlmConfig, SessionId}
+import orca.{AutoApprove, BackendTag, LlmConfig, SessionId}
 
 class ClaudeArgsTest extends munit.FunSuite:
 
@@ -52,7 +52,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(!args.contains("--allowedTools"))
 
   test("--resume <id> is emitted when a session id is supplied"):
-    val sid = SessionId[Backend.ClaudeCode.type]("sess-abc")
+    val sid = SessionId[BackendTag.ClaudeCode.type]("sess-abc")
     val args = ClaudeArgs.headless(
       prompt = "task",
       config = LlmConfig.default,
@@ -74,7 +74,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(args.contains("--print"))
 
   test("streamJson with --resume carries the session id through"):
-    val sid = SessionId[Backend.ClaudeCode.type]("sess-resume")
+    val sid = SessionId[BackendTag.ClaudeCode.type]("sess-resume")
     val args = ClaudeArgs.streamJson(
       config = LlmConfig.default,
       systemPromptFile = None,
@@ -84,7 +84,7 @@ class ClaudeArgsTest extends munit.FunSuite:
 
   test("all mappings compose: model + resume + autoApprove + system-prompt"):
     val file = os.temp()
-    val sid = SessionId[Backend.ClaudeCode.type]("sess-xyz")
+    val sid = SessionId[BackendTag.ClaudeCode.type]("sess-xyz")
     val args = ClaudeArgs.headless(
       prompt = "task",
       config = LlmConfig(

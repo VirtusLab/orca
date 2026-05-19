@@ -1,4 +1,4 @@
-package orca
+package orca.backend
 
 /** Event the driver emits for the channel to render. One full session is
   * represented by a sequence of these, terminated by the `events` iterator on
@@ -12,6 +12,9 @@ package orca
   * to the model after running the tool. `ApproveTool` is the only event the
   * channel must respond to — it carries a `respond` closure the channel invokes
   * exactly once with its decision.
+  *
+  * Distinct from [[OrcaEvent]], which fans out flow-wide; conversation events
+  * stay between driver and channel.
   */
 enum ConversationEvent:
   /** A user turn — either the opening prompt (emitted by the driver when the
@@ -42,3 +45,15 @@ enum ConversationEvent:
       rawInput: String,
       respond: ApprovalDecision => Unit
   )
+
+/** Channel's answer to a [[ConversationEvent.ApproveTool]] prompt.
+  *
+  *   - `Allow(None)` — run the tool with its original input.
+  *   - `Allow(Some(json))` — run the tool but substitute the input with the
+  *     supplied JSON value; useful for edit-then-approve UIs.
+  *   - `Deny(reason)` — refuse the call; `reason`, if given, is surfaced back
+  *     to the agent so it can adapt.
+  */
+enum ApprovalDecision:
+  case Allow(updatedInputJson: Option[String] = None)
+  case Deny(reason: Option[String] = None)

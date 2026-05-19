@@ -47,11 +47,10 @@ class CostTracker extends OrcaListener:
 
   /** Two sections — by-agent then by-model — sorted alphabetically within each.
     * Cache hits and reasoning tokens are shown parenthetically when non-zero,
-    * so a typical Claude line reads
-    *   `general: 12500 in (12453 cached), 1781 out`
-    * and a codex line that produced reasoning reads
-    *   `coder: 800 in (640 cached), 1200 out (300 reasoning)`.
-    * Empty string when no `TokensUsed` events have been observed.
+    * so a typical Claude line reads `general: 12500 in (12453 cached), 1781
+    * out` and a codex line that produced reasoning reads `coder: 800 in (640
+    * cached), 1200 out (300 reasoning)`. Empty string when no `TokensUsed`
+    * events have been observed.
     */
   def summary: String =
     val s = state.get()

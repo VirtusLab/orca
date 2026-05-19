@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.{Backend, LlmTool}
+import orca.{BackendTag, LlmTool}
 
 /** Canonical system prompts for the reviewers the library ships with. Exposed
   * so callers can tune or extend the set without rewriting the defaults.
@@ -54,7 +54,7 @@ object ReviewerPrompts:
   * reviewer has its own `name` and system prompt; callers pass them (or a
   * subset via `SelectedReviewers.pick`) to `reviewAndFixLoop`.
   */
-def defaultReviewers[B <: Backend](base: LlmTool[B]): List[LlmTool[B]] =
+def defaultReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]] =
   // Names are prefixed with `reviewer: ` so the per-agent token breakdown
   // groups every reviewer dimension together (matching `lint`, which the
   // review loop labels `reviewer: lint`). The non-reviewer driver agent

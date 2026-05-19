@@ -1,7 +1,7 @@
 package orca.review
 
 import orca.{
-  Backend,
+  BackendTag,
   EventDispatcher,
   FlowContext,
   OrcaEvent,
@@ -55,7 +55,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
 
     val _ = reviewAndFixLoop(
       coder = coder,
-      sessionId = SessionId[Backend.ClaudeCode.type]("s"),
+      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
       reviewers = List(reviewer),
       task = "optimize cache",
       initialDiff = Some("")
@@ -99,7 +99,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
 
     val result = reviewAndFixLoop(
       coder = coder,
-      sessionId = SessionId[Backend.ClaudeCode.type]("s"),
+      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
       reviewers = List(reviewer),
       task = "never ending",
       maxIterations = 2,

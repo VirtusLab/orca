@@ -1,14 +1,7 @@
 package orca.tools.codex
 
-import orca.{
-  Backend,
-  CodexTool,
-  Interaction,
-  LlmBackend,
-  LlmConfig,
-  OrcaListener,
-  Prompts
-}
+import orca.{BackendTag, CodexTool, LlmConfig, OrcaListener, Prompts}
+import orca.backend.{Interaction, LlmBackend}
 import orca.io.AbstractDefaultLlmTool
 
 /** Default [[CodexTool]] implementation. Inherits the autonomous-text +
@@ -16,14 +9,14 @@ import orca.io.AbstractDefaultLlmTool
   * Codex-specific `mini` model accessor.
   */
 class DefaultCodexTool(
-    backend: LlmBackend[Backend.Codex.type],
+    backend: LlmBackend[BackendTag.Codex.type],
     config: LlmConfig,
     prompts: Prompts,
     workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
     val name: String = "main"
-) extends AbstractDefaultLlmTool[Backend.Codex.type, CodexTool](
+) extends AbstractDefaultLlmTool[BackendTag.Codex.type, CodexTool](
       backend,
       config,
       prompts,

@@ -1,5 +1,7 @@
 package orca
 
+import orca.backend.{ApprovalDecision, ConversationEvent}
+
 import java.util.concurrent.atomic.AtomicReference
 
 class ConversationEventTest extends munit.FunSuite:

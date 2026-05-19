@@ -132,31 +132,31 @@ claude.withConfig(LlmConfig(
 Session IDs are **type-safe** via opaque types parameterized by backend:
 
 ```scala
-opaque type SessionId[B <: Backend] = String
+opaque type SessionId[B <: BackendTag] = String
 
-enum Backend:
+enum BackendTag:
   case ClaudeCode, Codex
 ```
 
 The full traits:
 
 ```scala
-trait LlmTool[B <: Backend]:
+trait LlmTool[B <: BackendTag]:
   def resultAs[O: Schema: ConfiguredJsonValueCodec]: LlmCall[B, O]
   def ask(prompt: String, config: LlmConfig = LlmConfig.default): String
   def withConfig(config: LlmConfig): LlmTool[B]
   def withSystemPrompt(prompt: String): LlmTool[B]
 
 /** Model variants are backend-specific. */
-trait ClaudeTool extends LlmTool[Backend.ClaudeCode]:
+trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode]:
   def haiku: ClaudeTool
   def sonnet: ClaudeTool
   def opus: ClaudeTool
 
-trait CodexTool extends LlmTool[Backend.Codex]:
+trait CodexTool extends LlmTool[BackendTag.Codex]:
   def mini: CodexTool
 
-trait LlmCall[B <: Backend, O]:
+trait LlmCall[B <: BackendTag, O]:
   def prompt[I: AgentInput](input: I, config: LlmConfig = LlmConfig.default): O
   def startSession[I: AgentInput](input: I, config: LlmConfig = LlmConfig.default): (SessionId[B], O)
   def continueSession[I: AgentInput](sessionId: SessionId[B], input: I, config: LlmConfig = LlmConfig.default): O
@@ -238,7 +238,7 @@ def fixLoop(
 )(using FlowContext): IgnoredIssues
 
 /** Review + fix loop with parallel reviewers and optional linter. Built on fixLoop. */
-def reviewAndFix[B <: Backend](
+def reviewAndFix[B <: BackendTag](
   coder: LlmTool[B],
   sessionId: SessionId[B],
   reviewers: List[LlmTool[?]],
@@ -305,7 +305,7 @@ Events are dispatched synchronously. The library emits events automatically for 
 ```scala
 trait Interaction:
   def listeners: List[OrcaListener]
-  def drive[B <: Backend](conversation: Conversation[B]): LlmResult[B]
+  def drive[B <: BackendTag](conversation: Conversation[B]): LlmResult[B]
 ```
 
 Built-in: `TerminalInteraction` (default, JLine 3 + fansi), `SlackInteraction(channel)`. Additional listeners for telemetry:
@@ -325,15 +325,15 @@ def fail(message: String)(using FlowContext): Nothing  // emits Error, throws Or
 ### Backend abstraction
 
 ```scala
-trait LlmBackend[B <: Backend]:
+trait LlmBackend[B <: BackendTag]:
   def runHeadless(prompt: String, config: LlmConfig, workDir: Path): LlmResult[B]
   def continueHeadless(sessionId: SessionId[B], prompt: String, config: LlmConfig, workDir: Path): LlmResult[B]
   def runInteractive(prompt: String, config: LlmConfig, workDir: Path, outputSchema: Option[String]): Conversation[B]
   def continueInteractive(sessionId: SessionId[B], prompt: String, config: LlmConfig, workDir: Path, outputSchema: Option[String]): Conversation[B]
 
-case class LlmResult[B <: Backend](sessionId: SessionId[B], output: String, usage: Usage)
+case class LlmResult[B <: BackendTag](sessionId: SessionId[B], output: String, usage: Usage)
 
-trait Conversation[B <: Backend]:
+trait Conversation[B <: BackendTag]:
   def events: Iterator[ConversationEvent]
   def awaitResult(): LlmResult[B]
   def sendUserMessage(text: String): Unit

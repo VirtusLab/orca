@@ -1,16 +1,7 @@
 package orca.tools.claude
 
-import orca.{
-  Backend,
-  Interaction,
-  JsonData,
-  LlmBackend,
-  LlmConfig,
-  LlmResult,
-  OrcaListener,
-  SessionId,
-  Usage
-}
+import orca.{BackendTag, JsonData, LlmConfig, OrcaListener, SessionId, Usage}
+import orca.backend.{Interaction, LlmBackend, LlmResult}
 import orca.io.{DefaultLlmCall, DefaultPrompts}
 import ox.supervised
 
@@ -23,7 +14,7 @@ case class Answer(value: Int) derives JsonData
   * test here.
   */
 class SequencedBackend(outputs: List[String])
-    extends LlmBackend[Backend.ClaudeCode.type]:
+    extends LlmBackend[BackendTag.ClaudeCode.type]:
   private val remaining: AtomicReference[List[String]] =
     AtomicReference(outputs)
   private val promptsRef: AtomicReference[List[String]] =
@@ -35,17 +26,17 @@ class SequencedBackend(outputs: List[String])
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
-  ): LlmResult[Backend.ClaudeCode.type] = nextResult(prompt)
+  ): LlmResult[BackendTag.ClaudeCode.type] = nextResult(prompt)
 
   /** Record a continuation call tagged with its sessionId so tests can assert
     * the same session is being resumed across retries.
     */
   def continueHeadless(
-      sessionId: SessionId[Backend.ClaudeCode.type],
+      sessionId: SessionId[BackendTag.ClaudeCode.type],
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
-  ): LlmResult[Backend.ClaudeCode.type] =
+  ): LlmResult[BackendTag.ClaudeCode.type] =
     nextResult(prompt).copy(sessionId = sessionId)
 
   def runInteractive(
@@ -54,26 +45,26 @@ class SequencedBackend(outputs: List[String])
       config: LlmConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): orca.Conversation[Backend.ClaudeCode.type] = ???
+  ): orca.backend.Conversation[BackendTag.ClaudeCode.type] = ???
   def continueInteractive(
-      sessionId: SessionId[Backend.ClaudeCode.type],
+      sessionId: SessionId[BackendTag.ClaudeCode.type],
       prompt: String,
       displayPrompt: String,
       config: LlmConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): orca.Conversation[Backend.ClaudeCode.type] = ???
+  ): orca.backend.Conversation[BackendTag.ClaudeCode.type] = ???
 
   private def nextResult(
       prompt: String
-  ): LlmResult[Backend.ClaudeCode.type] =
+  ): LlmResult[BackendTag.ClaudeCode.type] =
     val _ = promptsRef.updateAndGet(prompt :: _)
     val next = remaining
       .getAndUpdate(rs => rs.drop(1))
       .headOption
       .getOrElse(throw new IllegalStateException("ran out of canned outputs"))
     LlmResult(
-      sessionId = SessionId[Backend.ClaudeCode.type]("sess-test"),
+      sessionId = SessionId[BackendTag.ClaudeCode.type]("sess-test"),
       output = next,
       usage = Usage.empty
     )
@@ -88,14 +79,14 @@ class DefaultLlmCallTest extends munit.FunSuite:
 
   private val stubInteraction: Interaction = new Interaction:
     val listeners: List[OrcaListener] = Nil
-    def drive[B <: Backend](
-        conversation: orca.Conversation[B]
+    def drive[B <: BackendTag](
+        conversation: orca.backend.Conversation[B]
     ): LlmResult[B] = throw new UnsupportedOperationException("test stub")
 
   private def makeCall(
       backend: SequencedBackend
-  ): DefaultLlmCall[Backend.ClaudeCode.type, Answer] =
-    new DefaultLlmCall[Backend.ClaudeCode.type, Answer](
+  ): DefaultLlmCall[BackendTag.ClaudeCode.type, Answer] =
+    new DefaultLlmCall[BackendTag.ClaudeCode.type, Answer](
       backend = backend,
       effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
@@ -145,7 +136,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
     val backend = new SequencedBackend(
       List("garbage", """{"value":11}""")
     )
-    val sid = SessionId[Backend.ClaudeCode.type]("sess-under-test")
+    val sid = SessionId[BackendTag.ClaudeCode.type]("sess-under-test")
     supervised:
       val answer =
         makeCall(backend).autonomous.continueSession(sid, "next step")
@@ -170,7 +161,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
       orca.Announce.from(a => s"answer is ${a.value}")
     val backend = new SequencedBackend(List("""{"value":99}"""))
     val seen = AtomicReference[List[orca.OrcaEvent]](Nil)
-    val call = new DefaultLlmCall[Backend.ClaudeCode.type, Answer](
+    val call = new DefaultLlmCall[BackendTag.ClaudeCode.type, Answer](
       backend = backend,
       effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
@@ -195,7 +186,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
     val backend = new SequencedBackend(List("""{"value":1}"""))
     val seen = AtomicReference[List[orca.OrcaEvent]](Nil)
     supervised:
-      val _ = new DefaultLlmCall[Backend.ClaudeCode.type, Answer](
+      val _ = new DefaultLlmCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
         effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
         prompts = DefaultPrompts,

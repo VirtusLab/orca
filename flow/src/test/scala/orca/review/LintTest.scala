@@ -5,7 +5,7 @@ import orca.{
   Announce,
   AutonomousLlmCall,
   AutonomousTextCall,
-  Backend,
+  BackendTag,
   EventDispatcher,
   FlowContext,
   InteractiveLlmCall,
@@ -28,17 +28,18 @@ class LintTest extends munit.FunSuite:
     * mutable var holds the captured string.
     */
   private class CapturingLlmTool(canned: ReviewResult)
-      extends LlmTool[Backend.ClaudeCode.type]:
+      extends LlmTool[BackendTag.ClaudeCode.type]:
     var captured: String = ""
     val name = "mock"
-    def autonomous: AutonomousTextCall[Backend.ClaudeCode.type] = ???
-    def withConfig(c: LlmConfig): LlmTool[Backend.ClaudeCode.type] = this
-    def withSystemPrompt(p: String): LlmTool[Backend.ClaudeCode.type] = this
-    def withName(n: String): LlmTool[Backend.ClaudeCode.type] = this
-    def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
-      new LlmCall[Backend.ClaudeCode.type, O]:
-        val autonomous: AutonomousLlmCall[Backend.ClaudeCode.type, O] =
-          new AutonomousLlmCall[Backend.ClaudeCode.type, O]:
+    def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
+    def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
+    def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
+    def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
+    def resultAs[O: JsonData: Announce]
+        : LlmCall[BackendTag.ClaudeCode.type, O] =
+      new LlmCall[BackendTag.ClaudeCode.type, O]:
+        val autonomous: AutonomousLlmCall[BackendTag.ClaudeCode.type, O] =
+          new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
             def run[I](i: I, c: LlmConfig = LlmConfig.default)(using
                 a: AgentInput[I]
             ): O =
@@ -47,13 +48,13 @@ class LintTest extends munit.FunSuite:
             def startSession[I: AgentInput](
                 i: I,
                 c: LlmConfig = LlmConfig.default
-            ): (SessionId[Backend.ClaudeCode.type], O) = ???
+            ): (SessionId[BackendTag.ClaudeCode.type], O) = ???
             def continueSession[I: AgentInput](
-                sid: SessionId[Backend.ClaudeCode.type],
+                sid: SessionId[BackendTag.ClaudeCode.type],
                 i: I,
                 c: LlmConfig = LlmConfig.default
             ): O = ???
-        def interactive: InteractiveLlmCall[Backend.ClaudeCode.type, O] = ???
+        def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
 
   test("lint runs the command, passes output to the LLM, returns its result"):
     given FlowContext = ctx

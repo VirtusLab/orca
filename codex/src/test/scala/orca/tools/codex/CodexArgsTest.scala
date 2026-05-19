@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.{AutoApprove, Backend, LlmConfig, SessionId}
+import orca.{AutoApprove, BackendTag, LlmConfig, SessionId}
 
 class CodexArgsTest extends munit.FunSuite:
 
@@ -65,7 +65,7 @@ class CodexArgsTest extends munit.FunSuite:
     assert(!args.contains("--dangerously-bypass-approvals-and-sandbox"))
 
   test("execResume builds codex exec resume <id> [...] <prompt>"):
-    val sid = SessionId[Backend.Codex.type]("019dc-thread")
+    val sid = SessionId[BackendTag.Codex.type]("019dc-thread")
     val args = CodexArgs.execResume(
       sid,
       "next step",
@@ -76,13 +76,13 @@ class CodexArgsTest extends munit.FunSuite:
     assertEquals(args.last, "next step")
 
   test("execResume omits -C and --output-schema (codex doesn't accept them)"):
-    val sid = SessionId[Backend.Codex.type]("sid")
+    val sid = SessionId[BackendTag.Codex.type]("sid")
     val args = CodexArgs.execResume(sid, "x", LlmConfig.default)
     assert(!args.contains("-C"))
     assert(!args.contains("--output-schema"))
 
   test("execResume propagates --model when LlmConfig.model is set"):
-    val sid = SessionId[Backend.Codex.type]("sid")
+    val sid = SessionId[BackendTag.Codex.type]("sid")
     val args = CodexArgs.execResume(
       sid,
       "x",

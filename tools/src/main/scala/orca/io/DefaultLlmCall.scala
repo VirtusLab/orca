@@ -4,11 +4,9 @@ import orca.{
   AgentInput,
   Announce,
   AutonomousLlmCall,
-  Backend,
-  Interaction,
+  BackendTag,
   InteractiveLlmCall,
   JsonData,
-  LlmBackend,
   LlmCall,
   LlmConfig,
   OrcaEvent,
@@ -16,6 +14,7 @@ import orca.{
   Prompts,
   SessionId
 }
+import orca.backend.{Interaction, LlmBackend}
 import ox.resilience.retry
 
 /** Default implementation of [[LlmCall]] for any backend.
@@ -28,14 +27,14 @@ import ox.resilience.retry
   *     loop: if the response fails to parse as `O`, the next attempt's prompt
   *     includes the failed output and the parser error so the model can
   *     self-correct.
-  *   - The interactive shape opens a [[orca.Conversation]] via the backend and
-  *     hands it to the supplied [[Interaction]] for rendering and user
-  *     steering. No retry: the user is steering, and a parse failure on the
-  *     final payload is more useful surfaced than silently relaunched.
+  *   - The interactive shape opens a [[orca.backend.Conversation]] via the
+  *     backend and hands it to the supplied [[Interaction]] for rendering and
+  *     user steering. No retry: the user is steering, and a parse failure on
+  *     the final payload is more useful surfaced than silently relaunched.
   */
 private case class FailedAttempt(response: String, parserError: String)
 
-class DefaultLlmCall[B <: Backend, O](
+class DefaultLlmCall[B <: BackendTag, O](
     backend: LlmBackend[B],
     effectiveConfig: LlmConfig => LlmConfig,
     prompts: Prompts,

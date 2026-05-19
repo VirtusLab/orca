@@ -1,6 +1,7 @@
 package orca.tools.claude
 
-import orca.{Backend, LlmConfig, LlmResult, OrcaFlowException, SessionId}
+import orca.{BackendTag, LlmConfig, OrcaFlowException, SessionId}
+import orca.backend.LlmResult
 import orca.subprocess.{CliResult, StubCliRunner}
 
 class ClaudeBackendTest extends munit.FunSuite:
@@ -61,7 +62,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     val resumedJson =
       """{"session_id":"sess-456","result":"resumed","usage":{"input_tokens":1,"output_tokens":2}}"""
     val (cli, backend) = stubBackend(CliResult(0, resumedJson, ""))
-    val existing = SessionId[Backend.ClaudeCode.type]("sess-123")
+    val existing = SessionId[BackendTag.ClaudeCode.type]("sess-123")
     val result = backend.continueHeadless(
       existing,
       "keep going",

@@ -2,7 +2,8 @@ package orca.tools.claude
 
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import orca.tools.claude.streamjson.RawJson
-import orca.{Backend, LlmResult, SessionId, Usage}
+import orca.{BackendTag, SessionId, Usage}
+import orca.backend.LlmResult
 
 /** Subset of the JSON Claude Code emits when invoked with `--output-format
   * json`. Field names mirror the CLI output.
@@ -21,9 +22,9 @@ case class ClaudeHeadlessResponse(
     modelUsage: Option[Map[String, RawJson]] = None
 ) derives ConfiguredJsonValueCodec:
 
-  def toLlmResult: LlmResult[Backend.ClaudeCode.type] =
+  def toLlmResult: LlmResult[BackendTag.ClaudeCode.type] =
     LlmResult(
-      sessionId = SessionId[Backend.ClaudeCode.type](session_id),
+      sessionId = SessionId[BackendTag.ClaudeCode.type](session_id),
       output = result,
       usage = Usage(
         inputTokens = usage.totalInputTokens,
@@ -37,9 +38,9 @@ case class ClaudeHeadlessResponse(
 /** Claude Code splits an input-token count across three fields when prompt
   * caching is on (which it is by default): `input_tokens` covers only the new
   * uncached portion of the turn, while the system prompt + tool defs go into
-  * `cache_creation_input_tokens` on the first turn and `cache_read_input_tokens`
-  * on every subsequent turn. The total billable input is the sum; the cached
-  * portion is `cache_creation + cache_read`.
+  * `cache_creation_input_tokens` on the first turn and
+  * `cache_read_input_tokens` on every subsequent turn. The total billable input
+  * is the sum; the cached portion is `cache_creation + cache_read`.
   */
 case class ClaudeUsage(
     input_tokens: Long,

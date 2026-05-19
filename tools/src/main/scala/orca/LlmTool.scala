@@ -18,10 +18,10 @@ package orca
   * it's always visible at the call site as the leftmost segment after the tool
   * / call gateway.
   *
-  * Parameterized by the concrete `Backend` so session ids and results carry the
-  * backend identity at the type level.
+  * Parameterized by the concrete `BackendTag` so session ids and results carry
+  * the backend identity at the type level.
   */
-trait LlmTool[B <: Backend]:
+trait LlmTool[B <: BackendTag]:
   def name: String
 
   /** Free-form text autonomous calls. Use this when the agent's reply is prose
@@ -45,7 +45,7 @@ trait LlmTool[B <: Backend]:
   def withSystemPrompt(prompt: String): LlmTool[B]
   def withName(name: String): LlmTool[B]
 
-trait ClaudeTool extends LlmTool[Backend.ClaudeCode.type]:
+trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
   /** Pin the Claude model for subsequent calls, overriding `LlmConfig.model`.
     * Typical usage: `claude.haiku.autonomous.run("summarize this")` for a cheap
     * fast call.
@@ -54,14 +54,14 @@ trait ClaudeTool extends LlmTool[Backend.ClaudeCode.type]:
   def sonnet: ClaudeTool
   def opus: ClaudeTool
 
-trait CodexTool extends LlmTool[Backend.Codex.type]:
+trait CodexTool extends LlmTool[BackendTag.Codex.type]:
   def mini: CodexTool
 
 /** Free-form text autonomous calls — the `LlmTool.autonomous` shape. Three
   * methods cover the session-retention axis: `run` for one-shot, `startSession`
   * to keep the thread alive for follow-ups, `continueSession` to resume.
   */
-trait AutonomousTextCall[B <: Backend]:
+trait AutonomousTextCall[B <: BackendTag]:
   def run(prompt: String, config: LlmConfig = LlmConfig.default): String
   def startSession(
       prompt: String,
@@ -77,7 +77,7 @@ trait AutonomousTextCall[B <: Backend]:
   * autonomous-vs-interactive choice into two sibling objects so the call site
   * always shows which mode it picked.
   */
-trait LlmCall[B <: Backend, O]:
+trait LlmCall[B <: BackendTag, O]:
   def autonomous: AutonomousLlmCall[B, O]
   def interactive: InteractiveLlmCall[B, O]
 
@@ -85,7 +85,7 @@ trait LlmCall[B <: Backend, O]:
   * `run` returns just `O`; `startSession` / `continueSession` retain the
   * session id alongside `O` so callers can continue the same context.
   */
-trait AutonomousLlmCall[B <: Backend, O]:
+trait AutonomousLlmCall[B <: BackendTag, O]:
   def run[I: AgentInput](
       input: I,
       config: LlmConfig = LlmConfig.default
@@ -105,7 +105,7 @@ trait AutonomousLlmCall[B <: Backend, O]:
   * structured `O`. No `run` because an interactive call without a session id to
   * follow up on doesn't make sense — the conversation IS the session.
   */
-trait InteractiveLlmCall[B <: Backend, O]:
+trait InteractiveLlmCall[B <: BackendTag, O]:
   def startSession[I: AgentInput](
       input: I,
       config: LlmConfig = LlmConfig.default

@@ -1,14 +1,11 @@
 package orca.runner.terminal
 
-import orca.{
+import orca.{BackendTag, OrcaInteractiveCancelled, SessionId, Usage}
+import orca.backend.{
   ApprovalDecision,
-  Backend,
   Conversation,
   ConversationEvent,
-  LlmResult,
-  OrcaInteractiveCancelled,
-  SessionId,
-  Usage
+  LlmResult
 }
 
 import java.io.{ByteArrayOutputStream, PrintStream}
@@ -44,7 +41,7 @@ class TerminalConversationRendererTest extends munit.FunSuite:
     *     `Left(cancelled)` so the caller pattern-matches.
     *   - `Left(other)` — thrown, simulating a fatal subprocess failure.
     */
-  private class ScriptedConversation[B <: Backend](
+  private class ScriptedConversation[B <: BackendTag](
       scripted: List[ConversationEvent],
       outcome: Either[Throwable, LlmResult[B]],
       val outputSchema: Option[String] = None
@@ -72,9 +69,9 @@ class TerminalConversationRendererTest extends munit.FunSuite:
       next.getOrElse(throw new IllegalStateException("prompter exhausted"))
     def close(): Unit = ()
 
-  private def sampleResult: LlmResult[Backend.ClaudeCode.type] =
+  private def sampleResult: LlmResult[BackendTag.ClaudeCode.type] =
     LlmResult(
-      sessionId = SessionId[Backend.ClaudeCode.type]("sid"),
+      sessionId = SessionId[BackendTag.ClaudeCode.type]("sid"),
       output = """{"ok":true}""",
       usage = Usage(0L, 0L, None)
     )

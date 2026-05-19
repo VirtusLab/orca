@@ -1,5 +1,16 @@
 package orca
 
+/** Flow-level event fanned out to every registered [[OrcaListener]]. Covers
+  * stage transitions, tool invocations, token usage, structured results, and
+  * errors — anything observers like the status bar, cost tracker, or external
+  * log shippers want to see across the entire flow.
+  *
+  * Distinct from [[orca.backend.ConversationEvent]], which is scoped to a
+  * single live LLM conversation: assistant text deltas, tool-approval prompts,
+  * etc., consumed only by the [[orca.backend.Interaction]] that drives that
+  * conversation. Conversation events stay between driver and channel;
+  * `OrcaEvent`s fan out to all listeners.
+  */
 enum OrcaEvent:
   case StageStarted(name: String)
   case StageCompleted(name: String, result: String)

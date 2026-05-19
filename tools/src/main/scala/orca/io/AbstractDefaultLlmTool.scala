@@ -3,19 +3,17 @@ package orca.io
 import orca.{
   Announce,
   AutonomousTextCall,
-  Backend,
-  Interaction,
+  BackendTag,
   JsonData,
-  LlmBackend,
   LlmCall,
   LlmConfig,
-  LlmResult,
   LlmTool,
   OrcaEvent,
   OrcaListener,
   Prompts,
   SessionId
 }
+import orca.backend.{Interaction, LlmBackend, LlmResult}
 
 /** Skeleton shared by Claude and Codex's default tools — and by any future
   * backend that follows the same `LlmBackend` contract. Centralises the
@@ -33,7 +31,7 @@ import orca.{
   *   - the model accessors (`haiku`/`sonnet`/`opus`, `mini`, …) — these are
   *     backend-specific and stay on the subclass.
   */
-abstract class AbstractDefaultLlmTool[B <: Backend, Self <: LlmTool[B]](
+abstract class AbstractDefaultLlmTool[B <: BackendTag, Self <: LlmTool[B]](
     backend: LlmBackend[B],
     config: LlmConfig,
     prompts: Prompts,
@@ -117,9 +115,10 @@ abstract class AbstractDefaultLlmTool[B <: Backend, Self <: LlmTool[B]](
     val model = result.model.orElse(effective.model)
     events.onEvent(OrcaEvent.TokensUsed(name, model, result.usage))
 
-  /** Call-level config overrides tool-level values where the call explicitly
-    * set them. Detection is reference-based: a caller who omitted the arg
-    * receives the shared `LlmConfig.default` singleton.
+  /** If the caller omitted the per-call `config` arg they get the shared
+    * `LlmConfig.default` singleton; in that case fall back to the tool-level
+    * config. Any explicit `LlmConfig` from the call site wholly replaces the
+    * tool-level one — no per-field merge.
     */
   private def effectiveConfig(callConfig: LlmConfig): LlmConfig =
     if callConfig eq LlmConfig.default then config else callConfig

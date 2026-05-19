@@ -1,14 +1,7 @@
 package orca.subprocess
 
-import orca.{
-  Backend,
-  Conversation,
-  ConversationEvent,
-  LlmResult,
-  OrcaDebug,
-  OrcaFlowException,
-  OrcaInteractiveCancelled
-}
+import orca.{BackendTag, OrcaDebug, OrcaFlowException, OrcaInteractiveCancelled}
+import orca.backend.{Conversation, ConversationEvent, LlmResult}
 
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
@@ -37,7 +30,7 @@ import scala.util.control.NonFatal
   * Outbound writes (user turns, tool-approval responses) happen on the
   * channel's thread; the reader thread only produces events.
   */
-private[orca] abstract class StreamConversation[B <: Backend](
+private[orca] abstract class StreamConversation[B <: BackendTag](
     process: PipedCliProcess,
     /** Used in thread names ("claude-conversation-reader"), debug traces,
       * parse-error messages, and the default stderr error prefix. Should match
@@ -201,15 +194,16 @@ private[orca] object StreamConversation:
     * `Failed` get a wide-bounded `Outcome[B]` via the `Outcome.cancelled` /
     * `Outcome.failed` smart constructors below.
     */
-  sealed trait Outcome[B <: Backend]
+  sealed trait Outcome[B <: BackendTag]
   object Outcome:
-    final case class Success[B <: Backend](result: LlmResult[B])
+    final case class Success[B <: BackendTag](result: LlmResult[B])
         extends Outcome[B]
-    final case class Cancelled[B <: Backend]() extends Outcome[B]
-    final case class Failed[B <: Backend](error: Throwable) extends Outcome[B]
+    final case class Cancelled[B <: BackendTag]() extends Outcome[B]
+    final case class Failed[B <: BackendTag](error: Throwable)
+        extends Outcome[B]
 
-    def cancelled[B <: Backend]: Outcome[B] = Cancelled[B]()
-    def failed[B <: Backend](error: Throwable): Outcome[B] = Failed[B](error)
+    def cancelled[B <: BackendTag]: Outcome[B] = Cancelled[B]()
+    def failed[B <: BackendTag](error: Throwable): Outcome[B] = Failed[B](error)
 
   /** Blocking queue + single-consumer iterator. `close()` signals end-of-stream
     * to whichever thread is iterating.

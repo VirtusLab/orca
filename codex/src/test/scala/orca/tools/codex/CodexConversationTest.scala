@@ -1,12 +1,7 @@
 package orca.tools.codex
 
-import orca.{
-  ConversationEvent,
-  OrcaFlowException,
-  OrcaInteractiveCancelled,
-  SessionId,
-  Usage
-}
+import orca.{OrcaFlowException, OrcaInteractiveCancelled, SessionId, Usage}
+import orca.backend.ConversationEvent
 import orca.subprocess.FakePipedCliProcess
 
 class CodexConversationTest extends munit.FunSuite:

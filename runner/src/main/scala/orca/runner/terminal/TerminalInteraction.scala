@@ -1,13 +1,7 @@
 package orca.runner.terminal
 
-import orca.{
-  Backend,
-  Conversation,
-  Interaction,
-  LlmResult,
-  OrcaEvent,
-  OrcaListener
-}
+import orca.{BackendTag, OrcaEvent, OrcaListener}
+import orca.backend.{Conversation, Interaction, LlmResult}
 
 import java.io.PrintStream
 
@@ -53,7 +47,7 @@ class TerminalInteraction(
     * approval-prompt machinery; this class retains responsibility for the
     * ambient status bar and the `OrcaListener` surface.
     */
-  def drive[B <: Backend](conversation: Conversation[B]): LlmResult[B] =
+  def drive[B <: BackendTag](conversation: Conversation[B]): LlmResult[B] =
     new TerminalConversationRenderer(
       useColor = useColor,
       statusBar = statusBar,

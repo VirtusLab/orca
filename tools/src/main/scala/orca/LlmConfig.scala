@@ -22,10 +22,14 @@ object LlmConfig:
   val defaultRetrySchedule: Schedule =
     Schedule.exponentialBackoff(1.second).maxRepeats(3)
 
-  /** The default LlmConfig. Implementations may use reference-equality with
-    * this singleton as a cheap "caller omitted the arg" sentinel, so always
-    * refer to `LlmConfig.default` rather than constructing a fresh one when you
-    * want default-config semantics.
+  /** The default LlmConfig. Shared as a singleton so the framework can detect,
+    * via `eq LlmConfig.default`, that the caller omitted the per-call `config`
+    * argument; in that case the tool-level config (set via
+    * `LlmTool.withConfig`) is used instead. Any explicit `LlmConfig` passed at
+    * the call site wholly replaces the tool-level one — there is no per-field
+    * merge. Pass `LlmConfig.default` (or omit the arg) to inherit the tool's
+    * defaults; constructing a fresh `LlmConfig()` defeats the detection and
+    * wipes them.
     */
   val default: LlmConfig = LlmConfig()
 

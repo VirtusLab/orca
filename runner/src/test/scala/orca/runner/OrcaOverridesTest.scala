@@ -4,7 +4,7 @@ import _root_.orca.runner.terminal.TerminalInteraction
 import orca.{
   Announce,
   AutonomousTextCall,
-  Backend,
+  BackendTag,
   ClaudeTool,
   CostTracker,
   FlowContext,
@@ -55,20 +55,21 @@ class OrcaOverridesTest extends munit.FunSuite:
       def withConfig(c: LlmConfig) = this
       def withSystemPrompt(p: String) = this
       def withName(n: String) = this
-      val autonomous: AutonomousTextCall[Backend.ClaudeCode.type] =
-        new AutonomousTextCall[Backend.ClaudeCode.type]:
+      val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
+        new AutonomousTextCall[BackendTag.ClaudeCode.type]:
           def run(p: String, c: LlmConfig = LlmConfig.default): String =
             s"echo: $p"
           def startSession(
               p: String,
               c: LlmConfig = LlmConfig.default
-          ): (SessionId[Backend.ClaudeCode.type], String) = ???
+          ): (SessionId[BackendTag.ClaudeCode.type], String) = ???
           def continueSession(
-              s: SessionId[Backend.ClaudeCode.type],
+              s: SessionId[BackendTag.ClaudeCode.type],
               p: String,
               c: LlmConfig = LlmConfig.default
           ): String = ???
-      def resultAs[O: JsonData: Announce]: LlmCall[Backend.ClaudeCode.type, O] =
+      def resultAs[O: JsonData: Announce]
+          : LlmCall[BackendTag.ClaudeCode.type, O] =
         ???
     var observed: String = ""
     flow(

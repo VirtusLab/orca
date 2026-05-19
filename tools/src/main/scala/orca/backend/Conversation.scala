@@ -1,4 +1,6 @@
-package orca
+package orca.backend
+
+import orca.{BackendTag, OrcaInteractiveCancelled}
 
 /** One live interactive session with a backend. Owned by the driver, read and
   * written to by the channel via [[Interaction.drive]].
@@ -13,7 +15,7 @@ package orca
   * `sendUserMessage` injects an unsolicited user turn; it and `cancel` are safe
   * to call from any thread.
   */
-trait Conversation[B <: Backend]:
+trait Conversation[B <: BackendTag]:
 
   /** The JSON-schema string the conversation was launched with, when the caller
     * asked for a structured payload via `claude.resultAs[O].interactive(...)`

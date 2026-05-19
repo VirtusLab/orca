@@ -1,6 +1,7 @@
 package orca.tools.codex
 
-import orca.{AutoApprove, ConversationEvent, LlmConfig, SessionId}
+import orca.{AutoApprove, LlmConfig, SessionId}
+import orca.backend.ConversationEvent
 import orca.subprocess.OsProcCliRunner
 
 /** End-to-end tests against the real `codex` CLI. Gated on the

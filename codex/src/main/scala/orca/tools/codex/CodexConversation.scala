@@ -1,13 +1,7 @@
 package orca.tools.codex
 
-import orca.{
-  Backend,
-  ConversationEvent,
-  LlmResult,
-  OrcaFlowException,
-  SessionId,
-  Usage
-}
+import orca.{BackendTag, OrcaFlowException, SessionId, Usage}
+import orca.backend.{ConversationEvent, LlmResult}
 import orca.subprocess.{PipedCliProcess, StreamConversation}
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
 
@@ -50,7 +44,7 @@ private[codex] class CodexConversation(
     process: PipedCliProcess,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None
-) extends StreamConversation[Backend.Codex.type](
+) extends StreamConversation[BackendTag.Codex.type](
       process = process,
       backendName = "codex",
       initialPrompt = initialPrompt
@@ -173,7 +167,7 @@ private[codex] class CodexConversation(
 
   private def handleTurnCompleted(usage: Usage): Unit =
     val result = LlmResult(
-      sessionId = SessionId[Backend.Codex.type](sessionIdRef.get()),
+      sessionId = SessionId[BackendTag.Codex.type](sessionIdRef.get()),
       output = lastAgentMessage.get(),
       usage = usage,
       model = modelRef.get()

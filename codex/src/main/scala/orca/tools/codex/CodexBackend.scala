@@ -1,16 +1,14 @@
 package orca.tools.codex
 
 import orca.{
-  Backend,
-  Conversation,
-  LlmBackend,
+  BackendTag,
   LlmConfig,
-  LlmResult,
   OrcaDebug,
   OrcaFlowException,
   SessionId,
   Usage
 }
+import orca.backend.{Conversation, LlmBackend, LlmResult}
 import orca.subprocess.{CliRunner, PipedCliProcess}
 import orca.tools.codex.jsonl.{InboundEvent, Item}
 
@@ -28,21 +26,21 @@ import scala.util.control.NonFatal
   * the channel can render events live. Multi-turn happens via
   * `continueInteractive`, which spawns a fresh `codex exec resume <thread_id>`.
   */
-class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
+class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
 
   def runHeadless(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
-  ): LlmResult[Backend.Codex.type] =
+  ): LlmResult[BackendTag.Codex.type] =
     invokeHeadless(prompt, config, workDir, resume = None)
 
   def continueHeadless(
-      sessionId: SessionId[Backend.Codex.type],
+      sessionId: SessionId[BackendTag.Codex.type],
       prompt: String,
       config: LlmConfig,
       workDir: os.Path
-  ): LlmResult[Backend.Codex.type] =
+  ): LlmResult[BackendTag.Codex.type] =
     invokeHeadless(prompt, config, workDir, resume = Some(sessionId))
 
   def runInteractive(
@@ -51,7 +49,7 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
       config: LlmConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): Conversation[Backend.Codex.type] =
+  ): Conversation[BackendTag.Codex.type] =
     openConversation(
       prompt,
       displayPrompt,
@@ -62,13 +60,13 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
     )
 
   def continueInteractive(
-      sessionId: SessionId[Backend.Codex.type],
+      sessionId: SessionId[BackendTag.Codex.type],
       prompt: String,
       displayPrompt: String,
       config: LlmConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): Conversation[Backend.Codex.type] =
+  ): Conversation[BackendTag.Codex.type] =
     openConversation(
       prompt,
       displayPrompt,
@@ -91,9 +89,9 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
       displayPrompt: String,
       config: LlmConfig,
       workDir: os.Path,
-      resume: Option[SessionId[Backend.Codex.type]],
+      resume: Option[SessionId[BackendTag.Codex.type]],
       outputSchema: Option[String]
-  ): Conversation[Backend.Codex.type] =
+  ): Conversation[BackendTag.Codex.type] =
     val finalPrompt = mergeSystemPrompt(config, prompt)
     val schemaFile = writeSchemaIfPresent(outputSchema, workDir)
     val args = resume match
@@ -128,8 +126,8 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
-      resume: Option[SessionId[Backend.Codex.type]]
-  ): LlmResult[Backend.Codex.type] =
+      resume: Option[SessionId[BackendTag.Codex.type]]
+  ): LlmResult[BackendTag.Codex.type] =
     val finalPrompt = mergeSystemPrompt(config, prompt)
     // codex `exec` doesn't carry an output schema for headless calls
     // — DefaultLlmCall's prompt template already pins the structure;
@@ -154,7 +152,7 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[Backend.Codex.type]:
     */
   private def drainHeadless(
       process: PipedCliProcess
-  ): Either[String, LlmResult[Backend.Codex.type]] =
+  ): Either[String, LlmResult[BackendTag.Codex.type]] =
     val stderrBuf: AtomicReference[Vector[String]] =
       AtomicReference(Vector.empty)
     val drainStderr: Runnable = () =>
@@ -269,9 +267,9 @@ private case class HeadlessAccumulator(
       copy(lastMessage = text)
     case _ => this
 
-  def toLlmResult: LlmResult[Backend.Codex.type] =
+  def toLlmResult: LlmResult[BackendTag.Codex.type] =
     LlmResult(
-      sessionId = SessionId[Backend.Codex.type](threadId),
+      sessionId = SessionId[BackendTag.Codex.type](threadId),
       output = lastMessage,
       usage = usage,
       model = model

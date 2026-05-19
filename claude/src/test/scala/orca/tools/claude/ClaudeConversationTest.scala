@@ -1,15 +1,14 @@
 package orca.tools.claude
 
 import orca.{
-  ApprovalDecision,
   AutoApprove,
-  Backend,
-  ConversationEvent,
+  BackendTag,
   LlmConfig,
   OrcaFlowException,
   OrcaInteractiveCancelled,
   Usage
 }
+import orca.backend.{ApprovalDecision, ConversationEvent}
 import orca.subprocess.FakePipedCliProcess
 
 class ClaudeConversationTest extends munit.FunSuite:
