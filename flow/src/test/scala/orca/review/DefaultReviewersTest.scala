@@ -33,46 +33,32 @@ class DefaultReviewersTest extends munit.FunSuite:
         : LlmCall[BackendTag.ClaudeCode.type, O] =
       ???
 
-  test(
-    "defaultReviewers exposes the full canonical reviewer set"
-  ):
+  test("defaultReviewers exposes the full canonical reviewer set"):
     val base = new RecordingTool
     val names = defaultReviewers(base).map(_.name)
-    assertEquals(
-      names,
-      List(
-        "reviewer: performance",
-        "reviewer: readability",
-        "reviewer: test-coverage",
-        "reviewer: code-functionality",
-        "reviewer: abstraction"
-      )
-    )
+    assertEquals(names, ReviewerPrompts.all.map(r => s"reviewer: ${r.name}"))
 
   test("each reviewer layers its canonical system prompt onto the base tool"):
     val base = new RecordingTool
     val _ = defaultReviewers(base)
-    val seen = base.seen
-    assertEquals(
-      seen,
-      List(
-        ReviewerPrompts.Performance,
-        ReviewerPrompts.Readability,
-        ReviewerPrompts.TestCoverage,
-        ReviewerPrompts.CodeFunctionality,
-        ReviewerPrompts.Abstraction
+    assertEquals(base.seen, ReviewerPrompts.all.map(_.systemPrompt))
+
+  test("each reviewer's description is non-empty (parsed from frontmatter)"):
+    ReviewerPrompts.all.foreach: r =>
+      assert(
+        r.description.nonEmpty,
+        s"reviewer '${r.name}' has an empty description"
       )
-    )
 
   test("SelectedReviewers.pick filters the default list by name"):
     val base = new RecordingTool
     val all = defaultReviewers(base)
     val picked =
       SelectedReviewers(
-        List("reviewer: performance", "reviewer: test-coverage")
+        List("reviewer: performance", "reviewer: abstraction")
       )
         .pick(all)
     assertEquals(
       picked.map(_.name),
-      List("reviewer: performance", "reviewer: test-coverage")
+      List("reviewer: performance", "reviewer: abstraction")
     )

@@ -3,26 +3,56 @@ package orca.review
 import orca.llm.{BackendTag, LlmTool}
 import orca.util.PromptResource
 
-/** Canonical system prompts for the reviewers the library ships with. Exposed
-  * so callers can tune or extend the set without rewriting the defaults.
-  *
-  * Source text lives in `src/main/resources/orca/review/prompts/reviewers/`.
+/** A reviewer agent definition: a short slug name, a description suitable for
+  * LLM-driven selection ([[ReviewerSelector.llmDriven]]), and the system prompt
+  * that personalises the underlying LLM tool.
+  */
+case class Reviewer(name: String, description: String, systemPrompt: String)
+
+/** Canonical reviewer definitions the library ships with. Each entry reads from
+  * a `.md` resource under `src/main/resources/orca/review/prompts/reviewers/`
+  * with YAML-ish frontmatter (`description:` is parsed; the body becomes the
+  * system prompt).
   */
 object ReviewerPrompts:
-  val Performance: String =
-    PromptResource.load("/orca/review/prompts/reviewers/performance.md")
 
-  val Readability: String =
-    PromptResource.load("/orca/review/prompts/reviewers/readability.md")
+  private def load(slug: String): Reviewer =
+    val parsed = PromptResource.loadWithMetadata(
+      s"/orca/review/prompts/reviewers/$slug.md"
+    )
+    val description = parsed.metadata.getOrElse(
+      "description",
+      throw new RuntimeException(
+        s"reviewer '$slug' is missing 'description' in its frontmatter"
+      )
+    )
+    Reviewer(slug, description, parsed.body)
 
-  val TestCoverage: String =
-    PromptResource.load("/orca/review/prompts/reviewers/test-coverage.md")
+  val Abstraction: Reviewer = load("abstraction")
+  val BackendArchitect: Reviewer = load("backend-architect")
+  val CodeFunctionality: Reviewer = load("code-functionality")
+  val Performance: Reviewer = load("performance")
+  val Readability: Reviewer = load("readability")
+  val ScalaFp: Reviewer = load("scala-fp")
+  val Test: Reviewer = load("test")
 
-  val CodeFunctionality: String =
-    PromptResource.load("/orca/review/prompts/reviewers/code-functionality.md")
+  /** The full default set in the order `defaultReviewers` configures them. */
+  val all: List[Reviewer] = List(
+    Performance,
+    Readability,
+    Test,
+    CodeFunctionality,
+    Abstraction,
+    BackendArchitect,
+    ScalaFp
+  )
 
-  val Abstraction: String =
-    PromptResource.load("/orca/review/prompts/reviewers/abstraction.md")
+  /** Descriptions keyed by the prefixed tool name `defaultReviewers` produces
+    * (`reviewer: <slug>`). [[ReviewerSelector.llmDriven]] consults this by
+    * default so the picker LLM gets each reviewer's purpose alongside its name.
+    */
+  val descriptionsByToolName: Map[String, String] =
+    all.map(r => s"reviewer: ${r.name}" -> r.description).toMap
 
 /** Pre-configured reviewer agents built atop the supplied base tool. Each
   * reviewer has its own `name` and system prompt; callers pass them (or a
@@ -33,12 +63,5 @@ def defaultReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]] =
   // groups every reviewer dimension together (matching `lint`, which the
   // review loop labels `reviewer: lint`). The non-reviewer driver agent
   // keeps its default name (`main`).
-  def reviewer(name: String, prompt: String): LlmTool[B] =
-    base.withSystemPrompt(prompt).withName(s"reviewer: $name")
-  List(
-    reviewer("performance", ReviewerPrompts.Performance),
-    reviewer("readability", ReviewerPrompts.Readability),
-    reviewer("test-coverage", ReviewerPrompts.TestCoverage),
-    reviewer("code-functionality", ReviewerPrompts.CodeFunctionality),
-    reviewer("abstraction", ReviewerPrompts.Abstraction)
-  )
+  ReviewerPrompts.all.map: r =>
+    base.withSystemPrompt(r.systemPrompt).withName(s"reviewer: ${r.name}")

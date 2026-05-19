@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.llm.{JsonData, LlmTool}
+import orca.llm.{JsonData, LlmTool, given}
 import orca.plan.Title
 
 /** Picks which reviewers to run on each iteration of [[reviewAndFixLoop]].
@@ -35,6 +35,13 @@ object ReviewerSelector:
     * mid-loop, so re-querying the model would just burn tokens for the same
     * answer.
     *
+    * The picker sees each reviewer as a `(name, description)` pair. By default
+    * `descriptions` is [[ReviewerPrompts.descriptionsByToolName]], so users who
+    * pass `defaultReviewers(...)` get rich purpose-aware selection without
+    * extra wiring; supply a custom map (keyed by the tool's prefixed name, e.g.
+    * `"reviewer: my-thing"`) when overriding the default set. Reviewers whose
+    * name isn't in the map get an empty description.
+    *
     * Pick a cheap model (e.g. `claude.haiku`); the request is small. Override
     * `instructions` to retune the selection brief.
     */
@@ -42,11 +49,17 @@ object ReviewerSelector:
       llm: LlmTool[?],
       taskTitle: Title,
       changedFiles: List[String],
-      instructions: String = ReviewLoopPrompts.SelectReviewers
+      instructions: String = ReviewLoopPrompts.SelectReviewers,
+      descriptions: Map[String, String] = ReviewerPrompts.descriptionsByToolName
   ): ReviewerSelector =
     var cached: Option[List[String]] = None
     (_, all) =>
       val names = cached.getOrElse:
+        val infos = all.map: r =>
+          ReviewerInfo(
+            name = r.name,
+            description = descriptions.getOrElse(r.name, "")
+          )
         val picked = llm
           .resultAs[SelectedReviewers]
           .autonomous
@@ -54,7 +67,7 @@ object ReviewerSelector:
             ReviewerSelectionRequest(
               taskTitle = taskTitle,
               changedFiles = changedFiles,
-              availableReviewers = all.map(_.name),
+              availableReviewers = infos,
               instructions = instructions
             )
           )
@@ -63,9 +76,12 @@ object ReviewerSelector:
         picked
       SelectedReviewers(names).pick(all)
 
+private case class ReviewerInfo(name: String, description: String)
+    derives JsonData
+
 private case class ReviewerSelectionRequest(
     taskTitle: Title,
     changedFiles: List[String],
-    availableReviewers: List[String],
+    availableReviewers: List[ReviewerInfo],
     instructions: String
 ) derives JsonData
