@@ -1,6 +1,7 @@
 package orca.subprocess
 
-import orca.{BackendTag, OrcaDebug, OrcaFlowException, OrcaInteractiveCancelled}
+import orca.llm.{BackendTag}
+import orca.{OrcaDebug, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{Conversation, ConversationEvent, LlmResult}
 
 import java.util.concurrent.LinkedBlockingQueue

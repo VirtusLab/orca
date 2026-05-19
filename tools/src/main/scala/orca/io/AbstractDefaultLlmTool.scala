@@ -1,7 +1,6 @@
 package orca.io
 
-import orca.events.{OrcaEvent, OrcaListener}
-import orca.{
+import orca.llm.{
   Announce,
   AutonomousTextCall,
   BackendTag,
@@ -12,6 +11,8 @@ import orca.{
   Prompts,
   SessionId
 }
+import orca.events.{OrcaEvent, OrcaListener}
+
 import orca.backend.{Interaction, LlmBackend, LlmResult}
 
 /** Skeleton shared by Claude and Codex's default tools — and by any future

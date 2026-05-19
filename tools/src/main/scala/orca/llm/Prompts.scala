@@ -1,4 +1,4 @@
-package orca
+package orca.llm
 
 /** Builds the literal prompt strings Orca sends to the LLM for each invocation
   * mode. Each method takes the serialized user input, the generated JSON Schema

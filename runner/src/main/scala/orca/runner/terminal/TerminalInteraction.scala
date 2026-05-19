@@ -1,7 +1,8 @@
 package orca.runner.terminal
 
+import orca.llm.{BackendTag}
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.{BackendTag}
+
 import orca.backend.{Conversation, Interaction, LlmResult}
 
 import java.io.PrintStream

@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.{BackendTag, LlmConfig, SessionId}
+import orca.llm.{BackendTag, LlmConfig, SessionId}
 
 /** SPI implemented per backend (Claude, Codex, …). The framework calls these
   * methods from the autonomous-text and structured-output paths

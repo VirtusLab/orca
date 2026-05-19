@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.{AutoApprove, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, LlmConfig, SessionId}
 import orca.backend.ConversationEvent
 import orca.subprocess.OsProcCliRunner
 

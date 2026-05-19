@@ -1,7 +1,8 @@
 package orca.runner.terminal
 
+import orca.llm.{BackendTag, SessionId}
 import orca.events.{Usage}
-import orca.{BackendTag, OrcaInteractiveCancelled, SessionId}
+import orca.{OrcaInteractiveCancelled}
 import orca.backend.{
   ApprovalDecision,
   Conversation,

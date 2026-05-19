@@ -1,7 +1,8 @@
 package orca.tools.claude
 
+import orca.llm.{BackendTag, ClaudeTool, LlmConfig, Prompts}
 import orca.events.{OrcaListener}
-import orca.{BackendTag, ClaudeTool, LlmConfig, Prompts}
+
 import orca.backend.{Interaction, LlmBackend}
 import orca.io.AbstractDefaultLlmTool
 

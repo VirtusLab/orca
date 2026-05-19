@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.{BackendTag, LlmTool}
+import orca.llm.{BackendTag, LlmTool}
 
 /** Canonical system prompts for the reviewers the library ships with. Exposed
   * so callers can tune or extend the set without rewriting the defaults.

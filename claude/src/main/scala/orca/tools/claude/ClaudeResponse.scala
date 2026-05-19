@@ -1,9 +1,10 @@
 package orca.tools.claude
 
+import orca.llm.{BackendTag, SessionId}
 import orca.events.{Usage}
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import orca.tools.claude.streamjson.RawJson
-import orca.{BackendTag, SessionId}
+
 import orca.backend.LlmResult
 
 /** Subset of the JSON Claude Code emits when invoked with `--output-format

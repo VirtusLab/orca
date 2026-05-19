@@ -1,7 +1,6 @@
 package orca.io
 
-import orca.LlmConfig
-
+import orca.llm.{LlmConfig}
 class DefaultPromptsTest extends munit.FunSuite:
   private val input = """{"task":"refactor"}"""
   private val schema = """{"type":"object"}"""

@@ -1,11 +1,12 @@
 package orca.review
 
+import orca.llm.{Announce, JsonData, LlmTool, given}
 import com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec
 import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   JsonCodecMaker
 }
-import orca.{Announce, JsonData, LlmTool, Title, given}
+import orca.Title
 import sttp.tapir.Schema
 
 enum Severity:

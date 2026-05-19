@@ -1,4 +1,4 @@
-package orca
+package orca.llm
 
 /** An LLM adapter usable from flow scripts — the handle you call from a
   * `flow(...)` block (`claude`, `codex`, etc.). Two paths to invoke the model:

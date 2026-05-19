@@ -1,7 +1,8 @@
 package orca.tools.claude
 
+import orca.llm.{BackendTag, JsonData, LlmConfig, SessionId}
 import orca.events.{OrcaListener, Usage}
-import orca.{BackendTag, JsonData, LlmConfig, SessionId}
+
 import orca.backend.{Interaction, LlmBackend, LlmResult}
 import orca.io.{DefaultLlmCall, DefaultPrompts}
 import ox.supervised
@@ -158,8 +159,8 @@ class DefaultLlmCallTest extends munit.FunSuite:
     // A specific Announce[Answer] wins over Announce.default; the call
     // emits a single StructuredResult event carrying both the raw
     // payload (the agent's JSON) and the summary derived from Announce.
-    given orca.Announce[Answer] =
-      orca.Announce.from(a => s"answer is ${a.value}")
+    given orca.llm.Announce[Answer] =
+      orca.llm.Announce.from(a => s"answer is ${a.value}")
     val backend = new SequencedBackend(List("""{"value":99}"""))
     val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
     val call = new DefaultLlmCall[BackendTag.ClaudeCode.type, Answer](

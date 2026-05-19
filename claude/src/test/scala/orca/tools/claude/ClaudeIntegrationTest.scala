@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.{AutoApprove, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, LlmConfig, SessionId}
 import orca.backend.{ApprovalDecision, ConversationEvent}
 import orca.subprocess.OsProcCliRunner
 

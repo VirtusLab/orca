@@ -1,6 +1,6 @@
 package orca.io
 
-import orca.{LlmConfig, Prompts}
+import orca.llm.{LlmConfig, Prompts}
 
 /** Default [[Prompts]] implementation. Each method builds the final prompt
   * string via Scala string interpolation.

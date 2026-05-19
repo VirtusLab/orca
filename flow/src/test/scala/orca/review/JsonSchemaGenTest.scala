@@ -1,6 +1,7 @@
 package orca.review
 
-import orca.{Title, given}
+import orca.Title
+import orca.llm.given
 import orca.io.JsonSchemaGen
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString

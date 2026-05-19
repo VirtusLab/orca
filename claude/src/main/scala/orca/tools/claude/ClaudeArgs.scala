@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
 
 /** Maps LlmConfig fields to Claude Code CLI flags. `systemPrompt` is consumed
   * by the backend (written to a file whose path is passed in via

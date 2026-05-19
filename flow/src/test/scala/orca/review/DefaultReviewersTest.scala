@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.{
+import orca.llm.{
   Announce,
   AutonomousTextCall,
   BackendTag,
@@ -9,7 +9,6 @@ import orca.{
   LlmConfig,
   LlmTool
 }
-
 class DefaultReviewersTest extends munit.FunSuite:
 
   /** LlmTool that records every `withSystemPrompt` call into a shared buffer

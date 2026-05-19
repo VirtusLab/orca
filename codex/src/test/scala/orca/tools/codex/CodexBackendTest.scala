@@ -1,6 +1,7 @@
 package orca.tools.codex
 
-import orca.{BackendTag, LlmConfig, OrcaFlowException, SessionId}
+import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.{OrcaFlowException}
 import orca.subprocess.{
   CliResult,
   CliRunner,

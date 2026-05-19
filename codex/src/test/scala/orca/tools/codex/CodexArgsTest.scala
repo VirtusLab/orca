@@ -1,7 +1,6 @@
 package orca.tools.codex
 
-import orca.{AutoApprove, BackendTag, LlmConfig, SessionId}
-
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
 class CodexArgsTest extends munit.FunSuite:
 
   test("exec emits codex exec --json with the prompt as the trailing arg"):

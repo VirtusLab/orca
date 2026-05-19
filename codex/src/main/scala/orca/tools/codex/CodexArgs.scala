@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
 
 /** Maps `LlmConfig` fields to `codex exec` CLI flags. `systemPrompt` is not
   * handled here — codex doesn't accept an `--append-system-prompt` equivalent

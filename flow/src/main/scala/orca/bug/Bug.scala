@@ -1,6 +1,6 @@
 package orca.bug
 
-import orca.{Announce, JsonData}
+import orca.llm.{Announce, JsonData}
 
 /** Outcome of an interactive triage turn against a bug report. The agent
   * decides whether the bug can be reproduced as a focused unit test and picks a

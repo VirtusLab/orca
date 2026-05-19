@@ -1,16 +1,8 @@
 package orca.runner
 
+import orca.llm.{ClaudeTool, CodexTool, LlmConfig, Prompts}
 import orca.events.{EventDispatcher, OrcaEvent}
-import orca.{
-  ClaudeTool,
-  CodexTool,
-  FlowContext,
-  FsTool,
-  GitHubTool,
-  GitTool,
-  LlmConfig,
-  Prompts
-}
+import orca.{FlowContext, FsTool, GitHubTool, GitTool}
 import orca.backend.Interaction
 import orca.tools.claude.{ClaudeBackend, DefaultClaudeTool}
 import orca.tools.codex.{CodexBackend, DefaultCodexTool}

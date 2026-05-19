@@ -1,6 +1,7 @@
 package orca.tools.claude
 
-import orca.{BackendTag, LlmConfig, OrcaFlowException, SessionId}
+import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.{OrcaFlowException}
 import orca.backend.LlmResult
 import orca.subprocess.{CliResult, StubCliRunner}
 

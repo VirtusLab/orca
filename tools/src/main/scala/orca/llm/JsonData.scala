@@ -1,4 +1,4 @@
-package orca
+package orca.llm
 
 import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,

@@ -1,7 +1,6 @@
 package orca.tools.claude
 
-import orca.{AutoApprove, BackendTag, LlmConfig, SessionId}
-
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
 class ClaudeArgsTest extends munit.FunSuite:
 
   private def headless(config: LlmConfig): Seq[String] =

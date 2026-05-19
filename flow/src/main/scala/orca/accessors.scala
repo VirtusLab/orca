@@ -1,5 +1,7 @@
 package orca
 
+import orca.llm.{ClaudeTool, CodexTool}
+
 // Top-level accessors that resolve against the ambient FlowContext.
 // Flow scripts can write `git.checkout("main")` or `claude.ask(...)`
 // instead of `summon[FlowContext].git.checkout(...)`.

@@ -1,6 +1,7 @@
 package orca.backend
 
-import orca.{BackendTag, OrcaInteractiveCancelled}
+import orca.llm.{BackendTag}
+import orca.{OrcaInteractiveCancelled}
 
 /** One live interactive session with a backend. Owned by the driver, read and
   * written to by the channel via [[Interaction.drive]].

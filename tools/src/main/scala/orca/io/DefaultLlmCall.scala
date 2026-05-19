@@ -1,7 +1,6 @@
 package orca.io
 
-import orca.events.{OrcaEvent, OrcaListener}
-import orca.{
+import orca.llm.{
   AgentInput,
   Announce,
   AutonomousLlmCall,
@@ -13,6 +12,8 @@ import orca.{
   Prompts,
   SessionId
 }
+import orca.events.{OrcaEvent, OrcaListener}
+
 import orca.backend.{Interaction, LlmBackend}
 import ox.resilience.retry
 

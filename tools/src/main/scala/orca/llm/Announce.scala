@@ -1,4 +1,4 @@
-package orca
+package orca.llm
 
 /** A human-readable summary for a domain value. The library calls
   * `message(parsed)` after `LlmCall.resultAs[O]` succeeds and emits a `Step`

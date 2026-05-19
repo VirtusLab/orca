@@ -1,4 +1,4 @@
-package orca
+package orca.llm
 
 /** Type tag for a concrete LLM backend. Carried as the `B` parameter on
   * [[SessionId]], [[orca.backend.LlmResult]], [[orca.backend.Conversation]],

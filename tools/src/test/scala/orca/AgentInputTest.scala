@@ -1,5 +1,7 @@
 package orca
 
+import orca.llm.{AgentInput, JsonData, given}
+
 case class User(name: String, age: Int) derives JsonData
 
 class AgentInputTest extends munit.FunSuite:

@@ -1,13 +1,8 @@
 package orca.tools.claude
 
+import orca.llm.{AutoApprove, BackendTag, LlmConfig}
 import orca.events.{Usage}
-import orca.{
-  AutoApprove,
-  BackendTag,
-  LlmConfig,
-  OrcaFlowException,
-  OrcaInteractiveCancelled
-}
+import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{ApprovalDecision, ConversationEvent}
 import orca.subprocess.FakePipedCliProcess
 

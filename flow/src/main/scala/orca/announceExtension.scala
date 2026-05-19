@@ -1,6 +1,7 @@
 package orca
 
 import orca.events.OrcaEvent
+import orca.llm.Announce
 
 /** `value.announce` — manually emit an [[Announce]] message as a `Step`. */
 extension [O](value: O)(using a: Announce[O])

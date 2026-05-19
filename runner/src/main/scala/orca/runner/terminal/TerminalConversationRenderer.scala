@@ -1,6 +1,6 @@
 package orca.runner.terminal
 
-import orca.BackendTag
+import orca.llm.{BackendTag}
 import orca.backend.{
   ApprovalDecision,
   Conversation,

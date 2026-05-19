@@ -1,7 +1,8 @@
 package orca.tools.codex
 
+import orca.llm.{BackendTag, CodexTool, LlmConfig, Prompts}
 import orca.events.{OrcaListener}
-import orca.{BackendTag, CodexTool, LlmConfig, Prompts}
+
 import orca.backend.{Interaction, LlmBackend}
 import orca.io.AbstractDefaultLlmTool
 
