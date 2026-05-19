@@ -1,9 +1,8 @@
 package orca.tools.claude.streamjson
 
+import orca.events.{Usage}
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
-
-import orca.Usage
 
 /** One message parsed off of claude's stdout when running with `--output-format
   * stream-json --verbose --include-partial-messages`. Each variant carries only

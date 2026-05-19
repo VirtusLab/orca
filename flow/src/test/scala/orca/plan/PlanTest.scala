@@ -1,5 +1,13 @@
 package orca.plan
 
+import orca.events.{
+  CostTracker,
+  EventDispatcher,
+  OrcaEvent,
+  OrcaListener,
+  Usage
+}
+
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
   writeToString
@@ -177,12 +185,14 @@ class PlanTest extends munit.FunSuite:
     "autonomous.loadOrGenerate parses and reuses an existing file (no LLM call)"
   ):
     val seen =
-      new java.util.concurrent.atomic.AtomicReference[List[orca.OrcaEvent]](Nil)
-    val listener = new orca.OrcaListener:
-      def onEvent(event: orca.OrcaEvent): Unit =
+      new java.util.concurrent.atomic.AtomicReference[List[
+        orca.events.OrcaEvent
+      ]](Nil)
+    val listener = new orca.events.OrcaListener:
+      def onEvent(event: orca.events.OrcaEvent): Unit =
         val _ = seen.updateAndGet(event :: _)
     given orca.FlowContext = new orca.TestFlowContext(
-      new orca.EventDispatcher(List(listener))
+      new orca.events.EventDispatcher(List(listener))
     )
     val tmp = os.temp(suffix = ".md")
     os.write.over(tmp, sample)
@@ -192,14 +202,15 @@ class PlanTest extends munit.FunSuite:
     assertEquals(plan.epicId, "add-divide-method")
     assert(
       seen.get().exists {
-        case orca.OrcaEvent.Step(msg) => msg.contains("Reusing existing plan")
-        case _                        => false
+        case orca.events.OrcaEvent.Step(msg) =>
+          msg.contains("Reusing existing plan")
+        case _ => false
       }
     )
 
   test("autonomous.loadOrGenerate writes a new file when none exists"):
     given orca.FlowContext =
-      new orca.TestFlowContext(new orca.EventDispatcher(Nil))
+      new orca.TestFlowContext(new orca.events.EventDispatcher(Nil))
     val target = os.temp.dir() / "dev.md"
     val expected = Plan.parse(sample)
     val plan = Plan.autonomous.loadOrGenerate(

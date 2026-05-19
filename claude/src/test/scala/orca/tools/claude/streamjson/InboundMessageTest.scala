@@ -1,7 +1,6 @@
 package orca.tools.claude.streamjson
 
-import orca.Usage
-
+import orca.events.{Usage}
 class InboundMessageTest extends munit.FunSuite:
 
   test("system/init carries the session id out of the envelope"):

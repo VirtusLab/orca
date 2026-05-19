@@ -1,6 +1,7 @@
 package orca.tools.codex
 
-import orca.{BackendTag, OrcaFlowException, SessionId, Usage}
+import orca.events.{Usage}
+import orca.{BackendTag, OrcaFlowException, SessionId}
 import orca.backend.{ConversationEvent, LlmResult}
 import orca.subprocess.{PipedCliProcess, StreamConversation}
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}

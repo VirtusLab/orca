@@ -1,13 +1,7 @@
 package orca.review
 
-import orca.{
-  EventDispatcher,
-  FlowContext,
-  OrcaEvent,
-  OrcaListener,
-  TestFlowContext,
-  Title
-}
+import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
+import orca.{FlowContext, TestFlowContext, Title}
 
 import java.util.concurrent.atomic.AtomicReference
 

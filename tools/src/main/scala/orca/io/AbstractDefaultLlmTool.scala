@@ -1,5 +1,6 @@
 package orca.io
 
+import orca.events.{OrcaEvent, OrcaListener}
 import orca.{
   Announce,
   AutonomousTextCall,
@@ -8,8 +9,6 @@ import orca.{
   LlmCall,
   LlmConfig,
   LlmTool,
-  OrcaEvent,
-  OrcaListener,
   Prompts,
   SessionId
 }

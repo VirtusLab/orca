@@ -1,7 +1,6 @@
 package orca.runner.terminal
 
-import orca.{OrcaEvent, Usage}
-
+import orca.events.{OrcaEvent, Usage}
 import java.io.{ByteArrayOutputStream, PrintStream}
 
 class TerminalInteractionTest extends munit.FunSuite:

@@ -1,5 +1,7 @@
 package orca
 
+import orca.events.OrcaEvent
+
 import scala.util.control.NonFatal
 
 /** Wrap `body` as a named stage, emitting StageStarted before and

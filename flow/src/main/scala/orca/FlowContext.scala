@@ -1,5 +1,7 @@
 package orca
 
+import orca.events.OrcaEvent
+
 /** Ambient context a flow script operates in. Bundles every tool the top- level
   * accessors (`claude`, `codex`, `git`, `gh`, `fs`) resolve against, the user's
   * positional prompt (`userPrompt`), and the event sink (`emit`) that

@@ -1,9 +1,8 @@
 package orca.tools.codex.jsonl
 
+import orca.events.{Usage}
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
-
-import orca.Usage
 
 /** One event parsed off codex's stdout when it runs with `exec --json`.
   *

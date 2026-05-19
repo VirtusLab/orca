@@ -1,5 +1,13 @@
 package orca
 
+import orca.events.{
+  CostTracker,
+  EventDispatcher,
+  OrcaEvent,
+  OrcaListener,
+  Usage
+}
+
 class AccessorsTest extends munit.FunSuite:
 
   private def ctxWith(prompt: String): FlowContext =

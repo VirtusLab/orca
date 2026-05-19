@@ -1,5 +1,6 @@
 package orca.io
 
+import orca.events.{OrcaEvent, OrcaListener}
 import orca.{
   AgentInput,
   Announce,
@@ -9,8 +10,6 @@ import orca.{
   JsonData,
   LlmCall,
   LlmConfig,
-  OrcaEvent,
-  OrcaListener,
   Prompts,
   SessionId
 }

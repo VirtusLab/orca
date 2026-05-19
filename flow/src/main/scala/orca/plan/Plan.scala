@@ -1,12 +1,12 @@
 package orca.plan
 
+import orca.events.{OrcaEvent}
 import orca.{
   Announce,
   BackendTag,
   FlowContext,
   JsonData,
   LlmTool,
-  OrcaEvent,
   SessionId,
   Title,
   given

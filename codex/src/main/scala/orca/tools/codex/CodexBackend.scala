@@ -1,13 +1,7 @@
 package orca.tools.codex
 
-import orca.{
-  BackendTag,
-  LlmConfig,
-  OrcaDebug,
-  OrcaFlowException,
-  SessionId,
-  Usage
-}
+import orca.events.{Usage}
+import orca.{BackendTag, LlmConfig, OrcaDebug, OrcaFlowException, SessionId}
 import orca.backend.{Conversation, LlmBackend, LlmResult}
 import orca.subprocess.{CliRunner, PipedCliProcess}
 import orca.tools.codex.jsonl.{InboundEvent, Item}

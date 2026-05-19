@@ -1,14 +1,13 @@
 package orca.tools.git
 
+import orca.events.{OrcaEvent, OrcaListener}
 import orca.{
   BranchAlreadyExists,
   BranchNotFound,
   CommitInfo,
   GitTool,
   NothingToCommit,
-  OrcaEvent,
   OrcaFlowException,
-  OrcaListener,
   PushRejected,
   Worktree,
   WorktreeAddFailed,

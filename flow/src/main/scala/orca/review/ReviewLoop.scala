@@ -1,12 +1,12 @@
 package orca.review
 
+import orca.events.{OrcaEvent}
 import orca.{
   BackendTag,
   FlowContext,
   JsonData,
   LlmConfig,
   LlmTool,
-  OrcaEvent,
   SessionId,
   Title,
   given

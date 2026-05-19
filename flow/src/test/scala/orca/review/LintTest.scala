@@ -1,12 +1,12 @@
 package orca.review
 
+import orca.events.{EventDispatcher}
 import orca.{
   AgentInput,
   Announce,
   AutonomousLlmCall,
   AutonomousTextCall,
   BackendTag,
-  EventDispatcher,
   FlowContext,
   InteractiveLlmCall,
   JsonData,

@@ -1,6 +1,7 @@
 package orca.tools.codex
 
-import orca.{OrcaFlowException, OrcaInteractiveCancelled, SessionId, Usage}
+import orca.events.{Usage}
+import orca.{OrcaFlowException, OrcaInteractiveCancelled, SessionId}
 import orca.backend.ConversationEvent
 import orca.subprocess.FakePipedCliProcess
 

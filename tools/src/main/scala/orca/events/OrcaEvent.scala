@@ -1,4 +1,4 @@
-package orca
+package orca.events
 
 /** Flow-level event fanned out to every registered [[OrcaListener]]. Covers
   * stage transitions, tool invocations, token usage, structured results, and

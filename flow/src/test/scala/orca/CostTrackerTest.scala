@@ -1,5 +1,13 @@
 package orca
 
+import orca.events.{
+  CostTracker,
+  EventDispatcher,
+  OrcaEvent,
+  OrcaListener,
+  Usage
+}
+
 class CostTrackerTest extends munit.FunSuite:
 
   private def tokens(

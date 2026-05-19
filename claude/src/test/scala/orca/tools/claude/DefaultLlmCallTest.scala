@@ -1,6 +1,7 @@
 package orca.tools.claude
 
-import orca.{BackendTag, JsonData, LlmConfig, OrcaListener, SessionId, Usage}
+import orca.events.{OrcaListener, Usage}
+import orca.{BackendTag, JsonData, LlmConfig, SessionId}
 import orca.backend.{Interaction, LlmBackend, LlmResult}
 import orca.io.{DefaultLlmCall, DefaultPrompts}
 import ox.supervised
@@ -91,7 +92,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
       effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
       workDir = os.pwd,
-      events = orca.OrcaListener.noop,
+      events = orca.events.OrcaListener.noop,
       interaction = stubInteraction,
       agentName = "claude"
     )
@@ -160,20 +161,23 @@ class DefaultLlmCallTest extends munit.FunSuite:
     given orca.Announce[Answer] =
       orca.Announce.from(a => s"answer is ${a.value}")
     val backend = new SequencedBackend(List("""{"value":99}"""))
-    val seen = AtomicReference[List[orca.OrcaEvent]](Nil)
+    val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
     val call = new DefaultLlmCall[BackendTag.ClaudeCode.type, Answer](
       backend = backend,
       effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
       workDir = os.pwd,
-      events = (e: orca.OrcaEvent) => { val _ = seen.updateAndGet(e :: _) },
+      events = (e: orca.events.OrcaEvent) => {
+        val _ = seen.updateAndGet(e :: _)
+      },
       interaction = stubInteraction,
       agentName = "claude"
     )
     supervised:
       val _ = call.autonomous.run("anything")
       val structured = seen.get().collect {
-        case orca.OrcaEvent.StructuredResult(raw, summary) => (raw, summary)
+        case orca.events.OrcaEvent.StructuredResult(raw, summary) =>
+          (raw, summary)
       }
       assertEquals(structured, List(("""{"value":99}""", Some("answer is 99"))))
 
@@ -184,18 +188,21 @@ class DefaultLlmCallTest extends munit.FunSuite:
     // string, which DefaultLlmCall normalises to `None` so listeners
     // can pattern-match without an empty-string sentinel.
     val backend = new SequencedBackend(List("""{"value":1}"""))
-    val seen = AtomicReference[List[orca.OrcaEvent]](Nil)
+    val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
     supervised:
       val _ = new DefaultLlmCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
         effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
         workDir = os.pwd,
-        events = (e: orca.OrcaEvent) => { val _ = seen.updateAndGet(e :: _) },
+        events = (e: orca.events.OrcaEvent) => {
+          val _ = seen.updateAndGet(e :: _)
+        },
         interaction = stubInteraction,
         agentName = "claude"
       ).autonomous.run("anything")
       val structured = seen.get().collect {
-        case orca.OrcaEvent.StructuredResult(raw, summary) => (raw, summary)
+        case orca.events.OrcaEvent.StructuredResult(raw, summary) =>
+          (raw, summary)
       }
       assertEquals(structured, List(("""{"value":1}""", None)))

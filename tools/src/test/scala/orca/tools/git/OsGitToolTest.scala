@@ -1,11 +1,10 @@
 package orca.tools.git
 
+import orca.events.{OrcaEvent, OrcaListener}
 import orca.{
   BranchAlreadyExists,
   BranchNotFound,
   NothingToCommit,
-  OrcaEvent,
-  OrcaListener,
   WorktreeAddFailed,
   WorktreeNotFound
 }
@@ -179,9 +178,10 @@ class OsGitToolTest extends munit.FunSuite:
       val stashed = git.ensureClean("orca: pre-flow")
       assertEquals(stashed, true)
       assertEquals(git.diff().trim, "")
-      val steps = seen.get().reverse.collect { case orca.OrcaEvent.Step(msg) =>
-        msg
-      }
+      val steps =
+        seen.get().reverse.collect { case orca.events.OrcaEvent.Step(msg) =>
+          msg
+        }
       assert(
         steps.exists(_.contains("Working tree wasn't clean")),
         s"expected a stash Step; got: $steps"

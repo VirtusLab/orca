@@ -1,13 +1,7 @@
 package orca.tools.claude
 
-import orca.{
-  AutoApprove,
-  BackendTag,
-  LlmConfig,
-  OrcaFlowException,
-  SessionId,
-  Usage
-}
+import orca.events.{Usage}
+import orca.{AutoApprove, BackendTag, LlmConfig, OrcaFlowException, SessionId}
 import orca.backend.{ApprovalDecision, ConversationEvent, LlmResult}
 import orca.subprocess.{PipedCliProcess, StreamConversation}
 import orca.tools.claude.streamjson.{

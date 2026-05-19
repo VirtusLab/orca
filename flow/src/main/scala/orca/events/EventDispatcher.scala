@@ -1,4 +1,4 @@
-package orca
+package orca.events
 
 /** Synchronously forwards every `OrcaEvent` to a fixed list of listeners in
   * registration order. Listener exceptions propagate — an observation layer

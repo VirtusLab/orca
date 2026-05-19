@@ -1,6 +1,7 @@
 package orca.backend
 
-import orca.{BackendTag, SessionId, Usage}
+import orca.events.{Usage}
+import orca.{BackendTag, SessionId}
 
 /** Outcome of a single LLM call. Returned by [[LlmBackend.runHeadless]] /
   * [[LlmBackend.continueHeadless]] for the headless path, and by

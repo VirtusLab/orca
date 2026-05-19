@@ -1,4 +1,4 @@
-package orca
+package orca.events
 
 /** Token + cost accounting for one or more LLM calls.
   *

@@ -1,5 +1,13 @@
 package orca
 
+import orca.events.{
+  CostTracker,
+  EventDispatcher,
+  OrcaEvent,
+  OrcaListener,
+  Usage
+}
+
 /** Minimal FlowContext stub for unit-testing stage/fail and other helpers that
   * only touch `emit` + `userPrompt`. Tool accessors are lazy so merely
   * constructing the context doesn't throw; tests that exercise them should

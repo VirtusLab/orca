@@ -1,15 +1,14 @@
 package orca.runner
 
+import orca.events.{EventDispatcher, OrcaEvent}
 import orca.{
   ClaudeTool,
   CodexTool,
-  EventDispatcher,
   FlowContext,
   FsTool,
   GitHubTool,
   GitTool,
   LlmConfig,
-  OrcaEvent,
   Prompts
 }
 import orca.backend.Interaction

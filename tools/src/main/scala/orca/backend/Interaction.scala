@@ -1,6 +1,7 @@
 package orca.backend
 
-import orca.{BackendTag, OrcaListener}
+import orca.events.{OrcaListener}
+import orca.{BackendTag}
 
 /** The channel that connects a flow to its user. `listeners` are registered on
   * the event dispatcher so the channel can show stage progress, streamed
