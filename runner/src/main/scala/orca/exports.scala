@@ -36,6 +36,7 @@ export orca.review.{
   minimalReviewers,
   reviewAndFixLoop,
   FixOutcome,
+  ReviewerSelector,
   ReviewIssue,
   ReviewResult
 }
