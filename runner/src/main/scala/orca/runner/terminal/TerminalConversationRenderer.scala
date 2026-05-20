@@ -1,5 +1,6 @@
 package orca.runner.terminal
 
+import orca.OrcaInteractiveCancelled
 import orca.llm.{BackendTag}
 import orca.backend.{
   ApprovalDecision,
@@ -70,22 +71,20 @@ private[terminal] class TerminalConversationRenderer(
     */
   private var pendingProseStyling: Option[ProseStyling] = None
 
-  /** Explicit Either→exception boundary. The flow's stage machinery propagates
-    * failures via exceptions, so a user cancel is rethrown as
-    * [[OrcaInteractiveCancelled]] for the enclosing `stage(...)` to handle. The
-    * conversation API stays honest (Either) at its layer; the renderer is the
-    * converter.
+  /** Render the conversation to completion. Returns whatever
+    * `Conversation.awaitResult()` returns — the Either is passed through so the
+    * caller decides whether to throw or surface the cancellation as a value.
     */
-  def render[B <: BackendTag](conversation: Conversation[B]): LlmResult[B] =
+  def render[B <: BackendTag](
+      conversation: Conversation[B]
+  ): Either[OrcaInteractiveCancelled, LlmResult[B]] =
     try
       conversation.events.foreach(dispatch(_, conversation))
       // A well-behaved backend ends each turn with AssistantTurnEnd,
       // which already flushes; this is a safety net for sessions that
       // close without one (e.g. cancellation mid-turn).
       flushBufferedText()
-      conversation.awaitResult() match
-        case Right(result)   => result
-        case Left(cancelled) => throw cancelled
+      conversation.awaitResult()
     finally closePrompter()
 
   private def dispatch[B <: BackendTag](

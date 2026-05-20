@@ -3,7 +3,7 @@ package orca.runner.terminal
 import orca.backend.{Conversation, Interaction, LlmResult}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.llm.BackendTag
-import ox.{Ox, forkDiscard}
+import ox.{Ox, forever, forkDiscard}
 import ox.channels.{Actor, ActorRef, BufferCapacity}
 
 import java.io.PrintStream
@@ -27,27 +27,13 @@ import java.io.PrintStream
   * charset the caller should pass a PrintStream constructed with `new
   * PrintStream(out, true, "UTF-8")`.
   *
-  * Internally: a single Ox `Actor` serialises every access to the underlying
-  * [[TerminalRendererState]]. Listener events are submitted via `tell`
-  * (fire-and-forget); `drive` submits an `ask` and blocks until the worker
-  * finishes the conversation. While `drive` runs, listener events queue and
-  * flush in order after it returns — fine in practice because backend
-  * conversations emit `ConversationEvent`s directly to the renderer (not
-  * through this listener path) and the body thread is blocked during `drive`,
-  * so no concurrent emit source exists.
+  * Every access to the underlying [[TerminalRendererState]] is serialised on a
+  * single worker thread. Listener events are fire-and-forget; `drive` blocks
+  * the caller until the conversation finishes. Errors from `drive` come back to
+  * the caller; any other rendering error fails the flow.
   *
-  * Exception semantics follow `Actor`'s contract:
-  *   - A throw from a `tell`-style invocation (i.e. listener-driven rendering)
-  *     propagates to the enclosing supervised scope and closes the actor — a
-  *     renderer bug surfaces as a flow failure rather than garbled output.
-  *   - A throw from an `ask`-style invocation (`drive`) propagates only to the
-  *     caller; the actor continues serving other invocations.
-  *
-  * [[close]] issues an identity `ask` so every previously-queued `tell` has
-  * been drained before returning. The actor's worker is bound to the Ox scope
-  * passed to [[TerminalInteraction.start]] and shuts down when that scope
-  * ends; `flow(...)` invokes [[close]] in `finally` so the drain happens
-  * before the scope joins.
+  * [[close]] is called from `flow(...)`'s `finally` to drain the mailbox and
+  * tear down the status bar before the enclosing scope ends.
   */
 class TerminalInteraction private[terminal] (
     actor: ActorRef[TerminalRendererState]
@@ -70,10 +56,10 @@ class TerminalInteraction private[terminal] (
     * scope ends. Asks the actor to run `shutdown` (which clears the status
     * bar); the mailbox is FIFO so every prior `tell` is processed first, and
     * any spinner ticks the animator enqueues between this call's return and
-    * scope-end become no-ops (`tick` short-circuits when no label is set).
-    * A throw from a queued `tell` has already propagated to the scope
-    * (closing the actor) — we swallow the close-time failure so it doesn't
-    * mask the original cause.
+    * scope-end become no-ops (`tick` short-circuits when no label is set). A
+    * throw from a queued `tell` has already propagated to the scope (closing
+    * the actor) — we swallow the close-time failure so it doesn't mask the
+    * original cause.
     */
   override def close(): Unit =
     try actor.ask(_.shutdown())
@@ -83,8 +69,8 @@ object TerminalInteraction:
 
   /** Build a `TerminalInteraction` and start its actor in the given Ox scope.
     * The actor's worker terminates when the scope ends; the runtime invokes
-    * [[TerminalInteraction.close]] in `flow(...)`'s `finally` to flush
-    * pending events before the scope joins.
+    * [[TerminalInteraction.close]] in `flow(...)`'s `finally` to flush pending
+    * events before the scope joins.
     *
     * The `(using Ox)` capability is scoped to this factory so the constructor
     * stays plain — TerminalInteraction values can be passed around without
@@ -102,14 +88,13 @@ object TerminalInteraction:
     val actor = Actor.create(state)
     if animated then
       // Spinner ticks go through the same mailbox as listener events and
-      // `drive`, so the bar can't redraw mid-write. forkDiscard is
-      // interrupted when the scope ends.
+      // `drive`, so the bar can't redraw mid-write. The fork is interrupted
+      // when the supervised scope ends; the IE bubbling out of `Thread.sleep`
+      // is absorbed by the supervisor (scope is already winding down).
       forkDiscard:
-        try
-          while !Thread.currentThread().isInterrupted do
-            Thread.sleep(framePeriodMs)
-            actor.tell(_.tickStatusBar())
-        catch case _: InterruptedException => ()
+        forever:
+          Thread.sleep(framePeriodMs)
+          actor.tell(_.tickStatusBar())
     new TerminalInteraction(actor)
 
   val StageStartGlyph: String = "▶"

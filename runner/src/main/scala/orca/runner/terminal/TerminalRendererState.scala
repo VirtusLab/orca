@@ -3,6 +3,7 @@ package orca.runner.terminal
 import orca.backend.{Conversation, LlmResult}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.llm.BackendTag
+import ox.either.orThrow
 
 /** Holds every var-backed piece of terminal-rendering state plus the entry
   * points (`onEvent`, `driveConversation`) that mutate it.
@@ -57,8 +58,8 @@ private[orca] class TerminalRendererState(
 
   /** Advance the status-bar spinner. Called by the animator fork in
     * [[TerminalInteraction.start]] (which `tell`s the actor); routes through
-    * the same actor mailbox as `onEvent` so ticks interleave cleanly with
-    * other state changes.
+    * the same actor mailbox as `onEvent` so ticks interleave cleanly with other
+    * state changes.
     */
   def tickStatusBar(): Unit = statusBar.tick()
 
@@ -71,6 +72,9 @@ private[orca] class TerminalRendererState(
 
   /** Render a live conversation to completion. Used by
     * [[TerminalInteraction.drive]]; runs synchronously on the calling thread.
+    * Either→exception boundary: the renderer keeps `Either` honest at its
+    * layer; here we throw [[OrcaInteractiveCancelled]] so the enclosing
+    * `stage(...)` handles it like any other flow failure.
     */
   def driveConversation[B <: BackendTag](
       conversation: Conversation[B]
@@ -81,7 +85,7 @@ private[orca] class TerminalRendererState(
       depth = depthCounter,
       workDir = workDir,
       structuredMode = conversation.outputSchema.isDefined
-    ).render(conversation)
+    ).render(conversation).orThrow
 
   /** A `▶` step line: magenta-bold glyph, neutral body. Matches the
     * assistant-prose styling (magenta `●` + neutral text) so the dominant

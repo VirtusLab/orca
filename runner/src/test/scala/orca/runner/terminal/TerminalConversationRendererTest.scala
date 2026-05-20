@@ -194,13 +194,11 @@ class TerminalConversationRendererTest extends munit.FunSuite:
     assert(buf.toString.contains("boom"))
     assert(buf.toString.contains("✖"))
 
-  test("awaitResult exception propagates through render"):
+  test("render surfaces awaitResult's Left as-is"):
     val buf = new ByteArrayOutputStream()
-    val conv = new ScriptedConversation(
-      Nil,
-      Left(new OrcaInteractiveCancelled())
-    )
-    intercept[OrcaInteractiveCancelled](renderer(buf).render(conv))
+    val cancelled = new OrcaInteractiveCancelled()
+    val conv = new ScriptedConversation(Nil, Left(cancelled))
+    assertEquals(renderer(buf).render(conv), Left(cancelled))
 
   test("summarise truncates long inputs with an ellipsis"):
     val buf = new ByteArrayOutputStream()

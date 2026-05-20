@@ -28,21 +28,23 @@ Save this as `implement.sc` and run it with your task:
 import orca.{*, given}
 
 flow(OrcaArgs(args)):
-  // Plan.interactive.from opens a conversation the user can drive
-  // (clarifying questions, refinements). Swap for Plan.autonomous.from
-  // for a single agentic turn, no human in the loop. Both wrap the user
-  // prompt with PlanPrompts.Planning so the agent stays in plan-only
-  // mode and return the session id so the implementer turns below run
-  // on the same context.
+  // Break the user's prompt into concrete subtasks. Plan.interactive.from
+  // opens a conversation the user can drive (clarifying questions,
+  // refinements); swap for Plan.autonomous.from for a single agentic turn
+  // with no human in the loop. The returned session id is reused below so
+  // the implementer turns share the planner's context.
   val (sessionId, plan) = stage("Creating a development plan"):
     Plan.interactive.from(userPrompt, claude)
 
-  // Single branch for the whole epic; tasks become commits on it.
+  // Single branch for the whole epic; each task becomes a commit on it.
   // git.createBranch returns Either[BranchAlreadyExists, Unit]; .orThrow
-  // turns the recoverable Left into the same exception we'd surface for a
-  // genuinely unexpected git failure, which is what we want here.
-  git.createBranch(plan.epicId).orThrow
+  // turns the recoverable Left into an exception so the stage fails loudly.
+  stage(s"Branch: ${plan.epicId}"):
+    git.createBranch(plan.epicId).orThrow
 
+  // Per task: implement, review & fix, commit. We commit *after* the loop
+  // so the single commit captures both the original implementation and
+  // any follow-up fixes the reviewers triggered.
   for task <- plan.tasks do
     stage(s"Implement task: ${task.title}"):
       stage("Implementation"):
@@ -51,6 +53,9 @@ flow(OrcaArgs(args)):
         coder = claude,
         sessionId = sessionId,
         reviewers = allReviewers(claude),
+        // Cheap model picks which reviewers run per task — sees each
+        // one's description plus the changed files. Swap for
+        // ReviewerSelector.allEveryRound to run every reviewer.
         reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value,
         lintCommand = Some("sbt scalafmtCheckAll test"),

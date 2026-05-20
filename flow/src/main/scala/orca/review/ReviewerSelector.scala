@@ -10,10 +10,10 @@ import orca.plan.Title
   *   - `history` holds prior batches with the most recent first.
   *   - `all` is the originally configured reviewer set, useful for the very
   *     first iteration when there's no history yet.
-  *   - `taskTitle` and `changedFiles` come from `reviewAndFixLoop`'s `task`
-  *     and the diff it sampled at loop entry. They're passed through on every
-  *     call so that selectors which need them (e.g. [[llmDriven]]) don't have
-  *     to be reconstructed per task.
+  *   - `taskTitle` and `changedFiles` come from `reviewAndFixLoop`'s `task` and
+  *     the diff it sampled at loop entry. They're passed through on every call
+  *     so that selectors which need them (e.g. [[llmDriven]]) don't have to be
+  *     reconstructed per task.
   */
 type ReviewerSelector = (
     history: List[ReviewBatch],
@@ -27,9 +27,8 @@ object ReviewerSelector:
   /** First iteration runs every reviewer; subsequent rounds re-run only those
     * that found something last round. Saves API spend on consistently-quiet
     * reviewers; the trade-off is that a reviewer who'd catch a regression
-    * introduced by a fix won't see the fix. Was the default before
-    * LLM-driven selection landed; pass explicitly when you want this
-    * behaviour back.
+    * introduced by a fix won't see the fix. Was the default before LLM-driven
+    * selection landed; pass explicitly when you want this behaviour back.
     */
   val onlyPreviouslyReporting: ReviewerSelector = (history, all, _, _) =>
     history.headOption match
@@ -42,8 +41,8 @@ object ReviewerSelector:
     */
   val allEveryRound: ReviewerSelector = (_, all, _, _) => all
 
-  /** Asks `llm` to pick which reviewers are worth running for a given task.
-    * The selection is computed on the first call and cached for subsequent
+  /** Asks `llm` to pick which reviewers are worth running for a given task. The
+    * selection is computed on the first call and cached for subsequent
     * iterations — task context doesn't change mid-loop, so re-querying the
     * model would just burn tokens for the same answer.
     *
@@ -52,17 +51,17 @@ object ReviewerSelector:
     * optionally tunes prompts/descriptions).
     *
     * **Single-loop scope.** The returned selector closes over a per-instance
-    * cache. Reusing one selector across two `reviewAndFixLoop` invocations
-    * for different tasks would yield iteration 1's pick on both. Build a
-    * fresh selector per loop.
+    * cache. Reusing one selector across two `reviewAndFixLoop` invocations for
+    * different tasks would yield iteration 1's pick on both. Build a fresh
+    * selector per loop.
     *
-    * The picker sees each reviewer as a `(name, description)` pair. By
-    * default `descriptions` is [[ReviewerPrompts.descriptionsByToolName]], so
-    * users who pass `allReviewers(...)` get rich purpose-aware selection
-    * without extra wiring; supply a custom map (keyed by the tool's prefixed
-    * name, e.g. `"reviewer: my-thing"`) when overriding the default set. If
-    * the picker would see all-empty descriptions, a one-time `Step` warning
-    * fires so the silent-name-only-selection failure mode is visible.
+    * The picker sees each reviewer as a `(name, description)` pair. By default
+    * `descriptions` is [[ReviewerPrompts.descriptionsByToolName]], so users who
+    * pass `allReviewers(...)` get rich purpose-aware selection without extra
+    * wiring; supply a custom map (keyed by the tool's prefixed name, e.g.
+    * `"reviewer: my-thing"`) when overriding the default set. If the picker
+    * would see all-empty descriptions, a one-time `Step` warning fires so the
+    * silent-name-only-selection failure mode is visible.
     *
     * Pick a cheap model (e.g. `claude.haiku`); the request is small. Override
     * `instructions` to retune the selection brief.

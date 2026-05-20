@@ -65,8 +65,8 @@ object FlowCanary:
         val _ = codex
         val _ = userPrompt
 
-  /** Review-and-fix loop; pulls in `allReviewers` and the internal
-    * `stage`/fork machinery.
+  /** Review-and-fix loop; pulls in `allReviewers` and the internal `stage`/fork
+    * machinery.
     */
   def reviewLoop(): Unit =
     flow(OrcaArgs()):
