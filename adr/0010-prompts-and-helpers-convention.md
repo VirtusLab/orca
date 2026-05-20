@@ -12,12 +12,13 @@ Orca ships two kinds of LLM-using surface:
    domain-specific multi-step pattern with a default LLM brief: planning
    (`Plan.interactive.*`, `Plan.autonomous.*`), review (`reviewAndFixLoop`,
    `lint`, `ReviewerSelector.llmDriven`), the canonical reviewer set
-   (`defaultReviewers`).
+   (`allReviewers`, `minimalReviewers`).
 
 Before this ADR, prompts in domain helpers lived in three different shapes:
 
 - A public `object ReviewerPrompts` with named `val`s — used by
-  `defaultReviewers` and easy to override by composing a custom list.
+  `allReviewers`/`minimalReviewers` and easy to override by composing a custom
+  list.
 - A public `val ExtendedPlan.SchemaDescription` interpolated into a private
   inline string inside `loadOrGenerate`.
 - Private `val FixInstructions` / `SelectReviewersInstructions`, plus an
@@ -60,7 +61,7 @@ For every domain helper that bundles an LLM brief, follow this pattern:
    - I want to extend → `instructions = ReviewLoopPrompts.SummarizeLint + "\n\n..."`
 
 3. **For helpers that produce many configurations** (e.g.
-   `defaultReviewers`), the same `XxxPrompts` object hosts the prompts; the
+   `allReviewers` / `minimalReviewers`), the same `XxxPrompts` object hosts the prompts; the
    override mechanism is composing your own list of reviewers using those
    vals plus your own. There's no `instructions = …` parameter because the
    helper isn't a single LLM call.

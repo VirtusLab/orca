@@ -50,7 +50,7 @@ flow(OrcaArgs(args)):
       reviewAndFixLoop(
         coder = claude,
         sessionId = sessionId,
-        reviewers = defaultReviewers(claude),
+        reviewers = allReviewers(claude),
         task = task.title.value,
         lintCommand = Some("sbt scalafmtCheckAll test"),
         lintLlm = Some(claude.haiku)
@@ -119,13 +119,17 @@ Review utilities, available via `import orca.review.*`:
 |---|---|
 | `lint(command, llm, instructions?)` | Run a shell lint, hand the output to `llm`, parse as `ReviewResult`. |
 | `reviewAndFixLoop(coder, sessionId, reviewers, task, ..., fixInstructions?)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to `coder` to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. |
-| `defaultReviewers(base)` | Five canonical reviewer agents (performance, readability, test-coverage, code-functionality, abstraction) layered on top of `base`. |
+| `allReviewers(base)` | All seven canonical reviewer agents (performance, readability, test, code-functionality, abstraction, backend-architect, scala-fp) layered on top of `base`. |
+| `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test). Pair with the default LLM-driven selector when the full set is overkill. |
 | `fixLoop(evaluate, fix, ...)` | Lower-level primitive `reviewAndFixLoop` is built on. |
 
-`reviewAndFixLoop` accepts a `reviewerSelection: ReviewerSelector` parameter;
-the default (`ReviewerSelector.onlyPreviouslyReporting`) re-runs only the
-reviewers that found something last round. Pass `ReviewerSelector.allEveryRound`
-for full regression coverage every iteration.
+`reviewAndFixLoop` accepts an optional `reviewerSelection: Option[ReviewerSelector]`
+parameter. When unset, an [[ReviewerSelector.llmDriven]] picker (using `coder`
+or the supplied `selectionLlm`) narrows the supplied reviewer list to those
+relevant for the task — sees each reviewer's description and the changed file
+paths. Pass `Some(ReviewerSelector.allEveryRound)` to run every reviewer every
+iteration, or `Some(ReviewerSelector.onlyPreviouslyReporting)` to re-run only
+the reviewers that found something last round.
 
 ### Customising prompts
 
@@ -148,7 +152,7 @@ Where the defaults live:
 - `orca.plan.PlanPrompts` — `Planning`
 - `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummarizeLint`
 - `orca.review.ReviewerPrompts` — per-reviewer system prompts (compose your own
-  list to swap or extend `defaultReviewers`)
+  list to swap or extend `allReviewers`/`minimalReviewers`)
 
 The lower-level per-call wrappers (autonomous/interactive/retry) are a
 separate layer — replace the whole set via `flow(prompts = ...)`. See ADR

@@ -46,7 +46,7 @@ flow(OrcaArgs(args)):
       reviewAndFixLoop(
         coder = claude,
         sessionId = sessionId,
-        reviewers = defaultReviewers(claude),
+        reviewers = allReviewers(claude),
         task = task.title.value,
         lintCommand = Some("cargo test --quiet"),
         lintLlm = Some(claude.haiku)

@@ -9,12 +9,12 @@ import orca.llm.{
   LlmConfig,
   LlmTool
 }
-class DefaultReviewersTest extends munit.FunSuite:
+class AllReviewersTest extends munit.FunSuite:
 
   /** LlmTool that records every `withSystemPrompt` call into a shared buffer
     * (so renamed copies still feed the same record) and otherwise behaves as a
     * no-op stub. `withName` returns a fresh instance carrying the new name so
-    * `defaultReviewers` can tag each reviewer.
+    * `allReviewers` can tag each reviewer.
     */
   private class RecordingTool(
       val name: String = "base",
@@ -33,14 +33,14 @@ class DefaultReviewersTest extends munit.FunSuite:
         : LlmCall[BackendTag.ClaudeCode.type, O] =
       ???
 
-  test("defaultReviewers exposes the full canonical reviewer set"):
+  test("allReviewers exposes the full canonical reviewer set"):
     val base = new RecordingTool
-    val names = defaultReviewers(base).map(_.name)
+    val names = allReviewers(base).map(_.name)
     assertEquals(names, ReviewerPrompts.all.map(r => s"reviewer: ${r.name}"))
 
   test("each reviewer layers its canonical system prompt onto the base tool"):
     val base = new RecordingTool
-    val _ = defaultReviewers(base)
+    val _ = allReviewers(base)
     assertEquals(base.seen, ReviewerPrompts.all.map(_.systemPrompt))
 
   test("each reviewer's description is non-empty (parsed from frontmatter)"):
@@ -50,9 +50,17 @@ class DefaultReviewersTest extends munit.FunSuite:
         s"reviewer '${r.name}' has an empty description"
       )
 
-  test("SelectedReviewers.pick filters the default list by name"):
+  test("minimalReviewers exposes the small subset"):
     val base = new RecordingTool
-    val all = defaultReviewers(base)
+    val names = minimalReviewers(base).map(_.name)
+    assertEquals(
+      names,
+      ReviewerPrompts.minimal.map(r => s"reviewer: ${r.name}")
+    )
+
+  test("SelectedReviewers.pick filters the reviewer list by name"):
+    val base = new RecordingTool
+    val all = allReviewers(base)
     val picked =
       SelectedReviewers(
         List("reviewer: performance", "reviewer: abstraction")

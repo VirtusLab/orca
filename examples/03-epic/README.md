@@ -66,10 +66,12 @@ Status: [x]
    - `claude.autonomous.continueSession(sessionId, task.prompt)`.
    - `git.commit("task: <name>")`.
    - `reviewAndFixLoop(...)` with `reviewers =
-     defaultReviewers(codex)` — five reviewer dimensions
-     (performance, readability, test coverage, code
-     functionality, abstraction) all run on Codex in parallel;
-     fixes go back through the original Claude session.
+     allReviewers(codex)` — seven reviewer dimensions
+     (performance, readability, test, code-functionality,
+     abstraction, backend-architect, scala-fp); an LLM-driven
+     selector picks the relevant ones for each task and runs
+     them on Codex in parallel; fixes go back through the
+     original Claude session.
    - `Plan.persistComplete(file, task.name)` — flips the checkbox
      in `epic.md` so a future run skips this task.
 5. **Update documentation** — agent updates README / doc-comments
@@ -86,7 +88,7 @@ review against a *different* backend (Codex while Claude
 implements, here) is a cheap way to widen coverage — and shifts
 the failure mode away from "Claude rubber-stamps Claude".
 Swap which side is which by editing the script's
-`val reviewers = defaultReviewers(codex)` line.
+`val reviewers = allReviewers(codex)` line.
 
 ## Resume semantics
 

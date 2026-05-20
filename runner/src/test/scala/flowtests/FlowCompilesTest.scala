@@ -16,7 +16,7 @@ package flowtests
 // regressed. Fix the API, not the test.
 
 import orca.{*, given}
-import orca.review.{defaultReviewers, reviewAndFixLoop}
+import orca.review.{allReviewers, reviewAndFixLoop}
 
 case class PlanTask(branchName: String, description: String) derives JsonData
 case class FlowPlan(tasks: List[PlanTask]) derives JsonData
@@ -65,7 +65,7 @@ object FlowCanary:
         val _ = codex
         val _ = userPrompt
 
-  /** Review-and-fix loop; pulls in `defaultReviewers` and the internal
+  /** Review-and-fix loop; pulls in `allReviewers` and the internal
     * `stage`/fork machinery.
     */
   def reviewLoop(): Unit =
@@ -77,7 +77,7 @@ object FlowCanary:
           reviewAndFixLoop(
             coder = claude,
             sessionId = sessionId,
-            reviewers = defaultReviewers(claude),
+            reviewers = allReviewers(claude),
             task = task.description,
             lintCommand = Some("mvn -q test"),
             lintLlm = Some(claude.haiku)

@@ -69,7 +69,7 @@ flow(OrcaArgs(args)):
   // is its own worst critic). Claude still drives the fix step,
   // so the same session that implemented the task receives the
   // findings and addresses them in code.
-  val reviewers: List[LlmTool[?]] = defaultReviewers(codex)
+  val reviewers: List[LlmTool[?]] = allReviewers(codex)
 
   // Loop while there's still an incomplete task. We re-read the
   // epic after each task so persisted completion markers shape

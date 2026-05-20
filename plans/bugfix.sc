@@ -157,7 +157,7 @@ flow(OrcaArgs(args)):
     reviewAndFixLoop(
       coder = claude,
       sessionId = sessionId,
-      reviewers = defaultReviewers(claude),
+      reviewers = allReviewers(claude),
       task = triage.summary,
       lintCommand = Some("mvn -q test"),
       lintLlm = Some(claude.haiku)

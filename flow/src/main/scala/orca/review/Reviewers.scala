@@ -84,12 +84,6 @@ def allReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]] =
 def minimalReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]] =
   buildReviewers(base, ReviewerPrompts.minimal)
 
-/** Alias for [[allReviewers]], kept for backward compatibility with existing
-  * flow scripts. New code should prefer the explicit name.
-  */
-def defaultReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]] =
-  allReviewers(base)
-
 /** Layer each reviewer's system prompt onto the base tool and prefix the name
   * with `reviewer: ` so the per-agent token breakdown groups every reviewer
   * dimension together (matching `lint`, which the review loop labels `reviewer:

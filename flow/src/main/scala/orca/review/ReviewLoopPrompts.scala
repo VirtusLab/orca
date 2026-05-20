@@ -12,7 +12,7 @@ import orca.util.PromptResource
   * reviewAndFixLoop(
   *   coder = claude,
   *   sessionId = sessionId,
-  *   reviewers = defaultReviewers(claude),
+  *   reviewers = allReviewers(claude),
   *   task = title,
   *   fixInstructions = ReviewLoopPrompts.Fix +
   *     "\n\nIf you delete a test, mention it in the ignored reason."

@@ -112,8 +112,8 @@ private[review] def formatReviewerOutcome(
 
 /** One round of reviews, with each reviewer's individual outcome preserved. The
   * list keeps the order callers configured (so positions match
-  * `defaultReviewers(claude)` etc.), and lets the loop decide which reviewers
-  * to re-run on the next iteration based on which ones found issues this time.
+  * `allReviewers(claude)` etc.), and lets the loop decide which reviewers to
+  * re-run on the next iteration based on which ones found issues this time.
   */
 case class ReviewBatch(outcomes: List[(LlmTool[?], ReviewResult)]):
   def reviewersWithIssues: List[LlmTool[?]] =
@@ -144,11 +144,12 @@ private object ReviewLoopState:
 /** Run reviewers in parallel against `task`, gather per-reviewer outcomes, hand
   * any issues above `confidenceThreshold` to `coder` via `continueSession`, and
   * loop. Each iteration's reviewer set is picked by `reviewerSelection`; the
-  * default uses `coder` as a cheap LLM picker that narrows the supplied
-  * reviewer list to just the dimensions relevant to this task (see
-  * [[ReviewerSelector.llmDriven]]). Pass
-  * `ReviewerSelector.onlyPreviouslyReporting` for the previous fixed-rule
-  * behaviour, or `ReviewerSelector.allEveryRound` to skip selection entirely.
+  * default uses `selectionLlm` (or `coder` if unset) as a cheap LLM picker
+  * that narrows the supplied reviewer list to just the dimensions relevant
+  * to this task (see [[ReviewerSelector.llmDriven]]). Pass
+  * `Some(ReviewerSelector.onlyPreviouslyReporting)` for the previous
+  * fixed-rule behaviour, or `Some(ReviewerSelector.allEveryRound)` to skip
+  * selection entirely.
   *
   * The fix step instructs the agent to report a `FixOutcome`: list the titles
   * of issues actually fixed in code under `fixed`, and anything not addressed
@@ -167,13 +168,19 @@ def reviewAndFixLoop[B <: BackendTag](
       * (`claude.haiku`, `codex.mini`) — the lint summary is a small fold.
       */
     lintLlm: Option[LlmTool[?]] = None,
-    confidenceThreshold: Double = 0.7,
-    /** How the active reviewer set is chosen each iteration. Defaults to an
-      * [[ReviewerSelector.llmDriven]] selector wired against `coder` and
-      * `task`; the sentinel is resolved inside the body because default-arg
-      * expressions in the same param list can't reference earlier params.
+    /** LLM used for the default LLM-driven reviewer selection. Falls back to
+      * `coder` when unset; pass a cheap model (`claude.haiku`, `codex.mini`)
+      * to avoid spending expensive coder tokens on the small selection
+      * prompt. Ignored when `reviewerSelection` is supplied.
       */
-    reviewerSelection: ReviewerSelector = ReviewerSelector.LlmDrivenDefault,
+    selectionLlm: Option[LlmTool[?]] = None,
+    confidenceThreshold: Double = 0.7,
+    /** How the active reviewer set is chosen each iteration. `None`
+      * (default) builds an [[ReviewerSelector.llmDriven]] selector wired
+      * against `selectionLlm` (or `coder`), `task`, and the file paths
+      * extracted from the initial diff. Pass `Some(...)` to override.
+      */
+    reviewerSelection: Option[ReviewerSelector] = None,
     maxIterations: Int = 10,
     fixInstructions: String = ReviewLoopPrompts.Fix,
     /** Override the diff handed to each reviewer in its initial prompt.
@@ -197,24 +204,23 @@ def reviewAndFixLoop[B <: BackendTag](
     "reviewAndFixLoop: reviewer names must be unique — " +
       "the per-reviewer session map is keyed by name"
   )
-  // Resolve the sentinel default: an `llmDriven` selector wired against the
-  // loop's `coder` and `task`. Same idiom as `LlmConfig.default` — a
-  // reference-equality check stands in for "caller didn't pass an explicit
-  // selector". Constructed once so its internal cache (one LLM call total)
-  // persists across iterations.
-  val effectiveSelection: ReviewerSelector =
-    if reviewerSelection eq ReviewerSelector.LlmDrivenDefault then
-      ReviewerSelector.llmDriven(
-        llm = coder,
-        taskTitle = Title(task),
-        changedFiles = Nil
-      )
-    else reviewerSelection
-  // Sampled per iteration in `runReviewers`. A constant override skips
-  // the git call; the default thunk shells out fresh each iteration so a
-  // newly-active reviewer sees the latest diff rather than the
-  // loop-start one.
+  // Sampled per iteration in `runReviewers`. A constant override skips the
+  // git call; the default thunk shells out fresh each iteration so a newly-
+  // active reviewer sees the latest diff rather than the loop-start one.
   def sampleDiff(): String = initialDiff.getOrElse(ctx.git.diff())
+
+  // For the default LLM-driven picker we sample the diff once at loop entry
+  // and derive file paths so the selector sees real context (title + paths)
+  // rather than title-only. The shell-out is the same one the first
+  // iteration would do anyway; here we just cache its result.
+  val effectiveSelection: ReviewerSelector =
+    reviewerSelection.getOrElse:
+      val initialPaths = ReviewLoop.extractChangedFiles(sampleDiff())
+      ReviewerSelector.llmDriven(
+        llm = selectionLlm.getOrElse(coder),
+        taskTitle = Title(task),
+        changedFiles = initialPaths
+      )
 
   // All loop state lives in one immutable case class threaded through
   // a method-scope `var`. Within an iteration reviewers fan out via
@@ -374,6 +380,20 @@ def reviewAndFixLoop[B <: BackendTag](
       fix = fix,
       maxIterations = maxIterations
     )
+
+private[review] object ReviewLoop:
+  /** Parse a unified diff and return the changed file paths (the `b/` side of
+    * each `+++ b/<path>` header). Filters out `/dev/null` so deletions don't
+    * pollute the list. Order matches first appearance in the diff.
+    */
+  def extractChangedFiles(diff: String): List[String] =
+    val pattern = "(?m)^\\+\\+\\+ b/(.+)$".r
+    pattern
+      .findAllMatchIn(diff)
+      .map(_.group(1))
+      .filterNot(_ == "/dev/null")
+      .toList
+      .distinct
 
 /** Run `command` via a login shell, capture both stdout and stderr, and hand
   * the combined output to `llm` to summarize as a `ReviewResult`. An empty

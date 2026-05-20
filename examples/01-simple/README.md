@@ -18,7 +18,7 @@ Use this when the task is small enough to finish in one session.
    - Hand the task's prompt to the agent (continuing the planning
      session).
    - Commit.
-   - Run `reviewAndFixLoop` with `defaultReviewers(claude)`.
+   - Run `reviewAndFixLoop` with `allReviewers(claude)`.
 
 ## Prerequisites
 

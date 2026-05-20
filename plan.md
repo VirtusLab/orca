@@ -153,7 +153,7 @@ Higher-level flow combinators, built on all previous epics.
 | 8.1 | fixLoop | Implement the evaluate → fix → re-evaluate loop with max iterations and ignored issue tracking. Unit test with mock evaluate/fix functions. | ✅ |
 | 8.2 | reviewAndFix | Parallel reviewers via `ox.par`, confidence filtering, optional lint, stage management. Uses fixLoop internally. Unit test with mock reviewers. | ✅ |
 | 8.3 | lint | Run a shell command, capture output, summarize via LLM into `ReviewResult`. Unit test with a canned lint output. | ✅ |
-| 8.4 | defaultReviewers | Pre-configured reviewer agents (performance, readability, test coverage). System prompts. | ✅ |
+| 8.4 | allReviewers/minimalReviewers | Pre-configured reviewer agents (performance, readability, test coverage). System prompts. | ✅ |
 | 8.5 | Integration test | Full flow: code → lint → review → fix loop, with a mock backend. Verify event sequence and final ignored issues. | ✅ |
 
 **Exit criteria**: fixLoop, reviewAndFix, lint pass unit tests. Integration test exercises the full loop.

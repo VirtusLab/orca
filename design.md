@@ -271,8 +271,11 @@ case class SelectedReviewers(names: List[String]) derives Schema, ConfiguredJson
 
 case class Usage(inputTokens: Long, outputTokens: Long, cost: Option[BigDecimal])
 
-/** Pre-configured reviewer agents provided by the library. */
-val defaultReviewers: List[LlmTool[?]]  // performance, readability, test-coverage, code-functionality, abstraction
+/** Build pre-configured reviewer agents on top of a base LLM tool. */
+def allReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]]
+// performance, readability, test, code-functionality, abstraction, backend-architect, scala-fp
+def minimalReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]]
+// code-functionality, readability, test
 ```
 
 #### Library functions
@@ -481,18 +484,11 @@ flow:
     if !result.success then
       fail(s"Coding failed: ${result.message}")
 
-    // LLM selects relevant reviewers
-    val reviewContext = claude.resultAs[ReviewContext].prompt(
-      s"Summarize changes for: ${task.description}\n${git.diff()}"
-    )
-    val selected = claude.resultAs[SelectedReviewers].prompt(
-      s"Which reviewers are relevant?\n${defaultReviewers.map(_.name)}\n${reviewContext.summary}"
-    )
-
-    // Lint + review + fix loop
+    // Lint + review + fix loop — `reviewAndFix` picks relevant reviewers
+    // from the supplied list via an LLM-driven selector by default.
     val ignored = reviewAndFix(
       coder = claude, sessionId = sessionId,
-      reviewers = selected.pick(defaultReviewers),
+      reviewers = allReviewers(claude),
       task = task.description,
       lintCommand = Some("scalac -Xlint .")
     )

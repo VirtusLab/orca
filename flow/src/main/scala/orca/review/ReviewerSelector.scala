@@ -1,5 +1,7 @@
 package orca.review
 
+import orca.FlowContext
+import orca.events.OrcaEvent
 import orca.llm.{JsonData, LlmTool, given}
 import orca.plan.Title
 
@@ -13,19 +15,12 @@ type ReviewerSelector =
 
 object ReviewerSelector:
 
-  /** Sentinel used as the default value for `reviewAndFixLoop`'s
-    * `reviewerSelection` parameter. Detected via reference equality and
-    * replaced inside the loop with an [[llmDriven]] selector wired against the
-    * loop's `coder` and `task`. Same idiom as `LlmConfig.default` — a stable
-    * singleton standing in for "use the loop's defaults".
-    */
-  val LlmDrivenDefault: ReviewerSelector = (_, all) => all
-
   /** First iteration runs every reviewer; subsequent rounds re-run only those
     * that found something last round. Saves API spend on consistently-quiet
     * reviewers; the trade-off is that a reviewer who'd catch a regression
-    * introduced by a fix won't see the fix. Was the default before LLM-driven
-    * selection landed; pass explicitly when you want this behaviour back.
+    * introduced by a fix won't see the fix. Was the default before
+    * LLM-driven selection landed; pass explicitly when you want this
+    * behaviour back.
     */
   val onlyPreviouslyReporting: ReviewerSelector = (history, all) =>
     history.headOption match
@@ -38,18 +33,25 @@ object ReviewerSelector:
     */
   val allEveryRound: ReviewerSelector = (_, all) => all
 
-  /** Asks `llm` to pick which reviewers are worth running for a given task. The
-    * selection is computed on the first call (when `all` is known) and cached
-    * for subsequent iterations — `taskTitle` and `changedFiles` don't change
-    * mid-loop, so re-querying the model would just burn tokens for the same
-    * answer.
+  /** Asks `llm` to pick which reviewers are worth running for a given task.
+    * The selection is computed on the first call (when `all` is known) and
+    * cached for subsequent iterations — `taskTitle` and `changedFiles` don't
+    * change mid-loop, so re-querying the model would just burn tokens for the
+    * same answer.
     *
-    * The picker sees each reviewer as a `(name, description)` pair. By default
-    * `descriptions` is [[ReviewerPrompts.descriptionsByToolName]], so users who
-    * pass `defaultReviewers(...)` get rich purpose-aware selection without
-    * extra wiring; supply a custom map (keyed by the tool's prefixed name, e.g.
-    * `"reviewer: my-thing"`) when overriding the default set. Reviewers whose
-    * name isn't in the map get an empty description.
+    * **Single-loop scope.** The returned selector closes over a per-instance
+    * cache. Reusing one selector across two `reviewAndFixLoop` invocations
+    * for different tasks would yield iteration 1's pick on both. Build a
+    * fresh selector per loop (the default in `reviewAndFixLoop` already does
+    * this).
+    *
+    * The picker sees each reviewer as a `(name, description)` pair. By
+    * default `descriptions` is [[ReviewerPrompts.descriptionsByToolName]], so
+    * users who pass `allReviewers(...)` get rich purpose-aware selection
+    * without extra wiring; supply a custom map (keyed by the tool's prefixed
+    * name, e.g. `"reviewer: my-thing"`) when overriding the default set. If
+    * the picker would see all-empty descriptions, a one-time `Step` warning
+    * fires so the silent-name-only-selection failure mode is visible.
     *
     * Pick a cheap model (e.g. `claude.haiku`); the request is small. Override
     * `instructions` to retune the selection brief.
@@ -60,7 +62,7 @@ object ReviewerSelector:
       changedFiles: List[String],
       instructions: String = ReviewLoopPrompts.SelectReviewers,
       descriptions: Map[String, String] = ReviewerPrompts.descriptionsByToolName
-  ): ReviewerSelector =
+  )(using ctx: FlowContext): ReviewerSelector =
     var cached: Option[List[String]] = None
     (_, all) =>
       val names = cached.getOrElse:
@@ -68,6 +70,14 @@ object ReviewerSelector:
           ReviewerInfo(
             name = r.name,
             description = descriptions.getOrElse(r.name, "")
+          )
+        if all.nonEmpty && infos.forall(_.description.isEmpty) then
+          ctx.emit(
+            OrcaEvent.Step(
+              "reviewer selection: no descriptions matched the supplied " +
+                "reviewers (names lack the `reviewer: ` prefix from a " +
+                "preset builder?). The picker will see names only."
+            )
           )
         val picked = llm
           .resultAs[SelectedReviewers]
