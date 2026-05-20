@@ -56,13 +56,6 @@ private[orca] class TerminalRendererState(
     case OrcaEvent.Error(message) =>
       appendIndented(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
 
-  /** Advance the status-bar spinner. Called by the animator fork in
-    * [[TerminalInteraction.start]] (which `tell`s the actor); routes through
-    * the same actor mailbox as `onEvent` so ticks interleave cleanly with other
-    * state changes.
-    */
-  def tickStatusBar(): Unit = statusBar.tick()
-
   /** Run by [[TerminalInteraction.close]] after the actor mailbox is drained.
     * Clears the status bar so any animator ticks the fork enqueues between
     * close-return and scope-end become no-ops (`tick` short-circuits when no

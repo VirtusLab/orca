@@ -1,5 +1,7 @@
 package orca.runner.terminal
 
+import ox.{Ox, forever, forkDiscard}
+
 import java.io.PrintStream
 
 /** A persistent single-line status indicator at the bottom of the terminal,
@@ -7,21 +9,16 @@ import java.io.PrintStream
   * activity (stage name + spinner glyph); each log write transparently scrolls
   * it down by one row.
   *
-  * Design:
-  *   - All event-log output flows through [[appendLog]]. The bar clears its
-  *     current status line, writes the log line, then re-draws the status below
-  *     it.
-  *   - [[tick]] advances the spinner glyph in place without touching the log.
-  *     [[TerminalInteraction.start]] owns a daemon fork that periodically tells
-  *     the enclosing actor to call this method, so spinner ticks land on the
-  *     same mailbox as log writes and stage transitions.
-  *   - When [[animated]] is false (non-TTY output, redirected stderr, CI), the
-  *     bar degrades to plain inline output: every appendLog just writes the
-  *     line, and the spinner becomes a no-op.
+  * Two threads touch this bar concurrently: the TerminalInteraction actor
+  * worker (for `appendLog`/`startStatus`/`stopStatus`) and the animator fork
+  * spawned by [[StatusBar.start]] (for `tick`). A short mutex serialises every
+  * field access — the bar can't ride on the actor's serialisation alone because
+  * `drive` parks the actor inside a blocking conversation iterator, which would
+  * freeze the spinner whenever an interactive LLM call ran.
   *
-  * **Not thread-safe.** Callers must serialise access — production code does so
-  * via the TerminalInteraction actor's single worker thread; tests construct
-  * the bar directly and drive it synchronously.
+  * When `animated = false` (non-TTY output, redirected stderr, CI), the bar
+  * degrades to plain inline output: every appendLog just writes the line,
+  * start/stop/tick become no-ops, and no animator fork is spawned.
   */
 private[terminal] class StatusBar(
     out: PrintStream,
@@ -31,6 +28,7 @@ private[terminal] class StatusBar(
 
   import StatusBar.{ClearLine, DefaultLabel, Frames, MaxStatusLineWidth, paint}
 
+  private val lock = new Object
   // `null` means "no status set"; non-null means "status visible at the
   // current cursor row, redraw on appendLog / tick".
   private var currentLabel: String | Null = null
@@ -41,7 +39,7 @@ private[terminal] class StatusBar(
     * ends one logical row. Empty input emits just the trailing newline (used by
     * callers as a section separator).
     */
-  def appendLog(text: String): Unit =
+  def appendLog(text: String): Unit = lock.synchronized:
     if !animated || currentLabel == null then
       out.print(text)
       if !text.endsWith("\n") then out.println()
@@ -63,7 +61,7 @@ private[terminal] class StatusBar(
     * bottom line, and the event log will have already shown the same label as a
     * `▶ <stage>` entry, so duplicating it inline would just create noise.
     */
-  def startStatus(label: String = DefaultLabel): Unit =
+  def startStatus(label: String = DefaultLabel): Unit = lock.synchronized:
     if animated then
       currentLabel = if label.isEmpty then DefaultLabel else label
       drawStatus()
@@ -72,7 +70,7 @@ private[terminal] class StatusBar(
   /** Hide the status line entirely. The cursor lands at the start of the
     * (now-cleared) status row, so subsequent writes start there.
     */
-  def stopStatus(): Unit =
+  def stopStatus(): Unit = lock.synchronized:
     val wasShown = currentLabel != null
     currentLabel = null
     if wasShown && animated then
@@ -80,10 +78,10 @@ private[terminal] class StatusBar(
       out.flush()
 
   /** Advance the spinner frame and redraw. No-op when no status is set so idle
-    * periods don't touch the terminal. The animator fork in
-    * [[TerminalInteraction.start]] drives this via the enclosing actor.
+    * periods don't touch the terminal. Called by the animator fork started in
+    * [[StatusBar.start]].
     */
-  def tick(): Unit =
+  private def tick(): Unit = lock.synchronized:
     if animated && currentLabel != null then
       frameIndex = (frameIndex + 1) % Frames.size
       drawStatus()
@@ -103,6 +101,26 @@ private[terminal] class StatusBar(
       out.print(paint(s"$frame $truncated", useColor))
 
 private[terminal] object StatusBar:
+
+  /** Build a `StatusBar` and start its animator on an Ox `forkDiscard` in the
+    * given scope. The fork runs independently of the TerminalInteraction actor,
+    * so the spinner continues to advance even while `drive` parks the actor
+    * inside a blocking conversation iterator. The fork is interrupted when the
+    * enclosing scope ends.
+    */
+  def start(
+      out: PrintStream,
+      useColor: Boolean,
+      animated: Boolean,
+      framePeriodMs: Long = 100L
+  )(using Ox): StatusBar =
+    val bar = new StatusBar(out, useColor, animated)
+    if animated then
+      forkDiscard:
+        forever:
+          Thread.sleep(framePeriodMs)
+          bar.tick()
+    bar
 
   /** Carriage return + ANSI Erase-In-Line-2 (clear entire line). The ESC
     * character is the literal byte ``; writing it inline keeps the source

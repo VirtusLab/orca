@@ -3,7 +3,7 @@ package orca.runner.terminal
 import orca.backend.{Conversation, Interaction, LlmResult}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.llm.BackendTag
-import ox.{Ox, forever, forkDiscard}
+import ox.Ox
 import ox.channels.{Actor, ActorRef, BufferCapacity}
 
 import java.io.PrintStream
@@ -80,22 +80,15 @@ object TerminalInteraction:
       out: PrintStream = System.err,
       useColor: Boolean = defaultUseColor,
       animated: Boolean = defaultAnimated,
-      workDir: Option[os.Path] = None,
-      framePeriodMs: Long = 100L
+      workDir: Option[os.Path] = None
   )(using Ox, BufferCapacity): TerminalInteraction =
-    val statusBar = new StatusBar(out, useColor, animated)
+    // StatusBar owns its own animator fork so the spinner continues while
+    // `drive` parks the actor inside a blocking conversation iterator. The
+    // bar internally serialises its mutable state across the actor worker
+    // and the animator with a short mutex.
+    val statusBar = StatusBar.start(out, useColor, animated)
     val state = new TerminalRendererState(useColor, workDir, statusBar)
-    val actor = Actor.create(state)
-    if animated then
-      // Spinner ticks go through the same mailbox as listener events and
-      // `drive`, so the bar can't redraw mid-write. The fork is interrupted
-      // when the supervised scope ends; the IE bubbling out of `Thread.sleep`
-      // is absorbed by the supervisor (scope is already winding down).
-      forkDiscard:
-        forever:
-          Thread.sleep(framePeriodMs)
-          actor.tell(_.tickStatusBar())
-    new TerminalInteraction(actor)
+    new TerminalInteraction(Actor.create(state))
 
   val StageStartGlyph: String = "▶"
   val StageDoneGlyph: String = "✔"
