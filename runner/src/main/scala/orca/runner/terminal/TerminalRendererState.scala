@@ -4,8 +4,6 @@ import orca.backend.{Conversation, LlmResult}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.llm.BackendTag
 
-import java.io.PrintStream
-
 /** Holds every var-backed piece of terminal-rendering state plus the entry
   * points (`onEvent`, `driveConversation`) that mutate it.
   *
@@ -15,17 +13,14 @@ import java.io.PrintStream
   * rendering.
   */
 private[orca] class TerminalRendererState(
-    out: PrintStream,
     useColor: Boolean,
-    animated: Boolean,
-    workDir: Option[os.Path]
+    workDir: Option[os.Path],
+    statusBar: StatusBar
 ) extends OrcaListener:
 
   import TerminalInteraction.*
 
   private val depthCounter = new StageDepth
-  private val statusBar =
-    new StatusBar(out, useColor = useColor, animated = animated)
   private val stages = new StageStack
 
   def onEvent(event: OrcaEvent): Unit = event match
@@ -59,6 +54,20 @@ private[orca] class TerminalRendererState(
       summary.foreach(emitStepLine)
     case OrcaEvent.Error(message) =>
       appendIndented(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
+
+  /** Advance the status-bar spinner. Called by the animator fork in
+    * [[TerminalInteraction.start]] (which `tell`s the actor); routes through
+    * the same actor mailbox as `onEvent` so ticks interleave cleanly with
+    * other state changes.
+    */
+  def tickStatusBar(): Unit = statusBar.tick()
+
+  /** Run by [[TerminalInteraction.close]] after the actor mailbox is drained.
+    * Clears the status bar so any animator ticks the fork enqueues between
+    * close-return and scope-end become no-ops (`tick` short-circuits when no
+    * label is set).
+    */
+  def shutdown(): Unit = statusBar.stopStatus()
 
   /** Render a live conversation to completion. Used by
     * [[TerminalInteraction.drive]]; runs synchronously on the calling thread.

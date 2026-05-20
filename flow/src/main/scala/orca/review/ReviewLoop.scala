@@ -143,13 +143,9 @@ private object ReviewLoopState:
 
 /** Run reviewers in parallel against `task`, gather per-reviewer outcomes, hand
   * any issues above `confidenceThreshold` to `coder` via `continueSession`, and
-  * loop. Each iteration's reviewer set is picked by `reviewerSelection`; the
-  * default uses `selectionLlm` (or `coder` if unset) as a cheap LLM picker
-  * that narrows the supplied reviewer list to just the dimensions relevant
-  * to this task (see [[ReviewerSelector.llmDriven]]). Pass
-  * `Some(ReviewerSelector.onlyPreviouslyReporting)` for the previous
-  * fixed-rule behaviour, or `Some(ReviewerSelector.allEveryRound)` to skip
-  * selection entirely.
+  * loop. `reviewerSelection` decides which reviewers run each iteration —
+  * typically [[ReviewerSelector.llmDriven]] wired against a cheap picker LLM;
+  * pass [[ReviewerSelector.allEveryRound]] to skip selection entirely.
   *
   * The fix step instructs the agent to report a `FixOutcome`: list the titles
   * of issues actually fixed in code under `fixed`, and anything not addressed
@@ -161,6 +157,7 @@ def reviewAndFixLoop[B <: BackendTag](
     coder: LlmTool[B],
     sessionId: SessionId[B],
     reviewers: List[LlmTool[?]],
+    reviewerSelection: ReviewerSelector,
     task: String,
     lintCommand: Option[String] = None,
     /** LLM that summarises lint output into a `ReviewResult`. Required when
@@ -168,19 +165,7 @@ def reviewAndFixLoop[B <: BackendTag](
       * (`claude.haiku`, `codex.mini`) — the lint summary is a small fold.
       */
     lintLlm: Option[LlmTool[?]] = None,
-    /** LLM used for the default LLM-driven reviewer selection. Falls back to
-      * `coder` when unset; pass a cheap model (`claude.haiku`, `codex.mini`)
-      * to avoid spending expensive coder tokens on the small selection
-      * prompt. Ignored when `reviewerSelection` is supplied.
-      */
-    selectionLlm: Option[LlmTool[?]] = None,
     confidenceThreshold: Double = 0.7,
-    /** How the active reviewer set is chosen each iteration. `None`
-      * (default) builds an [[ReviewerSelector.llmDriven]] selector wired
-      * against `selectionLlm` (or `coder`), `task`, and the file paths
-      * extracted from the initial diff. Pass `Some(...)` to override.
-      */
-    reviewerSelection: Option[ReviewerSelector] = None,
     maxIterations: Int = 10,
     fixInstructions: String = ReviewLoopPrompts.Fix,
     /** Override the diff handed to each reviewer in its initial prompt.
@@ -209,18 +194,11 @@ def reviewAndFixLoop[B <: BackendTag](
   // active reviewer sees the latest diff rather than the loop-start one.
   def sampleDiff(): String = initialDiff.getOrElse(ctx.git.diff())
 
-  // For the default LLM-driven picker we sample the diff once at loop entry
-  // and derive file paths so the selector sees real context (title + paths)
-  // rather than title-only. The shell-out is the same one the first
-  // iteration would do anyway; here we just cache its result.
-  val effectiveSelection: ReviewerSelector =
-    reviewerSelection.getOrElse:
-      val initialPaths = ReviewLoop.extractChangedFiles(sampleDiff())
-      ReviewerSelector.llmDriven(
-        llm = selectionLlm.getOrElse(coder),
-        taskTitle = Title(task),
-        changedFiles = initialPaths
-      )
+  // Loop-constant context handed to the selector on every iteration: the
+  // task's title, plus the file paths derived from the diff at loop entry.
+  // Sampled here so each iteration's selector call doesn't re-shell-out.
+  val taskTitle = Title(task)
+  val changedFiles = ReviewLoop.extractChangedFiles(sampleDiff())
 
   // All loop state lives in one immutable case class threaded through
   // a method-scope `var`. Within an iteration reviewers fan out via
@@ -345,7 +323,8 @@ def reviewAndFixLoop[B <: BackendTag](
       (reviewerOutcomes, lintOutcome, nextState)
 
   def evaluate(): ReviewResult =
-    val active = effectiveSelection(state.history, reviewers)
+    val active =
+      reviewerSelection(state.history, reviewers, taskTitle, changedFiles)
     val totalAgents = active.size + (if lintCommand.isDefined then 1 else 0)
     if totalAgents > 0 then
       ctx.emit(

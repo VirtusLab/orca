@@ -18,11 +18,12 @@ class TerminalInteractionTest extends munit.FunSuite:
       events: List[OrcaEvent]
   ): String =
     val buf = new ByteArrayOutputStream()
+    val ps = new PrintStream(buf)
+    val statusBar = new StatusBar(ps, useColor = false, animated = animated)
     val state = new TerminalRendererState(
-      out = new PrintStream(buf),
       useColor = false,
-      animated = animated,
-      workDir = None
+      workDir = None,
+      statusBar = statusBar
     )
     events.foreach(state.onEvent)
     buf.toString

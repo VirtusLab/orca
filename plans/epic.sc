@@ -97,6 +97,10 @@ flow(OrcaArgs(args)):
         coder = claude,
         sessionId = sessionId,
         reviewers = reviewers,
+        // Haiku picks which codex reviewers run — sees each one's
+        // description plus the changed files. Swap for
+        // `ReviewerSelector.allEveryRound` to run every reviewer.
+        reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value
       )
       Plan.persistComplete(planFile, task.title)

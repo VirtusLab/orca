@@ -51,6 +51,7 @@ flow(OrcaArgs(args)):
         coder = claude,
         sessionId = sessionId,
         reviewers = allReviewers(claude),
+        reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value,
         lintCommand = Some("sbt scalafmtCheckAll test"),
         lintLlm = Some(claude.haiku)
@@ -123,13 +124,13 @@ Review utilities, available via `import orca.review.*`:
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test). Pair with the default LLM-driven selector when the full set is overkill. |
 | `fixLoop(evaluate, fix, ...)` | Lower-level primitive `reviewAndFixLoop` is built on. |
 
-`reviewAndFixLoop` accepts an optional `reviewerSelection: Option[ReviewerSelector]`
-parameter. When unset, an [[ReviewerSelector.llmDriven]] picker (using `coder`
-or the supplied `selectionLlm`) narrows the supplied reviewer list to those
-relevant for the task — sees each reviewer's description and the changed file
-paths. Pass `Some(ReviewerSelector.allEveryRound)` to run every reviewer every
-iteration, or `Some(ReviewerSelector.onlyPreviouslyReporting)` to re-run only
-the reviewers that found something last round.
+`reviewAndFixLoop` requires a `reviewerSelection: ReviewerSelector` argument.
+Typically `ReviewerSelector.llmDriven(claude.haiku)` — the picker LLM (use a
+cheap model) sees each reviewer's description plus the changed file paths and
+narrows the supplied list per task. Pass
+`ReviewerSelector.allEveryRound` to run every reviewer every iteration, or
+`ReviewerSelector.onlyPreviouslyReporting` to re-run only the reviewers that
+found something last round.
 
 ### Customising prompts
 

@@ -80,6 +80,10 @@ flow(OrcaArgs(args)):
         coder = claude,
         sessionId = sessionId,
         reviewers = allReviewers(claude),
+        // Haiku picks which reviewers run — sees each one's description
+        // plus the changed files. Swap for `ReviewerSelector.allEveryRound`
+        // to run every reviewer.
+        reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value
       )
 

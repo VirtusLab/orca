@@ -3,12 +3,10 @@ package orca.runner.terminal
 import orca.backend.{Conversation, Interaction, LlmResult}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.llm.BackendTag
-import ox.channels.{Channel, ChannelClosed}
-import ox.{Ox, forkUser}
+import ox.{Ox, forkDiscard}
+import ox.channels.{Actor, ActorRef, BufferCapacity}
 
 import java.io.PrintStream
-import java.util.concurrent.CompletableFuture
-import scala.util.control.NonFatal
 
 /** Terminal-based `Interaction`. Renders stage transitions, tool uses,
   * streaming LLM output, and errors to a `PrintStream` (defaults to stderr so
@@ -29,81 +27,64 @@ import scala.util.control.NonFatal
   * charset the caller should pass a PrintStream constructed with `new
   * PrintStream(out, true, "UTF-8")`.
   *
-  * Internally: a single Ox `forkUser` worker serializes every access to the
-  * underlying [[TerminalRendererState]] via a `Channel[Task]` mailbox. Listener
-  * events are submitted with `tell`-style fire-and-forget; `drive` submits an
-  * `ask`-style request and blocks the caller until the worker finishes the
-  * conversation. While `drive` runs, listener events queue and flush in order
-  * after it returns — fine in practice because backend conversations emit
-  * `ConversationEvent`s directly to the renderer (not through this listener
-  * path) and the body thread is blocked, so no concurrent emit source exists
-  * during `drive`.
+  * Internally: a single Ox `Actor` serialises every access to the underlying
+  * [[TerminalRendererState]]. Listener events are submitted via `tell`
+  * (fire-and-forget); `drive` submits an `ask` and blocks until the worker
+  * finishes the conversation. While `drive` runs, listener events queue and
+  * flush in order after it returns — fine in practice because backend
+  * conversations emit `ConversationEvent`s directly to the renderer (not
+  * through this listener path) and the body thread is blocked during `drive`,
+  * so no concurrent emit source exists.
   *
-  * [[close]] gracefully shuts down: it signals the channel done, and the worker
-  * drains any pending submissions in FIFO order before exiting. Because the
-  * worker is a `forkUser`, the enclosing supervised scope waits for it to
-  * complete — `flow(...)` invokes [[close]] in `finally` so the scope ends
-  * cleanly. The constructor is private; obtain instances through
-  * [[TerminalInteraction.start]], which takes the Ox scope where the worker
-  * lives.
+  * Exception semantics follow `Actor`'s contract:
+  *   - A throw from a `tell`-style invocation (i.e. listener-driven rendering)
+  *     propagates to the enclosing supervised scope and closes the actor — a
+  *     renderer bug surfaces as a flow failure rather than garbled output.
+  *   - A throw from an `ask`-style invocation (`drive`) propagates only to the
+  *     caller; the actor continues serving other invocations.
+  *
+  * [[close]] issues an identity `ask` so every previously-queued `tell` has
+  * been drained before returning. The actor's worker is bound to the Ox scope
+  * passed to [[TerminalInteraction.start]] and shuts down when that scope
+  * ends; `flow(...)` invokes [[close]] in `finally` so the drain happens
+  * before the scope joins.
   */
 class TerminalInteraction private[terminal] (
-    mailbox: Channel[TerminalInteraction.Task]
+    actor: ActorRef[TerminalRendererState]
 ) extends Interaction:
 
-  import TerminalInteraction.{Run, Task}
-
-  private val listenersList: List[OrcaListener] = List: (e: OrcaEvent) =>
-    val _ = mailbox.send(Run(_.onEvent(e)))
-
-  def listeners: List[OrcaListener] = listenersList
+  val listeners: List[OrcaListener] = List: (e: OrcaEvent) =>
+    actor.tell(_.onEvent(e))
 
   /** Drive a live conversation to completion on the worker thread. Blocks the
     * caller (the flow's main thread) until the conversation finishes; queued
     * listener events behind this request will be processed afterwards.
     *
-    * If the caller is interrupted while waiting, the `InterruptedException`
-    * propagates — the worker continues processing the conversation to its
-    * natural end (no fine-grained mid-render cancellation today; cancel via
-    * `Conversation.cancel` upstream if you need that).
+    * Backend exceptions raised inside `driveConversation` come back through
+    * `ask` — they surface at the caller and the actor keeps running.
     */
   def drive[B <: BackendTag](conversation: Conversation[B]): LlmResult[B] =
-    val reply = new CompletableFuture[LlmResult[B]]()
-    val _ = mailbox.send(Run { st =>
-      try
-        val _ = reply.complete(st.driveConversation(conversation))
-      catch
-        case t: Throwable =>
-          val _ = reply.completeExceptionally(t)
-    })
-    try reply.get()
-    catch
-      case e: java.util.concurrent.ExecutionException =>
-        throw Option(e.getCause).getOrElse(e)
+    actor.ask(_.driveConversation(conversation))
 
-  /** Signal the worker that no more tasks will arrive. The worker drains the
-    * remaining mailbox in FIFO order and then exits, which lets the enclosing
-    * supervised scope (where the `forkUser` lives) complete. Idempotent —
-    * subsequent calls observe the already-closed channel and return without
-    * touching it.
+  /** Flush pending events and tear down the status bar before the enclosing
+    * scope ends. Asks the actor to run `shutdown` (which clears the status
+    * bar); the mailbox is FIFO so every prior `tell` is processed first, and
+    * any spinner ticks the animator enqueues between this call's return and
+    * scope-end become no-ops (`tick` short-circuits when no label is set).
+    * A throw from a queued `tell` has already propagated to the scope
+    * (closing the actor) — we swallow the close-time failure so it doesn't
+    * mask the original cause.
     */
   override def close(): Unit =
-    val _ = mailbox.doneOrClosed()
+    try actor.ask(_.shutdown())
+    catch case _: Throwable => ()
 
 object TerminalInteraction:
 
-  /** Worker mailbox task: a `TerminalRendererState => Unit` thunk. The
-    * sentinel-for-stop pattern isn't needed; we rely on `Channel.done()` to
-    * close the channel gracefully and let the worker drain on its own.
-    */
-  private[terminal] sealed trait Task
-  private[terminal] final case class Run(f: TerminalRendererState => Unit)
-      extends Task
-
-  /** Build a `TerminalInteraction` and start its worker as a `forkUser` in the
-    * given Ox scope. The scope waits for the worker to finish; the runtime
-    * invokes [[TerminalInteraction.close]] (which closes the mailbox channel)
-    * during `flow(...)`'s `finally` so the worker drains and the scope exits.
+  /** Build a `TerminalInteraction` and start its actor in the given Ox scope.
+    * The actor's worker terminates when the scope ends; the runtime invokes
+    * [[TerminalInteraction.close]] in `flow(...)`'s `finally` to flush
+    * pending events before the scope joins.
     *
     * The `(using Ox)` capability is scoped to this factory so the constructor
     * stays plain — TerminalInteraction values can be passed around without
@@ -113,38 +94,23 @@ object TerminalInteraction:
       out: PrintStream = System.err,
       useColor: Boolean = defaultUseColor,
       animated: Boolean = defaultAnimated,
-      workDir: Option[os.Path] = None
-  )(using Ox): TerminalInteraction =
-    val state = new TerminalRendererState(out, useColor, animated, workDir)
-    val mailbox: Channel[Task] = Channel.bufferedDefault[Task]
-    val _ = forkUser:
-      try
-        var running = true
-        while running do
-          mailbox.receiveOrClosed() match
-            case _: ChannelClosed => running = false
-            case Run(f) =>
-              try f(state)
-              catch
-                // Interrupt = wind down cleanly. Restore the interrupt flag so
-                // anything else on this thread observes it.
-                case _: InterruptedException =>
-                  Thread.currentThread().interrupt()
-                  running = false
-                // Recoverable renderer-side bug — log to stderr (best-effort,
-                // since stderr might be what we just failed to write to) and
-                // keep draining the mailbox so the flow can proceed to a
-                // clean shutdown. Fatal throwables (OOM, StackOverflow)
-                // propagate and let the JVM die loudly.
-                case NonFatal(t) =>
-                  System.err.println(
-                    s"[orca-terminal-renderer] swallowed: $t"
-                  )
-      catch
-        // ChannelClosedException raised by receive() on a done channel is
-        // expected — treated as a clean exit signal.
-        case _: ox.channels.ChannelClosedException => ()
-    new TerminalInteraction(mailbox)
+      workDir: Option[os.Path] = None,
+      framePeriodMs: Long = 100L
+  )(using Ox, BufferCapacity): TerminalInteraction =
+    val statusBar = new StatusBar(out, useColor, animated)
+    val state = new TerminalRendererState(useColor, workDir, statusBar)
+    val actor = Actor.create(state)
+    if animated then
+      // Spinner ticks go through the same mailbox as listener events and
+      // `drive`, so the bar can't redraw mid-write. forkDiscard is
+      // interrupted when the scope ends.
+      forkDiscard:
+        try
+          while !Thread.currentThread().isInterrupted do
+            Thread.sleep(framePeriodMs)
+            actor.tell(_.tickStatusBar())
+        catch case _: InterruptedException => ()
+    new TerminalInteraction(actor)
 
   val StageStartGlyph: String = "▶"
   val StageDoneGlyph: String = "✔"
