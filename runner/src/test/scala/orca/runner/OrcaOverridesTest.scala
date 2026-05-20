@@ -14,17 +14,11 @@ import orca.llm.{
 }
 import orca.events.{CostTracker, OrcaEvent, Usage}
 import _root_.orca.runner.terminal.TerminalInteraction
+import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 
 class OrcaOverridesTest extends munit.FunSuite:
-
-  private def silentInteraction: TerminalInteraction =
-    new TerminalInteraction(
-      new PrintStream(new ByteArrayOutputStream()),
-      useColor = false,
-      animated = false
-    )
 
   test("flow uses a custom FsTool when supplied"):
     val fake = new FsTool:
@@ -32,13 +26,14 @@ class OrcaOverridesTest extends munit.FunSuite:
       def write(path: String, content: String): Unit = ()
       def list(glob: String): List[String] = List("custom")
     var observed: Option[String] = None
-    flow(
-      args = OrcaArgs(),
-      fs = Some(fake),
-      interaction = Some(silentInteraction)
-    ) {
-      observed = fs.read("ignored")
-    }
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(args = OrcaArgs(), fs = Some(fake), interaction = Some(interaction)):
+        observed = fs.read("ignored")
     assertEquals(observed, Some("canned content"))
 
   test("flow uses a custom ClaudeTool when supplied"):
@@ -67,34 +62,40 @@ class OrcaOverridesTest extends munit.FunSuite:
           : LlmCall[BackendTag.ClaudeCode.type, O] =
         ???
     var observed: String = ""
-    flow(
-      args = OrcaArgs(),
-      claude = Some(fakeClaude),
-      interaction = Some(silentInteraction)
-    ) {
-      observed = summon[FlowContext].claude.autonomous.run("hi")
-    }
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(),
+        claude = Some(fakeClaude),
+        interaction = Some(interaction)
+      ):
+        observed = summon[FlowContext].claude.autonomous.run("hi")
     assertEquals(observed, "echo: hi")
 
   test("flow collects extra listeners alongside the interaction's"):
     val buf = new ByteArrayOutputStream()
-    val interaction =
-      new TerminalInteraction(
-        new PrintStream(buf),
+    val tracker = new CostTracker
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(buf),
         useColor = false,
         animated = false
       )
-    val tracker = new CostTracker
-    flow(
-      args = OrcaArgs(),
-      interaction = Some(interaction),
-      extraListeners = List(tracker)
-    ) {
-      summon[FlowContext]
-        .emit(
-          OrcaEvent
-            .TokensUsed("test-agent", Some("test-model"), Usage(10L, 5L, None))
+      flow(
+        args = OrcaArgs(),
+        interaction = Some(interaction),
+        extraListeners = List(tracker)
+      ):
+        summon[FlowContext].emit(
+          OrcaEvent.TokensUsed(
+            "test-agent",
+            Some("test-model"),
+            Usage(10L, 5L, None)
+          )
         )
-    }
     // TerminalInteraction ignores TokensUsed; CostTracker should accumulate.
     assertEquals(tracker.total, Usage(10L, 5L, None))

@@ -54,12 +54,6 @@ def flow(
   // disappear with no diagnostic. Route every uncaught throwable to
   // stderr with its stack so a silent exit always leaves a trail.
   installUncaughtExceptionHandler()
-  // Default to a TerminalInteraction parameterised with the resolved
-  // `workDir` — Scala 3 default-arg evaluation can't see prior params
-  // in the same list, so the substitution happens here instead.
-  val effectiveInteraction = interaction.getOrElse(
-    new TerminalInteraction(workDir = Some(workDir))
-  )
   // Always tally token usage; print the summary on exit (success or failure)
   // so the user sees what was spent before the process terminates. Callers
   // can still pass their own CostTracker via `extraListeners` for other uses
@@ -68,26 +62,34 @@ def flow(
   // `try/finally` so the cost summary always lands — even when a fatal
   // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
   // Tokens may have already been spent; the user deserves to see what.
-  // The nested finally also closes the interaction (drains the terminal
-  // renderer's mailbox + joins its worker thread).
+  // Default TerminalInteraction is built inside `supervised:` because its
+  // worker is a `forkUser` bound to that scope; close() in the body's
+  // `finally` lets the worker drain and exit before the scope joins it.
   try
     try
       supervised:
-        val dispatcher = new EventDispatcher(
-          effectiveInteraction.listeners ++ List(costTracker) ++ extraListeners
+        val effectiveInteraction = interaction.getOrElse(
+          TerminalInteraction.start(workDir = Some(workDir))
         )
-        val ctx = DefaultFlowContext.withDefaults(
-          userPrompt = args.userPrompt,
-          dispatcher = dispatcher,
-          workDir = workDir,
-          interaction = effectiveInteraction,
-          claude = claude,
-          git = git,
-          gh = gh,
-          fs = fs,
-          prompts = prompts
-        )
-        body(using ctx)
+        try
+          val dispatcher = new EventDispatcher(
+            effectiveInteraction.listeners ++ List(
+              costTracker
+            ) ++ extraListeners
+          )
+          val ctx = DefaultFlowContext.withDefaults(
+            userPrompt = args.userPrompt,
+            dispatcher = dispatcher,
+            workDir = workDir,
+            interaction = effectiveInteraction,
+            claude = claude,
+            git = git,
+            gh = gh,
+            fs = fs,
+            prompts = prompts
+          )
+          body(using ctx)
+        finally effectiveInteraction.close()
     catch
       // Stage-level Errors have already been formatted and emitted
       // through the channel; the user saw a friendly message there. We
@@ -97,9 +99,7 @@ def flow(
       case NonFatal(e) =>
         reportUncaught(e, debug)
         System.exit(1)
-  finally
-    try effectiveInteraction.close()
-    finally costTracker.printSummary()
+  finally costTracker.printSummary()
 
 private def installUncaughtExceptionHandler(): Unit =
   // Idempotent across nested or repeated `flow(...)` calls — we only
