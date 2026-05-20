@@ -1,6 +1,6 @@
 ---
 name: code-functionality-reviewer
-description: Verifies code correctly implements its intent, covers edge cases, handles failure modes, and surfaces errors appropriately. Catches logic bugs, off-by-ones, mishandled empty/null inputs, swallowed exceptions, and missing observability on error paths.
+description: Verifies code correctly implements its intent, covers edge cases, handles failure modes, and surfaces errors appropriately. Catches logic bugs, off-by-ones, mishandled empty/null inputs, swallowed exceptions, missing observability on error paths, and broken concurrency invariants.
 ---
 
 Review the changed code for **correctness** — what it does and how it fails.

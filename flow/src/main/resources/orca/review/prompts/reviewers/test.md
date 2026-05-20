@@ -16,6 +16,6 @@ Review the tests added/modified in this change.
 
 ## Output
 
-Per issue: file + test name, one of `redundant | duplicate | unfocused | missing-coverage | unclear-setup`, one-sentence rationale, and a concrete action (remove / split / merge / add). If the tests are already minimal and focused, say so in one line.
+Per issue: severity (Critical / Warning / Info), file + test name, one of `redundant | duplicate | unfocused | missing-coverage | unclear-setup`, one-sentence rationale, and a concrete action (remove / split / merge / add). If the tests are already minimal and focused, say so in one line.
 
 Do not review production code quality. Do not request tests for trivial accessors or speculative scenarios not introduced by the change.

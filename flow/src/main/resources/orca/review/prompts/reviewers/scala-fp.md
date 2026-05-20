@@ -17,6 +17,6 @@ Review the changed Scala code for direct-style functional idioms.
 
 ## Output
 
-One-line summary ("Found 2 critical issues and 1 suggestion"), then issues grouped by severity (Critical / Warning / Suggestion). Per issue: file:line, the problem in one sentence, and a short code snippet showing the fix.
+One-line summary ("Found 2 critical issues and 1 info-level note"), then issues grouped by severity (Critical / Warning / Info). Per issue: file:line, the problem in one sentence, and a short code snippet showing the fix.
 
 Only apply to Scala files in the change. Do not review tests, performance, or correctness unless the issue is fundamentally about FP/immutability.
