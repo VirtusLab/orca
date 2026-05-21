@@ -1,7 +1,7 @@
 package orca.runner.terminal
 
 import orca.OrcaInteractiveCancelled
-import orca.llm.{BackendTag}
+import orca.llm.BackendTag
 import orca.backend.{
   ApprovalDecision,
   Conversation,
@@ -19,24 +19,25 @@ import scala.util.control.NonFatal
   * and each tool call/result gets a compact one-line summary tagged with a
   * glyph.
   *
-  * All event-log writes flow through the shared [[StatusBar]] so the persistent
-  * status row at the bottom doesn't get torn by ad-hoc `print` calls. The
-  * renderer accepts a `StatusBar` directly (rather than constructing one) so it
-  * shares the bar with [[TerminalInteraction]]'s stage listener — a single bar,
-  * one set of cursor escapes.
+  * All event-log writes flow through the shared [[TerminalOutput]] so the
+  * persistent status row at the bottom doesn't get torn by ad-hoc `print`
+  * calls. The renderer accepts the output directly so it shares the surface
+  * with [[TerminalEventListener]] — a single output, one set of cursor escapes.
+  *
+  * The renderer is constructed per conversation and lives on the caller (body)
+  * thread — it's not shared. State (`textBuffer`, `currentSection`,
+  * `pendingProseStyling`) doesn't escape this thread. Output writes are
+  * fire-and-forget tells; the suspend/resume pair around the approval prompt
+  * keeps live event output from scribbling on top of `readLine`.
   *
   * Spacing is controlled by a small section state machine — consecutive tool
   * events don't grow blank lines between them, but a transition from prose to a
   * tool block (or back) gets exactly one separator.
-  *
-  * The renderer is single-use per conversation; the JLine terminal is closed on
-  * the way out. Approval prompts catch `UserInterruptException` and cancel the
-  * conversation instead of killing the JVM.
   */
-private[terminal] class TerminalConversationRenderer(
+private[terminal] class ConversationRenderer(
     useColor: Boolean,
-    statusBar: StatusBar,
-    depth: StageDepth,
+    output: TerminalOutput,
+    currentIndent: () => String,
     workDir: Option[os.Path] = None,
     showThinking: Boolean = false,
     /** When non-empty the conversation is in structured-output mode — the
@@ -47,11 +48,10 @@ private[terminal] class TerminalConversationRenderer(
       * render based on whether an `Announce[O]` summary is available.
       */
     structuredMode: Boolean = false,
-    prompter: TerminalConversationRenderer.Prompter =
-      TerminalConversationRenderer.JLinePrompter
+    prompter: ConversationRenderer.Prompter = ConversationRenderer.JLinePrompter
 ):
 
-  import TerminalConversationRenderer.*
+  import ConversationRenderer.*
 
   /** Section-spacing state. Consecutive `Tool` events stay tight; a `Tool →
     * Prose` (or vice versa) transition inserts a blank line.
@@ -183,9 +183,8 @@ private[terminal] class TerminalConversationRenderer(
     * content stays aligned with the leading glyph.
     */
   private def appendBlock(s: String): Unit =
-    val indented =
-      depth.contentIndent + s.replace("\n", "\n" + depth.contentIndent)
-    statusBar.appendLog(indented)
+    val indent = currentIndent()
+    output.log(indent + s.replace("\n", "\n" + indent))
 
   // --- Prompts ---
 
@@ -201,14 +200,18 @@ private[terminal] class TerminalConversationRenderer(
     appendBlock(
       paint(ApprovalStyle, s"$ApprovalGlyph $toolName requested: $summary")
     )
-    // Clear the status bar before the readline so the question and
-    // answer aren't visually competing with the spinner.
-    statusBar.stopStatus()
-    prompter.ask(
-      depth.contentIndent + paint(ApprovalStyle, "  [y]es / [n]o ? ")
-    ) match
-      case PromptOutcome.Answer(reply) => respond(decisionFor(reply))
-      case PromptOutcome.Interrupted   => conversation.cancel()
+    // Suspend the status (clears the spinner row, buffers concurrent log
+    // tells from other listeners) so the readline lands cleanly and live
+    // events can't scribble on top of the prompt. Drain happens on resume,
+    // in finally so the buffer empties even if `respond` throws.
+    output.suspend()
+    try
+      prompter.ask(
+        currentIndent() + paint(ApprovalStyle, "  [y]es / [n]o ? ")
+      ) match
+        case PromptOutcome.Answer(reply) => respond(decisionFor(reply))
+        case PromptOutcome.Interrupted   => conversation.cancel()
+    finally output.resume()
 
   private def decisionFor(reply: String): ApprovalDecision =
     val normalised = reply.trim.toLowerCase
@@ -233,7 +236,7 @@ private[terminal] class TerminalConversationRenderer(
   private def paint(attr: fansi.Attrs, text: String): String =
     Ansi.paint(useColor, attr, text)
 
-private[terminal] object TerminalConversationRenderer:
+private[terminal] object ConversationRenderer:
   val MaxInlineInputLength: Int = 120
   // Tool results are large file reads or command output; show just
   // enough for "something happened" without wrapping past one line.

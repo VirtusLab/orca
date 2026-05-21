@@ -13,23 +13,26 @@ import orca.backend.{
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.AtomicReference
 
-class TerminalConversationRendererTest extends munit.FunSuite:
+class ConversationRendererTest extends munit.FunSuite:
 
-  import TerminalConversationRenderer.{PromptOutcome, Prompter}
+  import ConversationRenderer.{PromptOutcome, Prompter}
 
   private def renderer(
       out: ByteArrayOutputStream,
       showThinking: Boolean = false,
       structuredMode: Boolean = false,
       prompter: Prompter = ScriptedPrompter(Nil)
-  ): TerminalConversationRenderer =
+  ): ConversationRenderer =
     val ps = new PrintStream(out)
-    new TerminalConversationRenderer(
+    // `animated = false` makes the output write inline — no ANSI escapes
+    // leak into the captured buffer.
+    val terminalOutput =
+      new TerminalOutputState(ps, useColor = false, animated = false)
+    val depth = new StageDepth
+    new ConversationRenderer(
       useColor = false,
-      // `animated = false` makes the bar plain inline writes — no
-      // ANSI escapes leak into the captured buffer.
-      statusBar = new StatusBar(ps, useColor = false, animated = false),
-      depth = new StageDepth,
+      output = terminalOutput,
+      currentIndent = () => depth.contentIndent,
       showThinking = showThinking,
       structuredMode = structuredMode,
       prompter = prompter
@@ -202,7 +205,7 @@ class TerminalConversationRendererTest extends munit.FunSuite:
 
   test("summarise truncates long inputs with an ellipsis"):
     val buf = new ByteArrayOutputStream()
-    val long = "x" * (TerminalConversationRenderer.MaxInlineInputLength + 50)
+    val long = "x" * (ConversationRenderer.MaxInlineInputLength + 50)
     val conv = new ScriptedConversation(
       List(ConversationEvent.AssistantToolCall("Bash", long)),
       Right(sampleResult)

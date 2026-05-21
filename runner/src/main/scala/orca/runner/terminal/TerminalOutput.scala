@@ -7,63 +7,57 @@ import java.io.PrintStream
 import scala.collection.immutable.Queue
 import scala.concurrent.duration.DurationLong
 
-/** The terminal rendering surface. Owns `out` and serialises every write
-  * through an internal Ox actor; a spinner-animator `forkDiscard` `tell`s the
-  * same actor periodically. The actor's worker is the only thread that touches
-  * `out`, so log lines, status redraws, and tick frames can never interleave
-  * mid-write.
+/** The terminal rendering surface. A small set of operations for appending to
+  * the event log and advancing the persistent status row at the bottom of the
+  * terminal.
   *
-  * The animator runs on a separate fork from any caller, so the spinner
-  * continues to advance even while `drive` is parked in a backend conversation
-  * iterator on a different thread.
+  * Production builds ([[TerminalOutput.start]]) serialise every method on an
+  * internal Ox actor: a single worker thread owns `out`, log lines and spinner
+  * ticks can't interleave mid-write, and a `forkDiscard` animator inside the
+  * factory `tell`s the actor every `framePeriodMs` so the spinner keeps
+  * advancing while callers do other work.
   *
-  * Animated vs plain: when `animated = false`, the actor still serialises
-  * writes but `setStatus`/`tick` become no-ops, the animator fork isn't
-  * spawned, and `log` writes inline without ANSI escapes.
+  * Tests can instantiate [[TerminalOutputState]] directly — it implements the
+  * same interface synchronously without an actor or animator fork.
   *
-  * **Suspend protocol.** `suspendStatus()` clears the status row and starts
-  * buffering subsequent `log` tells; `resumeStatus()` drains the buffer and
-  * unpauses the animator. Used by the approval prompt so live event output
-  * doesn't scribble on top of `readLine`.
+  * **Suspend protocol.** `suspend()` clears the status row and starts buffering
+  * subsequent `log` calls; `resume()` drains the buffer and unpauses the
+  * animator. Used by the approval prompt so live event output doesn't scribble
+  * on top of `readLine`.
   */
-class TerminalOutput private[terminal] (
-    actor: ActorRef[TerminalOutputState]
-):
-
+trait TerminalOutput:
   /** Append a (possibly multi-line) chunk to the event log. Trailing newline is
     * normalised. Empty input emits a single newline separator.
     */
-  def log(text: String): Unit = actor.tell(_.log(text))
+  def log(text: String): Unit
 
   /** Show / relabel / hide the status row. `None` hides it. */
-  def setStatus(label: Option[String]): Unit =
-    actor.tell(_.setStatus(label))
+  def setStatus(label: Option[String]): Unit
 
   /** Block until pending writes have drained, clear the status row, and route
-    * subsequent `log` tells into a buffer. The animator stops drawing until
-    * [[resumeStatus]] is called. Use around a `readLine` prompt.
+    * subsequent `log` calls into a buffer. The animator stops drawing until
+    * [[resume]] is called. Use around a `readLine` prompt.
     */
-  def suspendStatus(): Unit = actor.ask(_.suspend())
+  def suspend(): Unit
 
-  /** Drain the buffer (writes the suspended log lines to `out`) and re-enable
-    * the animator. Pair with [[suspendStatus]] in `try/finally`.
+  /** Drain the buffered log lines to `out` and re-enable the animator. Pair
+    * with [[suspend]] in `try/finally`.
     */
-  def resumeStatus(): Unit = actor.ask(_.resume())
+  def resume(): Unit
 
-  /** Flush pending tells, clear the status row, and release the renderer.
-    * Swallow close-time throws so they don't mask whatever already failed
-    * upstream. The animator fork is interrupted by scope teardown.
+  /** Flush pending writes, clear the status row, and release the renderer.
+    * Tells arriving after close (listener events between this call's return and
+    * scope-end) are still processed against the now-cleared state — `log`
+    * writes inline without a status row, `tick` is a no-op.
     */
-  def close(): Unit =
-    try actor.ask(_.shutdown())
-    catch case _: Throwable => ()
+  def close(): Unit
 
 object TerminalOutput:
 
-  /** Build a `TerminalOutput` and start its actor + animator in the given
-    * scope. The animator is `forkDiscard`: scope-end interrupts it. The IE from
-    * `ox.sleep` propagates out of `forever` and is absorbed by the supervisor
-    * (scope is already winding down).
+  /** Build a production `TerminalOutput` whose state is owned by an Ox actor +
+    * animator fork in the given scope. The animator is `forkDiscard`: scope-end
+    * interrupts it. The IE from `ox.sleep` propagates out of `forever` and is
+    * absorbed by the supervisor (scope is already winding down).
     */
   def start(
       out: PrintStream,
@@ -78,17 +72,33 @@ object TerminalOutput:
         forever:
           sleep(framePeriodMs.millis)
           actor.tell(_.tick())
-    new TerminalOutput(actor)
+    new ActorTerminalOutput(actor)
 
-/** Mutable rendering state for [[TerminalOutput]]. Not thread-safe in isolation
-  * — production code wraps it in an Ox actor; tests construct it directly to
-  * drive rendering synchronously.
+/** Actor-backed [[TerminalOutput]]. `log`/`setStatus` are tells
+  * (fire-and-forget); `suspend`/`resume`/`close` are asks where the caller
+  * needs the operation to have completed before returning. Close-time throws
+  * are swallowed so they don't mask whatever already failed upstream.
+  */
+private class ActorTerminalOutput(actor: ActorRef[TerminalOutputState])
+    extends TerminalOutput:
+  def log(text: String): Unit = actor.tell(_.log(text))
+  def setStatus(label: Option[String]): Unit =
+    actor.tell(_.setStatus(label))
+  def suspend(): Unit = actor.ask(_.suspend())
+  def resume(): Unit = actor.ask(_.resume())
+  def close(): Unit =
+    try actor.ask(_.close())
+    catch case _: Throwable => ()
+
+/** Mutable rendering state. Not thread-safe in isolation; production wraps it
+  * via [[ActorTerminalOutput]]. Tests construct this directly and drive
+  * rendering synchronously.
   */
 private[terminal] class TerminalOutputState(
     out: PrintStream,
     useColor: Boolean,
     animated: Boolean
-):
+) extends TerminalOutput:
 
   import TerminalOutputState.{
     ClearLine,
@@ -125,6 +135,9 @@ private[terminal] class TerminalOutputState(
           drawStatus()
           out.flush()
 
+  /** Advance the spinner frame. Called by the animator fork; no-op when the bar
+    * is hidden or suspended so idle periods don't touch the terminal.
+    */
   def tick(): Unit =
     if animated && !suspended && currentLabel.isDefined then
       frameIndex = (frameIndex + 1) % Frames.size
@@ -151,7 +164,7 @@ private[terminal] class TerminalOutputState(
         drawStatus()
         out.flush()
 
-  def shutdown(): Unit =
+  def close(): Unit =
     // Drain any buffered log lines so they don't get dropped on shutdown.
     if suspendedBuffer.nonEmpty then
       val toDrain = suspendedBuffer

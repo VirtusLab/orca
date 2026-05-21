@@ -2,7 +2,7 @@ package orca.runner.terminal
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 
-class StatusBarTest extends munit.FunSuite:
+class TerminalOutputStateTest extends munit.FunSuite:
 
   /** ANSI clear-to-EOL is ESC `[2K`; we match on the bytes-after-ESC here
     * because escape characters round-trip through tooling unreliably (Edit-tool
@@ -12,34 +12,34 @@ class StatusBarTest extends munit.FunSuite:
   private val Esc: Char = ''
 
   private def withBar(animated: Boolean = true)(
-      body: (StatusBar, ByteArrayOutputStream) => Unit
+      body: (TerminalOutputState, ByteArrayOutputStream) => Unit
   ): Unit =
     val buf = new ByteArrayOutputStream()
     val ps = new PrintStream(buf)
-    val bar = new StatusBar(ps, useColor = false, animated = animated)
+    val bar = new TerminalOutputState(ps, useColor = false, animated = animated)
     body(bar, buf)
-    bar.stopStatus()
+    bar.setStatus(None)
 
   test("appendLog adds a trailing newline when missing"):
     withBar(animated = false): (bar, buf) =>
-      bar.appendLog("hello")
+      bar.log("hello")
       assertEquals(buf.toString, "hello\n")
 
   test("appendLog preserves a trailing newline already present"):
     withBar(animated = false): (bar, buf) =>
-      bar.appendLog("hello\n")
+      bar.log("hello\n")
       assertEquals(buf.toString, "hello\n")
 
   test("appendLog with empty input emits a single newline (used as separator)"):
     withBar(animated = false): (bar, buf) =>
-      bar.appendLog("")
+      bar.log("")
       assertEquals(buf.toString, "\n")
 
   test("non-animated mode emits no ANSI escapes"):
     withBar(animated = false): (bar, buf) =>
-      bar.startStatus("running")
-      bar.appendLog("event 1")
-      bar.appendLog("event 2")
+      bar.setStatus(Some("running"))
+      bar.log("event 1")
+      bar.log("event 2")
       val out = buf.toString
       assert(
         !out.contains(Esc),
@@ -48,8 +48,8 @@ class StatusBarTest extends munit.FunSuite:
 
   test("animated appendLog after startStatus issues clear-to-EOL"):
     withBar(animated = true): (bar, buf) =>
-      bar.startStatus("running")
-      bar.appendLog("event 1")
+      bar.setStatus(Some("running"))
+      bar.log("event 1")
       val out = buf.toString
       val escIndices = out.indices.filter(i => out.charAt(i) == Esc).toList
       assert(
@@ -67,8 +67,8 @@ class StatusBarTest extends munit.FunSuite:
 
   test("startStatus + appendLog redraws the status label after the log line"):
     withBar(animated = true): (bar, buf) =>
-      bar.startStatus("running")
-      bar.appendLog("event 1")
+      bar.setStatus(Some("running"))
+      bar.log("event 1")
       val out = buf.toString
       // The label should appear twice — once on initial draw, once on
       // re-draw after the log line landed above it.
@@ -81,10 +81,10 @@ class StatusBarTest extends munit.FunSuite:
   test("long status labels are truncated to one line"):
     val buf = new ByteArrayOutputStream()
     val ps = new PrintStream(buf)
-    val bar = new StatusBar(ps, useColor = false, animated = true)
+    val bar = new TerminalOutputState(ps, useColor = false, animated = true)
     val veryLong = "x" * 500
-    bar.startStatus(veryLong)
-    bar.stopStatus()
+    bar.setStatus(Some(veryLong))
+    bar.setStatus(None)
     val out = buf.toString
     // Find the spinner-prefixed payload between the first ESC[2K and
     // the next ESC. The inner segment must be shorter than the input
@@ -105,9 +105,9 @@ class StatusBarTest extends munit.FunSuite:
   test("stopStatus erases the status row in animated mode"):
     val buf = new ByteArrayOutputStream()
     val ps = new PrintStream(buf)
-    val bar = new StatusBar(ps, useColor = false, animated = true)
-    bar.startStatus("running")
-    bar.stopStatus()
+    val bar = new TerminalOutputState(ps, useColor = false, animated = true)
+    bar.setStatus(Some("running"))
+    bar.setStatus(None)
     val bytes = buf.toByteArray.toList
     val tail = bytes.takeRight(4)
     val expected = List(0x1b, '['.toByte, '2'.toByte, 'K'.toByte).map(_.toByte)

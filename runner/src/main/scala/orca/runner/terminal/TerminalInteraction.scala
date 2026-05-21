@@ -1,10 +1,11 @@
 package orca.runner.terminal
 
 import orca.backend.{Conversation, Interaction, LlmResult}
-import orca.events.{OrcaEvent, OrcaListener}
+import orca.events.OrcaListener
 import orca.llm.BackendTag
 import ox.Ox
-import ox.channels.{Actor, ActorRef, BufferCapacity}
+import ox.channels.BufferCapacity
+import ox.either.orThrow
 
 import java.io.PrintStream
 
@@ -18,63 +19,53 @@ import java.io.PrintStream
   *   - A **status line** pinned at the bottom, showing the current activity
   *     with an animated spinner glyph.
   *
-  * Both are owned by [[StatusBar]]: each event-log write transparently scrolls
-  * the status row down by one. When the renderer doesn't own a TTY (CI,
-  * redirected stderr, `NO_COLOR`/`ORCA_NO_ANIMATION`), the `StatusBar` degrades
-  * to plain inline output without ANSI escapes.
+  * Both zones are owned by [[TerminalOutput]], which serialises every write on
+  * a single worker thread. When stderr isn't a TTY (CI, redirected output,
+  * `NO_COLOR`/`ORCA_NO_ANIMATION`), the output degrades to plain inline writes
+  * without ANSI escapes.
   *
   * Unicode glyphs require a UTF-8 locale; on platforms with a non-UTF-8 default
   * charset the caller should pass a PrintStream constructed with `new
   * PrintStream(out, true, "UTF-8")`.
   *
-  * Every access to the underlying [[TerminalRendererState]] is serialised on a
-  * single worker thread. Listener events are fire-and-forget; `drive` blocks
-  * the caller until the conversation finishes. Errors from `drive` come back to
-  * the caller; any other rendering error fails the flow.
+  * `drive` runs on the caller's thread (no actor ask). It iterates the
+  * conversation's event stream and tells the output. The spinner runs on a
+  * separate fork inside `TerminalOutput`, so it keeps advancing while drive
+  * blocks on the backend.
   *
-  * [[close]] is called from `flow(...)`'s `finally` to drain the mailbox and
-  * tear down the status bar before the enclosing scope ends.
+  * [[close]] is called from `flow(...)`'s `finally` to flush pending writes and
+  * clear the status row before the enclosing scope ends.
   */
 class TerminalInteraction private[terminal] (
-    actor: ActorRef[TerminalRendererState]
+    output: TerminalOutput,
+    listener: TerminalEventListener,
+    useColor: Boolean,
+    workDir: Option[os.Path]
 ) extends Interaction:
 
-  val listeners: List[OrcaListener] = List: (e: OrcaEvent) =>
-    actor.tell(_.onEvent(e))
+  val listeners: List[OrcaListener] = List(listener)
 
-  /** Drive a live conversation to completion on the worker thread. Blocks the
-    * caller (the flow's main thread) until the conversation finishes; queued
-    * listener events behind this request will be processed afterwards.
-    *
-    * Backend exceptions raised inside `driveConversation` come back through
-    * `ask` — they surface at the caller and the actor keeps running.
+  /** Drive a live conversation to completion on the caller's thread. Returns
+    * when the conversation finishes. Backend errors surface as
+    * `OrcaInteractiveCancelled` or other throwables from `awaitResult`.
     */
   def drive[B <: BackendTag](conversation: Conversation[B]): LlmResult[B] =
-    actor.ask(_.driveConversation(conversation))
+    new ConversationRenderer(
+      useColor = useColor,
+      output = output,
+      currentIndent = () => listener.currentIndent,
+      workDir = workDir,
+      structuredMode = conversation.outputSchema.isDefined
+    ).render(conversation).orThrow
 
-  /** Flush pending events and tear down the status bar before the enclosing
-    * scope ends. Asks the actor to run `shutdown` (which clears the status
-    * bar); the mailbox is FIFO so every prior `tell` is processed first, and
-    * any spinner ticks the animator enqueues between this call's return and
-    * scope-end become no-ops (`tick` short-circuits when no label is set). A
-    * throw from a queued `tell` has already propagated to the scope (closing
-    * the actor) — we swallow the close-time failure so it doesn't mask the
-    * original cause.
-    */
-  override def close(): Unit =
-    try actor.ask(_.shutdown())
-    catch case _: Throwable => ()
+  override def close(): Unit = output.close()
 
 object TerminalInteraction:
 
-  /** Build a `TerminalInteraction` and start its actor in the given Ox scope.
-    * The actor's worker terminates when the scope ends; the runtime invokes
-    * [[TerminalInteraction.close]] in `flow(...)`'s `finally` to flush pending
-    * events before the scope joins.
-    *
-    * The `(using Ox)` capability is scoped to this factory so the constructor
-    * stays plain — TerminalInteraction values can be passed around without
-    * dragging the Ox capability with them.
+  /** Build a `TerminalInteraction` in the given Ox scope. Inside, the
+    * [[TerminalOutput]]'s actor and animator fork are tied to the scope and
+    * terminate when it ends. `flow(...)` calls [[close]] in its `finally`
+    * before the scope joins, draining pending writes.
     */
   def start(
       out: PrintStream = System.err,
@@ -82,23 +73,9 @@ object TerminalInteraction:
       animated: Boolean = defaultAnimated,
       workDir: Option[os.Path] = None
   )(using Ox, BufferCapacity): TerminalInteraction =
-    // StatusBar owns its own animator fork so the spinner continues while
-    // `drive` parks the actor inside a blocking conversation iterator. The
-    // bar internally serialises its mutable state across the actor worker
-    // and the animator with a short mutex.
-    val statusBar = StatusBar.start(out, useColor, animated)
-    val state = new TerminalRendererState(useColor, workDir, statusBar)
-    new TerminalInteraction(Actor.create(state))
-
-  val StageStartGlyph: String = "▶"
-  val StageDoneGlyph: String = "✔"
-  val ErrorGlyph: String = "✖"
-
-  /** Stages, steps, and structured-result summaries share the same magenta-bold
-    * glyph — the dominant accent for "primary content" in the event log. Pulled
-    * into a constant so the three render paths can't drift.
-    */
-  val StepGlyphStyle: fansi.Attrs = fansi.Color.Magenta ++ fansi.Bold.On
+    val output = TerminalOutput.start(out, useColor, animated)
+    val listener = new TerminalEventListener(output, useColor)
+    new TerminalInteraction(output, listener, useColor, workDir)
 
   /** ANSI colors default off when stderr isn't attached to a terminal (no
     * controlling console), the `NO_COLOR` convention is honoured, or we detect

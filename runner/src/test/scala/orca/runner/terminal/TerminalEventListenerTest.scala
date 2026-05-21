@@ -3,12 +3,12 @@ package orca.runner.terminal
 import orca.events.{OrcaEvent, Usage}
 import java.io.{ByteArrayOutputStream, PrintStream}
 
-/** These tests exercise the renderer's synchronous state-mutation behaviour,
-  * not the worker-thread plumbing. They go directly through
-  * `TerminalRendererState`, bypassing `TerminalInteraction`'s mailbox so the
-  * test reads output immediately rather than racing the worker thread.
+/** These tests exercise the listener's synchronous state-mutation behaviour by
+  * driving it directly with a synchronous `TerminalOutputState` — bypassing the
+  * actor so the test reads output immediately rather than racing a worker
+  * thread.
   */
-class TerminalInteractionTest extends munit.FunSuite:
+class TerminalEventListenerTest extends munit.FunSuite:
 
   private def renderEvents(events: List[OrcaEvent]): String =
     renderWith(animated = false, events)
@@ -19,13 +19,10 @@ class TerminalInteractionTest extends munit.FunSuite:
   ): String =
     val buf = new ByteArrayOutputStream()
     val ps = new PrintStream(buf)
-    val statusBar = new StatusBar(ps, useColor = false, animated = animated)
-    val state = new TerminalRendererState(
-      useColor = false,
-      workDir = None,
-      statusBar = statusBar
-    )
-    events.foreach(state.onEvent)
+    val output =
+      new TerminalOutputState(ps, useColor = false, animated = animated)
+    val listener = new TerminalEventListener(output, useColor = false)
+    events.foreach(listener.onEvent)
     buf.toString
 
   test("StageStarted prints a ▶ line; StageCompleted is silent in the log"):
@@ -36,9 +33,9 @@ class TerminalInteractionTest extends munit.FunSuite:
       )
     )
     assert(output.contains("plan"))
-    assert(output.contains(TerminalInteraction.StageStartGlyph))
+    assert(output.contains(TerminalEventListener.StageStartGlyph))
     assert(
-      !output.contains(TerminalInteraction.StageDoneGlyph),
+      !output.contains(TerminalEventListener.StageDoneGlyph),
       s"StageCompleted must not render to the event log; got: $output"
     )
 
@@ -79,17 +76,17 @@ class TerminalInteractionTest extends munit.FunSuite:
     )
     assert(output.contains("Switched to a new branch 'foo'"))
     assert(
-      output.contains(s"${TerminalInteraction.StageStartGlyph} Switched"),
+      output.contains(s"${TerminalEventListener.StageStartGlyph} Switched"),
       s"Step should render with the ▶ glyph; got: $output"
     )
     assert(
-      !output.contains(s"${TerminalInteraction.StageDoneGlyph} Switched"),
+      !output.contains(s"${TerminalEventListener.StageDoneGlyph} Switched"),
       s"Step events must never produce a closing ✔ line; got: $output"
     )
 
   test("errors are prefixed with an error marker"):
     val output = renderEvents(List(OrcaEvent.Error("boom")))
-    assert(output.contains(TerminalInteraction.ErrorGlyph))
+    assert(output.contains(TerminalEventListener.ErrorGlyph))
     assert(output.contains("boom"))
 
   test("TokensUsed events are ignored (owned by CostTracker)"):
@@ -136,12 +133,12 @@ class TerminalInteractionTest extends munit.FunSuite:
     val lines = output.split('\n').toList
     val outerStartLine = lines
       .find(l =>
-        l.contains("outer") && l.contains(TerminalInteraction.StageStartGlyph)
+        l.contains("outer") && l.contains(TerminalEventListener.StageStartGlyph)
       )
       .getOrElse(fail("outer start line missing"))
     val innerStartLine = lines
       .find(l =>
-        l.contains("inner") && l.contains(TerminalInteraction.StageStartGlyph)
+        l.contains("inner") && l.contains(TerminalEventListener.StageStartGlyph)
       )
       .getOrElse(fail("inner start line missing"))
     val errorLine = lines
@@ -160,6 +157,6 @@ class TerminalInteractionTest extends munit.FunSuite:
       s"inner content indented by 4 (2 levels × 2 spaces): '$errorLine'"
     )
     assert(
-      !output.contains(TerminalInteraction.StageDoneGlyph),
+      !output.contains(TerminalEventListener.StageDoneGlyph),
       s"no ✔ should appear in the event log; got: $output"
     )
