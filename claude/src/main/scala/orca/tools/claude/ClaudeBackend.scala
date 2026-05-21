@@ -5,7 +5,10 @@ import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.{OrcaFlowException}
 import orca.backend.{Conversation, LlmBackend, LlmResult}
 import orca.subprocess.CliRunner
+import orca.tools.claude.mcp.{AskUserBridge, AskUserMcpServer}
 import orca.tools.claude.streamjson.OutboundMessage
+import ox.Ox
+import ox.channels.BufferCapacity
 
 /** Claude Code backend. Headless calls go through `claude -p --output-format
   * json` — single-shot, parses the JSON result. Interactive calls drive a
@@ -13,8 +16,14 @@ import orca.tools.claude.streamjson.OutboundMessage
   * injected as the first user turn on stdin, the subprocess emits typed NDJSON
   * responses, the driver translates them into `ConversationEvent`s the channel
   * renders.
+  *
+  * Interactive calls also stand up an MCP host bridge: a tiny HTTP server (via
+  * [[AskUserMcpServer]]) exposes an `ask_user` tool the agent can call to
+  * surface a free-form clarifying question. The Ox capability captured at
+  * construction owns the server's fork and Netty binding; both are released
+  * when the enclosing scope ends.
   */
-class ClaudeBackend(cli: CliRunner)
+class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
     extends LlmBackend[BackendTag.ClaudeCode.type]:
 
   def runHeadless(
@@ -68,18 +77,15 @@ class ClaudeBackend(cli: CliRunner)
   /** Spawn `claude` in stream-json mode, write the opening user turn, close
     * stdin, and wrap the process in a live [[ClaudeConversation]].
     *
-    * claude's `--print --input-format stream-json` mode batches all stdin user
-    * turns until EOF, then processes and emits the assistant response(s).
-    * Keeping stdin open after the initial turn makes claude sit waiting for
-    * more user input forever. For Orca's current single-structured-result
-    * contract, that's never what we want — close stdin immediately so claude
-    * starts producing output.
-    *
-    * Consequence: `conversation.sendUserMessage(...)` is a no-op on this
-    * backend (write-to-closed-pipe). Multi-turn interactive — where the user
-    * answers clarifying questions mid-session — needs a different spawn path
-    * (stdin left open, renderer that prompts on `AskUserQuestion` tool calls).
-    * Future work.
+    * The initial user turn is the only one we feed through stdin; once it's
+    * written we close the pipe so `claude --print --input-format stream-json`
+    * stops waiting for EOF and starts producing output. Mid-session user input
+    * (clarifying questions) flows through the MCP host bridge instead: we stand
+    * up an [[AskUserMcpServer]] on an ephemeral port, write a project-scoped
+    * `.mcp.json` pointing at it, and tell claude about it via `--mcp-config`.
+    * When the agent calls the `ask_user` tool the bridge wakes up, the
+    * conversation emits a `UserQuestion` event, the renderer prompts, and the
+    * typed answer becomes the tool result.
     *
     * If the initial write fails (claude exec'd then died, broken pipe, etc.) we
     * SIGINT the process before surfacing the error so no subprocess leaks.
@@ -92,9 +98,20 @@ class ClaudeBackend(cli: CliRunner)
       resume: Option[SessionId[BackendTag.ClaudeCode.type]],
       outputSchema: Option[String]
   ): Conversation[BackendTag.ClaudeCode.type] =
-    val systemPromptFile = writeSystemPromptIfPresent(config, workDir)
-    val args =
-      ClaudeArgs.streamJson(config, systemPromptFile, resume, outputSchema)
+    val bridge = new AskUserBridge
+    val mcpServer = AskUserMcpServer.start(bridge)
+    val mcpConfigFile = writeMcpConfig(mcpServer.url, workDir)
+    val systemPromptFile =
+      writeSystemPromptIfPresent(config, workDir, includeAskUserHint = true)
+    val effectiveConfig =
+      config.withAlsoAllowedTool(ClaudeBackend.AskUserToolName)
+    val args = ClaudeArgs.streamJson(
+      effectiveConfig,
+      systemPromptFile,
+      resume,
+      outputSchema,
+      mcpConfig = Some(mcpConfigFile)
+    )
     val process = cli.spawnPiped(args, cwd = workDir)
     try
       process.writeLine(
@@ -105,7 +122,8 @@ class ClaudeBackend(cli: CliRunner)
         process,
         config,
         initialPrompt = displayPrompt,
-        outputSchema = outputSchema
+        outputSchema = outputSchema,
+        askUserBridge = Some(bridge)
       )
     catch
       case e: Exception =>
@@ -113,6 +131,19 @@ class ClaudeBackend(cli: CliRunner)
         throw OrcaFlowException(
           s"Failed to open claude stream-json session: ${e.getMessage}"
         )
+
+  /** Write a project-scoped `.mcp.json` advertising the host's MCP server.
+    * Claude Code reads this on startup when `--mcp-config` points at it. Uses
+    * our `AskUserMcpServer.serverName` as the entry key so the agent sees the
+    * tool as `mcp__orca__ask_user`.
+    */
+  private def writeMcpConfig(url: String, workDir: os.Path): os.Path =
+    val path = workDir / ".orca-mcp.json"
+    os.write.over(
+      path,
+      s"""{"mcpServers":{"${ClaudeBackend.McpServerName}":{"type":"http","url":"$url"}}}"""
+    )
+    path
 
   private def invokeHeadless(
       prompt: String,
@@ -138,11 +169,50 @@ class ClaudeBackend(cli: CliRunner)
       throw OrcaFlowException(s"claude reported an error: ${response.result}")
     response.toLlmResult
 
+  /** Build the per-session system-prompt file. Optionally includes a short note
+    * about the `ask_user` MCP tool — only the interactive path passes
+    * `includeAskUserHint = true`, so headless calls don't waste tokens on a
+    * tool they have no MCP server for.
+    */
   private def writeSystemPromptIfPresent(
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      includeAskUserHint: Boolean = false
   ): Option[os.Path] =
-    config.systemPrompt.map: body =>
+    val body = (config.systemPrompt, includeAskUserHint) match
+      case (Some(s), true)  => Some(s + "\n\n" + ClaudeBackend.AskUserHint)
+      case (None, true)     => Some(ClaudeBackend.AskUserHint)
+      case (Some(s), false) => Some(s)
+      case (None, false)    => None
+    body.map: text =>
       val file = workDir / ".claude" / "orca-system-prompt.md"
-      os.write.over(file, body, createFolders = true)
+      os.write.over(file, text, createFolders = true)
       file
+
+object ClaudeBackend:
+
+  /** MCP server name as it appears in `.mcp.json`. Combined with the tool name,
+    * the agent sees `mcp__orca__ask_user`.
+    */
+  private[claude] val McpServerName: String = "orca"
+
+  /** Fully-qualified tool name the agent uses, derived from the MCP server name
+    * + tool name. Always auto-approved on the interactive path — the user is
+    * already typing an answer, no need for a y/n prompt first.
+    */
+  private[claude] val AskUserToolName: String =
+    s"mcp__${McpServerName}__ask_user"
+
+  /** Short hint appended to the system prompt on the interactive path, telling
+    * the agent it has an `ask_user` tool for clarifying questions. Worded
+    * conservatively — agents over-use tools they're told about.
+    */
+  private[claude] val AskUserHint: String =
+    """When you genuinely need a piece of information from the user to
+      |proceed (and only then — don't ask for permission to do work, don't
+      |ask trivial confirmation questions), call the `ask_user` tool with a
+      |single short question. The tool blocks until the user types an
+      |answer; the answer comes back as the tool result, which you should
+      |use to continue your work. Prefer making reasonable assumptions over
+      |asking — only reach for `ask_user` when an assumption could send you
+      |meaningfully wrong.""".stripMargin

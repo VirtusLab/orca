@@ -48,7 +48,7 @@ private[orca] object DefaultFlowContext:
       gh: Option[GitHubTool] = None,
       fs: Option[FsTool] = None,
       prompts: Prompts = DefaultPrompts
-  ): DefaultFlowContext =
+  )(using ox.Ox, ox.channels.BufferCapacity): DefaultFlowContext =
     new DefaultFlowContext(
       userPrompt = userPrompt,
       dispatcher = dispatcher,

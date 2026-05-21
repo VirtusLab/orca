@@ -30,7 +30,8 @@ private[claude] class ClaudeConversation(
     process: PipedCliProcess,
     config: LlmConfig,
     initialPrompt: String = "",
-    val outputSchema: Option[String] = None
+    val outputSchema: Option[String] = None,
+    askUserBridge: Option[orca.tools.claude.mcp.AskUserBridge] = None
 ) extends StreamConversation[BackendTag.ClaudeCode.type](
       process = process,
       backendName = "claude",
@@ -58,12 +59,45 @@ private[claude] class ClaudeConversation(
   def sendUserMessage(text: String): Unit =
     writeOutbound(OutboundMessage.UserText(text))
 
-  // Claude's stream-json subprocess keeps stdin open for the full session,
-  // so it can accept mid-conversation user turns. The `ask_user` MCP tool
-  // (wired in I3) is what surfaces UserQuestion events; once that lands,
-  // flipping this to `true` enables it. Today it's `false` because
-  // ClaudeBackend.openConversation closes stdin right after the prompt.
-  def canAskUser: Boolean = false
+  // canAskUser tracks whether the MCP host-bridge is wired — true when the
+  // backend spun up an AskUserMcpServer for this session, false for headless
+  // calls or backends that don't expose ask_user. Mid-session user input
+  // doesn't flow through `sendUserMessage` (stdin is closed right after the
+  // initial prompt); it flows through the MCP tool result instead.
+  def canAskUser: Boolean = askUserBridge.isDefined
+
+  // Drainer for the MCP bridge: when an ask_user tool invocation lands on
+  // the MCP handler thread, the handler enqueues a (question, reply) pair
+  // on the bridge; this thread reads them and surfaces them as
+  // ConversationEvent.UserQuestion. The renderer prompts the user and calls
+  // `respond` with the typed answer, which signals the bridge's reply
+  // channel, unblocking the MCP handler so it can return the answer as the
+  // tool result.
+  //
+  // Daemon thread mirrors the existing reader/stderr threads — the
+  // conversation lifecycle is managed via process tear-down, not Ox forks.
+  // Interrupted on cancel() via the process exit propagating up.
+  askUserBridge.foreach: bridge =>
+    val t = new Thread(
+      () => askUserDrainLoop(bridge),
+      "claude-conversation-ask-user"
+    )
+    t.setDaemon(true)
+    t.start()
+
+  private def askUserDrainLoop(
+      bridge: orca.tools.claude.mcp.AskUserBridge
+  ): Unit =
+    try
+      while !Thread.currentThread().isInterrupted do
+        val (question, respond) = bridge.take()
+        eventQueue.enqueue(
+          ConversationEvent.UserQuestion(question, respond)
+        )
+    catch
+      // Bridge channel closure (scope tear-down) propagates as a
+      // ChannelClosedException-flavoured throw from take(). Exit quietly.
+      case _: Throwable => ()
 
   // --- Reader hook ---
 
@@ -116,6 +150,12 @@ private[claude] class ClaudeConversation(
   private def handleAssistantTurn(content: List[ContentBlock]): Unit =
     val sawDeltasThisTurn = deltasSinceTurnBoundary.getAndSet(false)
     content.foreach:
+      // Suppress the agent's own ToolCall block for `ask_user` — the
+      // host-side bridge emits a UserQuestion event for the same exchange
+      // and rendering the tool-call line on top of it is just noise.
+      case ContentBlock.ToolUse(_, name, _)
+          if name == ClaudeBackend.AskUserToolName =>
+        ()
       case ContentBlock.ToolUse(_, name, rawInput) =>
         eventQueue.enqueue(ConversationEvent.AssistantToolCall(name, rawInput))
       case ContentBlock.Text(text) if !sawDeltasThisTurn =>

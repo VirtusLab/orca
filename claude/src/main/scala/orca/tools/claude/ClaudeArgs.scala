@@ -36,7 +36,8 @@ private[claude] object ClaudeArgs:
       config: LlmConfig,
       systemPromptFile: Option[os.Path],
       resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
-      jsonSchema: Option[String] = None
+      jsonSchema: Option[String] = None,
+      mcpConfig: Option[os.Path] = None
   ): Seq[String] =
     Seq(
       "claude",
@@ -52,7 +53,8 @@ private[claude] object ClaudeArgs:
       systemPromptFileArgs(systemPromptFile) ++
       resumeArgs(resume) ++
       autoApproveArgs(config) ++
-      jsonSchemaArgs(jsonSchema)
+      jsonSchemaArgs(jsonSchema) ++
+      mcpConfigArgs(mcpConfig)
 
   private def modelArgs(config: LlmConfig): Seq[String] =
     config.model.toSeq.flatMap(m => Seq("--model", m))
@@ -73,6 +75,9 @@ private[claude] object ClaudeArgs:
     */
   private def jsonSchemaArgs(schema: Option[String]): Seq[String] =
     schema.toSeq.flatMap(s => Seq("--json-schema", s))
+
+  private def mcpConfigArgs(file: Option[os.Path]): Seq[String] =
+    file.toSeq.flatMap(f => Seq("--mcp-config", f.toString))
 
   private def autoApproveArgs(config: LlmConfig): Seq[String] =
     config.autoApprove match

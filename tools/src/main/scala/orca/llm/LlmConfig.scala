@@ -14,7 +14,17 @@ case class LlmConfig(
       */
     onUnapproved: UnapprovedPolicy = UnapprovedPolicy.Deny,
     retrySchedule: Schedule = LlmConfig.defaultRetrySchedule
-)
+):
+  /** Return a config that also auto-approves the given tool, on top of whatever
+    * the existing `autoApprove` allows. Backends use this to silently authorise
+    * their own host-side tools (e.g. the MCP `ask_user`) without surfacing a
+    * y/n prompt the user can't reasonably refuse.
+    */
+  def withAlsoAllowedTool(tool: String): LlmConfig =
+    autoApprove match
+      case AutoApprove.All => this
+      case AutoApprove.Only(tools) =>
+        copy(autoApprove = AutoApprove.Only(tools + tool))
 
 object LlmConfig:
 

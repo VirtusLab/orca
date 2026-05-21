@@ -9,18 +9,15 @@ import sttp.tapir.server.netty.sync.NettySyncServer
 /** Input shape of the `ask_user` MCP tool. The agent fills in `question`; we
   * hand the typed answer back as the tool result.
   */
-private[claude] case class AskUserInput(question: String)
-    derives Codec,
-      Schema
+private[claude] case class AskUserInput(question: String) derives Codec, Schema
 
 /** Boots a tiny MCP HTTP server exposing the `ask_user` tool. The handler
   * closes over an [[AskUserBridge]] — each tool invocation enqueues the
-  * question on the bridge and blocks until the host process supplies an
-  * answer.
+  * question on the bridge and blocks until the host process supplies an answer.
   *
-  * Bound on `127.0.0.1` at an ephemeral port so multiple conversations
-  * inside one flow don't collide. Lifecycle is tied to the surrounding Ox
-  * scope: `releaseAfterScope` stops the Netty binding when the scope ends.
+  * Bound on `127.0.0.1` at an ephemeral port so multiple conversations inside
+  * one flow don't collide. Lifecycle is tied to the surrounding Ox scope:
+  * `releaseAfterScope` stops the Netty binding when the scope ends.
   *
   * Companion factory [[start]] returns the running server.
   */
@@ -30,8 +27,8 @@ private[claude] class AskUserMcpServer private (port: Int):
 
 private[claude] object AskUserMcpServer:
 
-  /** Mount the `ask_user` MCP endpoint on a fresh Netty binding and return
-    * the bound URL. The binding stops when the enclosing scope ends.
+  /** Mount the `ask_user` MCP endpoint on a fresh Netty binding and return the
+    * bound URL. The binding stops when the enclosing scope ends.
     */
   def start(bridge: AskUserBridge)(using Ox): AskUserMcpServer =
     val askUserTool =
