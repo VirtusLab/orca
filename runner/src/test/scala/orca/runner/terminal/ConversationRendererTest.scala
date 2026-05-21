@@ -82,15 +82,6 @@ class ConversationRendererTest extends munit.FunSuite:
       usage = Usage(0L, 0L, None)
     )
 
-  test("AssistantTextDelta streams the text inline without a trailing newline"):
-    val buf = new ByteArrayOutputStream()
-    val conv = new ScriptedConversation(
-      List(ConversationEvent.AssistantTextDelta("hello ")),
-      Right(sampleResult)
-    )
-    val _ = renderer(buf).render(conv)
-    assert(buf.toString.contains("hello "))
-
   test("non-structured mode: assistant text flushes verbatim at TurnEnd"):
     // Off the structured-output path, the renderer doesn't
     // second-guess the agent's output — JSON-shaped or not, it
@@ -129,18 +120,6 @@ class ConversationRendererTest extends munit.FunSuite:
       !buf.toString.contains("tasks"),
       s"structured-mode renderer should not render the JSON payload; got: ${buf.toString}"
     )
-
-  test("plain prose flushes on TurnEnd"):
-    val buf = new ByteArrayOutputStream()
-    val conv = new ScriptedConversation(
-      List(
-        ConversationEvent.AssistantTextDelta("just thinking out loud"),
-        ConversationEvent.AssistantTurnEnd
-      ),
-      Right(sampleResult)
-    )
-    val _ = renderer(buf).render(conv)
-    assert(buf.toString.contains("just thinking out loud"))
 
   test("AssistantThinkingDelta stays silent when showThinking is false"):
     val buf = new ByteArrayOutputStream()

@@ -108,7 +108,7 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
     val mcpServer = AskUserMcpServer.start(bridge)
     try
       val mcpConfigFile =
-        writeMcpConfig(mcpServer.url, mcpServer.boundPort, workDir)
+        writeMcpConfig(mcpServer.url, mcpServer.port, workDir)
       val systemPromptFile =
         writeSystemPromptIfPresent(config, workDir, includeAskUserHint = true)
       val effectiveConfig =

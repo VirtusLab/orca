@@ -27,6 +27,12 @@ private[runner] class TerminalEventListener(
   private val lock = new Object
   private val depth = new StageDepth
   private val stages = new StageStack
+  // Indent string updated whenever `depth` changes — published via the
+  // @volatile so [[currentIndent]] readers (the ConversationRenderer on
+  // another thread) can snapshot a coherent indent without acquiring the
+  // lock. Writes happen inside the lock; the volatile ensures the new
+  // value is visible to lock-free readers.
+  @volatile private var indentSnapshot: String = depth.contentIndent
 
   def onEvent(event: OrcaEvent): Unit = event match
     case OrcaEvent.StageStarted(name) =>
@@ -36,6 +42,7 @@ private[runner] class TerminalEventListener(
         val l = formatStepLine(name)
         depth.push()
         stages.push(name)
+        indentSnapshot = depth.contentIndent
         (l, stages.innermost)
       output.log(line)
       output.setStatus(status)
@@ -45,6 +52,7 @@ private[runner] class TerminalEventListener(
       val status = lock.synchronized:
         depth.pop()
         stages.pop()
+        indentSnapshot = depth.contentIndent
         stages.innermost
       output.setStatus(status)
     case OrcaEvent.ToolUse(tool, args) =>
@@ -75,10 +83,10 @@ private[runner] class TerminalEventListener(
         formatIndented(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
       output.log(line)
 
-  /** The current indent string. Held under the same lock as stage-stack
-    * mutations, so a renderer on another thread sees a coherent snapshot.
+  /** The current indent string. Lock-free read — see [[indentSnapshot]] for the
+    * publication mechanism.
     */
-  def currentIndent: String = lock.synchronized(depth.contentIndent)
+  def currentIndent: String = indentSnapshot
 
   /** A `▶` step line: magenta-bold glyph, neutral body. Matches the
     * assistant-prose styling (magenta `●` + neutral text) so the dominant

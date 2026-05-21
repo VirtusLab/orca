@@ -15,7 +15,6 @@ import orca.tools.claude.streamjson.{
   StreamEventPayload
 }
 
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.util.control.NonFatal
 
 /** Drives a stream-json conversation with claude to completion.
@@ -49,19 +48,29 @@ private[claude] class ClaudeConversation(
 
   import StreamConversation.Outcome
 
-  private val sessionIdRef = new AtomicReference[String]("")
+  // The reader thread is the sole writer for all three fields below.
+  // No cross-thread visibility concerns: reads happen on the same thread
+  // immediately after writes, within `handle(...)` dispatch. Plain `var`s
+  // suffice — atomics would be theatre.
 
   /** Captured from the `system.init` message so `handleResult` can fall back to
     * it when the `result` message itself doesn't carry the resolved model id.
     * Some Claude CLI versions emit it in one but not both.
     */
-  private val initModelRef = new AtomicReference[Option[String]](None)
+  private var initModel: Option[String] = None
 
   /** Set whenever a delta arrives in the current turn, cleared when the full
     * turn message lands. Lets `handleAssistantTurn` tell "partials already
     * streamed" from "partials disabled upstream".
     */
-  private val deltasSinceTurnBoundary = new AtomicBoolean(false)
+  private var deltasSinceTurnBoundary: Boolean = false
+
+  /** Tool-use ids of `ask_user` calls suppressed in `handleAssistantTurn`.
+    * `handleUserTurn` drops the matching `tool_result` so the user's typed
+    * answer doesn't re-render as `⎿ <answer>` right after the UserQuestion
+    * prompt already surfaced it.
+    */
+  private var suppressedToolUseIds: Set[String] = Set.empty
 
   // --- Conversation surface (only the bit not covered by the base) ---
 
@@ -143,9 +152,8 @@ private[claude] class ClaudeConversation(
   // --- Per-message dispatch ---
 
   private def handle(msg: InboundMessage): Unit = msg match
-    case InboundMessage.SystemInit(sid, model) =>
-      sessionIdRef.set(sid)
-      initModelRef.set(model)
+    case InboundMessage.SystemInit(_, model) =>
+      initModel = model
     case InboundMessage.AssistantTurn(content) => handleAssistantTurn(content)
     case InboundMessage.UserTurn(content)      => handleUserTurn(content)
     case InboundMessage.Result(
@@ -163,7 +171,7 @@ private[claude] class ClaudeConversation(
       handleControlRequest(reqId, body)
     case InboundMessage.StreamEvent(payload) =>
       translateStreamEvent(payload).foreach { evt =>
-        deltasSinceTurnBoundary.set(true)
+        deltasSinceTurnBoundary = true
         eventQueue.enqueue(evt)
       }
     case InboundMessage.Unknown(_) =>
@@ -179,14 +187,18 @@ private[claude] class ClaudeConversation(
     * whole block as a single delta when no deltas preceded this turn.
     */
   private def handleAssistantTurn(content: List[ContentBlock]): Unit =
-    val sawDeltasThisTurn = deltasSinceTurnBoundary.getAndSet(false)
+    val sawDeltasThisTurn = deltasSinceTurnBoundary
+    deltasSinceTurnBoundary = false
     content.foreach:
       // Suppress the agent's own ToolCall block for `ask_user` — the
       // host-side bridge emits a UserQuestion event for the same exchange
       // and rendering the tool-call line on top of it is just noise.
-      case ContentBlock.ToolUse(_, name, _)
+      // Remember the id so `handleUserTurn` can also drop the matching
+      // tool_result (otherwise the user's typed answer re-renders as
+      // `⎿ <answer>` after the prompt already surfaced it).
+      case ContentBlock.ToolUse(id, name, _)
           if name == ClaudeBackend.AskUserToolName =>
-        ()
+        suppressedToolUseIds = suppressedToolUseIds + id
       case ContentBlock.ToolUse(_, name, rawInput) =>
         eventQueue.enqueue(ConversationEvent.AssistantToolCall(name, rawInput))
       case ContentBlock.Text(text) if !sawDeltasThisTurn =>
@@ -202,6 +214,11 @@ private[claude] class ClaudeConversation(
     */
   private def handleUserTurn(content: List[ContentBlock]): Unit =
     content.foreach:
+      case ContentBlock.ToolResult(toolUseId, _, _)
+          if suppressedToolUseIds.contains(toolUseId) =>
+        // Paired with a suppressed `ask_user` ToolUse; the user has already
+        // seen their own typed answer at the prompt, so don't echo it back.
+        suppressedToolUseIds = suppressedToolUseIds - toolUseId
       case ContentBlock.ToolResult(_, body, isError) =>
         eventQueue.enqueue(
           ConversationEvent.ToolResult(
@@ -225,7 +242,7 @@ private[claude] class ClaudeConversation(
       usage = usage,
       // Fall back to the model claude announced in system.init when the
       // result message omits it.
-      model = model.orElse(initModelRef.get())
+      model = model.orElse(initModel)
     )
     val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
 
@@ -245,7 +262,7 @@ private[claude] class ClaudeConversation(
     val message =
       output.filter(_.nonEmpty).getOrElse("claude reported is_error")
     val displayed =
-      if deltasSinceTurnBoundary.get() then "session failed (see message above)"
+      if deltasSinceTurnBoundary then "session failed (see message above)"
       else message
     eventQueue.enqueue(ConversationEvent.Error(displayed))
     val _ = outcomeRef.compareAndSet(

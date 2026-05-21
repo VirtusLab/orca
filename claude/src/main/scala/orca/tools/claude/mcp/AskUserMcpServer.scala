@@ -23,16 +23,14 @@ private[claude] case class AskUserInput(question: String) derives Codec, Schema
   * flow.
   */
 private[claude] class AskUserMcpServer private[mcp] (
-    port: Int,
+    /** The bound port. Useful when the caller wants to disambiguate per-server
+      * filenames (e.g. `.orca-mcp-$port.json`).
+      */
+    val port: Int,
     stopFn: () => Unit
 ) extends AutoCloseable:
   /** The URL Claude Code's `.mcp.json` should target. */
   val url: String = s"http://127.0.0.1:$port/mcp"
-
-  /** The bound port; useful when the caller wants to disambiguate per-server
-    * filenames (e.g. `.orca-mcp-$port.json`).
-    */
-  def boundPort: Int = port
 
   override def close(): Unit = stopFn()
 
