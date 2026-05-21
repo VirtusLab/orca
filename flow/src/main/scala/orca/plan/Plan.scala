@@ -2,7 +2,15 @@ package orca.plan
 
 import orca.{FlowContext}
 import orca.plan.Title
-import orca.llm.{Announce, BackendTag, JsonData, LlmTool, SessionId, given}
+import orca.llm.{
+  Announce,
+  BackendTag,
+  CanAskUser,
+  JsonData,
+  LlmTool,
+  SessionId,
+  given
+}
 import orca.events.OrcaEvent
 
 /** A development plan: an ordered list of [[Task]]s the agent will work
@@ -54,13 +62,14 @@ object Plan:
     * you need the planning conversation alive, use `from` and write the
     * markdown yourself with `Plan.render`.
     *
-    * **Mid-session questions** (the agent pausing to ask the user something)
-    * require a backend whose `Conversation.canAskUser` is `true`. Today only
-    * Claude supports this; Codex sessions render tool calls and stream deltas
-    * live but the agent can't pause for free-form user input.
+    * The `B: CanAskUser` constraint means these helpers compile only with
+    * backends that can host an `ask_user` tool — today, Claude. Calling
+    * `Plan.interactive.from(prompt, codex)` is a compile error rather than a
+    * silent degradation. Use `Plan.autonomous.*` if you don't need mid-session
+    * questions.
     */
   object interactive:
-    def from[B <: BackendTag](
+    def from[B <: BackendTag: CanAskUser](
         userPrompt: String,
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
@@ -70,10 +79,10 @@ object Plan:
         .interactive
         .startSession(s"$userPrompt\n\n$instructions")
 
-    def loadOrGenerate(
+    def loadOrGenerate[B <: BackendTag: CanAskUser](
         file: os.Path,
         userPrompt: String,
-        llm: LlmTool[?],
+        llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext): Plan =
       loadOrGenerateImpl(
