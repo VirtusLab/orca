@@ -1,7 +1,7 @@
 package orca.tools.claude.mcp
 
 import ox.{forkUser, supervised}
-import ox.channels.BufferCapacity
+import ox.channels.{BufferCapacity, ChannelClosedException}
 
 class AskUserBridgeTest extends munit.FunSuite:
 
@@ -40,3 +40,29 @@ class AskUserBridgeTest extends munit.FunSuite:
 
       assertEquals(first.join(), "A1")
       assertEquals(second.join(), "A2")
+
+  test("close unblocks an in-flight ask with ChannelClosedException"):
+    supervised:
+      given BufferCapacity = BufferCapacity(8)
+      val bridge = new AskUserBridge
+
+      val askFork = forkUser:
+        try
+          val _ = bridge.ask("blocked?")
+          "completed-unexpectedly"
+        catch case _: ChannelClosedException => "closed"
+
+      // Take ensures the ask reached the rendezvous (so its reply channel
+      // is registered as in-flight) before we close.
+      val (q, _) = bridge.take()
+      assertEquals(q, "blocked?")
+
+      bridge.close()
+      assertEquals(askFork.join(), "closed")
+
+  test("close is idempotent"):
+    supervised:
+      given BufferCapacity = BufferCapacity(8)
+      val bridge = new AskUserBridge
+      bridge.close()
+      bridge.close() // must not throw

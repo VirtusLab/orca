@@ -16,6 +16,7 @@ import orca.tools.claude.streamjson.{
 }
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
+import scala.util.control.NonFatal
 
 /** Drives a stream-json conversation with claude to completion.
   *
@@ -103,9 +104,11 @@ private[claude] class ClaudeConversation(
           ConversationEvent.UserQuestion(question, respond)
         )
     catch
-      // Bridge channel closure (scope tear-down) propagates as a
-      // ChannelClosedException-flavoured throw from take(). Exit quietly.
-      case _: Throwable => ()
+      // Bridge channel closure (onFinalize → bridge.close()) propagates as
+      // a ChannelClosedException from take(). Exit quietly. NonFatal so an
+      // InterruptedException still propagates if something else interrupts
+      // this thread.
+      case NonFatal(_) => ()
 
   // --- Reader hook ---
 
@@ -117,16 +120,25 @@ private[claude] class ClaudeConversation(
       "claude exited cleanly but never sent a result message"
     )
 
-  /** Release any session-scoped resources (e.g. the MCP server bound for this
-    * conversation's `ask_user` tool) once the read loop has drained. Called
-    * after the event queue is closed by the base class, so closing the MCP
-    * server can't race with handler invocations on it. Failures are swallowed —
-    * the conversation itself is already winding down.
+  /** Release session-scoped resources once the read loop has drained.
+    *
+    * Order matters: close the bridge **before** the MCP server. Closing the
+    * bridge errors any Netty worker currently blocked on `reply.receive()` (the
+    * handler returns with a tool error to the agent) and `done`s the pending
+    * queue (the drainer thread unwinds). If we stopped the server first, those
+    * workers would be parked when the binding tore them down, losing the chance
+    * to return a clean tool result.
+    *
+    * Failures here are swallowed — the conversation is already winding down and
+    * a close-time throw would only mask the real cause upstream.
     */
   override protected def onFinalize(): Unit =
+    askUserBridge.foreach: bridge =>
+      try bridge.close()
+      catch case NonFatal(_) => ()
     sessionResources.foreach: r =>
       try r.close()
-      catch case _: Throwable => ()
+      catch case NonFatal(_) => ()
 
   // --- Per-message dispatch ---
 
