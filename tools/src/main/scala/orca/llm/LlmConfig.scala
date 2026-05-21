@@ -8,11 +8,6 @@ case class LlmConfig(
     model: Option[String] = None,
     systemPrompt: Option[String] = None,
     autoApprove: AutoApprove = AutoApprove.All,
-    /** What to do when the agent wants a tool that isn't covered by
-      * `autoApprove`. Only consulted in interactive stages where the user is
-      * present to answer; in autonomous stages the call is denied outright.
-      */
-    onUnapproved: UnapprovedPolicy = UnapprovedPolicy.Deny,
     retrySchedule: Schedule = LlmConfig.defaultRetrySchedule
 ):
   /** Return a config that also auto-approves the given tool, on top of whatever
@@ -46,7 +41,3 @@ object LlmConfig:
 enum AutoApprove:
   case All
   case Only(tools: Set[String])
-
-enum UnapprovedPolicy:
-  case Deny
-  case AskUser

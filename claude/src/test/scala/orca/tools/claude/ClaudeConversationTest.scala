@@ -332,3 +332,42 @@ class ClaudeConversationTest extends munit.FunSuite:
     assert(
       process.writes.exists(w => w.contains("req-B") && w.contains("deny"))
     )
+
+  test(
+    "askUserBridge: questions surface as UserQuestion events; respond unblocks ask"
+  ):
+    import ox.{forkUser, supervised}
+    import ox.channels.BufferCapacity
+    import orca.tools.claude.mcp.AskUserBridge
+    supervised:
+      given BufferCapacity = BufferCapacity(8)
+      val process = new FakePipedCliProcess()
+      val bridge = new AskUserBridge
+      val conv = new ClaudeConversation(
+        process,
+        LlmConfig.default,
+        askUserBridge = Some(bridge)
+      )
+      assert(conv.canAskUser, "canAskUser must be true when a bridge is wired")
+
+      // From a separate fork, ask the bridge — simulates the MCP handler.
+      val askResult = forkUser:
+        bridge.ask("What's your favourite colour?")
+
+      // The conversation's drainer thread should surface the question on
+      // events; respond closure unblocks the ask fork.
+      val firstEvent = conv.events.next()
+      val (question, respond) = firstEvent match
+        case ConversationEvent.UserQuestion(q, r) => (q, r)
+        case other => fail(s"expected UserQuestion; got: $other")
+      assertEquals(question, "What's your favourite colour?")
+      respond("magenta")
+      assertEquals(askResult.join(), "magenta")
+
+      // Wind the session down so the test exits cleanly.
+      process.enqueueStdout(
+        """{"type":"result","subtype":"success","session_id":"sid-q"}"""
+      )
+      process.closeStdout()
+      val _ = conv.events.toList
+      val _ = conv.awaitResult()

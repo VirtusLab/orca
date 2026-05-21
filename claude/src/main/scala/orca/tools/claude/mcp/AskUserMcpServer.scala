@@ -2,7 +2,7 @@ package orca.tools.claude.mcp
 
 import chimp.*
 import io.circe.Codec
-import ox.{Ox, releaseAfterScope}
+import ox.Ox
 import sttp.tapir.Schema
 import sttp.tapir.server.netty.sync.NettySyncServer
 
@@ -16,19 +16,32 @@ private[claude] case class AskUserInput(question: String) derives Codec, Schema
   * question on the bridge and blocks until the host process supplies an answer.
   *
   * Bound on `127.0.0.1` at an ephemeral port so multiple conversations inside
-  * one flow don't collide. Lifecycle is tied to the surrounding Ox scope:
-  * `releaseAfterScope` stops the Netty binding when the scope ends.
-  *
-  * Companion factory [[start]] returns the running server.
+  * one flow don't collide. Lifecycle is **caller-owned**: the factory returns
+  * an `AutoCloseable` whose `close()` stops the Netty binding. Callers should
+  * tie that close to the lifetime of the conversation it serves (e.g. via
+  * `Conversation.onFinalize`) so per-call bindings don't accumulate over a long
+  * flow.
   */
-private[claude] class AskUserMcpServer private (port: Int):
+private[claude] class AskUserMcpServer private[mcp] (
+    port: Int,
+    stopFn: () => Unit
+) extends AutoCloseable:
   /** The URL Claude Code's `.mcp.json` should target. */
   val url: String = s"http://127.0.0.1:$port/mcp"
 
+  /** The bound port; useful when the caller wants to disambiguate per-server
+    * filenames (e.g. `.orca-mcp-$port.json`).
+    */
+  def boundPort: Int = port
+
+  override def close(): Unit = stopFn()
+
 private[claude] object AskUserMcpServer:
 
-  /** Mount the `ask_user` MCP endpoint on a fresh Netty binding and return the
-    * bound URL. The binding stops when the enclosing scope ends.
+  /** Mount the `ask_user` MCP endpoint on a fresh Netty binding. The Ox
+    * capability is used to start the server in the enclosing scope; the caller
+    * is responsible for calling `close()` (or relying on scope tear-down) to
+    * stop it.
     */
   def start(bridge: AskUserBridge)(using Ox): AskUserMcpServer =
     val askUserTool =
@@ -41,5 +54,4 @@ private[claude] object AskUserMcpServer:
         .handle(in => Right(bridge.ask(in.question)))
     val endpoint = mcpEndpoint(List(askUserTool), List("mcp"))
     val binding = NettySyncServer().port(0).addEndpoint(endpoint).start()
-    releaseAfterScope(binding.stop())
-    new AskUserMcpServer(binding.port)
+    new AskUserMcpServer(binding.port, () => binding.stop())

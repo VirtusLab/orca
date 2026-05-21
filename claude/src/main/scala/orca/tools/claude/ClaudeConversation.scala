@@ -31,7 +31,15 @@ private[claude] class ClaudeConversation(
     config: LlmConfig,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
-    askUserBridge: Option[orca.tools.claude.mcp.AskUserBridge] = None
+    askUserBridge: Option[orca.tools.claude.mcp.AskUserBridge] = None,
+    /** Session-scoped resources to release when this conversation ends —
+      * typically the MCP server bound for this conversation's `ask_user` tool.
+      * Closed from `onFinalize`, after the reader loop exits, so server
+      * lifetime tracks the conversation rather than the enclosing supervised
+      * scope. Without this, a long flow that opens many interactive
+      * conversations would leak one Netty binding per call.
+      */
+    sessionResources: List[AutoCloseable] = Nil
 ) extends StreamConversation[BackendTag.ClaudeCode.type](
       process = process,
       backendName = "claude",
@@ -108,6 +116,17 @@ private[claude] class ClaudeConversation(
     new OrcaFlowException(
       "claude exited cleanly but never sent a result message"
     )
+
+  /** Release any session-scoped resources (e.g. the MCP server bound for this
+    * conversation's `ask_user` tool) once the read loop has drained. Called
+    * after the event queue is closed by the base class, so closing the MCP
+    * server can't race with handler invocations on it. Failures are swallowed —
+    * the conversation itself is already winding down.
+    */
+  override protected def onFinalize(): Unit =
+    sessionResources.foreach: r =>
+      try r.close()
+      catch case _: Throwable => ()
 
   // --- Per-message dispatch ---
 

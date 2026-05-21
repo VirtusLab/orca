@@ -22,7 +22,6 @@ export orca.llm.{
   InteractiveLlmCall,
   LlmConfig,
   AutoApprove,
-  UnapprovedPolicy,
   JsonData,
   Announce,
   schemaFromJsonData,

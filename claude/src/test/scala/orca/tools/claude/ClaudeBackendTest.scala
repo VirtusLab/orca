@@ -18,10 +18,10 @@ class ClaudeBackendTest extends munit.FunSuite:
       |  "is_error": false
       |}""".stripMargin
 
-  /** Run a test body that needs a ClaudeBackend. Wraps in `supervised:` so
-    * the backend's Ox + BufferCapacity capabilities are satisfied; all
-    * tests in this file exercise the headless path and don't actually need
-    * the MCP machinery, but the constructor pulls those caps regardless.
+  /** Run a test body that needs a ClaudeBackend. Wraps in `supervised:` so the
+    * backend's Ox + BufferCapacity capabilities are satisfied; all tests in
+    * this file exercise the headless path and don't actually need the MCP
+    * machinery, but the constructor pulls those caps regardless.
     */
   private def withStubBackend[T](canned: CliResult)(
       body: (StubCliRunner, ClaudeBackend) => T

@@ -21,9 +21,9 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     import scala.concurrent.duration.DurationInt
     2.minutes
 
-  /** Run a test body that needs a real ClaudeBackend in its own Ox scope.
-    * The backend's interactive path spins up an MCP server fork; the scope
-    * boundary releases it before the test returns.
+  /** Run a test body that needs a real ClaudeBackend in its own Ox scope. The
+    * backend's interactive path spins up an MCP server fork; the scope boundary
+    * releases it before the test returns.
     */
   private def withBackend(body: ClaudeBackend => Unit): Unit =
     supervised:
