@@ -12,11 +12,11 @@
   * project's root after `examples/02-interactive/create-test-project.sh`:
   *
   * ```bash
-  * scala-cli run implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate"
+  * scala-cli run implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate. Ask the user which."
   * ```
   *
-  * The prompt above is deliberately open-ended — the agent should ask which
-  * operation (multiply? divide? modulo?) before planning.
+  * The trailing "Ask the user which." pushes the planner to call `ask_user`
+  * rather than guessing which operation to add.
   *
   * Requires `claude` logged in and `cargo` on PATH.
   */

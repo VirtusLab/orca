@@ -40,9 +40,9 @@ Test project ready at: $DEST
 
 Next steps:
   cd $DEST
-  scala-cli run implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate"
+  scala-cli run implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate. Ask the user which."
 
-The prompt above is deliberately open-ended — the planner should ask
-you which operation (e.g. multiply / divide / modulo) before producing
-a plan. Type the answer at the prompt and the conversation continues.
+The trailing "Ask the user which." pushes the planner to call ask_user
+rather than guessing the operation. Type the answer at the prompt and
+the conversation continues.
 EOF

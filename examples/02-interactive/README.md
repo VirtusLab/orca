@@ -27,14 +27,13 @@ The seeded calculator crate has `add` and `subtract`. The recommended
 prompt is:
 
 ```
-Add a new arithmetic operation to the calculator crate
+Add a new arithmetic operation to the calculator crate. Ask the user which.
 ```
 
-That's deliberately under-specified — there's no good single answer
-without input from you. The planner should call `ask_user` to find out
-which operation (multiply, divide, modulo, power, etc.) before drafting
-tasks. If it picks one without asking, that's a regression worth
-investigating.
+The first sentence is deliberately under-specified; the trailing
+instruction tells the planner to call `ask_user` rather than guessing
+the operation. The agent should pause and ask which one (multiply,
+divide, modulo, power, …) before drafting tasks.
 
 ## Prerequisites
 
@@ -51,7 +50,7 @@ The seed script prints the exact `scala-cli run` line:
 # → "Test project ready at: /tmp/orca-02-interactive-…"
 
 cd /tmp/orca-02-interactive-…
-scala-cli run implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate"
+scala-cli run implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate. Ask the user which."
 ```
 
 Read the question at the `?` prompt and type your answer. The planner
