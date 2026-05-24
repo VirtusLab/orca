@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
 class CodexArgsTest extends munit.FunSuite:
 
   test("exec emits codex exec --json with the prompt as the trailing arg"):
@@ -16,7 +16,7 @@ class CodexArgsTest extends munit.FunSuite:
   test("exec passes --model when LlmConfig.model is set"):
     val args = CodexArgs.exec(
       prompt = "x",
-      config = LlmConfig.default.copy(model = Some("gpt-5.4-mini")),
+      config = LlmConfig.default.copy(model = Some(Model("gpt-5.4-mini"))),
       outputSchemaFile = None,
       workDir = os.pwd
     )
@@ -85,6 +85,6 @@ class CodexArgsTest extends munit.FunSuite:
     val args = CodexArgs.execResume(
       sid,
       "x",
-      LlmConfig.default.copy(model = Some("gpt-5.4-mini"))
+      LlmConfig.default.copy(model = Some(Model("gpt-5.4-mini")))
     )
     assert(args.containsSlice(Seq("--model", "gpt-5.4-mini")))

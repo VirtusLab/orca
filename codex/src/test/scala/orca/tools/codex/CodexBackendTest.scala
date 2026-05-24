@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.llm.{BackendTag, LlmConfig, Model, SessionId}
 import orca.{OrcaFlowException}
 import orca.subprocess.{
   CliResult,
@@ -98,7 +98,7 @@ class CodexBackendTest extends munit.FunSuite:
     p.sendSigInt()
     val backend = new CodexBackend(new SpawnStubCliRunner(List(p)))
     val result = backend.runHeadless("q", LlmConfig.default, os.temp.dir())
-    assertEquals(result.model, Some("gpt-5"))
+    assertEquals(result.model, Some(Model("gpt-5")))
 
   test("runHeadless throws when codex exits without turn.completed"):
     val p = new FakePipedCliProcess()

@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.llm.{BackendTag, CodexTool, LlmConfig, Prompts}
+import orca.llm.{BackendTag, CodexTool, LlmConfig, Model, Prompts}
 import orca.events.{OrcaListener}
 
 import orca.backend.{Interaction, LlmBackend}
@@ -31,9 +31,9 @@ class DefaultCodexTool(
   /** Pin the cheap-and-fast model variant. The literal model id matches what's
     * available in the installed `codex-cli` (gpt-5.4-mini in 0.125.0); newer
     * codex versions may rename, in which case callers override via
-    * `withConfig(LlmConfig(model = Some("..."))`.
+    * `withConfig(LlmConfig(model = Some(Model("..."))))`.
     */
-  def mini: CodexTool = withModel("gpt-5.4-mini")
+  def mini: CodexTool = withModel(Model("gpt-5.4-mini"))
 
   protected def copyTool(
       config: LlmConfig = config,

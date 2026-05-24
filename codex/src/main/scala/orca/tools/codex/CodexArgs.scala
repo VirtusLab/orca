@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
 
 /** Maps `LlmConfig` fields to `codex exec` CLI flags. `systemPrompt` is not
   * handled here — codex doesn't accept an `--append-system-prompt` equivalent
@@ -58,7 +58,7 @@ private[codex] object CodexArgs:
       Seq(prompt)
 
   private def modelArgs(config: LlmConfig): Seq[String] =
-    config.model.toSeq.flatMap(m => Seq("--model", m))
+    config.model.toSeq.flatMap(m => Seq("--model", m.name))
 
   private def cwdArgs(workDir: os.Path): Seq[String] =
     Seq("-C", workDir.toString)

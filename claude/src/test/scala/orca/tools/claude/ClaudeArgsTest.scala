@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
 class ClaudeArgsTest extends munit.FunSuite:
 
   private def headless(config: LlmConfig): Seq[String] =
@@ -16,7 +16,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--output-format", "json")))
 
   test("model flag is emitted when LlmConfig.model is set"):
-    val args = headless(LlmConfig(model = Some("sonnet-4")))
+    val args = headless(LlmConfig(model = Some(Model("sonnet-4"))))
     assert(args.containsSlice(Seq("--model", "sonnet-4")))
 
   test("model flag is absent when LlmConfig.model is None"):
@@ -87,7 +87,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     val args = ClaudeArgs.headless(
       prompt = "task",
       config = LlmConfig(
-        model = Some("opus-4"),
+        model = Some(Model("opus-4")),
         autoApprove = AutoApprove.Only(Set("Read"))
       ),
       systemPromptFile = Some(file),

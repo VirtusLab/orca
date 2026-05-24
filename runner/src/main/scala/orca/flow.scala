@@ -1,7 +1,13 @@
 package orca
 
 import orca.backend.Interaction
-import orca.events.{CostTracker, EventDispatcher, OrcaListener}
+import orca.events.{
+  CostTracker,
+  EventDispatcher,
+  OrcaListener,
+  PriceList,
+  Pricing
+}
 import orca.llm.{ClaudeTool, DefaultPrompts, Prompts}
 import orca.runner.DefaultFlowContext
 import orca.runner.terminal.TerminalInteraction
@@ -47,7 +53,8 @@ def flow(
     git: Option[GitTool] = None,
     gh: Option[GitHubTool] = None,
     fs: Option[FsTool] = None,
-    prompts: Prompts = DefaultPrompts
+    prompts: Prompts = DefaultPrompts,
+    pricing: PriceList = Pricing.default
 )(body: FlowContext ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose.value
   // A daemon thread or unsupervised fork that throws would otherwise
@@ -58,7 +65,7 @@ def flow(
   // so the user sees what was spent before the process terminates. Callers
   // can still pass their own CostTracker via `extraListeners` for other uses
   // — it'll observe the same events independently.
-  val costTracker = new CostTracker
+  val costTracker = new CostTracker(pricing)
   // `try/finally` so the cost summary always lands — even when a fatal
   // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
   // Tokens may have already been spent; the user deserves to see what.

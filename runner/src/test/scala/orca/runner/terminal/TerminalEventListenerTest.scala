@@ -1,6 +1,7 @@
 package orca.runner.terminal
 
 import orca.events.{OrcaEvent, Usage}
+import orca.llm.Model
 import java.io.{ByteArrayOutputStream, PrintStream}
 
 /** These tests exercise the listener's synchronous state-mutation behaviour by
@@ -91,7 +92,13 @@ class TerminalEventListenerTest extends munit.FunSuite:
 
   test("TokensUsed events are ignored (owned by CostTracker)"):
     val output = renderEvents(
-      List(OrcaEvent.TokensUsed("claude", Some("opus"), Usage(10L, 5L, None)))
+      List(
+        OrcaEvent.TokensUsed(
+          "claude",
+          Some(Model("opus")),
+          Usage(10L, 5L, None)
+        )
+      )
     )
     assertEquals(output, "")
 

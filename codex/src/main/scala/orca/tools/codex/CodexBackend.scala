@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.llm.{BackendTag, LlmConfig, Model, SessionId}
 import orca.events.{Usage}
 import orca.OrcaFlowException
 import orca.util.OrcaDebug
@@ -268,7 +268,7 @@ private case class HeadlessAccumulator(
       sessionId = SessionId[BackendTag.Codex.type](threadId),
       output = lastMessage,
       usage = usage,
-      model = model
+      model = model.map(Model.apply)
     )
 
 private object HeadlessAccumulator:

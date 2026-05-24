@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
 
 /** Maps LlmConfig fields to Claude Code CLI flags. `systemPrompt` is consumed
   * by the backend (written to a file whose path is passed in via
@@ -57,7 +57,7 @@ private[claude] object ClaudeArgs:
       mcpConfigArgs(mcpConfig)
 
   private def modelArgs(config: LlmConfig): Seq[String] =
-    config.model.toSeq.flatMap(m => Seq("--model", m))
+    config.model.toSeq.flatMap(m => Seq("--model", m.name))
 
   private def systemPromptFileArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--append-system-prompt-file", f.toString))

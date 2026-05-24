@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.llm.{BackendTag, SessionId}
+import orca.llm.{BackendTag, Model, SessionId}
 import orca.events.{Usage}
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import orca.tools.claude.streamjson.RawJson
@@ -34,7 +34,7 @@ private[claude] case class ClaudeHeadlessResponse(
         cost = total_cost_usd,
         cachedInputTokens = usage.cachedInputTokens
       ),
-      model = modelUsage.flatMap(_.keys.headOption)
+      model = modelUsage.flatMap(_.keys.headOption).map(Model.apply)
     )
 
 /** Claude Code splits an input-token count across three fields when prompt

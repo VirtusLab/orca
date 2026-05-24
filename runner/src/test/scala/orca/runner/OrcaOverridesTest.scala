@@ -10,6 +10,7 @@ import orca.llm.{
   JsonData,
   LlmCall,
   LlmConfig,
+  Model,
   SessionId
 }
 import orca.events.{CostTracker, OrcaEvent, Usage}
@@ -93,7 +94,7 @@ class OrcaOverridesTest extends munit.FunSuite:
         summon[FlowContext].emit(
           OrcaEvent.TokensUsed(
             "test-agent",
-            Some("test-model"),
+            Some(Model("test-model")),
             Usage(10L, 5L, None)
           )
         )

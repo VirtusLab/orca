@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.llm.{BackendTag, SessionId}
+import orca.llm.{BackendTag, Model, SessionId}
 import orca.events.{Usage}
 
 /** Outcome of a single LLM call. Returned by [[LlmBackend.runHeadless]] /
@@ -17,5 +17,5 @@ case class LlmResult[B <: BackendTag](
       * conversation paths. Used as the bucket key in `CostTracker` so spend is
       * attributed to the concrete model rather than just the tool name.
       */
-    model: Option[String] = None
+    model: Option[Model] = None
 )

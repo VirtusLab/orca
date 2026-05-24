@@ -5,7 +5,7 @@ import ox.scheduling.Schedule
 import scala.concurrent.duration.DurationInt
 
 case class LlmConfig(
-    model: Option[String] = None,
+    model: Option[Model] = None,
     systemPrompt: Option[String] = None,
     autoApprove: AutoApprove = AutoApprove.All,
     retrySchedule: Schedule = LlmConfig.defaultRetrySchedule

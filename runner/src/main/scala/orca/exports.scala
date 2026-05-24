@@ -11,7 +11,7 @@ package orca
 // top-level `orca` so its symbols sit at the heart of the user surface; no
 // re-export needed.
 
-export orca.events.{OrcaEvent, OrcaListener}
+export orca.events.{OrcaEvent, OrcaListener, Pricing, PriceList, ModelPricing}
 export orca.llm.{
   LlmTool,
   ClaudeTool,
@@ -23,6 +23,7 @@ export orca.llm.{
   LlmConfig,
   AutoApprove,
   CanAskUser,
+  Model,
   JsonData,
   Announce,
   schemaFromJsonData,

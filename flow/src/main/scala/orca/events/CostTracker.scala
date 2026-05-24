@@ -1,5 +1,7 @@
 package orca.events
 
+import orca.llm.Model
+
 import java.util.concurrent.atomic.AtomicReference
 
 /** Listener that accumulates `TokensUsed` events along two independent axes —
@@ -8,49 +10,104 @@ import java.util.concurrent.atomic.AtomicReference
   * `AtomicReference` so the tracker is safe to register across concurrent LLM
   * calls.
   *
+  * Cost: each event either carries a reported figure (Claude CLI returns
+  * `total_cost_usd`) or has its cost estimated from the supplied [[PriceList]].
+  * Estimated costs are flagged so the user can see when the number depends on a
+  * maintained price table rather than the backend's own figure; the legend
+  * shows the table's `lastUpdated` date so a stale snapshot is obvious. Pass a
+  * custom `pricing` to override the default rates.
+  *
   * Both axes share the same set of underlying calls, so summing either map
-  * yields the grand total. The `model` axis stores `Option[String]` because the
+  * yields the grand total. The `model` axis stores `Option[Model]` because the
   * response's reported model isn't always present; the by-model summary
   * surfaces the missing case as `(unknown)`.
   */
-class CostTracker extends OrcaListener:
+class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
 
   private case class State(
       byAgent: Map[String, Usage] = Map.empty,
-      byModel: Map[Option[String], Usage] = Map.empty
+      byModel: Map[Option[Model], Usage] = Map.empty,
+      byAgentCost: Map[String, Cost] = Map.empty,
+      byModelCost: Map[Option[Model], Cost] = Map.empty
   ):
-    def record(agent: String, model: Option[String], u: Usage): State = copy(
+    def record(
+        agent: String,
+        model: Option[Model],
+        usage: Usage,
+        cost: Option[Cost]
+    ): State = copy(
       byAgent =
-        byAgent.updated(agent, byAgent.getOrElse(agent, Usage.empty) + u),
+        byAgent.updated(agent, byAgent.getOrElse(agent, Usage.empty) + usage),
       byModel =
-        byModel.updated(model, byModel.getOrElse(model, Usage.empty) + u)
+        byModel.updated(model, byModel.getOrElse(model, Usage.empty) + usage),
+      byAgentCost = addCost(byAgentCost, agent, cost),
+      byModelCost = addCost(byModelCost, model, cost)
     )
+
+  /** Fold one optional cost into a per-key map. No-op when `cost` is `None`
+    * (the call had neither a reported nor estimable figure).
+    */
+  private def addCost[K](
+      map: Map[K, Cost],
+      key: K,
+      cost: Option[Cost]
+  ): Map[K, Cost] =
+    cost.fold(map)(c => map.updated(key, map.get(key).fold(c)(_ + c)))
 
   private val state: AtomicReference[State] = AtomicReference(State())
 
   def onEvent(event: OrcaEvent): Unit = event match
-    case OrcaEvent.TokensUsed(agent, model, u) =>
-      val _ = state.updateAndGet(_.record(agent, model, u))
+    case OrcaEvent.TokensUsed(agent, model, usage) =>
+      val cost = costFor(model, usage)
+      val _ = state.updateAndGet(_.record(agent, model, usage, cost))
     case _ => ()
+
+  /** Resolve a per-call cost: the reported figure if the backend supplied one,
+    * otherwise an estimate from the pricing table. `None` when neither is
+    * available (no `total_cost_usd` and no table entry for the model).
+    */
+  private def costFor(model: Option[Model], usage: Usage): Option[Cost] =
+    usage.cost
+      .map(amount => Cost(amount, estimated = false))
+      .orElse(
+        Pricing
+          .estimate(pricing.table, model, usage)
+          .map(amount => Cost(amount, estimated = true))
+      )
 
   /** Usage accumulated across every call, regardless of axis. */
   def total: Usage =
     state.get().byAgent.values.foldLeft(Usage.empty)(_ + _)
 
+  /** Total cost across every call. `None` when no call surfaced a cost
+    * (reported or estimable).
+    */
+  def totalCost: Option[Cost] =
+    state.get().byAgentCost.values.reduceOption(_ + _)
+
   /** Per-agent usage breakdown — keyed by `LlmTool.name`. */
   def perAgent: Map[String, Usage] = state.get().byAgent
+
+  /** Per-agent cost breakdown. Missing entry means that agent's calls had
+    * neither reported nor estimable cost.
+    */
+  def perAgentCost: Map[String, Cost] = state.get().byAgentCost
 
   /** Per-model usage breakdown. `None` collects calls whose model the backend
     * didn't report and the caller didn't pin in `LlmConfig`.
     */
-  def perModel: Map[Option[String], Usage] = state.get().byModel
+  def perModel: Map[Option[Model], Usage] = state.get().byModel
+
+  /** Per-model cost breakdown. Same key semantics as [[perModel]]. */
+  def perModelCost: Map[Option[Model], Cost] = state.get().byModelCost
 
   /** Two sections — by-agent then by-model — sorted alphabetically within each.
     * Cache hits and reasoning tokens are shown parenthetically when non-zero,
-    * so a typical Claude line reads `general: 12500 in (12453 cached), 1781
-    * out` and a codex line that produced reasoning reads `coder: 800 in (640
-    * cached), 1200 out (300 reasoning)`. Empty string when no `TokensUsed`
-    * events have been observed.
+    * and cost (when known) is appended as `$X.XXXX`. An asterisk after the
+    * dollar amount marks an estimated figure; a trailing legend line explains
+    * it when at least one estimate is present.
+    *
+    * Empty string when no `TokensUsed` events have been observed.
     */
   def summary: String =
     val s = state.get()
@@ -58,26 +115,52 @@ class CostTracker extends OrcaListener:
     else
       val agentLines = s.byAgent.toList
         .sortBy(_._1)
-        .map((agent, u) => s"  $agent: ${formatUsage(u)}")
+        .map: (agent, u) =>
+          s"  $agent: ${formatLine(u, s.byAgentCost.get(agent))}"
       val modelLines = s.byModel.toList
-        .sortBy(_._1.getOrElse("(unknown)"))
+        .sortBy((model, _) => modelLabel(model))
         .map: (model, u) =>
-          s"  ${model.getOrElse("(unknown)")}: ${formatUsage(u)}"
+          s"  ${modelLabel(model)}: ${formatLine(u, s.byModelCost.get(model))}"
+      val totalLine = totalCost.fold(""): c =>
+        s"\n\nTotal: ${formatCost(c)}"
+      val hasEstimate =
+        (s.byAgentCost.values ++ s.byModelCost.values).exists(_.estimated)
+      val legend =
+        if hasEstimate then
+          s"\n\n* estimated from the pricing table " +
+            s"(rates as of ${pricing.lastUpdated} — may be stale)"
+        else ""
       s"""By agent:
          |${agentLines.mkString("\n")}
          |
          |By model:
-         |${modelLines.mkString("\n")}""".stripMargin
+         |${modelLines.mkString("\n")}$totalLine$legend""".stripMargin
 
-  private def formatUsage(u: Usage): String =
+  /** Render a model bucket key for the summary. `None` covers calls whose model
+    * the backend didn't report.
+    */
+  private def modelLabel(model: Option[Model]): String =
+    model.map(_.name).getOrElse("(unknown)")
+
+  private def formatLine(usage: Usage, cost: Option[Cost]): String =
+    val tokens = formatUsage(usage)
+    cost.fold(tokens)(c => s"$tokens — ${formatCost(c)}")
+
+  private def formatUsage(usage: Usage): String =
     val cached =
-      if u.cachedInputTokens > 0 then s" (${u.cachedInputTokens} cached)"
+      if usage.cachedInputTokens > 0 then
+        s" (${usage.cachedInputTokens} cached)"
       else ""
     val reasoning =
-      if u.reasoningOutputTokens > 0 then
-        s" (${u.reasoningOutputTokens} reasoning)"
+      if usage.reasoningOutputTokens > 0 then
+        s" (${usage.reasoningOutputTokens} reasoning)"
       else ""
-    s"${u.inputTokens} in$cached, ${u.outputTokens} out$reasoning"
+    s"${usage.inputTokens} in$cached, ${usage.outputTokens} out$reasoning"
+
+  private def formatCost(c: Cost): String =
+    val rounded = c.amount.setScale(4, BigDecimal.RoundingMode.HALF_UP)
+    val marker = if c.estimated then "*" else ""
+    s"$$$rounded$marker"
 
   /** Print the summary on its own block. Leading newline keeps the output from
     * landing on top of an active terminal status row; trailing newline ensures

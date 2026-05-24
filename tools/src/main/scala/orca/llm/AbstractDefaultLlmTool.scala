@@ -47,7 +47,7 @@ abstract class AbstractDefaultLlmTool[B <: BackendTag, Self <: LlmTool[B]](
     * expose backend-specific accessors (`haiku`/`sonnet`/`opus`, `mini`) on top
     * of this.
     */
-  protected def withModel(model: String): Self =
+  protected def withModel(model: Model): Self =
     copyTool(config = config.copy(model = Some(model)))
 
   val autonomous: AutonomousTextCall[B] = new AutonomousTextCall[B]:

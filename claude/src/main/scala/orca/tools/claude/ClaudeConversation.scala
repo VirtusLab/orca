@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ApprovalDecision, ConversationEvent, LlmResult}
@@ -242,7 +242,7 @@ private[claude] class ClaudeConversation(
       usage = usage,
       // Fall back to the model claude announced in system.init when the
       // result message omits it.
-      model = model.orElse(initModel)
+      model = model.orElse(initModel).map(Model.apply)
     )
     val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
 

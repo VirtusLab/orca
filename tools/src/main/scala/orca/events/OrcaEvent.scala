@@ -1,5 +1,7 @@
 package orca.events
 
+import orca.llm.Model
+
 /** Flow-level event fanned out to every registered [[OrcaListener]]. Covers
   * stage transitions, tool invocations, token usage, structured results, and
   * errors — anything observers like the status bar, cost tracker, or external
@@ -35,7 +37,7 @@ enum OrcaEvent:
     * `CostTracker` summarises usage along both axes — by-agent shows where the
     * tokens were spent, by-model shows which models cost what.
     */
-  case TokensUsed(agent: String, model: Option[String], usage: Usage)
+  case TokensUsed(agent: String, model: Option[Model], usage: Usage)
 
   /** The agent's final structured payload, after parsing succeeded. `raw` is
     * the verbatim text the agent produced (typically JSON); `summary` is the

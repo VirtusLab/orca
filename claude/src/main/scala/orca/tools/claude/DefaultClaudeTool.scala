@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.llm.{BackendTag, ClaudeTool, LlmConfig, Prompts}
+import orca.llm.{BackendTag, ClaudeTool, LlmConfig, Model, Prompts}
 import orca.events.{OrcaListener}
 
 import orca.backend.{Interaction, LlmBackend}
@@ -34,9 +34,9 @@ class DefaultClaudeTool(
     )
     with ClaudeTool:
 
-  def haiku: ClaudeTool = withModel("claude-haiku-4-5")
-  def sonnet: ClaudeTool = withModel("claude-sonnet-4-6")
-  def opus: ClaudeTool = withModel("claude-opus-4-7")
+  def haiku: ClaudeTool = withModel(Model("claude-haiku-4-5"))
+  def sonnet: ClaudeTool = withModel(Model("claude-sonnet-4-6"))
+  def opus: ClaudeTool = withModel(Model("claude-opus-4-7"))
 
   protected def copyTool(
       config: LlmConfig = config,

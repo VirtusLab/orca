@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.llm.{BackendTag, SessionId}
+import orca.llm.{BackendTag, Model, SessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, LlmResult}
@@ -178,7 +178,7 @@ private[codex] class CodexConversation(
       sessionId = SessionId[BackendTag.Codex.type](sessionIdRef.get()),
       output = lastAgentMessage.get(),
       usage = usage,
-      model = modelRef.get()
+      model = modelRef.get().map(Model.apply)
     )
     val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
 
