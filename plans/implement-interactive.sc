@@ -1,12 +1,13 @@
 //> using dep "org.virtuslab::orca:0.0.3"
 //> using jvm 21
 
-/** Interactive planning + coding flow.
+/** Interactive planning + coding flow (persistent).
   *
   * Same shape as `implement.sc` but the planner opens a conversation the user
   * can drive: if the prompt is underspecified, the agent calls the `ask_user`
-  * tool to clarify before producing the plan. Each follow-up question shows
-  * up in the terminal; typed answers feed straight back to the agent.
+  * tool to clarify before producing the plan. The resulting plan is persisted
+  * to `.orca/plan-<hash>.md` so a re-run resumes from the first incomplete
+  * task.
   *
   * Lives alongside the seeded calculator crate so a user can run it from the
   * project's root after `examples/02-interactive/create-test-project.sh`:
@@ -24,24 +25,25 @@
 import orca.{*, given}
 
 flow(OrcaArgs(args)):
-  // 1. Break the user's prompt into concrete subtasks, interactively.
-  // `Plan.interactive.from` lets the planner call `ask_user` whenever the
-  // prompt is too vague to plan against — typically one or two questions
-  // before the structured `Plan` lands. Swap for `Plan.autonomous.from`
-  // (see `implement.sc`) when the prompt is concrete enough that the
-  // agent shouldn't need to ask anything.
-  val (sessionId, plan) = stage("Creating a development plan"):
-    Plan.interactive.from(userPrompt, claude)
+  val planFile = Plan.defaultPath(userPrompt)
 
-  // 2. Single branch for the whole epic; tasks become commits on it.
-  stage(s"Branch: ${plan.epicId}"):
-    git.createBranch(plan.epicId).orThrow
+  // 1. Acquire the plan. Recover from a previous run if one exists; otherwise
+  // open an interactive planning conversation so the agent can clarify the
+  // prompt with `ask_user` calls before producing the plan.
+  val plan = stage("Acquire plan"):
+    Plan.recoverOrCreate(planFile, "orca: starting implementation"):
+      Plan.interactive.from(userPrompt, claude)._2
 
-  // 3. Implement each task as a commit on that branch. The review-and-fix
-  // loop may modify files in response to reviewer findings, so we commit
-  // *after* the loop completes — one commit per task, capturing both the
-  // original implementation and any follow-up fixes.
-  for task <- plan.tasks do
+  // 2. Single autonomous session across all tasks — the interactive planning
+  // turn is over by now, so the implementer doesn't need the ask_user surface.
+  val (sessionId, _) = claude.autonomous.startSession(
+    s"""You are working on the plan at $planFile. Each task is sent to
+       |you in turn; implement only that task and reply briefly when
+       |you're done so I know to move on.""".stripMargin
+  )
+
+  // 3. Iterate; commit + tick per task; remove plan file at the end.
+  Plan.runPersistent(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
       stage("Implementation"):
         claude.autonomous.continueSession(sessionId, task.description)
@@ -58,5 +60,3 @@ flow(OrcaArgs(args)):
         lintCommand = Some("cargo test --quiet"),
         lintLlm = Some(claude.haiku)
       )
-
-      git.commit(s"Implement ${task.title}").orThrow

@@ -1,7 +1,6 @@
 package orca.plan
 
-import orca.{FlowContext}
-import orca.plan.Title
+import orca.{FlowContext, OrcaFlowException}
 import orca.llm.{
   Announce,
   BackendTag,
@@ -12,6 +11,8 @@ import orca.llm.{
   given
 }
 import orca.events.OrcaEvent
+
+import ox.either.orThrow
 
 /** A development plan: an ordered list of [[Task]]s the agent will work
   * through, all on a single branch named by `epicId` (kebab-case, used directly
@@ -53,6 +54,28 @@ case class Plan(
   def firstIncomplete: Option[Task] = tasks.find(!_.completed)
 
 object Plan:
+
+  /** Subdirectory under `workDir` where persistent plans live. Hidden so plain
+    * `ls` doesn't show it; convention rather than configuration to keep
+    * resume-after-crash predictable across flows.
+    */
+  val DefaultDir: os.SubPath = os.sub / ".orca"
+
+  /** Default path for a persistent plan. `<workDir>/.orca/plan-<hash>.md`
+    * where `<hash>` is the first 12 hex chars of SHA-256(userPrompt). Two
+    * unrelated prompts in the same repo get different files; rerunning the
+    * same prompt resumes the same plan.
+    */
+  def defaultPath(userPrompt: String, workDir: os.Path = os.pwd): os.Path =
+    workDir / DefaultDir / s"plan-${hashUserPrompt(userPrompt)}.md"
+
+  /** First 6 bytes of SHA-256(userPrompt) rendered as 12 hex chars. Visible
+    * for testing; flow scripts should go through [[defaultPath]].
+    */
+  private[plan] def hashUserPrompt(userPrompt: String): String =
+    val md = java.security.MessageDigest.getInstance("SHA-256")
+    val digest = md.digest(userPrompt.getBytes("UTF-8"))
+    digest.iterator.take(6).map(b => f"${b & 0xff}%02x").mkString
 
   /** Interactive planning helpers — the LLM call opens a conversation the user
     * can drive (clarifying questions, refinements) before producing the plan.
@@ -121,6 +144,32 @@ object Plan:
         () => llm.resultAs[Plan].autonomous.run(s"$userPrompt\n\n$instructions")
       )
 
+    /** Skeptically assess `userPrompt` (typically a bug/feature report) and
+      * either return a plan to implement, or a [[Verdict.Rejection]] the caller
+      * can surface to whoever filed it. The agent gets autonomous tool access
+      * — that's the point of the assessment.
+      *
+      * Same session-id return shape as [[from]], so a `Proceed` outcome can be
+      * resumed for the implementation turns; on `Rejection` the session id is
+      * still returned (the session still happened) but typically discarded.
+      */
+    def assessThenPlan[B <: BackendTag](
+        userPrompt: String,
+        llm: LlmTool[B],
+        instructions: String = PlanPrompts.AssessThenPlan
+    )(using FlowContext): (SessionId[B], Verdict[Plan]) =
+      val (sid, assessed) =
+        llm
+          .resultAs[AssessedPlan]
+          .autonomous
+          .startSession(s"$userPrompt\n\n$instructions")
+      // The decode succeeded but the field combination is incoherent — past
+      // the retry loop, treat it as a system-level failure with the structured
+      // error attached.
+      val verdict = assessed.toVerdict
+        .fold(msg => throw OrcaFlowException(msg), identity)
+      (sid, verdict)
+
   /** Common load-or-generate body: read+log on resume, otherwise call
     * `generate` and persist its result. The two public variants differ only in
     * which LLM-call shape they pass for `generate` (interactive vs autonomous).
@@ -162,6 +211,100 @@ object Plan:
     val current = parse(os.read(file))
     val updated = current.markComplete(title)
     os.write.over(file, render(updated))
+
+  /** Acquire a persistent plan: resume an existing one if `file` is present,
+    * otherwise evaluate `generate` and set up the branch + on-disk plan for a
+    * fresh run. The generator stays a by-name parameter so callers can pick
+    * autonomous vs. interactive planning, the model, etc., inline at the call
+    * site. `stashMessage` is used when a fresh start finds a dirty tree; pass
+    * a flow-specific string so `git stash list` is searchable.
+    */
+  def recoverOrCreate(
+      file: os.Path,
+      stashMessage: String = "orca: starting work"
+  )(generate: => Plan)(using ctx: FlowContext): Plan =
+    recover(file).getOrElse:
+      val plan = generate
+      val _ = ctx.git.ensureClean(stashMessage)
+      ctx.git.checkoutOrCreate(plan.epicId)
+      os.write.over(file, render(plan), createFolders = true)
+      plan
+
+  /** Resume from a previously-persisted plan. Returns `Some(plan)` when `file`
+    * exists, with the working tree cleaned (any pending edits stashed; the
+    * user can `git stash pop` afterwards) and the working copy attached to
+    * `plan.epicId`. Returns `None` when no file exists — the caller decides
+    * whether to generate a fresh plan ([[recoverOrCreate]] does that
+    * automatically) or treat the absence as a hard failure.
+    */
+  def recover(file: os.Path)(using ctx: FlowContext): Option[Plan] =
+    if !os.exists(file) then None
+    else
+      // Snapshot the file before stashing so an untracked plan file (one
+      // created on disk but never committed — the common crash-before-first-
+      // task-commit case) survives `ensureClean -u`. After the stash, if the
+      // file is gone, restore it from the snapshot. If it's still there,
+      // we trust the post-stash version — a tracked+dirty plan file should
+      // resume from the committed contents, not the in-progress edits.
+      val snapshot = os.read(file)
+      val _ = ctx.git.ensureClean("orca: pre-recovery stash")
+      val source =
+        if os.exists(file) then os.read(file)
+        else
+          os.write.over(file, snapshot, createFolders = true)
+          snapshot
+      val plan = parse(source)
+      ctx.git.checkoutOrCreate(plan.epicId)
+      ctx.emit(
+        OrcaEvent.Step(
+          s"Recovered plan at $file (${plan.tasks.size} task(s), ${plan.tasks.count(_.completed)} already complete)"
+        )
+      )
+      Some(plan)
+
+  /** Drive `plan` to completion while persisting progress to `file`. For each
+    * incomplete task the helper calls `body(task)`, ticks the checkbox on
+    * disk, and commits both the body's changes and the tick as a single
+    * `task: <title>` commit. When every task is complete it removes `file`
+    * and makes a `chore: remove <file.last>` cleanup commit (or none if the
+    * file was untracked).
+    *
+    * The body is responsible for the work itself — implementation, review,
+    * lint, format — and may freely call other helpers; everything it touches
+    * lands in the per-task commit. Bodies that throw abort the loop with the
+    * partial plan still on disk so a subsequent run can resume.
+    */
+  def runPersistent(file: os.Path, plan: Plan)(body: Task => Unit)(using
+      ctx: FlowContext
+  ): Unit =
+    var current = plan
+    var task = current.firstIncomplete
+    while task.isDefined do
+      val t = task.get
+      body(t)
+      persistComplete(file, t.title)
+      ctx.git.commit(s"task: ${t.title}").orThrow
+      val next = parse(os.read(file))
+      // Defense in depth: persistComplete + a clean re-read should always
+      // advance past the just-processed title. If it didn't, the on-disk plan
+      // diverged from what we just wrote — surface it instead of spinning.
+      if next.firstIncomplete.map(_.title).contains(t.title) then
+        throw OrcaFlowException(
+          s"runPersistent: task '${t.title.value}' is still the first incomplete entry " +
+            s"after persistComplete + commit. The plan file at $file may have been " +
+            "edited so the title still matches an unchecked task."
+        )
+      current = next
+      task = current.firstIncomplete
+    // Cleanup commit only fires if there's actually a file to remove —
+    // skipping the no-op branch avoids a wasted `git add -A` subprocess and
+    // a misleading "chore: remove …" commit-message intent when the file
+    // never existed (e.g. caller pre-removed it).
+    if os.exists(file) then
+      val _ = os.remove(file)
+      // `NothingToCommit` swallowed so a `.gitignore`d plan dir (untracked
+      // file → no diff after removal) doesn't crash the whole run.
+      val _ = ctx.git.commit(s"chore: remove ${file.last}")
 
   /** Parse a plan from its markdown representation. Strict — throws
     * [[PlanParseException]] on any deviation from the schema. CRLF line endings

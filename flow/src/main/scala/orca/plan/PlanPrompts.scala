@@ -22,3 +22,11 @@ object PlanPrompts:
     */
   val Planning: String =
     PromptResource.load("/orca/plan/prompts/planning.md")
+
+  /** Used by `Plan.autonomous.assessThenPlan`. Asks the agent to first verify
+    * the report against the repo, then either return a critique/rebuff/
+    * follow-up question, or a plan in the usual shape. The agent gets
+    * autonomous tool access (Read/Bash) — that's the point of the verification.
+    */
+  val AssessThenPlan: String =
+    PromptResource.load("/orca/plan/prompts/assess-then-plan.md")

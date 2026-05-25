@@ -83,7 +83,17 @@ trait GitHubTool:
     * line-level review comments — those live on a separate endpoint).
     */
   def readPrComments(pr: PrHandle): List[Comment]
+
+  /** Post a top-level issue-style comment on a pull request (the comments the
+    * GitHub UI shows under the description, not line-level review comments).
+    */
   def writeComment(pr: PrHandle, body: String): Unit
+
+  /** Post a top-level comment on an issue. Used by assess-then-act flows to
+    * surface a follow-up question / critique / rebuff back to the reporter
+    * when no PR will be opened.
+    */
+  def writeComment(issue: IssueHandle, body: String): Unit
   def buildStatus(pr: PrHandle): BuildStatus
   def waitForBuild(
       pr: PrHandle,
@@ -208,6 +218,17 @@ class OsGitHubTool(
       pr.number.toString,
       "--repo",
       s"${pr.owner}/${pr.repo}",
+      "--body",
+      body
+    )
+
+  def writeComment(issue: IssueHandle, body: String): Unit =
+    val _ = gh(
+      "issue",
+      "comment",
+      issue.number.toString,
+      "--repo",
+      s"${issue.owner}/${issue.repo}",
       "--body",
       body
     )

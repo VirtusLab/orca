@@ -29,7 +29,7 @@ export orca.llm.{
   schemaFromJsonData,
   codecFromJsonData
 }
-export orca.plan.{BugReportMatch, BugTriage, Plan, Task, Title}
+export orca.plan.{BugReportMatch, BugTriage, Plan, Task, Title, Verdict}
 export orca.review.{
   allReviewers,
   fixLoop,

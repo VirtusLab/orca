@@ -95,7 +95,7 @@ The following are available inside a `flow(...) { ... }`:
 | `claude` | `autonomous.{run,startSession,continueSession}`, `resultAs[O].{autonomous,interactive}.{run,startSession,continueSession}`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt`, `withName` | Claude Code coding/reviewing agent. The `autonomous` vs `interactive` mode is always visible at the call site (interactive lives only on `resultAs[O]`). |
 | `codex` | `autonomous.{run,startSession,continueSession}`, `resultAs[O].{autonomous,interactive}.{run,startSession,continueSession}`, `mini`, `withConfig`, `withSystemPrompt`, `withName` | OpenAI Codex coding/reviewing agent. |
 | `git` | `createBranch`, `checkout`, `checkoutOrCreate`, `ensureClean`, `commit`, `push`, `currentBranch`, `diff`, `log`, `addWorktree`, `removeWorktree`, `listWorktrees` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushRejected`, `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. |
-| `gh` | `createPr`, `readComments`, `writeComment`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` returns `Either[PrCreateFailed, …]` (covers `PrAlreadyExists` / `NoCommitsToPr`); `waitForBuild` returns `Either[BuildTimedOut, …]`. |
+| `gh` | `createPr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` returns `Either[PrCreateFailed, …]` (covers `PrAlreadyExists` / `NoCommitsToPr`); `waitForBuild` returns `Either[BuildTimedOut, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
 
 For the LLM interfaces, `resultAs[O]` defines the shape of the structured
@@ -120,13 +120,22 @@ Planning utilities, available via `import orca.plan.*`:
 |---|---|
 | `Plan.interactive.from(userPrompt, llm, instructions?)` | Open an interactive planning round-trip — the agent can ask clarifying questions before producing the plan. Returns the session id + a `Plan` so the caller can `continueSession` on the same context when implementing each task. |
 | `Plan.autonomous.from(userPrompt, llm, instructions?)` | Same shape as `interactive.from` but the planning runs as a single agentic turn, no human in the loop. |
+| `Plan.autonomous.assessThenPlan(userPrompt, llm, instructions?)` | Skeptically assess `userPrompt` (typically a bug/feature report) against the repo and either return a plan (`Verdict.Proceed`) or a critique/follow-up question/rebuff the caller surfaces back to the reporter (`Verdict.Rejection`). Used by `issue-pr.sc`. |
 | `Plan.interactive.loadOrGenerate(file, userPrompt, llm, instructions?)` | Idempotent plan acquisition with interactive generation: parse `file` if it exists (resume), otherwise drive the planner conversationally and persist the result as markdown. |
 | `Plan.autonomous.loadOrGenerate(file, userPrompt, llm, instructions?)` | Same, but generation is autonomous. |
-| `Plan.persistComplete(file, title)` | Mark one task complete on disk. |
+| `Plan.defaultPath(userPrompt, workDir?)` | Returns `<workDir>/.orca/plan-<hash>.md` — the conventional persistent-plan path. `<hash>` is the first 6 bytes of SHA-256(userPrompt) rendered as 12 hex chars, so unrelated prompts in the same repo don't collide. |
+| `Plan.recover(file)` | Resume-from-crash entry point. If `file` exists: stash pending edits (`git stash pop` recovers them), switch to the plan's branch, parse the file, return `Some(plan)`. Otherwise `None` so the caller can fall back to generating. |
+| `Plan.runPersistent(file, plan)(body)` | Iterate `plan` running `body(task)` per task; tick the checkbox + commit per task; remove `file` and commit the cleanup at the end. Body owns the per-task work (implement, review, lint). |
+| `Plan.persistComplete(file, title)` | Mark one task complete on disk. Lower-level primitive `runPersistent` is built on. |
 
 Picking interactive vs autonomous is visible at the call site rather than
 hidden behind a parameter default — `Plan.interactive.*` and `Plan.autonomous.*`
 are sibling namespaces with the same method shapes.
+
+Persistent plans are the default mode for multi-task flows — `implement.sc`,
+`implement-interactive.sc`, and `epic.sc` all use `Plan.defaultPath` +
+`Plan.recover` + `Plan.runPersistent`. See ADR
+[0013](adr/0013-persistent-plans.md) for the convention and migration notes.
 
 Review utilities, available via `import orca.review.*`:
 
