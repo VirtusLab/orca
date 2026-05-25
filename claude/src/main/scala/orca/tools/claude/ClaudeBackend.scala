@@ -16,6 +16,8 @@ import orca.tools.claude.streamjson.OutboundMessage
 import ox.Ox
 import ox.channels.BufferCapacity
 
+import scala.util.control.NonFatal
+
 /** Claude Code backend. All calls — autonomous and interactive — drive a
   * stream-json subprocess through [[ClaudeConversation]]; the only difference
   * is the [[SessionMode]] passed to `openConversation` (autonomous omits the
@@ -37,6 +39,17 @@ import ox.channels.BufferCapacity
   */
 class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
     extends LlmBackend[BackendTag.ClaudeCode.type]:
+
+  /** Resources standing up the `ask_user` MCP tool for one interactive
+    * conversation: the host-side bridge, the Netty-backed MCP server, and the
+    * workDir-local config file claude reads. Bundled so failure-path teardown
+    * can be a single [[closeAskUser]] call.
+    */
+  private case class AskUserResources(
+      bridge: AskUserBridge,
+      server: AskUserMcpServer,
+      configFile: os.Path
+  )
 
   def runAutonomous(
       prompt: String,
@@ -128,13 +141,12 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
   ): Conversation[BackendTag.ClaudeCode.type] =
     // Allocate ask_user resources up front so we can close them
     // deterministically on a downstream failure. `None` for autonomous —
-    // those calls don't expose the tool.
-    val askUser: Option[AskUserResources] = mode match
-      case SessionMode.Interactive(_) => Some(allocateAskUser(workDir))
-      case SessionMode.Autonomous     => None
-    val displayPrompt: String = mode match
-      case SessionMode.Interactive(p) => p
-      case SessionMode.Autonomous     => ""
+    // those calls don't expose the tool. One match so the two branches
+    // can't drift; future modes add one tuple slot.
+    val (askUser, displayPrompt): (Option[AskUserResources], String) =
+      mode match
+        case SessionMode.Interactive(p) => (Some(allocateAskUser(workDir)), p)
+        case SessionMode.Autonomous     => (None, "")
     try
       val systemPromptFile =
         writeSystemPromptIfPresent(
@@ -203,14 +215,17 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
 
   /** Release every resource attached to an ask_user session: closes the bridge
     * (errors any drainer blocked on `nextQuestion`), stops the MCP server,
-    * removes the workDir config file if it survived to disk. Best-effort —
-    * invoked from failure paths where we want to clean up but not mask the
-    * original throw.
+    * removes the workDir config file if it survived to disk. Best-effort — each
+    * close is wrapped so one resource's failure doesn't skip the next (and so
+    * the failure-path caller's original throw isn't masked).
     */
   private def closeAskUser(r: AskUserResources): Unit =
-    r.bridge.close()
-    r.server.close()
-    if os.exists(r.configFile) then os.remove(r.configFile)
+    try r.bridge.close()
+    catch case NonFatal(_) => ()
+    try r.server.close()
+    catch case NonFatal(_) => ()
+    try if os.exists(r.configFile) then os.remove(r.configFile)
+    catch case NonFatal(_) => ()
 
   /** Write a workDir-local MCP config file advertising the host's MCP server.
     * Named with the server's bound port so two interactive conversations
@@ -273,17 +288,6 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       val file = workDir / ".claude" / "orca-system-prompt.md"
       os.write.over(file, text, createFolders = true)
       file
-
-/** Resources standing up the `ask_user` MCP tool for one interactive
-  * conversation: the host-side bridge, the Netty-backed MCP server, and the
-  * workDir-local config file claude reads. Bundled so failure-path teardown can
-  * be a single method call.
-  */
-private case class AskUserResources(
-    bridge: AskUserBridge,
-    server: AskUserMcpServer,
-    configFile: os.Path
-)
 
 object ClaudeBackend:
 

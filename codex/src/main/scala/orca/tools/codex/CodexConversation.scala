@@ -123,19 +123,22 @@ private[codex] class CodexConversation(
       case _: InterruptedException => Thread.currentThread().interrupt()
 
   override protected def cleanExitWithoutResult(): Throwable =
+    // Defer the framing to the base so the diagnosticContext below gets
+    // folded in with the same shape as the non-zero-exit branch.
     new OrcaFlowException(
-      s"codex exited cleanly but never sent a turn.completed event$diagnosticContext"
+      appendContext(
+        "codex exited cleanly but never sent a turn.completed event"
+      )
     )
 
-  /** Recent stderr lines, indented, prefixed with a `\n stderr:` header. Empty
-    * when nothing of interest was captured. Surfaced in the failure exceptions
-    * by [[StreamConversation.outcomeFromExit]] and [[cleanExitWithoutResult]]
-    * above.
+  /** Recent stderr lines, formatted as a `stderr:` block. The base layer
+    * ([[StreamConversation.appendContext]]) owns the leading-newline + indent
+    * framing so this override returns just the payload.
     */
-  override protected def diagnosticContext: String =
+  override protected def diagnosticContext: Option[String] =
     val lines = stderrBuffer.get()
-    if lines.isEmpty then ""
-    else lines.mkString("\n  stderr:\n    ", "\n    ", "")
+    if lines.isEmpty then None
+    else Some(lines.mkString("stderr:\n    ", "\n    ", ""))
 
   // --- Per-event dispatch ---
 
@@ -223,19 +226,22 @@ private[codex] object CodexConversation:
     * plus a brief explanation — enough to diagnose a failure inline, bounded so
     * a chatty subprocess can't grow memory.
     */
-  private val StderrMaxLines: Int = 20
+  private[codex] val StderrMaxLines: Int = 20
 
   /** Soft byte cap on [[stderrBuffer]], counted across kept lines. Trims from
     * the front (oldest) when exceeded, same as the line cap, so the most recent
     * (typically most diagnostic) lines stay.
     */
-  private val StderrMaxBytes: Int = 4096
+  private[codex] val StderrMaxBytes: Int = 4096
 
   /** Append `line` to `buf` while respecting both caps. Drops from the head
-    * until the result fits. Lives on the companion so the
+    * (oldest line first) until the result fits. A single line that exceeds
+    * `StderrMaxBytes` on its own is kept anyway — one oversized line is more
+    * useful than empty diagnostics. Lives on the companion so the
     * `AtomicReference.updateAndGet` callback stays a pure function.
+    * `private[codex]` so the cap-edge tests can exercise it directly.
     */
-  private def appendBounded(
+  private[codex] def appendBounded(
       buf: Vector[String],
       line: String
   ): Vector[String] =

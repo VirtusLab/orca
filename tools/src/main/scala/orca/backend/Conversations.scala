@@ -54,25 +54,27 @@ private[orca] object Conversations:
       if textBuf.nonEmpty then
         events.onEvent(OrcaEvent.AssistantMessage(textBuf.toString))
         textBuf.clear()
-    conv.events.foreach:
-      case ConversationEvent.AssistantToolCall(name, raw) =>
-        events.onEvent(OrcaEvent.ToolUse(name, summariseToolInput(raw)))
-      case ConversationEvent.AssistantTextDelta(delta) =>
-        val _ = textBuf.append(delta)
-      case ConversationEvent.AssistantThinkingDelta(_) => ()
-      case ConversationEvent.AssistantTurnEnd          => flushText()
-      case ConversationEvent.Error(msg) =>
-        events.onEvent(OrcaEvent.Error(msg))
-      // Tool results, user-message echoes, approval / user-question
-      // prompts: not relevant to the autonomous log. Approval and
-      // ask_user shouldn't ever reach an autonomous drain (no MCP, all
-      // tools pre-approved) — if they do, drop rather than crash so the
-      // result still flows.
-      case _ => ()
-    // Recover partial output if the stream ended mid-turn (deltas arrived
-    // but no AssistantTurnEnd before EOF). No-op for well-formed turns
-    // since the TurnEnd case already cleared the buffer.
-    flushText()
+    // `finally` so partial output survives an exception thrown by the
+    // iterator itself (e.g. InterruptedException from `take()` on a
+    // peer-cancelled scope). Well-formed turns cleared the buffer at
+    // their AssistantTurnEnd so the flush is a no-op there.
+    try
+      conv.events.foreach:
+        case ConversationEvent.AssistantToolCall(name, raw) =>
+          events.onEvent(OrcaEvent.ToolUse(name, summariseToolInput(raw)))
+        case ConversationEvent.AssistantTextDelta(delta) =>
+          val _ = textBuf.append(delta)
+        case ConversationEvent.AssistantThinkingDelta(_) => ()
+        case ConversationEvent.AssistantTurnEnd          => flushText()
+        case ConversationEvent.Error(msg) =>
+          events.onEvent(OrcaEvent.Error(msg))
+        // Tool results, user-message echoes, approval / user-question
+        // prompts: not relevant to the autonomous log. Approval and
+        // ask_user shouldn't ever reach an autonomous drain (no MCP, all
+        // tools pre-approved) — if they do, drop rather than crash so
+        // the result still flows.
+        case _ => ()
+    finally flushText()
     conv.awaitResult() match
       case Right(result)   => result
       case Left(cancelled) =>

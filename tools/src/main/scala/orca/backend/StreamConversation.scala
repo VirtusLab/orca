@@ -149,23 +149,35 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
 
   /** The exception used when the subprocess exits with code 0 without having
     * sent a terminal protocol message. Default: a generic `OrcaFlowException`
-    * whose message includes [[diagnosticContext]]. Backends may override
-    * outright if they prefer a different framing.
+    * whose message [[appendContext]]-folds [[diagnosticContext]]. Backends may
+    * override outright if they prefer a different framing.
     */
   protected def cleanExitWithoutResult(): Throwable =
     new OrcaFlowException(
-      s"$backendName exited cleanly but never sent a terminal message${diagnosticContext}"
+      appendContext(
+        s"$backendName exited cleanly but never sent a terminal message"
+      )
     )
 
-  /** Optional context appended to the non-zero-exit / clean-exit-without-
-    * result failure messages, so noop-listener callers (programmatic
-    * invocations, tests) still get something useful in the thrown exception
-    * even when no live listener observed the in-stream
-    * `ConversationEvent.Error` events. Default is empty; backends override to
-    * attach buffered stderr or similar. The string is appended verbatim —
-    * include the leading newline / indent if you want one.
+  /** Optional context the base layer folds into the non-zero-exit /
+    * clean-exit-without-result failure messages, so noop-listener callers
+    * (programmatic invocations, tests) still get something useful in the thrown
+    * exception even when no live listener observed the in-stream
+    * `ConversationEvent.Error` events. Default `None`; backends override to
+    * attach buffered stderr or similar. The base layer owns the formatting —
+    * overrides return just the payload, never the separator.
     */
-  protected def diagnosticContext: String = ""
+  protected def diagnosticContext: Option[String] = None
+
+  /** Fold the [[diagnosticContext]] payload (if any) onto a failure-message
+    * base. Centralised so every consumer gets the same framing — newline +
+    * two-space-indented payload — and overrides don't have to remember to
+    * include a leading newline. Subclasses that override
+    * [[cleanExitWithoutResult]] to set their own message body should call this
+    * so the diagnostic context still flows through.
+    */
+  protected def appendContext(base: String): String =
+    diagnosticContext.fold(base)(ctx => s"$base\n  $ctx")
 
   // --- Internals ---
 
@@ -228,7 +240,7 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
       case Some(code) =>
         Outcome.failed[B](
           new OrcaFlowException(
-            s"$backendName exited with code $code${diagnosticContext}"
+            appendContext(s"$backendName exited with code $code")
           )
         )
       case None => Outcome.cancelled[B]

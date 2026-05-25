@@ -106,13 +106,25 @@ class ConversationsTest extends munit.FunSuite:
     val _ = Conversations.drainAutonomous(conv, recorder)
     assertEquals(recorder.events, List(OrcaEvent.Error("boom")))
 
-  test("ToolResult and ThinkingDelta are swallowed"):
+  test("AssistantThinkingDelta is swallowed"):
+    // Thinking deltas go through their own explicit case branch (not the
+    // catch-all), so they need their own test — otherwise removing the
+    // case wouldn't break anything.
     val recorder = new RecordingListener
     val conv = new ScriptedConversation(
-      List(
-        ConversationEvent.AssistantThinkingDelta("thinking..."),
-        ConversationEvent.ToolResult("Bash", ok = true, "output")
-      ),
+      List(ConversationEvent.AssistantThinkingDelta("thinking...")),
+      Right(sampleResult)
+    )
+    val _ = Conversations.drainAutonomous(conv, recorder)
+    assertEquals(recorder.events, Nil)
+
+  test("ToolResult is swallowed"):
+    // ToolResult falls into the catch-all swallow branch; pinning it
+    // separately means a future ToolResult-specific case can't quietly
+    // change the behaviour.
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.ToolResult("Bash", ok = true, "output")),
       Right(sampleResult)
     )
     val _ = Conversations.drainAutonomous(conv, recorder)
