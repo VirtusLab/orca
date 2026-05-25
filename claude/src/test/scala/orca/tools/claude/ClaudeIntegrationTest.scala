@@ -32,7 +32,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
 
   test("headless prompt returns the requested literal output"):
     withBackend: backend =>
-      val result = backend.runHeadless(
+      val result = backend.runAutonomous(
         prompt = "Reply with the single word: READY",
         config = LlmConfig.default,
         workDir = os.temp.dir()
@@ -43,15 +43,15 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       )
       assert(SessionId.value(result.sessionId).nonEmpty)
 
-  test("continueHeadless carries conversational context across turns"):
+  test("continueAutonomous carries conversational context across turns"):
     withBackend: backend =>
       val workDir = os.temp.dir()
-      val first = backend.runHeadless(
+      val first = backend.runAutonomous(
         prompt = "Remember the number 42. Reply with: stored.",
         config = LlmConfig.default,
         workDir = workDir
       )
-      val second = backend.continueHeadless(
+      val second = backend.continueAutonomous(
         sessionId = first.sessionId,
         prompt = "What number did I ask you to remember?",
         config = LlmConfig.default,

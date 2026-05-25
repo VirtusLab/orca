@@ -30,7 +30,7 @@ class CodexIntegrationTest extends munit.FunSuite:
     LlmConfig.default.copy(autoApprove = AutoApprove.All)
 
   test("headless prompt returns the requested literal output"):
-    val result = backend.runHeadless(
+    val result = backend.runAutonomous(
       prompt =
         "Reply with the single word: READY. Reply with that word and nothing else.",
       config = unsandboxed,
@@ -42,14 +42,14 @@ class CodexIntegrationTest extends munit.FunSuite:
     )
     assert(SessionId.value(result.sessionId).nonEmpty)
 
-  test("continueHeadless carries conversational context across turns"):
+  test("continueAutonomous carries conversational context across turns"):
     val workDir = os.temp.dir()
-    val first = backend.runHeadless(
+    val first = backend.runAutonomous(
       prompt = "Remember the number 42. Reply with the single word: stored.",
       config = unsandboxed,
       workDir = workDir
     )
-    val second = backend.continueHeadless(
+    val second = backend.continueAutonomous(
       sessionId = first.sessionId,
       prompt =
         "What number did I ask you to remember? Reply with just the number.",

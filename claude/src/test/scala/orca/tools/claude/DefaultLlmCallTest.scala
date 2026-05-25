@@ -24,7 +24,7 @@ class SequencedBackend(outputs: List[String])
 
   def prompts: List[String] = promptsRef.get().reverse
 
-  def runHeadless(
+  def runAutonomous(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
@@ -34,7 +34,7 @@ class SequencedBackend(outputs: List[String])
   /** Record a continuation call tagged with its sessionId so tests can assert
     * the same session is being resumed across retries.
     */
-  def continueHeadless(
+  def continueAutonomous(
       sessionId: SessionId[BackendTag.ClaudeCode.type],
       prompt: String,
       config: LlmConfig,

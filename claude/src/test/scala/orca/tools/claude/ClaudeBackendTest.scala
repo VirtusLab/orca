@@ -43,28 +43,28 @@ class ClaudeBackendTest extends munit.FunSuite:
       given BufferCapacity = BufferCapacity(8)
       body(new ClaudeBackend(runner))
 
-  test("runHeadless invokes claude in stream-json mode (no --mcp-config)"):
+  test("runAutonomous invokes claude in stream-json mode (no --mcp-config)"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val _ =
-        backend.runHeadless("summarize", LlmConfig.default, os.temp.dir())
+        backend.runAutonomous("summarize", LlmConfig.default, os.temp.dir())
       val args = runner.calls.head
       assert(args.containsSlice(Seq("--input-format", "stream-json")))
       assert(args.containsSlice(Seq("--output-format", "stream-json")))
       // No ask_user MCP on the autonomous path.
       assert(!args.contains("--mcp-config"), args)
 
-  test("runHeadless parses session id, output, usage, and cost"):
+  test("runAutonomous parses session id, output, usage, and cost"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
-      val result = backend.runHeadless("x", LlmConfig.default, os.temp.dir())
+      val result = backend.runAutonomous("x", LlmConfig.default, os.temp.dir())
       assertEquals(SessionId.value(result.sessionId), "sess-123")
       assertEquals(result.output, "hello world")
       assertEquals(result.usage.inputTokens, 10L)
       assertEquals(result.usage.outputTokens, 5L)
       assertEquals(result.usage.cost, Some(BigDecimal("0.0012")))
 
-  test("runHeadless throws when the result message reports is_error"):
+  test("runAutonomous throws when the result message reports is_error"):
     val p = new FakePipedCliProcess()
     p.enqueueStdout(
       """{"type":"system","subtype":"init","session_id":"s","model":"claude-haiku-4-5"}"""
@@ -77,37 +77,39 @@ class ClaudeBackendTest extends munit.FunSuite:
     p.sendSigInt()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       intercept[OrcaFlowException]:
-        backend.runHeadless("x", LlmConfig.default, os.temp.dir())
+        backend.runAutonomous("x", LlmConfig.default, os.temp.dir())
 
-  test("runHeadless throws when the subprocess exits non-zero"):
+  test("runAutonomous throws when the subprocess exits non-zero"):
     val p = new FakePipedCliProcess(initiallyAlive = false):
       override def tryExitCode: Option[Int] = Some(2)
     p.closeStdout()
     p.closeStderr()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       intercept[OrcaFlowException]:
-        backend.runHeadless("x", LlmConfig.default, os.temp.dir())
+        backend.runAutonomous("x", LlmConfig.default, os.temp.dir())
 
   test(
-    "runHeadless writes the system prompt to a file when config provides one"
+    "runAutonomous writes the system prompt to a file when config provides one"
   ):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val workDir = os.temp.dir()
       val config = LlmConfig(systemPrompt = Some("you are a poet"))
-      val _ = backend.runHeadless("x", config, workDir)
+      val _ = backend.runAutonomous("x", config, workDir)
       val file = workDir / ".claude" / "orca-system-prompt.md"
       assert(os.exists(file))
       // Autonomous path doesn't append the ask_user hint.
       assertEquals(os.read(file), "you are a poet")
 
-  test("continueHeadless passes --resume <id> and returns the new session id"):
+  test(
+    "continueAutonomous passes --resume <id> and returns the new session id"
+  ):
     val runner = new SpawnStubCliRunner(
       List(successfulProcess(sessionId = "sess-456"))
     )
     withBackend(runner): backend =>
       val existing = SessionId[BackendTag.ClaudeCode.type]("sess-123")
-      val result = backend.continueHeadless(
+      val result = backend.continueAutonomous(
         existing,
         "keep going",
         LlmConfig.default,

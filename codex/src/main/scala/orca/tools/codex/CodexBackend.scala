@@ -3,38 +3,46 @@ package orca.tools.codex
 import orca.events.OrcaListener
 import orca.llm.{BackendTag, LlmConfig, SessionId}
 import orca.OrcaFlowException
-import orca.backend.{Conversation, Conversations, LlmBackend, LlmResult}
+import orca.backend.{
+  Conversation,
+  Conversations,
+  LlmBackend,
+  LlmResult,
+  SessionMode
+}
 import orca.subprocess.CliRunner
 
-/** Codex backend. Both headless and interactive paths drive `codex exec --json`
-  * over stdio: stdout JSONL is parsed into [[InboundEvent]]s, and the assistant
-  * message preceding `turn.completed` becomes the result. See
+/** Codex backend. Both autonomous and interactive paths drive `codex exec
+  * --json` over stdio: stdout JSONL is parsed into [[InboundEvent]]s, and the
+  * assistant message preceding `turn.completed` becomes the result. See
   * [[../../../adr/0007-codex-exec-jsonl-driver.md ADR 0007]] for the shape of
   * the protocol and the rationale for not using the experimental WebSocket
   * app-server.
   *
-  * Interactive sessions wrap the same subprocess in a [[CodexConversation]] so
-  * the channel can render events live. Multi-turn happens via
-  * `continueInteractive`, which spawns a fresh `codex exec resume <thread_id>`.
+  * Both modes wrap the subprocess in a [[CodexConversation]]; the autonomous
+  * path drains it internally via [[orca.backend.Conversations.drainAutonomous]]
+  * while the interactive path returns the conversation for an `Interaction` to
+  * drive. Multi-turn happens via `continueInteractive` / `continueAutonomous`,
+  * which spawn a fresh `codex exec resume <thread_id>`.
   */
 class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
 
-  def runHeadless(
+  def runAutonomous(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
       events: OrcaListener = OrcaListener.noop
   ): LlmResult[BackendTag.Codex.type] =
-    invokeHeadless(prompt, config, workDir, resume = None, events)
+    invokeAutonomous(prompt, config, workDir, resume = None, events)
 
-  def continueHeadless(
+  def continueAutonomous(
       sessionId: SessionId[BackendTag.Codex.type],
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
       events: OrcaListener = OrcaListener.noop
   ): LlmResult[BackendTag.Codex.type] =
-    invokeHeadless(prompt, config, workDir, resume = Some(sessionId), events)
+    invokeAutonomous(prompt, config, workDir, resume = Some(sessionId), events)
 
   def runInteractive(
       prompt: String,
@@ -45,7 +53,7 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
   ): Conversation[BackendTag.Codex.type] =
     openConversation(
       prompt,
-      displayPrompt,
+      mode = SessionMode.Interactive(displayPrompt),
       config,
       workDir,
       resume = None,
@@ -62,7 +70,7 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
   ): Conversation[BackendTag.Codex.type] =
     openConversation(
       prompt,
-      displayPrompt,
+      mode = SessionMode.Interactive(displayPrompt),
       config,
       workDir,
       resume = Some(sessionId),
@@ -76,15 +84,23 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
     * [[CodexConversation]]. Stdin is closed immediately — codex consumes the
     * prompt argv-side and reads stdin only as an appended `<stdin>` block,
     * which we don't use.
+    *
+    * `mode` only affects the opening `UserMessage` event the conversation
+    * surfaces to the renderer (`Interactive` carries the `displayPrompt`,
+    * `Autonomous` enqueues nothing). codex has no MCP / `ask_user` flow, so the
+    * autonomous/interactive distinction is otherwise wire-identical.
     */
   private def openConversation(
       prompt: String,
-      displayPrompt: String,
+      mode: SessionMode,
       config: LlmConfig,
       workDir: os.Path,
       resume: Option[SessionId[BackendTag.Codex.type]],
       outputSchema: Option[String]
   ): Conversation[BackendTag.Codex.type] =
+    val displayPrompt = mode match
+      case SessionMode.Interactive(p) => p
+      case SessionMode.Autonomous     => ""
     val finalPrompt = mergeSystemPrompt(config, prompt)
     val schemaFile = writeSchemaIfPresent(outputSchema, workDir)
     val args = resume match
@@ -109,14 +125,14 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
           s"Failed to open codex session: ${e.getMessage}"
         )
 
-  /** Headless invocation: open a [[CodexConversation]] over the same JSONL
+  /** Autonomous invocation: open a [[CodexConversation]] over the same JSONL
     * subprocess the interactive path uses, then drain it via
     * [[Conversations.drainAutonomous]] to get the result. The conversation's
     * own reader thread + stderr drain (in [[orca.backend.StreamConversation]])
     * handle the lifecycle bits that used to live in a bespoke `drainHeadless`
     * here.
     */
-  private def invokeHeadless(
+  private def invokeAutonomous(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
@@ -125,16 +141,13 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
   ): LlmResult[BackendTag.Codex.type] =
     val conv = openConversation(
       prompt = prompt,
-      // No renderer on the autonomous path — the prompt is only ever shown
-      // to the agent, never echoed back to the user.
-      displayPrompt = "",
+      mode = SessionMode.Autonomous,
       config = config,
       workDir = workDir,
       resume = resume,
-      // codex `exec resume` rejects `--output-schema`, and headless
+      // codex `exec resume` rejects `--output-schema`, and autonomous
       // structured calls already wrap the prompt with the schema via
-      // DefaultLlmCall's template. Schema enforcement at the CLI moves
-      // here in a later phase once the SPI carries it.
+      // DefaultLlmCall's template.
       outputSchema = None
     )
     try Conversations.drainAutonomous(conv, events)

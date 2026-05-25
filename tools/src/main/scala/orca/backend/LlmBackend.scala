@@ -9,14 +9,15 @@ import orca.llm.{BackendTag, LlmConfig, SessionId}
   *
   * Two pairs of methods cover the cartesian product of session-retention
   * (`run*` starts a new session, `continue*` resumes one via `sessionId`) and
-  * UX shape (`*Headless` runs to completion off-screen and returns the result;
-  * `*Interactive` returns a live [[Conversation]] the caller drives through an
-  * [[Interaction]]).
+  * UX shape (`*Autonomous` runs to completion off-screen and returns the
+  * result; `*Interactive` returns a live [[Conversation]] the caller drives
+  * through an [[Interaction]]).
   *
   * `prompt` on every method is the full wire-level message sent to the agent —
   * with whatever template scaffolding, schema, and rules the caller wrapped
   * around the user's input. `displayPrompt` (interactive only) is what the
-  * renderer shows the user; headless has no renderer, hence no `displayPrompt`.
+  * renderer shows the user; autonomous has no renderer, hence no
+  * `displayPrompt`.
   *
   * `workDir` is the working directory the agent subprocess sees.
   */
@@ -30,7 +31,7 @@ trait LlmBackend[B <: BackendTag]:
     * to a no-op listener for callers (typically tests) that don't observe
     * progress.
     */
-  def runHeadless(
+  def runAutonomous(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
@@ -38,11 +39,11 @@ trait LlmBackend[B <: BackendTag]:
   ): LlmResult[B]
 
   /** Resume an existing session for one more autonomous turn. `sessionId` is a
-    * value previously returned by [[runHeadless]] or by
+    * value previously returned by [[runAutonomous]] or by
     * [[AutonomousTextCall.startSession]]. Same UX guarantees as
-    * [[runHeadless]].
+    * [[runAutonomous]].
     */
-  def continueHeadless(
+  def continueAutonomous(
       sessionId: SessionId[B],
       prompt: String,
       config: LlmConfig,

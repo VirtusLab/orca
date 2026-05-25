@@ -3,7 +3,13 @@ package orca.tools.claude
 import orca.events.OrcaListener
 import orca.llm.{BackendTag, LlmConfig, SessionId}
 import orca.{OrcaFlowException}
-import orca.backend.{Conversation, Conversations, LlmBackend, LlmResult}
+import orca.backend.{
+  Conversation,
+  Conversations,
+  LlmBackend,
+  LlmResult,
+  SessionMode
+}
 import orca.subprocess.CliRunner
 import orca.tools.claude.mcp.{AskUserBridge, AskUserMcpServer}
 import orca.tools.claude.streamjson.OutboundMessage
@@ -31,22 +37,22 @@ import ox.channels.BufferCapacity
 class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
     extends LlmBackend[BackendTag.ClaudeCode.type]:
 
-  def runHeadless(
+  def runAutonomous(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
       events: OrcaListener = OrcaListener.noop
   ): LlmResult[BackendTag.ClaudeCode.type] =
-    invokeHeadless(prompt, config, workDir, resume = None, events)
+    invokeAutonomous(prompt, config, workDir, resume = None, events)
 
-  def continueHeadless(
+  def continueAutonomous(
       sessionId: SessionId[BackendTag.ClaudeCode.type],
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
       events: OrcaListener = OrcaListener.noop
   ): LlmResult[BackendTag.ClaudeCode.type] =
-    invokeHeadless(prompt, config, workDir, resume = Some(sessionId), events)
+    invokeAutonomous(prompt, config, workDir, resume = Some(sessionId), events)
 
   def runInteractive(
       prompt: String,
@@ -57,12 +63,11 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
   ): Conversation[BackendTag.ClaudeCode.type] =
     openConversation(
       prompt,
-      displayPrompt,
+      mode = SessionMode.Interactive(displayPrompt),
       config,
       workDir,
       resume = None,
-      outputSchema,
-      canAskUser = true
+      outputSchema
     )
 
   def continueInteractive(
@@ -75,35 +80,33 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
   ): Conversation[BackendTag.ClaudeCode.type] =
     openConversation(
       prompt,
-      displayPrompt,
+      mode = SessionMode.Interactive(displayPrompt),
       config,
       workDir,
       resume = Some(sessionId),
-      outputSchema,
-      canAskUser = true
+      outputSchema
     )
 
   /** Spawn `claude` in stream-json mode, write the opening user turn, close
     * stdin, and wrap the process in a live [[ClaudeConversation]]. Used by both
-    * the interactive path (`runInteractive`, `canAskUser = true`) and the
-    * autonomous path (`runHeadless`, `canAskUser = false`).
+    * the interactive path ([[SessionMode.Interactive]]) and the autonomous path
+    * ([[SessionMode.Autonomous]]).
     *
     * The initial user turn is the only thing we feed through stdin; once it's
     * written we close the pipe so `claude --print --input-format stream-json`
     * stops waiting for EOF and starts producing output.
     *
-    * `canAskUser = true` wires the MCP `ask_user` tool: we stand up an
+    * `Interactive` mode wires the MCP `ask_user` tool: we stand up an
     * [[AskUserMcpServer]] on an ephemeral port, write a workDir-local
     * `.orca-mcp-<port>.json` pointing at it, tell claude about it via
     * `--mcp-config`, and add the tool name to the auto-approve set so the user
-    * isn't prompted to authorise it. When the agent calls `ask_user` the bridge
-    * wakes up, the conversation emits a `UserQuestion` event, the renderer
-    * prompts, and the typed answer becomes the tool result.
+    * isn't prompted to authorise it. The mode also carries the `displayPrompt`
+    * the conversation surfaces to the renderer as an opening `UserMessage`.
     *
-    * `canAskUser = false` skips all of that — no MCP server, no config file, no
-    * system-prompt hint, no auto-approve entry. Autonomous calls have no
-    * renderer to drive the prompt, so exposing the tool would just give the
-    * agent a way to deadlock the call.
+    * `Autonomous` mode skips all of that — no MCP server, no config file, no
+    * system-prompt hint, no auto-approve entry, no opening `UserMessage`.
+    * Autonomous calls have no renderer to drive the prompt, so exposing the
+    * tool would just give the agent a way to deadlock the call.
     *
     * The MCP server (when present) is handed to ClaudeConversation as a session
     * resource; its `close()` runs from `onFinalize` after the read loop drains,
@@ -116,27 +119,31 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
     */
   private def openConversation(
       prompt: String,
-      displayPrompt: String,
+      mode: SessionMode,
       config: LlmConfig,
       workDir: os.Path,
       resume: Option[SessionId[BackendTag.ClaudeCode.type]],
-      outputSchema: Option[String],
-      canAskUser: Boolean
+      outputSchema: Option[String]
   ): Conversation[BackendTag.ClaudeCode.type] =
     // Allocate ask_user resources up front so we can close them
-    // deterministically on a downstream failure. `None` when
-    // canAskUser=false — autonomous calls don't expose the tool.
-    val askUser: Option[AskUserResources] =
-      if canAskUser then Some(allocateAskUser(workDir)) else None
+    // deterministically on a downstream failure. `None` for autonomous —
+    // those calls don't expose the tool.
+    val askUser: Option[AskUserResources] = mode match
+      case SessionMode.Interactive(_) => Some(allocateAskUser(workDir))
+      case SessionMode.Autonomous     => None
+    val displayPrompt: String = mode match
+      case SessionMode.Interactive(p) => p
+      case SessionMode.Autonomous     => ""
     try
       val systemPromptFile =
         writeSystemPromptIfPresent(
           config,
           workDir,
-          includeAskUserHint = canAskUser
+          includeAskUserHint = askUser.isDefined
         )
       val effectiveConfig =
-        if canAskUser then config.autoApproveAlso(ClaudeBackend.AskUserToolName)
+        if askUser.isDefined then
+          config.autoApproveAlso(ClaudeBackend.AskUserToolName)
         else config
       val args = ClaudeArgs.streamJson(
         effectiveConfig,
@@ -226,7 +233,7 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
     * for transient failures live one layer up in `DefaultLlmCall` — it wraps
     * every structured call in `retry(effective.retrySchedule)`.
     */
-  private def invokeHeadless(
+  private def invokeAutonomous(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
@@ -235,14 +242,11 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
   ): LlmResult[BackendTag.ClaudeCode.type] =
     val conv = openConversation(
       prompt = prompt,
-      // No renderer on the autonomous path; the prompt is only ever shown
-      // to the agent, never echoed back to the user.
-      displayPrompt = "",
+      mode = SessionMode.Autonomous,
       config = config,
       workDir = workDir,
       resume = resume,
-      outputSchema = None,
-      canAskUser = false
+      outputSchema = None
     )
     try Conversations.drainAutonomous(conv, events)
     catch

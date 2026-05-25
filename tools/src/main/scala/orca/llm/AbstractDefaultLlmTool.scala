@@ -6,8 +6,8 @@ import orca.events.{OrcaEvent, OrcaListener}
 /** Skeleton shared by Claude and Codex's default tools — and by any future
   * backend that follows the same `LlmBackend` contract. Centralises the
   * autonomous-text path (which is otherwise pure delegation to
-  * `backend.runHeadless` / `continueHeadless` plus `TokensUsed` emission), the
-  * `resultAs[O]` factory, and the `withConfig` / `withSystemPrompt` /
+  * `backend.runAutonomous` / `continueAutonomous` plus `TokensUsed` emission),
+  * the `resultAs[O]` factory, and the `withConfig` / `withSystemPrompt` /
   * `withName` builders.
   *
   * Concrete subclasses provide:
@@ -52,13 +52,13 @@ abstract class AbstractDefaultLlmTool[B <: BackendTag, Self <: LlmTool[B]](
 
   val autonomous: AutonomousTextCall[B] = new AutonomousTextCall[B]:
     def run(prompt: String, callConfig: LlmConfig = LlmConfig.default): String =
-      runHeadless(prompt, callConfig, resume = None).output
+      runAutonomous(prompt, callConfig, resume = None).output
 
     def startSession(
         prompt: String,
         callConfig: LlmConfig = LlmConfig.default
     ): (SessionId[B], String) =
-      val result = runHeadless(prompt, callConfig, resume = None)
+      val result = runAutonomous(prompt, callConfig, resume = None)
       (result.sessionId, result.output)
 
     def continueSession(
@@ -66,7 +66,7 @@ abstract class AbstractDefaultLlmTool[B <: BackendTag, Self <: LlmTool[B]](
         prompt: String,
         callConfig: LlmConfig = LlmConfig.default
     ): String =
-      runHeadless(prompt, callConfig, resume = Some(sessionId)).output
+      runAutonomous(prompt, callConfig, resume = Some(sessionId)).output
 
   def resultAs[O: JsonData: Announce]: LlmCall[B, O] =
     new DefaultLlmCall[B, O](
@@ -79,12 +79,12 @@ abstract class AbstractDefaultLlmTool[B <: BackendTag, Self <: LlmTool[B]](
       agentName = name
     )
 
-  /** One headless turn — handles the resume/no-resume split and the
+  /** One autonomous turn — handles the resume/no-resume split and the
     * `TokensUsed` emission so the `autonomous` methods stay one-liners.
     * `events` flows into the backend so the drain can surface per-tool-use and
     * per-message progress as the subprocess runs.
     */
-  private def runHeadless(
+  private def runAutonomous(
       prompt: String,
       callConfig: LlmConfig,
       resume: Option[SessionId[B]]
@@ -92,8 +92,8 @@ abstract class AbstractDefaultLlmTool[B <: BackendTag, Self <: LlmTool[B]](
     val effective = effectiveConfig(callConfig)
     val result = resume match
       case Some(sid) =>
-        backend.continueHeadless(sid, prompt, effective, workDir, events)
-      case None => backend.runHeadless(prompt, effective, workDir, events)
+        backend.continueAutonomous(sid, prompt, effective, workDir, events)
+      case None => backend.runAutonomous(prompt, effective, workDir, events)
     emitTokens(effective, result)
     result
 

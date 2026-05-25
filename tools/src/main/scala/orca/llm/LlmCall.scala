@@ -53,8 +53,8 @@ trait InteractiveLlmCall[B <: BackendTag, O]:
   * The trait splits into `autonomous` and `interactive` sibling objects so the
   * call site shows which mode it picked. This class wires both:
   *
-  *   - The autonomous shape goes through `backend.runHeadless` /
-  *     `backend.continueHeadless` and shares a retry-with-corrective-prompt
+  *   - The autonomous shape goes through `backend.runAutonomous` /
+  *     `backend.continueAutonomous` and shares a retry-with-corrective-prompt
   *     loop: if the response fails to parse as `O`, the next attempt's prompt
   *     includes the failed output and the parser error so the model can
   *     self-correct.
@@ -85,18 +85,18 @@ class DefaultLlmCall[B <: BackendTag, O](
 
   val autonomous: AutonomousLlmCall[B, O] = new AutonomousLlmCall[B, O]:
     def run[I: AgentInput](input: I, config: LlmConfig = LlmConfig.default): O =
-      runHeadlessWithRetry(input, config, resume = None)._2
+      runAutonomousWithRetry(input, config, resume = None)._2
 
     def startSession[I: AgentInput](
         input: I,
         config: LlmConfig = LlmConfig.default
-    ): (SessionId[B], O) = runHeadlessWithRetry(input, config, resume = None)
+    ): (SessionId[B], O) = runAutonomousWithRetry(input, config, resume = None)
 
     def continueSession[I: AgentInput](
         sessionId: SessionId[B],
         input: I,
         config: LlmConfig = LlmConfig.default
-    ): O = runHeadlessWithRetry(input, config, resume = Some(sessionId))._2
+    ): O = runAutonomousWithRetry(input, config, resume = Some(sessionId))._2
 
   val interactive: InteractiveLlmCall[B, O] = new InteractiveLlmCall[B, O]:
     def startSession[I: AgentInput](
@@ -118,12 +118,12 @@ class DefaultLlmCall[B <: BackendTag, O](
   private def emitStructuredResult(raw: String, value: O): Unit =
     events.onEvent(OrcaEvent.StructuredResult(raw, announce.message(value)))
 
-  /** Headless retry loop used by autonomous.run / startSession /
+  /** Autonomous retry loop used by autonomous.run / startSession /
     * continueSession. On a parse failure the next attempt swaps the original
     * prompt for a corrective one; the returned session id is whichever one
     * succeeded.
     */
-  private def runHeadlessWithRetry[I](
+  private def runAutonomousWithRetry[I](
       input: I,
       config: LlmConfig,
       resume: Option[SessionId[B]]
@@ -144,8 +144,8 @@ class DefaultLlmCall[B <: BackendTag, O](
         case None    => initialPrompt
       val result = resume match
         case Some(sid) =>
-          backend.continueHeadless(sid, promptText, effective, workDir)
-        case None => backend.runHeadless(promptText, effective, workDir)
+          backend.continueAutonomous(sid, promptText, effective, workDir)
+        case None => backend.runAutonomous(promptText, effective, workDir)
       events.onEvent(
         OrcaEvent.TokensUsed(
           agentName,

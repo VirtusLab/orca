@@ -26,18 +26,18 @@ class CodexBackendTest extends munit.FunSuite:
     p.sendSigInt() // mark exited so waitForExit returns
     p
 
-  test("runHeadless parses thread id, last agent_message, and usage"):
+  test("runAutonomous parses thread id, last agent_message, and usage"):
     val runner = new SpawnStubCliRunner(
       List(successfulProcess("thr-42", "the answer", 100L, 25L))
     )
     val backend = new CodexBackend(runner)
-    val result = backend.runHeadless("q", LlmConfig.default, os.temp.dir())
+    val result = backend.runAutonomous("q", LlmConfig.default, os.temp.dir())
     assertEquals(SessionId.value(result.sessionId), "thr-42")
     assertEquals(result.output, "the answer")
     assertEquals(result.usage.inputTokens, 100L)
     assertEquals(result.usage.outputTokens, 25L)
 
-  test("runHeadless surfaces the model id reported on thread.started"):
+  test("runAutonomous surfaces the model id reported on thread.started"):
     val p = new FakePipedCliProcess()
     p.enqueueStdout(
       """{"type":"thread.started","thread_id":"thr-m","model":"gpt-5"}"""
@@ -53,10 +53,10 @@ class CodexBackendTest extends munit.FunSuite:
     p.closeStderr()
     p.sendSigInt()
     val backend = new CodexBackend(new SpawnStubCliRunner(List(p)))
-    val result = backend.runHeadless("q", LlmConfig.default, os.temp.dir())
+    val result = backend.runAutonomous("q", LlmConfig.default, os.temp.dir())
     assertEquals(result.model, Some(Model("gpt-5")))
 
-  test("runHeadless throws when codex exits without turn.completed"):
+  test("runAutonomous throws when codex exits without turn.completed"):
     val p = new FakePipedCliProcess()
     p.enqueueStdout("""{"type":"thread.started","thread_id":"thr-x"}""")
     p.closeStdout()
@@ -64,9 +64,9 @@ class CodexBackendTest extends munit.FunSuite:
     p.sendSigInt()
     val backend = new CodexBackend(new SpawnStubCliRunner(List(p)))
     intercept[OrcaFlowException]:
-      backend.runHeadless("q", LlmConfig.default, os.temp.dir())
+      backend.runAutonomous("q", LlmConfig.default, os.temp.dir())
 
-  test("runHeadless throws with the exit code when codex exits non-zero"):
+  test("runAutonomous throws with the exit code when codex exits non-zero"):
     // FakePipedCliProcess hardcodes tryExitCode = 0 when alive=false;
     // override to drive a non-zero exit so the failure branch can fire.
     val p = new FakePipedCliProcess(initiallyAlive = false):
@@ -75,7 +75,7 @@ class CodexBackendTest extends munit.FunSuite:
     p.closeStderr()
     val backend = new CodexBackend(new SpawnStubCliRunner(List(p)))
     val ex = intercept[OrcaFlowException]:
-      backend.runHeadless("q", LlmConfig.default, os.temp.dir())
+      backend.runAutonomous("q", LlmConfig.default, os.temp.dir())
     assert(
       ex.getMessage.contains("exited with code 7"),
       s"expected the exit code in the failure message; got: ${ex.getMessage}"
@@ -84,7 +84,7 @@ class CodexBackendTest extends munit.FunSuite:
   test("systemPrompt is folded into the user prompt as a preamble"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     val backend = new CodexBackend(runner)
-    val _ = backend.runHeadless(
+    val _ = backend.runAutonomous(
       "list files",
       LlmConfig.default.copy(systemPrompt = Some("be terse")),
       os.temp.dir()
@@ -94,13 +94,13 @@ class CodexBackendTest extends munit.FunSuite:
     assert(finalPrompt.contains("be terse"))
     assert(finalPrompt.contains("list files"))
 
-  test("continueHeadless returns the new session id from the resumed run"):
+  test("continueAutonomous returns the new session id from the resumed run"):
     val runner = new SpawnStubCliRunner(
       List(successfulProcess("thr-resumed"))
     )
     val backend = new CodexBackend(runner)
     val sid = SessionId[BackendTag.Codex.type]("thr-original")
-    val result = backend.continueHeadless(
+    val result = backend.continueAutonomous(
       sid,
       "next step",
       LlmConfig.default,
