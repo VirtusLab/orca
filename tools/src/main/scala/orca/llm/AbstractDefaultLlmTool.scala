@@ -81,6 +81,8 @@ abstract class AbstractDefaultLlmTool[B <: BackendTag, Self <: LlmTool[B]](
 
   /** One headless turn — handles the resume/no-resume split and the
     * `TokensUsed` emission so the `autonomous` methods stay one-liners.
+    * `events` flows into the backend so the drain can surface per-tool-use and
+    * per-message progress as the subprocess runs.
     */
   private def runHeadless(
       prompt: String,
@@ -90,8 +92,8 @@ abstract class AbstractDefaultLlmTool[B <: BackendTag, Self <: LlmTool[B]](
     val effective = effectiveConfig(callConfig)
     val result = resume match
       case Some(sid) =>
-        backend.continueHeadless(sid, prompt, effective, workDir)
-      case None => backend.runHeadless(prompt, effective, workDir)
+        backend.continueHeadless(sid, prompt, effective, workDir, events)
+      case None => backend.runHeadless(prompt, effective, workDir, events)
     emitTokens(effective, result)
     result
 

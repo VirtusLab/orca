@@ -1,5 +1,6 @@
 package orca.tools.claude
 
+import orca.events.OrcaListener
 import orca.llm.{BackendTag, LlmConfig, SessionId}
 import orca.{OrcaFlowException}
 import orca.backend.{Conversation, Conversations, LlmBackend, LlmResult}
@@ -33,17 +34,19 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
   def runHeadless(
       prompt: String,
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      events: OrcaListener = OrcaListener.noop
   ): LlmResult[BackendTag.ClaudeCode.type] =
-    invokeHeadless(prompt, config, workDir, resume = None)
+    invokeHeadless(prompt, config, workDir, resume = None, events)
 
   def continueHeadless(
       sessionId: SessionId[BackendTag.ClaudeCode.type],
       prompt: String,
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      events: OrcaListener = OrcaListener.noop
   ): LlmResult[BackendTag.ClaudeCode.type] =
-    invokeHeadless(prompt, config, workDir, resume = Some(sessionId))
+    invokeHeadless(prompt, config, workDir, resume = Some(sessionId), events)
 
   def runInteractive(
       prompt: String,
@@ -215,7 +218,8 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
-      resume: Option[SessionId[BackendTag.ClaudeCode.type]]
+      resume: Option[SessionId[BackendTag.ClaudeCode.type]],
+      events: OrcaListener
   ): LlmResult[BackendTag.ClaudeCode.type] =
     val conv = openConversation(
       prompt = prompt,
@@ -228,7 +232,7 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       outputSchema = None,
       canAskUser = false
     )
-    try Conversations.drainAutonomous(conv)
+    try Conversations.drainAutonomous(conv, events)
     catch
       case e: OrcaFlowException =>
         throw OrcaFlowException(s"claude CLI failed: ${e.getMessage}")

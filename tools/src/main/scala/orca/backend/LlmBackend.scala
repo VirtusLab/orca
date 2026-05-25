@@ -1,5 +1,6 @@
 package orca.backend
 
+import orca.events.OrcaListener
 import orca.llm.{BackendTag, LlmConfig, SessionId}
 
 /** SPI implemented per backend (Claude, Codex, …). The framework calls these
@@ -23,11 +24,17 @@ trait LlmBackend[B <: BackendTag]:
   /** Run one autonomous turn to completion and return its result. No user
     * interaction; suitable for the `autonomous.run` / `resultAs[O].autonomous`
     * paths.
+    *
+    * `events` receives per-tool-use and per-message progress as the subprocess
+    * runs, so the user has something to watch while the agent works. Defaults
+    * to a no-op listener for callers (typically tests) that don't observe
+    * progress.
     */
   def runHeadless(
       prompt: String,
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      events: OrcaListener = OrcaListener.noop
   ): LlmResult[B]
 
   /** Resume an existing session for one more autonomous turn. `sessionId` is a
@@ -39,7 +46,8 @@ trait LlmBackend[B <: BackendTag]:
       sessionId: SessionId[B],
       prompt: String,
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      events: OrcaListener = OrcaListener.noop
   ): LlmResult[B]
 
   /** Launch an interactive session and return a live [[Conversation]] the

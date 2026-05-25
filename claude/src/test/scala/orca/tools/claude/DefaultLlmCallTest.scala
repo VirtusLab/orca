@@ -27,7 +27,8 @@ class SequencedBackend(outputs: List[String])
   def runHeadless(
       prompt: String,
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      events: orca.events.OrcaListener = orca.events.OrcaListener.noop
   ): LlmResult[BackendTag.ClaudeCode.type] = nextResult(prompt)
 
   /** Record a continuation call tagged with its sessionId so tests can assert
@@ -37,7 +38,8 @@ class SequencedBackend(outputs: List[String])
       sessionId: SessionId[BackendTag.ClaudeCode.type],
       prompt: String,
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      events: orca.events.OrcaListener = orca.events.OrcaListener.noop
   ): LlmResult[BackendTag.ClaudeCode.type] =
     nextResult(prompt).copy(sessionId = sessionId)
 

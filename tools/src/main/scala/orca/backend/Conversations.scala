@@ -1,17 +1,27 @@
 package orca.backend
 
 import orca.OrcaInteractiveCancelled
+import orca.events.{OrcaEvent, OrcaListener}
 import orca.llm.BackendTag
 
 /** Drains a [[Conversation]] for the autonomous path: walks every
   * [[ConversationEvent]] off the iterator (the read loop only terminates once
-  * the subprocess finishes), then returns the result `awaitResult()` produces.
+  * the subprocess finishes), emits a matching [[OrcaEvent]] to the listener for
+  * the user-visible ones, then returns the awaited `LlmResult`.
   *
-  * The autonomous path doesn't render events; it consumes them so the
-  * subprocess can keep producing without back-pressure, and so that any
-  * `OrcaEvent`s the future wiring emits (per-tool-use lines, agent-message
-  * summaries) fire in arrival order. Today the drain is silent — task 4 of the
-  * unification plan will start emitting `OrcaEvent`s from here.
+  * Mapping:
+  *   - `AssistantToolCall(name, raw)` → `OrcaEvent.ToolUse(name, truncated)`,
+  *     so the user sees a one-line marker as each tool fires.
+  *   - `AssistantTextDelta` buffered per turn, flushed as one
+  *     `OrcaEvent.AssistantMessage` on `AssistantTurnEnd` (when non-empty).
+  *   - `AssistantThinkingDelta` dropped — internal-monologue noise isn't useful
+  *     in the autonomous log.
+  *   - `ConversationEvent.Error` re-emits as `OrcaEvent.Error` so subprocess
+  *     stderr makes it into the user log.
+  *   - `ToolResult` / `UserMessage` / `ApproveTool` / `UserQuestion` are
+  *     swallowed — autonomous calls don't render tool results (the matching
+  *     ToolUse already showed something happened), don't echo their own prompt,
+  *     and don't expose approval/ask_user flows.
   *
   * `awaitResult()`'s `Left(OrcaInteractiveCancelled)` becomes a thrown
   * `OrcaInteractiveCancelled` so autonomous callers — which never expose a
@@ -22,8 +32,34 @@ import orca.llm.BackendTag
   */
 private[orca] object Conversations:
 
-  def drainAutonomous[B <: BackendTag](conv: Conversation[B]): LlmResult[B] =
-    conv.events.foreach(_ => ())
+  /** Cap for the inline tool-input summary. Matches the live renderer's
+    * MaxInlineInputLength so autonomous and interactive logs look alike.
+    */
+  private val MaxToolInputLength: Int = 120
+
+  def drainAutonomous[B <: BackendTag](
+      conv: Conversation[B],
+      events: OrcaListener = OrcaListener.noop
+  ): LlmResult[B] =
+    val textBuf = new StringBuilder
+    conv.events.foreach:
+      case ConversationEvent.AssistantToolCall(name, raw) =>
+        events.onEvent(OrcaEvent.ToolUse(name, summariseToolInput(raw)))
+      case ConversationEvent.AssistantTextDelta(t) =>
+        val _ = textBuf.append(t)
+      case ConversationEvent.AssistantThinkingDelta(_) => ()
+      case ConversationEvent.AssistantTurnEnd =>
+        if textBuf.nonEmpty then
+          events.onEvent(OrcaEvent.AssistantMessage(textBuf.toString))
+          textBuf.clear()
+      case ConversationEvent.Error(msg) =>
+        events.onEvent(OrcaEvent.Error(msg))
+      // Tool results, user-message echoes, approval / user-question
+      // prompts: not relevant to the autonomous log. Approval and
+      // ask_user shouldn't ever reach an autonomous drain (no MCP, all
+      // tools pre-approved) — if they do, drop rather than crash so the
+      // result still flows.
+      case _ => ()
     conv.awaitResult() match
       case Right(result)   => result
       case Left(cancelled) =>
@@ -32,3 +68,13 @@ private[orca] object Conversations:
         // is not how autonomous calls are wired. Surface as a throw so the
         // call shape (returns `LlmResult`) is honoured.
         throw cancelled
+
+  /** Trim a tool-input blob to one line and cap its length. Cheap and
+    * good-enough — the live renderer's `ToolInputSummary` does a fancier
+    * field-extraction summary but lives in the runner module. The autonomous
+    * log doesn't need that fidelity.
+    */
+  private def summariseToolInput(raw: String): String =
+    val collapsed = raw.replaceAll("\\s+", " ").trim
+    if collapsed.length <= MaxToolInputLength then collapsed
+    else s"${collapsed.take(MaxToolInputLength - 1)}…"

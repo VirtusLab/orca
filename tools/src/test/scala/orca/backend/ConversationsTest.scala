@@ -1,10 +1,10 @@
 package orca.backend
 
 import orca.OrcaInteractiveCancelled
-import orca.events.Usage
+import orca.events.{OrcaEvent, OrcaListener, Usage}
 import orca.llm.{BackendTag, SessionId}
 
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 private class ScriptedConversation(
     eventList: List[ConversationEvent],
@@ -22,6 +22,15 @@ private class ScriptedConversation(
   def sendUserMessage(text: String): Unit = ()
   def canAskUser: Boolean = false
   def cancel(): Unit = ()
+
+/** Records every `OrcaEvent` it sees so tests can assert on the emission order
+  * without scaffolding a full listener.
+  */
+private class RecordingListener extends OrcaListener:
+  private val log = new AtomicReference[List[OrcaEvent]](Nil)
+  def events: List[OrcaEvent] = log.get().reverse
+  def onEvent(event: OrcaEvent): Unit =
+    val _ = log.updateAndGet(event :: _)
 
 class ConversationsTest extends munit.FunSuite:
 
@@ -48,3 +57,63 @@ class ConversationsTest extends munit.FunSuite:
     val thrown = intercept[OrcaInteractiveCancelled]:
       Conversations.drainAutonomous(conv)
     assertEquals(thrown, cancelled)
+
+  test("AssistantToolCall emits OrcaEvent.ToolUse with the truncated input"):
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.AssistantToolCall("Bash", """{"cmd":"ls"}""")),
+      Right(sampleResult)
+    )
+    val _ = Conversations.drainAutonomous(conv, recorder)
+    assertEquals(
+      recorder.events,
+      List(OrcaEvent.ToolUse("Bash", """{"cmd":"ls"}"""))
+    )
+
+  test(
+    "buffered text deltas flush as one AssistantMessage on AssistantTurnEnd"
+  ):
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("hello "),
+        ConversationEvent.AssistantTextDelta("world"),
+        ConversationEvent.AssistantTurnEnd
+      ),
+      Right(sampleResult)
+    )
+    val _ = Conversations.drainAutonomous(conv, recorder)
+    assertEquals(
+      recorder.events,
+      List(OrcaEvent.AssistantMessage("hello world"))
+    )
+
+  test("empty turn (TurnEnd with no deltas) emits nothing"):
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.AssistantTurnEnd),
+      Right(sampleResult)
+    )
+    val _ = Conversations.drainAutonomous(conv, recorder)
+    assertEquals(recorder.events, Nil)
+
+  test("ConversationEvent.Error re-emits as OrcaEvent.Error"):
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.Error("boom")),
+      Right(sampleResult)
+    )
+    val _ = Conversations.drainAutonomous(conv, recorder)
+    assertEquals(recorder.events, List(OrcaEvent.Error("boom")))
+
+  test("ToolResult and ThinkingDelta are swallowed"):
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantThinkingDelta("thinking..."),
+        ConversationEvent.ToolResult("Bash", ok = true, "output")
+      ),
+      Right(sampleResult)
+    )
+    val _ = Conversations.drainAutonomous(conv, recorder)
+    assertEquals(recorder.events, Nil)

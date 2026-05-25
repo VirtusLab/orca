@@ -1,5 +1,6 @@
 package orca.tools.codex
 
+import orca.events.OrcaListener
 import orca.llm.{BackendTag, LlmConfig, SessionId}
 import orca.OrcaFlowException
 import orca.backend.{Conversation, Conversations, LlmBackend, LlmResult}
@@ -21,17 +22,19 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
   def runHeadless(
       prompt: String,
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      events: OrcaListener = OrcaListener.noop
   ): LlmResult[BackendTag.Codex.type] =
-    invokeHeadless(prompt, config, workDir, resume = None)
+    invokeHeadless(prompt, config, workDir, resume = None, events)
 
   def continueHeadless(
       sessionId: SessionId[BackendTag.Codex.type],
       prompt: String,
       config: LlmConfig,
-      workDir: os.Path
+      workDir: os.Path,
+      events: OrcaListener = OrcaListener.noop
   ): LlmResult[BackendTag.Codex.type] =
-    invokeHeadless(prompt, config, workDir, resume = Some(sessionId))
+    invokeHeadless(prompt, config, workDir, resume = Some(sessionId), events)
 
   def runInteractive(
       prompt: String,
@@ -117,7 +120,8 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
-      resume: Option[SessionId[BackendTag.Codex.type]]
+      resume: Option[SessionId[BackendTag.Codex.type]],
+      events: OrcaListener
   ): LlmResult[BackendTag.Codex.type] =
     val conv = openConversation(
       prompt = prompt,
@@ -133,7 +137,7 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
       // here in a later phase once the SPI carries it.
       outputSchema = None
     )
-    try Conversations.drainAutonomous(conv)
+    try Conversations.drainAutonomous(conv, events)
     catch
       case e: OrcaFlowException =>
         throw new OrcaFlowException(s"codex CLI failed: ${e.getMessage}")
