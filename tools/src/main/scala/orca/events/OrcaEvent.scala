@@ -44,6 +44,15 @@ enum OrcaEvent:
     * `Announce[O]`-derived human-readable form when an instance is configured.
     */
   case StructuredResult(raw: String, summary: Option[String])
+
+  /** A turn of free-form prose from the agent. The autonomous drain emits one
+    * per [[ConversationEvent.AssistantTurnEnd]] so the user sees what the agent
+    * is doing without the interactive renderer attached. The terminal listener
+    * renders it as a `●` line, truncated to one line — full text is available
+    * to non-terminal listeners.
+    */
+  case AssistantMessage(text: String)
+
   case Error(message: String)
 
 /** Sink for [[OrcaEvent]]s.

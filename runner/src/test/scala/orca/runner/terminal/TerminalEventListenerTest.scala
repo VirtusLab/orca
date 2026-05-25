@@ -90,6 +90,36 @@ class TerminalEventListenerTest extends munit.FunSuite:
     assert(output.contains(TerminalEventListener.ErrorGlyph))
     assert(output.contains("boom"))
 
+  test("AssistantMessage renders as a `●` line with the body"):
+    val output =
+      renderEvents(List(OrcaEvent.AssistantMessage("hello there")))
+    assert(output.contains(TerminalEventListener.AssistantGlyph))
+    assert(output.contains("hello there"))
+
+  test("AssistantMessage collapses multi-line bodies to one line"):
+    val output = renderEvents(
+      List(OrcaEvent.AssistantMessage("line one\nline two\nline three"))
+    )
+    val rendered = output.split('\n').filter(_.contains("line")).mkString
+    assert(rendered.contains("line one line two line three"), rendered)
+
+  test("AssistantMessage truncates long bodies with an ellipsis"):
+    val long = "x" * (TerminalEventListener.MaxAssistantMessageLength + 50)
+    val output = renderEvents(List(OrcaEvent.AssistantMessage(long)))
+    assert(output.contains("…"), output)
+    // Truncated form is bounded by the cap (plus glyph + indent).
+    val bodyLines = output.split('\n').filter(_.contains("x"))
+    assert(
+      bodyLines.forall(
+        _.length <= TerminalEventListener.MaxAssistantMessageLength + 10
+      ),
+      bodyLines.toList
+    )
+
+  test("AssistantMessage with whitespace-only body emits nothing"):
+    val output = renderEvents(List(OrcaEvent.AssistantMessage("   \n\t  ")))
+    assertEquals(output, "")
+
   test("TokensUsed events are ignored (owned by CostTracker)"):
     val output = renderEvents(
       List(
