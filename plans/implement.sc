@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.0.2"
+//> using dep "org.virtuslab::orca:0.0.3"
 //> using jvm 21
 
 /** Simple in-memory planning + coding flow (autonomous planning).
