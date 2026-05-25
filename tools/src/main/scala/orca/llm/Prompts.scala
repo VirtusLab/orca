@@ -36,12 +36,13 @@ trait Prompts:
 /** Default [[Prompts]] implementation. Templates live as `.md` resources under
   * `src/main/resources/orca/llm/prompts/` and are loaded once at object init.
   *
-  * Autonomous calls ship the JSON Schema inline in the prompt — they route
-  * through `claude -p --output-format json` with no structured validation on
-  * the CLI side. Interactive calls rely on `--json-schema` for enforcement and
-  * let the agent reply in natural conversation until it has the final
-  * structured value; the schema is still summarised in the prompt so the model
-  * knows the target shape, but no magic marker is required.
+  * Autonomous calls ship the JSON Schema inline in the prompt and rely on
+  * `ResponseParser` + the retry loop for structural validation — they don't
+  * pass `--json-schema` to the CLI today (the backend's autonomous path opens a
+  * stream-json subprocess without a schema arg). Interactive calls pass
+  * `--json-schema` for CLI-side enforcement and let the agent reply in natural
+  * conversation until it has the final structured value; the schema is still
+  * summarised in the prompt so the model knows the target shape.
   */
 object DefaultPrompts extends Prompts:
 

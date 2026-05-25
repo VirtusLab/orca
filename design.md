@@ -63,8 +63,8 @@ claude.resultAs[TaskPlan].prompt(input)   // I inferred from input, O = TaskPlan
 
 Each stage in a flow is either **interactive** or **autonomous**:
 
-- **Interactive** (e.g., planning, design) — the user collaborates with the agent over multiple turns via a configured interaction channel (terminal by default, pluggable). The backend drives a stream-json subprocess; `--json-schema` validates the final structured turn, and a typed `result` message on the subchannel signals completion (no in-band markers). See ADR 0006.
-- **Autonomous** (e.g., coding, review) — the agent runs without user prompts (headless: non-interactive, single-shot, structured output on stdout). Live progress is forwarded to registered event listeners.
+- **Interactive** (e.g., planning, design) — the user collaborates with the agent over multiple turns via a configured interaction channel (terminal by default, pluggable). The backend drives a stream-json subprocess with the MCP `ask_user` tool wired so the agent can pause for free-form clarifications; `--json-schema` validates the final structured turn, and a typed `result` message signals completion. See ADR 0006.
+- **Autonomous** (e.g., coding, review) — the agent runs without user prompts. The backend drives the *same* stream-json subprocess (no `ask_user` MCP, no clarification flow), drains the event stream internally, and returns the result; per-tool-use and per-message progress is forwarded to registered event listeners as `OrcaEvent.ToolUse` / `OrcaEvent.AssistantMessage`.
 
 A flow freely mixes both.
 
