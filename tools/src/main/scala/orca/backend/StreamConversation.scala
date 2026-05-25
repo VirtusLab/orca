@@ -71,8 +71,12 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
     t.setDaemon(true)
     t
 
-  /** Spin up the stdout + stderr workers. Backends call this at the end of
-    * their constructor, after their own fields are assigned.
+  /** Spin up the stdout + stderr workers. Subclasses **must** call this at the
+    * end of their constructor, after their own fields are assigned — forgetting
+    * it leaves `awaitResult` returning immediately with "interactive session
+    * ended without producing a result" because `Thread.join` on a never-started
+    * thread is a no-op. The [[ensureStarted]] guard at every public entry point
+    * shouts loudly when a subclass forgets.
     */
   protected def start(): Unit =
     // Stderr first so a synchronous-finishing reader (pre-populated fake
@@ -81,11 +85,25 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
     stderrThread.start()
     readerThread.start()
 
+  /** Fail loudly if a subclass constructor reached one of the public methods
+    * without calling [[start]] — the symptom would otherwise be a silent
+    * "session ended without producing a result". Cheap NEW-state probe.
+    */
+  private def ensureStarted(label: String): Unit =
+    if readerThread.getState == Thread.State.NEW then
+      throw new IllegalStateException(
+        s"$backendName conversation: $label called before start() — " +
+          "subclass constructor likely forgot to call start() at the end."
+      )
+
   // --- Conversation surface ---
 
-  def events: Iterator[ConversationEvent] = eventQueue.iterator
+  def events: Iterator[ConversationEvent] =
+    ensureStarted("events")
+    eventQueue.iterator
 
   def awaitResult(): Either[OrcaInteractiveCancelled, LlmResult[B]] =
+    ensureStarted("awaitResult")
     readerThread.join()
     outcomeRef.get() match
       case Some(Outcome.Success(r))  => Right(r)

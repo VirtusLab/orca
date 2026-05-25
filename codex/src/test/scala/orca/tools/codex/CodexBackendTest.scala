@@ -2,51 +2,7 @@ package orca.tools.codex
 
 import orca.llm.{BackendTag, LlmConfig, Model, SessionId}
 import orca.{OrcaFlowException}
-import orca.subprocess.{
-  CliResult,
-  CliRunner,
-  FakePipedCliProcess,
-  PipedCliProcess
-}
-
-import java.util.concurrent.atomic.AtomicReference
-
-/** Test runner that hands out a pre-scripted [[FakePipedCliProcess]] each time
-  * the subject calls `spawnPiped`. Records the args so the test can assert flag
-  * mapping. Single-call: each prepared process is consumed by exactly one
-  * spawn.
-  */
-private class SpawnStubCliRunner(prepared: List[FakePipedCliProcess])
-    extends CliRunner:
-  private val queue: AtomicReference[List[FakePipedCliProcess]] =
-    AtomicReference(prepared)
-  private val recorded: AtomicReference[List[List[String]]] =
-    AtomicReference(Nil)
-
-  def calls: List[List[String]] = recorded.get().reverse
-
-  def run(
-      args: Seq[String],
-      stdin: String,
-      env: Map[String, String],
-      cwd: os.Path
-  ): CliResult =
-    throw new UnsupportedOperationException("CodexBackend does not call run")
-
-  def spawnPiped(
-      args: Seq[String],
-      env: Map[String, String],
-      cwd: os.Path,
-      pipeStderr: Boolean
-  ): PipedCliProcess =
-    val _ = recorded.updateAndGet(args.toList :: _)
-    val next = queue
-      .getAndUpdate(_.drop(1))
-      .headOption
-      .getOrElse(
-        throw new IllegalStateException("ran out of prepared processes")
-      )
-    next
+import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 
 class CodexBackendTest extends munit.FunSuite:
 
@@ -110,16 +66,11 @@ class CodexBackendTest extends munit.FunSuite:
     intercept[OrcaFlowException]:
       backend.runHeadless("q", LlmConfig.default, os.temp.dir())
 
-  test("runHeadless throws when codex exits non-zero"):
+  test("runHeadless throws with the exit code when codex exits non-zero"):
     // FakePipedCliProcess hardcodes tryExitCode = 0 when alive=false;
     // override to drive a non-zero exit so the failure branch can fire.
-    // Stderr lines now reach the user via ConversationEvent.Error → the
-    // listener (task 4 of the unification plan wires it as
-    // OrcaEvent.Error); the thrown exception just carries the exit code.
     val p = new FakePipedCliProcess(initiallyAlive = false):
       override def tryExitCode: Option[Int] = Some(7)
-    p.enqueueStdout("""{"type":"thread.started","thread_id":"thr-fail"}""")
-    p.enqueueStderr("Error: thread/resume failed: not found")
     p.closeStdout()
     p.closeStderr()
     val backend = new CodexBackend(new SpawnStubCliRunner(List(p)))
@@ -127,7 +78,7 @@ class CodexBackendTest extends munit.FunSuite:
       backend.runHeadless("q", LlmConfig.default, os.temp.dir())
     assert(
       ex.getMessage.contains("exited with code 7"),
-      s"expected the exit code to be in the failure message; got: ${ex.getMessage}"
+      s"expected the exit code in the failure message; got: ${ex.getMessage}"
     )
 
   test("systemPrompt is folded into the user prompt as a preamble"):

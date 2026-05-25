@@ -13,7 +13,9 @@ import orca.llm.BackendTag
   *   - `AssistantToolCall(name, raw)` → `OrcaEvent.ToolUse(name, truncated)`,
   *     so the user sees a one-line marker as each tool fires.
   *   - `AssistantTextDelta` buffered per turn, flushed as one
-  *     `OrcaEvent.AssistantMessage` on `AssistantTurnEnd` (when non-empty).
+  *     `OrcaEvent.AssistantMessage` on `AssistantTurnEnd` (when non-empty). Any
+  *     unflushed buffer at end-of-stream is flushed too so partial output from
+  *     a mid-turn subprocess crash isn't silently dropped.
   *   - `AssistantThinkingDelta` dropped — internal-monologue noise isn't useful
   *     in the autonomous log.
   *   - `ConversationEvent.Error` re-emits as `OrcaEvent.Error` so subprocess
@@ -37,21 +39,28 @@ private[orca] object Conversations:
     */
   private val MaxToolInputLength: Int = 120
 
+  /** Pre-compiled — `String.replaceAll` would recompile this on every call,
+    * which fires once per agent tool use (many per turn on a busy session).
+    */
+  private val WhitespaceRun: java.util.regex.Pattern =
+    java.util.regex.Pattern.compile("\\s+")
+
   def drainAutonomous[B <: BackendTag](
       conv: Conversation[B],
       events: OrcaListener = OrcaListener.noop
   ): LlmResult[B] =
     val textBuf = new StringBuilder
+    def flushText(): Unit =
+      if textBuf.nonEmpty then
+        events.onEvent(OrcaEvent.AssistantMessage(textBuf.toString))
+        textBuf.clear()
     conv.events.foreach:
       case ConversationEvent.AssistantToolCall(name, raw) =>
         events.onEvent(OrcaEvent.ToolUse(name, summariseToolInput(raw)))
-      case ConversationEvent.AssistantTextDelta(t) =>
-        val _ = textBuf.append(t)
+      case ConversationEvent.AssistantTextDelta(delta) =>
+        val _ = textBuf.append(delta)
       case ConversationEvent.AssistantThinkingDelta(_) => ()
-      case ConversationEvent.AssistantTurnEnd =>
-        if textBuf.nonEmpty then
-          events.onEvent(OrcaEvent.AssistantMessage(textBuf.toString))
-          textBuf.clear()
+      case ConversationEvent.AssistantTurnEnd          => flushText()
       case ConversationEvent.Error(msg) =>
         events.onEvent(OrcaEvent.Error(msg))
       // Tool results, user-message echoes, approval / user-question
@@ -60,6 +69,10 @@ private[orca] object Conversations:
       // tools pre-approved) — if they do, drop rather than crash so the
       // result still flows.
       case _ => ()
+    // Recover partial output if the stream ended mid-turn (deltas arrived
+    // but no AssistantTurnEnd before EOF). No-op for well-formed turns
+    // since the TurnEnd case already cleared the buffer.
+    flushText()
     conv.awaitResult() match
       case Right(result)   => result
       case Left(cancelled) =>
@@ -75,6 +88,6 @@ private[orca] object Conversations:
     * log doesn't need that fidelity.
     */
   private def summariseToolInput(raw: String): String =
-    val collapsed = raw.replaceAll("\\s+", " ").trim
+    val collapsed = WhitespaceRun.matcher(raw).replaceAll(" ").trim
     if collapsed.length <= MaxToolInputLength then collapsed
     else s"${collapsed.take(MaxToolInputLength - 1)}…"

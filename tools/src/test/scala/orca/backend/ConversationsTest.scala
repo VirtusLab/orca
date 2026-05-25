@@ -117,3 +117,44 @@ class ConversationsTest extends munit.FunSuite:
     )
     val _ = Conversations.drainAutonomous(conv, recorder)
     assertEquals(recorder.events, Nil)
+
+  test(
+    "deltas without a trailing TurnEnd still flush at end-of-stream"
+  ):
+    // Mid-turn subprocess crash: deltas arrive, then EOF before TurnEnd.
+    // Without the safety flush the partial agent message would be lost.
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("half-finished thou"),
+        ConversationEvent.AssistantTextDelta("ght")
+      ),
+      Right(sampleResult)
+    )
+    val _ = Conversations.drainAutonomous(conv, recorder)
+    assertEquals(
+      recorder.events,
+      List(OrcaEvent.AssistantMessage("half-finished thought"))
+    )
+
+  test("two back-to-back turns flush independently"):
+    // Pins the textBuf.clear() inside the AssistantTurnEnd case so the
+    // second turn doesn't carry the first turn's text.
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("turn one"),
+        ConversationEvent.AssistantTurnEnd,
+        ConversationEvent.AssistantTextDelta("turn two"),
+        ConversationEvent.AssistantTurnEnd
+      ),
+      Right(sampleResult)
+    )
+    val _ = Conversations.drainAutonomous(conv, recorder)
+    assertEquals(
+      recorder.events,
+      List(
+        OrcaEvent.AssistantMessage("turn one"),
+        OrcaEvent.AssistantMessage("turn two")
+      )
+    )

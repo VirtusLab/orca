@@ -123,21 +123,11 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       outputSchema: Option[String],
       canAskUser: Boolean
   ): Conversation[BackendTag.ClaudeCode.type] =
-    // Allocate ask_user resources up front so we can close them deterministically
-    // on a downstream failure. `None` when canAskUser=false — autonomous calls
-    // don't expose the tool.
-    val askUser: Option[(AskUserBridge, AskUserMcpServer, os.Path)] =
-      if canAskUser then
-        val bridge = new AskUserBridge
-        val server = AskUserMcpServer.start(bridge)
-        try
-          val configFile = writeMcpConfig(server.url, server.port, workDir)
-          Some((bridge, server, configFile))
-        catch
-          case e: Throwable =>
-            server.close()
-            throw e
-      else None
+    // Allocate ask_user resources up front so we can close them
+    // deterministically on a downstream failure. `None` when
+    // canAskUser=false — autonomous calls don't expose the tool.
+    val askUser: Option[AskUserResources] =
+      if canAskUser then Some(allocateAskUser(workDir)) else None
     try
       val systemPromptFile =
         writeSystemPromptIfPresent(
@@ -153,7 +143,7 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
         systemPromptFile,
         resume,
         outputSchema,
-        mcpConfig = askUser.map((_, _, file) => file)
+        mcpConfig = askUser.map(_.configFile)
       )
       val process = cli.spawnPiped(args, cwd = workDir)
       try
@@ -161,25 +151,23 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
           OutboundMessage.toJson(OutboundMessage.UserText(prompt))
         )
         process.closeStdin()
-        val resources = askUser.toList.flatMap: (_, server, configFile) =>
+        val resources = askUser.toList.flatMap: r =>
           // Order: stop the MCP server first (closes Netty workers), then
           // remove the workDir config file. Listed in close order by
           // ClaudeConversation.onFinalize.
-          List(server, ClaudeBackend.deleteFileResource(configFile))
+          List(r.server, ClaudeBackend.deleteFileResource(r.configFile))
         new ClaudeConversation(
           process,
           config,
           initialPrompt = displayPrompt,
           outputSchema = outputSchema,
-          askUserBridge = askUser.map((bridge, _, _) => bridge),
+          askUserBridge = askUser.map(_.bridge),
           sessionResources = resources
         )
       catch
         case e: Exception =>
           process.sendSigInt()
-          askUser.foreach: (_, server, configFile) =>
-            server.close()
-            os.remove(configFile)
+          askUser.foreach(closeAskUser)
           throw OrcaFlowException(
             s"Failed to open claude stream-json session: ${e.getMessage}"
           )
@@ -187,10 +175,34 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       case e: Throwable =>
         // Pre-process-spawn failure (system-prompt write / args build):
         // tear down anything we already allocated.
-        askUser.foreach: (_, server, configFile) =>
-          server.close()
-          if os.exists(configFile) then os.remove(configFile)
+        askUser.foreach(closeAskUser)
         throw e
+
+  /** Stand up the MCP server + write its config. On a failure between
+    * server.start and config write, the server is closed before the throw
+    * escapes so we don't leak a Netty binding.
+    */
+  private def allocateAskUser(workDir: os.Path): AskUserResources =
+    val bridge = new AskUserBridge
+    val server = AskUserMcpServer.start(bridge)
+    try
+      val configFile = writeMcpConfig(server.url, server.port, workDir)
+      AskUserResources(bridge, server, configFile)
+    catch
+      case e: Throwable =>
+        server.close()
+        throw e
+
+  /** Release every resource attached to an ask_user session: closes the bridge
+    * (errors any drainer blocked on `nextQuestion`), stops the MCP server,
+    * removes the workDir config file if it survived to disk. Best-effort —
+    * invoked from failure paths where we want to clean up but not mask the
+    * original throw.
+    */
+  private def closeAskUser(r: AskUserResources): Unit =
+    r.bridge.close()
+    r.server.close()
+    if os.exists(r.configFile) then os.remove(r.configFile)
 
   /** Write a workDir-local MCP config file advertising the host's MCP server.
     * Named with the server's bound port so two interactive conversations
@@ -256,6 +268,17 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       val file = workDir / ".claude" / "orca-system-prompt.md"
       os.write.over(file, text, createFolders = true)
       file
+
+/** Resources standing up the `ask_user` MCP tool for one interactive
+  * conversation: the host-side bridge, the Netty-backed MCP server, and the
+  * workDir-local config file claude reads. Bundled so failure-path teardown can
+  * be a single method call.
+  */
+private case class AskUserResources(
+    bridge: AskUserBridge,
+    server: AskUserMcpServer,
+    configFile: os.Path
+)
 
 object ClaudeBackend:
 
