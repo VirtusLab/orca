@@ -205,27 +205,39 @@ object Plan:
     val updated = current.markComplete(title)
     os.write.over(file, render(updated))
 
-  /** Acquire a persistent plan: resume an existing one if `file` is present,
-    * otherwise evaluate `generate` and set up the branch + on-disk plan for a
-    * fresh run. The generator stays a by-name parameter so callers can pick
-    * autonomous vs. interactive planning, the model, etc., inline at the call
-    * site. `stashMessage` is used when a fresh start finds a dirty tree; pass
-    * a flow-specific string so `git stash list` is searchable.
+  /** Acquire a persistent plan along with a session id callers can keep
+    * passing to `llm.autonomous.run(prompt, session)` across tasks.
+    *
+    * On recover (file present): returns the parsed plan paired with a fresh
+    * `llm.newSession` — there's no planning session to inherit, since the
+    * previous run already ended. On create: evaluates `generate` (which
+    * returns the planner's `(SessionId, Plan)`) and threads that session id
+    * through, so the implementer can resume the planning session if needed.
+    *
+    * The generator stays a by-name parameter so callers can pick autonomous
+    * vs. interactive planning, the model, etc., inline at the call site.
+    * `stashMessage` is used when a fresh start finds a dirty tree; pass a
+    * flow-specific string so `git stash list` is searchable.
     */
-  def recoverOrCreate(
+  def recoverOrCreate[B <: BackendTag](
       file: os.Path,
+      llm: LlmTool[B],
       stashMessage: String = "orca: starting work"
-  )(generate: => Plan)(using ctx: FlowContext): Plan =
-    recover(file).getOrElse:
-      // ensureClean *before* generate so the planner sees a known-clean tree
-      // (and the "stashed pending changes" Step only fires when the user
-      // actually had pre-existing dirty edits, not when the planner itself
-      // wrote files — `Plan.autonomous.from` runs read-only for that reason).
-      val _ = ctx.git.ensureClean(stashMessage)
-      val plan = generate
-      ctx.git.checkoutOrCreate(plan.epicId)
-      os.write.over(file, render(plan), createFolders = true)
-      plan
+  )(generate: => (SessionId[B], Plan))(using
+      ctx: FlowContext
+  ): (SessionId[B], Plan) =
+    recover(file) match
+      case Some(plan) => (llm.newSession, plan)
+      case None       =>
+        // ensureClean *before* generate so the planner sees a known-clean
+        // tree (and the "stashed pending changes" Step only fires when the
+        // user actually had pre-existing dirty edits, not when the planner
+        // itself wrote files — `Plan.autonomous.from` runs read-only).
+        val _ = ctx.git.ensureClean(stashMessage)
+        val (sid, plan) = generate
+        ctx.git.checkoutOrCreate(plan.epicId)
+        os.write.over(file, render(plan), createFolders = true)
+        (sid, plan)
 
   /** Resume from a previously-persisted plan. Returns `Some(plan)` when `file`
     * exists, with the working tree cleaned (any pending edits stashed; the

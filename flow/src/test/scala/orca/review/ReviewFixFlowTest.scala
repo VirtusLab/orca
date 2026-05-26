@@ -39,11 +39,11 @@ class ReviewFixFlowTest extends munit.FunSuite:
     val real = issue("real problem", confidence = 0.9)
     val reviewer = new FakeLlmTool(
       name = "perf",
-      promptOutputs = List(ReviewResult(List(real)))
+      outputs = List(ReviewResult(List(real)))
     )
     val coder = new FakeLlmTool(
       name = "coder",
-      resumeOutputs = List(
+      outputs = List(
         FixOutcome(Nil, List(IgnoredIssue(Title("real problem"), "trade-off")))
       )
     )
@@ -79,17 +79,15 @@ class ReviewFixFlowTest extends munit.FunSuite:
     // Reviewer keeps reporting the same issue every round; coder claims it
     // fixed it every round (so the loop sees progress) but the next eval
     // still finds it. The cap is the only thing that can stop this.
-    // The first reviewer call is a fresh-session run (consumes from
-    // promptOutputs); each subsequent iteration resumes the session.
+    // Reviewer keeps reporting the same issue across all iterations.
     val stubborn = issue("never ends")
     val reviewer = new FakeLlmTool(
       name = "loud",
-      promptOutputs = List(ReviewResult(List(stubborn))),
-      resumeOutputs = List.fill(20)(ReviewResult(List(stubborn)))
+      outputs = List.fill(21)(ReviewResult(List(stubborn)))
     )
     val coder = new FakeLlmTool(
       name = "fixer",
-      resumeOutputs =
+      outputs =
         List.fill(20)(FixOutcome(List(Title("never ends")), Nil))
     )
 

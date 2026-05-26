@@ -53,6 +53,16 @@ trait LlmTool[B <: BackendTag]:
     */
   def withReadOnly: LlmTool[B]
 
+  /** Mint a fresh session id you can pass to `.run(...)` across multiple
+    * calls. The first call with this id starts the session; subsequent calls
+    * resume it. Lets flow scripts hold a stable `val session = claude.newSession`
+    * instead of threading a `var Option[SessionId]` through the loop.
+    *
+    * Default implementation generates a UUID via [[SessionId.fresh]]; backends
+    * that need a different format (or eager server-side allocation) override.
+    */
+  def newSession: SessionId[B] = SessionId.fresh[B]
+
 trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
   /** Pin the Claude model for subsequent calls, overriding `LlmConfig.model`.
     * Typical usage: `claude.haiku.autonomous.run("summarize this")._2` for a
@@ -66,13 +76,14 @@ trait CodexTool extends LlmTool[BackendTag.Codex.type]:
   def mini: CodexTool
 
 /** Free-form text autonomous calls — the `LlmTool.autonomous` shape. Single
-  * method: `resume = None` starts a fresh session, `resume = Some(sid)`
-  * continues that session. Always returns the (possibly-new) session id so
-  * the caller can hold onto it for the next call.
+  * method: pass a [[SessionId]] (typically from [[LlmTool.newSession]] or the
+  * default fresh one) and the library starts the session on the first call,
+  * resumes it on subsequent calls. Returns the (stable) session id so the
+  * caller can pass it back unchanged.
   */
 trait AutonomousTextCall[B <: BackendTag]:
   def run(
       prompt: String,
-      resume: Option[SessionId[B]] = None,
+      session: SessionId[B] = SessionId.fresh[B],
       config: LlmConfig = LlmConfig.default
   ): (SessionId[B], String)

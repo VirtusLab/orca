@@ -43,11 +43,19 @@ class ClaudeBackendTest extends munit.FunSuite:
       given BufferCapacity = BufferCapacity(8)
       body(new ClaudeBackend(runner))
 
+  private def freshSid: SessionId[BackendTag.ClaudeCode.type] =
+    SessionId[BackendTag.ClaudeCode.type]("11111111-1111-1111-1111-111111111111")
+
   test("runAutonomous invokes claude in stream-json mode (no --mcp-config)"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val _ =
-        backend.runAutonomous("summarize", LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "summarize",
+          freshSid,
+          LlmConfig.default,
+          os.temp.dir()
+        )
       val args = runner.calls.head
       assert(args.containsSlice(Seq("--input-format", "stream-json")))
       assert(args.containsSlice(Seq("--output-format", "stream-json")))
@@ -57,7 +65,8 @@ class ClaudeBackendTest extends munit.FunSuite:
   test("runAutonomous parses session id, output, usage, and cost"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
-      val result = backend.runAutonomous("x", LlmConfig.default, os.temp.dir())
+      val result =
+        backend.runAutonomous("x", freshSid, LlmConfig.default, os.temp.dir())
       assertEquals(SessionId.value(result.sessionId), "sess-123")
       assertEquals(result.output, "hello world")
       assertEquals(result.usage.inputTokens, 10L)
@@ -77,7 +86,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     p.sendSigInt()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       intercept[OrcaFlowException]:
-        backend.runAutonomous("x", LlmConfig.default, os.temp.dir())
+        backend.runAutonomous("x", freshSid, LlmConfig.default, os.temp.dir())
 
   test("runAutonomous throws when the subprocess exits non-zero"):
     val p = new FakePipedCliProcess(initiallyAlive = false):
@@ -86,39 +95,42 @@ class ClaudeBackendTest extends munit.FunSuite:
     p.closeStderr()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       intercept[OrcaFlowException]:
-        backend.runAutonomous("x", LlmConfig.default, os.temp.dir())
+        backend.runAutonomous("x", freshSid, LlmConfig.default, os.temp.dir())
 
   test(
     "runAutonomous passes a --append-system-prompt-file pointing at the config's prompt"
   ):
-    // The file lives in a JVM temp dir (not the user's workDir) so the
-    // user's repo doesn't accumulate `.claude/orca-system-prompt.md`
-    // leftovers across calls. We assert on the args + file contents.
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val config = LlmConfig(systemPrompt = Some("you are a poet"))
-      val _ = backend.runAutonomous("x", config, os.temp.dir())
+      val _ = backend.runAutonomous("x", freshSid, config, os.temp.dir())
       val args = runner.calls.head
       val flagIdx = args.indexOf("--append-system-prompt-file")
       assert(flagIdx >= 0, s"expected the prompt-file flag in args; got: $args")
       val path = os.Path(args(flagIdx + 1))
-      // Autonomous path doesn't append the ask_user hint.
       assertEquals(os.read(path), "you are a poet")
 
   test(
-    "continueAutonomous passes --resume <id> and returns the new session id"
+    "first runAutonomous call uses --session-id; second with the same id uses --resume"
   ):
+    val sid = SessionId[BackendTag.ClaudeCode.type](
+      "22222222-2222-2222-2222-222222222222"
+    )
     val runner = new SpawnStubCliRunner(
-      List(successfulProcess(sessionId = "sess-456"))
+      List(successfulProcess(), successfulProcess())
     )
     withBackend(runner): backend =>
-      val existing = SessionId[BackendTag.ClaudeCode.type]("sess-123")
-      val result = backend.continueAutonomous(
-        existing,
-        "keep going",
-        LlmConfig.default,
-        os.temp.dir()
+      val _ =
+        backend.runAutonomous("first", sid, LlmConfig.default, os.temp.dir())
+      val _ =
+        backend.runAutonomous("again", sid, LlmConfig.default, os.temp.dir())
+      val first = runner.calls(0)
+      val second = runner.calls(1)
+      assert(
+        first.containsSlice(Seq("--session-id", SessionId.value(sid))),
+        first
       )
-      val args = runner.calls.head
-      assert(args.containsSlice(Seq("--resume", "sess-123")))
-      assertEquals(SessionId.value(result.sessionId), "sess-456")
+      assert(
+        second.containsSlice(Seq("--resume", SessionId.value(sid))),
+        second
+      )

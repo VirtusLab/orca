@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.llm.{AutoApprove, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
 import orca.backend.ConversationEvent
 import orca.subprocess.OsProcCliRunner
 
@@ -29,10 +29,13 @@ class CodexIntegrationTest extends munit.FunSuite:
   private val unsandboxed: LlmConfig =
     LlmConfig.default.copy(autoApprove = AutoApprove.All)
 
+  private def fresh = SessionId.fresh[BackendTag.Codex.type]
+
   test("headless prompt returns the requested literal output"):
     val result = backend.runAutonomous(
       prompt =
         "Reply with the single word: READY. Reply with that word and nothing else.",
+      session = fresh,
       config = unsandboxed,
       workDir = os.temp.dir()
     )
@@ -42,17 +45,19 @@ class CodexIntegrationTest extends munit.FunSuite:
     )
     assert(SessionId.value(result.sessionId).nonEmpty)
 
-  test("continueAutonomous carries conversational context across turns"):
+  test("a resumed call carries conversational context across turns"):
     val workDir = os.temp.dir()
-    val first = backend.runAutonomous(
+    val session = fresh
+    val _ = backend.runAutonomous(
       prompt = "Remember the number 42. Reply with the single word: stored.",
+      session = session,
       config = unsandboxed,
       workDir = workDir
     )
-    val second = backend.continueAutonomous(
-      sessionId = first.sessionId,
+    val second = backend.runAutonomous(
       prompt =
         "What number did I ask you to remember? Reply with just the number.",
+      session = session,
       config = unsandboxed,
       workDir = workDir
     )
@@ -64,13 +69,13 @@ class CodexIntegrationTest extends munit.FunSuite:
   test("interactive session reaches a result with a session id"):
     val conversation = backend.runInteractive(
       prompt = "Reply with just the number 7. Nothing else.",
+      session = fresh,
       displayPrompt = "reply with 7",
       config = unsandboxed,
       workDir = os.temp.dir(),
       outputSchema = None
     )
     try
-      // Drain events; we don't render anything in the integration test.
       conversation.events.foreach(_ => ())
       val Right(result) = conversation.awaitResult(): @unchecked
       assert(
@@ -84,6 +89,7 @@ class CodexIntegrationTest extends munit.FunSuite:
     val conversation = backend.runInteractive(
       prompt =
         "Reply with: 1, 2, 3. Just those three numbers separated by commas, nothing else.",
+      session = fresh,
       displayPrompt = "list 1..3",
       config = unsandboxed,
       workDir = os.temp.dir(),
@@ -108,6 +114,7 @@ class CodexIntegrationTest extends munit.FunSuite:
     val conversation = backend.runInteractive(
       prompt =
         "You MUST run the shell command `cat marker.txt` first to read the file. Then tell me what it contained. Reply briefly.",
+      session = fresh,
       displayPrompt = "read marker.txt",
       config = unsandboxed,
       workDir = workDir,

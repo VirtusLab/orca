@@ -24,7 +24,8 @@ private[claude] object ClaudeArgs:
   def streamJson(
       config: LlmConfig,
       systemPromptFile: Option[os.Path],
-      resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
+      session: SessionId[BackendTag.ClaudeCode.type],
+      firstUse: Boolean,
       jsonSchema: Option[String] = None,
       mcpConfig: Option[os.Path] = None
   ): Seq[String] =
@@ -40,7 +41,7 @@ private[claude] object ClaudeArgs:
     ) ++
       modelArgs(config) ++
       systemPromptFileArgs(systemPromptFile) ++
-      resumeArgs(resume) ++
+      sessionArgs(session, firstUse) ++
       autoApproveArgs(config) ++
       jsonSchemaArgs(jsonSchema) ++
       mcpConfigArgs(mcpConfig)
@@ -51,10 +52,16 @@ private[claude] object ClaudeArgs:
   private def systemPromptFileArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--append-system-prompt-file", f.toString))
 
-  private def resumeArgs(
-      resume: Option[SessionId[BackendTag.ClaudeCode.type]]
+  /** First call with this id → `--session-id <uuid>` (creates the session
+    * with our pre-allocated UUID). Subsequent calls → `--resume <uuid>`
+    * (claude refuses to reuse `--session-id` once the session exists).
+    */
+  private def sessionArgs(
+      session: SessionId[BackendTag.ClaudeCode.type],
+      firstUse: Boolean
   ): Seq[String] =
-    resume.toSeq.flatMap(id => Seq("--resume", SessionId.value(id)))
+    val flag = if firstUse then "--session-id" else "--resume"
+    Seq(flag, SessionId.value(session))
 
   /** claude's CLI only accepts `--json-schema <inline>` — there's no
     * `--json-schema-file` form. For typical Orca schemas (a few KB) inlining is

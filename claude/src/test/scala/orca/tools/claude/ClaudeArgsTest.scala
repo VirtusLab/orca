@@ -3,8 +3,19 @@ package orca.tools.claude
 import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
 class ClaudeArgsTest extends munit.FunSuite:
 
-  private def streamJson(config: LlmConfig): Seq[String] =
-    ClaudeArgs.streamJson(config = config, systemPromptFile = None)
+  private val testSid =
+    SessionId[BackendTag.ClaudeCode.type]("00000000-0000-0000-0000-000000000000")
+
+  private def streamJson(
+      config: LlmConfig,
+      firstUse: Boolean = true
+  ): Seq[String] =
+    ClaudeArgs.streamJson(
+      config = config,
+      systemPromptFile = None,
+      session = testSid,
+      firstUse = firstUse
+    )
 
   test("stream-json shape: --print, --input/--output-format stream-json, etc."):
     val args = streamJson(LlmConfig.default)
@@ -25,7 +36,9 @@ class ClaudeArgsTest extends munit.FunSuite:
     val file = os.temp(contents = "content")
     val args = ClaudeArgs.streamJson(
       config = LlmConfig.default,
-      systemPromptFile = Some(file)
+      systemPromptFile = Some(file),
+      session = testSid,
+      firstUse = true
     )
     assert(
       args.containsSlice(Seq("--append-system-prompt-file", file.toString))
@@ -59,20 +72,23 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(!args.contains("bypassPermissions"), args)
     assert(!args.contains("--allowedTools"), args)
 
-  test("--resume <id> is emitted when a session id is supplied"):
-    val sid = SessionId[BackendTag.ClaudeCode.type]("sess-abc")
-    val args = ClaudeArgs.streamJson(
-      config = LlmConfig.default,
-      systemPromptFile = None,
-      resume = Some(sid)
-    )
-    assert(args.containsSlice(Seq("--resume", "sess-abc")))
+  test("firstUse=true emits --session-id <uuid>"):
+    val args = streamJson(LlmConfig.default, firstUse = true)
+    assert(args.containsSlice(Seq("--session-id", SessionId.value(testSid))), args)
+    assert(!args.contains("--resume"), args)
+
+  test("firstUse=false emits --resume <uuid>"):
+    val args = streamJson(LlmConfig.default, firstUse = false)
+    assert(args.containsSlice(Seq("--resume", SessionId.value(testSid))), args)
+    assert(!args.contains("--session-id"), args)
 
   test("--json-schema is emitted when an output schema is supplied"):
     val schema = """{"type":"object"}"""
     val args = ClaudeArgs.streamJson(
       config = LlmConfig.default,
       systemPromptFile = None,
+      session = testSid,
+      firstUse = true,
       jsonSchema = Some(schema)
     )
     assert(args.containsSlice(Seq("--json-schema", schema)))
@@ -82,25 +98,27 @@ class ClaudeArgsTest extends munit.FunSuite:
     val args = ClaudeArgs.streamJson(
       config = LlmConfig.default,
       systemPromptFile = None,
+      session = testSid,
+      firstUse = true,
       mcpConfig = Some(cfg)
     )
     assert(args.containsSlice(Seq("--mcp-config", cfg.toString)))
 
-  test("all mappings compose: model + resume + autoApprove + system-prompt"):
+  test("all mappings compose: model + session + autoApprove + system-prompt"):
     val file = os.temp()
-    val sid = SessionId[BackendTag.ClaudeCode.type]("sess-xyz")
     val args = ClaudeArgs.streamJson(
       config = LlmConfig(
         model = Some(Model("opus-4")),
         autoApprove = AutoApprove.Only(Set("Read"))
       ),
       systemPromptFile = Some(file),
-      resume = Some(sid)
+      session = testSid,
+      firstUse = false
     )
     assert(args.containsSlice(Seq("--model", "opus-4")))
     assert(
       args.containsSlice(Seq("--append-system-prompt-file", file.toString))
     )
-    assert(args.containsSlice(Seq("--resume", "sess-xyz")))
+    assert(args.containsSlice(Seq("--resume", SessionId.value(testSid))))
     assert(args.containsSlice(Seq("--permission-mode", "acceptEdits")))
     assert(args.containsSlice(Seq("--allowedTools", "Read")))

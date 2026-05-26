@@ -51,7 +51,7 @@ class OrcaOverridesTest extends munit.FunSuite:
         new AutonomousTextCall[BackendTag.ClaudeCode.type]:
           def run(
               p: String,
-              resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
+              session: SessionId[BackendTag.ClaudeCode.type] = SessionId.fresh[BackendTag.ClaudeCode.type],
               c: LlmConfig = LlmConfig.default
           ): (SessionId[BackendTag.ClaudeCode.type], String) =
             (SessionId[BackendTag.ClaudeCode.type]("fake-sid"), s"echo: $p")

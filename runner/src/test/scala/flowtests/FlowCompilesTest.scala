@@ -28,18 +28,11 @@ object FlowCanary:
   def structuredResult(): Unit =
     flow(OrcaArgs()):
       stage("plan"):
-        val (sessionId, _) =
-          claude.resultAs[FlowPlan].interactive.run(userPrompt)
-        val _ = claude
-          .resultAs[FlowPlan]
-          .interactive
-          .run("refine", resume = Some(sessionId))
-        val (sid2, _) =
-          claude.resultAs[FlowPlan].autonomous.run(userPrompt)
-        val _ = claude
-          .resultAs[FlowPlan]
-          .autonomous
-          .run("follow up", resume = Some(sid2))
+        val session = claude.newSession
+        val _ = claude.resultAs[FlowPlan].interactive.run(userPrompt, session)
+        val _ = claude.resultAs[FlowPlan].interactive.run("refine", session)
+        val _ = claude.resultAs[FlowPlan].autonomous.run(userPrompt, session)
+        val _ = claude.resultAs[FlowPlan].autonomous.run("follow up", session)
 
   /** Free-form text prompts and session continuation; the shape the README
     * promises for per-task implementation.
@@ -47,8 +40,9 @@ object FlowCanary:
   def continuedSession(): Unit =
     flow(OrcaArgs()):
       stage("impl"):
-        val (sessionId, _) = claude.autonomous.run("kick off")
-        val _ = claude.autonomous.run("keep going", resume = Some(sessionId))
+        val session = claude.newSession
+        val _ = claude.autonomous.run("kick off", session)
+        val _ = claude.autonomous.run("keep going", session)
         val _ = claude.autonomous.run("one-shot")
 
   /** Every top-level accessor must resolve from `import orca.*` alone.

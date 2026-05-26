@@ -32,7 +32,7 @@ private[plan] class CannedPlanLlm(plan: Plan)
         new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
           def run[I: AgentInput](
               input: I,
-              resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
+              session: SessionId[BackendTag.ClaudeCode.type] = SessionId.fresh[BackendTag.ClaudeCode.type],
               config: LlmConfig = LlmConfig.default
           ): (SessionId[BackendTag.ClaudeCode.type], O) =
             (SessionId[BackendTag.ClaudeCode.type]("stub-sid"), plan.asInstanceOf[O])
@@ -56,7 +56,7 @@ private[plan] class CannedAssessedPlanLlm(assessed: AssessedPlan)
         new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
           def run[I: AgentInput](
               input: I,
-              resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
+              session: SessionId[BackendTag.ClaudeCode.type] = SessionId.fresh[BackendTag.ClaudeCode.type],
               config: LlmConfig = LlmConfig.default
           ): (SessionId[BackendTag.ClaudeCode.type], O) =
             (

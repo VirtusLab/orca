@@ -27,25 +27,49 @@ import orca.subprocess.CliRunner
   */
 class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
 
+  /** Maps the client-allocated session id (the UUID the caller passes around)
+    * to codex's server-allocated thread id (returned in the first response's
+    * `thread.started` event). `codex exec` doesn't accept a caller-supplied
+    * id, so we mint a UUID upfront, learn the real thread id after the first
+    * call, and use it for `codex exec resume` on subsequent calls.
+    *
+    * Per-backend instance; the backend is a per-flow singleton, so the map
+    * stays small (one entry per active session).
+    */
+  private val clientToServer =
+    new java.util.concurrent.ConcurrentHashMap[String, String]()
+
   def runAutonomous(
       prompt: String,
+      session: SessionId[BackendTag.Codex.type],
       config: LlmConfig,
       workDir: os.Path,
       events: OrcaListener = OrcaListener.noop
   ): LlmResult[BackendTag.Codex.type] =
-    invokeAutonomous(prompt, config, workDir, resume = None, events)
-
-  def continueAutonomous(
-      sessionId: SessionId[BackendTag.Codex.type],
-      prompt: String,
-      config: LlmConfig,
-      workDir: os.Path,
-      events: OrcaListener = OrcaListener.noop
-  ): LlmResult[BackendTag.Codex.type] =
-    invokeAutonomous(prompt, config, workDir, resume = Some(sessionId), events)
+    val conv = openConversation(
+      prompt = prompt,
+      mode = SessionMode.Autonomous,
+      session = session,
+      config = config,
+      workDir = workDir,
+      // codex `exec resume` rejects `--output-schema`, and autonomous
+      // structured calls already wrap the prompt with the schema via
+      // DefaultLlmCall's template.
+      outputSchema = None
+    )
+    try
+      val result = Conversations.drainAutonomous(conv, events)
+      rememberServerId(session, result.sessionId)
+      // Hide the server-allocated id from the caller — they keep using the
+      // client id they passed in. Future calls resolve via clientToServer.
+      result.copy(sessionId = session)
+    catch
+      case e: OrcaFlowException =>
+        throw new OrcaFlowException(s"codex CLI failed: ${e.getMessage}")
 
   def runInteractive(
       prompt: String,
+      session: SessionId[BackendTag.Codex.type],
       displayPrompt: String,
       config: LlmConfig,
       workDir: os.Path,
@@ -54,48 +78,27 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
     openConversation(
       prompt,
       mode = SessionMode.Interactive(displayPrompt),
-      config,
-      workDir,
-      resume = None,
-      outputSchema
+      session = session,
+      config = config,
+      workDir = workDir,
+      outputSchema = outputSchema
     )
 
-  def continueInteractive(
-      sessionId: SessionId[BackendTag.Codex.type],
-      prompt: String,
-      displayPrompt: String,
-      config: LlmConfig,
-      workDir: os.Path,
-      outputSchema: Option[String]
-  ): Conversation[BackendTag.Codex.type] =
-    openConversation(
-      prompt,
-      mode = SessionMode.Interactive(displayPrompt),
-      config,
-      workDir,
-      resume = Some(sessionId),
-      // codex exec resume doesn't accept --output-schema; structured
-      // validation on resume falls to the prompt template + post-hoc
-      // parsing in DefaultLlmCall.
-      outputSchema = None
-    )
-
-  /** Spawn `codex exec --json` and wrap the process in a live
-    * [[CodexConversation]]. Stdin is closed immediately — codex consumes the
-    * prompt argv-side and reads stdin only as an appended `<stdin>` block,
-    * which we don't use.
+  /** Spawn `codex exec --json` (fresh) or `codex exec resume <server-id>`
+    * (continuation), and wrap the process in a live [[CodexConversation]].
+    * Stdin is closed immediately — codex consumes the prompt argv-side.
     *
-    * `mode` only affects the opening `UserMessage` event the conversation
-    * surfaces to the renderer (`Interactive` carries the `displayPrompt`,
-    * `Autonomous` enqueues nothing). codex has no MCP / `ask_user` flow, so the
-    * autonomous/interactive distinction is otherwise wire-identical.
+    * The fresh-vs-resume decision is driven by [[clientToServer]]: if we've
+    * seen this client session id before, we know the server id to resume;
+    * otherwise we start fresh and the post-call [[rememberServerId]] records
+    * the mapping.
     */
   private def openConversation(
       prompt: String,
       mode: SessionMode,
+      session: SessionId[BackendTag.Codex.type],
       config: LlmConfig,
       workDir: os.Path,
-      resume: Option[SessionId[BackendTag.Codex.type]],
       outputSchema: Option[String]
   ): Conversation[BackendTag.Codex.type] =
     val displayPrompt = mode match
@@ -103,9 +106,14 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
       case SessionMode.Autonomous     => ""
     val finalPrompt = mergeSystemPrompt(config, prompt)
     val schemaFile = writeSchemaIfPresent(outputSchema, workDir)
-    val args = resume match
-      case Some(sid) => CodexArgs.execResume(sid, finalPrompt, config)
-      case None      => CodexArgs.exec(finalPrompt, config, schemaFile, workDir)
+    val args = Option(clientToServer.get(SessionId.value(session))) match
+      case Some(serverId) =>
+        CodexArgs.execResume(
+          SessionId[BackendTag.Codex.type](serverId),
+          finalPrompt,
+          config
+        )
+      case None => CodexArgs.exec(finalPrompt, config, schemaFile, workDir)
     val process = cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
     try
       // codex doesn't accept user turns over stdin once the initial
@@ -125,35 +133,18 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
           s"Failed to open codex session: ${e.getMessage}"
         )
 
-  /** Autonomous invocation: open a [[CodexConversation]] over the same JSONL
-    * subprocess the interactive path uses, then drain it via
-    * [[Conversations.drainAutonomous]] to get the result. The conversation's
-    * own reader thread + stderr drain (in [[orca.backend.StreamConversation]])
-    * handle the lifecycle bits that used to live in a bespoke `drainHeadless`
-    * here.
+  /** Record the server-allocated thread id learned from the first call's
+    * response so subsequent calls with the same client id resume that thread.
+    * No-op if the mapping already exists (idempotent under retry).
     */
-  private def invokeAutonomous(
-      prompt: String,
-      config: LlmConfig,
-      workDir: os.Path,
-      resume: Option[SessionId[BackendTag.Codex.type]],
-      events: OrcaListener
-  ): LlmResult[BackendTag.Codex.type] =
-    val conv = openConversation(
-      prompt = prompt,
-      mode = SessionMode.Autonomous,
-      config = config,
-      workDir = workDir,
-      resume = resume,
-      // codex `exec resume` rejects `--output-schema`, and autonomous
-      // structured calls already wrap the prompt with the schema via
-      // DefaultLlmCall's template.
-      outputSchema = None
+  private def rememberServerId(
+      clientId: SessionId[BackendTag.Codex.type],
+      serverId: SessionId[BackendTag.Codex.type]
+  ): Unit =
+    val _ = clientToServer.putIfAbsent(
+      SessionId.value(clientId),
+      SessionId.value(serverId)
     )
-    try Conversations.drainAutonomous(conv, events)
-    catch
-      case e: OrcaFlowException =>
-        throw new OrcaFlowException(s"codex CLI failed: ${e.getMessage}")
 
   /** codex `exec` has no `--system-prompt` flag (codex picks up `AGENTS.md`
     * files in the working directory for static instructions). Fold a configured

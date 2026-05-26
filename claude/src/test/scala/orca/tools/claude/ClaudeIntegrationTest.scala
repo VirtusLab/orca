@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.llm.{AutoApprove, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
 import orca.backend.{ApprovalDecision, ConversationEvent}
 import orca.subprocess.OsProcCliRunner
 import ox.channels.BufferCapacity
@@ -30,10 +30,13 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       given BufferCapacity = BufferCapacity(8)
       body(new ClaudeBackend(OsProcCliRunner))
 
+  private def fresh = SessionId.fresh[BackendTag.ClaudeCode.type]
+
   test("headless prompt returns the requested literal output"):
     withBackend: backend =>
       val result = backend.runAutonomous(
         prompt = "Reply with the single word: READY",
+        session = fresh,
         config = LlmConfig.default,
         workDir = os.temp.dir()
       )
@@ -43,17 +46,19 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       )
       assert(SessionId.value(result.sessionId).nonEmpty)
 
-  test("continueAutonomous carries conversational context across turns"):
+  test("a resumed call carries conversational context across turns"):
     withBackend: backend =>
       val workDir = os.temp.dir()
-      val first = backend.runAutonomous(
+      val session = fresh
+      val _ = backend.runAutonomous(
         prompt = "Remember the number 42. Reply with: stored.",
+        session = session,
         config = LlmConfig.default,
         workDir = workDir
       )
-      val second = backend.continueAutonomous(
-        sessionId = first.sessionId,
+      val second = backend.runAutonomous(
         prompt = "What number did I ask you to remember?",
+        session = session,
         config = LlmConfig.default,
         workDir = workDir
       )
@@ -66,6 +71,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     withBackend: backend =>
       val conversation = backend.runInteractive(
         prompt = "Reply with just the number 7. Nothing else.",
+        session = fresh,
         displayPrompt = "reply with 7",
         config = LlmConfig.default,
         workDir = os.temp.dir(),
@@ -88,6 +94,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       val conversation = backend.runInteractive(
         prompt =
           "Count from 1 to 5, one per line, then stop. Do not emit anything else.",
+        session = fresh,
         displayPrompt = "count 1..5",
         config = LlmConfig.default,
         workDir = os.temp.dir(),
@@ -117,6 +124,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       // test will then fail with a clearer signal than a silent gap.
       val conversation = backend.runInteractive(
         prompt = "Read the file at /etc/hostname and reply with its contents.",
+        session = fresh,
         displayPrompt = "read /etc/hostname",
         config =
           LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set.empty)),

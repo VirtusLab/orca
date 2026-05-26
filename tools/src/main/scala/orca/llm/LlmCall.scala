@@ -14,26 +14,25 @@ trait LlmCall[B <: BackendTag, O]:
   def interactive: InteractiveLlmCall[B, O]
 
 /** Autonomous structured calls — single agentic turn, no human in the loop.
-  * `resume = None` starts a fresh session, `resume = Some(sid)` continues an
-  * existing one. Always returns the session id so the caller can hold onto it
-  * for the next call.
+  * Single method: pass a [[SessionId]] (typically from [[LlmTool.newSession]]
+  * or the default fresh one); the library starts on the first call, resumes
+  * on subsequent calls. Returns the (stable) session id.
   */
 trait AutonomousLlmCall[B <: BackendTag, O]:
   def run[I: AgentInput](
       input: I,
-      resume: Option[SessionId[B]] = None,
+      session: SessionId[B] = SessionId.fresh[B],
       config: LlmConfig = LlmConfig.default
   ): (SessionId[B], O)
 
 /** Interactive structured calls — open a conversation the user can drive
   * (clarifying questions, refinements) before the agent produces the final
-  * structured `O`. Same shape as the autonomous variant; `resume` lets a
-  * caller continue a previously-started interactive session.
+  * structured `O`. Same shape as the autonomous variant.
   */
 trait InteractiveLlmCall[B <: BackendTag, O]:
   def run[I: AgentInput](
       input: I,
-      resume: Option[SessionId[B]] = None,
+      session: SessionId[B] = SessionId.fresh[B],
       config: LlmConfig = LlmConfig.default
   ): (SessionId[B], O)
 
@@ -75,16 +74,16 @@ class DefaultLlmCall[B <: BackendTag, O](
   val autonomous: AutonomousLlmCall[B, O] = new AutonomousLlmCall[B, O]:
     def run[I: AgentInput](
         input: I,
-        resume: Option[SessionId[B]] = None,
+        session: SessionId[B] = SessionId.fresh[B],
         config: LlmConfig = LlmConfig.default
-    ): (SessionId[B], O) = runAutonomousWithRetry(input, config, resume)
+    ): (SessionId[B], O) = runAutonomousWithRetry(input, config, session)
 
   val interactive: InteractiveLlmCall[B, O] = new InteractiveLlmCall[B, O]:
     def run[I: AgentInput](
         input: I,
-        resume: Option[SessionId[B]] = None,
+        session: SessionId[B] = SessionId.fresh[B],
         config: LlmConfig = LlmConfig.default
-    ): (SessionId[B], O) = runInteractiveOnce(input, config, resume)
+    ): (SessionId[B], O) = runInteractiveOnce(input, config, session)
 
   /** Emit a `StructuredResult` event carrying the raw payload and the
     * `Announce[O]`-derived summary (if any). The terminal listener renders
@@ -101,7 +100,7 @@ class DefaultLlmCall[B <: BackendTag, O](
   private def runAutonomousWithRetry[I](
       input: I,
       config: LlmConfig,
-      resume: Option[SessionId[B]]
+      session: SessionId[B]
   )(using ai: AgentInput[I]): (SessionId[B], O) =
     val serialized = ai.serialize(input)
     val outputSchema = JsonSchemaGen[O]
@@ -117,10 +116,8 @@ class DefaultLlmCall[B <: BackendTag, O](
       val promptText = lastFailure match
         case Some(f) => prompts.retry(f.response, f.parserError)
         case None    => initialPrompt
-      val result = resume match
-        case Some(sid) =>
-          backend.continueAutonomous(sid, promptText, effective, workDir, events)
-        case None => backend.runAutonomous(promptText, effective, workDir, events)
+      val result =
+        backend.runAutonomous(promptText, session, effective, workDir, events)
       events.onEvent(
         OrcaEvent.TokensUsed(
           agentName,
@@ -150,30 +147,20 @@ class DefaultLlmCall[B <: BackendTag, O](
   private def runInteractiveOnce[I](
       input: I,
       config: LlmConfig,
-      resume: Option[SessionId[B]]
+      session: SessionId[B]
   )(using ai: AgentInput[I]): (SessionId[B], O) =
     val serialized = ai.serialize(input)
     val outputSchema = JsonSchemaGen[O]
     val prompt = prompts.interactive(serialized, outputSchema, config)
     val effective = effectiveConfig(config)
-    val conversation = resume match
-      case Some(sid) =>
-        backend.continueInteractive(
-          sid,
-          prompt,
-          displayPrompt = serialized,
-          effective,
-          workDir,
-          Some(outputSchema)
-        )
-      case None =>
-        backend.runInteractive(
-          prompt,
-          displayPrompt = serialized,
-          effective,
-          workDir,
-          Some(outputSchema)
-        )
+    val conversation = backend.runInteractive(
+      prompt,
+      session,
+      displayPrompt = serialized,
+      effective,
+      workDir,
+      Some(outputSchema)
+    )
     val result = interaction.drive(conversation)
     // TokensUsed emits on the normal path only. If the user cancels
     // mid-session, drive throws before this line — and the wire

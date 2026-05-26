@@ -28,25 +28,20 @@ flow(OrcaArgs(args)):
   val planFile = Plan.defaultPath(userPrompt)
 
   // Resume `.orca/plan-<hash>.md` if it exists; otherwise plan interactively
-  // (the planner can call `ask_user` to clarify) and branch.
-  val plan = stage("Acquire plan"):
-    Plan.recoverOrCreate(planFile, "orca: starting implementation"):
-      Plan.interactive.from(userPrompt, claude)._2
-
-  // Autonomous session across all tasks (ask_user was only needed for
-  // planning). Lazily started by the first task; reused thereafter.
-  var session: Option[SessionId[BackendTag.ClaudeCode.type]] = None
+  // (the planner can call `ask_user` to clarify) and branch. `session` is
+  // stable across all tasks — implementer and fixer share it.
+  val (session, plan) = stage("Acquire plan"):
+    Plan.recoverOrCreate(planFile, claude, "orca: starting implementation"):
+      Plan.interactive.from(userPrompt, claude)
 
   Plan.runPersistent(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
-      val sid = stage("Implementation"):
-        val (next, _) = claude.autonomous.run(task.description, resume = session)
-        session = Some(next)
-        next
+      stage("Implementation"):
+        val _ = claude.autonomous.run(task.description, session)
 
       reviewAndFixLoop(
         coder = claude,
-        sessionId = sid,
+        sessionId = session,
         reviewers = allReviewers(claude),
         // Haiku picks the per-task reviewer subset; swap for
         // `ReviewerSelector.allEveryRound` to run every reviewer.

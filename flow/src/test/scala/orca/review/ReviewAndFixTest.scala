@@ -18,49 +18,34 @@ import orca.llm.{
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.{TestFlowContext}
 
-/** Fake LlmCall whose `autonomous.run` returns scripted sequences of outputs
-  * — cast through `Any` because the trait is generic over output type.
-  *
-  * `runOutputs` feeds the `resume = None` branch (fresh sessions);
-  * `resumeOutputs` feeds the `resume = Some(_)` branch.
+/** Fake LlmCall whose `autonomous.run` drains a scripted sequence of outputs
+  * in order — cast through `Any` because the trait is generic over output
+  * type. The session id from the call site is echoed back so tests can verify
+  * the loop threaded a consistent id.
   */
-class FakeLlmCall[O](
-    runOutputs: Iterator[Any],
-    resumeOutputs: Iterator[Any]
-) extends LlmCall[BackendTag.ClaudeCode.type, O]:
-  // A shared counter so each fresh run produces a distinct session id,
-  // letting tests assert on which id flows where.
-  private val sessionCounter = new java.util.concurrent.atomic.AtomicInteger(0)
-
+class FakeLlmCall[O](outputs: Iterator[Any])
+    extends LlmCall[BackendTag.ClaudeCode.type, O]:
   val autonomous: AutonomousLlmCall[BackendTag.ClaudeCode.type, O] =
     new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
       def run[I: AgentInput](
           input: I,
-          resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
+          session: SessionId[BackendTag.ClaudeCode.type] =
+            SessionId.fresh[BackendTag.ClaudeCode.type],
           config: LlmConfig = LlmConfig.default
       ): (SessionId[BackendTag.ClaudeCode.type], O) =
-        resume match
-          case Some(sid) =>
-            (sid, resumeOutputs.next().asInstanceOf[O])
-          case None =>
-            val sid = SessionId[BackendTag.ClaudeCode.type](
-              s"fake-session-${sessionCounter.incrementAndGet()}"
-            )
-            (sid, runOutputs.next().asInstanceOf[O])
+        (session, outputs.next().asInstanceOf[O])
   def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
 
 class FakeLlmTool(
     override val name: String,
-    promptOutputs: List[Any] = Nil,
-    resumeOutputs: List[Any] = Nil
+    outputs: List[Any] = Nil
 ) extends LlmTool[BackendTag.ClaudeCode.type]:
-  private val promptIt = promptOutputs.iterator
-  private val resumeIt = resumeOutputs.iterator
+  private val it = outputs.iterator
 
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
 
   def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
-    new FakeLlmCall[O](promptIt, resumeIt)
+    new FakeLlmCall[O](it)
 
   def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
@@ -87,7 +72,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     given FlowContext = ctx
     val silentReviewer = new FakeLlmTool(
       name = "quiet",
-      promptOutputs = List(ReviewResult.empty)
+      outputs = List(ReviewResult.empty)
     )
     val coder = new FakeLlmTool("coder")
     val result = reviewAndFixLoop(
@@ -109,11 +94,11 @@ class ReviewAndFixTest extends munit.FunSuite:
     val realIssue = issue("real bug", confidence = 0.95)
     val reviewer = new FakeLlmTool(
       name = "loud",
-      promptOutputs = List(ReviewResult(List(noisyIssue, realIssue)))
+      outputs = List(ReviewResult(List(noisyIssue, realIssue)))
     )
     val coder = new FakeLlmTool(
       name = "coder",
-      resumeOutputs =
+      outputs =
         List(FixOutcome(Nil, List(IgnoredIssue(Title("real bug"), "accepted"))))
     )
     val result = reviewAndFixLoop(
@@ -136,15 +121,15 @@ class ReviewAndFixTest extends munit.FunSuite:
     val issueB = issue("B")
     val reviewerA = new FakeLlmTool(
       name = "a",
-      promptOutputs = List(ReviewResult(List(issueA)))
+      outputs = List(ReviewResult(List(issueA)))
     )
     val reviewerB = new FakeLlmTool(
       name = "b",
-      promptOutputs = List(ReviewResult(List(issueB)))
+      outputs = List(ReviewResult(List(issueB)))
     )
     val coder = new FakeLlmTool(
       name = "coder",
-      resumeOutputs = List(
+      outputs = List(
         FixOutcome(
           fixed = Nil,
           ignored = List(
@@ -169,18 +154,17 @@ class ReviewAndFixTest extends munit.FunSuite:
   ):
     given FlowContext = ctx
     val stubborn = issue("never ends")
-    // promptOutputs has exactly one entry — proves the first iteration
-    // consumes from the fresh-session branch (resume = None).
-    // resumeOutputs supplies the follow-up iterations.
+    // Reviewer keeps reporting the same issue every iteration; coder claims
+    // it fixed it every round (so the loop sees progress) but the next eval
+    // still finds it. `maxIterations = 2` is the only thing that can stop
+    // this — so the test caps the iterator sizes accordingly.
     val reviewer = new FakeLlmTool(
       name = "loud",
-      promptOutputs = List(ReviewResult(List(stubborn))),
-      resumeOutputs = List.fill(3)(ReviewResult(List(stubborn)))
+      outputs = List.fill(4)(ReviewResult(List(stubborn)))
     )
     val coder = new FakeLlmTool(
       name = "fixer",
-      resumeOutputs =
-        List.fill(3)(FixOutcome(List(Title("never ends")), Nil))
+      outputs = List.fill(3)(FixOutcome(List(Title("never ends")), Nil))
     )
     val _ = reviewAndFixLoop(
       coder = coder,
@@ -191,10 +175,6 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
-    // If the loop had used `run` for the first call, the empty
-    // `runOutputs` iterator would have thrown NoSuchElement before the
-    // resumeOutputs were ever drained — passing this test
-    // confirms the session-based path was taken.
 
   test("initialDiff is embedded in the reviewer's first prompt"):
     given FlowContext = ctx
@@ -214,7 +194,7 @@ class ReviewAndFixTest extends munit.FunSuite:
             new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
               def run[I: AgentInput](
                   i: I,
-                  resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
+                  session: SessionId[BackendTag.ClaudeCode.type] = SessionId.fresh[BackendTag.ClaudeCode.type],
                   c: LlmConfig = LlmConfig.default
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 capturedFirst = Some(i.toString)
@@ -248,8 +228,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     // will throw NoSuchElement on the second call, failing the test.
     val picker = new FakeLlmTool(
       name = "picker",
-      promptOutputs =
-        List(SelectedReviewers(List("performance", "test-coverage")))
+      outputs = List(SelectedReviewers(List("performance", "test-coverage")))
     )
     val select = ReviewerSelector.llmDriven(llm = picker)
     val title = Title("optimize hot path")
@@ -273,7 +252,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val issueX = issue("only-x", confidence = 0.9)
     val reviewerX = new FakeLlmTool(
       name = "x",
-      promptOutputs = List(ReviewResult(List(issueX)))
+      outputs = List(ReviewResult(List(issueX)))
     )
     val reviewerY = new FakeLlmTool(
       name = "y"
@@ -282,11 +261,11 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     val picker = new FakeLlmTool(
       name = "picker",
-      promptOutputs = List(SelectedReviewers(List("x")))
+      outputs = List(SelectedReviewers(List("x")))
     )
     val coder = new FakeLlmTool(
       name = "coder",
-      resumeOutputs =
+      outputs =
         List(FixOutcome(Nil, List(IgnoredIssue(Title("only-x"), "accepted"))))
     )
     val result = reviewAndFixLoop(
@@ -309,13 +288,13 @@ class ReviewAndFixTest extends munit.FunSuite:
     val issueX = issue("only-x", confidence = 0.9)
     val reviewerX = new FakeLlmTool(
       name = "x",
-      promptOutputs = List(ReviewResult(List(issueX)))
+      outputs = List(ReviewResult(List(issueX)))
     )
     // The coder's promptOutputs is empty: if the loop wrongly invokes the
     // picker against `coder`, the empty iterator throws and the test fails.
     val coder = new FakeLlmTool(
       name = "coder",
-      resumeOutputs =
+      outputs =
         List(FixOutcome(Nil, List(IgnoredIssue(Title("only-x"), "accepted"))))
     )
     val result = reviewAndFixLoop(
@@ -370,7 +349,7 @@ class ReviewAndFixTest extends munit.FunSuite:
             new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
               def run[I: AgentInput](
                   i: I,
-                  resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
+                  session: SessionId[BackendTag.ClaudeCode.type] = SessionId.fresh[BackendTag.ClaudeCode.type],
                   c: LlmConfig = LlmConfig.default
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 val ok = gate.await(2, java.util.concurrent.TimeUnit.SECONDS)
@@ -448,7 +427,7 @@ class ReviewAndFixTest extends munit.FunSuite:
                 ReviewResult.empty.asInstanceOf[O]
               def run[I: AgentInput](
                   i: I,
-                  resume: Option[SessionId[BackendTag.ClaudeCode.type]] = None,
+                  session: SessionId[BackendTag.ClaudeCode.type] = SessionId.fresh[BackendTag.ClaudeCode.type],
                   c: LlmConfig = LlmConfig.default
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 (

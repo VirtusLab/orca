@@ -237,11 +237,15 @@ def reviewAndFixLoop[B <: BackendTag](
     sessions.get(r.name) match
       case Some(stored) =>
         val (_, result) =
-          call.run(ReviewLoopPrompts.ReReview, resume = Some(stored.as[RB]))
+          call.run(ReviewLoopPrompts.ReReview, session = stored.as[RB])
         (result, None)
       case None =>
+        val session = r.newSession
         val (sid, result) =
-          call.run(ReviewLoopPrompts.initialReview(task, currentDiff))
+          call.run(
+            ReviewLoopPrompts.initialReview(task, currentDiff),
+            session = session
+          )
         (result, Some(r.name -> SessionId.Untyped.from(sid)))
 
   /** One parallel agent's contribution. The `Reviewer` variant carries the
@@ -347,7 +351,7 @@ def reviewAndFixLoop[B <: BackendTag](
       .autonomous
       .run(
         FixRequest(fixInstructions, issues),
-        resume = Some(sessionId),
+        session = sessionId,
         LlmConfig.default
       )
       ._2

@@ -17,6 +17,15 @@ object SessionId:
   def apply[B <: BackendTag](value: String): SessionId[B] = value
   extension [B <: BackendTag](id: SessionId[B]) def value: String = id
 
+  /** Mint a fresh session id (random UUID). The id is client-allocated — the
+    * library uses it as a pre-shared key with the backend on the first call.
+    * For claude, this maps to `--session-id <uuid>`; for codex (which doesn't
+    * accept caller-supplied ids), the backend stores a client→server mapping
+    * keyed on this value.
+    */
+  def fresh[B <: BackendTag]: SessionId[B] =
+    java.util.UUID.randomUUID.toString
+
   /** Tag-erased session id for heterogeneous maps where the backend tag varies
     * per entry (and Scala 3 can't reduce `SessionId[?]` outside this file).
     * Convert with `Untyped.from(sid)` / `untyped.as[B]`; both are zero-cost

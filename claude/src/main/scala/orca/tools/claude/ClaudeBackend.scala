@@ -51,54 +51,51 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       configFile: os.Path
   )
 
+  /** Session ids we've successfully started against `claude --session-id`.
+    * Subsequent calls with these ids go through `--resume` instead — the CLI
+    * refuses to reuse `--session-id` for an existing session.
+    *
+    * Thread-safe via the JCH key-set view; ClaudeBackend is a per-flow
+    * singleton but reviewers fan out in parallel via `mapParUnordered`.
+    */
+  private val startedSessions =
+    java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+
   def runAutonomous(
       prompt: String,
+      session: SessionId[BackendTag.ClaudeCode.type],
       config: LlmConfig,
       workDir: os.Path,
       events: OrcaListener = OrcaListener.noop
   ): LlmResult[BackendTag.ClaudeCode.type] =
-    invokeAutonomous(prompt, config, workDir, resume = None, events)
-
-  def continueAutonomous(
-      sessionId: SessionId[BackendTag.ClaudeCode.type],
-      prompt: String,
-      config: LlmConfig,
-      workDir: os.Path,
-      events: OrcaListener = OrcaListener.noop
-  ): LlmResult[BackendTag.ClaudeCode.type] =
-    invokeAutonomous(prompt, config, workDir, resume = Some(sessionId), events)
+    val conv = openConversation(
+      prompt = prompt,
+      mode = SessionMode.Autonomous,
+      session = session,
+      config = config,
+      workDir = workDir,
+      outputSchema = None
+    )
+    try Conversations.drainAutonomous(conv, events)
+    catch
+      case e: OrcaFlowException =>
+        throw OrcaFlowException(s"claude CLI failed: ${e.getMessage}")
 
   def runInteractive(
       prompt: String,
+      session: SessionId[BackendTag.ClaudeCode.type],
       displayPrompt: String,
       config: LlmConfig,
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[BackendTag.ClaudeCode.type] =
     openConversation(
-      prompt,
+      prompt = prompt,
       mode = SessionMode.Interactive(displayPrompt),
-      config,
-      workDir,
-      resume = None,
-      outputSchema
-    )
-
-  def continueInteractive(
-      sessionId: SessionId[BackendTag.ClaudeCode.type],
-      prompt: String,
-      displayPrompt: String,
-      config: LlmConfig,
-      workDir: os.Path,
-      outputSchema: Option[String]
-  ): Conversation[BackendTag.ClaudeCode.type] =
-    openConversation(
-      prompt,
-      mode = SessionMode.Interactive(displayPrompt),
-      config,
-      workDir,
-      resume = Some(sessionId),
-      outputSchema
+      session = session,
+      config = config,
+      workDir = workDir,
+      outputSchema = outputSchema
     )
 
   /** Spawn `claude` in stream-json mode, write the opening user turn, close
@@ -134,9 +131,9 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
   private def openConversation(
       prompt: String,
       mode: SessionMode,
+      session: SessionId[BackendTag.ClaudeCode.type],
       config: LlmConfig,
       workDir: os.Path,
-      resume: Option[SessionId[BackendTag.ClaudeCode.type]],
       outputSchema: Option[String]
   ): Conversation[BackendTag.ClaudeCode.type] =
     // Allocate ask_user resources up front so we can close them
@@ -157,10 +154,18 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
         if askUser.isDefined then
           config.autoApproveAlso(ClaudeBackend.AskUserToolName)
         else config
+      // First call with this id → claim it via `--session-id`; subsequent
+      // calls → `--resume`. `add` is atomic and returns true the first time,
+      // false thereafter, so the test+set is race-free under parallel reviewer
+      // fan-out. Marking before the spawn (rather than after) is intentional —
+      // if `claude --session-id` fails, the session is still claimed in our
+      // book and a retry would correctly go through `--resume` (idempotent).
+      val firstUse = startedSessions.add(SessionId.value(session))
       val args = ClaudeArgs.streamJson(
         effectiveConfig,
         systemPromptFile,
-        resume,
+        session = session,
+        firstUse = firstUse,
         outputSchema,
         mcpConfig = askUser.map(_.configFile)
       )
@@ -241,32 +246,6 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       s"""{"mcpServers":{"${ClaudeBackend.McpServerName}":{"type":"http","url":"$url"}}}"""
     )
     path
-
-  /** Autonomous invocation: opens the same stream-json [[ClaudeConversation]]
-    * the interactive path uses (no MCP `ask_user`, no system-prompt hint), then
-    * drains it via [[Conversations.drainAutonomous]] for the result. Retries
-    * for transient failures live one layer up in `DefaultLlmCall` — it wraps
-    * every structured call in `retry(effective.retrySchedule)`.
-    */
-  private def invokeAutonomous(
-      prompt: String,
-      config: LlmConfig,
-      workDir: os.Path,
-      resume: Option[SessionId[BackendTag.ClaudeCode.type]],
-      events: OrcaListener
-  ): LlmResult[BackendTag.ClaudeCode.type] =
-    val conv = openConversation(
-      prompt = prompt,
-      mode = SessionMode.Autonomous,
-      config = config,
-      workDir = workDir,
-      resume = resume,
-      outputSchema = None
-    )
-    try Conversations.drainAutonomous(conv, events)
-    catch
-      case e: OrcaFlowException =>
-        throw OrcaFlowException(s"claude CLI failed: ${e.getMessage}")
 
   /** Build the per-session system-prompt file. Optionally includes a short note
     * about the `ask_user` MCP tool — only the interactive path passes

@@ -34,36 +34,17 @@ class SequencedBackend(outputs: List[String])
 
   def runAutonomous(
       prompt: String,
+      session: SessionId[BackendTag.ClaudeCode.type],
       config: LlmConfig,
       workDir: os.Path,
       events: orca.events.OrcaListener = orca.events.OrcaListener.noop
   ): LlmResult[BackendTag.ClaudeCode.type] =
     val _ = seenEvents.updateAndGet(events :: _)
-    nextResult(prompt)
-
-  /** Record a continuation call tagged with its sessionId so tests can assert
-    * the same session is being resumed across retries.
-    */
-  def continueAutonomous(
-      sessionId: SessionId[BackendTag.ClaudeCode.type],
-      prompt: String,
-      config: LlmConfig,
-      workDir: os.Path,
-      events: orca.events.OrcaListener = orca.events.OrcaListener.noop
-  ): LlmResult[BackendTag.ClaudeCode.type] =
-    val _ = seenEvents.updateAndGet(events :: _)
-    nextResult(prompt).copy(sessionId = sessionId)
+    nextResult(prompt).copy(sessionId = session)
 
   def runInteractive(
       prompt: String,
-      displayPrompt: String,
-      config: LlmConfig,
-      workDir: os.Path,
-      outputSchema: Option[String]
-  ): orca.backend.Conversation[BackendTag.ClaudeCode.type] = ???
-  def continueInteractive(
-      sessionId: SessionId[BackendTag.ClaudeCode.type],
-      prompt: String,
+      session: SessionId[BackendTag.ClaudeCode.type],
       displayPrompt: String,
       config: LlmConfig,
       workDir: os.Path,
@@ -146,7 +127,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
       assertEquals(backend.prompts.size, 1)
 
   test(
-    "run(resume = Some(sid)) retries against the same sessionId on parse failure"
+    "run(session = sid) retries against the same sessionId on parse failure"
   ):
     val backend = new SequencedBackend(
       List("garbage", """{"value":11}""")
@@ -154,7 +135,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
     val sid = SessionId[BackendTag.ClaudeCode.type]("sess-under-test")
     supervised:
       val (_, answer) =
-        makeCall(backend).autonomous.run("next step", resume = Some(sid))
+        makeCall(backend).autonomous.run("next step", session = sid)
       assertEquals(answer, Answer(11))
       val Seq(first, second) = backend.prompts: @unchecked
       assert(

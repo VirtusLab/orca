@@ -80,19 +80,18 @@ flow(OrcaArgs(args)):
         git.createBranch(plan.epicId).orThrow
 
       // Fresh implementation session (the assess session was in plan mode
-      // and can't write). Lazily started by the first task; reused thereafter.
-      var session: Option[SessionId[BackendTag.ClaudeCode.type]] = None
+      // and can't write). Reused across tasks so the implementer retains
+      // context.
+      val session = claude.newSession
 
       for task <- plan.tasks do
         stage(s"Implement task: ${task.title}"):
-          val sid = stage("Implementation"):
-            val (next, _) = claude.autonomous.run(task.description, resume = session)
-            session = Some(next)
-            next
+          stage("Implementation"):
+            val _ = claude.autonomous.run(task.description, session)
 
           reviewAndFixLoop(
             coder = claude,
-            sessionId = sid,
+            sessionId = session,
             reviewers = allReviewers(claude),
             // Haiku picks the per-task reviewer subset; swap for
             // `ReviewerSelector.allEveryRound` to run every reviewer.

@@ -6,9 +6,8 @@ import orca.events.{OrcaEvent, OrcaListener}
 /** Skeleton shared by Claude and Codex's default tools — and by any future
   * backend that follows the same `LlmBackend` contract. Centralises the
   * autonomous-text path (which is otherwise pure delegation to
-  * `backend.runAutonomous` / `continueAutonomous` plus `TokensUsed` emission),
-  * the `resultAs[O]` factory, and the `withConfig` / `withSystemPrompt` /
-  * `withName` builders.
+  * `backend.runAutonomous` plus `TokensUsed` emission), the `resultAs[O]`
+  * factory, and the `withConfig` / `withSystemPrompt` / `withName` builders.
   *
   * Concrete subclasses provide:
   *   - the `Self` type bound (their own `LlmTool` subtype) so the builders
@@ -55,10 +54,13 @@ abstract class AbstractDefaultLlmTool[B <: BackendTag, Self <: LlmTool[B]](
   val autonomous: AutonomousTextCall[B] = new AutonomousTextCall[B]:
     def run(
         prompt: String,
-        resume: Option[SessionId[B]] = None,
+        session: SessionId[B] = SessionId.fresh[B],
         callConfig: LlmConfig = LlmConfig.default
     ): (SessionId[B], String) =
-      val result = runAutonomous(prompt, callConfig, resume)
+      val effective = effectiveConfig(callConfig)
+      val result =
+        backend.runAutonomous(prompt, session, effective, workDir, events)
+      emitTokens(effective, result)
       (result.sessionId, result.output)
 
   def resultAs[O: JsonData: Announce]: LlmCall[B, O] =
@@ -71,24 +73,6 @@ abstract class AbstractDefaultLlmTool[B <: BackendTag, Self <: LlmTool[B]](
       interaction,
       agentName = name
     )
-
-  /** One autonomous turn — handles the resume/no-resume split and the
-    * `TokensUsed` emission so the `autonomous` methods stay one-liners.
-    * `events` flows into the backend so the drain can surface per-tool-use and
-    * per-message progress as the subprocess runs.
-    */
-  private def runAutonomous(
-      prompt: String,
-      callConfig: LlmConfig,
-      resume: Option[SessionId[B]]
-  ): LlmResult[B] =
-    val effective = effectiveConfig(callConfig)
-    val result = resume match
-      case Some(sid) =>
-        backend.continueAutonomous(sid, prompt, effective, workDir, events)
-      case None => backend.runAutonomous(prompt, effective, workDir, events)
-    emitTokens(effective, result)
-    result
 
   /** `agent` axis is always this tool's name; `model` prefers the
     * response-reported model (most precise) and falls back to whatever the

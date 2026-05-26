@@ -76,7 +76,7 @@ flow(OrcaArgs(args)):
            |must FAIL on the current code — that's how we confirm the
            |bug. Run it locally if you can to verify it actually
            |fails.""".stripMargin,
-        resume = Some(sessionId)
+        session = sessionId
       )
       git.commit(s"Add failing test: ${triage.summary}").orThrow
   else
@@ -138,7 +138,7 @@ flow(OrcaArgs(args)):
              |Does this match the original report? Be strict: a different
              |stack trace or a different assertion error counts as a
              |mismatch.""".stripMargin,
-          resume = Some(sessionId)
+          session = sessionId
         )
       if !verdict.matches then
         fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
@@ -150,7 +150,7 @@ flow(OrcaArgs(args)):
         s"""The failing test is in place on branch `${triage.branchName}`.
            |Implement the fix. Ensure the previously-failing test now
            |passes, and that no other tests regress.""".stripMargin,
-        resume = Some(sessionId)
+        session = sessionId
       )
 
       // Format before review — Spotless is wired into the seed pom.
