@@ -79,8 +79,9 @@ object Plan:
 
   /** Interactive planning helpers — the LLM call opens a conversation the user
     * can drive (clarifying questions, refinements) before producing the plan.
-    * `from` returns `(SessionId, Plan)` so the caller can `continueSession` for
-    * the implementation turns. `loadOrGenerate` returns just `Plan` —
+    * `from` returns `(SessionId, Plan)` so the caller can pass the id as
+    * `resume = Some(sid)` on the implementation turns. `loadOrGenerate`
+    * returns just `Plan` —
     * persistence rather than session continuity is the use case it serves; if
     * you need the planning conversation alive, use `from` and write the
     * markdown yourself with `Plan.render`.

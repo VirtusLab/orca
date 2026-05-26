@@ -132,7 +132,7 @@ Planning utilities, available via `import orca.plan.*`:
 
 | Method | Use |
 |---|---|
-| `Plan.interactive.from(userPrompt, llm, instructions?)` | Open an interactive planning round-trip — the agent can ask clarifying questions before producing the plan. Returns the session id + a `Plan` so the caller can `continueSession` on the same context when implementing each task. |
+| `Plan.interactive.from(userPrompt, llm, instructions?)` | Open an interactive planning round-trip — the agent can ask clarifying questions before producing the plan. Returns the session id + a `Plan` so the caller can pass `resume = Some(sid)` to continue the planner's context on implementation turns. |
 | `Plan.autonomous.from(userPrompt, llm, instructions?)` | Same shape as `interactive.from` but the planning runs as a single agentic turn, no human in the loop. |
 | `Plan.autonomous.assessThenPlan(userPrompt, llm, instructions?)` | Skeptically assess `userPrompt` (typically a bug/feature report) against the repo and either return a plan (`Verdict.Proceed`) or a critique/follow-up question/rebuff the caller surfaces back to the reporter (`Verdict.Rejection`). Used by `issue-pr.sc`. |
 | `Plan.interactive.loadOrGenerate(file, userPrompt, llm, instructions?)` | Idempotent plan acquisition with interactive generation: parse `file` if it exists (resume), otherwise drive the planner conversationally and persist the result as markdown. |

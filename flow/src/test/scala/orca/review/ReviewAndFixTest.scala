@@ -18,19 +18,17 @@ import orca.llm.{
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.{TestFlowContext}
 
-/** Fake LlmCall whose `autonomous.run` / `autonomous.startSession` /
-  * `autonomous.continueSession` return scripted sequences of outputs — cast
-  * through `Any` because the trait is generic over output type.
+/** Fake LlmCall whose `autonomous.run` returns scripted sequences of outputs
+  * — cast through `Any` because the trait is generic over output type.
   *
-  * `runOutputs` feeds both `run` and `startSession` (the first call in a
-  * structured-session shape consumes from this list); `continueSessionOutputs`
-  * feeds `continueSession` for follow-up calls.
+  * `runOutputs` feeds the `resume = None` branch (fresh sessions);
+  * `resumeOutputs` feeds the `resume = Some(_)` branch.
   */
 class FakeLlmCall[O](
     runOutputs: Iterator[Any],
-    continueSessionOutputs: Iterator[Any]
+    resumeOutputs: Iterator[Any]
 ) extends LlmCall[BackendTag.ClaudeCode.type, O]:
-  // A shared counter so each startSession produces a distinct session id,
+  // A shared counter so each fresh run produces a distinct session id,
   // letting tests assert on which id flows where.
   private val sessionCounter = new java.util.concurrent.atomic.AtomicInteger(0)
 
@@ -43,7 +41,7 @@ class FakeLlmCall[O](
       ): (SessionId[BackendTag.ClaudeCode.type], O) =
         resume match
           case Some(sid) =>
-            (sid, continueSessionOutputs.next().asInstanceOf[O])
+            (sid, resumeOutputs.next().asInstanceOf[O])
           case None =>
             val sid = SessionId[BackendTag.ClaudeCode.type](
               s"fake-session-${sessionCounter.incrementAndGet()}"
@@ -54,10 +52,10 @@ class FakeLlmCall[O](
 class FakeLlmTool(
     override val name: String,
     promptOutputs: List[Any] = Nil,
-    continueSessionOutputs: List[Any] = Nil
+    resumeOutputs: List[Any] = Nil
 ) extends LlmTool[BackendTag.ClaudeCode.type]:
   private val promptIt = promptOutputs.iterator
-  private val continueIt = continueSessionOutputs.iterator
+  private val continueIt = resumeOutputs.iterator
 
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
 
@@ -115,7 +113,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     val coder = new FakeLlmTool(
       name = "coder",
-      continueSessionOutputs =
+      resumeOutputs =
         List(FixOutcome(Nil, List(IgnoredIssue(Title("real bug"), "accepted"))))
     )
     val result = reviewAndFixLoop(
@@ -146,7 +144,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     val coder = new FakeLlmTool(
       name = "coder",
-      continueSessionOutputs = List(
+      resumeOutputs = List(
         FixOutcome(
           fixed = Nil,
           ignored = List(
@@ -167,21 +165,21 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(result.issues.map(_.title).toSet, Set(Title("A"), Title("B")))
 
   test(
-    "first reviewer call uses startSession; subsequent iterations continueSession"
+    "first reviewer call starts a fresh session; subsequent iterations resume it"
   ):
     given FlowContext = ctx
     val stubborn = issue("never ends")
     // promptOutputs has exactly one entry — proves the first iteration
-    // consumes from startSession, not run. continueSessionOutputs supplies
-    // the follow-up iterations.
+    // consumes from the fresh-session branch (resume = None).
+    // resumeOutputs supplies the follow-up iterations.
     val reviewer = new FakeLlmTool(
       name = "loud",
       promptOutputs = List(ReviewResult(List(stubborn))),
-      continueSessionOutputs = List.fill(3)(ReviewResult(List(stubborn)))
+      resumeOutputs = List.fill(3)(ReviewResult(List(stubborn)))
     )
     val coder = new FakeLlmTool(
       name = "fixer",
-      continueSessionOutputs =
+      resumeOutputs =
         List.fill(3)(FixOutcome(List(Title("never ends")), Nil))
     )
     val _ = reviewAndFixLoop(
@@ -195,7 +193,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     // If the loop had used `run` for the first call, the empty
     // `runOutputs` iterator would have thrown NoSuchElement before the
-    // continueSessionOutputs were ever drained — passing this test
+    // resumeOutputs were ever drained — passing this test
     // confirms the session-based path was taken.
 
   test("initialDiff is embedded in the reviewer's first prompt"):
@@ -236,7 +234,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("--- a/Foo.scala\n+++ b/Foo.scala\n+ added line")
     )
-    val sent = capturedFirst.getOrElse(fail("startSession was never called"))
+    val sent = capturedFirst.getOrElse(fail("the fresh-session run was never called"))
     assert(sent.contains("--- a/Foo.scala"), s"diff missing from prompt: $sent")
     assert(sent.contains("do thing"), s"task missing from prompt: $sent")
 
@@ -288,7 +286,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     val coder = new FakeLlmTool(
       name = "coder",
-      continueSessionOutputs =
+      resumeOutputs =
         List(FixOutcome(Nil, List(IgnoredIssue(Title("only-x"), "accepted"))))
     )
     val result = reviewAndFixLoop(
@@ -317,7 +315,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     // picker against `coder`, the empty iterator throws and the test fails.
     val coder = new FakeLlmTool(
       name = "coder",
-      continueSessionOutputs =
+      resumeOutputs =
         List(FixOutcome(Nil, List(IgnoredIssue(Title("only-x"), "accepted"))))
     )
     val result = reviewAndFixLoop(

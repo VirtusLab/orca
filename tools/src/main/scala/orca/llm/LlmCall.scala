@@ -94,10 +94,9 @@ class DefaultLlmCall[B <: BackendTag, O](
   private def emitStructuredResult(raw: String, value: O): Unit =
     events.onEvent(OrcaEvent.StructuredResult(raw, announce.message(value)))
 
-  /** Autonomous retry loop used by autonomous.run / startSession /
-    * continueSession. On a parse failure the next attempt swaps the original
-    * prompt for a corrective one; the returned session id is whichever one
-    * succeeded.
+  /** Autonomous retry loop used by `autonomous.run`. On a parse failure the
+    * next attempt swaps the original prompt for a corrective one; the returned
+    * session id is whichever one succeeded.
     */
   private def runAutonomousWithRetry[I](
       input: I,

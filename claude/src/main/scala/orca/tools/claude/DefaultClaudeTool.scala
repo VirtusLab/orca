@@ -10,11 +10,11 @@ import orca.llm.AbstractDefaultLlmTool
   * `resultAs[O]` plumbing from [[AbstractDefaultLlmTool]] and only adds the
   * Claude-specific model accessors (`haiku` / `sonnet` / `opus`).
   *
-  * Free-form text calls (`autonomous.run` / `startSession` / `continueSession`)
-  * and structured `resultAs[O].autonomous.*` go through the backend's headless
-  * mode. Interactive structured calls (`resultAs[O].interactive.startSession`)
-  * spawn claude in stream-json mode and wrap the subprocess in a `Conversation`
-  * that the supplied `interaction` drives to completion.
+  * Free-form text `autonomous.run` and structured `resultAs[O].autonomous.run`
+  * go through the backend's headless mode. Interactive structured calls
+  * (`resultAs[O].interactive.run`) spawn claude in stream-json mode and wrap
+  * the subprocess in a `Conversation` that the supplied `interaction` drives
+  * to completion.
   */
 class DefaultClaudeTool(
     backend: LlmBackend[BackendTag.ClaudeCode.type],

@@ -128,7 +128,7 @@ private case class FixRequest(
 
 /** All cross-iteration state for `reviewAndFixLoop`, in one immutable record.
   * `history` is consulted by [[ReviewerSelector]]; `sessions` maps a reviewer's
-  * name to the opaque `SessionId` from its first `startSession` call. The
+  * name to the opaque `SessionId` returned by its first `run` call. The
   * stored value is tag-erased (`SessionId.Untyped`) because different reviewers
   * may run on different backends — recover the concrete `SessionId[RB]` with
   * `.as[RB]` at read time, keyed by reviewer name. See [[reviewWithSession]]
@@ -142,7 +142,7 @@ private object ReviewLoopState:
   val empty: ReviewLoopState = ReviewLoopState(Nil, Map.empty)
 
 /** Run reviewers in parallel against `task`, gather per-reviewer outcomes, hand
-  * any issues above `confidenceThreshold` to `coder` via `continueSession`, and
+  * any issues above `confidenceThreshold` to `coder` via `run(resume = …)`, and
   * loop. `reviewerSelection` decides which reviewers run each iteration —
   * typically [[ReviewerSelector.llmDriven]] wired against a cheap picker LLM;
   * pass [[ReviewerSelector.allEveryRound]] to skip selection entirely.
@@ -173,8 +173,8 @@ def reviewAndFixLoop[B <: BackendTag](
       * a reviewer that joins the active set on iteration N (e.g. picked up by
       * an `onlyPreviouslyReporting` selector after N-1 silent rounds) sees the
       * working tree as it stands then, including the fixes from earlier
-      * iterations. Reviewers that already have a session simply
-      * `continueSession` and don't get the diff again — their session has the
+      * iterations. Reviewers that already have a session resume it and don't
+      * get the diff again — their session has the
       * original framing. Pass `Some(...)` to pin the diff (tests, or when the
       * change set has already been committed and `git.diff()` would be empty).
       */

@@ -39,8 +39,8 @@ trait LlmBackend[B <: BackendTag]:
   ): LlmResult[B]
 
   /** Resume an existing session for one more autonomous turn. `sessionId` is a
-    * value previously returned by [[runAutonomous]] or by
-    * [[AutonomousTextCall.startSession]]. Same UX guarantees as
+    * value previously returned by [[runAutonomous]] or by an
+    * [[AutonomousTextCall]] `run` call. Same UX guarantees as
     * [[runAutonomous]].
     */
   def continueAutonomous(

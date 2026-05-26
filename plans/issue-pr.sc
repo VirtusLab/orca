@@ -108,7 +108,7 @@ flow(OrcaArgs(args)):
       // Haiku summarises the diff — cheap model, summarisation task.
       val summary = stage("Draft PR title and description"):
         val diff = git.diff()
-        claude.haiku
+        val (_, s) = claude.haiku
           .resultAs[PrSummary]
           .autonomous
           .run(
@@ -126,6 +126,7 @@ flow(OrcaArgs(args)):
                |$diff
                |```""".stripMargin
           )
+        s
 
       stage("Open PR"):
         val body =
