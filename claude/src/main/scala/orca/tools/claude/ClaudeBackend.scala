@@ -76,10 +76,17 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       workDir = workDir,
       outputSchema = None
     )
-    try Conversations.drainAutonomous(conv, events)
-    catch
-      case e: OrcaFlowException =>
-        throw OrcaFlowException(s"claude CLI failed: ${e.getMessage}")
+    val result =
+      try Conversations.drainAutonomous(conv, events)
+      catch
+        case e: OrcaFlowException =>
+          throw OrcaFlowException(s"claude CLI failed: ${e.getMessage}")
+    // Mark only after a successful drain: a subprocess that crashed before
+    // claude could register the session id (e.g. exit before `system.init`)
+    // would otherwise leave the mapping wedged, forcing a retry to `--resume`
+    // a session claude never created.
+    val _ = startedSessions.add(SessionId.value(session))
+    result
 
   def runInteractive(
       prompt: String,
@@ -89,7 +96,7 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[BackendTag.ClaudeCode.type] =
-    openConversation(
+    val conv = openConversation(
       prompt = prompt,
       mode = SessionMode.Interactive(displayPrompt),
       session = session,
@@ -97,6 +104,13 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       workDir = workDir,
       outputSchema = outputSchema
     )
+    // Interactive has no in-backend drain to gate on; mark once the
+    // conversation is up (the spawn succeeded, claude has parsed args).
+    // A crash mid-conversation will still leave the mark in place, but
+    // interactive sessions aren't auto-retried by the orchestrator —
+    // the user reruns with a fresh `claude.newSession`.
+    val _ = startedSessions.add(SessionId.value(session))
+    conv
 
   /** Spawn `claude` in stream-json mode, write the opening user turn, close
     * stdin, and wrap the process in a live [[ClaudeConversation]]. Used by both
@@ -183,7 +197,7 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
           // remove the workDir config file. Listed in close order by
           // ClaudeConversation.onFinalize.
           List(r.server, ClaudeBackend.deleteFileResource(r.configFile))
-        val conv = new ClaudeConversation(
+        new ClaudeConversation(
           process,
           config,
           initialPrompt = displayPrompt,
@@ -191,11 +205,6 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
           askUserBridge = askUser.map(_.bridge),
           sessionResources = resources
         )
-        // claude has parsed `--session-id` and started the stream-json
-        // session by the time we've successfully constructed the
-        // conversation; record this so subsequent calls use `--resume`.
-        val _ = startedSessions.add(SessionId.value(session))
-        conv
       catch
         case e: Exception =>
           process.sendSigInt()

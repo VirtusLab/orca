@@ -134,3 +134,35 @@ class ClaudeBackendTest extends munit.FunSuite:
         second.containsSlice(Seq("--resume", SessionId.value(sid))),
         second
       )
+
+  test(
+    "failed first call leaves the session unclaimed; retry still uses --session-id"
+  ):
+    // `startedSessions.add` runs only after `new ClaudeConversation` succeeds,
+    // so a first call that throws (e.g. is_error from the result message)
+    // doesn't wedge the mapping. Pins the post-success ordering against
+    // regressions back to mark-then-spawn.
+    val sid = SessionId[BackendTag.ClaudeCode.type](
+      "33333333-3333-3333-3333-333333333333"
+    )
+    val failing = new FakePipedCliProcess()
+    failing.enqueueStdout(
+      """{"type":"system","subtype":"init","session_id":"s","model":"claude-haiku-4-5"}"""
+    )
+    failing.enqueueStdout(
+      """{"type":"result","subtype":"error","session_id":"s","result":"denied","usage":{"input_tokens":0,"output_tokens":0},"is_error":true}"""
+    )
+    failing.closeStdout()
+    failing.closeStderr()
+    failing.sendSigInt()
+    val runner = new SpawnStubCliRunner(List(failing, successfulProcess()))
+    withBackend(runner): backend =>
+      val _ = intercept[OrcaFlowException]:
+        backend.runAutonomous("first", sid, LlmConfig.default, os.temp.dir())
+      val _ =
+        backend.runAutonomous("retry", sid, LlmConfig.default, os.temp.dir())
+      val second = runner.calls(1)
+      assert(
+        second.containsSlice(Seq("--session-id", SessionId.value(sid))),
+        s"retry after failure must re-claim with --session-id; got: $second"
+      )

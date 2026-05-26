@@ -21,10 +21,17 @@ import orca.{TestFlowContext}
 /** Fake LlmCall whose `autonomous.run` drains a scripted sequence of outputs
   * in order — cast through `Any` because the trait is generic over output
   * type. The session id from the call site is echoed back so tests can verify
-  * the loop threaded a consistent id.
+  * the loop threaded a consistent id; `seenSessions` records each call's
+  * session id so tests can assert "fresh on first, same id thereafter."
   */
 class FakeLlmCall[O](outputs: Iterator[Any])
     extends LlmCall[BackendTag.ClaudeCode.type, O]:
+
+  /** Session ids the LLM was called with, in invocation order. */
+  val seenSessions = new java.util.concurrent.atomic.AtomicReference[
+    List[SessionId[BackendTag.ClaudeCode.type]]
+  ](Nil)
+
   val autonomous: AutonomousLlmCall[BackendTag.ClaudeCode.type, O] =
     new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
       def run[I: AgentInput](
@@ -33,6 +40,7 @@ class FakeLlmCall[O](outputs: Iterator[Any])
             SessionId.fresh[BackendTag.ClaudeCode.type],
           config: LlmConfig = LlmConfig.default
       ): (SessionId[BackendTag.ClaudeCode.type], O) =
+        val _ = seenSessions.updateAndGet(session :: _)
         (session, outputs.next().asInstanceOf[O])
   def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
 
@@ -41,11 +49,18 @@ class FakeLlmTool(
     outputs: List[Any] = Nil
 ) extends LlmTool[BackendTag.ClaudeCode.type]:
   private val it = outputs.iterator
+  val fakeCall: FakeLlmCall[Any] = new FakeLlmCall[Any](it)
 
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
 
   def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
-    new FakeLlmCall[O](it)
+    fakeCall.asInstanceOf[LlmCall[BackendTag.ClaudeCode.type, O]]
+
+  /** Session ids this tool was called with, in invocation order. Tests assert
+    * the loop threaded a stable id across iterations.
+    */
+  def seenSessions: List[SessionId[BackendTag.ClaudeCode.type]] =
+    fakeCall.seenSessions.get().reverse
 
   def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
@@ -150,14 +165,14 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(result.issues.map(_.title).toSet, Set(Title("A"), Title("B")))
 
   test(
-    "first reviewer call starts a fresh session; subsequent iterations resume it"
+    "reviewer is called with the same session id on every iteration"
   ):
+    // Pins the cross-iteration session-threading contract: a reviewer's
+    // first call mints a session via `r.newSession`, and every subsequent
+    // call resumes the SAME id. Without this the loop could lose context
+    // across iterations.
     given FlowContext = ctx
     val stubborn = issue("never ends")
-    // Reviewer keeps reporting the same issue every iteration; coder claims
-    // it fixed it every round (so the loop sees progress) but the next eval
-    // still finds it. `maxIterations = 2` is the only thing that can stop
-    // this — so the test caps the iterator sizes accordingly.
     val reviewer = new FakeLlmTool(
       name = "loud",
       outputs = List.fill(4)(ReviewResult(List(stubborn)))
@@ -174,6 +189,13 @@ class ReviewAndFixTest extends munit.FunSuite:
       maxIterations = 2,
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
+    )
+    val reviewerSessions = reviewer.seenSessions
+    assert(reviewerSessions.size >= 2, s"expected ≥ 2 reviewer calls, got $reviewerSessions")
+    assertEquals(
+      reviewerSessions.distinct.size,
+      1,
+      s"reviewer must reuse one session across iterations; got ${reviewerSessions.map(SessionId.value)}"
     )
 
   test("initialDiff is embedded in the reviewer's first prompt"):

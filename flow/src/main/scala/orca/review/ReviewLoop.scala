@@ -142,7 +142,7 @@ private object ReviewLoopState:
   val empty: ReviewLoopState = ReviewLoopState(Nil, Map.empty)
 
 /** Run reviewers in parallel against `task`, gather per-reviewer outcomes, hand
-  * any issues above `confidenceThreshold` to `coder` via `run(resume = …)`, and
+  * any issues above `confidenceThreshold` to `coder` via `run(session = sessionId)`, and
   * loop. `reviewerSelection` decides which reviewers run each iteration —
   * typically [[ReviewerSelector.llmDriven]] wired against a cheap picker LLM;
   * pass [[ReviewerSelector.allEveryRound]] to skip selection entirely.

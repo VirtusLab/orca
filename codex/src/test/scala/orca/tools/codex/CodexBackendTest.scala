@@ -150,6 +150,29 @@ class CodexBackendTest extends munit.FunSuite:
     assert(secondArgs.contains("resume"), secondArgs)
     assert(secondArgs.contains("thr-server-1"), secondArgs)
 
+  test("distinct client ids both start fresh — no cross-client mapping"):
+    // Pins the per-client isolation of the clientToServer map: a different
+    // client id must NOT resume the prior call's server thread.
+    val runner = new SpawnStubCliRunner(
+      List(
+        successfulProcess("thr-server-A"),
+        successfulProcess("thr-server-B")
+      )
+    )
+    val backend = new CodexBackend(runner)
+    val workDir = os.temp.dir()
+    val sidA =
+      SessionId[BackendTag.Codex.type]("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+    val sidB =
+      SessionId[BackendTag.Codex.type]("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+    val _ = backend.runAutonomous("for A", sidA, LlmConfig.default, workDir)
+    val _ = backend.runAutonomous("for B", sidB, LlmConfig.default, workDir)
+    val secondArgs = runner.calls(1)
+    assert(
+      !secondArgs.contains("resume"),
+      s"second call with a new client id must NOT resume; got: $secondArgs"
+    )
+
   test("runInteractive writes the output schema to a file in the workdir"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     val backend = new CodexBackend(runner)
