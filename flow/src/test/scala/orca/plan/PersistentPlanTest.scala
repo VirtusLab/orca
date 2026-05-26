@@ -125,6 +125,22 @@ class PersistentPlanTest extends munit.FunSuite:
       assertEquals(returned, plan)
       assert(os.exists(planFile), "plan file should be persisted on create")
 
+  test("recoverOrCreate on the recover path skips generate"):
+    // Pre-existing file → `generate` must not be evaluated. Pins the
+    // resume-cheaply contract.
+    withRepoCtx: (ctx, dir, _) =>
+      given FlowContext = ctx
+      val existing = Plan(
+        epicId = "feat-existing",
+        description = "",
+        tasks = List(Task(Title("t1"), "body"))
+      )
+      val planFile = dir / "plan.md"
+      os.write(planFile, Plan.render(existing))
+      val returned = Plan.recoverOrCreate(planFile):
+        fail("generate must not run when the plan file exists")
+      assertEquals(returned.epicId, "feat-existing")
+
   // --- implementTaskLoop ---
 
   test(

@@ -79,12 +79,10 @@ object Plan:
 
   /** Interactive planning helpers — the LLM call opens a conversation the user
     * can drive (clarifying questions, refinements) before producing the plan.
-    * `from` returns `(SessionId, Plan)` so the caller can pass the id as
-    * `session = sid` on the implementation turns. `loadOrGenerate`
-    * returns just `Plan` —
-    * persistence rather than session continuity is the use case it serves; if
-    * you need the planning conversation alive, use `from` and write the
-    * markdown yourself with `Plan.render`.
+    * Returns just the [[Plan]]: the planner's session isn't exposed because
+    * resuming it for implementation isn't supported (the conversation is in
+    * a planning frame; the implementer should mint its own session via
+    * `llm.newSession`).
     *
     * The `B: CanAskUser` constraint means these helpers compile only with
     * backends that can host an `ask_user` tool — today, Claude. Calling
@@ -97,7 +95,7 @@ object Plan:
         userPrompt: String,
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
-    )(using FlowContext): (SessionId[B], Plan) =
+    )(using FlowContext): Plan =
       // The interactive planner can call `ask_user` (an MCP tool); claude's
       // plan mode would disable it, so we don't read-only-restrict here.
       // The planning prompt still says "don't edit files"; if the agent
@@ -106,6 +104,7 @@ object Plan:
         .resultAs[Plan]
         .interactive
         .run(s"$userPrompt\n\n$instructions")
+        ._2
 
     def loadOrGenerate[B <: BackendTag: CanAskUser](
         file: os.Path,
@@ -113,30 +112,34 @@ object Plan:
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext): Plan =
-      loadOrGenerateImpl(file, () => from(userPrompt, llm, instructions)._2)
+      loadOrGenerateImpl(file, () => from(userPrompt, llm, instructions))
 
   /** Autonomous planning helpers — a single agentic turn, no human in the loop.
     * Sibling of [[interactive]]; the choice between the two is visible at the
     * call site (`Plan.autonomous.from(...)` vs `Plan.interactive.from(...)`).
+    * Returns just the [[Plan]] for the same reason as the interactive variant:
+    * the planner runs read-only (`.withReadOnly`) so its session can't be
+    * resumed for implementation anyway.
     */
   object autonomous:
-    def from[B <: BackendTag](
+    def from(
         userPrompt: String,
-        llm: LlmTool[B],
+        llm: LlmTool[?],
         instructions: String = PlanPrompts.Planning
-    )(using FlowContext): (SessionId[B], Plan) =
+    )(using FlowContext): Plan =
       llm.withReadOnly
         .resultAs[Plan]
         .autonomous
         .run(s"$userPrompt\n\n$instructions")
+        ._2
 
-    def loadOrGenerate[B <: BackendTag](
+    def loadOrGenerate(
         file: os.Path,
         userPrompt: String,
-        llm: LlmTool[B],
+        llm: LlmTool[?],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext): Plan =
-      loadOrGenerateImpl(file, () => from(userPrompt, llm, instructions)._2)
+      loadOrGenerateImpl(file, () => from(userPrompt, llm, instructions))
 
     /** Skeptically assess `userPrompt` (typically a bug/feature report) and
       * either return a plan to implement, or a [[Verdict.Rejection]] the caller
@@ -206,14 +209,11 @@ object Plan:
     os.write.over(file, render(updated))
 
   /** Acquire a persistent plan: resume from `file` if it exists, otherwise
-    * evaluate `generate` (typically `Plan.autonomous.from(...)._2`) and lay
-    * down the branch + on-disk plan for a fresh run.
-    *
-    * Does not return a session id. The planner's session (if `generate`
-    * minted one) is irrelevant to the implementer: `Plan.autonomous.from`
-    * runs in plan mode via `.withReadOnly`, so resuming it would inherit the
-    * read-only restriction. Callers should allocate their own implementer
-    * session at the script level via `llm.newSession`.
+    * evaluate `generate` (typically `Plan.autonomous.from(...)`) and lay
+    * down the branch + on-disk plan for a fresh run. Callers should allocate
+    * their own implementer session at the script level via `llm.newSession`
+    * — the planning helpers ([[Plan.autonomous.from]] etc.) intentionally
+    * don't expose their session, so each downstream phase starts cleanly.
     *
     * `stashMessage` is used when a fresh start finds a dirty tree; pass a
     * flow-specific string so `git stash list` is searchable.

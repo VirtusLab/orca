@@ -31,7 +31,7 @@ flow(OrcaArgs(args)):
   // (the planner can call `ask_user` to clarify) and branch.
   val plan = stage("Acquire plan"):
     Plan.recoverOrCreate(planFile, "orca: starting implementation"):
-      Plan.interactive.from(userPrompt, claude)._2
+      Plan.interactive.from(userPrompt, claude)
 
   // Stable autonomous session reused across every task — ask_user was only
   // needed for planning. Implementer and fixer share it.

@@ -131,8 +131,8 @@ Planning utilities, available via `import orca.plan.*`:
 
 | Method | Use |
 |---|---|
-| `Plan.interactive.from(userPrompt, llm, instructions?)` | Open an interactive planning round-trip — the agent can ask clarifying questions before producing the plan. Returns the session id + a `Plan` so the caller can pass it as `session = sid` on implementation turns to continue the planner's context. |
-| `Plan.autonomous.from(userPrompt, llm, instructions?)` | Same shape as `interactive.from` but the planning runs as a single agentic turn, no human in the loop. |
+| `Plan.interactive.from(userPrompt, llm, instructions?)` | Open an interactive planning round-trip — the agent can ask clarifying questions before producing the plan. Returns just the `Plan`; the implementer allocates its own session via `llm.newSession`. |
+| `Plan.autonomous.from(userPrompt, llm, instructions?)` | Same shape as `interactive.from` but the planning runs as a single agentic turn, no human in the loop. Runs read-only — the planner can read/grep but can't edit. |
 | `Plan.autonomous.assessThenPlan(userPrompt, llm, instructions?)` | Skeptically assess `userPrompt` (typically a bug/feature report) against the repo and either return a plan (`Verdict.Proceed`) or a critique/follow-up question/rebuff the caller surfaces back to the reporter (`Verdict.Rejection`). Used by `issue-pr.sc`. |
 | `Plan.interactive.loadOrGenerate(file, userPrompt, llm, instructions?)` | Idempotent plan acquisition with interactive generation: parse `file` if it exists (resume), otherwise drive the planner conversationally and persist the result as markdown. |
 | `Plan.autonomous.loadOrGenerate(file, userPrompt, llm, instructions?)` | Same, but generation is autonomous. |

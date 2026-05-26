@@ -32,7 +32,7 @@ flow(OrcaArgs(args)):
   // Resume `.orca/plan-<hash>.md` if it exists; otherwise plan + branch.
   val plan = stage("Acquire plan"):
     Plan.recoverOrCreate(planFile, "orca: starting implementation"):
-      Plan.autonomous.from(userPrompt, claude)._2
+      Plan.autonomous.from(userPrompt, claude)
 
   // Stable session reused across every task — implementer and fixer share
   // it so review comments land against the same context that produced the
