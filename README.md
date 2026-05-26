@@ -28,29 +28,27 @@ Save this as `implement.sc` and run it with your task:
 import orca.{*, given}
 
 flow(OrcaArgs(args)):
-  // Break the user's prompt into concrete subtasks. Plan.autonomous.from
-  // runs the planner as a single agentic turn with no human in the loop;
-  // swap for Plan.interactive.from to let the planner ask clarifying
-  // questions when the prompt is open-ended (see example 02).
-  val plan = stage("Creating a development plan"):
-    Plan.autonomous.from(userPrompt, claude)
-
-  // Single branch for the whole epic; each task becomes a commit on it.
-  // git.createBranch returns Either[BranchAlreadyExists, Unit]; .orThrow
-  // turns the recoverable Left into an exception so the stage fails loudly.
-  stage(s"Branch: ${plan.epicId}"):
-    git.createBranch(plan.epicId).orThrow
+  // Plan persists to `.orca/plan-<hash>.md` so a re-run with the same
+  // prompt resumes from the first incomplete task. Plan.autonomous.from
+  // runs the planner as a single agentic turn (use Plan.interactive.from
+  // to let the planner ask clarifying questions). `recoverOrCreate`
+  // ensures the branch is checked out and the file is on disk before we
+  // start implementing.
+  val planFile = Plan.defaultPath(userPrompt)
+  val plan = stage("Acquire plan"):
+    Plan.recoverOrCreate(planFile, "orca: starting work"):
+      Plan.autonomous.from(userPrompt, claude)
 
   // Stable session reused across every task so the implementer retains
   // cross-task context. The planner's session isn't carried forward — it
   // runs read-only and would inherit the restriction on resume.
   val session = claude.newSession
 
-  // Per task: implement, format, review & fix, commit. We commit *after*
-  // the loop so the single commit captures the original implementation,
-  // the auto-formatted result, and any follow-up fixes the reviewers
-  // triggered.
-  for task <- plan.tasks do
+  // Per task: implement, format, review & fix. `implementTaskLoop` ticks
+  // the plan's checkbox + commits per task and removes the plan file at
+  // the end. The single commit captures the original implementation, the
+  // auto-formatted result, and any follow-up fixes the reviewers triggered.
+  Plan.implementTaskLoop(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
       stage("Implementation"):
         val _ = claude.autonomous.run(task.description, session)
@@ -71,7 +69,6 @@ flow(OrcaArgs(args)):
         lintCommand = Some("sbt test"),
         lintLlm = Some(claude.haiku)
       )
-      git.commit(s"Implement ${task.title}").orThrow
 ```
 
 ```bash

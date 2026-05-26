@@ -23,6 +23,9 @@ class SequencedBackend(outputs: List[String])
     AtomicReference(Nil)
   private val seenEvents: AtomicReference[List[orca.events.OrcaListener]] =
     AtomicReference(Nil)
+  private val registrations: AtomicReference[List[
+    (SessionId[BackendTag.ClaudeCode.type], SessionId[BackendTag.ClaudeCode.type])
+  ]] = AtomicReference(Nil)
 
   def prompts: List[String] = promptsRef.get().reverse
 
@@ -31,6 +34,20 @@ class SequencedBackend(outputs: List[String])
     * than silently dropping it on the floor.
     */
   def events: List[orca.events.OrcaListener] = seenEvents.get().reverse
+
+  /** `(clientSid, serverSid)` pairs the framework passed to `registerSession`,
+    * in invocation order. Lets tests assert that `DefaultLlmCall` wired the
+    * post-drain hook through to the backend.
+    */
+  def registered: List[
+    (SessionId[BackendTag.ClaudeCode.type], SessionId[BackendTag.ClaudeCode.type])
+  ] = registrations.get().reverse
+
+  override def registerSession(
+      client: SessionId[BackendTag.ClaudeCode.type],
+      server: SessionId[BackendTag.ClaudeCode.type]
+  ): Unit =
+    val _ = registrations.updateAndGet((client, server) :: _)
 
   def runAutonomous(
       prompt: String,
@@ -49,7 +66,17 @@ class SequencedBackend(outputs: List[String])
       config: LlmConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): orca.backend.Conversation[BackendTag.ClaudeCode.type] = ???
+  ): orca.backend.Conversation[BackendTag.ClaudeCode.type] =
+    // Minimal stand-in: the conversation is not actually driven — the test's
+    // `Interaction.drive` ignores it and returns a canned `LlmResult`. We
+    // still need *something* to return so the interactive path compiles.
+    new orca.backend.Conversation[BackendTag.ClaudeCode.type]:
+      val outputSchema: Option[String] = None
+      val events: Iterator[orca.backend.ConversationEvent] = Iterator.empty
+      def awaitResult() = throw new UnsupportedOperationException("test stub")
+      def sendUserMessage(text: String): Unit = ()
+      def canAskUser: Boolean = false
+      def cancel(): Unit = ()
 
   private def nextResult(
       prompt: String
@@ -222,3 +249,48 @@ class DefaultLlmCallTest extends munit.FunSuite:
           (raw, summary)
       }
       assertEquals(structured, List(("""{"value":1}""", None)))
+
+  test(
+    "interactive.run registers (clientSid, serverSid) and returns the client id"
+  ):
+    // Pins the codex-interactive bug fix end-to-end: the framework must call
+    // `backend.registerSession(session, result.sessionId)` after
+    // `interaction.drive` returns, and restamp the returned id to the
+    // caller-supplied `session` so a follow-up `.run(prompt, sid)` resumes
+    // the right thread. Removing the `backend.registerSession` line in
+    // `DefaultLlmCall.runInteractiveOnce` would fail this test.
+    val clientSid =
+      SessionId[BackendTag.ClaudeCode.type]("client-uuid-aaaa")
+    val serverSid =
+      SessionId[BackendTag.ClaudeCode.type]("server-uuid-bbbb")
+    val backend = new SequencedBackend(List("""{"value":3}"""))
+    val drivingInteraction: Interaction = new Interaction:
+      val listeners: List[OrcaListener] = Nil
+      def drive[B <: BackendTag](
+          conversation: orca.backend.Conversation[B]
+      ): LlmResult[B] =
+        LlmResult[B](
+          sessionId = SessionId[B](SessionId.value(serverSid)),
+          output = """{"value":3}""",
+          usage = Usage.empty
+        )
+    supervised:
+      val (returned, answer) = new DefaultLlmCall[
+        BackendTag.ClaudeCode.type,
+        Answer
+      ](
+        backend = backend,
+        effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
+        prompts = DefaultPrompts,
+        workDir = os.pwd,
+        events = orca.events.OrcaListener.noop,
+        interaction = drivingInteraction,
+        agentName = "claude"
+      ).interactive.run("anything", session = clientSid)
+      assertEquals(answer, Answer(3))
+      assertEquals(returned, clientSid, "returned id must be the caller's, not the server's")
+      assertEquals(
+        backend.registered,
+        List((clientSid, serverSid)),
+        "framework must register the (client, server) mapping post-drain"
+      )

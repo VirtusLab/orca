@@ -60,7 +60,7 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
     )
     try
       val result = Conversations.drainAutonomous(conv, events)
-      rememberServerId(session, result.sessionId)
+      registerSession(session, result.sessionId)
       // Hide the server-allocated id from the caller — they keep using the
       // client id they passed in. Future calls resolve via clientToServer.
       result.copy(sessionId = session)
@@ -91,7 +91,7 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
     *
     * The fresh-vs-resume decision is driven by [[clientToServer]]: if we've
     * seen this client session id before, we know the server id to resume;
-    * otherwise we start fresh and the post-call [[rememberServerId]] records
+    * otherwise we start fresh and the post-call [[registerSession]] records
     * the mapping.
     */
   private def openConversation(
@@ -134,12 +134,11 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
           s"Failed to open codex session: ${e.getMessage}"
         )
 
-  /** Record the server-allocated thread id learned from the first call's
-    * response so subsequent calls with the same client id resume that thread.
-    * No-op if the mapping already exists (idempotent under retry).
-    *
-    * Also reachable via [[registerSession]] from `DefaultLlmCall` after an
-    * interactive conversation drains — see the SPI doc.
+  /** Record the server-allocated thread id learned from a call's response so
+    * subsequent calls with the same client id resume that thread. Idempotent
+    * via `putIfAbsent`. Called by [[runAutonomous]] post-drain and by
+    * [[orca.llm.DefaultLlmCall]] post-`interaction.drive` on the interactive
+    * path.
     */
   override def registerSession(
       client: SessionId[BackendTag.Codex.type],
@@ -149,11 +148,6 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
       SessionId.value(client),
       SessionId.value(server)
     )
-
-  private def rememberServerId(
-      clientId: SessionId[BackendTag.Codex.type],
-      serverId: SessionId[BackendTag.Codex.type]
-  ): Unit = registerSession(clientId, serverId)
 
   /** codex `exec` has no `--system-prompt` flag (codex picks up `AGENTS.md`
     * files in the working directory for static instructions). Fold a configured
