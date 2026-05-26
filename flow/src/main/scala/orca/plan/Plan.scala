@@ -97,6 +97,10 @@ object Plan:
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext): (SessionId[B], Plan) =
+      // The interactive planner can call `ask_user` (an MCP tool); claude's
+      // plan mode would disable it, so we don't read-only-restrict here.
+      // The planning prompt still says "don't edit files"; if the agent
+      // violates that during an interactive turn the user sees it happen.
       llm
         .resultAs[Plan]
         .interactive
@@ -128,7 +132,7 @@ object Plan:
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext): (SessionId[B], Plan) =
-      llm
+      llm.withReadOnly
         .resultAs[Plan]
         .autonomous
         .startSession(s"$userPrompt\n\n$instructions")
@@ -141,34 +145,37 @@ object Plan:
     )(using FlowContext): Plan =
       loadOrGenerateImpl(
         file,
-        () => llm.resultAs[Plan].autonomous.run(s"$userPrompt\n\n$instructions")
+        () =>
+          llm.withReadOnly
+            .resultAs[Plan]
+            .autonomous
+            .run(s"$userPrompt\n\n$instructions")
       )
 
     /** Skeptically assess `userPrompt` (typically a bug/feature report) and
       * either return a plan to implement, or a [[Verdict.Rejection]] the caller
-      * can surface to whoever filed it. The agent gets autonomous tool access
-      * — that's the point of the assessment.
+      * can surface to whoever filed it. Runs read-only so the agent can
+      * verify claims via Read/Grep without making edits.
       *
-      * Same session-id return shape as [[from]], so a `Proceed` outcome can be
-      * resumed for the implementation turns; on `Rejection` the session id is
-      * still returned (the session still happened) but typically discarded.
+      * Returns just the verdict — no session id. The assess session is in
+      * plan mode; implementation turns should start a fresh session so they
+      * get full write access.
       */
     def assessThenPlan[B <: BackendTag](
         userPrompt: String,
         llm: LlmTool[B],
         instructions: String = PlanPrompts.AssessThenPlan
-    )(using FlowContext): (SessionId[B], Verdict[Plan]) =
-      val (sid, assessed) =
-        llm
+    )(using FlowContext): Verdict[Plan] =
+      val assessed =
+        llm.withReadOnly
           .resultAs[AssessedPlan]
           .autonomous
-          .startSession(s"$userPrompt\n\n$instructions")
+          .run(s"$userPrompt\n\n$instructions")
       // The decode succeeded but the field combination is incoherent — past
       // the retry loop, treat it as a system-level failure with the structured
       // error attached.
-      val verdict = assessed.toVerdict
+      assessed.toVerdict
         .fold(msg => throw OrcaFlowException(msg), identity)
-      (sid, verdict)
 
   /** Common load-or-generate body: read+log on resume, otherwise call
     * `generate` and persist its result. The two public variants differ only in
@@ -224,8 +231,12 @@ object Plan:
       stashMessage: String = "orca: starting work"
   )(generate: => Plan)(using ctx: FlowContext): Plan =
     recover(file).getOrElse:
-      val plan = generate
+      // ensureClean *before* generate so the planner sees a known-clean tree
+      // (and the "stashed pending changes" Step only fires when the user
+      // actually had pre-existing dirty edits, not when the planner itself
+      // wrote files — `Plan.autonomous.from` runs read-only for that reason).
       val _ = ctx.git.ensureClean(stashMessage)
+      val plan = generate
       ctx.git.checkoutOrCreate(plan.epicId)
       os.write.over(file, render(plan), createFolders = true)
       plan

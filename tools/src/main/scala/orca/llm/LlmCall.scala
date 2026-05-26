@@ -144,8 +144,8 @@ class DefaultLlmCall[B <: BackendTag, O](
         case None    => initialPrompt
       val result = resume match
         case Some(sid) =>
-          backend.continueAutonomous(sid, promptText, effective, workDir)
-        case None => backend.runAutonomous(promptText, effective, workDir)
+          backend.continueAutonomous(sid, promptText, effective, workDir, events)
+        case None => backend.runAutonomous(promptText, effective, workDir, events)
       events.onEvent(
         OrcaEvent.TokensUsed(
           agentName,

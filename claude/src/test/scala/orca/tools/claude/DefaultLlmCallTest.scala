@@ -21,15 +21,25 @@ class SequencedBackend(outputs: List[String])
     AtomicReference(outputs)
   private val promptsRef: AtomicReference[List[String]] =
     AtomicReference(Nil)
+  private val seenEvents: AtomicReference[List[orca.events.OrcaListener]] =
+    AtomicReference(Nil)
 
   def prompts: List[String] = promptsRef.get().reverse
+
+  /** Listeners the backend was called with, in invocation order. Lets tests
+    * assert that `DefaultLlmCall` threaded its own `events` through rather
+    * than silently dropping it on the floor.
+    */
+  def events: List[orca.events.OrcaListener] = seenEvents.get().reverse
 
   def runAutonomous(
       prompt: String,
       config: LlmConfig,
       workDir: os.Path,
       events: orca.events.OrcaListener = orca.events.OrcaListener.noop
-  ): LlmResult[BackendTag.ClaudeCode.type] = nextResult(prompt)
+  ): LlmResult[BackendTag.ClaudeCode.type] =
+    val _ = seenEvents.updateAndGet(events :: _)
+    nextResult(prompt)
 
   /** Record a continuation call tagged with its sessionId so tests can assert
     * the same session is being resumed across retries.
@@ -41,6 +51,7 @@ class SequencedBackend(outputs: List[String])
       workDir: os.Path,
       events: orca.events.OrcaListener = orca.events.OrcaListener.noop
   ): LlmResult[BackendTag.ClaudeCode.type] =
+    val _ = seenEvents.updateAndGet(events :: _)
     nextResult(prompt).copy(sessionId = sessionId)
 
   def runInteractive(
@@ -183,6 +194,27 @@ class DefaultLlmCallTest extends munit.FunSuite:
           (raw, summary)
       }
       assertEquals(structured, List(("""{"value":99}""", Some("answer is 99"))))
+
+  test(
+    "autonomous threads its `events` listener to backend.runAutonomous"
+  ):
+    // Without this wiring, structured calls (which is what every reviewer
+    // uses) lose tool-use / assistant-message visibility — the per-turn
+    // events fire only when the backend gets the same listener the
+    // DefaultLlmCall was constructed with.
+    val backend = new SequencedBackend(List("""{"value":1}"""))
+    val myListener: orca.events.OrcaListener = (_: orca.events.OrcaEvent) => ()
+    supervised:
+      val _ = new DefaultLlmCall[BackendTag.ClaudeCode.type, Answer](
+        backend = backend,
+        effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
+        prompts = DefaultPrompts,
+        workDir = os.pwd,
+        events = myListener,
+        interaction = stubInteraction,
+        agentName = "claude"
+      ).autonomous.run("anything")
+      assertEquals(backend.events, List(myListener))
 
   test(
     "autonomous emits StructuredResult with summary=None under default Announce"

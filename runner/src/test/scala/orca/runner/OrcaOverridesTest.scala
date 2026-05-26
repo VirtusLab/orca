@@ -46,6 +46,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       def withConfig(c: LlmConfig) = this
       def withSystemPrompt(p: String) = this
       def withName(n: String) = this
+      def withReadOnly = this
       val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
         new AutonomousTextCall[BackendTag.ClaudeCode.type]:
           def run(p: String, c: LlmConfig = LlmConfig.default): String =

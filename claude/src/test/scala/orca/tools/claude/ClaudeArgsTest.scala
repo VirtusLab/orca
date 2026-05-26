@@ -49,6 +49,16 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--permission-mode", "acceptEdits")))
     assert(!args.contains("--allowedTools"))
 
+  test("readOnly=true maps to --permission-mode plan, overriding autoApprove"):
+    // `readOnly` is the planner's hard restriction — Edit/Write/Bash must be
+    // unavailable, not just non-auto-approved. It wins over `autoApprove`
+    // because the use case is "the agent is verifying claims, not editing".
+    val args =
+      streamJson(LlmConfig(autoApprove = AutoApprove.All, readOnly = true))
+    assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
+    assert(!args.contains("bypassPermissions"), args)
+    assert(!args.contains("--allowedTools"), args)
+
   test("--resume <id> is emitted when a session id is supplied"):
     val sid = SessionId[BackendTag.ClaudeCode.type]("sess-abc")
     val args = ClaudeArgs.streamJson(

@@ -43,6 +43,10 @@ flow(OrcaArgs(args)):
       Plan.autonomous.from(userPrompt, claude.opus)._2
 
   // 2. Single Claude session across tasks so the agent retains context.
+  // Required here (unlike `implement.sc`'s per-task sessions) because the
+  // documentation pass at the end consumes the accumulated context — the
+  // agent needs to remember what it built across the whole epic to update
+  // docs coherently.
   val (sessionId, _) = claude.autonomous.startSession(
     s"""You are working on the epic at $planFile.
        |

@@ -35,6 +35,7 @@ class LintTest extends munit.FunSuite:
     def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
     def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
     def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
+    def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
     def resultAs[O: JsonData: Announce]
         : LlmCall[BackendTag.ClaudeCode.type, O] =
       new LlmCall[BackendTag.ClaudeCode.type, O]:

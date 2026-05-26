@@ -8,6 +8,14 @@ case class LlmConfig(
     model: Option[Model] = None,
     systemPrompt: Option[String] = None,
     autoApprove: AutoApprove = AutoApprove.All,
+    /** Restrict the agent to read-only tools (Read / Glob / Grep / read-only
+      * Bash). No file writes, no edits, no shelling out for side effects.
+      * Maps to claude's `--permission-mode plan`. Used by planning helpers so
+      * the agent can verify claims against the repo without making changes —
+      * an over-eager planner editing files during a "plan-only" turn was the
+      * motivating case.
+      */
+    readOnly: Boolean = false,
     retrySchedule: Schedule = LlmConfig.defaultRetrySchedule
 ):
   /** Return a config whose `autoApprove` set also includes `tool`. Backends use

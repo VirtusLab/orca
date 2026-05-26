@@ -124,7 +124,7 @@ object FlowCanary:
   def assessThenPlanSurface(): Unit =
     flow(OrcaArgs()):
       stage("assess"):
-        val (_, verdict) =
+        val verdict =
           Plan.autonomous.assessThenPlan(userPrompt, claude.opus)
         verdict match
           case Verdict.Proceed(_) => ()

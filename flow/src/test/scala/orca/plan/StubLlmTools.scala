@@ -24,6 +24,7 @@ private[plan] class CannedPlanLlm(plan: Plan)
   def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
   def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
+  def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
 
   def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
     new LlmCall[BackendTag.ClaudeCode.type, O]:
@@ -44,8 +45,8 @@ private[plan] class CannedPlanLlm(plan: Plan)
           ): O = ???
       def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
 
-/** Test double whose `resultAs[AssessedPlan].autonomous.startSession` returns a
-  * pre-built `AssessedPlan` plus a fixed session id. Other call shapes throw.
+/** Test double whose `resultAs[AssessedPlan].autonomous.run` returns a
+  * pre-built `AssessedPlan`. Other call shapes throw.
   */
 private[plan] class CannedAssessedPlanLlm(assessed: AssessedPlan)
     extends LlmTool[BackendTag.ClaudeCode.type]:
@@ -54,6 +55,7 @@ private[plan] class CannedAssessedPlanLlm(assessed: AssessedPlan)
   def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
   def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
+  def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
 
   def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
     new LlmCall[BackendTag.ClaudeCode.type, O]:
@@ -62,15 +64,11 @@ private[plan] class CannedAssessedPlanLlm(assessed: AssessedPlan)
           def run[I: AgentInput](
               input: I,
               config: LlmConfig = LlmConfig.default
-          ): O = ???
+          ): O = assessed.asInstanceOf[O]
           def startSession[I: AgentInput](
               input: I,
               config: LlmConfig = LlmConfig.default
-          ): (SessionId[BackendTag.ClaudeCode.type], O) =
-            (
-              SessionId[BackendTag.ClaudeCode.type]("stub-sid"),
-              assessed.asInstanceOf[O]
-            )
+          ): (SessionId[BackendTag.ClaudeCode.type], O) = ???
           def continueSession[I: AgentInput](
               sid: SessionId[BackendTag.ClaudeCode.type],
               input: I,
@@ -89,5 +87,6 @@ private[plan] class ExplodingLlm(reason: String)
   def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
   def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
+  def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
   def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
     throw new AssertionError(reason)

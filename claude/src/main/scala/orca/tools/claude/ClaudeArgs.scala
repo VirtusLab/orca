@@ -68,16 +68,23 @@ private[claude] object ClaudeArgs:
   private def mcpConfigArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--mcp-config", f.toString))
 
+  /** `readOnly` overrides any `autoApprove` setting: claude's `--permission-mode
+    * plan` makes Edit/Write/Bash unavailable to the agent (not just
+    * non-auto-approved). The planner's "don't edit files" instruction in the
+    * prompt is advisory; this turns it into a hard guarantee.
+    */
   private def autoApproveArgs(config: LlmConfig): Seq[String] =
-    config.autoApprove match
-      case AutoApprove.All =>
-        Seq("--permission-mode", "bypassPermissions")
-      case AutoApprove.Only(tools) if tools.isEmpty =>
-        Seq("--permission-mode", "acceptEdits")
-      case AutoApprove.Only(tools) =>
-        Seq(
-          "--permission-mode",
-          "acceptEdits",
-          "--allowedTools",
-          tools.toSeq.sorted.mkString(",")
-        )
+    if config.readOnly then Seq("--permission-mode", "plan")
+    else
+      config.autoApprove match
+        case AutoApprove.All =>
+          Seq("--permission-mode", "bypassPermissions")
+        case AutoApprove.Only(tools) if tools.isEmpty =>
+          Seq("--permission-mode", "acceptEdits")
+        case AutoApprove.Only(tools) =>
+          Seq(
+            "--permission-mode",
+            "acceptEdits",
+            "--allowedTools",
+            tools.toSeq.sorted.mkString(",")
+          )

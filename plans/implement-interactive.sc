@@ -34,23 +34,29 @@ flow(OrcaArgs(args)):
     Plan.recoverOrCreate(planFile, "orca: starting implementation"):
       Plan.interactive.from(userPrompt, claude)._2
 
-  // 2. Single autonomous session across all tasks — the interactive planning
-  // turn is over by now, so the implementer doesn't need the ask_user surface.
-  val (sessionId, _) = claude.autonomous.startSession(
-    s"""You are working on the plan at $planFile. Each task is sent to
-       |you in turn; implement only that task and reply briefly when
-       |you're done so I know to move on.""".stripMargin
-  )
+  // 2. Iterate. A single autonomous session runs across every task — the
+  // interactive ask_user surface was only needed during planning. The
+  // session is started lazily by the first task and reused; the implementer
+  // + the fixer in `reviewAndFixLoop` share it so review comments land
+  // against the same context that produced the code. `runPersistent` commits
+  // + ticks per task and removes the plan file at the end.
+  var sessionId: Option[SessionId[BackendTag.ClaudeCode.type]] = None
 
-  // 3. Iterate; commit + tick per task; remove plan file at the end.
   Plan.runPersistent(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
-      stage("Implementation"):
-        claude.autonomous.continueSession(sessionId, task.description)
+      val sid = stage("Implementation"):
+        sessionId match
+          case Some(s) =>
+            val _ = claude.autonomous.continueSession(s, task.description)
+            s
+          case None =>
+            val (fresh, _) = claude.autonomous.startSession(task.description)
+            sessionId = Some(fresh)
+            fresh
 
       reviewAndFixLoop(
         coder = claude,
-        sessionId = sessionId,
+        sessionId = sid,
         reviewers = allReviewers(claude),
         // Haiku picks which reviewers run per task — sees each one's
         // description plus the changed files. Swap for

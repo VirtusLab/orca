@@ -1,7 +1,6 @@
 package orca.plan
 
 import orca.events.EventDispatcher
-import orca.llm.SessionId
 
 class AssessThenPlanTest extends munit.FunSuite:
 
@@ -55,7 +54,7 @@ class AssessThenPlanTest extends munit.FunSuite:
       )
       assert(msg.contains(fragment), s"expected '$fragment' in '$msg'")
 
-  test("Plan.autonomous.assessThenPlan returns the LLM's session id + verdict"):
+  test("Plan.autonomous.assessThenPlan returns the parsed verdict"):
     given orca.FlowContext = new orca.TestFlowContext(new EventDispatcher(Nil))
     val assessed = AssessedPlan(
       verdict = "reject",
@@ -63,11 +62,10 @@ class AssessThenPlanTest extends munit.FunSuite:
       rejectKind = Some("rebuff"),
       rejectBody = Some("duplicate of #42")
     )
-    val (sid, verdict) = Plan.autonomous.assessThenPlan(
+    val verdict = Plan.autonomous.assessThenPlan(
       "the report",
       new CannedAssessedPlanLlm(assessed)
     )
-    assertEquals(SessionId.value(sid), "stub-sid")
     assertEquals(verdict, Verdict.Rejection(Verdict.RejectionKind.Rebuff, "duplicate of #42"))
 
   test("Plan.autonomous.assessThenPlan throws OrcaFlowException on malformed payload"):

@@ -45,6 +45,14 @@ trait LlmTool[B <: BackendTag]:
   def withSystemPrompt(prompt: String): LlmTool[B]
   def withName(name: String): LlmTool[B]
 
+  /** Return a sibling tool whose config has [[LlmConfig.readOnly]] flipped on
+    * — claude maps this to `--permission-mode plan`, so Edit/Write/Bash are
+    * unavailable to the agent. Preserves the rest of the tool's config
+    * (model, system prompt, autoApprove). Used by planning helpers so
+    * `claude.opus.withReadOnly` keeps the opus pin while gating writes.
+    */
+  def withReadOnly: LlmTool[B]
+
 trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
   /** Pin the Claude model for subsequent calls, overriding `LlmConfig.model`.
     * Typical usage: `claude.haiku.autonomous.run("summarize this")` for a cheap

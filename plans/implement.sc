@@ -37,25 +37,31 @@ flow(OrcaArgs(args)):
     Plan.recoverOrCreate(planFile, "orca: starting implementation"):
       Plan.autonomous.from(userPrompt, claude)._2
 
-  // 2. Single session across all tasks so the agent retains context. Started
-  // here (rather than inside `runPersistent`) so a resume picks up with a
-  // fresh thread that still sees the persisted plan as its source of truth.
-  val (sessionId, _) = claude.autonomous.startSession(
-    s"""You are working on the plan at $planFile. Each task is sent to
-       |you in turn; implement only that task and reply briefly when
-       |you're done so I know to move on.""".stripMargin
-  )
+  // 2. Iterate. A single Claude session runs across every task so the agent
+  // retains cross-task context; it's started lazily by the first task (the
+  // first task's description is the session opener — no separate "you are
+  // working on the plan…" priming turn). The implementer + the fixer in
+  // `reviewAndFixLoop` share this session so review comments can be
+  // addressed against the same conversational context that produced the
+  // code. `runPersistent` ticks the checkbox + commits per task and removes
+  // the plan file once everything is done.
+  var sessionId: Option[SessionId[BackendTag.ClaudeCode.type]] = None
 
-  // 3. Iterate. `runPersistent` ticks the checkbox + commits per task and
-  // removes the plan file once everything is done.
   Plan.runPersistent(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
-      stage("Implementation"):
-        claude.autonomous.continueSession(sessionId, task.description)
+      val sid = stage("Implementation"):
+        sessionId match
+          case Some(s) =>
+            val _ = claude.autonomous.continueSession(s, task.description)
+            s
+          case None =>
+            val (fresh, _) = claude.autonomous.startSession(task.description)
+            sessionId = Some(fresh)
+            fresh
 
       reviewAndFixLoop(
         coder = claude,
-        sessionId = sessionId,
+        sessionId = sid,
         reviewers = allReviewers(claude),
         // Haiku picks which reviewers run per task — sees each one's
         // description plus the changed files. Swap for

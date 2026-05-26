@@ -65,10 +65,10 @@ flow(OrcaArgs(args)):
        |
        |${issue.body}""".stripMargin
 
-  // 2. Assess the report and either plan or reject. The opus model gets full
-  // tool access so it can verify claims against the repo (read files, run
-  // searches) before committing to either branch.
-  val (sessionId, verdict) = stage("Assess and plan"):
+  // 2. Assess the report and either plan or reject. Opus runs read-only —
+  // it has Read/Grep to verify claims against the repo but can't edit during
+  // the assess turn.
+  val verdict = stage("Assess and plan"):
     Plan.autonomous.assessThenPlan(issuePayload, claude.opus)
 
   // Branching here rather than `return` — `flow` is a lambda body, and
@@ -81,18 +81,30 @@ flow(OrcaArgs(args)):
 
     case Verdict.Proceed(plan) =>
       // 4. Branch for the whole epic, then implement each task on that
-      // branch with the review-and-fix loop. One commit per task.
+      // branch with the review-and-fix loop. One commit per task. Lazy
+      // session — started by the first task's prompt, reused across tasks
+      // so the agent retains context. Fresh from the assess turn (which
+      // ran in plan mode) so the implementer has write access.
       stage(s"Branch: ${plan.epicId}"):
         git.createBranch(plan.epicId).orThrow
 
+      var sessionId: Option[SessionId[BackendTag.ClaudeCode.type]] = None
+
       for task <- plan.tasks do
         stage(s"Implement task: ${task.title}"):
-          stage("Implementation"):
-            claude.autonomous.continueSession(sessionId, task.description)
+          val sid = stage("Implementation"):
+            sessionId match
+              case Some(s) =>
+                val _ = claude.autonomous.continueSession(s, task.description)
+                s
+              case None =>
+                val (fresh, _) = claude.autonomous.startSession(task.description)
+                sessionId = Some(fresh)
+                fresh
 
           reviewAndFixLoop(
             coder = claude,
-            sessionId = sessionId,
+            sessionId = sid,
             reviewers = allReviewers(claude),
             // Haiku picks which reviewers run — sees each one's description
             // plus the changed files. Swap for `ReviewerSelector.allEveryRound`
