@@ -37,6 +37,20 @@ private[codex] enum Item:
       status: String
   )
   case FileChange(id: String, changes: List[FileChangeDetail], status: String)
+  /** Codex's MCP tool-call item. `server` is the configured MCP server name
+    * (from `mcp_servers.<server>.url` in the config); `tool` is the bare slug
+    * the server advertised. `arguments` is the raw JSON the model supplied;
+    * `result` is the rendered text from the MCP tool result's `content`
+    * array, or `None` while the call is in-flight.
+    */
+  case McpToolCall(
+      id: String,
+      server: String,
+      tool: String,
+      arguments: String,
+      result: Option[String],
+      status: String
+  )
   case Other(itemType: String, id: String)
 
 private[codex] case class FileChangeDetail(path: String, kind: String)
@@ -102,8 +116,42 @@ private[codex] object InboundEvent:
             .map(c => FileChangeDetail(c.path, c.kind)),
           status = item.status.getOrElse("")
         )
+      case "mcp_tool_call" =>
+        Item.McpToolCall(
+          id = item.id,
+          server = item.server.getOrElse(""),
+          tool = item.tool.getOrElse(""),
+          arguments = item.arguments.map(_.value).getOrElse("{}"),
+          // Item.started carries `result: null`; only item.completed has a
+          // real value. Treat absence/null as "in-flight" → None.
+          result = item.result.flatMap(renderMcpResultText),
+          status = item.status.getOrElse("")
+        )
       case other =>
         Item.Other(other, item.id)
+
+  /** Flatten an MCP `result` object's `content` array into a displayable
+    * string. The standard MCP result shape is
+    * `{"content":[{"type":"text","text":"…"}, …],"isError":bool}`. We pull
+    * out the text fragments and join them; non-text fragments are dropped.
+    * Returns `None` for an empty result (e.g. item.started's null) so the
+    * caller can distinguish "no result yet" from "empty result".
+    */
+  private def renderMcpResultText(raw: RawJson): Option[String] =
+    val trimmed = raw.value.trim
+    if trimmed == "null" || trimmed.isEmpty then None
+    else
+      try
+        val wire = readFromString[McpResultWire](trimmed)
+        val joined = wire.content
+          .flatMap(c => c.text.filter(_ => c.`type` == "text"))
+          .mkString
+        Some(joined)
+      catch
+        case _: Throwable =>
+          // Result shapes vary across MCP servers; if parsing fails, surface
+          // the raw JSON rather than dropping the diagnostic.
+          Some(trimmed)
 
   // --- Wire shapes ---
 
@@ -136,7 +184,24 @@ private[codex] object InboundEvent:
       aggregated_output: Option[String] = None,
       exit_code: Option[Int] = None,
       status: Option[String] = None,
-      changes: Option[List[FileChangeWire]] = None
+      changes: Option[List[FileChangeWire]] = None,
+      server: Option[String] = None,
+      tool: Option[String] = None,
+      arguments: Option[RawJson] = None,
+      result: Option[RawJson] = None
   ) derives ConfiguredJsonValueCodec
 
   private case class ItemWire(item: ItemBody) derives ConfiguredJsonValueCodec
+
+  /** Subset of the MCP `tools/call` result we extract for display — just the
+    * `content` array. `isError` is read off the item's top-level `status`
+    * field by codex itself, so we don't need it here.
+    */
+  private case class McpResultWire(
+      content: List[McpContentWire] = Nil
+  ) derives ConfiguredJsonValueCodec
+
+  private case class McpContentWire(
+      `type`: String,
+      text: Option[String] = None
+  ) derives ConfiguredJsonValueCodec
