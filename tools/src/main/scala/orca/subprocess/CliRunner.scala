@@ -1,5 +1,7 @@
 package orca.subprocess
 
+import scala.jdk.CollectionConverters.given
+
 case class CliResult(exitCode: Int, stdout: String, stderr: String)
 
 trait CliProcess:
@@ -119,13 +121,22 @@ private final class OsPipedSubProcess(
 
   // Memoised so repeated calls return the same iterator, avoiding a
   // second `BufferedReader` leak against the pipe.
+  //
+  // CRITICAL: must read line-by-line as the child emits — NOT
+  // `sub.stdout.lines()`, which dispatches to `geny.ByteData.lines()` and
+  // reads the whole stream to EOF before returning a `Vector[String]`. That
+  // version turns stream-json into a no-op until the subprocess exits, with
+  // all events appearing in a single burst at the end. Using the underlying
+  // `BufferedReader` (already wired by os-lib) gives a properly lazy
+  // line-by-line iterator.
   private lazy val stdoutIterator: Iterator[String] =
-    sub.stdout.lines().iterator
+    sub.stdout.buffered.lines().iterator().asScala
   // When stderr is inherited to the parent, expose an empty iterator so
   // the `PipedCliProcess` contract still holds without reading from a
   // nonexistent pipe; when piped, expose the actual stream.
   private lazy val stderrIterator: Iterator[String] =
-    if stderrPiped then sub.stderr.lines().iterator else Iterator.empty
+    if stderrPiped then sub.stderr.buffered.lines().iterator().asScala
+    else Iterator.empty
 
   def sendSigInt(): Unit =
     val _ = QuietProc.call(Seq("kill", "-INT", sub.wrapped.pid.toString))
