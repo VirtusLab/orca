@@ -221,7 +221,8 @@ class OsGitTool(
     def tryRun(args: String*): String =
       val r = QuietProc.call("git" +: args, cwd = workDir)
       if r.exitCode == 0 then r.out.text()
-      else s"<git ${args.mkString(" ")} failed (exit ${r.exitCode}): ${r.err.text().trim}>"
+      else
+        s"<git ${args.mkString(" ")} failed (exit ${r.exitCode}): ${r.err.text().trim}>"
     OsGitTool.GitDiagnostics(
       status = tryRun("status", "--porcelain"),
       fsck = tryRun("fsck", "--no-progress")
@@ -258,7 +259,7 @@ class OsGitTool(
   def log(n: Int): List[CommitInfo] =
     // Fields are separated with the ASCII unit separator (0x1F) so commit
     // messages can contain anything printable without ambiguity.
-    val sep = ""
+    val sep = "\u001f"
     val fmt = s"%H$sep%s$sep%an"
     val output = git("log", "-n", n.toString, s"--pretty=format:$fmt")
     output.linesIterator
@@ -335,8 +336,8 @@ private[orca] object OsGitTool:
   private[tools] case class GitDiagnostics(status: String, fsck: String)
 
   /** Format a git subprocess failure into the message used by the thrown
-    * exception. `cmd` is the argv after `git ` (e.g. `commit -m seed` or
-    * `add -A`). Sectioned so the original stderr stays at the top and the
+    * exception. `cmd` is the argv after `git ` (e.g. `commit -m seed` or `add
+    * -A`). Sectioned so the original stderr stays at the top and the
     * diagnostics follow on their own lines.
     */
   private[tools] def gitFailureMessage(

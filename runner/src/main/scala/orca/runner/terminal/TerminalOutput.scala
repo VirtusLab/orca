@@ -214,10 +214,11 @@ private[terminal] class TerminalOutputState(
 
 private[terminal] object TerminalOutputState:
 
-  /** Carriage return + ANSI Erase-In-Line-2 (clear entire line). The ESC
-    * character is the literal byte ``.
+  /** Carriage return + ANSI Erase-In-Line-2 (clear entire line). `\u001b` is
+    * the ESC byte — written as a Unicode escape so the source stays
+    * grep-friendly.
     */
-  private val ClearLine: String = "\r[2K"
+  private val ClearLine: String = "\r\u001b[2K"
 
   private val DefaultLabel: String = "Thinking..."
 

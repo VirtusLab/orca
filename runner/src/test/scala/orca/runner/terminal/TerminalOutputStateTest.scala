@@ -9,7 +9,7 @@ class TerminalOutputStateTest extends munit.FunSuite:
     * strips, terminals consume them, etc.).
     */
   private val ClearSuffix = "[2K"
-  private val Esc: Char = ''
+  private val Esc: Char = '\u001b'
 
   private def withBar(animated: Boolean = true)(
       body: (TerminalOutputState, ByteArrayOutputStream) => Unit

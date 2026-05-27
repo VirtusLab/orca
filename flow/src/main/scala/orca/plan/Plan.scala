@@ -1,14 +1,7 @@
 package orca.plan
 
 import orca.{FlowContext, OrcaFlowException}
-import orca.llm.{
-  Announce,
-  BackendTag,
-  CanAskUser,
-  JsonData,
-  LlmTool,
-  given
-}
+import orca.llm.{Announce, BackendTag, CanAskUser, JsonData, LlmTool, given}
 import orca.events.OrcaEvent
 
 import ox.either.orThrow
@@ -60,16 +53,16 @@ object Plan:
     */
   val DefaultDir: os.SubPath = os.sub / ".orca"
 
-  /** Default path for a persistent plan. `<workDir>/.orca/plan-<hash>.md`
-    * where `<hash>` is the first 12 hex chars of SHA-256(userPrompt). Two
-    * unrelated prompts in the same repo get different files; rerunning the
-    * same prompt resumes the same plan.
+  /** Default path for a persistent plan. `<workDir>/.orca/plan-<hash>.md` where
+    * `<hash>` is the first 12 hex chars of SHA-256(userPrompt). Two unrelated
+    * prompts in the same repo get different files; rerunning the same prompt
+    * resumes the same plan.
     */
   def defaultPath(userPrompt: String, workDir: os.Path = os.pwd): os.Path =
     workDir / DefaultDir / s"plan-${hashUserPrompt(userPrompt)}.md"
 
-  /** First 6 bytes of SHA-256(userPrompt) rendered as 12 hex chars. Visible
-    * for testing; flow scripts should go through [[defaultPath]].
+  /** First 6 bytes of SHA-256(userPrompt) rendered as 12 hex chars. Visible for
+    * testing; flow scripts should go through [[defaultPath]].
     */
   private[plan] def hashUserPrompt(userPrompt: String): String =
     val md = java.security.MessageDigest.getInstance("SHA-256")
@@ -79,16 +72,15 @@ object Plan:
   /** Interactive planning helpers — the LLM call opens a conversation the user
     * can drive (clarifying questions, refinements) before producing the plan.
     * Returns just the [[Plan]]: the planner's session isn't exposed because
-    * resuming it for implementation isn't supported (the conversation is in
-    * a planning frame; the implementer should mint its own session via
+    * resuming it for implementation isn't supported (the conversation is in a
+    * planning frame; the implementer should mint its own session via
     * `llm.newSession`).
     *
     * The `B: CanAskUser` constraint means these helpers compile only with
-    * backends that can host an `ask_user` tool — claude and codex (both via
-    * the shared `AskUserMcpServer`). A future stdin-only backend without
-    * MCP support would fail this at compile time rather than degrade
-    * silently. Use `Plan.autonomous.*` if you don't need mid-session
-    * questions.
+    * backends that can host an `ask_user` tool — claude and codex (both via the
+    * shared `AskUserMcpServer`). A future stdin-only backend without MCP
+    * support would fail this at compile time rather than degrade silently. Use
+    * `Plan.autonomous.*` if you don't need mid-session questions.
     */
   object interactive:
     def from[B <: BackendTag: CanAskUser](
@@ -143,12 +135,12 @@ object Plan:
 
     /** Skeptically assess `userPrompt` (typically a bug/feature report) and
       * either return a plan to implement, or a [[Verdict.Rejection]] the caller
-      * can surface to whoever filed it. Runs read-only so the agent can
-      * verify claims via Read/Grep without making edits.
+      * can surface to whoever filed it. Runs read-only so the agent can verify
+      * claims via Read/Grep without making edits.
       *
-      * Returns just the verdict — no session id. The assess session is in
-      * plan mode; implementation turns should start a fresh session so they
-      * get full write access.
+      * Returns just the verdict — no session id. The assess session is in plan
+      * mode; implementation turns should start a fresh session so they get full
+      * write access.
       */
     def assessThenPlan[B <: BackendTag](
         userPrompt: String,
@@ -209,11 +201,11 @@ object Plan:
     os.write.over(file, render(updated))
 
   /** Acquire a persistent plan: resume from `file` if it exists, otherwise
-    * evaluate `generate` (typically `Plan.autonomous.from(...)`) and lay
-    * down the branch + on-disk plan for a fresh run. Callers should allocate
-    * their own implementer session at the script level via `llm.newSession`
-    * — the planning helpers ([[Plan.autonomous.from]] etc.) intentionally
-    * don't expose their session, so each downstream phase starts cleanly.
+    * evaluate `generate` (typically `Plan.autonomous.from(...)`) and lay down
+    * the branch + on-disk plan for a fresh run. Callers should allocate their
+    * own implementer session at the script level via `llm.newSession` — the
+    * planning helpers ([[Plan.autonomous.from]] etc.) intentionally don't
+    * expose their session, so each downstream phase starts cleanly.
     *
     * `stashMessage` is used when a fresh start finds a dirty tree; pass a
     * flow-specific string so `git stash list` is searchable.
@@ -234,8 +226,8 @@ object Plan:
       plan
 
   /** Resume from a previously-persisted plan. Returns `Some(plan)` when `file`
-    * exists, with the working tree cleaned (any pending edits stashed; the
-    * user can `git stash pop` afterwards) and the working copy attached to
+    * exists, with the working tree cleaned (any pending edits stashed; the user
+    * can `git stash pop` afterwards) and the working copy attached to
     * `plan.epicId`. Returns `None` when no file exists — the caller decides
     * whether to generate a fresh plan ([[recoverOrCreate]] does that
     * automatically) or treat the absence as a hard failure.
@@ -269,15 +261,14 @@ object Plan:
     *
     * For each incomplete task in `plan`:
     *
-    *   1. Calls `body(task)` — the caller's implement-and-review work.
-    *   2. Ticks the task's `Status: [x]` in `file`.
-    *   3. Makes one `task: <title>` git commit covering both the body's
-    *      changes and the checkbox tick.
+    *   1. Calls `body(task)` — the caller's implement-and-review work. 2. Ticks
+    *      the task's `Status: [x]` in `file`. 3. Makes one `task: <title>` git
+    *      commit covering both the body's changes and the checkbox tick.
     *
     * After the last task: removes `file` and makes a `chore: remove
     * <file.last>` cleanup commit (skipped if the file was never tracked).
-    * Bodies that throw abort the loop with the partial plan still on disk,
-    * so a subsequent run resumes at the first incomplete task.
+    * Bodies that throw abort the loop with the partial plan still on disk, so a
+    * subsequent run resumes at the first incomplete task.
     *
     * Sibling of [[orca.review.reviewAndFixLoop]] — that one drives the
     * review-and-fix iteration within a task; this one drives task-by-task
@@ -320,7 +311,7 @@ object Plan:
     * and a leading BOM are normalised first.
     */
   def parse(markdown: String): Plan =
-    val normalised = markdown.stripPrefix("﻿").replace("\r\n", "\n")
+    val normalised = markdown.stripPrefix("\uFEFF").replace("\r\n", "\n")
     val lines = normalised.linesIterator.toList
     val epicId = parseHeader(lines)
     val description = parseDescription(lines)

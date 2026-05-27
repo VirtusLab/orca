@@ -12,7 +12,7 @@ import scala.concurrent.duration.DurationInt
   */
 class TerminalOutputActorTest extends munit.FunSuite:
 
-  private val Esc: Char = ''
+  private val Esc: Char = '\u001b'
 
   test("animator advances ticks autonomously once a status label is set"):
     val buf = new ByteArrayOutputStream()
