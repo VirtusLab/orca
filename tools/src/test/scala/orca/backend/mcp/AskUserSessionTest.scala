@@ -5,7 +5,7 @@ import ox.supervised
 
 import java.util.concurrent.atomic.AtomicInteger
 
-class AskUserResourcesTest extends munit.FunSuite:
+class AskUserSessionTest extends munit.FunSuite:
 
   test(
     "allocate closes the bridge + server when the extras callback throws"
@@ -18,7 +18,7 @@ class AskUserResourcesTest extends munit.FunSuite:
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val thrown = intercept[RuntimeException]:
-        AskUserResources.allocate: server =>
+        AskUserSession.allocate: server =>
           // Touch the server so we know it's already started — then fail.
           val _ = server.port
           throw new RuntimeException("extras callback boom")
@@ -36,7 +36,7 @@ class AskUserResourcesTest extends munit.FunSuite:
         throw new RuntimeException("first close boom")
       val secondClose: AutoCloseable = () =>
         val _ = calls.incrementAndGet()
-      val resources = AskUserResources.allocate: _ =>
+      val resources = AskUserSession.allocate: _ =>
         List(throwingFirst, secondClose)
       resources.close()
       assertEquals(calls.get(), 2, "every extras closer must run")

@@ -15,7 +15,6 @@ import orca.tools.claude.streamjson.{
   StreamEventPayload
 }
 
-
 /** Drives a stream-json conversation with claude to completion.
   *
   * Boilerplate (reader thread, event queue, outcome lifecycle, stderr drain)
@@ -30,7 +29,7 @@ private[claude] class ClaudeConversation(
     config: LlmConfig,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
-    override val askUser: Option[orca.backend.mcp.AskUserResources] = None
+    override val askUser: Option[orca.backend.mcp.AskUserSession] = None
 ) extends StreamConversation[BackendTag.ClaudeCode.type](
       process = process,
       backendName = "claude",
@@ -50,10 +49,10 @@ private[claude] class ClaudeConversation(
     */
   private var initModel: Option[String] = None
 
-  /** Set when a text or thinking delta streams during the current turn,
-    * cleared when the full turn message lands. Gates the fallback in
-    * `handleAssistantTurn` that re-emits Text/Thinking blocks when no
-    * partials arrived (older claude builds, partials disabled).
+  /** Set when a text or thinking delta streams during the current turn, cleared
+    * when the full turn message lands. Gates the fallback in
+    * `handleAssistantTurn` that re-emits Text/Thinking blocks when no partials
+    * arrived (older claude builds, partials disabled).
     */
   private var deltasSinceTurnBoundary: Boolean = false
 
@@ -125,11 +124,11 @@ private[claude] class ClaudeConversation(
 
   /** Full assistant turn arrives after partials have streamed. This is the
     * single source of truth for tool calls — claude's protocol emits the
-    * `assistant` message BEFORE the matching `content_block_stop`, so we
-    * can't usefully stream tool-use events earlier. Text and thinking are
-    * normally already streamed as deltas; if no deltas preceded this turn
-    * (older claude builds, partials disabled) we fall back to emitting
-    * each block as a single delta.
+    * `assistant` message BEFORE the matching `content_block_stop`, so we can't
+    * usefully stream tool-use events earlier. Text and thinking are normally
+    * already streamed as deltas; if no deltas preceded this turn (older claude
+    * builds, partials disabled) we fall back to emitting each block as a single
+    * delta.
     */
   private def handleAssistantTurn(content: List[ContentBlock]): Unit =
     val sawDeltasThisTurn = deltasSinceTurnBoundary
@@ -196,12 +195,9 @@ private[claude] class ClaudeConversation(
     * a turn. Treat these as session-ending failures rather than feeding the
     * error body into the downstream response parser, which might otherwise
     * accept a `{"type":"error",...}` payload as a structurally valid agent
-    * output.
-    *
-    * If text deltas have already streamed in this turn, the user has already
-    * seen the body — emit a short marker rather than repeating the full text.
-    * The `Outcome.Failed` always carries the full message for `awaitResult` to
-    * surface.
+    * output. `Outcome.Failed` carries the full message for `awaitResult` to
+    * surface; the in-stream `Error` event is short if the user already saw the
+    * body as part of a streamed turn.
     */
   private def handleResultError(output: Option[String]): Unit =
     val message =
@@ -246,12 +242,12 @@ private[claude] class ClaudeConversation(
     * if the payload contributes only to state we'll surface elsewhere.
     *
     * Text and thinking deltas pass straight through — claude chunks them and
-    * the renderer handles re-assembly. Tool-use deltas (start / json /
-    * stop) are NOT translated here: in the live protocol the full
-    * `assistant` message arrives BEFORE the matching `content_block_stop`,
-    * so emitting from a stop event would always be a duplicate of what
-    * `handleAssistantTurn` already emitted. The full-turn message is the
-    * single source of truth for tool calls.
+    * the renderer handles re-assembly. Tool-use deltas (start / json / stop)
+    * are NOT translated here: in the live protocol the full `assistant` message
+    * arrives BEFORE the matching `content_block_stop`, so emitting from a stop
+    * event would always be a duplicate of what `handleAssistantTurn` already
+    * emitted. The full-turn message is the single source of truth for tool
+    * calls.
     */
   private def translateStreamEvent(
       payload: StreamEventPayload
@@ -271,4 +267,3 @@ private[claude] class ClaudeConversation(
 
   private def writeOutbound(msg: OutboundMessage): Unit =
     process.writeLine(OutboundMessage.toJson(msg))
-

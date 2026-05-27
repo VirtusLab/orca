@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.backend.mcp.{AskUserBridge, AskUserResources}
+import orca.backend.mcp.{AskUserBridge, AskUserSession}
 import orca.llm.BackendTag
 import orca.subprocess.PipedCliProcess
 import orca.util.OrcaDebug
@@ -50,14 +50,14 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
     AtomicReference(None)
   protected val cancelled: AtomicBoolean = new AtomicBoolean(false)
 
-  /** Optional `ask_user` MCP resource bundle for this conversation.
-    * Subclasses on interactive calls override (via `override val askUser`
-    * on the ctor param) to point the base at the bundle; the base spawns
-    * the drainer thread inside [[start]] and closes the bundle in
-    * [[finalizeLoop]] post-`onFinalize`. Autonomous calls leave the
-    * default `None` and the wiring is a no-op.
+  /** Optional `ask_user` MCP resource bundle for this conversation. Subclasses
+    * on interactive calls override (via `override val askUser` on the ctor
+    * param) to point the base at the bundle; the base spawns the drainer thread
+    * inside [[start]] and closes the bundle in [[finalizeLoop]]
+    * post-`onFinalize`. Autonomous calls leave the default `None` and the
+    * wiring is a no-op.
     */
-  protected def askUser: Option[AskUserResources] = None
+  protected def askUser: Option[AskUserSession] = None
 
   final def canAskUser: Boolean = askUser.isDefined
 
@@ -103,11 +103,10 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
   /** Spin up a daemon thread that bridges an [[AskUserBridge]] into the
     * conversation's event stream: each pending question becomes a
     * `ConversationEvent.UserQuestion` whose `respond` closure delivers the
-    * user's typed answer back to the blocked MCP handler. Called from
-    * [[start]] for every conversation whose [[askUser]] is `Some`; the
-    * thread exits cleanly when `bridge.close()` raises
-    * `ChannelClosedException` from `nextQuestion()` — driven by
-    * [[finalizeLoop]].
+    * user's typed answer back to the blocked MCP handler. Called from [[start]]
+    * for every conversation whose [[askUser]] is `Some`; the thread exits
+    * cleanly when `bridge.close()` raises `ChannelClosedException` from
+    * `nextQuestion()` — driven by [[finalizeLoop]].
     */
   private def startAskUserDrainer(bridge: AskUserBridge): Unit =
     val t = new Thread(
@@ -272,7 +271,7 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
     // 2. Close the ask_user resource bundle if one was wired. Happens after
     //    `onFinalize` so any subclass cleanup that might depend on the
     //    bridge / MCP server runs first; in practice neither backend does.
-    //    `AskUserResources.close` handles ordering (bridge → server →
+    //    `AskUserSession.close` handles ordering (bridge → server →
     //    extras) and swallows close-time failures.
     askUser.foreach(_.close())
     val finalOutcome: Outcome[B] = outcomeRef.get() match

@@ -13,7 +13,7 @@ import orca.backend.{
   SessionRegistry,
   SystemPromptComposer
 }
-import orca.backend.mcp.{AskUserMcpServer, AskUserResources}
+import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.CliRunner
 import ox.Ox
 import ox.channels.BufferCapacity
@@ -34,17 +34,17 @@ import ox.channels.BufferCapacity
   *
   * Interactive calls additionally stand up an `ask_user` MCP host bridge
   * ([[AskUserMcpServer]]) on an ephemeral port and register it with codex via
-  * the top-level `-c mcp_servers.orca.url=…` config override, so the agent
-  * can call `ask_user` to surface a clarifying question to the user.
-  * Autonomous calls skip the bridge entirely.
+  * the top-level `-c mcp_servers.orca.url=…` config override, so the agent can
+  * call `ask_user` to surface a clarifying question to the user. Autonomous
+  * calls skip the bridge entirely.
   */
 class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
     extends LlmBackend[BackendTag.Codex.type]:
 
   /** Maps the client-allocated session id (the UUID the caller passes around)
     * to codex's server-allocated thread id (learned from `thread.started`).
-    * `codex exec` mints its own id, so we keep this mapping so subsequent
-    * calls dispatch through `codex exec resume <server-id>`.
+    * `codex exec` mints its own id, so we keep this mapping so subsequent calls
+    * dispatch through `codex exec resume <server-id>`.
     */
   private val sessions =
     new SessionRegistry.ClientToServer[BackendTag.Codex.type]
@@ -103,18 +103,17 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
     * (continuation), and wrap the process in a live [[CodexConversation]].
     * Stdin is closed immediately — codex consumes the prompt argv-side.
     *
-    * The fresh-vs-resume decision is driven by [[sessions.dispatchFor]]:
-    * if we've seen this client id before we resume against its mapped
-    * server thread, otherwise we start fresh and the post-drain
-    * `commitSuccess` (via [[registerSession]] on the interactive path)
-    * records the mapping.
+    * The fresh-vs-resume decision is driven by [[sessions.dispatchFor]]: if
+    * we've seen this client id before we resume against its mapped server
+    * thread, otherwise we start fresh and the post-drain `commitSuccess` (via
+    * [[registerSession]] on the interactive path) records the mapping.
     *
     * `Interactive` mode wires the MCP `ask_user` tool: stand up the bridge +
     * Netty server, hand the URL to `CodexArgs` for the `-c mcp_servers.orca`
-    * override, fold the system-prompt hint into the user prompt (codex has
-    * no `--append-system-prompt`), and hand the bridge + server to
-    * `CodexConversation` so it can surface `UserQuestion` events and close
-    * the binding on finalize. `Autonomous` skips all of it.
+    * override, fold the system-prompt hint into the user prompt (codex has no
+    * `--append-system-prompt`), and hand the bridge + server to
+    * `CodexConversation` so it can surface `UserQuestion` events and close the
+    * binding on finalize. `Autonomous` skips all of it.
     *
     * If anything between resource allocation and conversation construction
     * throws we tear down the server so no Netty binding leaks.
@@ -127,9 +126,9 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[BackendTag.Codex.type] =
-    val (askUser, displayPrompt): (Option[AskUserResources], String) =
+    val (askUser, displayPrompt): (Option[AskUserSession], String) =
       mode match
-        case SessionMode.Interactive(p) => (Some(AskUserResources.allocate()), p)
+        case SessionMode.Interactive(p) => (Some(AskUserSession.allocate()), p)
         case SessionMode.Autonomous     => (None, "")
     try
       val finalPrompt = mergeSystemPrompt(
@@ -184,11 +183,10 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
         askUser.foreach(_.close())
         throw e
 
-  /** Record the server-allocated thread id so subsequent calls with the
-    * same client id resume that thread. Called by [[runAutonomous]]
-    * post-drain and by [[orca.llm.DefaultLlmCall]] post-`interaction.drive`
-    * on the interactive path; delegates to the registry's
-    * `commitSuccess`.
+  /** Record the server-allocated thread id so subsequent calls with the same
+    * client id resume that thread. Called by [[runAutonomous]] post-drain and
+    * by [[orca.llm.DefaultLlmCall]] post-`interaction.drive` on the interactive
+    * path; delegates to the registry's `commitSuccess`.
     */
   override def registerSession(
       client: SessionId[BackendTag.Codex.type],
@@ -196,9 +194,9 @@ class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
   ): Unit = sessions.commitSuccess(client, server)
 
   /** codex `exec` has no `--system-prompt` flag (codex picks up `AGENTS.md`
-    * files in the working directory for static instructions). Fold the
-    * composed system prompt (config + optional extra hint) into the user
-    * prompt as a preamble — a low-tech but predictable substitute.
+    * files in the working directory for static instructions). Fold the composed
+    * system prompt (config + optional extra hint) into the user prompt as a
+    * preamble — a low-tech but predictable substitute.
     */
   private def mergeSystemPrompt(
       config: LlmConfig,

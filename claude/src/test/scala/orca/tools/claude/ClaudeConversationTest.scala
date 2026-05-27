@@ -361,11 +361,11 @@ class ClaudeConversationTest extends munit.FunSuite:
   ):
     import ox.{forkUser, supervised}
     import ox.channels.BufferCapacity
-    import orca.backend.mcp.AskUserResources
+    import orca.backend.mcp.AskUserSession
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val process = new FakePipedCliProcess()
-      val askUser = AskUserResources.allocate()
+      val askUser = AskUserSession.allocate()
       val conv = new ClaudeConversation(
         process,
         LlmConfig.default,
