@@ -84,5 +84,6 @@ trait AutonomousTextCall[B <: BackendTag]:
   def run(
       prompt: String,
       session: SessionId[B] = SessionId.fresh[B],
-      config: LlmConfig = LlmConfig.default
+      config: LlmConfig = LlmConfig.default,
+      quiet: Boolean = false
   ): (SessionId[B], String)

@@ -2,7 +2,7 @@ package orca.review
 
 import orca.FlowContext
 import orca.events.OrcaEvent
-import orca.llm.{JsonData, LlmTool, given}
+import orca.llm.{AgentInput, JsonData, LlmTool, given}
 import orca.plan.Title
 
 import scala.util.matching.Regex
@@ -114,7 +114,8 @@ object ReviewerSelector:
                   changedFiles = changedFiles,
                   availableReviewers = infos,
                   instructions = instructions
-                )
+                ),
+                quiet = true
               )
               ._2
               .names
@@ -133,3 +134,20 @@ private case class ReviewerSelectionRequest(
     availableReviewers: List[ReviewerInfo],
     instructions: String
 ) derives JsonData
+
+private object ReviewerSelectionRequest:
+  given AgentInput[ReviewerSelectionRequest] with
+    def serialize(r: ReviewerSelectionRequest): String =
+      val files = r.changedFiles.map(f => s"  - $f").mkString("\n")
+      val reviewers = r.availableReviewers
+        .map(ri => s"  - ${ri.name}: ${ri.description}")
+        .mkString("\n")
+      s"""Task: ${r.taskTitle}
+         |
+         |Changed files:
+         |$files
+         |
+         |Available reviewers:
+         |$reviewers
+         |
+         |${r.instructions}""".stripMargin

@@ -22,7 +22,8 @@ trait AutonomousLlmCall[B <: BackendTag, O]:
   def run[I: AgentInput](
       input: I,
       session: SessionId[B] = SessionId.fresh[B],
-      config: LlmConfig = LlmConfig.default
+      config: LlmConfig = LlmConfig.default,
+      quiet: Boolean = false
   ): (SessionId[B], O)
 
 /** Interactive structured calls — open a conversation the user can drive
@@ -74,8 +75,9 @@ class DefaultLlmCall[B <: BackendTag, O](
     def run[I: AgentInput](
         input: I,
         session: SessionId[B] = SessionId.fresh[B],
-        config: LlmConfig = LlmConfig.default
-    ): (SessionId[B], O) = runAutonomousWithRetry(input, config, session)
+        config: LlmConfig = LlmConfig.default,
+        quiet: Boolean = false
+    ): (SessionId[B], O) = runAutonomousWithRetry(input, config, session, quiet)
 
   val interactive: InteractiveLlmCall[B, O] = new InteractiveLlmCall[B, O]:
     def run[I: AgentInput](
@@ -99,18 +101,15 @@ class DefaultLlmCall[B <: BackendTag, O](
   private def runAutonomousWithRetry[I](
       input: I,
       config: LlmConfig,
-      session: SessionId[B]
+      session: SessionId[B],
+      quiet: Boolean
   )(using ai: AgentInput[I]): (SessionId[B], O) =
     val serialized = ai.serialize(input)
     val outputSchema = JsonSchemaGen[O]
     val initialPrompt = prompts.autonomous(serialized, outputSchema, config)
     val effective = effectiveConfig(config)
 
-    // Surface the human-readable input — `serialized`, not `initialPrompt`,
-    // which is the schema-wrapped form the agent sees. The retry path emits
-    // its own UserPrompt below so a parse failure still shows what the
-    // follow-up turn was asked to fix.
-    events.onEvent(OrcaEvent.UserPrompt(serialized))
+    if !quiet then events.onEvent(OrcaEvent.UserPrompt(serialized))
 
     // Threaded across retry attempts via closure so a parse failure can
     // steer the next attempt with the corrective prompt. Method-scope var
@@ -121,7 +120,7 @@ class DefaultLlmCall[B <: BackendTag, O](
       val promptText = lastFailure match
         case Some(f) =>
           val corrective = prompts.retry(f.response, f.parserError)
-          events.onEvent(OrcaEvent.UserPrompt(corrective))
+          if !quiet then events.onEvent(OrcaEvent.UserPrompt(corrective))
           corrective
         case None => initialPrompt
       val result = backend.runAutonomous(

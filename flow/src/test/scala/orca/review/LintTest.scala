@@ -43,9 +43,9 @@ class LintTest extends munit.FunSuite:
           new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
             def run[I](
                 i: I,
-                session: SessionId[BackendTag.ClaudeCode.type] =
-                  SessionId.fresh[BackendTag.ClaudeCode.type],
-                c: LlmConfig = LlmConfig.default
+                session: SessionId[BackendTag.ClaudeCode.type],
+                c: LlmConfig,
+                quiet: Boolean
             )(using
                 a: AgentInput[I]
             ): (SessionId[BackendTag.ClaudeCode.type], O) =

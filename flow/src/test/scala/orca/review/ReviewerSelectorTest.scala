@@ -37,9 +37,9 @@ private class RecordingPicker(
         new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
           def run[I: AgentInput](
               input: I,
-              session: SessionId[BackendTag.ClaudeCode.type] =
-                SessionId.fresh[BackendTag.ClaudeCode.type],
-              config: LlmConfig = LlmConfig.default
+              session: SessionId[BackendTag.ClaudeCode.type],
+              config: LlmConfig,
+              quiet: Boolean
           ): (SessionId[BackendTag.ClaudeCode.type], O) =
             input match
               case r: ReviewerSelectionRequest =>

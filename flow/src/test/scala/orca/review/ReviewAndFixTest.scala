@@ -36,9 +36,9 @@ class FakeLlmCall[O](outputs: Iterator[Any])
     new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
       def run[I: AgentInput](
           input: I,
-          session: SessionId[BackendTag.ClaudeCode.type] =
-            SessionId.fresh[BackendTag.ClaudeCode.type],
-          config: LlmConfig = LlmConfig.default
+          session: SessionId[BackendTag.ClaudeCode.type],
+          config: LlmConfig,
+          quiet: Boolean
       ): (SessionId[BackendTag.ClaudeCode.type], O) =
         val _ = seenSessions.updateAndGet(session :: _)
         (session, outputs.next().asInstanceOf[O])
@@ -219,9 +219,9 @@ class ReviewAndFixTest extends munit.FunSuite:
             new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
               def run[I: AgentInput](
                   i: I,
-                  session: SessionId[BackendTag.ClaudeCode.type] =
-                    SessionId.fresh[BackendTag.ClaudeCode.type],
-                  c: LlmConfig = LlmConfig.default
+                  session: SessionId[BackendTag.ClaudeCode.type],
+                  c: LlmConfig,
+                  quiet: Boolean
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 capturedFirst = Some(i.toString)
                 (
@@ -376,9 +376,9 @@ class ReviewAndFixTest extends munit.FunSuite:
             new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
               def run[I: AgentInput](
                   i: I,
-                  session: SessionId[BackendTag.ClaudeCode.type] =
-                    SessionId.fresh[BackendTag.ClaudeCode.type],
-                  c: LlmConfig = LlmConfig.default
+                  session: SessionId[BackendTag.ClaudeCode.type],
+                  c: LlmConfig,
+                  quiet: Boolean
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 val ok = gate.await(2, java.util.concurrent.TimeUnit.SECONDS)
                 assert(ok, s"$label gate never opened")
@@ -455,9 +455,9 @@ class ReviewAndFixTest extends munit.FunSuite:
                 ReviewResult.empty.asInstanceOf[O]
               def run[I: AgentInput](
                   i: I,
-                  session: SessionId[BackendTag.ClaudeCode.type] =
-                    SessionId.fresh[BackendTag.ClaudeCode.type],
-                  c: LlmConfig = LlmConfig.default
+                  session: SessionId[BackendTag.ClaudeCode.type],
+                  c: LlmConfig,
+                  quiet: Boolean
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 (
                   SessionId[BackendTag.ClaudeCode.type](s"sid-$label"),

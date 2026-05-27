@@ -2,7 +2,15 @@ package orca.review
 
 import orca.{FlowContext}
 import orca.plan.Title
-import orca.llm.{BackendTag, JsonData, LlmConfig, LlmTool, SessionId, given}
+import orca.llm.{
+  AgentInput,
+  BackendTag,
+  JsonData,
+  LlmConfig,
+  LlmTool,
+  SessionId,
+  given
+}
 import orca.events.OrcaEvent
 
 import orca.util.TextWrap
@@ -116,6 +124,15 @@ private case class FixRequest(
     issues: List[ReviewIssue]
 ) derives JsonData
 
+private object FixRequest:
+  given AgentInput[FixRequest] with
+    def serialize(r: FixRequest): String =
+      val formatted = r.issues.map(formatIssue).mkString("\n")
+      s"""${r.instructions}
+         |
+         |Issues to fix:
+         |$formatted""".stripMargin
+
 /** All cross-iteration state for `reviewAndFixLoop`, in one immutable record.
   * `history` is consulted by [[ReviewerSelector]]; `sessions` maps a reviewer's
   * name to the opaque `SessionId` returned by its first `run` call. The stored
@@ -228,14 +245,19 @@ def reviewAndFixLoop[B <: BackendTag](
     sessions.get(r.name) match
       case Some(stored) =>
         val (_, result) =
-          call.run(ReviewLoopPrompts.ReReview, session = stored.as[RB])
+          call.run(
+            ReviewLoopPrompts.ReReview,
+            session = stored.as[RB],
+            quiet = true
+          )
         (result, None)
       case None =>
         val session = r.newSession
         val (sid, result) =
           call.run(
             ReviewLoopPrompts.initialReview(task, currentDiff),
-            session = session
+            session = session,
+            quiet = true
           )
         (result, Some(r.name -> SessionId.Untyped.from(sid)))
 
@@ -343,7 +365,7 @@ def reviewAndFixLoop[B <: BackendTag](
       .run(
         FixRequest(fixInstructions, issues),
         session = sessionId,
-        LlmConfig.default
+        quiet = true
       )
       ._2
 
@@ -390,5 +412,5 @@ def lint(
     llm
       .resultAs[ReviewResult]
       .autonomous
-      .run(s"$instructions\n\nLint output:\n$output")
+      .run(s"$instructions\n\nLint output:\n$output", quiet = true)
       ._2
