@@ -10,7 +10,7 @@ import orca.llm.BaseLlmTool
   * `resultAs[O]` plumbing from [[BaseLlmTool]] and only adds the Codex-specific
   * `mini` model accessor.
   */
-class DefaultCodexTool(
+private[orca] class DefaultCodexTool(
     backend: LlmBackend[BackendTag.Codex.type],
     config: LlmConfig,
     prompts: Prompts,

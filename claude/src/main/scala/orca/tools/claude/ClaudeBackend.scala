@@ -37,7 +37,7 @@ import ox.channels.BufferCapacity
   * long flow with many interactive calls doesn't leak Netty bindings.
   * Autonomous calls skip the bridge entirely.
   */
-class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
+private[orca] class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
     extends LlmBackend[BackendTag.ClaudeCode.type]:
 
   /** Tracks which session ids we've already claimed via `--session-id` so

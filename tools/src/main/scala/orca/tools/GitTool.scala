@@ -144,7 +144,7 @@ trait GitTool:
   * optional — defaults to `OrcaListener.noop` so callers that don't yet wire a
   * dispatcher still work.
   */
-class OsGitTool(
+private[orca] class OsGitTool(
     workDir: os.Path = os.pwd,
     events: OrcaListener = OrcaListener.noop
 ) extends GitTool:

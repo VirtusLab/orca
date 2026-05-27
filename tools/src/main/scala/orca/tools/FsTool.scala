@@ -28,7 +28,7 @@ trait FsTool:
   * `os.write.over` / `os.walk.stream` and narrows the `list` traversal to the
   * deepest wildcard-free prefix of the glob.
   */
-class OsFsTool(base: os.Path = os.pwd) extends FsTool:
+private[orca] class OsFsTool(base: os.Path = os.pwd) extends FsTool:
 
   def read(path: String): Option[String] =
     val p = resolve(path)

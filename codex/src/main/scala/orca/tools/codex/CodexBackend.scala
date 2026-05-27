@@ -38,7 +38,7 @@ import ox.channels.BufferCapacity
   * call `ask_user` to surface a clarifying question to the user. Autonomous
   * calls skip the bridge entirely.
   */
-class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
+private[orca] class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
     extends LlmBackend[BackendTag.Codex.type]:
 
   /** Maps the client-allocated session id (the UUID the caller passes around)

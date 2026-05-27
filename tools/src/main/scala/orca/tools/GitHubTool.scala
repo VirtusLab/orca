@@ -136,7 +136,7 @@ private[orca] given JsonValueCodec[List[GhCommentJson]] = JsonCodecMaker.make
   * `waitForBuild` polls `buildStatus` every `pollInterval` until a terminal
   * outcome or the caller-supplied timeout expires.
   */
-class OsGitHubTool(
+private[orca] class OsGitHubTool(
     cli: CliRunner,
     workDir: os.Path = os.pwd,
     pollInterval: FiniteDuration = 30.seconds

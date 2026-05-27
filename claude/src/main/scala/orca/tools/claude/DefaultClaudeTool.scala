@@ -16,7 +16,7 @@ import orca.llm.BaseLlmTool
   * the subprocess in a `Conversation` that the supplied `interaction` drives to
   * completion.
   */
-class DefaultClaudeTool(
+private[orca] class DefaultClaudeTool(
     backend: LlmBackend[BackendTag.ClaudeCode.type],
     config: LlmConfig,
     prompts: Prompts,
