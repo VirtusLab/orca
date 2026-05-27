@@ -15,8 +15,8 @@ trait LlmCall[B <: BackendTag, O]:
 
 /** Autonomous structured calls — single agentic turn, no human in the loop.
   * Single method: pass a [[SessionId]] (typically from [[LlmTool.newSession]]
-  * or the default fresh one); the library starts on the first call, resumes
-  * on subsequent calls. Returns the (stable) session id.
+  * or the default fresh one); the library starts on the first call, resumes on
+  * subsequent calls. Returns the (stable) session id.
   */
 trait AutonomousLlmCall[B <: BackendTag, O]:
   def run[I: AgentInput](
@@ -43,8 +43,8 @@ trait InteractiveLlmCall[B <: BackendTag, O]:
   *
   *   - The autonomous shape goes through `backend.runAutonomous` and shares a
   *     retry-with-corrective-prompt loop: if the response fails to parse as
-  *     `O`, the next attempt's prompt includes the failed output and the
-  *     parser error so the model can self-correct.
+  *     `O`, the next attempt's prompt includes the failed output and the parser
+  *     error so the model can self-correct.
   *   - The interactive shape opens a [[orca.backend.Conversation]] via the
   *     backend and hands it to the supplied [[Interaction]] for rendering and
   *     user steering. No retry: the user is steering, and a parse failure on
