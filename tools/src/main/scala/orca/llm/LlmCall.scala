@@ -115,8 +115,14 @@ class DefaultLlmCall[B <: BackendTag, O](
       val promptText = lastFailure match
         case Some(f) => prompts.retry(f.response, f.parserError)
         case None    => initialPrompt
-      val result =
-        backend.runAutonomous(promptText, session, effective, workDir, events)
+      val result = backend.runAutonomous(
+        promptText,
+        session,
+        effective,
+        workDir,
+        events,
+        outputSchema = Some(outputSchema)
+      )
       events.onEvent(
         OrcaEvent.TokensUsed(
           agentName,

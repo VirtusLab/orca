@@ -31,13 +31,22 @@ trait LlmBackend[B <: BackendTag]:
     * runs, so the user has something to watch while the agent works. Defaults
     * to a no-op listener for callers (typically tests) that don't observe
     * progress.
+    *
+    * `outputSchema`, when supplied, is the JSON Schema the final assistant
+    * payload must conform to. Backends that enforce schemas natively (claude's
+    * `--json-schema`) pass it to the CLI; backends that don't can ignore it.
+    * Either way the schema is forwarded to the conversation so the autonomous
+    * drain can recognise "the agent's last message IS the structured payload"
+    * and suppress the raw JSON from the user log — the caller surfaces it via
+    * `OrcaEvent.StructuredResult` instead.
     */
   def runAutonomous(
       prompt: String,
       session: SessionId[B],
       config: LlmConfig,
       workDir: os.Path,
-      events: OrcaListener = OrcaListener.noop
+      events: OrcaListener = OrcaListener.noop,
+      outputSchema: Option[String] = None
   ): LlmResult[B]
 
   /** Launch an interactive session against `session` and return a live

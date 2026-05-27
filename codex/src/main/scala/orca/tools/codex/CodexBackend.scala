@@ -45,7 +45,8 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
       session: SessionId[BackendTag.Codex.type],
       config: LlmConfig,
       workDir: os.Path,
-      events: OrcaListener = OrcaListener.noop
+      events: OrcaListener = OrcaListener.noop,
+      outputSchema: Option[String] = None
   ): LlmResult[BackendTag.Codex.type] =
     val conv = openConversation(
       prompt = prompt,
@@ -53,10 +54,14 @@ class CodexBackend(cli: CliRunner) extends LlmBackend[BackendTag.Codex.type]:
       session = session,
       config = config,
       workDir = workDir,
-      // codex `exec resume` rejects `--output-schema`, and autonomous
-      // structured calls already wrap the prompt with the schema via
-      // DefaultLlmCall's template.
-      outputSchema = None
+      // Forwarded so (a) `conv.outputSchema` signals structured mode to the
+      // drain (suppressing the raw JSON payload from the user log) and (b)
+      // `--output-schema` enforces the contract on the codex side too.
+      // `exec resume` rejects `--output-schema`, so retries against an
+      // existing session fall back to prompt-only enforcement; the
+      // retry-with-corrective-prompt loop in `DefaultLlmCall` handles a
+      // resume that produces malformed JSON.
+      outputSchema = outputSchema
     )
     try
       val result = Conversations.drainAutonomous(conv, events)

@@ -8,10 +8,10 @@ import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 private class ScriptedConversation(
     eventList: List[ConversationEvent],
-    outcome: Either[OrcaInteractiveCancelled, LlmResult[BackendTag.Codex.type]]
+    outcome: Either[OrcaInteractiveCancelled, LlmResult[BackendTag.Codex.type]],
+    val outputSchema: Option[String] = None
 ) extends Conversation[BackendTag.Codex.type]:
   val drained = new AtomicInteger(0)
-  val outputSchema: Option[String] = None
   val events: Iterator[ConversationEvent] = eventList.iterator.map { e =>
     val _ = drained.incrementAndGet()
     e
@@ -58,16 +58,26 @@ class ConversationsTest extends munit.FunSuite:
       Conversations.drainAutonomous(conv)
     assertEquals(thrown, cancelled)
 
-  test("AssistantToolCall emits OrcaEvent.ToolUse with the truncated input"):
+  test("AssistantToolCall emits OrcaEvent.ToolUse with the raw input"):
+    // The drain hands the raw JSON through unchanged; the terminal listener
+    // does summarisation so non-terminal listeners (structured logs, Slack)
+    // see the full input.
     val recorder = new RecordingListener
     val conv = new ScriptedConversation(
-      List(ConversationEvent.AssistantToolCall("Bash", """{"cmd":"ls"}""")),
+      List(
+        ConversationEvent.AssistantToolCall(
+          "Bash",
+          """{ "cmd" : "ls",  "extra" : "ignored" }"""
+        )
+      ),
       Right(sampleResult)
     )
     val _ = Conversations.drainAutonomous(conv, recorder)
     assertEquals(
       recorder.events,
-      List(OrcaEvent.ToolUse("Bash", """{"cmd":"ls"}"""))
+      List(
+        OrcaEvent.ToolUse("Bash", """{ "cmd" : "ls",  "extra" : "ignored" }""")
+      )
     )
 
   test(
@@ -118,18 +128,6 @@ class ConversationsTest extends munit.FunSuite:
     val _ = Conversations.drainAutonomous(conv, recorder)
     assertEquals(recorder.events, Nil)
 
-  test("ToolResult is swallowed"):
-    // ToolResult falls into the catch-all swallow branch; pinning it
-    // separately means a future ToolResult-specific case can't quietly
-    // change the behaviour.
-    val recorder = new RecordingListener
-    val conv = new ScriptedConversation(
-      List(ConversationEvent.ToolResult("Bash", ok = true, "output")),
-      Right(sampleResult)
-    )
-    val _ = Conversations.drainAutonomous(conv, recorder)
-    assertEquals(recorder.events, Nil)
-
   test(
     "deltas without a trailing TurnEnd still flush at end-of-stream"
   ):
@@ -147,6 +145,50 @@ class ConversationsTest extends munit.FunSuite:
     assertEquals(
       recorder.events,
       List(OrcaEvent.AssistantMessage("half-finished thought"))
+    )
+
+  test(
+    "structured mode drops a mid-turn-crash partial (no closing TurnEnd)"
+  ):
+    // Mid-turn subprocess crash in structured mode: deltas arrive, then EOF
+    // before TurnEnd. Outside structured mode we flush the partial so the
+    // user can see what the agent had built up. Inside structured mode it
+    // would only ever be a half-formed JSON payload — drop it; the thrown
+    // exception (not modelled here) carries the real diagnostic.
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("""{"answer":"""),
+        ConversationEvent.AssistantTextDelta("""1""")
+      ),
+      Right(sampleResult),
+      outputSchema = Some("""{"type":"object"}""")
+    )
+    val _ = Conversations.drainAutonomous(conv, recorder)
+    assertEquals(recorder.events, Nil)
+
+  test(
+    "structured mode drops the final turn's text (the JSON payload)"
+  ):
+    // In structured mode the agent's last assistant message IS the JSON
+    // payload that the caller will surface via OrcaEvent.StructuredResult.
+    // Emitting it here would double-render the result. Intermediate turns
+    // still flush so the user sees the agent's prose along the way.
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("planning..."),
+        ConversationEvent.AssistantTurnEnd,
+        ConversationEvent.AssistantTextDelta("""{"answer":42}"""),
+        ConversationEvent.AssistantTurnEnd
+      ),
+      Right(sampleResult),
+      outputSchema = Some("""{"type":"object"}""")
+    )
+    val _ = Conversations.drainAutonomous(conv, recorder)
+    assertEquals(
+      recorder.events,
+      List(OrcaEvent.AssistantMessage("planning..."))
     )
 
   test("two back-to-back turns flush independently"):

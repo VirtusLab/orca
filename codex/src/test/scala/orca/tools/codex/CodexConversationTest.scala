@@ -280,6 +280,40 @@ class CodexConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
+  test(
+    "`failed to record rollout items` shutdown noise is filtered out"
+  ):
+    // Codex emits this ERROR line on stderr during its shutdown sequence
+    // after the rollout writer is already torn down. The rollout file is
+    // written correctly to ~/.codex/sessions/; the message is harmless and
+    // would otherwise spam the user log on every codex call.
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStderr(
+      "2026-05-27T06:30:35.948974Z ERROR codex_core::session: " +
+        "failed to record rollout items: thread 019e6820-ac92-7b01-9f3b-f12fbb65492b not found"
+    )
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-r"}""")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assert(
+      !events.exists {
+        case ConversationEvent.Error(_) => true
+        case _                          => false
+      },
+      s"benign shutdown stderr must not surface as Error events: $events"
+    )
+    val _ = conv.awaitResult()
+
   test("real stderr lines surface as ConversationEvent.Error"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)

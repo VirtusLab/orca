@@ -62,6 +62,27 @@ class ClaudeBackendTest extends munit.FunSuite:
       // No ask_user MCP on the autonomous path.
       assert(!args.contains("--mcp-config"), args)
 
+  test(
+    "runAutonomous passes --json-schema when an output schema is supplied"
+  ):
+    // Autonomous structured calls get claude-side schema enforcement on top
+    // of the prompt-template contract. `JsonSchemaGen` produces
+    // OpenAI-strict schemas so claude accepts them.
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    withBackend(runner): backend =>
+      val _ = backend.runAutonomous(
+        "x",
+        freshSid,
+        LlmConfig.default,
+        os.temp.dir(),
+        outputSchema = Some("""{"type":"object"}""")
+      )
+      val args = runner.calls.head
+      assert(
+        args.containsSlice(Seq("--json-schema", """{"type":"object"}""")),
+        s"autonomous must pass --json-schema; got: $args"
+      )
+
   test("runAutonomous parses session id, output, usage, and cost"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>

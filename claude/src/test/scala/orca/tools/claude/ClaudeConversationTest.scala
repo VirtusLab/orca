@@ -178,7 +178,55 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
     val _ = conv.awaitResult()
 
-  test("assistant turn with tool_use blocks emits AssistantToolCall + TurnEnd"):
+  test(
+    "streaming content_block_start + input_json_delta + stop emits one AssistantToolCall"
+  ):
+    // Pins the per-tool-call streaming path: the agent's tool invocation
+    // surfaces as soon as `content_block_stop` arrives — well before the
+    // end-of-turn assistant message — so the UI doesn't batch a turn's
+    // worth of tool calls together. Input args are reassembled from the
+    // partial json deltas.
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, LlmConfig.default)
+
+    process.enqueueStdout(
+      """{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"id-1","name":"Bash","input":{}}}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"cmd\":\"l"}}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"s\"}"}}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"stream_event","event":{"type":"content_block_stop","index":0}}"""
+    )
+    // The full-turn message arrives with the same tool_use id; the
+    // streamed path already emitted, so this one must be deduped.
+    process.enqueueStdout(
+      """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"id-1","name":"Bash","input":{"cmd":"ls"}}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-6"}"""
+    )
+    process.closeStdout()
+
+    val events = conv.events.toList
+    assertEquals(
+      events,
+      List(
+        ConversationEvent.AssistantToolCall("Bash", """{"cmd":"ls"}"""),
+        ConversationEvent.AssistantTurnEnd
+      )
+    )
+    val _ = conv.awaitResult()
+
+  test(
+    "assistant turn with tool_use that didn't stream still emits (fallback path)"
+  ):
+    // If `--include-partial-messages` is off or claude didn't stream the
+    // tool_use as a separate content block, the full-turn message is the
+    // only place we see it. Emit from there as a fallback.
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, LlmConfig.default)
 
@@ -378,6 +426,73 @@ class ClaudeConversationTest extends munit.FunSuite:
     assertEquals(conv.canAskUser, false)
     process.closeStdout()
     val _ = conv.events.toList
+
+  test(
+    "streaming ask_user is suppressed at content_block_start (no AssistantToolCall)"
+  ):
+    // Pins the streaming-path ask_user branch in `translateStreamEvent`: a
+    // tool_use content block for the MCP-prefixed ask_user tool must NOT
+    // surface as an AssistantToolCall — the host-side bridge raises a
+    // UserQuestion for the same exchange and rendering the tool call on
+    // top would be noise. The full-turn path has its own test below; this
+    // pins the streaming-path equivalent so a regression that only drops
+    // the streaming branch isn't masked.
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, LlmConfig.default)
+
+    process.enqueueStdout(
+      s"""{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"tu_s","name":"${ClaudeBackend.AskUserToolName}","input":{}}}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"stream_event","event":{"type":"content_block_stop","index":0}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-au"}"""
+    )
+    process.closeStdout()
+
+    val events = conv.events.toList
+    assert(
+      !events.exists(_.isInstanceOf[ConversationEvent.AssistantToolCall]),
+      s"streamed ask_user must not surface as AssistantToolCall; got: $events"
+    )
+    val _ = conv.awaitResult()
+
+  test(
+    "turn with streamed tool_use + un-streamed text falls back to AssistantTextDelta"
+  ):
+    // `deltasSinceTurnBoundary` is now scoped to text/thinking deltas. If
+    // it were set by tool-use stops too, the same turn's un-streamed text
+    // block would be wrongly suppressed by the fallback gate in
+    // `handleAssistantTurn`. Pin the narrow scoping.
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, LlmConfig.default)
+
+    process.enqueueStdout(
+      """{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"id-t","name":"Bash","input":{}}}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"cmd\":\"ls\"}"}}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"stream_event","event":{"type":"content_block_stop","index":0}}"""
+    )
+    // The full turn carries the same tool_use AND a text block that did
+    // not stream as deltas. The text block must fall back to a TextDelta.
+    process.enqueueStdout(
+      """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"id-t","name":"Bash","input":{"cmd":"ls"}},{"type":"text","text":"running it now"}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-mix"}"""
+    )
+    process.closeStdout()
+
+    val events = conv.events.toList
+    assert(
+      events.contains(ConversationEvent.AssistantTextDelta("running it now")),
+      s"un-streamed text in a mixed turn must fall back to TextDelta; got: $events"
+    )
+    val _ = conv.awaitResult()
 
   test(
     "handleAssistantTurn suppresses the agent's ToolUse for ask_user"

@@ -201,6 +201,30 @@ class CodexBackendTest extends munit.FunSuite:
       s"second call with a new client id must NOT resume; got: $secondArgs"
     )
 
+  test(
+    "runAutonomous writes the output schema and passes --output-schema"
+  ):
+    // Autonomous structured calls (reviewers) get codex-side schema
+    // enforcement: the drain needs `conv.outputSchema` set so it suppresses
+    // the raw JSON payload, and `--output-schema` adds codex-side
+    // validation on top of the prompt template. `JsonSchemaGen` produces
+    // OpenAI-strict schemas so codex accepts them.
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    val backend = new CodexBackend(runner)
+    val workDir = os.temp.dir()
+    val _ = backend.runAutonomous(
+      "q",
+      clientSid,
+      LlmConfig.default,
+      workDir,
+      outputSchema = Some("""{"type":"object"}""")
+    )
+    val schemaFile = workDir / ".codex" / "orca-output-schema.json"
+    assert(os.exists(schemaFile))
+    assertEquals(os.read(schemaFile), """{"type":"object"}""")
+    val args = runner.calls.head
+    assert(args.containsSlice(Seq("--output-schema", schemaFile.toString)))
+
   test("runInteractive writes the output schema to a file in the workdir"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     val backend = new CodexBackend(runner)

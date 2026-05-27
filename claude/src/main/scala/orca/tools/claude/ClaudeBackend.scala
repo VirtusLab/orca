@@ -66,7 +66,8 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       session: SessionId[BackendTag.ClaudeCode.type],
       config: LlmConfig,
       workDir: os.Path,
-      events: OrcaListener = OrcaListener.noop
+      events: OrcaListener = OrcaListener.noop,
+      outputSchema: Option[String] = None
   ): LlmResult[BackendTag.ClaudeCode.type] =
     val conv = openConversation(
       prompt = prompt,
@@ -74,7 +75,7 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       session = session,
       config = config,
       workDir = workDir,
-      outputSchema = None
+      outputSchema = outputSchema
     )
     val result =
       try Conversations.drainAutonomous(conv, events)
@@ -152,8 +153,7 @@ class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
   ): Conversation[BackendTag.ClaudeCode.type] =
     // Allocate ask_user resources up front so we can close them
     // deterministically on a downstream failure. `None` for autonomous —
-    // those calls don't expose the tool. One match so the two branches
-    // can't drift; future modes add one tuple slot.
+    // those calls don't expose the tool.
     val (askUser, displayPrompt): (Option[AskUserResources], String) =
       mode match
         case SessionMode.Interactive(p) => (Some(allocateAskUser(workDir)), p)

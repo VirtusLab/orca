@@ -1,10 +1,8 @@
 package orca.review
 
-import orca.plan.Title
 import orca.llm.given
 import orca.util.JsonSchemaGen
 
-import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.networknt.schema.{InputFormat, JsonSchemaFactory, SpecVersion}
 
 class JsonSchemaGenTest extends munit.FunSuite:
@@ -14,25 +12,58 @@ class JsonSchemaGenTest extends munit.FunSuite:
     factory.getSchema(schemaString)
 
   test("generated schema validates a well-formed ReviewResult"):
-    val sample = ReviewResult(
-      issues = List(
-        ReviewIssue(
-          Severity.Info,
-          0.8,
-          Title("Hello"),
-          "hello",
-          None,
-          None,
-          None
-        )
-      )
-    )
-    val errors =
-      compiledSchema.validate(writeToString(sample), InputFormat.JSON)
+    // The agent emits OpenAI-strict JSON: every nullable field is present
+    // with a real null rather than omitted. The schema must accept that.
+    val sample =
+      """{"issues":[{
+        |  "severity":"Info",
+        |  "confidence":0.8,
+        |  "title":"Hello",
+        |  "description":"hello",
+        |  "file":null,
+        |  "line":null,
+        |  "suggestion":null
+        |}]}""".stripMargin
+    val errors = compiledSchema.validate(sample, InputFormat.JSON)
     assert(errors.isEmpty, s"Validation errors: $errors")
 
   test("generated schema rejects an unknown severity value"):
     val invalid =
-      """{"issues":[{"severity":"Bogus","confidence":0.5,"description":"x"}]}"""
+      """{"issues":[{
+        |  "severity":"Bogus",
+        |  "confidence":0.5,
+        |  "title":"x",
+        |  "description":"x",
+        |  "file":null,
+        |  "line":null,
+        |  "suggestion":null
+        |}]}""".stripMargin
     val errors = compiledSchema.validate(invalid, InputFormat.JSON)
     assert(!errors.isEmpty, "Schema should reject unknown severity values")
+
+  test("generated schema rejects a payload that omits a nullable field"):
+    // Strict mode treats every property as required (nullability is the
+    // mechanism for optionality). Omitting `suggestion` should be rejected.
+    val invalid =
+      """{"issues":[{
+        |  "severity":"Info",
+        |  "confidence":0.5,
+        |  "title":"x",
+        |  "description":"x",
+        |  "file":null,
+        |  "line":null
+        |}]}""".stripMargin
+    val errors = compiledSchema.validate(invalid, InputFormat.JSON)
+    assert(
+      !errors.isEmpty,
+      "Schema should reject payloads that omit a nullable property"
+    )
+
+  test("generated schema rejects additional properties"):
+    val invalid =
+      """{"issues":[],"unexpected":"x"}"""
+    val errors = compiledSchema.validate(invalid, InputFormat.JSON)
+    assert(
+      !errors.isEmpty,
+      "Schema should reject unknown top-level keys (additionalProperties:false)"
+    )

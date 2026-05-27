@@ -74,7 +74,7 @@ object TerminalInteraction:
       workDir: Option[os.Path] = None
   )(using Ox, BufferCapacity): TerminalInteraction =
     val output = TerminalOutput.start(out, useColor, animated)
-    val listener = new TerminalEventListener(output, useColor)
+    val listener = new TerminalEventListener(output, useColor, workDir)
     new TerminalInteraction(output, listener, useColor, workDir)
 
   /** ANSI colors default off when stderr isn't attached to a terminal (no

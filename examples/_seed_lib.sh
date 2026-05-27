@@ -114,5 +114,15 @@ apply_local_flag() {
     { print }
   ' "$script_path" > "$script_path.tmp" && mv "$script_path.tmp" "$script_path"
 
+  # Commit the rewrite so the flow doesn't start against a dirty working
+  # tree (which would otherwise trigger the auto-stash safety path).
+  (
+    cd "$DEST"
+    git -c user.name=orca-seed -c user.email=orca-seed@example.com \
+        add "$(basename "$script_path")" > /dev/null
+    git -c user.name=orca-seed -c user.email=orca-seed@example.com \
+        commit -q -m "Pin orca dep to local publishLocal version"
+  )
+
   echo "[orca] flow script pinned to org.virtuslab::orca:$version (ivy2Local)" >&2
 }

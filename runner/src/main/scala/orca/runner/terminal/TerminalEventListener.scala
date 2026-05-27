@@ -19,7 +19,8 @@ import orca.events.{OrcaEvent, OrcaListener}
   */
 private[runner] class TerminalEventListener(
     output: TerminalOutput,
-    useColor: Boolean
+    useColor: Boolean,
+    workDir: Option[os.Path] = None
 ) extends OrcaListener:
 
   import TerminalEventListener.{
@@ -64,7 +65,7 @@ private[runner] class TerminalEventListener(
       output.setStatus(status)
     case OrcaEvent.ToolUse(tool, args) =>
       val line = lock.synchronized:
-        formatIndented(paint(fansi.Color.DarkGray, s"  → $tool: $args"))
+        formatIndented(ToolCallLine.format(tool, args, paint, workDir))
       output.log(line)
     case OrcaEvent.TokensUsed(_, _, _) =>
       () // Token accounting is owned by CostTracker.

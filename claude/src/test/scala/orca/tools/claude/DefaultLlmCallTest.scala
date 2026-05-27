@@ -23,6 +23,8 @@ class SequencedBackend(outputs: List[String])
     AtomicReference(Nil)
   private val seenEvents: AtomicReference[List[orca.events.OrcaListener]] =
     AtomicReference(Nil)
+  private val seenSchemas: AtomicReference[List[Option[String]]] =
+    AtomicReference(Nil)
   private val registrations: AtomicReference[List[
     (SessionId[BackendTag.ClaudeCode.type], SessionId[BackendTag.ClaudeCode.type])
   ]] = AtomicReference(Nil)
@@ -34,6 +36,12 @@ class SequencedBackend(outputs: List[String])
     * than silently dropping it on the floor.
     */
   def events: List[orca.events.OrcaListener] = seenEvents.get().reverse
+
+  /** `outputSchema` values the backend received, in invocation order. Lets
+    * tests assert that `DefaultLlmCall` actually passes `Some(<schema>)`
+    * rather than dropping to `None`.
+    */
+  def schemas: List[Option[String]] = seenSchemas.get().reverse
 
   /** `(clientSid, serverSid)` pairs the framework passed to `registerSession`,
     * in invocation order. Lets tests assert that `DefaultLlmCall` wired the
@@ -54,9 +62,11 @@ class SequencedBackend(outputs: List[String])
       session: SessionId[BackendTag.ClaudeCode.type],
       config: LlmConfig,
       workDir: os.Path,
-      events: orca.events.OrcaListener = orca.events.OrcaListener.noop
+      events: orca.events.OrcaListener,
+      outputSchema: Option[String]
   ): LlmResult[BackendTag.ClaudeCode.type] =
     val _ = seenEvents.updateAndGet(events :: _)
+    val _ = seenSchemas.updateAndGet(outputSchema :: _)
     nextResult(prompt).copy(sessionId = session)
 
   def runInteractive(
@@ -202,6 +212,26 @@ class DefaultLlmCallTest extends munit.FunSuite:
           (raw, summary)
       }
       assertEquals(structured, List(("""{"value":99}""", Some("answer is 99"))))
+
+  test(
+    "autonomous forwards a Some(schema) to backend.runAutonomous"
+  ):
+    // Pins the SPI-level wiring: structured calls must carry their
+    // generated schema down to the backend so the conversation knows it's
+    // in structured mode (drain suppresses raw JSON) and the CLI gets
+    // `--json-schema`/`--output-schema`. A regression that dropped the
+    // schema to None would compile and pass every other test.
+    val backend = new SequencedBackend(List("""{"value":1}"""))
+    supervised:
+      val _ = makeCall(backend).autonomous.run("anything")
+      backend.schemas match
+        case Some(s) :: _ =>
+          assert(
+            s.contains("\"value\"") && s.contains("\"integer\""),
+            s"schema should describe Answer's `value: Int` field; got: $s"
+          )
+        case other =>
+          fail(s"expected Some(schema) as the first call; got $other")
 
   test(
     "autonomous threads its `events` listener to backend.runAutonomous"

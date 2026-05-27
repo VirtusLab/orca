@@ -73,8 +73,14 @@ private[terminal] object ToolInputSummary:
         else None
       .getOrElse(value)
 
+  /** Pre-compiled — `String.replaceAll` recompiles on every call, and this
+    * fires once per tool-use event (many per turn on a busy session).
+    */
+  private val WhitespaceRun: java.util.regex.Pattern =
+    java.util.regex.Pattern.compile("\\s+")
+
   private def collapseWhitespace(raw: String): String =
-    raw.replaceAll("\\s+", " ").trim
+    WhitespaceRun.matcher(raw).replaceAll(" ").trim
 
   /** Matches a `"field":"value"` entry and walks the value honouring `\"` /
     * `\\` escapes. Returns `None` if the field isn't present or the string

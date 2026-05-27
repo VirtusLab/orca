@@ -9,63 +9,56 @@ import orca.llm.BackendTag
   * the subprocess finishes), emits a matching [[OrcaEvent]] to the listener for
   * the user-visible ones, then returns the awaited `LlmResult`.
   *
-  * Mapping:
-  *   - `AssistantToolCall(name, raw)` → `OrcaEvent.ToolUse(name, truncated)`,
-  *     so the user sees a one-line marker as each tool fires.
-  *   - `AssistantTextDelta` buffered per turn, flushed as one
-  *     `OrcaEvent.AssistantMessage` on `AssistantTurnEnd` (when non-empty). Any
-  *     unflushed buffer at end-of-stream is flushed too so partial output from
-  *     a mid-turn subprocess crash isn't silently dropped.
-  *   - `AssistantThinkingDelta` dropped — internal-monologue noise isn't useful
-  *     in the autonomous log.
-  *   - `ConversationEvent.Error` re-emits as `OrcaEvent.Error` so subprocess
-  *     stderr makes it into the user log.
-  *   - `ToolResult` / `UserMessage` / `ApproveTool` / `UserQuestion` are
-  *     swallowed — autonomous calls don't render tool results (the matching
-  *     ToolUse already showed something happened), don't echo their own prompt,
-  *     and don't expose approval/ask_user flows.
+  * Buffered text flushes at every `AssistantTurnEnd` (as `OrcaEvent.AssistantMessage`).
+  * Structured mode (`conv.outputSchema.isDefined`) withholds the most recent
+  * turn — if another turn follows it was intermediate prose (flush); if the
+  * stream ends with it withheld it was the JSON payload (drop, the caller
+  * surfaces it via `OrcaEvent.StructuredResult`). End-of-stream flushes any
+  * unfinished buffer outside structured mode so a mid-turn crash doesn't lose
+  * partial output.
+  *
+  * Other mappings: `AssistantToolCall(name, raw)` → `OrcaEvent.ToolUse(name,
+  * raw)` (raw JSON passes through; the terminal listener summarises);
+  * `AssistantThinkingDelta` dropped; `ConversationEvent.Error` re-emits;
+  * `ToolResult`/`UserMessage`/`ApproveTool`/`UserQuestion` swallowed (not
+  * relevant to the autonomous log).
   *
   * `awaitResult()`'s `Left(OrcaInteractiveCancelled)` becomes a thrown
   * `OrcaInteractiveCancelled` so autonomous callers — which never expose a
   * cancel button — don't have to special-case a value they could never have
-  * produced. Genuine backend failures (non-zero exit, missing turn-completed,
-  * etc.) already surface as thrown [[orca.OrcaFlowException]]s from inside the
-  * conversation's reader loop.
+  * produced. Genuine backend failures already surface as thrown
+  * [[orca.OrcaFlowException]]s from inside the conversation's reader loop.
   */
 private[orca] object Conversations:
-
-  /** Cap for the inline tool-input summary. Matches the live renderer's
-    * MaxInlineInputLength so autonomous and interactive logs look alike.
-    */
-  private val MaxToolInputLength: Int = 120
-
-  /** Pre-compiled — `String.replaceAll` would recompile this on every call,
-    * which fires once per agent tool use (many per turn on a busy session).
-    */
-  private val WhitespaceRun: java.util.regex.Pattern =
-    java.util.regex.Pattern.compile("\\s+")
 
   def drainAutonomous[B <: BackendTag](
       conv: Conversation[B],
       events: OrcaListener = OrcaListener.noop
   ): LlmResult[B] =
+    val structuredMode = conv.outputSchema.isDefined
     val textBuf = new StringBuilder
-    def flushText(): Unit =
+    // The previously-closed turn's text, kept around in structured mode so
+    // we can decide what to do with it once we know whether another turn
+    // follows. Always `None` outside structured mode.
+    var withheld: Option[String] = None
+    def closeTurn(): Unit =
       if textBuf.nonEmpty then
-        events.onEvent(OrcaEvent.AssistantMessage(textBuf.toString))
+        val text = textBuf.toString
         textBuf.clear()
-    // `finally` so partial output survives an exception thrown by the
-    // iterator itself (e.g. InterruptedException from `take()` on a
-    // peer-cancelled scope). Well-formed turns cleared the buffer at
-    // their AssistantTurnEnd so the flush is a no-op there.
+        if structuredMode then
+          // Previous hold was intermediate — flush it. The new text might
+          // turn out to be the final structured payload, so hold it.
+          withheld.foreach(p => events.onEvent(OrcaEvent.AssistantMessage(p)))
+          withheld = Some(text)
+        else events.onEvent(OrcaEvent.AssistantMessage(text))
     try
       conv.events.foreach:
         case ConversationEvent.AssistantToolCall(name, raw) =>
-          events.onEvent(OrcaEvent.ToolUse(name, summariseToolInput(raw)))
+          events.onEvent(OrcaEvent.ToolUse(name, raw))
         case ConversationEvent.AssistantTextDelta(delta) =>
           val _ = textBuf.append(delta)
         case ConversationEvent.AssistantThinkingDelta(_) => ()
-        case ConversationEvent.AssistantTurnEnd          => flushText()
+        case ConversationEvent.AssistantTurnEnd          => closeTurn()
         case ConversationEvent.Error(msg) =>
           events.onEvent(OrcaEvent.Error(msg))
         // Tool results, user-message echoes, approval / user-question
@@ -74,7 +67,15 @@ private[orca] object Conversations:
         // tools pre-approved) — if they do, drop rather than crash so
         // the result still flows.
         case _ => ()
-    finally flushText()
+    finally
+      // The `try`-body may have thrown mid-turn (InterruptedException from
+      // a cancelled scope, listener bug, etc.); finish flushing what we
+      // can. Non-structured: emit any withheld text. Structured: drop the
+      // withheld text — it's the final JSON payload (clean end) or a
+      // half-formed payload (crash; the thrown exception is the diagnostic).
+      closeTurn()
+      if !structuredMode then
+        withheld.foreach(p => events.onEvent(OrcaEvent.AssistantMessage(p)))
     conv.awaitResult() match
       case Right(result)   => result
       case Left(cancelled) =>
@@ -83,13 +84,3 @@ private[orca] object Conversations:
         // is not how autonomous calls are wired. Surface as a throw so the
         // call shape (returns `LlmResult`) is honoured.
         throw cancelled
-
-  /** Trim a tool-input blob to one line and cap its length. Cheap and
-    * good-enough — the live renderer's `ToolInputSummary` does a fancier
-    * field-extraction summary but lives in the runner module. The autonomous
-    * log doesn't need that fidelity.
-    */
-  private def summariseToolInput(raw: String): String =
-    val collapsed = WhitespaceRun.matcher(raw).replaceAll(" ").trim
-    if collapsed.length <= MaxToolInputLength then collapsed
-    else s"${collapsed.take(MaxToolInputLength - 1)}…"

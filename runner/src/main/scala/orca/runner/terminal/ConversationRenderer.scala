@@ -128,10 +128,7 @@ private[terminal] class ConversationRenderer(
 
   private def renderToolCall(name: String, input: String): Unit =
     enterSection(Section.Tool)
-    val args = ToolInputSummary.summarise(input, MaxInlineInputLength, workDir)
-    val head = paint(ToolNameStyle, s"$ToolCallGlyph $name")
-    val tail = if args.isEmpty then "" else " " + paint(ToolArgsStyle, args)
-    appendBlock(head + tail)
+    appendBlock(ToolCallLine.format(name, input, paint, workDir))
 
   private def renderToolResult(ok: Boolean, content: String): Unit =
     enterSection(Section.Tool)

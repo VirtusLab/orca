@@ -95,17 +95,22 @@ private[codex] class CodexConversation(
   override protected def handleLine(line: String): Unit =
     handle(InboundEvent.parse(line))
 
-  /** codex prints `Reading additional input from stdin...` on every exec
-    * invocation when stdin is piped (regardless of whether we actually feed it
-    * anything). Filter that and empty lines; pass the rest through with the
-    * default backend-prefixed Error event AND append to the bounded
+  /** codex prints known-benign noise on every exec invocation:
+    *
+    *   - `Reading additional input from stdin…` whenever stdin is piped
+    *     (we always pipe stdin, even though we immediately close it).
+    *   - `ERROR codex_core::session: failed to record rollout items: thread
+    *     <id> not found` during shutdown — fires inside codex's cleanup after
+    *     the rollout writer is already torn down. The rollout file is still
+    *     written correctly to `~/.codex/sessions/`; the message is harmless.
+    *
+    * Filter both, plus empty lines. Anything else passes through with the
+    * default backend-prefixed Error event AND appends to the bounded
     * [[stderrBuffer]] so the failure exception can include them.
     */
   override protected def handleStderr(line: String): Unit =
     val trimmed = line.trim
-    if trimmed.nonEmpty &&
-      !trimmed.startsWith("Reading additional input from stdin")
-    then
+    if trimmed.nonEmpty && !CodexConversation.isKnownStderrNoise(trimmed) then
       eventQueue.enqueue(ConversationEvent.Error(s"codex: $trimmed"))
       val _ = stderrBuffer.updateAndGet(appendBounded(_, trimmed))
 
@@ -215,6 +220,16 @@ private[codex] class CodexConversation(
     FileChangeWire(c.path, c.kind)
 
 private[codex] object CodexConversation:
+
+  /** Stderr lines codex emits unconditionally that carry no diagnostic
+    * value — filtered before they reach the event queue. See
+    * [[CodexConversation.handleStderr]] for what each line means.
+    */
+  private[codex] def isKnownStderrNoise(line: String): Boolean =
+    line.startsWith("Reading additional input from stdin") ||
+      line.contains(
+        "codex_core::session: failed to record rollout items"
+      )
 
   /** Bounded wait for the stderr thread to finish draining before the event
     * queue is closed. Long enough that real EOF-after-process- exit lands;
