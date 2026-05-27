@@ -121,8 +121,13 @@ object FlowCanary:
         // and Plan.{autonomous,interactive}.from → Plan (no SessionId pair).
         val autoPlan: Plan = Plan.autonomous.from(userPrompt, claude.opus)
         val intPlan: Plan = Plan.interactive.from(userPrompt, claude)
+        // Codex now also satisfies `CanAskUser`, so `Plan.interactive.from`
+        // compiles against it too (the agent uses the same shared
+        // AskUserMcpServer via codex's MCP support).
+        val intPlanCodex: Plan = Plan.interactive.from(userPrompt, codex)
         val _ = autoPlan
         val _ = intPlan
+        val _ = intPlanCodex
         val verdict =
           Plan.autonomous.assessThenPlan(userPrompt, claude.opus)
         verdict match
