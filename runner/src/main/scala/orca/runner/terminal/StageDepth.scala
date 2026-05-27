@@ -1,15 +1,15 @@
 package orca.runner.terminal
 
-/** Mutable depth counter consulted by [[TerminalRendererState]] (the OrcaEvent
-  * stage listener) and [[TerminalConversationRenderer]] (the per-conversation
+/** Mutable depth counter consulted by [[TerminalEventListener]] (the OrcaEvent
+  * stage listener) and [[ConversationRenderer]] (the per-conversation
   * renderer). Each `StageStarted` event pushes the counter; each
   * `StageCompleted` pops it. The counter dictates how many leading spaces every
   * printed line gets — nested stages indent their content under the enclosing
   * stage marker.
   *
-  * Not thread-safe on its own. Both consumers access it only from
-  * `TerminalInteraction`'s single worker thread, which serialises every
-  * push/pop and indent snapshot — no atomics or locks needed here.
+  * Not thread-safe on its own. The listener serialises push/pop under its own
+  * lock and republishes [[contentIndent]] via a `@volatile` snapshot so the
+  * renderer (running on another thread) can read it without acquiring the lock.
   */
 private[terminal] class StageDepth:
   private var depth: Int = 0
