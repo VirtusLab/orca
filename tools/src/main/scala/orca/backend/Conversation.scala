@@ -49,28 +49,27 @@ trait Conversation[B <: BackendTag]:
     */
   def awaitResult(): Either[OrcaInteractiveCancelled, LlmResult[B]]
 
-  /** Inject a user turn mid-conversation by writing to the subprocess's
-    * stdin. Only meaningful when the backend keeps stdin open for the life
-    * of the conversation — claude's stream-json does, codex's `exec` does
-    * not (it consumes stdin once at startup; ADR 0007). Implementations
-    * whose stdin channel isn't writable mid-session treat this as a no-op.
+  /** Inject a user turn mid-conversation by writing to the subprocess's stdin.
+    * Only meaningful when the backend keeps stdin open for the life of the
+    * conversation — claude's stream-json does, codex's `exec` does not (it
+    * consumes stdin once at startup; ADR 0007). Implementations whose stdin
+    * channel isn't writable mid-session treat this as a no-op.
     */
   def sendUserMessage(text: String): Unit
 
   /** Whether the agent can pause to ask the host user a clarifying question
-    * (and have the answer routed back into its turn). When `true`, the
-    * driver emits [[ConversationEvent.UserQuestion]] events whose `respond`
-    * closure delivers the typed answer to the blocked agent. Both claude
-    * (via its `ask_user` MCP tool over `--mcp-config`) and codex (via the
-    * same shared `AskUserMcpServer` registered with
-    * `-c mcp_servers.orca.url=…`) return `true` on interactive sessions;
-    * autonomous sessions and backends that don't wire the bridge return
-    * `false`.
+    * (and have the answer routed back into its turn). When `true`, the driver
+    * emits [[ConversationEvent.UserQuestion]] events whose `respond` closure
+    * delivers the typed answer to the blocked agent. Both claude (via its
+    * `ask_user` MCP tool over `--mcp-config`) and codex (via the same shared
+    * `AskUserMcpServer` registered with `-c mcp_servers.orca.url=…`) return
+    * `true` on interactive sessions; autonomous sessions and backends that
+    * don't wire the bridge return `false`.
     *
-    * Independent of [[sendUserMessage]] — codex satisfies `canAskUser`
-    * while still having a no-op `sendUserMessage`. Flows that depend on
-    * being able to push a turn into stdin must check that channel
-    * separately rather than treating `canAskUser` as a proxy.
+    * Independent of [[sendUserMessage]] — codex satisfies `canAskUser` while
+    * still having a no-op `sendUserMessage`. Flows that depend on being able to
+    * push a turn into stdin must check that channel separately rather than
+    * treating `canAskUser` as a proxy.
     */
   def canAskUser: Boolean
 

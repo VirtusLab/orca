@@ -16,8 +16,8 @@ import sttp.tapir.docs.apispec.schema.TapirSchemaToJsonSchema
   * Tapir's default output is JSON-Schema-valid but more permissive than
   * OpenAI's strict mode, so codex rejects it with `invalid_json_schema`.
   * Optional fields and fields with Scala-side defaults (`List` → `Nil`, etc.)
-  * are marked nullable via `markOptionsAsNullable = true`, so requiring them
-  * is safe — the agent emits `null` or an empty list rather than omitting.
+  * are marked nullable via `markOptionsAsNullable = true`, so requiring them is
+  * safe — the agent emits `null` or an empty list rather than omitting.
   */
 object JsonSchemaGen:
   def apply[O](using schema: Schema[O]): String =
@@ -46,9 +46,9 @@ object JsonSchemaGen:
     if isObjectSchemaNode(recursed) then addStrictConstraints(recursed)
     else recursed
 
-  /** A node is an "object schema" — eligible for the strict-mode constraints
-    * — when it declares `"type": "object"` AND carries a `"properties"`
-    * object. The properties check rules out empty/marker objects like
+  /** A node is an "object schema" — eligible for the strict-mode constraints —
+    * when it declares `"type": "object"` AND carries a `"properties"` object.
+    * The properties check rules out empty/marker objects like
     * `{"type":"object"}` which would otherwise get `additionalProperties:
     * false` with no purpose.
     */
@@ -57,7 +57,8 @@ object JsonSchemaGen:
       obj("properties").flatMap(_.asObject).exists(_.nonEmpty)
 
   private def addStrictConstraints(obj: JsonObject): JsonObject =
-    val props = obj("properties").flatMap(_.asObject).getOrElse(JsonObject.empty)
+    val props =
+      obj("properties").flatMap(_.asObject).getOrElse(JsonObject.empty)
     val allKeys = props.keys.toList
     // Don't overwrite an existing `additionalProperties` — Tapir emits a
     // sub-schema for `Map[String, T]` fields. Letting it through means

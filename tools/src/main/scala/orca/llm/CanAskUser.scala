@@ -22,17 +22,17 @@ package orca.llm
 trait CanAskUser[B <: BackendTag]
 
 object CanAskUser:
-  /** Claude's interactive sessions wire up an MCP `ask_user` tool the agent
-    * can call (see `orca.backend.mcp.AskUserMcpServer`).
+  /** Claude's interactive sessions wire up an MCP `ask_user` tool the agent can
+    * call (see `orca.backend.mcp.AskUserMcpServer`).
     */
   given CanAskUser[BackendTag.ClaudeCode.type] =
     new CanAskUser[BackendTag.ClaudeCode.type] {}
 
   /** Codex's interactive sessions register the same shared
-    * [[orca.backend.mcp.AskUserMcpServer]] via codex's MCP support
-    * (`-c mcp_servers.orca.url=…`), so the agent calls `ask_user` the same
-    * way claude does. Stdin isn't a viable channel (codex exec consumes it
-    * once — ADR 0007), but the MCP path doesn't need it.
+    * [[orca.backend.mcp.AskUserMcpServer]] via codex's MCP support (`-c
+    * mcp_servers.orca.url=…`), so the agent calls `ask_user` the same way
+    * claude does. Stdin isn't a viable channel (codex exec consumes it once —
+    * ADR 0007), but the MCP path doesn't need it.
     */
   given CanAskUser[BackendTag.Codex.type] =
     new CanAskUser[BackendTag.Codex.type] {}

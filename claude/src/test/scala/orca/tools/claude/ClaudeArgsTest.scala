@@ -5,7 +5,9 @@ import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
 class ClaudeArgsTest extends munit.FunSuite:
 
   private val testSid =
-    SessionId[BackendTag.ClaudeCode.type]("00000000-0000-0000-0000-000000000000")
+    SessionId[BackendTag.ClaudeCode.type](
+      "00000000-0000-0000-0000-000000000000"
+    )
 
   private def streamJson(
       config: LlmConfig,
@@ -73,11 +75,15 @@ class ClaudeArgsTest extends munit.FunSuite:
 
   test("Dispatch.Fresh emits --session-id <uuid>"):
     val args = streamJson(LlmConfig.default, dispatch = Dispatch.Fresh(testSid))
-    assert(args.containsSlice(Seq("--session-id", SessionId.value(testSid))), args)
+    assert(
+      args.containsSlice(Seq("--session-id", SessionId.value(testSid))),
+      args
+    )
     assert(!args.contains("--resume"), args)
 
   test("Dispatch.Resume emits --resume <uuid>"):
-    val args = streamJson(LlmConfig.default, dispatch = Dispatch.Resume(testSid))
+    val args =
+      streamJson(LlmConfig.default, dispatch = Dispatch.Resume(testSid))
     assert(args.containsSlice(Seq("--resume", SessionId.value(testSid))), args)
     assert(!args.contains("--session-id"), args)
 

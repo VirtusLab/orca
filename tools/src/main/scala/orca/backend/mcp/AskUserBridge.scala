@@ -19,10 +19,10 @@ import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
   *
   * **Closure.** [[close]] errors any still-blocked `reply.receive()` calls and
   * `done`s the question queue, so the drainer loop and Netty workers exit
-  * cleanly when the owning conversation ends. The owner
-  * (e.g. `ClaudeConversation.onFinalize` or `CodexConversation.onFinalize`)
-  * calls `close` after the conversation's read loop drains — before the MCP
-  * server's Netty binding stops, so handlers see the bridge close first.
+  * cleanly when the owning conversation ends. The owner (e.g.
+  * `ClaudeConversation.onFinalize` or `CodexConversation.onFinalize`) calls
+  * `close` after the conversation's read loop drains — before the MCP server's
+  * Netty binding stops, so handlers see the bridge close first.
   */
 private[orca] class AskUserBridge(using BufferCapacity):
 

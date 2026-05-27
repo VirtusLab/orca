@@ -41,11 +41,12 @@ private[codex] enum Item:
       status: String
   )
   case FileChange(id: String, changes: List[FileChangeDetail], status: String)
+
   /** Codex's MCP tool-call item. `server` is the configured MCP server name
     * (from `mcp_servers.<server>.url` in the config); `tool` is the bare slug
     * the server advertised. `arguments` is the raw JSON the model supplied;
-    * `result` is the rendered text from the MCP tool result's `content`
-    * array, or `None` while the call is in-flight.
+    * `result` is the rendered text from the MCP tool result's `content` array,
+    * or `None` while the call is in-flight.
     */
   case McpToolCall(
       id: String,
@@ -139,12 +140,11 @@ private[codex] object InboundEvent:
     * `{"content":[{"type":"text","text":"…"}, …],"isError":bool}`; text
     * fragments are concatenated, non-text fragments dropped.
     *
-    * Returns `None` only when the raw value is missing or JSON `null` —
-    * i.e. the call is still in-flight (`item.started`). A completed call
-    * with an empty or text-free content array returns `Some("")` so the
-    * caller can tell "completed with no payload" from "not done yet".
-    * On parse failure, returns `Some(trimmed)` so the diagnostic raw JSON
-    * still reaches the renderer.
+    * Returns `None` only when the raw value is missing or JSON `null` — i.e.
+    * the call is still in-flight (`item.started`). A completed call with an
+    * empty or text-free content array returns `Some("")` so the caller can tell
+    * "completed with no payload" from "not done yet". On parse failure, returns
+    * `Some(trimmed)` so the diagnostic raw JSON still reaches the renderer.
     */
   private def renderMcpResultText(raw: RawJson): Option[String] =
     val trimmed = raw.value.trim
@@ -203,8 +203,8 @@ private[codex] object InboundEvent:
   private case class ItemWire(item: ItemBody) derives ConfiguredJsonValueCodec
 
   /** Subset of the MCP `tools/call` result we extract for display — just the
-    * `content` array. `isError` is read off the item's top-level `status`
-    * field by codex itself, so we don't need it here.
+    * `content` array. `isError` is read off the item's top-level `status` field
+    * by codex itself, so we don't need it here.
     */
   private case class McpResultWire(
       content: List[McpContentWire] = Nil

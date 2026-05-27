@@ -16,8 +16,8 @@ import ox.channels.BufferCapacity
   */
 private[orca] object SupervisedBackend:
 
-  /** Default buffer capacity used by every backend test. Sized for the
-    * tightest tests (a couple of in-flight events) without being so small it
+  /** Default buffer capacity used by every backend test. Sized for the tightest
+    * tests (a couple of in-flight events) without being so small it
     * back-pressures load-bearing scenarios.
     */
   private val DefaultBufferCapacity: BufferCapacity = BufferCapacity(8)

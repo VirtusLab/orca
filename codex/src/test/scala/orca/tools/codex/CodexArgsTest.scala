@@ -118,4 +118,3 @@ class CodexArgsTest extends munit.FunSuite:
       LlmConfig.default.copy(model = Some(Model("gpt-5.4-mini")))
     )
     assert(args.containsSlice(Seq("--model", "gpt-5.4-mini")))
-

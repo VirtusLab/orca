@@ -26,20 +26,23 @@ class SequencedBackend(outputs: List[String])
   private val seenSchemas: AtomicReference[List[Option[String]]] =
     AtomicReference(Nil)
   private val registrations: AtomicReference[List[
-    (SessionId[BackendTag.ClaudeCode.type], SessionId[BackendTag.ClaudeCode.type])
+    (
+        SessionId[BackendTag.ClaudeCode.type],
+        SessionId[BackendTag.ClaudeCode.type]
+    )
   ]] = AtomicReference(Nil)
 
   def prompts: List[String] = promptsRef.get().reverse
 
   /** Listeners the backend was called with, in invocation order. Lets tests
-    * assert that `DefaultLlmCall` threaded its own `events` through rather
-    * than silently dropping it on the floor.
+    * assert that `DefaultLlmCall` threaded its own `events` through rather than
+    * silently dropping it on the floor.
     */
   def events: List[orca.events.OrcaListener] = seenEvents.get().reverse
 
   /** `outputSchema` values the backend received, in invocation order. Lets
-    * tests assert that `DefaultLlmCall` actually passes `Some(<schema>)`
-    * rather than dropping to `None`.
+    * tests assert that `DefaultLlmCall` actually passes `Some(<schema>)` rather
+    * than dropping to `None`.
     */
   def schemas: List[Option[String]] = seenSchemas.get().reverse
 
@@ -48,7 +51,10 @@ class SequencedBackend(outputs: List[String])
     * post-drain hook through to the backend.
     */
   def registered: List[
-    (SessionId[BackendTag.ClaudeCode.type], SessionId[BackendTag.ClaudeCode.type])
+    (
+        SessionId[BackendTag.ClaudeCode.type],
+        SessionId[BackendTag.ClaudeCode.type]
+    )
   ] = registrations.get().reverse
 
   override def registerSession(
@@ -357,7 +363,11 @@ class DefaultLlmCallTest extends munit.FunSuite:
         agentName = "claude"
       ).interactive.run("anything", session = clientSid)
       assertEquals(answer, Answer(3))
-      assertEquals(returned, clientSid, "returned id must be the caller's, not the server's")
+      assertEquals(
+        returned,
+        clientSid,
+        "returned id must be the caller's, not the server's"
+      )
       assertEquals(
         backend.registered,
         List((clientSid, serverSid)),

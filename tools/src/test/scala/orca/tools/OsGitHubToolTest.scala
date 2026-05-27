@@ -96,7 +96,9 @@ class OsGitHubToolTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("gh", "pr", "comment", "42")))
     assert(args.containsSlice(Seq("--body", "nit: whitespace")))
 
-  test("writeComment(IssueHandle, body) invokes gh issue comment with the body"):
+  test(
+    "writeComment(IssueHandle, body) invokes gh issue comment with the body"
+  ):
     val (cli, gh) = stubGh(CliResult(0, "", ""))
     gh.writeComment(IssueHandle("acme", "widgets", 7), "follow-up question")
     val args = cli.lastCall.getOrElse(fail("expected a call")).args

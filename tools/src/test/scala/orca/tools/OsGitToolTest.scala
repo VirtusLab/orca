@@ -240,7 +240,10 @@ class OsGitToolTest extends munit.FunSuite:
       "fatal: unable to read tree",
       diag
     )
-    assert(msg.contains("git commit -m seed failed: fatal: unable to read tree"), msg)
+    assert(
+      msg.contains("git commit -m seed failed: fatal: unable to read tree"),
+      msg
+    )
     assert(msg.contains("M  changed.txt"), msg)
     assert(msg.contains("?? untracked.txt"), msg)
     assert(msg.contains("missing tree fa29f13"), msg)

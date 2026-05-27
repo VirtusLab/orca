@@ -37,7 +37,9 @@ class ClaudeBackendTest extends munit.FunSuite:
   ): T = SupervisedBackend.using(new ClaudeBackend(runner))(body)
 
   private def freshSid: SessionId[BackendTag.ClaudeCode.type] =
-    SessionId[BackendTag.ClaudeCode.type]("11111111-1111-1111-1111-111111111111")
+    SessionId[BackendTag.ClaudeCode.type](
+      "11111111-1111-1111-1111-111111111111"
+    )
 
   test("runAutonomous invokes claude in stream-json mode (no --mcp-config)"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))

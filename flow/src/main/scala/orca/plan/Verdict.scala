@@ -1,11 +1,11 @@
 package orca.plan
 
-/** Outcome of an assess-before-act stage (e.g. [[Plan.autonomous.assessThenPlan]]).
-  * Either the agent endorses the input and supplies a value to act on
-  * (`Proceed`), or it rejects the input with a body the caller surfaces to
-  * whoever filed the report — a follow-up question, a constructive critique,
-  * or an outright rebuff. The `kind` lets the caller pick framing (e.g. a GH
-  * comment template) without re-reading the body.
+/** Outcome of an assess-before-act stage (e.g.
+  * [[Plan.autonomous.assessThenPlan]]). Either the agent endorses the input and
+  * supplies a value to act on (`Proceed`), or it rejects the input with a body
+  * the caller surfaces to whoever filed the report — a follow-up question, a
+  * constructive critique, or an outright rebuff. The `kind` lets the caller
+  * pick framing (e.g. a GH comment template) without re-reading the body.
   *
   * Generic so the same type works for plan-or-critique, design-doc-or-pushback,
   * triage-or-defer, etc.
@@ -34,4 +34,5 @@ object Verdict:
       */
     case Rebuff
 
-  case class Rejection(kind: RejectionKind, body: String) extends Verdict[Nothing]
+  case class Rejection(kind: RejectionKind, body: String)
+      extends Verdict[Nothing]

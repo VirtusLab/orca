@@ -8,8 +8,8 @@ import java.util.concurrent.atomic.AtomicReference
 
 class PersistentPlanTest extends munit.FunSuite:
 
-  /** Init a fresh repo with one commit and wire a FlowContext whose `git` is
-    * a real `OsGitTool` rooted there. Returns the context + the dir + the
+  /** Init a fresh repo with one commit and wire a FlowContext whose `git` is a
+    * real `OsGitTool` rooted there. Returns the context + the dir + the
     * recorded events.
     */
   private def withRepoCtx(
@@ -59,7 +59,9 @@ class PersistentPlanTest extends munit.FunSuite:
       given FlowContext = ctx
       assertEquals(Plan.recover(dir / "missing.md"), None)
 
-  test("recover restores an untracked plan file that ensureClean would stash away"):
+  test(
+    "recover restores an untracked plan file that ensureClean would stash away"
+  ):
     withRepoCtx: (ctx, dir, _) =>
       given FlowContext = ctx
       val plan = Plan(
@@ -74,7 +76,10 @@ class PersistentPlanTest extends munit.FunSuite:
 
       val recovered = Plan.recover(planFile).getOrElse(fail("expected a plan"))
       assertEquals(recovered.epicId, "feat-untracked")
-      assert(os.exists(planFile), "plan file should have been restored after stash")
+      assert(
+        os.exists(planFile),
+        "plan file should have been restored after stash"
+      )
       assertEquals(os.read(planFile), Plan.render(plan))
 
   test("recover parses the plan, stashes dirty changes, and switches branch"):
@@ -162,7 +167,11 @@ class PersistentPlanTest extends munit.FunSuite:
       Plan.implementTaskLoop(planFile, plan): _ =>
         bodyCalls += 1
 
-      assertEquals(bodyCalls, 0, "body should not run when every task is complete")
+      assertEquals(
+        bodyCalls,
+        0,
+        "body should not run when every task is complete"
+      )
       assert(!os.exists(planFile), "plan file should be removed")
       val commits = ctx.git.log(10).map(_.message)
       assertEquals(
@@ -207,9 +216,11 @@ class PersistentPlanTest extends munit.FunSuite:
       // Pin the persistComplete contract: the `task: t1` commit (HEAD~2 from
       // now, HEAD~1 from before the cleanup commit) must show t1 ticked and
       // t2 still unchecked, and the `task: t2` commit must show both ticked.
-      val showT1 = os.proc("git", "show", "HEAD~2:plan.md").call(cwd = dir).out.text()
+      val showT1 =
+        os.proc("git", "show", "HEAD~2:plan.md").call(cwd = dir).out.text()
       val planAfterT1 = Plan.parse(showT1)
       assertEquals(planAfterT1.tasks.map(_.completed), List(true, false))
-      val showT2 = os.proc("git", "show", "HEAD~1:plan.md").call(cwd = dir).out.text()
+      val showT2 =
+        os.proc("git", "show", "HEAD~1:plan.md").call(cwd = dir).out.text()
       val planAfterT2 = Plan.parse(showT2)
       assertEquals(planAfterT2.tasks.map(_.completed), List(true, true))

@@ -90,8 +90,8 @@ trait GitHubTool:
   def writeComment(pr: PrHandle, body: String): Unit
 
   /** Post a top-level comment on an issue. Used by assess-then-act flows to
-    * surface a follow-up question / critique / rebuff back to the reporter
-    * when no PR will be opened.
+    * surface a follow-up question / critique / rebuff back to the reporter when
+    * no PR will be opened.
     */
   def writeComment(issue: IssueHandle, body: String): Unit
   def buildStatus(pr: PrHandle): BuildStatus

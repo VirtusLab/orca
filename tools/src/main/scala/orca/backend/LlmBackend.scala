@@ -8,11 +8,11 @@ import orca.llm.{BackendTag, LlmConfig, SessionId}
   * ([[AutonomousTextCall]], [[LlmCall]]).
   *
   * Each method takes a `session: SessionId[B]` — the framework hands the same
-  * value across calls; the backend decides internally whether this is the
-  * first invocation (and the session needs creating) or a continuation. Two
-  * methods cover the UX shape: `runAutonomous` runs to completion off-screen
-  * and returns the result; `runInteractive` returns a live [[Conversation]]
-  * the caller drives through an [[Interaction]].
+  * value across calls; the backend decides internally whether this is the first
+  * invocation (and the session needs creating) or a continuation. Two methods
+  * cover the UX shape: `runAutonomous` runs to completion off-screen and
+  * returns the result; `runInteractive` returns a live [[Conversation]] the
+  * caller drives through an [[Interaction]].
   *
   * `prompt` on every method is the full wire-level message sent to the agent —
   * with whatever template scaffolding, schema, and rules the caller wrapped
@@ -24,8 +24,8 @@ import orca.llm.{BackendTag, LlmConfig, SessionId}
   */
 trait LlmBackend[B <: BackendTag]:
   /** Run one autonomous turn against `session` and return its result. The
-    * backend decides whether to create the session (first call with this id)
-    * or resume it (subsequent calls).
+    * backend decides whether to create the session (first call with this id) or
+    * resume it (subsequent calls).
     *
     * `events` receives per-tool-use and per-message progress as the subprocess
     * runs, so the user has something to watch while the agent works. Defaults
@@ -51,8 +51,8 @@ trait LlmBackend[B <: BackendTag]:
 
   /** Launch an interactive session against `session` and return a live
     * [[Conversation]] the caller hands to [[Interaction.drive]] for rendering
-    * and user steering. The backend owns the subprocess and event parsing;
-    * the channel owns UX.
+    * and user steering. The backend owns the subprocess and event parsing; the
+    * channel owns UX.
     *
     * `outputSchema` is the JSON Schema the agent's final reply must conform to,
     * or `None` for free-form text. Backends that support structured-output
@@ -68,13 +68,13 @@ trait LlmBackend[B <: BackendTag]:
       outputSchema: Option[String]
   ): Conversation[B]
 
-  /** Hook for backends that mint server-side session ids during a
-    * conversation drain: after the interactive `Conversation` returned by
-    * [[runInteractive]] settles, the framework calls this with the client
-    * session id it dispatched on and the server id learned from the result.
-    * Backends with caller-supplied ids (claude — `--session-id <uuid>`) can
-    * leave the default no-op. Codex overrides to record the client→server
-    * mapping so a follow-up `runAutonomous` / `runInteractive` on the same
-    * client id resumes the right thread.
+  /** Hook for backends that mint server-side session ids during a conversation
+    * drain: after the interactive `Conversation` returned by [[runInteractive]]
+    * settles, the framework calls this with the client session id it dispatched
+    * on and the server id learned from the result. Backends with
+    * caller-supplied ids (claude — `--session-id <uuid>`) can leave the default
+    * no-op. Codex overrides to record the client→server mapping so a follow-up
+    * `runAutonomous` / `runInteractive` on the same client id resumes the right
+    * thread.
     */
   def registerSession(client: SessionId[B], server: SessionId[B]): Unit = ()

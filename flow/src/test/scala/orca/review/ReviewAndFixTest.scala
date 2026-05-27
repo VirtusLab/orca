@@ -18,11 +18,11 @@ import orca.llm.{
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.{TestFlowContext}
 
-/** Fake LlmCall whose `autonomous.run` drains a scripted sequence of outputs
-  * in order — cast through `Any` because the trait is generic over output
-  * type. The session id from the call site is echoed back so tests can verify
-  * the loop threaded a consistent id; `seenSessions` records each call's
-  * session id so tests can assert "fresh on first, same id thereafter."
+/** Fake LlmCall whose `autonomous.run` drains a scripted sequence of outputs in
+  * order — cast through `Any` because the trait is generic over output type.
+  * The session id from the call site is echoed back so tests can verify the
+  * loop threaded a consistent id; `seenSessions` records each call's session id
+  * so tests can assert "fresh on first, same id thereafter."
   */
 class FakeLlmCall[O](outputs: Iterator[Any])
     extends LlmCall[BackendTag.ClaudeCode.type, O]:
@@ -191,7 +191,10 @@ class ReviewAndFixTest extends munit.FunSuite:
       initialDiff = Some("")
     )
     val reviewerSessions = reviewer.seenSessions
-    assert(reviewerSessions.size >= 2, s"expected ≥ 2 reviewer calls, got $reviewerSessions")
+    assert(
+      reviewerSessions.size >= 2,
+      s"expected ≥ 2 reviewer calls, got $reviewerSessions"
+    )
     assertEquals(
       reviewerSessions.distinct.size,
       1,
@@ -216,7 +219,8 @@ class ReviewAndFixTest extends munit.FunSuite:
             new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
               def run[I: AgentInput](
                   i: I,
-                  session: SessionId[BackendTag.ClaudeCode.type] = SessionId.fresh[BackendTag.ClaudeCode.type],
+                  session: SessionId[BackendTag.ClaudeCode.type] =
+                    SessionId.fresh[BackendTag.ClaudeCode.type],
                   c: LlmConfig = LlmConfig.default
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 capturedFirst = Some(i.toString)
@@ -236,7 +240,8 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("--- a/Foo.scala\n+++ b/Foo.scala\n+ added line")
     )
-    val sent = capturedFirst.getOrElse(fail("the fresh-session run was never called"))
+    val sent =
+      capturedFirst.getOrElse(fail("the fresh-session run was never called"))
     assert(sent.contains("--- a/Foo.scala"), s"diff missing from prompt: $sent")
     assert(sent.contains("do thing"), s"task missing from prompt: $sent")
 
@@ -371,7 +376,8 @@ class ReviewAndFixTest extends munit.FunSuite:
             new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
               def run[I: AgentInput](
                   i: I,
-                  session: SessionId[BackendTag.ClaudeCode.type] = SessionId.fresh[BackendTag.ClaudeCode.type],
+                  session: SessionId[BackendTag.ClaudeCode.type] =
+                    SessionId.fresh[BackendTag.ClaudeCode.type],
                   c: LlmConfig = LlmConfig.default
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 val ok = gate.await(2, java.util.concurrent.TimeUnit.SECONDS)
@@ -449,7 +455,8 @@ class ReviewAndFixTest extends munit.FunSuite:
                 ReviewResult.empty.asInstanceOf[O]
               def run[I: AgentInput](
                   i: I,
-                  session: SessionId[BackendTag.ClaudeCode.type] = SessionId.fresh[BackendTag.ClaudeCode.type],
+                  session: SessionId[BackendTag.ClaudeCode.type] =
+                    SessionId.fresh[BackendTag.ClaudeCode.type],
                   c: LlmConfig = LlmConfig.default
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 (

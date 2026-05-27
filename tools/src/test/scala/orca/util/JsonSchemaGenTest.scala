@@ -41,7 +41,12 @@ class JsonSchemaGenTest extends munit.FunSuite:
         |}""".stripMargin
     )
     val task =
-      out.hcursor.downField("$defs").downField("Task").as[JsonObject].toOption.get
+      out.hcursor
+        .downField("$defs")
+        .downField("Task")
+        .as[JsonObject]
+        .toOption
+        .get
     assertEquals(task("additionalProperties"), Some(Json.False))
     assertEquals(
       task("required").get.asArray.get.map(_.asString.get).toList,
@@ -64,7 +69,10 @@ class JsonSchemaGenTest extends munit.FunSuite:
         |}""".stripMargin
     )
     val ap = out.asObject.get("additionalProperties").get
-    assertEquals(ap.asObject.flatMap(_("type")).flatMap(_.asString), Some("integer"))
+    assertEquals(
+      ap.asObject.flatMap(_("type")).flatMap(_.asString),
+      Some("integer")
+    )
 
   test("apply preserves nullability on an Option field through the transform"):
     // End-to-end check that the strict transform doesn't collapse Tapir's
@@ -82,4 +90,7 @@ class JsonSchemaGenTest extends munit.FunSuite:
       .toOption
       .get
       .toSet
-    assert(noteType.contains("null"), s"note type should be nullable: $noteType")
+    assert(
+      noteType.contains("null"),
+      s"note type should be nullable: $noteType"
+    )

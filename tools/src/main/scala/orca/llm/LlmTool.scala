@@ -10,8 +10,8 @@ package orca.llm
   *
   * Each mode has a single `run(input, session = …, config = …)` method that
   * always returns `(SessionId[B], output)`. Pre-allocate a session with
-  * [[newSession]] and pass it across calls to keep one conversation alive;
-  * omit the argument to get a fresh one-shot session per call.
+  * [[newSession]] and pass it across calls to keep one conversation alive; omit
+  * the argument to get a fresh one-shot session per call.
   *
   * The API never hides the autonomous-vs-interactive choice behind a default —
   * it's always visible at the call site as the leftmost segment after the tool
@@ -44,17 +44,17 @@ trait LlmTool[B <: BackendTag]:
   def withSystemPrompt(prompt: String): LlmTool[B]
   def withName(name: String): LlmTool[B]
 
-  /** Return a sibling tool whose config has [[LlmConfig.readOnly]] flipped on
-    * — claude maps this to `--permission-mode plan`, so Edit/Write/Bash are
-    * unavailable to the agent. Preserves the rest of the tool's config
-    * (model, system prompt, autoApprove). Used by planning helpers so
+  /** Return a sibling tool whose config has [[LlmConfig.readOnly]] flipped on —
+    * claude maps this to `--permission-mode plan`, so Edit/Write/Bash are
+    * unavailable to the agent. Preserves the rest of the tool's config (model,
+    * system prompt, autoApprove). Used by planning helpers so
     * `claude.opus.withReadOnly` keeps the opus pin while gating writes.
     */
   def withReadOnly: LlmTool[B]
 
-  /** Mint a fresh session id you can pass to `.run(...)` across multiple
-    * calls. The first call with this id starts the session; subsequent calls
-    * resume it. Lets flow scripts hold a stable `val session = claude.newSession`
+  /** Mint a fresh session id you can pass to `.run(...)` across multiple calls.
+    * The first call with this id starts the session; subsequent calls resume
+    * it. Lets flow scripts hold a stable `val session = claude.newSession`
     * instead of threading a `var Option[SessionId]` through the loop.
     *
     * Default implementation generates a UUID via [[SessionId.fresh]]; backends

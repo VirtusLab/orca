@@ -110,8 +110,8 @@ object FlowCanary:
         gh.writeComment(pr, "pr comment")
 
   /** Assess-then-plan + Verdict surface; exercised by `plans/issue-pr.sc`. Pins
-    * the type-level shape (`Verdict[Plan]` is sum-matchable; `RejectionKind` is an
-    * enum with these three cases) so script changes — or an enum rename/case
+    * the type-level shape (`Verdict[Plan]` is sum-matchable; `RejectionKind` is
+    * an enum with these three cases) so script changes — or an enum rename/case
     * removal — can't silently bypass the assess gate.
     */
   def assessThenPlanSurface(): Unit =
@@ -131,7 +131,7 @@ object FlowCanary:
         val verdict =
           Plan.autonomous.assessThenPlan(userPrompt, claude.opus)
         verdict match
-          case Verdict.Proceed(_) => ()
-          case Verdict.Rejection(Verdict.RejectionKind.Question, _)   => ()
-          case Verdict.Rejection(Verdict.RejectionKind.Critique, _)   => ()
-          case Verdict.Rejection(Verdict.RejectionKind.Rebuff, _)     => ()
+          case Verdict.Proceed(_)                                   => ()
+          case Verdict.Rejection(Verdict.RejectionKind.Question, _) => ()
+          case Verdict.Rejection(Verdict.RejectionKind.Critique, _) => ()
+          case Verdict.Rejection(Verdict.RejectionKind.Rebuff, _)   => ()

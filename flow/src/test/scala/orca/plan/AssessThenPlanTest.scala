@@ -23,7 +23,7 @@ class AssessThenPlanTest extends munit.FunSuite:
     val kinds = List(
       "question" -> Verdict.RejectionKind.Question,
       "critique" -> Verdict.RejectionKind.Critique,
-      "rebuff"   -> Verdict.RejectionKind.Rebuff
+      "rebuff" -> Verdict.RejectionKind.Rebuff
     )
     kinds.foreach: (wire, expected) =>
       val a = AssessedPlan(
@@ -45,7 +45,12 @@ class AssessThenPlanTest extends munit.FunSuite:
       AssessedPlan("proceed", None, None, None) -> "no plan",
       AssessedPlan("reject", None, Some("question"), None) -> "no rejectBody",
       AssessedPlan("reject", None, None, Some("body")) -> "no rejectKind",
-      AssessedPlan("reject", None, Some("nope"), Some("b")) -> "unknown rejectKind",
+      AssessedPlan(
+        "reject",
+        None,
+        Some("nope"),
+        Some("b")
+      ) -> "unknown rejectKind",
       AssessedPlan("maybe", None, None, None) -> "unknown verdict"
     )
     cases.foreach: (input, fragment) =>
@@ -66,9 +71,14 @@ class AssessThenPlanTest extends munit.FunSuite:
       "the report",
       new CannedAssessedPlanLlm(assessed)
     )
-    assertEquals(verdict, Verdict.Rejection(Verdict.RejectionKind.Rebuff, "duplicate of #42"))
+    assertEquals(
+      verdict,
+      Verdict.Rejection(Verdict.RejectionKind.Rebuff, "duplicate of #42")
+    )
 
-  test("Plan.autonomous.assessThenPlan throws OrcaFlowException on malformed payload"):
+  test(
+    "Plan.autonomous.assessThenPlan throws OrcaFlowException on malformed payload"
+  ):
     given orca.FlowContext = new orca.TestFlowContext(new EventDispatcher(Nil))
     val malformed = AssessedPlan("proceed", None, None, None)
     val ex = intercept[orca.OrcaFlowException]:

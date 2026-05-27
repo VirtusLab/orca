@@ -27,7 +27,7 @@ private[plan] case class AssessedPlan(
     case "proceed" =>
       plan match
         case Some(p) => Right(Verdict.Proceed(p))
-        case None    =>
+        case None =>
           Left("assess-then-plan returned verdict=proceed but no plan")
     case "reject" =>
       for
@@ -41,7 +41,7 @@ private[plan] case class AssessedPlan(
           case "question" => Right(Verdict.RejectionKind.Question)
           case "critique" => Right(Verdict.RejectionKind.Critique)
           case "rebuff"   => Right(Verdict.RejectionKind.Rebuff)
-          case other      =>
+          case other =>
             Left(s"assess-then-plan: unknown rejectKind '$other'")
       yield Verdict.Rejection(kind, body)
     case other =>
@@ -52,11 +52,11 @@ private[plan] object AssessedPlan:
     * Defers to [[Plan]]'s own `Announce` on proceed; on reject it surfaces the
     * kind so the event log shows why no PR happened. Malformed payloads
     * (`toVerdict` Left) silently fall through to `None` here —
-    * [[Plan.autonomous.assessThenPlan]] throws the structured error at the
-    * call site, so the log just stays quiet about the rendering.
+    * [[Plan.autonomous.assessThenPlan]] throws the structured error at the call
+    * site, so the log just stays quiet about the rendering.
     */
   given Announce[AssessedPlan] = Announce.fromOption: a =>
     a.toVerdict.toOption.flatMap:
-      case Verdict.Proceed(plan)   => summon[Announce[Plan]].message(plan)
+      case Verdict.Proceed(plan) => summon[Announce[Plan]].message(plan)
       case Verdict.Rejection(kind, _) =>
         Some(s"Assessment: rejected (${kind.toString.toLowerCase})")

@@ -4,8 +4,8 @@ import orca.llm.LlmConfig
 
 /** Shared helper for assembling a backend-agnostic "system prompt body" from
   * the configured [[LlmConfig.systemPrompt]] plus an optional caller-supplied
-  * `extraHint` (typically the shared `ask_user` MCP hint on interactive
-  * calls). Concatenates non-empty pieces with a blank line between them.
+  * `extraHint` (typically the shared `ask_user` MCP hint on interactive calls).
+  * Concatenates non-empty pieces with a blank line between them.
   *
   * Returns `None` when neither piece is present. Each backend decides how to
   * deliver the resulting string — claude writes it to a temp file for

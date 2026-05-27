@@ -87,8 +87,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
     )
     val coder = new FakeLlmTool(
       name = "fixer",
-      outputs =
-        List.fill(20)(FixOutcome(List(Title("never ends")), Nil))
+      outputs = List.fill(20)(FixOutcome(List(Title("never ends")), Nil))
     )
 
     val result = reviewAndFixLoop(
