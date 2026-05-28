@@ -106,14 +106,23 @@ def allReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]] =
 def minimalReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]] =
   buildReviewers(base, ReviewerPrompts.minimal)
 
-/** Layer each reviewer's system prompt onto the base tool and prefix the name
-  * with `reviewer: ` so the per-agent token breakdown groups every reviewer
+/** Layer each reviewer's system prompt onto the base tool, prefix the name with
+  * `reviewer: ` so the per-agent token breakdown groups every reviewer
   * dimension together (matching `lint`, which the review loop labels `reviewer:
-  * lint`). The non-reviewer driver agent keeps its default name (`main`).
+  * lint`), and gate every reviewer to read-only access. A reviewer's job is to
+  * *report* issues, not fix them; without `withReadOnly` the agent inherits the
+  * base tool's permissions (typically `AutoApprove.All`) and could edit files
+  * mid-review. Reads (Read/Glob/Grep on claude, `--sandbox read-only` on codex)
+  * stay available so the agent can verify claims beyond the diff. The
+  * non-reviewer driver agent keeps its default name (`main`) and write
+  * permissions.
   */
 private def buildReviewers[B <: BackendTag](
     base: LlmTool[B],
     reviewers: List[Reviewer]
 ): List[LlmTool[B]] =
   reviewers.map: r =>
-    base.withSystemPrompt(r.systemPrompt).withName(s"reviewer: ${r.name}")
+    base
+      .withSystemPrompt(r.systemPrompt)
+      .withName(s"reviewer: ${r.name}")
+      .withReadOnly

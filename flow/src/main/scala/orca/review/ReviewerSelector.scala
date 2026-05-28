@@ -105,7 +105,11 @@ object ReviewerSelector:
         val picked =
           if eligible.isEmpty then Nil
           else
-            llm
+            // Read-only: the picker only needs to decide which reviewers
+            // to run; it should never edit files during the selection
+            // turn. If the model reads context (Cargo.toml, etc.) to
+            // make a better choice, that's fine.
+            llm.withReadOnly
               .resultAs[SelectedReviewers]
               .autonomous
               .run(

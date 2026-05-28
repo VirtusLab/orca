@@ -393,10 +393,14 @@ private[review] object ReviewLoop:
       .distinct
 
 /** Run `command` via a login shell, capture both stdout and stderr, and hand
-  * the combined output to `llm` to summarize as a `ReviewResult`. An empty
+  * the combined output to `llm` to summarise as a `ReviewResult`. An empty
   * output short-circuits to `ReviewResult.empty` so clean runs skip the
   * round-trip to the LLM. Override `instructions` when the lint produces
   * unusual shapes the default phrasing doesn't fit.
+  *
+  * The LLM is invoked read-only: the task is text-in / JSON-out, and the agent
+  * may verify a lint claim against the file it references but should never edit
+  * during the summarisation step.
   */
 def lint(
     command: String,
@@ -409,7 +413,7 @@ def lint(
   val output = proc.out.text().trim
   if output.isEmpty then ReviewResult.empty
   else
-    llm
+    llm.withReadOnly
       .resultAs[ReviewResult]
       .autonomous
       .run(s"$instructions\n\nLint output:\n$output", emitPrompt = false)

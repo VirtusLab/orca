@@ -63,6 +63,24 @@ class CodexArgsTest extends munit.FunSuite:
     assert(args.contains("--full-auto"))
     assert(!args.contains("--dangerously-bypass-approvals-and-sandbox"))
 
+  test("readOnly maps to --sandbox read-only and overrides autoApprove"):
+    // Pins the gate used by `.withReadOnly` callers — reviewers,
+    // ReviewerSelector.llmDriven, lint, Plan.autonomous.from. Without
+    // this mapping codex's reviewers inherit the base tool's permissions
+    // and could edit files during a review turn.
+    val args = CodexArgs.exec(
+      "x",
+      LlmConfig.default.copy(
+        readOnly = true,
+        autoApprove = AutoApprove.All
+      ),
+      None,
+      os.pwd
+    )
+    assert(args.containsSlice(Seq("--sandbox", "read-only")), args.toString)
+    assert(!args.contains("--dangerously-bypass-approvals-and-sandbox"))
+    assert(!args.contains("--full-auto"))
+
   test(
     "exec emits -c mcp_servers.orca.{url,tool_timeout_sec} when an MCP url is supplied"
   ):

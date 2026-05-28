@@ -95,15 +95,22 @@ private[codex] object CodexArgs:
   private def outputSchemaArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(p => Seq("--output-schema", p.toString))
 
-  /** Approval-policy mapping. codex doesn't accept a per-tool allowlist on the
-    * CLI, so [[AutoApprove.Only]] is approximated with `--full-auto` (sandboxed
-    * automatic execution) — narrower than the all-bypass and matches the
-    * user-stated intent of "auto-approve a known-safe set".
+  /** Approval-policy mapping. `readOnly` overrides any `autoApprove` setting —
+    * `--sandbox read-only` makes file writes and shelling-out unavailable to
+    * the agent, matching claude's `--permission-mode plan`. Otherwise codex
+    * doesn't accept a per-tool allowlist on the CLI, so [[AutoApprove.Only]] is
+    * approximated with `--full-auto` (sandboxed automatic execution) — narrower
+    * than the all-bypass and matches the user-stated intent of "auto-approve a
+    * known-safe set".
     *
+    *   - `readOnly = true` → `--sandbox read-only`
     *   - `AutoApprove.All` → `--dangerously-bypass-approvals-and-sandbox`
     *   - `AutoApprove.Only(_)` → `--full-auto`
     */
   private def sandboxArgs(config: LlmConfig): Seq[String] =
-    config.autoApprove match
-      case AutoApprove.All => Seq("--dangerously-bypass-approvals-and-sandbox")
-      case AutoApprove.Only(_) => Seq("--full-auto")
+    if config.readOnly then Seq("--sandbox", "read-only")
+    else
+      config.autoApprove match
+        case AutoApprove.All =>
+          Seq("--dangerously-bypass-approvals-and-sandbox")
+        case AutoApprove.Only(_) => Seq("--full-auto")
