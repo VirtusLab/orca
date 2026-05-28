@@ -7,7 +7,7 @@ with `scala-cli`. Pick by what you're trying to do:
 | ------- | -------------- |
 | [01-simple](01-simple/) | One-shot planning + coding for small tasks. Autonomous planner. The plan is in memory; no resume, no on-disk state. |
 | [02-interactive](02-interactive/) | Same shape as 01, but the planner can ask clarifying questions via the `ask_user` MCP tool. Use when the prompt is open-ended. |
-| [03-bugfix](03-bugfix/) | Bug report → failing test (or `REPRODUCTION.md`) → PR → CI confirms red → fix → CI green. Touches GitHub. |
+| [03-bugfix](03-bugfix/) | Issue-driven Scala bugfix. Triage (real bug? testable?) → failing test on a fresh branch → PR → CI confirms red → sonnet posts a focused failure comment → fix → push. Touches GitHub. |
 | [04-epic](04-epic/) | Multi-task workstream ("epic") in a resumable markdown file (`epic.md`). Each task is reviewed in parallel by Claude *and* Codex before being marked complete. Re-runs pick up at the first `[ ]` task. Ends with a documentation update and an epic-file cleanup. |
 
 ## Common prerequisites
@@ -22,8 +22,8 @@ All four examples expect:
   example's `test-project/` directory) into a temp dir and inits
   git. The starters intentionally vary across examples — 01 and 02
   share a small Rust calculator crate (concrete vs ambiguous prompt),
-  03 a Java/Maven Calculator with a `.github/workflows/ci.yml`, 04 a
-  Java todo-CLI with several obvious feature gaps. Edit the seed
+  03 a sbt-based Scala Calculator with a `.github/workflows/ci.yml`,
+  04 a Java todo-CLI with several obvious feature gaps. Edit the seed
   files there, not the script, if you want a different starter:
 
   ```bash
@@ -54,7 +54,10 @@ that version with `//> using repository ivy2Local`. Default
 Example 03 additionally needs:
 
 - `gh` (GitHub CLI) authenticated against the target repo.
-- A CI workflow that runs the test suite on push.
+- A CI workflow that runs the test suite on push (the seed ships an
+  `sbt test` workflow).
+- A GitHub issue on the target repo describing the bug — the flow
+  takes a `<owner>/<repo>#<number>` reference as its argument.
 
 Example 04 additionally needs:
 

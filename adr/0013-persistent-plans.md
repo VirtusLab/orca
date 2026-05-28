@@ -68,19 +68,16 @@ one tag per epic clutters the tag namespace; the branch + epic-id is enough.
 
 ## Migration
 
-- `implement.sc`, `implement-interactive.sc`, `epic.sc` switched to
-  `Plan.defaultPath(userPrompt)` + `Plan.recover(...).getOrElse(generate)`
-  + `Plan.implementTaskLoop(planFile, plan)`.
-- `issue-pr.sc` stays in-memory: the issue body + agent assessment drive
-  the plan; the plan isn't useful to preserve once the PR is open. The
-  branch + closing-comment carry the state.
-- `bugfix.sc` stays as-is: it has its own state machine (triage → red test
-  → PR → CI → fix → CI green) that doesn't map onto per-task iteration.
+- `implement.sc`, `implement-interactive.sc`, `epic.sc`, `issue-pr.sc`,
+  and `issue-pr-bugfix.sc` all use `Plan.defaultPath(userPrompt)` +
+  `Plan.recover(...).getOrElse(generate)` (or `Plan.recoverOrCreate`)
+  + `Plan.implementTaskLoop(planFile, plan)`. `issue-pr-bugfix.sc`
+  persists only the fix-implementation phase; the triage + failing-test
+  + CI-verification stages run before the plan exists.
 
 ## When to opt out
 
 - One-shot scripts that don't iterate over a task list.
-- Bug-driven flows with their own state machine (see `bugfix.sc`).
 - Workflows where persistence would actively confuse the user (e.g. the
   same prompt is meant to be re-run from scratch each time — vanishingly
   rare in practice).

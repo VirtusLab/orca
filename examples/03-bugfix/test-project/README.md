@@ -1,7 +1,7 @@
 # calculator
 
-Tiny Java project used as a smoke-test target for Orca.
+Tiny Scala project used as a smoke-test target for Orca's bugfix flow.
 
 Run the tests:
 
-    mvn test
+    sbt test

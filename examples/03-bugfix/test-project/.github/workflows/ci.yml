@@ -12,5 +12,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-          cache: maven
-      - run: mvn -B -q test
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      - run: sbt test

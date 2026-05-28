@@ -1,4 +1,7 @@
 target/
-*.class
-.scala-build/
 .bsp/
+.bloop/
+.scala-build/
+.metals/
+project/project/
+project/target/

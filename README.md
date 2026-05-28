@@ -79,7 +79,7 @@ There are four runnable examples which you migh try:
 * [01-simple](examples/01-simple/) (in-memory plan + review, autonomous planner),
 * [02-interactive](examples/02-interactive/) (same shape as 01, but the planner
   can ask clarifying questions via `ask_user`),
-* [03-bugfix](examples/03-bugfix/) (red-test-first against a real PR),
+* [03-bugfix](examples/03-bugfix/) (issue-driven, red-test-first against a real PR),
 * [04-epic](examples/04-epic/) (resumable disk-backed plan with cross-agent
   review).
 

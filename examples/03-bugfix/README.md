@@ -1,72 +1,88 @@
-# Example 03 — bugfix flow
+# Example 03 — issue-pr bugfix flow
 
-Red-test-first bugfix loop that exercises GitHub. The script turns a
-bug report into a failing test, opens a PR, lets CI confirm the
-failure is real, and only then writes the fix.
+Issue-driven, red-test-first bugfix loop for a Scala project. The script
+takes a GitHub issue ref, triages whether it's actually a bug, lands a
+failing test on a fresh branch, opens a PR, lets CI confirm the failure
+is real, and only then writes the fix.
 
-## Why "red-test-first"?
+## Why issue-driven + red-test-first?
 
-Two bugs deserve different rigour:
+The flow makes three structured decisions up front, so noise gets
+filtered before any code lands:
 
-1. *I think this is a bug.* Write a focused test that demonstrates
-   the misbehaviour. Push it; let CI agree.
-2. *We can't test this in CI* (UI-only, race conditions, etc.).
-   Document the steps to reproduce in `REPRODUCTION.md`. The PR is
-   the artefact; the human signs off.
+1. *Is this actually a bug?* "Not intended behavior" or "user error"
+   reports get a comment back on the issue and the flow stops — no
+   branch, no PR.
+2. *Can a focused unit test reproduce it?* If yes, write the test. If
+   not (UI-only, races), post reproduction steps on the issue and
+   stop — the PR is meaningless when there's nothing executable to
+   carry.
+3. *Did the right thing go red in CI?* After pushing the failing
+   test, the flow inspects the failed run and verifies the failure
+   matches the original report. A mismatch fails loudly.
 
-The flow handles both via a structured `BugTriage` decision the
-agent makes up front.
+Only after those three gates does the implementation start.
 
 ## Stages
 
-1. **Triage the bug** *(interactive)* — agent reads the report,
-   explores the code, and returns a `BugTriage(canTest,
-   reproductionSteps, failingTestPath, branchName, summary)`.
-2. **Write the failing artefact** — either a unit test (preferred)
-   or `REPRODUCTION.md`, on a fresh branch. Committed.
-3. **Push and open PR** — `git.push`, `gh.createPr`.
-4. **Wait for CI to fail** — `gh.waitForBuild`. If CI is green
-   here, the agent's reproduction was wrong; the stage fails loudly
-   so you re-triage.
-5. **Comment on PR with the failure log** — `gh.writeComment`.
-6. **Verify the failure matches the report** — `claude.resultAs[BugReportMatch]`
-   on the same session, given the actual CI log. Mismatch → fail.
-7. **Implement the fix** — autonomous continuation of the same
-   session. `reviewAndFixLoop` polishes.
-8. **Push the fix** — `git.push`.
-9. **Wait for CI to pass** — final green check.
+1. **Read issue** — `gh.readIssue`.
+2. **Triage** *(opus, interactive)* — agent returns a
+   `BugTriage(isBug, notBugExplanation, canTest, reproductionSteps,
+   failingTestPath, branchName, summary)`.
+3. **Bail-out paths** — `!isBug` or `isBug && !canTest` post a comment
+   on the issue and stop.
+4. **Write the failing test** — autonomous turn, same session. Committed.
+5. **Push branch + open PR** — `gh.createPr` with a tentative
+   description folded by `summarisePr(claude.haiku)`.
+6. **Wait for CI red** — `gh.waitForBuild` (30 min). Green here is a
+   reproduction failure.
+7. **Post focused failure comment** *(sonnet)* — sonnet inspects the
+   failed run via `gh` directly and writes the comment. The flow
+   never pulls the log into memory.
+8. **Verify failure matches the report** *(sonnet)* — same gh-driven
+   inspection, structured `BugReportMatch` verdict.
+9. **Plan the fix** — `Plan.autonomous.from`, persisted under
+   `.orca/plan-<hash>.md` so a crash resumes.
+10. **Implement the fix** — `Plan.implementTaskLoop` runs each task
+    through implementation, `sbt scalafmtAll`, and `reviewAndFixLoop`
+    with `sbt test` as the lint command.
+11. **Push the fix** — no final CI wait; a human picks the PR up.
 
 ## Prerequisites
 
 - JDK 21+, scala-cli, `claude` logged in (see repo root README).
 - `gh` authenticated against the target repo.
-- The repo has a CI workflow that runs the relevant test suite.
+- The repo has the included `.github/workflows/ci.yml` (sbt-based)
+  or any other workflow that runs the test suite.
 
 ## Seeded test project
 
-The sibling [`create-test-project.sh`](create-test-project.sh)
-copies a Calculator project (with a naïve `add` that overflows on
-`Integer.MIN_VALUE`) and a minimal `.github/workflows/ci.yml` from
-[`test-project/`](test-project/) into a temp dir, then drops the
-flow script — [`plans/bugfix.sc`](../../plans/bugfix.sc) — alongside
-it. Push the seeded dir to a real GitHub repo (the script prints
-the `gh repo create` line) so the flow can open a PR and watch CI.
+The sibling [`create-test-project.sh`](create-test-project.sh) copies
+a tiny Scala calculator (`add` and `subtract` that silently overflow
+on `Int.MinValue`) plus a minimal sbt CI workflow from
+[`test-project/`](test-project/) into a temp dir, then drops the flow
+script — [`plans/issue-pr-bugfix.sc`](../../plans/issue-pr-bugfix.sc)
+— alongside it. The seed script prints `gh repo create` and
+`gh issue create` lines you can copy-paste so the flow has an issue
+to triage and a repo to push to.
 
 ## Run
 
 ```bash
-cd /tmp/orca-03-bugfix-…   # the seed-script's temp dir
-scala-cli run bugfix.sc -- \
-  "Calculator.add returns Integer.MAX_VALUE when one input is Integer.MIN_VALUE"
+./examples/03-bugfix/create-test-project.sh
+# follow the printed gh repo create / gh issue create lines, then:
+cd /tmp/orca-03-bugfix-…
+scala-cli run issue-pr-bugfix.sc -- "<your-name>/orca-bugfix-demo#<n>"
 ```
 
-The lint command in the script is `mvn -q test`; swap for whatever
-matches the project.
+The flow's lint command is `sbt test`; format is `sbt scalafmtAll`.
+Swap either in the script if your project differs.
 
 ## What the agent sees
 
-For each stage Orca passes the agent a single, focused prompt.
-Triage gets the bug report; "write the failing test" gets the
-expected path; "verify failure matches" gets the CI log. The flow
-script is just plumbing — adapting any of these prompts is a
+For each stage Orca passes a single, focused prompt. Triage sees the
+issue body; "write the failing test" gets a target path; the sonnet
+turns get only the PR ref and are told to use `gh` themselves to
+inspect the failed run (the log is never embedded in the prompt).
+The flow script is plumbing — adapting any of these prompts is a
 one-line change.
