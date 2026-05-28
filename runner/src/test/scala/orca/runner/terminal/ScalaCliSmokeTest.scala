@@ -100,7 +100,7 @@ class ScalaCliSmokeTest extends munit.FunSuite:
   private val flowScripts: Seq[String] = Seq(
     "implement.sc",
     "implement-interactive.sc",
-    "bugfix.sc",
+    "issue-pr-bugfix.sc",
     "epic.sc"
   )
 
