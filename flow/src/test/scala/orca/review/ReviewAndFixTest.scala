@@ -38,7 +38,7 @@ class FakeLlmCall[O](outputs: Iterator[Any])
           input: I,
           session: SessionId[BackendTag.ClaudeCode.type],
           config: LlmConfig,
-          quiet: Boolean
+          emitPrompt: Boolean
       ): (SessionId[BackendTag.ClaudeCode.type], O) =
         val _ = seenSessions.updateAndGet(session :: _)
         (session, outputs.next().asInstanceOf[O])
@@ -221,7 +221,7 @@ class ReviewAndFixTest extends munit.FunSuite:
                   i: I,
                   session: SessionId[BackendTag.ClaudeCode.type],
                   c: LlmConfig,
-                  quiet: Boolean
+                  emitPrompt: Boolean
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 capturedFirst = Some(i.toString)
                 (
@@ -378,7 +378,7 @@ class ReviewAndFixTest extends munit.FunSuite:
                   i: I,
                   session: SessionId[BackendTag.ClaudeCode.type],
                   c: LlmConfig,
-                  quiet: Boolean
+                  emitPrompt: Boolean
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 val ok = gate.await(2, java.util.concurrent.TimeUnit.SECONDS)
                 assert(ok, s"$label gate never opened")
@@ -457,7 +457,7 @@ class ReviewAndFixTest extends munit.FunSuite:
                   i: I,
                   session: SessionId[BackendTag.ClaudeCode.type],
                   c: LlmConfig,
-                  quiet: Boolean
+                  emitPrompt: Boolean
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 (
                   SessionId[BackendTag.ClaudeCode.type](s"sid-$label"),

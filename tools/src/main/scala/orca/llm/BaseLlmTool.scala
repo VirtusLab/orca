@@ -56,10 +56,10 @@ abstract class BaseLlmTool[B <: BackendTag, Self <: LlmTool[B]](
         prompt: String,
         session: SessionId[B] = SessionId.fresh[B],
         callConfig: LlmConfig = LlmConfig.default,
-        quiet: Boolean = false
+        emitPrompt: Boolean = true
     ): (SessionId[B], String) =
       val effective = effectiveConfig(callConfig)
-      if !quiet then events.onEvent(OrcaEvent.UserPrompt(prompt))
+      if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
       val result =
         backend.runAutonomous(prompt, session, effective, workDir, events)
       emitTokens(effective, result)

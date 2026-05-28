@@ -19,11 +19,19 @@ trait LlmCall[B <: BackendTag, O]:
   * subsequent calls. Returns the (stable) session id.
   */
 trait AutonomousLlmCall[B <: BackendTag, O]:
+  /** Run the agent on `input`. When `emitPrompt` is true (the default), fires
+    * an `OrcaEvent.UserPrompt` carrying the human-readable form of `input` (the
+    * `AgentInput[I]` serialization) so listeners can surface what's being
+    * asked; framework-internal callers that produce near-identical prompts in
+    * quick succession (e.g. the per-task reviewer fan-out) pass `false` to keep
+    * the event log focused. Other events (`ToolUse`, `StructuredResult`,
+    * `TokensUsed`, etc.) fire regardless.
+    */
   def run[I: AgentInput](
       input: I,
       session: SessionId[B] = SessionId.fresh[B],
       config: LlmConfig = LlmConfig.default,
-      quiet: Boolean = false
+      emitPrompt: Boolean = true
   ): (SessionId[B], O)
 
 /** Interactive structured calls — open a conversation the user can drive
@@ -76,8 +84,9 @@ class DefaultLlmCall[B <: BackendTag, O](
         input: I,
         session: SessionId[B] = SessionId.fresh[B],
         config: LlmConfig = LlmConfig.default,
-        quiet: Boolean = false
-    ): (SessionId[B], O) = runAutonomousWithRetry(input, config, session, quiet)
+        emitPrompt: Boolean = true
+    ): (SessionId[B], O) =
+      runAutonomousWithRetry(input, config, session, emitPrompt)
 
   val interactive: InteractiveLlmCall[B, O] = new InteractiveLlmCall[B, O]:
     def run[I: AgentInput](
@@ -102,14 +111,19 @@ class DefaultLlmCall[B <: BackendTag, O](
       input: I,
       config: LlmConfig,
       session: SessionId[B],
-      quiet: Boolean
+      emitPrompt: Boolean
   )(using ai: AgentInput[I]): (SessionId[B], O) =
     val serialized = ai.serialize(input)
     val outputSchema = JsonSchemaGen[O]
     val initialPrompt = prompts.autonomous(serialized, outputSchema, config)
     val effective = effectiveConfig(config)
 
-    if !quiet then events.onEvent(OrcaEvent.UserPrompt(serialized))
+    // Surface `serialized` (the human-readable input) rather than
+    // `initialPrompt` (the schema-wrapped form the agent sees). Listeners
+    // want the question, not the boilerplate that frames it. The retry
+    // branch below emits its own UserPrompt so a parse failure still
+    // shows what the follow-up turn was asked to fix.
+    if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(serialized))
 
     // Threaded across retry attempts via closure so a parse failure can
     // steer the next attempt with the corrective prompt. Method-scope var
@@ -120,7 +134,7 @@ class DefaultLlmCall[B <: BackendTag, O](
       val promptText = lastFailure match
         case Some(f) =>
           val corrective = prompts.retry(f.response, f.parserError)
-          if !quiet then events.onEvent(OrcaEvent.UserPrompt(corrective))
+          if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(corrective))
           corrective
         case None => initialPrompt
       val result = backend.runAutonomous(

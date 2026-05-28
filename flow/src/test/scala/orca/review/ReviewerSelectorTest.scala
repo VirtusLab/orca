@@ -39,7 +39,7 @@ private class RecordingPicker(
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
               config: LlmConfig,
-              quiet: Boolean
+              emitPrompt: Boolean
           ): (SessionId[BackendTag.ClaudeCode.type], O) =
             input match
               case r: ReviewerSelectionRequest =>

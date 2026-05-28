@@ -34,7 +34,7 @@ private[plan] class CannedPlanLlm(plan: Plan)
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
               config: LlmConfig,
-              quiet: Boolean
+              emitPrompt: Boolean
           ): (SessionId[BackendTag.ClaudeCode.type], O) =
             (
               SessionId[BackendTag.ClaudeCode.type]("stub-sid"),
@@ -62,7 +62,7 @@ private[plan] class CannedAssessedPlanLlm(assessed: AssessedPlan)
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
               config: LlmConfig,
-              quiet: Boolean
+              emitPrompt: Boolean
           ): (SessionId[BackendTag.ClaudeCode.type], O) =
             (
               SessionId[BackendTag.ClaudeCode.type]("stub-sid"),

@@ -45,7 +45,7 @@ class LintTest extends munit.FunSuite:
                 i: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
                 c: LlmConfig,
-                quiet: Boolean
+                emitPrompt: Boolean
             )(using
                 a: AgentInput[I]
             ): (SessionId[BackendTag.ClaudeCode.type], O) =

@@ -248,7 +248,7 @@ def reviewAndFixLoop[B <: BackendTag](
           call.run(
             ReviewLoopPrompts.ReReview,
             session = stored.as[RB],
-            quiet = true
+            emitPrompt = false
           )
         (result, None)
       case None =>
@@ -257,7 +257,7 @@ def reviewAndFixLoop[B <: BackendTag](
           call.run(
             ReviewLoopPrompts.initialReview(task, currentDiff),
             session = session,
-            quiet = true
+            emitPrompt = false
           )
         (result, Some(r.name -> SessionId.Untyped.from(sid)))
 
@@ -365,7 +365,7 @@ def reviewAndFixLoop[B <: BackendTag](
       .run(
         FixRequest(fixInstructions, issues),
         session = sessionId,
-        quiet = true
+        emitPrompt = false
       )
       ._2
 
@@ -412,5 +412,5 @@ def lint(
     llm
       .resultAs[ReviewResult]
       .autonomous
-      .run(s"$instructions\n\nLint output:\n$output", quiet = true)
+      .run(s"$instructions\n\nLint output:\n$output", emitPrompt = false)
       ._2

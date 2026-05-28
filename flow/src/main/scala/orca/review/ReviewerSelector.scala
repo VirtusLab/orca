@@ -115,7 +115,7 @@ object ReviewerSelector:
                   availableReviewers = infos,
                   instructions = instructions
                 ),
-                quiet = true
+                emitPrompt = false
               )
               ._2
               .names

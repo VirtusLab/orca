@@ -53,7 +53,7 @@ class OrcaOverridesTest extends munit.FunSuite:
               p: String,
               session: SessionId[BackendTag.ClaudeCode.type],
               c: LlmConfig,
-              quiet: Boolean
+              emitPrompt: Boolean
           ): (SessionId[BackendTag.ClaudeCode.type], String) =
             (SessionId[BackendTag.ClaudeCode.type]("fake-sid"), s"echo: $p")
       def resultAs[O: JsonData: Announce]

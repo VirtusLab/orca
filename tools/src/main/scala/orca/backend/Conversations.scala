@@ -47,10 +47,8 @@ private[orca] object Conversations:
           events.onEvent(OrcaEvent.ToolUse(name, raw))
         case ConversationEvent.AssistantTextDelta(delta) =>
           val _ = textBuf.append(delta)
-        case ConversationEvent.AssistantThinkingDelta(_) =>
-          // Internal model reasoning — autonomous flows don't surface it.
-          ()
-        case ConversationEvent.AssistantTurnEnd => closeTurn()
+        case ConversationEvent.AssistantThinkingDelta(_) => ()
+        case ConversationEvent.AssistantTurnEnd          => closeTurn()
         case ConversationEvent.Error(msg) =>
           events.onEvent(OrcaEvent.Error(msg))
         case ConversationEvent.ApproveTool(toolName, _, respond) =>

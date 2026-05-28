@@ -81,9 +81,16 @@ trait CodexTool extends LlmTool[BackendTag.Codex.type]:
   * caller can pass it back unchanged.
   */
 trait AutonomousTextCall[B <: BackendTag]:
+  /** Run the agent on `prompt`. When `emitPrompt` is true (the default), fires
+    * an `OrcaEvent.UserPrompt` carrying `prompt` so listeners can surface
+    * what's being asked; framework-internal callers that produce many
+    * near-identical prompts in quick succession (e.g. the per-task reviewer
+    * fan-out) pass `false` to keep the event log focused. Other events
+    * (`ToolUse`, `AssistantMessage`, `TokensUsed`, etc.) fire regardless.
+    */
   def run(
       prompt: String,
       session: SessionId[B] = SessionId.fresh[B],
       config: LlmConfig = LlmConfig.default,
-      quiet: Boolean = false
+      emitPrompt: Boolean = true
   ): (SessionId[B], String)
