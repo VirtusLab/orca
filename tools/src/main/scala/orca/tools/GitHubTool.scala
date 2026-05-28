@@ -28,6 +28,29 @@ case class IssueHandle(owner: String, repo: String, number: Int):
     */
   def shortRef: String = s"$owner/$repo#$number"
 
+object IssueHandle:
+  private val ShortRefPattern =
+    """\s*([^/\s]+)/([^#\s]+)#(\d+)\s*""".r
+
+  /** Parse the canonical `<owner>/<repo>#<number>` short-form. Leading and
+    * trailing whitespace are tolerated; everything else is rejected.
+    */
+  def parse(s: String): Either[String, IssueHandle] =
+    s match
+      case ShortRefPattern(owner, repo, number) =>
+        Right(IssueHandle(owner, repo, number.toInt))
+      case _ =>
+        Left(s"expected '<owner>/<repo>#<number>', got: '$s'")
+
+  /** Same as [[parse]] but throws [[OrcaFlowException]] on malformed input —
+    * convenient for flow scripts that want the message to bubble up through
+    * the stage error path the way `fail(...)` would.
+    */
+  def parseOrThrow(s: String): IssueHandle =
+    parse(s) match
+      case Right(handle) => handle
+      case Left(msg)     => throw OrcaFlowException(msg)
+
 case class Comment(author: String, body: String)
 
 /** Snapshot of an issue's top-level fields — the bits a flow typically wants

@@ -115,7 +115,8 @@ object FlowCanary:
   def issueAndPrSurface(): Unit =
     flow(OrcaArgs()):
       stage("gh"):
-        val issueHandle = IssueHandle("acme", "widgets", 7)
+        val issueHandle = IssueHandle.parseOrThrow("acme/widgets#7")
+        val _ : Either[String, IssueHandle] = IssueHandle.parse("acme/widgets#7")
         val issue: Issue = gh.readIssue(issueHandle)
         val _ = issue.title
         val _ = issue.body

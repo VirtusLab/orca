@@ -6,20 +6,21 @@
   * Given a `<owner>/<repo>#<number>` reference (the user's prompt), the flow:
   *
   *   1. Reads the issue from GitHub (title, body, author).
-  *   2. Resumes `.orca/plan-<hash>.md` if one exists for this issue (crash
-  *      recovery); otherwise skeptically assesses the report against the
-  *      repo — verifies claims, looks for missing detail, duplicates, scope
+  *   1. Resumes `.orca/plan-<hash>.md` if one exists for this issue (crash
+  *      recovery); otherwise skeptically assesses the report against the repo
+  *      — verifies claims, looks for missing detail, duplicates, scope
   *      problems. The agent returns either a plan or a critique / follow-up
   *      question / rebuff.
-  *   3. On rejection: posts the agent's reply on the issue and exits.
-  *   4. On proceed: creates the epic branch, persists the plan, and runs
-  *      `Plan.implementTaskLoop` — each task gets the review-and-fix loop,
-  *      a checkbox tick on disk, and a `task: <title>` commit; the plan
-  *      file is removed and the removal committed once every task is done.
-  *   5. Pushes the branch.
-  *   6. Asks a cheap model (`claude.haiku`) via `summarisePr` to fold the
-  *      diff into a PR title + description.
-  *   7. Opens the PR via `gh`.
+  *   1. On rejection: posts the agent's reply on the issue and exits.
+  *   1. On proceed: creates the epic branch, persists the plan, and runs
+  *      `Plan.implementTaskLoop` — each task gets the review-and-fix loop, a
+  *      checkbox tick on disk, and a `task: <title>` commit; the plan file is
+  *      removed and the removal committed once every task is done.
+  *   1. Pushes the branch (only PR-bound flows push;
+  *      `Plan.implementTaskLoop` itself only commits).
+  *   1. Asks a cheap model (`claude.haiku`) via `summarisePr` to fold the diff
+  *      into a PR title + description.
+  *   1. Opens the PR via `gh`.
   *
   * Usage — pass `<owner>/<repo>#<number>`:
   *
@@ -34,22 +35,10 @@ import orca.{*, given}
 
 flow(OrcaArgs(args)):
 
-  // Parse `<owner>/<repo>#<number>` from the user's prompt.
-  val IssuePattern = """\s*([^/\s]+)/([^#\s]+)#(\d+)\s*""".r
-  val issueHandle = userPrompt match
-    case IssuePattern(owner, repo, number) =>
-      IssueHandle(owner = owner, repo = repo, number = number.toInt)
-    case _ =>
-      fail(
-        "expected userPrompt of the form '<owner>/<repo>#<number>', " +
-          s"got: '$userPrompt'"
-      )
+  val issueHandle = IssueHandle.parseOrThrow(userPrompt)
 
   // 1. Pull the issue from GitHub.
-  val issue = stage(
-    s"Read issue ${issueHandle.owner}/" +
-      s"${issueHandle.repo}#${issueHandle.number}"
-  ):
+  val issue = stage(s"Read issue ${issueHandle.shortRef}"):
     gh.readIssue(issueHandle)
 
   // Title + body. Comments are excluded by default — noisy threads pull the
@@ -70,16 +59,18 @@ flow(OrcaArgs(args)):
   // flow exits.
   val planFile = Plan.defaultPath(userPrompt)
   val maybePlan = stage("Acquire plan"):
-    Plan.recover(planFile).orElse:
-      Plan.autonomous.assessThenPlan(issuePayload, claude.opus) match
-        case Verdict.Rejection(_, body) =>
-          stage("Post assessment on the issue"):
-            gh.writeComment(issueHandle, body)
-          None
-        case Verdict.Proceed(plan) =>
-          git.checkoutOrCreate(plan.epicId)
-          os.write.over(planFile, Plan.render(plan), createFolders = true)
-          Some(plan)
+    Plan
+      .recover(planFile)
+      .orElse:
+        Plan.autonomous.assessThenPlan(issuePayload, claude.opus) match
+          case Verdict.Rejection(_, body) =>
+            stage("Post assessment on the issue"):
+              gh.writeComment(issueHandle, body)
+            None
+          case Verdict.Proceed(plan) =>
+            git.checkoutOrCreate(plan.epicId)
+            os.write.over(planFile, Plan.render(plan), createFolders = true)
+            Some(plan)
 
   maybePlan.foreach: plan =>
     // Fresh implementation session (the assess session was in plan mode
