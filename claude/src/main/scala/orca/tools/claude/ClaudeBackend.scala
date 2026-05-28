@@ -214,14 +214,23 @@ private[orca] class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
       workDir: os.Path
   ): os.Path = workDir / s".orca-mcp-${server.port}.json"
 
-  /** Write the MCP config file at [[mcpConfigPath]]. */
+  /** Write the MCP config file at [[mcpConfigPath]].
+    *
+    * The `timeout` field extends claude's per-server tool-call timeout from its
+    * default (60s in the MCP TS SDK claude uses) to one hour. Without this,
+    * claude's MCP client gives up on `ask_user` if the human takes more than
+    * 60s to type their answer — claude then synthesises a tool failure, fires a
+    * follow-up `ask_user` with a similar question, and the user ends up
+    * answering twice. One hour matches the Netty server-side `requestTimeout`
+    * we set on [[AskUserMcpServer]], so both ends agree on the upper bound.
+    */
   private def writeMcpConfig(
       server: AskUserMcpServer,
       workDir: os.Path
   ): Unit =
     os.write.over(
       mcpConfigPath(server, workDir),
-      s"""{"mcpServers":{"${AskUserMcpServer.ServerName}":{"type":"http","url":"${server.url}"}}}"""
+      s"""{"mcpServers":{"${AskUserMcpServer.ServerName}":{"type":"http","url":"${server.url}","timeout":3600000}}}"""
     )
 
   /** Build the per-session system-prompt file. Composes `config.systemPrompt`

@@ -65,14 +65,24 @@ private[codex] object CodexArgs:
       Seq("--skip-git-repo-check") ++
       Seq(prompt)
 
-  /** Top-level `-c mcp_servers.<name>.url="<url>"` override. Placed BEFORE the
-    * subcommand so it lands in codex's global-config slot (the subcommand
-    * inherits it). The value is wrapped in TOML double-quotes since codex
-    * parses `-c` values as TOML literals.
+  /** Top-level `-c mcp_servers.<name>.{url,tool_timeout_sec}` overrides. Placed
+    * BEFORE the subcommand so they land in codex's global-config slot (the
+    * subcommand inherits them). URL value is wrapped in TOML double-quotes
+    * since codex parses `-c` values as TOML literals.
+    *
+    * The `tool_timeout_sec` override extends codex's per-tool timeout from its
+    * 60s default to one hour, matching the Netty server-side `requestTimeout`
+    * we set on [[AskUserMcpServer]]. Without it, codex gives up on `ask_user`
+    * after 60s and fires a follow-up — the user ends up answering twice.
     */
   private def mcpServerArgs(url: Option[String]): Seq[String] =
     url.toSeq.flatMap: u =>
-      Seq("-c", s"""mcp_servers.${AskUserMcpServer.ServerName}.url="$u"""")
+      Seq(
+        "-c",
+        s"""mcp_servers.${AskUserMcpServer.ServerName}.url="$u"""",
+        "-c",
+        s"mcp_servers.${AskUserMcpServer.ServerName}.tool_timeout_sec=3600"
+      )
 
   private def cwdArgs(workDir: os.Path): Seq[String] =
     Seq("-C", workDir.toString)

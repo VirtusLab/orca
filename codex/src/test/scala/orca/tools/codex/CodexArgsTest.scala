@@ -64,10 +64,13 @@ class CodexArgsTest extends munit.FunSuite:
     assert(!args.contains("--dangerously-bypass-approvals-and-sandbox"))
 
   test(
-    "exec emits -c mcp_servers.orca.url=… when an MCP url is supplied"
+    "exec emits -c mcp_servers.orca.{url,tool_timeout_sec} when an MCP url is supplied"
   ):
-    // The `-c` override registers an MCP server for the duration of the
-    // codex invocation, which is how we plug in the ask_user bridge.
+    // The `-c` overrides register an MCP server for the duration of the
+    // codex invocation (this is how we plug in the ask_user bridge) and
+    // raise its tool timeout from codex's 60s default to one hour — long
+    // enough that a slow human typing an answer doesn't trigger codex's
+    // internal MCP timeout and a duplicate follow-up question.
     val args = CodexArgs.exec(
       "x",
       LlmConfig.default,
@@ -75,15 +78,21 @@ class CodexArgsTest extends munit.FunSuite:
       os.pwd,
       mcpServerUrl = Some("http://127.0.0.1:9876/mcp")
     )
-    // -c must precede the `exec` subcommand so codex parses it as a
-    // top-level config override, not as an exec-specific flag.
-    val cIdx = args.indexOf("-c")
+    // -c overrides must precede the `exec` subcommand so codex parses
+    // them as top-level config, not as exec-specific flags.
     val execIdx = args.indexOf("exec")
-    assert(cIdx >= 0 && execIdx > cIdx, s"expected -c before exec; got: $args")
-    val value = args(cIdx + 1)
-    assertEquals(
-      value,
-      """mcp_servers.orca.url="http://127.0.0.1:9876/mcp""""
+    val cValues = args.iterator
+      .zip(args.iterator.drop(1))
+      .zipWithIndex
+      .collect { case (("-c", v), i) if i < execIdx => v }
+      .toList
+    assert(
+      cValues.contains("""mcp_servers.orca.url="http://127.0.0.1:9876/mcp""""),
+      s"expected url -c override; got: $cValues"
+    )
+    assert(
+      cValues.contains("mcp_servers.orca.tool_timeout_sec=3600"),
+      s"expected tool_timeout_sec -c override; got: $cValues"
     )
 
   test("exec omits -c mcp_servers when no MCP url is supplied"):
