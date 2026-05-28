@@ -277,4 +277,8 @@ scala-cli run implement.sc -- "your task here"
 
 ## License
 
-Not yet set.
+Apache 2.0 — see [LICENSE](LICENSE).
+
+## Copyright
+
+Copyright (C) 2026 VirtusLab [https://virtuslab.com](https://virtuslab.com).
