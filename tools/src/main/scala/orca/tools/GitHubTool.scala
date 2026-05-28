@@ -9,6 +9,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   JsonCodecMaker
 }
 import orca.OrcaFlowException
+import orca.events.{OrcaEvent, OrcaListener}
 import orca.subprocess.CliRunner
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
@@ -18,6 +19,9 @@ case class PrHandle(owner: String, repo: String, number: Int):
     * commit messages, PR descriptions (`Closes …`), and log output.
     */
   def shortRef: String = s"$owner/$repo#$number"
+
+  /** Browser URL for the PR, the same value `gh pr view --web` would open. */
+  def url: String = s"https://github.com/$owner/$repo/pull/$number"
 
 /** Lightweight reference to a GitHub issue. The number is what `gh issue view
   * <n>` shows; the owner/repo route the API call.
@@ -43,8 +47,8 @@ object IssueHandle:
         Left(s"expected '<owner>/<repo>#<number>', got: '$s'")
 
   /** Same as [[parse]] but throws [[OrcaFlowException]] on malformed input —
-    * convenient for flow scripts that want the message to bubble up through
-    * the stage error path the way `fail(...)` would.
+    * convenient for flow scripts that want the message to bubble up through the
+    * stage error path the way `fail(...)` would.
     */
   def parseOrThrow(s: String): IssueHandle =
     parse(s) match
@@ -166,11 +170,17 @@ private[orca] given JsonValueCodec[List[GhCommentJson]] = JsonCodecMaker.make
 /** GitHubTool implementation that shells out to the `gh` CLI via a `CliRunner`.
   * `waitForBuild` polls `buildStatus` every `pollInterval` until a terminal
   * outcome or the caller-supplied timeout expires.
+  *
+  * `events` lets the tool publish a [[OrcaEvent.Step]] when a PR is opened so
+  * the URL surfaces in the event log without the flow developer having to log
+  * it. Optional — defaults to `OrcaListener.noop` so callers that don't wire a
+  * dispatcher (unit tests, ad-hoc scripts) still work.
   */
 private[orca] class OsGitHubTool(
     cli: CliRunner,
     workDir: os.Path = os.pwd,
-    pollInterval: FiniteDuration = 30.seconds
+    pollInterval: FiniteDuration = 30.seconds,
+    events: OrcaListener = OrcaListener.noop
 ) extends GitHubTool:
 
   import OsGitHubTool.*
@@ -190,7 +200,9 @@ private[orca] class OsGitHubTool(
       val output = result.stdout.trim
       PrUrlPattern.findFirstMatchIn(output) match
         case Some(m) =>
-          Right(PrHandle(m.group(1), m.group(2), m.group(3).toInt))
+          val pr = PrHandle(m.group(1), m.group(2), m.group(3).toInt)
+          events.onEvent(OrcaEvent.Step(s"Opened PR: ${pr.url}"))
+          Right(pr)
         case None =>
           throw OrcaFlowException(
             s"Unexpected output from gh pr create: $output"

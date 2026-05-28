@@ -1,16 +1,24 @@
 package orca.tools
 
 import orca.OrcaFlowException
+import orca.events.{OrcaEvent, OrcaListener}
 import orca.subprocess.{CliResult, StubCliRunner}
 import ox.either.orThrow
 
+import java.util.concurrent.ConcurrentLinkedQueue
 import scala.concurrent.duration.DurationInt
+import scala.jdk.CollectionConverters.*
 
 class OsGitHubToolTest extends munit.FunSuite:
 
   private def stubGh(response: CliResult): (StubCliRunner, OsGitHubTool) =
     val cli = new StubCliRunner(response)
     (cli, new OsGitHubTool(cli, pollInterval = 10.millis))
+
+  private class CapturingListener extends OrcaListener:
+    private val seen = new ConcurrentLinkedQueue[OrcaEvent]()
+    def onEvent(event: OrcaEvent): Unit = { val _ = seen.add(event) }
+    def events: List[OrcaEvent] = seen.asScala.toList
 
   private val samplePr = PrHandle("acme", "widgets", 42)
 
@@ -24,6 +32,18 @@ class OsGitHubToolTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("gh", "pr", "create")))
     assert(args.containsSlice(Seq("--title", "feat: hi")))
     assert(args.containsSlice(Seq("--body", "hello")))
+
+  test("createPr emits a Step event with the opened PR URL"):
+    val listener = new CapturingListener
+    val cli = new StubCliRunner(
+      CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
+    )
+    val gh = new OsGitHubTool(cli, events = listener)
+    val _ = gh.createPr("feat: hi", "hello").orThrow
+    assertEquals(
+      listener.events,
+      List(OrcaEvent.Step("Opened PR: https://github.com/acme/widgets/pull/42"))
+    )
 
   test("createPr throws when gh output does not contain a PR URL"):
     val (_, gh) = stubGh(CliResult(0, "no url here", ""))

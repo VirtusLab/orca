@@ -73,6 +73,8 @@ private[orca] object DefaultFlowContext:
         )
       ),
       git = git.getOrElse(new OsGitTool(workDir, dispatcher)),
-      gh = gh.getOrElse(new OsGitHubTool(OsProcCliRunner, workDir)),
+      gh = gh.getOrElse(
+        new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
+      ),
       fs = fs.getOrElse(new OsFsTool(workDir))
     )
