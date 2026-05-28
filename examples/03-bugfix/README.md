@@ -26,11 +26,11 @@ Only after those three gates does the implementation start.
 ## Stages
 
 1. **Read issue** — `gh.readIssue`.
-2. **Triage** *(opus, interactive)* — agent returns a
-   `BugTriage(isBug, notBugExplanation, canTest, reproductionSteps,
-   failingTestPath, branchName, summary)`.
-3. **Bail-out paths** — `!isBug` or `isBug && !canTest` post a comment
-   on the issue and stop.
+2. **Triage** *(opus, interactive)* — agent returns a `Triage` sum
+   type: `NotABug(explanation)`, `Untestable(summary, steps)`, or
+   `Testable(summary, branch, testPath)`.
+3. **Bail-out paths** — `NotABug` and `Untestable` post a comment on
+   the issue and stop.
 4. **Write the failing test** — autonomous turn, same session. Committed.
 5. **Push branch + open PR** — `gh.createPr` with a tentative
    description folded by `summarisePr(claude.haiku)`.

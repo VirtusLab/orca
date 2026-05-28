@@ -52,152 +52,141 @@ flow(OrcaArgs(args)):
   // returned here is reused below for the failing-test write and the fix
   // implementation, so the implementer inherits the triage's mental model.
   val (session, triage) = stage("Triage"):
-    claude.opus.resultAs[BugTriage].interactive.run(
-      s"""Triage this bug report:
-         |
-         |Title: ${issue.title}
+    Triage.interactive(
+      s"""Title: ${issue.title}
          |Reporter: ${issue.author}
          |
-         |${issue.body}
-         |
-         |Decide:
-         |  - `isBug`: is this actually a defect (not intended behavior, user
-         |    error, or out-of-scope)? If false, set `notBugExplanation` and
-         |    leave the rest at empty defaults.
-         |  - `canTest`: can a focused unit test reproduce this? If true, set
-         |    `failingTestPath` (use the project's existing test framework
-         |    and layout conventions) and pick a kebab-case `branchName`. Set
-         |    `summary` to a one-line PR title.
-         |  - If `isBug` is true but `canTest` is false, fill in
-         |    `reproductionSteps` — they'll be posted back on the issue.""".stripMargin
+         |${issue.body}""".stripMargin,
+      claude.opus
     )
 
-  if !triage.isBug then
-    stage("Comment 'not a bug' on the issue"):
-      gh.writeComment(issueHandle, triage.notBugExplanation)
-  else if !triage.canTest then
-    stage("Comment reproduction steps on the issue"):
-      gh.writeComment(
-        issueHandle,
-        s"""## Reproduction
-           |
-           |${triage.reproductionSteps}""".stripMargin
-      )
-  else
-    val testPath = triage.failingTestPath.getOrElse(
-      fail("triage.canTest = true but failingTestPath was missing")
-    )
+  triage match
+    case Triage.NotABug(explanation) =>
+      stage("Comment 'not a bug' on the issue"):
+        gh.writeComment(issueHandle, explanation)
 
-    git.checkoutOrCreate(triage.branchName)
-
-    stage("Write the failing test"):
-      val _ = claude.autonomous.run(
-        s"""Write the failing unit test at `$testPath`. It MUST fail on the
-           |current code — that's how we confirm the bug. Run `sbt test`
-           |locally if you can to verify.""".stripMargin,
-        session = session
-      )
-      git.commit(s"Add failing test: ${triage.summary}").orThrow
-
-    stage("Push branch"):
-      git.push().orThrow
-
-    // Tentative description — only the failing test has landed. Haiku folds
-    // the issue context + diff into the draft so the PR is informative
-    // before the fix arrives.
-    val summary = stage("Generate tentative PR title and description"):
-      summarisePr(
-        llm = claude.haiku,
-        diff = git.diff(),
-        context = Some(
-          s"""Originating issue: ${issueHandle.shortRef}
-             |Issue title: ${issue.title}
+    case Triage.Untestable(_, reproductionSteps) =>
+      stage("Comment reproduction steps on the issue"):
+        gh.writeComment(
+          issueHandle,
+          s"""## Reproduction
              |
-             |Note: this is a tentative description — only a failing test
-             |has been added so far. The fix is still pending.""".stripMargin
-        )
-      )
-
-    val pr = stage("Open PR"):
-      gh.createPr(
-        title = summary.title,
-        body = s"""${summary.body}
-                  |
-                  |Closes ${issueHandle.shortRef}.""".stripMargin
-      ).orThrow
-
-    stage("Wait for CI to fail"):
-      val status = gh.waitForBuild(pr, CiTimeout).orThrow
-      if status.outcome == BuildOutcome.Success then
-        fail(
-          "CI passed on the failing-test commit. The reproduction doesn't " +
-            "actually reproduce — re-triage and try again."
+             |$reproductionSteps""".stripMargin
         )
 
-    // Sonnet inspects the failed run via gh — the flow never pulls the log
-    // into memory. Fresh sonnet session, shared across the two sonnet
-    // turns below so the verifier can lean on what the summariser found.
-    val sonnetSession = claude.sonnet.newSession
+    case Triage.Testable(summary, branchName, failingTestPath) =>
+      git.checkoutOrCreate(branchName)
 
-    stage("Post focused failure comment"):
-      val (_, failureSummary) = claude.sonnet.autonomous.run(
-        s"""CI went red on PR ${pr.shortRef} (${pr.url}). Inspect the failed
-           |run via `gh` — start with:
-           |
-           |  gh pr checks ${pr.number} --repo ${pr.owner}/${pr.repo}
-           |
-           |then drill into the failing check with `gh run view <run-id>
-           |--log-failed --repo ${pr.owner}/${pr.repo}`. Produce a short,
-           |focused failure summary — the most informative excerpt, not the
-           |whole log. Output only the summary text; it goes verbatim into a
-           |PR comment.""".stripMargin,
-        session = sonnetSession
-      )
-      gh.writeComment(pr, failureSummary)
+      stage("Write the failing test"):
+        val _ = claude.autonomous.run(
+          s"""Write the failing unit test at `$failingTestPath`. It MUST
+             |fail on the current code — that's how we confirm the bug.
+             |Run `sbt test` locally if you can to verify.""".stripMargin,
+          session = session
+        )
+        git.commit(s"Add failing test: $summary").orThrow
 
-    stage("Verify failure matches the report"):
-      val (_, verdict) =
-        claude.sonnet.resultAs[BugReportMatch].autonomous.run(
-          s"""Using the same failed run you inspected just now on PR
-             |${pr.shortRef}, decide whether the failure matches the
-             |original report below. Be strict — a different stack trace or
-             |assertion error counts as a mismatch.
+      stage("Push branch"):
+        git.push().orThrow
+
+      // Tentative description — only the failing test has landed. Haiku
+      // folds the issue context + diff into the draft so the PR is
+      // informative before the fix arrives.
+      val prSummary = stage("Generate tentative PR title and description"):
+        summarisePr(
+          llm = claude.haiku,
+          diff = git.diff(),
+          context = Some(
+            s"""Originating issue: ${issueHandle.shortRef}
+               |Issue title: ${issue.title}
+               |
+               |Note: this is a tentative description — only a failing
+               |test has been added so far. The fix is still pending.""".stripMargin
+          )
+        )
+
+      val pr = stage("Open PR"):
+        gh.createPr(
+          title = prSummary.title,
+          body = s"""${prSummary.body}
+                    |
+                    |Closes ${issueHandle.shortRef}.""".stripMargin
+        ).orThrow
+
+      stage("Wait for CI to fail"):
+        val status = gh.waitForBuild(pr, CiTimeout).orThrow
+        if status.outcome == BuildOutcome.Success then
+          fail(
+            "CI passed on the failing-test commit. The reproduction " +
+              "doesn't actually reproduce — re-triage and try again."
+          )
+
+      // Sonnet inspects the failed run via gh — the flow never pulls the
+      // log into memory. Fresh sonnet session, shared across the two
+      // sonnet turns below so the verifier can lean on what the
+      // summariser found.
+      val sonnetSession = claude.sonnet.newSession
+
+      stage("Post focused failure comment"):
+        val (_, failureSummary) = claude.sonnet.autonomous.run(
+          s"""CI went red on PR ${pr.shortRef} (${pr.url}). Inspect the
+             |failed run via `gh` — start with:
              |
-             |Original report:
-             |${issue.body}""".stripMargin,
+             |  gh pr checks ${pr.number} --repo ${pr.owner}/${pr.repo}
+             |
+             |then drill into the failing check with `gh run view <run-id>
+             |--log-failed --repo ${pr.owner}/${pr.repo}`. Produce a
+             |short, focused failure summary — the most informative
+             |excerpt, not the whole log. Output only the summary text;
+             |it goes verbatim into a PR comment.""".stripMargin,
           session = sonnetSession
         )
-      if !verdict.matches then
-        fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
+        gh.writeComment(pr, failureSummary)
 
-    // Plan + implement the fix. The flow's earlier stages (triage, failing
-    // test push, CI-red wait, repro verification) aren't restartable from a
-    // plan file alone, so no `.orca/plan-*.md` — use the in-memory
-    // `implementTaskLoop` variant.
-    val fixPlan = stage("Plan the fix"):
-      Plan.autonomous.from(
-        s"""Implement the fix for ${issueHandle.shortRef}. A failing test is
-           |already on this branch (`${triage.branchName}`) — the fix must
-           |make it pass without regressing other tests.""".stripMargin,
-        claude
-      )
+      stage("Verify failure matches the report"):
+        val (_, verdict) =
+          claude.sonnet.resultAs[BugReportMatch].autonomous.run(
+            s"""Using the same failed run you inspected just now on PR
+               |${pr.shortRef}, decide whether the failure matches the
+               |original report below. Be strict — a different stack
+               |trace or assertion error counts as a mismatch.
+               |
+               |Original report:
+               |${issue.body}""".stripMargin,
+            session = sonnetSession
+          )
+        if !verdict.matches then
+          fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
 
-    Plan.implementTaskLoop(fixPlan): task =>
-      stage(s"Implement task: ${task.title}"):
-        stage("Implementation"):
-          val _ = claude.autonomous.run(task.description, session)
-        // Format before review so reviewers don't burn turns on style nits.
-        stage("Format"):
-          val _ = os.proc("sbt", "scalafmtAll").call(check = false)
-        reviewAndFixLoop(
-          coder = claude,
-          sessionId = session,
-          reviewers = allReviewers(claude),
-          reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
-          task = task.title.value,
-          lintCommand = Some("sbt test"),
-          lintLlm = Some(claude.haiku)
+      // Plan + implement the fix. The flow's earlier stages (triage,
+      // failing test push, CI-red wait, repro verification) aren't
+      // restartable from a plan file alone, so no `.orca/plan-*.md` —
+      // use the in-memory `implementTaskLoop` variant.
+      val fixPlan = stage("Plan the fix"):
+        Plan.autonomous.from(
+          s"""Implement the fix for ${issueHandle.shortRef}. A failing
+             |test is already on this branch (`$branchName`) — the fix
+             |must make it pass without regressing other tests.""".stripMargin,
+          claude
         )
 
-    stage("Push the fix"):
-      git.push().orThrow
+      Plan.implementTaskLoop(fixPlan): task =>
+        stage(s"Implement task: ${task.title}"):
+          stage("Implementation"):
+            val _ = claude.autonomous.run(task.description, session)
+          // Format before review so reviewers don't burn turns on style
+          // nits.
+          stage("Format"):
+            val _ = os.proc("sbt", "scalafmtAll").call(check = false)
+          reviewAndFixLoop(
+            coder = claude,
+            sessionId = session,
+            reviewers = allReviewers(claude),
+            reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+            task = task.title.value,
+            lintCommand = Some("sbt test"),
+            lintLlm = Some(claude.haiku)
+          )
+
+      stage("Push the fix"):
+        git.push().orThrow

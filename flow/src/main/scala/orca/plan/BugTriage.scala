@@ -1,54 +1,51 @@
 package orca.plan
 
-import orca.llm.{Announce, JsonData}
+import orca.llm.JsonData
 
-/** Outcome of an interactive triage turn against a bug report. The agent first
-  * decides whether the report describes an actual defect (`isBug`); if so, it
-  * picks a reproduction strategy (focused unit test vs. free-form repro steps)
-  * and a branch name + PR title for the rest of the bugfix flow.
+/** Wire shape the LLM produces for a triage turn — a flat record with a boolean
+  * discriminator (`isBug`) plus per-branch fields. Flattened (rather than a
+  * discriminated union) so jsoniter-scala's structured-output path keeps the
+  * schema small and easy for the model to fill in. The contract is enforced
+  * post-decode by [[toTriage]], which throws on incoherent combinations so
+  * callers see a well-formed [[Triage]].
   *
-  * Field combinations the agent should produce:
+  *   - `isBug == false` → `notBugExplanation` is set; the other fields are
+  *     ignored.
+  *   - `isBug == true`, `canTest == false` → `summary` and `reproductionSteps`
+  *     are set.
+  *   - `isBug == true`, `canTest == true` → `summary`, `branchName`, and
+  *     `failingTestPath` are set.
   *
-  *   - `isBug = false` → set `notBugExplanation`; leave the other fields with
-  *     reasonable empty defaults. The flow surfaces the explanation back on the
-  *     original issue and stops.
-  *   - `isBug = true`, `canTest = false` → set `reproductionSteps`; the flow
-  *     posts them on the issue and stops (no PR for docs-only repros).
-  *   - `isBug = true`, `canTest = true` → set `failingTestPath`, `branchName`,
-  *     `summary`. The flow writes the failing test, opens a PR, and proceeds.
+  * Internal to `orca.plan`. Public API is [[Triage]] + [[Triage.interactive]].
   */
-case class BugTriage(
-    /** True if the report describes an actual defect (not intended behavior,
-      * user error, or out-of-scope). When false, only `notBugExplanation` is
-      * meaningful.
-      */
+private[plan] case class BugTriage(
     isBug: Boolean,
-    /** Short explanation to post back on the issue when `isBug` is false. */
     notBugExplanation: String,
-    /** True if a focused unit test can reproduce the bug. Only meaningful when
-      * `isBug` is true.
-      */
     canTest: Boolean,
-    /** Free-form reproduction steps the agent inferred from the report — used
-      * when `isBug` is true but `canTest` is false (we can't write a test, so
-      * we document instead).
-      */
     reproductionSteps: String,
-    /** Path of the test file the agent will create when `canTest` is true. */
     failingTestPath: Option[String],
-    /** Short branch name. Lowercase kebab-case; no spaces. Only used when
-      * `isBug` and `canTest` are both true.
-      */
     branchName: String,
-    /** One-line summary suitable for the PR title. */
     summary: String
-) derives JsonData
+) derives JsonData:
 
-object BugTriage:
-  given Announce[BugTriage] = Announce.from: t =>
-    if !t.isBug then s"Not a bug: ${t.notBugExplanation}"
-    else if !t.canTest then
-      s"Triage: ${t.summary} — documenting reproduction (no PR)"
+  def toTriage: Either[String, Triage] =
+    if !isBug then
+      if notBugExplanation.trim.isEmpty then
+        Left("triage: isBug=false but notBugExplanation is empty")
+      else Right(Triage.NotABug(notBugExplanation))
+    else if !canTest then
+      if summary.trim.isEmpty then
+        Left("triage: isBug=true but summary is empty")
+      else if reproductionSteps.trim.isEmpty then
+        Left("triage: canTest=false but reproductionSteps is empty")
+      else Right(Triage.Untestable(summary, reproductionSteps))
     else
-      s"Triage: ${t.summary} — failing test at ${t.failingTestPath
-          .getOrElse("?")} on branch '${t.branchName}'"
+      failingTestPath.filter(_.trim.nonEmpty) match
+        case None =>
+          Left("triage: canTest=true but failingTestPath is missing")
+        case Some(path) =>
+          if summary.trim.isEmpty then
+            Left("triage: isBug=true but summary is empty")
+          else if branchName.trim.isEmpty then
+            Left("triage: canTest=true but branchName is empty")
+          else Right(Triage.Testable(summary, branchName, path))

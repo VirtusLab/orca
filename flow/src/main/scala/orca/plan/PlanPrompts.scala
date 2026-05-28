@@ -30,3 +30,10 @@ object PlanPrompts:
     */
   val AssessThenPlan: String =
     PromptResource.load("/orca/plan/prompts/assess-then-plan.md")
+
+  /** Used by `Triage.interactive`. Structured-output instructions that pick out
+    * the `NotABug` / `Untestable` / `Testable` variants via the underlying wire
+    * fields.
+    */
+  val Triage: String =
+    PromptResource.load("/orca/plan/prompts/triage.md")
