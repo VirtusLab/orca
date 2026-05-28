@@ -5,22 +5,20 @@
   *
   * Given a `<owner>/<repo>#<number>` reference (the user's prompt), the flow:
   *
-  *   1. Reads the issue from GitHub (title, body, author).
-  *   1. Resumes `.orca/plan-<hash>.md` if one exists for this issue (crash
-  *      recovery); otherwise skeptically assesses the report against the repo
-  *      — verifies claims, looks for missing detail, duplicates, scope
-  *      problems. The agent returns either a plan or a critique / follow-up
-  *      question / rebuff.
-  *   1. On rejection: posts the agent's reply on the issue and exits.
-  *   1. On proceed: creates the epic branch, persists the plan, and runs
+  *   1. Reads the issue from GitHub (title, body, author). 2. Resumes
+  *      `.orca/plan-<hash>.md` if one exists for this issue (crash recovery);
+  *      otherwise skeptically assesses the report against the repo — verifies
+  *      claims, looks for missing detail, duplicates, scope problems. The agent
+  *      returns either a plan or a critique / follow-up question / rebuff. 3.
+  *      On rejection: posts the agent's reply on the issue and exits. 4. On
+  *      proceed: creates the epic branch, persists the plan, and runs
   *      `Plan.implementTaskLoop` — each task gets the review-and-fix loop, a
   *      checkbox tick on disk, and a `task: <title>` commit; the plan file is
-  *      removed and the removal committed once every task is done.
-  *   1. Pushes the branch (only PR-bound flows push;
-  *      `Plan.implementTaskLoop` itself only commits).
-  *   1. Asks a cheap model (`claude.haiku`) via `summarisePr` to fold the diff
-  *      into a PR title + description.
-  *   1. Opens the PR via `gh`.
+  *      removed and the removal committed once every task is done. 5. Pushes
+  *      the branch (only PR-bound flows push; `Plan.implementTaskLoop` itself
+  *      only commits). 6. Asks a cheap model (`claude.haiku`) via `summarisePr`
+  *      to fold the diff into a PR title + description. 7. Opens the PR via
+  *      `gh`.
   *
   * Usage — pass `<owner>/<repo>#<number>`:
   *
