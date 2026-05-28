@@ -107,6 +107,78 @@ class ConversationsTest extends munit.FunSuite:
     val _ = Conversations.drainAutonomous(conv, recorder)
     assertEquals(recorder.events, Nil)
 
+  test("ApproveTool auto-denies and surfaces an Error"):
+    // The autonomous drain has no user to ask, but the subprocess is
+    // blocked on stdin waiting for our decision. Auto-denying with a
+    // reason unblocks the agent (it can adapt); the Error event lets the
+    // user see what got blocked. Silently dropping would deadlock.
+    val recorder = new RecordingListener
+    val decisions = new AtomicReference[List[ApprovalDecision]](Nil)
+    val record = (d: ApprovalDecision) =>
+      val _ = decisions.updateAndGet(d :: _)
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent
+          .ApproveTool("Bash", """{"command":"rm -rf /"}""", record)
+      ),
+      Right(sampleResult)
+    )
+    val _ = Conversations.drainAutonomous(conv, recorder)
+    decisions.get() match
+      case ApprovalDecision.Deny(Some(reason)) :: Nil =>
+        assert(reason.contains("Bash"), reason)
+        assert(reason.contains("auto-approve"), reason)
+      case other => fail(s"expected Deny with reason; got $other")
+    assertEquals(
+      recorder.events.collect { case e: OrcaEvent.Error => e.message },
+      List(
+        "Denied Bash: not in auto-approve set (autonomous mode cannot prompt)"
+      )
+    )
+
+  test("UserQuestion auto-answers a placeholder and surfaces an Error"):
+    // Defensive: the autonomous path never wires the ask_user MCP bridge,
+    // so this event should be unreachable. If a future change ever lands
+    // one here, the bridge thread is blocked on `respond` — answer with
+    // a placeholder rather than leaking it.
+    val recorder = new RecordingListener
+    val answers = new AtomicReference[List[String]](Nil)
+    val record = (s: String) =>
+      val _ = answers.updateAndGet(s :: _)
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.UserQuestion("What now?", record)),
+      Right(sampleResult)
+    )
+    val _ = Conversations.drainAutonomous(conv, recorder)
+    answers.get() match
+      case ans :: Nil => assert(ans.contains("autonomous mode"), ans)
+      case other      => fail(s"expected one answer; got $other")
+    assert(
+      recorder.events.exists {
+        case OrcaEvent.Error(msg) => msg.contains("ask_user")
+        case _                    => false
+      },
+      recorder.events
+    )
+
+  test("ToolResult is swallowed (already surfaced via the preceding ToolUse)"):
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.ToolResult("Bash", ok = true, "stdout text")),
+      Right(sampleResult)
+    )
+    val _ = Conversations.drainAutonomous(conv, recorder)
+    assertEquals(recorder.events, Nil)
+
+  test("UserMessage echo is swallowed (UserPrompt covers it upstream)"):
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.UserMessage("echo of the opening prompt")),
+      Right(sampleResult)
+    )
+    val _ = Conversations.drainAutonomous(conv, recorder)
+    assertEquals(recorder.events, Nil)
+
   test("ConversationEvent.Error re-emits as OrcaEvent.Error"):
     val recorder = new RecordingListener
     val conv = new ScriptedConversation(
