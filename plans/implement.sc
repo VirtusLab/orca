@@ -11,8 +11,9 @@
   * together. When every task is done the plan file is removed and the removal
   * is committed.
   *
-  * Lives alongside the seeded calculator crate so a user can run it from the
-  * project's root after `examples/01-simple/create-test-project.sh`:
+  * `examples/01-simple/create-test-project.sh` seeds the calculator crate
+  * into a temp directory and copies this script alongside it; run from
+  * the seeded directory the seeder prints:
   *
   * ```bash
   * scala-cli run implement.sc -- "Add a multiply function to the calculator crate"

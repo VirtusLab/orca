@@ -22,10 +22,10 @@
   * When no test is possible, the flow stops after step 3 with a docs-only
   * PR for a human to pick up.
   *
-  * Lives alongside the seeded buggy project so a user can run it from the
-  * project's root after `examples/03-bugfix/create-test-project.sh` (push the
-  * seed to a real GitHub repo first — the seed script prints the `gh repo
-  * create` line):
+  * `examples/03-bugfix/create-test-project.sh` seeds the buggy project
+  * into a temp directory and copies this script alongside it; push the
+  * seed to a real GitHub repo first (the seeder prints the `gh repo
+  * create` line) then run from the seeded directory the seeder prints:
   *
   * ```bash
   * scala-cli run bugfix.sc -- \

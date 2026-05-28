@@ -19,8 +19,9 @@
   * At the end of a successful run the plan file is removed, then the
   * documentation step updates the project README based on what changed.
   *
-  * Lives alongside the seeded todo-cli project so a user can run it from the
-  * project's root after `examples/04-epic/create-test-project.sh`:
+  * `examples/04-epic/create-test-project.sh` seeds the todo-cli project
+  * into a temp directory and copies this script alongside it; run from
+  * the seeded directory the seeder prints:
   *
   * ```bash
   * scala-cli run epic.sc -- \

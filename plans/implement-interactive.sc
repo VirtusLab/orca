@@ -9,8 +9,9 @@
   * to `.orca/plan-<hash>.md` so a re-run resumes from the first incomplete
   * task.
   *
-  * Lives alongside the seeded calculator crate so a user can run it from the
-  * project's root after `examples/02-interactive/create-test-project.sh`:
+  * `examples/02-interactive/create-test-project.sh` seeds the calculator
+  * crate into a temp directory and copies this script alongside it; run
+  * from the seeded directory the seeder prints:
   *
   * ```bash
   * scala-cli run implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate. Ask the user which."
