@@ -6,6 +6,8 @@ import ox.Ox
 import sttp.tapir.Schema
 import sttp.tapir.server.netty.sync.NettySyncServer
 
+import scala.concurrent.duration.DurationInt
+
 /** Input shape of the `ask_user` MCP tool. The agent fills in `question`; we
   * hand the typed answer back as the tool result.
   */
@@ -57,6 +59,11 @@ private[orca] object AskUserMcpServer:
     * capability is used to start the server in the enclosing scope; the caller
     * is responsible for calling `close()` (or relying on scope tear-down) to
     * stop it.
+    *
+    * The handler blocks until the host user types an answer, which can take
+    * arbitrarily long. Netty's default 20s `requestTimeout` (and 60s
+    * `idleTimeout`) would close the connection mid-prompt; raise both so a
+    * thoughtful user gets time without leaving the binding open forever.
     */
   def start(bridge: AskUserBridge)(using Ox): AskUserMcpServer =
     val askUserTool =
@@ -68,7 +75,11 @@ private[orca] object AskUserMcpServer:
         .input[AskUserInput]
         .handle(in => Right(bridge.ask(in.question)))
     val endpoint = mcpEndpoint(List(askUserTool), List("mcp"))
-    val binding = NettySyncServer().port(0).addEndpoint(endpoint).start()
+    val binding = NettySyncServer()
+      .port(0)
+      .modifyConfig(_.requestTimeout(1.hour).idleTimeout(1.hour + 1.minute))
+      .addEndpoint(endpoint)
+      .start()
     new AskUserMcpServer(binding.port, () => binding.stop())
 
   /** Short system-prompt hint telling the agent it has an `ask_user` tool for
