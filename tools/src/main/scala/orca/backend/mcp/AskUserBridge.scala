@@ -41,6 +41,13 @@ private[orca] class AskUserBridge(using BufferCapacity):
     * one-shot reply channel so concurrent invocations stay isolated. Throws
     * [[ChannelClosedException]] if the bridge is closed while blocked — the
     * handler should surface that as a tool error to the agent.
+    *
+    * The reply channel is always `done`'d when `ask` exits (success or
+    * exception). Without this, a handler that exits early — e.g. the HTTP
+    * client aborts after its own timeout — would leave the rendezvous dangling:
+    * the renderer's later `respond(answer)` would block forever on a `send`
+    * with no matching receiver. Closing the channel makes that `send` raise a
+    * recoverable `ChannelClosedException` instead.
     */
   def ask(question: String): String =
     val reply: Channel[String] = Channel.rendezvous
@@ -50,6 +57,7 @@ private[orca] class AskUserBridge(using BufferCapacity):
       reply.receive()
     finally
       val _ = inFlight.updateAndGet(_ - reply)
+      reply.doneOrClosed().discard
 
   /** Called by the host's consumer loop. Returns the next pending question and
     * the closure that delivers the answer to the originating [[ask]]. Blocks if
@@ -59,12 +67,18 @@ private[orca] class AskUserBridge(using BufferCapacity):
     * The returned `respond` closure is idempotent — only the first call
     * delivers the answer to the rendezvous; later calls are no-ops. Protects
     * against a renderer that double-fires (retry, reentrant cancel).
+    *
+    * If the originating `ask` has already exited (e.g. the handler thread was
+    * unwound by a client-side timeout), the reply channel is `done`'d.
+    * `respond` then uses `sendOrClosed` so the caller sees a no-op rather than
+    * an exception escaping into the renderer's dispatch loop.
     */
   def nextQuestion(): PendingQuestion =
     val (question, reply) = pending.receive()
     val delivered = new AtomicBoolean(false)
     val respond: String => Unit = answer =>
-      if delivered.compareAndSet(false, true) then reply.send(answer)
+      if delivered.compareAndSet(false, true) then
+        reply.sendOrClosed(answer).discard
     PendingQuestion(question, respond)
 
   /** Release every thread blocked on this bridge: `done`s all in-flight reply

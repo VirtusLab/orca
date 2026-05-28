@@ -66,3 +66,32 @@ class AskUserBridgeTest extends munit.FunSuite:
       val bridge = new AskUserBridge
       bridge.close()
       bridge.close() // must not throw
+
+  test("respond after ask exits early is a no-op, not a deadlock"):
+    // Pins the safety contract: if the handler thread unwinds before
+    // respond is called (e.g. the HTTP client aborts the request after
+    // its own timeout), the orphaned reply channel must be `done`'d so
+    // the renderer's later respond doesn't block forever on a send with
+    // no receiver. Without the fix, this test deadlocks.
+    supervised:
+      given BufferCapacity = BufferCapacity(8)
+      val bridge = new AskUserBridge
+
+      val askFork = forkUser:
+        try
+          val _ = bridge.ask("anyone there?")
+          "completed-unexpectedly"
+        catch case _: ChannelClosedException => "closed"
+
+      val pending = bridge.nextQuestion()
+      assertEquals(pending.question, "anyone there?")
+
+      // Simulate the handler thread exiting early by closing the bridge
+      // — this `done`s every in-flight reply channel.
+      bridge.close()
+      assertEquals(askFork.join(), "closed")
+
+      // The renderer didn't know the handler is gone; it eventually calls
+      // respond with the user's typed answer. Without the fix, this hangs
+      // forever; with the fix, the closed-channel send is a no-op.
+      pending.respond("the answer that arrived too late")
