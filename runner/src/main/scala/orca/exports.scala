@@ -32,6 +32,7 @@ export orca.llm.{
   codecFromJsonData
 }
 export orca.plan.{BugReportMatch, BugTriage, Plan, Task, Title, Verdict}
+export orca.pr.{summarisePr, PrSummary}
 export orca.review.{
   allReviewers,
   fixLoop,

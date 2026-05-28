@@ -6,17 +6,19 @@
   * Given a `<owner>/<repo>#<number>` reference (the user's prompt), the flow:
   *
   *   1. Reads the issue from GitHub (title, body, author).
-  *   2. Skeptically assesses the report against the repo — verifies claims,
-  *      looks for missing detail, duplicates, scope problems. The agent
-  *      returns either a plan to implement or a critique / follow-up
+  *   2. Resumes `.orca/plan-<hash>.md` if one exists for this issue (crash
+  *      recovery); otherwise skeptically assesses the report against the
+  *      repo — verifies claims, looks for missing detail, duplicates, scope
+  *      problems. The agent returns either a plan or a critique / follow-up
   *      question / rebuff.
-  *   3. On rejection: posts the agent's reply on the issue and exits cleanly,
-  *      no PR.
-  *   4. On proceed: creates the epic branch and implements each task with the
-  *      review-and-fix loop, committing per task.
+  *   3. On rejection: posts the agent's reply on the issue and exits.
+  *   4. On proceed: creates the epic branch, persists the plan, and runs
+  *      `Plan.implementTaskLoop` — each task gets the review-and-fix loop,
+  *      a checkbox tick on disk, and a `task: <title>` commit; the plan
+  *      file is removed and the removal committed once every task is done.
   *   5. Pushes the branch.
-  *   6. Asks a cheap model (`claude.haiku`) to summarise the diff into a PR
-  *      title + description.
+  *   6. Asks a cheap model (`claude.haiku`) via `summarisePr` to fold the
+  *      diff into a PR title + description.
   *   7. Opens the PR via `gh`.
   *
   * Usage — pass `<owner>/<repo>#<number>`:
@@ -29,11 +31,6 @@
   */
 
 import orca.{*, given}
-
-/** Output shape for the cheap-model PR write-up turn. Top-level so the `derives
-  * JsonData` macro evaluates outside a method body.
-  */
-case class PrSummary(title: String, body: String) derives JsonData
 
 flow(OrcaArgs(args)):
 
@@ -64,71 +61,64 @@ flow(OrcaArgs(args)):
        |
        |${issue.body}""".stripMargin
 
-  // Opus runs read-only so it can verify claims via Read/Grep without
-  // editing during the assess turn.
-  val verdict = stage("Assess and plan"):
-    Plan.autonomous.assessThenPlan(issuePayload, claude.opus)
+  // Resume an in-progress plan if one exists for this issue (the planFile
+  // path is keyed off `userPrompt = <owner>/<repo>#<number>`). Otherwise
+  // assess — Opus runs read-only so it can verify claims via Read/Grep
+  // without editing during the assess turn — and on `Verdict.Proceed`
+  // persist the plan so a crash resumes from the first incomplete task.
+  // `Verdict.Rejection` posts the assessment as an issue comment and the
+  // flow exits.
+  val planFile = Plan.defaultPath(userPrompt)
+  val maybePlan = stage("Acquire plan"):
+    Plan.recover(planFile).orElse:
+      Plan.autonomous.assessThenPlan(issuePayload, claude.opus) match
+        case Verdict.Rejection(_, body) =>
+          stage("Post assessment on the issue"):
+            gh.writeComment(issueHandle, body)
+          None
+        case Verdict.Proceed(plan) =>
+          git.checkoutOrCreate(plan.epicId)
+          os.write.over(planFile, Plan.render(plan), createFolders = true)
+          Some(plan)
 
-  // Pattern-match rather than `return` — `flow` is a lambda body.
-  verdict match
-    case Verdict.Rejection(_, body) =>
-      stage("Post assessment on the issue"):
-        gh.writeComment(issueHandle, body)
+  maybePlan.foreach: plan =>
+    // Fresh implementation session (the assess session was in plan mode
+    // and can't write). Reused across tasks so the implementer retains
+    // context.
+    val session = claude.newSession
 
-    case Verdict.Proceed(plan) =>
-      stage(s"Branch: ${plan.epicId}"):
-        git.createBranch(plan.epicId).orThrow
+    Plan.implementTaskLoop(planFile, plan): task =>
+      stage(s"Implement task: ${task.title}"):
+        stage("Implementation"):
+          val _ = claude.autonomous.run(task.description, session)
 
-      // Fresh implementation session (the assess session was in plan mode
-      // and can't write). Reused across tasks so the implementer retains
-      // context.
-      val session = claude.newSession
+        reviewAndFixLoop(
+          coder = claude,
+          sessionId = session,
+          reviewers = allReviewers(claude),
+          // Haiku picks the per-task reviewer subset; swap for
+          // `ReviewerSelector.allEveryRound` to run every reviewer.
+          reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+          task = task.title.value
+        )
 
-      for task <- plan.tasks do
-        stage(s"Implement task: ${task.title}"):
-          stage("Implementation"):
-            val _ = claude.autonomous.run(task.description, session)
+    stage("Push branch"):
+      git.push().orThrow
 
-          reviewAndFixLoop(
-            coder = claude,
-            sessionId = session,
-            reviewers = allReviewers(claude),
-            // Haiku picks the per-task reviewer subset; swap for
-            // `ReviewerSelector.allEveryRound` to run every reviewer.
-            reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
-            task = task.title.value
-          )
+    // Haiku summarises the diff — cheap model, summarisation task.
+    val summary = stage("Generate PR title and description"):
+      summarisePr(
+        llm = claude.haiku,
+        diff = git.diff(),
+        context = Some(
+          s"""Originating issue: ${issueHandle.owner}/${issueHandle.repo}#${issueHandle.number}
+             |Issue title: ${issue.title}""".stripMargin
+        )
+      )
 
-          git.commit(s"Implement ${task.title}").orThrow
-
-      stage("Push branch"):
-        git.push().orThrow
-
-      // Haiku summarises the diff — cheap model, summarisation task.
-      val (_, summary) = stage("Draft PR title and description"):
-        val diff = git.diff()
-        claude.haiku
-          .resultAs[PrSummary]
-          .autonomous
-          .run(
-            s"""Summarise the following work into a PR title and a PR
-               |description body. The title should fit on one line; the
-               |body should be a few short paragraphs covering what
-               |changed and why, anchored to the originating issue.
-               |
-               |Originating issue: ${issueHandle.owner}/${issueHandle.repo}#${issueHandle.number}
-               |Issue title: ${issue.title}
-               |
-               |Branch diff (vs base):
-               |
-               |```diff
-               |$diff
-               |```""".stripMargin
-          )
-
-      stage("Open PR"):
-        val body =
-          s"""${summary.body}
-             |
-             |Closes ${issueHandle.owner}/${issueHandle.repo}#${issueHandle.number}.""".stripMargin
-        val _ = gh.createPr(title = summary.title, body = body).orThrow
+    stage("Open PR"):
+      val body =
+        s"""${summary.body}
+           |
+           |Closes ${issueHandle.owner}/${issueHandle.repo}#${issueHandle.number}.""".stripMargin
+      val _ = gh.createPr(title = summary.title, body = body).orThrow

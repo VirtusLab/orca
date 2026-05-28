@@ -167,6 +167,12 @@ narrows the supplied list per task. Pass
 `ReviewerSelector.onlyPreviouslyReporting` to re-run only the reviewers that
 found something last round.
 
+PR utilities, available via `import orca.pr.*`:
+
+| Method | Use |
+|---|---|
+| `summarisePr(llm, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. Use a cheap model (`claude.haiku`, `codex.mini`). |
+
 ### Customising prompts
 
 Every domain helper that bundles an LLM brief takes the prompt as a
@@ -186,6 +192,7 @@ Plan.interactive.from(
 
 Where the defaults live:
 - `orca.plan.PlanPrompts` — `Planning`
+- `orca.pr.PrPrompts` — `Summarise`
 - `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummarizeLint`
 - `orca.review.ReviewerPrompts` — per-reviewer system prompts (compose your own
   list to swap or extend `allReviewers`/`minimalReviewers`)
@@ -215,6 +222,8 @@ can generate them as structured output via `claude.resultAs[T]`:
 - **`orca.bug.BugTriage`** / **`orca.bug.BugReportMatch`** — the agent's
   decision on whether a bug can be reproduced as a unit test, and whether a CI
   failure matches the report.
+- **`orca.pr.PrSummary(title, body)`** — what `summarisePr` returns. The two
+  fields feed `gh.createPr(title = …, body = …)` directly.
 - **`orca.review.ReviewIssue` / `ReviewResult`** — what reviewer agents return.
   Issues carry severity, confidence, a `title` (shown), and a long
   `description` (sent to the fixer).

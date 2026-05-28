@@ -93,6 +93,22 @@ object FlowCanary:
       stage("start"):
         val _ = claude.autonomous.run(userPrompt)
 
+  /** `summarisePr` + `PrSummary` surface; exercised by `plans/issue-pr.sc`.
+    * Pins the call shape (`llm`, `diff`, optional `context`, optional
+    * `instructions`) and the result type so a rename or signature drift
+    * surfaces in this test instead of at the next live run.
+    */
+  def summarisePrSurface(): Unit =
+    flow(OrcaArgs()):
+      stage("pr"):
+        val summary: PrSummary = summarisePr(
+          llm = claude.haiku,
+          diff = git.diff(),
+          context = Some("Originating issue: acme/widgets#7")
+        )
+        val _ = summary.title
+        val _ = summary.body
+
   /** Issue/PR-comment surface on `gh` — exercised by the issue-pr plan in
     * `plans/`. If any of these signatures move, the canary fails.
     */
