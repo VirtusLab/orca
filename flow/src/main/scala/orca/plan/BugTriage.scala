@@ -29,23 +29,25 @@ private[plan] case class BugTriage(
 ) derives JsonData:
 
   def toTriage: Either[String, Triage] =
-    if !isBug then
-      if notBugExplanation.trim.isEmpty then
-        Left("triage: isBug=false but notBugExplanation is empty")
-      else Right(Triage.NotABug(notBugExplanation))
-    else if !canTest then
-      if summary.trim.isEmpty then
-        Left("triage: isBug=true but summary is empty")
-      else if reproductionSteps.trim.isEmpty then
-        Left("triage: canTest=false but reproductionSteps is empty")
-      else Right(Triage.Untestable(summary, reproductionSteps))
-    else
-      failingTestPath.filter(_.trim.nonEmpty) match
-        case None =>
-          Left("triage: canTest=true but failingTestPath is missing")
-        case Some(path) =>
-          if summary.trim.isEmpty then
-            Left("triage: isBug=true but summary is empty")
-          else if branchName.trim.isEmpty then
-            Left("triage: canTest=true but branchName is empty")
-          else Right(Triage.Testable(summary, branchName, path))
+    def need(field: String, value: String): Either[String, String] =
+      Either.cond(
+        value.trim.nonEmpty,
+        value,
+        s"triage: $field is empty"
+      )
+    (isBug, canTest) match
+      case (false, _) =>
+        need("notBugExplanation", notBugExplanation).map(Triage.NotABug.apply)
+      case (true, false) =>
+        for
+          s <- need("summary", summary)
+          r <- need("reproductionSteps", reproductionSteps)
+        yield Triage.Untestable(s, r)
+      case (true, true) =>
+        for
+          s <- need("summary", summary)
+          b <- need("branchName", branchName)
+          p <- failingTestPath
+            .filter(_.trim.nonEmpty)
+            .toRight("triage: failingTestPath is missing")
+        yield Triage.Testable(s, b, p)
