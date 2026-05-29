@@ -304,25 +304,31 @@ private[orca] class OsGitTool(
     git("diff", spec)
 
   def defaultBase(): String =
-    // `git symbolic-ref -q` resolves origin/HEAD without throwing on absence
-    // (-q suppresses stderr; exit code carries the answer).
-    val originHead = QuietProc.call(
-      Seq("git", "symbolic-ref", "-q", "refs/remotes/origin/HEAD"),
-      cwd = workDir
-    )
-    if originHead.exitCode == 0 then
-      // Output looks like "refs/remotes/origin/main"; strip the prefix to
-      // get the short form callers can pass back into `diff`.
-      originHead.out.text().trim.stripPrefix("refs/remotes/")
-    else
-      // origin/HEAD not set — fall back to common defaults.
-      List("origin/main", "origin/master").find(refExists).getOrElse(
+    resolveOriginHead
+      .orElse(List("origin/main", "origin/master").find(refExists))
+      .getOrElse(
         throw OrcaFlowException(
           "no default base ref found: tried origin/HEAD, origin/main, origin/master. " +
             "Either set the remote's HEAD (`git remote set-head origin -a`) or " +
             "pass an explicit base to diffVsBase."
         )
       )
+
+  /** Resolve the remote's recorded default branch via `git symbolic-ref`.
+    * `-q` suppresses stderr and lets us read the answer off the exit code,
+    * so a missing `origin/HEAD` ref becomes a clean `None` rather than a
+    * thrown subprocess error.
+    */
+  private def resolveOriginHead: Option[String] =
+    val result = QuietProc.call(
+      Seq("git", "symbolic-ref", "-q", "refs/remotes/origin/HEAD"),
+      cwd = workDir
+    )
+    if result.exitCode == 0 then
+      // Output looks like "refs/remotes/origin/main"; strip the prefix to
+      // get the short form callers can pass back into `diff`.
+      Some(result.out.text().trim.stripPrefix("refs/remotes/"))
+    else None
 
   private def refExists(ref: String): Boolean =
     QuietProc
