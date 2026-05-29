@@ -232,7 +232,7 @@ class PersistentPlanTest extends munit.FunSuite:
     // body that produced no tracked change — even though the on-disk plan
     // already had the tick written, so the next resume would skip the
     // task. Now the loop advances cleanly past a no-op body.
-    withRepoCtx: (ctx, dir, _) =>
+    withRepoCtx: (ctx, dir, seen) =>
       given FlowContext = ctx
       val plan = Plan(
         epicId = "feat-noop",
@@ -246,9 +246,10 @@ class PersistentPlanTest extends munit.FunSuite:
         // intentionally produce nothing the working tree would record
 
       assertEquals(bodyCalls, 2)
-      // Loop reached its end (no abort); only the seed commit exists.
-      val commits = ctx.git.log(10).map(_.message)
-      assertEquals(commits, List("seed"))
+      // Each no-op task emits a Step so the silent advance is observable.
+      val noOpSteps = seen.get.collect:
+        case OrcaEvent.Step(m) if m.contains("produced no tracked changes") => m
+      assertEquals(noOpSteps.size, 2)
 
   test(
     "file-backed implementTaskLoop tolerates a no-op body with a gitignored plan file"

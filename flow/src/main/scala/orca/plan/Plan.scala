@@ -336,7 +336,17 @@ object Plan:
       // `.gitignore`, or a no-op task by design) shouldn't abort the loop
       // and leave the next run skipping a task on the strength of an
       // on-disk tick alone. Same swallow the cleanup commit already does.
-      val _ = ctx.git.commit(s"task: ${t.title}")
+      // Surface the swallow as a Step so a body that silently produced
+      // nothing (e.g. an LLM turn that ended without edits) is still
+      // visible in the event log.
+      ctx.git.commit(s"task: ${t.title}") match
+        case Right(_) => ()
+        case Left(_) =>
+          ctx.emit(
+            OrcaEvent.Step(
+              s"task '${t.title.value}' produced no tracked changes — advancing without commit"
+            )
+          )
       task = current.firstIncomplete
     cleanup()
 
