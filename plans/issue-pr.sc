@@ -101,7 +101,7 @@ flow(OrcaArgs(args)):
         llm = claude.haiku,
         // Branch-vs-default-branch diff — `git.diff()` (vs HEAD) would be
         // empty here since `implementTaskLoop` already committed every task.
-        diff = git.diffSince("origin/HEAD"),
+        diff = git.diffVsBase("origin/HEAD"),
         context = Some(
           s"""Originating issue: ${issueHandle.shortRef}
              |Issue title: ${issue.title}""".stripMargin

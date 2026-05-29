@@ -7,6 +7,20 @@ import ox.either.orThrow
 
 case class CommitInfo(hash: String, message: String, author: String)
 
+/** Which diff semantics [[GitTool.diffVsBase]] should produce.
+  *
+  *   - [[DiffMode.MergeBase]] (default) — three-dot syntax (`base...HEAD`).
+  *     Matches what GitHub renders in a PR view: changes the current branch
+  *     introduces since it forked off `base`, ignoring any commits `base`
+  *     has gained since the fork. The right choice for `summarisePr`.
+  *   - [[DiffMode.Direct]] — two-dot syntax (`base..HEAD`). Compares HEAD
+  *     directly to `base`'s current tip. Useful for "what would a fast-
+  *     forward merge change" or rebase-status views.
+  */
+enum DiffMode:
+  case MergeBase
+  case Direct
+
 /** A linked git worktree — a separate working directory checked out at a
   * specific branch, sharing the main repository's object store.
   */
@@ -98,16 +112,18 @@ trait GitTool:
   /** All changes since the last commit (staged and unstaged). */
   def diff(): String
 
-  /** Diff of the current branch vs `base` — the cumulative change a PR against
-    * `base` would carry. Uses three-dot syntax so the diff is taken against the
-    * merge-base of `base` (same semantics GitHub renders in a PR view).
+  /** Diff of the current branch vs `base`.
+    *
+    * `mode = MergeBase` (default) returns the cumulative change a PR against
+    * `base` would carry (three-dot, merge-base semantics — GitHub's PR
+    * view). `mode = Direct` compares HEAD directly to `base`'s tip.
     *
     * Typical bases: `"origin/HEAD"` (the remote's default branch, set
     * automatically on `git clone`), `"main"`, `"master"`. For a freshly `git
-    * init`ed local repo, `origin/HEAD` may not be set — pass an explicit branch
-    * name in that case.
+    * init`ed local repo, `origin/HEAD` may not be set — pass an explicit
+    * branch name in that case.
     */
-  def diffSince(base: String): String
+  def diffVsBase(base: String, mode: DiffMode = DiffMode.MergeBase): String
 
   def log(n: Int = 10): List[CommitInfo]
 
@@ -267,8 +283,11 @@ private[orca] class OsGitTool(
     // vs HEAD: show both staged and unstaged changes since the last commit.
     git("diff", "HEAD")
 
-  def diffSince(base: String): String =
-    git("diff", s"$base...HEAD")
+  def diffVsBase(base: String, mode: DiffMode): String =
+    val spec = mode match
+      case DiffMode.MergeBase => s"$base...HEAD"
+      case DiffMode.Direct    => s"$base..HEAD"
+    git("diff", spec)
 
   def log(n: Int): List[CommitInfo] =
     // Fields are separated with the ASCII unit separator (0x1F) so commit

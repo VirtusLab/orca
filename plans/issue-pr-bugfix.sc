@@ -101,7 +101,7 @@ flow(OrcaArgs(args)):
       val prSummary = stage("Generate tentative PR title and description"):
         summarisePr(
           llm = claude.haiku,
-          diff = git.diffSince("origin/HEAD"),
+          diff = git.diffVsBase("origin/HEAD"),
           context = Some(
             s"""Originating issue: ${issueHandle.shortRef}
                |Issue title: ${issue.title}
