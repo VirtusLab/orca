@@ -349,22 +349,22 @@ private[orca] class OsGitHubTool(
     val noChecksDeadline = start + noChecksGrace.toNanos
 
     @scala.annotation.tailrec
-    def loop(): Either[BuildWaitFailed, BuildStatus] =
+    def loop(sawAnyCheck: Boolean): Either[BuildWaitFailed, BuildStatus] =
       val status = buildStatus(pr)
       val now = System.nanoTime()
+      // Sticky watermark: once we've seen even one non-empty rollup, the
+      // "no CI configured" hypothesis is disproven, so a later transient
+      // empty rollup (API blip, retry) can't fire NoChecksConfigured.
+      val seen = sawAnyCheck || status.log.nonEmpty
       if status.outcome != BuildOutcome.Pending then Right(status)
-      // An empty log means the rollup was empty (no checks yet). If that
-      // hasn't changed by `noChecksGrace`, the repo most likely has no CI
-      // workflow — surface that explicitly instead of waiting out the
-      // whole timeout.
-      else if status.log.isEmpty && now >= noChecksDeadline then
+      else if !seen && now >= noChecksDeadline then
         Left(new NoChecksConfigured(noChecksGrace))
       else if now >= deadline then Left(new BuildTimedOut(timeout))
       else
         sleep(pollInterval)
-        loop()
+        loop(seen)
 
-    loop()
+    loop(sawAnyCheck = false)
 
   private def gh(args: String*): String =
     val result = cli.run("gh" +: args, cwd = workDir)

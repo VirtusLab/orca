@@ -174,6 +174,32 @@ class OsGitHubToolTest extends munit.FunSuite:
     assertEquals(status.outcome, BuildOutcome.Success)
 
   test(
+    "waitForBuild doesn't fire NoChecksConfigured once a check was seen"
+  ):
+    // Sticky-watermark check: once the rollup has a check, a later
+    // transient empty rollup (API blip / retry) must not trigger the
+    // "no CI configured" fast-path. With timeout > grace, the loop falls
+    // through to BuildTimedOut instead.
+    val pendingJson =
+      """{"statusCheckRollup":[{"status":"IN_PROGRESS","name":"t"}]}"""
+    val cli = new StubCliRunner(CliResult(0, pendingJson, ""))
+    val gh = new OsGitHubTool(
+      cli,
+      pollInterval = 5.millis,
+      noChecksGrace = 20.millis
+    )
+    val watcher = new Thread(() =>
+      // Wait past the grace window, then flip to an empty rollup. The
+      // sticky `sawAnyCheck` should prevent NoChecksConfigured.
+      Thread.sleep(40)
+      cli.setResponse(CliResult(0, """{"statusCheckRollup":[]}""", ""))
+    )
+    watcher.start()
+    val result = gh.waitForBuild(samplePr, timeout = 200.millis)
+    watcher.join()
+    assert(result.left.exists(_.isInstanceOf[BuildTimedOut]))
+
+  test(
     "waitForBuild returns Left(NoChecksConfigured) when checks never register"
   ):
     // No CI configured: every poll comes back with an empty rollup. With
