@@ -1,7 +1,15 @@
 package orca.plan
 
 import orca.{FlowContext, OrcaFlowException}
-import orca.llm.{Announce, BackendTag, CanAskUser, JsonData, LlmTool, given}
+import orca.llm.{
+  Announce,
+  BackendTag,
+  CanAskUser,
+  JsonData,
+  LlmTool,
+  SessionId,
+  given
+}
 import orca.events.OrcaEvent
 
 /** A development plan: an ordered list of [[Task]]s the agent will work
@@ -103,6 +111,28 @@ object Plan:
         instructions: String = PlanPrompts.Planning
     )(using FlowContext): Plan =
       loadOrGenerateImpl(file, () => from(userPrompt, llm, instructions))
+
+    /** Interactive triage of a bug report. The agent may ask clarifying
+      * questions via `ask_user`; the returned session is reusable for the
+      * downstream implementation phase so the implementer inherits the
+      * triage's mental model.
+      *
+      * Sibling of [[autonomous.assessThenPlan]]: same shape (LLM-driven
+      * assessment that returns a sum type the caller dispatches on), the
+      * mode differs.
+      */
+    def triage[B <: BackendTag: CanAskUser](
+        report: String,
+        llm: LlmTool[B],
+        instructions: String = PlanPrompts.Triage
+    )(using FlowContext): (SessionId[B], Triage) =
+      val (sessionId, raw) =
+        llm.resultAs[BugTriage].interactive.run(s"$report\n\n$instructions")
+      val triage = raw.toTriage.fold(
+        msg => throw OrcaFlowException(msg),
+        identity
+      )
+      (sessionId, triage)
 
   /** Autonomous planning helpers — a single agentic turn, no human in the loop.
     * Sibling of [[interactive]]; the choice between the two is visible at the

@@ -52,7 +52,7 @@ flow(OrcaArgs(args)):
   // returned here is reused below for the failing-test write and the fix
   // implementation, so the implementer inherits the triage's mental model.
   val (session, triage) = stage("Triage"):
-    Triage.interactive(
+    Plan.interactive.triage(
       s"""Title: ${issue.title}
          |Reporter: ${issue.author}
          |
