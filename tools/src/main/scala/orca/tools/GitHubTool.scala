@@ -92,12 +92,31 @@ class NoCommitsToPr
       "no commits to open a pull request from — push the branch first"
     )
 
-/** Returned in the `Left` of [[GitHubTool.waitForBuild]] when the timeout
-  * elapses while the build is still pending. The caller can decide whether to
-  * keep waiting, escalate to a human, or abort.
+/** Common parent for recoverable [[GitHubTool.waitForBuild]] failure modes —
+  * both manifest as a `Left` rather than a thrown exception, but subclass
+  * `OrcaFlowException` so a caller's `.orThrow` still surfaces them.
+  */
+sealed abstract class BuildWaitFailed(message: String)
+    extends OrcaFlowException(message)
+
+/** Returned when the overall `waitForBuild` deadline elapsed while the build
+  * was still pending (real CI was running, just slowly). The caller can
+  * decide whether to keep waiting, escalate to a human, or abort.
   */
 class BuildTimedOut(timeout: FiniteDuration)
-    extends OrcaFlowException(s"build did not finish within $timeout")
+    extends BuildWaitFailed(s"build did not finish within $timeout")
+
+/** Returned when no CI check was ever registered against the PR after
+  * `noChecksGrace`. Typically means the target repo has no CI workflow set
+  * up — distinct from a real CI run that timed out. Surfaced as a separate
+  * type so the caller can give a more actionable error message than
+  * "CI didn't finish".
+  */
+class NoChecksConfigured(grace: FiniteDuration)
+    extends BuildWaitFailed(
+      s"no CI checks registered against the PR after $grace — most likely the " +
+        "repo has no CI workflow configured"
+    )
 
 /** GitHub adapter usable from flow scripts — the handle behind the `gh`
   * accessor. Creates pull requests, reads issues and their comments, reads and
@@ -130,10 +149,23 @@ trait GitHubTool:
     */
   def writeComment(issue: IssueHandle, body: String): Unit
   def buildStatus(pr: PrHandle): BuildStatus
+
+  /** Poll [[buildStatus]] every `pollInterval` (impl-defined) until the build
+    * reaches a terminal outcome or one of two timeouts fires:
+    *
+    *   - `timeout` is the overall deadline. When it elapses while the build
+    *     is still pending, returns `Left(BuildTimedOut)`.
+    *   - An implementation-defined "no-checks" grace period catches the
+    *     "repo has no CI workflow configured" case. When no check has
+    *     registered after that grace, returns `Left(NoChecksConfigured)`
+    *     immediately rather than burning the rest of `timeout`.
+    *
+    * Empty check list → Pending (not Success) — see [[buildStatus]] note.
+    */
   def waitForBuild(
       pr: PrHandle,
       timeout: FiniteDuration
-  ): Either[BuildTimedOut, BuildStatus]
+  ): Either[BuildWaitFailed, BuildStatus]
 
 private[orca] case class GhCheck(
     // CheckRun entries use `status`/`conclusion`; legacy commit-status entries
@@ -180,6 +212,7 @@ private[orca] class OsGitHubTool(
     cli: CliRunner,
     workDir: os.Path = os.pwd,
     pollInterval: FiniteDuration = 30.seconds,
+    noChecksGrace: FiniteDuration = 90.seconds,
     events: OrcaListener = OrcaListener.noop
 ) extends GitHubTool:
 
@@ -301,15 +334,23 @@ private[orca] class OsGitHubTool(
   def waitForBuild(
       pr: PrHandle,
       timeout: FiniteDuration
-  ): Either[BuildTimedOut, BuildStatus] =
-    val deadline = System.nanoTime() + timeout.toNanos
+  ): Either[BuildWaitFailed, BuildStatus] =
+    val start = System.nanoTime()
+    val deadline = start + timeout.toNanos
+    val noChecksDeadline = start + noChecksGrace.toNanos
 
     @scala.annotation.tailrec
-    def loop(): Either[BuildTimedOut, BuildStatus] =
+    def loop(): Either[BuildWaitFailed, BuildStatus] =
       val status = buildStatus(pr)
+      val now = System.nanoTime()
       if status.outcome != BuildOutcome.Pending then Right(status)
-      else if System.nanoTime() >= deadline then
-        Left(new BuildTimedOut(timeout))
+      // An empty log means the rollup was empty (no checks yet). If that
+      // hasn't changed by `noChecksGrace`, the repo most likely has no CI
+      // workflow — surface that explicitly instead of waiting out the
+      // whole timeout.
+      else if status.log.isEmpty && now >= noChecksDeadline then
+        Left(new NoChecksConfigured(noChecksGrace))
+      else if now >= deadline then Left(new BuildTimedOut(timeout))
       else
         Thread.sleep(pollInterval.toMillis)
         loop()
