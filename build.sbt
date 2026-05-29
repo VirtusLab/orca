@@ -99,6 +99,10 @@ lazy val runner = (project in file("runner"))
   .settings(
     // Published as just "orca" so flow-script coordinates stay short.
     name := "orca",
+    // Fork tests: `flow(...)` mutates the global logback root logger (OrcaLog's
+    // per-run appender) and can `System.exit` on a NonFatal failure — a forked
+    // JVM keeps that out of the shared test runner.
+    Test / fork := true,
     libraryDependencies ++= Seq(ox, mainargs, jline, fansi, jsoniterMacros)
   )
 

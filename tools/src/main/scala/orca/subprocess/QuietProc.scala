@@ -23,6 +23,8 @@ package orca.subprocess
   */
 private[orca] object QuietProc:
 
+  private val log = org.slf4j.LoggerFactory.getLogger("orca.proc")
+
   /** Run `args` to completion. stdout + stderr are captured into the returned
     * [[os.CommandResult]]; `check = false` means non-zero exits don't throw —
     * the caller inspects `exitCode` / `err.text()` and decides how to react.
@@ -35,6 +37,7 @@ private[orca] object QuietProc:
       env: Map[String, String] = null,
       stdin: os.ProcessInput = os.Pipe
   ): os.CommandResult =
+    log.debug("exec: {}", args.mkString(" "))
     os.proc(args)
       .call(
         cwd = cwd,

@@ -1,5 +1,7 @@
 package orca.subprocess
 
+import org.slf4j.LoggerFactory
+
 import scala.jdk.CollectionConverters.given
 
 /** Runs external commands via os-lib. `check = false` is intentional — callers
@@ -8,6 +10,12 @@ import scala.jdk.CollectionConverters.given
   * information.
   */
 object OsProcCliRunner extends CliRunner:
+  // Trace every external invocation (gh, git, claude, codex) to the per-run
+  // log. Prompts travel over stdin, not argv, so this records the command +
+  // flags + exit code without leaking prompt bodies; the prompt itself is
+  // logged separately via the `UserPrompt` event.
+  private val log = LoggerFactory.getLogger("orca.proc")
+
   def run(
       args: Seq[String],
       stdin: String,
@@ -20,6 +28,7 @@ object OsProcCliRunner extends CliRunner:
     // full rationale. `mergeErrIntoOut` would also work but losing the
     // stdout/stderr distinction would weaken the diagnostic in
     // OrcaFlowException messages.
+    log.debug("exec: {} (cwd={})", args.mkString(" "), cwd)
     val result = os
       .proc(args)
       .call(
@@ -30,6 +39,7 @@ object OsProcCliRunner extends CliRunner:
         stderr = os.Pipe,
         check = false
       )
+    log.debug("exit {}: {}", result.exitCode, args.headOption.getOrElse("?"))
     CliResult(result.exitCode, result.out.text(), result.err.text())
 
   def spawnPiped(
@@ -38,6 +48,7 @@ object OsProcCliRunner extends CliRunner:
       cwd: os.Path,
       pipeStderr: Boolean
   ): PipedCliProcess =
+    log.debug("spawn: {} (cwd={})", args.mkString(" "), cwd)
     val sub = os
       .proc(args)
       .spawn(

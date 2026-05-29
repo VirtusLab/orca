@@ -9,8 +9,9 @@ import orca.events.{
   Pricing
 }
 import orca.llm.{ClaudeTool, DefaultPrompts, Prompts}
-import orca.runner.DefaultFlowContext
+import orca.runner.{DefaultFlowContext, LoggingListener, OrcaLog}
 import orca.runner.terminal.TerminalInteraction
+import org.slf4j.LoggerFactory
 import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
@@ -57,6 +58,13 @@ def flow(
     pricing: PriceList = Pricing.default
 )(body: FlowContext ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose.value
+  // Per-run trace file: captures every stage, prompt, tool/subprocess call and
+  // result at DEBUG. Started before anything logs so the whole run is caught;
+  // surfaced to the console only on failure or with `--verbose` (see below).
+  val orcaLog = OrcaLog.start()
+  val flowLog = LoggerFactory.getLogger("orca.flow")
+  flowLog.info("flow start (workDir={})", workDir)
+  flowLog.info("user prompt: {}", args.userPrompt)
   // A daemon thread or unsupervised fork that throws would otherwise
   // disappear with no diagnostic. Route every uncaught throwable to
   // stderr with its stack so a silent exit always leaves a trail.
@@ -81,7 +89,8 @@ def flow(
         try
           val dispatcher = new EventDispatcher(
             effectiveInteraction.listeners ++ List(
-              costTracker
+              costTracker,
+              new LoggingListener
             ) ++ extraListeners
           )
           val ctx = DefaultFlowContext.withDefaults(
@@ -102,11 +111,24 @@ def flow(
       // through the channel; the user saw a friendly message there. We
       // still log the unfriendly bits to stderr so a silent `exit 1` is
       // never a possibility — full stack for unexpected throwables, just
-      // the message for OrcaFlowException unless debug is on.
+      // the message for OrcaFlowException unless debug is on. The trace
+      // file is dumped here (System.exit skips the outer finally) so a
+      // failure always leaves the full execution trail on the console.
       case NonFatal(e) =>
+        flowLog.error("flow aborted: {}", e.getMessage, e)
         reportUncaught(e, debug)
+        // The `System.exit(1)` below halts the JVM and skips the outer
+        // `finally`, so the summary + trace-dump here run exactly once on this
+        // path (and the failure always leaves the full trace on the console).
+        costTracker.printSummary()
+        orcaLog.finish(System.err, dump = true)
         System.exit(1)
-  finally costTracker.printSummary()
+  finally
+    costTracker.printSummary()
+    // Success (or a fatal escape): dump the trace only under `--verbose`;
+    // otherwise just print its path. Idempotent — the error path above
+    // already finished it before exiting.
+    orcaLog.finish(System.err, dump = debug)
 
 private def installUncaughtExceptionHandler(): Unit =
   // Idempotent across nested or repeated `flow(...)` calls — we only
