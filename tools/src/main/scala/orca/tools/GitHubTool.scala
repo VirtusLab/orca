@@ -83,12 +83,12 @@ case class BuildStatus(outcome: BuildOutcome, log: String)
 sealed abstract class PrCreateFailed(message: String)
     extends OrcaFlowException(message)
 
-class PrAlreadyExists
+final class PrAlreadyExists
     extends PrCreateFailed(
       "a pull request for the current branch already exists"
     )
 
-class NoCommitsToPr
+final class NoCommitsToPr
     extends PrCreateFailed(
       "no commits to open a pull request from — push the branch first"
     )
@@ -104,7 +104,7 @@ sealed abstract class BuildWaitFailed(message: String)
   * was still pending (real CI was running, just slowly). The caller can
   * decide whether to keep waiting, escalate to a human, or abort.
   */
-class BuildTimedOut(timeout: FiniteDuration)
+final class BuildTimedOut(timeout: FiniteDuration)
     extends BuildWaitFailed(s"build did not finish within $timeout")
 
 /** Returned when no CI check was ever registered against the PR after
@@ -113,7 +113,7 @@ class BuildTimedOut(timeout: FiniteDuration)
   * type so the caller can give a more actionable error message than
   * "CI didn't finish".
   */
-class NoChecksConfigured(grace: FiniteDuration)
+final class NoChecksConfigured(grace: FiniteDuration)
     extends BuildWaitFailed(
       s"no CI checks registered against the PR after $grace — most likely the " +
         "repo has no CI workflow configured"
