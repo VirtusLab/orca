@@ -36,24 +36,19 @@ import orca.{*, given}
 flow(OrcaArgs(args)):
   val planFile = Plan.defaultPath(userPrompt)
 
-  // System prompt covers the whole epic run — the runtime owns commits, so
-  // the agent must never invoke git itself (a stray `git commit` would empty
-  // the working tree and crash the next `implementTaskLoop` commit step).
-  val coder = claude.withSystemPrompt(
-    "The runtime handles git commits. Never run `git commit` yourself."
-  )
-
   // Resume `.orca/plan-<hash>.md` if it exists; otherwise plan + branch.
   val plan = stage("Acquire epic"):
     Plan.recoverOrCreate(planFile, "orca: starting epic"):
-      // `.value` drops the planner's read-only session — the coder below
-      // mints a fresh one.
+      // `.value` drops the planner's read-only session — the implementer
+      // below mints a fresh one.
       Plan.autonomous.from(userPrompt, claude.opus).value
 
   // Stable coder session reused across every task (and the docs pass at the
   // end) so the agent retains cross-task context. Fresh session (not the
-  // planner's, which ran read-only).
-  val session = coder.newSession
+  // planner's, which ran read-only). The runtime owns git commits — the agent
+  // is told not to commit by the default system prompt, so a stray `git
+  // commit` can't empty the working tree before `implementTaskLoop` commits.
+  val session = claude.newSession
 
   // Reviewers on codex (not claude — the implementer is its own worst critic);
   // fixes go back to the same Claude session that implemented the task.
@@ -62,7 +57,7 @@ flow(OrcaArgs(args)):
   Plan.implementTaskLoop(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
       stage("Implementation"):
-        val _ = coder.autonomous.run(task.description, session)
+        val _ = claude.autonomous.run(task.description, session)
 
       // Format before review so reviewers don't burn turns on style nits the
       // toolchain would fix automatically. Spotless is wired into the seed pom.
@@ -72,7 +67,7 @@ flow(OrcaArgs(args)):
           .call(cwd = os.pwd, check = false)
 
       reviewAndFixLoop(
-        coder = coder,
+        coder = claude,
         sessionId = session,
         reviewers = reviewers,
         reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
@@ -80,7 +75,7 @@ flow(OrcaArgs(args)):
       )
 
   stage("Update documentation"):
-    val _ = coder.autonomous.run(
+    val _ = claude.autonomous.run(
       "All tasks done. Update project docs (README, doc-comments) based " +
         "on the changes made. Only update what's affected — no new sections.",
       session

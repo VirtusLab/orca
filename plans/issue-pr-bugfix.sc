@@ -23,8 +23,9 @@
   *   1. Plan + implement the fix on the same branch (read/grep, write,
   *      `sbt scalafmtAll`, review per task). Implementation reuses the
   *      triage/failing-test session.
-  *   1. Push the fix. Does NOT wait for CI green at the end — a human
-  *      picks the PR up from there.
+  *   1. Push the fix, then regenerate the PR title + description from the
+  *      full branch diff (so it reads as a fix, not "add a test"). Does NOT
+  *      wait for CI green at the end — a human picks the PR up from there.
   *
   * Usage:
   *
@@ -199,3 +200,26 @@ flow(OrcaArgs(args)):
 
       stage("Push the fix"):
         git.push().orThrow
+
+      // The PR description was written when only the failing test had landed.
+      // Now that the branch carries the fix too, regenerate the title + body
+      // from the full branch diff so the PR reads as a fix, not "add a test".
+      stage("Update PR title and description"):
+        val finalSummary = summarisePr(
+          llm = claude.haiku,
+          diff = git.diffVsBase(git.defaultBase()),
+          context = Some(
+            s"""Originating issue: ${issueHandle.shortRef}
+               |Issue title: ${issue.title}
+               |
+               |The branch now contains both the failing test and the
+               |fix that makes it pass.""".stripMargin
+          )
+        )
+        gh.updatePr(
+          pr,
+          title = finalSummary.title,
+          body = s"""${finalSummary.body}
+                    |
+                    |Closes ${issueHandle.shortRef}.""".stripMargin
+        )

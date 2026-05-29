@@ -50,6 +50,8 @@ Only after those three gates does the implementation start.
     runs each task on the reused triage session through implementation,
     `sbt scalafmtAll`, and `reviewAndFixLoop` with `sbt test` as lint.
 11. **Push the fix** — no final CI wait; a human picks the PR up.
+12. **Update the PR** — `gh.updatePr` regenerates the title + body from the
+    full branch diff (test + fix), so the PR no longer reads as "add a test".
 
 ## Prerequisites
 

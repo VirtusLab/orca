@@ -124,7 +124,12 @@ class ClaudeBackendTest extends munit.FunSuite:
       val flagIdx = args.indexOf("--append-system-prompt-file")
       assert(flagIdx >= 0, s"expected the prompt-file flag in args; got: $args")
       val path = os.Path(args(flagIdx + 1))
-      assertEquals(os.read(path), "you are a poet")
+      // The configured prompt leads; SystemPromptComposer appends the
+      // always-on runtime-owns-git rule on write-capable turns.
+      assert(
+        os.read(path).startsWith("you are a poet"),
+        s"expected the configured prompt first; got: ${os.read(path)}"
+      )
 
   test(
     "first runAutonomous call uses --session-id; second with the same id uses --resume"

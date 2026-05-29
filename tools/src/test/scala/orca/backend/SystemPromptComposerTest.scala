@@ -4,29 +4,40 @@ import orca.llm.LlmConfig
 
 class SystemPromptComposerTest extends munit.FunSuite:
 
-  test("returns None when neither config nor hint is supplied"):
+  private val gitRule = SystemPromptComposer.RuntimeOwnsGit
+
+  test("write-capable turn with nothing else gets just the runtime-git rule"):
     val out = SystemPromptComposer.combine(LlmConfig.default, None)
+    assertEquals(out, Some(gitRule))
+
+  test("read-only turn with neither config nor hint returns None"):
+    // Read-only turns can't commit, so the git rule is omitted — and with no
+    // systemPrompt or hint there's nothing left to compose.
+    val out = SystemPromptComposer.combine(
+      LlmConfig.default.copy(readOnly = true),
+      None
+    )
     assertEquals(out, None)
 
-  test("returns Some(systemPrompt) when only the config is supplied"):
+  test("config systemPrompt precedes the appended runtime-git rule"):
     val out = SystemPromptComposer.combine(
       LlmConfig.default.copy(systemPrompt = Some("be terse")),
       extraHint = None
     )
+    assertEquals(out, Some(s"be terse\n\n$gitRule"))
+
+  test("read-only config keeps just its systemPrompt (no git rule)"):
+    val out = SystemPromptComposer.combine(
+      LlmConfig.default.copy(systemPrompt = Some("be terse"), readOnly = true),
+      extraHint = None
+    )
     assertEquals(out, Some("be terse"))
 
-  test("returns Some(hint) when only the extra hint is supplied"):
-    val out = SystemPromptComposer.combine(
-      LlmConfig.default,
-      extraHint = Some("the hint")
-    )
-    assertEquals(out, Some("the hint"))
-
-  test("joins config + hint with a blank line when both are supplied"):
-    // Pins the separator (\\n\\n) — backends downstream rely on a blank
-    // line between pieces so the agent reads them as distinct paragraphs.
+  test("joins config + hint + git rule with blank lines, in order"):
+    // Pins both the order (config, hint, rule) and the separator (\\n\\n) —
+    // backends rely on blank lines so the agent reads distinct paragraphs.
     val out = SystemPromptComposer.combine(
       LlmConfig.default.copy(systemPrompt = Some("be terse")),
       extraHint = Some("the hint")
     )
-    assertEquals(out, Some("be terse\n\nthe hint"))
+    assertEquals(out, Some(s"be terse\n\nthe hint\n\n$gitRule"))

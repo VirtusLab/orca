@@ -125,6 +125,12 @@ final class NoChecksConfigured(grace: FiniteDuration)
 trait GitHubTool:
   def createPr(title: String, body: String): Either[PrCreateFailed, PrHandle]
 
+  /** Replace an existing PR's title and body. Used to refresh a PR opened with
+    * a tentative description (e.g. when only a failing test had landed) once
+    * later work — the fix — is pushed.
+    */
+  def updatePr(pr: PrHandle, title: String, body: String): Unit
+
   /** Fetch the issue's title, body, author, and state. */
   def readIssue(issue: IssueHandle): Issue
 
@@ -295,6 +301,20 @@ private[orca] class OsGitHubTool(
     )
     readFromString[List[GhCommentJson]](output).map: c =>
       Comment(author = c.user.login, body = c.body)
+
+  def updatePr(pr: PrHandle, title: String, body: String): Unit =
+    val _ = gh(
+      "pr",
+      "edit",
+      pr.number.toString,
+      "--repo",
+      s"${pr.owner}/${pr.repo}",
+      "--title",
+      title,
+      "--body",
+      body
+    )
+    events.onEvent(OrcaEvent.Step(s"Updated PR: ${pr.url}"))
 
   def writeComment(pr: PrHandle, body: String): Unit =
     val _ = gh(

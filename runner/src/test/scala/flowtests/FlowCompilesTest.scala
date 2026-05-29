@@ -125,6 +125,7 @@ object FlowCanary:
         val pr = PrHandle("acme", "widgets", 7)
         val _ = gh.readPrComments(pr)
         gh.writeComment(pr, "pr comment")
+        gh.updatePr(pr, "new title", "new body")
 
   /** Planning grid surface; exercised across `plans/`. Pins the full `mode ×
     * operation` grid: every cell returns `Sessioned[B, <result>]` where the
