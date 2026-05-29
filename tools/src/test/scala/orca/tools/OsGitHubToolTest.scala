@@ -183,11 +183,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     val pendingJson =
       """{"statusCheckRollup":[{"status":"IN_PROGRESS","name":"t"}]}"""
     val cli = new StubCliRunner(CliResult(0, pendingJson, ""))
-    val gh = new OsGitHubTool(
-      cli,
-      pollInterval = 5.millis,
-      noChecksGrace = 20.millis
-    )
+    val gh = new OsGitHubTool(cli, pollInterval = 5.millis)
     val watcher = new Thread(() =>
       // Wait past the grace window, then flip to an empty rollup. The
       // sticky `sawAnyCheck` should prevent NoChecksConfigured.
@@ -195,7 +191,11 @@ class OsGitHubToolTest extends munit.FunSuite:
       cli.setResponse(CliResult(0, """{"statusCheckRollup":[]}""", ""))
     )
     watcher.start()
-    val result = gh.waitForBuild(samplePr, timeout = 200.millis)
+    val result = gh.waitForBuild(
+      samplePr,
+      timeout = 200.millis,
+      noChecksGrace = 20.millis
+    )
     watcher.join()
     assert(result.left.exists(_.isInstanceOf[BuildTimedOut]))
 
@@ -206,12 +206,12 @@ class OsGitHubToolTest extends munit.FunSuite:
     // noChecksGrace < timeout, returning NoChecksConfigured proves the
     // fast-path fired — it's only reachable via the grace branch.
     val cli = new StubCliRunner(CliResult(0, """{"statusCheckRollup":[]}""", ""))
-    val gh = new OsGitHubTool(
-      cli,
-      pollInterval = 10.millis,
+    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    val result = gh.waitForBuild(
+      samplePr,
+      timeout = 5.seconds,
       noChecksGrace = 50.millis
     )
-    val result = gh.waitForBuild(samplePr, timeout = 5.seconds)
     assert(result.left.exists(_.isInstanceOf[NoChecksConfigured]))
 
   test("waitForBuild returns Left(BuildTimedOut) when the deadline elapses"):

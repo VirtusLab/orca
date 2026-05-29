@@ -166,14 +166,16 @@ trait GitHubTool:
     *
     *   - `timeout` is the overall deadline. When it elapses while the build
     *     is still pending, returns `Left(BuildTimedOut)`.
-    *   - An implementation-defined "no-checks" grace period catches the
-    *     "repo has no CI workflow configured" case. When no check has
-    *     registered after that grace, returns `Left(NoChecksConfigured)`
-    *     immediately rather than burning the rest of `timeout`.
+    *   - `noChecksGrace` catches the "repo has no CI workflow configured"
+    *     case. When no check has registered after that grace, returns
+    *     `Left(NoChecksConfigured)` immediately rather than burning the
+    *     rest of `timeout`. Defaults to 90 seconds — long enough to absorb
+    *     normal CI startup, short enough to give a useful error fast.
     */
   def waitForBuild(
       pr: PrHandle,
-      timeout: FiniteDuration
+      timeout: FiniteDuration,
+      noChecksGrace: FiniteDuration = 90.seconds
   ): Either[BuildWaitFailed, BuildStatus]
 
 private[orca] case class GhCheck(
@@ -221,7 +223,6 @@ private[orca] class OsGitHubTool(
     cli: CliRunner,
     workDir: os.Path = os.pwd,
     pollInterval: FiniteDuration = 30.seconds,
-    noChecksGrace: FiniteDuration = 90.seconds,
     events: OrcaListener = OrcaListener.noop
 ) extends GitHubTool:
 
@@ -342,7 +343,8 @@ private[orca] class OsGitHubTool(
 
   def waitForBuild(
       pr: PrHandle,
-      timeout: FiniteDuration
+      timeout: FiniteDuration,
+      noChecksGrace: FiniteDuration = 90.seconds
   ): Either[BuildWaitFailed, BuildStatus] =
     val start = System.nanoTime()
     val deadline = start + timeout.toNanos
