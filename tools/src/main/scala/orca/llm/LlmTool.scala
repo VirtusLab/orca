@@ -52,6 +52,18 @@ trait LlmTool[B <: BackendTag]:
     */
   def withReadOnly: LlmTool[B]
 
+  /** Return a sibling tool that manages git itself — flips
+    * [[LlmConfig.selfManagedGit]] on, suppressing the standing "runtime owns
+    * git" rule the runtime otherwise injects (don't `git commit`/`push`/branch;
+    * leave edits in the working tree). Use only for a flow that genuinely wants
+    * the agent to drive git; the default keeps git runtime-owned.
+    *
+    * Unlike [[withReadOnly]] this carries a no-op default (returns `this`), so
+    * a custom `LlmTool` that forgets to wire it simply keeps the safe
+    * runtime-owns-git behaviour rather than silently granting the escape hatch.
+    */
+  def withSelfManagedGit: LlmTool[B] = this
+
   /** Mint a fresh session id you can pass to `.run(...)` across multiple calls.
     * The first call with this id starts the session; subsequent calls resume
     * it. Lets flow scripts hold a stable `val session = claude.newSession`

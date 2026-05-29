@@ -43,6 +43,8 @@ abstract class BaseLlmTool[B <: BackendTag, Self <: LlmTool[B]](
   def withName(newName: String): Self = copyTool(name = newName)
   def withReadOnly: Self =
     copyTool(config = config.copy(readOnly = true))
+  override def withSelfManagedGit: Self =
+    copyTool(config = config.copy(selfManagedGit = true))
 
   /** Pin the underlying CLI's `--model` flag for subsequent calls. Subclasses
     * expose backend-specific accessors (`haiku`/`sonnet`/`opus`, `mini`) on top

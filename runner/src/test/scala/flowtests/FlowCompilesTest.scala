@@ -56,6 +56,9 @@ object FlowCanary:
         val _ = fs
         val _ = codex
         val _ = userPrompt
+        // Per-tool config knobs resolve and chain on both backends.
+        val _ = claude.withReadOnly.withSelfManagedGit
+        val _ = codex.withSelfManagedGit
 
   /** Review-and-fix loop; pulls in `allReviewers` and the internal `stage`/fork
     * machinery.

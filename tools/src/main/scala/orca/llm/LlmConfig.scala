@@ -16,6 +16,15 @@ case class LlmConfig(
       * motivating case.
       */
     readOnly: Boolean = false,
+    /** Let the agent manage git itself — suppresses the standing "runtime owns
+      * git" rule that [[orca.backend.SystemPromptComposer]] otherwise appends
+      * to every write-capable turn. Off by default: orca's model is that the
+      * flow commits/branches/pushes via `git.*`, and a self-committing agent
+      * empties the working tree (breaking `reviewAndFixLoop`'s diff-based
+      * reviewer selection). Flip it on only for a flow that genuinely wants the
+      * agent to drive git.
+      */
+    selfManagedGit: Boolean = false,
     retrySchedule: Schedule = LlmConfig.defaultRetrySchedule
 ):
   /** Return a config whose `autoApprove` set also includes `tool`. Backends use

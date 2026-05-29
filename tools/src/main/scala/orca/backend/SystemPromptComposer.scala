@@ -23,9 +23,10 @@ private[orca] object SystemPromptComposer:
     * `git.commit(...)` into a `NothingToCommit` no-op, and (b) leaves
     * `git.diff()` empty so `reviewAndFixLoop`'s reviewer selection sees no
     * changed files and runs no reviewers. Omitted on read-only turns (planning,
-    * triage, reviewer selection — they can't write anyway). An invariant of
-    * orca's runtime-owns-git model: applied on top of any `withSystemPrompt`,
-    * not user-overridable.
+    * triage, reviewer selection — they can't write anyway) and on
+    * [[LlmConfig.selfManagedGit]] turns (the caller's explicit escape hatch via
+    * `llm.withSelfManagedGit`). Otherwise an invariant of orca's
+    * runtime-owns-git model, applied on top of any `withSystemPrompt`.
     */
   val RuntimeOwnsGit: String =
     "Git is managed by the runtime. Do NOT run `git commit`, `git push`, or " +
@@ -37,7 +38,9 @@ private[orca] object SystemPromptComposer:
       config: LlmConfig,
       extraHint: Option[String] = None
   ): Option[String] =
-    val gitRule = if config.readOnly then None else Some(RuntimeOwnsGit)
+    val gitRule =
+      if config.readOnly || config.selfManagedGit then None
+      else Some(RuntimeOwnsGit)
     List(config.systemPrompt, extraHint, gitRule).flatten match
       case Nil    => None
       case pieces => Some(pieces.mkString("\n\n"))

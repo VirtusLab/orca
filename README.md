@@ -93,8 +93,8 @@ The following are available inside a `flow(...) { ... }`:
 
 | Tool | Methods | Purpose |
 |---|---|---|
-| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly` | Claude Code coding/reviewing agent. Each `run` returns `(SessionId, output)`. Pre-allocate a session with `claude.newSession` and pass it on every call to keep one conversation alive; omit the arg for a one-shot fresh session. The `autonomous` vs `interactive` mode is always visible at the call site (interactive lives only on `resultAs[O]`). |
-| `codex` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `mini`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly` | OpenAI Codex coding/reviewing agent. |
+| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Each `run` returns `(SessionId, output)`. Pre-allocate a session with `claude.newSession` and pass it on every call to keep one conversation alive; omit the arg for a one-shot fresh session. The `autonomous` vs `interactive` mode is always visible at the call site (interactive lives only on `resultAs[O]`). |
+| `codex` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `mini`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withSelfManagedGit` | OpenAI Codex coding/reviewing agent. |
 | `git` | `createBranch`, `checkout`, `checkoutOrCreate`, `ensureClean`, `commit`, `push`, `currentBranch`, `diff`, `log`, `addWorktree`, `removeWorktree`, `listWorktrees` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushRejected`, `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. |
 | `gh` | `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` returns `Either[PrCreateFailed, …]` (covers `PrAlreadyExists` / `NoCommitsToPr`); `updatePr` replaces a PR's title + body (refresh a tentative description once the fix lands); `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
@@ -102,10 +102,11 @@ The following are available inside a `flow(...) { ... }`:
 The runtime owns git: every write-capable agent turn is instructed not to run
 `git commit`, `git push`, or switch/create branches — it makes edits and leaves
 them in the working tree, and the flow commits/branches/pushes via `git.*` at
-the right points. This is a built-in default (not user-configurable), so a
-script never has to coax the agent into leaving git alone; it also keeps
-`reviewAndFixLoop`'s diff-based reviewer selection working (a self-committing
-agent would leave an empty `git.diff()`).
+the right points. This is the default, so a script never has to coax the agent
+into leaving git alone; it also keeps `reviewAndFixLoop`'s diff-based reviewer
+selection working (a self-committing agent would leave an empty `git.diff()`).
+For the rare flow that wants the agent to drive git itself, opt out per-tool
+with `claude.withSelfManagedGit` (mirrors `withReadOnly`).
 
 For the LLM interfaces, `resultAs[O]` defines the shape of the structured
 output. The `O` type needs a `JsonData[O]` (provided by `derives JsonData` on a
