@@ -22,7 +22,7 @@ Orca assumes that it has configured, logged-in access to Claude, Codex
 Save this as `implement.sc` and run it with your task:
 
 ```scala
-//> using dep "org.virtuslab::orca:0.0.4"
+//> using dep "org.virtuslab::orca:0.0.5"
 //> using jvm 21
 
 import orca.{*, given}

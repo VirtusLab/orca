@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.0.4"
+//> using dep "org.virtuslab::orca:0.0.5"
 //> using jvm 21
 
 /** GitHub-issue → PR flow, fully autonomous.
