@@ -14,6 +14,7 @@
 #   examples/03-bugfix/create-test-project.sh /path/to/dir       # explicit dest
 #   examples/03-bugfix/create-test-project.sh --local            # publishLocal + pin
 #   examples/03-bugfix/create-test-project.sh --local /path/...  # both
+# (--run is not supported here: the flow needs a GitHub repo + issue first.)
 
 set -euo pipefail
 
@@ -31,6 +32,8 @@ parse_args "$@"
 resolve_dest "orca-03-bugfix"
 init_destination "$SEED_DIR" "$PLANS_DIR" "issue-pr-bugfix.sc" "Initial buggy calculator project"
 apply_local_flag "$REPO_ROOT" "$DEST/issue-pr-bugfix.sc"
+
+warn_run_unsupported "the flow needs a GitHub repo + issue first (see below)"
 
 cat <<EOF
 

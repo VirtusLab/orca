@@ -35,6 +35,19 @@ All four examples expect:
   Each script prints the next-step command (a `scala-cli run` of
   the example's `.sc` file) when it's done.
 
+### Seeding and running in one step (`--run`)
+
+Pass `--run` to seed the project and then immediately `cd` into it
+and execute the printed `scala-cli run ...` command with the
+example's suggested prompt:
+
+```bash
+./examples/01-simple/create-test-project.sh --run
+```
+
+Not supported for example 03, whose flow needs a GitHub repo and an
+issue created first (the script prints those manual steps instead).
+
 ### Running against a local Orca build (`--local`)
 
 If you're hacking on Orca itself and want the example to pick up

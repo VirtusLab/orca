@@ -13,23 +13,31 @@
 # copied flow script gets its `using dep` pinned to the freshly-published
 # dynver version plus an extra `using repository ivy2Local` line.
 
-# Sets USE_LOCAL (0/1) and DEST (may be empty -> resolve_dest fills it).
+# Sets USE_LOCAL (0/1), RUN (0/1) and DEST (may be empty -> resolve_dest fills it).
 parse_args() {
   USE_LOCAL=0
+  RUN=0
   local dest=""
   for arg in "$@"; do
     case "$arg" in
       --local)
         USE_LOCAL=1
         ;;
+      --run)
+        RUN=1
+        ;;
       -h|--help)
         cat <<USAGE
-Usage: $(basename "$0") [--local] [<dest>]
+Usage: $(basename "$0") [--local] [--run] [<dest>]
 
   --local   Resolve org.virtuslab::orca from a local 'sbt publishLocal'
             instead of Maven Central. Runs publishLocal in the orca repo
             root, then patches the generated flow script with the current
             dynver-derived version and 'using repository ivy2Local'.
+  --run     After seeding, cd into the project and run the example's
+            'scala-cli run ...' command with the suggested prompt (instead
+            of just printing it). Not supported for examples that need a
+            GitHub repo + issue set up first.
   <dest>    Destination directory (defaults to a fresh mktemp).
 USAGE
         exit 0
@@ -44,6 +52,30 @@ USAGE
     esac
   done
   DEST="$dest"
+}
+
+# maybe_run <flow-script> <prompt>
+# When --run was passed, cd into the seeded project and exec the example's
+# scala-cli command with the suggested prompt — replacing this process, so the
+# flow's exit code becomes the script's. No-op otherwise (the caller then
+# prints the manual next-steps).
+maybe_run() {
+  local flow_script="$1" prompt="$2"
+  [[ "${RUN:-0}" -eq 1 ]] || return 0
+  echo
+  echo "[orca] --run: cd $DEST && scala-cli run $flow_script -- \"$prompt\""
+  cd "$DEST"
+  exec scala-cli run "$flow_script" -- "$prompt"
+}
+
+# warn_run_unsupported <reason>
+# For examples whose prompt can't be auto-run (they need external setup first,
+# e.g. a GitHub repo + issue). Prints a notice when --run was passed, then
+# falls through to the caller's manual next-steps.
+warn_run_unsupported() {
+  [[ "${RUN:-0}" -eq 1 ]] || return 0
+  echo
+  echo "[orca] --run isn't supported for this example: $1" >&2
 }
 
 # Picks a destination dir: mktemp(-d) if DEST is empty, else mkdir -p.

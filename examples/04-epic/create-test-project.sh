@@ -10,7 +10,8 @@
 #   examples/04-epic/create-test-project.sh                    # mktemp, Maven Central
 #   examples/04-epic/create-test-project.sh /path/to/dir       # explicit dest
 #   examples/04-epic/create-test-project.sh --local            # publishLocal + pin
-#   examples/04-epic/create-test-project.sh --local /path/...  # both
+#   examples/04-epic/create-test-project.sh --run              # seed, then run it
+#   examples/04-epic/create-test-project.sh --local /path/...  # combinable
 
 set -euo pipefail
 
@@ -29,14 +30,14 @@ resolve_dest "orca-04-epic"
 init_destination "$SEED_DIR" "$PLANS_DIR" "epic.sc" "Initial todo-cli project"
 apply_local_flag "$REPO_ROOT" "$DEST/epic.sc"
 
-cat <<EOF
+PROMPT="Persist tasks to a JSON file at ~/.todo/tasks.json (load on startup, save on every change), add 'done <id>' and 'delete <id>' commands, and support priority levels (low/medium/high) with a 'list --priority' filter"
 
-Test project ready at: $DEST
+echo
+echo "Test project ready at: $DEST"
+maybe_run "epic.sc" "$PROMPT"  # execs scala-cli when --run; else no-op
+cat <<EOF
 
 Next steps:
   cd $DEST
-  scala-cli run epic.sc -- \\
-    "Persist tasks to a JSON file at ~/.todo/tasks.json (load on startup, save on every change), \\
-     add 'done <id>' and 'delete <id>' commands, and support priority levels (low/medium/high) \\
-     with a 'list --priority' filter"
+  scala-cli run epic.sc -- "$PROMPT"
 EOF

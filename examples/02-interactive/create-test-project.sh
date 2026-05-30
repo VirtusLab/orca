@@ -14,7 +14,8 @@
 #   examples/02-interactive/create-test-project.sh                    # mktemp, Maven Central
 #   examples/02-interactive/create-test-project.sh /path/to/dir       # explicit dest
 #   examples/02-interactive/create-test-project.sh --local            # publishLocal + pin
-#   examples/02-interactive/create-test-project.sh --local /path/...  # both
+#   examples/02-interactive/create-test-project.sh --run              # seed, then run it
+#   examples/02-interactive/create-test-project.sh --local /path/...  # combinable
 
 set -euo pipefail
 
@@ -34,13 +35,16 @@ resolve_dest "orca-02-interactive"
 init_destination "$SEED_DIR" "$PLANS_DIR" "implement-interactive.sc" "Initial calculator crate"
 apply_local_flag "$REPO_ROOT" "$DEST/implement-interactive.sc"
 
-cat <<EOF
+PROMPT="Add a new arithmetic operation to the calculator crate. Ask the user which."
 
-Test project ready at: $DEST
+echo
+echo "Test project ready at: $DEST"
+maybe_run "implement-interactive.sc" "$PROMPT"  # execs scala-cli when --run
+cat <<EOF
 
 Next steps:
   cd $DEST
-  scala-cli run implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate. Ask the user which."
+  scala-cli run implement-interactive.sc -- "$PROMPT"
 
 The trailing "Ask the user which." pushes the planner to call ask_user
 rather than guessing the operation. Type the answer at the prompt and

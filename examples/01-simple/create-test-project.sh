@@ -10,7 +10,8 @@
 #   examples/01-simple/create-test-project.sh                    # mktemp, Maven Central
 #   examples/01-simple/create-test-project.sh /path/to/dir       # explicit dest
 #   examples/01-simple/create-test-project.sh --local            # publishLocal + pin
-#   examples/01-simple/create-test-project.sh --local /path/...  # both
+#   examples/01-simple/create-test-project.sh --run              # seed, then run it
+#   examples/01-simple/create-test-project.sh --local /path/...  # combinable
 
 set -euo pipefail
 
@@ -30,11 +31,14 @@ resolve_dest "orca-01-simple"
 init_destination "$SEED_DIR" "$PLANS_DIR" "implement.sc" "Initial calculator crate"
 apply_local_flag "$REPO_ROOT" "$DEST/implement.sc"
 
-cat <<EOF
+PROMPT="Add a multiply function to the calculator crate"
 
-Test project ready at: $DEST
+echo
+echo "Test project ready at: $DEST"
+maybe_run "implement.sc" "$PROMPT"  # execs scala-cli when --run; else no-op
+cat <<EOF
 
 Next steps:
   cd $DEST
-  scala-cli run implement.sc -- "Add a multiply function to the calculator crate"
+  scala-cli run implement.sc -- "$PROMPT"
 EOF
