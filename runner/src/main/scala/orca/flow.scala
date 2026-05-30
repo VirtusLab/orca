@@ -9,7 +9,7 @@ import orca.events.{
   Pricing
 }
 import orca.llm.{ClaudeTool, DefaultPrompts, Prompts}
-import orca.runner.{DefaultFlowContext, LoggingListener, OrcaLog}
+import orca.runner.{DefaultFlowContext, LoggingListener, OrcaBanner, OrcaLog}
 import orca.runner.terminal.TerminalInteraction
 import org.slf4j.LoggerFactory
 import orca.tools.FsTool
@@ -62,8 +62,9 @@ def flow(
   // result at DEBUG. Started before anything logs so the whole run is caught;
   // surfaced to the console only on failure or with `--verbose` (see below).
   val orcaLog = OrcaLog.start()
+  OrcaBanner.print(System.err, orcaLog.file)
   val flowLog = LoggerFactory.getLogger("orca.flow")
-  flowLog.info("flow start (workDir={})", workDir)
+  flowLog.info("orca {} starting (workDir={})", OrcaBanner.version, workDir)
   flowLog.info("user prompt: {}", args.userPrompt)
   // A daemon thread or unsupervised fork that throws would otherwise
   // disappear with no diagnostic. Route every uncaught throwable to
