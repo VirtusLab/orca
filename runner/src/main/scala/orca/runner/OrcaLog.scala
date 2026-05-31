@@ -6,7 +6,6 @@ import ch.qos.logback.classic.spi.ILoggingEvent
 import ch.qos.logback.core.FileAppender
 import org.slf4j.{Logger, LoggerFactory}
 
-import java.io.PrintStream
 import java.nio.charset.StandardCharsets.UTF_8
 
 /** Per-run execution-trace log.
@@ -15,9 +14,8 @@ import java.nio.charset.StandardCharsets.UTF_8
   * `FileAppender` to the root logger, so everything orca logs during the run
   * lands there: events (via [[LoggingListener]]) and subprocess invocations
   * (logger `orca.proc`). The console stays quiet — `logback.xml` filters STDERR
-  * to WARN+ — and the trace is surfaced only on demand: [[finish]] dumps the
-  * file to the console on a flow exception or when `--verbose` is passed. The
-  * file path itself is shown once at startup by the banner.
+  * to WARN+ — so the run's detail lives in the file rather than the terminal;
+  * its path is shown once at startup by the banner.
   *
   * The file is intentionally NOT deleted on exit, so it can be inspected after
   * the run. If logback isn't the active slf4j backend, file logging is skipped
@@ -31,23 +29,16 @@ private[orca] final class OrcaLog private (
 ):
   private var finished = false
 
-  /** Detach the appender; when `dump` is true print the file contents to
-    * `out` (the path is already shown by the startup banner, so it isn't
-    * repeated here). Idempotent — safe to call from both the error path
+  /** Detach and stop the per-run file appender. The trace is left on disk for
+    * inspection — its path is shown by the startup banner, so nothing is
+    * echoed to the console. Idempotent — safe to call from both the error path
     * (before `System.exit`) and the success/finally path.
     */
-  def finish(out: PrintStream, dump: Boolean): Unit =
+  def finish(): Unit =
     if !finished then
       finished = true
       appender.foreach(_.stop())
       for a <- appender; r <- rootLogger do r.detachAppender(a)
-      // Only dump when an appender actually captured the run; the no-op
-      // fallback (logback absent) leaves an empty file, so there's nothing
-      // worth printing.
-      if dump && appender.isDefined && os.exists(file) then
-        out.println(s"[orca] execution trace ($file):")
-        out.print(os.read(file))
-        out.flush()
 
 private[orca] object OrcaLog:
   /** Attach a fresh per-run DEBUG file appender and return the handle. Must be

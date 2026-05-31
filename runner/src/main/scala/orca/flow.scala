@@ -60,7 +60,7 @@ def flow(
   val debug = OrcaDebug.enabled || args.verbose.value
   // Per-run trace file: captures every stage, prompt, tool/subprocess call and
   // result at DEBUG. Started before anything logs so the whole run is caught;
-  // surfaced to the console only on failure or with `--verbose` (see below).
+  // the path is printed by the banner and the detail stays in the file.
   val orcaLog = OrcaLog.start()
   OrcaBanner.print(System.err, orcaLog.file)
   val flowLog = LoggerFactory.getLogger("orca.flow")
@@ -112,24 +112,22 @@ def flow(
       // through the channel; the user saw a friendly message there. We
       // still log the unfriendly bits to stderr so a silent `exit 1` is
       // never a possibility — full stack for unexpected throwables, just
-      // the message for OrcaFlowException unless debug is on. The trace
-      // file is dumped here (System.exit skips the outer finally) so a
-      // failure always leaves the full execution trail on the console.
+      // the message for OrcaFlowException unless debug is on. The full trace
+      // stays in the file (path shown by the banner); we don't echo it here.
       case NonFatal(e) =>
         flowLog.error("flow aborted: {}", e.getMessage, e)
         reportUncaught(e, debug)
         // The `System.exit(1)` below halts the JVM and skips the outer
-        // `finally`, so the summary + trace-dump here run exactly once on this
-        // path (and the failure always leaves the full trace on the console).
+        // `finally`, so the summary + trace-detach here run exactly once on
+        // this path.
         costTracker.printSummary()
-        orcaLog.finish(System.err, dump = true)
+        orcaLog.finish()
         System.exit(1)
   finally
     costTracker.printSummary()
-    // Success (or a fatal escape): dump the trace only under `--verbose`;
-    // otherwise just print its path. Idempotent — the error path above
-    // already finished it before exiting.
-    orcaLog.finish(System.err, dump = debug)
+    // Detach the trace appender. Idempotent — the error path above already
+    // finished it before exiting.
+    orcaLog.finish()
 
 private def installUncaughtExceptionHandler(): Unit =
   // Idempotent across nested or repeated `flow(...)` calls — we only
