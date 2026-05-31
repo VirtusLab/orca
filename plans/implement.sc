@@ -47,6 +47,11 @@ flow(OrcaArgs(args)):
       stage("Implementation"):
         val _ = claude.autonomous.run(task.description, session)
 
+      // Format before review so reviewers (and the commit) don't burn turns
+      // on style nits.
+      stage("Format"):
+        val _ = os.proc("cargo", "fmt").call(check = false)
+
       reviewAndFixLoop(
         coder = claude,
         sessionId = session,
@@ -55,6 +60,8 @@ flow(OrcaArgs(args)):
         // `ReviewerSelector.allEveryRound` to run every reviewer.
         reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value,
-        lintCommand = Some("cargo test --quiet"),
+        // A compile is a cheap sanity gate for the reviewers; correctness is
+        // the reviewers' and CI's job, so don't run the (much heavier) tests.
+        lintCommand = Some("cargo check --tests"),
         lintLlm = Some(claude.haiku)
       )

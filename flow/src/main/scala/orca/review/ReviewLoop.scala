@@ -392,15 +392,24 @@ private[review] object ReviewLoop:
       .toList
       .distinct
 
-/** Run `command` via a login shell, capture both stdout and stderr, and hand
-  * the combined output to `llm` to summarise as a `ReviewResult`. An empty
-  * output short-circuits to `ReviewResult.empty` so clean runs skip the
-  * round-trip to the LLM. Override `instructions` when the lint produces
-  * unusual shapes the default phrasing doesn't fit.
+/** Run `command` via `bash -c`, capture both stdout and stderr, write the
+  * combined output to a temp file, and ask `llm` to read that file and
+  * summarise it as a `ReviewResult`. An empty output short-circuits to
+  * `ReviewResult.empty` so clean runs skip the round-trip to the LLM. Override
+  * `instructions` when the lint produces unusual shapes the default phrasing
+  * doesn't fit.
   *
-  * The LLM is invoked read-only: the task is text-in / JSON-out, and the agent
-  * may verify a lint claim against the file it references but should never edit
-  * during the summarisation step.
+  * The output goes to a file rather than into the prompt because a lint command
+  * can emit an unbounded amount of text (a full test or build run is hundreds
+  * of KB), which would otherwise overflow the model's context window. The agent
+  * reads the file with its read-only tools — in chunks if it's large. The
+  * command's exit status is passed alongside: a zero status usually means
+  * there's nothing to report, so the agent can skip reading the file entirely.
+  * The temp file is removed once the summary returns.
+  *
+  * The LLM is invoked read-only: the task is file-in / JSON-out, and the agent
+  * may verify a lint claim against the sources it references but should never
+  * edit during the summarisation step.
   */
 def lint(
     command: String,
@@ -413,8 +422,25 @@ def lint(
   val output = proc.out.text().trim
   if output.isEmpty then ReviewResult.empty
   else
-    llm.withReadOnly
-      .resultAs[ReviewResult]
-      .autonomous
-      .run(s"$instructions\n\nLint output:\n$output", emitPrompt = false)
-      ._2
+    // `finally` below removes it, so skip the JVM-exit hook (one per lint call
+    // would otherwise accumulate over a long run).
+    val outputFile =
+      os.temp(output, prefix = "orca-lint-", suffix = ".log", deleteOnExit = false)
+    try
+      llm.withReadOnly
+        .resultAs[ReviewResult]
+        .autonomous
+        .run(
+          s"""$instructions
+             |
+             |`$command` exited with status ${proc.exitCode}. A zero status
+             |usually means it succeeded with nothing to report — return an
+             |empty result without reading the file in that case.
+             |
+             |Otherwise its entire combined stdout+stderr is in `$outputFile`
+             |(it may be large — read it in parts if needed).""".stripMargin,
+          emitPrompt = false
+        )
+        ._2
+    finally
+      val _ = os.remove(outputFile)

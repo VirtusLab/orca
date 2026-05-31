@@ -67,7 +67,9 @@ flow(OrcaArgs(args)):
         // ReviewerSelector.allEveryRound to run every reviewer.
         reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value,
-        lintCommand = Some("sbt test"),
+        // A compile is a cheap sanity gate; correctness is the reviewers'
+        // and CI's job, so don't run the heavier full test suite here.
+        lintCommand = Some("sbt Test/compile"),
         lintLlm = Some(claude.haiku)
       )
 ```
@@ -185,7 +187,7 @@ Review utilities, available via `import orca.review.*`:
 
 | Method | Use |
 |---|---|
-| `lint(command, llm, instructions?)` | Run a shell lint, hand the output to `llm`, parse as `ReviewResult`. |
+| `lint(command, llm, instructions?)` | Run a shell lint, write its combined output to a temp file, and have `llm` read and summarise it as a `ReviewResult` (file, not prompt, so unbounded output can't overflow the context). |
 | `reviewAndFixLoop(coder, sessionId, reviewers, task, ..., fixInstructions?)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to `coder` to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. |
 | `allReviewers(base)` | All seven canonical reviewer agents (performance, readability, test, code-functionality, abstraction, backend-architect, scala-fp) layered on top of `base`. |
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test). Pair with the default LLM-driven selector when the full set is overkill. |

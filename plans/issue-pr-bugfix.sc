@@ -192,7 +192,10 @@ flow(OrcaArgs(args)):
             reviewers = allReviewers(claude),
             reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
             task = task.title.value,
-            lintCommand = Some("sbt test"),
+            // A compile (main + test sources) is a cheap sanity gate for the
+            // reviewers; the failing test runs in CI and correctness is the
+            // reviewers' job, so don't run the (much heavier) full suite.
+            lintCommand = Some("sbt Test/compile"),
             lintLlm = Some(claude.haiku)
           )
 
