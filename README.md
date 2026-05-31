@@ -14,6 +14,8 @@ to be installed - everything is automatically bootstrapped. Scala 3 looks like
 Python, but with types - so you get quick feedback if your flow script has any
 problems.
 
+You can use Orca to orchestrate development in any language and ecosystem.
+
 Orca assumes that it has configured, logged-in access to Claude, Codex
 (depending which provider you use), as well as `gh` and `git`.
 
