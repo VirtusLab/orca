@@ -10,7 +10,7 @@ import orca.subprocess.FakePipedCliProcess
   */
 private class UnstartedConversation(process: FakePipedCliProcess)
     extends StreamConversation[BackendTag.Codex.type](
-      process = process,
+      source = StreamSource.fromProcess(process),
       backendName = "test"
     ):
   val outputSchema: Option[String] = None

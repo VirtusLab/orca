@@ -86,6 +86,28 @@ trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
 trait CodexTool extends LlmTool[BackendTag.Codex.type]:
   def mini: CodexTool
 
+/** OpenCode spans providers, so its model accessors are provider-prefixed (the
+  * prefix keeps the vendor explicit at the call site). [[withModel]] takes any
+  * `provider/model` id — including self-hosted ones, e.g. `ollama/llama3.1`.
+  */
+trait OpencodeTool extends LlmTool[BackendTag.Opencode.type]:
+  def anthropicOpus: OpencodeTool
+  def anthropicSonnet: OpencodeTool
+  def anthropicHaiku: OpencodeTool
+  def openaiGpt5: OpencodeTool
+  def openaiGpt5Codex: OpencodeTool
+  def openaiGpt5Mini: OpencodeTool
+
+  /** Pin any `provider/model` id (e.g. `ollama/llama3.1`, `myhost/qwen-coder`).
+    */
+  def withModel(providerModel: String): OpencodeTool
+
+  /** Two-arg form of [[withModel]], e.g. `withModel("ollama", "llama3.1")`. The
+    * default joins with `/`; the concrete tool validates the parts.
+    */
+  def withModel(provider: String, modelId: String): OpencodeTool =
+    withModel(s"$provider/$modelId")
+
 /** Free-form text autonomous calls — the `LlmTool.autonomous` shape. Single
   * method: pass a [[SessionId]] (typically from [[LlmTool.newSession]] or the
   * default fresh one) and the library starts the session on the first call,

@@ -2,7 +2,6 @@ package orca.backend
 
 import orca.backend.mcp.{AskUserBridge, AskUserSession}
 import orca.llm.BackendTag
-import orca.subprocess.PipedCliProcess
 import orca.util.OrcaDebug
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 
@@ -12,21 +11,22 @@ import scala.util.control.NonFatal
 
 /** Base implementation for stream-driven [[Conversation]] drivers.
   *
-  * Owns the boilerplate every backend needs to translate an
-  * [[orca.subprocess.PipedCliProcess]] into a [[Conversation]]:
+  * Owns the boilerplate every backend needs to translate a [[StreamSource]] (a
+  * subprocess's stdout, or an SSE connection) into a [[Conversation]]:
   *
-  *   - A daemon stdout reader thread that calls [[handleLine]] on each inbound
-  *     line and, on EOF or error, finalises the [[Outcome]].
-  *   - A daemon stderr drain thread that calls [[handleStderr]] on each line.
+  *   - A daemon reader thread that calls [[handleLine]] on each inbound line
+  *     and, on EOF or error, finalises the [[Outcome]].
+  *   - A daemon diagnostic drain thread that calls [[handleStderr]] on each
+  *     [[StreamSource.errorLines]] line.
   *   - A single-consumer event queue surfaced via [[events]].
   *   - Lifecycle: `awaitResult` joins the reader, returns `Right(LlmResult)` /
   *     `Left(OrcaInteractiveCancelled)` / throws for anything else; `cancel`
-  *     SIGINTs the process and lets the reader observe EOF.
+  *     interrupts the source and lets the reader observe EOF.
   *
   * Backends supply only the protocol-specific bits: [[handleLine]] (parse +
   * translate to events / outcome), the optional [[handleStderr]] override
   * (filter noise, drop the prefix), and the optional [[onFinalize]] hook (drain
-  * stderr before the queue closes, etc.).
+  * the diagnostic stream before the queue closes, etc.).
   *
   * The driver's role is strictly protocol translation: bytes in →
   * [[ConversationEvent]]s out. Rendering and approval-policy live elsewhere.
@@ -34,13 +34,18 @@ import scala.util.control.NonFatal
   * channel's thread; the reader thread only produces events.
   */
 private[orca] abstract class StreamConversation[B <: BackendTag](
-    process: PipedCliProcess,
+    source: StreamSource,
     /** Used in thread names ("claude-conversation-reader"), debug traces,
       * parse-error messages, and the default stderr error prefix. Should match
       * the user-facing backend name.
       */
     backendName: String,
-    initialPrompt: String = ""
+    initialPrompt: String = "",
+    /** Set by backends that answer `ask_user` through their own protocol
+      * (OpenCode, via a native HTTP `question` event). It only affects what
+      * [[canAskUser]] reports — the MCP drainer is gated on [[askUser]] alone.
+      */
+    nativeAskUser: Boolean = false
 ) extends Conversation[B]:
 
   import StreamConversation.*
@@ -59,7 +64,10 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
     */
   protected def askUser: Option[AskUserSession] = None
 
-  final def canAskUser: Boolean = askUser.isDefined
+  /** True iff an `ask_user` MCP bundle is wired (claude/codex) or the backend
+    * declared its own ask-user channel via [[nativeAskUser]] (OpenCode).
+    */
+  final def canAskUser: Boolean = nativeAskUser || askUser.isDefined
 
   // Surface the opening prompt to the channel before any agent
   // output. Without this, the channel sits silent while the agent
@@ -165,9 +173,27 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
 
   def cancel(): Unit =
     if cancelled.compareAndSet(false, true) then
-      process.sendSigInt()
-      // The reader loop sees EOF on stdoutLines and finalises the
+      source.interrupt()
+      // The reader loop sees EOF on `source.lines` and finalises the
       // outcome on its own — no need to touch the queue from here.
+
+  /** Settle the turn with `result`, then interrupt the source so the reader
+    * loop reaches EOF. For drivers whose stream stays open after the turn
+    * (SSE), this is how the turn terminates. Setting the outcome **before** the
+    * interrupt is load-bearing: closing the source makes the blocked read in
+    * [[readLoop]] throw, which would otherwise CAS a failure outcome — harmless
+    * only because the success is already in place.
+    */
+  protected def succeedWith(result: LlmResult[B]): Unit =
+    val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
+    source.interrupt()
+
+  /** Settle the turn as a failure, then interrupt the source (see
+    * [[succeedWith]] for the ordering rationale).
+    */
+  protected def failWith(error: Throwable): Unit =
+    val _ = outcomeRef.compareAndSet(None, Some(Outcome.failed(error)))
+    source.interrupt()
 
   // --- Hooks for backend implementations ---
 
@@ -232,7 +258,7 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
 
   private def readLoop(): Unit =
     try
-      for line <- process.stdoutLines do
+      for line <- source.lines do
         debugLog("stdout", line)
         if !cancelled.get() then
           try handleLine(line)
@@ -251,7 +277,7 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
 
   private def stderrLoop(): Unit =
     try
-      for line <- process.stderrLines do
+      for line <- source.errorLines do
         debugLog("stderr", line)
         handleStderr(line)
     catch
@@ -284,7 +310,7 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
     val finalOutcome: Outcome[B] = outcomeRef.get() match
       case Some(existing)          => existing
       case None if cancelled.get() => Outcome.cancelled[B]
-      case None                    => outcomeFromExit(process.tryExitCode)
+      case None                    => outcomeFromExit(source.tryExitCode)
     val _ = outcomeRef.compareAndSet(None, Some(finalOutcome))
     eventQueue.close()
 

@@ -4,7 +4,7 @@ import orca.llm.{BackendTag, Model, SessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, LlmResult}
-import orca.backend.StreamConversation
+import orca.backend.{StreamConversation, StreamSource}
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
@@ -37,7 +37,7 @@ private[codex] class CodexConversation(
     val outputSchema: Option[String] = None,
     override val askUser: Option[AskUserSession] = None
 ) extends StreamConversation[BackendTag.Codex.type](
-      process = process,
+      source = StreamSource.fromProcess(process),
       backendName = "codex",
       initialPrompt = initialPrompt
     ):

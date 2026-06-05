@@ -11,6 +11,7 @@ import orca.llm.{
   LlmCall,
   LlmConfig,
   Model,
+  OpencodeTool,
   SessionId
 }
 import orca.events.{CostTracker, OrcaEvent, Usage}
@@ -73,6 +74,46 @@ class OrcaOverridesTest extends munit.FunSuite:
       ):
         observed = summon[FlowContext].claude.autonomous.run("hi")._2
     assertEquals(observed, "echo: hi")
+
+  test("flow uses a custom OpencodeTool when supplied"):
+    val fakeOpencode = new OpencodeTool:
+      val name = "fake"
+      def anthropicOpus = this
+      def anthropicSonnet = this
+      def anthropicHaiku = this
+      def openaiGpt5 = this
+      def openaiGpt5Codex = this
+      def openaiGpt5Mini = this
+      def withModel(providerModel: String) = this
+      def withConfig(c: LlmConfig) = this
+      def withSystemPrompt(p: String) = this
+      def withName(n: String) = this
+      def withReadOnly = this
+      val autonomous: AutonomousTextCall[BackendTag.Opencode.type] =
+        new AutonomousTextCall[BackendTag.Opencode.type]:
+          def run(
+              p: String,
+              session: SessionId[BackendTag.Opencode.type],
+              c: LlmConfig,
+              emitPrompt: Boolean
+          ): (SessionId[BackendTag.Opencode.type], String) =
+            (SessionId[BackendTag.Opencode.type]("fake-sid"), s"opencode: $p")
+      def resultAs[O: JsonData: Announce]
+          : LlmCall[BackendTag.Opencode.type, O] = ???
+    var observed: String = ""
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(),
+        opencode = Some(fakeOpencode),
+        interaction = Some(interaction)
+      ):
+        observed = summon[FlowContext].opencode.autonomous.run("hi")._2
+    assertEquals(observed, "opencode: hi")
 
   test("flow collects extra listeners alongside the interaction's"):
     val buf = new ByteArrayOutputStream()
