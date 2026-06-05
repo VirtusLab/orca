@@ -16,13 +16,14 @@ class TerminalEventListenerTest extends munit.FunSuite:
 
   private def renderWith(
       animated: Boolean,
-      events: List[OrcaEvent]
+      events: List[OrcaEvent],
+      listenerUseColor: Boolean = false
   ): String =
     val buf = new ByteArrayOutputStream()
     val ps = new PrintStream(buf)
     val output =
       new TerminalOutputState(ps, useColor = false, animated = animated)
-    val listener = new TerminalEventListener(output, useColor = false)
+    val listener = new TerminalEventListener(output, useColor = listenerUseColor)
     events.foreach(listener.onEvent)
     buf.toString
 
@@ -89,6 +90,22 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val output = renderEvents(List(OrcaEvent.Error("boom")))
     assert(output.contains(TerminalEventListener.ErrorGlyph))
     assert(output.contains("boom"))
+
+  test("errors with backend terminal controls do not crash colored output"):
+    val output = renderWith(
+      animated = false,
+      events = List(
+        OrcaEvent.Error(
+          "before\u001b[?25lhidden\u001b[2Kafter" +
+            "\u001b]8;;https://example.com\u0007link\u001b]8;;\u0007"
+        )
+      ),
+      listenerUseColor = true
+    )
+    assert(output.contains("beforehiddenafterlink"), output)
+    assert(!output.contains("?25l"), output)
+    assert(!output.contains("[2K"), output)
+    assert(!output.contains("https://example.com"), output)
 
   test("AssistantMessage renders as a `●` line with the body"):
     val output =
