@@ -58,6 +58,11 @@ private[pi] class PiConversation(
     */
   private var textDeltasSinceMessageBoundary: Boolean = false
 
+  /** Whether any assistant `message_end` arrived this turn — gates the single
+    * `AssistantTurnEnd` at `agent_end` (a tool-only/empty turn emits none).
+    */
+  private var sawAssistantMessage: Boolean = false
+
   start()
 
   def sendPrompt(prompt: String): Unit =
@@ -143,6 +148,7 @@ private[pi] class PiConversation(
 
   private def handleMessageEnd(message: AgentMessage): Unit =
     if message.role == "assistant" then
+      sawAssistantMessage = true
       message.errorMessage.foreach: error =>
         if error.nonEmpty then
           eventQueue.enqueue(ConversationEvent.Error(error))
@@ -153,10 +159,13 @@ private[pi] class PiConversation(
         modelRef.set(Some(model))
       if message.text.nonEmpty && !textDeltasSinceMessageBoundary then
         eventQueue.enqueue(ConversationEvent.AssistantTextDelta(message.text))
-      eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
       textDeltasSinceMessageBoundary = false
 
+  // A turn can span several assistant messages (each ends with `message_end`),
+  // so the single turn boundary is `agent_end`, not per-message.
   private def handleAgentEnd(): Unit =
+    if sawAssistantMessage then
+      eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
     val result = LlmResult(
       sessionId = clientSession,
       output = lastAssistantMessage.get(),

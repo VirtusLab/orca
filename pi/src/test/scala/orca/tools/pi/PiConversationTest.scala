@@ -129,7 +129,9 @@ class PiConversationTest extends munit.FunSuite:
     )
     process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
 
-    val _ = conv.events.toList
+    val events = conv.events.toList
+    // Two assistant message_ends, but one turn → exactly one AssistantTurnEnd.
+    assertEquals(events.count(_ == ConversationEvent.AssistantTurnEnd), 1)
     val Right(result) = conv.awaitResult(): @unchecked
     assertEquals(result.output, "second")
     assertEquals(result.usage, Usage(5L, 7L, None, 9L))
