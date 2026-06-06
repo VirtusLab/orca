@@ -21,6 +21,10 @@ import scala.util.control.NonFatal
   * sends one `prompt` command, this conversation translates Pi RPC events into
   * Orca conversation events, and `agent_end` becomes the terminal
   * [[LlmResult]].
+  *
+  * Pi has no native structured-output / JSON-schema flag, so `outputSchema` is
+  * carried only for the framework's parsing: the schema is enforced through the
+  * prompt (`DefaultLlmCall` injects the rules), not the Pi CLI.
   */
 private[pi] class PiConversation(
     process: PipedCliProcess,
@@ -39,9 +43,27 @@ private[pi] class PiConversation(
   import PiConversation.*
   import StreamConversation.Outcome
 
-  private val lastAssistantMessage = new AtomicReference[String]("")
-  private val usageRef = new AtomicReference[Usage](Usage.empty)
-  private val modelRef = new AtomicReference[Option[String]](None)
+  /** Turn state, accrued by the single reader thread — `handleLine` and the
+    * handlers it drives all run there, so a plain `var` over an immutable
+    * snapshot is safe and avoids cross-thread machinery; `awaitResult` reads the
+    * outcome only after joining the reader, which publishes these writes.
+    *
+    * `textStreamedThisMessage` lets `message_end` emit the completed text as a
+    * fallback only when no `text_delta` already streamed it; `sawAssistantMessage`
+    * gates the single `AssistantTurnEnd` at `agent_end`.
+    */
+  private case class TurnState(
+      lastAssistantMessage: String = "",
+      usage: Usage = Usage.empty,
+      model: Option[String] = None,
+      textStreamedThisMessage: Boolean = false,
+      sawAssistantMessage: Boolean = false
+  )
+  private var turnState: TurnState = TurnState()
+
+  /** Atomic, unlike [[turnState]]: written by the *stderr* drain thread
+    * ([[handleStderr]]) and read by the reader thread at finalize.
+    */
   private val stderrBuffer = new AtomicReference[Vector[String]](Vector.empty)
 
   // All stdin writes funnel through this lock: `sendPrompt` runs on the caller's
@@ -50,18 +72,6 @@ private[pi] class PiConversation(
   // so concurrent callers would otherwise interleave JSONL frames. Declared
   // before `start()` so the reader thread never observes a null lock.
   private val stdinLock = new AnyRef
-
-  /** Pi normally streams text deltas, but tests and future protocol variants
-    * may only emit a completed message. Track whether this assistant message
-    * already streamed text so message_end can act as a fallback without
-    * duplicating output.
-    */
-  private var textDeltasSinceMessageBoundary: Boolean = false
-
-  /** Whether any assistant `message_end` arrived this turn — gates the single
-    * `AssistantTurnEnd` at `agent_end` (a tool-only/empty turn emits none).
-    */
-  private var sawAssistantMessage: Boolean = false
 
   start()
 
@@ -140,7 +150,8 @@ private[pi] class PiConversation(
 
   private def handleDelta(delta: MessageDelta): Unit = delta match
     case MessageDelta.Text(text) =>
-      if text.nonEmpty then textDeltasSinceMessageBoundary = true
+      if text.nonEmpty then
+        turnState = turnState.copy(textStreamedThisMessage = true)
       eventQueue.enqueue(ConversationEvent.AssistantTextDelta(text))
     case MessageDelta.Thinking(text) =>
       eventQueue.enqueue(ConversationEvent.AssistantThinkingDelta(text))
@@ -148,29 +159,30 @@ private[pi] class PiConversation(
 
   private def handleMessageEnd(message: AgentMessage): Unit =
     if message.role == "assistant" then
-      sawAssistantMessage = true
       message.errorMessage.foreach: error =>
         if error.nonEmpty then
           eventQueue.enqueue(ConversationEvent.Error(error))
-      lastAssistantMessage.set(message.text)
-      message.usage.foreach: usage =>
-        val _ = usageRef.updateAndGet(_ + usage)
-      message.model.foreach: model =>
-        modelRef.set(Some(model))
-      if message.text.nonEmpty && !textDeltasSinceMessageBoundary then
+      val streamed = turnState.textStreamedThisMessage
+      turnState = turnState.copy(
+        lastAssistantMessage = message.text,
+        usage = message.usage.fold(turnState.usage)(turnState.usage + _),
+        model = message.model.orElse(turnState.model),
+        sawAssistantMessage = true,
+        textStreamedThisMessage = false // reset for the next message
+      )
+      if message.text.nonEmpty && !streamed then
         eventQueue.enqueue(ConversationEvent.AssistantTextDelta(message.text))
-      textDeltasSinceMessageBoundary = false
 
   // A turn can span several assistant messages (each ends with `message_end`),
   // so the single turn boundary is `agent_end`, not per-message.
   private def handleAgentEnd(): Unit =
-    if sawAssistantMessage then
+    if turnState.sawAssistantMessage then
       eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
     val result = LlmResult(
       sessionId = clientSession,
-      output = lastAssistantMessage.get(),
-      usage = usageRef.get(),
-      model = modelRef.get().map(Model.apply)
+      output = turnState.lastAssistantMessage,
+      usage = turnState.usage,
+      model = turnState.model.map(Model.apply)
     )
     val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
     closeStdin()

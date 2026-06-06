@@ -72,6 +72,11 @@ private[orca] class PiBackend(cli: CliRunner)
       workDir: os.Path,
       outputSchema: Option[String]
   ): PiConversation =
+    // Temp files (ask-user extension, system prompt) Pi reads for the whole
+    // turn. Ownership passes to the conversation once it's constructed — it
+    // closes them in `onFinalize` when the turn ends; `closeResources` here is
+    // the backstop for a failure before that point. All closes are idempotent
+    // (`closeQuietly` + `os.remove.all`), so the paths can't leak or double-fail.
     val resources = ListBuffer.empty[AutoCloseable]
     def register[A <: AutoCloseable](resource: A): A =
       resources += resource
