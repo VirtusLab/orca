@@ -5,6 +5,8 @@ import orca.events.{OrcaEvent, OrcaListener}
 import orca.subprocess.QuietProc
 import ox.either.orThrow
 
+import scala.util.control.NonFatal
+
 case class CommitInfo(hash: String, message: String, author: String)
 
 /** Which diff semantics [[GitTool.diffVsBase]] should produce.
@@ -379,7 +381,7 @@ private[orca] class OsGitTool(
         )
 
   def removeWorktree(path: os.Path): Either[WorktreeNotFound, Unit] =
-    if !listWorktrees().exists(_.path == path) then
+    if !listWorktrees().exists(w => samePath(w.path, path)) then
       Left(new WorktreeNotFound(path))
     else
       val _ = git("worktree", "remove", path.toString)
@@ -388,6 +390,12 @@ private[orca] class OsGitTool(
 
   def listWorktrees(): List[Worktree] =
     OsGitTool.parseWorktreeList(git("worktree", "list", "--porcelain"))
+
+  private def samePath(left: os.Path, right: os.Path): Boolean =
+    def normalised(path: os.Path): java.nio.file.Path =
+      try path.toNIO.toRealPath()
+      catch case NonFatal(_) => path.toNIO.toAbsolutePath.normalize()
+    normalised(left) == normalised(right)
 
   private def git(args: String*): String =
     // Route through QuietProc so git's stderr ("Switched to a new
