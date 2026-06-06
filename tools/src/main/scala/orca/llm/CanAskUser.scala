@@ -37,6 +37,14 @@ object CanAskUser:
   given CanAskUser[BackendTag.Codex.type] =
     new CanAskUser[BackendTag.Codex.type] {}
 
+  /** OpenCode's interactive sessions expose a native `question` tool (no MCP
+    * bridge); `question.asked` events surface as
+    * `ConversationEvent.UserQuestion` and are answered via the server's
+    * `/question/{id}/reply` endpoint (ADR 0014).
+    */
+  given CanAskUser[BackendTag.Opencode.type] =
+    new CanAskUser[BackendTag.Opencode.type] {}
+
   /** Pi's interactive sessions load Orca's temporary ask-user extension, which
     * forwards extension UI prompts into the same Orca `UserQuestion` event used
     * by the other interactive backends.

@@ -4,12 +4,13 @@ import orca.{FlowContext}
 import orca.tools.{GitTool}
 import orca.tools.{GitHubTool}
 import orca.tools.{FsTool}
-import orca.llm.{ClaudeTool, CodexTool, LlmConfig, PiTool, Prompts}
+import orca.llm.{ClaudeTool, CodexTool, LlmConfig, OpencodeTool, PiTool, Prompts}
 import orca.events.{EventDispatcher, OrcaEvent}
 
 import orca.backend.Interaction
 import orca.tools.claude.{ClaudeBackend, DefaultClaudeTool}
 import orca.tools.codex.{CodexBackend, DefaultCodexTool}
+import orca.tools.opencode.{DefaultOpencodeTool, OpencodeBackend}
 import orca.tools.pi.{DefaultPiTool, PiBackend}
 import orca.llm.DefaultPrompts
 import orca.subprocess.OsProcCliRunner
@@ -26,6 +27,7 @@ private[orca] class DefaultFlowContext(
     dispatcher: EventDispatcher,
     val claude: ClaudeTool,
     val codex: CodexTool,
+    val opencode: OpencodeTool,
     val pi: PiTool,
     val git: GitTool,
     val gh: GitHubTool,
@@ -46,6 +48,7 @@ private[orca] object DefaultFlowContext:
       interaction: Interaction,
       claude: Option[ClaudeTool] = None,
       codex: Option[CodexTool] = None,
+      opencode: Option[OpencodeTool] = None,
       pi: Option[PiTool] = None,
       git: Option[GitTool] = None,
       gh: Option[GitHubTool] = None,
@@ -72,6 +75,16 @@ private[orca] object DefaultFlowContext:
       codex = codex.getOrElse(
         new DefaultCodexTool(
           backend = new CodexBackend(OsProcCliRunner),
+          config = LlmConfig.default,
+          prompts = prompts,
+          workDir = workDir,
+          events = dispatcher,
+          interaction = interaction
+        )
+      ),
+      opencode = opencode.getOrElse(
+        new DefaultOpencodeTool(
+          backend = OpencodeBackend(OsProcCliRunner),
           config = LlmConfig.default,
           prompts = prompts,
           workDir = workDir,

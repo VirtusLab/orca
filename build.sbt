@@ -93,6 +93,17 @@ lazy val pi = (project in file("pi"))
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
   )
 
+// The OpenCode backend talks HTTP+SSE to a headless `opencode serve` (ADR
+// 0014); it uses the JDK's java.net.http client (no extra dependency) behind a
+// small testable trait, plus jsoniter for the wire DTOs.
+lazy val opencode = (project in file("opencode"))
+  .dependsOn(tools, tools % "test->test")
+  .settings(commonSettings)
+  .settings(
+    name := "orca-opencode",
+    libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros)
+  )
+
 lazy val flow = (project in file("flow"))
   .dependsOn(tools)
   .settings(commonSettings)
@@ -102,7 +113,7 @@ lazy val flow = (project in file("flow"))
   )
 
 lazy val runner = (project in file("runner"))
-  .dependsOn(tools, flow, claude, codex, pi)
+  .dependsOn(tools, flow, claude, codex, opencode, pi)
   .settings(commonSettings)
   .settings(
     // Published as just "orca" so flow-script coordinates stay short.
@@ -147,4 +158,4 @@ lazy val orcaRoot = (project in file("."))
     // invoke each of them (they'd noisily warn about missing `doc`/`docs`).
     updateDocs / aggregate := false
   )
-  .aggregate(tools, flow, claude, codex, pi, runner)
+  .aggregate(tools, flow, claude, codex, opencode, pi, runner)

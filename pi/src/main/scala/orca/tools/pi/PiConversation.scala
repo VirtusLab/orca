@@ -4,7 +4,7 @@ import orca.events.Usage
 import orca.llm.{BackendTag, Model, SessionId}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, LlmResult}
-import orca.backend.StreamConversation
+import orca.backend.{StreamConversation, StreamSource}
 import orca.subprocess.PipedCliProcess
 import orca.tools.pi.rpc.{
   AgentMessage,
@@ -29,10 +29,10 @@ private[pi] class PiConversation(
     askUserEnabled: Boolean = false,
     resources: List[AutoCloseable] = Nil
 ) extends StreamConversation[BackendTag.Pi.type](
-      process = process,
+      StreamSource.fromProcess(process),
       backendName = "pi",
       initialPrompt = initialPrompt,
-      canAskUserFlag = askUserEnabled
+      nativeAskUser = askUserEnabled
     ):
 
   import PiConversation.*

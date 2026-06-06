@@ -4,7 +4,7 @@ import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ApprovalDecision, ConversationEvent, LlmResult}
-import orca.backend.StreamConversation
+import orca.backend.{StreamConversation, StreamSource}
 import orca.subprocess.PipedCliProcess
 import orca.tools.claude.streamjson.{
   ContentBlock,
@@ -31,7 +31,7 @@ private[claude] class ClaudeConversation(
     val outputSchema: Option[String] = None,
     override val askUser: Option[orca.backend.mcp.AskUserSession] = None
 ) extends StreamConversation[BackendTag.ClaudeCode.type](
-      process = process,
+      source = StreamSource.fromProcess(process),
       backendName = "claude",
       initialPrompt = initialPrompt
     ):
