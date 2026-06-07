@@ -4,7 +4,7 @@ import orca.events.Usage
 import orca.llm.{BackendTag, Model, SessionId}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, LlmResult}
-import orca.backend.{StreamConversation, StreamSource}
+import orca.backend.{BufferedStderrDiagnostics, StreamConversation, StreamSource}
 import orca.subprocess.PipedCliProcess
 import orca.util.TerminalControl
 import orca.tools.pi.rpc.{
@@ -14,7 +14,6 @@ import orca.tools.pi.rpc.{
   OutboundMessage
 }
 
-import java.util.concurrent.atomic.AtomicReference
 import scala.util.control.NonFatal
 
 /** Drives one `pi --mode rpc` process for a single Orca LLM call. The backend
@@ -38,7 +37,8 @@ private[pi] class PiConversation(
       backendName = "pi",
       initialPrompt = initialPrompt,
       nativeAskUser = askUserEnabled
-    ):
+    )
+    with BufferedStderrDiagnostics[BackendTag.Pi.type]:
 
   import PiConversation.*
 
@@ -59,11 +59,6 @@ private[pi] class PiConversation(
       sawAssistantMessage: Boolean = false
   )
   private var turnState: TurnState = TurnState()
-
-  /** Atomic, unlike [[turnState]]: written by the *stderr* drain thread
-    * ([[handleStderr]]) and read by the reader thread at finalize.
-    */
-  private val stderrBuffer = new AtomicReference[Vector[String]](Vector.empty)
 
   // All stdin writes funnel through this lock: `sendPrompt` runs on the caller's
   // thread, the ask-user reply on the event consumer's, and the reader thread
@@ -96,22 +91,17 @@ private[pi] class PiConversation(
     val trimmed = TerminalControl.stripControlSequences(line).trim
     if trimmed.nonEmpty && !isKnownStderrNoise(trimmed) then
       eventQueue.enqueue(ConversationEvent.Error(s"pi: $trimmed"))
-      val _ = stderrBuffer.updateAndGet(appendBounded(_, trimmed))
+      recordStderr(trimmed)
 
+  // Drain stderr (base) then close the per-turn temp resources.
   override protected def onFinalize(): Unit =
-    try stderrDrainThread.join(StderrDrainTimeoutMs)
-    catch case _: InterruptedException => Thread.currentThread().interrupt()
+    super.onFinalize()
     resources.foreach(closeQuietly)
 
   override protected def cleanExitWithoutResult(): Throwable =
     new OrcaFlowException(
       appendContext("pi exited cleanly but never emitted agent_end")
     )
-
-  override protected def diagnosticContext: Option[String] =
-    val lines = stderrBuffer.get()
-    if lines.isEmpty then None
-    else Some(lines.mkString("stderr:\n    ", "\n    ", ""))
 
   private def handle(event: InboundEvent): Unit = event match
     case InboundEvent.Response(_, command, success, error) =>
@@ -216,8 +206,6 @@ private[pi] class PiConversation(
 
 private[pi] object PiConversation:
 
-  private val StderrDrainTimeoutMs: Long = 500L
-
   private val FireAndForgetUiMethods: Set[String] = Set(
     "notify",
     "setStatus",
@@ -226,22 +214,9 @@ private[pi] object PiConversation:
     "set_editor_text"
   )
 
-  private val StderrMaxLines: Int = 20
-  private val StderrMaxBytes: Int = 4096
-
   private def isKnownStderrNoise(line: String): Boolean =
     // Pi's terminal notifier can write iTerm2-style notifications to stderr as
     // OSC 777 (`ESC ] 777 ; ... BEL`). We strip well-formed controls before
     // trimming, but keep this guard for environments that have already removed
     // the leading ESC byte before the line reaches us.
     line.startsWith("]777;notify;")
-
-  private def appendBounded(
-      buf: Vector[String],
-      line: String
-  ): Vector[String] =
-    var result = buf :+ line
-    while result.size > StderrMaxLines do result = result.tail
-    while result.size > 1 && result.map(_.length).sum > StderrMaxBytes do
-      result = result.tail
-    result

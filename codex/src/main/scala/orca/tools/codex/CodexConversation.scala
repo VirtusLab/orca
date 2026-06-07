@@ -4,7 +4,7 @@ import orca.llm.{BackendTag, Model, SessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, LlmResult}
-import orca.backend.{StreamConversation, StreamSource}
+import orca.backend.{BufferedStderrDiagnostics, StreamConversation, StreamSource}
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
@@ -40,7 +40,8 @@ private[codex] class CodexConversation(
       source = StreamSource.fromProcess(process),
       backendName = "codex",
       initialPrompt = initialPrompt
-    ):
+    )
+    with BufferedStderrDiagnostics[BackendTag.Codex.type]:
 
   import CodexConversation.*
   import StreamConversation.Outcome
@@ -52,15 +53,6 @@ private[codex] class CodexConversation(
     * scaladoc for why we synthesise rather than receive.
     */
   private val lastAgentMessage = new AtomicReference[String]("")
-
-  /** Bounded ring of trimmed stderr lines (post-filter), kept so a non-zero
-    * exit or clean-exit-without-result can carry the actual failure context
-    * back to the caller in the thrown exception — listener subscribers already
-    * saw each line as a `ConversationEvent.Error`, but a noop listener (tests,
-    * simple scripts) would otherwise lose the diagnostic entirely. Capped on
-    * both line count and byte total so a runaway agent can't OOM us.
-    */
-  private val stderrBuffer = new AtomicReference[Vector[String]](Vector.empty)
 
   /** MCP item ids whose `AssistantToolCall` echo we drop — the host-side bridge
     * has already surfaced the corresponding `UserQuestion` event, so rendering
@@ -106,25 +98,15 @@ private[codex] class CodexConversation(
     *     written correctly to `~/.codex/sessions/`; the message is harmless.
     *
     * Filter both, plus empty lines. Anything else passes through with the
-    * default backend-prefixed Error event AND appends to the bounded
-    * [[stderrBuffer]] so the failure exception can include them.
+    * default backend-prefixed Error event AND is recorded in the bounded
+    * stderr buffer (see [[BufferedStderrDiagnostics]]) so the failure exception
+    * can include them.
     */
   override protected def handleStderr(line: String): Unit =
     val trimmed = line.trim
     if trimmed.nonEmpty && !CodexConversation.isKnownStderrNoise(trimmed) then
       eventQueue.enqueue(ConversationEvent.Error(s"codex: $trimmed"))
-      val _ = stderrBuffer.updateAndGet(appendBounded(_, trimmed))
-
-  /** Bounded wait for the stderr drain so any trailing error lines (which the
-    * consumer can't see once we close the queue) reach the events queue. The
-    * base closes the ask_user bundle after this hook returns.
-    */
-  override protected def onFinalize(): Unit =
-    try stderrDrainThread.join(StderrDrainTimeoutMs)
-    catch
-      // Interrupt while joining means the parent is shutting down.
-      // Restore the flag so callers up-stack can react.
-      case _: InterruptedException => Thread.currentThread().interrupt()
+      recordStderr(trimmed)
 
   override protected def cleanExitWithoutResult(): Throwable =
     // Defer the framing to the base so the diagnosticContext below gets
@@ -134,15 +116,6 @@ private[codex] class CodexConversation(
         "codex exited cleanly but never sent a turn.completed event"
       )
     )
-
-  /** Recent stderr lines, formatted as a `stderr:` block. The base layer
-    * ([[StreamConversation.appendContext]]) owns the leading-newline + indent
-    * framing so this override returns just the payload.
-    */
-  override protected def diagnosticContext: Option[String] =
-    val lines = stderrBuffer.get()
-    if lines.isEmpty then None
-    else Some(lines.mkString("stderr:\n    ", "\n    ", ""))
 
   // --- Per-event dispatch ---
 
@@ -264,43 +237,6 @@ private[codex] object CodexConversation:
       line.contains(
         "codex_core::session: failed to record rollout items"
       )
-
-  /** Bounded wait for the stderr thread to finish draining before the event
-    * queue is closed. Long enough that real EOF-after-process- exit lands;
-    * short enough that a stalled child doesn't deadlock `awaitResult`.
-    */
-  private val StderrDrainTimeoutMs: Long = 500L
-
-  /** Cap on lines kept in [[stderrBuffer]]. Sized for a typical stack trace
-    * plus a brief explanation — enough to diagnose a failure inline, bounded so
-    * a chatty subprocess can't grow memory. `private[codex]` so cap-edge tests
-    * can size their inputs against it.
-    */
-  private[codex] val StderrMaxLines: Int = 20
-
-  /** Soft byte cap on [[stderrBuffer]], counted across kept lines. Trims from
-    * the front (oldest) when exceeded, same as the line cap, so the most recent
-    * (typically most diagnostic) lines stay. `private[codex]` for the same
-    * test-visibility reason as [[StderrMaxLines]].
-    */
-  private[codex] val StderrMaxBytes: Int = 4096
-
-  /** Append `line` to `buf` while respecting both caps. Drops from the head
-    * (oldest line first) until the result fits. A single line that exceeds
-    * `StderrMaxBytes` on its own is kept anyway — one oversized line is more
-    * useful than empty diagnostics. Lives on the companion so the
-    * `AtomicReference.updateAndGet` callback stays a pure function.
-    * `private[codex]` so the cap-edge tests can exercise it directly.
-    */
-  private[codex] def appendBounded(
-      buf: Vector[String],
-      line: String
-  ): Vector[String] =
-    var result = buf :+ line
-    while result.size > StderrMaxLines do result = result.tail
-    while result.size > 1 && result.map(_.length).sum > StderrMaxBytes do
-      result = result.tail
-    result
 
   /** Synthetic JSON the driver hands the renderer for `bash` tool calls —
     * codex's `command_execution` items don't natively carry a JSON-shaped
