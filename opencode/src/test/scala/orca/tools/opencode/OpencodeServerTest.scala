@@ -66,8 +66,8 @@ class OpencodeServerTest extends munit.FunSuite:
           stub
       )
 
-      assertEquals(runner.spawns.get(), 0) // nothing spawned until first use
-      assertEquals(server.postJson("/x", "{}"), "ok")
+      assertEquals(runner.spawns.get(), 0) // nothing spawned until http forced
+      assertEquals(server.http.postJson("/x", "{}"), "ok")
 
       assertEquals(
         runner.lastArgs,
@@ -76,5 +76,5 @@ class OpencodeServerTest extends munit.FunSuite:
       assert(runner.lastEnv.contains("OPENCODE_SERVER_PASSWORD"))
       assertEquals(built.map(_._1), Some("http://127.0.0.1:4096"))
 
-      val _ = server.postJson("/y", "{}") // reuse: no second spawn
+      val _ = server.http.postJson("/y", "{}") // reuse: no second spawn
       assertEquals(runner.spawns.get(), 1)

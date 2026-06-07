@@ -1,44 +1,38 @@
 package orca.tools.opencode
 
 import orca.OrcaFlowException
-import orca.backend.StreamSource
 import orca.subprocess.CliRunner
 import ox.{releaseAfterScope, Ox}
 
 import java.util.UUID
 
-/** A shared, lazily-started `opencode serve` plus the HTTP/SSE client against
-  * it (ADR 0014).
+/** Lifecycle owner for a shared `opencode serve` process (ADR 0014): it spawns
+  * the server, reads its base URL, and tears the process down at scope end. The
+  * HTTP/SSE client to talk to it is exposed via [[http]] — this class *owns* a
+  * client rather than *being* one, keeping process lifecycle separate from the
+  * request surface ([[OpencodeHttp]]).
   *
-  * The process is spawned on the first call (so a backend wired but never used
-  * starts nothing), its base URL read from the startup line, and both the
-  * process and client are torn down when the enclosing Ox scope ends. A random
-  * `OPENCODE_SERVER_PASSWORD` keeps the bound localhost port closed to other
-  * processes; `--pure` is *not* passed (`OpencodeArgs.serve`) so the server
-  * inherits the user's configured providers.
+  * The process is spawned the first time [[http]] is forced (so a backend wired
+  * but never used starts nothing), and both the process and client are torn
+  * down when the enclosing Ox scope ends. A random `OPENCODE_SERVER_PASSWORD`
+  * keeps the bound localhost port closed to other processes; `--pure` is *not*
+  * passed (`OpencodeArgs.serve`) so the server inherits the user's configured
+  * providers.
   */
 private[opencode] class OpencodeServer(
     cli: CliRunner,
     workDir: os.Path,
     httpFor: (String, String) => OpencodeHttp = JavaNetOpencodeHttp.start
-)(using Ox)
-    extends OpencodeHttp:
+)(using Ox):
 
-  // A `lazy val` gives exactly one spawn under concurrent first use, and does
-  // not cache a failed start (Scala re-runs the initializer if it threw). This
-  // is the load-bearing once-init: `OpencodeBackend`'s AtomicReference only
-  // guarantees a single server *instance*, this guarantees a single *spawn*.
-  private lazy val http: OpencodeHttp = start()
-
-  def postJson(path: String, body: String): String = http.postJson(path, body)
-
-  /** A fresh SSE stream per turn. Its lifetime is the conversation's, not the
-    * server's — the conversation interrupts it at turn end (and the backend
-    * releases it as a backstop), so it is deliberately **not** registered on
-    * this scope, which would retain one finalizer per turn for the server's
-    * whole life.
+  /** The HTTP/SSE client against this server. Forcing it spawns `opencode serve`
+    * exactly once: a `lazy val` gives one spawn under concurrent first use and
+    * does not cache a failed start (Scala re-runs the initializer if it threw).
+    * This is the load-bearing once-init — `OpencodeBackend`'s AtomicReference
+    * only guarantees a single server *instance*; this guarantees a single
+    * *spawn*.
     */
-  def events(): StreamSource = http.events()
+  lazy val http: OpencodeHttp = start()
 
   private def start(): OpencodeHttp =
     val password = UUID.randomUUID.toString
