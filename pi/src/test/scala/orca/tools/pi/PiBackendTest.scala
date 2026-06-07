@@ -67,6 +67,24 @@ class PiBackendTest extends munit.FunSuite:
     def dirOf(a: List[String]) = a(a.indexOf("--session-dir") + 1)
     assertEquals(dirOf(first.args), dirOf(second.args))
 
+  test("a failed first turn leaves the session fresh, not --continue"):
+    val failing = new FakePipedCliProcess(initiallyAlive = false)
+    failing.closeStdout() // EOF before agent_end → the turn fails
+    failing.closeStderr()
+    val runner = new SpawnStubCliRunner(List(failing, successfulProcess()))
+    val backend = new PiBackend(runner)
+    val workDir = os.temp.dir()
+
+    val _ = intercept[Exception](
+      backend.runAutonomous("one", sid, LlmConfig.default, workDir)
+    )
+    val _ = backend.runAutonomous("two", sid, LlmConfig.default, workDir)
+
+    val Seq(first, second) = runner.spawnCalls.take(2): @unchecked
+    assert(!first.args.contains("--continue"), first.args)
+    // The failed first turn wasn't committed, so the retry starts fresh.
+    assert(!second.args.contains("--continue"), second.args)
+
   test("model and autonomous read-only config map to Pi flags"):
     val process = successfulProcess()
     val runner = new SpawnStubCliRunner(List(process))

@@ -6,9 +6,11 @@ import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{
   Conversation,
   Conversations,
+  Dispatch,
   LlmBackend,
   LlmResult,
   SessionMode,
+  SessionRegistry,
   SystemPromptComposer
 }
 import orca.subprocess.CliRunner
@@ -34,12 +36,12 @@ private[orca] class PiBackend(cli: CliRunner)
     extends LlmBackend[BackendTag.Pi.type]:
 
   // Pi persists each session in a directory; one dir per Orca session id gives
-  // caller-stable continuity. `started` records which ids have had their first
-  // turn, so the next turn on the same id adds `--continue`.
+  // caller-stable continuity. The registry tracks fresh-vs-resume and is
+  // committed only *after* a successful turn, so a retried open-failure starts
+  // fresh rather than `--continue`-ing a dir Pi never created.
   private val sessionsBase: os.Path =
     os.temp.dir(prefix = "orca-pi-sessions-", deleteOnExit = true)
-  private val started: java.util.Set[String] =
-    java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
+  private val sessions = new SessionRegistry.ClaimedOnce[BackendTag.Pi.type]
 
   def runAutonomous(
       prompt: String,
@@ -59,6 +61,7 @@ private[orca] class PiBackend(cli: CliRunner)
     )
     try
       val result = Conversations.drainAutonomous(conv, events)
+      sessions.commitSuccess(session, session) // now resumable
       result.copy(sessionId = session)
     catch
       case e: AgentTurnFailed => throw e
@@ -81,6 +84,14 @@ private[orca] class PiBackend(cli: CliRunner)
       workDir = workDir,
       outputSchema = outputSchema
     )
+
+  /** Marks an interactive session resumable once its turn has succeeded — the
+    * framework calls this after driving the returned conversation to completion.
+    */
+  override def registerSession(
+      client: SessionId[BackendTag.Pi.type],
+      serverSession: SessionId[BackendTag.Pi.type]
+  ): Unit = sessions.commitSuccess(client, serverSession)
 
   private def openConversation(
       prompt: String,
@@ -113,10 +124,11 @@ private[orca] class PiBackend(cli: CliRunner)
       val systemPromptFile = writeSystemPromptIfPresent(config, extraHint)
         .map(register)
 
-      val sessionId = SessionId.value(session)
-      val resume = !started.add(sessionId) // first turn creates, later resume
+      val resume = sessions.dispatchFor(session) match
+        case Dispatch.Resume(_) => true
+        case Dispatch.Fresh(_)  => false
       val args = PiArgs.rpc(
-        sessionDir = sessionsBase / sessionId,
+        sessionDir = sessionsBase / SessionId.value(session),
         resume = resume,
         config = config,
         systemPromptFile = systemPromptFile.map(_.file),
