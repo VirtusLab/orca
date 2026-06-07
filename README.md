@@ -24,7 +24,7 @@ OpenCode, or Pi (depending which backend you use), as well as `gh` and `git`.
 Save this as `implement.sc` and run it with your task:
 
 ```scala
-//> using dep "org.virtuslab::orca:0.0.8"
+//> using dep "org.virtuslab::orca:0.0.9"
 //> using jvm 21
 
 import orca.{*, given}

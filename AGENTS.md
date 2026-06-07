@@ -139,7 +139,7 @@ its chapters before a non-trivial change is recommended.
 sbt publishLocal
 ```
 
-Installs `org.virtuslab::orca:0.0.8` plus its transitive modules
+Installs `org.virtuslab::orca:0.0.9` plus its transitive modules
 (`orca-tools`, `orca-flow`, `orca-claude`, `orca-codex`) into
 `~/.ivy2/local` so a flow script with `//> using repository ivy2Local` can
 resolve them.
