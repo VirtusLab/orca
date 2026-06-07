@@ -31,7 +31,7 @@ flow(OrcaArgs(args)):
   // Resume `.orca/plan-<hash>.md` if it exists; otherwise plan interactively
   // (the planner can call `ask_user` to clarify) and branch.
   val plan = stage("Acquire plan"):
-    Plan.recoverOrCreate(planFile, "orca: starting implementation"):
+    Plan.recoverOrCreate(planFile):
       // `.value` drops the planner's session — the implementer below mints a
       // fresh one (ask_user was only needed for planning).
       Plan.interactive.from(userPrompt, claude).value

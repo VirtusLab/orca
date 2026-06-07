@@ -32,7 +32,7 @@ flow(OrcaArgs(args)):
 
   // Resume `.orca/plan-<hash>.md` if it exists; otherwise plan + branch.
   val plan = stage("Acquire plan"):
-    Plan.recoverOrCreate(planFile, "orca: starting implementation"):
+    Plan.recoverOrCreate(planFile):
       // `.value` drops the planner's read-only session — the implementer
       // below mints a fresh one.
       Plan.autonomous.from(userPrompt, claude).value

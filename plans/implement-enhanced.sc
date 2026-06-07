@@ -39,7 +39,7 @@ flow(OrcaArgs(args)):
 
   // Plan → review → brief, all on one read-only planner session. On resume the
   // persisted plan (with its brief) is reused without re-planning.
-  val plan = Plan.recoverOrCreate(planFile, "orca: starting implementation"):
+  val plan = Plan.recoverOrCreate(planFile):
     Plan.autonomous
       .from(userPrompt, claude)
       .reviewed(claude)
