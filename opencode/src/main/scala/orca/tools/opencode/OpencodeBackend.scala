@@ -41,7 +41,7 @@ import java.util.concurrent.atomic.AtomicReference
   */
 private[orca] object OpencodeBackend:
   def apply(cli: CliRunner)(using Ox): OpencodeBackend =
-    new OpencodeBackend(workDir => new OpencodeServer(cli, workDir))
+    new OpencodeBackend(workDir => new OpencodeServer(cli, workDir).http)
 
 private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
     extends LlmBackend[BackendTag.Opencode.type]:
