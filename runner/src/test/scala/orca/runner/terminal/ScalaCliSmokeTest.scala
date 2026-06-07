@@ -94,7 +94,7 @@ class ScalaCliSmokeTest extends munit.FunSuite:
     )
 
   /** Add new flow scripts here so they're picked up by the compile-check loop.
-    * Each entry is a path under `plans/` (the seed scripts copy these `.sc`
+    * Each entry is a path under `examples/` (the seed scripts copy these `.sc`
     * files into the user's project at create-test-project time).
     */
   private val flowScripts: Seq[String] = Seq(
@@ -107,20 +107,20 @@ class ScalaCliSmokeTest extends munit.FunSuite:
   /** Each flow script is a real-world consumer of the library — when a
     * public-API rename or signature change ships, these scripts are the first
     * thing that breaks for users. Compile-checking them here closes the gap
-    * between sbt's internal compile (which doesn't see `plans/`) and what a
+    * between sbt's internal compile (which doesn't see `examples/`) and what a
     * fresh user actually runs.
     */
   for relPath <- flowScripts do
-    test(s"plans/$relPath compiles via scala-cli"):
+    test(s"examples/$relPath compiles via scala-cli"):
       val repoRoot = publishedRepo().repoRoot
-      val scriptPath = repoRoot / "plans" / relPath
+      val scriptPath = repoRoot / "examples" / relPath
       val result = os
         .proc("scala-cli", "compile", scriptPath.toString)
         .call(cwd = repoRoot, check = false, mergeErrIntoOut = true)
       assertEquals(
         result.exitCode,
         0,
-        s"scala-cli compile failed for plans/$relPath:\n${result.out.text()}"
+        s"scala-cli compile failed for examples/$relPath:\n${result.out.text()}"
       )
 
   /** Walk up from the test's working directory until we see a build.sbt. */

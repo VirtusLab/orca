@@ -46,7 +46,7 @@ divide, modulo, power, …) before drafting tasks.
 The seed script prints the exact `scala-cli run` line:
 
 ```bash
-./examples/02-interactive/create-test-project.sh
+./examples/runnable/02-interactive/create-test-project.sh
 # → "Test project ready at: /tmp/orca-02-interactive-…"
 
 cd /tmp/orca-02-interactive-…

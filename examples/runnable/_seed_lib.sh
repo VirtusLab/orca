@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# Shared helpers for `examples/*/create-test-project.sh`.
+# Shared helpers for `examples/runnable/*/create-test-project.sh`.
 #
 # Each example sources this file and drives four helpers:
 #   parse_args "$@"           # honours --local / -h
 #   resolve_dest "<prefix>"   # mktemp unless caller passed a path
-#   init_destination $SEED_DIR $PLANS_DIR <flow-script> "<commit msg>"
+#   init_destination $SEED_DIR $FLOWS_DIR <flow-script> "<commit msg>"
 #   apply_local_flag $REPO_ROOT "$DEST/<flow-script>"
 #
 # Passing `--local` to the example script swaps Maven Central for the

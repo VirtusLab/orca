@@ -9,7 +9,7 @@
   * to `.orca/plan-<hash>.md` so a re-run resumes from the first incomplete
   * task.
   *
-  * `examples/02-interactive/create-test-project.sh` seeds the calculator
+  * `examples/runnable/02-interactive/create-test-project.sh` seeds the calculator
   * crate into a temp directory and copies this script alongside it; run
   * from the seeded directory the seeder prints:
   *

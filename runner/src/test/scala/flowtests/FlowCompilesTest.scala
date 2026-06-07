@@ -99,7 +99,7 @@ object FlowCanary:
       stage("start"):
         val _ = claude.autonomous.run(userPrompt)
 
-  /** `summarisePr` + `PrSummary` surface; exercised by `plans/issue-pr.sc`.
+  /** `summarisePr` + `PrSummary` surface; exercised by `examples/issue-pr.sc`.
     * Pins the call shape (`llm`, `diff`, optional `context`, optional
     * `instructions`) and the result type so a rename or signature drift
     * surfaces in this test instead of at the next live run.
@@ -116,7 +116,7 @@ object FlowCanary:
         val _ = summary.body
 
   /** Issue/PR-comment surface on `gh` — exercised by the issue-pr plan in
-    * `plans/`. If any of these signatures move, the canary fails.
+    * `examples/`. If any of these signatures move, the canary fails.
     */
   def issueAndPrSurface(): Unit =
     flow(OrcaArgs()):
@@ -133,7 +133,7 @@ object FlowCanary:
         gh.writeComment(pr, "pr comment")
         gh.updatePr(pr, "new title", "new body")
 
-  /** Planning grid surface; exercised across `plans/`. Pins the full `mode ×
+  /** Planning grid surface; exercised across `examples/`. Pins the full `mode ×
     * operation` grid: every cell returns `Sessioned[B, <result>]` where the
     * result is `Plan` (`from`), `Verdict[Plan]` (`assessThenPlan`), or `Triage`
     * (`triage`). A hole in the grid, a return-type drift, or an enum
@@ -185,7 +185,7 @@ object FlowCanary:
           case Triage.Testable(_, _, _) => ()
 
   /** Post-planning steps (`reviewed` / `briefed`) and the brief-aware
-    * persistence surface — exercised by `plans/implement-enhanced.sc`. Pins
+    * persistence surface — exercised by `examples/implement-enhanced.sc`. Pins
     * that the `Sessioned[B, Plan]` / `Sessioned[B, PlanWithBrief]` extensions
     * resolve through `import orca.*` alone (implicit scope = the `Plan` /
     * `PlanWithBrief` companions), and that both step orders type-check.

@@ -11,7 +11,7 @@
   * together. When every task is done the plan file is removed and the removal
   * is committed.
   *
-  * `examples/01-simple/create-test-project.sh` seeds the calculator crate
+  * `examples/runnable/01-simple/create-test-project.sh` seeds the calculator crate
   * into a temp directory and copies this script alongside it; run from
   * the seeded directory the seeder prints:
   *

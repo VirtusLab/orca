@@ -80,13 +80,15 @@ flow(OrcaArgs(args)):
 scala-cli run implement.sc -- "Add a rate-limiter to the /login endpoint"
 ```
 
-There are four runnable examples which you migh try:
-* [01-simple](examples/01-simple/) (in-memory plan + review, autonomous planner),
-* [02-interactive](examples/02-interactive/) (same shape as 01, but the planner
-  can ask clarifying questions via `ask_user`),
-* [03-bugfix](examples/03-bugfix/) (issue-driven, red-test-first against a real PR),
-* [04-epic](examples/04-epic/) (resumable disk-backed plan with cross-agent
-  review).
+There are two runnable examples under [`examples/runnable/`](examples/runnable/):
+* [01-simple](examples/runnable/01-simple/) (in-memory plan + review, autonomous
+  planner),
+* [02-interactive](examples/runnable/02-interactive/) (same shape as 01, but the
+  planner can ask clarifying questions via `ask_user`).
+
+More flow scripts — `epic.sc`, `issue-pr.sc`, `issue-pr-bugfix.sc`,
+`implement-enhanced.sc` — live in [`examples/`](examples/); run them against
+your own git repo.
 
 For convenient editing of Orca flow scripts, with code-completion, you can try
 the [Metals](https://scalameta.org/metals/) VSCode extension.
@@ -97,7 +99,7 @@ The following are available inside a `flow(...) { ... }`:
 
 | Tool | Methods | Purpose |
 |---|---|---|
-| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` defaults to **Opus with the 1M-token context window** (the long-lived implementer session needs the big window, and reviewers run on it too); use `claude.sonnet` / `claude.haiku` for cheaper one-shot calls (the reviewer picker, lint, the PR summariser). Each `run` returns `(SessionId, output)`. Pre-allocate a session with `claude.newSession` and pass it on every call to keep one conversation alive; omit the arg for a one-shot fresh session. The `autonomous` vs `interactive` mode is always visible at the call site (interactive lives only on `resultAs[O]`). |
+| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `haiku`/`sonnet`/`opus`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer needs it; reviewers share it); use `claude.sonnet` / `claude.haiku` for cheap one-shot calls (reviewer picker, lint, PR summariser). `interactive` mode lives only on `resultAs[O]`. |
 | `codex` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `mini`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withSelfManagedGit` | OpenAI Codex coding/reviewing agent. |
 | `opencode` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiGpt5`/`openaiGpt5Codex`/`openaiGpt5Mini`, `withModel(providerModel)` / `withModel(provider, modelId)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withSelfManagedGit` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiGpt5Mini`) or `opencode.withModel("openai/gpt-4o-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
 | `pi` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withSelfManagedGit` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withConfig(LlmConfig(model = Some(Model("provider/model"))))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
@@ -105,14 +107,12 @@ The following are available inside a `flow(...) { ... }`:
 | `gh` | `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` returns `Either[PrCreateFailed, …]` (covers `PrAlreadyExists` / `NoCommitsToPr`); `updatePr` replaces a PR's title + body (refresh a tentative description once the fix lands); `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
 
-The runtime owns git: every write-capable agent turn is instructed not to run
-`git commit`, `git push`, or switch/create branches — it makes edits and leaves
-them in the working tree, and the flow commits/branches/pushes via `git.*` at
-the right points. This is the default, so a script never has to coax the agent
-into leaving git alone; it also keeps `reviewAndFixLoop`'s diff-based reviewer
-selection working (a self-committing agent would leave an empty `git.diff()`).
-For the rare flow that wants the agent to drive git itself, opt out per-tool
-with `claude.withSelfManagedGit` (mirrors `withReadOnly`).
+The runtime owns git: every write-capable agent turn is told not to commit,
+push, or switch branches — it edits the working tree, and the flow
+commits/branches/pushes via `git.*`. This keeps `reviewAndFixLoop`'s diff-based
+reviewer selection working (a self-committing agent would leave an empty
+`git.diff()`). Opt out per-tool with `claude.withSelfManagedGit` (mirrors
+`withReadOnly`).
 
 For the LLM interfaces, `resultAs[O]` defines the shape of the structured
 output. The `O` type needs a `JsonData[O]` (provided by `derives JsonData` on a
@@ -172,6 +172,13 @@ session is still resumable with write access), or `.value` it and mint a fresh
 session via `llm.newSession`. Destructure positionally when you want both:
 `val Sessioned(session, plan) = Plan.autonomous.from(...)`.
 
+From a `Sessioned[B, Plan]`, two optional steps refine the plan before
+implementing — both resume the planner session read-only: `.reviewed(llm)` (the
+planner critiques its own draft → improved `Plan`) and `.briefed(llm)` (the
+planner writes a codebase brief for the implementers → `PlanWithBrief`, prepended
+to each task by `taskPrompt`). Chain either order, e.g.
+`Plan.autonomous.from(...).reviewed(claude).briefed(claude)`.
+
 `assessThenPlan` returns a `Verdict`: `Verdict.Proceed(plan)` to implement, or
 `Verdict.Rejection(kind, body)` — a follow-up question, critique, or rebuff the
 caller surfaces back to the reporter. `triage` returns a `Triage` sum type the
@@ -188,13 +195,9 @@ Persistence + iteration helpers:
 | `Plan.implementTaskLoop(file, plan)(body)` / `Plan.implementTaskLoop(plan)(body)` | Iterate `plan` running `body(task)` per task, committing each. The `file` overload also ticks the on-disk checkbox and removes the file at the end (resumable); the file-less overload tracks completion in memory (for flows with their own non-restartable state machine). |
 | `Plan.persistComplete(file, title)` | Mark one task complete on disk. Lower-level primitive that the `file` loop is built on. |
 
-Picking interactive vs autonomous is visible at the call site rather than
-hidden behind a parameter default — `Plan.interactive.*` and `Plan.autonomous.*`
-are sibling namespaces with the same method shapes.
-
 Persistent plans are the default mode for multi-task flows — `implement.sc`,
 `implement-interactive.sc`, `epic.sc`, and `issue-pr.sc` all use
-`Plan.defaultPath` + `Plan.recover` + `Plan.implementTaskLoop`. See ADR
+`Plan.defaultPath` + `Plan.recoverOrCreate` + `Plan.implementTaskLoop`. See ADR
 [0013](adr/0013-persistent-plans.md) for the convention and migration notes.
 
 Review utilities, available via `import orca.review.*`:
@@ -239,9 +242,11 @@ Plan.interactive.from(
 ```
 
 Where the defaults live:
-- `orca.plan.PlanPrompts` — `Planning`, `AssessThenPlan`, `Triage`
+- `orca.plan.PlanPrompts` — `Planning`, `AssessThenPlan`, `Triage`, `Review`,
+  `Brief`
 - `orca.pr.PrPrompts` — `Summarise`
-- `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummariseLint`
+- `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummariseLint`,
+  `ReReview`
 - `orca.review.ReviewerPrompts` — per-reviewer system prompts (compose your own
   list to swap or extend `allReviewers`/`minimalReviewers`)
 
@@ -254,13 +259,17 @@ separate layer — replace the whole set via `flow(prompts = ...)`. See ADR
 Common types you'll see in flow scripts. All `derives JsonData`, so the agent
 can generate them as structured output via `claude.resultAs[T]`:
 
-- **`orca.plan.Plan(epicId, tasks)`** — list of tasks the agent generates in
-  one round-trip; the same type backs both in-memory use (`Plan.*.from`) and
-  the markdown-persisted resume path (`Plan.*.loadOrGenerate`). `epicId` is a
-  kebab-case identifier used as the git branch name for the whole plan.
+- **`orca.plan.Plan(epicId, description, tasks)`** — the task list the agent
+  generates in one round-trip; backs both in-memory use (`Plan.*.from`) and the
+  markdown-persisted resume path (`Plan.*.loadOrGenerate`). `epicId` is a
+  kebab-case id used as the plan's git branch; `description` is the planner's
+  epic summary.
 - **`orca.plan.Task(title, description, completed?)`** — `title` is the
   human-readable label shown in the event log and used as the
   `## Task: <title>` markdown header when persisted.
+- **`orca.plan.PlanWithBrief(plan, brief)`** — a `Plan` plus a codebase brief
+  for the implementers, produced by `Sessioned.briefed`. Persisted as a trailing
+  `## Brief` section and prepended to each task by `taskPrompt`.
 - **`orca.plan.Sessioned(sessionId, value)`** — every `Plan.{autonomous,
   interactive}.*` operation returns one: the result paired with the agent
   session that produced it, so the caller can continue that session into
@@ -312,7 +321,9 @@ off.
 
 ## Authenticating the coding agents
 
-Each CLI handles its own auth; Orca itself stores no secrets.
+Each CLI manages its own auth; Orca stores no secrets. Before running a flow,
+log in to the backend you use — `claude`, `codex`, `opencode`, or `pi` — and to
+`gh` (for the GitHub helpers), each per its own instructions.
 
 ## Getting set up
 

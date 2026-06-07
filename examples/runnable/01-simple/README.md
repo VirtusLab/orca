@@ -33,16 +33,16 @@ the variant where the planner can ask clarifying questions, see
 - A target project to run against. The sibling
   [`create-test-project.sh`](create-test-project.sh) seeds a
   tiny Rust calculator crate from `test-project/` and copies the
-  flow script — [`plans/implement.sc`](../../plans/implement.sc) —
+  flow script — [`implement.sc`](../../implement.sc) —
   into the same temp dir, then inits git:
 
   ```bash
-  ./examples/01-simple/create-test-project.sh
+  ./examples/runnable/01-simple/create-test-project.sh
   # → "Test project ready at: /tmp/orca-01-simple-…"
   ```
 
   Edit `test-project/` for a different starter, or
-  [`plans/implement.sc`](../../plans/implement.sc) for a different
+  [`implement.sc`](../../implement.sc) for a different
   flow.
 
 ## Run
