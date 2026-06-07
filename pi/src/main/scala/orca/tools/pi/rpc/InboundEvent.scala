@@ -84,8 +84,8 @@ private[pi] object InboundEvent:
   private def parseAgentMessage(raw: RawJson): AgentMessage =
     val wire = readFromString[AgentMessageWire](raw.value)
     AgentMessage(
-      role = wire.role,
-      text = renderContent(wire.content),
+      role = wire.role.getOrElse(""),
+      text = wire.content.map(renderContent).getOrElse(""),
       usage = wire.usage.map(_.toUsage),
       model = wire.model,
       errorMessage = wire.errorMessage
@@ -108,12 +108,15 @@ private[pi] object InboundEvent:
 
   private def parseExtensionUiRequest(line: String): InboundEvent =
     val wire = readFromString[ExtensionUiRequestWire](line)
+    // A missing/unknown method falls through to the driver's `other` branch,
+    // which replies with a cancel so Pi never blocks waiting on us.
+    val method = wire.method.getOrElse("")
     val question = wire.title
       .orElse(wire.message.flatMap(renderJsonString))
       .orElse(wire.placeholder)
       .orElse(wire.prefill)
-      .getOrElse(wire.method)
-    ExtensionUiRequest(wire.id, wire.method, question)
+      .getOrElse(method)
+    ExtensionUiRequest(wire.id, method, question)
 
   private def renderContent(raw: RawJson): String =
     val trimmed = raw.value.trim
@@ -169,8 +172,8 @@ private[pi] object InboundEvent:
       derives ConfiguredJsonValueCodec
 
   private case class AgentMessageWire(
-      role: String,
-      content: RawJson,
+      role: Option[String] = None,
+      content: Option[RawJson] = None,
       usage: Option[UsageWire] = None,
       model: Option[String] = None,
       errorMessage: Option[String] = None
@@ -220,7 +223,7 @@ private[pi] object InboundEvent:
 
   private case class ExtensionUiRequestWire(
       id: String,
-      method: String,
+      method: Option[String] = None,
       title: Option[String] = None,
       message: Option[RawJson] = None,
       placeholder: Option[String] = None,

@@ -193,6 +193,46 @@ class PiConversationTest extends munit.FunSuite:
     assert(!process.writes.exists(_.contains("extension_ui_response")))
     val _ = conv.awaitResult()
 
+  test("an extension_ui_request without a method is cancelled, not dropped"):
+    val process = new FakePipedCliProcess()
+    val conv = new PiConversation(process, sid)
+
+    process.enqueueStdout(
+      """{"type":"extension_ui_request","id":"ui-x","title":"hm"}"""
+    )
+    process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
+
+    val _ = conv.events.toList
+    // A cancel is written so Pi doesn't block waiting on a reply.
+    assert(process.writes.exists(_.contains("extension_ui_response")), process.writes)
+    val _ = conv.awaitResult()
+
+  test("message_end without content surfaces the error, not a parse failure"):
+    val process = new FakePipedCliProcess()
+    val conv = new PiConversation(process, sid)
+
+    process.enqueueStdout(
+      """{"type":"message_end","message":{"role":"assistant","errorMessage":"model exploded"}}"""
+    )
+    process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
+
+    val events = conv.events.toList
+    assert(
+      events.exists {
+        case ConversationEvent.Error(m) => m.contains("model exploded")
+        case _                          => false
+      },
+      events
+    )
+    assert(
+      !events.exists {
+        case ConversationEvent.Error(m) => m.contains("parse")
+        case _                          => false
+      },
+      events
+    )
+    val _ = conv.awaitResult()
+
   test("clean exit before agent_end fails"):
     val process = new FakePipedCliProcess(initiallyAlive = false)
     val conv = new PiConversation(process, sid)
