@@ -147,7 +147,6 @@ lazy val orcaRoot = (project in file("."))
         List(
           file("README.md"),
           file("AGENTS.md"),
-          file("plans"),
           file("examples")
         )
       )
