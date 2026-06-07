@@ -41,7 +41,6 @@ private[pi] class PiConversation(
     ):
 
   import PiConversation.*
-  import StreamConversation.Outcome
 
   /** Turn state, accrued by the single reader thread — `handleLine` and the
     * handlers it drives all run there, so a plain `var` over an immutable
@@ -142,11 +141,7 @@ private[pi] class PiConversation(
           )
         )
       eventQueue.enqueue(ConversationEvent.Error(message))
-      val _ = outcomeRef.compareAndSet(
-        None,
-        Some(Outcome.Failed(new OrcaFlowException(message)))
-      )
-      process.sendSigInt()
+      failWith(new OrcaFlowException(message))
 
   private def handleDelta(delta: MessageDelta): Unit = delta match
     case MessageDelta.Text(text) =>
@@ -184,9 +179,10 @@ private[pi] class PiConversation(
       usage = turnState.usage,
       model = turnState.model.map(Model.apply)
     )
-    val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
+    // Closing stdin tells Pi no more commands are coming; `succeedWith` sets the
+    // outcome then interrupts the source (SIGINTs the process).
     closeStdin()
-    process.sendSigInt()
+    succeedWith(result)
 
   private def handleExtensionUiRequest(
       id: String,
