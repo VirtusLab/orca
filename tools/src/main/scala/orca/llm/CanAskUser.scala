@@ -51,3 +51,12 @@ object CanAskUser:
     */
   given CanAskUser[BackendTag.Pi.type] =
     new CanAskUser[BackendTag.Pi.type] {}
+
+  /** Gemini's interactive sessions register the shared
+    * [[orca.backend.mcp.AskUserMcpServer]] via a project-local
+    * `.gemini/settings.json` `mcpServers.orca` entry (gemini has no inline MCP
+    * flag like codex), so the agent calls `ask_user` the same way claude and
+    * codex do. See [[adr/0015-gemini-stream-json-driver.md ADR 0015]].
+    */
+  given CanAskUser[BackendTag.Gemini.type] =
+    new CanAskUser[BackendTag.Gemini.type] {}

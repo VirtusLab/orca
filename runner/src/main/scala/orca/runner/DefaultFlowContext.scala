@@ -4,7 +4,15 @@ import orca.{FlowContext}
 import orca.tools.{GitTool}
 import orca.tools.{GitHubTool}
 import orca.tools.{FsTool}
-import orca.llm.{ClaudeTool, CodexTool, LlmConfig, OpencodeTool, PiTool, Prompts}
+import orca.llm.{
+  ClaudeTool,
+  CodexTool,
+  GeminiTool,
+  LlmConfig,
+  OpencodeTool,
+  PiTool,
+  Prompts
+}
 import orca.events.{EventDispatcher, OrcaEvent}
 
 import orca.backend.Interaction
@@ -12,6 +20,7 @@ import orca.tools.claude.{ClaudeBackend, DefaultClaudeTool}
 import orca.tools.codex.{CodexBackend, DefaultCodexTool}
 import orca.tools.opencode.{DefaultOpencodeTool, OpencodeBackend}
 import orca.tools.pi.{DefaultPiTool, PiBackend}
+import orca.tools.gemini.{GeminiBackend, DefaultGeminiTool}
 import orca.llm.DefaultPrompts
 import orca.subprocess.OsProcCliRunner
 import orca.tools.OsFsTool
@@ -29,6 +38,7 @@ private[orca] class DefaultFlowContext(
     val codex: CodexTool,
     val opencode: OpencodeTool,
     val pi: PiTool,
+    val gemini: GeminiTool,
     val git: GitTool,
     val gh: GitHubTool,
     val fs: FsTool
@@ -50,6 +60,7 @@ private[orca] object DefaultFlowContext:
       codex: Option[CodexTool] = None,
       opencode: Option[OpencodeTool] = None,
       pi: Option[PiTool] = None,
+      gemini: Option[GeminiTool] = None,
       git: Option[GitTool] = None,
       gh: Option[GitHubTool] = None,
       fs: Option[FsTool] = None,
@@ -96,6 +107,19 @@ private[orca] object DefaultFlowContext:
         new DefaultPiTool(
           backend = new PiBackend(OsProcCliRunner),
           config = LlmConfig.default,
+          prompts = prompts,
+          workDir = workDir,
+          events = dispatcher,
+          interaction = interaction
+        )
+      ),
+      gemini = gemini.getOrElse(
+        new DefaultGeminiTool(
+          backend = new GeminiBackend(OsProcCliRunner),
+          // Bare `gemini` pins Gemini Pro (the strong model, like claude
+          // defaults to Opus for the long-lived implementer); `gemini.flash`
+          // opts down for cheap one-shots.
+          config = LlmConfig.default.copy(model = Some(DefaultGeminiTool.Pro)),
           prompts = prompts,
           workDir = workDir,
           events = dispatcher,

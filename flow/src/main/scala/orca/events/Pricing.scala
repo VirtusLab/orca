@@ -113,7 +113,13 @@ object Pricing:
       Model("gpt-5-mini") -> ModelPricing(0.25, 0.025, 2),
       Model("gpt-5-nano") -> ModelPricing(0.05, 0.005, 0.40),
       // codex CLI 0.125.x default
-      Model("gpt-5.4-mini") -> ModelPricing(0.25, 0.025, 2)
+      Model("gpt-5.4-mini") -> ModelPricing(0.25, 0.025, 2),
+      // Gemini (paid tier). 2.5 Pro is tiered on prompt size; these are the
+      // ≤200k-token rates (the common case) — prompts above 200k bill more
+      // ($2.50 in / $15 out). gemini emits no cost on the wire, so these
+      // table rates × token counts are the only cost signal.
+      Model("gemini-2.5-pro") -> ModelPricing(1.25, 0.31, 10),
+      Model("gemini-2.5-flash") -> ModelPricing(0.30, 0.075, 2.50)
     ),
-    lastUpdated = LocalDate.of(2026, 5, 23)
+    lastUpdated = LocalDate.of(2026, 6, 7)
   )
