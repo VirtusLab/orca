@@ -90,7 +90,10 @@ flow(OrcaArgs(args)):
           // Haiku picks the per-task reviewer subset; swap for
           // `ReviewerSelector.allEveryRound` to run every reviewer.
           reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
-          task = task.title.value
+          task = task.title.value,
+          // Format after every edit (the implementation and each review fix);
+          // Prettier for a TypeScript/JS project — swap for your formatter.
+          formatCommand = Some("npx prettier --write .")
         )
 
     stage("Push branch"):

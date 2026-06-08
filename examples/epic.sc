@@ -57,19 +57,15 @@ flow(OrcaArgs(args)):
       stage("Implementation"):
         val _ = claude.autonomous.run(task.description, session)
 
-      // Format before review so reviewers don't burn turns on style nits the
-      // toolchain would fix automatically. Spotless is wired into the seed pom.
-      stage("Format"):
-        val _ = os
-          .proc("mvn", "-q", "spotless:apply")
-          .call(cwd = os.pwd, check = false)
-
       reviewAndFixLoop(
         coder = claude,
         sessionId = session,
         reviewers = reviewers,
         reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
-        task = task.title.value
+        task = task.title.value,
+        // Format after every edit (the implementation and each review fix);
+        // Spotless is wired into the seed pom.
+        formatCommand = Some("mvn -q spotless:apply")
       )
 
   stage("Update documentation"):

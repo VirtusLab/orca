@@ -180,15 +180,14 @@ flow(OrcaArgs(args)):
       stage(s"Implement task: ${task.title}"):
         stage("Implementation"):
           val _ = claude.autonomous.run(task.description, session)
-        // Format before review so reviewers don't burn turns on style nits.
-        stage("Format"):
-          val _ = os.proc("sbt", "scalafmtAll").call(check = false)
         reviewAndFixLoop(
           coder = claude,
           sessionId = session,
           reviewers = allReviewers(claude),
           reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
           task = task.title.value,
+          // Format after every edit (the implementation and each review fix).
+          formatCommand = Some("sbt scalafmtAll"),
           // A compile (main + test sources) is a cheap sanity gate for the
           // reviewers; the failing test runs in CI and correctness is the
           // reviewers' job, so don't run the (much heavier) full suite.

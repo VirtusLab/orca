@@ -78,6 +78,7 @@ object FlowCanary:
             reviewers = allReviewers(claude),
             reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
             task = task.description,
+            formatCommand = Some("mvn -q spotless:apply"),
             lintCommand = Some("mvn -q test"),
             lintLlm = Some(claude.haiku)
           )
