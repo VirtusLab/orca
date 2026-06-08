@@ -137,7 +137,12 @@ private[gemini] class GeminiConversation(
         None,
         Some(
           Outcome.failed[BackendTag.Gemini.type](
-            new AgentTurnFailed(s"gemini turn ended with status '$status'")
+            // Fold in the buffered stderr (the real reason — quota, auth, …)
+            // so the exception carries it even for a noop listener, matching
+            // the non-zero-exit and missing-result failure paths.
+            new AgentTurnFailed(
+              appendContext(s"gemini turn ended with status '$status'")
+            )
           )
         )
       )
