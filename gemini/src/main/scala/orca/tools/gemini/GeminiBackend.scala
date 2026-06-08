@@ -125,9 +125,9 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
           // The settings.json merge is registered as an `extras` AutoCloseable
           // so it's restored when the conversation finalises (the base closes
           // the AskUserSession post-drain).
-          val session = AskUserSession.allocate: server =>
+          val askUserSession = AskUserSession.allocate: server =>
             List(GeminiSettings.register(workDir, server.url))
-          (Some(session), p)
+          (Some(askUserSession), p)
         case SessionMode.Autonomous => (None, "")
     try
       // gemini has no `--append-system-prompt` flag (it picks up `GEMINI.md`
