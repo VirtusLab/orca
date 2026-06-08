@@ -2,10 +2,12 @@ package orca.tools
 
 import orca.OrcaFlowException
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.subprocess.{CliResult, StubCliRunner}
+import orca.subprocess.{CliResult, CliRunner, PipedCliProcess, StubCliRunner}
 import ox.either.orThrow
+import ox.scheduling.Schedule
 
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicInteger
 import scala.concurrent.duration.DurationInt
 import scala.jdk.CollectionConverters.*
 
@@ -19,6 +21,31 @@ class OsGitHubToolTest extends munit.FunSuite:
     private val seen = new ConcurrentLinkedQueue[OrcaEvent]()
     def onEvent(event: OrcaEvent): Unit = { val _ = seen.add(event) }
     def events: List[OrcaEvent] = seen.asScala.toList
+
+  /** A `CliRunner` that returns each response in turn (the last repeats), for
+    * tests that need consecutive `run` calls to differ — e.g. fail then
+    * succeed. Only `run` is exercised here.
+    */
+  private class SequencedCliRunner(responses: List[CliResult])
+      extends CliRunner:
+    private val next = new AtomicInteger(0)
+    private val calls = new AtomicInteger(0)
+    def callCount: Int = calls.get()
+    def run(
+        args: Seq[String],
+        stdin: String,
+        env: Map[String, String],
+        cwd: os.Path
+    ): CliResult =
+      val _ = calls.incrementAndGet()
+      responses(math.min(next.getAndIncrement(), responses.size - 1))
+    def spawnPiped(
+        args: Seq[String],
+        env: Map[String, String],
+        cwd: os.Path,
+        pipeStderr: Boolean
+    ): PipedCliProcess =
+      throw new UnsupportedOperationException("not supported in this stub")
 
   private val samplePr = PrHandle("acme", "widgets", 42)
 
@@ -183,6 +210,45 @@ class OsGitHubToolTest extends munit.FunSuite:
     val status = gh.waitForBuild(samplePr, timeout = 5.seconds).orThrow
     watcher.join()
     assertEquals(status.outcome, BuildOutcome.Success)
+
+  test("waitForBuild rides out a transient gh failure within one poll"):
+    // A dropped GraphQL connection makes `gh` exit non-zero (OrcaFlowException);
+    // the per-poll Ox retry should absorb a couple of these and still return the
+    // eventual status rather than aborting the whole wait.
+    val successJson =
+      """{"statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS","name":"t"}]}"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(1, "", """Post "https://api.github.com/graphql": EOF"""),
+        CliResult(1, "", """Post "https://api.github.com/graphql": EOF"""),
+        CliResult(0, successJson, "")
+      )
+    )
+    val gh = new OsGitHubTool(
+      cli,
+      pollInterval = 1.milli,
+      statusPollRetry = Schedule.immediate.maxRetries(3)
+    )
+    val status = gh.waitForBuild(samplePr, timeout = 5.seconds).orThrow
+    assertEquals(status.outcome, BuildOutcome.Success)
+    assertEquals(cli.callCount, 3) // two failed attempts, then success
+
+  test("waitForBuild surfaces a gh failure that outlasts the poll retry"):
+    // A persistent failure (bad auth, repo gone) must still abort once the
+    // bounded retry is exhausted — it doesn't silently spin until the timeout.
+    val cli = new SequencedCliRunner(
+      List(CliResult(1, "", "gh: not authenticated"))
+    )
+    val gh = new OsGitHubTool(
+      cli,
+      pollInterval = 1.milli,
+      statusPollRetry = Schedule.immediate.maxRetries(2)
+    )
+    val ex = intercept[OrcaFlowException](
+      gh.waitForBuild(samplePr, timeout = 5.seconds)
+    )
+    assert(ex.getMessage.contains("not authenticated"), ex.getMessage)
+    assertEquals(cli.callCount, 3) // initial attempt + two retries
 
   test(
     "waitForBuild doesn't fire NoChecksConfigured once a check was seen"

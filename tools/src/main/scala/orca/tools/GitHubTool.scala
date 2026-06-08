@@ -12,6 +12,8 @@ import orca.OrcaFlowException
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.subprocess.CliRunner
 import ox.sleep
+import ox.resilience.{ResultPolicy, RetryConfig, retry}
+import ox.scheduling.Schedule
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
@@ -228,7 +230,8 @@ private[orca] class OsGitHubTool(
     cli: CliRunner,
     workDir: os.Path = os.pwd,
     pollInterval: FiniteDuration = 30.seconds,
-    events: OrcaListener = OrcaListener.noop
+    events: OrcaListener = OrcaListener.noop,
+    statusPollRetry: Schedule = OsGitHubTool.defaultStatusPollRetry
 ) extends GitHubTool:
 
   import OsGitHubTool.*
@@ -369,9 +372,20 @@ private[orca] class OsGitHubTool(
     val deadline = start + timeout.toNanos
     val noChecksDeadline = start + noChecksGrace.toNanos
 
+    // One poll reads the status over the network; a transient gh/GitHub blip
+    // (dropped connection, 5xx — surfaced as a non-zero `gh` exit, i.e. an
+    // `OrcaFlowException`) shouldn't abort a long wait. The read is idempotent,
+    // so Ox retries it under `statusPollRetry` before the failure propagates.
+    val pollRetry = RetryConfig(
+      statusPollRetry,
+      ResultPolicy.retryWhen[Throwable, BuildStatus](
+        _.isInstanceOf[OrcaFlowException]
+      )
+    )
+
     @scala.annotation.tailrec
     def loop(sawAnyCheck: Boolean): Either[BuildWaitFailed, BuildStatus] =
-      val status = buildStatus(pr)
+      val status = retry(pollRetry)(buildStatus(pr))
       val now = System.nanoTime()
       // Sticky watermark: once we've seen even one non-empty rollup, the
       // "no CI configured" hypothesis is disproven, so a later transient
@@ -396,6 +410,13 @@ private[orca] class OsGitHubTool(
     result.stdout
 
 private[orca] object OsGitHubTool:
+
+  /** Default per-poll retry for `waitForBuild`: ride out a transient gh/GitHub
+    * failure with a bounded exponential backoff before giving up. Injectable on
+    * the constructor so tests can use a no-delay schedule.
+    */
+  val defaultStatusPollRetry: Schedule =
+    Schedule.exponentialBackoff(1.second).maxRetries(4)
 
   private val StatusCompleted = "COMPLETED"
   private val SuccessfulConclusions = Set("SUCCESS", "NEUTRAL", "SKIPPED")
