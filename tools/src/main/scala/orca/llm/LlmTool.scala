@@ -110,6 +110,13 @@ trait OpencodeTool extends LlmTool[BackendTag.Opencode.type]:
 
 trait PiTool extends LlmTool[BackendTag.Pi.type]
 
+trait GeminiTool extends LlmTool[BackendTag.Gemini.type]:
+  /** Pin the cheap-and-fast Gemini Flash model for subsequent calls, overriding
+    * `LlmConfig.model`. Bare `gemini` runs on Gemini Pro (pinned in the runtime
+    * wiring); `gemini.flash` opts down for cheap one-shots.
+    */
+  def flash: GeminiTool
+
 /** Free-form text autonomous calls — the `LlmTool.autonomous` shape. Single
   * method: pass a [[SessionId]] (typically from [[LlmTool.newSession]] or the
   * default fresh one) and the library starts the session on the first call,

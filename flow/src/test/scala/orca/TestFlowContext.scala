@@ -1,7 +1,7 @@
 package orca
 
 import orca.events.{EventDispatcher, OrcaEvent}
-import orca.llm.{ClaudeTool, CodexTool, OpencodeTool, PiTool}
+import orca.llm.{ClaudeTool, CodexTool, GeminiTool, OpencodeTool, PiTool}
 import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
@@ -22,6 +22,7 @@ class TestFlowContext(
   lazy val codex: CodexTool = stub("codex")
   lazy val opencode: OpencodeTool = stub("opencode")
   lazy val pi: PiTool = stub("pi")
+  lazy val gemini: GeminiTool = stub("gemini")
   lazy val git: GitTool = stub("git")
   lazy val gh: GitHubTool = stub("gh")
   lazy val fs: FsTool = stub("fs")

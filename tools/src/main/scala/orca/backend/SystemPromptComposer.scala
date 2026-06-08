@@ -11,8 +11,8 @@ import orca.llm.LlmConfig
   * Returns `None` only when nothing applies (a read-only turn with no
   * systemPrompt and no hint). Each backend decides how to deliver the resulting
   * string — claude writes it to a temp file for `--append-system-prompt-file`;
-  * codex folds it into the user prompt as a `"System guidance:"` preamble
-  * (codex has no `--append-system-prompt`).
+  * codex and gemini have no such flag and fold it into the user prompt via
+  * [[foldIntoPrompt]].
   */
 private[orca] object SystemPromptComposer:
 
@@ -44,3 +44,22 @@ private[orca] object SystemPromptComposer:
     List(config.systemPrompt, extraHint, gitRule).flatten match
       case Nil    => None
       case pieces => Some(pieces.mkString("\n\n"))
+
+  /** Deliver the composed system prompt by folding it into `userPrompt` as a
+    * `"System guidance:"` preamble, used by backends whose CLI has no
+    * `--append-system-prompt` flag (codex, gemini). Returns `userPrompt`
+    * unchanged when nothing applies.
+    */
+  def foldIntoPrompt(
+      config: LlmConfig,
+      userPrompt: String,
+      extraHint: Option[String] = None
+  ): String =
+    combine(config, extraHint) match
+      case None => userPrompt
+      case Some(text) =>
+        s"""System guidance:
+           |$text
+           |
+           |User request:
+           |$userPrompt""".stripMargin
