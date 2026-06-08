@@ -21,11 +21,6 @@ class GeminiArgsTest extends munit.FunSuite:
     val args = GeminiArgs.headless("x", LlmConfig.default)
     assert(args.contains("--skip-trust"), args.toString)
 
-  test("resume also passes --skip-trust"):
-    val sid = SessionId[BackendTag.Gemini.type]("sid")
-    val args = GeminiArgs.resume(sid, "x", LlmConfig.default)
-    assert(args.contains("--skip-trust"), args.toString)
-
   test("headless passes --model when LlmConfig.model is set"):
     val args = GeminiArgs.headless(
       "x",

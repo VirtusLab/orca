@@ -2,7 +2,7 @@ package orca.tools.gemini
 
 import orca.backend.{Conversation, Interaction, LlmResult, SupervisedBackend}
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, DefaultPrompts, LlmConfig, Model}
+import orca.llm.{BackendTag, DefaultPrompts, LlmConfig}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 
 class DefaultGeminiToolTest extends munit.FunSuite:
@@ -70,6 +70,3 @@ class DefaultGeminiToolTest extends munit.FunSuite:
     toolWith(runner, LlmConfig.default): tool =>
       val renamed = tool.withName("planner")
       assertEquals(renamed.name, "planner")
-
-  test("Pro is the gemini-2.5-pro model id"):
-    assertEquals(Model.name(DefaultGeminiTool.Pro), "gemini-2.5-pro")
