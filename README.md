@@ -47,7 +47,7 @@ flow(OrcaArgs(args)):
   // runs read-only and would inherit the restriction on resume.
   val session = claude.newSession
 
-  // Per task: implement, format, review & fix. `implementTaskLoop` ticks
+  // Per task: implement, then review & fix. `implementTaskLoop` ticks
   // the plan's checkbox + commits per task and removes the plan file at
   // the end. The single commit captures the original implementation, the
   // auto-formatted result, and any follow-up fixes the reviewers triggered.
@@ -55,11 +55,6 @@ flow(OrcaArgs(args)):
     stage(s"Implement task: ${task.title}"):
       stage("Implementation"):
         val _ = claude.autonomous.run(task.description, session)
-      // Format before review so reviewers don't burn turns on style nits
-      // the toolchain would fix automatically. Run after the agent
-      // writes — we don't want to demand pre-formatted code from the LLM.
-      stage("Format"):
-        val _ = os.proc("sbt", "scalafmtAll").call(check = false)
       reviewAndFixLoop(
         coder = claude,
         sessionId = session,
@@ -69,6 +64,9 @@ flow(OrcaArgs(args)):
         // ReviewerSelector.allEveryRound to run every reviewer.
         reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value,
+        // Runs after the implementation and after each review fix, so the
+        // committed code is always formatted and reviewers skip style nits.
+        formatCommand = Some("sbt scalafmtAll"),
         // A compile is a cheap sanity gate; correctness is the reviewers'
         // and CI's job, so don't run the heavier full test suite here.
         lintCommand = Some("sbt Test/compile"),

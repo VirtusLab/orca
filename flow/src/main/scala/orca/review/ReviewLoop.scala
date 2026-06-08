@@ -167,6 +167,13 @@ def reviewAndFixLoop[B <: BackendTag](
     reviewers: List[LlmTool[?]],
     reviewerSelection: ReviewerSelector,
     task: String,
+    /** Shell command run before each review round — after the implementation
+      * and after every fix — so reviewers and the lint see formatted code and
+      * the committed tree stays formatted. Run via `bash -c`, exit status
+      * ignored (a formatter that fails shouldn't abort the review). E.g. `"sbt
+      * scalafmtAll"`, `"cargo fmt"`, `"prettier -w ."`.
+      */
+    formatCommand: Option[String] = None,
     lintCommand: Option[String] = None,
     /** LLM that summarises lint output into a `ReviewResult`. Required when
       * `lintCommand` is set; ignored otherwise. Use a cheap model
@@ -340,6 +347,12 @@ def reviewAndFixLoop[B <: BackendTag](
       (reviewerOutcomes, lintOutcome, nextState)
 
   def evaluate(): ReviewResult =
+    // Format before reviewing so the implementation's (and each prior fix's)
+    // edits are cleaned up before reviewers and the lint see them, and the
+    // committed tree stays formatted. Exit status ignored — a formatter failure
+    // shouldn't abort the review; output is captured (not printed) by `call`.
+    formatCommand.foreach: cmd =>
+      val _ = os.proc("bash", "-c", cmd).call(check = false)
     val active =
       reviewerSelection(state.history, reviewers, taskTitle, changedFiles)
     val totalAgents = active.size + (if lintCommand.isDefined then 1 else 0)
@@ -425,7 +438,12 @@ def lint(
     // `finally` below removes it, so skip the JVM-exit hook (one per lint call
     // would otherwise accumulate over a long run).
     val outputFile =
-      os.temp(output, prefix = "orca-lint-", suffix = ".log", deleteOnExit = false)
+      os.temp(
+        output,
+        prefix = "orca-lint-",
+        suffix = ".log",
+        deleteOnExit = false
+      )
     try
       llm.withReadOnly
         .resultAs[ReviewResult]

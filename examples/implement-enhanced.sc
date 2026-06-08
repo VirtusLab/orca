@@ -55,17 +55,14 @@ flow(OrcaArgs(args)):
         // taskPrompt prepends the shared brief.
         val _ = claude.autonomous.run(plan.taskPrompt(task), session)
 
-      // Format before review so reviewers (and the commit) don't burn turns
-      // on style nits.
-      stage("Format"):
-        val _ = os.proc("cargo", "fmt").call(check = false)
-
       reviewAndFixLoop(
         coder = claude,
         sessionId = session,
         reviewers = allReviewers(claude),
         reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value,
+        // Format after every edit (the implementation and each review fix).
+        formatCommand = Some("cargo fmt"),
         lintCommand = Some("cargo check --tests"),
         lintLlm = Some(claude.haiku)
       )

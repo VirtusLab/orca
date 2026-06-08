@@ -478,3 +478,30 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
+
+  test("formatCommand runs before every review round (impl + each fix)"):
+    given FlowContext = ctx
+    // The formatter appends one line per run. Two review rounds (issue → fix,
+    // then clean) mean it must run twice — once before reviewing the
+    // implementation, once before re-reviewing the fix.
+    val counter = os.temp.dir() / "fmt-count"
+    val reviewer = new FakeLlmTool(
+      name = "r",
+      outputs =
+        List(ReviewResult(List(issue("needs fixing"))), ReviewResult.empty)
+    )
+    val coder = new FakeLlmTool(
+      name = "coder",
+      outputs = List(FixOutcome(List(Title("needs fixing")), Nil))
+    )
+    val _ = reviewAndFixLoop(
+      coder = coder,
+      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      reviewers = List(reviewer),
+      task = "format check",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      formatCommand = Some(s"echo x >> '$counter'"),
+      initialDiff = Some("")
+    )
+    val runs = if os.exists(counter) then os.read.lines(counter).size else 0
+    assertEquals(runs, 2)
