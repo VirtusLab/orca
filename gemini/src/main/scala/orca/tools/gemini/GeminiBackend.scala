@@ -130,7 +130,10 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
           (Some(session), p)
         case SessionMode.Autonomous => (None, "")
     try
-      val finalPrompt = mergeSystemPrompt(
+      // gemini has no `--append-system-prompt` flag (it picks up `GEMINI.md`
+      // files for static instructions), so fold the composed system prompt into
+      // the user prompt — same approach as codex.
+      val finalPrompt = SystemPromptComposer.foldIntoPrompt(
         config,
         prompt,
         extraHint = Option.when(askUser.isDefined)(AskUserMcpServer.Hint)
@@ -175,23 +178,3 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
       client: SessionId[BackendTag.Gemini.type],
       server: SessionId[BackendTag.Gemini.type]
   ): Unit = sessions.commitSuccess(client, server)
-
-  /** gemini has no `--append-system-prompt` flag (it picks up `GEMINI.md` files
-    * in the working directory for static instructions). Fold the composed
-    * system prompt (config + optional extra hint) into the user prompt as a
-    * preamble — a low-tech but predictable substitute, identical to codex's
-    * approach.
-    */
-  private def mergeSystemPrompt(
-      config: LlmConfig,
-      userPrompt: String,
-      extraHint: Option[String]
-  ): String =
-    SystemPromptComposer.combine(config, extraHint) match
-      case None => userPrompt
-      case Some(text) =>
-        s"""System guidance:
-           |$text
-           |
-           |User request:
-           |$userPrompt""".stripMargin

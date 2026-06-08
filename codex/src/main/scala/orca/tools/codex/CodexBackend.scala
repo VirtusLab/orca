@@ -134,7 +134,10 @@ private[orca] class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
         case SessionMode.Interactive(p) => (Some(AskUserSession.allocate()), p)
         case SessionMode.Autonomous     => (None, "")
     try
-      val finalPrompt = mergeSystemPrompt(
+      // codex `exec` has no `--system-prompt` flag (it picks up `AGENTS.md`
+      // files for static instructions), so fold the composed system prompt into
+      // the user prompt.
+      val finalPrompt = SystemPromptComposer.foldIntoPrompt(
         config,
         prompt,
         extraHint = Option.when(askUser.isDefined)(AskUserMcpServer.Hint)
@@ -195,25 +198,6 @@ private[orca] class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
       client: SessionId[BackendTag.Codex.type],
       server: SessionId[BackendTag.Codex.type]
   ): Unit = sessions.commitSuccess(client, server)
-
-  /** codex `exec` has no `--system-prompt` flag (codex picks up `AGENTS.md`
-    * files in the working directory for static instructions). Fold the composed
-    * system prompt (config + optional extra hint) into the user prompt as a
-    * preamble — a low-tech but predictable substitute.
-    */
-  private def mergeSystemPrompt(
-      config: LlmConfig,
-      userPrompt: String,
-      extraHint: Option[String]
-  ): String =
-    SystemPromptComposer.combine(config, extraHint) match
-      case None => userPrompt
-      case Some(text) =>
-        s"""System guidance:
-           |$text
-           |
-           |User request:
-           |$userPrompt""".stripMargin
 
   private def writeSchemaIfPresent(
       schema: Option[String],
