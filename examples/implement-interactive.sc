@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.0.9"
+//> using dep "org.virtuslab::orca:0.0.10"
 //> using jvm 21
 
 /** Interactive planning + coding flow (persistent).
