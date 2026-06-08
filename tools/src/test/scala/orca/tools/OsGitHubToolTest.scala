@@ -211,6 +211,19 @@ class OsGitHubToolTest extends munit.FunSuite:
     watcher.join()
     assertEquals(status.outcome, BuildOutcome.Success)
 
+  test("readIssue retries a transient gh failure then succeeds"):
+    val issueJson =
+      """{"title":"t","body":"b","user":{"login":"u"},"state":"open"}"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(1, "", """Post "https://api.github.com/graphql": EOF"""),
+        CliResult(0, issueJson, "")
+      )
+    )
+    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate.maxRetries(2))
+    assertEquals(gh.readIssue(IssueHandle("a", "b", 1)).title, "t")
+    assertEquals(cli.callCount, 2) // one failed attempt, then success
+
   test("waitForBuild rides out a transient gh failure within one poll"):
     // A dropped GraphQL connection makes `gh` exit non-zero (OrcaFlowException);
     // the per-poll Ox retry should absorb a couple of these and still return the
@@ -227,7 +240,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     val gh = new OsGitHubTool(
       cli,
       pollInterval = 1.milli,
-      statusPollRetry = Schedule.immediate.maxRetries(3)
+      readRetry = Schedule.immediate.maxRetries(3)
     )
     val status = gh.waitForBuild(samplePr, timeout = 5.seconds).orThrow
     assertEquals(status.outcome, BuildOutcome.Success)
@@ -242,7 +255,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     val gh = new OsGitHubTool(
       cli,
       pollInterval = 1.milli,
-      statusPollRetry = Schedule.immediate.maxRetries(2)
+      readRetry = Schedule.immediate.maxRetries(2)
     )
     val ex = intercept[OrcaFlowException](
       gh.waitForBuild(samplePr, timeout = 5.seconds)

@@ -231,10 +231,23 @@ private[orca] class OsGitHubTool(
     workDir: os.Path = os.pwd,
     pollInterval: FiniteDuration = 30.seconds,
     events: OrcaListener = OrcaListener.noop,
-    statusPollRetry: Schedule = OsGitHubTool.defaultStatusPollRetry
+    readRetry: Schedule = OsGitHubTool.defaultReadRetry
 ) extends GitHubTool:
 
   import OsGitHubTool.*
+
+  /** Retry policy for the idempotent, read-only `gh` invocations ([[ghRead]]):
+    * absorb a transient gh/GitHub failure (dropped connection, 5xx — surfaced
+    * as a non-zero `gh` exit, i.e. an `OrcaFlowException`) under a bounded
+    * backoff before the failure propagates.
+    */
+  private val readRetryConfig: RetryConfig[Throwable, String] =
+    RetryConfig(
+      readRetry,
+      ResultPolicy.retryWhen[Throwable, String](
+        _.isInstanceOf[OrcaFlowException]
+      )
+    )
 
   private val PrUrlPattern =
     """https://github\.com/([^/]+)/([^/]+)/pull/(\d+)""".r
@@ -270,7 +283,7 @@ private[orca] class OsGitHubTool(
         )
 
   def readIssue(issue: IssueHandle): Issue =
-    val output = gh(
+    val output = ghRead(
       "api",
       s"repos/${issue.owner}/${issue.repo}/issues/${issue.number}"
     )
@@ -297,7 +310,7 @@ private[orca] class OsGitHubTool(
       repo: String,
       number: Int
   ): List[Comment] =
-    val output = gh(
+    val output = ghRead(
       "api",
       "--paginate",
       s"repos/$owner/$repo/issues/$number/comments"
@@ -342,7 +355,7 @@ private[orca] class OsGitHubTool(
     )
 
   def buildStatus(pr: PrHandle): BuildStatus =
-    val output = gh(
+    val output = ghRead(
       "pr",
       "view",
       pr.number.toString,
@@ -372,20 +385,11 @@ private[orca] class OsGitHubTool(
     val deadline = start + timeout.toNanos
     val noChecksDeadline = start + noChecksGrace.toNanos
 
-    // One poll reads the status over the network; a transient gh/GitHub blip
-    // (dropped connection, 5xx — surfaced as a non-zero `gh` exit, i.e. an
-    // `OrcaFlowException`) shouldn't abort a long wait. The read is idempotent,
-    // so Ox retries it under `statusPollRetry` before the failure propagates.
-    val pollRetry = RetryConfig(
-      statusPollRetry,
-      ResultPolicy.retryWhen[Throwable, BuildStatus](
-        _.isInstanceOf[OrcaFlowException]
-      )
-    )
-
     @scala.annotation.tailrec
     def loop(sawAnyCheck: Boolean): Either[BuildWaitFailed, BuildStatus] =
-      val status = retry(pollRetry)(buildStatus(pr))
+      // `buildStatus` already retries a transient gh/GitHub blip internally
+      // ([[ghRead]]); a failure here means the read failed past that budget.
+      val status = buildStatus(pr)
       val now = System.nanoTime()
       // Sticky watermark: once we've seen even one non-empty rollup, the
       // "no CI configured" hypothesis is disproven, so a later transient
@@ -409,13 +413,22 @@ private[orca] class OsGitHubTool(
       )
     result.stdout
 
+  /** Like [[gh]] but retries a transient failure under [[readRetryConfig]].
+    * ONLY for idempotent reads (`api`/`pr view`); never wrap a mutating call
+    * (`pr create`, `pr comment`, `pr edit`) — a retry after a lost response
+    * would double the side effect (duplicate PR / comment).
+    */
+  private def ghRead(args: String*): String =
+    retry(readRetryConfig)(gh(args*))
+
 private[orca] object OsGitHubTool:
 
-  /** Default per-poll retry for `waitForBuild`: ride out a transient gh/GitHub
-    * failure with a bounded exponential backoff before giving up. Injectable on
-    * the constructor so tests can use a no-delay schedule.
+  /** Default retry for idempotent read-only `gh` calls (`readIssue`,
+    * `read*Comments`, `buildStatus`): ride out a transient gh/GitHub failure
+    * with a bounded exponential backoff before giving up. Injectable on the
+    * constructor so tests can use a no-delay schedule.
     */
-  val defaultStatusPollRetry: Schedule =
+  val defaultReadRetry: Schedule =
     Schedule.exponentialBackoff(1.second).maxRetries(4)
 
   private val StatusCompleted = "COMPLETED"
