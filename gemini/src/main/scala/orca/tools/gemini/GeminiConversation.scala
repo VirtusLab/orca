@@ -205,9 +205,12 @@ private[gemini] object GeminiConversation:
     *   - a 256-color terminal-capability warning,
     *   - `YOLO mode is enabled. …` notices (we always pass `--approval-mode
     *     yolo` for non-read-only turns),
-    *   - `Shell cwd was reset to …` after a tool run.
+    *   - `Shell cwd was reset to …` after a tool run,
+    *   - `[IDEClient]` companion-extension chatter (gemini probes for a VS Code
+    *     companion that an orca-driven subprocess never has).
     */
   private[gemini] def isKnownStderrNoise(line: String): Boolean =
     line.contains("256-color support not detected") ||
       line.startsWith("YOLO mode is enabled") ||
-      line.startsWith("Shell cwd was reset to")
+      line.startsWith("Shell cwd was reset to") ||
+      line.contains("[IDEClient]")

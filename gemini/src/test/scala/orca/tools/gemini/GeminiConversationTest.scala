@@ -181,7 +181,8 @@ class GeminiConversationTest extends munit.FunSuite:
 
   test("benign gemini stderr chatter is filtered (no Error events)"):
     // Observed on every successful headless run (gemini 0.45.2): a 256-color
-    // warning, YOLO-mode notices, and a cwd-reset line — all informational.
+    // warning, YOLO-mode notices, a cwd-reset line, and IDE-companion probe
+    // chatter — all informational.
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
 
@@ -192,6 +193,9 @@ class GeminiConversationTest extends munit.FunSuite:
       "YOLO mode is enabled. All tool calls will be automatically approved."
     )
     process.enqueueStderr("Shell cwd was reset to /some/dir")
+    process.enqueueStderr(
+      "[ERROR] [IDEClient] Failed to connect to IDE companion extension. Please ensure the extension is running."
+    )
     process.enqueueStdout("""{"type":"init","session_id":"s"}""")
     process.enqueueStdout(
       """{"type":"message","role":"assistant","content":"ok"}"""
