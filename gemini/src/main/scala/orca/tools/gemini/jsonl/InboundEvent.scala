@@ -88,9 +88,9 @@ private[gemini] object InboundEvent:
       Usage(
         inputTokens = s.input_tokens.getOrElse(0L),
         outputTokens = s.output_tokens.getOrElse(0L),
-        // gemini doesn't emit cost on the wire; cache sub-count is `cached`
-        // (older/forward shapes may use `cached_input_tokens`).
-        cost = None,
+        cost = None, // gemini doesn't emit cost on the wire
+        // cache sub-count is `cached` (older/forward shapes use
+        // `cached_input_tokens`).
         cachedInputTokens = s.cached.orElse(s.cached_input_tokens).getOrElse(0L)
       ),
       status = w.status.getOrElse("")
@@ -130,8 +130,7 @@ private[gemini] object InboundEvent:
       input_tokens: Option[Long] = None,
       output_tokens: Option[Long] = None,
       cached: Option[Long] = None,
-      cached_input_tokens: Option[Long] = None,
-      total_tokens: Option[Long] = None
+      cached_input_tokens: Option[Long] = None
   ) derives ConfiguredJsonValueCodec
 
   private case class ResultWire(

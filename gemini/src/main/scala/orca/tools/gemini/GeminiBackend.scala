@@ -123,9 +123,6 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
     val (askUser, displayPrompt): (Option[AskUserSession], String) =
       mode match
         case SessionMode.Interactive(p) =>
-          // The settings.json merge is registered as an `extras` AutoCloseable
-          // so it's restored when the conversation finalises (the base closes
-          // the AskUserSession post-drain).
           val askUserSession = AskUserSession.allocate: server =>
             List(GeminiSettings.register(workDir, server.url))
           (Some(askUserSession), p)
@@ -146,8 +143,8 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
           GeminiArgs.headless(finalPrompt, config)
       val process = cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
       try
-        // gemini consumes the prompt argv-side and ignores stdin; close it so
-        // the child stops waiting on stdin EOF.
+        // Close stdin so the child stops waiting on EOF (gemini reads the
+        // prompt argv-side).
         process.closeStdin()
         new GeminiConversation(
           process,

@@ -117,7 +117,6 @@ private[gemini] class GeminiConversation(
     case InboundEvent.Error(message) =>
       eventQueue.enqueue(ConversationEvent.Error(s"gemini: $message"))
     case InboundEvent.Result(usage, status) =>
-      // Close the assistant turn for the drain, then settle the outcome.
       eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
       handleResult(usage, status)
     case InboundEvent.Unknown(_) =>
