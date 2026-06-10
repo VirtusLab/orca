@@ -234,6 +234,10 @@ flow(OrcaArgs(args)):
         )
 
     case Triage.Testable(summary, branchName, failingTestPath) =>
+      // Capture the start branch to return to at the end: the stash below is
+      // taken here, so `git stash pop` only lands WIP right if we come back.
+      val startBranch = git.currentBranch()
+
       // Stash pre-existing local edits before switching branches — otherwise
       // they'd ride onto the bugfix branch and get folded into the
       // failing-test commit. `ensureClean` emits a Step the user can act on
@@ -247,3 +251,7 @@ flow(OrcaArgs(args)):
       confirmReproductionMatches(pr)
       planAndImplementFix(branchName)
       pushAndFinalisePr(pr)
+
+      // Return to the start branch so any stashed WIP pops back onto it.
+      stage(s"Return to $startBranch"):
+        git.checkout(startBranch).orThrow

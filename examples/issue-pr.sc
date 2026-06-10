@@ -57,6 +57,12 @@ flow(OrcaArgs(args)):
   // persist the plan so a crash resumes from the first incomplete task.
   // `Verdict.Rejection` posts the assessment as an issue comment and the
   // flow exits.
+
+  // Capture the start branch to return to at the end: Plan.recover /
+  // checkoutOrCreate below switch away and stash WIP, so `git stash pop`
+  // only lands right if we come back.
+  val startBranch = git.currentBranch()
+
   val planFile = Plan.defaultPath(userPrompt)
   val maybePlan = stage("Acquire plan"):
     Plan
@@ -117,3 +123,7 @@ flow(OrcaArgs(args)):
            |
            |Closes ${issueHandle.shortRef}.""".stripMargin
       val _ = gh.createPr(title = summary.title, body = body).orThrow
+
+    // Return to the start branch so any stashed WIP pops back onto it.
+    stage(s"Return to $startBranch"):
+      git.checkout(startBranch).orThrow
