@@ -48,10 +48,9 @@ flow(OrcaArgs(args)):
   val issue = stage(s"Read issue ${issueHandle.shortRef}"):
     gh.readIssue(issueHandle)
 
-  // Autonomous triage — no human in the loop. Runs read-only (read/grep to
-  // verify the report), but the session it returns is reused below for the
-  // failing-test write and the fix: resuming it with a writable call restores
-  // write access, and the implementer inherits the triage's exploration.
+  // Autonomous triage, read-only (read/grep to verify the report). The session
+  // it returns is reused for the failing-test write and the fix: a writable
+  // call restores write access, and the implementer inherits the exploration.
   val Sessioned(session, triage) = stage("Triage"):
     Plan.autonomous.triage(
       s"""Title: ${issue.title}
@@ -62,14 +61,14 @@ flow(OrcaArgs(args)):
     )
 
   // ============================ pipeline phases ============================
-  // Each phase below is one step of the testable-bug pipeline; the `Testable`
-  // branch at the bottom reads as the sequence of these. They close over
-  // `session`, `issue`, `issueHandle` and `CiTimeout`.
+  // One def per step of the testable-bug pipeline; the `Testable` branch at the
+  // bottom reads as their sequence. They close over `session`, `issue`,
+  // `issueHandle` and `CiTimeout`.
 
-  /** Generate a PR title + body from the full branch diff, with the issue
-    * context and a phase-specific `note` folded in. Used for both the tentative
-    * (test-only) and final (test + fix) descriptions. `git.diffVsBase` (not
-    * `git.diff()` vs HEAD) because the changes are already committed.
+  /** PR title + body from the full branch diff, with issue context and a
+    * phase-specific `note`. Used for both the tentative (test-only) and final
+    * (test + fix) descriptions. `git.diffVsBase` (not `git.diff()` vs HEAD)
+    * because the changes are already committed.
     */
   def prSummary(note: String): PrSummary =
     summarisePr(
@@ -125,9 +124,8 @@ flow(OrcaArgs(args)):
         )
 
   /** Sonnet inspects the failed run via `gh` — the flow never pulls the log
-    * into memory. Each sonnet turn is a fresh one-shot session (only the
-    * implementer holds a long-lived session), so each re-inspects the run by id
-    * and is self-contained. Posts a focused failure comment, then strictly
+    * into memory. Each sonnet turn is a fresh one-shot session, so it
+    * re-inspects the run by id. Posts a focused failure comment, then strictly
     * verifies the failure matches the original report.
     */
   def confirmReproductionMatches(pr: PrHandle): Unit =
@@ -161,13 +159,12 @@ flow(OrcaArgs(args)):
       if !verdict.matches then
         fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
 
-  /** Plan + implement the fix on the same branch. No `.orca/plan-*.md`: the
+  /** Plan + implement the fix on the same branch. No `.orca/plan-*.md` — the
     * earlier stages (triage, CI red, repro verification) aren't restartable from
-    * a plan file alone, so use the in-memory `implementTaskLoop`. The draft plan
-    * is self-reviewed and given a codebase brief (`reviewed`/`briefed`, both
-    * resuming the planning session read-only); that planning session is then
-    * discarded via `.value`, and the fix tasks — each carrying the brief via
-    * `taskPrompt` — run on the triage `session`.
+    * a plan file alone, so use the in-memory `implementTaskLoop`. The draft is
+    * self-reviewed and briefed (`reviewed`/`briefed`, both read-only), then
+    * `.value` drops the planning session; the fix tasks carry the brief via
+    * `taskPrompt` and run on the triage `session`.
     */
   def planAndImplementFix(branchName: String): Unit =
     val fixPlan = stage("Plan the fix"):
@@ -190,16 +187,15 @@ flow(OrcaArgs(args)):
           task = task.title.value,
           // Format after every edit (the implementation and each review fix).
           formatCommand = Some("sbt scalafmtAll"),
-          // A compile (main + test sources) is a cheap sanity gate for the
-          // reviewers; the failing test runs in CI and correctness is the
-          // reviewers' job, so don't run the (much heavier) full suite.
+          // Compile (main + test) is a cheap sanity gate; the failing test runs
+          // in CI and correctness is the reviewers' job, so skip the full suite.
           lintCommand = Some("sbt Test/compile"),
           lintLlm = Some(claude.haiku)
         )
 
   /** Push the fix and regenerate the PR title + body from the full branch diff,
-    * so the PR now reads as a fix rather than "add a test". Does not wait for CI
-    * green — a human takes it from here.
+    * so it reads as a fix, not "add a test". Doesn't wait for CI green — a human
+    * takes it from here.
     */
   def pushAndFinalisePr(pr: PrHandle): Unit =
     stage("Push the fix"):
@@ -238,10 +234,9 @@ flow(OrcaArgs(args)):
       // taken here, so `git stash pop` only lands WIP right if we come back.
       val startBranch = git.currentBranch()
 
-      // Stash pre-existing local edits before switching branches — otherwise
-      // they'd ride onto the bugfix branch and get folded into the
-      // failing-test commit. `ensureClean` emits a Step the user can act on
-      // (`git stash pop`) once the flow finishes.
+      // Stash pre-existing edits before switching branches, or they'd ride onto
+      // the bugfix branch into the failing-test commit. `ensureClean` emits a
+      // Step the user can act on (`git stash pop`) once the flow finishes.
       val _ = git.ensureClean("orca: pre-bugfix stash")
       git.checkoutOrCreate(branchName)
 

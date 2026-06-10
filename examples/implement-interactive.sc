@@ -3,22 +3,20 @@
 
 /** Interactive planning + coding flow (persistent).
   *
-  * Same shape as `implement.sc` but the planner opens a conversation the user
-  * can drive: if the prompt is underspecified, the agent calls the `ask_user`
-  * tool to clarify before producing the plan. The resulting plan is persisted
-  * to `.orca/plan-<hash>.md` so a re-run resumes from the first incomplete
-  * task.
+  * Same shape as `implement.sc`, but the planner can drive a conversation: on an
+  * underspecified prompt it calls the `ask_user` tool to clarify before
+  * producing the plan. The plan persists to `.orca/plan-<hash>.md` so a re-run
+  * resumes from the first incomplete task.
   *
   * `examples/runnable/02-interactive/create-test-project.sh` seeds the calculator
-  * crate into a temp directory and copies this script alongside it; run
-  * from the seeded directory the seeder prints:
+  * crate into a temp dir and copies this script alongside it; from there:
   *
   * ```bash
   * scala-cli run implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate. Ask the user which."
   * ```
   *
   * The trailing "Ask the user which." pushes the planner to call `ask_user`
-  * rather than guessing which operation to add.
+  * rather than guessing.
   *
   * Requires `claude` logged in and `cargo` on PATH.
   */
@@ -32,12 +30,12 @@ flow(OrcaArgs(args)):
   // (the planner can call `ask_user` to clarify) and branch.
   val plan = stage("Acquire plan"):
     Plan.recoverOrCreate(planFile):
-      // `.value` drops the planner's session — the implementer below mints a
-      // fresh one (ask_user was only needed for planning).
+      // `.value` drops the planner's session; the implementer mints its own
+      // (ask_user was only needed for planning).
       Plan.interactive.from(userPrompt, claude).value
 
-  // Stable autonomous session reused across every task — ask_user was only
-  // needed for planning. Implementer and fixer share it.
+  // Stable autonomous session shared by implementer and fixer (ask_user was
+  // only needed for planning).
   val session = claude.newSession
 
   Plan.implementTaskLoop(planFile, plan): task =>
@@ -53,11 +51,11 @@ flow(OrcaArgs(args)):
         // `ReviewerSelector.allEveryRound` to run every reviewer.
         reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value,
-        // Format after every edit (the implementation and each review fix), so
-        // the committed code stays formatted and reviewers skip style nits.
+        // Format after every edit so commits stay formatted and reviewers
+        // skip style nits.
         formatCommand = Some("cargo fmt"),
-        // A compile is a cheap sanity gate for the reviewers; correctness is
-        // the reviewers' and CI's job, so don't run the (much heavier) tests.
+        // Cheap sanity gate; correctness is the reviewers' and CI's job, so
+        // skip the heavier tests.
         lintCommand = Some("cargo check --tests"),
         lintLlm = Some(claude.haiku)
       )

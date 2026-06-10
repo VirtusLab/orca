@@ -5,19 +5,18 @@
   *
   * Two layers stack here:
   *
-  *   - **On-disk epic.** `.orca/plan-<hash>.md` holds the task list; on a
-  *     fresh run the agent generates it, on a resume the existing file is
-  *     recovered (pending edits stashed, branch re-attached) and execution
-  *     restarts from the first incomplete task. Each task's `Status: [x]`
-  *     checkbox is committed back to the plan file as the task lands, so a
-  *     crash mid-flow loses no progress.
-  *   - **Cross-agent review.** Claude implements; codex reviews. The
-  *     implementing agent is its own worst critic — running reviewers on a
-  *     separate model widens coverage without much extra cost. Fixes go back
-  *     to the same Claude session. Both CLIs need to be logged in.
+  *   - **On-disk epic.** `.orca/plan-<hash>.md` holds the task list — generated
+  *     on a fresh run, recovered on a resume (pending edits stashed, branch
+  *     re-attached) to restart from the first incomplete task. Each task's
+  *     `Status: [x]` is committed as the task lands, so a crash loses no
+  *     progress.
+  *   - **Cross-agent review.** Claude implements; codex reviews — the
+  *     implementer is its own worst critic, so a separate model widens coverage
+  *     cheaply. Fixes go back to the same Claude session. Both CLIs must be
+  *     logged in.
   *
-  * At the end of a successful run the plan file is removed, then the
-  * documentation step updates the project README based on what changed.
+  * On success the plan file is removed, then a docs step updates the README
+  * based on what changed.
   *
   * Run it from a git repository, with `claude` and `codex` logged in:
   *
@@ -41,15 +40,13 @@ flow(OrcaArgs(args)):
       // below mints a fresh one.
       Plan.autonomous.from(userPrompt, claude.opus).value
 
-  // Stable coder session reused across every task (and the docs pass at the
-  // end) so the agent retains cross-task context. Fresh session (not the
-  // planner's, which ran read-only). The runtime owns git commits — the agent
-  // is told not to commit by the default system prompt, so a stray `git
-  // commit` can't empty the working tree before `implementTaskLoop` commits.
+  // Stable coder session reused across every task (and the docs pass) so the
+  // agent retains context. Fresh — not the planner's (read-only). The runtime
+  // owns git: the default system prompt tells the agent not to commit, so a
+  // stray `git commit` can't empty the tree before `implementTaskLoop` does.
   val session = claude.newSession
 
-  // Reviewers on codex (not claude — the implementer is its own worst critic);
-  // fixes go back to the same Claude session that implemented the task.
+  // Reviewers on codex; fixes go back to the Claude session that implemented.
   val reviewers: List[LlmTool[?]] = allReviewers(codex)
 
   Plan.implementTaskLoop(planFile, plan): task =>
@@ -63,8 +60,7 @@ flow(OrcaArgs(args)):
         reviewers = reviewers,
         reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value,
-        // Format after every edit (the implementation and each review fix);
-        // Spotless is wired into the seed pom.
+        // Format after every edit; Spotless is wired into the seed pom.
         formatCommand = Some("mvn -q spotless:apply")
       )
 

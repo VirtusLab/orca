@@ -30,27 +30,24 @@ Save this as `implement.sc` and run it with your task:
 import orca.{*, given}
 
 flow(OrcaArgs(args)):
-  // Plan persists to `.orca/plan-<hash>.md` so a re-run with the same
-  // prompt resumes from the first incomplete task. Plan.autonomous.from
-  // runs the planner as a single agentic turn (use Plan.interactive.from
-  // to let the planner ask clarifying questions). It returns the plan
-  // paired with the planner's session; `.value` keeps just the plan (the
-  // implementer below opens its own session). `recoverOrCreate` ensures the
-  // branch is checked out and the file is on disk before we start.
+  // Plan persists to `.orca/plan-<hash>.md` so a re-run with the same prompt
+  // resumes from the first incomplete task. Plan.autonomous.from runs the
+  // planner as one agentic turn (Plan.interactive.from lets it ask clarifying
+  // questions); `.value` keeps just the plan, dropping the planner's session.
+  // `recoverOrCreate` checks out the branch and writes the file before we start.
   val planFile = Plan.defaultPath(userPrompt)
   val plan = stage("Acquire plan"):
     Plan.recoverOrCreate(planFile, "orca: starting work"):
       Plan.autonomous.from(userPrompt, claude).value
 
-  // Stable session reused across every task so the implementer retains
-  // cross-task context. The planner's session isn't carried forward — it
-  // runs read-only and would inherit the restriction on resume.
+  // Stable session reused across tasks so the implementer retains context.
+  // The planner's isn't carried forward — it's read-only and would stay so
+  // on resume.
   val session = claude.newSession
 
-  // Per task: implement, then review & fix. `implementTaskLoop` ticks
-  // the plan's checkbox + commits per task and removes the plan file at
-  // the end. The single commit captures the original implementation, the
-  // auto-formatted result, and any follow-up fixes the reviewers triggered.
+  // Per task: implement, then review & fix. `implementTaskLoop` ticks the
+  // checkbox, commits per task, and removes the plan file at the end. The one
+  // commit captures the implementation, formatting, and any reviewer fixes.
   Plan.implementTaskLoop(planFile, plan): task =>
     stage(s"Implement task: ${task.title}"):
       stage("Implementation"):
@@ -59,16 +56,15 @@ flow(OrcaArgs(args)):
         coder = claude,
         sessionId = session,
         reviewers = allReviewers(claude),
-        // Cheap model picks which reviewers run per task — sees each
-        // one's description plus the changed files. Swap for
-        // ReviewerSelector.allEveryRound to run every reviewer.
+        // Cheap model picks the per-task reviewers from their descriptions and
+        // the changed files. Swap for ReviewerSelector.allEveryRound to run all.
         reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value,
-        // Runs after the implementation and after each review fix, so the
-        // committed code is always formatted and reviewers skip style nits.
+        // Runs after every edit so commits stay formatted and reviewers skip
+        // style nits.
         formatCommand = Some("sbt scalafmtAll"),
-        // A compile is a cheap sanity gate; correctness is the reviewers'
-        // and CI's job, so don't run the heavier full test suite here.
+        // Cheap sanity gate; correctness is the reviewers' and CI's job, so
+        // skip the heavier test suite.
         lintCommand = Some("sbt Test/compile"),
         lintLlm = Some(claude.haiku)
       )

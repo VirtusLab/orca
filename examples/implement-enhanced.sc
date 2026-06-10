@@ -6,24 +6,23 @@
   *
   * Same backbone as `implement.sc` (autonomous planning → persistent
   * `.orca/plan-<hash>.md` → per-task implement + review-and-fix loop), with two
-  * extra steps chained onto planning — both running on the planner's read-only
-  * session, so they cost no extra codebase exploration:
+  * steps chained onto planning — both on the planner's read-only session, so
+  * they cost no extra exploration:
   *
   *   1. **`.reviewed(claude)`** — the planner critiques its own draft and
   *      returns an improved plan (missing/duplicated tasks, ordering, vague
   *      descriptions, steps that don't fit the code).
   *   1. **`.briefed(claude)`** — the planner writes a one-off codebase brief
-  *      (modules, file paths, key APIs, conventions) and attaches it, producing
-  *      a `PlanWithBrief`. `plan.taskPrompt(task)` prepends the brief to every
-  *      task, so the coding agents — which start cold — don't re-discover what
-  *      the planner already learned. The brief excludes the task prompts.
+  *      (modules, paths, key APIs, conventions), producing a `PlanWithBrief`.
+  *      `plan.taskPrompt(task)` prepends it to every task so the cold-starting
+  *      coding agents don't re-discover what the planner already learned.
   *
-  * The brief rides in the single plan file (a trailing `## Brief` section), so
-  * `recoverOrCreate` / `implementTaskLoop` persist it on a fresh run, reuse it
-  * on resume, and remove it with the file when the plan completes — no sidecar.
+  * The brief rides in the plan file (a trailing `## Brief` section), so
+  * `recoverOrCreate` / `implementTaskLoop` persist, reuse, and remove it with
+  * the file — no sidecar.
   *
-  * Swap the order to `.briefed(claude).reviewed(claude)` to also review the
-  * brief; both are well-typed.
+  * Swap to `.briefed(claude).reviewed(claude)` to also review the brief; both
+  * are well-typed.
   *
   * ```bash
   * scala-cli run implement-enhanced.sc -- "Add a multiply function to the calculator crate"
