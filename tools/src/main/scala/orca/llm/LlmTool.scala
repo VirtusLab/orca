@@ -82,6 +82,7 @@ trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
   def haiku: ClaudeTool
   def sonnet: ClaudeTool
   def opus: ClaudeTool
+  def fable: ClaudeTool
 
 trait CodexTool extends LlmTool[BackendTag.Codex.type]:
   def mini: CodexTool

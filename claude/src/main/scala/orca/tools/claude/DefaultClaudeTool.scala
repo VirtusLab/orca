@@ -37,6 +37,7 @@ private[orca] class DefaultClaudeTool(
   def haiku: ClaudeTool = withModel(Model("claude-haiku-4-5"))
   def sonnet: ClaudeTool = withModel(Model("claude-sonnet-4-6"))
   def opus: ClaudeTool = withModel(DefaultClaudeTool.Opus1M)
+  def fable: ClaudeTool = withModel(DefaultClaudeTool.Fable)
 
   protected def copyTool(
       config: LlmConfig = config,
@@ -62,3 +63,9 @@ private[orca] object DefaultClaudeTool:
     * through `claude.sonnet` / `claude.haiku`.
     */
   val Opus1M: Model = Model("claude-opus-4-8[1m]")
+
+  /** Fable: the most capable tier, above Opus. Opt in via `claude.fable` for
+    * the hardest one-shots; the long-lived implementer stays on Opus (the
+    * default — see [[Opus1M]]) for cost. 1M context at standard pricing.
+    */
+  val Fable: Model = Model("claude-fable-5")

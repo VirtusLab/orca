@@ -101,6 +101,7 @@ object Pricing:
       // --- Anthropic ---
       // Claude reports `total_cost_usd` from the CLI, so these are mostly
       // safety nets for sessions that didn't surface the field.
+      Model("claude-fable-5") -> ModelPricing(10, 1.00, 50),
       Model("claude-opus-4-7") -> ModelPricing(15, 1.50, 75),
       Model("claude-opus-4-6") -> ModelPricing(15, 1.50, 75),
       Model("claude-opus-4-5") -> ModelPricing(15, 1.50, 75),
@@ -121,5 +122,5 @@ object Pricing:
       Model("gemini-2.5-pro") -> ModelPricing(1.25, 0.31, 10),
       Model("gemini-2.5-flash") -> ModelPricing(0.30, 0.075, 2.50)
     ),
-    lastUpdated = LocalDate.of(2026, 6, 7)
+    lastUpdated = LocalDate.of(2026, 6, 10)
   )
