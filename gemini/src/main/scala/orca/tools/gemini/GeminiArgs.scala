@@ -1,7 +1,7 @@
 package orca.tools.gemini
 
 import orca.backend.CliArgs
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId, ToolSet}
 
 /** Maps `LlmConfig` fields to `gemini` headless CLI flags. `systemPrompt` is
   * not handled here — gemini has no `--append-system-prompt` equivalent (it
@@ -54,21 +54,41 @@ private[gemini] object GeminiArgs:
     */
   private val trustArgs: Seq[String] = Seq("--skip-trust")
 
-  /** Approval-policy mapping. `readOnly` overrides any `autoApprove` setting —
-    * `--approval-mode plan` makes file writes and shelling-out unavailable to
-    * the agent, matching claude's `--permission-mode plan` and codex's
-    * `--sandbox read-only`. Otherwise gemini has no per-tool allowlist on the
-    * CLI, and in headless mode `auto_edit` blocks on shell approvals no one can
-    * answer, so both [[AutoApprove.All]] and [[AutoApprove.Only]] map to `yolo`
-    * (auto-approve all). The `Only` widening is documented in ADR 0015.
+  /** Web tools pre-approved on [[ToolSet.NetworkOnly]] turns. Plan mode gates
+    * `web_fetch` behind an approval no autonomous turn can answer; listing it
+    * in `--allowed-tools` pre-approves it (verified), so the planner gets web
+    * reads while plan mode still blocks edits and shell — a hard no-edit
+    * guarantee like claude's. `--allowed-tools` is deprecated (gemini 1.0
+    * removes it for a `settings.json` Policy Engine); migrate then.
+    */
+  private val NetworkTools: Seq[String] = Seq("web_fetch")
+
+  /** Maps [[LlmConfig.tools]] to gemini's approval mode. The read-only tiers
+    * use `--approval-mode plan` (no writes, no shelling out), matching claude's
+    * `--permission-mode plan` and codex's `--sandbox read-only`. `Full` has no
+    * per-tool CLI allowlist, and in headless mode `auto_edit` blocks on shell
+    * approvals no one can answer, so both [[AutoApprove.All]] and
+    * [[AutoApprove.Only]] map to `yolo`. The `Only` widening is in ADR 0015.
     *
-    *   - `readOnly = true` → `--approval-mode plan`
-    *   - `AutoApprove.All` → `--approval-mode yolo`
-    *   - `AutoApprove.Only(_)` → `--approval-mode yolo`
+    *   - `ReadOnly` → `--approval-mode plan`
+    *   - `NetworkOnly` → `--approval-mode plan --allowed-tools <web tools>`
+    *   - `Full` + `AutoApprove.All` / `Only(_)` → `--approval-mode yolo`
+    *
+    * `NetworkOnly` stays in plan mode (hard no-edit) and adds [[NetworkTools]]
+    * so the planner can fetch issue/PR/web content — no shell `gh`, so no
+    * authed GitHub, but web reads work.
     */
   private def approvalArgs(config: LlmConfig): Seq[String] =
-    if config.readOnly then Seq("--approval-mode", "plan")
-    else
-      config.autoApprove match
-        case AutoApprove.All | AutoApprove.Only(_) =>
-          Seq("--approval-mode", "yolo")
+    config.tools match
+      case ToolSet.ReadOnly => Seq("--approval-mode", "plan")
+      case ToolSet.NetworkOnly =>
+        Seq(
+          "--approval-mode",
+          "plan",
+          "--allowed-tools",
+          NetworkTools.mkString(",")
+        )
+      case ToolSet.Full =>
+        config.autoApprove match
+          case AutoApprove.All | AutoApprove.Only(_) =>
+            Seq("--approval-mode", "yolo")

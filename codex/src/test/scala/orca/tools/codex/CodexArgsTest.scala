@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId, ToolSet}
 class CodexArgsTest extends munit.FunSuite:
 
   test("exec emits codex exec --json with the prompt as the trailing arg"):
@@ -63,7 +63,9 @@ class CodexArgsTest extends munit.FunSuite:
     assert(args.contains("--full-auto"))
     assert(!args.contains("--dangerously-bypass-approvals-and-sandbox"))
 
-  test("readOnly maps to --sandbox read-only and overrides autoApprove"):
+  test(
+    "ToolSet.ReadOnly maps to --sandbox read-only and overrides autoApprove"
+  ):
     // Pins the gate used by `.withReadOnly` callers — reviewers,
     // ReviewerSelector.llmDriven, lint, Plan.autonomous.from. Without
     // this mapping codex's reviewers inherit the base tool's permissions
@@ -71,7 +73,7 @@ class CodexArgsTest extends munit.FunSuite:
     val args = CodexArgs.exec(
       "x",
       LlmConfig.default.copy(
-        readOnly = true,
+        tools = ToolSet.ReadOnly,
         autoApprove = AutoApprove.All
       ),
       None,
@@ -80,6 +82,22 @@ class CodexArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--sandbox", "read-only")), args.toString)
     assert(!args.contains("--dangerously-bypass-approvals-and-sandbox"))
     assert(!args.contains("--full-auto"))
+
+  test("ToolSet.NetworkOnly uses --full-auto + network override before exec"):
+    // codex has no read-only-with-network sandbox: network needs
+    // workspace-write (via --full-auto), enabled by the global `-c` override
+    // which must precede the `exec` subcommand.
+    val args = CodexArgs.exec(
+      "x",
+      LlmConfig.default.copy(tools = ToolSet.NetworkOnly),
+      None,
+      os.pwd
+    )
+    assert(args.contains("--full-auto"), args.toString)
+    assert(!args.containsSlice(Seq("--sandbox", "read-only")), args.toString)
+    val execIdx = args.indexOf("exec")
+    val cIdx = args.indexOf("sandbox_workspace_write.network_access=true")
+    assert(cIdx >= 0 && cIdx < execIdx, args.toString)
 
   test(
     "exec emits -c mcp_servers.orca.{url,tool_timeout_sec} when an MCP url is supplied"

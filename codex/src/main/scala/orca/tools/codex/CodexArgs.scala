@@ -2,7 +2,7 @@ package orca.tools.codex
 
 import orca.backend.CliArgs
 import orca.backend.mcp.AskUserMcpServer
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId, ToolSet}
 
 /** Maps `LlmConfig` fields to `codex exec` CLI flags. `systemPrompt` is not
   * handled here — codex doesn't accept an `--append-system-prompt` equivalent
@@ -26,6 +26,7 @@ private[codex] object CodexArgs:
   ): Seq[String] =
     Seq("codex") ++
       mcpServerArgs(mcpServerUrl) ++
+      networkConfigArgs(config) ++
       Seq("exec", "--json") ++
       sandboxArgs(config) ++
       CliArgs.modelArgs(config) ++
@@ -59,6 +60,7 @@ private[codex] object CodexArgs:
   ): Seq[String] =
     Seq("codex") ++
       mcpServerArgs(mcpServerUrl) ++
+      networkConfigArgs(config) ++
       Seq("exec", "resume", "--json", SessionId.value(sessionId)) ++
       sandboxArgs(config) ++
       CliArgs.modelArgs(config) ++
@@ -95,22 +97,43 @@ private[codex] object CodexArgs:
   private def outputSchemaArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(p => Seq("--output-schema", p.toString))
 
-  /** Approval-policy mapping. `readOnly` overrides any `autoApprove` setting —
-    * `--sandbox read-only` makes file writes and shelling-out unavailable to
-    * the agent, matching claude's `--permission-mode plan`. Otherwise codex
-    * doesn't accept a per-tool allowlist on the CLI, so [[AutoApprove.Only]] is
-    * approximated with `--full-auto` (sandboxed automatic execution) — narrower
-    * than the all-bypass and matches the user-stated intent of "auto-approve a
-    * known-safe set".
+  /** Maps [[LlmConfig.tools]] to codex's sandbox flags (placed after the `exec`
+    * subcommand). `ReadOnly` uses `--sandbox read-only` (no writes, no shell
+    * side-effects), matching claude's `--permission-mode plan`. `Full` follows
+    * [[LlmConfig.autoApprove]]; codex has no per-tool CLI allowlist, so
+    * [[AutoApprove.Only]] is approximated with `--full-auto`.
     *
-    *   - `readOnly = true` → `--sandbox read-only`
-    *   - `AutoApprove.All` → `--dangerously-bypass-approvals-and-sandbox`
-    *   - `AutoApprove.Only(_)` → `--full-auto`
+    *   - `ReadOnly` → `--sandbox read-only`
+    *   - `NetworkOnly` → `--full-auto` (workspace-write + non-interactive
+    *     approval), paired with the network override in [[networkConfigArgs]]
+    *   - `Full` + `AutoApprove.All` →
+    *     `--dangerously-bypass-approvals-and-sandbox`
+    *   - `Full` + `AutoApprove.Only(_)` → `--full-auto`
+    *
+    * `NetworkOnly` has no read-only-with-network sandbox on codex: network
+    * needs `workspace-write`, which also permits workspace writes, so the
+    * no-edit guarantee there is prompt-only (the planning prompts forbid
+    * edits).
     */
   private def sandboxArgs(config: LlmConfig): Seq[String] =
-    if config.readOnly then Seq("--sandbox", "read-only")
-    else
-      config.autoApprove match
-        case AutoApprove.All =>
-          Seq("--dangerously-bypass-approvals-and-sandbox")
-        case AutoApprove.Only(_) => Seq("--full-auto")
+    config.tools match
+      case ToolSet.ReadOnly    => Seq("--sandbox", "read-only")
+      case ToolSet.NetworkOnly => Seq("--full-auto")
+      case ToolSet.Full =>
+        config.autoApprove match
+          case AutoApprove.All =>
+            Seq("--dangerously-bypass-approvals-and-sandbox")
+          case AutoApprove.Only(_) => Seq("--full-auto")
+
+  /** Global `-c` overrides that must precede the `exec` subcommand (codex reads
+    * them into its top-level config, which `exec` inherits). On
+    * [[ToolSet.NetworkOnly]], enable network for the workspace-write sandbox
+    * that [[sandboxArgs]] selects via `--full-auto`; off by default, so without
+    * this the planner's `gh`/`curl` calls would be blocked. Empty for the other
+    * tiers.
+    */
+  private def networkConfigArgs(config: LlmConfig): Seq[String] =
+    config.tools match
+      case ToolSet.NetworkOnly =>
+        Seq("-c", "sandbox_workspace_write.network_access=true")
+      case ToolSet.ReadOnly | ToolSet.Full => Nil

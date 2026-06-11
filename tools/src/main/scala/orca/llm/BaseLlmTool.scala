@@ -41,8 +41,10 @@ abstract class BaseLlmTool[B <: BackendTag, Self <: LlmTool[B]](
   def withSystemPrompt(prompt: String): Self =
     copyTool(config = config.copy(systemPrompt = Some(prompt)))
   def withName(newName: String): Self = copyTool(name = newName)
-  def withReadOnly: Self =
-    copyTool(config = config.copy(readOnly = true))
+  def withTools(tools: ToolSet): Self =
+    copyTool(config = config.copy(tools = tools))
+  override def withReadOnly: Self = withTools(ToolSet.ReadOnly)
+  override def withNetworkOnly: Self = withTools(ToolSet.NetworkOnly)
   override def withSelfManagedGit: Self =
     copyTool(config = config.copy(selfManagedGit = true))
 

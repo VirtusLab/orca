@@ -1,6 +1,6 @@
 package orca.tools.pi
 
-import orca.llm.{LlmConfig, Model}
+import orca.llm.{LlmConfig, Model, ToolSet}
 
 class PiArgsTest extends munit.FunSuite:
 
@@ -33,15 +33,28 @@ class PiArgsTest extends munit.FunSuite:
     )
 
   test("read-only tools exclude writes"):
-    val args =
-      PiArgs.rpc(dir, resume = false, LlmConfig.default.copy(readOnly = true), None)
+    val args = PiArgs.rpc(
+      dir,
+      resume = false,
+      LlmConfig.default.copy(tools = ToolSet.ReadOnly),
+      None
+    )
     assert(args.containsSlice(Seq("--tools", "read,grep,find,ls")), args)
+
+  test("NetworkOnly adds bash for network access"):
+    val args = PiArgs.rpc(
+      dir,
+      resume = false,
+      LlmConfig.default.copy(tools = ToolSet.NetworkOnly),
+      None
+    )
+    assert(args.containsSlice(Seq("--tools", "read,grep,find,ls,bash")), args)
 
   test("interactive ask-user extension adds extension and ask_user tool"):
     val args = PiArgs.rpc(
       dir,
       resume = false,
-      LlmConfig.default.copy(readOnly = true),
+      LlmConfig.default.copy(tools = ToolSet.ReadOnly),
       None,
       askUserExtension = Some(os.Path("/tmp/ask-user.ts"))
     )

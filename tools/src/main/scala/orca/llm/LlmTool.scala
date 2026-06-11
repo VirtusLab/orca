@@ -44,13 +44,24 @@ trait LlmTool[B <: BackendTag]:
   def withSystemPrompt(prompt: String): LlmTool[B]
   def withName(name: String): LlmTool[B]
 
-  /** Return a sibling tool whose config has [[LlmConfig.readOnly]] flipped on —
-    * claude maps this to `--permission-mode plan`, so Edit/Write/Bash are
-    * unavailable to the agent. Preserves the rest of the tool's config (model,
-    * system prompt, autoApprove). Used by planning helpers so
+  /** Return a sibling tool whose config pins [[LlmConfig.tools]] to `tools` —
+    * the capability tier (see [[ToolSet]]). The primitive behind
+    * [[withReadOnly]] and [[withNetworkOnly]]; preserves the rest of the tool's
+    * config (model, system prompt, autoApprove).
+    */
+  def withTools(tools: ToolSet): LlmTool[B]
+
+  /** Sibling tool restricted to read-only tools ([[ToolSet.ReadOnly]]): no
+    * edits, no shell. Used by planning and review helpers so e.g.
     * `claude.opus.withReadOnly` keeps the opus pin while gating writes.
     */
-  def withReadOnly: LlmTool[B]
+  def withReadOnly: LlmTool[B] = withTools(ToolSet.ReadOnly)
+
+  /** Sibling tool restricted to reads plus network ([[ToolSet.NetworkOnly]]) —
+    * for planner turns that must read an issue/PR. See [[ToolSet]] for the
+    * per-backend no-edit guarantee (hard on most; prompt-only on pi / codex).
+    */
+  def withNetworkOnly: LlmTool[B] = withTools(ToolSet.NetworkOnly)
 
   /** Return a sibling tool that manages git itself — flips
     * [[LlmConfig.selfManagedGit]] on, suppressing the standing "runtime owns
@@ -83,6 +94,14 @@ trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
   def sonnet: ClaudeTool
   def opus: ClaudeTool
   def fable: ClaudeTool
+
+  /** Set the read-only network allowlist used on [[ToolSet.NetworkOnly]] turns
+    * (claude `--allowedTools` syntax, e.g. `Bash(gh api:*)`, `WebFetch`).
+    * Claude-specific, so it's here rather than on `LlmConfig`; defaults to
+    * `ClaudeBackend.DefaultNetworkTools`. Pass it before handing the tool to a
+    * planning helper: `claude.opus.withNetworkTools(Seq("WebFetch"))`.
+    */
+  def withNetworkTools(tools: Seq[String]): ClaudeTool
 
 trait CodexTool extends LlmTool[BackendTag.Codex.type]:
   def mini: CodexTool

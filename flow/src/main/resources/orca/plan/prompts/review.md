@@ -16,3 +16,6 @@ Focus your review on four dimensions:
 Keep the same epicId unless it is clearly wrong. If the plan includes a Brief
 section, refine it in the same spirit; do not invent one if it has none. Return
 the complete improved plan, not just the changes.
+
+Do NOT edit files or run mutating commands — the improved plan is your only
+output.

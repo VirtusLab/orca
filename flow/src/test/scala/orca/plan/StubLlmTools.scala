@@ -11,7 +11,8 @@ import orca.llm.{
   LlmCall,
   LlmConfig,
   LlmTool,
-  SessionId
+  SessionId,
+  ToolSet
 }
 
 /** Test double whose `resultAs[O].autonomous.run` returns a pre-built `value`
@@ -22,11 +23,18 @@ import orca.llm.{
 private[plan] class CannedResultLlm[T](value: T)
     extends LlmTool[BackendTag.ClaudeCode.type]:
   val name: String = "stub"
+
+  /** Records the most recent `withTools` tier so tests can assert which
+    * capability a helper selected (e.g. planners use `NetworkOnly`).
+    */
+  var lastToolSet: Option[ToolSet] = None
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
   def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
   def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
+  def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] =
+    lastToolSet = Some(tools)
+    this
 
   def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
     new LlmCall[BackendTag.ClaudeCode.type, O]:
@@ -61,7 +69,7 @@ private[plan] class CannedTextLlm(text: String)
   def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
   def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
+  def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
   def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
     ???
 
@@ -76,6 +84,6 @@ private[plan] class ExplodingLlm(reason: String)
   def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
   def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
+  def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
   def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
     throw new AssertionError(reason)

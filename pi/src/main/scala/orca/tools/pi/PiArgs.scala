@@ -1,7 +1,7 @@
 package orca.tools.pi
 
 import orca.backend.CliArgs
-import orca.llm.LlmConfig
+import orca.llm.{LlmConfig, ToolSet}
 
 /** Maps Orca backend configuration to Pi CLI arguments. The backend drives Pi
   * through RPC mode and sends prompts over stdin, so the argv carries only
@@ -16,6 +16,13 @@ import orca.llm.LlmConfig
 private[pi] object PiArgs:
 
   val ReadOnlyTools: Seq[String] = Seq("read", "grep", "find", "ls")
+
+  /** Pi has no web/fetch tool, so the only network path is the general `bash`
+    * tool — which also permits writes. Added on [[ToolSet.NetworkOnly]] turns;
+    * the no-edit guarantee is then prompt-only (the planner prompts forbid
+    * edits), not enforced by the allowlist.
+    */
+  val NetworkTool: String = "bash"
 
   def rpc(
       sessionDir: os.Path,
@@ -34,16 +41,28 @@ private[pi] object PiArgs:
   private def systemPromptArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--append-system-prompt", f.toString))
 
+  /** Maps [[LlmConfig.tools]] to pi's `--tools` allowlist. `Full` omits the
+    * flag (all built-in tools enabled); `ReadOnly` restricts to
+    * [[ReadOnlyTools]]; `NetworkOnly` adds [[NetworkTool]] (`bash`) for network
+    * access. The ask-user extension tool is appended when present.
+    */
   private def toolsArgs(
       config: LlmConfig,
       includeAskUser: Boolean
   ): Seq[String] =
-    if !config.readOnly then Seq.empty
-    else
-      val tools =
-        if includeAskUser then ReadOnlyTools :+ PiAskUserExtension.ToolName
-        else ReadOnlyTools
-      Seq("--tools", tools.mkString(","))
+    config.tools match
+      case ToolSet.Full     => Seq.empty
+      case ToolSet.ReadOnly => toolsFlag(ReadOnlyTools, includeAskUser)
+      case ToolSet.NetworkOnly =>
+        toolsFlag(ReadOnlyTools :+ NetworkTool, includeAskUser)
+
+  private def toolsFlag(
+      tools: Seq[String],
+      includeAskUser: Boolean
+  ): Seq[String] =
+    val all =
+      if includeAskUser then tools :+ PiAskUserExtension.ToolName else tools
+    Seq("--tools", all.mkString(","))
 
   private def extensionArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--extension", f.toString))

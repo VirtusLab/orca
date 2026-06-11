@@ -1,7 +1,7 @@
 package orca.tools.claude
 
 import orca.backend.SupervisedBackend
-import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.llm.{BackendTag, LlmConfig, SessionId, ToolSet}
 import orca.{OrcaFlowException}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 
@@ -56,6 +56,35 @@ class ClaudeBackendTest extends munit.FunSuite:
       assert(args.containsSlice(Seq("--output-format", "stream-json")))
       // No ask_user MCP on the autonomous path.
       assert(!args.contains("--mcp-config"), args)
+
+  test("NetworkOnly autonomous call pre-approves the default network tools"):
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    withBackend(runner): backend =>
+      val _ = backend.runAutonomous(
+        "x",
+        freshSid,
+        LlmConfig.default.copy(tools = ToolSet.NetworkOnly),
+        os.temp.dir()
+      )
+      val args = runner.calls.head
+      assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
+      val allowed = args(args.indexOf("--allowedTools") + 1)
+      assert(allowed.contains("WebFetch"), allowed)
+      assert(allowed.contains("Bash(gh api:*)"), allowed)
+
+  test("withNetworkTools overrides the default allowlist"):
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    SupervisedBackend.using(
+      new ClaudeBackend(runner).withNetworkTools(Seq("WebFetch"))
+    ): backend =>
+      val _ = backend.runAutonomous(
+        "x",
+        freshSid,
+        LlmConfig.default.copy(tools = ToolSet.NetworkOnly),
+        os.temp.dir()
+      )
+      val args = runner.calls.head
+      assert(args.containsSlice(Seq("--allowedTools", "WebFetch")), args)
 
   test(
     "runAutonomous passes --json-schema when an output schema is supplied"
