@@ -7,7 +7,8 @@ import orca.llm.{
   JsonData,
   LlmCall,
   LlmConfig,
-  LlmTool
+  LlmTool,
+  ToolSet
 }
 class AllReviewersTest extends munit.FunSuite:
 
@@ -29,7 +30,7 @@ class AllReviewersTest extends munit.FunSuite:
       this
     def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] =
       new RecordingTool(n, systemPromptsSeen)
-    def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
+    def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
     def resultAs[O: JsonData: Announce]
         : LlmCall[BackendTag.ClaudeCode.type, O] =
       ???

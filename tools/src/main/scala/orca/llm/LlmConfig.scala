@@ -7,15 +7,24 @@ import scala.concurrent.duration.DurationInt
 case class LlmConfig(
     model: Option[Model] = None,
     systemPrompt: Option[String] = None,
-    autoApprove: AutoApprove = AutoApprove.All,
-    /** Restrict the agent to read-only tools (Read / Glob / Grep / read-only
-      * Bash). No file writes, no edits, no shelling out for side effects. Maps
-      * to claude's `--permission-mode plan`. Used by planning helpers so the
-      * agent can verify claims against the repo without making changes — an
-      * over-eager planner editing files during a "plan-only" turn was the
-      * motivating case.
+    /** Which tools auto-approve without a permission prompt. Only meaningful
+      * for **interactive** sessions — autonomous turns have no prompt to
+      * answer, so the field is inert there. Backends consult it only when
+      * [[tools]] is [[ToolSet.Full]] (the read-only tiers are autonomous
+      * planners/reviewers). `Only(set)` should list a subset of the tools
+      * [[tools]] makes available; entries outside it are dead. Neither
+      * invariant is type-enforced (one `LlmConfig` feeds both the interactive
+      * and autonomous paths).
       */
-    readOnly: Boolean = false,
+    autoApprove: AutoApprove = AutoApprove.All,
+    /** Which tools exist for the agent at all — the capability axis (distinct
+      * from [[autoApprove]], the prompting axis). See [[ToolSet]] for the tiers
+      * and their per-backend mapping. `Full` is write-capable; the read-only
+      * tiers gate writes (hard on claude / gemini / opencode; prompt-only on pi
+      * / codex under [[ToolSet.NetworkOnly]], where granting network forces a
+      * writable shell).
+      */
+    tools: ToolSet = ToolSet.Full,
     /** Let the agent manage git itself — suppresses the standing "runtime owns
       * git" rule that [[orca.backend.SystemPromptComposer]] otherwise appends
       * to every write-capable turn. Off by default: orca's model is that the
@@ -59,3 +68,26 @@ object LlmConfig:
 enum AutoApprove:
   case All
   case Only(tools: Set[String])
+
+/** The set of tools available to the agent — the capability tier on
+  * [[LlmConfig.tools]]. Each backend maps the tiers onto its own permission
+  * model:
+  *
+  *   - **ReadOnly** — reads only; no shell, no edits. The hard no-edit gate
+  *     planners and reviewers rely on (claude `--permission-mode plan`, codex
+  *     `--sandbox read-only`, pi `--tools read,grep,find,ls`, gemini
+  *     `--approval-mode plan`, opencode write/edit/bash/patch disabled).
+  *   - **NetworkOnly** — reads plus network (web + GitHub), for planners that
+  *     must read an issue/PR they were pointed at. Edits stay blocked where the
+  *     backend can scope tools (claude adds a command-scoped allowlist;
+  *     opencode / gemini already allow web in read-only). On pi and codex there
+  *     is no network without a writable shell (`pi bash`, `codex
+  *     workspace-write`), so there the no-edit guarantee is **prompt-only** —
+  *     the planner prompts forbid edits.
+  *   - **Full** — every tool, write-capable; prompting then follows
+  *     [[LlmConfig.autoApprove]].
+  */
+enum ToolSet:
+  case ReadOnly
+  case NetworkOnly
+  case Full

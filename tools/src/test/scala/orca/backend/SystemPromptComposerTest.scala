@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.llm.LlmConfig
+import orca.llm.{LlmConfig, ToolSet}
 
 class SystemPromptComposerTest extends munit.FunSuite:
 
@@ -14,7 +14,14 @@ class SystemPromptComposerTest extends munit.FunSuite:
     // Read-only turns can't commit, so the git rule is omitted — and with no
     // systemPrompt or hint there's nothing left to compose.
     val out = SystemPromptComposer.combine(
-      LlmConfig.default.copy(readOnly = true),
+      LlmConfig.default.copy(tools = ToolSet.ReadOnly),
+      None
+    )
+    assertEquals(out, None)
+
+  test("network-only turn also omits the git rule (not Full)"):
+    val out = SystemPromptComposer.combine(
+      LlmConfig.default.copy(tools = ToolSet.NetworkOnly),
       None
     )
     assertEquals(out, None)
@@ -28,7 +35,10 @@ class SystemPromptComposerTest extends munit.FunSuite:
 
   test("read-only config keeps just its systemPrompt (no git rule)"):
     val out = SystemPromptComposer.combine(
-      LlmConfig.default.copy(systemPrompt = Some("be terse"), readOnly = true),
+      LlmConfig.default.copy(
+        systemPrompt = Some("be terse"),
+        tools = ToolSet.ReadOnly
+      ),
       extraHint = None
     )
     assertEquals(out, Some("be terse"))

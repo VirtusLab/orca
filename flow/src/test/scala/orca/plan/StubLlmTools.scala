@@ -11,7 +11,8 @@ import orca.llm.{
   LlmCall,
   LlmConfig,
   LlmTool,
-  SessionId
+  SessionId,
+  ToolSet
 }
 
 /** Test double whose `resultAs[O].autonomous.run` returns a pre-built `value`
@@ -26,7 +27,7 @@ private[plan] class CannedResultLlm[T](value: T)
   def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
   def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
+  def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
 
   def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
     new LlmCall[BackendTag.ClaudeCode.type, O]:
@@ -61,7 +62,7 @@ private[plan] class CannedTextLlm(text: String)
   def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
   def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
+  def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
   def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
     ???
 
@@ -76,6 +77,6 @@ private[plan] class ExplodingLlm(reason: String)
   def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
   def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
+  def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
   def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
     throw new AssertionError(reason)

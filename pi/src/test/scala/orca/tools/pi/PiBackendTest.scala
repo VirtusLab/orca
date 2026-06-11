@@ -2,7 +2,7 @@ package orca.tools.pi
 
 import orca.backend.SystemPromptComposer
 import orca.events.Usage
-import orca.llm.{BackendTag, LlmConfig, Model, SessionId}
+import orca.llm.{BackendTag, LlmConfig, Model, SessionId, ToolSet}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 
 class PiBackendTest extends munit.FunSuite:
@@ -95,7 +95,7 @@ class PiBackendTest extends munit.FunSuite:
       sid,
       LlmConfig.default.copy(
         model = Some(Model("anthropic/claude-sonnet")),
-        readOnly = true
+        tools = ToolSet.ReadOnly
       ),
       os.temp.dir()
     )
@@ -114,7 +114,7 @@ class PiBackendTest extends munit.FunSuite:
       "q",
       sid,
       displayPrompt = "q",
-      LlmConfig.default.copy(readOnly = true),
+      LlmConfig.default.copy(tools = ToolSet.ReadOnly),
       os.temp.dir(),
       outputSchema = Some("{}")
     )

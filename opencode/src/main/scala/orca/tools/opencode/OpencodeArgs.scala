@@ -1,7 +1,7 @@
 package orca.tools.opencode
 
 import orca.backend.{SessionMode, SystemPromptComposer}
-import orca.llm.{LlmConfig, Model}
+import orca.llm.{LlmConfig, Model, ToolSet}
 import orca.tools.opencode.OpencodeApi.{
   MessageBody,
   MessagePart,
@@ -58,23 +58,29 @@ private[opencode] object OpencodeArgs:
   /** Per-turn tool gate: disable the write tools on a read-only turn, and the
     * `question` tool on an autonomous turn. Returns `None` when nothing is
     * gated so the body omits `tools` and the server's defaults apply.
+    *
+    * Both read-only tiers disable the same write tools. `NetworkOnly` is no
+    * different here: opencode's web tool is not in this disabled set, so web
+    * reads already work in read-only; enabling shell `gh` would mean keeping
+    * `bash` on (dropping the hard no-edit guarantee), which is out of scope.
     */
   private def toolFlags(
       config: LlmConfig,
       mode: SessionMode
   ): Option[Map[String, Boolean]] =
-    val readOnly =
-      if config.readOnly then
-        Map(
-          "write" -> false,
-          "edit" -> false,
-          "bash" -> false,
-          "patch" -> false
-        )
-      else Map.empty[String, Boolean]
+    val writeGate =
+      config.tools match
+        case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+          Map(
+            "write" -> false,
+            "edit" -> false,
+            "bash" -> false,
+            "patch" -> false
+          )
+        case ToolSet.Full => Map.empty[String, Boolean]
     val question = mode match
       case SessionMode.Autonomous     => Map("question" -> false)
       case SessionMode.Interactive(_) => Map.empty[String, Boolean]
     // The two key sets are disjoint, so the merge order is irrelevant.
-    val flags = readOnly ++ question
+    val flags = writeGate ++ question
     Option.when(flags.nonEmpty)(flags)

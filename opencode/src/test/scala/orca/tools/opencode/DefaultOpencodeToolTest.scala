@@ -2,7 +2,14 @@ package orca.tools.opencode
 
 import orca.backend.{Conversation, Interaction, LlmBackend, LlmResult}
 import orca.events.{OrcaListener, Usage}
-import orca.llm.{BackendTag, DefaultPrompts, LlmConfig, OpencodeTool, SessionId}
+import orca.llm.{
+  BackendTag,
+  DefaultPrompts,
+  LlmConfig,
+  OpencodeTool,
+  SessionId,
+  ToolSet
+}
 
 class DefaultOpencodeToolTest extends munit.FunSuite:
 
@@ -84,10 +91,10 @@ class DefaultOpencodeToolTest extends munit.FunSuite:
       Some("ollama/llama3.1")
     )
 
-  test("withReadOnly flips the read-only flag, keeping the model pin"):
+  test("withReadOnly pins tools to ReadOnly, keeping the model pin"):
     val b = new RecordingBackend
     val _ = toolWith(b).anthropicOpus.withReadOnly.autonomous.run("x")
-    assertEquals(b.lastConfig.map(_.readOnly), Some(true))
+    assertEquals(b.lastConfig.map(_.tools), Some(ToolSet.ReadOnly))
     assertEquals(
       b.lastConfig.flatMap(_.model).map(_.name),
       Some("anthropic/claude-opus-4-8")

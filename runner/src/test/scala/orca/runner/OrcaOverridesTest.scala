@@ -13,7 +13,8 @@ import orca.llm.{
   LlmConfig,
   Model,
   OpencodeTool,
-  SessionId
+  SessionId,
+  ToolSet
 }
 import orca.events.{CostTracker, OrcaEvent, Usage}
 import _root_.orca.runner.terminal.TerminalInteraction
@@ -49,7 +50,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       def withConfig(c: LlmConfig) = this
       def withSystemPrompt(p: String) = this
       def withName(n: String) = this
-      def withReadOnly = this
+      def withTools(tools: ToolSet) = this
       val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
         new AutonomousTextCall[BackendTag.ClaudeCode.type]:
           def run(
@@ -90,7 +91,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       def withConfig(c: LlmConfig) = this
       def withSystemPrompt(p: String) = this
       def withName(n: String) = this
-      def withReadOnly = this
+      def withTools(tools: ToolSet) = this
       val autonomous: AutonomousTextCall[BackendTag.Opencode.type] =
         new AutonomousTextCall[BackendTag.Opencode.type]:
           def run(
@@ -123,7 +124,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       def withConfig(c: LlmConfig) = this
       def withSystemPrompt(p: String) = this
       def withName(n: String) = this
-      def withReadOnly = this
+      def withTools(tools: ToolSet) = this
       val autonomous: AutonomousTextCall[BackendTag.Pi.type] =
         new AutonomousTextCall[BackendTag.Pi.type]:
           def run(

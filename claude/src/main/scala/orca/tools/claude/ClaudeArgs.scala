@@ -1,7 +1,7 @@
 package orca.tools.claude
 
 import orca.backend.{CliArgs, Dispatch}
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId, ToolSet}
 
 /** Maps LlmConfig fields to Claude Code CLI flags. `systemPrompt` is consumed
   * by the backend (written to a file whose path is passed in via
@@ -71,51 +71,29 @@ private[claude] object ClaudeArgs:
   private def mcpConfigArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--mcp-config", f.toString))
 
-  /** Read-only network/GitHub tools pre-approved for planning turns. Plan mode
-    * blocks these behind a permission prompt; layering them via `--allowedTools`
-    * lets an autonomous planner (no one to answer prompts) fetch issues, PRs,
-    * and web pages. Scoped to non-mutating commands only — `gh api` and bare
-    * `curl` are excluded because they can also write.
-    */
-  private val readOnlyNetworkTools: Seq[String] = Seq(
-    "WebFetch",
-    "WebSearch",
-    "Bash(gh issue view:*)",
-    "Bash(gh pr view:*)",
-    "Bash(gh search:*)",
-    "Bash(gh repo view:*)"
-  )
-
-  /** `readOnly` overrides any `autoApprove` setting: claude's
-    * `--permission-mode plan` makes Edit/Write/Bash unavailable to the agent
-    * (not just non-auto-approved). The planner's "don't edit files" instruction
-    * in the prompt is advisory; this turns it into a hard guarantee.
+  /** Maps [[LlmConfig.tools]] to claude's permission flags. The read-only tiers
+    * use `--permission-mode plan`, which makes Edit/Write/Bash unavailable (not
+    * just non-auto-approved) — turning the planner's advisory "don't edit"
+    * prompt into a hard guarantee. `Full` follows [[LlmConfig.autoApprove]].
     *
-    * Plan mode also gates read-only network exploration (WebFetch, and
-    * `gh`/`curl` via Bash) behind a permission prompt — harmless interactively,
-    * but an autonomous planner has no one to answer it, so every issue/PR fetch
-    * dies. [[readOnlyNetworkTools]] is layered on via `--allowedTools` so the
-    * planner can read from GitHub and the web while plan mode still hard-blocks
-    * every edit.
+    * `NetworkOnly` is plan mode here too for now; the network allowlist that
+    * distinguishes it (a command-scoped `--allowedTools` set) is layered on the
+    * backend in a later step.
     */
   private def autoApproveArgs(config: LlmConfig): Seq[String] =
-    if config.readOnly then
-      Seq(
-        "--permission-mode",
-        "plan",
-        "--allowedTools",
-        readOnlyNetworkTools.mkString(",")
-      )
-    else
-      config.autoApprove match
-        case AutoApprove.All =>
-          Seq("--permission-mode", "bypassPermissions")
-        case AutoApprove.Only(tools) if tools.isEmpty =>
-          Seq("--permission-mode", "acceptEdits")
-        case AutoApprove.Only(tools) =>
-          Seq(
-            "--permission-mode",
-            "acceptEdits",
-            "--allowedTools",
-            tools.toSeq.sorted.mkString(",")
-          )
+    config.tools match
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+        Seq("--permission-mode", "plan")
+      case ToolSet.Full =>
+        config.autoApprove match
+          case AutoApprove.All =>
+            Seq("--permission-mode", "bypassPermissions")
+          case AutoApprove.Only(tools) if tools.isEmpty =>
+            Seq("--permission-mode", "acceptEdits")
+          case AutoApprove.Only(tools) =>
+            Seq(
+              "--permission-mode",
+              "acceptEdits",
+              "--allowedTools",
+              tools.toSeq.sorted.mkString(",")
+            )

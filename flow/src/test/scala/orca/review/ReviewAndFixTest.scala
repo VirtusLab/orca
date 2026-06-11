@@ -13,7 +13,8 @@ import orca.llm.{
   LlmCall,
   LlmConfig,
   LlmTool,
-  SessionId
+  SessionId,
+  ToolSet
 }
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.{TestFlowContext}
@@ -65,7 +66,7 @@ class FakeLlmTool(
   def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
   def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
+  def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
 
 class ReviewAndFixTest extends munit.FunSuite:
 
@@ -211,7 +212,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] =
         this
       def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-      def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
+      def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
       def resultAs[O: JsonData: Announce]
           : LlmCall[BackendTag.ClaudeCode.type, O] =
         new LlmCall[BackendTag.ClaudeCode.type, O]:
@@ -368,7 +369,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] =
         this
       def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-      def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
+      def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
       def resultAs[O: JsonData: Announce]
           : LlmCall[BackendTag.ClaudeCode.type, O] =
         new LlmCall[BackendTag.ClaudeCode.type, O]:
@@ -435,7 +436,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] =
         this
       def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-      def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
+      def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
       def resultAs[O: JsonData: Announce]
           : LlmCall[BackendTag.ClaudeCode.type, O] =
         new LlmCall[BackendTag.ClaudeCode.type, O]:

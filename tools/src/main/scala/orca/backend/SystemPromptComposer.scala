@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.llm.LlmConfig
+import orca.llm.{LlmConfig, ToolSet}
 
 /** Shared helper for assembling a backend-agnostic "system prompt body" from
   * the configured [[LlmConfig.systemPrompt]], an optional caller-supplied
@@ -39,7 +39,7 @@ private[orca] object SystemPromptComposer:
       extraHint: Option[String] = None
   ): Option[String] =
     val gitRule =
-      if config.readOnly || config.selfManagedGit then None
+      if config.tools != ToolSet.Full || config.selfManagedGit then None
       else Some(RuntimeOwnsGit)
     List(config.systemPrompt, extraHint, gitRule).flatten match
       case Nil    => None

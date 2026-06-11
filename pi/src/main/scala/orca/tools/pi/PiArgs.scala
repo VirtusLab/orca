@@ -1,7 +1,7 @@
 package orca.tools.pi
 
 import orca.backend.CliArgs
-import orca.llm.LlmConfig
+import orca.llm.{LlmConfig, ToolSet}
 
 /** Maps Orca backend configuration to Pi CLI arguments. The backend drives Pi
   * through RPC mode and sends prompts over stdin, so the argv carries only
@@ -34,16 +34,25 @@ private[pi] object PiArgs:
   private def systemPromptArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--append-system-prompt", f.toString))
 
+  /** Maps [[LlmConfig.tools]] to pi's `--tools` allowlist. `Full` omits the
+    * flag (all built-in tools enabled); the read-only tiers restrict to
+    * [[ReadOnlyTools]] (plus the ask-user extension when present).
+    *
+    * `NetworkOnly` is the same allowlist here; the network-capable variant (pi
+    * has no web tool, so network means re-enabling `bash`, which also permits
+    * writes) is layered on in a later step.
+    */
   private def toolsArgs(
       config: LlmConfig,
       includeAskUser: Boolean
   ): Seq[String] =
-    if !config.readOnly then Seq.empty
-    else
-      val tools =
-        if includeAskUser then ReadOnlyTools :+ PiAskUserExtension.ToolName
-        else ReadOnlyTools
-      Seq("--tools", tools.mkString(","))
+    config.tools match
+      case ToolSet.Full => Seq.empty
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+        val tools =
+          if includeAskUser then ReadOnlyTools :+ PiAskUserExtension.ToolName
+          else ReadOnlyTools
+        Seq("--tools", tools.mkString(","))
 
   private def extensionArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--extension", f.toString))

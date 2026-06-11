@@ -15,7 +15,8 @@ import orca.llm.{
   LlmCall,
   LlmConfig,
   OpencodeTool,
-  SessionId
+  SessionId,
+  ToolSet
 }
 import orca.plan.{Plan, Task, Title}
 import orca.tools.opencode.DefaultOpencodeTool
@@ -120,7 +121,7 @@ class OpencodeFlowTest extends munit.FunSuite:
     def withConfig(c: LlmConfig): OpencodeTool = this
     def withSystemPrompt(p: String): OpencodeTool = this
     def withName(n: String): OpencodeTool = this
-    def withReadOnly: OpencodeTool = this
+    def withTools(tools: ToolSet): OpencodeTool = this
     def autonomous: AutonomousTextCall[BackendTag.Opencode.type] =
       throw new UnsupportedOperationException
     def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.Opencode.type, O] =

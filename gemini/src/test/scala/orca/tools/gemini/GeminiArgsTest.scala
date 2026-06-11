@@ -1,6 +1,6 @@
 package orca.tools.gemini
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId, ToolSet}
 
 class GeminiArgsTest extends munit.FunSuite:
 
@@ -46,13 +46,26 @@ class GeminiArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--approval-mode", "yolo")), args.toString)
     assert(!args.contains("plan"))
 
-  test("readOnly maps to --approval-mode plan and overrides autoApprove"):
+  test(
+    "ToolSet.ReadOnly maps to --approval-mode plan and overrides autoApprove"
+  ):
     val args = GeminiArgs.headless(
       "x",
-      LlmConfig.default.copy(readOnly = true, autoApprove = AutoApprove.All)
+      LlmConfig.default.copy(
+        tools = ToolSet.ReadOnly,
+        autoApprove = AutoApprove.All
+      )
     )
     assert(args.containsSlice(Seq("--approval-mode", "plan")), args.toString)
     assert(!args.containsSlice(Seq("--approval-mode", "yolo")))
+
+  test("ToolSet.NetworkOnly also maps to --approval-mode plan"):
+    val args =
+      GeminiArgs.headless(
+        "x",
+        LlmConfig.default.copy(tools = ToolSet.NetworkOnly)
+      )
+    assert(args.containsSlice(Seq("--approval-mode", "plan")), args.toString)
 
   test("resume builds gemini ... --resume <id> with the prompt"):
     val sid = SessionId[BackendTag.Gemini.type]("uuid-123")

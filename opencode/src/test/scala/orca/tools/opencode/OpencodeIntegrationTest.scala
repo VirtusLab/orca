@@ -1,7 +1,7 @@
 package orca.tools.opencode
 
 import orca.backend.SupervisedBackend
-import orca.llm.{BackendTag, LlmConfig, Model, SessionId}
+import orca.llm.{BackendTag, LlmConfig, Model, SessionId, ToolSet}
 import orca.subprocess.OsProcCliRunner
 
 /** End-to-end tests against a real `opencode serve`. Gated on the
@@ -91,7 +91,7 @@ class OpencodeIntegrationTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         prompt = "Create a file named marker.txt containing the word hello.",
         session = fresh,
-        config = config.copy(readOnly = true),
+        config = config.copy(tools = ToolSet.ReadOnly),
         workDir = workDir
       )
       assert(

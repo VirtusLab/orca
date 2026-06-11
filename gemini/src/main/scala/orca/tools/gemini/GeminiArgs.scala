@@ -1,7 +1,7 @@
 package orca.tools.gemini
 
 import orca.backend.CliArgs
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId, ToolSet}
 
 /** Maps `LlmConfig` fields to `gemini` headless CLI flags. `systemPrompt` is
   * not handled here — gemini has no `--append-system-prompt` equivalent (it
@@ -54,21 +54,24 @@ private[gemini] object GeminiArgs:
     */
   private val trustArgs: Seq[String] = Seq("--skip-trust")
 
-  /** Approval-policy mapping. `readOnly` overrides any `autoApprove` setting —
-    * `--approval-mode plan` makes file writes and shelling-out unavailable to
-    * the agent, matching claude's `--permission-mode plan` and codex's
-    * `--sandbox read-only`. Otherwise gemini has no per-tool allowlist on the
-    * CLI, and in headless mode `auto_edit` blocks on shell approvals no one can
-    * answer, so both [[AutoApprove.All]] and [[AutoApprove.Only]] map to `yolo`
-    * (auto-approve all). The `Only` widening is documented in ADR 0015.
+  /** Maps [[LlmConfig.tools]] to gemini's approval mode. The read-only tiers
+    * use `--approval-mode plan` (no writes, no shelling out), matching claude's
+    * `--permission-mode plan` and codex's `--sandbox read-only`. `Full` has no
+    * per-tool CLI allowlist, and in headless mode `auto_edit` blocks on shell
+    * approvals no one can answer, so both [[AutoApprove.All]] and
+    * [[AutoApprove.Only]] map to `yolo`. The `Only` widening is in ADR 0015.
     *
-    *   - `readOnly = true` → `--approval-mode plan`
-    *   - `AutoApprove.All` → `--approval-mode yolo`
-    *   - `AutoApprove.Only(_)` → `--approval-mode yolo`
+    *   - `ReadOnly` / `NetworkOnly` → `--approval-mode plan`
+    *   - `Full` + `AutoApprove.All` / `Only(_)` → `--approval-mode yolo`
+    *
+    * `NetworkOnly` is plan mode here too — gemini already allows web reads in
+    * plan mode, and shell `gh` would require dropping to `yolo` (out of scope).
     */
   private def approvalArgs(config: LlmConfig): Seq[String] =
-    if config.readOnly then Seq("--approval-mode", "plan")
-    else
-      config.autoApprove match
-        case AutoApprove.All | AutoApprove.Only(_) =>
-          Seq("--approval-mode", "yolo")
+    config.tools match
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+        Seq("--approval-mode", "plan")
+      case ToolSet.Full =>
+        config.autoApprove match
+          case AutoApprove.All | AutoApprove.Only(_) =>
+            Seq("--approval-mode", "yolo")

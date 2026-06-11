@@ -2,7 +2,7 @@ package orca.tools.codex
 
 import orca.backend.CliArgs
 import orca.backend.mcp.AskUserMcpServer
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId, ToolSet}
 
 /** Maps `LlmConfig` fields to `codex exec` CLI flags. `systemPrompt` is not
   * handled here — codex doesn't accept an `--append-system-prompt` equivalent
@@ -95,22 +95,28 @@ private[codex] object CodexArgs:
   private def outputSchemaArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(p => Seq("--output-schema", p.toString))
 
-  /** Approval-policy mapping. `readOnly` overrides any `autoApprove` setting —
-    * `--sandbox read-only` makes file writes and shelling-out unavailable to
-    * the agent, matching claude's `--permission-mode plan`. Otherwise codex
-    * doesn't accept a per-tool allowlist on the CLI, so [[AutoApprove.Only]] is
-    * approximated with `--full-auto` (sandboxed automatic execution) — narrower
-    * than the all-bypass and matches the user-stated intent of "auto-approve a
-    * known-safe set".
+  /** Maps [[LlmConfig.tools]] to codex's sandbox flags. The read-only tiers use
+    * `--sandbox read-only` (no writes, no shell side-effects), matching
+    * claude's `--permission-mode plan`. `Full` follows
+    * [[LlmConfig.autoApprove]]; codex has no per-tool CLI allowlist, so
+    * [[AutoApprove.Only]] is approximated with `--full-auto` (sandboxed
+    * automatic execution).
     *
-    *   - `readOnly = true` → `--sandbox read-only`
-    *   - `AutoApprove.All` → `--dangerously-bypass-approvals-and-sandbox`
-    *   - `AutoApprove.Only(_)` → `--full-auto`
+    *   - `ReadOnly` / `NetworkOnly` → `--sandbox read-only`
+    *   - `Full` + `AutoApprove.All` →
+    *     `--dangerously-bypass-approvals-and-sandbox`
+    *   - `Full` + `AutoApprove.Only(_)` → `--full-auto`
+    *
+    * `NetworkOnly` is read-only here too; the network-capable variant (codex
+    * needs `--sandbox workspace-write` for network, which also permits writes)
+    * is layered on in a later step.
     */
   private def sandboxArgs(config: LlmConfig): Seq[String] =
-    if config.readOnly then Seq("--sandbox", "read-only")
-    else
-      config.autoApprove match
-        case AutoApprove.All =>
-          Seq("--dangerously-bypass-approvals-and-sandbox")
-        case AutoApprove.Only(_) => Seq("--full-auto")
+    config.tools match
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
+        Seq("--sandbox", "read-only")
+      case ToolSet.Full =>
+        config.autoApprove match
+          case AutoApprove.All =>
+            Seq("--dangerously-bypass-approvals-and-sandbox")
+          case AutoApprove.Only(_) => Seq("--full-auto")

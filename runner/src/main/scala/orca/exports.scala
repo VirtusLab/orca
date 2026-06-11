@@ -25,6 +25,7 @@ export orca.llm.{
   InteractiveLlmCall,
   LlmConfig,
   AutoApprove,
+  ToolSet,
   BackendTag,
   CanAskUser,
   Model,

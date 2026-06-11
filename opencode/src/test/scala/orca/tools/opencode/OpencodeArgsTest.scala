@@ -1,7 +1,7 @@
 package orca.tools.opencode
 
 import orca.backend.{SessionMode, SystemPromptComposer}
-import orca.llm.{AutoApprove, LlmConfig, Model}
+import orca.llm.{AutoApprove, LlmConfig, Model, ToolSet}
 
 class OpencodeArgsTest extends munit.FunSuite:
 
@@ -75,7 +75,10 @@ class OpencodeArgsTest extends munit.FunSuite:
 
   test("read-only turn disables the write tools (write/edit/bash/patch)"):
     val cfg =
-      LlmConfig.default.copy(readOnly = true, autoApprove = AutoApprove.All)
+      LlmConfig.default.copy(
+        tools = ToolSet.ReadOnly,
+        autoApprove = AutoApprove.All
+      )
     val tools =
       OpencodeArgs
         .message(cfg, "hi", None, interactive)
@@ -87,7 +90,7 @@ class OpencodeArgsTest extends munit.FunSuite:
     assertEquals(tools.get("patch"), Some(false))
 
   test("read-only autonomous turn gates both write tools and question"):
-    val cfg = LlmConfig.default.copy(readOnly = true)
+    val cfg = LlmConfig.default.copy(tools = ToolSet.ReadOnly)
     val tools =
       OpencodeArgs
         .message(cfg, "hi", None, autonomous)

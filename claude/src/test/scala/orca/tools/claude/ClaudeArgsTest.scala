@@ -1,7 +1,7 @@
 package orca.tools.claude
 
 import orca.backend.Dispatch
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
+import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId, ToolSet}
 class ClaudeArgsTest extends munit.FunSuite:
 
   private val testSid =
@@ -63,29 +63,27 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--permission-mode", "acceptEdits")))
     assert(!args.contains("--allowedTools"))
 
-  test("readOnly=true maps to --permission-mode plan, overriding autoApprove"):
-    // `readOnly` is the planner's hard restriction — Edit/Write/Bash must be
-    // unavailable, not just non-auto-approved. It wins over `autoApprove`
-    // because the use case is "the agent is verifying claims, not editing".
-    val args =
-      streamJson(LlmConfig(autoApprove = AutoApprove.All, readOnly = true))
+  test(
+    "ToolSet.ReadOnly maps to --permission-mode plan, overriding autoApprove"
+  ):
+    // The read-only tier is the planner/reviewer hard restriction —
+    // Edit/Write/Bash unavailable, not just non-auto-approved. It wins over
+    // `autoApprove` (the agent is verifying claims, not editing).
+    val args = streamJson(
+      LlmConfig(autoApprove = AutoApprove.All, tools = ToolSet.ReadOnly)
+    )
     assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
     assert(!args.contains("bypassPermissions"), args)
+    assert(!args.contains("--allowedTools"), args)
 
-  test("readOnly=true pre-approves read-only network tools via --allowedTools"):
-    // Plan mode otherwise prompts for WebFetch / gh, which an autonomous
-    // planner can't answer; the layered allowlist lets it read issues and PRs.
-    val args = streamJson(LlmConfig(readOnly = true))
-    assert(
-      args.containsSlice(
-        Seq(
-          "--allowedTools",
-          "WebFetch,WebSearch,Bash(gh issue view:*)," +
-            "Bash(gh pr view:*),Bash(gh search:*),Bash(gh repo view:*)"
-        )
-      ),
-      args
-    )
+  // For now NetworkOnly is plain plan mode; a later step layers its network
+  // allowlist on the backend (and strengthens this assertion).
+  test(
+    "ToolSet.NetworkOnly stays --permission-mode plan with no inline allowlist"
+  ):
+    val args = streamJson(LlmConfig(tools = ToolSet.NetworkOnly))
+    assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
+    assert(!args.contains("--allowedTools"), args)
 
   test("Dispatch.Fresh emits --session-id <uuid>"):
     val args = streamJson(LlmConfig.default, dispatch = Dispatch.Fresh(testSid))

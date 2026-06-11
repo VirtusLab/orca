@@ -13,7 +13,8 @@ import orca.llm.{
   LlmCall,
   LlmConfig,
   LlmTool,
-  SessionId
+  SessionId,
+  ToolSet
 }
 import orca.events.{EventDispatcher}
 import orca.{TestFlowContext}
@@ -38,7 +39,7 @@ class LintTest extends munit.FunSuite:
     def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
     def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
     def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-    def withReadOnly: LlmTool[BackendTag.ClaudeCode.type] = this
+    def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
     def resultAs[O: JsonData: Announce]
         : LlmCall[BackendTag.ClaudeCode.type, O] =
       new LlmCall[BackendTag.ClaudeCode.type, O]:
@@ -92,7 +93,9 @@ class LintTest extends munit.FunSuite:
     val filePath = "`([^`]+\\.log)`".r
       .findFirstMatchIn(mock.captured)
       .map(_.group(1))
-      .getOrElse(fail(s"prompt should reference a .log file, got: ${mock.captured}"))
+      .getOrElse(
+        fail(s"prompt should reference a .log file, got: ${mock.captured}")
+      )
     assert(!os.exists(os.Path(filePath)), "lint should delete the temp file")
 
   test("lint short-circuits to ReviewResult.empty when the command is silent"):
