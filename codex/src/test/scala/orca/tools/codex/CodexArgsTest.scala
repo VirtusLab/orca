@@ -83,6 +83,22 @@ class CodexArgsTest extends munit.FunSuite:
     assert(!args.contains("--dangerously-bypass-approvals-and-sandbox"))
     assert(!args.contains("--full-auto"))
 
+  test("ToolSet.NetworkOnly uses --full-auto + network override before exec"):
+    // codex has no read-only-with-network sandbox: network needs
+    // workspace-write (via --full-auto), enabled by the global `-c` override
+    // which must precede the `exec` subcommand.
+    val args = CodexArgs.exec(
+      "x",
+      LlmConfig.default.copy(tools = ToolSet.NetworkOnly),
+      None,
+      os.pwd
+    )
+    assert(args.contains("--full-auto"), args.toString)
+    assert(!args.containsSlice(Seq("--sandbox", "read-only")), args.toString)
+    val execIdx = args.indexOf("exec")
+    val cIdx = args.indexOf("sandbox_workspace_write.network_access=true")
+    assert(cIdx >= 0 && cIdx < execIdx, args.toString)
+
   test(
     "exec emits -c mcp_servers.orca.{url,tool_timeout_sec} when an MCP url is supplied"
   ):

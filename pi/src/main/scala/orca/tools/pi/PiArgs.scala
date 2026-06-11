@@ -17,6 +17,13 @@ private[pi] object PiArgs:
 
   val ReadOnlyTools: Seq[String] = Seq("read", "grep", "find", "ls")
 
+  /** Pi has no web/fetch tool, so the only network path is the general `bash`
+    * tool — which also permits writes. Added on [[ToolSet.NetworkOnly]] turns;
+    * the no-edit guarantee is then prompt-only (the planner prompts forbid
+    * edits), not enforced by the allowlist.
+    */
+  val NetworkTool: String = "bash"
+
   def rpc(
       sessionDir: os.Path,
       resume: Boolean,
@@ -35,24 +42,27 @@ private[pi] object PiArgs:
     file.toSeq.flatMap(f => Seq("--append-system-prompt", f.toString))
 
   /** Maps [[LlmConfig.tools]] to pi's `--tools` allowlist. `Full` omits the
-    * flag (all built-in tools enabled); the read-only tiers restrict to
-    * [[ReadOnlyTools]] (plus the ask-user extension when present).
-    *
-    * `NetworkOnly` is the same allowlist here; the network-capable variant (pi
-    * has no web tool, so network means re-enabling `bash`, which also permits
-    * writes) is layered on in a later step.
+    * flag (all built-in tools enabled); `ReadOnly` restricts to
+    * [[ReadOnlyTools]]; `NetworkOnly` adds [[NetworkTool]] (`bash`) for network
+    * access. The ask-user extension tool is appended when present.
     */
   private def toolsArgs(
       config: LlmConfig,
       includeAskUser: Boolean
   ): Seq[String] =
     config.tools match
-      case ToolSet.Full => Seq.empty
-      case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
-        val tools =
-          if includeAskUser then ReadOnlyTools :+ PiAskUserExtension.ToolName
-          else ReadOnlyTools
-        Seq("--tools", tools.mkString(","))
+      case ToolSet.Full     => Seq.empty
+      case ToolSet.ReadOnly => toolsFlag(ReadOnlyTools, includeAskUser)
+      case ToolSet.NetworkOnly =>
+        toolsFlag(ReadOnlyTools :+ NetworkTool, includeAskUser)
+
+  private def toolsFlag(
+      tools: Seq[String],
+      includeAskUser: Boolean
+  ): Seq[String] =
+    val all =
+      if includeAskUser then tools :+ PiAskUserExtension.ToolName else tools
+    Seq("--tools", all.mkString(","))
 
   private def extensionArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--extension", f.toString))

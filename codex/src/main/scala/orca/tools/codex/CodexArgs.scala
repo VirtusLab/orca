@@ -26,6 +26,7 @@ private[codex] object CodexArgs:
   ): Seq[String] =
     Seq("codex") ++
       mcpServerArgs(mcpServerUrl) ++
+      networkConfigArgs(config) ++
       Seq("exec", "--json") ++
       sandboxArgs(config) ++
       CliArgs.modelArgs(config) ++
@@ -59,6 +60,7 @@ private[codex] object CodexArgs:
   ): Seq[String] =
     Seq("codex") ++
       mcpServerArgs(mcpServerUrl) ++
+      networkConfigArgs(config) ++
       Seq("exec", "resume", "--json", SessionId.value(sessionId)) ++
       sandboxArgs(config) ++
       CliArgs.modelArgs(config) ++
@@ -95,28 +97,43 @@ private[codex] object CodexArgs:
   private def outputSchemaArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(p => Seq("--output-schema", p.toString))
 
-  /** Maps [[LlmConfig.tools]] to codex's sandbox flags. The read-only tiers use
-    * `--sandbox read-only` (no writes, no shell side-effects), matching
-    * claude's `--permission-mode plan`. `Full` follows
+  /** Maps [[LlmConfig.tools]] to codex's sandbox flags (placed after the `exec`
+    * subcommand). `ReadOnly` uses `--sandbox read-only` (no writes, no shell
+    * side-effects), matching claude's `--permission-mode plan`. `Full` follows
     * [[LlmConfig.autoApprove]]; codex has no per-tool CLI allowlist, so
-    * [[AutoApprove.Only]] is approximated with `--full-auto` (sandboxed
-    * automatic execution).
+    * [[AutoApprove.Only]] is approximated with `--full-auto`.
     *
-    *   - `ReadOnly` / `NetworkOnly` → `--sandbox read-only`
+    *   - `ReadOnly` → `--sandbox read-only`
+    *   - `NetworkOnly` → `--full-auto` (workspace-write + non-interactive
+    *     approval), paired with the network override in [[networkConfigArgs]]
     *   - `Full` + `AutoApprove.All` →
     *     `--dangerously-bypass-approvals-and-sandbox`
     *   - `Full` + `AutoApprove.Only(_)` → `--full-auto`
     *
-    * `NetworkOnly` is read-only here too; the network-capable variant (codex
-    * needs `--sandbox workspace-write` for network, which also permits writes)
-    * is layered on in a later step.
+    * `NetworkOnly` has no read-only-with-network sandbox on codex: network
+    * needs `workspace-write`, which also permits workspace writes, so the
+    * no-edit guarantee there is prompt-only (the planning prompts forbid
+    * edits).
     */
   private def sandboxArgs(config: LlmConfig): Seq[String] =
     config.tools match
-      case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
-        Seq("--sandbox", "read-only")
+      case ToolSet.ReadOnly    => Seq("--sandbox", "read-only")
+      case ToolSet.NetworkOnly => Seq("--full-auto")
       case ToolSet.Full =>
         config.autoApprove match
           case AutoApprove.All =>
             Seq("--dangerously-bypass-approvals-and-sandbox")
           case AutoApprove.Only(_) => Seq("--full-auto")
+
+  /** Global `-c` overrides that must precede the `exec` subcommand (codex reads
+    * them into its top-level config, which `exec` inherits). On
+    * [[ToolSet.NetworkOnly]], enable network for the workspace-write sandbox
+    * that [[sandboxArgs]] selects via `--full-auto`; off by default, so without
+    * this the planner's `gh`/`curl` calls would be blocked. Empty for the other
+    * tiers.
+    */
+  private def networkConfigArgs(config: LlmConfig): Seq[String] =
+    config.tools match
+      case ToolSet.NetworkOnly =>
+        Seq("-c", "sandbox_workspace_write.network_access=true")
+      case ToolSet.ReadOnly | ToolSet.Full => Nil
