@@ -95,6 +95,14 @@ trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
   def opus: ClaudeTool
   def fable: ClaudeTool
 
+  /** Set the read-only network allowlist used on [[ToolSet.NetworkOnly]] turns
+    * (claude `--allowedTools` syntax, e.g. `Bash(gh api:*)`, `WebFetch`).
+    * Claude-specific, so it's here rather than on `LlmConfig`; defaults to
+    * `ClaudeBackend.DefaultNetworkTools`. Pass it before handing the tool to a
+    * planning helper: `claude.opus.withNetworkTools(Seq("WebFetch"))`.
+    */
+  def withNetworkTools(tools: Seq[String]): ClaudeTool
+
 trait CodexTool extends LlmTool[BackendTag.Codex.type]:
   def mini: CodexTool
 

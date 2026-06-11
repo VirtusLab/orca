@@ -1,6 +1,7 @@
 package orca.plan
 
 import orca.events.EventDispatcher
+import orca.llm.ToolSet
 
 class AssessThenPlanTest extends munit.FunSuite:
 
@@ -77,6 +78,14 @@ class AssessThenPlanTest extends munit.FunSuite:
       result.value,
       Verdict.Rejection(Verdict.RejectionKind.Rebuff, "duplicate of #42")
     )
+
+  test("Plan.autonomous planner runs NetworkOnly (reads + read-only network)"):
+    given orca.FlowContext = new orca.TestFlowContext(new EventDispatcher(Nil))
+    val stub = new CannedResultLlm(
+      AssessedPlan("proceed", Some(samplePlan), None, None)
+    )
+    val _ = Plan.autonomous.assessThenPlan("the report", stub)
+    assertEquals(stub.lastToolSet, Some(ToolSet.NetworkOnly))
 
   test(
     "Plan.autonomous.assessThenPlan throws OrcaFlowException on malformed payload"

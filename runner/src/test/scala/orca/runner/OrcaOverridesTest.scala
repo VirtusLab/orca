@@ -47,6 +47,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       def sonnet = this
       def opus = this
       def fable = this
+      def withNetworkTools(t: Seq[String]) = this
       def withConfig(c: LlmConfig) = this
       def withSystemPrompt(p: String) = this
       def withName(n: String) = this

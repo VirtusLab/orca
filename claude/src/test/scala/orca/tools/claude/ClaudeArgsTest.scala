@@ -11,12 +11,14 @@ class ClaudeArgsTest extends munit.FunSuite:
 
   private def streamJson(
       config: LlmConfig,
-      dispatch: Dispatch[BackendTag.ClaudeCode.type] = Dispatch.Fresh(testSid)
+      dispatch: Dispatch[BackendTag.ClaudeCode.type] = Dispatch.Fresh(testSid),
+      networkTools: Seq[String] = Seq.empty
   ): Seq[String] =
     ClaudeArgs.streamJson(
       config = config,
       systemPromptFile = None,
-      dispatch = dispatch
+      dispatch = dispatch,
+      networkTools = networkTools
     )
 
   test("stream-json shape: --print, --input/--output-format stream-json, etc."):
@@ -76,12 +78,30 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(!args.contains("bypassPermissions"), args)
     assert(!args.contains("--allowedTools"), args)
 
-  // For now NetworkOnly is plain plan mode; a later step layers its network
-  // allowlist on the backend (and strengthens this assertion).
   test(
-    "ToolSet.NetworkOnly stays --permission-mode plan with no inline allowlist"
+    "ToolSet.NetworkOnly layers networkTools onto plan mode via --allowedTools"
   ):
+    val args = streamJson(
+      LlmConfig(tools = ToolSet.NetworkOnly),
+      networkTools = Seq("WebFetch", "Bash(gh api:*)")
+    )
+    assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
+    assert(
+      args.containsSlice(Seq("--allowedTools", "WebFetch,Bash(gh api:*)")),
+      args
+    )
+
+  test("ToolSet.NetworkOnly with no networkTools stays plain plan mode"):
     val args = streamJson(LlmConfig(tools = ToolSet.NetworkOnly))
+    assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
+    assert(!args.contains("--allowedTools"), args)
+
+  test("ToolSet.ReadOnly never emits networkTools even when supplied"):
+    // Reviewers/triage use ReadOnly and must stay network-free.
+    val args = streamJson(
+      LlmConfig(tools = ToolSet.ReadOnly),
+      networkTools = Seq("WebFetch")
+    )
     assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
     assert(!args.contains("--allowedTools"), args)
 

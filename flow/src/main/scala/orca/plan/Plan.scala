@@ -118,11 +118,12 @@ object Plan:
     digest.iterator.take(6).map(b => f"${b & 0xff}%02x").mkString
 
   /** Autonomous planning — a single agentic turn, no human in the loop. The
-    * agent runs read-only (`.withReadOnly`), so it can verify claims via
-    * Read/Grep but can't edit during the planning turn. Sibling of
-    * [[interactive]]; the choice between the two is visible at the call site
-    * (`Plan.autonomous.from(...)` vs `Plan.interactive.from(...)`), mirroring
-    * `LlmTool`'s own `autonomous` / `interactive` split.
+    * agent runs `NetworkOnly` (`.withNetworkOnly`): it can verify claims via
+    * Read/Grep and read-only network (issues/PRs/web) but can't edit during the
+    * planning turn (see [[autonomousResult]] for the per-backend guarantee).
+    * Sibling of [[interactive]]; the choice between the two is visible at the
+    * call site (`Plan.autonomous.from(...)` vs `Plan.interactive.from(...)`),
+    * mirroring `LlmTool`'s own `autonomous` / `interactive` split.
     *
     * Each operation returns a [[Sessioned]]: the read-only planning turn's
     * session is still resumable by a later writable call, so the caller can
@@ -274,16 +275,23 @@ object Plan:
       os.write.over(file, render(plan), createFolders = true)
       plan
 
-  /** Run one read-only autonomous turn producing wire type `O`, convert it to
-    * the public result `A`, and pair it with the session. Shared by every
-    * `autonomous.*` operation.
+  /** Run one autonomous turn producing wire type `O`, convert it to the public
+    * result `A`, and pair it with the session. Shared by every `autonomous.*`
+    * operation (`from`, `assessThenPlan`, `triage`).
+    *
+    * Runs `NetworkOnly`: reads plus read-only network, so the planner can fetch
+    * an issue/PR it was pointed at and verify external claims. Edits stay
+    * blocked (hard on claude/gemini/opencode; prompt-only on pi/codex — the
+    * planning prompts forbid edits). Reviewers and the post-planning
+    * `reviewed`/`briefed` turns use plain `withReadOnly` instead — no network,
+    * hard no-edit everywhere.
     */
   private def autonomousResult[B <: BackendTag, O: JsonData: Announce, A](
       llm: LlmTool[B],
       input: String,
       instructions: String
   )(convert: O => A)(using FlowContext): Sessioned[B, A] =
-    val (sessionId, raw) = llm.withReadOnly
+    val (sessionId, raw) = llm.withNetworkOnly
       .resultAs[O]
       .autonomous
       .run(withInstructions(input, instructions))

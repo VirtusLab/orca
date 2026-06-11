@@ -37,8 +37,19 @@ import ox.channels.BufferCapacity
   * long flow with many interactive calls doesn't leak Netty bindings.
   * Autonomous calls skip the bridge entirely.
   */
-private[orca] class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
+private[orca] class ClaudeBackend(
+    cli: CliRunner,
+    networkTools: Seq[String] = ClaudeBackend.DefaultNetworkTools
+)(using Ox, BufferCapacity)
     extends LlmBackend[BackendTag.ClaudeCode.type]:
+
+  /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns,
+    * pre-approves `tools` (claude `--allowedTools` syntax). The configuration
+    * seam behind `ClaudeTool.withNetworkTools`; lives on the backend, not
+    * `LlmConfig`, since the strings are claude-specific.
+    */
+  def withNetworkTools(tools: Seq[String]): ClaudeBackend =
+    new ClaudeBackend(cli, tools)
 
   /** Tracks which session ids we've already claimed via `--session-id` so
     * subsequent calls use `--resume` (the CLI refuses to reuse `--session-id`
@@ -176,7 +187,8 @@ private[orca] class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
         systemPromptFile,
         dispatch = sessions.dispatchFor(session),
         outputSchema,
-        mcpConfig = askUser.map(r => mcpConfigPath(r.server, workDir))
+        mcpConfig = askUser.map(r => mcpConfigPath(r.server, workDir)),
+        networkTools = networkTools
       )
       val process = cli.spawnPiped(args, cwd = workDir)
       try
@@ -253,6 +265,23 @@ private[orca] class ClaudeBackend(cli: CliRunner)(using Ox, BufferCapacity)
         os.temp(prefix = "orca-system-prompt-", suffix = ".md", contents = text)
 
 object ClaudeBackend:
+
+  /** Read-only network tools pre-approved on [[ToolSet.NetworkOnly]] turns, so
+    * an autonomous planner can read issues/PRs/web without a permission prompt
+    * it can't answer. Command-scoped, so plan mode still blocks general bash
+    * and all edits. `Bash(gh api:*)` is broad GitHub reads — note `gh api -X
+    * POST` can mutate GitHub (not local files); flows wanting a tighter set
+    * pass their own via `claude.withNetworkTools(...)`.
+    */
+  private[claude] val DefaultNetworkTools: Seq[String] = Seq(
+    "WebFetch",
+    "WebSearch",
+    "Bash(gh issue view:*)",
+    "Bash(gh pr view:*)",
+    "Bash(gh search:*)",
+    "Bash(gh repo view:*)",
+    "Bash(gh api:*)"
+  )
 
   /** Returns an `AutoCloseable` that best-effort deletes the given file when
     * closed. Used as an `AskUserSession.extras` entry so each conversation's

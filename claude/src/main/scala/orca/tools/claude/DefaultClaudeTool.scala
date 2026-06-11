@@ -3,7 +3,7 @@ package orca.tools.claude
 import orca.llm.{BackendTag, ClaudeTool, LlmConfig, Model, Prompts}
 import orca.events.{OrcaListener}
 
-import orca.backend.{Interaction, LlmBackend}
+import orca.backend.Interaction
 import orca.llm.BaseLlmTool
 
 /** Default ClaudeTool implementation. Inherits the autonomous-text +
@@ -17,7 +17,7 @@ import orca.llm.BaseLlmTool
   * completion.
   */
 private[orca] class DefaultClaudeTool(
-    backend: LlmBackend[BackendTag.ClaudeCode.type],
+    backend: ClaudeBackend,
     config: LlmConfig,
     prompts: Prompts,
     workDir: os.Path,
@@ -38,6 +38,22 @@ private[orca] class DefaultClaudeTool(
   def sonnet: ClaudeTool = withModel(Model("claude-sonnet-4-6"))
   def opus: ClaudeTool = withModel(DefaultClaudeTool.Opus1M)
   def fable: ClaudeTool = withModel(DefaultClaudeTool.Fable)
+
+  /** Per the trait: configure the read-only network allowlist by swapping in a
+    * reconfigured backend (the allowlist is claude-specific, so it lives there
+    * rather than in the shared `LlmConfig`). Constructs directly rather than
+    * via [[copyTool]] because the latter threads the current backend unchanged.
+    */
+  def withNetworkTools(tools: Seq[String]): ClaudeTool =
+    new DefaultClaudeTool(
+      backend.withNetworkTools(tools),
+      config,
+      prompts,
+      workDir,
+      events,
+      interaction,
+      name
+    )
 
   protected def copyTool(
       config: LlmConfig = config,
