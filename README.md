@@ -93,11 +93,11 @@ The following are available inside a `flow(...) { ... }`:
 
 | Tool | Methods | Purpose |
 |---|---|---|
-| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `haiku`/`sonnet`/`opus`/`fable`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer needs it; reviewers share it); use `claude.sonnet` / `claude.haiku` for cheap one-shot calls (reviewer picker, lint, PR summariser), or `claude.fable` for the most capable tier on the hardest one-shots. `interactive` mode lives only on `resultAs[O]`. |
-| `codex` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `mini`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withSelfManagedGit` | OpenAI Codex coding/reviewing agent. |
-| `opencode` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiGpt5`/`openaiGpt5Codex`/`openaiGpt5Mini`, `withModel(providerModel)` / `withModel(provider, modelId)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withSelfManagedGit` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiGpt5Mini`) or `opencode.withModel("openai/gpt-4o-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
-| `pi` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withSelfManagedGit` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withConfig(LlmConfig(model = Some(Model("provider/model"))))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
-| `gemini` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `flash`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withSelfManagedGit` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
+| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `haiku`/`sonnet`/`opus`/`fable`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withNetworkTools`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer needs it; reviewers share it); use `claude.sonnet` / `claude.haiku` for cheap one-shot calls (reviewer picker, lint, PR summariser), or `claude.fable` for the most capable tier on the hardest one-shots. `interactive` mode lives only on `resultAs[O]`. |
+| `codex` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `mini`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | OpenAI Codex coding/reviewing agent. |
+| `opencode` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiGpt5`/`openaiGpt5Codex`/`openaiGpt5Mini`, `withModel(providerModel)` / `withModel(provider, modelId)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiGpt5Mini`) or `opencode.withModel("openai/gpt-4o-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
+| `pi` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withConfig(LlmConfig(model = Some(Model("provider/model"))))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
+| `gemini` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `flash`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
 | `git` | `createBranch`, `checkout`, `checkoutOrCreate`, `ensureClean`, `commit`, `push`, `currentBranch`, `diff`, `log`, `addWorktree`, `removeWorktree`, `listWorktrees` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushRejected`, `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. |
 | `gh` | `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` returns `Either[PrCreateFailed, …]` (covers `PrAlreadyExists` / `NoCommitsToPr`); `updatePr` replaces a PR's title + body (refresh a tentative description once the fix lands); `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
@@ -141,16 +141,33 @@ flow(OrcaArgs(args)):
 ## Coding agent tools
 
 > [!WARNING]
-> **Coding agent tool usage is auto-approved by default** (`autoApprove = AutoApprove.All`):
-> write-capable turns let the agent edit files and run shell commands without
-> prompting. Constrain this in code, or isolate the whole run in a sandbox.
+> **Coding agent tool usage is auto-approved by default** (`tools =
+> ToolSet.Full`, `autoApprove = AutoApprove.All`): write-capable turns let the
+> agent edit files and run shell commands without prompting. Constrain this in
+> code, or isolate the whole run in a sandbox.
 
-Tighten approval per tool with `withReadOnly` / `withConfig`:
+Two axes constrain an agent. **Capability** (`LlmConfig.tools: ToolSet`) is
+which tools exist at all:
 
 ```scala
-// Read-only: no writes, no edits, no side-effecting shell (planning, review).
-val planner = claude.withReadOnly
+// ReadOnly — reads only, no shell, no edits (reviewers, plan review, brief).
+val reviewer = claude.withReadOnly
 
+// NetworkOnly — reads plus read-only network (web + GitHub), for planners that
+// must read an issue/PR. Hard no-edit on claude (a command-scoped
+// `--allowedTools` set, configurable via `claude.withNetworkTools(...)`); on
+// pi/codex network needs a writable shell, so there the no-edit guarantee is
+// prompt-only; gemini/opencode get no network on this tier. See ADR 0016.
+val planner = claude.withNetworkOnly
+
+// Full (the default) — write-capable.
+```
+
+**Prompting** (`autoApprove`) is which of the available tools auto-approve
+without a y/n prompt — only meaningful for interactive turns, and consulted
+only on `Full`:
+
+```scala
 // Restrict auto-approval to a named tool set (honoured by claude/codex).
 val limited = claude.withConfig(
   LlmConfig(autoApprove = AutoApprove.Only(Set("Read", "Edit", "Grep")))
@@ -182,7 +199,7 @@ orthogonal — every combination is valid. Mode is picked at the call site
 (`Plan.autonomous.*` vs `Plan.interactive.*`), mirroring how `LlmTool` itself
 splits `autonomous` / `interactive`:
 
-| Operation | Result | `autonomous` (read-only, no human) | `interactive` (agent can `ask_user`) |
+| Operation | Result | `autonomous` (read-only + network, no human) | `interactive` (agent can `ask_user`) |
 |---|---|---|---|
 | `from(userPrompt, llm, instructions?)` | `Plan` | plan in one agentic turn | drive the planner conversationally |
 | `assessThenPlan(userPrompt, llm, instructions?)` | `Verdict[Plan]` | assess, then `Proceed(plan)` or `Rejection(kind, body)` | same, but can ask the reporter to clarify instead of rejecting |
@@ -190,8 +207,8 @@ splits `autonomous` / `interactive`:
 
 Every cell returns `Sessioned[B, <result>]` — the result paired with the agent
 session that produced it. Continue that session into implementation
-(`llm.autonomous.run(task, sessioned.sessionId)` — the read-only planning turn's
-session is still resumable with write access), or `.value` it and mint a fresh
+(`llm.autonomous.run(task, sessioned.sessionId)` — the planning turn's session
+is still resumable with write access), or `.value` it and mint a fresh
 session via `llm.newSession`. Destructure positionally when you want both:
 `val Sessioned(session, plan) = Plan.autonomous.from(...)`.
 
