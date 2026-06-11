@@ -54,6 +54,15 @@ private[gemini] object GeminiArgs:
     */
   private val trustArgs: Seq[String] = Seq("--skip-trust")
 
+  /** Web tools pre-approved on [[ToolSet.NetworkOnly]] turns. Plan mode gates
+    * `web_fetch` behind an approval no autonomous turn can answer; listing it
+    * in `--allowed-tools` pre-approves it (verified), so the planner gets web
+    * reads while plan mode still blocks edits and shell — a hard no-edit
+    * guarantee like claude's. `--allowed-tools` is deprecated (gemini 1.0
+    * removes it for a `settings.json` Policy Engine); migrate then.
+    */
+  private val NetworkTools: Seq[String] = Seq("web_fetch")
+
   /** Maps [[LlmConfig.tools]] to gemini's approval mode. The read-only tiers
     * use `--approval-mode plan` (no writes, no shelling out), matching claude's
     * `--permission-mode plan` and codex's `--sandbox read-only`. `Full` has no
@@ -61,20 +70,24 @@ private[gemini] object GeminiArgs:
     * approvals no one can answer, so both [[AutoApprove.All]] and
     * [[AutoApprove.Only]] map to `yolo`. The `Only` widening is in ADR 0015.
     *
-    *   - `ReadOnly` / `NetworkOnly` → `--approval-mode plan`
+    *   - `ReadOnly` → `--approval-mode plan`
+    *   - `NetworkOnly` → `--approval-mode plan --allowed-tools <web tools>`
     *   - `Full` + `AutoApprove.All` / `Only(_)` → `--approval-mode yolo`
     *
-    * `NetworkOnly` maps to plan mode too, which means **no network** on gemini:
-    * verified that `web_fetch` works under `yolo` but is blocked under `plan`
-    * in headless runs, so `NetworkOnly` grants nothing beyond `ReadOnly` here.
-    * Real network would require `yolo`, which also drops the hard no-edit
-    * guarantee (out of scope) — gemini flows pre-fetch issue/PR context (e.g.
-    * via `gh.readIssue`) instead.
+    * `NetworkOnly` stays in plan mode (hard no-edit) and adds [[NetworkTools]]
+    * so the planner can fetch issue/PR/web content — no shell `gh`, so no
+    * authed GitHub, but web reads work.
     */
   private def approvalArgs(config: LlmConfig): Seq[String] =
     config.tools match
-      case ToolSet.ReadOnly | ToolSet.NetworkOnly =>
-        Seq("--approval-mode", "plan")
+      case ToolSet.ReadOnly => Seq("--approval-mode", "plan")
+      case ToolSet.NetworkOnly =>
+        Seq(
+          "--approval-mode",
+          "plan",
+          "--allowed-tools",
+          NetworkTools.mkString(",")
+        )
       case ToolSet.Full =>
         config.autoApprove match
           case AutoApprove.All | AutoApprove.Only(_) =>

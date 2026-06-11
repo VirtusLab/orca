@@ -59,13 +59,17 @@ class GeminiArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--approval-mode", "plan")), args.toString)
     assert(!args.containsSlice(Seq("--approval-mode", "yolo")))
 
-  test("ToolSet.NetworkOnly also maps to --approval-mode plan"):
+  test("ToolSet.NetworkOnly stays in plan mode and pre-approves web_fetch"):
     val args =
       GeminiArgs.headless(
         "x",
         LlmConfig.default.copy(tools = ToolSet.NetworkOnly)
       )
     assert(args.containsSlice(Seq("--approval-mode", "plan")), args.toString)
+    assert(
+      args.containsSlice(Seq("--allowed-tools", "web_fetch")),
+      args.toString
+    )
 
   test("resume builds gemini ... --resume <id> with the prompt"):
     val sid = SessionId[BackendTag.Gemini.type]("uuid-123")

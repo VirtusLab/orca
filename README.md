@@ -154,10 +154,10 @@ which tools exist at all:
 val reviewer = claude.withReadOnly
 
 // NetworkOnly — reads plus read-only network (web + GitHub), for planners that
-// must read an issue/PR. Hard no-edit on claude (a command-scoped
-// `--allowedTools` set, configurable via `claude.withNetworkTools(...)`); on
-// pi/codex network needs a writable shell, so there the no-edit guarantee is
-// prompt-only; gemini/opencode get no network on this tier. See ADR 0016.
+// must read an issue/PR. Hard no-edit on claude (command-scoped `--allowedTools`,
+// configurable via `claude.withNetworkTools(...)`), gemini (scoped `web_fetch`),
+// and opencode (web); on pi/codex network needs a writable shell, so there the
+// no-edit guarantee is prompt-only. See ADR 0016.
 val planner = claude.withNetworkOnly
 
 // Full (the default) — write-capable.

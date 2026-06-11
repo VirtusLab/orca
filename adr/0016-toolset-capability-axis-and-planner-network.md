@@ -42,16 +42,18 @@ select `NetworkOnly`; reviewers, `reviewed`/`briefed`, selection and lint keep
 | claude | `plan` + `--allowedTools <networkTools>` | **hard** (command-scoped allowlist; plan mode blocks general bash + edits) | web + scoped `gh` |
 | pi | `--tools …,bash` | **prompt-only** (bash permits writes) | shell (`gh`/`curl`) |
 | codex | `--full-auto` + `-c sandbox_workspace_write.network_access=true` | **prompt-only** (workspace-write permits writes) | shell + web |
-| gemini | `--approval-mode plan` | hard | **none** |
+| gemini | `--approval-mode plan --allowed-tools web_fetch` | hard | web |
 | opencode | write tools disabled (= `ReadOnly`) | hard | web only, server-dependent |
 
 pi and codex have no read-only-with-network mode, so granting network forces a
 writable surface; there the no-edit guarantee rests on the planner prompts
 (`planning.md` / `assess-then-plan.md` / `triage.md` all forbid edits), not the
-sandbox. **Verified** that gemini's `web_fetch` works under `yolo` but is blocked
-under `plan` headless, so gemini `NetworkOnly` grants no network; opencode keeps
-`bash` off, so no writable-shell network. Those flows pre-fetch context (e.g.
-`gh.readIssue`) instead.
+sandbox. **Verified** on the gemini CLI: plain `plan` mode blocks `web_fetch`,
+but `plan` + `--allowed-tools web_fetch` runs it (returns content), so gemini
+keeps its hard no-edit guarantee *and* gets web reads (no shell `gh`).
+`--allowed-tools` is deprecated (gemini 1.0 → Policy Engine); migrate then.
+opencode keeps `bash` off (no writable-shell network); its web tool isn't in the
+disabled set, so web may work (server-dependent, unverified).
 
 ### Claude allowlist placement
 
