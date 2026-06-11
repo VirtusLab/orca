@@ -59,10 +59,13 @@ private[opencode] object OpencodeArgs:
     * `question` tool on an autonomous turn. Returns `None` when nothing is
     * gated so the body omits `tools` and the server's defaults apply.
     *
-    * Both read-only tiers disable the same write tools. `NetworkOnly` is no
-    * different here: opencode's web tool is not in this disabled set, so web
-    * reads already work in read-only; enabling shell `gh` would mean keeping
-    * `bash` on (dropping the hard no-edit guarantee), which is out of scope.
+    * Both read-only tiers disable the same write tools, so `NetworkOnly`
+    * behaves like `ReadOnly` here — opencode gets no dedicated network
+    * handling. opencode's web tool isn't in the disabled set, so web reads may
+    * remain available (server-dependent; not verified here); shell `gh` stays
+    * off (`bash` disabled). Scoped network would require enabling `bash`
+    * (dropping the hard no-edit guarantee) — out of scope; opencode flows
+    * pre-fetch issue/PR context instead.
     */
   private def toolFlags(
       config: LlmConfig,

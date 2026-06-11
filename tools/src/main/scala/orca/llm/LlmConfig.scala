@@ -77,13 +77,15 @@ enum AutoApprove:
   *     planners and reviewers rely on (claude `--permission-mode plan`, codex
   *     `--sandbox read-only`, pi `--tools read,grep,find,ls`, gemini
   *     `--approval-mode plan`, opencode write/edit/bash/patch disabled).
-  *   - **NetworkOnly** — reads plus network (web + GitHub), for planners that
-  *     must read an issue/PR they were pointed at. Edits stay blocked where the
-  *     backend can scope tools (claude adds a command-scoped allowlist;
-  *     opencode / gemini already allow web in read-only). On pi and codex there
-  *     is no network without a writable shell (`pi bash`, `codex
-  *     workspace-write`), so there the no-edit guarantee is **prompt-only** —
-  *     the planner prompts forbid edits.
+  *   - **NetworkOnly** — reads plus read-only network (web + GitHub), for
+  *     planners that must read an issue/PR they were pointed at. Backend
+  *     support varies: claude grants it with a command-scoped allowlist (hard
+  *     no-edit preserved); pi and codex grant it only via a writable shell (`pi
+  *     bash`, `codex workspace-write`), so there the no-edit guarantee is
+  *     **prompt-only** — the planner prompts forbid edits; opencode and gemini
+  *     have no dedicated network on this tier (it behaves like `ReadOnly`,
+  *     since their read-only modes gate the network tools in headless runs), so
+  *     those flows pre-fetch context instead.
   *   - **Full** — every tool, write-capable; prompting then follows
   *     [[LlmConfig.autoApprove]].
   */

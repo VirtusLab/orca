@@ -64,8 +64,12 @@ private[gemini] object GeminiArgs:
     *   - `ReadOnly` / `NetworkOnly` → `--approval-mode plan`
     *   - `Full` + `AutoApprove.All` / `Only(_)` → `--approval-mode yolo`
     *
-    * `NetworkOnly` is plan mode here too — gemini already allows web reads in
-    * plan mode, and shell `gh` would require dropping to `yolo` (out of scope).
+    * `NetworkOnly` maps to plan mode too, which means **no network** on gemini:
+    * verified that `web_fetch` works under `yolo` but is blocked under `plan`
+    * in headless runs, so `NetworkOnly` grants nothing beyond `ReadOnly` here.
+    * Real network would require `yolo`, which also drops the hard no-edit
+    * guarantee (out of scope) — gemini flows pre-fetch issue/PR context (e.g.
+    * via `gh.readIssue`) instead.
     */
   private def approvalArgs(config: LlmConfig): Seq[String] =
     config.tools match

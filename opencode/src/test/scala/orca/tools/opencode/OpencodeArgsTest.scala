@@ -89,6 +89,18 @@ class OpencodeArgsTest extends munit.FunSuite:
     assertEquals(tools.get("bash"), Some(false))
     assertEquals(tools.get("patch"), Some(false))
 
+  test("NetworkOnly keeps bash disabled (no writable-shell network)"):
+    // opencode has no scoped network: NetworkOnly gates the same write tools as
+    // ReadOnly, so the planner can't shell out to `gh`.
+    val cfg = LlmConfig.default.copy(tools = ToolSet.NetworkOnly)
+    val tools =
+      OpencodeArgs
+        .message(cfg, "hi", None, interactive)
+        .tools
+        .getOrElse(Map.empty)
+    assertEquals(tools.get("bash"), Some(false))
+    assertEquals(tools.get("edit"), Some(false))
+
   test("read-only autonomous turn gates both write tools and question"):
     val cfg = LlmConfig.default.copy(tools = ToolSet.ReadOnly)
     val tools =
