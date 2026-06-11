@@ -9,3 +9,7 @@ Triage this bug report and produce a structured verdict:
   one-line PR title.
 - If `isBug` is true but `canTest` is false, fill in `reproductionSteps`
   — they'll be posted back on the issue.
+
+Do NOT edit files or run mutating commands during this turn — your only output
+is the triage verdict. You may read the repo and read-only network sources to
+verify the report.

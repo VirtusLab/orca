@@ -9,5 +9,6 @@ why; the key types, functions, and APIs it will build on, with signatures; the
 conventions to follow (error handling, naming, testing, build); and anything
 non-obvious you learned that would otherwise cost a re-read.
 
-Do NOT restate the tasks or the plan — the agent already has those. Output only
-the briefing, as plain markdown.
+Do NOT restate the tasks or the plan — the agent already has those, and do NOT
+edit files or run mutating commands. Output only the briefing, as plain
+markdown.
