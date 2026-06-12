@@ -23,7 +23,8 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val ps = new PrintStream(buf)
     val output =
       new TerminalOutputState(ps, useColor = false, animated = animated)
-    val listener = new TerminalEventListener(output, useColor = listenerUseColor)
+    val listener =
+      new TerminalEventListener(output, useColor = listenerUseColor)
     events.foreach(listener.onEvent)
     buf.toString
 
