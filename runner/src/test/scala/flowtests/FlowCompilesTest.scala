@@ -16,9 +16,14 @@ package flowtests
 // regressed. Fix the API, not the test.
 
 import orca.{*, given}
+// Deliberately NOT in the `orca.*` export wildcard: a recoverable `createPr`
+// failure, referenced by name in `examples/implement-enhanced.sc`. Pinning it
+// here keeps the "import it explicitly" requirement honest.
+import orca.tools.PrAlreadyExists
 
 case class PlanTask(branchName: String, description: String) derives JsonData
 case class FlowPlan(tasks: List[PlanTask]) derives JsonData
+case class BranchSlug(name: String) derives JsonData
 
 object FlowCanary:
 
@@ -133,6 +138,34 @@ object FlowCanary:
         val _ = gh.readPrComments(pr)
         gh.writeComment(pr, "pr comment")
         gh.updatePr(pr, "new title", "new body")
+
+  /** Branch + PR surface — exercised by `examples/implement-enhanced.sc`. Pins
+    * the resumable-branch ops (`recover` guard, `ensureClean`,
+    * `checkoutOrCreate`, `currentBranch`, `checkout`), the `createPr` `Either`
+    * with its recoverable `PrAlreadyExists`, and the merge-base diff that feeds
+    * `summarisePr`. A signature drift surfaces here instead of at the next live
+    * run.
+    */
+  def branchAndPrSurface(): Unit =
+    flow(OrcaArgs()):
+      val planFile = Plan.defaultPath(userPrompt)
+      val startBranch = git.currentBranch()
+      if Plan.recover(planFile).isEmpty then
+        val _ = git.ensureClean("orca: pre-implement stash")
+        val branch =
+          claude.haiku.resultAs[BranchSlug].autonomous.run(userPrompt)._2.name
+        git.checkoutOrCreate(branch)
+      stage("pr"):
+        git.push().orThrow
+        val summary = summarisePr(
+          llm = claude.haiku,
+          diff = git.diffVsBase(git.defaultBase())
+        )
+        gh.createPr(title = summary.title, body = summary.body) match
+          case Left(_: PrAlreadyExists) => ()
+          case Left(e)                  => throw e
+          case Right(_)                 => ()
+        git.checkout(startBranch).orThrow
 
   /** Planning grid surface; exercised across `examples/`. Pins the full `mode ×
     * operation` grid: every cell returns `Sessioned[B, <result>]` where the
