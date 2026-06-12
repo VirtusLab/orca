@@ -263,6 +263,34 @@ class OsGitToolTest extends munit.FunSuite:
         git.removeWorktree(ghost).left.exists(_.isInstanceOf[WorktreeNotFound])
       )
 
+  test("push publishes the current branch to origin"):
+    withRepo: (git, dir) =>
+      os.write(dir / "f.txt", "x")
+      git.commit("seed").orThrow
+      // A bare local-path remote needs no credentials, so this exercises the
+      // push argv — including the injected gh credential fallback, inert for a
+      // non-github remote — without a network round-trip.
+      val remote = os.temp.dir() / "remote.git"
+      val _ = os.proc("git", "init", "--bare", remote.toString).call(cwd = dir)
+      val _ = os
+        .proc("git", "remote", "add", "origin", remote.toString)
+        .call(cwd = dir)
+      git.push().orThrow
+      val refs = os
+        .proc("git", "for-each-ref", "--format=%(refname)")
+        .call(cwd = remote)
+        .out
+        .text()
+      assert(refs.contains("refs/heads/main"), refs)
+
+  test("nonInteractiveEnv disables git and ssh interactive prompts"):
+    val env = OsGitTool.nonInteractiveEnv
+    assertEquals(env.get("GIT_TERMINAL_PROMPT"), Some("0"))
+    assert(
+      env.getOrElse("GIT_SSH_COMMAND", "").contains("-o BatchMode=yes"),
+      env.toString
+    )
+
   test("gitFailureMessage embeds status and fsck blocks"):
     // Direct test on the formatter so we don't need to manufacture a real
     // tree-corruption failure inside a sandbox repo.

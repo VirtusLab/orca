@@ -241,7 +241,7 @@ private[orca] class OsGitTool(
     * not enough to diagnose the actual repo state.
     */
   private def gitWithDiagnostics(args: String*): String =
-    val result = QuietProc.call("git" +: args, cwd = workDir)
+    val result = gitProc("git" +: args)
     if result.exitCode == 0 then result.out.text()
     else
       throw OrcaFlowException(
@@ -259,7 +259,7 @@ private[orca] class OsGitTool(
     */
   private def gitDiagnostics(): OsGitTool.GitDiagnostics =
     def tryRun(args: String*): String =
-      val r = QuietProc.call("git" +: args, cwd = workDir)
+      val r = gitProc("git" +: args)
       if r.exitCode == 0 then r.out.text()
       else
         s"<git ${args.mkString(" ")} failed (exit ${r.exitCode}): ${r.err.text().trim}>"
@@ -271,11 +271,24 @@ private[orca] class OsGitTool(
   def push(): Either[PushRejected, Unit] =
     // `-u origin HEAD` sets upstream on first push and is a no-op afterwards.
     // We need to inspect stderr on failure to distinguish the recoverable
-    // "non-fast-forward" case from auth/network errors, so call QuietProc
-    // directly rather than going through `git` (which throws on non-zero exit).
-    val result = QuietProc.call(
-      Seq("git", "push", "-u", "origin", "HEAD"),
-      cwd = workDir
+    // "non-fast-forward" case from auth/network errors, so use `gitProc`
+    // (which returns the result) rather than `git` (which throws on non-zero).
+    val result = gitProc(
+      Seq(
+        "git",
+        // Additive, last-resort credential helper: when no configured helper
+        // supplies github.com credentials, fall back to the `gh` login the PR
+        // flows already require. Appended after any config-file helpers (so a
+        // working credential setup still wins) and scoped to github.com HTTPS
+        // (inert for other hosts / SSH), so this only rescues the otherwise-
+        // unauthenticated case rather than overriding the user's setup.
+        "-c",
+        "credential.https://github.com.helper=!gh auth git-credential",
+        "push",
+        "-u",
+        "origin",
+        "HEAD"
+      )
     )
     if result.exitCode == 0 then
       events.onEvent(OrcaEvent.Step("Pushed to origin"))
@@ -319,9 +332,8 @@ private[orca] class OsGitTool(
     * subprocess error.
     */
   private def resolveOriginHead: Option[String] =
-    val result = QuietProc.call(
-      Seq("git", "symbolic-ref", "-q", "refs/remotes/origin/HEAD"),
-      cwd = workDir
+    val result = gitProc(
+      Seq("git", "symbolic-ref", "-q", "refs/remotes/origin/HEAD")
     )
     if result.exitCode == 0 then
       // Output looks like "refs/remotes/origin/main"; strip the prefix to
@@ -330,12 +342,7 @@ private[orca] class OsGitTool(
     else None
 
   private def refExists(ref: String): Boolean =
-    QuietProc
-      .call(
-        Seq("git", "rev-parse", "--verify", "--quiet", ref),
-        cwd = workDir
-      )
-      .exitCode == 0
+    gitProc(Seq("git", "rev-parse", "--verify", "--quiet", ref)).exitCode == 0
 
   def log(n: Int): List[CommitInfo] =
     // Fields are separated with the ASCII unit separator (0x1F) so commit
@@ -362,7 +369,7 @@ private[orca] class OsGitTool(
     val cmd =
       if branchExists(branch) then Seq("worktree", "add", path.toString, branch)
       else Seq("worktree", "add", "-b", branch, path.toString)
-    val result = QuietProc.call("git" +: cmd, cwd = workDir)
+    val result = gitProc("git" +: cmd)
     if result.exitCode == 0 then
       events.onEvent(
         OrcaEvent.Step(s"Added worktree at $path on branch '$branch'")
@@ -397,6 +404,13 @@ private[orca] class OsGitTool(
       catch case NonFatal(_) => path.toNIO.toAbsolutePath.normalize()
     normalised(left) == normalised(right)
 
+  /** Run a git subprocess. Every git invocation routes through here so they all
+    * carry [[OsGitTool.nonInteractiveEnv]] — no git (or ssh it spawns) can
+    * block the flow on an interactive credential or passphrase prompt.
+    */
+  private def gitProc(args: Seq[String]): os.CommandResult =
+    QuietProc.call(args, cwd = workDir, env = OsGitTool.nonInteractiveEnv)
+
   private def git(args: String*): String =
     // Route through QuietProc so git's stderr ("Switched to a new
     // branch", "Already on 'main'", etc.) is captured rather than
@@ -404,7 +418,7 @@ private[orca] class OsGitTool(
     // status row. The branch-state changes themselves still surface in
     // the event log via the OrcaEvent.Step calls in the public methods
     // above; we don't need git's verbose stderr for that.
-    val result = QuietProc.call("git" +: args, cwd = workDir)
+    val result = gitProc("git" +: args)
     if result.exitCode != 0 then
       throw OrcaFlowException(
         s"git ${args.mkString(" ")} failed (exit ${result.exitCode}): ${result.err.text()}"
@@ -412,6 +426,22 @@ private[orca] class OsGitTool(
     result.out.text()
 
 private[orca] object OsGitTool:
+
+  /** Environment that forces git — and any ssh it spawns — to run
+    * non-interactively. A flow subprocess has no usable TTY, so an HTTPS
+    * username/password prompt or an SSH key-passphrase prompt would block the
+    * flow forever rather than failing. `GIT_TERMINAL_PROMPT=0` disables the
+    * former; `-o BatchMode=yes` on the ssh command disables the latter. The ssh
+    * command is appended to (not replaced) so a user's custom `GIT_SSH_COMMAND`
+    * is preserved. These merge onto the inherited environment, so `PATH` etc.
+    * are unaffected.
+    */
+  private[tools] val nonInteractiveEnv: Map[String, String] =
+    val baseSsh = sys.env.getOrElse("GIT_SSH_COMMAND", "ssh")
+    Map(
+      "GIT_TERMINAL_PROMPT" -> "0",
+      "GIT_SSH_COMMAND" -> s"$baseSsh -o BatchMode=yes"
+    )
 
   private val WorktreePrefix = "worktree "
   private val BranchPrefix = "branch refs/heads/"
