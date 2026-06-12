@@ -4,6 +4,8 @@ import orca.OrcaFlowException
 import orca.subprocess.CliRunner
 import ox.{releaseAfterScope, Ox}
 
+import org.slf4j.LoggerFactory
+
 import java.util.UUID
 
 /** Lifecycle owner for a shared `opencode serve` process (ADR 0014): it spawns
@@ -24,6 +26,12 @@ private[opencode] class OpencodeServer(
     workDir: os.Path,
     httpFor: (String, String) => OpencodeHttp = JavaNetOpencodeHttp.start
 )(using Ox):
+
+  // Server lifecycle goes to the per-run trace (/tmp/orca-*.log). The raw
+  // `spawn:` line (orca.proc) shows `--port 0`, so log the resolved URL — and a
+  // teardown line, since a long-lived shared server starting/stopping silently
+  // is otherwise invisible.
+  private val log = LoggerFactory.getLogger(classOf[OpencodeServer])
 
   /** The HTTP/SSE client against this server. Forcing it spawns `opencode serve`
     * exactly once: a `lazy val` gives one spawn under concurrent first use and
@@ -53,6 +61,7 @@ private[opencode] class OpencodeServer(
       .getOrElse(
         throw OrcaFlowException("opencode serve did not report a listening URL")
       )
+    log.debug("opencode server started, listening on {}", baseUrl)
     // Keep draining stdout — resuming the *same* lazy iterator past the bind
     // line — so the server's log output can't back-fill the pipe and stall it.
     // A daemon thread, not an Ox fork: the drain blocks in a native `readLine`
@@ -65,6 +74,9 @@ private[opencode] class OpencodeServer(
     drain.start()
     val client = httpFor(baseUrl, password)
     releaseAfterScope(client.close()) // runs before the SIGINT (LIFO)
+    // Registered last → runs first at teardown, announcing the stop before the
+    // client close + SIGINT above.
+    releaseAfterScope(log.debug("opencode server at {} stopping", baseUrl))
     client
 
 private[opencode] object OpencodeServer:
