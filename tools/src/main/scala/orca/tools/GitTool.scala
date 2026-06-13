@@ -273,23 +273,14 @@ private[orca] class OsGitTool(
     // We need to inspect stderr on failure to distinguish the recoverable
     // "non-fast-forward" case from auth/network errors, so use `gitProc`
     // (which returns the result) rather than `git` (which throws on non-zero).
-    val result = gitProc(
-      Seq(
-        "git",
-        // Additive, last-resort credential helper: when no configured helper
-        // supplies github.com credentials, fall back to the `gh` login the PR
-        // flows already require. Appended after any config-file helpers (so a
-        // working credential setup still wins) and scoped to github.com HTTPS
-        // (inert for other hosts / SSH), so this only rescues the otherwise-
-        // unauthenticated case rather than overriding the user's setup.
-        "-c",
-        "credential.https://github.com.helper=!gh auth git-credential",
-        "push",
-        "-u",
-        "origin",
-        "HEAD"
-      )
-    )
+    // For a github remote `pushArgs` appends a last-resort credential helper so
+    // the push authenticates even when git has none configured (see its doc).
+    val originUrl = gitConfigGet("remote.origin.url")
+    val envToken = sys.env
+      .get("GH_TOKEN")
+      .orElse(sys.env.get("GITHUB_TOKEN"))
+      .filter(_.nonEmpty)
+    val result = gitProc(OsGitTool.pushArgs(originUrl, envToken))
     if result.exitCode == 0 then
       events.onEvent(OrcaEvent.Step("Pushed to origin"))
       Right(())
@@ -411,6 +402,12 @@ private[orca] class OsGitTool(
   private def gitProc(args: Seq[String]): os.CommandResult =
     QuietProc.call(args, cwd = workDir, env = OsGitTool.nonInteractiveEnv)
 
+  /** Read a single git config value (`git config --get`), `None` when unset. */
+  private def gitConfigGet(key: String): Option[String] =
+    val r = gitProc(Seq("git", "config", "--get", key))
+    if r.exitCode == 0 then Some(r.out.text().trim).filter(_.nonEmpty)
+    else None
+
   private def git(args: String*): String =
     // Route through QuietProc so git's stderr ("Switched to a new
     // branch", "Already on 'main'", etc.) is captured rather than
@@ -442,6 +439,55 @@ private[orca] object OsGitTool:
       "GIT_TERMINAL_PROMPT" -> "0",
       "GIT_SSH_COMMAND" -> s"$baseSsh -o BatchMode=yes"
     )
+
+  /** Host of a git remote URL, for both `scp`-like SSH (`git@host:path`) and
+    * URL forms (`scheme://[user@]host[:port]/path`). `None` for local paths or
+    * anything without a recognisable host.
+    */
+  private[tools] def remoteHost(url: String): Option[String] =
+    val scpLike = """^[^@/]+@([^:/]+):.*""".r
+    val urlLike = """^[a-zA-Z][a-zA-Z0-9+.\-]*://(?:[^@/]+@)?([^:/]+).*""".r
+    url.trim match
+      case scpLike(host) => Some(host)
+      case urlLike(host) => Some(host)
+      case _             => None
+
+  private[tools] def isGithubRemote(url: String): Boolean =
+    remoteHost(url).contains("github.com")
+
+  /** The `git push` argv. For a github.com origin it appends a credential
+    * helper scoped to github.com HTTPS, so the push authenticates even when git
+    * has no helper configured. It is *appended* (after any config-file helpers,
+    * so a credential setup the user already has still wins) and added *only*
+    * for github remotes (a github.com-scoped helper is meaningless elsewhere).
+    * When a token is in the environment it is used directly (see
+    * [[githubHelper]]), otherwise the `gh` CLI's own auth resolution is used.
+    */
+  private[tools] def pushArgs(
+      originUrl: Option[String],
+      envToken: Option[String]
+  ): Seq[String] =
+    val credential =
+      if originUrl.exists(isGithubRemote) then
+        Seq(
+          "-c",
+          s"credential.https://github.com.helper=${githubHelper(envToken.isDefined)}"
+        )
+      else Nil
+    (Seq("git") ++ credential) ++ Seq("push", "-u", "origin", "HEAD")
+
+  /** Shell credential helper for github.com. With a token in the environment it
+    * echoes that token (`x-access-token` is GitHub's conventional username for
+    * token auth); the token is read from `$GH_TOKEN`/`$GITHUB_TOKEN` at helper
+    * runtime, never interpolated here, so it stays out of argv and logs. With
+    * no token it defers to the `gh` CLI.
+    */
+  private def githubHelper(hasEnvToken: Boolean): String =
+    if hasEnvToken then
+      "!f() { test \"$1\" = get && " +
+        "printf 'username=x-access-token\\npassword=%s\\n' " +
+        "\"${GH_TOKEN:-$GITHUB_TOKEN}\"; }; f"
+    else "!gh auth git-credential"
 
   private val WorktreePrefix = "worktree "
   private val BranchPrefix = "branch refs/heads/"
