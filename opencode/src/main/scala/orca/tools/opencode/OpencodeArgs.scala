@@ -21,15 +21,19 @@ import orca.util.RawJson
   */
 private[opencode] object OpencodeArgs:
 
-  /** The `opencode` executable; resolved from `PATH`. */
-  val ServeBinary: String = "opencode"
-
-  /** `opencode serve` launch args. Port 0 = an OS-assigned free port (read back
-    * from the server's "listening on …" line). `--pure` is deliberately omitted
-    * so the spawned server inherits the user's configured providers.
+  /** `opencode serve` launch args. The `launcher` prefix (default: the bare
+    * `opencode` binary, resolved from `PATH`) is followed by `serve …`; an
+    * alternative like [[OpencodeLauncher.ollama]] wraps the binary to inject
+    * provider config. Port 0 = an OS-assigned free port (read back from the
+    * server's "listening on …" line). `--pure` is deliberately omitted so the
+    * spawned server inherits the user's configured providers.
     */
-  def serve(port: Int = 0): Seq[String] =
-    Seq(ServeBinary, "serve", "--port", port.toString, "--log-level", "WARN")
+  def serve(
+      launcher: OpencodeLauncher = OpencodeLauncher.default,
+      port: Int = 0
+  ): Seq[String] =
+    launcher.prefix ++
+      Seq("serve", "--port", port.toString, "--log-level", "WARN")
 
   /** Assemble the body for `POST …/prompt_async`. `model = None` omits the
     * field so the server falls back to its configured default. `outputSchema`

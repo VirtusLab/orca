@@ -365,6 +365,18 @@ Each CLI manages its own auth; Orca stores no secrets. Before running a flow,
 log in to the backend you use — `claude`, `codex`, `opencode`, or `pi` — and to
 `gh` (for the GitHub helpers), each per its own instructions.
 
+For OpenCode with a local **Ollama** model, two options:
+
+- **Launcher (zero config):** `flow(OrcaArgs(args), opencodeLauncher =
+  OpencodeLauncher.ollama("qwen3-coder"))`. Orca starts the server via `ollama
+  launch opencode`, which injects Ollama's provider config and pins that one
+  model — use bare `opencode`, no `withModel`. Needs the `ollama` CLI and the
+  model pulled.
+- **Manual config:** declare an `ollama` provider in
+  `~/.config/opencode/opencode.json` (baseURL `http://localhost:11434/v1`, your
+  models, `num_ctx` raised for tool use), then `opencode.withModel("ollama",
+  "qwen3-coder")`. Supports several models and per-turn switching.
+
 ## Getting set up
 
 Orca is published to Maven Central — `scala-cli` fetches the artifacts on first

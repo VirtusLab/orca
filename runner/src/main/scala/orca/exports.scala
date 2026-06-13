@@ -66,4 +66,5 @@ export orca.tools.{
   IssueHandle,
   PrHandle
 }
+export orca.tools.opencode.OpencodeLauncher
 export ox.either.orThrow

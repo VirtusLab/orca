@@ -24,6 +24,7 @@ import java.util.UUID
 private[opencode] class OpencodeServer(
     cli: CliRunner,
     workDir: os.Path,
+    launcher: OpencodeLauncher = OpencodeLauncher.default,
     httpFor: (String, String) => OpencodeHttp = JavaNetOpencodeHttp.start
 )(using Ox):
 
@@ -45,12 +46,14 @@ private[opencode] class OpencodeServer(
   private def start(): OpencodeHttp =
     val password = UUID.randomUUID.toString
     val process = cli.spawnPiped(
-      OpencodeArgs.serve(),
+      OpencodeArgs.serve(launcher),
       env = Map("OPENCODE_SERVER_PASSWORD" -> password),
       cwd = workDir
     )
     process.closeStdin()
-    releaseAfterScope(process.sendSigInt())
+    // Tree, not single-PID: a launch wrapper (e.g. `ollama launch opencode`)
+    // may fork the real serve process, which a PID-only SIGINT would orphan.
+    releaseAfterScope(process.sendSigIntTree())
     // serve prints "listening on …" within ~1s of binding; a serve that exits
     // without it surfaces as EOF → the throw below. (A serve that stays alive
     // yet never prints would block here — not observed in practice.)

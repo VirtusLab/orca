@@ -18,7 +18,11 @@ import orca.events.{EventDispatcher, OrcaEvent}
 import orca.backend.Interaction
 import orca.tools.claude.{ClaudeBackend, DefaultClaudeTool}
 import orca.tools.codex.{CodexBackend, DefaultCodexTool}
-import orca.tools.opencode.{DefaultOpencodeTool, OpencodeBackend}
+import orca.tools.opencode.{
+  DefaultOpencodeTool,
+  OpencodeBackend,
+  OpencodeLauncher
+}
 import orca.tools.pi.{DefaultPiTool, PiBackend}
 import orca.tools.gemini.{GeminiBackend, DefaultGeminiTool}
 import orca.llm.DefaultPrompts
@@ -59,6 +63,7 @@ private[orca] object DefaultFlowContext:
       claude: Option[ClaudeTool] = None,
       codex: Option[CodexTool] = None,
       opencode: Option[OpencodeTool] = None,
+      opencodeLauncher: OpencodeLauncher = OpencodeLauncher.default,
       pi: Option[PiTool] = None,
       gemini: Option[GeminiTool] = None,
       git: Option[GitTool] = None,
@@ -95,7 +100,7 @@ private[orca] object DefaultFlowContext:
       ),
       opencode = opencode.getOrElse(
         new DefaultOpencodeTool(
-          backend = OpencodeBackend(OsProcCliRunner),
+          backend = OpencodeBackend(OsProcCliRunner, opencodeLauncher),
           config = LlmConfig.default,
           prompts = prompts,
           workDir = workDir,

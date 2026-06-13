@@ -17,7 +17,14 @@ class OpencodeArgsTest extends munit.FunSuite:
     assert(!args.contains("--pure"))
 
   test("serve renders an explicit port"):
-    assert(OpencodeArgs.serve(4096).containsSlice(Seq("--port", "4096")))
+    assert(OpencodeArgs.serve(port = 4096).containsSlice(Seq("--port", "4096")))
+
+  test("serve prefixes a custom launcher before the serve args"):
+    assertEquals(
+      OpencodeArgs.serve(OpencodeLauncher.ollama("qwen3-coder")),
+      Seq("ollama", "launch", "opencode", "--model", "qwen3-coder", "--",
+        "serve", "--port", "0", "--log-level", "WARN")
+    )
 
   test("message splits the model into provider/id"):
     val body = OpencodeArgs.message(

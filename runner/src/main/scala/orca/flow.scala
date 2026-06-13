@@ -9,6 +9,7 @@ import orca.events.{
   Pricing
 }
 import orca.llm.{ClaudeTool, DefaultPrompts, OpencodeTool, PiTool, Prompts}
+import orca.tools.opencode.OpencodeLauncher
 import orca.runner.{DefaultFlowContext, LoggingListener, OrcaBanner, OrcaLog}
 import orca.runner.terminal.TerminalInteraction
 import org.slf4j.LoggerFactory
@@ -52,6 +53,7 @@ def flow(
     extraListeners: List[OrcaListener] = Nil,
     claude: Option[ClaudeTool] = None,
     opencode: Option[OpencodeTool] = None,
+    opencodeLauncher: OpencodeLauncher = OpencodeLauncher.default,
     pi: Option[PiTool] = None,
     git: Option[GitTool] = None,
     gh: Option[GitHubTool] = None,
@@ -103,6 +105,7 @@ def flow(
             interaction = effectiveInteraction,
             claude = claude,
             opencode = opencode,
+            opencodeLauncher = opencodeLauncher,
             pi = pi,
             git = git,
             gh = gh,
