@@ -7,6 +7,7 @@ import ox.{releaseAfterScope, Ox}
 import org.slf4j.LoggerFactory
 
 import java.util.UUID
+import java.util.concurrent.ConcurrentLinkedDeque
 
 /** Lifecycle owner for a shared `opencode serve` process (ADR 0014): it spawns
   * the server, reads its base URL, and tears the process down at scope end. The
@@ -45,25 +46,53 @@ private[opencode] class OpencodeServer(
 
   private def start(): OpencodeHttp =
     val password = UUID.randomUUID.toString
+    // Pipe stderr (don't inherit it): a failed launch — e.g. `ollama launch`
+    // reporting a missing model — writes the reason here, so we can put it in
+    // the start-failure error below instead of losing it to the console.
     val process = cli.spawnPiped(
       OpencodeArgs.serve(launcher),
       env = Map("OPENCODE_SERVER_PASSWORD" -> password),
-      cwd = workDir
+      cwd = workDir,
+      pipeStderr = true
     )
     process.closeStdin()
     // Tree, not single-PID: a launch wrapper (e.g. `ollama launch opencode`)
     // may fork the real serve process, which a PID-only SIGINT would orphan.
     releaseAfterScope(process.sendSigIntTree())
+    // Drain stderr in a daemon (a chatty launcher mustn't fill the pipe and
+    // stall startup), tracing each line and keeping a bounded tail to report if
+    // the server never binds.
+    val errTail = new ConcurrentLinkedDeque[String]()
+    val errDrain = new Thread(
+      () => {
+        process.stderrLines.foreach { line =>
+          log.debug("opencode serve stderr: {}", line)
+          errTail.addLast(line)
+          while errTail.size > OpencodeServer.MaxErrTailLines do
+            val _ = errTail.poll()
+        }
+      },
+      "opencode-stderr-drain"
+    )
+    errDrain.setDaemon(true)
+    errDrain.start()
     // serve prints "listening on …" within ~1s of binding; a serve that exits
-    // without it surfaces as EOF → the throw below. (A serve that stays alive
-    // yet never prints would block here — not observed in practice.)
+    // without it surfaces as EOF here.
     val out = process.stdoutLines
     val baseUrl = out
       .flatMap(OpencodeServer.parseBaseUrl)
       .nextOption()
-      .getOrElse(
-        throw OrcaFlowException("opencode serve did not report a listening URL")
-      )
+      .getOrElse:
+        // stdout closed with no listening line — the launcher/serve exited.
+        // Surface its stderr (e.g. ollama's "model not found; run 'ollama pull
+        // …'") rather than a bare "no URL" message.
+        errDrain.join(OpencodeServer.StderrFlushMillis)
+        val tail = String.join("\n", errTail)
+        throw OrcaFlowException(
+          "opencode serve did not start" +
+            (if tail.nonEmpty then s":\n$tail"
+             else " and produced no error output")
+        )
     log.debug("opencode server started, listening on {}", baseUrl)
     // Keep draining stdout — resuming the *same* lazy iterator past the bind
     // line — so the server's log output can't back-fill the pipe and stall it.
@@ -84,6 +113,12 @@ private[opencode] class OpencodeServer(
 
 private[opencode] object OpencodeServer:
   private val ListeningLine = """listening on (https?://\S+)""".r
+
+  /** Cap on stderr lines kept for a start-failure message. */
+  private val MaxErrTailLines = 50
+
+  /** Grace for the stderr drain to finish after stdout EOF, before reporting. */
+  private val StderrFlushMillis = 2000L
 
   /** The base URL from a serve startup line (`opencode server listening on
     * http://127.0.0.1:4096`), or `None`.

@@ -1,5 +1,6 @@
 package orca.tools.opencode
 
+import orca.OrcaFlowException
 import orca.backend.StreamSource
 import orca.subprocess.{
   CliResult,
@@ -97,4 +98,23 @@ class OpencodeServerTest extends munit.FunSuite:
         runner.lastArgs,
         Seq("ollama", "launch", "opencode", "--model", "qwen3-coder", "--",
           "serve", "--port", "0", "--log-level", "WARN")
+      )
+
+  test("a server that exits without binding surfaces its stderr"):
+    supervised:
+      val proc = new FakePipedCliProcess()
+      proc.enqueueStderr(
+        "Error: model \"gemma4\" not found; run 'ollama pull gemma4' first"
+      )
+      proc.closeStderr()
+      proc.closeStdout() // EOF with no "listening on" line
+      val server = new OpencodeServer(
+        new RecordingRunner(proc),
+        os.temp.dir(),
+        httpFor = (_, _) => fail("client must not be built on a failed start")
+      )
+      val ex = intercept[OrcaFlowException](server.http)
+      assert(
+        ex.getMessage.contains("model \"gemma4\" not found"),
+        ex.getMessage
       )
