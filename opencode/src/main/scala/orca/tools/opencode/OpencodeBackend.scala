@@ -40,8 +40,13 @@ import java.util.concurrent.atomic.AtomicReference
   * flow's own timeout) is the backstop for a server that wedges mid-turn.
   */
 private[orca] object OpencodeBackend:
-  def apply(cli: CliRunner)(using Ox): OpencodeBackend =
-    new OpencodeBackend(workDir => new OpencodeServer(cli, workDir).http)
+  def apply(
+      cli: CliRunner,
+      launcher: OpencodeLauncher = OpencodeLauncher.default
+  )(using Ox): OpencodeBackend =
+    new OpencodeBackend(workDir =>
+      new OpencodeServer(cli, workDir, launcher).http
+    )
 
 private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
     extends LlmBackend[BackendTag.Opencode.type]:

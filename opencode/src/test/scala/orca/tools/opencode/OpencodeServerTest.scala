@@ -1,5 +1,6 @@
 package orca.tools.opencode
 
+import orca.OrcaFlowException
 import orca.backend.StreamSource
 import orca.subprocess.{
   CliResult,
@@ -61,7 +62,7 @@ class OpencodeServerTest extends munit.FunSuite:
       val server = new OpencodeServer(
         runner,
         os.temp.dir(),
-        (url, pwd) =>
+        httpFor = (url, pwd) =>
           built = Some(url -> pwd)
           stub
       )
@@ -78,3 +79,42 @@ class OpencodeServerTest extends munit.FunSuite:
 
       val _ = server.http.postJson("/y", "{}") // reuse: no second spawn
       assertEquals(runner.spawns.get(), 1)
+
+  test("a custom launcher wraps the serve argv at spawn"):
+    supervised:
+      val runner = new RecordingRunner(listeningProcess)
+      val stub = new OpencodeHttp:
+        def postJson(path: String, body: String): String = "ok"
+        def events(): StreamSource =
+          throw new UnsupportedOperationException
+      val server = new OpencodeServer(
+        runner,
+        os.temp.dir(),
+        launcher = OpencodeLauncher.ollama("qwen3-coder"),
+        httpFor = (_, _) => stub
+      )
+      val _ = server.http.postJson("/x", "{}") // force the spawn
+      assertEquals(
+        runner.lastArgs,
+        Seq("ollama", "launch", "opencode", "--model", "qwen3-coder", "--",
+          "serve", "--port", "0", "--log-level", "WARN")
+      )
+
+  test("a server that exits without binding surfaces its stderr"):
+    supervised:
+      val proc = new FakePipedCliProcess()
+      proc.enqueueStderr(
+        "Error: model \"gemma4\" not found; run 'ollama pull gemma4' first"
+      )
+      proc.closeStderr()
+      proc.closeStdout() // EOF with no "listening on" line
+      val server = new OpencodeServer(
+        new RecordingRunner(proc),
+        os.temp.dir(),
+        httpFor = (_, _) => fail("client must not be built on a failed start")
+      )
+      val ex = intercept[OrcaFlowException](server.http)
+      assert(
+        ex.getMessage.contains("model \"gemma4\" not found"),
+        ex.getMessage
+      )

@@ -5,6 +5,12 @@ trait CliProcess:
   def isAlive: Boolean
   def waitForExit(): Int
 
+  /** SIGINT this process and any descendants. Default = just this process;
+    * override where a launch wrapper (e.g. `ollama launch opencode`) may fork
+    * the real process — a single-PID SIGINT would orphan it.
+    */
+  def sendSigIntTree(): Unit = sendSigInt()
+
 /** A spawned process whose stdin / stdout / stderr are connected to pipes the
   * caller controls. The backend writes the opening user turn (or any further
   * input) via `writeLine` and consumes responses as they arrive from
