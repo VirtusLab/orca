@@ -25,13 +25,17 @@ def stage[T](name: String)(body: => T)(using ctx: FlowContext): T =
       // Exceptions from `fail(...)` carry `alreadyEmitted = true` and
       // need no further emission. Anything else (tool adapters that
       // throw directly) lands here without a prior emit, and would be
-      // invisible if we didn't surface it.
+      // invisible if we didn't surface it. After emitting, mark the
+      // exception so an enclosing stage / the flow boundary doesn't
+      // re-report it as it unwinds.
       e match
         case mao: orca.llm.MalformedAgentOutputException =>
           ctx.emit(OrcaEvent.Error(formatMalformedOutput(name, mao)))
+          e.alreadyEmitted = true
         case _ if e.alreadyEmitted => ()
         case _ =>
           ctx.emit(OrcaEvent.Error(s"Stage '$name' failed: ${shortMessage(e)}"))
+          e.alreadyEmitted = true
       throw e
     case NonFatal(e) =>
       ctx.emit(OrcaEvent.Error(s"Stage '$name' failed: ${shortMessage(e)}"))
