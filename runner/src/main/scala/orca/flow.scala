@@ -4,6 +4,7 @@ import orca.backend.Interaction
 import orca.events.{
   CostTracker,
   EventDispatcher,
+  OrcaEvent,
   OrcaListener,
   PriceList,
   Pricing
@@ -71,8 +72,8 @@ def flow(
   flowLog.info("orca {} starting (workDir={})", OrcaBanner.version, workDir)
   flowLog.info("user prompt: {}", args.userPrompt)
   // A daemon thread or unsupervised fork that throws would otherwise
-  // disappear with no diagnostic. Route every uncaught throwable to
-  // stderr with its stack so a silent exit always leaves a trail.
+  // disappear with no diagnostic. Log the message to the console and the
+  // stack to the trace file so a silent exit always leaves a trail.
   installUncaughtExceptionHandler()
   // Always tally token usage; print the summary on exit (success or failure)
   // so the user sees what was spent before the process terminates. Callers
@@ -92,10 +93,18 @@ def flow(
           TerminalInteraction.start(workDir = Some(workDir))
         )
         try
+          // Tracks whether an Error was already surfaced (by a nested stage or
+          // `fail`), so the top-level handler below doesn't emit a second one.
+          val sawError = new java.util.concurrent.atomic.AtomicBoolean(false)
+          val errorWatch = new OrcaListener:
+            def onEvent(event: OrcaEvent): Unit = event match
+              case _: OrcaEvent.Error => sawError.set(true)
+              case _                  => ()
           val dispatcher = new EventDispatcher(
             effectiveInteraction.listeners ++ List(
               costTracker,
-              new LoggingListener
+              new LoggingListener,
+              errorWatch
             ) ++ extraListeners
           )
           val ctx = DefaultFlowContext.withDefaults(
@@ -112,21 +121,27 @@ def flow(
             fs = fs,
             prompts = prompts
           )
-          body(using ctx)
+          // The whole flow body runs as a top-level stage: an otherwise
+          // unhandled exception surfaces as a single Error event (the same
+          // message a stage failure shows) unless a nested stage / `fail`
+          // already emitted one. The stack trace goes to the trace file only
+          // (DEBUG, below the console's WARN threshold); `--verbose` also
+          // prints it to stderr.
+          try body(using ctx)
+          catch
+            case NonFatal(e) =>
+              if !sawError.get() then
+                ctx.emit(OrcaEvent.Error(flowErrorMessage(e)))
+              flowLog.debug("flow aborted", e)
+              if debug then e.printStackTrace(System.err)
+              throw e
         finally effectiveInteraction.close()
     catch
-      // Stage-level Errors have already been formatted and emitted
-      // through the channel; the user saw a friendly message there. We
-      // still log the unfriendly bits to stderr so a silent `exit 1` is
-      // never a possibility — full stack for unexpected throwables, just
-      // the message for OrcaFlowException unless debug is on. The full trace
-      // stays in the file (path shown by the banner); we don't echo it here.
-      case NonFatal(e) =>
-        flowLog.error("flow aborted: {}", e.getMessage, e)
-        reportUncaught(e, debug)
-        // The `System.exit(1)` below halts the JVM and skips the outer
-        // `finally`, so the summary + trace-detach here run exactly once on
-        // this path.
+      // The failure was already surfaced inside the scope (the flow body runs
+      // as a top-level stage): the message went to the console, the stack to
+      // the trace file. Here we only fail the process — the summary +
+      // trace-detach run before `System.exit(1)` skips the outer `finally`.
+      case NonFatal(_) =>
         costTracker.printSummary()
         orcaLog.finish()
         System.exit(1)
@@ -137,26 +152,22 @@ def flow(
     orcaLog.finish()
 
 private def installUncaughtExceptionHandler(): Unit =
-  // Idempotent across nested or repeated `flow(...)` calls — we only
-  // install our handler if no app-specific one is already in place.
+  // Idempotent across nested or repeated `flow(...)` calls — we only install
+  // our handler if no app-specific one is already in place. The message goes
+  // to the console (ERROR); the stack to the trace file only (DEBUG, below the
+  // console's WARN threshold) so a silent exit still leaves a full trail.
   if Thread.getDefaultUncaughtExceptionHandler == null then
+    val log = LoggerFactory.getLogger("orca")
     Thread.setDefaultUncaughtExceptionHandler: (thread, throwable) =>
-      System.err.println(
-        s"[orca] uncaught exception on thread '${thread.getName}':"
+      log.error(
+        "uncaught exception on thread '{}': {}",
+        thread.getName,
+        throwable.getMessage
       )
-      throwable.printStackTrace(System.err)
+      log.debug("uncaught exception stack trace", throwable)
 
-private def reportUncaught(e: Throwable, debug: Boolean): Unit =
-  e match
-    case _: OrcaFlowException =>
-      // The stage's Error event already surfaced the message. Only
-      // dump the stack on explicit debug; flow-level failures don't
-      // need a JVM trace by default.
-      if debug then e.printStackTrace(System.err)
-    case _ =>
-      // Anything that isn't an OrcaFlowException is unexpected — print
-      // the stack unconditionally so silent exits are impossible.
-      System.err.println(
-        s"[orca] flow aborted by uncaught ${e.getClass.getName}:"
-      )
-      e.printStackTrace(System.err)
+/** The console message for a flow-aborting throwable: its message, or the class
+  * name when there is none. The full stack goes to the trace file separately.
+  */
+private def flowErrorMessage(e: Throwable): String =
+  Option(e.getMessage).filter(_.nonEmpty).getOrElse(e.getClass.getName)
