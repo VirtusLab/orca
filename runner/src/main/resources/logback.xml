@@ -8,6 +8,17 @@
 <configuration>
   <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
     <target>System.err</target>
+    <!-- Drop the event mirror (LoggingListener tags its lines TRACE_ONLY): the
+         terminal renderer owns the console, so otherwise an Error would show
+         twice — the renderer's ✖ and a logback line. These still reach the
+         per-run trace file (whose appender carries no such filter). -->
+    <filter class="ch.qos.logback.core.filter.EvaluatorFilter">
+      <evaluator class="ch.qos.logback.classic.boolex.OnMarkerEvaluator">
+        <marker>TRACE_ONLY</marker>
+      </evaluator>
+      <onMatch>DENY</onMatch>
+      <onMismatch>NEUTRAL</onMismatch>
+    </filter>
     <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
       <level>WARN</level>
     </filter>
