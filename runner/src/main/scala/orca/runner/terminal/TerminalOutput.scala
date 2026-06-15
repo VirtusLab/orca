@@ -145,11 +145,11 @@ private[terminal] class TerminalOutputState(
           if wasShown then
             out.print(ClearLine)
             out.flush()
-        case some @ Some(_) if !closed =>
+        case Some(_) if closed => () // don't re-pin a status row after close
+        case some @ Some(_) =>
           currentLabel = some
           drawStatus()
           out.flush()
-        case Some(_) => () // closed: don't re-pin a status row
 
   /** Advance the spinner frame. Called by the animator fork; no-op when the bar
     * is hidden or suspended so idle periods don't touch the terminal.

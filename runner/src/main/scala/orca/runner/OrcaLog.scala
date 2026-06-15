@@ -28,21 +28,22 @@ import scala.util.control.NonFatal
 private[orca] final class OrcaLog private (
     val file: Option[os.Path],
     appender: Option[FileAppender[ILoggingEvent]],
-    target: Option[ch.qos.logback.classic.Logger],
-    previousAdditive: Boolean
+    target: Option[ch.qos.logback.classic.Logger]
 ):
   private val finished = new AtomicBoolean(false)
 
-  /** Detach and stop the per-run file appender and restore the `orca` logger's
-    * additivity. The trace is left on disk for inspection. Idempotent — safe to
-    * call from both the error path (before `System.exit`) and the success path.
+  /** Detach and stop the per-run file appender and restore the `orca` logger to
+    * the additive default (it was set non-additive in [[start]]) — so a later
+    * run, or another test in a shared JVM, logs normally again. The trace is
+    * left on disk for inspection. Idempotent — safe to call from both the error
+    * path (before `System.exit`) and the success path.
     */
   def finish(): Unit =
     if finished.compareAndSet(false, true) then
       appender.foreach(_.stop())
       for a <- appender; t <- target do
         t.detachAppender(a)
-        t.setAdditive(previousAdditive)
+        t.setAdditive(true)
 
 private[orca] object OrcaLog:
   /** Attach a fresh per-run DEBUG file appender and return the handle. Must be
@@ -69,17 +70,12 @@ private[orca] object OrcaLog:
         appender.start()
 
         val orcaLogger = ctx.getLogger("orca")
-        val previousAdditive = orcaLogger.isAdditive
         orcaLogger.addAppender(appender)
         orcaLogger.setAdditive(false) // orca.* → file only, never the console
-        new OrcaLog(
-          Some(file),
-          Some(appender),
-          Some(orcaLogger),
-          previousAdditive
-        )
-      case (file, _) =>
-        new OrcaLog(file, None, None, previousAdditive = true)
+        new OrcaLog(Some(file), Some(appender), Some(orcaLogger))
+      case _ =>
+        // No temp file or logback isn't active: skip file logging entirely.
+        new OrcaLog(None, None, None)
 
   /** The bound logback `LoggerContext`. Touching a logger first forces slf4j to
     * finish binding its provider — calling `getILoggerFactory` cold can return
