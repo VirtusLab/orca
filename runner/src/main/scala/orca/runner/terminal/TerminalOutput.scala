@@ -122,6 +122,10 @@ private[terminal] class TerminalOutputState(
   // line. Cap is large enough that typical interactive prompts don't trim.
   private var suspended: Boolean = false
   private var suspendedBuffer: Queue[String] = Queue.empty
+  // Set once `close()` has cleared the status row. Late events (from a fork
+  // still unwinding after the scope started closing) may still append log
+  // lines, but must not re-pin a status row nothing will clear again.
+  private var closed: Boolean = false
 
   def log(text: String): Unit =
     if suspended then
@@ -141,10 +145,11 @@ private[terminal] class TerminalOutputState(
           if wasShown then
             out.print(ClearLine)
             out.flush()
-        case some @ Some(_) =>
+        case some @ Some(_) if !closed =>
           currentLabel = some
           drawStatus()
           out.flush()
+        case Some(_) => () // closed: don't re-pin a status row
 
   /** Advance the spinner frame. Called by the animator fork; no-op when the bar
     * is hidden or suspended so idle periods don't touch the terminal.
@@ -184,6 +189,7 @@ private[terminal] class TerminalOutputState(
       toDrain.foreach(writeLog)
     val wasShown = currentLabel.isDefined
     currentLabel = None
+    closed = true
     if wasShown && animated then
       out.print(ClearLine)
       out.flush()

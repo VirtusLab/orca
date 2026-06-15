@@ -32,7 +32,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val output = renderEvents(
       List(
         OrcaEvent.StageStarted("plan"),
-        OrcaEvent.StageCompleted("plan", "done")
+        OrcaEvent.StageCompleted("plan")
       )
     )
     assert(output.contains("plan"))
@@ -49,7 +49,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
       List(
         OrcaEvent.StageStarted("review"),
         OrcaEvent.Step("[Warning] Issue summary\n  at src/Foo.scala:10"),
-        OrcaEvent.StageCompleted("review", "")
+        OrcaEvent.StageCompleted("review")
       )
     )
     val lines = output.split('\n').toList
@@ -74,7 +74,7 @@ class TerminalEventListenerTest extends munit.FunSuite:
       List(
         OrcaEvent.StageStarted("outer"),
         OrcaEvent.Step("Switched to a new branch 'foo'"),
-        OrcaEvent.StageCompleted("outer", "done")
+        OrcaEvent.StageCompleted("outer")
       )
     )
     assert(output.contains("Switched to a new branch 'foo'"))
@@ -193,8 +193,8 @@ class TerminalEventListenerTest extends munit.FunSuite:
         OrcaEvent.StageStarted("outer"),
         OrcaEvent.StageStarted("inner"),
         OrcaEvent.Error("inside inner"),
-        OrcaEvent.StageCompleted("inner", "done"),
-        OrcaEvent.StageCompleted("outer", "done")
+        OrcaEvent.StageCompleted("inner"),
+        OrcaEvent.StageCompleted("outer")
       )
     )
     val lines = output.split('\n').toList

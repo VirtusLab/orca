@@ -50,7 +50,7 @@ private[runner] class TerminalEventListener(
         (l, stages.innermost)
       output.log(line)
       output.setStatus(status)
-    case OrcaEvent.StageCompleted(_, _) =>
+    case OrcaEvent.StageCompleted(_) =>
       // Stage completions don't print to the event log — starting the next
       // event implicitly tells the user the previous one finished.
       val status = lock.synchronized:

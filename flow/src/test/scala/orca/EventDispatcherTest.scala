@@ -20,7 +20,7 @@ class EventDispatcherTest extends munit.FunSuite:
     val events = List(
       OrcaEvent.StageStarted("plan"),
       OrcaEvent.Step("hello"),
-      OrcaEvent.StageCompleted("plan", "ok")
+      OrcaEvent.StageCompleted("plan")
     )
     events.foreach(dispatcher.onEvent)
 

@@ -1,24 +1,13 @@
-<!-- Console (STDERR) stays quiet: framework chatter (chimp/tapir/netty) is
-     pinned to ERROR, and a ThresholdFilter keeps everything below WARN off the
-     console so the agent's event log isn't drowned. orca's own loggers
-     (`orca.*`) emit DEBUG — the full execution trace is captured to a per-run
-     temp file by `OrcaLog` (a FileAppender attached programmatically at flow
-     start), surfaced to the console only on an exception or with the verbose
-     flag. Override by placing your own logback.xml earlier on the classpath. -->
+<!-- Console (STDERR) shows only framework chatter (chimp/tapir/netty, pinned to
+     ERROR) at WARN+; the terminal renderer owns the rest. orca's own loggers
+     (`orca.*`) emit DEBUG into a per-run temp file: at flow start `OrcaLog`
+     attaches a FileAppender to the `orca` logger and makes it non-additive, so
+     orca's full execution trace goes to the file and never reaches this console
+     appender (the renderer already surfaces it). Override by placing your own
+     logback.xml earlier on the classpath. -->
 <configuration>
   <appender name="STDERR" class="ch.qos.logback.core.ConsoleAppender">
     <target>System.err</target>
-    <!-- Drop the event mirror (LoggingListener tags its lines TRACE_ONLY): the
-         terminal renderer owns the console, so otherwise an Error would show
-         twice — the renderer's ✖ and a logback line. These still reach the
-         per-run trace file (whose appender carries no such filter). -->
-    <filter class="ch.qos.logback.core.filter.EvaluatorFilter">
-      <evaluator class="ch.qos.logback.classic.boolex.OnMarkerEvaluator">
-        <marker>TRACE_ONLY</marker>
-      </evaluator>
-      <onMatch>DENY</onMatch>
-      <onMismatch>NEUTRAL</onMismatch>
-    </filter>
     <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
       <level>WARN</level>
     </filter>

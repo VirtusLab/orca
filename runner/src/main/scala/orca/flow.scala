@@ -127,7 +127,7 @@ def flow(
                 case fe: OrcaFlowException => fe.alreadyEmitted
                 case _                     => false
               if !alreadyEmitted then
-                ctx.emit(OrcaEvent.Error(flowErrorMessage(e)))
+                ctx.emit(OrcaEvent.Error(throwableMessage(e)))
               flowLog.debug("flow aborted", e)
               if debug then e.printStackTrace(System.err)
               throw e
@@ -149,23 +149,14 @@ def flow(
 
 private def installUncaughtExceptionHandler(): Unit =
   // Idempotent across nested or repeated `flow(...)` calls — we only install
-  // our handler if no app-specific one is already in place. The message goes
-  // to the console (ERROR); the stack to the trace file only (DEBUG, below the
-  // console's WARN threshold) so a silent exit still leaves a full trail.
+  // our handler if no app-specific one is already in place. The `orca` logger
+  // is routed to the trace file only (see `OrcaLog`), so the message goes
+  // straight to the console via stderr; the stack follows it into the trace.
   if Thread.getDefaultUncaughtExceptionHandler == null then
     val log = LoggerFactory.getLogger("orca")
     Thread.setDefaultUncaughtExceptionHandler: (thread, throwable) =>
-      log.error(
-        "uncaught exception on thread '{}': {}",
-        thread.getName,
-        throwable.getMessage
+      System.err.println(
+        s"[orca] uncaught exception on thread '${thread.getName}': " +
+          throwable.getMessage
       )
       log.debug("uncaught exception stack trace", throwable)
-
-/** The console message for a flow-aborting throwable: its message — kept whole,
-  * unlike a stage's first-line `shortMessage`, so a multi-line message such as
-  * opencode's start-failure stderr stays useful — or the class name when there
-  * is none. The full stack goes to the trace file separately.
-  */
-private def flowErrorMessage(e: Throwable): String =
-  Option(e.getMessage).filter(_.nonEmpty).getOrElse(e.getClass.getName)

@@ -66,8 +66,8 @@ class ReviewFixFlowTest extends munit.FunSuite:
     )
     assert(
       events.exists {
-        case OrcaEvent.StageCompleted("Review & fix", _) => true;
-        case _                                           => false
+        case OrcaEvent.StageCompleted("Review & fix") => true;
+        case _                                        => false
       },
       s"missing StageCompleted(Review & fix); got: $events"
     )

@@ -17,7 +17,7 @@ def stage[T](name: String)(body: => T)(using ctx: FlowContext): T =
   ctx.emit(OrcaEvent.StageStarted(name))
   try
     val result = body
-    ctx.emit(OrcaEvent.StageCompleted(name, result.toString))
+    ctx.emit(OrcaEvent.StageCompleted(name))
     result
   catch
     case e: OrcaFlowException =>
@@ -34,19 +34,29 @@ def stage[T](name: String)(body: => T)(using ctx: FlowContext): T =
           e.alreadyEmitted = true
         case _ if e.alreadyEmitted => ()
         case _ =>
-          ctx.emit(OrcaEvent.Error(s"Stage '$name' failed: ${shortMessage(e)}"))
+          ctx.emit(
+            OrcaEvent.Error(s"Stage '$name' failed: ${throwableMessage(e, firstLineOnly = true)}")
+          )
           e.alreadyEmitted = true
       throw e
     case NonFatal(e) =>
-      ctx.emit(OrcaEvent.Error(s"Stage '$name' failed: ${shortMessage(e)}"))
+      ctx.emit(
+        OrcaEvent.Error(s"Stage '$name' failed: ${throwableMessage(e, firstLineOnly = true)}")
+      )
       throw e
 
-private def shortMessage(e: Throwable): String =
-  Option(e.getMessage)
-    .getOrElse(e.getClass.getName)
-    .linesIterator
-    .nextOption()
-    .getOrElse(e.getClass.getName)
+/** A throwable's human message: its `getMessage` (or the class name when blank),
+  * optionally collapsed to its first line. Shared by `stage` (first line, for a
+  * tidy one-line `✖`) and the flow boundary (whole message, so multi-line
+  * diagnostics like opencode's start-failure stderr survive).
+  */
+private[orca] def throwableMessage(
+    e: Throwable,
+    firstLineOnly: Boolean = false
+): String =
+  val msg = Option(e.getMessage).filter(_.nonEmpty)
+  val picked = if firstLineOnly then msg.flatMap(_.linesIterator.nextOption()) else msg
+  picked.getOrElse(e.getClass.getName)
 
 private def formatMalformedOutput(
     stage: String,

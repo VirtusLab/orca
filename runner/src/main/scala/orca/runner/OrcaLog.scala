@@ -7,48 +7,53 @@ import ch.qos.logback.core.FileAppender
 import org.slf4j.{Logger, LoggerFactory}
 
 import java.nio.charset.StandardCharsets.UTF_8
+import java.util.concurrent.atomic.AtomicBoolean
+import scala.util.control.NonFatal
 
 /** Per-run execution-trace log.
   *
   * [[start]] creates a fresh temp file and attaches a DEBUG-level logback
-  * `FileAppender` to the root logger, so everything orca logs during the run
-  * lands there: events (via [[LoggingListener]]) and subprocess invocations
-  * (logger `orca.proc`). The console stays quiet — `logback.xml` filters STDERR
-  * to WARN+ — so the run's detail lives in the file rather than the terminal;
-  * its path is shown once at startup by the banner.
+  * `FileAppender` to the `orca` logger, made **non-additive** — so the whole
+  * `orca.*` tree (events via [[LoggingListener]], subprocess invocations via
+  * `orca.proc`) lands in the file and never propagates to the root console
+  * appender. The terminal renderer owns the console; orca's logging is purely
+  * the trace. Framework chatter (netty/tapir/…) is on its own loggers and still
+  * reaches the console's WARN appender, unaffected.
   *
   * The file is intentionally NOT deleted on exit, so it can be inspected after
-  * the run. If logback isn't the active slf4j backend, file logging is skipped
-  * (the appender is absent) rather than failing the flow — the file is then
-  * created but stays empty.
+  * the run. If logback isn't the active slf4j backend, or the temp file can't be
+  * created, file logging is skipped (best-effort) rather than failing the flow —
+  * [[file]] is then `None`.
   */
 private[orca] final class OrcaLog private (
-    val file: os.Path,
+    val file: Option[os.Path],
     appender: Option[FileAppender[ILoggingEvent]],
-    rootLogger: Option[ch.qos.logback.classic.Logger]
+    target: Option[ch.qos.logback.classic.Logger],
+    previousAdditive: Boolean
 ):
-  private var finished = false
+  private val finished = new AtomicBoolean(false)
 
-  /** Detach and stop the per-run file appender. The trace is left on disk for
-    * inspection — its path is shown by the startup banner, so nothing is
-    * echoed to the console. Idempotent — safe to call from both the error path
-    * (before `System.exit`) and the success/finally path.
+  /** Detach and stop the per-run file appender and restore the `orca` logger's
+    * additivity. The trace is left on disk for inspection. Idempotent — safe to
+    * call from both the error path (before `System.exit`) and the success path.
     */
   def finish(): Unit =
-    if !finished then
-      finished = true
+    if finished.compareAndSet(false, true) then
       appender.foreach(_.stop())
-      for a <- appender; r <- rootLogger do r.detachAppender(a)
+      for a <- appender; t <- target do
+        t.detachAppender(a)
+        t.setAdditive(previousAdditive)
 
 private[orca] object OrcaLog:
   /** Attach a fresh per-run DEBUG file appender and return the handle. Must be
     * called before the flow does any logging so the whole run is captured.
     */
   def start(): OrcaLog =
-    val file =
-      os.temp(prefix = "orca-", suffix = ".log", deleteOnExit = false)
-    loggerContext() match
-      case Some(ctx) =>
+    val maybeFile =
+      try Some(os.temp(prefix = "orca-", suffix = ".log", deleteOnExit = false))
+      catch case NonFatal(_) => None
+    (maybeFile, loggerContext()) match
+      case (Some(file), Some(ctx)) =>
         val encoder = new PatternLayoutEncoder
         encoder.setContext(ctx)
         encoder.setPattern("%d{HH:mm:ss.SSS} %-5level %logger{24} - %msg%n")
@@ -63,11 +68,18 @@ private[orca] object OrcaLog:
         appender.setEncoder(encoder)
         appender.start()
 
-        val root = ctx.getLogger(Logger.ROOT_LOGGER_NAME)
-        root.addAppender(appender)
-        new OrcaLog(file, Some(appender), Some(root))
-      case None =>
-        new OrcaLog(file, None, None)
+        val orcaLogger = ctx.getLogger("orca")
+        val previousAdditive = orcaLogger.isAdditive
+        orcaLogger.addAppender(appender)
+        orcaLogger.setAdditive(false) // orca.* → file only, never the console
+        new OrcaLog(
+          Some(file),
+          Some(appender),
+          Some(orcaLogger),
+          previousAdditive
+        )
+      case (file, _) =>
+        new OrcaLog(file, None, None, previousAdditive = true)
 
   /** The bound logback `LoggerContext`. Touching a logger first forces slf4j to
     * finish binding its provider — calling `getILoggerFactory` cold can return

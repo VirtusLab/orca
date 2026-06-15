@@ -25,7 +25,7 @@ class FlowTest extends munit.FunSuite:
       listener.events,
       List(
         OrcaEvent.StageStarted("plan"),
-        OrcaEvent.StageCompleted("plan", "7")
+        OrcaEvent.StageCompleted("plan")
       )
     )
 

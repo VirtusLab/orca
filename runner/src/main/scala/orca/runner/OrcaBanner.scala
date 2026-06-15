@@ -15,7 +15,10 @@ private[orca] object OrcaBanner:
   def version: String =
     Option(getClass.getPackage.getImplementationVersion).getOrElse("dev")
 
-  /** Print the `Orca <version>, logs: <path>` line to `out`. */
-  def print(out: PrintStream, logFile: os.Path): Unit =
-    out.println(s"Orca $version, logs: $logFile")
+  /** Print the `Orca <version>, logs: <path>` line to `out`. `None` when the
+    * trace file couldn't be created (best-effort logging).
+    */
+  def print(out: PrintStream, logFile: Option[os.Path]): Unit =
+    val where = logFile.map(_.toString).getOrElse("(trace file unavailable)")
+    out.println(s"Orca $version, logs: $where")
     out.println()
