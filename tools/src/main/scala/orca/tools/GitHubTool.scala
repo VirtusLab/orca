@@ -319,16 +319,19 @@ private[orca] class OsGitHubTool(
       Comment(author = c.user.login, body = c.body)
 
   def updatePr(pr: PrHandle, title: String, body: String): Unit =
+    // Use the REST API directly rather than `gh pr edit`: the latter runs a
+    // GraphQL metadata query that selects `projectCards` before applying any
+    // edit, which fails outright on repos where GitHub has sunset Projects
+    // (classic). The REST PATCH endpoint doesn't touch projects.
     val _ = gh(
-      "pr",
-      "edit",
-      pr.number.toString,
-      "--repo",
-      s"${pr.owner}/${pr.repo}",
-      "--title",
-      title,
-      "--body",
-      body
+      "api",
+      "-X",
+      "PATCH",
+      s"repos/${pr.owner}/${pr.repo}/pulls/${pr.number}",
+      "-f",
+      s"title=$title",
+      "-f",
+      s"body=$body"
     )
     events.onEvent(OrcaEvent.Step(s"Updated PR: ${pr.url}"))
 
