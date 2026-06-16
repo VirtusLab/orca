@@ -136,14 +136,14 @@ class OsGitHubToolTest extends munit.FunSuite:
       )
     )
 
-  test("updatePr invokes gh pr edit with the new title and body"):
+  test("updatePr patches the PR via the REST API with the new title and body"):
     val (cli, gh) = stubGh(CliResult(0, "", ""))
     gh.updatePr(samplePr, "Fix overflow", "full description")
     val args = cli.lastCall.getOrElse(fail("expected a call")).args
-    assert(args.containsSlice(Seq("gh", "pr", "edit", "42")))
-    assert(args.containsSlice(Seq("--repo", "acme/widgets")))
-    assert(args.containsSlice(Seq("--title", "Fix overflow")))
-    assert(args.containsSlice(Seq("--body", "full description")))
+    assert(args.containsSlice(Seq("gh", "api", "-X", "PATCH")))
+    assert(args.contains("repos/acme/widgets/pulls/42"))
+    assert(args.containsSlice(Seq("-f", "title=Fix overflow")))
+    assert(args.containsSlice(Seq("-f", "body=full description")))
 
   test("writeComment invokes gh pr comment with the body"):
     val (cli, gh) = stubGh(CliResult(0, "", ""))
