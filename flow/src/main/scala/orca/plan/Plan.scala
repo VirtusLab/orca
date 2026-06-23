@@ -55,8 +55,13 @@ case class Plan(
   def markComplete(title: Title): Plan =
     copy(tasks = tasks.map(t => if t.title == title then t.markComplete else t))
 
-  /** Prompt for `task`: its description, with the shared brief prepended. */
-  def taskPrompt(task: Task): String = s"$brief\n\n---\n\n${task.description}"
+  /** Prompt for `task`: its description, with the shared brief prepended when
+    * present. An empty brief yields the description verbatim — no stray
+    * separator.
+    */
+  def taskPrompt(task: Task): String =
+    if brief.isEmpty then task.description
+    else s"$brief\n\n---\n\n${task.description}"
 
 object Plan:
 

@@ -175,12 +175,16 @@ class PlanTest extends munit.FunSuite:
     assertEquals(parsed.tasks.size, 1)
     assertEquals(parsed.brief, brief)
 
-  test("taskPrompt prepends the brief"):
+  test("taskPrompt prepends the brief when non-empty"):
     val task = samplePlan.tasks.head
     assertEquals(
       samplePlan.copy(brief = "CONTEXT").taskPrompt(task),
       "CONTEXT\n\n---\n\nimplement t"
     )
+
+  test("taskPrompt returns description verbatim when brief is empty"):
+    val task = samplePlan.tasks.head
+    assertEquals(samplePlan.taskPrompt(task), "implement t")
 
   test("markComplete flips one task's checkbox without touching others"):
     val plan = Plan.parse(sample)
