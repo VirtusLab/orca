@@ -1,5 +1,9 @@
 ## ADR 0013: Persistent plans as the default for multi-task flows
 
+Status: Superseded by [ADR 0018](0018-stage-bound-flow-runtime.md) · 2026-06-23 —
+the stage-bound runtime makes the progress log the universal resume mechanism,
+retiring `Plan.recover` / `.orca/plan-<hash>.md` / checkbox-ticking described below.
+
 ## Context
 
 The library originally split planning into two shapes:
