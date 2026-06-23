@@ -88,3 +88,35 @@ class ProgressStoreTest extends FunSuite:
     val name1 = os.list(workDir1 / ".orca").head.last
     val name2 = os.list(workDir2 / ".orca").head.last
     assertEquals(name1, name2)
+
+  test("upsertSession writes a session record and load shows it"):
+    val workDir = os.temp.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    store.writeHeader(header)
+    val record =
+      SessionRecord(index = 0, id = "session-uuid-1", seed = "plan brief")
+    store.upsertSession(record)
+    val loaded = store.load()
+    assertEquals(loaded.map(_.sessions), Some(List(record)))
+
+  test("upsertSession with same index replaces the record (last wins)"):
+    val workDir = os.temp.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    store.writeHeader(header)
+    val first = SessionRecord(index = 0, id = "first-uuid", seed = "old seed")
+    val second = SessionRecord(index = 0, id = "second-uuid", seed = "new seed")
+    store.upsertSession(first)
+    store.upsertSession(second)
+    val loaded = store.load()
+    assertEquals(loaded.map(_.sessions), Some(List(second)))
+
+  test("upsertSession with different indices results in two records"):
+    val workDir = os.temp.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    store.writeHeader(header)
+    val r0 = SessionRecord(index = 0, id = "uuid-0", seed = "seed zero")
+    val r1 = SessionRecord(index = 1, id = "uuid-1", seed = "seed one")
+    store.upsertSession(r0)
+    store.upsertSession(r1)
+    val loaded = store.load()
+    assertEquals(loaded.map(_.sessions), Some(List(r0, r1)))

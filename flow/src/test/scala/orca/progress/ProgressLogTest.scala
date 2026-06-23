@@ -33,3 +33,35 @@ class ProgressLogTest extends FunSuite:
       )
     )
     assertEquals(roundTrip(log), log)
+
+  test("ProgressLog with sessions round-trips through JsonData codec"):
+    val log = ProgressLog(
+      header = ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/sessions",
+        promptHash = "abc123def456"
+      ),
+      entries = List(
+        StageEntry(
+          id = "stage-1",
+          name = "Plan",
+          resultJson = """{"ok":true}"""
+        )
+      ),
+      sessions = List(
+        SessionRecord(index = 0, id = "sess-uuid-1", seed = "plan brief"),
+        SessionRecord(index = 1, id = "sess-uuid-2", seed = "other seed")
+      )
+    )
+    assertEquals(roundTrip(log), log)
+
+  test(
+    "ProgressLog JSON without a sessions field decodes to empty sessions list (back-compat)"
+  ):
+    // JSON produced by the old format (before sessions field existed)
+    val oldJson =
+      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc123"},"entries":[]}"""
+    val codec = summon[JsonData[ProgressLog]].codec
+    val decoded = readFromString[ProgressLog](oldJson)(using codec)
+    assertEquals(decoded.sessions, Nil)
+    assertEquals(decoded.header.branch, "feat/old")

@@ -32,3 +32,10 @@ trait FlowControl extends FlowContext:
     * that is stable against inserting/removing *other* stages between runs.
     */
   def nextOccurrence(stageName: String): Int
+
+  /** Next session occurrence index in this run: 0 for the first
+    * `llm.session(...)`, 1 for the second, and so on. Independent of the stage
+    * counter so sessions can be obtained outside stages without perturbing
+    * stage ids.
+    */
+  def nextSessionOccurrence(): Int

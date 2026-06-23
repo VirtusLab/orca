@@ -13,6 +13,7 @@ class CapabilitiesTest extends munit.FunSuite:
       def progressStore: orca.progress.ProgressStore =
         throw new NotImplementedError
       def nextOccurrence(stageName: String): Int = throw new NotImplementedError
+      def nextSessionOccurrence(): Int = throw new NotImplementedError
 
   test("FlowControl satisfies a using FlowContext requirement"):
     def needsCtx(using FlowContext): Boolean = true

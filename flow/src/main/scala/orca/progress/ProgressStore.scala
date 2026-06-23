@@ -31,6 +31,15 @@ trait ProgressStore:
     */
   def appendEntry(entry: StageEntry)(using InStage): Unit
 
+  /** Upsert a session record by [[SessionRecord.index]]: replaces an existing
+    * record at that index, or appends if none exists. Last write wins.
+    *
+    * Requires [[writeHeader]] to have been called first; otherwise it throws.
+    * Does NOT commit — the session is recorded in the log file only; the next
+    * stage commit will force-add the log and carry it.
+    */
+  def upsertSession(record: SessionRecord)(using InStage): Unit
+
 object ProgressStore:
 
   /** Default OS-backed store: JSON at `<workDir>/.orca/progress-<hash>.json`.
@@ -70,14 +79,32 @@ private class OsProgressStore(val path: os.Path) extends ProgressStore:
         s"appendEntry called before writeHeader: no log at $path"
       )
     )
-    writeLog(upsert(current, entry))
+    writeLog(upsertEntry(current, entry))
 
-  private def upsert(log: ProgressLog, entry: StageEntry): ProgressLog =
+  def upsertSession(record: SessionRecord)(using InStage): Unit =
+    val current = load().getOrElse(
+      throw IllegalStateException(
+        s"upsertSession called before writeHeader: no log at $path"
+      )
+    )
+    writeLog(upsertSessionRecord(current, record))
+
+  private def upsertEntry(log: ProgressLog, entry: StageEntry): ProgressLog =
     val idx = log.entries.indexWhere(_.id == entry.id)
     val updated =
       if idx >= 0 then log.entries.updated(idx, entry)
       else log.entries :+ entry
     log.copy(entries = updated)
+
+  private def upsertSessionRecord(
+      log: ProgressLog,
+      record: SessionRecord
+  ): ProgressLog =
+    val idx = log.sessions.indexWhere(_.index == record.index)
+    val updated =
+      if idx >= 0 then log.sessions.updated(idx, record)
+      else log.sessions :+ record
+    log.copy(sessions = updated)
 
   private def writeLog(log: ProgressLog): Unit =
     os.write.over(path, writeToString(log)(using codec), createFolders = true)

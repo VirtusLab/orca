@@ -73,6 +73,9 @@ class TestFlowControl(
       .computeIfAbsent(stageName, _ => new AtomicInteger(0))
       .getAndIncrement()
 
+  private val sessionOccurrences = new AtomicInteger(0)
+  def nextSessionOccurrence(): Int = sessionOccurrences.getAndIncrement()
+
 object TestFlowControl:
   /** Build a `TestFlowControl` over a fresh temp git repo (with one seed commit
     * so HEAD exists) and a default progress store seeded with a header. Returns

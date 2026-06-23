@@ -71,6 +71,13 @@ private[orca] class DefaultFlowContext(
       )
       .getAndIncrement()
 
+  // Independent of the stage counter so sessions can be obtained outside stages
+  // without perturbing stage occurrence indices.
+  private val sessionOccurrences =
+    new java.util.concurrent.atomic.AtomicInteger(0)
+
+  def nextSessionOccurrence(): Int = sessionOccurrences.getAndIncrement()
+
 private[orca] object DefaultFlowContext:
 
   /** Build a context with Orca's default tool implementations, filling in any
