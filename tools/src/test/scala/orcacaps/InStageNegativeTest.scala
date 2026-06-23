@@ -12,5 +12,10 @@ class InStageNegativeTest extends munit.FunSuite:
       errors.nonEmpty,
       "expected a compile error when accessing InStage.unsafe outside orca"
     )
+    assert(
+      errors.contains("access") || errors.contains("private") || errors
+        .contains("cannot be accessed"),
+      s"expected error to mention an access/visibility restriction, got: $errors"
+    )
 
 end InStageNegativeTest
