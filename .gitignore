@@ -44,3 +44,6 @@ openspec/
 # Sandcat
 .devcontainer
 .sandcat/settings.local.json
+# agent scratch (SDD ledger/reports, transient worktrees)
+.superpowers/
+.claude/worktrees/
