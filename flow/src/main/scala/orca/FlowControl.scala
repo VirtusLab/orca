@@ -18,9 +18,9 @@ import orca.progress.ProgressStore
   * guard-rail — the open trait is not part of the public extension surface.
   *
   * Carries the run-state the `stage` primitive needs: the progress store to
-  * read/append against, the resolved feature branch the run is bound to, and a
-  * per-run occurrence counter that disambiguates same-named stages (ADR 0018
-  * §2.1). `stage` requires `(using FlowControl)`; `flow` supplies it.
+  * read/append against and a per-run occurrence counter that disambiguates
+  * same-named stages (ADR 0018 §2.1). `stage` requires `(using FlowControl)`;
+  * `flow` supplies it.
   */
 trait FlowControl extends FlowContext:
   /** The store backing this run's progress log. */

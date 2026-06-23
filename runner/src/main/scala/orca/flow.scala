@@ -249,13 +249,18 @@ private def flowSetup(
   */
 private def flowTeardownSuccess(git: GitTool, setup: FlowSetup): Unit =
   try
-    // Best-effort: swallow a missing file (already gone) or commit failure.
+    // Best-effort: a missing file (already gone) or a failing cleanup commit is
+    // cosmetic on an already-successful run, so neither must escape teardown.
     try os.remove(setup.store.path)
     catch
       case _: java.nio.file.NoSuchFileException => ()
-      // `add -A` in commit picks up the removal; NothingToCommit means it was
-      // already gone (e.g. never committed) — harmless.
-    val _ = git.commit("orca: remove progress log")
+      // `add -A` in commit picks up the removal; NothingToCommit (a Left) means it
+      // was never committed — harmless. A genuine commit failure is swallowed too:
+      // the run already succeeded, and the progress file is untracked on the
+      // starting branch we are about to return to.
+    try
+      val _ = git.commit("orca: remove progress log")
+    catch case NonFatal(_) => ()
   finally
     // Always attempt to return to the starting branch, even if cleanup failed.
     git.checkoutOrCreate(setup.startBranch)
