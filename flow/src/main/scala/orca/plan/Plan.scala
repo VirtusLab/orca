@@ -8,10 +8,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonValueCodec,
   JsonWriter
 }
-import com.github.plokhotnyuk.jsoniter_scala.macros.{
-  ConfiguredJsonValueCodec,
-  JsonCodecMaker
-}
+import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import sttp.tapir.Schema
 
 /** The shared surface of a development plan, with or without a codebase brief.
@@ -43,10 +40,18 @@ sealed trait PlanLike:
   def taskPrompt(task: Task): String
 
 object PlanLike:
+
   /** Sum-type codec for `PlanLike`. Both subtypes (`Plan`, `PlanWithBrief`)
-    * `derives JsonData` without a discriminator. This hand-written codec wraps
-    * each in `{"type":"<TypeName>","value":{…}}` so encode and decode agree on
-    * the wire format and the concrete subtype is preserved across a round-trip.
+    * `derives JsonData` without a discriminator —
+    * `JsonCodecMaker.make[PlanLike]` produces an inconsistent codec where the
+    * encoder writes fields directly (no `"type"` field) but the decoder
+    * requires `"type"` as the first key. This hand-written codec uses
+    * `{"type":"<TypeName>","value":{…}}` so encode and decode always agree on
+    * the wire format.
+    *
+    * The decoder is key-order tolerant: it collects `type` and `value` from the
+    * object regardless of order, ignoring unknown keys for
+    * forward-compatibility.
     */
   given JsonData[PlanLike] =
     val planCodec: JsonValueCodec[Plan] =
@@ -69,20 +74,52 @@ object PlanLike:
         out.writeObjectEnd()
       def decodeValue(in: JsonReader, default: PlanLike): PlanLike =
         if !in.isNextToken('{') then in.decodeError("expected '{'")
-        val typeKey = in.readKeyAsString()
-        if typeKey != "type" then
-          in.decodeError(s"expected discriminator key 'type', got '$typeKey'")
-        val typeName = in.readString(null)
-        if !in.isNextToken(',') then in.decodeError("expected ',' after type")
-        val valueKey = in.readKeyAsString()
-        if valueKey != "value" then
-          in.decodeError(s"expected key 'value', got '$valueKey'")
-        val result = typeName match
-          case "Plan"          => planCodec.decodeValue(in, planCodec.nullValue)
-          case "PlanWithBrief" => pwbCodec.decodeValue(in, pwbCodec.nullValue)
-          case other => in.decodeError(s"unknown PlanLike type: $other")
-        if !in.isNextToken('}') then in.decodeError("expected '}'")
-        result
+        var typeName: String | Null = null
+        // We cannot eagerly decode the value object if we haven't seen the
+        // discriminator yet — capture raw bytes to replay when type is known.
+        var valueBytes: Array[Byte] | Null = null
+        var decoded: PlanLike | Null = null
+        if !in.isNextToken('}') then
+          in.rollbackToken()
+          var continue = true
+          while continue do
+            in.readKeyAsString() match
+              case "type" =>
+                typeName = in.readString(null)
+                // If we already buffered the value bytes, decode them now.
+                if valueBytes != null then
+                  decoded = typeName match
+                    case "Plan" =>
+                      com.github.plokhotnyuk.jsoniter_scala.core
+                        .readFromArray(valueBytes)(planCodec)
+                    case "PlanWithBrief" =>
+                      com.github.plokhotnyuk.jsoniter_scala.core
+                        .readFromArray(valueBytes)(pwbCodec)
+                    case other =>
+                      in.decodeError(s"unknown PlanLike type: $other")
+              case "value" =>
+                typeName match
+                  case null =>
+                    // `type` not yet seen — capture raw bytes to decode later
+                    valueBytes = in.readRawValAsBytes()
+                  case known =>
+                    // `type` already seen — decode immediately
+                    decoded = known match
+                      case "Plan" =>
+                        planCodec.decodeValue(in, planCodec.nullValue)
+                      case "PlanWithBrief" =>
+                        pwbCodec.decodeValue(in, pwbCodec.nullValue)
+                      case other =>
+                        in.decodeError(s"unknown PlanLike type: $other")
+              case _ => in.skip() // forward-compat: ignore unknown keys
+            continue = in.isNextToken(',')
+          if !in.isCurrentToken('}') then
+            in.rollbackToken()
+            if !in.isNextToken('}') then in.decodeError("expected '}'")
+        if typeName == null then
+          in.decodeError("missing discriminator key 'type'")
+        if decoded == null then in.decodeError("missing key 'value'")
+        decoded
       def nullValue: PlanLike = planCodec.nullValue
     JsonData[PlanLike](Schema.derived[PlanLike], configuredCodec)
 

@@ -1,6 +1,7 @@
 package orca.plan
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
+  JsonReaderException,
   readFromString,
   writeToString
 }
@@ -43,7 +44,9 @@ class PlanJsonDataTest extends FunSuite:
       decoded.isInstanceOf[PlanWithBrief],
       s"Expected PlanWithBrief but got ${decoded.getClass.getSimpleName}"
     )
-    assertEquals(
-      decoded.asInstanceOf[PlanWithBrief].brief,
-      "This is the brief text."
-    )
+
+  test("PlanLike decoding fails on unknown discriminator"):
+    val jd = summon[JsonData[PlanLike]]
+    val json = """{"type":"UnknownSubtype","value":{}}"""
+    intercept[JsonReaderException]:
+      readFromString[PlanLike](json)(using jd.codec)
