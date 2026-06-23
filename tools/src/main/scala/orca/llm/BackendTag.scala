@@ -40,3 +40,14 @@ object SessionId:
   object Untyped:
     def from[B <: BackendTag](sid: SessionId[B]): Untyped = sid
     extension (u: Untyped) def as[B <: BackendTag]: SessionId[B] = u
+
+  /** `SessionId[B]` is an opaque alias over `String`; within this file the
+    * alias is transparent, so we can delegate to the `JsonData[String]`
+    * instance directly. Referencing it by its synthesized name avoids the
+    * infinite-loop the compiler detects when `summon[JsonData[String]]` sees
+    * this given as a candidate (since `SessionId[B] = String` inside the
+    * opaque-alias file). A session id is a plain JSON string on the wire — no
+    * wrapping, lossless round-trip.
+    */
+  given [B <: BackendTag]: JsonData[SessionId[B]] =
+    JsonData.given_JsonData_String

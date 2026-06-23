@@ -3,6 +3,16 @@ package orca.plan
 import orca.{FlowContext, OrcaFlowException}
 import orca.llm.{Announce, BackendTag, CanAskUser, JsonData, LlmTool, given}
 import orca.events.OrcaEvent
+import com.github.plokhotnyuk.jsoniter_scala.core.{
+  JsonReader,
+  JsonValueCodec,
+  JsonWriter
+}
+import com.github.plokhotnyuk.jsoniter_scala.macros.{
+  ConfiguredJsonValueCodec,
+  JsonCodecMaker
+}
+import sttp.tapir.Schema
 
 /** The shared surface of a development plan, with or without a codebase brief.
   *
@@ -31,6 +41,50 @@ sealed trait PlanLike:
     * prepended.
     */
   def taskPrompt(task: Task): String
+
+object PlanLike:
+  /** Sum-type codec for `PlanLike`. Both subtypes (`Plan`, `PlanWithBrief`)
+    * `derives JsonData` without a discriminator. This hand-written codec wraps
+    * each in `{"type":"<TypeName>","value":{…}}` so encode and decode agree on
+    * the wire format and the concrete subtype is preserved across a round-trip.
+    */
+  given JsonData[PlanLike] =
+    val planCodec: JsonValueCodec[Plan] =
+      summon[JsonData[Plan]].codec
+    val pwbCodec: JsonValueCodec[PlanWithBrief] =
+      summon[JsonData[PlanWithBrief]].codec
+    val configuredCodec = new ConfiguredJsonValueCodec[PlanLike]:
+      def encodeValue(x: PlanLike, out: JsonWriter): Unit =
+        out.writeObjectStart()
+        out.writeKey("type")
+        x match
+          case p: Plan =>
+            out.writeVal("Plan")
+            out.writeKey("value")
+            planCodec.encodeValue(p, out)
+          case p: PlanWithBrief =>
+            out.writeVal("PlanWithBrief")
+            out.writeKey("value")
+            pwbCodec.encodeValue(p, out)
+        out.writeObjectEnd()
+      def decodeValue(in: JsonReader, default: PlanLike): PlanLike =
+        if !in.isNextToken('{') then in.decodeError("expected '{'")
+        val typeKey = in.readKeyAsString()
+        if typeKey != "type" then
+          in.decodeError(s"expected discriminator key 'type', got '$typeKey'")
+        val typeName = in.readString(null)
+        if !in.isNextToken(',') then in.decodeError("expected ',' after type")
+        val valueKey = in.readKeyAsString()
+        if valueKey != "value" then
+          in.decodeError(s"expected key 'value', got '$valueKey'")
+        val result = typeName match
+          case "Plan"          => planCodec.decodeValue(in, planCodec.nullValue)
+          case "PlanWithBrief" => pwbCodec.decodeValue(in, pwbCodec.nullValue)
+          case other => in.decodeError(s"unknown PlanLike type: $other")
+        if !in.isNextToken('}') then in.decodeError("expected '}'")
+        result
+      def nullValue: PlanLike = planCodec.nullValue
+    JsonData[PlanLike](Schema.derived[PlanLike], configuredCodec)
 
 /** A development plan: an ordered list of [[Task]]s the agent will work
   * through, all on a single branch named by `epicId` (kebab-case, used directly
