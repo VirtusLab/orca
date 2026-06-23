@@ -18,7 +18,8 @@ class PlanGridTest extends munit.FunSuite:
   private val samplePlan = Plan(
     epicId = "x",
     description = "d",
-    tasks = List(Task(Title("t1"), "body"))
+    tasks = List(Task(Title("t1"), "body")),
+    brief = "the brief"
   )
 
   test("autonomous.from pairs the plan with the producing session"):
@@ -47,29 +48,12 @@ class PlanGridTest extends munit.FunSuite:
       )
     )
 
-  // --- post-planning steps (reviewed / briefed) on the planning session ---
+  // --- post-planning step (reviewed) on the planning session ---
 
   private def sessioned[A](value: A): Sessioned[BackendTag.ClaudeCode.type, A] =
     Sessioned(SessionId[BackendTag.ClaudeCode.type]("planner-sid"), value)
 
-  test("reviewed on a bare plan returns the improved plan"):
-    val improved = samplePlan.copy(description = "tighter")
+  test("reviewed returns the improved plan, brief included"):
+    val improved = samplePlan.copy(description = "tighter", brief = "sharper")
     val result = sessioned(samplePlan).reviewed(new CannedResultLlm(improved))
     assertEquals(result.value, improved)
-
-  test("briefed attaches the brief and threads the planning session"):
-    val result = sessioned(samplePlan).briefed(new CannedTextLlm("the brief"))
-    assertEquals(result.value, PlanWithBrief(samplePlan, "the brief"))
-    assertEquals(result.sessionId.value, "planner-sid")
-
-  test("reviewed on a PlanWithBrief reviews plan and brief together"):
-    val improved =
-      PlanWithBrief(samplePlan.copy(description = "tighter"), "sharper brief")
-    val result =
-      sessioned(PlanWithBrief(samplePlan, "brief"))
-        .reviewed(new CannedResultLlm(improved))
-    assertEquals(result.value, improved)
-
-  test("briefed fails when the brief turn produces a blank brief"):
-    val _ = intercept[orca.OrcaFlowException]:
-      sessioned(samplePlan).briefed(new CannedTextLlm("   "))

@@ -8,7 +8,8 @@ class AssessThenPlanTest extends munit.FunSuite:
   private val samplePlan = Plan(
     epicId = "x",
     description = "d",
-    tasks = List(Task(Title("t1"), "body"))
+    tasks = List(Task(Title("t1"), "body")),
+    brief = "the brief"
   )
 
   test("toVerdict maps verdict=proceed + plan to Verdict.Proceed"):

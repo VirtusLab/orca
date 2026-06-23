@@ -51,39 +51,3 @@ private[plan] class CannedResultLlm[T](value: T)
               value.asInstanceOf[O]
             )
       def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
-
-/** Test double: `autonomous.run` returns a fixed string with the session it was
-  * handed. `resultAs` throws.
-  */
-private[plan] class CannedTextLlm(text: String)
-    extends LlmTool[BackendTag.ClaudeCode.type]:
-  val name: String = "stub-text"
-  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-    new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-      def run(
-          prompt: String,
-          session: SessionId[BackendTag.ClaudeCode.type],
-          config: LlmConfig,
-          emitPrompt: Boolean
-      ): (SessionId[BackendTag.ClaudeCode.type], String) = (session, text)
-  def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
-  def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
-    ???
-
-/** Test double that throws on every method — used to assert that a code path
-  * doesn't call the LLM.
-  */
-private[plan] class ExplodingLlm(reason: String)
-    extends LlmTool[BackendTag.ClaudeCode.type]:
-  val name: String = "exploding"
-  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-    throw new AssertionError(reason)
-  def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
-  def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
-    throw new AssertionError(reason)

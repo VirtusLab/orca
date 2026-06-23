@@ -1,8 +1,7 @@
 package orca.plan
 
 import orca.plan.Title
-import orca.llm.{JsonData}
-import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
+import orca.llm.JsonData
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
@@ -29,11 +28,15 @@ class PlanTest extends munit.FunSuite:
       |
       |Add unit tests covering the happy path and the zero-divisor
       |case.
+      |
+      |## Brief
+      |
+      |Build on the existing Calculator helper in core/Calculator.scala.
       |""".stripMargin
 
-  // --- JSON / Announce — covers the in-memory `Plan.from` path ---
+  // --- JSON — the structured-output / stage-result path ---
 
-  test("Plan round-trips through JSON via the JsonData codec"):
+  test("Plan round-trips through JSON via the JsonData codec (brief included)"):
     val plan = Plan(
       epicId = "calculator-features",
       description = "Round out Calculator with the missing arithmetic ops.",
@@ -47,7 +50,8 @@ class PlanTest extends munit.FunSuite:
           description =
             "Add a divide(int, int) method with a zero-divisor guard."
         )
-      )
+      ),
+      brief = "Calculator lives in core/Calculator.scala; follow its style."
     )
     given codec
         : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[Plan] =
@@ -63,7 +67,8 @@ class PlanTest extends munit.FunSuite:
       tasks = List(
         Task(Title("Add feature A"), "do A"),
         Task(Title("Add feature B"), "do B")
-      )
+      ),
+      brief = ""
     )
     val msg = summon[orca.llm.Announce[Plan]]
       .message(plan)
@@ -74,11 +79,11 @@ class PlanTest extends munit.FunSuite:
 
   test("Announce[Plan] returns None for an empty plan (no Step emitted)"):
     assertEquals(
-      summon[orca.llm.Announce[Plan]].message(Plan("empty", "", Nil)),
+      summon[orca.llm.Announce[Plan]].message(Plan("empty", "", Nil, "")),
       None
     )
 
-  // --- Markdown parser / renderer — covers the persisted path ---
+  // --- Markdown parser / renderer — cosmetic checklist round-trip ---
 
   test("parse extracts the branch name from the H1"):
     assertEquals(Plan.parse(sample).epicId, "add-divide-method")
@@ -114,28 +119,36 @@ class PlanTest extends munit.FunSuite:
     assert(description.startsWith("Add a `divide"))
     assert(description.contains("IllegalArgumentException"))
 
-  test("render + parse round-trips the plan"):
+  test("render + parse round-trips the plan (brief included)"):
     val original = Plan.parse(sample)
+    assert(original.brief.contains("Calculator helper"))
     assertEquals(Plan.parse(Plan.render(original)), original)
 
-  // --- PlanWithBrief: the trailing ## Brief section ---
+  // --- the trailing ## Brief section ---
 
   private val samplePlan =
-    Plan("epic", "desc", List(Task(Title("t"), "implement t")))
+    Plan("epic", "desc", List(Task(Title("t"), "implement t")), "")
 
-  test("parse without a ## Brief section yields a bare Plan"):
-    assert(Plan.parse(sample).isInstanceOf[Plan])
+  test("parse reads the trailing ## Brief section into the brief field"):
+    assertEquals(
+      Plan.parse(sample).brief,
+      "Build on the existing Calculator helper in core/Calculator.scala."
+    )
 
-  test("parse with a ## Brief section yields a PlanWithBrief"):
-    Plan.parse(sample + "\n## Brief\n\nUse the existing Foo helper.\n") match
-      case PlanWithBrief(plan, brief) =>
-        assertEquals(plan.tasks.size, 2)
-        assertEquals(brief, "Use the existing Foo helper.")
-      case other => fail(s"expected PlanWithBrief, got $other")
+  test("parse without a ## Brief section yields an empty brief"):
+    val noBrief =
+      """# Plan: x
+        |
+        |## Task: t
+        |Status: [ ]
+        |
+        |body
+        |""".stripMargin
+    assertEquals(Plan.parse(noBrief).brief, "")
 
-  test("render + parse round-trips a PlanWithBrief, brief preserved"):
-    val pwb = PlanWithBrief(samplePlan, "Build on bar/Baz.scala.")
-    assertEquals(Plan.parse(Plan.render(pwb)), pwb)
+  test("render + parse round-trips a plan with a non-empty brief"):
+    val plan = samplePlan.copy(brief = "Build on bar/Baz.scala.")
+    assertEquals(Plan.parse(Plan.render(plan)), plan)
 
   test("a literal ## Brief line in the description does not swallow the tasks"):
     val tricky =
@@ -150,32 +163,22 @@ class PlanTest extends munit.FunSuite:
         |
         |body
         |""".stripMargin
-    Plan.parse(tricky) match
-      case p: Plan =>
-        assertEquals(p.tasks.size, 1)
-        assert(p.description.contains("## Brief"))
-      case other => fail(s"expected a bare Plan, got $other")
+    val plan = Plan.parse(tricky)
+    assertEquals(plan.tasks.size, 1)
+    assert(plan.description.contains("## Brief"))
 
   test("a brief is kept verbatim even if it contains ## Task lines"):
     // The brief is split off before task parsing, so its markdown can't be
     // mistaken for plan tasks.
     val brief = "## Task: not a real task\nsome notes"
-    Plan.parse(Plan.render(PlanWithBrief(samplePlan, brief))) match
-      case PlanWithBrief(plan, b) =>
-        assertEquals(plan.tasks.size, 1)
-        assertEquals(b, brief)
-      case other => fail(s"expected PlanWithBrief, got $other")
+    val parsed = Plan.parse(Plan.render(samplePlan.copy(brief = brief)))
+    assertEquals(parsed.tasks.size, 1)
+    assertEquals(parsed.brief, brief)
 
-  test("markComplete on a PlanWithBrief flips the task and keeps the brief"):
-    val updated = PlanWithBrief(samplePlan, "CONTEXT").markComplete(Title("t"))
-    assertEquals(updated.tasks.head.completed, true)
-    assertEquals(updated.brief, "CONTEXT")
-
-  test("taskPrompt prepends the brief only for a PlanWithBrief"):
+  test("taskPrompt prepends the brief"):
     val task = samplePlan.tasks.head
-    assertEquals(samplePlan.taskPrompt(task), "implement t")
     assertEquals(
-      PlanWithBrief(samplePlan, "CONTEXT").taskPrompt(task),
+      samplePlan.copy(brief = "CONTEXT").taskPrompt(task),
       "CONTEXT\n\n---\n\nimplement t"
     )
 
@@ -234,54 +237,3 @@ class PlanTest extends munit.FunSuite:
         |Status: [ ]
         |""".stripMargin
     intercept[PlanParseException](Plan.parse(bad))
-
-  // --- autonomous.loadOrGenerate / persistComplete — resume path ---
-
-  test(
-    "autonomous.loadOrGenerate parses and reuses an existing file (no LLM call)"
-  ):
-    val seen =
-      new java.util.concurrent.atomic.AtomicReference[List[
-        orca.events.OrcaEvent
-      ]](Nil)
-    val listener = new orca.events.OrcaListener:
-      def onEvent(event: orca.events.OrcaEvent): Unit =
-        val _ = seen.updateAndGet(event :: _)
-    given orca.FlowContext = new orca.TestFlowContext(
-      new orca.events.EventDispatcher(List(listener))
-    )
-    val tmp = os.temp(suffix = ".md")
-    os.write.over(tmp, sample)
-    val llm =
-      new ExplodingLlm("loadOrGenerate must not call the LLM when file exists")
-    val plan = Plan.autonomous.loadOrGenerate(tmp, "ignored", llm)
-    assertEquals(plan.epicId, "add-divide-method")
-    assert(
-      seen.get().exists {
-        case orca.events.OrcaEvent.Step(msg) =>
-          msg.contains("Reusing existing plan")
-        case _ => false
-      }
-    )
-
-  test("autonomous.loadOrGenerate writes a new file when none exists"):
-    given orca.FlowContext =
-      new orca.TestFlowContext(new orca.events.EventDispatcher(Nil))
-    val target = os.temp.dir() / "dev.md"
-    val expected = Plan.parse(sample)
-    val plan = Plan.autonomous.loadOrGenerate(
-      target,
-      "Add a divide method",
-      new CannedResultLlm(expected)
-    )
-    assert(os.exists(target))
-    assertEquals(plan, expected)
-    assertEquals(Plan.parse(os.read(target)), expected)
-
-  test("persistComplete updates the on-disk plan"):
-    val tmp = os.temp(suffix = ".md")
-    os.write.over(tmp, sample)
-    Plan.persistComplete(tmp, Title("add-divide"))
-    val reread = Plan.parse(os.read(tmp))
-    assertEquals(reread.tasks.head.completed, true)
-    assertEquals(reread.tasks(1).completed, true)

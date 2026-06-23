@@ -41,10 +41,9 @@ object ProgressStore:
       workDir / os.sub / ".orca" / s"progress-${hashPrompt(userPrompt)}.json"
     )
 
-  /** First 6 bytes of SHA-256(userPrompt) rendered as 12 hex chars. Mirrors the
-    * same logic in `Plan.hashUserPrompt` — kept package-private here so the
-    * flow lifecycle can stamp the same hash into the progress header (ADR 0018
-    * §2.4), without either calling the other.
+  /** First 6 bytes of SHA-256(userPrompt) rendered as 12 hex chars.
+    * Package-private so the flow lifecycle can stamp the same hash into the
+    * progress header (ADR 0018 §2.4).
     */
   private[orca] def hashPrompt(userPrompt: String): String =
     val md = java.security.MessageDigest.getInstance("SHA-256")

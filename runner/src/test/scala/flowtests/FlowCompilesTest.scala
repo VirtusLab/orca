@@ -243,35 +243,25 @@ object FlowCanary:
           case Triage.Untestable(_, _)  => ()
           case Triage.Testable(_, _, _) => ()
 
-  /** Post-planning steps (`reviewed` / `briefed`) — exercised by
-    * `examples/implement-enhanced.sc`. Pins that the `Sessioned[B, Plan]` /
-    * `Sessioned[B, PlanWithBrief]` extensions resolve through `import orca.*`
-    * alone, and that both step orders type-check. The `Plan.recoverOrCreate` /
-    * `implementTaskLoop` persistence calls are gone — resume is now the stage
-    * log (ADR 0018 §2.8); a per-task `stage(...)` loop is restored in Epic F.
+  /** Post-planning step (`reviewed`) plus the per-task stage loop — exercised
+    * by `examples/implement-enhanced.sc`. Pins that the `Sessioned[B, Plan]`
+    * extension resolves through `import orca.*` alone. Plans are always briefed
+    * (the `brief` rides in the structured output, so `plan.brief` /
+    * `plan.taskPrompt` are always available — no `.briefed` step, no
+    * `PlanWithBrief`). The `Plan.recoverOrCreate` / `implementTaskLoop`
+    * persistence calls are gone — resume is now the stage log (ADR 0018 §2.8),
+    * and the task loop is a plain per-task `stage(...)`.
     */
   def planReviewAndBriefSurface(): Unit =
     flow(OrcaArgs(), leadModel):
-      stage("review+brief"):
-        // review-then-brief and brief-then-review both yield a PlanWithBrief.
-        val reviewedThenBriefed: Sessioned[?, PlanWithBrief] =
+      val plan: Plan =
+        stage("plan"):
           Plan.autonomous
             .from(userPrompt, claude)
             .reviewed(claude)
-            .briefed(claude)
-        val briefedThenReviewed: Sessioned[?, PlanWithBrief] =
-          Plan.autonomous
-            .from(userPrompt, claude)
-            .briefed(claude)
-            .reviewed(claude)
-        val _ = briefedThenReviewed
-        // review alone stays a bare Plan.
-        val reviewedOnly: Sessioned[?, Plan] =
-          Plan.autonomous.from(userPrompt, claude).reviewed(claude)
-        val _ = reviewedOnly
+            .value
 
-        val plan: PlanLike = reviewedThenBriefed.value
-        for task <- plan.tasks do
-          stage(s"task: ${task.title.value}"):
-            val _ =
-              claude.autonomous.run(plan.taskPrompt(task), claude.newSession)
+      for task <- plan.tasks do
+        stage(s"task: ${task.title.value}"):
+          val _ =
+            claude.autonomous.run(plan.taskPrompt(task), claude.newSession)
