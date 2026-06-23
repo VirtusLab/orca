@@ -83,7 +83,9 @@ object JsonData:
     * support `Unit`, so we write the codec by hand.
     *
     * On decode we skip the entire JSON value without inspecting it, so any
-    * valid JSON token (including `null`) decodes cleanly to `()`.
+    * valid JSON token (including `null`) decodes cleanly to `()`. Caveat: this
+    * leniency means `Option[Unit]` would read `null` as `Some(())` rather than
+    * `None` — but no stage returns `Option[Unit]`, so this is harmless.
     */
   given JsonData[Unit] = apply(
     Schema.schemaForUnit,

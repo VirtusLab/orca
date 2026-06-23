@@ -248,9 +248,10 @@ object Plan:
       s"$header\n$body"
 
   /** Parse a plan from its markdown representation, including its trailing `##
-    * Brief` section. Strict — throws [[PlanParseException]] on any deviation
-    * from the `# Plan:` / `## Task:` / `## Brief` schema. CRLF line endings and
-    * a leading BOM are normalised first.
+    * Brief` section. Throws [[PlanParseException]] on any deviation from the `#
+    * Plan:` / `## Task:` schema, but tolerates a missing `## Brief` section —
+    * substituting an empty brief — consistent with [[render]] omitting a blank
+    * brief. CRLF line endings and a leading BOM are normalised first.
     *
     * This is the inverse of [[render]]; it exists only for that round-trip.
     * Resume never reads a rendered plan back — the stage log is the sole resume

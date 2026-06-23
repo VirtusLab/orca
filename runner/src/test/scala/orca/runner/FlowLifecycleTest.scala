@@ -1,10 +1,12 @@
 package orca.runner
 
-import orca.{FlowContext, InStage, OrcaArgs, stage, flow}
+import orca.{FlowContext, InStage, OrcaArgs, runFlow, stage, flow}
 import orca.events.OrcaEvent
+import orca.llm.DefaultPrompts
 import orca.progress.{ProgressHeader, ProgressStore, StageEntry}
 import orca.runner.terminal.TerminalInteraction
 import orca.tools.OsGitTool
+import orca.tools.opencode.OpencodeLauncher
 import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
@@ -14,13 +16,15 @@ import java.util.concurrent.atomic.AtomicInteger
   * across two calls. Each test uses a real temp git repo via `TempRepo` and a
   * null-sink `TerminalInteraction` so no TTY is required.
   *
-  * Note: `flow()` calls `System.exit(1)` on body failure, so the
-  * failure-teardown test prepares the state manually (branch + progress-log
-  * commit via OsGitTool + ProgressStore) rather than running a failing flow
-  * invocation.
+  * The first three tests cover teardown/resume through the public `flow(...)`
+  * and by hand-building state — `flow()` calls `System.exit(1)` on body
+  * failure, so they can't drive a failing invocation directly.
   *
-  * The resume test similarly builds the aborted-run state manually and then
-  * drives a second `flow()` call, verifying the stage body is skipped.
+  * The last two tests exercise the genuine end-to-end crash→resume path via the
+  * exit-free `runFlow(...)` seam: a body that throws in stage 2 propagates (no
+  * `System.exit`), failure teardown keeps HEAD on the feature branch with stage
+  * 1 recorded, and a second `runFlow` over the same store resumes — replaying
+  * stage 1 instead of re-running it.
   */
 class FlowLifecycleTest extends munit.FunSuite:
 
@@ -186,5 +190,130 @@ class FlowLifecycleTest extends munit.FunSuite:
       "feat/lifecycle-resume",
       "flow must return to the branch that was current at call time"
     )
+
+  test(
+    "runFlow propagates a body failure: stays on the feature branch with stage-one recorded"
+  ):
+    // End-to-end crash path: a body that completes stage 1 then THROWS in stage
+    // 2. `runFlow` (exit-free) must propagate the exception; failure teardown
+    // leaves us on the feature branch with stage 1's commit + log entry intact.
+    val workDir = TempRepo.create()
+    val prompt = "crash-feature"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    val startBranch = git.currentBranch()
+
+    val thrown = intercept[RuntimeException]:
+      runFlowForTest(workDir, prompt, store):
+        val _ = stage("stage-one"):
+          os.write(workDir / "one.txt", "content")
+          "one-done"
+        val _ = stage[String]("stage-two"):
+          throw new RuntimeException("boom in stage two")
+    assertEquals(thrown.getMessage, "boom in stage two")
+
+    // HEAD must be on the feature branch, not the start branch.
+    val branch = git.currentBranch()
+    assertNotEquals(branch, startBranch)
+    assertEquals(branch, store.load().get.header.branch)
+
+    // Stage one's commit + log entry must survive.
+    val ids = store.load().get.entries.map(_.id)
+    assert(ids.contains("stage-one#0"), "stage one must be recorded")
+    assert(
+      os.exists(workDir / "one.txt"),
+      "stage one's committed file must survive failure teardown"
+    )
+
+  test(
+    "runFlow resumes after a crash: stage one replays once and ends on the start branch"
+  ):
+    // Two runs over the SAME repo/prompt/store. The first crashes in stage 2
+    // after stage 1 runs; the second resumes — stage 1's body must NOT run again
+    // (the recorded result is replayed), so the counter ends at 1, and the
+    // successful second run returns to the start branch.
+    val workDir = TempRepo.create()
+    val prompt = "resume-feature"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    val startBranch = git.currentBranch()
+    val stageOneRuns = new AtomicInteger(0)
+
+    // First run: crashes in stage two.
+    val _ = intercept[RuntimeException]:
+      runFlowForTest(workDir, prompt, store):
+        val _ = stage("stage-one"):
+          stageOneRuns.incrementAndGet()
+          "one-done"
+        val _ = stage[String]("stage-two"):
+          throw new RuntimeException("boom")
+    assertEquals(stageOneRuns.get(), 1, "stage one runs once in the first run")
+
+    // Failure teardown leaves the repo on the feature branch — which is exactly
+    // the resume entry point: a re-run "in place" (the next invocation inherits
+    // the repo's HEAD, which the crash left on the feature branch) finds the
+    // committed progress log in the working tree and resumes from it.
+    //
+    // NOTE (deferred, recovery hardening / R30,R32): the progress log is tracked
+    // ON the feature branch, so it is not visible from another branch. Resuming
+    // from an arbitrary branch (a fresh process sitting on `main`), and returning
+    // a resumed run to the *original* start branch via `header.startingBranch`
+    // rather than the re-run's current branch, are E-polish items — not covered
+    // here. This test pins the supported in-place path.
+    val featureBranch = git.currentBranch()
+    assertNotEquals(featureBranch, startBranch)
+
+    // Second run from the feature branch: resumes; stage one is replayed from the
+    // log (body skipped), stage two runs fresh.
+    runFlowForTest(workDir, prompt, store):
+      val _ = stage("stage-one"):
+        stageOneRuns.incrementAndGet()
+        "one-done"
+      val _ = stage("stage-two"):
+        "two-done"
+
+    assertEquals(
+      stageOneRuns.get(),
+      1,
+      "stage one must replay (not re-run) on resume: counter stays at 1"
+    )
+    assertEquals(
+      git.currentBranch(),
+      featureBranch,
+      "a successful in-place resumed run returns to where it started"
+    )
+
+  /** Drive `runFlow` directly (exit-free) with a null-sink interaction so no
+    * TTY is needed and a body failure surfaces as a thrown exception rather
+    * than a `System.exit`.
+    */
+  private def runFlowForTest(
+      workDir: os.Path,
+      prompt: String,
+      store: ProgressStore
+  )(body: orca.FlowControl ?=> Unit): Unit =
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      runFlow(
+        args = OrcaArgs(prompt),
+        llm = StubLlm.claude,
+        workDir = workDir,
+        interaction = Some(interaction),
+        extraListeners = Nil,
+        branchNaming = None,
+        progressStore = Some(store),
+        claude = None,
+        opencode = None,
+        opencodeLauncher = OpencodeLauncher.default,
+        pi = None,
+        git = None,
+        gh = None,
+        fs = None,
+        prompts = DefaultPrompts
+      )(body)
 
 end FlowLifecycleTest

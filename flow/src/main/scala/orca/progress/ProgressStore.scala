@@ -25,6 +25,9 @@ trait ProgressStore:
 
   /** Upsert an entry by id: replaces an existing entry with the same id
     * in-place, or appends if no entry with that id exists. Last write wins.
+    *
+    * Requires [[writeHeader]] to have been called first (a log must already
+    * exist); otherwise it throws.
     */
   def appendEntry(entry: StageEntry)(using InStage): Unit
 

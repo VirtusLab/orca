@@ -21,15 +21,18 @@ trait BranchNamingStrategy:
 object BranchNamingStrategy:
 
   /** Git-ref-safe slug (PURE). Lower-case; keep only `[a-z0-9-]`; replace runs
-    * of other chars with a single `-`; collapse repeated `-`; strip
-    * leading/trailing `-`; cap to `maxLen` without leaving a trailing `-`. If
-    * the result is empty or still starts with `-`, return `"flow-<shorthash>"`
-    * where `<shorthash>` is a short hex hash of `text` — the ref is NEVER empty
-    * and NEVER begins with `-` (ADR 0018 §2.5, R2).
+    * of other chars with a single `-`; strip leading/trailing `-`; cap to
+    * `maxLen` without leaving a trailing `-`. If the result is empty or still
+    * starts with `-`, return `"flow-<shorthash>"` where `<shorthash>` is a
+    * short hex hash of `text` — the ref is NEVER empty and NEVER begins with
+    * `-` (ADR 0018 §2.5, R2).
+    *
+    * `maxLen` is clamped to a minimum of 1 so a zero/negative cap can't
+    * silently force the fallback.
     */
   def slug(text: String, maxLen: Int = 50): String =
     val cleaned = clean(text)
-    val capped = cap(cleaned, maxLen)
+    val capped = cap(cleaned, math.max(1, maxLen))
     if capped.isEmpty || capped.startsWith("-") then fallback(text)
     else capped
 
@@ -40,9 +43,11 @@ object BranchNamingStrategy:
       handle: IssueHandle,
       prefix: String = "fix"
   ): BranchNamingStrategy =
+    // Slug the prefix once at construction, not on every `resolve` call.
+    val prefixSlug = slug(prefix)
     new BranchNamingStrategy:
       def resolve(userPrompt: String, llm: LlmTool[?])(using InStage): String =
-        s"${slug(prefix)}/issue-${handle.number}"
+        s"$prefixSlug/issue-${handle.number}"
 
   /** Deterministic strategy: slugs `text` to produce the branch name. `resolve`
     * ignores `userPrompt` and `llm`; `text` is evaluated once per `resolve`
@@ -57,13 +62,13 @@ object BranchNamingStrategy:
   // Private helpers
   // --------------------------------------------------------------------------
 
-  /** Lower-case, replace every non-`[a-z0-9]` char (after downcasing) with `-`,
-    * collapse consecutive `-`, and strip leading/trailing `-`.
+  /** Lower-case, replace every run of non-`[a-z0-9]` chars (after downcasing)
+    * with a single `-`, and strip leading/trailing `-`. The `+` already
+    * collapses runs, so no second collapsing pass is needed.
     */
   private def clean(text: String): String =
     text.toLowerCase
       .replaceAll("[^a-z0-9]+", "-")
-      .replaceAll("-+", "-")
       .stripPrefix("-")
       .stripSuffix("-")
 

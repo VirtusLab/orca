@@ -115,6 +115,9 @@ private def recordAndCommit[T: JsonData](
     commitMessage: Option[T => String]
 )(using fc: FlowControl): Unit =
   val resultJson = writeToString(result)(using summon[JsonData[T]].codec)
+  // Deliberately mints a fresh runtime `InStage` rather than threading the
+  // body's token: recording + committing the stage result is the runtime's own
+  // privileged step, not part of the user body.
   given InStage = InStage.unsafe
   fc.progressStore.appendEntry(StageEntry(id, name, resultJson))
   fc.git.forceAdd(fc.progressStore.path)

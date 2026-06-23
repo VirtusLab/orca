@@ -74,7 +74,6 @@ def flow(
     prompts: Prompts = DefaultPrompts,
     pricing: PriceList = Pricing.default
 )(body: FlowControl ?=> Unit): Unit =
-  val debug = OrcaDebug.enabled || args.verbose.value
   // Per-run trace file: captures every stage, prompt, tool/subprocess call and
   // result at DEBUG. Started before anything logs so the whole run is caught;
   // the path is printed by the banner and the detail stays in the file.
@@ -95,79 +94,25 @@ def flow(
   // `try/finally` so the cost summary always lands — even when a fatal
   // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
   // Tokens may have already been spent; the user deserves to see what.
-  // Default TerminalInteraction is built inside `supervised:` because its
-  // worker is a `forkUser` bound to that scope; close() in the body's
-  // `finally` lets the worker drain and exit before the scope joins it.
   try
     try
-      supervised:
-        val effectiveInteraction = interaction.getOrElse(
-          TerminalInteraction.start(workDir = Some(workDir))
-        )
-        try
-          val dispatcher = new EventDispatcher(
-            effectiveInteraction.listeners ++ List(
-              costTracker,
-              new LoggingListener
-            ) ++ extraListeners
-          )
-          // Resolve the git tool up-front: the lifecycle's setup (stash, branch
-          // checkout, header commit) and teardown (cleanup, restore) run before
-          // and after the body, outside any user stage, so they need git
-          // directly. The same instance is handed to the context.
-          val effectiveGit = git.getOrElse(new OsGitTool(workDir, dispatcher))
-          val setup = flowSetup(
-            args,
-            llm,
-            workDir,
-            effectiveGit,
-            branchNaming,
-            progressStore
-          )
-          val ctx = DefaultFlowContext.withDefaults(
-            userPrompt = args.userPrompt,
-            dispatcher = dispatcher,
-            workDir = workDir,
-            interaction = effectiveInteraction,
-            progressStore = setup.store,
-            claude = claude,
-            opencode = opencode,
-            opencodeLauncher = opencodeLauncher,
-            pi = pi,
-            git = Some(effectiveGit),
-            gh = gh,
-            fs = fs,
-            prompts = prompts
-          )
-          // The whole flow body runs as a top-level stage: an otherwise
-          // unhandled exception surfaces as a single Error event (the same
-          // message a stage failure shows). A nested stage / `fail` marks the
-          // exception `alreadyEmitted` once it has reported it, so we don't
-          // re-report it here. The stack goes to the trace file only (DEBUG,
-          // below the console's WARN threshold); `--verbose` also prints it to
-          // stderr.
-          //
-          // Teardown separation: body-failure and body-success teardowns are
-          // completely disjoint. A success-teardown error (e.g. a cosmetic
-          // cleanup-commit failure) must NOT trigger the failure teardown
-          // (`resetHard`), and must NOT strand the user on the feature branch.
-          var bodySucceeded = false
-          try
-            body(using ctx)
-            bodySucceeded = true
-          catch
-            case NonFatal(e) =>
-              val alreadyEmitted = e match
-                case fe: OrcaFlowException => fe.alreadyEmitted
-                case _                     => false
-              if !alreadyEmitted then
-                ctx.emit(OrcaEvent.Error(throwableMessage(e)))
-              flowLog.debug("flow aborted", e)
-              if debug then e.printStackTrace(System.err)
-              flowTeardownFailure(effectiveGit)
-              throw e
-          if bodySucceeded then flowTeardownSuccess(effectiveGit, setup)
-        finally effectiveInteraction.close()
+      runFlow(
+        args,
+        llm,
+        workDir,
+        interaction,
+        extraListeners ++ List(costTracker),
+        branchNaming,
+        progressStore,
+        claude,
+        opencode,
+        opencodeLauncher,
+        pi,
+        git,
+        gh,
+        fs,
+        prompts
+      )(body)
     catch
       // The failure was already surfaced inside the scope (the flow body runs
       // as a top-level stage): the message went to the console, the stack to
@@ -182,6 +127,107 @@ def flow(
     // Detach the trace appender. Idempotent — the error path above already
     // finished it before exiting.
     orcaLog.finish()
+
+/** Exit-free flow lifecycle: builds the interaction/context, runs setup, then
+  * runs the body as a top-level stage with disjoint success/failure teardown.
+  * Unlike [[flow]], a `NonFatal` failure in `body` is **propagated** (after
+  * failure teardown), not turned into a `System.exit` — so the
+  * crash→`resetHard`→resume wiring is directly testable end-to-end. [[flow]]
+  * wraps this to keep the observable CLI behaviour (cost summary, OrcaLog,
+  * `System.exit(1)`).
+  *
+  * `extraListeners` is the full listener set this run should observe beyond the
+  * interaction's own (the CLI wrapper adds its [[CostTracker]] here); a
+  * [[LoggingListener]] is always appended.
+  */
+private[orca] def runFlow(
+    args: OrcaArgs,
+    llm: LlmTool[?],
+    workDir: os.Path,
+    interaction: Option[Interaction],
+    extraListeners: List[OrcaListener],
+    branchNaming: Option[BranchNamingStrategy],
+    progressStore: Option[ProgressStore],
+    claude: Option[ClaudeTool],
+    opencode: Option[OpencodeTool],
+    opencodeLauncher: OpencodeLauncher,
+    pi: Option[PiTool],
+    git: Option[GitTool],
+    gh: Option[GitHubTool],
+    fs: Option[FsTool],
+    prompts: Prompts
+)(body: FlowControl ?=> Unit): Unit =
+  val debug = OrcaDebug.enabled || args.verbose.value
+  val flowLog = LoggerFactory.getLogger("orca.flow")
+  // Default TerminalInteraction is built inside `supervised:` because its
+  // worker is a `forkUser` bound to that scope; close() in the body's
+  // `finally` lets the worker drain and exit before the scope joins it.
+  supervised:
+    val effectiveInteraction = interaction.getOrElse(
+      TerminalInteraction.start(workDir = Some(workDir))
+    )
+    try
+      val dispatcher = new EventDispatcher(
+        effectiveInteraction.listeners ++ List(
+          new LoggingListener
+        ) ++ extraListeners
+      )
+      // Resolve the git tool up-front: the lifecycle's setup (stash, branch
+      // checkout, header commit) and teardown (cleanup, restore) run before
+      // and after the body, outside any user stage, so they need git
+      // directly. The same instance is handed to the context.
+      val effectiveGit = git.getOrElse(new OsGitTool(workDir, dispatcher))
+      val setup = flowSetup(
+        args,
+        llm,
+        workDir,
+        effectiveGit,
+        branchNaming,
+        progressStore
+      )
+      val ctx = DefaultFlowContext.withDefaults(
+        userPrompt = args.userPrompt,
+        dispatcher = dispatcher,
+        workDir = workDir,
+        interaction = effectiveInteraction,
+        progressStore = setup.store,
+        claude = claude,
+        opencode = opencode,
+        opencodeLauncher = opencodeLauncher,
+        pi = pi,
+        git = Some(effectiveGit),
+        gh = gh,
+        fs = fs,
+        prompts = prompts
+      )
+      // The whole flow body runs as a top-level stage: an otherwise
+      // unhandled exception surfaces as a single Error event (the same
+      // message a stage failure shows). A nested stage / `fail` marks the
+      // exception `alreadyEmitted` once it has reported it, so we don't
+      // re-report it here. The stack goes to the trace file only (DEBUG,
+      // below the console's WARN threshold); `--verbose` also prints it to
+      // stderr.
+      //
+      // Teardown separation: body-failure and body-success teardowns are
+      // completely disjoint. A success-teardown error (e.g. a cosmetic
+      // cleanup-commit failure) must NOT trigger the failure teardown
+      // (`resetHard`), and must NOT strand the user on the feature branch.
+      var bodySucceeded = false
+      try
+        body(using ctx)
+        bodySucceeded = true
+      catch
+        case NonFatal(e) =>
+          val alreadyEmitted = e match
+            case fe: OrcaFlowException => fe.alreadyEmitted
+            case _                     => false
+          if !alreadyEmitted then ctx.emit(OrcaEvent.Error(throwableMessage(e)))
+          flowLog.debug("flow aborted", e)
+          if debug then e.printStackTrace(System.err)
+          flowTeardownFailure(effectiveGit)
+          throw e
+      if bodySucceeded then flowTeardownSuccess(effectiveGit, setup)
+    finally effectiveInteraction.close()
 
 /** Outcome of [[flowSetup]]: the resolved progress store, the feature branch
   * the run is bound to, and the starting branch to restore on success.
