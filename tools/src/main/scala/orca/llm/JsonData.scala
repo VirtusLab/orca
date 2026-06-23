@@ -1,8 +1,14 @@
 package orca.llm
 
+import com.github.plokhotnyuk.jsoniter_scala.core.{
+  JsonReader,
+  JsonValueCodec,
+  JsonWriter
+}
 import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
-  ConfiguredJsonValueCodec
+  ConfiguredJsonValueCodec,
+  JsonCodecMaker
 }
 import sttp.tapir.Schema
 
@@ -45,6 +51,81 @@ object JsonData:
       Schema.derived[A],
       ConfiguredJsonValueCodec.derived[A](using strictCodecConfig)
     )
+
+  /** Wraps a plain `JsonValueCodec` as a `ConfiguredJsonValueCodec`.
+    * `ConfiguredJsonValueCodec` is a marker interface that extends
+    * `JsonValueCodec` without adding methods, so we just delegate all calls.
+    * Used by the hand-written primitive/generic givens below.
+    */
+  private def wrap[A](c: JsonValueCodec[A]): ConfiguredJsonValueCodec[A] =
+    new ConfiguredJsonValueCodec[A]:
+      def decodeValue(in: JsonReader, default: A): A =
+        c.decodeValue(in, default)
+      def encodeValue(x: A, out: JsonWriter): Unit = c.encodeValue(x, out)
+      def nullValue: A = c.nullValue
+
+  // ── Primitive givens ───────────────────────────────────────────────────────
+  // Use the tapir Schema companion methods directly (not `summon`) to avoid
+  // triggering the package-level `schemaFromJsonData` given, which would
+  // reference the very instance being initialised (causing an infinite loop).
+
+  given JsonData[String] =
+    apply(Schema.schemaForString, wrap(JsonCodecMaker.make))
+  given JsonData[Int] = apply(Schema.schemaForInt, wrap(JsonCodecMaker.make))
+  given JsonData[Long] = apply(Schema.schemaForLong, wrap(JsonCodecMaker.make))
+  given JsonData[Boolean] =
+    apply(Schema.schemaForBoolean, wrap(JsonCodecMaker.make))
+  given JsonData[Double] =
+    apply(Schema.schemaForDouble, wrap(JsonCodecMaker.make))
+
+  /** Unit serialises as `{}` (an empty JSON object) — a valid, round-trippable
+    * JSON value that conveys "no meaningful payload". `JsonCodecMaker` does not
+    * support `Unit`, so we write the codec by hand.
+    *
+    * On decode we skip the entire JSON value without inspecting it, so any
+    * valid JSON token (including `null`) decodes cleanly to `()`.
+    */
+  given JsonData[Unit] = apply(
+    Schema.schemaForUnit,
+    new ConfiguredJsonValueCodec[Unit]:
+      def decodeValue(in: JsonReader, default: Unit): Unit = in.skip()
+      def encodeValue(x: Unit, out: JsonWriter): Unit =
+        out.writeObjectStart()
+        out.writeObjectEnd()
+      def nullValue: Unit = ()
+  )
+
+  // ── Generic givens ─────────────────────────────────────────────────────────
+
+  given [A](using jd: JsonData[A]): JsonData[Option[A]] =
+    given JsonValueCodec[A] = jd.codec
+    apply(Schema.schemaForOption(jd.schema), wrap(JsonCodecMaker.make))
+
+  given [A](using jd: JsonData[A]): JsonData[List[A]] =
+    given JsonValueCodec[A] = jd.codec
+    // schemaForIterable returns Schema[Iterable[A]]; the cast to Schema[List[A]]
+    // is safe because at runtime both are the same array schema with A elements.
+    apply(
+      Schema
+        .schemaForIterable[A, List](jd.schema)
+        .asInstanceOf[Schema[List[A]]],
+      wrap(JsonCodecMaker.make)
+    )
+
+  given [A, B](using jdA: JsonData[A], jdB: JsonData[B]): JsonData[(A, B)] =
+    given JsonValueCodec[A] = jdA.codec
+    given JsonValueCodec[B] = jdB.codec
+    apply(Schema.derived[(A, B)], wrap(JsonCodecMaker.make))
+
+  given [A, B, C](using
+      jdA: JsonData[A],
+      jdB: JsonData[B],
+      jdC: JsonData[C]
+  ): JsonData[(A, B, C)] =
+    given JsonValueCodec[A] = jdA.codec
+    given JsonValueCodec[B] = jdB.codec
+    given JsonValueCodec[C] = jdC.codec
+    apply(Schema.derived[(A, B, C)], wrap(JsonCodecMaker.make))
 
 given schemaFromJsonData[A](using jd: JsonData[A]): Schema[A] = jd.schema
 
