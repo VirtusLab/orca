@@ -33,7 +33,8 @@ private[orca] trait BufferedStderrDiagnostics[B <: BackendTag]
     try stderrDrainThread.join(DrainTimeoutMs)
     catch case _: InterruptedException => Thread.currentThread().interrupt()
 
-  /** Recent stderr lines as a `stderr:` block; the base owns the outer framing. */
+  /** Recent stderr lines as a `stderr:` block; the base owns the outer framing.
+    */
   override protected def diagnosticContext: Option[String] =
     val lines = stderrBuffer.get()
     if lines.isEmpty then None
@@ -52,8 +53,8 @@ private[orca] object BufferedStderrDiagnostics:
   val MaxBytes: Int = 4096
 
   /** Append `line` while respecting both caps, dropping oldest first. A single
-    * over-cap line is kept anyway (better than empty diagnostics). Pure, so it's
-    * a safe `AtomicReference.updateAndGet` callback.
+    * over-cap line is kept anyway (better than empty diagnostics). Pure, so
+    * it's a safe `AtomicReference.updateAndGet` callback.
     */
   def appendBounded(buf: Vector[String], line: String): Vector[String] =
     var result = buf :+ line

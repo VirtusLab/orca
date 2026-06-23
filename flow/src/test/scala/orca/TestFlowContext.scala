@@ -43,7 +43,6 @@ class TestFlowControl(
     dispatcher: EventDispatcher,
     val git: GitTool,
     val progressStore: ProgressStore,
-    val featureBranch: String,
     val userPrompt: String = ""
 ) extends FlowControl:
   private def stub(name: String) =
@@ -87,4 +86,4 @@ object TestFlowControl:
     val store = ProgressStore.default(dir, userPrompt)
     given InStage = InStage.unsafe
     store.writeHeader(ProgressHeader("main", "feat/test", "deadbeef"))
-    (new TestFlowControl(dispatcher, git, store, "feat/test", userPrompt), dir)
+    (new TestFlowControl(dispatcher, git, store, userPrompt), dir)

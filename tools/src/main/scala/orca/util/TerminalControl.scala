@@ -5,7 +5,8 @@ package orca.util
   * subprocess stderr, model or tool output — before it is rendered or surfaced
   * as a diagnostic. Left in, these bytes make `fansi` abort on unsupported
   * sequences (cursor/status controls like `ESC[?25l`, OSC hyperlinks) and can
-  * corrupt the terminal. Newlines and tabs are kept; other controls are dropped.
+  * corrupt the terminal. Newlines and tabs are kept; other controls are
+  * dropped.
   */
 private[orca] object TerminalControl:
 

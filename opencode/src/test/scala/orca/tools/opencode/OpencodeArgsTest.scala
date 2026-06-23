@@ -22,8 +22,19 @@ class OpencodeArgsTest extends munit.FunSuite:
   test("serve prefixes a custom launcher before the serve args"):
     assertEquals(
       OpencodeArgs.serve(OpencodeLauncher.ollama("qwen3-coder")),
-      Seq("ollama", "launch", "opencode", "--model", "qwen3-coder", "--",
-        "serve", "--port", "0", "--log-level", "WARN")
+      Seq(
+        "ollama",
+        "launch",
+        "opencode",
+        "--model",
+        "qwen3-coder",
+        "--",
+        "serve",
+        "--port",
+        "0",
+        "--log-level",
+        "WARN"
+      )
     )
 
   test("message splits the model into provider/id"):

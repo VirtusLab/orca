@@ -117,7 +117,7 @@ private def recordAndCommit[T: JsonData](
   val resultJson = writeToString(result)(using summon[JsonData[T]].codec)
   given InStage = InStage.unsafe
   fc.progressStore.appendEntry(StageEntry(id, name, resultJson))
-  fc.git.forceAdd(Seq(fc.progressStore.path))
+  fc.git.forceAdd(fc.progressStore.path)
   val message = commitMessage.map(_(result)).getOrElse(s"stage: $name")
   val _ = fc.git.commit(message)
 

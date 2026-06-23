@@ -26,9 +26,6 @@ trait FlowControl extends FlowContext:
   /** The store backing this run's progress log. */
   def progressStore: ProgressStore
 
-  /** The resolved feature-branch name this run is bound to. */
-  def featureBranch: String
-
   /** Next occurrence index for a stage `name` in this run: 0 for the first
     * `stage(name)`, 1 for the second, and so on. Stages run sequentially, so
     * this is plain per-run bookkeeping. Used to build a stage id (`name#index`)

@@ -12,7 +12,6 @@ class CapabilitiesTest extends munit.FunSuite:
     new TestFlowContext(new EventDispatcher(Nil)) with FlowControl:
       def progressStore: orca.progress.ProgressStore =
         throw new NotImplementedError
-      def featureBranch: String = throw new NotImplementedError
       def nextOccurrence(stageName: String): Int = throw new NotImplementedError
 
   test("FlowControl satisfies a using FlowContext requirement"):

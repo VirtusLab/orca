@@ -130,7 +130,6 @@ def flow(
             workDir = workDir,
             interaction = effectiveInteraction,
             progressStore = setup.store,
-            featureBranch = setup.featureBranch,
             claude = claude,
             opencode = opencode,
             opencodeLauncher = opencodeLauncher,
@@ -147,9 +146,15 @@ def flow(
           // re-report it here. The stack goes to the trace file only (DEBUG,
           // below the console's WARN threshold); `--verbose` also prints it to
           // stderr.
+          //
+          // Teardown separation: body-failure and body-success teardowns are
+          // completely disjoint. A success-teardown error (e.g. a cosmetic
+          // cleanup-commit failure) must NOT trigger the failure teardown
+          // (`resetHard`), and must NOT strand the user on the feature branch.
+          var bodySucceeded = false
           try
             body(using ctx)
-            flowTeardownSuccess(effectiveGit, setup)
+            bodySucceeded = true
           catch
             case NonFatal(e) =>
               val alreadyEmitted = e match
@@ -161,6 +166,7 @@ def flow(
               if debug then e.printStackTrace(System.err)
               flowTeardownFailure(effectiveGit)
               throw e
+          if bodySucceeded then flowTeardownSuccess(effectiveGit, setup)
         finally effectiveInteraction.close()
     catch
       // The failure was already surfaced inside the scope (the flow body runs
@@ -228,21 +234,31 @@ private def flowSetup(
           promptHash = ProgressStore.hashPrompt(args.userPrompt)
         )
       )
-      git.forceAdd(Seq(store.path))
+      git.forceAdd(store.path)
       val _ = git.commit("orca: progress log")
       FlowSetup(store, branch, startBranch)
 
 /** Successful teardown (ADR 0018 §2.5): remove the progress-log file in a final
   * commit so a merged branch is clean, then return to the starting branch.
   * Throwaway-branch auto-delete (R5) is deferred.
+  *
+  * Errors during log removal or the cleanup commit are cosmetic — swallowed so
+  * they don't trigger the failure path. The checkout back to `startBranch` is
+  * always attempted (in a `finally`) so a cleanup error never strands the user
+  * on the feature branch.
   */
 private def flowTeardownSuccess(git: GitTool, setup: FlowSetup): Unit =
-  if os.exists(setup.store.path) then
-    val _ = os.remove(setup.store.path)
-  // `add -A` in commit picks up the removal; NothingToCommit means it was
-  // already gone (e.g. never committed) — harmless.
-  val _ = git.commit("orca: remove progress log")
-  git.checkoutOrCreate(setup.startBranch)
+  try
+    // Best-effort: swallow a missing file (already gone) or commit failure.
+    try os.remove(setup.store.path)
+    catch
+      case _: java.nio.file.NoSuchFileException => ()
+      // `add -A` in commit picks up the removal; NothingToCommit means it was
+      // already gone (e.g. never committed) — harmless.
+    val _ = git.commit("orca: remove progress log")
+  finally
+    // Always attempt to return to the starting branch, even if cleanup failed.
+    git.checkoutOrCreate(setup.startBranch)
 
 /** Failure teardown (ADR 0018 §2.5): discard the failed stage's uncommitted
   * partial edits with `git reset --hard` (which restores the last committed

@@ -204,7 +204,10 @@ class PiConversationTest extends munit.FunSuite:
 
     val _ = conv.events.toList
     // A cancel is written so Pi doesn't block waiting on a reply.
-    assert(process.writes.exists(_.contains("extension_ui_response")), process.writes)
+    assert(
+      process.writes.exists(_.contains("extension_ui_response")),
+      process.writes
+    )
     val _ = conv.awaitResult()
 
   test("message_end without content surfaces the error, not a parse failure"):

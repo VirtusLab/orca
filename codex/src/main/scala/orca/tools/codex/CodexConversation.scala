@@ -4,7 +4,11 @@ import orca.llm.{BackendTag, Model, SessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, LlmResult}
-import orca.backend.{BufferedStderrDiagnostics, StreamConversation, StreamSource}
+import orca.backend.{
+  BufferedStderrDiagnostics,
+  StreamConversation,
+  StreamSource
+}
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
@@ -98,9 +102,9 @@ private[codex] class CodexConversation(
     *     written correctly to `~/.codex/sessions/`; the message is harmless.
     *
     * Filter both, plus empty lines. Anything else passes through with the
-    * default backend-prefixed Error event AND is recorded in the bounded
-    * stderr buffer (see [[BufferedStderrDiagnostics]]) so the failure exception
-    * can include them.
+    * default backend-prefixed Error event AND is recorded in the bounded stderr
+    * buffer (see [[BufferedStderrDiagnostics]]) so the failure exception can
+    * include them.
     */
   override protected def handleStderr(line: String): Unit =
     val trimmed = line.trim

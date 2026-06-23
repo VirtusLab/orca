@@ -4,7 +4,11 @@ import orca.events.Usage
 import orca.llm.{BackendTag, Model, SessionId}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, LlmResult}
-import orca.backend.{BufferedStderrDiagnostics, StreamConversation, StreamSource}
+import orca.backend.{
+  BufferedStderrDiagnostics,
+  StreamConversation,
+  StreamSource
+}
 import orca.subprocess.PipedCliProcess
 import orca.util.TerminalControl
 import orca.tools.pi.rpc.{
@@ -44,12 +48,12 @@ private[pi] class PiConversation(
 
   /** Turn state, accrued by the single reader thread — `handleLine` and the
     * handlers it drives all run there, so a plain `var` over an immutable
-    * snapshot is safe and avoids cross-thread machinery; `awaitResult` reads the
-    * outcome only after joining the reader, which publishes these writes.
+    * snapshot is safe and avoids cross-thread machinery; `awaitResult` reads
+    * the outcome only after joining the reader, which publishes these writes.
     *
     * `textStreamedThisMessage` lets `message_end` emit the completed text as a
-    * fallback only when no `text_delta` already streamed it; `sawAssistantMessage`
-    * gates the single `AssistantTurnEnd` at `agent_end`.
+    * fallback only when no `text_delta` already streamed it;
+    * `sawAssistantMessage` gates the single `AssistantTurnEnd` at `agent_end`.
     */
   private case class TurnState(
       lastAssistantMessage: String = "",

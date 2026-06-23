@@ -25,9 +25,9 @@ import scala.util.control.NonFatal
   * bidirectional channel (needed within a turn for `ask_user` extension-UI
   * replies).
   *
-  * Lifecycle is deliberately per-call: each Orca call spawns its own
-  * `pi --mode rpc` process, sends one `prompt`, reads to `agent_end`, then lets
-  * the process exit. Context carries across calls through a per-session
+  * Lifecycle is deliberately per-call: each Orca call spawns its own `pi --mode
+  * rpc` process, sends one `prompt`, reads to `agent_end`, then lets the
+  * process exit. Context carries across calls through a per-session
   * `--session-dir` (one dir per Orca session id) that Pi creates on the first
   * turn and `--continue` resumes on later turns — rather than a long-lived
   * process.
@@ -86,7 +86,8 @@ private[orca] class PiBackend(cli: CliRunner)
     )
 
   /** Marks an interactive session resumable once its turn has succeeded — the
-    * framework calls this after driving the returned conversation to completion.
+    * framework calls this after driving the returned conversation to
+    * completion.
     */
   override def registerSession(
       client: SessionId[BackendTag.Pi.type],

@@ -96,8 +96,19 @@ class OpencodeServerTest extends munit.FunSuite:
       val _ = server.http.postJson("/x", "{}") // force the spawn
       assertEquals(
         runner.lastArgs,
-        Seq("ollama", "launch", "opencode", "--model", "qwen3-coder", "--",
-          "serve", "--port", "0", "--log-level", "WARN")
+        Seq(
+          "ollama",
+          "launch",
+          "opencode",
+          "--model",
+          "qwen3-coder",
+          "--",
+          "serve",
+          "--port",
+          "0",
+          "--log-level",
+          "WARN"
+        )
       )
 
   test("a server that exits without binding surfaces its stderr"):

@@ -12,7 +12,8 @@ class OrcaLogTest extends munit.FunSuite:
 
     orcaLog.finish()
 
-    val file = orcaLog.file.getOrElse(fail("trace file should have been created"))
+    val file =
+      orcaLog.file.getOrElse(fail("trace file should have been created"))
     assert(os.exists(file), "trace file should exist")
     val onDisk = os.read(file)
     assert(onDisk.contains("trace-marker-abc"), onDisk)

@@ -35,12 +35,12 @@ private[opencode] class OpencodeServer(
   // is otherwise invisible.
   private val log = LoggerFactory.getLogger(classOf[OpencodeServer])
 
-  /** The HTTP/SSE client against this server. Forcing it spawns `opencode serve`
-    * exactly once: a `lazy val` gives one spawn under concurrent first use and
-    * does not cache a failed start (Scala re-runs the initializer if it threw).
-    * This is the load-bearing once-init — `OpencodeBackend`'s AtomicReference
-    * only guarantees a single server *instance*; this guarantees a single
-    * *spawn*.
+  /** The HTTP/SSE client against this server. Forcing it spawns `opencode
+    * serve` exactly once: a `lazy val` gives one spawn under concurrent first
+    * use and does not cache a failed start (Scala re-runs the initializer if it
+    * threw). This is the load-bearing once-init — `OpencodeBackend`'s
+    * AtomicReference only guarantees a single server *instance*; this
+    * guarantees a single *spawn*.
     */
   lazy val http: OpencodeHttp = start()
 
@@ -117,7 +117,8 @@ private[opencode] object OpencodeServer:
   /** Cap on stderr lines kept for a start-failure message. */
   private val MaxErrTailLines = 50
 
-  /** Grace for the stderr drain to finish after stdout EOF, before reporting. */
+  /** Grace for the stderr drain to finish after stdout EOF, before reporting.
+    */
   private val StderrFlushMillis = 2000L
 
   /** The base URL from a serve startup line (`opencode server listening on

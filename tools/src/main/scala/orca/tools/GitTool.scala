@@ -102,13 +102,13 @@ trait GitTool:
     */
   def commit(message: String): Either[NothingToCommit, Unit]
 
-  /** Force-stage the given paths (`git add -f`), bypassing `.gitignore`. The
-    * stage runtime uses this to stage its progress-log file even when the
-    * project gitignores `.orca/`, so the log travels with the branch (ADR 0018
-    * §2.1, R8). Always a single explicit path list — never a glob or directory
-    * — so nothing else gitignored is swept in.
+  /** Force-stage `path` (`git add -f`), bypassing `.gitignore`. The stage
+    * runtime uses this to stage its progress-log file even when the project
+    * gitignores `.orca/`, so the log travels with the branch (ADR 0018 §2.1,
+    * R8). Always a single explicit path — never a glob or directory — so
+    * nothing else gitignored is swept in.
     */
-  def forceAdd(paths: Seq[os.Path]): Unit
+  def forceAdd(path: os.Path): Unit
 
   /** Push the current branch, setting upstream on first push. Returns
     * `Left(PushRejected)` when the remote rejected as non-fast-forward (caller
@@ -251,9 +251,8 @@ private[orca] class OsGitTool(
       events.onEvent(OrcaEvent.Step(s"Committed: $message"))
       Right(())
 
-  def forceAdd(paths: Seq[os.Path]): Unit =
-    if paths.nonEmpty then
-      val _ = git(("add" +: "-f" +: paths.map(_.toString))*)
+  def forceAdd(path: os.Path): Unit =
+    val _ = git("add", "-f", path.toString)
 
   /** Like [[git]] but on non-zero exit throws an `OrcaFlowException` enriched
     * with a `git status --porcelain` + `git fsck --no-progress` snapshot. Used

@@ -21,9 +21,9 @@ import scala.util.control.NonFatal
   * reaches the console's WARN appender, unaffected.
   *
   * The file is intentionally NOT deleted on exit, so it can be inspected after
-  * the run. If logback isn't the active slf4j backend, or the temp file can't be
-  * created, file logging is skipped (best-effort) rather than failing the flow —
-  * [[file]] is then `None`.
+  * the run. If logback isn't the active slf4j backend, or the temp file can't
+  * be created, file logging is skipped (best-effort) rather than failing the
+  * flow — [[file]] is then `None`.
   */
 private[orca] final class OrcaLog private (
     val file: Option[os.Path],

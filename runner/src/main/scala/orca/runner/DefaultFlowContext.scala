@@ -47,8 +47,7 @@ private[orca] class DefaultFlowContext(
     val git: GitTool,
     val gh: GitHubTool,
     val fs: FsTool,
-    val progressStore: ProgressStore,
-    val featureBranch: String
+    val progressStore: ProgressStore
 ) extends FlowControl:
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
@@ -81,7 +80,6 @@ private[orca] object DefaultFlowContext:
       workDir: os.Path,
       interaction: Interaction,
       progressStore: ProgressStore,
-      featureBranch: String,
       claude: Option[ClaudeTool] = None,
       codex: Option[CodexTool] = None,
       opencode: Option[OpencodeTool] = None,
@@ -158,6 +156,5 @@ private[orca] object DefaultFlowContext:
         new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
       ),
       fs = fs.getOrElse(new OsFsTool(workDir)),
-      progressStore = progressStore,
-      featureBranch = featureBranch
+      progressStore = progressStore
     )
