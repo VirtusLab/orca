@@ -32,7 +32,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
       suggestion = None
     )
 
-  test("reviewAndFixLoop wraps the loop in a `Review & fix` stage"):
+  test("reviewAndFixLoop marks the loop with a `Review & fix` progress line"):
     val listener = new RecordingListener
     given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
 
@@ -57,19 +57,14 @@ class ReviewFixFlowTest extends munit.FunSuite:
       initialDiff = Some("")
     )
 
+    // The loop now runs under the caller's task stage (ADR 0018 §2.2), so it
+    // emits a progress line rather than opening its own committing stage.
     val events = listener.events
     assert(
       events.exists {
-        case OrcaEvent.StageStarted("Review & fix") => true; case _ => false
+        case OrcaEvent.Step("Review & fix") => true; case _ => false
       },
-      s"missing StageStarted(Review & fix); got: $events"
-    )
-    assert(
-      events.exists {
-        case OrcaEvent.StageCompleted("Review & fix") => true;
-        case _                                        => false
-      },
-      s"missing StageCompleted(Review & fix); got: $events"
+      s"missing Step(Review & fix); got: $events"
     )
 
   test("max iterations path surfaces leftover issues with the cap reason"):

@@ -9,7 +9,15 @@ import orca.events.{
   PriceList,
   Pricing
 }
-import orca.llm.{ClaudeTool, DefaultPrompts, OpencodeTool, PiTool, Prompts}
+import orca.llm.{
+  ClaudeTool,
+  DefaultPrompts,
+  LlmTool,
+  OpencodeTool,
+  PiTool,
+  Prompts
+}
+import orca.progress.{ProgressHeader, ProgressStore}
 import orca.tools.opencode.OpencodeLauncher
 import orca.runner.{DefaultFlowContext, LoggingListener, OrcaBanner, OrcaLog}
 import orca.runner.terminal.TerminalInteraction
@@ -17,6 +25,7 @@ import org.slf4j.LoggerFactory
 import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
+import orca.tools.OsGitTool
 import orca.util.OrcaDebug
 import ox.supervised
 
@@ -49,9 +58,12 @@ import scala.util.control.NonFatal
   */
 def flow(
     args: OrcaArgs,
+    llm: LlmTool[?],
     workDir: os.Path = os.pwd,
     interaction: Option[Interaction] = None,
     extraListeners: List[OrcaListener] = Nil,
+    branchNaming: Option[BranchNamingStrategy] = None,
+    progressStore: Option[ProgressStore] = None,
     claude: Option[ClaudeTool] = None,
     opencode: Option[OpencodeTool] = None,
     opencodeLauncher: OpencodeLauncher = OpencodeLauncher.default,
@@ -61,7 +73,7 @@ def flow(
     fs: Option[FsTool] = None,
     prompts: Prompts = DefaultPrompts,
     pricing: PriceList = Pricing.default
-)(body: FlowContext ?=> Unit): Unit =
+)(body: FlowControl ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose.value
   // Per-run trace file: captures every stage, prompt, tool/subprocess call and
   // result at DEBUG. Started before anything logs so the whole run is caught;
@@ -99,16 +111,31 @@ def flow(
               new LoggingListener
             ) ++ extraListeners
           )
+          // Resolve the git tool up-front: the lifecycle's setup (stash, branch
+          // checkout, header commit) and teardown (cleanup, restore) run before
+          // and after the body, outside any user stage, so they need git
+          // directly. The same instance is handed to the context.
+          val effectiveGit = git.getOrElse(new OsGitTool(workDir, dispatcher))
+          val setup = flowSetup(
+            args,
+            llm,
+            workDir,
+            effectiveGit,
+            branchNaming,
+            progressStore
+          )
           val ctx = DefaultFlowContext.withDefaults(
             userPrompt = args.userPrompt,
             dispatcher = dispatcher,
             workDir = workDir,
             interaction = effectiveInteraction,
+            progressStore = setup.store,
+            featureBranch = setup.featureBranch,
             claude = claude,
             opencode = opencode,
             opencodeLauncher = opencodeLauncher,
             pi = pi,
-            git = git,
+            git = Some(effectiveGit),
             gh = gh,
             fs = fs,
             prompts = prompts
@@ -120,7 +147,9 @@ def flow(
           // re-report it here. The stack goes to the trace file only (DEBUG,
           // below the console's WARN threshold); `--verbose` also prints it to
           // stderr.
-          try body(using ctx)
+          try
+            body(using ctx)
+            flowTeardownSuccess(effectiveGit, setup)
           catch
             case NonFatal(e) =>
               val alreadyEmitted = e match
@@ -130,6 +159,7 @@ def flow(
                 ctx.emit(OrcaEvent.Error(throwableMessage(e)))
               flowLog.debug("flow aborted", e)
               if debug then e.printStackTrace(System.err)
+              flowTeardownFailure(effectiveGit)
               throw e
         finally effectiveInteraction.close()
     catch
@@ -146,6 +176,80 @@ def flow(
     // Detach the trace appender. Idempotent — the error path above already
     // finished it before exiting.
     orcaLog.finish()
+
+/** Outcome of [[flowSetup]]: the resolved progress store, the feature branch
+  * the run is bound to, and the starting branch to restore on success.
+  */
+private case class FlowSetup(
+    store: ProgressStore,
+    featureBranch: String,
+    startBranch: String
+)
+
+/** Bind the run to a branch + progress log before the body runs (ADR 0018
+  * §2.5). Records the starting branch, stashes a dirty tree, then either
+  * resumes an existing log (checkout its recorded branch) or starts fresh
+  * (resolve a branch name, create it, write + commit the header). All git/store
+  * mutations run with a runtime-minted `InStage` — setup is privileged,
+  * predating any user stage.
+  *
+  * Header *validation* (R30/R32) and prompt-shortening branch naming are
+  * deferred (ADR 0018 §2.5 OUT); the default strategy slugs the prompt.
+  */
+private def flowSetup(
+    args: OrcaArgs,
+    llm: LlmTool[?],
+    workDir: os.Path,
+    git: GitTool,
+    branchNaming: Option[BranchNamingStrategy],
+    progressStore: Option[ProgressStore]
+): FlowSetup =
+  given InStage = InStage.unsafe
+  val startBranch = git.currentBranch()
+  val _ = git.ensureClean("orca: starting flow")
+  val store =
+    progressStore.getOrElse(ProgressStore.default(workDir, args.userPrompt))
+  store.load() match
+    case Some(log) =>
+      // Resume: the branch name lives in the committed header.
+      git.checkoutOrCreate(log.header.branch)
+      FlowSetup(store, log.header.branch, startBranch)
+    case None =>
+      // Fresh run: resolve + create the branch, then commit the header so it is
+      // the branch's first commit.
+      val strategy =
+        branchNaming.getOrElse(BranchNamingStrategy.fromText(args.userPrompt))
+      val branch = strategy.resolve(args.userPrompt, llm)
+      git.checkoutOrCreate(branch)
+      store.writeHeader(
+        ProgressHeader(
+          startingBranch = startBranch,
+          branch = branch,
+          promptHash = ProgressStore.hashPrompt(args.userPrompt)
+        )
+      )
+      git.forceAdd(Seq(store.path))
+      val _ = git.commit("orca: progress log")
+      FlowSetup(store, branch, startBranch)
+
+/** Successful teardown (ADR 0018 §2.5): remove the progress-log file in a final
+  * commit so a merged branch is clean, then return to the starting branch.
+  * Throwaway-branch auto-delete (R5) is deferred.
+  */
+private def flowTeardownSuccess(git: GitTool, setup: FlowSetup): Unit =
+  if os.exists(setup.store.path) then
+    val _ = os.remove(setup.store.path)
+  // `add -A` in commit picks up the removal; NothingToCommit means it was
+  // already gone (e.g. never committed) — harmless.
+  val _ = git.commit("orca: remove progress log")
+  git.checkoutOrCreate(setup.startBranch)
+
+/** Failure teardown (ADR 0018 §2.5): discard the failed stage's uncommitted
+  * partial edits with `git reset --hard` (which restores the last committed
+  * log), and stay on the feature branch so the next run resumes in place.
+  */
+private def flowTeardownFailure(git: GitTool): Unit =
+  git.resetHard()
 
 private def installUncaughtExceptionHandler(): Unit =
   // Idempotent across nested or repeated `flow(...)` calls — we only install

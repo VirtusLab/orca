@@ -12,17 +12,22 @@ class FlowTest extends munit.FunSuite:
       val _ = seen.updateAndGet(event :: _)
     def events: List[OrcaEvent] = seen.get().reverse
 
-  private def fixture: (RecordingListener, FlowContext) =
+  private def fixture: (RecordingListener, FlowControl) =
     val listener = new RecordingListener
-    (listener, new TestFlowContext(new EventDispatcher(List(listener))))
+    val (control, _) =
+      TestFlowControl.create(new EventDispatcher(List(listener)))
+    (listener, control)
 
   test("stage emits StageStarted then StageCompleted around the body"):
     val (listener, ctx) = fixture
-    given FlowContext = ctx
-    val result = stage("plan") { 7 }
+    given FlowControl = ctx
+    val result = stage("plan")(7)
     assertEquals(result, 7)
     assertEquals(
-      listener.events,
+      listener.events.collect {
+        case e: OrcaEvent.StageStarted   => e
+        case e: OrcaEvent.StageCompleted => e
+      },
       List(
         OrcaEvent.StageStarted("plan"),
         OrcaEvent.StageCompleted("plan")
@@ -31,9 +36,9 @@ class FlowTest extends munit.FunSuite:
 
   test("stage emits Error and re-raises when the body throws"):
     val (listener, ctx) = fixture
-    given FlowContext = ctx
+    given FlowControl = ctx
     val _ = intercept[RuntimeException]:
-      stage("risky") { throw new RuntimeException("kaboom") }
+      stage[String]("risky")(throw new RuntimeException("kaboom"))
     assert(
       listener.events.exists {
         case OrcaEvent.Error(msg) =>
@@ -49,9 +54,9 @@ class FlowTest extends munit.FunSuite:
 
   test("stage does not double-emit Error when the body calls fail"):
     val (listener, ctx) = fixture
-    given FlowContext = ctx
+    given FlowControl = ctx
     val _ = intercept[OrcaFlowException]:
-      stage("plan") { orca.fail("already emitted")(using ctx) }
+      stage[String]("plan")(orca.fail("already emitted")(using ctx))
     val errors = listener.events.collect { case e: OrcaEvent.Error => e }
     assertEquals(errors, List(OrcaEvent.Error("already emitted")))
 
@@ -66,11 +71,17 @@ class FlowTest extends munit.FunSuite:
     // stage catch must surface them or the user sees `exit 1` with no
     // diagnostic.
     val (listener, ctx) = fixture
-    given FlowContext = ctx
+    given FlowControl = ctx
     val _ = intercept[OrcaFlowException]:
-      stage("tool-call") { throw new OrcaFlowException("git push failed") }
+      stage[String]("tool-call")(throw new OrcaFlowException("git push failed"))
     val errors = listener.events.collect { case e: OrcaEvent.Error => e }
     assertEquals(
       errors,
       List(OrcaEvent.Error("Stage 'tool-call' failed: git push failed"))
     )
+
+  test("display emits a Step without a stage or commit"):
+    val (listener, ctx) = fixture
+    given FlowControl = ctx
+    display("just a note")
+    assertEquals(listener.events, List(OrcaEvent.Step("just a note")))

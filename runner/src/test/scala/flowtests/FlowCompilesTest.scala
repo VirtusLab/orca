@@ -20,6 +20,17 @@ import orca.{*, given}
 // failure, referenced by name in `examples/implement-enhanced.sc`. Pinning it
 // here keeps the "import it explicitly" requirement honest.
 import orca.tools.PrAlreadyExists
+import orca.llm.{
+  Announce,
+  AutonomousTextCall,
+  BackendTag,
+  ClaudeTool,
+  JsonData as LlmJsonData,
+  LlmCall,
+  LlmConfig,
+  SessionId,
+  ToolSet
+}
 
 case class PlanTask(branchName: String, description: String) derives JsonData
 case class FlowPlan(tasks: List[PlanTask]) derives JsonData
@@ -27,11 +38,33 @@ case class BranchSlug(name: String) derives JsonData
 
 object FlowCanary:
 
+  /** The leading model is now a mandatory `flow(...)` argument (ADR 0018 §2.5,
+    * R31). Real scripts pass `claude`; the canary passes this stub so the
+    * mandatory-llm shape is exercised without a live backend. Inside the body
+    * the `claude` accessor still resolves against the flow context.
+    */
+  private val leadModel: ClaudeTool = new ClaudeTool:
+    val name = "canary"
+    def haiku = this
+    def sonnet = this
+    def opus = this
+    def fable = this
+    def withNetworkTools(t: Seq[String]) = this
+    def withConfig(c: LlmConfig) = this
+    def withSystemPrompt(p: String) = this
+    def withName(n: String) = this
+    def withTools(tools: ToolSet) = this
+    def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
+      throw new UnsupportedOperationException
+    def resultAs[O: LlmJsonData: Announce]
+        : LlmCall[BackendTag.ClaudeCode.type, O] =
+      throw new UnsupportedOperationException
+
   /** Structured output via `derives JsonData` must be reachable through the
     * `resultAs[O]` path without any extra imports.
     */
   def structuredResult(): Unit =
-    flow(OrcaArgs()):
+    flow(OrcaArgs(), leadModel):
       stage("plan"):
         val session = claude.newSession
         val _ = claude.resultAs[FlowPlan].interactive.run(userPrompt, session)
@@ -43,7 +76,7 @@ object FlowCanary:
     * promises for per-task implementation.
     */
   def continuedSession(): Unit =
-    flow(OrcaArgs()):
+    flow(OrcaArgs(), leadModel):
       stage("impl"):
         val session = claude.newSession
         val _ = claude.autonomous.run("kick off", session)
@@ -53,7 +86,7 @@ object FlowCanary:
   /** Every top-level accessor must resolve from `import orca.*` alone.
     */
   def accessors(): Unit =
-    flow(OrcaArgs()):
+    flow(OrcaArgs(), leadModel):
       stage("tools"):
         val _ = git.createBranch("x")
         val _ = git.commit("msg")
@@ -68,11 +101,11 @@ object FlowCanary:
           LlmConfig.default.copy(model = Some(Model("gpt-5.5")))
         )
 
-  /** Review-and-fix loop; pulls in `allReviewers` and the internal `stage`/fork
-    * machinery.
+  /** Review-and-fix loop; pulls in `allReviewers` and the internal `display`/
+    * fork machinery (which now runs under the caller's stage).
     */
   def reviewLoop(): Unit =
-    flow(OrcaArgs()):
+    flow(OrcaArgs(), leadModel):
       val (sessionId, plan) = stage("plan"):
         claude.resultAs[FlowPlan].interactive.run(userPrompt)
       for task <- plan.tasks do
@@ -92,7 +125,7 @@ object FlowCanary:
     * `flow(args = ..., workDir = ...)` straight from `import orca.*`.
     */
   def configured(): Unit =
-    flow(args = OrcaArgs("hello"), workDir = os.pwd):
+    flow(args = OrcaArgs("hello"), llm = leadModel, workDir = os.pwd):
       stage("cfg"):
         val _ = claude.autonomous.run(userPrompt)
 
@@ -101,7 +134,7 @@ object FlowCanary:
     * Array[String]`.
     */
   def fromCliArgs(args: Array[String]): Unit =
-    flow(OrcaArgs(args)):
+    flow(OrcaArgs(args), leadModel):
       stage("start"):
         val _ = claude.autonomous.run(userPrompt)
 
@@ -111,7 +144,7 @@ object FlowCanary:
     * surfaces in this test instead of at the next live run.
     */
   def summarisePrSurface(): Unit =
-    flow(OrcaArgs()):
+    flow(OrcaArgs(), leadModel):
       stage("pr"):
         val summary: PrSummary = summarisePr(
           llm = claude.haiku,
@@ -125,7 +158,7 @@ object FlowCanary:
     * `examples/`. If any of these signatures move, the canary fails.
     */
   def issueAndPrSurface(): Unit =
-    flow(OrcaArgs()):
+    flow(OrcaArgs(), leadModel):
       stage("gh"):
         val issueHandle = IssueHandle.parseOrThrow("acme/widgets#7")
         val _: Either[String, IssueHandle] = IssueHandle.parse("acme/widgets#7")
@@ -140,21 +173,14 @@ object FlowCanary:
         gh.updatePr(pr, "new title", "new body")
 
   /** Branch + PR surface — exercised by `examples/implement-enhanced.sc`. Pins
-    * the resumable-branch ops (`recover` guard, `ensureClean`,
-    * `checkoutOrCreate`, `currentBranch`, `checkout`), the `createPr` `Either`
-    * with its recoverable `PrAlreadyExists`, and the merge-base diff that feeds
-    * `summarisePr`. A signature drift surfaces here instead of at the next live
-    * run.
+    * the branch ops the runtime still exposes to flow scripts and the
+    * `createPr` `Either` with its recoverable `PrAlreadyExists`. The manual
+    * `Plan.recover`/`ensureClean`/`checkoutOrCreate` resume guard is gone — the
+    * flow runtime now owns branch + resume (ADR 0018 §2.5); the per-flow
+    * branching ceremony is restored in Epic F's example conversion.
     */
   def branchAndPrSurface(): Unit =
-    flow(OrcaArgs()):
-      val planFile = Plan.defaultPath(userPrompt)
-      val startBranch = git.currentBranch()
-      if Plan.recover(planFile).isEmpty then
-        val _ = git.ensureClean("orca: pre-implement stash")
-        val branch =
-          claude.haiku.resultAs[BranchSlug].autonomous.run(userPrompt)._2.name
-        git.checkoutOrCreate(branch)
+    flow(OrcaArgs(), leadModel):
       stage("pr"):
         git.push().orThrow
         val summary = summarisePr(
@@ -165,7 +191,6 @@ object FlowCanary:
           case Left(_: PrAlreadyExists) => ()
           case Left(e)                  => throw e
           case Right(_)                 => ()
-        git.checkout(startBranch).orThrow
 
   /** Planning grid surface; exercised across `examples/`. Pins the full `mode ×
     * operation` grid: every cell returns `Sessioned[B, <result>]` where the
@@ -174,7 +199,7 @@ object FlowCanary:
     * rename/case removal surfaces here instead of at the next live run.
     */
   def planningGridSurface(): Unit =
-    flow(OrcaArgs()):
+    flow(OrcaArgs(), leadModel):
       stage("grid"):
         // --- from → Sessioned[B, Plan], both modes ---
         val autoFrom: Sessioned[?, Plan] =
@@ -218,14 +243,15 @@ object FlowCanary:
           case Triage.Untestable(_, _)  => ()
           case Triage.Testable(_, _, _) => ()
 
-  /** Post-planning steps (`reviewed` / `briefed`) and the brief-aware
-    * persistence surface — exercised by `examples/implement-enhanced.sc`. Pins
-    * that the `Sessioned[B, Plan]` / `Sessioned[B, PlanWithBrief]` extensions
-    * resolve through `import orca.*` alone (implicit scope = the `Plan` /
-    * `PlanWithBrief` companions), and that both step orders type-check.
+  /** Post-planning steps (`reviewed` / `briefed`) — exercised by
+    * `examples/implement-enhanced.sc`. Pins that the `Sessioned[B, Plan]` /
+    * `Sessioned[B, PlanWithBrief]` extensions resolve through `import orca.*`
+    * alone, and that both step orders type-check. The `Plan.recoverOrCreate` /
+    * `implementTaskLoop` persistence calls are gone — resume is now the stage
+    * log (ADR 0018 §2.8); a per-task `stage(...)` loop is restored in Epic F.
     */
   def planReviewAndBriefSurface(): Unit =
-    flow(OrcaArgs()):
+    flow(OrcaArgs(), leadModel):
       stage("review+brief"):
         // review-then-brief and brief-then-review both yield a PlanWithBrief.
         val reviewedThenBriefed: Sessioned[?, PlanWithBrief] =
@@ -244,9 +270,8 @@ object FlowCanary:
           Plan.autonomous.from(userPrompt, claude).reviewed(claude)
         val _ = reviewedOnly
 
-        val planFile = Plan.defaultPath(userPrompt)
-        val plan: PlanLike =
-          Plan.recoverOrCreate(planFile)(reviewedThenBriefed.value)
-        Plan.implementTaskLoop(planFile, plan): task =>
-          val _ =
-            claude.autonomous.run(plan.taskPrompt(task), claude.newSession)
+        val plan: PlanLike = reviewedThenBriefed.value
+        for task <- plan.tasks do
+          stage(s"task: ${task.title.value}"):
+            val _ =
+              claude.autonomous.run(plan.taskPrompt(task), claude.newSession)

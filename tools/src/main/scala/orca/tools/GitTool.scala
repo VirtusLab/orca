@@ -102,6 +102,14 @@ trait GitTool:
     */
   def commit(message: String): Either[NothingToCommit, Unit]
 
+  /** Force-stage the given paths (`git add -f`), bypassing `.gitignore`. The
+    * stage runtime uses this to stage its progress-log file even when the
+    * project gitignores `.orca/`, so the log travels with the branch (ADR 0018
+    * §2.1, R8). Always a single explicit path list — never a glob or directory
+    * — so nothing else gitignored is swept in.
+    */
+  def forceAdd(paths: Seq[os.Path]): Unit
+
   /** Push the current branch, setting upstream on first push. Returns
     * `Left(PushRejected)` when the remote rejected as non-fast-forward (caller
     * can fetch + rebase). Other failures (auth, network) throw.
@@ -109,6 +117,14 @@ trait GitTool:
   def push(): Either[PushRejected, Unit]
 
   def currentBranch(): String
+
+  /** Discard all uncommitted changes, resetting the working tree and index to
+    * `HEAD` (`git reset --hard`). Used by the flow failure teardown to drop a
+    * failed stage's partial edits while keeping the committed history (and the
+    * committed progress log) intact, so a re-run resumes cleanly (ADR 0018
+    * §2.5).
+    */
+  def resetHard(): Unit
 
   /** All changes since the last commit (staged and unstaged). */
   def diff(): String
@@ -235,6 +251,10 @@ private[orca] class OsGitTool(
       events.onEvent(OrcaEvent.Step(s"Committed: $message"))
       Right(())
 
+  def forceAdd(paths: Seq[os.Path]): Unit =
+    if paths.nonEmpty then
+      val _ = git(("add" +: "-f" +: paths.map(_.toString))*)
+
   /** Like [[git]] but on non-zero exit throws an `OrcaFlowException` enriched
     * with a `git status --porcelain` + `git fsck --no-progress` snapshot. Used
     * by the commit path where a bare stderr line ("unable to read tree X") is
@@ -295,6 +315,12 @@ private[orca] class OsGitTool(
 
   def currentBranch(): String =
     git("rev-parse", "--abbrev-ref", "HEAD").trim
+
+  def resetHard(): Unit =
+    val _ = git("reset", "--hard")
+    events.onEvent(
+      OrcaEvent.Step("Discarded uncommitted changes (reset --hard)")
+    )
 
   def diff(): String =
     // vs HEAD: show both staged and unstaged changes since the last commit.

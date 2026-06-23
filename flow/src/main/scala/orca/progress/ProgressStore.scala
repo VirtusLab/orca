@@ -15,6 +15,11 @@ import scala.util.control.NonFatal
   * is the guard.
   */
 trait ProgressStore:
+  /** The on-disk path of this store's JSON file. The stage commit force-adds
+    * this single path so the log is committed even when `.orca/` is gitignored.
+    */
+  def path: os.Path
+
   def load(): Option[ProgressLog]
   def writeHeader(header: ProgressHeader)(using InStage): Unit
 
@@ -37,15 +42,16 @@ object ProgressStore:
     )
 
   /** First 6 bytes of SHA-256(userPrompt) rendered as 12 hex chars. Mirrors the
-    * same logic in `Plan.hashUserPrompt` — kept private here so neither calls
-    * the other.
+    * same logic in `Plan.hashUserPrompt` — kept package-private here so the
+    * flow lifecycle can stamp the same hash into the progress header (ADR 0018
+    * §2.4), without either calling the other.
     */
-  private def hashPrompt(userPrompt: String): String =
+  private[orca] def hashPrompt(userPrompt: String): String =
     val md = java.security.MessageDigest.getInstance("SHA-256")
     val digest = md.digest(userPrompt.getBytes("UTF-8"))
     digest.iterator.take(6).map(b => f"${b & 0xff}%02x").mkString
 
-private class OsProgressStore(path: os.Path) extends ProgressStore:
+private class OsProgressStore(val path: os.Path) extends ProgressStore:
 
   private val codec = summon[JsonData[ProgressLog]].codec
 

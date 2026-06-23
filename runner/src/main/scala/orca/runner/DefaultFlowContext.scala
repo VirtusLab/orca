@@ -1,6 +1,7 @@
 package orca.runner
 
-import orca.{FlowContext}
+import orca.FlowControl
+import orca.progress.ProgressStore
 import orca.tools.{GitTool}
 import orca.tools.{GitHubTool}
 import orca.tools.{FsTool}
@@ -45,10 +46,29 @@ private[orca] class DefaultFlowContext(
     val gemini: GeminiTool,
     val git: GitTool,
     val gh: GitHubTool,
-    val fs: FsTool
-) extends FlowContext:
+    val fs: FsTool,
+    val progressStore: ProgressStore,
+    val featureBranch: String
+) extends FlowControl:
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
+
+  // Per-run occurrence counter. A ConcurrentHashMap + AtomicInteger is pure
+  // atomic state (no class-level `var`); stages run sequentially, so this is
+  // really just sequential bookkeeping made safe by construction.
+  private val occurrences =
+    new java.util.concurrent.ConcurrentHashMap[
+      String,
+      java.util.concurrent.atomic.AtomicInteger
+    ]
+
+  def nextOccurrence(stageName: String): Int =
+    occurrences
+      .computeIfAbsent(
+        stageName,
+        _ => new java.util.concurrent.atomic.AtomicInteger(0)
+      )
+      .getAndIncrement()
 
 private[orca] object DefaultFlowContext:
 
@@ -60,6 +80,8 @@ private[orca] object DefaultFlowContext:
       dispatcher: EventDispatcher,
       workDir: os.Path,
       interaction: Interaction,
+      progressStore: ProgressStore,
+      featureBranch: String,
       claude: Option[ClaudeTool] = None,
       codex: Option[CodexTool] = None,
       opencode: Option[OpencodeTool] = None,
@@ -135,5 +157,7 @@ private[orca] object DefaultFlowContext:
       gh = gh.getOrElse(
         new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
       ),
-      fs = fs.getOrElse(new OsFsTool(workDir))
+      fs = fs.getOrElse(new OsFsTool(workDir)),
+      progressStore = progressStore,
+      featureBranch = featureBranch
     )

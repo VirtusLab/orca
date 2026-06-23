@@ -1,5 +1,7 @@
 package orca
 
+import orca.progress.ProgressStore
+
 /** Marker capability: the holder is permitted to start a new stage.
   *
   * `FlowControl` is a subtype of [[FlowContext]] so that any code requiring
@@ -15,7 +17,21 @@ package orca
   * module, which depends on `flow`, not the reverse. This is an accepted
   * guard-rail — the open trait is not part of the public extension surface.
   *
-  * Today it carries no extra members; the `stage` primitive (task B2) will
-  * require `(using FlowControl)` and `flow` will supply it.
+  * Carries the run-state the `stage` primitive needs: the progress store to
+  * read/append against, the resolved feature branch the run is bound to, and a
+  * per-run occurrence counter that disambiguates same-named stages (ADR 0018
+  * §2.1). `stage` requires `(using FlowControl)`; `flow` supplies it.
   */
-trait FlowControl extends FlowContext
+trait FlowControl extends FlowContext:
+  /** The store backing this run's progress log. */
+  def progressStore: ProgressStore
+
+  /** The resolved feature-branch name this run is bound to. */
+  def featureBranch: String
+
+  /** Next occurrence index for a stage `name` in this run: 0 for the first
+    * `stage(name)`, 1 for the second, and so on. Stages run sequentially, so
+    * this is plain per-run bookkeeping. Used to build a stage id (`name#index`)
+    * that is stable against inserting/removing *other* stages between runs.
+    */
+  def nextOccurrence(stageName: String): Int

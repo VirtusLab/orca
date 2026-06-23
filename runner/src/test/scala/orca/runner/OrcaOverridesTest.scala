@@ -24,6 +24,10 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 
 class OrcaOverridesTest extends munit.FunSuite:
 
+  // A leading model is now mandatory for `flow(...)` (ADR 0018 §2.5); these
+  // tests assert tool-override wiring, not LLM behaviour, so they pass a stub.
+  private val stubLlm: ClaudeTool = StubLlm.claude
+
   test("flow uses a custom FsTool when supplied"):
     val fake = new FsTool:
       def read(path: String): Option[String] = Some("canned content")
@@ -36,7 +40,13 @@ class OrcaOverridesTest extends munit.FunSuite:
         useColor = false,
         animated = false
       )
-      flow(args = OrcaArgs(), fs = Some(fake), interaction = Some(interaction)):
+      flow(
+        args = OrcaArgs(),
+        llm = stubLlm,
+        workDir = TempRepo.create(),
+        fs = Some(fake),
+        interaction = Some(interaction)
+      ):
         observed = fs.read("ignored")
     assertEquals(observed, Some("canned content"))
 
@@ -73,6 +83,8 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        llm = fakeClaude,
+        workDir = TempRepo.create(),
         claude = Some(fakeClaude),
         interaction = Some(interaction)
       ):
@@ -113,6 +125,8 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        llm = stubLlm,
+        workDir = TempRepo.create(),
         opencode = Some(fakeOpencode),
         interaction = Some(interaction)
       ):
@@ -146,6 +160,8 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        llm = stubLlm,
+        workDir = TempRepo.create(),
         pi = Some(fakePi),
         interaction = Some(interaction)
       ):
@@ -163,6 +179,8 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        llm = stubLlm,
+        workDir = TempRepo.create(),
         interaction = Some(interaction),
         extraListeners = List(tracker)
       ):

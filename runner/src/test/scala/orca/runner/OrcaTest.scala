@@ -22,7 +22,12 @@ class OrcaTest extends munit.FunSuite:
         useColor = false,
         animated = false
       )
-      flow(args = OrcaArgs("hello world"), interaction = Some(interaction)):
+      flow(
+        args = OrcaArgs("hello world"),
+        llm = StubLlm.claude,
+        workDir = TempRepo.create(),
+        interaction = Some(interaction)
+      ):
         seen = userPrompt
     assertEquals(seen, "hello world")
 
@@ -34,7 +39,12 @@ class OrcaTest extends munit.FunSuite:
         useColor = false,
         animated = false
       )
-      flow(args = OrcaArgs(), interaction = Some(interaction)):
+      flow(
+        args = OrcaArgs(),
+        llm = StubLlm.claude,
+        workDir = TempRepo.create(),
+        interaction = Some(interaction)
+      ):
         summon[FlowContext].emit(OrcaEvent.StageStarted("plan"))
     // By the time the outer supervised exits, the interaction's worker has
     // drained — `flow`'s finally closes the channel, and the supervised

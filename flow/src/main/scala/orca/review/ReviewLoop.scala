@@ -39,27 +39,29 @@ def fixLoop(
     case Stop(addIgnored: IgnoredIssues)
 
   def runIteration(iteration: Int): Step =
-    orca.stage(s"Iteration ${iteration + 1}"):
-      val issues = evaluate().issues
-      if issues.isEmpty then
-        emitStep("No review comments")
-        Step.Stop(IgnoredIssues(Nil))
-      else if iteration >= maxIterations then
-        emitStep(s"Reached max iterations ($maxIterations); bailing out")
-        Step.Stop(
-          IgnoredIssues(
-            issues.map(i =>
-              IgnoredIssue(i.title, s"max iterations ($maxIterations) reached")
-            )
+    // A progress marker, not a committing stage: this runs under the caller's
+    // task stage (ADR 0018 §2.2), so it must not open its own stage.
+    orca.display(s"Iteration ${iteration + 1}")
+    val issues = evaluate().issues
+    if issues.isEmpty then
+      emitStep("No review comments")
+      Step.Stop(IgnoredIssues(Nil))
+    else if iteration >= maxIterations then
+      emitStep(s"Reached max iterations ($maxIterations); bailing out")
+      Step.Stop(
+        IgnoredIssues(
+          issues.map(i =>
+            IgnoredIssue(i.title, s"max iterations ($maxIterations) reached")
           )
         )
-      else
-        val outcome = fix(issues)
-        emitStep(
-          s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}"
-        )
-        if outcome.fixed.isEmpty then Step.Stop(IgnoredIssues(outcome.ignored))
-        else Step.Continue(IgnoredIssues(outcome.ignored))
+      )
+    else
+      val outcome = fix(issues)
+      emitStep(
+        s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}"
+      )
+      if outcome.fixed.isEmpty then Step.Stop(IgnoredIssues(outcome.ignored))
+      else Step.Continue(IgnoredIssues(outcome.ignored))
 
   @scala.annotation.tailrec
   def loop(accumulated: IgnoredIssues, iteration: Int): IgnoredIssues =
@@ -382,14 +384,14 @@ def reviewAndFixLoop[B <: BackendTag](
       )
       ._2
 
-  // The stage doesn't repeat `task` in its label — the enclosing
-  // implement-task stage already names it.
-  orca.stage("Review & fix"):
-    fixLoop(
-      evaluate = () => evaluate(),
-      fix = fix,
-      maxIterations = maxIterations
-    )
+  // A progress marker, not a committing stage: the enclosing implement-task
+  // stage already names the work and owns the commit (ADR 0018 §2.2).
+  orca.display("Review & fix")
+  fixLoop(
+    evaluate = () => evaluate(),
+    fix = fix,
+    maxIterations = maxIterations
+  )
 
 private[review] object ReviewLoop:
   /** Parse a unified diff and return the changed file paths (the `b/` side of

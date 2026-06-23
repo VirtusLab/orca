@@ -48,9 +48,12 @@ class OpencodeFlowTest extends munit.FunSuite:
         useColor = false,
         animated = false
       )
+      val canned = new CannedOpencode(samplePlan)
       flow(
         args = OrcaArgs(),
-        opencode = Some(new CannedOpencode(samplePlan)),
+        llm = canned,
+        workDir = TempRepo.create(),
+        opencode = Some(canned),
         interaction = Some(interaction)
       ):
         observed = Some(
