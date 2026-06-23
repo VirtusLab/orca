@@ -101,7 +101,7 @@ trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
   def opus: ClaudeTool
   def fable: ClaudeTool
 
-  override def cheap: LlmTool[BackendTag.ClaudeCode.type] = haiku
+  override def cheap: ClaudeTool = haiku
 
   /** Set the read-only network allowlist used on [[ToolSet.NetworkOnly]] turns
     * (claude `--allowedTools` syntax, e.g. `Bash(gh api:*)`, `WebFetch`).
@@ -114,7 +114,7 @@ trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
 trait CodexTool extends LlmTool[BackendTag.Codex.type]:
   def mini: CodexTool
 
-  override def cheap: LlmTool[BackendTag.Codex.type] = mini
+  override def cheap: CodexTool = mini
 
 /** OpenCode spans providers, so its model accessors are provider-prefixed (the
   * prefix keeps the vendor explicit at the call site). [[withModel]] takes any
@@ -128,7 +128,7 @@ trait OpencodeTool extends LlmTool[BackendTag.Opencode.type]:
   def openaiGpt5Codex: OpencodeTool
   def openaiGpt5Mini: OpencodeTool
 
-  override def cheap: LlmTool[BackendTag.Opencode.type] = anthropicHaiku
+  override def cheap: OpencodeTool = anthropicHaiku
 
   /** Pin any `provider/model` id (e.g. `ollama/llama3.1`, `myhost/qwen-coder`).
     */
@@ -149,7 +149,7 @@ trait GeminiTool extends LlmTool[BackendTag.Gemini.type]:
     */
   def flash: GeminiTool
 
-  override def cheap: LlmTool[BackendTag.Gemini.type] = flash
+  override def cheap: GeminiTool = flash
 
 /** Free-form text autonomous calls — the `LlmTool.autonomous` shape. Single
   * method: pass a [[SessionId]] (typically from [[LlmTool.newSession]] or the
