@@ -1,7 +1,14 @@
 package orca
 
 import orca.events.{EventDispatcher, OrcaEvent}
-import orca.llm.{ClaudeTool, CodexTool, GeminiTool, OpencodeTool, PiTool}
+import orca.llm.{
+  ClaudeTool,
+  CodexTool,
+  GeminiTool,
+  LlmTool,
+  OpencodeTool,
+  PiTool
+}
 import orca.progress.{ProgressHeader, ProgressStore}
 import orca.tools.FsTool
 import orca.tools.GitTool
@@ -23,6 +30,7 @@ class TestFlowContext(
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowContext")
 
+  lazy val llm: LlmTool[?] = stub("llm")
   lazy val claude: ClaudeTool = stub("claude")
   lazy val codex: CodexTool = stub("codex")
   lazy val opencode: OpencodeTool = stub("opencode")
@@ -48,6 +56,7 @@ class TestFlowControl(
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowControl")
 
+  lazy val llm: LlmTool[?] = stub("llm")
   lazy val claude: ClaudeTool = stub("claude")
   lazy val codex: CodexTool = stub("codex")
   lazy val opencode: OpencodeTool = stub("opencode")

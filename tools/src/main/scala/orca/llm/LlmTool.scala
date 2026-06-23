@@ -63,6 +63,12 @@ trait LlmTool[B <: BackendTag]:
     */
   def withNetworkOnly: LlmTool[B] = withTools(ToolSet.NetworkOnly)
 
+  /** A cheaper/faster variant of this model for incidental work (commit-message
+    * summaries, reviewer selection, prompt shortening). Defaults to `this` when
+    * a backend has no cheaper tier.
+    */
+  def cheap: LlmTool[B] = this
+
   /** Return a sibling tool that manages git itself — flips
     * [[LlmConfig.selfManagedGit]] on, suppressing the standing "runtime owns
     * git" rule the runtime otherwise injects (don't `git commit`/`push`/branch;
@@ -95,6 +101,8 @@ trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
   def opus: ClaudeTool
   def fable: ClaudeTool
 
+  override def cheap: LlmTool[BackendTag.ClaudeCode.type] = haiku
+
   /** Set the read-only network allowlist used on [[ToolSet.NetworkOnly]] turns
     * (claude `--allowedTools` syntax, e.g. `Bash(gh api:*)`, `WebFetch`).
     * Claude-specific, so it's here rather than on `LlmConfig`; defaults to
@@ -105,6 +113,8 @@ trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
 
 trait CodexTool extends LlmTool[BackendTag.Codex.type]:
   def mini: CodexTool
+
+  override def cheap: LlmTool[BackendTag.Codex.type] = mini
 
 /** OpenCode spans providers, so its model accessors are provider-prefixed (the
   * prefix keeps the vendor explicit at the call site). [[withModel]] takes any
@@ -117,6 +127,8 @@ trait OpencodeTool extends LlmTool[BackendTag.Opencode.type]:
   def openaiGpt5: OpencodeTool
   def openaiGpt5Codex: OpencodeTool
   def openaiGpt5Mini: OpencodeTool
+
+  override def cheap: LlmTool[BackendTag.Opencode.type] = anthropicHaiku
 
   /** Pin any `provider/model` id (e.g. `ollama/llama3.1`, `myhost/qwen-coder`).
     */
@@ -136,6 +148,8 @@ trait GeminiTool extends LlmTool[BackendTag.Gemini.type]:
     * wiring); `gemini.flash` opts down for cheap one-shots.
     */
   def flash: GeminiTool
+
+  override def cheap: LlmTool[BackendTag.Gemini.type] = flash
 
 /** Free-form text autonomous calls — the `LlmTool.autonomous` shape. Single
   * method: pass a [[SessionId]] (typically from [[LlmTool.newSession]] or the

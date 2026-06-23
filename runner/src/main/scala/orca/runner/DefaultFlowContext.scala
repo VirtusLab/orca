@@ -10,6 +10,7 @@ import orca.llm.{
   CodexTool,
   GeminiTool,
   LlmConfig,
+  LlmTool,
   OpencodeTool,
   PiTool,
   Prompts
@@ -39,6 +40,7 @@ import orca.tools.OsGitHubTool
 private[orca] class DefaultFlowContext(
     val userPrompt: String,
     dispatcher: EventDispatcher,
+    val llm: LlmTool[?],
     val claude: ClaudeTool,
     val codex: CodexTool,
     val opencode: OpencodeTool,
@@ -80,6 +82,7 @@ private[orca] object DefaultFlowContext:
       workDir: os.Path,
       interaction: Interaction,
       progressStore: ProgressStore,
+      leadingLlm: LlmTool[?],
       claude: Option[ClaudeTool] = None,
       codex: Option[CodexTool] = None,
       opencode: Option[OpencodeTool] = None,
@@ -94,6 +97,7 @@ private[orca] object DefaultFlowContext:
     new DefaultFlowContext(
       userPrompt = userPrompt,
       dispatcher = dispatcher,
+      llm = leadingLlm,
       claude = claude.getOrElse(
         new DefaultClaudeTool(
           backend = new ClaudeBackend(OsProcCliRunner),

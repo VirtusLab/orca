@@ -191,6 +191,7 @@ private[orca] def runFlow(
         workDir = workDir,
         interaction = effectiveInteraction,
         progressStore = setup.store,
+        leadingLlm = llm,
         claude = claude,
         opencode = opencode,
         opencodeLauncher = opencodeLauncher,
