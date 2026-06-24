@@ -356,6 +356,60 @@ class OsGitToolTest extends munit.FunSuite:
     assert(msg.contains("(clean)"), msg)
     assert(msg.contains("(no issues reported)"), msg)
 
+  test("deleteBranch removes an existing branch"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "x")
+      git.commit("seed").orThrow
+      git.createBranch("to-delete").orThrow
+      git.checkout("main").orThrow
+      git.deleteBranch("to-delete")
+      // The branch should no longer be listed.
+      val result =
+        os.proc("git", "branch", "--list", "to-delete").call(cwd = dir)
+      assertEquals(result.out.text().trim, "")
+
+  test("deleteBranch is a no-op for a non-existent branch"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "x")
+      git.commit("seed").orThrow
+      // Must not throw — best-effort.
+      git.deleteBranch("ghost-branch")
+
+  test("deleteBranch does not delete the current branch"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "x")
+      git.commit("seed").orThrow
+      // Attempt to delete the currently checked-out branch: must silently skip.
+      git.deleteBranch("main")
+      assertEquals(git.currentBranch(), "main")
+
+  test("diffBranchExcludingOrca is empty when only .orca/ differs"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      val startBranch = git.currentBranch()
+      git.createBranch("feature/orca-only").orThrow
+      os.makeDir(dir / ".orca")
+      os.write(dir / ".orca" / "progress-abc.json", "{}")
+      git.commit("orca: progress log").orThrow
+      val diff = git.diffBranchExcludingOrca(startBranch, "feature/orca-only")
+      assert(diff.isBlank, s"expected empty diff, got: $diff")
+
+  test("diffBranchExcludingOrca is non-empty when code changes exist"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      val startBranch = git.currentBranch()
+      git.createBranch("feature/has-code").orThrow
+      os.write(dir / "feature.txt", "new feature")
+      git.commit("add feature").orThrow
+      val diff = git.diffBranchExcludingOrca(startBranch, "feature/has-code")
+      assert(!diff.isBlank, "expected non-empty diff for code changes")
+      assert(
+        diff.contains("feature.txt"),
+        "diff should mention the changed file"
+      )
+
   test("commit on a corrupted repo throws with status + fsck diagnostics"):
     // Integration check that the formatter is actually wired into the commit
     // path: corrupt the index so `git add -A` fails, then confirm the thrown

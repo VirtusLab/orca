@@ -8,12 +8,13 @@ import orca.llm.{
   LlmCall,
   LlmConfig,
   LlmTool,
+  SessionId,
   ToolSet
 }
 import orca.tools.IssueHandle
 
 /** Tests for BranchNamingStrategy.slug (security-critical) and the
-  * issue/fromText factory strategies.
+  * issue/fromText/shortenPrompt factory strategies.
   */
 class BranchNamingTest extends munit.FunSuite:
 
@@ -29,6 +30,50 @@ class BranchNamingTest extends munit.FunSuite:
     def resultAs[O: JsonData: Announce]
         : LlmCall[BackendTag.ClaudeCode.type, O] =
       throw new AssertionError("LLM must not be called")
+
+  /** Stub LLM that returns a fixed reply from `autonomous.run`. Used to test
+    * `shortenPrompt` without a real model.
+    */
+  private def stubbedLlm(reply: String): LlmTool[BackendTag.ClaudeCode.type] =
+    new LlmTool[BackendTag.ClaudeCode.type]:
+      val name: String = "stubbed"
+      def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
+        new AutonomousTextCall[BackendTag.ClaudeCode.type]:
+          def run(
+              prompt: String,
+              session: SessionId[BackendTag.ClaudeCode.type],
+              config: LlmConfig,
+              emitPrompt: Boolean
+          ): (SessionId[BackendTag.ClaudeCode.type], String) =
+            (session, reply)
+      def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
+      def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] =
+        this
+      def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
+      def withTools(t: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
+      def resultAs[O: JsonData: Announce]
+          : LlmCall[BackendTag.ClaudeCode.type, O] = ???
+
+  /** Stub LLM that throws on `autonomous.run`. */
+  private val throwingAutonomousLlm: LlmTool[BackendTag.ClaudeCode.type] =
+    new LlmTool[BackendTag.ClaudeCode.type]:
+      val name: String = "throwing-autonomous"
+      def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
+        new AutonomousTextCall[BackendTag.ClaudeCode.type]:
+          def run(
+              prompt: String,
+              session: SessionId[BackendTag.ClaudeCode.type],
+              config: LlmConfig,
+              emitPrompt: Boolean
+          ): (SessionId[BackendTag.ClaudeCode.type], String) =
+            throw new RuntimeException("LLM unavailable")
+      def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
+      def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] =
+        this
+      def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
+      def withTools(t: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
+      def resultAs[O: JsonData: Announce]
+          : LlmCall[BackendTag.ClaudeCode.type, O] = ???
 
   private given InStage = InStage.unsafe
 
@@ -179,3 +224,52 @@ class BranchNamingTest extends munit.FunSuite:
     val strategy = BranchNamingStrategy.fromText("my-feature")
     val result = strategy.resolve("should be ignored", ThrowingLlm)
     assertEquals(result, "my-feature")
+
+  // ---------------------------------------------------------------------------
+  // shortenPrompt strategy
+  // ---------------------------------------------------------------------------
+
+  test("shortenPrompt slugs the llm reply"):
+    val llm = stubbedLlm("add multiply function")
+    val result = BranchNamingStrategy.shortenPrompt.resolve(
+      "Add a multiply function to the calc",
+      llm
+    )
+    assertEquals(result, "add-multiply-function")
+
+  test(
+    "shortenPrompt: llm returns phrase with extra whitespace, still slugged"
+  ):
+    val llm = stubbedLlm("  fix login bug  ")
+    val result =
+      BranchNamingStrategy.shortenPrompt.resolve("Fix the login bug", llm)
+    assertEquals(result, "fix-login-bug")
+
+  test("shortenPrompt: llm throws -> falls back to slug(userPrompt)"):
+    val result = BranchNamingStrategy.shortenPrompt.resolve(
+      "add multiply function",
+      throwingAutonomousLlm
+    )
+    assertEquals(result, "add-multiply-function")
+
+  test(
+    "shortenPrompt: llm returns empty string -> falls back to slug(userPrompt)"
+  ):
+    val llm = stubbedLlm("")
+    val result =
+      BranchNamingStrategy.shortenPrompt.resolve("fix the login bug", llm)
+    assertEquals(result, "fix-the-login-bug")
+
+  test(
+    "shortenPrompt: llm returns blank string -> falls back to slug(userPrompt)"
+  ):
+    val llm = stubbedLlm("   ")
+    val result =
+      BranchNamingStrategy.shortenPrompt.resolve("fix the login bug", llm)
+    assertEquals(result, "fix-the-login-bug")
+
+  test("shortenPrompt: llm returns multi-line reply, uses only first line"):
+    val llm = stubbedLlm("fix login bug\nsome extra explanation")
+    val result =
+      BranchNamingStrategy.shortenPrompt.resolve("Fix login bug", llm)
+    assertEquals(result, "fix-login-bug")

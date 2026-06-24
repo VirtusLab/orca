@@ -358,7 +358,7 @@ private def flowSetup(
       // Fresh run: resolve + create the branch, then commit the header so it is
       // the branch's first commit.
       val strategy =
-        branchNaming.getOrElse(BranchNamingStrategy.fromText(args.userPrompt))
+        branchNaming.getOrElse(BranchNamingStrategy.shortenPrompt)
       val branch = strategy.resolve(args.userPrompt, llm)
       git.checkoutOrCreate(branch)
       store.writeHeader(
@@ -391,13 +391,14 @@ private[orca] def restoreLogIfMissing(
     if !os.exists(path) then os.write.over(path, bytes, createFolders = true)
 
 /** Successful teardown (ADR 0018 §2.5): remove the progress-log file in a final
-  * commit so a merged branch is clean, then return to the starting branch.
-  * Throwaway-branch auto-delete (R5) is deferred.
+  * commit so a merged branch is clean, then return to the starting branch. If
+  * the feature branch has no substantive changes vs the start branch (only orca
+  * bookkeeping), delete it (R5 throwaway-branch cleanup).
   *
-  * Errors during log removal or the cleanup commit are cosmetic — swallowed so
-  * they don't trigger the failure path. The checkout back to `startBranch` is
-  * always attempted (in a `finally`) so a cleanup error never strands the user
-  * on the feature branch.
+  * Errors during log removal, the cleanup commit, or branch deletion are
+  * cosmetic — swallowed so they don't trigger the failure path. The checkout
+  * back to `startBranch` is always attempted (in a `finally`) so a cleanup
+  * error never strands the user on the feature branch.
   */
 private def flowTeardownSuccess(git: GitTool, setup: FlowSetup): Unit =
   try
@@ -406,8 +407,8 @@ private def flowTeardownSuccess(git: GitTool, setup: FlowSetup): Unit =
     try os.remove(setup.store.path)
     catch
       case _: java.nio.file.NoSuchFileException => ()
-      // `add -A` in commit picks up the removal; NothingToCommit (a Left) means it
-      // was never committed — harmless. A genuine commit failure is swallowed too:
+      // `add -A` in commit picks up the removal; NothingToCommit (a Left) means
+      // it was never committed — harmless. A genuine commit failure is swallowed:
       // the run already succeeded, and the progress file is untracked on the
       // starting branch we are about to return to.
     try
@@ -416,6 +417,26 @@ private def flowTeardownSuccess(git: GitTool, setup: FlowSetup): Unit =
   finally
     // Always attempt to return to the starting branch, even if cleanup failed.
     git.checkoutOrCreate(setup.startBranch)
+    // R5: after returning to the start branch, delete the feature branch if it
+    // holds no substantive changes (only orca bookkeeping). Best-effort and
+    // success-path-only; never deletes start/protected branches.
+    try autoDeleteIfThrowaway(git, setup)
+    catch case NonFatal(_) => ()
+
+/** Delete the feature branch when it holds no substantive changes vs the start
+  * branch (R5). "No substantive changes" means the diff excluding the `.orca/`
+  * directory is empty — only orca bookkeeping was committed, not user code.
+  * Guards: skip when `featureBranch == startBranch` (in-place resume) and when
+  * the branch doesn't exist (already deleted or never created).
+  */
+private def autoDeleteIfThrowaway(git: GitTool, setup: FlowSetup): Unit =
+  if setup.featureBranch == setup.startBranch then ()
+  else
+    val diff = git.diffBranchExcludingOrca(
+      setup.startBranch,
+      setup.featureBranch
+    )
+    if diff.isBlank then git.deleteBranch(setup.featureBranch)
 
 /** Failure teardown (ADR 0018 §2.5): discard the failed stage's uncommitted
   * partial edits with `git reset --hard` (which restores the last committed

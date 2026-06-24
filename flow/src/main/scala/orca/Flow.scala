@@ -119,10 +119,33 @@ private def recordAndCommit[T: JsonData](
   // body's token: recording + committing the stage result is the runtime's own
   // privileged step, not part of the user body.
   given InStage = InStage.unsafe
+  // Capture the code diff BEFORE force-adding the progress file so the LLM
+  // sees only the body's substantive changes, not the orca bookkeeping.
+  val message = commitMessage.map(_(result)).getOrElse(llmCommitMessage(name))
   fc.progressStore.appendEntry(StageEntry(id, name, resultJson))
   fc.git.forceAdd(fc.progressStore.path)
-  val message = commitMessage.map(_(result)).getOrElse(s"stage: $name")
   val _ = fc.git.commit(message)
+
+/** Generate a commit message via `llm.cheap` from the current working-tree diff
+  * (R13). The diff is captured before the progress file is force-added, so it
+  * reflects only code changes the stage body produced. Falls back to `"stage:
+  * <name>"` when the diff is empty, the LLM returns blank, or any `NonFatal` is
+  * thrown — committing must never break. Only called when the caller supplied
+  * no explicit `commitMessage`.
+  */
+private def llmCommitMessage(name: String)(using fc: FlowControl): String =
+  val fallback = s"stage: $name"
+  try
+    val diff = fc.git.diff()
+    if diff.isBlank then fallback
+    else
+      val (_, text) = fc.llm.cheap.withReadOnly.autonomous.run(
+        s"Write a concise one-line git commit message (imperative mood, ≤72 chars) for this diff:\n\n$diff",
+        emitPrompt = false
+      )
+      val firstLine = text.linesIterator.nextOption().getOrElse("").trim
+      if firstLine.isBlank then fallback else firstLine
+  catch case NonFatal(_) => fallback
 
 /** A throwable's human message: its `getMessage` (or the class name when
   * blank), optionally collapsed to its first line. Shared by `stage` (first

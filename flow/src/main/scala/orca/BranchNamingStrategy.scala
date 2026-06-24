@@ -5,12 +5,10 @@ import orca.tools.IssueHandle
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
+import scala.util.control.NonFatal
 
 /** Strategy that produces a git-ref-safe feature-branch name. Resolved once per
   * flow run, inside a stage (the `InStage` token gates the call).
-  *
-  * `shortenPrompt` (condense userPrompt via llm.cheap, then slug) is deferred
-  * to Task E2 — do not add it here.
   */
 trait BranchNamingStrategy:
   /** Resolve the feature-branch name. `userPrompt` is the flow's prompt; `llm`
@@ -57,6 +55,29 @@ object BranchNamingStrategy:
     new BranchNamingStrategy:
       def resolve(userPrompt: String, llm: LlmTool[?])(using InStage): String =
         slug(text)
+
+  /** Prompt-shortening strategy (R2/R31): asks `llm.cheap` for a 3–6 word
+    * lowercase branch label, then slugs it. Falls back to `slug(userPrompt)` on
+    * any failure (LLM throws, empty/blank result) so branch naming can never
+    * break the flow. Non-deterministic — computed once and persisted in the
+    * header; never recomputed on resume.
+    */
+  val shortenPrompt: BranchNamingStrategy =
+    new BranchNamingStrategy:
+      def resolve(userPrompt: String, llm: LlmTool[?])(using InStage): String =
+        val shortened =
+          try
+            val (_, text) = llm.cheap.withReadOnly.autonomous.run(
+              s"Reply with ONLY a 3–6 word lowercase branch label (hyphen-separated, no other punctuation) that summarises this task:\n\n$userPrompt",
+              emitPrompt = false
+            )
+            val firstLine = text.linesIterator.nextOption().getOrElse("").trim
+            if firstLine.isBlank then None else Some(firstLine)
+          catch case NonFatal(_) => None
+        shortened
+          .map(s => slug(s))
+          .filter(_.nonEmpty)
+          .getOrElse(slug(userPrompt))
 
   // --------------------------------------------------------------------------
   // Private helpers

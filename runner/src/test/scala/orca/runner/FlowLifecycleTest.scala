@@ -480,6 +480,112 @@ class FlowLifecycleTest extends munit.FunSuite:
         prompts = DefaultPrompts
       )(body)
 
+  test(
+    "R5: success teardown auto-deletes feature branch when only orca commits exist"
+  ):
+    // A flow whose body does nothing besides getting staged (only the orca
+    // progress header + removal commits are on the feature branch). On success,
+    // the branch should be gone.
+    val workDir = TempRepo.create()
+    val prompt = "throwaway-flow"
+    val git = new OsGitTool(workDir)
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt),
+        leadModel = _ => StubLlm.claude,
+        workDir = workDir,
+        interaction = Some(interaction)
+      ):
+        // body does nothing — no code changes
+        summon[orca.FlowContext].emit(OrcaEvent.Step("no-op"))
+    // Back on main.
+    assertEquals(git.currentBranch(), "main")
+    // The feature branch must be gone (auto-deleted as throwaway).
+    // Verify by checking git branch list: no branch other than main exists.
+    val branches = os
+      .proc("git", "branch", "--format=%(refname:short)")
+      .call(cwd = workDir)
+      .out
+      .text()
+      .linesIterator
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .toSet
+    assertEquals(branches, Set("main"), s"expected only main, got: $branches")
+
+  test(
+    "R5: success teardown keeps feature branch when code changes exist"
+  ):
+    val workDir = TempRepo.create()
+    val prompt = "code-flow"
+    val git = new OsGitTool(workDir)
+    var featureBranchName = ""
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt),
+        leadModel = _ => StubLlm.claude,
+        workDir = workDir,
+        interaction = Some(interaction)
+      ):
+        // Record the feature branch name before it commits (during stage body).
+        featureBranchName = summon[orca.FlowContext].git.currentBranch()
+        val _ = stage("write code"):
+          os.write(workDir / "code.txt", "real code")
+          "done"
+    // Back on main, but the feature branch must still exist.
+    assertEquals(git.currentBranch(), "main")
+    assert(featureBranchName.nonEmpty, "must have captured feature branch name")
+    val branches = os
+      .proc("git", "branch", "--format=%(refname:short)")
+      .call(cwd = workDir)
+      .out
+      .text()
+      .linesIterator
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .toSet
+    assert(
+      branches.contains(featureBranchName),
+      s"feature branch '$featureBranchName' must be kept; branches: $branches"
+    )
+
+  test("R5: failure teardown keeps feature branch regardless of code changes"):
+    // A flow that crashes must NOT delete the branch — it needs to stay for resume.
+    val workDir = TempRepo.create()
+    val prompt = "failure-keeps-branch"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    val _ = intercept[RuntimeException]:
+      runFlowForTest(workDir, prompt, store):
+        val _ = stage[String]("crash"):
+          throw new RuntimeException("boom")
+    // On the feature branch, not main.
+    assertNotEquals(git.currentBranch(), "main")
+    // Feature branch still exists (not deleted).
+    val branches = os
+      .proc("git", "branch", "--format=%(refname:short)")
+      .call(cwd = workDir)
+      .out
+      .text()
+      .linesIterator
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .toSet
+    assert(
+      branches.size > 1 || branches.contains(git.currentBranch()),
+      s"feature branch must survive failure: $branches"
+    )
+
   /** A `ClaudeTool` that records `registerServerSession` calls, to assert the
     * lifecycle rehydrates the persisted client→server map. All LLM methods
     * throw — the rehydration test never invokes the model.

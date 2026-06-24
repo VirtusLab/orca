@@ -190,6 +190,22 @@ trait GitTool:
     */
   def listWorktrees(): List[Worktree]
 
+  /** Force-delete a local branch (`git branch -D <name>`). Best-effort — does
+    * not throw; failures are silently swallowed so callers can use this in
+    * teardown without risking an error cascade. Never deletes the current
+    * branch.
+    */
+  def deleteBranch(name: String): Unit
+
+  /** Diff of `featureBranch` vs `startBranch`, excluding the `.orca/`
+    * directory. Used by the throwaway-branch check (R5): an empty result means
+    * the feature branch has no substantive changes beyond orca bookkeeping.
+    */
+  def diffBranchExcludingOrca(
+      startBranch: String,
+      featureBranch: String
+  ): String
+
 /** `GitTool` implementation that shells out to the `git` CLI via os-lib.
   * Contract semantics (commit auto-staging, push upstream setup, diff vs HEAD,
   * worktree branch-exists handling) are specified on the trait; this class
@@ -413,6 +429,25 @@ private[orca] class OsGitTool(
 
   def listWorktrees(): List[Worktree] =
     OsGitTool.parseWorktreeList(git("worktree", "list", "--porcelain"))
+
+  def deleteBranch(name: String): Unit =
+    // Best-effort: swallow all failures so teardown is never blocked by a
+    // cosmetic cleanup step. Never attempt to delete the current branch.
+    try
+      if currentBranch() != name then
+        val result = gitProc(Seq("git", "branch", "-D", name))
+        if result.exitCode == 0 then
+          events.onEvent(OrcaEvent.Step(s"Deleted branch '$name'"))
+    catch case NonFatal(_) => ()
+
+  def diffBranchExcludingOrca(
+      startBranch: String,
+      featureBranch: String
+  ): String =
+    // Two-dot diff (direct) to see all changes the feature branch has vs the
+    // start branch. Pathspec `:(exclude).orca/*` strips the orca bookkeeping
+    // directory so only substantive code changes appear in the result.
+    git("diff", s"$startBranch..$featureBranch", "--", ".", ":(exclude).orca/*")
 
   private def samePath(left: os.Path, right: os.Path): Boolean =
     def normalised(path: os.Path): java.nio.file.Path =
