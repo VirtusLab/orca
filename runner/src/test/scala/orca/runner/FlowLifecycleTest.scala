@@ -354,14 +354,9 @@ class FlowLifecycleTest extends munit.FunSuite:
         // The body observes the already-rehydrated mapping.
         assertEquals(
           recorder.registered,
-          List(("client-uuid", "ses_server_1"))
+          List(("client-uuid", "ses_server_1")),
+          "registerServerSession must be called once with the persisted mapping"
         )
-
-    assertEquals(
-      recorder.registered,
-      List(("client-uuid", "ses_server_1")),
-      "registerServerSession must be called once with the persisted mapping"
-    )
 
   /** Drive `runFlow` directly (exit-free) with a null-sink interaction so no
     * TTY is needed and a body failure surfaces as a thrown exception rather

@@ -355,6 +355,34 @@ class RunSeededTest extends FunSuite:
     assertEquals(record.serverId, None)
 
   test(
+    "runSeeded does NOT clobber a previously-persisted serverId when the backend reports None"
+  ):
+    // The guard in persistServerId calls llm.serverSessionId(session).foreach { … }
+    // so a None result short-circuits and the record's serverId is left intact.
+    // Pre-seed the log with a SessionRecord whose serverId is already Some("server-1"),
+    // then run with a stub whose serverSessionId returns None, and confirm the stored
+    // serverId is still Some("server-1") (not cleared).
+    val fc = makeControl(
+      sessions = List(
+        SessionRecord(
+          index = 0,
+          id = testSessionId,
+          seed = "seed",
+          serverId = Some("server-1")
+        )
+      )
+    )
+    val llm = new StubLlmForSeeded(existsResult = false, serverId = None)
+    val _ = llm.runSeeded("prompt", testSession)(using fc)
+    val record =
+      fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
+    assertEquals(
+      record.serverId,
+      Some("server-1"),
+      "a previously-persisted serverId must NOT be clobbered when the backend reports None"
+    )
+
+  test(
     "LlmTool.sessionExists: BaseLlmTool delegates to backend (returns false)"
   ):
     // Real delegation: StubBasedTool → BaseLlmTool.sessionExists → StubBackend.sessionExists

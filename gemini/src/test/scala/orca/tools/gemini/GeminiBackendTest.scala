@@ -243,11 +243,28 @@ class GeminiBackendTest extends munit.FunSuite:
   test(
     "sessionExists probes the SERVER id: true when it appears in --list-sessions"
   ):
-    val stub =
-      new StubCliRunner(CliResult(0, "sess-abc-123  2024-01-01T00:00:00", ""))
+    // clientForProbe ("client-uuid") and serverForProbe ("sess-abc-123") are
+    // distinct. The stub stdout contains the server id but NOT the client id, so
+    // the returned `true` can only be explained by the code scanning for the
+    // server id. A bug that scanned for the client id would return `false`
+    // (client id absent from stdout) and the `assert` below would fail.
+    val listOutput = "sess-abc-123  2024-01-01T00:00:00"
+    // Sanity: ensure client and server ids are truly distinct in the output.
+    assert(
+      !listOutput.contains(clientForProbe.value),
+      "test invariant: --list-sessions stdout must NOT contain the client id"
+    )
+    val stub = new StubCliRunner(CliResult(0, listOutput, ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
       backend.registerSession(clientForProbe, serverForProbe)
       assert(backend.sessionExists(clientForProbe))
+      // Verify the probe used the correct command.
+      val probeArgs = stub.calls.head.args
+      assertEquals(
+        probeArgs,
+        List("gemini", "--list-sessions"),
+        s"sessionExists must invoke exactly `gemini --list-sessions`; got: $probeArgs"
+      )
 
   test(
     "sessionExists returns false when there is no client→server mapping"
