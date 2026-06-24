@@ -34,14 +34,26 @@ class RecoveryCheckTest extends FunSuite:
     val prompt = "do the thing"
     // A repo whose default is `trunk` (not main/master): a header naming it as
     // a feature branch must be refused when `trunk` is in the protected set.
+    // `trunk` is lowercase + slug-valid, so it passes `isSafeBranchRef` and
+    // reaches the protected-branch check — proving that code path fires (rather
+    // than an incidental safe-ref rejection on a mixed-case name).
     val header = ProgressHeader(
       startingBranch = "trunk",
-      branch = "Trunk",
+      branch = "trunk",
       promptHash = ProgressStore.hashPrompt(prompt)
     )
+    val rejected = RecoveryCheck.validateHeader(header, prompt, Set("trunk"))
     assert(
-      RecoveryCheck.validateHeader(header, prompt, Set("trunk")).isLeft,
-      "the repo's default branch must be rejected as a feature branch"
+      rejected.left.exists(_.contains("protected")),
+      s"the default branch must be rejected as PROTECTED, got: $rejected"
+    )
+    // Case-insensitive: a mixed-case entry in the protected set still matches.
+    assert(
+      RecoveryCheck
+        .validateHeader(header, prompt, Set("Trunk"))
+        .left
+        .exists(_.contains("protected")),
+      "protected-branch match must be case-insensitive"
     )
     // ...but a normal feature branch still passes with the same set.
     val ok = header.copy(branch = "feat/do-the-thing")
