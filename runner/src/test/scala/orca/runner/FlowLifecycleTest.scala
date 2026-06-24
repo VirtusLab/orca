@@ -1,6 +1,14 @@
 package orca.runner
 
-import orca.{FlowContext, InStage, OrcaArgs, runFlow, stage, flow}
+import orca.{
+  BranchNamingStrategy,
+  FlowContext,
+  InStage,
+  OrcaArgs,
+  runFlow,
+  stage,
+  flow
+}
 import orca.events.OrcaEvent
 import orca.llm.{
   Announce,
@@ -565,12 +573,16 @@ class FlowLifecycleTest extends munit.FunSuite:
     val prompt = "failure-keeps-branch"
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
+    var featureBranchName = ""
     val _ = intercept[RuntimeException]:
       runFlowForTest(workDir, prompt, store):
+        // Capture the feature branch name before the crash.
+        featureBranchName = summon[orca.FlowControl].git.currentBranch()
         val _ = stage[String]("crash"):
           throw new RuntimeException("boom")
     // On the feature branch, not main.
     assertNotEquals(git.currentBranch(), "main")
+    assert(featureBranchName.nonEmpty, "must have captured feature branch name")
     // Feature branch still exists (not deleted).
     val branches = os
       .proc("git", "branch", "--format=%(refname:short)")
@@ -582,8 +594,41 @@ class FlowLifecycleTest extends munit.FunSuite:
       .filter(_.nonEmpty)
       .toSet
     assert(
-      branches.size > 1 || branches.contains(git.currentBranch()),
-      s"feature branch must survive failure: $branches"
+      branches.contains(featureBranchName),
+      s"feature branch '$featureBranchName' must survive failure: $branches"
+    )
+
+  test(
+    "default branchNaming (None) resolves via shortenPrompt: branch name equals slug(prompt)"
+  ):
+    // When `branchNaming = None` (the default), `flowSetup` uses
+    // `BranchNamingStrategy.shortenPrompt`. With `StubLlm.claude`, `cheap`
+    // returns `this` (haiku = this) and `autonomous` throws
+    // `UnsupportedOperationException`; `shortenPrompt` catches the failure and
+    // falls back to `slug(userPrompt)`. This pins that the default is
+    // `shortenPrompt`, not the old `fromText`.
+    val workDir = TempRepo.create()
+    val prompt = "default-naming"
+    val expectedBranch = BranchNamingStrategy.slug(prompt)
+    var observedBranch = ""
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      // branchNaming defaults to None — do not pass it.
+      flow(
+        args = OrcaArgs(prompt),
+        leadModel = _ => StubLlm.claude,
+        workDir = workDir,
+        interaction = Some(interaction)
+      ):
+        observedBranch = summon[orca.FlowContext].git.currentBranch()
+    assertEquals(
+      observedBranch,
+      expectedBranch,
+      s"default branchNaming must use shortenPrompt (slug fallback); got '$observedBranch'"
     )
 
   /** A `ClaudeTool` that records `registerServerSession` calls, to assert the

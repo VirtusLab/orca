@@ -253,14 +253,6 @@ class BranchNamingTest extends munit.FunSuite:
     assertEquals(result, "add-multiply-function")
 
   test(
-    "shortenPrompt: llm returns empty string -> falls back to slug(userPrompt)"
-  ):
-    val llm = stubbedLlm("")
-    val result =
-      BranchNamingStrategy.shortenPrompt.resolve("fix the login bug", llm)
-    assertEquals(result, "fix-the-login-bug")
-
-  test(
     "shortenPrompt: llm returns blank string -> falls back to slug(userPrompt)"
   ):
     val llm = stubbedLlm("   ")
