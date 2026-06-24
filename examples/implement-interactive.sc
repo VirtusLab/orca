@@ -1,15 +1,18 @@
-//> using dep "org.virtuslab::orca:0.0.14"
+//> using dep "org.virtuslab::orca:0.0.14+1-2e21cd3e+20260623-1601-SNAPSHOT"
 //> using jvm 21
 
-/** Interactive planning + coding flow (persistent).
+/** Interactive planning + coding flow.
   *
-  * Same shape as `implement.sc`, but the planner can drive a conversation: on an
-  * underspecified prompt it calls the `ask_user` tool to clarify before
-  * producing the plan. The plan persists to `.orca/plan-<hash>.md` so a re-run
-  * resumes from the first incomplete task.
+  * Same shape as `implement.sc`, but the planner can drive a conversation: on
+  * an underspecified prompt it calls the `ask_user` tool to clarify before
+  * producing the plan. Progress and resume work identically — the stage log
+  * (`.orca/progress-<hash>.json`) is the sole resume mechanism. An interactive
+  * planning stage that already completed is replayed from its recorded result
+  * without re-prompting on a re-run.
   *
-  * `examples/runnable/02-interactive/create-test-project.sh` seeds the calculator
-  * crate into a temp dir and copies this script alongside it; from there:
+  * `examples/runnable/02-interactive/create-test-project.sh` seeds the
+  * calculator crate into a temp dir and copies this script alongside it;
+  * from there:
   *
   * ```bash
   * scala-cli run implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate. Ask the user which."
@@ -23,31 +26,24 @@
 
 import orca.{*, given}
 
-flow(OrcaArgs(args)):
-  val planFile = Plan.defaultPath(userPrompt)
-
-  // Resume `.orca/plan-<hash>.md` if it exists; otherwise plan interactively
-  // (the planner can call `ask_user` to clarify) and branch.
-  val plan = stage("Acquire plan"):
-    Plan.recoverOrCreate(planFile):
-      // `.value` drops the planner's session; the implementer mints its own
-      // (ask_user was only needed for planning).
-      Plan.interactive.from(userPrompt, claude).value
+flow(OrcaArgs(args), claude):
+  val plan = stage("Plan"):
+    // `.value` drops the planner's session; the implementer mints its own
+    // below (ask_user was only needed for planning).
+    Plan.interactive.from(userPrompt, claude).value
 
   // Stable autonomous session shared by implementer and fixer (ask_user was
-  // only needed for planning).
-  val session = claude.newSession
+  // only needed for planning). The seed primes it on first use and is
+  // replayed if the backend session is lost on resume.
+  val session = claude.session(seed = plan.brief)
 
-  Plan.implementTaskLoop(planFile, plan): task =>
-    stage(s"Implement task: ${task.title}"):
-      stage("Implementation"):
-        val _ = claude.autonomous.run(task.description, session)
-
+  for task <- plan.tasks do
+    stage(s"task: ${task.title}"):      // skipped on resume if already done
+      claude.runSeeded(task.description, session)
       reviewAndFixLoop(
-        coder = claude,
-        sessionId = session,
+        coder = claude, sessionId = session,
         reviewers = allReviewers(claude),
-        // Haiku picks the per-task reviewer subset; swap for
+        // claude.haiku picks the per-task reviewer subset; swap for
         // `ReviewerSelector.allEveryRound` to run every reviewer.
         reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value,
@@ -59,3 +55,4 @@ flow(OrcaArgs(args)):
         lintCommand = Some("cargo check --tests"),
         lintLlm = Some(claude.haiku)
       )
+      // one commit per task: code + progress entry

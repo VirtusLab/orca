@@ -10,6 +10,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 }
 import orca.OrcaFlowException
 import orca.events.{OrcaEvent, OrcaListener}
+import orca.llm.JsonData
 import orca.subprocess.CliRunner
 import ox.sleep
 import ox.resilience.{ResultPolicy, RetryConfig, retry}
@@ -17,7 +18,11 @@ import ox.scheduling.Schedule
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
-case class PrHandle(owner: String, repo: String, number: Int):
+/** A handle to an open pull request. `derives JsonData` so `stage` can record
+  * and replay a `PrHandle` result — e.g. when a push-and-open-PR stage is the
+  * checkpoint before a CI wait (ADR 0018 §3.2).
+  */
+case class PrHandle(owner: String, repo: String, number: Int) derives JsonData:
   /** `<owner>/<repo>#<number>` — the canonical GitHub short-form. Used in
     * commit messages, PR descriptions (`Closes …`), and log output.
     */

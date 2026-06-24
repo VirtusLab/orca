@@ -1,6 +1,6 @@
 package orca.plan
 
-import orca.llm.Announce
+import orca.llm.{Announce, JsonData}
 
 /** Outcome of triaging a bug report against a codebase. Three variants:
   *
@@ -20,8 +20,12 @@ import orca.llm.Announce
   * Produced by [[Plan.autonomous.triage]] / [[Plan.interactive.triage]], both
   * wrapped in a [[Sessioned]] so the triage agent's session can carry into the
   * fix.
+  *
+  * `derives JsonData` so a `stage` can record and replay a `Triage` result —
+  * the triage stage is a checkpoint before the failing-test / fix pipeline (ADR
+  * 0018 §3.2).
   */
-enum Triage:
+enum Triage derives JsonData:
   case NotABug(explanation: String)
   case Untestable(summary: String, reproductionSteps: String)
   case Testable(summary: String, branchName: String, failingTestPath: String)

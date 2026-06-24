@@ -1,22 +1,24 @@
-//> using dep "org.virtuslab::orca:0.0.14"
+//> using dep "org.virtuslab::orca:0.0.14+1-2e21cd3e+20260623-1601-SNAPSHOT"
 //> using jvm 21
 
 /** GitHub-issue → PR flow, fully autonomous.
   *
   * Given a `<owner>/<repo>#<number>` reference (the user's prompt), the flow:
   *
-  *   1. Reads the issue from GitHub (title, body, author).
-  *   1. Resumes `.orca/plan-<hash>.md` if one exists (crash recovery);
-  *      otherwise skeptically assesses the report against the repo — claims,
-  *      missing detail, duplicates, scope. The agent returns a plan or a
-  *      critique / follow-up question / rebuff.
-  *   1. On rejection: posts the agent's reply on the issue and exits.
-  *   1. On proceed: creates the epic branch, persists the plan, and runs
-  *      `Plan.implementTaskLoop` — each task gets the review-and-fix loop, a
-  *      checkbox tick, and a `task: <title>` commit; the plan file is removed
-  *      once every task is done.
-  *   1. Pushes the branch, folds the diff into a PR title + description via a
-  *      cheap model (`summarisePr`), and opens the PR via `gh`.
+  *   1. Reads the issue from GitHub (title, body, author) — outside any stage,
+  *      since it is a pure read.
+  *   1. Skeptically assesses the report against the repo (claims, missing
+  *      detail, duplicates, scope) and either proceeds with a plan or rejects.
+  *   1. On rejection: posts the agent's reply on the issue. The throwaway
+  *      branch (no code committed) is auto-deleted by the runtime on exit.
+  *   1. On proceed: runs the per-task implement + review-and-fix loop. The
+  *      task list and progress live in the stage log; a re-run resumes from
+  *      the first incomplete stage.
+  *   1. Pushes the branch, folds the diff into a PR title + description via
+  *      haiku (`summarisePr`), and opens the PR via `gh` (idempotent by branch).
+  *
+  * The feature branch is named deterministically from the issue number
+  * (`fix/issue-<n>`), so a re-run after a crash lands on the same branch.
   *
   * Usage — pass `<owner>/<repo>#<number>`:
   *
@@ -29,16 +31,15 @@
 
 import orca.{*, given}
 
-flow(OrcaArgs(args)):
+// Parse the issue handle up-front so it can seed the deterministic branch
+// naming strategy passed to `flow`. A parse failure exits before the flow.
+val orcaArgs = OrcaArgs(args)
+val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
-  val issueHandle = IssueHandle.parseOrThrow(userPrompt)
+flow(orcaArgs, claude, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
+  // Pure read — outside any stage (reads don't need InStage).
+  val issue = gh.readIssue(issueHandle)
 
-  // 1. Pull the issue from GitHub.
-  val issue = stage(s"Read issue ${issueHandle.shortRef}"):
-    gh.readIssue(issueHandle)
-
-  // Title + body. Comments are excluded by default — noisy threads pull the
-  // planner off-target.
   val issuePayload =
     s"""Issue: ${issue.title}
        |
@@ -46,46 +47,26 @@ flow(OrcaArgs(args)):
        |
        |${issue.body}""".stripMargin
 
-  // Resume an in-progress plan for this issue if one exists; otherwise assess
-  // (Opus runs read-only to verify claims via Read/Grep). `Verdict.Proceed`
-  // persists the plan so a crash resumes from the first incomplete task;
-  // `Verdict.Rejection` posts the assessment on the issue and exits.
-
-  // Capture the start branch to return to at the end: Plan.recover /
-  // checkoutOrCreate below switch away and stash WIP, so `git stash pop`
-  // only lands right if we come back.
-  val startBranch = git.currentBranch()
-
-  val planFile = Plan.defaultPath(userPrompt)
-  val maybePlan = stage("Acquire plan"):
-    Plan
-      .recover(planFile)
-      .orElse:
-        Plan.autonomous.assessThenPlan(issuePayload, claude.opus).value match
-          case Verdict.Rejection(_, body) =>
-            stage("Post assessment on the issue"):
-              gh.writeComment(issueHandle, body)
-            None
-          case Verdict.Proceed(plan) =>
-            git.checkoutOrCreate(plan.epicId)
-            os.write.over(planFile, Plan.render(plan), createFolders = true)
-            Some(plan)
+  val maybePlan: Option[Plan] = stage("Assess and plan"):
+    Plan.autonomous.assessThenPlan(issuePayload, claude.opus).value match
+      case Verdict.Rejection(_, body) =>
+        gh.writeComment(issueHandle, body)
+        None
+      case Verdict.Proceed(plan) =>
+        Some(plan)
 
   maybePlan.foreach: plan =>
-    // Fresh session — the assess session was read-only (plan mode). Reused
-    // across tasks so the implementer retains context.
-    val session = claude.newSession
+    // Get-or-create the implementer session. Seeded with the brief so the
+    // agent has codebase context; replayed on resume if the session is lost.
+    val session = claude.session(seed = plan.brief)
 
-    Plan.implementTaskLoop(planFile, plan): task =>
-      stage(s"Implement task: ${task.title}"):
-        stage("Implementation"):
-          val _ = claude.autonomous.run(task.description, session)
-
+    for task <- plan.tasks do
+      stage(s"task: ${task.title}"):    // skipped on resume if already done
+        claude.runSeeded(task.description, session)
         reviewAndFixLoop(
-          coder = claude,
-          sessionId = session,
+          coder = claude, sessionId = session,
           reviewers = allReviewers(claude),
-          // Haiku picks the per-task reviewer subset; swap for
+          // claude.haiku picks the per-task reviewer subset; swap for
           // `ReviewerSelector.allEveryRound` to run every reviewer.
           reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
           task = task.title.value,
@@ -93,6 +74,7 @@ flow(OrcaArgs(args)):
           // your formatter.
           formatCommand = Some("npx prettier --write .")
         )
+        // one commit per task: code + progress entry
 
     stage("Push branch"):
       git.push().orThrow
@@ -101,7 +83,7 @@ flow(OrcaArgs(args)):
       summarisePr(
         llm = claude.haiku,
         // Branch-vs-base diff — `git.diff()` (vs HEAD) would be empty, since
-        // `implementTaskLoop` already committed every task.
+        // every task is already committed.
         diff = git.diffVsBase(git.defaultBase()),
         context = Some(
           s"""Originating issue: ${issueHandle.shortRef}
@@ -114,8 +96,4 @@ flow(OrcaArgs(args)):
         s"""${summary.body}
            |
            |Closes ${issueHandle.shortRef}.""".stripMargin
-      val _ = gh.createPr(title = summary.title, body = body).orThrow
-
-    // Return to the start branch so any stashed WIP pops back onto it.
-    stage(s"Return to $startBranch"):
-      git.checkout(startBranch).orThrow
+      gh.createPr(title = summary.title, body = body).orThrow

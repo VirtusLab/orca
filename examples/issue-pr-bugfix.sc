@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.0.14"
+//> using dep "org.virtuslab::orca:0.0.14+1-2e21cd3e+20260623-1601-SNAPSHOT"
 //> using jvm 21
 
 /** Bug-report → fix flow for Scala projects, autonomous.
@@ -6,25 +6,28 @@
   * Given a `<owner>/<repo>#<number>` reference to a Scala-project issue, the
   * flow:
   *
-  *   1. Reads the issue from GitHub.
+  *   1. Reads the issue from GitHub (pure read, outside any stage).
   *   1. Triages: actually a bug? can a unit test reproduce it?
-  *       - Not a bug → comment the verdict on the issue and stop.
-  *       - Bug, but not testable → comment reproduction steps on the issue
-  *         and stop (no PR for docs-only repros).
-  *   1. For a testable bug: write the failing test, push, open a PR with a
-  *      tentative haiku-generated description noting only the failing test
-  *      has landed.
-  *   1. Wait `CiTimeout` for CI to go red — fail loudly on green (the
-  *      reproduction is wrong).
-  *   1. Sonnet inspects the failed run via `gh` (the flow never reads the
-  *      log into memory) and posts a short focused failure comment, then
-  *      verifies the failure matches the report — also via `gh`, by run id.
-  *   1. Plan + implement the fix on the same branch (read/grep, write,
-  *      `sbt scalafmtAll`, review per task). Implementation reuses the
-  *      triage/failing-test session.
-  *   1. Push the fix, then regenerate the PR title + description from the
-  *      full branch diff (so it reads as a fix, not "add a test"). Does NOT
-  *      wait for CI green at the end — a human picks the PR up from there.
+  *       - Not a bug → posts the verdict on the issue. The throwaway branch
+  *         (no code committed) is auto-deleted by the runtime on exit.
+  *       - Bug, but not testable → posts reproduction steps on the issue and
+  *         stops (no PR for docs-only repros). Same branch cleanup.
+  *   1. For a testable bug:
+  *       a. "Write failing test" stage: writes and commits the test.
+  *       b. "Push + open tentative PR" stage: pushes the committed test, then
+  *          opens a PR (`gh.createPr` is idempotent by branch). These are two
+  *          separate stages because a stage commits only on completion — a push
+  *          in the same stage as the edit would push nothing (ADR 0018 §3.2 R8).
+  *   1. Waits for CI to go red (pure polling read, outside a stage). Fails
+  *      loudly on green — the reproduction is wrong.
+  *   1. Confirms the failure matches the report.
+  *   1. Plans + implements the fix on the same branch (each task a stage).
+  *   1. "Push fix + finalise PR" stage: pushes the fix and regenerates the PR
+  *      title + description from the full branch diff.
+  *
+  * The feature branch is named deterministically from the issue number
+  * (`fix/issue-<n>`), so a re-run after a crash lands on the same branch.
+  * Resume is stage-log based — each completed stage is skipped on a re-run.
   *
   * Usage:
   *
@@ -39,38 +42,44 @@
 import orca.{*, given}
 import scala.concurrent.duration.DurationInt
 
-flow(OrcaArgs(args)):
+// Parse the issue handle up-front so it can seed the deterministic branch
+// naming strategy passed to `flow`. A parse failure exits before the flow.
+val orcaArgs = OrcaArgs(args)
+val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
+
+flow(orcaArgs, claude, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
 
   val CiTimeout = 30.minutes
 
-  val issueHandle = IssueHandle.parseOrThrow(userPrompt)
+  // Pure read — outside any stage (reads don't need InStage).
+  val issue = gh.readIssue(issueHandle)
 
-  val issue = stage(s"Read issue ${issueHandle.shortRef}"):
-    gh.readIssue(issueHandle)
+  val issuePayload =
+    s"""Title: ${issue.title}
+       |Reporter: ${issue.author}
+       |
+       |${issue.body}""".stripMargin
 
-  // Autonomous triage, read-only (read/grep to verify the report). The session
-  // it returns is reused for the failing-test write and the fix: a writable
-  // call restores write access, and the implementer inherits the exploration.
-  val Sessioned(session, triage) = stage("Triage"):
-    Plan.autonomous.triage(
-      s"""Title: ${issue.title}
-         |Reporter: ${issue.author}
-         |
-         |${issue.body}""".stripMargin,
-      claude.opus
-    )
+  // Get-or-create the implementer session before the triage stage (pure:
+  // reserves the session id, no LLM call). The seed primes it on first use
+  // and is replayed if the backend session is lost on resume.
+  val session = claude.session(seed = issue.body)
 
-  // ============================ pipeline phases ============================
-  // One def per step of the testable-bug pipeline; the `Testable` branch at the
-  // bottom reads as their sequence. They close over `session`, `issue`,
-  // `issueHandle` and `CiTimeout`.
+  val triage: Triage = stage("Triage"):
+    // Autonomous triage, read-only (read/grep to verify the report).
+    Plan.autonomous.triage(issuePayload, claude).value
+
+  // ============================ pipeline helpers ============================
+  // One def per step of the testable-bug pipeline; the `Testable` branch
+  // below reads as their sequence. They close over `session`, `issue`,
+  // `issueHandle`, and `CiTimeout`.
 
   /** PR title + body from the full branch diff, with issue context and a
     * phase-specific `note`. Used for both the tentative (test-only) and final
     * (test + fix) descriptions. `git.diffVsBase` (not `git.diff()` vs HEAD)
     * because the changes are already committed.
     */
-  def prSummary(note: String): PrSummary =
+  def prSummary(note: String)(using FlowContext): PrSummary =
     summarisePr(
       llm = claude.haiku,
       diff = git.diffVsBase(git.defaultBase()),
@@ -82,53 +91,10 @@ flow(OrcaArgs(args)):
       )
     )
 
-  def writeAndPushFailingTest(summary: String, failingTestPath: String): Unit =
-    stage("Write the failing test"):
-      val _ = claude.autonomous.run(
-        s"""Write the failing unit test at `$failingTestPath`. It MUST
-           |fail on the current code — that's how we confirm the bug.
-           |Run `sbt test` locally if you can to verify.""".stripMargin,
-        session = session
-      )
-      git.commit(s"Add failing test: $summary").orThrow
-    stage("Push branch"):
-      git.push().orThrow
-
-  /** Open the PR with a tentative description — only the failing test has
-    * landed, so the body says so explicitly.
+  /** Confirm the CI failure matches the original report.
+    * Each sub-stage is a one-shot sonnet call — fresh session, no seed needed.
     */
-  def openTentativePr(): PrHandle =
-    val prSum = stage("Generate tentative PR title and description"):
-      prSummary(
-        "Note: this is a tentative description — only a failing test has " +
-          "been added so far. The fix is still pending."
-      )
-    stage("Open PR"):
-      gh.createPr(
-        title = prSum.title,
-        body = s"""${prSum.body}
-                  |
-                  |Closes ${issueHandle.shortRef}.""".stripMargin
-      ).orThrow
-
-  /** The failing test must turn CI red; a green run means the reproduction is
-    * wrong, so fail loudly.
-    */
-  def awaitRedCi(pr: PrHandle): Unit =
-    stage("Wait for CI to fail"):
-      val status = gh.waitForBuild(pr, CiTimeout).orThrow
-      if status.outcome == BuildOutcome.Success then
-        fail(
-          "CI passed on the failing-test commit. The reproduction " +
-            "doesn't actually reproduce — re-triage and try again."
-        )
-
-  /** Sonnet inspects the failed run via `gh` — the flow never pulls the log
-    * into memory. Each sonnet turn is a fresh one-shot session, so it
-    * re-inspects the run by id. Posts a focused failure comment, then strictly
-    * verifies the failure matches the original report.
-    */
-  def confirmReproductionMatches(pr: PrHandle): Unit =
+  def confirmReproductionMatches(pr: PrHandle)(using FlowControl): Unit =
     stage("Post focused failure comment"):
       val (_, failureSummary) = claude.sonnet.autonomous.run(
         s"""CI went red on PR ${pr.shortRef} (${pr.url}). Inspect the
@@ -159,69 +125,48 @@ flow(OrcaArgs(args)):
       if !verdict.matches then
         fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
 
-  /** Plan + implement the fix on the same branch. No `.orca/plan-*.md` — the
-    * earlier stages (triage, CI red, repro verification) aren't restartable from
-    * a plan file alone, so use the in-memory `implementTaskLoop`. The draft is
-    * self-reviewed and briefed (`reviewed`/`briefed`, both read-only), then
-    * `.value` drops the planning session; the fix tasks carry the brief via
-    * `taskPrompt` and run on the triage `session`.
+  /** Plan + implement the fix on the same branch. The plan always carries a
+    * brief (no separate `.briefed` step); `taskPrompt` prepends it to each
+    * task. Implementation reuses the triage `session`.
     */
-  def planAndImplementFix(branchName: String): Unit =
+  def planAndImplementFix()(using FlowControl): Unit =
     val fixPlan = stage("Plan the fix"):
-      Plan.autonomous.from(
-        s"""Implement the fix for ${issueHandle.shortRef}. A failing
-           |test is already on this branch (`$branchName`) — the fix
-           |must make it pass without regressing other tests.""".stripMargin,
-        claude
-      ).reviewed(claude).briefed(claude).value
+      Plan.autonomous
+        .from(
+          s"""Implement the fix for ${issueHandle.shortRef}. A failing
+             |test is already on this branch — the fix must make it pass
+             |without regressing other tests.""".stripMargin,
+          claude
+        )
+        .reviewed(claude)
+        .value
 
-    Plan.implementTaskLoop(fixPlan): task =>
-      stage(s"Implement task: ${task.title}"):
-        stage("Implementation"):
-          val _ = claude.autonomous.run(fixPlan.taskPrompt(task), session)
+    for task <- fixPlan.tasks do
+      stage(s"task: ${task.title}"):    // skipped on resume if already done
+        claude.runSeeded(fixPlan.taskPrompt(task), session)
         reviewAndFixLoop(
-          coder = claude,
-          sessionId = session,
+          coder = claude, sessionId = session,
           reviewers = allReviewers(claude),
           reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
           task = task.title.value,
           // Format after every edit (the implementation and each review fix).
           formatCommand = Some("sbt scalafmtAll"),
-          // Compile (main + test) is a cheap sanity gate; the failing test runs
-          // in CI and correctness is the reviewers' job, so skip the full suite.
+          // Compile (main + test) is a cheap sanity gate; the failing test
+          // runs in CI and correctness is the reviewers' job.
           lintCommand = Some("sbt Test/compile"),
           lintLlm = Some(claude.haiku)
         )
-
-  /** Push the fix and regenerate the PR title + body from the full branch diff,
-    * so it reads as a fix, not "add a test". Doesn't wait for CI green — a human
-    * takes it from here.
-    */
-  def pushAndFinalisePr(pr: PrHandle): Unit =
-    stage("Push the fix"):
-      git.push().orThrow
-    stage("Update PR title and description"):
-      val finalSum = prSummary(
-        "The branch now contains both the failing test and the fix " +
-          "that makes it pass."
-      )
-      gh.updatePr(
-        pr,
-        title = finalSum.title,
-        body = s"""${finalSum.body}
-                  |
-                  |Closes ${issueHandle.shortRef}.""".stripMargin
-      )
+        // one commit per task: code + progress entry
 
   // ============================ the flow ============================
 
   triage match
     case Triage.NotABug(explanation) =>
-      stage("Comment 'not a bug' on the issue"):
+      stage("Comment: not a bug"):
         gh.writeComment(issueHandle, explanation)
 
     case Triage.Untestable(_, reproductionSteps) =>
-      stage("Comment reproduction steps on the issue"):
+      stage("Comment: repro steps"):
         gh.writeComment(
           issueHandle,
           s"""## Reproduction
@@ -229,24 +174,48 @@ flow(OrcaArgs(args)):
              |$reproductionSteps""".stripMargin
         )
 
-    case Triage.Testable(summary, branchName, failingTestPath) =>
-      // Capture the start branch to return to at the end: the stash below is
-      // taken here, so `git stash pop` only lands WIP right if we come back.
-      val startBranch = git.currentBranch()
+    case Triage.Testable(summary, _, failingTestPath) =>
+      // Write failing test: committed by the stage.
+      stage("Write failing test"):
+        claude.runSeeded(
+          s"""Write the failing unit test at `$failingTestPath`. It MUST
+             |fail on the current code — that's how we confirm the bug.
+             |Run `sbt test` locally if you can to verify.""".stripMargin,
+          session
+        )
 
-      // Stash pre-existing edits before switching branches, or they'd ride onto
-      // the bugfix branch into the failing-test commit. `ensureClean` emits a
-      // Step the user can act on (`git stash pop`) once the flow finishes.
-      val _ = git.ensureClean("orca: pre-bugfix stash")
-      git.checkoutOrCreate(branchName)
+      // Push + open PR: a SEPARATE stage from the edit above.
+      // Authoring rule (ADR 0018 §3.2 R8): a stage commits only on completion,
+      // so a push in the same stage as the edit would push nothing — the push
+      // must be in a later stage than the code that produced it.
+      val pr = stage("Push + open tentative PR"):
+        git.push().orThrow
+        gh.createPr(
+          title = summary,
+          body = s"""Failing test only — fix pending.
+                    |
+                    |Closes ${issueHandle.shortRef}.""".stripMargin
+        ).orThrow
 
-      writeAndPushFailingTest(summary, failingTestPath)
-      val pr = openTentativePr()
-      awaitRedCi(pr)
+      // `waitForBuild` is a pure polling read — outside any stage.
+      if gh.waitForBuild(pr, CiTimeout).orThrow.outcome == BuildOutcome.Success then
+        fail("CI passed on the failing-test commit — the reproduction is wrong.")
+      display(s"CI red on ${pr.shortRef} — reproduction confirmed")
+
       confirmReproductionMatches(pr)
-      planAndImplementFix(branchName)
-      pushAndFinalisePr(pr)
+      planAndImplementFix()
 
-      // Return to the start branch so any stashed WIP pops back onto it.
-      stage(s"Return to $startBranch"):
-        git.checkout(startBranch).orThrow
+      // Push fix + update PR: again a LATER stage than the task edits above.
+      stage("Push fix + finalise PR"):
+        git.push().orThrow
+        val finalSum = prSummary(
+          "The branch now contains both the failing test and the fix " +
+            "that makes it pass."
+        )
+        gh.updatePr(
+          pr,
+          title = finalSum.title,
+          body = s"""${finalSum.body}
+                    |
+                    |Closes ${issueHandle.shortRef}.""".stripMargin
+        )

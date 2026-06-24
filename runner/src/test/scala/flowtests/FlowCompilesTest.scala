@@ -265,3 +265,250 @@ object FlowCanary:
         stage(s"task: ${task.title.value}"):
           val _ =
             claude.autonomous.run(plan.taskPrompt(task), claude.newSession)
+
+  // -----------------------------------------------------------------------
+  // Example-shape canaries (ADR 0018 §3, Task F2)
+  // Each def mirrors the distinct pattern in one of the `examples/*.sc`
+  // files so a signature drift or missing API surfaces here instead of at
+  // the next live run. Nothing is invoked at runtime.
+  // -----------------------------------------------------------------------
+
+  /** `implement.sc`: autonomous plan → session seeded from brief → task loop
+    * with `runSeeded` + `reviewAndFixLoop`. The session-based shapes
+    * (`session(seed=)`, `runSeeded`) are the core new-API additions.
+    */
+  def implementFlowShape(): Unit =
+    flow(OrcaArgs(), leadModel):
+      val plan: Plan = stage("Plan"):
+        Plan.autonomous.from(userPrompt, claude).value
+
+      val session = claude.session(seed = plan.brief)
+
+      for task <- plan.tasks do
+        stage(s"task: ${task.title}"):
+          val _ = claude.runSeeded(task.description, session)
+          reviewAndFixLoop(
+            coder = claude,
+            sessionId = session,
+            reviewers = allReviewers(claude),
+            reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+            task = task.title.value,
+            formatCommand = Some("cargo fmt"),
+            lintCommand = Some("cargo check --tests"),
+            lintLlm = Some(claude.haiku)
+          )
+
+  /** `implement-interactive.sc`: interactive plan → session → task loop. Only
+    * the planning call differs from `implementFlowShape`.
+    */
+  def interactivePlanFlowShape(): Unit =
+    flow(OrcaArgs(), leadModel):
+      val plan: Plan = stage("Plan"):
+        Plan.interactive.from(userPrompt, claude).value
+
+      val session = claude.session(seed = plan.brief)
+
+      for task <- plan.tasks do
+        stage(s"task: ${task.title}"):
+          val _ = claude.runSeeded(task.description, session)
+          reviewAndFixLoop(
+            coder = claude,
+            sessionId = session,
+            reviewers = allReviewers(claude),
+            reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+            task = task.title.value,
+            formatCommand = Some("cargo fmt")
+          )
+
+  /** `implement-enhanced.sc`: plan → `.reviewed` → session seeded from brief →
+    * task loop with `taskPrompt` → push → PR via `createPr`.
+    */
+  def enhancedImplementFlowShape(): Unit =
+    flow(OrcaArgs(), leadModel):
+      val plan: Plan = stage("Plan"):
+        Plan.autonomous.from(userPrompt, claude).reviewed(claude).value
+
+      val session = claude.session(seed = plan.brief)
+
+      for task <- plan.tasks do
+        stage(s"task: ${task.title}"):
+          val _ = claude.runSeeded(plan.taskPrompt(task), session)
+          reviewAndFixLoop(
+            coder = claude,
+            sessionId = session,
+            reviewers = allReviewers(claude),
+            reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+            task = task.title.value,
+            formatCommand = Some("cargo fmt")
+          )
+
+      stage("Push branch"):
+        git.push().orThrow
+
+      val prSum = stage("Generate PR title and description"):
+        summarisePr(
+          llm = claude.haiku,
+          diff = git.diffVsBase(git.defaultBase())
+        )
+
+      val _ = stage("Open PR"):
+        gh.createPr(title = prSum.title, body = prSum.body).orThrow
+
+  /** `epic.sc`: cross-backend review — claude implements, codex reviews.
+    * Exercises the `allReviewers(codex)` shape and `claude.opus` planning.
+    */
+  def epicFlowShape(): Unit =
+    flow(OrcaArgs(), leadModel):
+      val plan: Plan = stage("Plan"):
+        Plan.autonomous.from(userPrompt, claude.opus).value
+
+      val session = claude.session(seed = plan.brief)
+      val reviewers: List[LlmTool[?]] = allReviewers(codex)
+
+      for task <- plan.tasks do
+        stage(s"task: ${task.title}"):
+          val _ = claude.runSeeded(task.description, session)
+          reviewAndFixLoop(
+            coder = claude,
+            sessionId = session,
+            reviewers = reviewers,
+            reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+            task = task.title.value,
+            formatCommand = Some("mvn -q spotless:apply")
+          )
+
+      stage("Update documentation"):
+        val _ = claude.runSeeded(
+          "Update project docs based on the changes made.",
+          session
+        )
+
+  /** `issue-pr.sc`: read issue outside stage, `assessThenPlan`, optional plan,
+    * session from plan brief, task loop, push, PR. Also exercises
+    * `BranchNamingStrategy.issue` and the `Verdict` match.
+    */
+  def issuePrFlowShape(): Unit =
+    val orcaArgs = OrcaArgs("acme/widgets#42")
+    val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
+    flow(
+      orcaArgs,
+      leadModel,
+      branchNaming = Some(BranchNamingStrategy.issue(issueHandle))
+    ):
+      // Read outside stage (no InStage needed).
+      val issue: Issue = gh.readIssue(issueHandle)
+
+      val maybePlan: Option[Plan] = stage("Assess and plan"):
+        Plan.autonomous.assessThenPlan(issue.body, claude.opus).value match
+          case Verdict.Rejection(_, body) =>
+            gh.writeComment(issueHandle, body)
+            None
+          case Verdict.Proceed(plan) =>
+            Some(plan)
+
+      maybePlan.foreach: plan =>
+        val session = claude.session(seed = plan.brief)
+
+        for task <- plan.tasks do
+          stage(s"task: ${task.title}"):
+            val _ = claude.runSeeded(task.description, session)
+            reviewAndFixLoop(
+              coder = claude,
+              sessionId = session,
+              reviewers = allReviewers(claude),
+              reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+              task = task.title.value,
+              formatCommand = Some("npx prettier --write .")
+            )
+
+        stage("Push branch"):
+          git.push().orThrow
+
+        val _ = stage("Open PR"):
+          gh.createPr(title = "fix", body = s"Closes ${issueHandle.shortRef}.")
+            .orThrow
+
+  /** `issue-pr-bugfix.sc`: the push-after-edit authoring rule (ADR 0018 R8).
+    * "Write failing test" commits the test; a LATER "Push + open PR" stage
+    * pushes it. Also covers `triage`, `waitForBuild` outside a stage,
+    * `claude.runSeeded` in a nested helper, and the final push+updatePr stage.
+    */
+  def bugfixFlowShape(): Unit =
+    import scala.concurrent.duration.DurationInt
+    val orcaArgs = OrcaArgs("acme/widgets#42")
+    val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
+    flow(
+      orcaArgs,
+      leadModel,
+      branchNaming = Some(BranchNamingStrategy.issue(issueHandle))
+    ):
+      // Pure read outside any stage.
+      val issue: Issue = gh.readIssue(issueHandle)
+
+      val session = claude.session(seed = issue.body)
+
+      val triage: Triage = stage("Triage"):
+        Plan.autonomous.triage(issue.body, claude).value
+
+      triage match
+        case Triage.NotABug(explanation) =>
+          stage("Comment: not a bug"):
+            gh.writeComment(issueHandle, explanation)
+
+        case Triage.Untestable(_, steps) =>
+          stage("Comment: repro steps"):
+            gh.writeComment(issueHandle, steps)
+
+        case Triage.Testable(summary, _, failingTestPath) =>
+          // Stage 1: write + commit the test.
+          stage("Write failing test"):
+            val _ = claude.runSeeded(
+              s"Write the failing test at $failingTestPath.",
+              session
+            )
+
+          // Stage 2: LATER stage — push the already-committed test, open PR.
+          // (Authoring rule R8: push must be in a later stage than the edit.)
+          val pr: PrHandle = stage("Push + open tentative PR"):
+            git.push().orThrow
+            gh.createPr(title = summary, body = "Failing test only.").orThrow
+
+          // `waitForBuild` is a pure polling read — outside any stage.
+          if gh
+              .waitForBuild(pr, 30.minutes)
+              .orThrow
+              .outcome == BuildOutcome.Success
+          then
+            fail(
+              "CI passed on the failing-test commit — reproduction is wrong."
+            )
+          display(s"CI red on ${pr.shortRef} — confirmed")
+
+          // Implement the fix in per-task stages.
+          val fixPlan: Plan = stage("Plan the fix"):
+            Plan.autonomous
+              .from(s"Fix ${issueHandle.shortRef}", claude)
+              .reviewed(claude)
+              .value
+          for task <- fixPlan.tasks do
+            stage(s"task: ${task.title}"):
+              val _ = claude.runSeeded(fixPlan.taskPrompt(task), session)
+              reviewAndFixLoop(
+                coder = claude,
+                sessionId = session,
+                reviewers = allReviewers(claude),
+                reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+                task = task.title.value,
+                formatCommand = Some("sbt scalafmtAll"),
+                lintCommand = Some("sbt Test/compile"),
+                lintLlm = Some(claude.haiku)
+              )
+
+          // Stage: push fix + finalise PR (later than the fix-task stages).
+          stage("Push fix + finalise PR"):
+            git.push().orThrow
+            gh.updatePr(
+              pr,
+              title = "fix: " + summary,
+              body = "Failing test + fix."
+            )
