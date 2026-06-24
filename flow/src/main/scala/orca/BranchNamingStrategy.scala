@@ -5,7 +5,6 @@ import orca.tools.IssueHandle
 
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
-import scala.util.control.NonFatal
 
 /** Strategy that produces a git-ref-safe feature-branch name. Resolved once per
   * flow run, inside a stage (the `InStage` token gates the call).
@@ -65,19 +64,14 @@ object BranchNamingStrategy:
   val shortenPrompt: BranchNamingStrategy =
     new BranchNamingStrategy:
       def resolve(userPrompt: String, llm: LlmTool[?])(using InStage): String =
-        val shortened =
-          try
-            val (_, text) = llm.cheap.withReadOnly.autonomous.run(
-              s"Reply with ONLY a 3–6 word lowercase branch label (hyphen-separated, no other punctuation) that summarises this task:\n\n$userPrompt",
-              emitPrompt = false
-            )
-            val firstLine = text.linesIterator.nextOption().getOrElse("").trim
-            if firstLine.isBlank then None else Some(firstLine)
-          catch case NonFatal(_) => None
-        shortened
-          .map(s => slug(s))
-          .filter(_.nonEmpty)
-          .getOrElse(slug(userPrompt))
+        // `slug` is total (never empty), so the cheap-model reply OR the
+        // userPrompt fallback both produce a valid ref.
+        slug(
+          llm.cheapOneShot(
+            s"Reply with ONLY a 3–6 word lowercase branch label (hyphen-separated, no other punctuation) that summarises this task:\n\n$userPrompt",
+            fallback = userPrompt
+          )
+        )
 
   // --------------------------------------------------------------------------
   // Private helpers

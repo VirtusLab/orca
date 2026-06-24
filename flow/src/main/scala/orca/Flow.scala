@@ -154,17 +154,18 @@ private def llmCommitMessage(
     name: String
 )(using fc: FlowControl, ev: InStage): String =
   val fallback = s"stage: $name"
-  try
-    val diff = fc.git.diff()
-    if diff.isBlank then fallback
-    else
-      val (_, text) = fc.llm.cheap.withReadOnly.autonomous.run(
-        s"Write a concise one-line git commit message (imperative mood, ≤72 chars) for this diff:\n\n$diff",
-        emitPrompt = false
-      )
-      val firstLine = text.linesIterator.nextOption().getOrElse("").trim
-      if firstLine.isBlank then fallback else firstLine
-  catch case NonFatal(_) => fallback
+  // `git.diff` is a read and shouldn't fail, but stay defensive: a commit
+  // message must never break a stage. The cheap LLM call is guarded by
+  // `cheapOneShot` itself.
+  val diff =
+    try fc.git.diff()
+    catch case NonFatal(_) => ""
+  if diff.isBlank then fallback
+  else
+    fc.llm.cheapOneShot(
+      s"Write a concise one-line git commit message (imperative mood, ≤72 chars) for this diff:\n\n$diff",
+      fallback
+    )
 
 /** A throwable's human message: its `getMessage` (or the class name when
   * blank), optionally collapsed to its first line. Shared by `stage` (first
