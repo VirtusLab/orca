@@ -29,8 +29,8 @@ def userPrompt(using ctx: FlowContext): String = ctx.userPrompt
   * produce distinct markers even with the same `purpose`. `purpose` further
   * namespaces the marker within a single run (e.g. `"reject"`, `"triage"`).
   *
-  * Example: `orcaCommentMarker(userPrompt, "reject")` → `<!--
-  * orca:a1b2c3d4e5f6:reject -->`
+  * Example: `orcaCommentMarker(userPrompt, "reject")` produces a single-line
+  * marker: `<!-- orca:a1b2c3d4e5f6:reject -->`
   */
 def orcaCommentMarker(userPrompt: String, purpose: String): String =
   s"<!-- orca:${ProgressStore.hashPrompt(userPrompt)}:$purpose -->"

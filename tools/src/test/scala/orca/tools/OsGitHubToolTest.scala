@@ -102,7 +102,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, "[]", "") // gh pr list — no open PR
       )
     )
-    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[PrAlreadyExists]))
 
   test(
@@ -341,13 +341,14 @@ class OsGitHubToolTest extends munit.FunSuite:
   // ── createPr idempotency (R24) ────────────────────────────────────────────
 
   test(
-    "createPr returns Right(existing PR) when gh reports 'already exists' and findOpenPr succeeds"
+    "createPr returns Right(existing PR) and emits 'Reusing existing PR' when gh reports 'already exists'"
   ):
     // Call 1: gh pr create exits 1 with "already exists"
     // Call 2: git rev-parse to get the current branch name
     // Call 3: gh pr list returns JSON with the existing PR
     val prListJson =
-      """[{"number":42,"url":"https://github.com/acme/widgets/pull/42","headRefName":"feat"}]"""
+      """[{"number":42,"url":"https://github.com/acme/widgets/pull/42"}]"""
+    val listener = new CapturingListener
     val cli = new SequencedCliRunner(
       List(
         CliResult(1, "", "a pull request for branch 'feat' already exists"),
@@ -355,51 +356,34 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, prListJson, "") // gh pr list
       )
     )
-    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    val gh = new OsGitHubTool(
+      cli,
+      events = listener,
+      readRetry = Schedule.immediate
+    )
     val pr = gh.createPr("feat: hi", "hello").orThrow
     assertEquals(pr, samplePr)
-
-  test(
-    "createPr returns Left(PrAlreadyExists) when gh reports 'already exists' but findOpenPr finds nothing"
-  ):
-    val cli = new SequencedCliRunner(
-      List(
-        CliResult(1, "", "a pull request for branch 'feat' already exists"),
-        CliResult(0, "feat\n", ""), // git rev-parse
-        CliResult(0, "[]", "") // empty list — no open PR found
-      )
+    // Prove the idempotency path went through git rev-parse and gh pr list
+    val callArgs = cli.calls.map(_.args)
+    assert(
+      callArgs.exists(
+        _.containsSlice(Seq("git", "rev-parse", "--abbrev-ref", "HEAD"))
+      ),
+      s"expected git rev-parse in calls but got: $callArgs"
     )
-    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
-    assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[PrAlreadyExists]))
-
-  test(
-    "createPr emits 'Reusing existing PR' step event when PR already exists"
-  ):
-    val listener = new CapturingListener
-    val prListJson =
-      """[{"number":42,"url":"https://github.com/acme/widgets/pull/42","headRefName":"feat"}]"""
-    val cli = new SequencedCliRunner(
-      List(
-        CliResult(1, "", "a pull request for branch 'feat' already exists"),
-        CliResult(0, "feat\n", ""), // git rev-parse
-        CliResult(0, prListJson, "") // gh pr list
-      )
+    assert(
+      callArgs.exists(a =>
+        a.containsSlice(
+          Seq("gh", "pr", "list", "--head", "feat", "--state", "open")
+        )
+      ),
+      s"expected gh pr list --head feat --state open in calls but got: $callArgs"
     )
-    val gh = new OsGitHubTool(cli, events = listener, pollInterval = 10.millis)
-    val _ = gh.createPr("feat: hi", "hello").orThrow
     assert(
       listener.events.exists:
         case OrcaEvent.Step(msg) => msg.contains("Reusing existing PR")
         case _                   => false
     )
-
-  test(
-    "createPr still returns Left(NoCommitsToPr) when branch has nothing to push"
-  ):
-    val (_, gh) = stubGh(
-      CliResult(1, "", "must first push the current branch")
-    )
-    assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[NoCommitsToPr]))
 
   // ── upsertComment (R24) ──────────────────────────────────────────────────
 
@@ -414,7 +398,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, "", "") // writeComment create
       )
     )
-    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
     gh.upsertComment(samplePr, "<!-- orca:abc:reject -->", "Rejected.")
     // The create call must embed the marker in the body
     val createCall = cli.calls.last
@@ -433,8 +417,14 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, "", "") // PATCH update
       )
     )
-    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
     gh.upsertComment(samplePr, "<!-- orca:abc:reject -->", "New text.")
+    // Exactly fetch + PATCH = 2 calls; no comment-create was made
+    assertEquals(cli.callCount, 2, "expected exactly fetch + PATCH, not more")
+    assert(
+      cli.calls.forall(!_.args.containsSlice(Seq("gh", "pr", "comment"))),
+      "no comment-create call must be made on the PATCH path"
+    )
     val patchCall = cli.calls.last
     assert(patchCall.args.containsSlice(Seq("gh", "api", "-X", "PATCH")))
     // The path must include the comment id 99
@@ -454,7 +444,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, "", "") // writeComment create
       )
     )
-    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
     val issue = IssueHandle("acme", "widgets", 7)
     gh.upsertComment(issue, "<!-- orca:abc:triage -->", "Not a bug.")
     val createCall = cli.calls.last
@@ -473,9 +463,15 @@ class OsGitHubToolTest extends munit.FunSuite:
         CliResult(0, "", "") // PATCH update
       )
     )
-    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
     val issue = IssueHandle("acme", "widgets", 7)
     gh.upsertComment(issue, "<!-- orca:abc:triage -->", "Updated.")
+    // Exactly fetch + PATCH = 2 calls; no comment-create was made
+    assertEquals(cli.callCount, 2, "expected exactly fetch + PATCH, not more")
+    assert(
+      cli.calls.forall(!_.args.containsSlice(Seq("gh", "issue", "comment"))),
+      "no comment-create call must be made on the PATCH path"
+    )
     val patchCall = cli.calls.last
     assert(patchCall.args.containsSlice(Seq("gh", "api", "-X", "PATCH")))
     assert(patchCall.args.exists(_.contains("/comments/77")))

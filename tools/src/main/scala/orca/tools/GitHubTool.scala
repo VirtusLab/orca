@@ -233,13 +233,14 @@ private[orca] case class GhIdentifiedCommentJson(
     user: GhUserJson
 ) derives ConfiguredJsonValueCodec
 
-/** Minimal PR fields returned by `gh pr list --json number,url,headRefName`.
-  * Used by [[OsGitHubTool.findOpenPr]] to map a head branch to an open PR.
+/** Minimal PR fields returned by `gh pr list --json number,url`. Used by
+  * [[OsGitHubTool.findOpenPr]] to map a head branch to an open PR. Only the URL
+  * is needed: the owner/repo/number are extracted from it via [[PrUrlPattern]]
+  * so no separate `headRefName` field is required.
   */
 private[orca] case class GhPrListJson(
     number: Int,
-    url: String,
-    headRefName: String
+    url: String
 ) derives ConfiguredJsonValueCodec
 
 private[orca] case class GhUserJson(login: String)
@@ -349,9 +350,9 @@ private[orca] class OsGitHubTool(
       )
 
   /** Find an open PR whose head branch matches `head`, using `gh pr list --head
-    * <head> --state open --json number,url,headRefName`. Returns the first
-    * match, or `None` when no open PR is found. Uses [[ghRead]] (with retry)
-    * because this is an idempotent read.
+    * <head> --state open --json number,url`. Returns the first match, or `None`
+    * when no open PR is found. Uses [[ghRead]] (with retry) because this is an
+    * idempotent read.
     *
     * Matching on head-only: this suffices in practice because a branch can only
     * have one open PR targeting any given base at a time, and `createPr` is
@@ -367,7 +368,7 @@ private[orca] class OsGitHubTool(
       "--state",
       "open",
       "--json",
-      "number,url,headRefName"
+      "number,url"
     )
     readFromString[List[GhPrListJson]](output).headOption.flatMap: entry =>
       PrUrlPattern
