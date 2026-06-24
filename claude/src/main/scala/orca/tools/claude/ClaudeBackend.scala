@@ -3,6 +3,8 @@ package orca.tools.claude
 import orca.events.OrcaListener
 import orca.llm.{BackendTag, LlmConfig, SessionId}
 import orca.{AgentTurnFailed, OrcaFlowException}
+
+import scala.util.control.NonFatal
 import orca.backend.{
   Conversation,
   Conversations,
@@ -39,7 +41,9 @@ import ox.channels.BufferCapacity
   */
 private[orca] class ClaudeBackend(
     cli: CliRunner,
-    networkTools: Seq[String] = ClaudeBackend.DefaultNetworkTools
+    networkTools: Seq[String] = ClaudeBackend.DefaultNetworkTools,
+    private[claude] val projectsDir: os.Path = os.home / ".claude" / "projects",
+    private[claude] val cwdForProbe: os.Path = os.pwd
 )(using Ox, BufferCapacity)
     extends LlmBackend[BackendTag.ClaudeCode.type]:
 
@@ -49,7 +53,15 @@ private[orca] class ClaudeBackend(
     * `LlmConfig`, since the strings are claude-specific.
     */
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
-    new ClaudeBackend(cli, tools)
+    new ClaudeBackend(cli, tools, projectsDir, cwdForProbe)
+
+  override def sessionExists(
+      session: SessionId[BackendTag.ClaudeCode.type]
+  ): Boolean =
+    try
+      val slug = ClaudeBackend.cwdSlug(cwdForProbe)
+      os.exists(projectsDir / slug / s"${SessionId.value(session)}.jsonl")
+    catch case NonFatal(_) => false
 
   /** Tracks which session ids we've already claimed via `--session-id` so
     * subsequent calls use `--resume` (the CLI refuses to reuse `--session-id`
@@ -265,6 +277,13 @@ private[orca] class ClaudeBackend(
         os.temp(prefix = "orca-system-prompt-", suffix = ".md", contents = text)
 
 object ClaudeBackend:
+
+  /** Derives the project-directory slug that claude uses under
+    * `~/.claude/projects/`: replaces every `/` in the absolute path with `-`.
+    * E.g. `/home/foo/bar` → `-home-foo-bar`.
+    */
+  private[claude] def cwdSlug(cwd: os.Path): String =
+    cwd.toString.replace('/', '-')
 
   /** Read-only network tools pre-approved on [[ToolSet.NetworkOnly]] turns, so
     * an autonomous planner can read issues/PRs/web without a permission prompt

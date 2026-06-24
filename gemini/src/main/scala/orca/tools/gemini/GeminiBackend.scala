@@ -2,7 +2,10 @@ package orca.tools.gemini
 
 import orca.events.OrcaListener
 import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.subprocess.CliResult
 import orca.{AgentTurnFailed, OrcaFlowException}
+
+import scala.util.control.NonFatal
 import orca.backend.{
   Conversation,
   Conversations,
@@ -176,3 +179,22 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
       client: SessionId[BackendTag.Gemini.type],
       server: SessionId[BackendTag.Gemini.type]
   ): Unit = sessions.commitSuccess(client, server)
+
+  /** Run `gemini --list-sessions` via the backend's cli seam and check whether
+    * the session id appears in the output. Uses `cli` so stub runners can
+    * inject a canned response in tests.
+    */
+  override def sessionExists(
+      session: SessionId[BackendTag.Gemini.type]
+  ): Boolean =
+    try
+      val result = listSessionsOutput()
+      result.exitCode == 0 && result.stdout.linesIterator
+        .exists(_.contains(SessionId.value(session)))
+    catch case NonFatal(_) => false
+
+  /** Overridable in tests via a stub `CliRunner`; default runs `gemini
+    * --list-sessions`.
+    */
+  private[gemini] def listSessionsOutput(): CliResult =
+    cli.run(Seq("gemini", "--list-sessions"))

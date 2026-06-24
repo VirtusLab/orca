@@ -322,3 +322,26 @@ class CodexBackendTest extends munit.FunSuite:
         terseIdx < askIdx && askIdx - terseIdx > "be terse".length + 2,
         s"systemPrompt and ask_user hint should be separated; got: $finalPrompt"
       )
+
+  test("sessionExists returns true when a matching rollout file exists"):
+    val sid = SessionId[BackendTag.Codex.type]("test-session-id-123")
+    val tmpSessions = os.temp.dir()
+    os.write(tmpSessions / "rollout-2024-01-01-test-session-id-123.jsonl", "")
+    SupervisedBackend.using(
+      new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
+    ): backend =>
+      assert(backend.sessionExists(sid))
+
+  test("sessionExists returns false when no matching file exists"):
+    val tmpSessions = os.temp.dir()
+    SupervisedBackend.using(
+      new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
+    ): backend =>
+      assert(!backend.sessionExists(clientSid))
+
+  test("sessionExists returns false when the sessions dir is absent"):
+    val missing = os.temp.dir() / "no-such-sessions"
+    SupervisedBackend.using(
+      new CodexBackend(new SpawnStubCliRunner(Nil), missing)
+    ): backend =>
+      assert(!backend.sessionExists(clientSid))

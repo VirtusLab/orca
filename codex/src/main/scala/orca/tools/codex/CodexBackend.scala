@@ -3,6 +3,8 @@ package orca.tools.codex
 import orca.events.OrcaListener
 import orca.llm.{BackendTag, LlmConfig, SessionId}
 import orca.{AgentTurnFailed, OrcaFlowException}
+
+import scala.util.control.NonFatal
 import orca.backend.{
   Conversation,
   Conversations,
@@ -38,8 +40,21 @@ import ox.channels.BufferCapacity
   * call `ask_user` to surface a clarifying question to the user. Autonomous
   * calls skip the bridge entirely.
   */
-private[orca] class CodexBackend(cli: CliRunner)(using Ox, BufferCapacity)
+private[orca] class CodexBackend(
+    cli: CliRunner,
+    private[codex] val sessionsDir: os.Path = os.home / ".codex" / "sessions"
+)(using Ox, BufferCapacity)
     extends LlmBackend[BackendTag.Codex.type]:
+
+  override def sessionExists(
+      session: SessionId[BackendTag.Codex.type]
+  ): Boolean =
+    try
+      if !os.exists(sessionsDir) then false
+      else
+        val target = s"rollout-.*-${SessionId.value(session)}\\.jsonl"
+        os.walk.stream(sessionsDir).exists(p => p.last.matches(target))
+    catch case NonFatal(_) => false
 
   /** Maps the client-allocated session id (the UUID the caller passes around)
     * to codex's server-allocated thread id (learned from `thread.started`).

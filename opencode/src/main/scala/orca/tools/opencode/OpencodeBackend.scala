@@ -21,6 +21,7 @@ import orca.tools.opencode.OpencodeApi.{SessionCreateBody, SessionCreated}
 import ox.Ox
 
 import java.util.concurrent.atomic.AtomicReference
+import scala.util.control.NonFatal
 
 /** OpenCode backend (ADR 0014). Drives a shared `opencode serve` over HTTP+SSE.
   *
@@ -116,6 +117,21 @@ private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
       client: SessionId[BackendTag.Opencode.type],
       serverSession: SessionId[BackendTag.Opencode.type]
   ): Unit = sessions.commitSuccess(client, serverSession)
+
+  /** Probe `http` for the given session id. Callable directly in tests without
+    * going through the lazy-init guard. Returns `false` on any transport error.
+    */
+  private[opencode] def probeSession(id: String, http: OpencodeHttp): Boolean =
+    try http.getStatus(s"/session/$id") == 200
+    catch case NonFatal(_) => false
+
+  override def sessionExists(
+      session: SessionId[BackendTag.Opencode.type]
+  ): Boolean =
+    try
+      if firstWorkDir.get() == null then false
+      else probeSession(SessionId.value(session), sharedServer)
+    catch case NonFatal(_) => false
 
   /** The server `ses_…` to drive: a fresh `POST /session`, or the one a prior
     * turn registered for this caller id.

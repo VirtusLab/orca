@@ -216,3 +216,42 @@ class ClaudeBackendTest extends munit.FunSuite:
         second.containsSlice(Seq("--session-id", SessionId.value(sid))),
         s"retry after failure must re-claim with --session-id; got: $second"
       )
+
+  test("sessionExists returns true when the transcript file exists"):
+    val tmpProjects = os.temp.dir()
+    val cwd = os.temp.dir()
+    val slug = ClaudeBackend.cwdSlug(cwd)
+    os.makeDir.all(tmpProjects / slug)
+    os.write(tmpProjects / slug / s"${SessionId.value(freshSid)}.jsonl", "")
+    SupervisedBackend.using(
+      new ClaudeBackend(
+        new SpawnStubCliRunner(Nil),
+        projectsDir = tmpProjects,
+        cwdForProbe = cwd
+      )
+    ): backend =>
+      assert(backend.sessionExists(freshSid))
+
+  test("sessionExists returns false when the transcript file is absent"):
+    val tmpProjects = os.temp.dir()
+    val cwd = os.temp.dir()
+    SupervisedBackend.using(
+      new ClaudeBackend(
+        new SpawnStubCliRunner(Nil),
+        projectsDir = tmpProjects,
+        cwdForProbe = cwd
+      )
+    ): backend =>
+      assert(!backend.sessionExists(freshSid))
+
+  test("sessionExists returns false when the projects dir is absent"):
+    val missing = os.temp.dir() / "no-such-dir"
+    val cwd = os.temp.dir()
+    SupervisedBackend.using(
+      new ClaudeBackend(
+        new SpawnStubCliRunner(Nil),
+        projectsDir = missing,
+        cwdForProbe = cwd
+      )
+    ): backend =>
+      assert(!backend.sessionExists(freshSid))

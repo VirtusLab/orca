@@ -78,3 +78,10 @@ trait LlmBackend[B <: BackendTag]:
     * thread.
     */
   def registerSession(client: SessionId[B], server: SessionId[B]): Unit = ()
+
+  /** Non-destructive check: does a live, resumable backend conversation exist
+    * for `session`? Best-effort — returns `false` when the backend store/CLI is
+    * absent or the answer can't be determined (the caller then re-seeds, which
+    * is always safe). Must NOT create, mutate, or resume the session.
+    */
+  def sessionExists(session: SessionId[B]): Boolean = false

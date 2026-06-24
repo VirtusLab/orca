@@ -3,7 +3,12 @@ package orca.tools.gemini
 import orca.backend.SupervisedBackend
 import orca.llm.{BackendTag, LlmConfig, Model, SessionId}
 import orca.OrcaFlowException
-import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
+import orca.subprocess.{
+  CliResult,
+  FakePipedCliProcess,
+  SpawnStubCliRunner,
+  StubCliRunner
+}
 
 class GeminiBackendTest extends munit.FunSuite:
 
@@ -227,3 +232,27 @@ class GeminiBackendTest extends munit.FunSuite:
       assert(finalPrompt.contains("be terse"))
       assert(finalPrompt.contains("ask_user"))
       assert(finalPrompt.contains("list files"))
+
+  test(
+    "sessionExists returns true when the session id appears in gemini --list-sessions output"
+  ):
+    val sid = SessionId[BackendTag.Gemini.type]("sess-abc-123")
+    val stub =
+      new StubCliRunner(CliResult(0, "sess-abc-123  2024-01-01T00:00:00", ""))
+    SupervisedBackend.using(new GeminiBackend(stub)): backend =>
+      assert(backend.sessionExists(sid))
+
+  test("sessionExists returns false when the session id is not in the output"):
+    val sid = SessionId[BackendTag.Gemini.type]("sess-missing")
+    val stub =
+      new StubCliRunner(CliResult(0, "sess-other  2024-01-01T00:00:00", ""))
+    SupervisedBackend.using(new GeminiBackend(stub)): backend =>
+      assert(!backend.sessionExists(sid))
+
+  test(
+    "sessionExists returns false when gemini --list-sessions exits non-zero"
+  ):
+    val sid = SessionId[BackendTag.Gemini.type]("sess-abc-123")
+    val stub = new StubCliRunner(CliResult(1, "sess-abc-123", ""))
+    SupervisedBackend.using(new GeminiBackend(stub)): backend =>
+      assert(!backend.sessionExists(sid))

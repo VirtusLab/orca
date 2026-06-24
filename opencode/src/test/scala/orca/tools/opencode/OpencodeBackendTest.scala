@@ -7,9 +7,13 @@ import ox.supervised
 class OpencodeBackendTest extends munit.FunSuite:
 
   /** Serves a canned turn over SSE and records POSTs. `events` hands back the
-    * same canned stream each call.
+    * same canned stream each call. `statusFor` controls what `getStatus`
+    * returns for each path prefix: defaults to 404 for unknown paths.
     */
-  private class FakeHttp(sse: List[String]) extends OpencodeHttp:
+  private class FakeHttp(
+      sse: List[String],
+      statusFor: String => Int = _ => 404
+  ) extends OpencodeHttp:
     var posts: List[(String, String)] = Nil
     def postJson(path: String, body: String): String =
       posts = posts :+ (path -> body)
@@ -19,6 +23,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       def errorLines: Iterator[String] = Iterator.empty
       def interrupt(): Unit = ()
       def tryExitCode: Option[Int] = Some(0)
+    override def getStatus(path: String): Int = statusFor(path)
 
   private def data(json: String): String = s"data: $json"
 
@@ -130,3 +135,56 @@ class OpencodeBackendTest extends munit.FunSuite:
       ) // schema threaded through
       conv.events.foreach(_ => ())
       assertEquals(conv.awaitResult().toOption.get.output, "hi")
+
+  test("sessionExists returns false when the server has not been started yet"):
+    supervised:
+      val http = new FakeHttp(Nil, _ => 200)
+      val backend = new OpencodeBackend(_ => http)
+      // No runAutonomous call — firstWorkDir is still null.
+      assert(!backend.sessionExists(fresh))
+
+  test("probeSession returns true when getStatus is 200"):
+    supervised:
+      val http = new FakeHttp(
+        Nil,
+        path => if path == "/session/ses_abc" then 200 else 404
+      )
+      val backend = new OpencodeBackend(_ => http)
+      assert(backend.probeSession("ses_abc", http))
+
+  test("probeSession returns false when getStatus is 404"):
+    supervised:
+      val http = new FakeHttp(Nil, _ => 404)
+      val backend = new OpencodeBackend(_ => http)
+      assert(!backend.probeSession("ses_missing", http))
+
+  test("sessionExists returns true after server is started and session exists"):
+    supervised:
+      val existingId = "ses_server1"
+      val http = new FakeHttp(
+        turn(existingId, "stop", Nil),
+        path => if path == s"/session/$existingId" then 200 else 404
+      )
+      val backend = new OpencodeBackend(_ => http)
+      val client = fresh
+      // Trigger server init via a real turn.
+      val _ =
+        backend.runAutonomous("hi", client, LlmConfig.default, os.temp.dir())
+      // Now sessionExists can probe the live server.
+      val knownSid = SessionId[BackendTag.Opencode.type](existingId)
+      assert(backend.sessionExists(knownSid))
+
+  test(
+    "sessionExists returns false after server is started but session is unknown"
+  ):
+    supervised:
+      val http = new FakeHttp(turn("ses_server1", "stop", Nil), _ => 404)
+      val backend = new OpencodeBackend(_ => http)
+      val client = fresh
+      val _ =
+        backend.runAutonomous("hi", client, LlmConfig.default, os.temp.dir())
+      assert(
+        !backend.sessionExists(
+          SessionId[BackendTag.Opencode.type]("ses_unknown")
+        )
+      )
