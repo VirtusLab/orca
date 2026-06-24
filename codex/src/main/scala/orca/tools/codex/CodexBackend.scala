@@ -231,6 +231,10 @@ private[orca] class CodexBackend(
       server: SessionId[BackendTag.Codex.type]
   ): Unit = sessions.commitSuccess(client, server)
 
+  override def serverFor(
+      client: SessionId[BackendTag.Codex.type]
+  ): Option[SessionId[BackendTag.Codex.type]] = sessions.serverFor(client)
+
   private def writeSchemaIfPresent(
       schema: Option[String],
       workDir: os.Path

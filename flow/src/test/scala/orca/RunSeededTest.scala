@@ -45,7 +45,8 @@ class RunSeededTest extends FunSuite:
     */
   private class StubLlmForSeeded(
       existsResult: Boolean,
-      runResult: String = "ok"
+      runResult: String = "ok",
+      serverId: Option[String] = None
   ) extends LlmTool[BackendTag.ClaudeCode.type]:
     val name: String = "stub-seeded"
 
@@ -57,6 +58,14 @@ class RunSeededTest extends FunSuite:
     override def sessionExists(
         session: SessionId[BackendTag.ClaudeCode.type]
     ): Boolean = existsResult
+
+    /** Reports a learned server id (server-id backends) so the persist path can
+      * be exercised; `None` mirrors claude/pi (client == wire id).
+      */
+    override def serverSessionId(
+        client: SessionId[BackendTag.ClaudeCode.type]
+    ): Option[SessionId[BackendTag.ClaudeCode.type]] =
+      serverId.map(SessionId[BackendTag.ClaudeCode.type](_))
 
     val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
       new AutonomousTextCall[BackendTag.ClaudeCode.type]:
@@ -314,6 +323,36 @@ class RunSeededTest extends FunSuite:
       llm.runSeeded("prompt", testSession)(using fc)
     assertEquals(returnedSession, testSession)
     assertEquals(output, "agent output")
+
+  test(
+    "runSeeded persists a newly-learned server id into the SessionRecord"
+  ):
+    val fc = makeControl(
+      sessions =
+        List(SessionRecord(index = 0, id = testSessionId, seed = "seed"))
+    )
+    val llm = new StubLlmForSeeded(
+      existsResult = false,
+      serverId = Some("server-thread-xyz")
+    )
+    val _ = llm.runSeeded("prompt", testSession)(using fc)
+    val record =
+      fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
+    assertEquals(record.serverId, Some("server-thread-xyz"))
+
+  test(
+    "runSeeded leaves serverId None when the backend reports no server id"
+  ):
+    // claude/pi: client IS the wire id, serverSessionId returns None.
+    val fc = makeControl(
+      sessions =
+        List(SessionRecord(index = 0, id = testSessionId, seed = "seed"))
+    )
+    val llm = new StubLlmForSeeded(existsResult = false, serverId = None)
+    val _ = llm.runSeeded("prompt", testSession)(using fc)
+    val record =
+      fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
+    assertEquals(record.serverId, None)
 
   test(
     "LlmTool.sessionExists: BaseLlmTool delegates to backend (returns false)"

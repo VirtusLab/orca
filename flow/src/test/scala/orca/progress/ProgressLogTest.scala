@@ -55,6 +55,33 @@ class ProgressLogTest extends FunSuite:
     )
     assertEquals(roundTrip(log), log)
 
+  test("SessionRecord round-trips with serverId = Some(...)"):
+    val log = ProgressLog(
+      header = ProgressHeader("main", "feat/server", "abc123"),
+      entries = Nil,
+      sessions = List(
+        SessionRecord(
+          index = 0,
+          id = "client-uuid",
+          seed = "brief",
+          serverId = Some("ses_server_123")
+        )
+      )
+    )
+    assertEquals(roundTrip(log), log)
+
+  test(
+    "SessionRecord JSON without a serverId field decodes to None (back-compat)"
+  ):
+    // JSON produced before the serverId field existed: the record has only
+    // index/id/seed. The lenient ProgressLog codec must default serverId to None.
+    val oldJson =
+      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc"},""" +
+        """"entries":[],"sessions":[{"index":0,"id":"u","seed":"s"}]}"""
+    val codec = summon[JsonData[ProgressLog]].codec
+    val decoded = readFromString[ProgressLog](oldJson)(using codec)
+    assertEquals(decoded.sessions.head.serverId, None)
+
   test(
     "ProgressLog JSON without a sessions field decodes to empty sessions list (back-compat)"
   ):

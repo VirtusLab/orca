@@ -88,6 +88,23 @@ trait LlmTool[B <: BackendTag]:
     */
   def sessionExists(session: SessionId[B]): Boolean = false
 
+  /** The server-side session id mapped to `client`, or `None` if unknown.
+    * Delegates to the backend's registry (R22); the flow runtime reads this
+    * after a run to persist the client→server map into the progress log.
+    * Returns `None` by default for tools without a backend (stubs).
+    */
+  def serverSessionId(client: SessionId[B]): Option[SessionId[B]] = None
+
+  /** Record a learned client→server mapping in the backend's registry. The flow
+    * runtime calls this on resume to rehydrate the map from the persisted log,
+    * so `dispatchFor` resumes the right server thread and the probes target the
+    * server id. No-op by default for tools without a backend (stubs).
+    */
+  def registerServerSession(
+      client: SessionId[B],
+      server: SessionId[B]
+  ): Unit = ()
+
   /** Mint a fresh session id you can pass to `.run(...)` across multiple calls.
     * The first call with this id starts the session; subsequent calls resume
     * it. Lets flow scripts hold a stable `val session = claude.newSession`

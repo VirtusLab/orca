@@ -223,6 +223,13 @@ private[orca] def runFlow(
       )
       val setup =
         flowSetup(args, ctx.llm, effectiveGit, branchNaming, store)
+      // Rehydrate the client→server session map (R22): the registry is
+      // in-memory, so on resume the leading model's mapping is empty. Replay
+      // the persisted records into it (after the context + log exist, before
+      // the body) so `dispatchFor` resumes the right server thread and the
+      // server-id existence probes work. Only the leading model is rehydrated —
+      // the common case; multi-tool flows are a known limitation (see report).
+      rehydrateSessions(ctx.llm, store)
       // The whole flow body runs as a top-level stage: an otherwise
       // unhandled exception surfaces as a single Error event (the same
       // message a stage failure shows). A nested stage / `fail` marks the
@@ -251,6 +258,31 @@ private[orca] def runFlow(
           throw e
       if bodySucceeded then flowTeardownSuccess(effectiveGit, setup)
     finally effectiveInteraction.close()
+
+/** Replay the persisted client→server session map (ADR 0018 §2.6, R22) into the
+  * leading model's in-memory registry, so a resumed run resumes the right
+  * server thread and the server-id existence probes target the right id. Reads
+  * every [[orca.progress.SessionRecord]] that carries a `serverId` and
+  * registers the mapping via [[orca.llm.LlmTool.registerServerSession]].
+  *
+  * The type parameter `B` binds the wildcard backend tag from `ctx.llm`
+  * (`LlmTool[?]`) so the client/server [[orca.llm.SessionId]]s share its type.
+  * Only the leading model is rehydrated (the common case); a flow that drives a
+  * second tool's sessions across resume is a known limitation.
+  */
+private def rehydrateSessions[B <: orca.llm.BackendTag](
+    llm: LlmTool[B],
+    store: ProgressStore
+): Unit =
+  for
+    log <- store.load().toList
+    record <- log.sessions
+    serverId <- record.serverId
+  do
+    llm.registerServerSession(
+      orca.llm.SessionId[B](record.id),
+      orca.llm.SessionId[B](serverId)
+    )
 
 /** Outcome of [[flowSetup]]: the resolved progress store, the feature branch
   * the run is bound to, and the starting branch to restore on success.

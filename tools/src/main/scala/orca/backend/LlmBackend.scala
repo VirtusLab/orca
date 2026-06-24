@@ -85,3 +85,13 @@ trait LlmBackend[B <: BackendTag]:
     * is always safe). Must NOT create, mutate, or resume the session.
     */
   def sessionExists(session: SessionId[B]): Boolean = false
+
+  /** Read the server-side session id this backend has mapped `client` to, or
+    * `None` if no live mapping is known. Pure, thread-safe, side-effect-free.
+    *
+    * Backends with a [[SessionRegistry]] delegate to its `serverFor`; the
+    * default returns `None`. Used by the flow runtime to persist the
+    * client→server map into the progress log (so a resumed run can rehydrate it
+    * via [[registerSession]]) and to probe the server id for existence (R22).
+    */
+  def serverFor(client: SessionId[B]): Option[SessionId[B]] = None

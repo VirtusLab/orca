@@ -52,13 +52,42 @@ extension [B <: BackendTag](llm: LlmTool[B])
       prompt: String,
       session: SessionId[B]
   )(using fc: FlowControl): (SessionId[B], String) =
-    if llm.sessionExists(session) then llm.autonomous.run(prompt, session)
-    else
+    val result =
+      if llm.sessionExists(session) then llm.autonomous.run(prompt, session)
+      else
+        val log = fc.progressStore.load()
+        val seed = lookupSeed(log, session)
+        val preamble = progressPreamble(log)
+        val primedPrompt = composePrimedPrompt(preamble, seed, prompt)
+        llm.autonomous.run(primedPrompt, session)
+    persistServerId(llm, session)
+    result
+
+/** After a run, persist the server-side session id the backend has now learned
+  * (server-id backends only — claude/pi return `None`), so a resumed run can
+  * rehydrate the client→server map and continue/probe the right server thread.
+  * Upserts the matching [[SessionRecord]] only when the learned server id
+  * differs from what is already recorded (and a record for `session` exists),
+  * so a no-op run writes nothing. The store write uses a runtime-minted
+  * `InStage.unsafe`, the same pattern [[session]] uses for the setup-phase
+  * write.
+  */
+private def persistServerId[B <: BackendTag](
+    llm: LlmTool[B],
+    session: SessionId[B]
+)(using fc: FlowControl): Unit =
+  llm
+    .serverSessionId(session)
+    .foreach: server =>
       val log = fc.progressStore.load()
-      val seed = lookupSeed(log, session)
-      val preamble = progressPreamble(log)
-      val primedPrompt = composePrimedPrompt(preamble, seed, prompt)
-      llm.autonomous.run(primedPrompt, session)
+      log
+        .flatMap(_.sessions.find(_.id == session.value))
+        .foreach: record =>
+          if !record.serverId.contains(server.value) then
+            given InStage = InStage.unsafe
+            fc.progressStore.upsertSession(
+              record.copy(serverId = Some(server.value))
+            )
 
 /** Look up the recorded seed for `session` from the log. Returns `None` if the
   * log is absent, no record matches `session`, or the recorded seed is empty.

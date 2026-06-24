@@ -140,7 +140,24 @@ class OpencodeBackendTest extends munit.FunSuite:
     supervised:
       val http = new FakeHttp(Nil, _ => 200)
       val backend = new OpencodeBackend(_ => http)
-      // No runAutonomous call — firstWorkDir is still null.
+      // No runAutonomous call — no client→server mapping AND firstWorkDir null.
+      assert(!backend.sessionExists(fresh))
+
+  test(
+    "sessionExists returns false when there is no client→server mapping"
+  ):
+    supervised:
+      // Server started (would answer 200), but the probed client id was never
+      // mapped to a server id, so the probe must not run on the client id.
+      val existingId = "ses_server1"
+      val http = new FakeHttp(
+        turn(existingId, "stop", Nil),
+        path => if path == s"/session/$existingId" then 200 else 404
+      )
+      val backend = new OpencodeBackend(_ => http)
+      val _ =
+        backend.runAutonomous("hi", fresh, LlmConfig.default, os.temp.dir())
+      // A different, unmapped client id resolves to no server id → false.
       assert(!backend.sessionExists(fresh))
 
   test("probeSession returns true when getStatus is 200"):
@@ -158,7 +175,9 @@ class OpencodeBackendTest extends munit.FunSuite:
       val backend = new OpencodeBackend(_ => http)
       assert(!backend.probeSession("ses_missing", http))
 
-  test("sessionExists returns true after server is started and session exists"):
+  test(
+    "sessionExists probes the SERVER id: true after a turn maps client→server"
+  ):
     supervised:
       val existingId = "ses_server1"
       val http = new FakeHttp(
@@ -167,15 +186,14 @@ class OpencodeBackendTest extends munit.FunSuite:
       )
       val backend = new OpencodeBackend(_ => http)
       val client = fresh
-      // Trigger server init via a real turn.
+      // A real turn maps client → ses_server1 in the registry.
       val _ =
         backend.runAutonomous("hi", client, LlmConfig.default, os.temp.dir())
-      // Now sessionExists can probe the live server.
-      val knownSid = SessionId[BackendTag.Opencode.type](existingId)
-      assert(backend.sessionExists(knownSid))
+      // Probing the CLIENT id resolves to the server id, which the server has.
+      assert(backend.sessionExists(client))
 
   test(
-    "sessionExists returns false after server is started but session is unknown"
+    "sessionExists returns false when the mapped server id is unknown to the server"
   ):
     supervised:
       val http = new FakeHttp(turn("ses_server1", "stop", Nil), _ => 404)
@@ -183,11 +201,8 @@ class OpencodeBackendTest extends munit.FunSuite:
       val client = fresh
       val _ =
         backend.runAutonomous("hi", client, LlmConfig.default, os.temp.dir())
-      assert(
-        !backend.sessionExists(
-          SessionId[BackendTag.Opencode.type]("ses_unknown")
-        )
-      )
+      // client → ses_server1 is mapped, but the server now 404s for it.
+      assert(!backend.sessionExists(client))
 
   test(
     "probeSession returns false when getStatus throws (verifies NonFatal catch)"
@@ -199,18 +214,29 @@ class OpencodeBackendTest extends munit.FunSuite:
       val backend = new OpencodeBackend(_ => http)
       assert(!backend.probeSession("ses_abc", http))
 
-  test("sessionExists returns false for a malicious id with slashes"):
+  test(
+    "sessionExists returns false for a malicious mapped server id (slashes)"
+  ):
     supervised:
       val http = new FakeHttp(Nil, _ => 200) // would return 200 if called
       val backend = new OpencodeBackend(_ => http)
-      val malicious = SessionId[BackendTag.Opencode.type]("a/b")
-      assert(!backend.sessionExists(malicious))
+      val client = fresh
+      // Even if the registry maps to a malicious server id, the guard blocks it.
+      backend.registerSession(
+        client,
+        SessionId[BackendTag.Opencode.type]("a/b")
+      )
+      assert(!backend.sessionExists(client))
 
   test(
-    "sessionExists returns false for a malicious id with query/fragment chars"
+    "sessionExists returns false for a malicious mapped server id (query/fragment chars)"
   ):
     supervised:
       val http = new FakeHttp(Nil, _ => 200)
       val backend = new OpencodeBackend(_ => http)
-      val malicious = SessionId[BackendTag.Opencode.type]("x?y#z")
-      assert(!backend.sessionExists(malicious))
+      val client = fresh
+      backend.registerSession(
+        client,
+        SessionId[BackendTag.Opencode.type]("x?y#z")
+      )
+      assert(!backend.sessionExists(client))

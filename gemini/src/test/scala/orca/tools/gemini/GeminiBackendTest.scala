@@ -233,34 +233,52 @@ class GeminiBackendTest extends munit.FunSuite:
       assert(finalPrompt.contains("ask_user"))
       assert(finalPrompt.contains("list files"))
 
+  // sessionExists probes the SERVER id, not the client id: it resolves the
+  // client→server mapping first (gemini mints its own id), then scans
+  // `--list-sessions` for that server id. A `registerSession` seeds the map.
+
+  private val clientForProbe = SessionId[BackendTag.Gemini.type]("client-uuid")
+  private val serverForProbe = SessionId[BackendTag.Gemini.type]("sess-abc-123")
+
   test(
-    "sessionExists returns true when the session id appears in gemini --list-sessions output"
+    "sessionExists probes the SERVER id: true when it appears in --list-sessions"
   ):
-    val sid = SessionId[BackendTag.Gemini.type]("sess-abc-123")
     val stub =
       new StubCliRunner(CliResult(0, "sess-abc-123  2024-01-01T00:00:00", ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
-      assert(backend.sessionExists(sid))
+      backend.registerSession(clientForProbe, serverForProbe)
+      assert(backend.sessionExists(clientForProbe))
 
-  test("sessionExists returns false when the session id is not in the output"):
-    val sid = SessionId[BackendTag.Gemini.type]("sess-missing")
+  test(
+    "sessionExists returns false when there is no client→server mapping"
+  ):
+    // No registerSession: the client id maps to nothing, so the probe must not
+    // run (and must not pass the client id to --list-sessions).
+    val stub =
+      new StubCliRunner(CliResult(0, "client-uuid  2024-01-01T00:00:00", ""))
+    SupervisedBackend.using(new GeminiBackend(stub)): backend =>
+      assert(!backend.sessionExists(clientForProbe))
+
+  test(
+    "sessionExists returns false when the server id is not in the output"
+  ):
     val stub =
       new StubCliRunner(CliResult(0, "sess-other  2024-01-01T00:00:00", ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
-      assert(!backend.sessionExists(sid))
+      backend.registerSession(clientForProbe, serverForProbe)
+      assert(!backend.sessionExists(clientForProbe))
 
   test(
     "sessionExists returns false when gemini --list-sessions exits non-zero"
   ):
-    val sid = SessionId[BackendTag.Gemini.type]("sess-abc-123")
     val stub = new StubCliRunner(CliResult(1, "sess-abc-123", ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
-      assert(!backend.sessionExists(sid))
+      backend.registerSession(clientForProbe, serverForProbe)
+      assert(!backend.sessionExists(clientForProbe))
 
   test(
     "sessionExists returns false when the cli runner throws (verifies NonFatal catch)"
   ):
-    val sid = SessionId[BackendTag.Gemini.type]("sess-abc-123")
     val stub = new StubCliRunner():
       override def run(
           args: Seq[String],
@@ -269,10 +287,15 @@ class GeminiBackendTest extends munit.FunSuite:
           cwd: os.Path
       ): CliResult = throw new RuntimeException("binary not found")
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
-      assert(!backend.sessionExists(sid))
+      backend.registerSession(clientForProbe, serverForProbe)
+      assert(!backend.sessionExists(clientForProbe))
 
-  test("sessionExists returns false for a malicious id containing path chars"):
-    val maliciousId = SessionId[BackendTag.Gemini.type]("../../etc/passwd")
+  test(
+    "sessionExists returns false for a malicious server id containing path chars"
+  ):
+    val maliciousServer =
+      SessionId[BackendTag.Gemini.type]("../../etc/passwd")
     val stub = new StubCliRunner(CliResult(0, "../../etc/passwd", ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
-      assert(!backend.sessionExists(maliciousId))
+      backend.registerSession(clientForProbe, maliciousServer)
+      assert(!backend.sessionExists(clientForProbe))

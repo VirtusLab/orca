@@ -23,12 +23,28 @@ case class ProgressHeader(
 case class StageEntry(id: String, name: String, resultJson: String)
     derives JsonData
 
-/** A persisted session: the occurrence index, a minted UUID, and the seed
-  * string the author supplied. Stored in [[ProgressLog.sessions]] so that a
-  * resumed run reuses the same [[orca.llm.SessionId]] rather than minting a
-  * second one.
+/** A persisted session: the occurrence index, a minted UUID, the seed string
+  * the author supplied, and — for server-id backends (codex/gemini/opencode) —
+  * the learned server-side session id.
+  *
+  * `id` is the stable client id the framework hands across calls;
+  * [[SessionRecord.serverId]] is the backend-minted id the client maps to (for
+  * claude/pi the client id IS the wire id, so `serverId` stays `None`). It is
+  * persisted so a resumed run can rehydrate the in-memory client→server map and
+  * (a) resume the right server thread and (b) probe the server id for
+  * existence.
+  *
+  * `serverId` defaults to `None` and decodes to `None` when absent in older log
+  * files — the lenient [[ProgressLog]] codec tolerates the missing field.
+  * Stored in [[ProgressLog.sessions]] so that a resumed run reuses the same
+  * [[orca.llm.SessionId]] rather than minting a second one.
   */
-case class SessionRecord(index: Int, id: String, seed: String) derives JsonData
+case class SessionRecord(
+    index: Int,
+    id: String,
+    seed: String,
+    serverId: Option[String] = None
+) derives JsonData
 
 /** An append-only log of stage outcomes and session records for one flow run,
   * keyed by its header.

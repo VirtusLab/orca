@@ -2,8 +2,19 @@ package orca.runner
 
 import orca.{FlowContext, InStage, OrcaArgs, runFlow, stage, flow}
 import orca.events.OrcaEvent
-import orca.llm.DefaultPrompts
-import orca.progress.{ProgressHeader, ProgressStore, StageEntry}
+import orca.llm.{
+  Announce,
+  AutonomousTextCall,
+  BackendTag,
+  ClaudeTool,
+  DefaultPrompts,
+  JsonData,
+  LlmCall,
+  LlmConfig,
+  SessionId,
+  ToolSet
+}
+import orca.progress.{ProgressHeader, ProgressStore, SessionRecord, StageEntry}
 import orca.runner.terminal.TerminalInteraction
 import orca.tools.OsGitTool
 import orca.tools.opencode.OpencodeLauncher
@@ -283,6 +294,75 @@ class FlowLifecycleTest extends munit.FunSuite:
       "a successful in-place resumed run returns to where it started"
     )
 
+  test(
+    "rehydrate: persisted client→server map is replayed into the leading model before the body"
+  ):
+    // An aborted run left a session record carrying a learned serverId. On
+    // resume, flow setup must replay it into the leading model's registry via
+    // registerServerSession BEFORE the body runs.
+    val workDir = TempRepo.create()
+    val prompt = "rehydrate-feature"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+
+    given InStage = InStage.unsafe
+    val _ = git.createBranch("feat/rehydrate-feature")
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/rehydrate-feature",
+        promptHash = ProgressStore.hashPrompt(prompt)
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    store.upsertSession(
+      SessionRecord(
+        index = 0,
+        id = "client-uuid",
+        seed = "brief",
+        serverId = Some("ses_server_1")
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: session record")
+
+    val recorder = new RecordingClaude
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      runFlow(
+        args = OrcaArgs(prompt),
+        leadModel = _ => recorder,
+        workDir = workDir,
+        interaction = Some(interaction),
+        extraListeners = Nil,
+        branchNaming = None,
+        progressStore = Some(store),
+        claude = Some(recorder),
+        opencode = None,
+        opencodeLauncher = OpencodeLauncher.default,
+        pi = None,
+        git = None,
+        gh = None,
+        fs = None,
+        prompts = DefaultPrompts
+      ):
+        // The body observes the already-rehydrated mapping.
+        assertEquals(
+          recorder.registered,
+          List(("client-uuid", "ses_server_1"))
+        )
+
+    assertEquals(
+      recorder.registered,
+      List(("client-uuid", "ses_server_1")),
+      "registerServerSession must be called once with the persisted mapping"
+    )
+
   /** Drive `runFlow` directly (exit-free) with a null-sink interaction so no
     * TTY is needed and a body failure surfaces as a thrown exception rather
     * than a `System.exit`.
@@ -315,5 +395,35 @@ class FlowLifecycleTest extends munit.FunSuite:
         fs = None,
         prompts = DefaultPrompts
       )(body)
+
+  /** A `ClaudeTool` that records `registerServerSession` calls, to assert the
+    * lifecycle rehydrates the persisted client→server map. All LLM methods
+    * throw — the rehydration test never invokes the model.
+    */
+  private class RecordingClaude extends ClaudeTool:
+    private var _registered: List[(String, String)] = Nil
+    def registered: List[(String, String)] = _registered
+
+    override def registerServerSession(
+        client: SessionId[BackendTag.ClaudeCode.type],
+        server: SessionId[BackendTag.ClaudeCode.type]
+    ): Unit =
+      _registered = _registered :+ (client.value -> server.value)
+
+    val name = "recording-claude"
+    def haiku = this
+    def sonnet = this
+    def opus = this
+    def fable = this
+    def withNetworkTools(t: Seq[String]) = this
+    def withConfig(c: LlmConfig) = this
+    def withSystemPrompt(p: String) = this
+    def withName(n: String) = this
+    def withTools(tools: ToolSet) = this
+    def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
+      throw new UnsupportedOperationException
+    def resultAs[O: JsonData: Announce]
+        : LlmCall[BackendTag.ClaudeCode.type, O] =
+      throw new UnsupportedOperationException
 
 end FlowLifecycleTest

@@ -42,6 +42,25 @@ class SessionRegistryTest extends munit.FunSuite:
     assertEquals(reg.dispatchFor(client), Dispatch.Resume(server))
 
   test(
+    "ClientToServer: serverFor is None before commit, Some(server) after"
+  ):
+    val reg = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+    val client = serverSid("client-uuid")
+    val server = serverSid("server-thread-xyz")
+    assertEquals(reg.serverFor(client), None)
+    reg.commitSuccess(client, server)
+    assertEquals(reg.serverFor(client), Some(server))
+
+  test(
+    "ClaimedOnce: serverFor is None before commit, Some(client) after"
+  ):
+    val reg = new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type]
+    val client = sid("client-A")
+    assertEquals(reg.serverFor(client), None)
+    reg.commitSuccess(client, client)
+    assertEquals(reg.serverFor(client), Some(client))
+
+  test(
     "ClientToServer: putIfAbsent semantics — second commit doesn't overwrite"
   ):
     // The codex protocol invariant says a resumed session never changes

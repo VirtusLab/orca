@@ -33,6 +33,17 @@ trait SessionRegistry[B <: BackendTag]:
   def dispatchFor(client: SessionId[B]): Dispatch[B]
   def commitSuccess(client: SessionId[B], server: SessionId[B]): Unit
 
+  /** Pure, thread-safe read of the server-side id mapped to `client`, or `None`
+    * if no live mapping is known. For [[ClientToServer]] this is the recorded
+    * server thread id; for [[ClaimedOnce]] (claude/pi) the client IS the wire
+    * id, so it returns `Some(client)` once claimed and `None` before.
+    *
+    * Used by the flow runtime to persist the client→server map into the
+    * progress log and to drive the server-id existence probe (R22). Never
+    * creates, mutates, or resumes a session.
+    */
+  def serverFor(client: SessionId[B]): Option[SessionId[B]]
+
 object SessionRegistry:
 
   /** For backends whose client-supplied session id IS the canonical id on the
@@ -55,6 +66,10 @@ object SessionRegistry:
       */
     def commitSuccess(client: SessionId[B], server: SessionId[B]): Unit =
       val _ = claimed.add(SessionId.value(client))
+
+    /** The client id IS the wire id, so a claimed client maps to itself. */
+    def serverFor(client: SessionId[B]): Option[SessionId[B]] =
+      Option.when(claimed.contains(SessionId.value(client)))(client)
 
   /** For backends whose session id is server-minted at first use, learned from
     * the protocol response. The framework hands the caller a stable client id;
@@ -83,3 +98,6 @@ object SessionRegistry:
         SessionId.value(client),
         SessionId.value(server)
       )
+
+    def serverFor(client: SessionId[B]): Option[SessionId[B]] =
+      Option(map.get(SessionId.value(client))).map(SessionId[B](_))

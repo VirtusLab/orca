@@ -180,30 +180,37 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
       server: SessionId[BackendTag.Gemini.type]
   ): Unit = sessions.commitSuccess(client, server)
 
-  /** Best-effort probe: runs `gemini --list-sessions` and checks whether the
-    * session id appears in the output (substring scan). Returns `false` — safe
-    * re-seed — on non-zero exit, any exception, or if the id fails the
-    * [[orca.llm.isSafeSessionId]] guard (added for consistency; the substring
-    * scan is not injection-susceptible, but the guard keeps all probes
-    * uniform).
+  override def serverFor(
+      client: SessionId[BackendTag.Gemini.type]
+  ): Option[SessionId[BackendTag.Gemini.type]] = sessions.serverFor(client)
+
+  /** Best-effort probe: resolves the SERVER id mapped to `client` (gemini mints
+    * its own session id; the caller's stable id never appears in
+    * `--list-sessions`), runs `gemini --list-sessions`, and checks whether the
+    * server id appears in the output (substring scan). Returns `false` — safe
+    * re-seed — when no server id is mapped (the map hasn't been rehydrated from
+    * the log, so there is no known live session), on non-zero exit, any
+    * exception, or if the id fails the [[orca.llm.isSafeSessionId]] guard
+    * (added for consistency; the substring scan is not injection-susceptible,
+    * but the guard keeps all probes uniform).
     *
-    * Note: gemini mints its own server-side session id; orca uses a
-    * [[orca.backend.SessionRegistry.ClientToServer]] mapping so the caller's
-    * stable id is never passed directly to `--list-sessions`. Therefore this
-    * probe returns `false` until the client→server map is persisted and
-    * rehydrated (a follow-up task, D2), so gemini re-seeds conservatively.
+    * The client→server map is persisted in the progress log and rehydrated on
+    * resume (D2), so on a resumed run this targets the right server id.
     */
   override def sessionExists(
       session: SessionId[BackendTag.Gemini.type]
   ): Boolean =
-    val id = SessionId.value(session)
-    if !isSafeSessionId(id) then false
-    else
-      try
-        val result = listSessionsOutput()
-        result.exitCode == 0 && result.stdout.linesIterator
-          .exists(_.contains(id))
-      catch case NonFatal(_) => false
+    sessions.serverFor(session) match
+      case None => false
+      case Some(serverSession) =>
+        val id = SessionId.value(serverSession)
+        if !isSafeSessionId(id) then false
+        else
+          try
+            val result = listSessionsOutput()
+            result.exitCode == 0 && result.stdout.linesIterator
+              .exists(_.contains(id))
+          catch case NonFatal(_) => false
 
   /** Overridable in tests via a stub `CliRunner`; default runs `gemini
     * --list-sessions`.

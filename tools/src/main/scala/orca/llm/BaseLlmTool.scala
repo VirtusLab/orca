@@ -62,6 +62,23 @@ abstract class BaseLlmTool[B <: BackendTag, Self <: LlmTool[B]](
   override def sessionExists(session: SessionId[B]): Boolean =
     backend.sessionExists(session)
 
+  /** Delegates to the backend's registry read so the flow runtime can persist
+    * the learned client→server mapping after a run.
+    */
+  override def serverSessionId(
+      client: SessionId[B]
+  ): Option[SessionId[B]] =
+    backend.serverFor(client)
+
+  /** Delegates to the backend's `registerSession` so the flow runtime can
+    * rehydrate the client→server map from the persisted log on resume.
+    */
+  override def registerServerSession(
+      client: SessionId[B],
+      server: SessionId[B]
+  ): Unit =
+    backend.registerSession(client, server)
+
   val autonomous: AutonomousTextCall[B] = new AutonomousTextCall[B]:
     def run(
         prompt: String,
