@@ -338,10 +338,7 @@ private[orca] class OsGitTool(
       val stderr = result.err.text()
       if stderr.contains("non-fast-forward") || stderr.contains("rejected") then
         Left(new PushRejected(stderr.trim))
-      else
-        throw OrcaFlowException(
-          s"git push failed (exit ${result.exitCode}): $stderr"
-        )
+      else fail("git push", result)
 
   def currentBranch(): String =
     git("rev-parse", "--abbrev-ref", "HEAD").trim
@@ -441,10 +438,7 @@ private[orca] class OsGitTool(
       if stderr.contains("already exists") ||
         stderr.contains("already checked out")
       then Left(new WorktreeAddFailed(path, stderr))
-      else
-        throw OrcaFlowException(
-          s"git worktree add failed (exit ${result.exitCode}): $stderr"
-        )
+      else fail("git worktree add", result)
 
   def removeWorktree(
       path: os.Path
@@ -491,6 +485,15 @@ private[orca] class OsGitTool(
   private def gitProc(args: Seq[String]): os.CommandResult =
     QuietProc.call(args, cwd = workDir, env = OsGitTool.nonInteractiveEnv)
 
+  /** Abort with a uniform `"<label> failed (exit N): <stderr>"` message for an
+    * unrecoverable git failure. Callers handle the EXPECTED non-zero exits
+    * (rejected push, "already exists") as `Left`s before reaching here.
+    */
+  private def fail(label: String, result: os.CommandResult): Nothing =
+    throw OrcaFlowException(
+      s"$label failed (exit ${result.exitCode}): ${result.err.text().trim}"
+    )
+
   /** Read a single git config value (`git config --get`), `None` when unset. */
   private def gitConfigGet(key: String): Option[String] =
     val r = gitProc(Seq("git", "config", "--get", key))
@@ -505,10 +508,7 @@ private[orca] class OsGitTool(
     // the event log via the OrcaEvent.Step calls in the public methods
     // above; we don't need git's verbose stderr for that.
     val result = gitProc("git" +: args)
-    if result.exitCode != 0 then
-      throw OrcaFlowException(
-        s"git ${args.mkString(" ")} failed (exit ${result.exitCode}): ${result.err.text()}"
-      )
+    if result.exitCode != 0 then fail(s"git ${args.mkString(" ")}", result)
     result.out.text()
 
 private[orca] object OsGitTool:

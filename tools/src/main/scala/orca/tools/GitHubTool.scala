@@ -11,7 +11,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 import orca.{InStage, OrcaFlowException}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.llm.JsonData
-import orca.subprocess.CliRunner
+import orca.subprocess.{CliResult, CliRunner}
 import ox.sleep
 import ox.resilience.{ResultPolicy, RetryConfig, retry}
 import ox.scheduling.Schedule
@@ -338,10 +338,7 @@ private[orca] class OsGitHubTool(
       else if combined.contains("no commits") ||
         combined.contains("must first push")
       then Left(new NoCommitsToPr)
-      else
-        throw OrcaFlowException(
-          s"gh pr create failed (exit ${result.exitCode}): ${result.stderr}"
-        )
+      else fail("gh pr create", result)
 
   /** Resolve the current branch name via `git rev-parse --abbrev-ref HEAD`.
     * Used by [[createPr]] to pass the head branch to [[findOpenPr]].
@@ -352,10 +349,7 @@ private[orca] class OsGitHubTool(
       cwd = workDir
     )
     if result.exitCode == 0 then result.stdout.trim
-    else
-      throw OrcaFlowException(
-        s"git rev-parse failed (exit ${result.exitCode}): ${result.stderr}"
-      )
+    else fail("git rev-parse", result)
 
   /** Find an open PR whose head branch matches `head`, using `gh pr list --head
     * <head> --state open --json number,url`. Returns the first match, or `None`
@@ -580,11 +574,17 @@ private[orca] class OsGitHubTool(
 
   private def gh(args: String*): String =
     val result = cli.run("gh" +: args, cwd = workDir)
-    if result.exitCode != 0 then
-      throw OrcaFlowException(
-        s"gh ${args.mkString(" ")} failed (exit ${result.exitCode}): ${result.stderr}"
-      )
+    if result.exitCode != 0 then fail(s"gh ${args.mkString(" ")}", result)
     result.stdout
+
+  /** Abort with a uniform `"<label> failed (exit N): <stderr>"` message for an
+    * unrecoverable CLI failure. Callers handle the EXPECTED non-zero exits (PR
+    * already exists, no commits) as `Left`s before reaching here.
+    */
+  private def fail(label: String, result: CliResult): Nothing =
+    throw OrcaFlowException(
+      s"$label failed (exit ${result.exitCode}): ${result.stderr}"
+    )
 
   /** Like [[gh]] but retries a transient failure under [[readRetryConfig]].
     * ONLY for idempotent reads (`api`/`pr view`); never wrap a mutating call
