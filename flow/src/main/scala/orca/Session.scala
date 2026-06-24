@@ -61,14 +61,14 @@ extension [B <: BackendTag](llm: LlmTool[B])
       llm.autonomous.run(primedPrompt, session)
 
 /** Look up the recorded seed for `session` from the log. Returns `None` if the
-  * log is absent or no record matches `session`.
+  * log is absent, no record matches `session`, or the recorded seed is empty.
   */
 private def lookupSeed[B <: BackendTag](
     log: Option[ProgressLog],
     session: SessionId[B]
 ): Option[String] =
   log.flatMap(
-    _.sessions.find(_.id == session.value).map(_.seed)
+    _.sessions.find(_.id == session.value).map(_.seed).filter(_.nonEmpty)
   )
 
 /** Compose the progress preamble from completed stage names in the log. Returns
@@ -83,12 +83,14 @@ private def progressPreamble(log: Option[ProgressLog]): Option[String] =
     )
 
 /** Assemble the final primed prompt from the optional preamble, optional seed,
-  * and the caller's prompt, omitting absent parts cleanly.
+  * and the caller's prompt, omitting absent parts cleanly. The `---` separator
+  * appears ONLY when there is a non-empty context (preamble or seed); when
+  * neither is present the prompt is returned verbatim.
   */
 private def composePrimedPrompt(
     preamble: Option[String],
     seed: Option[String],
     prompt: String
 ): String =
-  val parts = List(preamble, seed, Some(s"---\n\n$prompt")).flatten
-  parts.mkString("\n\n")
+  val context = List(preamble, seed).flatten.filter(_.nonEmpty).mkString("\n\n")
+  if context.isEmpty then prompt else s"$context\n\n---\n\n$prompt"
