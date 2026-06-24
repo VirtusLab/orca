@@ -179,13 +179,15 @@ trait GitTool:
   def addWorktree(
       path: os.Path,
       branch: String
-  ): Either[WorktreeAddFailed, Worktree]
+  )(using InStage): Either[WorktreeAddFailed, Worktree]
 
   /** Remove the linked worktree rooted at `path`, also deleting the working
     * directory. Returns `Left(WorktreeNotFound)` when no worktree is registered
     * at that path.
     */
-  def removeWorktree(path: os.Path): Either[WorktreeNotFound, Unit]
+  def removeWorktree(path: os.Path)(using
+      InStage
+  ): Either[WorktreeNotFound, Unit]
 
   /** All linked worktrees attached to the repository, including the main one.
     * Detached-HEAD worktrees (no branch) are skipped.
@@ -398,7 +400,7 @@ private[orca] class OsGitTool(
   def addWorktree(
       path: os.Path,
       branch: String
-  ): Either[WorktreeAddFailed, Worktree] =
+  )(using InStage): Either[WorktreeAddFailed, Worktree] =
     // Check out existing branch if it already exists; otherwise branch off
     // HEAD. `git branch --list <name>` prints the branch when it exists,
     // empty when not.
@@ -423,7 +425,9 @@ private[orca] class OsGitTool(
           s"git worktree add failed (exit ${result.exitCode}): $stderr"
         )
 
-  def removeWorktree(path: os.Path): Either[WorktreeNotFound, Unit] =
+  def removeWorktree(
+      path: os.Path
+  )(using InStage): Either[WorktreeNotFound, Unit] =
     if !listWorktrees().exists(w => samePath(w.path, path)) then
       Left(new WorktreeNotFound(path))
     else
