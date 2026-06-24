@@ -380,13 +380,14 @@ object FlowCanary:
       // Read outside stage (no InStage needed).
       val issue: Issue = gh.readIssue(issueHandle)
 
-      val maybePlan: Option[Plan] = stage("Assess and plan"):
+      val (maybePlan, rejectionBody) = stage("Assess and plan"):
         Plan.autonomous.assessThenPlan(issue.body, claude.opus).value match
-          case Verdict.Rejection(_, body) =>
-            gh.writeComment(issueHandle, body)
-            None
-          case Verdict.Proceed(plan) =>
-            Some(plan)
+          case Verdict.Rejection(_, body) => (None: Option[Plan], body)
+          case Verdict.Proceed(plan)      => (Some(plan), "")
+
+      if maybePlan.isEmpty then
+        stage("Comment: rejection"):
+          gh.writeComment(issueHandle, rejectionBody)
 
       maybePlan.foreach: plan =>
         val session = claude.session(seed = plan.brief)

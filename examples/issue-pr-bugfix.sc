@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.0.14+27-97ae8174+20260624-0820-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.0.14+28-eb1a8993+20260624-0842-SNAPSHOT"
 //> using jvm 21
 
 /** Bug-report → fix flow for Scala projects, autonomous.
@@ -190,6 +190,8 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
       // must be in a later stage than the code that produced it.
       val pr = stage("Push + open tentative PR"):
         git.push().orThrow
+        // Crash-safe re-runs rely on gh.createPr being idempotent by (head, base) —
+        // ADR §2.7 R24, implemented in the external-effect-idempotency task.
         gh.createPr(
           title = summary,
           body = s"""Failing test only — fix pending.

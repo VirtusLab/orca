@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.0.14+27-97ae8174+20260624-0820-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.0.14+28-eb1a8993+20260624-0842-SNAPSHOT"
 //> using jvm 21
 
 /** Autonomous planning + coding flow.

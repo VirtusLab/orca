@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.0.14+27-97ae8174+20260624-0820-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.0.14+28-eb1a8993+20260624-0842-SNAPSHOT"
 //> using jvm 21
 
 /** GitHub-issue → PR flow, fully autonomous.
@@ -47,13 +47,17 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
        |
        |${issue.body}""".stripMargin
 
-  val maybePlan: Option[Plan] = stage("Assess and plan"):
+  // Stage returns (plan, rejectionBody): exactly one of (Some(plan), "") or
+  // (None, body). Splitting the verdict and the comment into two stages means
+  // a crash between them doesn't double-post the comment on resume.
+  val (maybePlan, rejectionBody) = stage("Assess and plan"):
     Plan.autonomous.assessThenPlan(issuePayload, claude.opus).value match
-      case Verdict.Rejection(_, body) =>
-        gh.writeComment(issueHandle, body)
-        None
-      case Verdict.Proceed(plan) =>
-        Some(plan)
+      case Verdict.Rejection(_, body) => (None: Option[Plan], body)
+      case Verdict.Proceed(plan)      => (Some(plan), "")
+
+  if maybePlan.isEmpty then
+    stage("Comment: rejection"):
+      gh.writeComment(issueHandle, rejectionBody)
 
   maybePlan.foreach: plan =>
     // Get-or-create the implementer session. Seeded with the brief so the

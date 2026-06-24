@@ -59,6 +59,11 @@ import scala.util.control.NonFatal
   * exists. `flow(OrcaArgs(args))` runs against claude; `flow(OrcaArgs(args),
   * _.codex)` against codex, etc. The resolved model becomes `ctx.llm`.
   *
+  * WARNING: the selector MUST NOT read `ctx.llm` — `llm` is a lazy val resolved
+  * by calling this selector, so `_.llm` would recurse infinitely. Safe
+  * selectors read a concrete accessor (`_.claude`, `_.codex`, `_.gemini`,
+  * `_.opencode`, `_.pi`) and never `_.llm`.
+  *
   * Overrides default to `None` so the runtime can build the default lazily —
   * `TerminalInteraction`, in particular, takes the resolved `workDir` which
   * can't be threaded through a Scala 3 default-arg expression.

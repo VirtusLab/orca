@@ -56,6 +56,10 @@ private[orca] class DefaultFlowContext(
   // only way to name a model is an accessor on the context — `_.claude`,
   // `_.codex`, …). Resolved lazily so the selector sees a fully-built context;
   // the result is the run's `llm`, used by branch setup and the body.
+  //
+  // WARNING: the selector MUST NOT read `ctx.llm` — that would recurse on this
+  // lazy val and loop. The built-in selectors (`_.claude`, `_.codex`, …) are
+  // safe because they read a concrete accessor, not `llm` itself.
   lazy val llm: LlmTool[?] = leadModel(this)
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
