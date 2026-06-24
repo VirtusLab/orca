@@ -1,11 +1,9 @@
 package orca.tools.gemini
 
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId, isSafeSessionId}
+import orca.llm.{BackendTag, LlmConfig, SessionId}
 import orca.subprocess.CliResult
 import orca.{AgentTurnFailed, OrcaFlowException}
-
-import scala.util.control.NonFatal
 import orca.backend.{
   Conversation,
   Conversations,
@@ -200,17 +198,9 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
   override def sessionExists(
       session: SessionId[BackendTag.Gemini.type]
   ): Boolean =
-    sessions.serverFor(session) match
-      case None => false
-      case Some(serverSession) =>
-        val id = SessionId.value(serverSession)
-        if !isSafeSessionId(id) then false
-        else
-          try
-            val result = listSessionsOutput()
-            result.exitCode == 0 && result.stdout.linesIterator
-              .exists(_.contains(id))
-          catch case NonFatal(_) => false
+    probeServerSession(session, sessions): id =>
+      val result = listSessionsOutput()
+      result.exitCode == 0 && result.stdout.linesIterator.exists(_.contains(id))
 
   /** Overridable in tests via a stub `CliRunner`; default runs `gemini
     * --list-sessions`.

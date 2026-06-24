@@ -1,10 +1,8 @@
 package orca.tools.claude
 
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId, isSafeSessionId}
+import orca.llm.{BackendTag, LlmConfig, SessionId}
 import orca.{AgentTurnFailed, OrcaFlowException}
-
-import scala.util.control.NonFatal
 import orca.backend.{
   Conversation,
   Conversations,
@@ -66,13 +64,9 @@ private[orca] class ClaudeBackend(
   override def sessionExists(
       session: SessionId[BackendTag.ClaudeCode.type]
   ): Boolean =
-    val id = SessionId.value(session)
-    if !isSafeSessionId(id) then false
-    else
-      try
-        val slug = ClaudeBackend.cwdSlug(cwdForProbe)
-        os.exists(projectsDir / slug / s"$id.jsonl")
-      catch case NonFatal(_) => false
+    probeGuarded(SessionId.value(session)): id =>
+      val slug = ClaudeBackend.cwdSlug(cwdForProbe)
+      os.exists(projectsDir / slug / s"$id.jsonl")
 
   /** Tracks which session ids we've already claimed via `--session-id` so
     * subsequent calls use `--resume` (the CLI refuses to reuse `--session-id`

@@ -1,7 +1,9 @@
 package orca.backend
 
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.llm.{BackendTag, LlmConfig, SessionId, isSafeSessionId}
+
+import scala.util.control.NonFatal
 
 /** SPI implemented per backend (Claude, Codex, …). The framework calls these
   * methods from the autonomous-text and structured-output paths
@@ -95,3 +97,24 @@ trait LlmBackend[B <: BackendTag]:
     * via [[registerSession]]) and to probe the server id for existence (R22).
     */
   def serverFor(client: SessionId[B]): Option[SessionId[B]] = None
+
+  /** Run `probe` on `id` only if `id` is a safe session id, treating ANY
+    * non-fatal failure (and an unsafe id) as "not found". The non-destructive,
+    * best-effort contract every `sessionExists` probe shares (R22).
+    */
+  protected def probeGuarded(id: String)(probe: String => Boolean): Boolean =
+    if !isSafeSessionId(id) then false
+    else
+      try probe(id)
+      catch case NonFatal(_) => false
+
+  /** For server-id backends: resolve the recorded client→server id via
+    * `registry` (None ⇒ not found, no probe) and `probeGuarded` the server id.
+    */
+  protected def probeServerSession(
+      session: SessionId[B],
+      registry: SessionRegistry[B]
+  )(probe: String => Boolean): Boolean =
+    registry.serverFor(session) match
+      case None      => false
+      case Some(srv) => probeGuarded(SessionId.value(srv))(probe)

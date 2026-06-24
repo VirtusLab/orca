@@ -15,7 +15,7 @@ import orca.backend.{
   StreamSource
 }
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId, isSafeSessionId}
+import orca.llm.{BackendTag, LlmConfig, SessionId}
 import orca.subprocess.CliRunner
 import orca.tools.opencode.OpencodeApi.{SessionCreateBody, SessionCreated}
 import ox.Ox
@@ -147,16 +147,9 @@ private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
   override def sessionExists(
       session: SessionId[BackendTag.Opencode.type]
   ): Boolean =
-    sessions.serverFor(session) match
-      case None => false
-      case Some(serverSession) =>
-        val id = SessionId.value(serverSession)
-        if !isSafeSessionId(id) then false
-        else
-          try
-            if firstWorkDir.get() == null then false
-            else probeSession(id, sharedServer)
-          catch case NonFatal(_) => false
+    probeServerSession(session, sessions): id =>
+      if firstWorkDir.get() == null then false
+      else probeSession(id, sharedServer)
 
   /** The server `ses_…` to drive: a fresh `POST /session`, or the one a prior
     * turn registered for this caller id.

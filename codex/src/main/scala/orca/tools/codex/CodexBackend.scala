@@ -1,10 +1,8 @@
 package orca.tools.codex
 
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId, isSafeSessionId}
+import orca.llm.{BackendTag, LlmConfig, SessionId}
 import orca.{AgentTurnFailed, OrcaFlowException}
-
-import scala.util.control.NonFatal
 import orca.backend.{
   Conversation,
   Conversations,
@@ -60,18 +58,12 @@ private[orca] class CodexBackend(
   override def sessionExists(
       session: SessionId[BackendTag.Codex.type]
   ): Boolean =
-    val id = SessionId.value(session)
-    if !isSafeSessionId(id) then false
-    else
-      try
-        if !os.exists(sessionsDir) then false
-        else
-          os.walk
-            .stream(sessionsDir)
-            .exists(p =>
-              p.last.startsWith("rollout-") && p.last.endsWith(s"-$id.jsonl")
-            )
-      catch case NonFatal(_) => false
+    probeGuarded(SessionId.value(session)): id =>
+      os.exists(sessionsDir) && os.walk
+        .stream(sessionsDir)
+        .exists(p =>
+          p.last.startsWith("rollout-") && p.last.endsWith(s"-$id.jsonl")
+        )
 
   /** Maps the client-allocated session id (the UUID the caller passes around)
     * to codex's server-allocated thread id (learned from `thread.started`).
