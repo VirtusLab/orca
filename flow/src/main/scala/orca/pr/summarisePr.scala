@@ -1,6 +1,6 @@
 package orca.pr
 
-import orca.FlowContext
+import orca.{FlowContext, InStage}
 import orca.llm.{Announce, JsonData, LlmTool}
 
 /** What [[summarisePr]] produces: a one-line PR title and a multi-paragraph
@@ -32,7 +32,7 @@ def summarisePr(
     diff: String,
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
-)(using FlowContext): PrSummary =
+)(using FlowContext, InStage): PrSummary =
   val contextBlock = context.fold("")(c => s"$c\n\n")
   val prompt =
     s"""$instructions

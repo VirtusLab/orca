@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.{FlowContext}
+import orca.{FlowContext, InStage}
 import orca.plan.Title
 import orca.llm.{
   AgentInput,
@@ -29,6 +29,9 @@ def fixLoop(
     fix: List[ReviewIssue] => FixOutcome,
     maxIterations: Int = 10
 )(using ctx: FlowContext): IgnoredIssues =
+  // `fixLoop` itself does not call any gated method directly — the gated work
+  // lives in the `evaluate`/`fix` thunks the caller supplies, which close over
+  // their own `InStage`. So no `(using InStage)` is needed here.
 
   def emitStep(msg: String): Unit = ctx.emit(OrcaEvent.Step(msg))
 
@@ -196,7 +199,7 @@ def reviewAndFixLoop[B <: BackendTag](
       * been committed and `git.diff()` would be empty).
       */
     initialDiff: Option[String] = None
-)(using ctx: FlowContext): IgnoredIssues =
+)(using ctx: FlowContext, ev: InStage): IgnoredIssues =
   require(
     lintCommand.isEmpty || lintLlm.isDefined,
     "reviewAndFixLoop: lintCommand requires lintLlm"
@@ -430,7 +433,7 @@ def lint(
     command: String,
     llm: LlmTool[?],
     instructions: String = ReviewLoopPrompts.SummariseLint
-)(using FlowContext): ReviewResult =
+)(using FlowContext, InStage): ReviewResult =
   val proc = os
     .proc("bash", "-c", command)
     .call(check = false, mergeErrIntoOut = true)

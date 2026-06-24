@@ -15,6 +15,9 @@ import java.util.concurrent.atomic.AtomicReference
   */
 class ReviewFixFlowTest extends munit.FunSuite:
 
+  // `reviewAndFixLoop` is now gated on `InStage`; mint the token for the suite.
+  private given orca.InStage = orca.InStage.unsafe
+
   private class RecordingListener extends OrcaListener:
     private val seen: AtomicReference[List[OrcaEvent]] = AtomicReference(Nil)
     def onEvent(event: OrcaEvent): Unit =

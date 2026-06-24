@@ -111,6 +111,10 @@ class SequencedBackend(outputs: List[String])
 
 class DefaultLlmCallTest extends munit.FunSuite:
 
+  // LLM `run` is now gated on `InStage`; mint the token once for the suite
+  // (package `orca.tools.claude` can reach `InStage.unsafe`).
+  private given orca.InStage = orca.InStage.unsafe
+
   import scala.concurrent.duration.DurationInt
 
   // Fast schedule so retry tests don't spend seconds sleeping between attempts.

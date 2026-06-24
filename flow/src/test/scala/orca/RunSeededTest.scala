@@ -27,6 +27,9 @@ import orca.progress.{ProgressHeader, ProgressStore, StageEntry, SessionRecord}
   */
 class RunSeededTest extends FunSuite:
 
+  // `runSeeded` is now gated on `InStage`; mint the token for the suite.
+  private given orca.InStage = orca.InStage.unsafe
+
   /** A fixed session id used across all tests; avoids UUID randomness in
     * assertions and lets `makeControl` pre-populate the log without forward
     * references.
@@ -74,7 +77,7 @@ class RunSeededTest extends FunSuite:
             session: SessionId[BackendTag.ClaudeCode.type],
             config: LlmConfig,
             emitPrompt: Boolean
-        ): (SessionId[BackendTag.ClaudeCode.type], String) =
+        )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], String) =
           _capturedPrompt = Some(prompt)
           (session, runResult)
 

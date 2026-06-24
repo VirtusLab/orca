@@ -7,6 +7,9 @@ import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 
 class DefaultGeminiToolTest extends munit.FunSuite:
 
+  // LLM `run` is now gated on `InStage`; mint the token for the suite.
+  private given orca.InStage = orca.InStage.unsafe
+
   private val stubInteraction: Interaction = new Interaction:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](

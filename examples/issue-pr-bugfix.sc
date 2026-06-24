@@ -79,7 +79,7 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
     * (test + fix) descriptions. `git.diffVsBase` (not `git.diff()` vs HEAD)
     * because the changes are already committed.
     */
-  def prSummary(note: String)(using FlowContext): PrSummary =
+  def prSummary(note: String)(using FlowContext, InStage): PrSummary =
     summarisePr(
       llm = claude.haiku,
       diff = git.diffVsBase(git.defaultBase()),

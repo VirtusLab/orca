@@ -133,7 +133,9 @@ private def recordAndCommit[T: JsonData](
   * thrown — committing must never break. Only called when the caller supplied
   * no explicit `commitMessage`.
   */
-private def llmCommitMessage(name: String)(using fc: FlowControl): String =
+private def llmCommitMessage(
+    name: String
+)(using fc: FlowControl, ev: InStage): String =
   val fallback = s"stage: $name"
   try
     val diff = fc.git.diff()

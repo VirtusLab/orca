@@ -85,7 +85,7 @@ abstract class BaseLlmTool[B <: BackendTag, Self <: LlmTool[B]](
         session: SessionId[B] = SessionId.fresh[B],
         callConfig: LlmConfig = LlmConfig.default,
         emitPrompt: Boolean = true
-    ): (SessionId[B], String) =
+    )(using orca.InStage): (SessionId[B], String) =
       val effective = effectiveConfig(callConfig)
       if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
       val result =

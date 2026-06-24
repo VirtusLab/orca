@@ -40,7 +40,7 @@ class FakeLlmCall[O](outputs: Iterator[Any])
           session: SessionId[BackendTag.ClaudeCode.type],
           config: LlmConfig,
           emitPrompt: Boolean
-      ): (SessionId[BackendTag.ClaudeCode.type], O) =
+      )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
         val _ = seenSessions.updateAndGet(session :: _)
         (session, outputs.next().asInstanceOf[O])
   def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
@@ -69,6 +69,9 @@ class FakeLlmTool(
   def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
 
 class ReviewAndFixTest extends munit.FunSuite:
+
+  // `reviewAndFixLoop` is now gated on `InStage`; mint the token for the suite.
+  private given orca.InStage = orca.InStage.unsafe
 
   private def ctx: FlowContext =
     new TestFlowContext(new EventDispatcher(Nil))
@@ -223,6 +226,8 @@ class ReviewAndFixTest extends munit.FunSuite:
                   session: SessionId[BackendTag.ClaudeCode.type],
                   c: LlmConfig,
                   emitPrompt: Boolean
+              )(using
+                  orca.InStage
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 capturedFirst = Some(i.toString)
                 (
@@ -380,6 +385,8 @@ class ReviewAndFixTest extends munit.FunSuite:
                   session: SessionId[BackendTag.ClaudeCode.type],
                   c: LlmConfig,
                   emitPrompt: Boolean
+              )(using
+                  orca.InStage
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 val ok = gate.await(2, java.util.concurrent.TimeUnit.SECONDS)
                 assert(ok, s"$label gate never opened")
@@ -459,6 +466,8 @@ class ReviewAndFixTest extends munit.FunSuite:
                   session: SessionId[BackendTag.ClaudeCode.type],
                   c: LlmConfig,
                   emitPrompt: Boolean
+              )(using
+                  orca.InStage
               ): (SessionId[BackendTag.ClaudeCode.type], O) =
                 (
                   SessionId[BackendTag.ClaudeCode.type](s"sid-$label"),

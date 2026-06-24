@@ -194,4 +194,4 @@ trait AutonomousTextCall[B <: BackendTag]:
       session: SessionId[B] = SessionId.fresh[B],
       config: LlmConfig = LlmConfig.default,
       emitPrompt: Boolean = true
-  ): (SessionId[B], String)
+  )(using orca.InStage): (SessionId[B], String)

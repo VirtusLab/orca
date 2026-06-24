@@ -5,6 +5,9 @@ import orca.llm.ToolSet
 
 class AssessThenPlanTest extends munit.FunSuite:
 
+  // Planning helpers are now gated on `InStage`; mint the token for the suite.
+  private given orca.InStage = orca.InStage.unsafe
+
   private val samplePlan = Plan(
     epicId = "x",
     description = "d",

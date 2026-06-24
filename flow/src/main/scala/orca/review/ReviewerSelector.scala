@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.FlowContext
+import orca.{FlowContext, InStage}
 import orca.events.OrcaEvent
 import orca.llm.{AgentInput, JsonData, LlmTool, given}
 import orca.plan.Title
@@ -81,7 +81,7 @@ object ReviewerSelector:
       descriptions: Map[String, String] =
         ReviewerPrompts.descriptionsByToolName,
       filePatterns: Map[String, Regex] = ReviewerPrompts.filePatternsByToolName
-  )(using ctx: FlowContext): ReviewerSelector =
+  )(using ctx: FlowContext, ev: InStage): ReviewerSelector =
     var cached: Option[List[String]] = None
     (_, all, taskTitle, changedFiles) =>
       val eligible = all.filter: r =>

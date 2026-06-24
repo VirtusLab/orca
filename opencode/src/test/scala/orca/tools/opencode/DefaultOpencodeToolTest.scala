@@ -13,6 +13,9 @@ import orca.llm.{
 
 class DefaultOpencodeToolTest extends munit.FunSuite:
 
+  // LLM `run` is now gated on `InStage`; mint the token for the suite.
+  private given orca.InStage = orca.InStage.unsafe
+
   /** Captures the config the tool resolves for an autonomous call. */
   private class RecordingBackend extends LlmBackend[BackendTag.Opencode.type]:
     var lastConfig: Option[LlmConfig] = None

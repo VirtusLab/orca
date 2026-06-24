@@ -33,7 +33,7 @@ trait AutonomousLlmCall[B <: BackendTag, O]:
       session: SessionId[B] = SessionId.fresh[B],
       config: LlmConfig = LlmConfig.default,
       emitPrompt: Boolean = true
-  ): (SessionId[B], O)
+  )(using orca.InStage): (SessionId[B], O)
 
 /** Interactive structured calls — open a conversation the user can drive
   * (clarifying questions, refinements) before the agent produces the final
@@ -44,7 +44,7 @@ trait InteractiveLlmCall[B <: BackendTag, O]:
       input: I,
       session: SessionId[B] = SessionId.fresh[B],
       config: LlmConfig = LlmConfig.default
-  ): (SessionId[B], O)
+  )(using orca.InStage): (SessionId[B], O)
 
 /** Default implementation of [[LlmCall]] for any backend.
   *
@@ -86,7 +86,7 @@ class DefaultLlmCall[B <: BackendTag, O](
         session: SessionId[B] = SessionId.fresh[B],
         config: LlmConfig = LlmConfig.default,
         emitPrompt: Boolean = true
-    ): (SessionId[B], O) =
+    )(using orca.InStage): (SessionId[B], O) =
       runAutonomousWithRetry(input, config, session, emitPrompt)
 
   val interactive: InteractiveLlmCall[B, O] = new InteractiveLlmCall[B, O]:
@@ -94,7 +94,8 @@ class DefaultLlmCall[B <: BackendTag, O](
         input: I,
         session: SessionId[B] = SessionId.fresh[B],
         config: LlmConfig = LlmConfig.default
-    ): (SessionId[B], O) = runInteractiveOnce(input, config, session)
+    )(using orca.InStage): (SessionId[B], O) =
+      runInteractiveOnce(input, config, session)
 
   /** Emit a `StructuredResult` event carrying the raw payload and the
     * `Announce[O]`-derived summary (if any). The terminal listener renders

@@ -401,6 +401,9 @@ private[orca] def restoreLogIfMissing(
   * error never strands the user on the feature branch.
   */
 private def flowTeardownSuccess(git: GitTool, setup: FlowSetup): Unit =
+  // Teardown is runtime code running outside any user stage, so it mints its
+  // own `InStage` — the runtime is the privileged token constructor (R15).
+  given InStage = InStage.unsafe
   try
     // Best-effort: a missing file (already gone) or a failing cleanup commit is
     // cosmetic on an already-successful run, so neither must escape teardown.
@@ -429,7 +432,9 @@ private def flowTeardownSuccess(git: GitTool, setup: FlowSetup): Unit =
   * Guards: skip when `featureBranch == startBranch` (in-place resume) and when
   * the branch doesn't exist (already deleted or never created).
   */
-private def autoDeleteIfThrowaway(git: GitTool, setup: FlowSetup): Unit =
+private def autoDeleteIfThrowaway(git: GitTool, setup: FlowSetup)(using
+    InStage
+): Unit =
   if setup.featureBranch == setup.startBranch then ()
   else
     val diff = git.diffBranchExcludingOrca(
@@ -443,6 +448,8 @@ private def autoDeleteIfThrowaway(git: GitTool, setup: FlowSetup): Unit =
   * log), and stay on the feature branch so the next run resumes in place.
   */
 private def flowTeardownFailure(git: GitTool): Unit =
+  // Runtime teardown mints its own token, as in `flowTeardownSuccess` (R15).
+  given InStage = InStage.unsafe
   git.resetHard()
 
 private def installUncaughtExceptionHandler(): Unit =

@@ -51,7 +51,7 @@ extension [B <: BackendTag](llm: LlmTool[B])
   def runSeeded(
       prompt: String,
       session: SessionId[B]
-  )(using fc: FlowControl): (SessionId[B], String) =
+  )(using fc: FlowControl, ev: InStage): (SessionId[B], String) =
     val result =
       if llm.sessionExists(session) then llm.autonomous.run(prompt, session)
       else

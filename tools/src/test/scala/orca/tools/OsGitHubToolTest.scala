@@ -1,6 +1,6 @@
 package orca.tools
 
-import orca.OrcaFlowException
+import orca.{InStage, OrcaFlowException}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.subprocess.{
   CliCall,
@@ -18,6 +18,10 @@ import scala.concurrent.duration.DurationInt
 import scala.jdk.CollectionConverters.*
 
 class OsGitHubToolTest extends munit.FunSuite:
+
+  // Tests exercise gated gh mutators directly; mint the in-stage token once for
+  // the whole suite (package `orca.tools` can reach `InStage.unsafe`).
+  private given InStage = InStage.unsafe
 
   private def stubGh(response: CliResult): (StubCliRunner, OsGitHubTool) =
     val cli = new StubCliRunner(response)

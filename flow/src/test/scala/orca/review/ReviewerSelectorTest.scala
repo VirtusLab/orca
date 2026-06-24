@@ -41,7 +41,7 @@ private class RecordingPicker(
               session: SessionId[BackendTag.ClaudeCode.type],
               config: LlmConfig,
               emitPrompt: Boolean
-          ): (SessionId[BackendTag.ClaudeCode.type], O) =
+          )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
             input match
               case r: ReviewerSelectionRequest =>
                 captured.set(Some(r))
@@ -67,6 +67,9 @@ private class NamedTool(override val name: String)
 class ReviewerSelectorTest extends munit.FunSuite:
 
   private given FlowContext = new TestFlowContext(new EventDispatcher(Nil))
+
+  // `llmDriven` is now gated on `InStage`; mint the token for the suite.
+  private given orca.InStage = orca.InStage.unsafe
 
   private val scalaFp: LlmTool[?] = new NamedTool("reviewer: scala-fp")
   private val generic: LlmTool[?] = new NamedTool("reviewer: generic")

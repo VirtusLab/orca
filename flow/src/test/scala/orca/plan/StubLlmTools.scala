@@ -45,7 +45,7 @@ private[plan] class CannedResultLlm[T](value: T)
               session: SessionId[BackendTag.ClaudeCode.type],
               config: LlmConfig,
               emitPrompt: Boolean
-          ): (SessionId[BackendTag.ClaudeCode.type], O) =
+          )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
             (
               SessionId[BackendTag.ClaudeCode.type]("stub-sid"),
               value.asInstanceOf[O]

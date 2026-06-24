@@ -21,6 +21,9 @@ import orca.{TestFlowContext}
 
 class LintTest extends munit.FunSuite:
 
+  // `lint` is now gated on `InStage`; mint the token for the suite.
+  private given orca.InStage = orca.InStage.unsafe
+
   private def ctx: FlowContext =
     new TestFlowContext(new EventDispatcher(Nil))
 
@@ -51,7 +54,8 @@ class LintTest extends munit.FunSuite:
                 c: LlmConfig,
                 emitPrompt: Boolean
             )(using
-                a: AgentInput[I]
+                a: AgentInput[I],
+                _x: orca.InStage
             ): (SessionId[BackendTag.ClaudeCode.type], O) =
               captured = a.serialize(i)
               capturedFileContent = "`([^`]+\\.log)`".r

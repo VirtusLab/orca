@@ -1,6 +1,6 @@
 package orca.plan
 
-import orca.{FlowContext, OrcaFlowException}
+import orca.{FlowContext, InStage, OrcaFlowException}
 import orca.llm.{Announce, BackendTag, CanAskUser, JsonData, LlmTool, given}
 
 /** A development plan: an ordered list of [[Task]]s the agent will work
@@ -86,7 +86,7 @@ object Plan:
         userPrompt: String,
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
-    )(using FlowContext): Sessioned[B, Plan] =
+    )(using FlowContext, InStage): Sessioned[B, Plan] =
       autonomousResult[B, Plan, Plan](llm, userPrompt, instructions)(identity)
 
     /** Skeptically assess `userPrompt` (typically a bug/feature report) and
@@ -97,7 +97,7 @@ object Plan:
         userPrompt: String,
         llm: LlmTool[B],
         instructions: String = PlanPrompts.AssessThenPlan
-    )(using FlowContext): Sessioned[B, Verdict[Plan]] =
+    )(using FlowContext, InStage): Sessioned[B, Verdict[Plan]] =
       autonomousResult[B, AssessedPlan, Verdict[Plan]](
         llm,
         userPrompt,
@@ -111,7 +111,7 @@ object Plan:
         report: String,
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Triage
-    )(using FlowContext): Sessioned[B, Triage] =
+    )(using FlowContext, InStage): Sessioned[B, Triage] =
       autonomousResult[B, BugTriage, Triage](llm, report, instructions)(b =>
         getOrFail(b.toTriage)
       )
@@ -137,7 +137,7 @@ object Plan:
         userPrompt: String,
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Planning
-    )(using FlowContext): Sessioned[B, Plan] =
+    )(using FlowContext, InStage): Sessioned[B, Plan] =
       interactiveResult[B, Plan, Plan](llm, userPrompt, instructions)(identity)
 
     /** Skeptically assess `userPrompt`, but able to ask the reporter clarifying
@@ -148,7 +148,7 @@ object Plan:
         userPrompt: String,
         llm: LlmTool[B],
         instructions: String = PlanPrompts.AssessThenPlan
-    )(using FlowContext): Sessioned[B, Verdict[Plan]] =
+    )(using FlowContext, InStage): Sessioned[B, Verdict[Plan]] =
       interactiveResult[B, AssessedPlan, Verdict[Plan]](
         llm,
         userPrompt,
@@ -162,7 +162,7 @@ object Plan:
         report: String,
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Triage
-    )(using FlowContext): Sessioned[B, Triage] =
+    )(using FlowContext, InStage): Sessioned[B, Triage] =
       interactiveResult[B, BugTriage, Triage](llm, report, instructions)(b =>
         getOrFail(b.toTriage)
       )
@@ -193,7 +193,7 @@ object Plan:
       llm: LlmTool[B],
       input: String,
       instructions: String
-  )(convert: O => A)(using FlowContext): Sessioned[B, A] =
+  )(convert: O => A)(using FlowContext, InStage): Sessioned[B, A] =
     val (sessionId, raw) = llm.withNetworkOnly
       .resultAs[O]
       .autonomous
@@ -209,7 +209,7 @@ object Plan:
       llm: LlmTool[B],
       input: String,
       instructions: String
-  )(convert: O => A)(using FlowContext): Sessioned[B, A] =
+  )(convert: O => A)(using FlowContext, InStage): Sessioned[B, A] =
     val (sessionId, raw) =
       llm.resultAs[O].interactive.run(withInstructions(input, instructions))
     Sessioned(sessionId, convert(raw))
@@ -227,7 +227,7 @@ object Plan:
     def reviewed(
         llm: LlmTool[B],
         instructions: String = PlanPrompts.Review
-    )(using FlowContext): Sessioned[B, Plan] =
+    )(using FlowContext, InStage): Sessioned[B, Plan] =
       val (sessionId, improved) = llm.withReadOnly
         .resultAs[Plan]
         .autonomous

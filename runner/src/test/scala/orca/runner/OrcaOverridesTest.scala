@@ -25,6 +25,10 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 
 class OrcaOverridesTest extends munit.FunSuite:
 
+  // These tests drive gated LLM calls directly in the flow body (not inside a
+  // `stage`), so mint the in-stage token for the suite (package `orca.runner`).
+  private given orca.InStage = orca.InStage.unsafe
+
   // The leading-model selector defaults to `_.claude` (ADR 0018 §2.5); these
   // tests assert tool-override wiring, not LLM behaviour, so they resolve a stub
   // via a `_ => StubLlm.claude` selector.
@@ -33,7 +37,7 @@ class OrcaOverridesTest extends munit.FunSuite:
   test("flow uses a custom FsTool when supplied"):
     val fake = new FsTool:
       def read(path: String): Option[String] = Some("canned content")
-      def write(path: String, content: String): Unit = ()
+      def write(path: String, content: String)(using orca.InStage): Unit = ()
       def list(glob: String): List[String] = List("custom")
     var observed: Option[String] = None
     supervised:
@@ -71,6 +75,8 @@ class OrcaOverridesTest extends munit.FunSuite:
               session: SessionId[BackendTag.ClaudeCode.type],
               c: LlmConfig,
               emitPrompt: Boolean
+          )(using
+              orca.InStage
           ): (SessionId[BackendTag.ClaudeCode.type], String) =
             (SessionId[BackendTag.ClaudeCode.type]("fake-sid"), s"echo: $p")
       def resultAs[O: JsonData: Announce]
@@ -114,7 +120,7 @@ class OrcaOverridesTest extends munit.FunSuite:
               session: SessionId[BackendTag.Opencode.type],
               c: LlmConfig,
               emitPrompt: Boolean
-          ): (SessionId[BackendTag.Opencode.type], String) =
+          )(using orca.InStage): (SessionId[BackendTag.Opencode.type], String) =
             (SessionId[BackendTag.Opencode.type]("fake-sid"), s"opencode: $p")
       def resultAs[O: JsonData: Announce]
           : LlmCall[BackendTag.Opencode.type, O] = ???
@@ -149,7 +155,7 @@ class OrcaOverridesTest extends munit.FunSuite:
               session: SessionId[BackendTag.Pi.type],
               c: LlmConfig,
               emitPrompt: Boolean
-          ): (SessionId[BackendTag.Pi.type], String) =
+          )(using orca.InStage): (SessionId[BackendTag.Pi.type], String) =
             (SessionId[BackendTag.Pi.type]("fake-pi-sid"), s"pi: $p")
       def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.Pi.type, O] =
         ???

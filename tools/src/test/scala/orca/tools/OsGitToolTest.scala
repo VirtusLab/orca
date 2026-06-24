@@ -1,11 +1,16 @@
 package orca.tools
 
+import orca.InStage
 import orca.events.{OrcaEvent, OrcaListener}
 
 import ox.either.orThrow
 import java.util.concurrent.atomic.AtomicReference
 
 class OsGitToolTest extends munit.FunSuite:
+
+  // Tests exercise gated git mutators directly; mint the in-stage token once for
+  // the whole suite (package `orca.tools` can reach `InStage.unsafe`).
+  private given InStage = InStage.unsafe
 
   private def withRepo(body: (OsGitTool, os.Path) => Unit): Unit =
     val dir = os.temp.dir()

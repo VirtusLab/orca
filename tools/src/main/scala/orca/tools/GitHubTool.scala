@@ -8,7 +8,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   ConfiguredJsonValueCodec,
   JsonCodecMaker
 }
-import orca.OrcaFlowException
+import orca.{InStage, OrcaFlowException}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.llm.JsonData
 import orca.subprocess.CliRunner
@@ -130,13 +130,15 @@ final class NoChecksConfigured(grace: FiniteDuration)
   * writes PR comments, and polls GitHub's check-run status.
   */
 trait GitHubTool:
-  def createPr(title: String, body: String): Either[PrCreateFailed, PrHandle]
+  def createPr(title: String, body: String)(using
+      InStage
+  ): Either[PrCreateFailed, PrHandle]
 
   /** Replace an existing PR's title and body. Used to refresh a PR opened with
     * a tentative description (e.g. when only a failing test had landed) once
     * later work — the fix — is pushed.
     */
-  def updatePr(pr: PrHandle, title: String, body: String): Unit
+  def updatePr(pr: PrHandle, title: String, body: String)(using InStage): Unit
 
   /** Fetch the issue's title, body, author, and state. */
   def readIssue(issue: IssueHandle): Issue
@@ -154,13 +156,13 @@ trait GitHubTool:
   /** Post a top-level issue-style comment on a pull request (the comments the
     * GitHub UI shows under the description, not line-level review comments).
     */
-  def writeComment(pr: PrHandle, body: String): Unit
+  def writeComment(pr: PrHandle, body: String)(using InStage): Unit
 
   /** Post a top-level comment on an issue. Used by assess-then-act flows to
     * surface a follow-up question / critique / rebuff back to the reporter when
     * no PR will be opened.
     */
-  def writeComment(issue: IssueHandle, body: String): Unit
+  def writeComment(issue: IssueHandle, body: String)(using InStage): Unit
 
   /** Idempotent comment on a PR (R24). Finds the first existing comment whose
     * body contains `marker`, then updates it via a REST PATCH; if none is
@@ -170,12 +172,16 @@ trait GitHubTool:
     * own comment instead of duplicating it. Plain [[writeComment]] stays
     * append-only.
     */
-  def upsertComment(pr: PrHandle, marker: String, body: String): Unit
+  def upsertComment(pr: PrHandle, marker: String, body: String)(using
+      InStage
+  ): Unit
 
   /** Idempotent comment on an issue (R24). Same find/update/create semantics as
     * [[upsertComment(PrHandle, String, String)]].
     */
-  def upsertComment(issue: IssueHandle, marker: String, body: String): Unit
+  def upsertComment(issue: IssueHandle, marker: String, body: String)(using
+      InStage
+  ): Unit
 
   /** Aggregate status of the checks attached to `pr`.
     *
@@ -298,7 +304,9 @@ private[orca] class OsGitHubTool(
   private val PrUrlPattern =
     """https://github\.com/([^/]+)/([^/]+)/pull/(\d+)""".r
 
-  def createPr(title: String, body: String): Either[PrCreateFailed, PrHandle] =
+  def createPr(title: String, body: String)(using
+      InStage
+  ): Either[PrCreateFailed, PrHandle] =
     // Inspect exit code + stderr ourselves so we can split the recoverable
     // "branch already has a PR" / "no commits to push" cases out from
     // genuine system failures.
@@ -412,7 +420,7 @@ private[orca] class OsGitHubTool(
     readFromString[List[GhCommentJson]](output).map: c =>
       Comment(author = c.user.login, body = c.body)
 
-  def updatePr(pr: PrHandle, title: String, body: String): Unit =
+  def updatePr(pr: PrHandle, title: String, body: String)(using InStage): Unit =
     // Use the REST API directly rather than `gh pr edit`: the latter runs a
     // GraphQL metadata query that selects `projectCards` before applying any
     // edit, which fails outright on repos where GitHub has sunset Projects
@@ -429,7 +437,7 @@ private[orca] class OsGitHubTool(
     )
     events.onEvent(OrcaEvent.Step(s"Updated PR: ${pr.url}"))
 
-  def writeComment(pr: PrHandle, body: String): Unit =
+  def writeComment(pr: PrHandle, body: String)(using InStage): Unit =
     val _ = gh(
       "pr",
       "comment",
@@ -440,7 +448,7 @@ private[orca] class OsGitHubTool(
       body
     )
 
-  def writeComment(issue: IssueHandle, body: String): Unit =
+  def writeComment(issue: IssueHandle, body: String)(using InStage): Unit =
     val _ = gh(
       "issue",
       "comment",
@@ -451,11 +459,15 @@ private[orca] class OsGitHubTool(
       body
     )
 
-  def upsertComment(pr: PrHandle, marker: String, body: String): Unit =
+  def upsertComment(pr: PrHandle, marker: String, body: String)(using
+      InStage
+  ): Unit =
     upsertCommentAt(pr.owner, pr.repo, pr.number, marker, body):
       writeComment(pr, _)
 
-  def upsertComment(issue: IssueHandle, marker: String, body: String): Unit =
+  def upsertComment(issue: IssueHandle, marker: String, body: String)(using
+      InStage
+  ): Unit =
     upsertCommentAt(issue.owner, issue.repo, issue.number, marker, body):
       writeComment(issue, _)
 

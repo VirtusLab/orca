@@ -1,5 +1,7 @@
 package orca.tools
 
+import orca.InStage
+
 import java.nio.file.FileSystems
 
 /** Filesystem adapter usable from flow scripts — the handle behind the `fs`
@@ -20,7 +22,7 @@ trait FsTool:
     */
   def read(path: String): Option[String]
 
-  def write(path: String, content: String): Unit
+  def write(path: String, content: String)(using InStage): Unit
   def list(glob: String): List[String]
 
 /** `FsTool` implementation backed by os-lib. Path resolution and glob semantics
@@ -34,7 +36,7 @@ private[orca] class OsFsTool(base: os.Path = os.pwd) extends FsTool:
     val p = resolve(path)
     if os.isFile(p) then Some(os.read(p)) else None
 
-  def write(path: String, content: String): Unit =
+  def write(path: String, content: String)(using InStage): Unit =
     os.write.over(resolve(path), content, createFolders = true)
 
   def list(glob: String): List[String] =

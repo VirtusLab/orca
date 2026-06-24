@@ -32,6 +32,10 @@ import java.io.{ByteArrayOutputStream, PrintStream}
   */
 class OpencodeFlowTest extends munit.FunSuite:
 
+  // These tests drive gated LLM calls directly in the flow body (not inside a
+  // `stage`), so mint the in-stage token for the suite (package `orca.runner`).
+  private given orca.InStage = orca.InStage.unsafe
+
   private val samplePlan = Plan(
     epicId = "x",
     description = "d",
@@ -137,7 +141,7 @@ class OpencodeFlowTest extends munit.FunSuite:
                 session: SessionId[BackendTag.Opencode.type],
                 config: LlmConfig,
                 emitPrompt: Boolean
-            ): (SessionId[BackendTag.Opencode.type], O) =
+            )(using orca.InStage): (SessionId[BackendTag.Opencode.type], O) =
               (
                 SessionId[BackendTag.Opencode.type]("stub-sid"),
                 value.asInstanceOf[O]

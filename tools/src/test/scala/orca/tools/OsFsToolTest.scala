@@ -1,6 +1,12 @@
 package orca.tools
 
+import orca.InStage
+
 class OsFsToolTest extends munit.FunSuite:
+
+  // Tests exercise gated mutators directly; mint the in-stage token once for the
+  // whole suite (tests are package `orca.tools`, so `InStage.unsafe` is in reach).
+  private given InStage = InStage.unsafe
 
   private def withFs(body: (OsFsTool, os.Path) => Unit): Unit =
     val tmp = os.temp.dir()
