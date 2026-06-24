@@ -10,6 +10,7 @@ import orca.llm.{
   PiTool
 }
 import orca.progress.{ProgressHeader, ProgressStore}
+import orca.testkit.GitRepo
 import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
@@ -85,15 +86,7 @@ object TestFlowControl:
       dispatcher: EventDispatcher,
       userPrompt: String = "p"
   ): (TestFlowControl, os.Path) =
-    val dir = os.temp.dir()
-    val _ = os.proc("git", "init", "-b", "main").call(cwd = dir)
-    val _ =
-      os.proc("git", "config", "user.email", "test@example.com").call(cwd = dir)
-    val _ = os.proc("git", "config", "user.name", "Test").call(cwd = dir)
-    os.write(dir / "seed.txt", "seed")
-    val _ = os.proc("git", "add", "-A").call(cwd = dir)
-    val _ = os.proc("git", "commit", "-m", "seed").call(cwd = dir)
-
+    val dir = GitRepo.seeded()
     val git = new OsGitTool(dir)
     val store = ProgressStore.default(dir, userPrompt)
     given InStage = InStage.unsafe

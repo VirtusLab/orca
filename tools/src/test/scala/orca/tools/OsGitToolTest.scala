@@ -2,6 +2,7 @@ package orca.tools
 
 import orca.InStage
 import orca.events.{OrcaEvent, OrcaListener}
+import orca.testkit.GitRepo
 
 import ox.either.orThrow
 import java.util.concurrent.atomic.AtomicReference
@@ -13,22 +14,14 @@ class OsGitToolTest extends munit.FunSuite:
   private given InStage = InStage.unsafe
 
   private def withRepo(body: (OsGitTool, os.Path) => Unit): Unit =
-    val dir = os.temp.dir()
-    val _ = os.proc("git", "init", "-b", "main").call(cwd = dir)
-    val _ =
-      os.proc("git", "config", "user.email", "test@example.com").call(cwd = dir)
-    val _ = os.proc("git", "config", "user.name", "Test").call(cwd = dir)
+    val dir = GitRepo.empty()
     body(new OsGitTool(dir), dir)
 
   /** Variant that captures the events the tool emits. */
   private def withRepoCapturingEvents(
       body: (OsGitTool, os.Path, AtomicReference[List[OrcaEvent]]) => Unit
   ): Unit =
-    val dir = os.temp.dir()
-    val _ = os.proc("git", "init", "-b", "main").call(cwd = dir)
-    val _ =
-      os.proc("git", "config", "user.email", "test@example.com").call(cwd = dir)
-    val _ = os.proc("git", "config", "user.name", "Test").call(cwd = dir)
+    val dir = GitRepo.empty()
     val seen = new AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = (e: OrcaEvent) =>
       val _ = seen.updateAndGet(e :: _)

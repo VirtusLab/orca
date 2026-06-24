@@ -113,7 +113,7 @@ lazy val gemini = (project in file("gemini"))
   )
 
 lazy val flow = (project in file("flow"))
-  .dependsOn(tools)
+  .dependsOn(tools, tools % "test->test")
   .settings(commonSettings)
   .settings(
     name := "orca-flow",
@@ -121,7 +121,7 @@ lazy val flow = (project in file("flow"))
   )
 
 lazy val runner = (project in file("runner"))
-  .dependsOn(tools, flow, claude, codex, opencode, pi, gemini)
+  .dependsOn(tools, tools % "test->test", flow, claude, codex, opencode, pi, gemini)
   .settings(commonSettings)
   .settings(
     // Published as just "orca" so flow-script coordinates stay short.

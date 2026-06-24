@@ -13,6 +13,7 @@ import orca.llm.{
   ToolSet
 }
 import orca.progress.ProgressStore
+import orca.testkit.GitRepo
 import orca.tools.{GitTool, OsGitTool}
 
 import java.util.concurrent.ConcurrentHashMap
@@ -114,14 +115,7 @@ class CommitMessageTest extends munit.FunSuite:
   private def withCtx(
       llmStub: LlmTool[?]
   )(body: (FlowControl, os.Path) => Unit): Unit =
-    val dir = os.temp.dir()
-    val _ = os.proc("git", "init", "-b", "main").call(cwd = dir)
-    val _ =
-      os.proc("git", "config", "user.email", "test@example.com").call(cwd = dir)
-    val _ = os.proc("git", "config", "user.name", "Test").call(cwd = dir)
-    os.write(dir / "seed.txt", "seed")
-    val _ = os.proc("git", "add", "-A").call(cwd = dir)
-    val _ = os.proc("git", "commit", "-m", "seed").call(cwd = dir)
+    val dir = GitRepo.seeded()
     val git = new OsGitTool(dir)
     val store = ProgressStore.default(dir, "p")
     given InStage = InStage.unsafe
