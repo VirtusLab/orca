@@ -305,24 +305,24 @@ class FlowLifecycleTest extends munit.FunSuite:
     val dir = os.temp.dir()
     val path = dir / ".orca" / "progress-x.json"
     os.write(path, "{\"header\":true}", createFolders = true)
-    val snapshot = orca.snapshotLog(path)
+    val snapshot = FlowLifecycle.snapshotLog(path)
     assert(snapshot.isDefined, "snapshot must capture an existing file")
 
     // Simulate the stash removing the file, then restore it.
     val _ = os.remove(path)
-    orca.restoreLogIfMissing(path, snapshot)
+    FlowLifecycle.restoreLogIfMissing(path, snapshot)
     assert(os.exists(path), "log must be restored from the snapshot")
     assertEquals(os.read(path), "{\"header\":true}")
 
     // Restore is a no-op when the file is still present (does not overwrite).
     os.write.over(path, "untouched")
-    orca.restoreLogIfMissing(path, snapshot)
+    FlowLifecycle.restoreLogIfMissing(path, snapshot)
     assertEquals(os.read(path), "untouched")
 
     // A snapshot of a missing file is None; restore then does nothing.
     val missing = dir / ".orca" / "absent.json"
-    assertEquals(orca.snapshotLog(missing), None)
-    orca.restoreLogIfMissing(missing, None)
+    assertEquals(FlowLifecycle.snapshotLog(missing), None)
+    FlowLifecycle.restoreLogIfMissing(missing, None)
     assert(!os.exists(missing))
 
   test(
