@@ -37,7 +37,7 @@ flow(OrcaArgs(args)):
   // prompt skips this stage and reads the stored Plan back.
   // plan.brief is always present — feed it to `llm.session(seed = plan.brief)`.
   val plan = stage("Plan"):
-    Plan.autonomous.from(userPrompt, claude).value
+    Plan.autonomous.from(userPrompt, claude).value  // .value takes the Plan, discarding the planner's session
 
   // Get-or-create the implementer session (pure: id reserved, backend created
   // on first use). The seed (plan.brief) primes it on first use and is
@@ -50,7 +50,7 @@ flow(OrcaArgs(args)):
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):      // skipped on resume if already done
       claude.runSeeded(task.description, session)
-      reviewAndFixLoop(                  // runs under this stage (using InStage)
+      reviewAndFixLoop(                  // runs under this stage
         coder = claude, sessionId = session,
         reviewers = allReviewers(claude),
         // claude.haiku picks the per-task reviewer subset; swap for
@@ -64,7 +64,6 @@ flow(OrcaArgs(args)):
         lintCommand = Some("cargo check --tests"),
         lintLlm = Some(claude.haiku)
       )
-      // one commit per task: code + progress entry
 ```
 
 ```bash
@@ -95,7 +94,7 @@ The following are available inside a `flow(...) { ... }`:
 
 | Tool | Methods | Purpose |
 |---|---|---|
-| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withNetworkTools`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer needs it; reviewers share it); use `claude.sonnet` / `claude.haiku` for cheap one-shot calls (reviewer picker, lint, PR summariser), or `claude.fable` for the most capable tier on the hardest one-shots. `interactive` mode lives only on `resultAs[O]`. `session`/`runSeeded` are flow extensions (need `FlowControl`). |
+| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withNetworkTools`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer needs it; reviewers share it); use `claude.sonnet` / `claude.haiku` for cheap one-shot calls (reviewer picker, lint, PR summariser), or `claude.fable` for the most capable tier on the hardest one-shots. `interactive` mode lives only on `resultAs[O]`. `session` needs `FlowControl` (callable outside a stage); `runSeeded` additionally needs `InStage` (must be inside a stage). Both are flow extensions. |
 | `codex` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `mini`, `cheap` (→ mini), `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | OpenAI Codex coding/reviewing agent. |
 | `opencode` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiGpt5`/`openaiGpt5Codex`/`openaiGpt5Mini`, `cheap` (→ anthropicHaiku), `withModel(providerModel)` / `withModel(provider, modelId)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiGpt5Mini`) or `opencode.withModel("openai/gpt-4o-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
 | `pi` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withConfig(LlmConfig(model = Some(Model("provider/model"))))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
@@ -123,7 +122,8 @@ and is driven through RPC mode under the hood:
 ```scala
 flow(OrcaArgs(args)):
   val session = pi.session(seed = userPrompt)
-  val _ = pi.runSeeded(userPrompt, session)
+  stage("Run"):
+    pi.runSeeded(userPrompt, session)
 ```
 
 ## Coding agent tools
@@ -197,8 +197,14 @@ opaque type InStage                     // in-stage mutation token, from `stage(
 The compiler rejects a mutation outside a stage.
 
 **Reads** — `git.diff`, `git.log`, `git.currentBranch`, `gh.readIssue`,
-`gh.buildStatus`/`waitForBuild`, `fs.read`, `llm.session`, `display`, `fail`
+`gh.buildStatus`/`waitForBuild`, `fs.read`, `display`, `fail`
 — need only `FlowContext` and are callable anywhere.
+
+**`llm.session(seed)`** requires `FlowControl` (not just `FlowContext`): it
+writes a `SessionRecord` to the progress log. It does **not** require `InStage`,
+so it is callable in the flow body outside a stage — but not from a `fork` that
+receives only `FlowContext`. `llm.runSeeded(prompt, session)` additionally
+requires `InStage` and must be called inside a `stage(...)` body.
 
 **Starting a stage** requires `FlowControl`. The `stage` function is called
 directly in a flow body (the context resolves implicitly); a helper that itself
@@ -224,21 +230,22 @@ log (`.orca/progress-<hash>.json`, where `<hash>` is derived from the prompt):
 
 ### Sessions
 
-`llm.session(seed)` is a get-or-create keyed by call-occurrence in the run's log:
+`llm.session(seed)` is a get-or-create keyed by position in the flow — the
+same call site resumes the same session:
 
 ```scala
 val session = claude.session(seed = plan.brief)
 ```
 
-This is **pure**: it reserves a `SessionId` and records it in the progress log
-(no LLM call, no commit), so it is callable outside a stage. The `seed` is the
-essential context to rebuild the agent — typically the **plan brief**, or the
-issue body when there is no brief. On first use `runSeeded` primes the fresh
-session with the seed; if the backend session is lost on resume, `runSeeded`
-re-seeds into a fresh one, prepending a progress preamble naming the already-
-completed stages. A retry that finds the session still alive continues it
-directly. Use `newSession` when you want a plain fresh id without any
-get-or-create recording.
+It reserves a `SessionId` and writes a `SessionRecord` to the progress log (no
+LLM call, no stage commit). It needs `FlowControl` (not just `FlowContext`) and
+is callable outside a stage. The `seed` is the essential context to rebuild the
+agent — typically the **plan brief**, or the issue body when there is no brief.
+On first use `runSeeded` primes the fresh session with the seed; if the backend
+session is lost on resume, `runSeeded` re-seeds into a fresh one, prepending a
+progress preamble naming the already-completed stages. A retry that finds the
+session still alive continues it directly. Use `newSession` when you want a plain
+fresh id without any get-or-create recording.
 
 `llm.runSeeded(prompt, session)` runs the agent against `session`, handling
 seed-or-resume transparently:
@@ -253,12 +260,16 @@ runtime uses `llm.cheap` for branch naming and default commit messages.
 
 ## Authoring rules
 
-Rules a flow author must follow. The compiler enforces the first; the rest are
-structural conventions.
+The compiler enforces the `InStage` constraint automatically (mutations outside
+a stage body are compile errors). The rules below are the structural conventions
+you choose to follow as a flow author.
 
 1. **Reads outside, mutations inside.** Only side-effecting work goes in a
-   stage. Pure reads (`git.diff`, `gh.readIssue`, `fs.read`, `gh.waitForBuild`,
-   `llm.session`) run outside stages — staging them wastes commits and checkpoints.
+   stage. Pure reads (`git.diff`, `gh.readIssue`, `fs.read`, `gh.waitForBuild`)
+   run outside stages — staging them wastes commits and checkpoints.
+   `llm.session(seed)` also runs outside stages (it only needs `FlowControl`,
+   not `InStage`), but it is not a pure read — it writes a session record to
+   the progress log.
 
 2. **Push lives in a later stage than the edit that produced it.** A stage
    commits only on completion: a `git.push()` in the same stage as the edit would
@@ -290,9 +301,10 @@ structural conventions.
    between a PR creation and its progress commit re-opens the stage on resume;
    `gh.createPr` being idempotent means the re-run reuses the existing PR.
 
-6. **`InStage` is required for mutations — the compiler enforces it.** Calling
-   `git.commit`, `fs.write`, `gh.createPr`, or any `llm.*.run` outside a stage
-   body is a compile error.
+6. **Name stages descriptively.** The stage name appears in the event log,
+   the commit message (when no override is provided), and the progress preamble
+   on resume. A name like `"Push + open PR"` lets a reader (and the resuming
+   agent) understand the checkpoint without reading code.
 
 ## Planning utilities
 
@@ -380,9 +392,11 @@ separate layer — replace the whole set via `flow(prompts = ...)`. See ADR
 
 ## Data structures
 
-Common types you'll see in flow scripts. All `derives JsonData`, so they are
+Common types you'll see in flow scripts. Most `derives JsonData`, making them
 valid stage results (the stage log can record and replay them) and usable as
-structured LLM output via `claude.resultAs[T]`:
+structured LLM output via `claude.resultAs[T]`. Exceptions: `Sessioned` and
+`Verdict` do not derive `JsonData` — they are intermediate values, not stage
+results.
 
 - **`orca.plan.Plan(epicId, description, tasks, brief)`** — the task list the
   agent generates in one round-trip. `epicId` is a kebab-case id used as the
