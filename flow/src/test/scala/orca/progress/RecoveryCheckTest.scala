@@ -17,7 +17,7 @@ class RecoveryCheckTest extends FunSuite:
     assert(!RecoveryCheck.isSafeBranchRef("Feat"))
     assert(!RecoveryCheck.isSafeBranchRef("a/"))
 
-  test("validateHeader rejects a protected feature branch"):
+  test("validateHeader rejects the main/master floor regardless of the set"):
     val prompt = "do the thing"
     for protectedName <- List("main", "master", "MAIN", "Master") do
       val header = ProgressHeader(
@@ -26,9 +26,29 @@ class RecoveryCheckTest extends FunSuite:
         promptHash = ProgressStore.hashPrompt(prompt)
       )
       assert(
-        RecoveryCheck.validateHeader(header, prompt).isLeft,
+        RecoveryCheck.validateHeader(header, prompt, Set.empty).isLeft,
         s"$protectedName must be rejected as a feature branch"
       )
+
+  test("validateHeader rejects the repo's actual default branch"):
+    val prompt = "do the thing"
+    // A repo whose default is `trunk` (not main/master): a header naming it as
+    // a feature branch must be refused when `trunk` is in the protected set.
+    val header = ProgressHeader(
+      startingBranch = "trunk",
+      branch = "Trunk",
+      promptHash = ProgressStore.hashPrompt(prompt)
+    )
+    assert(
+      RecoveryCheck.validateHeader(header, prompt, Set("trunk")).isLeft,
+      "the repo's default branch must be rejected as a feature branch"
+    )
+    // ...but a normal feature branch still passes with the same set.
+    val ok = header.copy(branch = "feat/do-the-thing")
+    assertEquals(
+      RecoveryCheck.validateHeader(ok, prompt, Set("trunk")),
+      Right(())
+    )
 
   test("validateHeader allows a protected startingBranch"):
     val prompt = "do the thing"
@@ -37,7 +57,10 @@ class RecoveryCheckTest extends FunSuite:
       branch = "feat/do-the-thing",
       promptHash = ProgressStore.hashPrompt(prompt)
     )
-    assertEquals(RecoveryCheck.validateHeader(header, prompt), Right(()))
+    assertEquals(
+      RecoveryCheck.validateHeader(header, prompt, Set.empty),
+      Right(())
+    )
 
   test("validateHeader rejects a prompt-hash mismatch"):
     val header = ProgressHeader(
@@ -45,7 +68,9 @@ class RecoveryCheckTest extends FunSuite:
       branch = "feat/do-the-thing",
       promptHash = ProgressStore.hashPrompt("a different prompt")
     )
-    assert(RecoveryCheck.validateHeader(header, "do the thing").isLeft)
+    assert(
+      RecoveryCheck.validateHeader(header, "do the thing", Set.empty).isLeft
+    )
 
   test("validateHeader rejects an unsafe startingBranch"):
     val prompt = "do the thing"
@@ -54,4 +79,4 @@ class RecoveryCheckTest extends FunSuite:
       branch = "feat/do-the-thing",
       promptHash = ProgressStore.hashPrompt(prompt)
     )
-    assert(RecoveryCheck.validateHeader(header, prompt).isLeft)
+    assert(RecoveryCheck.validateHeader(header, prompt, Set.empty).isLeft)

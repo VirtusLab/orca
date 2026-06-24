@@ -100,6 +100,32 @@ class OsGitToolTest extends munit.FunSuite:
       // No remote-tracking refs at all → none of the fallbacks resolve.
       val _ = intercept[orca.OrcaFlowException](git.defaultBase())
 
+  test("defaultBranch reads the remote HEAD's short name"):
+    withRepo: (git, dir) =>
+      os.write(dir / "file.txt", "x")
+      git.commit("seed").orThrow
+      // Point origin/HEAD at a non-main/master branch to prove it isn't
+      // hard-coded: create `trunk`, set origin's symbolic ref to it.
+      val _ = os
+        .proc("git", "update-ref", "refs/remotes/origin/trunk", "HEAD")
+        .call(cwd = dir)
+      val _ = os
+        .proc(
+          "git",
+          "symbolic-ref",
+          "refs/remotes/origin/HEAD",
+          "refs/remotes/origin/trunk"
+        )
+        .call(cwd = dir)
+      assertEquals(git.defaultBranch(), Some("trunk"))
+
+  test("defaultBranch returns None when origin/HEAD is unset"):
+    withRepo: (git, dir) =>
+      os.write(dir / "file.txt", "x")
+      git.commit("seed").orThrow
+      // No remote / no origin/HEAD → best-effort None.
+      assertEquals(git.defaultBranch(), None)
+
   test("diffVsBase returns the cumulative branch diff vs base"):
     withRepo: (git, dir) =>
       // base branch with one commit

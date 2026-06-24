@@ -13,9 +13,9 @@
   *      planning session; no extra exploration cost.
   *
   * In addition, the plan always carries a `brief` — a codebase summary the
-  * planner writes as part of its structured output. `plan.taskPrompt(task)`
-  * prepends it to every task so the cold-starting coding agents don't
-  * re-discover what the planner already learned.
+  * planner writes as part of its structured output. It seeds the implementer
+  * session so the cold-starting coding agents don't re-discover what the
+  * planner already learned.
   *
   * The flow runtime handles the feature branch automatically: it creates a
   * branch from the prompt, commits progress to the stage log, and returns to
@@ -38,8 +38,8 @@
 import orca.{*, given}
 
 flow(OrcaArgs(args)):
-  // Plan → review, all on one read-only planner session. Brief is always
-  // included in the Plan structured output; plan.taskPrompt(task) prepends it.
+  // Plan → review, all on one read-only planner session. The Plan structured
+  // output always includes a brief, which seeds the implementer session below.
   val plan = stage("Plan"):
     Plan.autonomous
       .from(userPrompt, claude)
@@ -53,8 +53,9 @@ flow(OrcaArgs(args)):
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):      // skipped on resume if already done
-      // taskPrompt prepends the shared brief.
-      claude.runSeeded(plan.taskPrompt(task), session)
+      // The session seed already carries the brief, so send only the task
+      // description here — runSeeded re-prepends the seed on first use / resume.
+      claude.runSeeded(task.description, session)
       reviewAndFixLoop(
         coder = claude, sessionId = session,
         reviewers = allReviewers(claude),

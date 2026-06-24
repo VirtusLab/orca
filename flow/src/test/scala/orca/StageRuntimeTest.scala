@@ -81,6 +81,22 @@ class StageRuntimeTest extends munit.FunSuite:
       "the crashed stage must not be recorded"
     )
 
+  test("a nested stage commits and records both the outer and inner stages"):
+    val (ctx, dir) = TestFlowControl.create(new EventDispatcher(Nil))
+    given FlowControl = ctx
+    val before = commitCount(dir)
+    val _ = stage("outer"):
+      os.write(dir / "outer.txt", "o")
+      val _ = stage("inner"):
+        os.write(dir / "inner.txt", "i")
+        "inner-result"
+      "outer-result"
+    // Two stages → two commits (one per stage, inner committing before outer).
+    assertEquals(commitCount(dir), before + 2)
+    val ids = ctx.progressStore.load().get.entries.map(_.id)
+    assert(ids.contains("inner#0"), s"inner must be recorded; got $ids")
+    assert(ids.contains("outer#0"), s"outer must be recorded; got $ids")
+
   test("an undecodable stored entry re-runs the stage"):
     val (ctx, dir) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = ctx

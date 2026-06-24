@@ -7,8 +7,11 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 import orca.events.OrcaEvent
 import orca.llm.JsonData
 import orca.progress.StageEntry
+import org.slf4j.LoggerFactory
 
 import scala.util.control.NonFatal
+
+private val log = LoggerFactory.getLogger("orca.flow")
 
 /** Run `body` as a named, resumable, committing stage (ADR 0018 §2.1).
   *
@@ -49,14 +52,21 @@ private def resumeFrom[T: JsonData](id: String, name: String)(using
     .load()
     .flatMap(_.entries.find(_.id == id))
     .flatMap: entry =>
-      try
-        val value =
-          readFromString[T](entry.resultJson)(using summon[JsonData[T]].codec)
+      // Only the decode is fail-safe: a decode failure means the stage's result
+      // type changed under this id, so we fall through and re-run (None). The
+      // emits must NOT be inside the try — if `emit` threw, a catch here would
+      // spuriously re-run an already-recorded stage.
+      val decoded =
+        try
+          Some(
+            readFromString[T](entry.resultJson)(using summon[JsonData[T]].codec)
+          )
+        catch case NonFatal(_) => None
+      decoded.map: value =>
         fc.emit(OrcaEvent.StageStarted(name))
         fc.emit(OrcaEvent.Step(s"Resuming '$name' from recorded result"))
         fc.emit(OrcaEvent.StageCompleted(name))
-        Some(value)
-      catch case NonFatal(_) => None
+        value
 
 /** Run the body fresh, then record its result and commit (steps 3–4 above). */
 private def runStage[T: JsonData](
@@ -105,8 +115,9 @@ private def runStage[T: JsonData](
 /** Append the stage's result to the log and commit code + log as one commit.
   * The progress file is force-added (so it lands even when `.orca/` is
   * gitignored); `git.commit`'s own `add -A` picks up any code changes. The log
-  * always changed, so a `NothingToCommit` is unexpected — swallowed rather than
-  * failed, since the recorded result is what matters for resume.
+  * always changed, so a `NothingToCommit` is unexpected — logged at DEBUG (so
+  * it's observable) rather than failed, since the recorded result is what
+  * matters for resume.
   */
 private def recordAndCommit[T: JsonData](
     id: String,
@@ -124,7 +135,13 @@ private def recordAndCommit[T: JsonData](
   val message = commitMessage.map(_(result)).getOrElse(llmCommitMessage(name))
   fc.progressStore.appendEntry(StageEntry(id, name, resultJson))
   fc.git.forceAdd(fc.progressStore.path)
-  val _ = fc.git.commit(message)
+  // The log always changed, so a clean tree here is unexpected (a prior partial
+  // run may already have committed this entry). Surface it at DEBUG so it's
+  // observable rather than silent; never fail the stage over it.
+  fc.git.commit(message) match
+    case Right(()) => ()
+    case Left(_) =>
+      log.debug("stage {} commit was empty (already recorded?)", name)
 
 /** Generate a commit message via `llm.cheap` from the current working-tree diff
   * (R13). The diff is captured before the progress file is force-added, so it

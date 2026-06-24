@@ -120,6 +120,15 @@ trait GitTool:
 
   def currentBranch(): String
 
+  /** Best-effort name of the repository's default branch, read from the
+    * remote's recorded `origin/HEAD` (`refs/remotes/origin/HEAD` →
+    * `origin/<name>` → `<name>`). READ-ONLY; no [[InStage]] needed. Returns
+    * `None` when there is no remote, `origin/HEAD` is unset, or any error
+    * occurs — callers treat that as "no extra protected branch beyond
+    * main/master" (ADR 0018 R32).
+    */
+  def defaultBranch(): Option[String]
+
   /** Discard all uncommitted changes, resetting the working tree and index to
     * `HEAD` (`git reset --hard`). Used by the flow failure teardown to drop a
     * failed stage's partial edits while keeping the committed history (and the
@@ -336,6 +345,18 @@ private[orca] class OsGitTool(
 
   def currentBranch(): String =
     git("rev-parse", "--abbrev-ref", "HEAD").trim
+
+  def defaultBranch(): Option[String] =
+    try
+      val result = gitProc(
+        Seq("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+      )
+      if result.exitCode == 0 then
+        // Output is the short ref, e.g. "origin/main"; strip the remote prefix
+        // to get the bare branch name callers compare against.
+        Some(result.out.text().trim.stripPrefix("origin/")).filter(_.nonEmpty)
+      else None
+    catch case NonFatal(_) => None
 
   def resetHard()(using InStage): Unit =
     val _ = git("reset", "--hard")

@@ -82,15 +82,17 @@ object JsonData:
     * JSON value that conveys "no meaningful payload". `JsonCodecMaker` does not
     * support `Unit`, so we write the codec by hand.
     *
-    * On decode we skip the entire JSON value without inspecting it, so any
-    * valid JSON token (including `null`) decodes cleanly to `()`. Caveat: this
-    * leniency means `Option[Unit]` would read `null` as `Some(())` rather than
-    * `None` — but no stage returns `Option[Unit]`, so this is harmless.
+    * Decode is strict: it requires exactly the empty object `{}` the encoder
+    * produces, rejecting any other token (including `null`). So `Option[Unit]`
+    * round-trips correctly — `None`/`Some(())` map to `null`/`{}`.
     */
   given JsonData[Unit] = apply(
     Schema.schemaForUnit,
     new ConfiguredJsonValueCodec[Unit]:
-      def decodeValue(in: JsonReader, default: Unit): Unit = in.skip()
+      def decodeValue(in: JsonReader, default: Unit): Unit =
+        if in.isNextToken('{') then
+          if !in.isNextToken('}') then in.objectEndOrCommaError()
+        else in.decodeError("expected '{'")
       def encodeValue(x: Unit, out: JsonWriter): Unit =
         out.writeObjectStart()
         out.writeObjectEnd()

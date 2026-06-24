@@ -32,6 +32,14 @@ class JsonDataGivensTest extends FunSuite:
   test("Unit round-trips"):
     assertEquals(roundTrip(()), ())
 
+  test("Option[Unit] Some round-trips"):
+    assertEquals(roundTrip(Some(()): Option[Unit]), Some(()))
+
+  test("Option[Unit] None round-trips"):
+    // The strict Unit decoder rejects `null`, so the Option codec's own
+    // null→None handling is what produces None here (and Some(()) reads `{}`).
+    assertEquals(roundTrip(None: Option[Unit]), None)
+
   test("Option[Int] Some round-trips"):
     assertEquals(roundTrip(Some(1): Option[Int]), Some(1))
 

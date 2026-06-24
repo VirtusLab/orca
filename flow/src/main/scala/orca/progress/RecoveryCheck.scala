@@ -31,30 +31,36 @@ object RecoveryCheck:
   private def isSlugChar(c: Char): Boolean =
     (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'
 
-  /** Protected branches orca must never checkout/reset/delete as a *feature*
-    * branch: `main`/`master`, case-insensitive. `startingBranch` may be one of
-    * these (the run returns to it), but `header.branch` may not.
+  /** Branches that are always protected regardless of the repo's configured
+    * default — the floor [[validateHeader]] enforces (ADR 0018 R32). The
+    * runtime adds the repo's actual default branch on top of these.
     */
-  def isProtectedBranch(s: String): Boolean =
-    val lower = s.toLowerCase
-    lower == "main" || lower == "master"
+  val alwaysProtected: Set[String] = Set("main", "master")
 
   /** Validate the header before any destructive action. Returns `Left(reason)`
     * on the first failure, `Right(())` when the header is trustworthy.
     *
     *   - `branch` and `startingBranch` must be safe refs.
-    *   - `branch` must not be a protected branch (`startingBranch` may be).
+    *   - `branch` must not be a protected branch (`startingBranch` may be):
+    *     `protectedBranches` (lower-cased) plus the `main`/`master` floor.
     *   - `promptHash` must equal the recomputed hash of the current prompt.
+    *
+    * `protectedBranches` lets the runtime pass the repo's ACTUAL default branch
+    * (e.g. `trunk`/`develop`), so a tampered header naming it as a feature
+    * branch is refused — not just `main`/`master`. Compared case-insensitively.
     */
   def validateHeader(
       header: ProgressHeader,
-      userPrompt: String
+      userPrompt: String,
+      protectedBranches: Set[String]
   ): Either[String, Unit] =
+    val protectedLower =
+      (protectedBranches ++ alwaysProtected).map(_.toLowerCase)
     if !isSafeBranchRef(header.branch) then
       Left(s"branch '${header.branch}' is not a safe ref")
     else if !isSafeBranchRef(header.startingBranch) then
       Left(s"startingBranch '${header.startingBranch}' is not a safe ref")
-    else if isProtectedBranch(header.branch) then
+    else if protectedLower.contains(header.branch.toLowerCase) then
       Left(s"branch '${header.branch}' is a protected branch")
     else if header.promptHash != ProgressStore.hashPrompt(userPrompt) then
       Left("promptHash does not match the current prompt")

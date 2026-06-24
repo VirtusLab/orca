@@ -335,8 +335,17 @@ private def flowSetup(
   store.load() match
     case Some(log) =>
       val header = log.header
-      // R32: validate the untrusted header before any destructive action.
-      RecoveryCheck.validateHeader(header, args.userPrompt) match
+      // R32: validate the untrusted header before any destructive action. The
+      // protected set is the main/master floor plus the repo's ACTUAL default
+      // branch (best-effort), so a tampered header naming e.g. `trunk` as a
+      // feature branch is refused too.
+      val protectedBranches =
+        Set("main", "master") ++ git.defaultBranch().map(_.toLowerCase)
+      RecoveryCheck.validateHeader(
+        header,
+        args.userPrompt,
+        protectedBranches
+      ) match
         case Left(reason) =>
           throw new OrcaFlowException(
             s"refusing to resume: progress log header failed validation ($reason)"
