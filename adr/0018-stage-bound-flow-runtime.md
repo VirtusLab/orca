@@ -488,8 +488,10 @@ list output and opencode's directory-scoping should be pinned when the probes la
 **Requirements.**
 - **R24** — Externally-observable GitHub effects are idempotent by default, to
   survive the non-atomic window between an effect and its progress commit:
-  `createPr` reuses an existing PR matched on **head *and* base** (not head alone,
-  so an unrelated PR on a same-named branch isn't adopted); `upsertComment(marker,
+  `createPr` reuses an existing open PR matched on the **head branch** (orca creates
+  exactly one PR per feature branch, so head alone is unambiguous; a head-*and*-base
+  match would only matter for stacked-PR setups, which orca never produces);
+  `upsertComment(marker,
   …)` accompanies append-only `writeComment`, where the **marker embeds the prompt
   hash** so it's unique per flow and can't collide with another run's (or a
   third-party) comment. The progress entry is committed immediately after the effect.
@@ -500,10 +502,12 @@ list output and opencode's directory-scoping should be pinned when the probes la
 
 **Design.**
 
-`gh.createPr` first looks up an open PR matching this head *and* base and returns it
-if present, so a resume after "PR created but progress commit lost" reuses rather
-than duplicates — and won't adopt an unrelated PR that happens to share the branch
-name. `gh.upsertComment(marker, body)` finds a prior comment carrying `marker` and
+`gh.createPr`, on hitting GitHub's "a PR for this branch already exists", looks up the
+open PR for this head branch and returns it instead of failing — so a resume after "PR
+created but progress commit lost" reuses rather than duplicates. (Matching on the head
+branch is sufficient because orca owns one feature branch per flow and opens a single
+PR from it; head+base matching would only be needed to disambiguate stacked PRs, which
+this runtime never creates.) `gh.upsertComment(marker, body)` finds a prior comment carrying `marker` and
 edits it in place; the marker embeds the prompt hash so it's unique to this flow
 (not forgeable into another run's comment). Plain `writeComment` stays append-only
 for genuinely additive comments. The stage commits the progress entry immediately
