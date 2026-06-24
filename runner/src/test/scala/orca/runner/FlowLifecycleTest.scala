@@ -188,8 +188,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       0,
       "body must NOT run on a resumed call where the stage is already recorded"
     )
-    // Success teardown returns to the branch that was current when flow() was
-    // called (feat/lifecycle-resume, since we were already on it).
+    // Success teardown on a resumed run returns to the ORIGINAL start branch
+    // recorded in the header (main), not the re-run's current feature branch.
     val branch =
       os.proc("git", "rev-parse", "--abbrev-ref", "HEAD")
         .call(cwd = workDir)
@@ -198,8 +198,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         .trim
     assertEquals(
       branch,
-      "feat/lifecycle-resume",
-      "flow must return to the branch that was current at call time"
+      "main",
+      "a resumed run returns to the header's original start branch"
     )
 
   test(
@@ -237,7 +237,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
-    "runFlow resumes after a crash: stage one replays once and ends on the start branch"
+    "runFlow resumes after a crash: stage one replays once and ends on the original start branch"
   ):
     // Two runs over the SAME repo/prompt/store. The first crashes in stage 2
     // after stage 1 runs; the second resumes — stage 1's body must NOT run again
@@ -264,13 +264,6 @@ class FlowLifecycleTest extends munit.FunSuite:
     // the resume entry point: a re-run "in place" (the next invocation inherits
     // the repo's HEAD, which the crash left on the feature branch) finds the
     // committed progress log in the working tree and resumes from it.
-    //
-    // NOTE (deferred, recovery hardening / R30,R32): the progress log is tracked
-    // ON the feature branch, so it is not visible from another branch. Resuming
-    // from an arbitrary branch (a fresh process sitting on `main`), and returning
-    // a resumed run to the *original* start branch via `header.startingBranch`
-    // rather than the re-run's current branch, are E-polish items — not covered
-    // here. This test pins the supported in-place path.
     val featureBranch = git.currentBranch()
     assertNotEquals(featureBranch, startBranch)
 
@@ -290,8 +283,104 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     assertEquals(
       git.currentBranch(),
-      featureBranch,
-      "a successful in-place resumed run returns to where it started"
+      startBranch,
+      "a successful in-place resumed run returns to the original start branch"
+    )
+
+  test(
+    "R20: snapshot-before-stash restores the log file if the stash removed it"
+  ):
+    // The end-to-end stash hazard is belt-and-suspenders (the log is normally
+    // committed, so the stash can't remove it), so cover the helper directly:
+    // a snapshot taken while the file exists restores its exact bytes after the
+    // file is gone, and is a no-op when the file still exists.
+    val dir = os.temp.dir()
+    val path = dir / ".orca" / "progress-x.json"
+    os.write(path, "{\"header\":true}", createFolders = true)
+    val snapshot = orca.snapshotLog(path)
+    assert(snapshot.isDefined, "snapshot must capture an existing file")
+
+    // Simulate the stash removing the file, then restore it.
+    val _ = os.remove(path)
+    orca.restoreLogIfMissing(path, snapshot)
+    assert(os.exists(path), "log must be restored from the snapshot")
+    assertEquals(os.read(path), "{\"header\":true}")
+
+    // Restore is a no-op when the file is still present (does not overwrite).
+    os.write.over(path, "untouched")
+    orca.restoreLogIfMissing(path, snapshot)
+    assertEquals(os.read(path), "untouched")
+
+    // A snapshot of a missing file is None; restore then does nothing.
+    val missing = dir / ".orca" / "absent.json"
+    assertEquals(orca.snapshotLog(missing), None)
+    orca.restoreLogIfMissing(missing, None)
+    assert(!os.exists(missing))
+
+  test(
+    "R30: a log whose recorded branch differs from the current branch aborts"
+  ):
+    // Simulate a merged feature branch: the committed log records branch X, but
+    // HEAD is on Y (as if X was merged into Y, carrying the log along). Resuming
+    // must abort rather than replay against the wrong branch.
+    val workDir = TempRepo.create()
+    val prompt = "merged-hazard"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+
+    given InStage = InStage.unsafe
+    // Commit the log on `main` (HEAD) while it names a different feature branch.
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/merged-hazard",
+        promptHash = ProgressStore.hashPrompt(prompt)
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    val currentBranch = git.currentBranch()
+
+    val thrown = intercept[orca.OrcaFlowException]:
+      runFlowForTest(workDir, prompt, store):
+        val _ = stage("never-runs"):
+          "x"
+    assert(
+      thrown.getMessage.contains("feat/merged-hazard") &&
+        thrown.getMessage.contains(currentBranch) &&
+        thrown.getMessage.contains("merged"),
+      s"abort message must name both branches and the merge hazard: ${thrown.getMessage}"
+    )
+
+  test(
+    "R32: a tampered header (prompt-hash mismatch) aborts rather than resuming"
+  ):
+    // A committed log on the feature branch whose promptHash does not match the
+    // current prompt — a hand-edited/mismatched header. Resume must hard-abort.
+    val workDir = TempRepo.create()
+    val prompt = "tampered-feature"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+
+    given InStage = InStage.unsafe
+    val _ = git.createBranch("feat/tampered-feature")
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/tampered-feature",
+        promptHash = "deadbeefcafe"
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+
+    val thrown = intercept[orca.OrcaFlowException]:
+      runFlowForTest(workDir, prompt, store):
+        val _ = stage("never-runs"):
+          "x"
+    assert(
+      thrown.getMessage.contains("failed validation"),
+      s"abort message must mention validation failure: ${thrown.getMessage}"
     )
 
   test(

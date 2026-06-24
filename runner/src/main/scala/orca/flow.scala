@@ -17,7 +17,7 @@ import orca.llm.{
   PiTool,
   Prompts
 }
-import orca.progress.{ProgressHeader, ProgressStore}
+import orca.progress.{ProgressHeader, ProgressStore, RecoveryCheck}
 import orca.tools.opencode.OpencodeLauncher
 import orca.runner.{DefaultFlowContext, LoggingListener, OrcaBanner, OrcaLog}
 import orca.runner.terminal.TerminalInteraction
@@ -294,14 +294,29 @@ private case class FlowSetup(
 )
 
 /** Bind the run to a branch + progress log before the body runs (ADR 0018
-  * §2.5). Records the starting branch, stashes a dirty tree, then either
-  * resumes an existing log (checkout its recorded branch) or starts fresh
-  * (resolve a branch name, create it, write + commit the header). All git/store
-  * mutations run with a runtime-minted `InStage` — setup is privileged,
-  * predating any user stage.
+  * §2.4/§2.5). Records the starting branch, snapshots the log file, stashes a
+  * dirty tree, then either resumes an existing log or starts fresh (resolve a
+  * branch name, create it, write + commit the header). All git/store mutations
+  * run with a runtime-minted `InStage` — setup is privileged, predating any
+  * user stage.
   *
-  * Header *validation* (R30/R32) and prompt-shortening branch naming are
-  * deferred (ADR 0018 §2.5 OUT); the default strategy slugs the prompt.
+  * The progress header is **untrusted input** on load (R26: the log is
+  * human-visible and pushable), so a resumed run:
+  *   - **R20** — snapshots the log file BEFORE `ensureClean` and restores it if
+  *     the stash removed it, so the header is always readable.
+  *   - **R32** — validates the header before any destructive action (safe refs,
+  *     prompt-hash match, no protected feature branch). A parseable-but-invalid
+  *     header is a HARD abort (`OrcaFlowException`), not a silent fresh start —
+  *     it signals tampering or a mismatch. (An *unparseable* log stays
+  *     `store.load() == None` → fresh run; that path is separate.)
+  *   - **R30** — cross-checks that the current branch is the one the header
+  *     records (the in-place invariant from R3): a log that surfaced on a
+  *     branch it does not name (e.g. its feature branch was merged, carrying
+  *     the log along) aborts rather than resuming against the wrong branch.
+  *
+  * On resume `startBranch` is the header's recorded `startingBranch` (the
+  * ORIGINAL branch at first run), so a resumed run returns there on success —
+  * exactly like a fresh run — not to the re-run's current (feature) branch.
   */
 private def flowSetup(
     args: OrcaArgs,
@@ -312,12 +327,33 @@ private def flowSetup(
 ): FlowSetup =
   given InStage = InStage.unsafe
   val startBranch = git.currentBranch()
+  // R20: snapshot the log file before the stash, restore it if the stash
+  // removed it — so an uncommitted/untracked log is still readable below.
+  val snapshot = snapshotLog(store.path)
   val _ = git.ensureClean("orca: starting flow")
+  restoreLogIfMissing(store.path, snapshot)
   store.load() match
     case Some(log) =>
-      // Resume: the branch name lives in the committed header.
-      git.checkoutOrCreate(log.header.branch)
-      FlowSetup(store, log.header.branch, startBranch)
+      val header = log.header
+      // R32: validate the untrusted header before any destructive action.
+      RecoveryCheck.validateHeader(header, args.userPrompt) match
+        case Left(reason) =>
+          throw new OrcaFlowException(
+            s"refusing to resume: progress log header failed validation ($reason)"
+          )
+        case Right(()) => ()
+      // R30: only resume IN PLACE. If the log surfaced on a branch it does not
+      // name, it was likely carried here by a merge — abort, don't replay.
+      val current = git.currentBranch()
+      if current != header.branch then
+        throw new OrcaFlowException(
+          s"progress log for branch '${header.branch}' found while on " +
+            s"'$current' — was it merged? aborting rather than resuming " +
+            "against the wrong branch"
+        )
+      // Resume in place: already on header.branch (R3). Return to the ORIGINAL
+      // start branch on success, not this feature branch.
+      FlowSetup(store, header.branch, header.startingBranch)
     case None =>
       // Fresh run: resolve + create the branch, then commit the header so it is
       // the branch's first commit.
@@ -335,6 +371,24 @@ private def flowSetup(
       git.forceAdd(store.path)
       val _ = git.commit("orca: progress log")
       FlowSetup(store, branch, startBranch)
+
+/** Read the bytes of the progress-log file if it exists (R20). Returns `None`
+  * when the file is absent — the normal fresh-run case and the case where the
+  * log is committed (so the stash can't remove it).
+  */
+private[orca] def snapshotLog(path: os.Path): Option[Array[Byte]] =
+  if os.exists(path) then Some(os.read.bytes(path)) else None
+
+/** Restore the progress-log file from a pre-stash snapshot if the stash removed
+  * it (R20), so the header is always readable. A no-op when there was nothing
+  * to snapshot or the file still exists.
+  */
+private[orca] def restoreLogIfMissing(
+    path: os.Path,
+    snapshot: Option[Array[Byte]]
+): Unit =
+  snapshot.foreach: bytes =>
+    if !os.exists(path) then os.write.over(path, bytes, createFolders = true)
 
 /** Successful teardown (ADR 0018 §2.5): remove the progress-log file in a final
   * commit so a merged branch is clean, then return to the starting branch.
