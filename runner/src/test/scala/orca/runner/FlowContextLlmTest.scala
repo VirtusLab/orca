@@ -9,12 +9,12 @@ import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 
-/** Verifies that after `runFlow` is called with a given leading model, the body
-  * can retrieve that same model via `summon[FlowContext].llm`.
+/** Verifies that the `leadModel` selector passed to `runFlow` is resolved
+  * against the flow context and surfaced as `summon[FlowContext].llm`.
   */
 class FlowContextLlmTest extends munit.FunSuite:
 
-  test("FlowContext.llm returns the leading model passed to runFlow"):
+  test("FlowContext.llm resolves the leadModel selector passed to runFlow"):
     val workDir = TempRepo.create()
     var seen: Option[LlmTool[?]] = None
     supervised:
@@ -25,7 +25,7 @@ class FlowContextLlmTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs("test-llm"),
-        llm = StubLlm.claude,
+        leadModel = _ => StubLlm.claude,
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = Nil,

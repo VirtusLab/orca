@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.FlowControl
+import orca.{FlowContext, FlowControl}
 import orca.progress.ProgressStore
 import orca.tools.{GitTool}
 import orca.tools.{GitHubTool}
@@ -40,7 +40,7 @@ import orca.tools.OsGitHubTool
 private[orca] class DefaultFlowContext(
     val userPrompt: String,
     dispatcher: EventDispatcher,
-    val llm: LlmTool[?],
+    leadModel: FlowContext => LlmTool[?],
     val claude: ClaudeTool,
     val codex: CodexTool,
     val opencode: OpencodeTool,
@@ -51,6 +51,12 @@ private[orca] class DefaultFlowContext(
     val fs: FsTool,
     val progressStore: ProgressStore
 ) extends FlowControl:
+
+  // The leading model is named by a selector resolved against this context (the
+  // only way to name a model is an accessor on the context — `_.claude`,
+  // `_.codex`, …). Resolved lazily so the selector sees a fully-built context;
+  // the result is the run's `llm`, used by branch setup and the body.
+  lazy val llm: LlmTool[?] = leadModel(this)
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
@@ -89,7 +95,7 @@ private[orca] object DefaultFlowContext:
       workDir: os.Path,
       interaction: Interaction,
       progressStore: ProgressStore,
-      leadingLlm: LlmTool[?],
+      leadModel: FlowContext => LlmTool[?],
       claude: Option[ClaudeTool] = None,
       codex: Option[CodexTool] = None,
       opencode: Option[OpencodeTool] = None,
@@ -104,7 +110,7 @@ private[orca] object DefaultFlowContext:
     new DefaultFlowContext(
       userPrompt = userPrompt,
       dispatcher = dispatcher,
-      llm = leadingLlm,
+      leadModel = leadModel,
       claude = claude.getOrElse(
         new DefaultClaudeTool(
           backend = new ClaudeBackend(OsProcCliRunner),

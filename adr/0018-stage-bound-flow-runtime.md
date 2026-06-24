@@ -311,11 +311,17 @@ the wrong branch.
   records — e.g. an in-progress branch was merged, carrying the log into another
   branch — the run aborts with a clear message rather than resuming against the
   wrong branch.
-- **R31** — The leading model is a **mandatory** argument to `flow(...)` (e.g.
-  `flow(OrcaArgs(args), claude)`), exposed in the body as `llm`. `flow` is
-  parameterised by its backend `B`, so `llm: LlmTool[B]` keeps its backend type;
-  `llm.session`, `reviewAndFixLoop(coder = llm, …)`, and other session-typed calls
-  retain compile-time backend correlation (R27). `LlmTool` gains a `cheap` method
+- **R31** — The leading model is named by a `leadModel` **selector** argument to
+  `flow(...)` — `FlowContext => LlmTool[?]`, defaulting to `_.claude`. The only way
+  to name a model is an accessor on the flow context (`_.claude`, `_.codex`, …),
+  which isn't in scope at the `flow(...)` argument position, so the selector defers
+  resolution until the context is built. `flow(OrcaArgs(args))` runs against claude;
+  `flow(OrcaArgs(args), _.codex)` against codex. The resolved model is exposed in the
+  body as `ctx.llm` (used by the runtime for branch naming and default commit
+  messages, and available to scripts that need the leading model directly; example
+  bodies normally call the concrete accessor `claude`). `llm.session`,
+  `reviewAndFixLoop(coder = llm, …)`, and other session-typed calls retain
+  backend correlation (R27). `LlmTool` gains a `cheap` method
   returning the backend's cheap variant (claude → haiku, gemini → flash, codex →
   mini); orca uses `llm.cheap` for branch naming and default commit messages. There
   is no implicit default model.
@@ -329,19 +335,24 @@ the wrong branch.
 **Design.**
 
 ```scala
-def flow[B <: BackendTag](
+def flow(
     args: OrcaArgs,
-    llm: LlmTool[B],                         // leading model — mandatory (R31)
+    leadModel: FlowContext => LlmTool[?] = _.claude,  // leading-model selector (R31)
+    //   ^ resolved against the built context: `_.claude` (default), `_.codex`, …
     // … existing tool overrides …
-    branchNaming: BranchNamingStrategy = BranchNamingStrategy.shortenPrompt,
-    //   ^ or BranchNamingStrategy.issue(handle) for issue flows
-    progressStore: ProgressStore = ProgressStore.default     // §2.4; pluggable path + format
+    branchNaming: Option[BranchNamingStrategy] = None,
+    //   ^ None ⇒ slug the prompt; or Some(BranchNamingStrategy.issue(handle)) for issue flows
+    progressStore: Option[ProgressStore] = None     // §2.4; pluggable path + format
 )(body: FlowControl ?=> Unit): Unit
 ```
 
-Per R31, `llm` is the mandatory `LlmTool[B]`, so session-typed calls keep their
-backend correlation and `llm.cheap` drives branch naming and default commit messages
-(overridable per stage via `commitMessage`, §2.1). The body is `FlowControl ?=> Unit`
+Per R31, `leadModel` is a selector resolved against the built `FlowContext` — the
+only way to name a model is an accessor on the context, which isn't in scope at the
+`flow(...)` argument position, so resolution is deferred. The resolved model is
+`ctx.llm`; `llm.cheap` drives branch naming and default commit messages (overridable
+per stage via `commitMessage`, §2.1). The lifecycle therefore builds the context (and
+the progress store) **before** running branch setup, since branch naming needs the
+resolved model. The body is `FlowControl ?=> Unit`
 (R29): a direct `stage(...)` resolves its authority while forks see only
 `FlowContext`.
 
@@ -544,29 +555,29 @@ if nothing of substance happens; pushes are mid-flow.
 //> using jvm 21
 import orca.{*, given}
 
-flow(OrcaArgs(args), claude):                            // `claude` is the leading model, `llm`
+flow(OrcaArgs(args)):                                    // leadModel defaults to `_.claude`
   val plan = stage("Plan"):
-    Plan.autonomous.from(userPrompt, llm).value          // Plan (always briefed; has JsonData)
+    Plan.autonomous.from(userPrompt, claude).value       // Plan (always briefed; has JsonData)
 
   // Get-or-create the implementer session (pure: id reserved, backend created on
   // first use). The seed (plan brief) primes it on first use, and is replayed if the
   // backend session is lost on resume.
-  val session = llm.session(seed = plan.brief)
+  val session = claude.session(seed = plan.brief)
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):                       // skipped on resume if already done
-      llm.autonomous.run(task.description, session)
+      claude.runSeeded(task.description, session)
       reviewAndFixLoop(                                   // runs under this stage (using InStage)
-        coder = llm, sessionId = session,
-        reviewers = allReviewers(llm),
-        reviewerSelection = ReviewerSelector.llmDriven(llm.cheap),
+        coder = claude, sessionId = session,
+        reviewers = allReviewers(claude),
+        reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value,
         formatCommand = Some("cargo fmt")
       )
-      // one commit per task: code + progress entry, message from llm.cheap
+      // one commit per task: code + progress entry
 ```
 
-`git.commit`, `llm.autonomous.run`, and `reviewAndFixLoop` require `InStage`,
+`git.commit`, `claude.runSeeded`, and `reviewAndFixLoop` require `InStage`,
 supplied by the enclosing `stage`. There is no plan markdown file — the progress
 log subsumes it, which also removes any checkbox state to keep in sync (a
 human-readable checklist, if wanted, is cosmetic — §2.8).
@@ -584,12 +595,15 @@ The hard case: it may early-exit (post a comment, no code), and it pushes
 mid-flow — first the failing test, then the fix.
 
 ```scala
-flow(OrcaArgs(args), claude):                                        // leading model = `llm`
-  val issueHandle = IssueHandle.parseOrThrow(userPrompt)
+// Parse the handle up-front so it can seed the deterministic branch naming.
+val orcaArgs    = OrcaArgs(args)
+val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
+
+flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):  // claude default
   val issue   = gh.readIssue(issueHandle)                            // read
-  val session = llm.session(seed = issue.body)                       // get-or-create
+  val session = claude.session(seed = issue.body)                    // get-or-create
   val triage  = stage("Triage"):                                     // LLM → staged
-    Plan.autonomous.triage(report(issue), llm).value
+    Plan.autonomous.triage(report(issue), claude).value
 
   triage match
     case Triage.NotABug(why) =>
@@ -600,7 +614,7 @@ flow(OrcaArgs(args), claude):                                        // leading 
 
     case Triage.Testable(summary, _, failingTestPath) =>
       stage("Write failing test"):                                   // commits the test
-        llm.autonomous.run(s"Write the failing test at $failingTestPath …", session)
+        claude.runSeeded(s"Write the failing test at $failingTestPath …", session)
 
       val pr = stage("Push + open tentative PR"):                    // later stage: the test is committed
         git.push().orThrow                                           // push #1
@@ -613,7 +627,7 @@ flow(OrcaArgs(args), claude):                                        // leading 
       stage("Confirm repro")(/* sonnet inspects the run via gh, posts a comment */)
 
       val fixPlan = stage("Plan the fix"):
-        Plan.autonomous.from(s"Fix ${issueHandle.shortRef}; a failing test exists.", llm).value
+        Plan.autonomous.from(s"Fix ${issueHandle.shortRef}; a failing test exists.", claude).value
       for task <- fixPlan.tasks do
         stage(s"task: ${task.title}")(/* implement + reviewAndFixLoop, under this stage */)
 

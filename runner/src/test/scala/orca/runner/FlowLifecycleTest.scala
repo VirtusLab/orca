@@ -38,7 +38,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs("lifecycle-success"),
-        llm = StubLlm.claude,
+        leadModel = _ => StubLlm.claude,
         workDir = workDir,
         interaction = Some(interaction)
       ):
@@ -163,7 +163,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
-        llm = StubLlm.claude,
+        leadModel = _ => StubLlm.claude,
         workDir = workDir,
         progressStore = Some(store),
         interaction = Some(interaction)
@@ -300,7 +300,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs(prompt),
-        llm = StubLlm.claude,
+        leadModel = _ => StubLlm.claude,
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = Nil,

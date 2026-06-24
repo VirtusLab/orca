@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.0.14+1-2e21cd3e+20260623-1601-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.0.14+27-97ae8174+20260624-0820-SNAPSHOT"
 //> using jvm 21
 
 /** Interactive planning + coding flow.
@@ -26,7 +26,7 @@
 
 import orca.{*, given}
 
-flow(OrcaArgs(args), claude):
+flow(OrcaArgs(args)):
   val plan = stage("Plan"):
     // `.value` drops the planner's session; the implementer mints its own
     // below (ask_user was only needed for planning).

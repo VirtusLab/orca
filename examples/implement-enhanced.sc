@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.0.14+1-2e21cd3e+20260623-1601-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.0.14+27-97ae8174+20260624-0820-SNAPSHOT"
 //> using jvm 21
 
 /** Autonomous planning + coding flow that lands the work on its own branch and
@@ -37,7 +37,7 @@
 
 import orca.{*, given}
 
-flow(OrcaArgs(args), claude):
+flow(OrcaArgs(args)):
   // Plan → review, all on one read-only planner session. Brief is always
   // included in the Plan structured output; plan.taskPrompt(task) prepends it.
   val plan = stage("Plan"):

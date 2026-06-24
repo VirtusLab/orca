@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.0.14+1-2e21cd3e+20260623-1601-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.0.14+27-97ae8174+20260624-0820-SNAPSHOT"
 //> using jvm 21
 
 /** Bug-report → fix flow for Scala projects, autonomous.
@@ -47,7 +47,7 @@ import scala.concurrent.duration.DurationInt
 val orcaArgs = OrcaArgs(args)
 val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
-flow(orcaArgs, claude, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
+flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
 
   val CiTimeout = 30.minutes
 

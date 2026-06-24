@@ -8,6 +8,7 @@ import orca.llm.{
   BackendTag,
   ClaudeTool,
   JsonData,
+  LlmTool,
   PiTool,
   LlmCall,
   LlmConfig,
@@ -24,9 +25,10 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 
 class OrcaOverridesTest extends munit.FunSuite:
 
-  // A leading model is now mandatory for `flow(...)` (ADR 0018 §2.5); these
-  // tests assert tool-override wiring, not LLM behaviour, so they pass a stub.
-  private val stubLlm: ClaudeTool = StubLlm.claude
+  // The leading-model selector defaults to `_.claude` (ADR 0018 §2.5); these
+  // tests assert tool-override wiring, not LLM behaviour, so they resolve a stub
+  // via a `_ => StubLlm.claude` selector.
+  private val stubLead: FlowContext => LlmTool[?] = _ => StubLlm.claude
 
   test("flow uses a custom FsTool when supplied"):
     val fake = new FsTool:
@@ -42,7 +44,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
-        llm = stubLlm,
+        leadModel = stubLead,
         workDir = TempRepo.create(),
         fs = Some(fake),
         interaction = Some(interaction)
@@ -83,7 +85,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
-        llm = fakeClaude,
+        leadModel = _ => fakeClaude,
         workDir = TempRepo.create(),
         claude = Some(fakeClaude),
         interaction = Some(interaction)
@@ -125,7 +127,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
-        llm = stubLlm,
+        leadModel = stubLead,
         workDir = TempRepo.create(),
         opencode = Some(fakeOpencode),
         interaction = Some(interaction)
@@ -160,7 +162,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
-        llm = stubLlm,
+        leadModel = stubLead,
         workDir = TempRepo.create(),
         pi = Some(fakePi),
         interaction = Some(interaction)
@@ -179,7 +181,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
-        llm = stubLlm,
+        leadModel = stubLead,
         workDir = TempRepo.create(),
         interaction = Some(interaction),
         extraListeners = List(tracker)

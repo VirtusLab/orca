@@ -52,13 +52,20 @@ import scala.util.control.NonFatal
   *   ...
   * ```
   *
+  * The leading model is named by a `leadModel` selector resolved against the
+  * built `FlowContext` (defaulting to `_.claude`): the only way to name a model
+  * is the accessor on the context, which isn't in scope at the `flow(...)`
+  * argument position, so the selector defers resolution until the context
+  * exists. `flow(OrcaArgs(args))` runs against claude; `flow(OrcaArgs(args),
+  * _.codex)` against codex, etc. The resolved model becomes `ctx.llm`.
+  *
   * Overrides default to `None` so the runtime can build the default lazily —
   * `TerminalInteraction`, in particular, takes the resolved `workDir` which
   * can't be threaded through a Scala 3 default-arg expression.
   */
 def flow(
     args: OrcaArgs,
-    llm: LlmTool[?],
+    leadModel: FlowContext => LlmTool[?] = _.claude,
     workDir: os.Path = os.pwd,
     interaction: Option[Interaction] = None,
     extraListeners: List[OrcaListener] = Nil,
@@ -98,7 +105,7 @@ def flow(
     try
       runFlow(
         args,
-        llm,
+        leadModel,
         workDir,
         interaction,
         extraListeners ++ List(costTracker),
@@ -142,7 +149,7 @@ def flow(
   */
 private[orca] def runFlow(
     args: OrcaArgs,
-    llm: LlmTool[?],
+    leadModel: FlowContext => LlmTool[?],
     workDir: os.Path,
     interaction: Option[Interaction],
     extraListeners: List[OrcaListener],
@@ -177,21 +184,29 @@ private[orca] def runFlow(
       // and after the body, outside any user stage, so they need git
       // directly. The same instance is handed to the context.
       val effectiveGit = git.getOrElse(new OsGitTool(workDir, dispatcher))
-      val setup = flowSetup(
-        args,
-        llm,
-        workDir,
-        effectiveGit,
-        branchNaming,
-        progressStore
-      )
+      // Order matters (and is delicate): the leading model is now a selector
+      // resolved against the context (`ctx.llm`), and branch setup needs the
+      // resolved model for branch naming. So the store and the context must
+      // exist BEFORE setup runs:
+      //   1. Resolve the progress store (pure — no git effect, no model).
+      //   2. Build the context (pure construction — backends are created but
+      //      no subprocess spawns until the first gated `run`; `ctx.llm` is a
+      //      lazy selector resolution).
+      //   3. Run branch setup (stash → resume-vs-fresh → checkout → header
+      //      commit) using `ctx.llm` for branch naming.
+      // Teardown is unchanged (the `bodySucceeded` gate + disjoint
+      // success/failure paths below), so CORE's invariants are preserved.
+      val store =
+        progressStore.getOrElse(
+          ProgressStore.default(workDir, args.userPrompt)
+        )
       val ctx = DefaultFlowContext.withDefaults(
         userPrompt = args.userPrompt,
         dispatcher = dispatcher,
         workDir = workDir,
         interaction = effectiveInteraction,
-        progressStore = setup.store,
-        leadingLlm = llm,
+        progressStore = store,
+        leadModel = leadModel,
         claude = claude,
         opencode = opencode,
         opencodeLauncher = opencodeLauncher,
@@ -201,6 +216,8 @@ private[orca] def runFlow(
         fs = fs,
         prompts = prompts
       )
+      val setup =
+        flowSetup(args, ctx.llm, effectiveGit, branchNaming, store)
       // The whole flow body runs as a top-level stage: an otherwise
       // unhandled exception surfaces as a single Error event (the same
       // message a stage failure shows). A nested stage / `fail` marks the
@@ -252,16 +269,13 @@ private case class FlowSetup(
 private def flowSetup(
     args: OrcaArgs,
     llm: LlmTool[?],
-    workDir: os.Path,
     git: GitTool,
     branchNaming: Option[BranchNamingStrategy],
-    progressStore: Option[ProgressStore]
+    store: ProgressStore
 ): FlowSetup =
   given InStage = InStage.unsafe
   val startBranch = git.currentBranch()
   val _ = git.ensureClean("orca: starting flow")
-  val store =
-    progressStore.getOrElse(ProgressStore.default(workDir, args.userPrompt))
   store.load() match
     case Some(log) =>
       // Resume: the branch name lives in the committed header.
