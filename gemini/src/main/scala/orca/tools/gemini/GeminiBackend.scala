@@ -1,7 +1,7 @@
 package orca.tools.gemini
 
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.llm.{BackendTag, LlmConfig, SessionId, isSafeSessionId}
 import orca.subprocess.CliResult
 import orca.{AgentTurnFailed, OrcaFlowException}
 
@@ -180,18 +180,30 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
       server: SessionId[BackendTag.Gemini.type]
   ): Unit = sessions.commitSuccess(client, server)
 
-  /** Run `gemini --list-sessions` via the backend's cli seam and check whether
-    * the session id appears in the output. Uses `cli` so stub runners can
-    * inject a canned response in tests.
+  /** Best-effort probe: runs `gemini --list-sessions` and checks whether the
+    * session id appears in the output (substring scan). Returns `false` — safe
+    * re-seed — on non-zero exit, any exception, or if the id fails the
+    * [[orca.llm.isSafeSessionId]] guard (added for consistency; the substring
+    * scan is not injection-susceptible, but the guard keeps all probes
+    * uniform).
+    *
+    * Note: gemini mints its own server-side session id; orca uses a
+    * [[orca.backend.SessionRegistry.ClientToServer]] mapping so the caller's
+    * stable id is never passed directly to `--list-sessions`. Therefore this
+    * probe returns `false` until the client→server map is persisted and
+    * rehydrated (a follow-up task, D2), so gemini re-seeds conservatively.
     */
   override def sessionExists(
       session: SessionId[BackendTag.Gemini.type]
   ): Boolean =
-    try
-      val result = listSessionsOutput()
-      result.exitCode == 0 && result.stdout.linesIterator
-        .exists(_.contains(SessionId.value(session)))
-    catch case NonFatal(_) => false
+    val id = SessionId.value(session)
+    if !isSafeSessionId(id) then false
+    else
+      try
+        val result = listSessionsOutput()
+        result.exitCode == 0 && result.stdout.linesIterator
+          .exists(_.contains(id))
+      catch case NonFatal(_) => false
 
   /** Overridable in tests via a stub `CliRunner`; default runs `gemini
     * --list-sessions`.

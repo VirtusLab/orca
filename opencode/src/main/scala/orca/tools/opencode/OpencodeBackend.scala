@@ -15,7 +15,7 @@ import orca.backend.{
   StreamSource
 }
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.llm.{BackendTag, LlmConfig, SessionId, isSafeSessionId}
 import orca.subprocess.CliRunner
 import orca.tools.opencode.OpencodeApi.{SessionCreateBody, SessionCreated}
 import ox.Ox
@@ -118,20 +118,38 @@ private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
       serverSession: SessionId[BackendTag.Opencode.type]
   ): Unit = sessions.commitSuccess(client, serverSession)
 
-  /** Probe `http` for the given session id. Callable directly in tests without
-    * going through the lazy-init guard. Returns `false` on any transport error.
+  /** Probe `http` for the given session id via `GET /session/<id>` → status
+    * 200. Callable directly in tests without going through the lazy-init guard.
+    * Returns `false` on any transport error. The [[orca.llm.isSafeSessionId]]
+    * guard must have passed before this method is called — it is not re-checked
+    * here.
     */
   private[opencode] def probeSession(id: String, http: OpencodeHttp): Boolean =
     try http.getStatus(s"/session/$id") == 200
     catch case NonFatal(_) => false
 
+  /** Best-effort probe: `GET /session/<id>` → 200 means the session exists.
+    * Returns `false` — safe re-seed — when the opencode server has not been
+    * started yet, the request fails for any reason, or the id fails the
+    * [[orca.llm.isSafeSessionId]] guard (blocks URL injection such as `a/b`
+    * routing to a different endpoint).
+    *
+    * Note: opencode mints `ses_…` server-side ids; orca maps the caller's
+    * stable id to the server id via [[sessions]]. This probe checks a
+    * caller-supplied id directly, which will not match any `ses_…` id until the
+    * client→server map is persisted and rehydrated (a follow-up task, D2), so
+    * opencode re-seeds conservatively.
+    */
   override def sessionExists(
       session: SessionId[BackendTag.Opencode.type]
   ): Boolean =
-    try
-      if firstWorkDir.get() == null then false
-      else probeSession(SessionId.value(session), sharedServer)
-    catch case NonFatal(_) => false
+    val id = SessionId.value(session)
+    if !isSafeSessionId(id) then false
+    else
+      try
+        if firstWorkDir.get() == null then false
+        else probeSession(id, sharedServer)
+      catch case NonFatal(_) => false
 
   /** The server `ses_…` to drive: a fresh `POST /session`, or the one a prior
     * turn registered for this caller id.

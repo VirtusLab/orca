@@ -1,7 +1,7 @@
 package orca.tools.claude
 
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.llm.{BackendTag, LlmConfig, SessionId, isSafeSessionId}
 import orca.{AgentTurnFailed, OrcaFlowException}
 
 import scala.util.control.NonFatal
@@ -55,13 +55,24 @@ private[orca] class ClaudeBackend(
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
     new ClaudeBackend(cli, tools, projectsDir, cwdForProbe)
 
+  /** Best-effort probe: checks for the on-disk transcript file at
+    * `<projectsDir>/<cwdSlug>/<id>.jsonl`. The project-dir slug is derived from
+    * the working directory by replacing every `/` with `-` (e.g.
+    * `/home/foo/orca` → `-home-foo-orca`). Returns `false` — safe re-seed —
+    * when the file is absent, the projects dir doesn't exist yet, or the id
+    * fails the [[orca.llm.isSafeSessionId]] guard (blocks path traversal such
+    * as `../../etc/passwd`).
+    */
   override def sessionExists(
       session: SessionId[BackendTag.ClaudeCode.type]
   ): Boolean =
-    try
-      val slug = ClaudeBackend.cwdSlug(cwdForProbe)
-      os.exists(projectsDir / slug / s"${SessionId.value(session)}.jsonl")
-    catch case NonFatal(_) => false
+    val id = SessionId.value(session)
+    if !isSafeSessionId(id) then false
+    else
+      try
+        val slug = ClaudeBackend.cwdSlug(cwdForProbe)
+        os.exists(projectsDir / slug / s"$id.jsonl")
+      catch case NonFatal(_) => false
 
   /** Tracks which session ids we've already claimed via `--session-id` so
     * subsequent calls use `--resume` (the CLI refuses to reuse `--session-id`

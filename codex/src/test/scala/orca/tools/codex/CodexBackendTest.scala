@@ -345,3 +345,15 @@ class CodexBackendTest extends munit.FunSuite:
       new CodexBackend(new SpawnStubCliRunner(Nil), missing)
     ): backend =>
       assert(!backend.sessionExists(clientSid))
+
+  test(
+    "sessionExists returns false for id `.*` even when rollout files exist (blocks regex injection)"
+  ):
+    val tmpSessions = os.temp.dir()
+    // Create a rollout file that the old regex `rollout-.*-.*\.jsonl` would match
+    os.write(tmpSessions / "rollout-2024-01-01-some-real-id.jsonl", "")
+    val maliciousId = SessionId[BackendTag.Codex.type](".*")
+    SupervisedBackend.using(
+      new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
+    ): backend =>
+      assert(!backend.sessionExists(maliciousId))

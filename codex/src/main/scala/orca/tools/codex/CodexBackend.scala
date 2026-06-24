@@ -1,7 +1,7 @@
 package orca.tools.codex
 
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.llm.{BackendTag, LlmConfig, SessionId, isSafeSessionId}
 import orca.{AgentTurnFailed, OrcaFlowException}
 
 import scala.util.control.NonFatal
@@ -46,15 +46,32 @@ private[orca] class CodexBackend(
 )(using Ox, BufferCapacity)
     extends LlmBackend[BackendTag.Codex.type]:
 
+  /** Best-effort probe: walks [[sessionsDir]] looking for a file whose name
+    * matches `rollout-*-<id>.jsonl`. Returns `false` — safe re-seed — when no
+    * match is found, the sessions dir doesn't exist, or the id fails the
+    * [[orca.llm.isSafeSessionId]] guard (blocks regex injection; e.g. id=`.*`
+    * would match every file without the guard).
+    *
+    * Note: the installed codex on some machines uses SQLite
+    * (`~/.codex/state_5.sqlite`) rather than `rollout-*.jsonl` files. If no
+    * matching files exist, the probe returns `false` → re-seed, which is always
+    * safe.
+    */
   override def sessionExists(
       session: SessionId[BackendTag.Codex.type]
   ): Boolean =
-    try
-      if !os.exists(sessionsDir) then false
-      else
-        val target = s"rollout-.*-${SessionId.value(session)}\\.jsonl"
-        os.walk.stream(sessionsDir).exists(p => p.last.matches(target))
-    catch case NonFatal(_) => false
+    val id = SessionId.value(session)
+    if !isSafeSessionId(id) then false
+    else
+      try
+        if !os.exists(sessionsDir) then false
+        else
+          os.walk
+            .stream(sessionsDir)
+            .exists(p =>
+              p.last.startsWith("rollout-") && p.last.endsWith(s"-$id.jsonl")
+            )
+      catch case NonFatal(_) => false
 
   /** Maps the client-allocated session id (the UUID the caller passes around)
     * to codex's server-allocated thread id (learned from `thread.started`).

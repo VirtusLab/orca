@@ -188,3 +188,29 @@ class OpencodeBackendTest extends munit.FunSuite:
           SessionId[BackendTag.Opencode.type]("ses_unknown")
         )
       )
+
+  test(
+    "probeSession returns false when getStatus throws (verifies NonFatal catch)"
+  ):
+    supervised:
+      val http = new FakeHttp(Nil):
+        override def getStatus(path: String): Int =
+          throw new java.io.IOException("connection refused")
+      val backend = new OpencodeBackend(_ => http)
+      assert(!backend.probeSession("ses_abc", http))
+
+  test("sessionExists returns false for a malicious id with slashes"):
+    supervised:
+      val http = new FakeHttp(Nil, _ => 200) // would return 200 if called
+      val backend = new OpencodeBackend(_ => http)
+      val malicious = SessionId[BackendTag.Opencode.type]("a/b")
+      assert(!backend.sessionExists(malicious))
+
+  test(
+    "sessionExists returns false for a malicious id with query/fragment chars"
+  ):
+    supervised:
+      val http = new FakeHttp(Nil, _ => 200)
+      val backend = new OpencodeBackend(_ => http)
+      val malicious = SessionId[BackendTag.Opencode.type]("x?y#z")
+      assert(!backend.sessionExists(malicious))

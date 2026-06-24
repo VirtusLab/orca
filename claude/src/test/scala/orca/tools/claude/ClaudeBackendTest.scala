@@ -255,3 +255,19 @@ class ClaudeBackendTest extends munit.FunSuite:
       )
     ): backend =>
       assert(!backend.sessionExists(freshSid))
+
+  test(
+    "sessionExists returns false for a malicious id with path traversal chars"
+  ):
+    val tmpProjects = os.temp.dir()
+    val cwd = os.temp.dir()
+    SupervisedBackend.using(
+      new ClaudeBackend(
+        new SpawnStubCliRunner(Nil),
+        projectsDir = tmpProjects,
+        cwdForProbe = cwd
+      )
+    ): backend =>
+      val maliciousId =
+        SessionId[BackendTag.ClaudeCode.type]("../../etc/passwd")
+      assert(!backend.sessionExists(maliciousId))

@@ -256,3 +256,23 @@ class GeminiBackendTest extends munit.FunSuite:
     val stub = new StubCliRunner(CliResult(1, "sess-abc-123", ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
       assert(!backend.sessionExists(sid))
+
+  test(
+    "sessionExists returns false when the cli runner throws (verifies NonFatal catch)"
+  ):
+    val sid = SessionId[BackendTag.Gemini.type]("sess-abc-123")
+    val stub = new StubCliRunner():
+      override def run(
+          args: Seq[String],
+          stdin: String,
+          env: Map[String, String],
+          cwd: os.Path
+      ): CliResult = throw new RuntimeException("binary not found")
+    SupervisedBackend.using(new GeminiBackend(stub)): backend =>
+      assert(!backend.sessionExists(sid))
+
+  test("sessionExists returns false for a malicious id containing path chars"):
+    val maliciousId = SessionId[BackendTag.Gemini.type]("../../etc/passwd")
+    val stub = new StubCliRunner(CliResult(0, "../../etc/passwd", ""))
+    SupervisedBackend.using(new GeminiBackend(stub)): backend =>
+      assert(!backend.sessionExists(maliciousId))
