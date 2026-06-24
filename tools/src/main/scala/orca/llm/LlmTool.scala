@@ -81,6 +81,13 @@ trait LlmTool[B <: BackendTag]:
     */
   def withSelfManagedGit: LlmTool[B] = this
 
+  /** Best-effort, non-destructive: is a live, resumable backend conversation
+    * present for `session`? Delegates to the backend probe (R22). Returns
+    * `false` by default — safe re-seed — when a concrete tool can't reach a
+    * backend instance (e.g. lightweight stubs).
+    */
+  def sessionExists(session: SessionId[B]): Boolean = false
+
   /** Mint a fresh session id you can pass to `.run(...)` across multiple calls.
     * The first call with this id starts the session; subsequent calls resume
     * it. Lets flow scripts hold a stable `val session = claude.newSession`

@@ -1,7 +1,7 @@
 package orca
 
 import orca.llm.{BackendTag, LlmTool, SessionId}
-import orca.progress.SessionRecord
+import orca.progress.{ProgressLog, SessionRecord}
 
 /** Get-or-create session extension for `LlmTool`. Lives in the `flow` module so
   * it can depend on [[FlowControl]] (which is in `flow`) while [[LlmTool]]
@@ -35,3 +35,60 @@ extension [B <: BackendTag](llm: LlmTool[B])
           SessionRecord(index = idx, id = freshId.value, seed = seed)
         )
         freshId
+
+  /** Run the agent autonomously against `session`, priming it with the recorded
+    * seed + a progress preamble IF the backend conversation isn't live (a fresh
+    * first use, or lost on resume). If the session is live, runs `prompt` as-is
+    * (continues the conversation). Returns the run's (SessionId, output).
+    *
+    * The seed is looked up from the progress log by matching `session`'s id; if
+    * no record is found the seed is treated as empty (does not throw).
+    *
+    * The progress preamble names completed stages and is only included when
+    * there is at least one completed entry — a true first use gets just `seed +
+    * prompt`, with no misleading "resuming" text.
+    */
+  def runSeeded(
+      prompt: String,
+      session: SessionId[B]
+  )(using fc: FlowControl): (SessionId[B], String) =
+    if llm.sessionExists(session) then llm.autonomous.run(prompt, session)
+    else
+      val log = fc.progressStore.load()
+      val seed = lookupSeed(log, session)
+      val preamble = progressPreamble(log)
+      val primedPrompt = composePrimedPrompt(preamble, seed, prompt)
+      llm.autonomous.run(primedPrompt, session)
+
+/** Look up the recorded seed for `session` from the log. Returns `None` if the
+  * log is absent or no record matches `session`.
+  */
+private def lookupSeed[B <: BackendTag](
+    log: Option[ProgressLog],
+    session: SessionId[B]
+): Option[String] =
+  log.flatMap(
+    _.sessions.find(_.id == session.value).map(_.seed)
+  )
+
+/** Compose the progress preamble from completed stage names in the log. Returns
+  * `None` if there are no completed entries (first run).
+  */
+private def progressPreamble(log: Option[ProgressLog]): Option[String] =
+  val completed = log.map(_.entries.map(_.name)).getOrElse(Nil)
+  if completed.isEmpty then None
+  else
+    Some(
+      s"Progress so far (resuming an interrupted run): completed ${completed.mkString(", ")}. Continue from here."
+    )
+
+/** Assemble the final primed prompt from the optional preamble, optional seed,
+  * and the caller's prompt, omitting absent parts cleanly.
+  */
+private def composePrimedPrompt(
+    preamble: Option[String],
+    seed: Option[String],
+    prompt: String
+): String =
+  val parts = List(preamble, seed, Some(s"---\n\n$prompt")).flatten
+  parts.mkString("\n\n")

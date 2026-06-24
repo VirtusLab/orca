@@ -55,6 +55,13 @@ abstract class BaseLlmTool[B <: BackendTag, Self <: LlmTool[B]](
   protected def withModel(model: Model): Self =
     copyTool(config = config.copy(model = Some(model)))
 
+  /** Delegates to the backend's best-effort probe. Overrides the trait default
+    * so that any tool built on a real [[orca.backend.LlmBackend]] reflects
+    * actual session state rather than always returning `false`.
+    */
+  override def sessionExists(session: SessionId[B]): Boolean =
+    backend.sessionExists(session)
+
   val autonomous: AutonomousTextCall[B] = new AutonomousTextCall[B]:
     def run(
         prompt: String,
