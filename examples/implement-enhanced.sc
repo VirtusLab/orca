@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.0.14+28-eb1a8993+20260624-0842-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.0.14+1-2e21cd3e+20260623-1601-SNAPSHOT"
 //> using jvm 21
 
 /** Autonomous planning + coding flow that lands the work on its own branch and
@@ -75,6 +75,6 @@ flow(OrcaArgs(args)):
     summarisePr(llm = claude.haiku, diff = git.diffVsBase(git.defaultBase()))
 
   stage("Open PR"):
-    // Crash-safe re-runs rely on gh.createPr being idempotent by (head, base) —
-    // ADR §2.7 R24, implemented in the external-effect-idempotency task.
+    // gh.createPr is idempotent by head branch (R24): if the branch already has
+    // an open PR, the existing handle is returned rather than failing.
     gh.createPr(title = prSum.title, body = prSum.body).orThrow

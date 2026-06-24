@@ -162,6 +162,21 @@ trait GitHubTool:
     */
   def writeComment(issue: IssueHandle, body: String): Unit
 
+  /** Idempotent comment on a PR (R24). Finds the first existing comment whose
+    * body contains `marker`, then updates it via a REST PATCH; if none is
+    * found, creates a new comment with `body` followed by `marker` on a
+    * separate line. The `marker` is an HTML comment the caller embeds (e.g.
+    * `<!-- orca:<hash>:<purpose> -->`) so a re-run can locate and update its
+    * own comment instead of duplicating it. Plain [[writeComment]] stays
+    * append-only.
+    */
+  def upsertComment(pr: PrHandle, marker: String, body: String): Unit
+
+  /** Idempotent comment on an issue (R24). Same find/update/create semantics as
+    * [[upsertComment(PrHandle, String, String)]].
+    */
+  def upsertComment(issue: IssueHandle, marker: String, body: String): Unit
+
   /** Aggregate status of the checks attached to `pr`.
     *
     * Contract for the empty-rollup case: implementations MUST treat an empty
@@ -208,6 +223,25 @@ private[orca] case class GhCommentJson(
     user: GhUserJson
 ) derives ConfiguredJsonValueCodec
 
+/** Comment JSON with its numeric id, used internally by [[OsGitHubTool]] to
+  * support the PATCH path in `upsertComment`. The id is a GitHub-issued int.
+  * Not exposed publicly — callers see the id-free [[Comment]] type.
+  */
+private[orca] case class GhIdentifiedCommentJson(
+    id: Long,
+    body: String,
+    user: GhUserJson
+) derives ConfiguredJsonValueCodec
+
+/** Minimal PR fields returned by `gh pr list --json number,url,headRefName`.
+  * Used by [[OsGitHubTool.findOpenPr]] to map a head branch to an open PR.
+  */
+private[orca] case class GhPrListJson(
+    number: Int,
+    url: String,
+    headRefName: String
+) derives ConfiguredJsonValueCodec
+
 private[orca] case class GhUserJson(login: String)
     derives ConfiguredJsonValueCodec
 
@@ -220,7 +254,13 @@ private[orca] case class GhIssueJson(
     state: String
 ) derives ConfiguredJsonValueCodec
 
-private[orca] given JsonValueCodec[List[GhCommentJson]] = JsonCodecMaker.make
+private[orca] given ghCommentListCodec: JsonValueCodec[List[GhCommentJson]] =
+  JsonCodecMaker.make
+private[orca] given ghIdentifiedCommentListCodec
+    : JsonValueCodec[List[GhIdentifiedCommentJson]] =
+  JsonCodecMaker.make
+private[orca] given ghPrListCodec: JsonValueCodec[List[GhPrListJson]] =
+  JsonCodecMaker.make
 
 /** GitHubTool implementation that shells out to the `gh` CLI via a `CliRunner`.
   * `waitForBuild` polls `buildStatus` every `pollInterval` until a terminal
@@ -278,7 +318,14 @@ private[orca] class OsGitHubTool(
           )
     else
       val combined = (result.stdout + "\n" + result.stderr).toLowerCase
-      if combined.contains("already exists") then Left(new PrAlreadyExists)
+      if combined.contains("already exists") then
+        // R24: look up the existing open PR rather than failing — crash-safe
+        // for flows that may re-enter a "push + open PR" stage.
+        findOpenPr(currentBranchGit()) match
+          case Some(pr) =>
+            events.onEvent(OrcaEvent.Step(s"Reusing existing PR: ${pr.url}"))
+            Right(pr)
+          case None => Left(new PrAlreadyExists)
       else if combined.contains("no commits") ||
         combined.contains("must first push")
       then Left(new NoCommitsToPr)
@@ -286,6 +333,47 @@ private[orca] class OsGitHubTool(
         throw OrcaFlowException(
           s"gh pr create failed (exit ${result.exitCode}): ${result.stderr}"
         )
+
+  /** Resolve the current branch name via `git rev-parse --abbrev-ref HEAD`.
+    * Used by [[createPr]] to pass the head branch to [[findOpenPr]].
+    */
+  private def currentBranchGit(): String =
+    val result = cli.run(
+      Seq("git", "rev-parse", "--abbrev-ref", "HEAD"),
+      cwd = workDir
+    )
+    if result.exitCode == 0 then result.stdout.trim
+    else
+      throw OrcaFlowException(
+        s"git rev-parse failed (exit ${result.exitCode}): ${result.stderr}"
+      )
+
+  /** Find an open PR whose head branch matches `head`, using `gh pr list --head
+    * <head> --state open --json number,url,headRefName`. Returns the first
+    * match, or `None` when no open PR is found. Uses [[ghRead]] (with retry)
+    * because this is an idempotent read.
+    *
+    * Matching on head-only: this suffices in practice because a branch can only
+    * have one open PR targeting any given base at a time, and `createPr` is
+    * called from within an orca-managed branch where hijacking a stacked PR is
+    * not expected.
+    */
+  private def findOpenPr(head: String): Option[PrHandle] =
+    val output = ghRead(
+      "pr",
+      "list",
+      "--head",
+      head,
+      "--state",
+      "open",
+      "--json",
+      "number,url,headRefName"
+    )
+    readFromString[List[GhPrListJson]](output).headOption.flatMap: entry =>
+      PrUrlPattern
+        .findFirstMatchIn(entry.url)
+        .map: m =>
+          PrHandle(m.group(1), m.group(2), m.group(3).toInt)
 
   def readIssue(issue: IssueHandle): Issue =
     val output = ghRead(
@@ -360,6 +448,70 @@ private[orca] class OsGitHubTool(
       s"${issue.owner}/${issue.repo}",
       "--body",
       body
+    )
+
+  def upsertComment(pr: PrHandle, marker: String, body: String): Unit =
+    upsertCommentAt(pr.owner, pr.repo, pr.number, marker, body):
+      writeComment(pr, _)
+
+  def upsertComment(issue: IssueHandle, marker: String, body: String): Unit =
+    upsertCommentAt(issue.owner, issue.repo, issue.number, marker, body):
+      writeComment(issue, _)
+
+  /** Shared upsert logic for both PR and issue targets. Fetches comments with
+    * their ids, finds the first comment containing `marker`, then either
+    * PATCHes that comment or delegates to `createFn` to post a new one. The
+    * body stored (both on create and update) is `<body>\n\n<marker>` so future
+    * re-runs can locate and update the same comment.
+    */
+  private def upsertCommentAt(
+      owner: String,
+      repo: String,
+      number: Int,
+      marker: String,
+      body: String
+  )(createFn: String => Unit): Unit =
+    val markedBody = s"$body\n\n$marker"
+    fetchIdentifiedComments(owner, repo, number).find(
+      _.body.contains(marker)
+    ) match
+      case Some(existing) =>
+        patchComment(owner, repo, existing.id, markedBody)
+      case None =>
+        createFn(markedBody)
+
+  /** Fetch comments for a PR/issue with their numeric ids. Returns an internal
+    * list used only by [[upsertCommentAt]]; ids are GitHub-issued ints and
+    * never leak into the public API.
+    */
+  private def fetchIdentifiedComments(
+      owner: String,
+      repo: String,
+      number: Int
+  ): List[GhIdentifiedCommentJson] =
+    val output = ghRead(
+      "api",
+      "--paginate",
+      s"repos/$owner/$repo/issues/$number/comments"
+    )
+    readFromString[List[GhIdentifiedCommentJson]](output)
+
+  /** PATCH an existing issue/PR comment body via the REST API. `id` is the
+    * GitHub-issued numeric comment id returned by the comments endpoint.
+    */
+  private def patchComment(
+      owner: String,
+      repo: String,
+      id: Long,
+      body: String
+  ): Unit =
+    val _ = gh(
+      "api",
+      "-X",
+      "PATCH",
+      s"repos/$owner/$repo/issues/comments/$id",
+      "-f",
+      s"body=$body"
     )
 
   def buildStatus(pr: PrHandle): BuildStatus =

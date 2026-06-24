@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.0.14+28-eb1a8993+20260624-0842-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.0.14+1-2e21cd3e+20260623-1601-SNAPSHOT"
 //> using jvm 21
 
 /** GitHub-issue → PR flow, fully autonomous.
@@ -57,7 +57,11 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
 
   if maybePlan.isEmpty then
     stage("Comment: rejection"):
-      gh.writeComment(issueHandle, rejectionBody)
+      gh.upsertComment(
+        issueHandle,
+        orcaCommentMarker(userPrompt, "reject"),
+        rejectionBody
+      )
 
   maybePlan.foreach: plan =>
     // Get-or-create the implementer session. Seeded with the brief so the

@@ -1,4 +1,4 @@
-//> using dep "org.virtuslab::orca:0.0.14+28-eb1a8993+20260624-0842-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.0.14+1-2e21cd3e+20260623-1601-SNAPSHOT"
 //> using jvm 21
 
 /** Bug-report → fix flow for Scala projects, autonomous.
@@ -108,7 +108,7 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
            |excerpt, not the whole log. Output only the summary text;
            |it goes verbatim into a PR comment.""".stripMargin
       )
-      gh.writeComment(pr, failureSummary)
+      gh.upsertComment(pr, orcaCommentMarker(userPrompt, "ci-failure"), failureSummary)
 
     stage("Verify failure matches the report"):
       val (_, verdict) =
@@ -163,12 +163,17 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
   triage match
     case Triage.NotABug(explanation) =>
       stage("Comment: not a bug"):
-        gh.writeComment(issueHandle, explanation)
+        gh.upsertComment(
+          issueHandle,
+          orcaCommentMarker(userPrompt, "not-a-bug"),
+          explanation
+        )
 
     case Triage.Untestable(_, reproductionSteps) =>
       stage("Comment: repro steps"):
-        gh.writeComment(
+        gh.upsertComment(
           issueHandle,
+          orcaCommentMarker(userPrompt, "repro-steps"),
           s"""## Reproduction
              |
              |$reproductionSteps""".stripMargin
@@ -190,8 +195,8 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
       // must be in a later stage than the code that produced it.
       val pr = stage("Push + open tentative PR"):
         git.push().orThrow
-        // Crash-safe re-runs rely on gh.createPr being idempotent by (head, base) —
-        // ADR §2.7 R24, implemented in the external-effect-idempotency task.
+        // gh.createPr is idempotent by head branch (R24): if the branch already
+        // has an open PR, the existing handle is returned.
         gh.createPr(
           title = summary,
           body = s"""Failing test only — fix pending.

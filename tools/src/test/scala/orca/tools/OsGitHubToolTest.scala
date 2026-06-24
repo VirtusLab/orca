@@ -2,12 +2,18 @@ package orca.tools
 
 import orca.OrcaFlowException
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.subprocess.{CliResult, CliRunner, PipedCliProcess, StubCliRunner}
+import orca.subprocess.{
+  CliCall,
+  CliResult,
+  CliRunner,
+  PipedCliProcess,
+  StubCliRunner
+}
 import ox.either.orThrow
 import ox.scheduling.Schedule
 
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 import scala.concurrent.duration.DurationInt
 import scala.jdk.CollectionConverters.*
 
@@ -24,20 +30,28 @@ class OsGitHubToolTest extends munit.FunSuite:
 
   /** A `CliRunner` that returns each response in turn (the last repeats), for
     * tests that need consecutive `run` calls to differ — e.g. fail then
-    * succeed. Only `run` is exercised here.
+    * succeed. Records every call so tests can assert on args. Only `run` is
+    * exercised here.
     */
   private class SequencedCliRunner(responses: List[CliResult])
       extends CliRunner:
     private val next = new AtomicInteger(0)
-    private val calls = new AtomicInteger(0)
-    def callCount: Int = calls.get()
+    private val callsCount = new AtomicInteger(0)
+    private val recordedCalls: AtomicReference[List[CliCall]] =
+      AtomicReference(Nil)
+    def callCount: Int = callsCount.get()
+    def calls: List[CliCall] = recordedCalls.get().reverse
     def run(
         args: Seq[String],
         stdin: String,
         env: Map[String, String],
         cwd: os.Path
     ): CliResult =
-      val _ = calls.incrementAndGet()
+      val _ = callsCount.incrementAndGet()
+      val _ =
+        recordedCalls.updateAndGet(cs =>
+          CliCall(args.toList, stdin, env, cwd) :: cs
+        )
       responses(math.min(next.getAndIncrement(), responses.size - 1))
     def spawnPiped(
         args: Seq[String],
@@ -76,10 +90,19 @@ class OsGitHubToolTest extends munit.FunSuite:
     val (_, gh) = stubGh(CliResult(0, "no url here", ""))
     val _ = intercept[OrcaFlowException](gh.createPr("t", "b"))
 
-  test("createPr returns Left(PrAlreadyExists) when gh reports a duplicate"):
-    val (_, gh) = stubGh(
-      CliResult(1, "", "a pull request for branch 'feat' already exists")
+  test(
+    "createPr returns Left(PrAlreadyExists) when gh reports a duplicate and no open PR is found"
+  ):
+    // gh pr create reports duplicate; git rev-parse gives branch name; gh pr list
+    // returns empty → fallback Left(PrAlreadyExists).
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(1, "", "a pull request for branch 'feat' already exists"),
+        CliResult(0, "feat\n", ""), // git rev-parse
+        CliResult(0, "[]", "") // gh pr list — no open PR
+      )
     )
+    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[PrAlreadyExists]))
 
   test(
@@ -314,3 +337,145 @@ class OsGitHubToolTest extends munit.FunSuite:
         .left
         .exists(_.isInstanceOf[BuildTimedOut])
     )
+
+  // ── createPr idempotency (R24) ────────────────────────────────────────────
+
+  test(
+    "createPr returns Right(existing PR) when gh reports 'already exists' and findOpenPr succeeds"
+  ):
+    // Call 1: gh pr create exits 1 with "already exists"
+    // Call 2: git rev-parse to get the current branch name
+    // Call 3: gh pr list returns JSON with the existing PR
+    val prListJson =
+      """[{"number":42,"url":"https://github.com/acme/widgets/pull/42","headRefName":"feat"}]"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(1, "", "a pull request for branch 'feat' already exists"),
+        CliResult(0, "feat\n", ""), // git rev-parse
+        CliResult(0, prListJson, "") // gh pr list
+      )
+    )
+    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    val pr = gh.createPr("feat: hi", "hello").orThrow
+    assertEquals(pr, samplePr)
+
+  test(
+    "createPr returns Left(PrAlreadyExists) when gh reports 'already exists' but findOpenPr finds nothing"
+  ):
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(1, "", "a pull request for branch 'feat' already exists"),
+        CliResult(0, "feat\n", ""), // git rev-parse
+        CliResult(0, "[]", "") // empty list — no open PR found
+      )
+    )
+    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[PrAlreadyExists]))
+
+  test(
+    "createPr emits 'Reusing existing PR' step event when PR already exists"
+  ):
+    val listener = new CapturingListener
+    val prListJson =
+      """[{"number":42,"url":"https://github.com/acme/widgets/pull/42","headRefName":"feat"}]"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(1, "", "a pull request for branch 'feat' already exists"),
+        CliResult(0, "feat\n", ""), // git rev-parse
+        CliResult(0, prListJson, "") // gh pr list
+      )
+    )
+    val gh = new OsGitHubTool(cli, events = listener, pollInterval = 10.millis)
+    val _ = gh.createPr("feat: hi", "hello").orThrow
+    assert(
+      listener.events.exists:
+        case OrcaEvent.Step(msg) => msg.contains("Reusing existing PR")
+        case _                   => false
+    )
+
+  test(
+    "createPr still returns Left(NoCommitsToPr) when branch has nothing to push"
+  ):
+    val (_, gh) = stubGh(
+      CliResult(1, "", "must first push the current branch")
+    )
+    assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[NoCommitsToPr]))
+
+  // ── upsertComment (R24) ──────────────────────────────────────────────────
+
+  test(
+    "upsertComment on PrHandle creates a new comment (with marker) when no comment matches"
+  ):
+    val commentsJson =
+      """[{"id":1,"body":"unrelated","user":{"login":"alice"}}]"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, commentsJson, ""), // fetchIdentifiedComments
+        CliResult(0, "", "") // writeComment create
+      )
+    )
+    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    gh.upsertComment(samplePr, "<!-- orca:abc:reject -->", "Rejected.")
+    // The create call must embed the marker in the body
+    val createCall = cli.calls.last
+    assert(createCall.args.containsSlice(Seq("gh", "pr", "comment")))
+    val markedBody = "Rejected.\n\n<!-- orca:abc:reject -->"
+    assert(createCall.args.contains(markedBody))
+
+  test(
+    "upsertComment on PrHandle updates existing comment via PATCH when marker found"
+  ):
+    val commentsJson =
+      """[{"id":99,"body":"Old text\n\n<!-- orca:abc:reject -->","user":{"login":"alice"}}]"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, commentsJson, ""), // fetchIdentifiedComments
+        CliResult(0, "", "") // PATCH update
+      )
+    )
+    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    gh.upsertComment(samplePr, "<!-- orca:abc:reject -->", "New text.")
+    val patchCall = cli.calls.last
+    assert(patchCall.args.containsSlice(Seq("gh", "api", "-X", "PATCH")))
+    // The path must include the comment id 99
+    assert(patchCall.args.exists(_.contains("/comments/99")))
+    // The body must include both the new text and the marker
+    val markedBody = "body=New text.\n\n<!-- orca:abc:reject -->"
+    assert(patchCall.args.contains(markedBody))
+
+  test(
+    "upsertComment on IssueHandle creates a new comment (with marker) when no comment matches"
+  ):
+    val commentsJson =
+      """[{"id":1,"body":"unrelated","user":{"login":"alice"}}]"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, commentsJson, ""), // fetchIdentifiedComments
+        CliResult(0, "", "") // writeComment create
+      )
+    )
+    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    val issue = IssueHandle("acme", "widgets", 7)
+    gh.upsertComment(issue, "<!-- orca:abc:triage -->", "Not a bug.")
+    val createCall = cli.calls.last
+    assert(createCall.args.containsSlice(Seq("gh", "issue", "comment")))
+    val markedBody = "Not a bug.\n\n<!-- orca:abc:triage -->"
+    assert(createCall.args.contains(markedBody))
+
+  test(
+    "upsertComment on IssueHandle updates existing comment via PATCH when marker found"
+  ):
+    val commentsJson =
+      """[{"id":77,"body":"Old.\n\n<!-- orca:abc:triage -->","user":{"login":"alice"}}]"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, commentsJson, ""), // fetchIdentifiedComments
+        CliResult(0, "", "") // PATCH update
+      )
+    )
+    val gh = new OsGitHubTool(cli, pollInterval = 10.millis)
+    val issue = IssueHandle("acme", "widgets", 7)
+    gh.upsertComment(issue, "<!-- orca:abc:triage -->", "Updated.")
+    val patchCall = cli.calls.last
+    assert(patchCall.args.containsSlice(Seq("gh", "api", "-X", "PATCH")))
+    assert(patchCall.args.exists(_.contains("/comments/77")))
