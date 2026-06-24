@@ -21,15 +21,13 @@ object RecoveryCheck:
     * segments.
     */
   def isSafeBranchRef(s: String): Boolean =
-    s.nonEmpty && s.split("/", -1).forall(isSafeSegment)
-
-  private def isSafeSegment(seg: String): Boolean =
-    seg.nonEmpty &&
-      isSlugChar(seg.head) && seg.head != '-' &&
-      seg.forall(isSlugChar)
-
-  private def isSlugChar(c: Char): Boolean =
-    (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'
+    // A safe ref is a `/`-separated path of slug segments — the exact shape
+    // `BranchNamingStrategy.slug` produces. Referencing its predicate (rather
+    // than re-deriving the charset here) keeps the producer and this validator
+    // from drifting apart.
+    s.nonEmpty && s
+      .split("/", -1)
+      .forall(orca.BranchNamingStrategy.isSlugSegment)
 
   /** Branches that are always protected regardless of the repo's configured
     * default — the floor [[validateHeader]] enforces (ADR 0018 R32). The

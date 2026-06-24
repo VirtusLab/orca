@@ -269,3 +269,31 @@ class BranchNamingTest extends munit.FunSuite:
     val result =
       BranchNamingStrategy.shortenPrompt.resolve("Fix login bug", llm)
     assertEquals(result, "fix-login-bug")
+
+  test(
+    "producer == validator: slug output always passes RecoveryCheck.isSafeBranchRef"
+  ):
+    // Pins that the producer (slug) and the untrusted-header validator agree by
+    // construction — they now share one predicate (BranchNamingStrategy.isSlugSegment).
+    val inputs = List(
+      "Add a Multiply Function!",
+      "  -rf dangerous  ",
+      "💥✨ only emoji",
+      "",
+      "!!!",
+      "café résumé",
+      "a" * 200,
+      "..",
+      "-leading-dash",
+      "Mixed/CASE/Segments"
+    )
+    for in <- inputs do
+      val s = BranchNamingStrategy.slug(in)
+      assert(
+        BranchNamingStrategy.isSlugSegment(s),
+        s"slug('$in') = '$s' must be a valid slug segment"
+      )
+      assert(
+        orca.progress.RecoveryCheck.isSafeBranchRef(s),
+        s"slug('$in') = '$s' must satisfy isSafeBranchRef"
+      )

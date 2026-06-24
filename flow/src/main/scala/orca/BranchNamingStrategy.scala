@@ -33,6 +33,19 @@ object BranchNamingStrategy:
     if capped.isEmpty || capped.startsWith("-") then fallback(text)
     else capped
 
+  /** True iff `c` may appear in a slug: lower-case alphanumeric or `-`. */
+  private[orca] def isSlugChar(c: Char): Boolean =
+    (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'
+
+  /** True iff `s` is a single git-ref-safe segment of the exact shape [[slug]]
+    * produces: non-empty, leading alphanumeric, only `[a-z0-9-]`. The producer
+    * ([[slug]]) and validators (e.g. recovery's untrusted-header check, which
+    * splits on `/` and checks each segment) share this one definition so they
+    * cannot drift.
+    */
+  private[orca] def isSlugSegment(s: String): Boolean =
+    s.nonEmpty && isSlugChar(s.head) && s.head != '-' && s.forall(isSlugChar)
+
   /** `<prefix>/issue-<number>` — number is an Int, prefix slugged; safe by
     * construction. `resolve` ignores `userPrompt` and `llm`.
     */
