@@ -40,13 +40,19 @@ private[codex] object CodexArgs:
 
   /** Multi-turn continuation: `codex exec resume <id> <prompt>`.
     *
-    * Two limitations vs. [[exec]]:
+    * Three limitations vs. [[exec]]:
     *   - `exec resume` doesn't accept `--cd / -C`, so cwd is set on the OS
     *     process spawn rather than the argv.
     *   - `exec resume` doesn't accept `--output-schema`, so the resumed turn's
     *     structured-output validation falls to the prompt template + the
     *     post-hoc parser. The retry-with- corrective-prompt loop in
     *     `DefaultLlmCall` handles parse failures.
+    *   - `exec resume` rejects `--sandbox <mode>` and `--full-auto` (it errors
+    *     with "unexpected argument"): a resumed session inherits the sandbox it
+    *     was created with. Only `--dangerously-bypass-approvals-and-sandbox` is
+    *     still accepted, so [[resumeSandboxArgs]] keeps that one and drops the
+    *     rest. Without this, every resumed turn (a fix iteration, a follow-up
+    *     task on the same session, or a cross-process resume) fails.
     *
     * codex also enforces that the resumed session was not started with
     * `--ephemeral`; the backend never passes `--ephemeral` on `exec`, so resume
@@ -62,10 +68,26 @@ private[codex] object CodexArgs:
       mcpServerArgs(mcpServerUrl) ++
       networkConfigArgs(config) ++
       Seq("exec", "resume", "--json", SessionId.value(sessionId)) ++
-      sandboxArgs(config) ++
+      resumeSandboxArgs(config) ++
       CliArgs.modelArgs(config) ++
       Seq("--skip-git-repo-check") ++
       Seq(prompt)
+
+  /** Sandbox flags accepted by `exec resume` (a subset of [[sandboxArgs]]). The
+    * resumed session inherits its sandbox from creation, and `exec resume`
+    * rejects `--sandbox <mode>` / `--full-auto` outright, so those map to no
+    * flag here. Only `--dangerously-bypass-approvals-and-sandbox` (Full +
+    * [[AutoApprove.All]]) is accepted and is re-asserted each turn to keep
+    * approvals off.
+    */
+  private def resumeSandboxArgs(config: LlmConfig): Seq[String] =
+    config.tools match
+      case ToolSet.Full =>
+        config.autoApprove match
+          case AutoApprove.All =>
+            Seq("--dangerously-bypass-approvals-and-sandbox")
+          case AutoApprove.Only(_) => Seq.empty
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly => Seq.empty
 
   /** Top-level `-c mcp_servers.<name>.{url,tool_timeout_sec}` overrides. Placed
     * BEFORE the subcommand so they land in codex's global-config slot (the

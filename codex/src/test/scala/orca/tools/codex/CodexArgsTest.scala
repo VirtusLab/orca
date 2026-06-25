@@ -155,6 +155,46 @@ class CodexArgsTest extends munit.FunSuite:
     assert(!args.contains("-C"))
     assert(!args.contains("--output-schema"))
 
+  test(
+    "execResume omits --sandbox/--full-auto (exec resume rejects them; inherited)"
+  ):
+    // Regression: `codex exec resume` errors with "unexpected argument
+    // '--sandbox'"; the resumed session inherits its sandbox from creation.
+    val sid = SessionId[BackendTag.Codex.type]("sid")
+    val readOnly =
+      CodexArgs.execResume(
+        sid,
+        "x",
+        LlmConfig.default.copy(tools = ToolSet.ReadOnly)
+      )
+    assert(!readOnly.contains("--sandbox"), readOnly)
+    val networkOnly =
+      CodexArgs.execResume(
+        sid,
+        "x",
+        LlmConfig.default.copy(tools = ToolSet.NetworkOnly)
+      )
+    assert(!networkOnly.contains("--full-auto"), networkOnly)
+    val fullOnly = CodexArgs.execResume(
+      sid,
+      "x",
+      LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set("Bash")))
+    )
+    assert(!fullOnly.contains("--full-auto"), fullOnly)
+
+  test(
+    "execResume keeps --dangerously-bypass-approvals-and-sandbox (Full + All)"
+  ):
+    // The one sandbox flag `exec resume` accepts; re-asserted each turn to keep
+    // approvals off for an auto-approve-all coder session.
+    val sid = SessionId[BackendTag.Codex.type]("sid")
+    val args = CodexArgs.execResume(
+      sid,
+      "x",
+      LlmConfig.default.copy(autoApprove = AutoApprove.All)
+    )
+    assert(args.contains("--dangerously-bypass-approvals-and-sandbox"), args)
+
   test("execResume propagates --model when LlmConfig.model is set"):
     val sid = SessionId[BackendTag.Codex.type]("sid")
     val args = CodexArgs.execResume(
