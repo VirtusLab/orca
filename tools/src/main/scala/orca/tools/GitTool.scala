@@ -106,9 +106,9 @@ trait GitTool:
 
   /** Force-stage `path` (`git add -f`), bypassing `.gitignore`. The stage
     * runtime uses this to stage its progress-log file even when the project
-    * gitignores `.orca/`, so the log travels with the branch (ADR 0018 §2.1,
-    * R8). Always a single explicit path — never a glob or directory — so
-    * nothing else gitignored is swept in.
+    * gitignores `.orca/`, so the log travels with the branch (ADR 0018 §2.1).
+    * Always a single explicit path — never a glob or directory — so nothing
+    * else gitignored is swept in.
     */
   def forceAdd(path: os.Path)(using InStage): Unit
 
@@ -125,7 +125,7 @@ trait GitTool:
     * `origin/<name>` → `<name>`). READ-ONLY; no [[InStage]] needed. Returns
     * `None` when there is no remote, `origin/HEAD` is unset, or any error
     * occurs — callers treat that as "no extra protected branch beyond
-    * main/master" (ADR 0018 R32).
+    * main/master" (ADR 0018).
     */
   def defaultBranch(): Option[String]
 
@@ -211,8 +211,8 @@ trait GitTool:
   def deleteBranch(name: String)(using InStage): Unit
 
   /** Diff of `featureBranch` vs `startBranch`, excluding the `.orca/`
-    * directory. Used by the throwaway-branch check (R5): an empty result means
-    * the feature branch has no substantive changes beyond orca bookkeeping.
+    * directory. Used by the throwaway-branch check: an empty result means the
+    * feature branch has no substantive changes beyond orca bookkeeping.
     */
   def diffBranchExcludingOrca(
       startBranch: String,

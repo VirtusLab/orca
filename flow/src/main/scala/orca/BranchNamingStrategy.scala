@@ -22,7 +22,7 @@ object BranchNamingStrategy:
     * `maxLen` without leaving a trailing `-`. If the result is empty or still
     * starts with `-`, return `"flow-<shorthash>"` where `<shorthash>` is a
     * short hex hash of `text` — the ref is NEVER empty and NEVER begins with
-    * `-` (ADR 0018 §2.5, R2).
+    * `-` (ADR 0018 §2.5).
     *
     * `maxLen` is clamped to a minimum of 1 so a zero/negative cap can't
     * silently force the fallback.
@@ -68,11 +68,11 @@ object BranchNamingStrategy:
       def resolve(userPrompt: String, llm: LlmTool[?])(using InStage): String =
         slug(text)
 
-  /** Prompt-shortening strategy (R2/R31): asks `llm.cheap` for a 3–6 word
-    * lowercase branch label, then slugs it. Falls back to `slug(userPrompt)` on
-    * any failure (LLM throws, empty/blank result) so branch naming can never
-    * break the flow. Non-deterministic — computed once and persisted in the
-    * header; never recomputed on resume.
+  /** Prompt-shortening strategy: asks `llm.cheap` for a 3–6 word lowercase
+    * branch label, then slugs it. Falls back to `slug(userPrompt)` on any
+    * failure (LLM throws, empty/blank result) so branch naming can never break
+    * the flow. Non-deterministic — computed once and persisted in the header;
+    * never recomputed on resume.
     */
   val shortenPrompt: BranchNamingStrategy =
     new BranchNamingStrategy:

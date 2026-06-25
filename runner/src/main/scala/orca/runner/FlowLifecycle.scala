@@ -14,8 +14,8 @@ import scala.util.control.NonFatal
   */
 object FlowLifecycle:
 
-  /** Replay the persisted client→server session map (ADR 0018 §2.6, R22) into
-    * the leading model's in-memory registry, so a resumed run resumes the right
+  /** Replay the persisted client→server session map (ADR 0018 §2.6) into the
+    * leading model's in-memory registry, so a resumed run resumes the right
     * server thread and the server-id existence probes target the right id.
     * Reads every [[orca.progress.SessionRecord]] that carries a `serverId` and
     * registers the mapping via [[orca.llm.LlmTool.registerServerSession]].
@@ -55,20 +55,20 @@ object FlowLifecycle:
     * mutations run with a runtime-minted `InStage` — setup is privileged,
     * predating any user stage.
     *
-    * The progress header is **untrusted input** on load (R26: the log is
+    * The progress header is **untrusted input** on load (the log is
     * human-visible and pushable), so a resumed run:
-    *   - **R20** — snapshots the log file BEFORE `ensureClean` and restores it
-    *     if the stash removed it, so the header is always readable.
-    *   - **R32** — validates the header before any destructive action (safe
-    *     refs, prompt-hash match, no protected feature branch). A
+    *   - Snapshots the log file BEFORE `ensureClean` and restores it if the
+    *     stash removed it, so the header is always readable.
+    *   - Validates the header before any destructive action (safe refs,
+    *     prompt-hash match, no protected feature branch). A
     *     parseable-but-invalid header is a HARD abort (`OrcaFlowException`),
     *     not a silent fresh start — it signals tampering or a mismatch. (An
     *     *unparseable* log stays `store.load() == None` → fresh run; that path
     *     is separate.)
-    *   - **R30** — cross-checks that the current branch is the one the header
-    *     records (the in-place invariant from R3): a log that surfaced on a
-    *     branch it does not name (e.g. its feature branch was merged, carrying
-    *     the log along) aborts rather than resuming against the wrong branch.
+    *   - Cross-checks that the current branch is the one the header records
+    *     (the in-place invariant): a log that surfaced on a branch it does not
+    *     name (e.g. its feature branch was merged, carrying the log along)
+    *     aborts rather than resuming against the wrong branch.
     *
     * On resume `startBranch` is the header's recorded `startingBranch` (the
     * ORIGINAL branch at first run), so a resumed run returns there on success —
@@ -83,7 +83,7 @@ object FlowLifecycle:
   ): FlowSetup =
     given InStage = InStage.unsafe
     val startBranch = git.currentBranch()
-    // R20: snapshot the log file before the stash, restore it if the stash
+    // Snapshot the log file before the stash, restore it if the stash
     // removed it — so an uncommitted/untracked log is still readable below.
     val snapshot = snapshotLog(store.path)
     val _ = git.ensureClean("orca: starting flow")
@@ -91,7 +91,7 @@ object FlowLifecycle:
     store.load() match
       case Some(log) =>
         val header = log.header
-        // R32: validate the untrusted header before any destructive action. The
+        // Validate the untrusted header before any destructive action. The
         // protected set is the main/master floor plus the repo's ACTUAL default
         // branch (best-effort), so a tampered header naming e.g. `trunk` as a
         // feature branch is refused too.
@@ -107,7 +107,7 @@ object FlowLifecycle:
               s"refusing to resume: progress log header failed validation ($reason)"
             )
           case Right(()) => ()
-        // R30: only resume IN PLACE. If the log surfaced on a branch it does not
+        // Only resume IN PLACE. If the log surfaced on a branch it does not
         // name, it was likely carried here by a merge — abort, don't replay.
         val current = git.currentBranch()
         if current != header.branch then
@@ -116,7 +116,7 @@ object FlowLifecycle:
               s"'$current' — was it merged? aborting rather than resuming " +
               "against the wrong branch"
           )
-        // Resume in place: already on header.branch (R3). Return to the ORIGINAL
+        // Resume in place: already on header.branch. Return to the ORIGINAL
         // start branch on success, not this feature branch.
         FlowSetup(store, header.branch, header.startingBranch)
       case None =>
@@ -137,15 +137,15 @@ object FlowLifecycle:
         val _ = git.commit("orca: progress log")
         FlowSetup(store, branch, startBranch)
 
-  /** Read the bytes of the progress-log file if it exists (R20). Returns `None`
-    * when the file is absent — the normal fresh-run case and the case where the
-    * log is committed (so the stash can't remove it).
+  /** Read the bytes of the progress-log file if it exists. Returns `None` when
+    * the file is absent — the normal fresh-run case and the case where the log
+    * is committed (so the stash can't remove it).
     */
   private[runner] def snapshotLog(path: os.Path): Option[Array[Byte]] =
     if os.exists(path) then Some(os.read.bytes(path)) else None
 
   /** Restore the progress-log file from a pre-stash snapshot if the stash
-    * removed it (R20), so the header is always readable. A no-op when there was
+    * removed it, so the header is always readable. A no-op when there was
     * nothing to snapshot or the file still exists.
     */
   private[runner] def restoreLogIfMissing(
@@ -158,7 +158,7 @@ object FlowLifecycle:
   /** Successful teardown (ADR 0018 §2.5): remove the progress-log file in a
     * final commit so a merged branch is clean, then return to the starting
     * branch. If the feature branch has no substantive changes vs the start
-    * branch (only orca bookkeeping), delete it (R5 throwaway-branch cleanup).
+    * branch (only orca bookkeeping), delete it (throwaway-branch cleanup).
     *
     * Errors during log removal, the cleanup commit, or branch deletion are
     * cosmetic — swallowed so they don't trigger the failure path. The checkout
@@ -167,7 +167,7 @@ object FlowLifecycle:
     */
   private[orca] def teardownSuccess(git: GitTool, setup: FlowSetup): Unit =
     // Teardown is runtime code running outside any user stage, so it mints its
-    // own `InStage` — the runtime is the privileged token constructor (R15).
+    // own `InStage` — the runtime is the privileged token constructor.
     given InStage = InStage.unsafe
     try
       // Best-effort: a missing file (already gone) or a failing cleanup commit is
@@ -185,14 +185,14 @@ object FlowLifecycle:
     finally
       // Always attempt to return to the starting branch, even if cleanup failed.
       git.checkoutOrCreate(setup.startBranch)
-      // R5: after returning to the start branch, delete the feature branch if it
+      // After returning to the start branch, delete the feature branch if it
       // holds no substantive changes (only orca bookkeeping). Best-effort and
       // success-path-only; never deletes start/protected branches.
       try autoDeleteIfThrowaway(git, setup)
       catch case NonFatal(_) => ()
 
   /** Delete the feature branch when it holds no substantive changes vs the
-    * start branch (R5). "No substantive changes" means the diff excluding the
+    * start branch. "No substantive changes" means the diff excluding the
     * `.orca/` directory is empty — only orca bookkeeping was committed, not
     * user code. Guards: skip when `featureBranch == startBranch` (in-place
     * resume) and when the branch doesn't exist (already deleted or never
@@ -214,6 +214,6 @@ object FlowLifecycle:
     * log), and stay on the feature branch so the next run resumes in place.
     */
   private[orca] def teardownFailure(git: GitTool): Unit =
-    // Runtime teardown mints its own token, as in `teardownSuccess` (R15).
+    // Runtime teardown mints its own token, as in `teardownSuccess`.
     given InStage = InStage.unsafe
     git.resetHard()

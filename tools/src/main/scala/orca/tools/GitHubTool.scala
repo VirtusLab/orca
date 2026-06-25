@@ -157,19 +157,19 @@ trait GitHubTool:
     */
   def writeComment(issue: IssueHandle, body: String)(using InStage): Unit
 
-  /** Idempotent comment on a PR (R24). Finds the first existing comment whose
-    * body contains `marker`, then updates it via a REST PATCH; if none is
-    * found, creates a new comment with `body` followed by `marker` on a
-    * separate line. The `marker` is an HTML comment the caller embeds (e.g.
-    * `<!-- orca:<hash>:<purpose> -->`) so a re-run can locate and update its
-    * own comment instead of duplicating it. Plain [[writeComment]] stays
+  /** Idempotent comment on a PR. Finds the first existing comment whose body
+    * contains `marker`, then updates it via a REST PATCH; if none is found,
+    * creates a new comment with `body` followed by `marker` on a separate line.
+    * The `marker` is an HTML comment the caller embeds (e.g. `<!--
+    * orca:<hash>:<purpose> -->`) so a re-run can locate and update its own
+    * comment instead of duplicating it. Plain [[writeComment]] stays
     * append-only.
     */
   def upsertComment(pr: PrHandle, marker: String, body: String)(using
       InStage
   ): Unit
 
-  /** Idempotent comment on an issue (R24). Same find/update/create semantics as
+  /** Idempotent comment on an issue. Same find/update/create semantics as
     * [[upsertComment(PrHandle, String, String)]].
     */
   def upsertComment(issue: IssueHandle, marker: String, body: String)(using

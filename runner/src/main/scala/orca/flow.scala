@@ -230,7 +230,7 @@ private[orca] def runFlow(
       )
       val setup =
         FlowLifecycle.setup(args, ctx.llm, effectiveGit, branchNaming, store)
-      // Rehydrate the client→server session map (R22): the registry is
+      // Rehydrate the client→server session map: the registry is
       // in-memory, so on resume the leading model's mapping is empty. Replay
       // the persisted records into it (after the context + log exist, before
       // the body) so `dispatchFor` resumes the right server thread and the

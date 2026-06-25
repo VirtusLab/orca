@@ -19,7 +19,7 @@ import orca.tools.{GitTool, OsGitTool}
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
-/** Tests for the llm-generated commit-message path (R13) in `recordAndCommit`.
+/** Tests for the llm-generated commit-message path in `recordAndCommit`.
   *
   * Strategy: build a `TestFlowControlWithLlm` that wires a real temp repo and a
   * stubbed LLM, then assert the message in `git log` after a stage runs.

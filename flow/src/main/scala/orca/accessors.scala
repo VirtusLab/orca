@@ -23,7 +23,7 @@ def userPrompt(using ctx: FlowContext): String = ctx.userPrompt
 /** Build a stable, per-run HTML comment marker for use with
   * [[GitHubTool.upsertComment]]. The marker is an HTML comment invisible in the
   * rendered GitHub UI but detectable in the raw body, enabling a re-run to find
-  * and update its own prior comment instead of duplicating it (R24).
+  * and update its own prior comment instead of duplicating it.
   *
   * `userPrompt` is hashed so two different flow runs for different prompts
   * produce distinct markers even with the same `purpose`. `purpose` further

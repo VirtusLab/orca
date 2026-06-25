@@ -16,7 +16,7 @@ import orca.llm.{
 import orca.progress.{ProgressHeader, ProgressStore}
 import orca.tools.OsGitTool
 
-/** Tests for `llm.session(seed)` get-or-create (ADR 0018 §2.6, R23). */
+/** Tests for `llm.session(seed)` get-or-create (ADR 0018 §2.6). */
 class SessionTest extends FunSuite:
 
   /** Minimal LlmTool stub — `session(seed)` is pure and never calls the

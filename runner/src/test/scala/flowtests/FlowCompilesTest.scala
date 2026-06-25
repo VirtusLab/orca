@@ -411,7 +411,7 @@ object FlowCanary:
           gh.createPr(title = "fix", body = s"Closes ${issueHandle.shortRef}.")
             .orThrow
 
-  /** `issue-pr-bugfix.sc`: the push-after-edit authoring rule (ADR 0018 R8).
+  /** `issue-pr-bugfix.sc`: the push-after-edit authoring rule (ADR 0018).
     * "Write failing test" commits the test; a LATER "Push + open PR" stage
     * pushes it. Also covers `triage`, `waitForBuild` outside a stage,
     * `claude.runSeeded` in a nested helper, and the final push+updatePr stage.

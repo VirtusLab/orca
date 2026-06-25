@@ -342,7 +342,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         .exists(_.isInstanceOf[BuildTimedOut])
     )
 
-  // ── createPr idempotency (R24) ────────────────────────────────────────────
+  // ── createPr idempotency ──────────────────────────────────────────────────
 
   test(
     "createPr returns Right(existing PR) and emits 'Reusing existing PR' when gh reports 'already exists'"
@@ -389,7 +389,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         case _                   => false
     )
 
-  // ── upsertComment (R24) ──────────────────────────────────────────────────
+  // ── upsertComment ────────────────────────────────────────────────────────
 
   test(
     "upsertComment on PrHandle creates a new comment (with marker) when no comment matches"

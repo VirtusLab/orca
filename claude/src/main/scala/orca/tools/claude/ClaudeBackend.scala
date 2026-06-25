@@ -81,7 +81,7 @@ private[orca] class ClaudeBackend(
   // hooks: `serverFor` lets `persistServerId` record the claimed id (client IS
   // the wire id) into the progress log, and `registerSession` re-claims it on
   // rehydrate so a resumed task uses `--resume` rather than re-creating an
-  // already-existing session id (R22/R23). Unlike pi, whose sessions live in a
+  // already-existing session id. Unlike pi, whose sessions live in a
   // deleteOnExit temp dir and are gone across runs, claude's are durable, so it
   // must participate in persist/rehydrate rather than always re-seeding.
   override def serverFor(

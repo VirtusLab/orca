@@ -39,8 +39,8 @@ trait SessionRegistry[B <: BackendTag]:
     * id, so it returns `Some(client)` once claimed and `None` before.
     *
     * Used by the flow runtime to persist the client→server map into the
-    * progress log and to drive the server-id existence probe (R22). Never
-    * creates, mutates, or resumes a session.
+    * progress log and to drive the server-id existence probe. Never creates,
+    * mutates, or resumes a session.
     */
   def serverFor(client: SessionId[B]): Option[SessionId[B]]
 

@@ -1,13 +1,13 @@
 package orca.progress
 
 /** Validation of an untrusted [[ProgressHeader]] read back on resume (ADR 0018
-  * §2.4/§2.5, R30/R32).
+  * §2.4/§2.5).
   *
-  * The progress log is human-visible and pushable (R26), so its header is
-  * untrusted input on load: it may have been hand-edited or carried onto the
-  * wrong branch by a merge. Before any destructive git action (checkout, reset
-  * --hard, delete) the runtime validates it here. A failure is a hard signal —
-  * the caller aborts the run rather than silently proceeding or starting fresh.
+  * The progress log is human-visible and pushable, so its header is untrusted
+  * input on load: it may have been hand-edited or carried onto the wrong branch
+  * by a merge. Before any destructive git action (checkout, reset --hard,
+  * delete) the runtime validates it here. A failure is a hard signal — the
+  * caller aborts the run rather than silently proceeding or starting fresh.
   */
 object RecoveryCheck:
 
@@ -30,8 +30,8 @@ object RecoveryCheck:
       .forall(orca.BranchNamingStrategy.isSlugSegment)
 
   /** Branches that are always protected regardless of the repo's configured
-    * default — the floor [[validateHeader]] enforces (ADR 0018 R32). The
-    * runtime adds the repo's actual default branch on top of these.
+    * default — the floor [[validateHeader]] enforces (ADR 0018). The runtime
+    * adds the repo's actual default branch on top of these.
     */
   val alwaysProtected: Set[String] = Set("main", "master")
 

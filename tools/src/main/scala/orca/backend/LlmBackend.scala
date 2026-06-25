@@ -94,13 +94,13 @@ trait LlmBackend[B <: BackendTag]:
     * Backends with a [[SessionRegistry]] delegate to its `serverFor`; the
     * default returns `None`. Used by the flow runtime to persist the
     * client→server map into the progress log (so a resumed run can rehydrate it
-    * via [[registerSession]]) and to probe the server id for existence (R22).
+    * via [[registerSession]]) and to probe the server id for existence.
     */
   def serverFor(client: SessionId[B]): Option[SessionId[B]] = None
 
   /** Run `probe` on `id` only if `id` is a safe session id, treating ANY
     * non-fatal failure (and an unsafe id) as "not found". The non-destructive,
-    * best-effort contract every `sessionExists` probe shares (R22).
+    * best-effort contract every `sessionExists` probe shares.
     */
   protected def probeGuarded(id: String)(probe: String => Boolean): Boolean =
     if !isSafeSessionId(id) then false

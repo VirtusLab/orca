@@ -143,8 +143,8 @@ private def recordAndCommit[T: JsonData](
     case Left(_) =>
       log.debug("stage {} commit was empty (already recorded?)", name)
 
-/** Generate a commit message via `llm.cheap` from the current working-tree diff
-  * (R13). The diff is captured before the progress file is force-added, so it
+/** Generate a commit message via `llm.cheap` from the current working-tree
+  * diff. The diff is captured before the progress file is force-added, so it
   * reflects only code changes the stage body produced. Falls back to `"stage:
   * <name>"` when the diff is empty, the LLM returns blank, or any `NonFatal` is
   * thrown — committing must never break. Only called when the caller supplied
@@ -196,8 +196,8 @@ private def formatMalformedOutput(
      |          ORCA_DEBUG=1 to see the full response.""".stripMargin
 
 /** Show a progress line without checkpointing: no stage, id, commit, or log
-  * entry (ADR 0018 §2.1, R14). Needs only `FlowContext`, so it's callable
-  * anywhere — outside a stage, or inside a fork.
+  * entry (ADR 0018 §2.1). Needs only `FlowContext`, so it's callable anywhere —
+  * outside a stage, or inside a fork.
   */
 def display(message: String)(using ctx: FlowContext): Unit =
   ctx.emit(OrcaEvent.Step(message))
