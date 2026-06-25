@@ -68,10 +68,24 @@ trait LlmTool[B <: BackendTag]:
   def withNetworkOnly: LlmTool[B] = withTools(ToolSet.NetworkOnly)
 
   /** A cheaper/faster variant of this model for incidental work (commit-message
-    * summaries, reviewer selection, prompt shortening). Defaults to `this` when
-    * a backend has no cheaper tier.
+    * summaries, reviewer selection, prompt shortening). Returns the model
+    * pinned via [[withCheapModel]] if one was set, otherwise the backend's
+    * built-in cheap tier ([[defaultCheap]]).
     */
-  def cheap: LlmTool[B] = this
+  def cheap: LlmTool[B] = defaultCheap
+
+  /** The backend's built-in cheap variant (claude→haiku, codex→mini, …), before
+    * any [[withCheapModel]] override; `this` when a backend has no cheaper
+    * tier. Backends override this — flow code calls [[cheap]].
+    */
+  protected def defaultCheap: LlmTool[B] = this
+
+  /** Pin the cheap-model variant [[cheap]] (and [[cheapOneShot]]) use,
+    * overriding the backend default. Lets a flow specify both a leading and a
+    * cheap model, e.g.
+    * `_.opencode.anthropicSonnet.withCheapModel(Model("anthropic/claude-haiku-4-5"))`.
+    */
+  def withCheapModel(model: Model): LlmTool[B] = this
 
   /** Best-effort one-line reply from the cheap model. Runs `prompt` on
     * `cheap.withReadOnly` (no prompt echo), and returns the first non-blank
@@ -154,7 +168,7 @@ trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
   def opus: ClaudeTool
   def fable: ClaudeTool
 
-  override def cheap: ClaudeTool = haiku
+  override protected def defaultCheap: ClaudeTool = haiku
 
   /** Set the read-only network allowlist used on [[ToolSet.NetworkOnly]] turns
     * (claude `--allowedTools` syntax, e.g. `Bash(gh api:*)`, `WebFetch`).
@@ -167,7 +181,7 @@ trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
 trait CodexTool extends LlmTool[BackendTag.Codex.type]:
   def mini: CodexTool
 
-  override def cheap: CodexTool = mini
+  override protected def defaultCheap: CodexTool = mini
 
 /** OpenCode spans providers, so its model accessors are provider-prefixed (the
   * prefix keeps the vendor explicit at the call site). [[withModel]] takes any
@@ -181,10 +195,10 @@ trait OpencodeTool extends LlmTool[BackendTag.Opencode.type]:
   def openaiGpt5Codex: OpencodeTool
   def openaiGpt5Mini: OpencodeTool
 
-  override def cheap: OpencodeTool =
-    anthropicHaiku // TODO: we should leave this to be implemented by the specifc model variants - "cheap" is different for openai/anthropic
+  // `defaultCheap` is provider-aware (see DefaultOpencodeTool) — cheap for an
+  // openai-led tool is an openai model, so incidental work doesn't pull in a
+  // second provider's auth.
 
-  // TODO: let's also add a .withCheapModel, so that a tool can be constructed properly for usage in a flow script with both "leading" and "cheap" variants specified
   /** Pin any `provider/model` id (e.g. `ollama/llama3.1`, `myhost/qwen-coder`).
     */
   def withModel(providerModel: String): OpencodeTool
@@ -204,7 +218,7 @@ trait GeminiTool extends LlmTool[BackendTag.Gemini.type]:
     */
   def flash: GeminiTool
 
-  override def cheap: GeminiTool = flash
+  override protected def defaultCheap: GeminiTool = flash
 
 /** Free-form text autonomous calls — the `LlmTool.autonomous` shape. Single
   * method: pass a [[SessionId]] (typically from [[LlmTool.newSession]] or the

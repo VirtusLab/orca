@@ -6,6 +6,11 @@ import scala.concurrent.duration.DurationInt
 
 case class LlmConfig(
     model: Option[Model] = None,
+    /** Model used by [[orca.llm.LlmTool.cheap]] for incidental work (branch
+      * naming, commit-message summaries, reviewer selection). `None` uses the
+      * backend's built-in cheap tier; set it via `LlmTool.withCheapModel`.
+      */
+    cheapModel: Option[Model] = None,
     systemPrompt: Option[String] = None,
     /** Which tools auto-approve without a permission prompt. Only meaningful
       * for **interactive** sessions — autonomous turns have no prompt to

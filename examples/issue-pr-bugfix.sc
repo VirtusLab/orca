@@ -47,7 +47,7 @@ import scala.concurrent.duration.DurationInt
 val orcaArgs = OrcaArgs(args)
 val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
-flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
+flow(orcaArgs, _.claude, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
 
   val CiTimeout = 30.minutes
 
@@ -81,7 +81,7 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
     */
   def prSummary(note: String)(using FlowContext, InStage): PrSummary =
     summarisePr(
-      llm = claude.haiku,
+      llm = claude.cheap,
       diff = git.diffVsBase(git.defaultBase()),
       context = Some(
         s"""Originating issue: ${issueHandle.shortRef}
@@ -155,14 +155,14 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
           coder = claude,
           sessionId = session,
           reviewers = allReviewers(claude),
-          reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+          reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
           task = task.title.value,
           // Format after every edit (the implementation and each review fix).
           formatCommand = Some("sbt scalafmtAll"),
           // Compile (main + test) is a cheap sanity gate; the failing test
           // runs in CI and correctness is the reviewers' job.
           lintCommand = Some("sbt Test/compile"),
-          lintLlm = Some(claude.haiku)
+          lintLlm = Some(claude.cheap)
         )
         // one commit per task: code + progress entry
 

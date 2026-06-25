@@ -36,7 +36,7 @@ import orca.{*, given}
 val orcaArgs = OrcaArgs(args)
 val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
-flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
+flow(orcaArgs, _.claude, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
   // Pure read — outside any stage (reads don't need InStage).
   val issue = gh.readIssue(issueHandle)
 
@@ -74,9 +74,9 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
         reviewAndFixLoop(
           coder = claude, sessionId = session,
           reviewers = allReviewers(claude),
-          // claude.haiku picks the per-task reviewer subset; swap for
+          // claude.cheap picks the per-task reviewer subset; swap for
           // `ReviewerSelector.allEveryRound` to run every reviewer.
-          reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+          reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
           task = task.title.value,
           // Format after every edit; Prettier for a TS/JS project — swap for
           // your formatter.
@@ -89,7 +89,7 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
 
     val summary = stage("Generate PR title and description"):
       summarisePr(
-        llm = claude.haiku,
+        llm = claude.cheap,
         // Branch-vs-base diff — `git.diff()` (vs HEAD) would be empty, since
         // every task is already committed.
         diff = git.diffVsBase(git.defaultBase()),

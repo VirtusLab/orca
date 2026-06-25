@@ -42,6 +42,14 @@ private[orca] class DefaultOpencodeTool(
   def openaiGpt5Codex: OpencodeTool = withModel("openai", "gpt-5.3-codex")
   def openaiGpt5Mini: OpencodeTool = withModel("openai", "gpt-5-mini")
 
+  // Cheap is provider-matched so incidental work doesn't pull in a second
+  // provider's auth: an openai-led tool's cheap is an openai model, otherwise
+  // anthropic haiku (also the default when no model is pinned).
+  override protected def defaultCheap: OpencodeTool =
+    config.model.map(OpencodeModel.split(_)._1) match
+      case Some("openai") => openaiGpt5Mini
+      case _              => anthropicHaiku
+
   // Two-arg form validates and joins via OpencodeModel (one place); the
   // accessors above share it. `withModel(String)` takes an already-joined id.
   override def withModel(provider: String, modelId: String): OpencodeTool =

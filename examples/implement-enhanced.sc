@@ -37,7 +37,7 @@
 
 import orca.{*, given}
 
-flow(OrcaArgs(args)):
+flow(OrcaArgs(args), _.claude):
   // Plan → review, all on one read-only planner session. The Plan structured
   // output always includes a brief, which seeds the implementer session below.
   val plan = stage("Plan"):
@@ -59,12 +59,12 @@ flow(OrcaArgs(args)):
       reviewAndFixLoop(
         coder = claude, sessionId = session,
         reviewers = allReviewers(claude),
-        reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+        reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
         task = task.title.value,
         // Format after every edit (the implementation and each review fix).
         formatCommand = Some("cargo fmt"),
         lintCommand = Some("cargo check --tests"),
-        lintLlm = Some(claude.haiku)
+        lintLlm = Some(claude.cheap)
       )
       // one commit per task: code + progress entry
 
@@ -73,7 +73,7 @@ flow(OrcaArgs(args)):
     git.push().orThrow
 
   val prSum = stage("Generate PR title and description"):
-    summarisePr(llm = claude.haiku, diff = git.diffVsBase(git.defaultBase()))
+    summarisePr(llm = claude.cheap, diff = git.diffVsBase(git.defaultBase()))
 
   stage("Open PR"):
     // gh.createPr is idempotent by head branch (R24): if the branch already has

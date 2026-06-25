@@ -58,11 +58,11 @@ import scala.util.control.NonFatal
   *   ...
   * ```
   *
-  * The leading model is named by a `leadModel` selector resolved against the
-  * built `FlowContext` (defaulting to `_.claude`): the only way to name a model
-  * is the accessor on the context, which isn't in scope at the `flow(...)`
-  * argument position, so the selector defers resolution until the context
-  * exists. `flow(OrcaArgs(args))` runs against claude; `flow(OrcaArgs(args),
+  * The leading model is named by a required `leadModel` selector resolved
+  * against the built `FlowContext`: the only way to name a model is the
+  * accessor on the context, which isn't in scope at the `flow(...)` argument
+  * position, so the selector defers resolution until the context exists.
+  * `flow(OrcaArgs(args), _.claude)` runs against claude; `flow(OrcaArgs(args),
   * _.codex)` against codex, etc. The resolved model becomes `ctx.llm`.
   *
   * WARNING: the selector MUST NOT read `ctx.llm` — `llm` is a lazy val resolved
@@ -76,8 +76,7 @@ import scala.util.control.NonFatal
   */
 def flow(
     args: OrcaArgs,
-    leadModel: FlowContext => LlmTool[?] =
-      _.claude, // TODO: let's remove the optional parameter, and always require the leading model to be specified
+    leadModel: FlowContext => LlmTool[?],
     workDir: os.Path = os.pwd,
     interaction: Option[Interaction] = None,
     extraListeners: List[OrcaListener] = Nil,

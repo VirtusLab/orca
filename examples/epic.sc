@@ -29,7 +29,7 @@
 
 import orca.{*, given}
 
-flow(OrcaArgs(args)):
+flow(OrcaArgs(args), _.claude):
   val plan = stage("Plan"):
     // `.value` drops the planner's read-only session — the implementer
     // below mints a fresh one.
@@ -49,7 +49,7 @@ flow(OrcaArgs(args)):
       reviewAndFixLoop(
         coder = claude, sessionId = session,
         reviewers = reviewers,
-        reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+        reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
         task = task.title.value,
         // Format after every edit; Spotless is wired into the seed pom.
         formatCommand = Some("mvn -q spotless:apply")

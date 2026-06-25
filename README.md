@@ -29,9 +29,8 @@ Save this as `implement.sc` and run it with your task:
 
 import orca.{*, given}
 
-// `flow(OrcaArgs(args))` defaults the leading model to claude.
-// Pass a leadModel selector to use another: `flow(OrcaArgs(args), _.codex)`.
-flow(OrcaArgs(args)):
+// The leading model is required: `_.claude` for Claude, `_.codex` for Codex.
+flow(OrcaArgs(args), _.claude):
   // `stage` is the committing, resumable unit of work. The plan is produced in
   // one agentic turn and recorded in the stage log; a re-run with the same
   // prompt skips this stage and reads the stored Plan back.
@@ -53,16 +52,16 @@ flow(OrcaArgs(args)):
       reviewAndFixLoop(                  // runs under this stage
         coder = claude, sessionId = session,
         reviewers = allReviewers(claude),
-        // claude.haiku picks the per-task reviewer subset; swap for
+        // claude.cheap picks the per-task reviewer subset; swap for
         // `ReviewerSelector.allEveryRound` to run every reviewer.
-        reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+        reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
         task = task.title.value,
         // Format after every edit so commits stay formatted and reviewers
         // skip style nits.
         formatCommand = Some("cargo fmt"),
         // Cheap sanity gate; correctness is the reviewers' and CI's job.
         lintCommand = Some("cargo check --tests"),
-        lintLlm = Some(claude.haiku)
+        lintLlm = Some(claude.cheap)
       )
 ```
 
@@ -94,11 +93,11 @@ The following are available inside a `flow(...) { ... }`:
 
 | Tool | Methods | Purpose |
 |---|---|---|
-| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withNetworkTools`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer; reviewers share it); use `claude.sonnet`/`claude.haiku` for cheap one-shot calls, or `claude.fable` for the hardest ones. `interactive` mode lives only on `resultAs[O]`. `session`/`runSeeded` are flow extensions (see [Sessions](#sessions)). |
-| `codex` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `mini`, `cheap` (→ mini), `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | OpenAI Codex coding/reviewing agent. |
-| `opencode` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiGpt5`/`openaiGpt5Codex`/`openaiGpt5Mini`, `cheap` (→ anthropicHaiku), `withModel(providerModel)` / `withModel(provider, modelId)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiGpt5Mini`) or `opencode.withModel("openai/gpt-4o-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
-| `pi` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withConfig(LlmConfig(model = Some(Model("provider/model"))))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
-| `gemini` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `flash`, `cheap` (→ flash), `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
+| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `withCheapModel`, `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withNetworkTools`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer; reviewers share it); use `claude.sonnet`/`claude.haiku` for cheap one-shot calls, or `claude.fable` for the hardest ones. `interactive` mode lives only on `resultAs[O]`. `session`/`runSeeded` are flow extensions (see [Sessions](#sessions)). |
+| `codex` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `mini`, `cheap` (→ mini), `withCheapModel`, `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | OpenAI Codex coding/reviewing agent. |
+| `opencode` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiGpt5`/`openaiGpt5Codex`/`openaiGpt5Mini`, `cheap` (→ anthropicHaiku), `withCheapModel`, `withModel(providerModel)` / `withModel(provider, modelId)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiGpt5Mini`) or `opencode.withModel("openai/gpt-4o-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
+| `pi` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withConfig(LlmConfig(model = Some(Model("provider/model"))))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
+| `gemini` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `flash`, `cheap` (→ flash), `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
 | `git` | `createBranch`, `checkout`, `checkoutOrCreate`, `ensureClean`, `commit`, `forceAdd`, `push`, `currentBranch`, `diff`, `diffVsBase`, `defaultBase`, `log`, `resetHard`, `deleteBranch`, `addWorktree`, `removeWorktree`, `listWorktrees`, `diffBranchExcludingOrca` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushRejected`, `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `resetHard`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. |
 | `gh` | `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (safe on re-run — use `orcaCommentMarker(userPrompt, purpose)` to embed the prompt hash as the marker). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
@@ -176,7 +175,7 @@ Top-level, available via `import orca.*`:
 
 | Method | Signature | Use |
 |---|---|---|
-| `flow(args, leadModel?, ...)(body)` | `flow(args: OrcaArgs, leadModel? = _.claude, branchNaming?, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `leadModel` selects the leading model — `_.claude` by default, `_.codex` to use Codex. Branching defaults to a slug of the prompt; pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` for issue flows. |
+| `flow(args, leadModel, ...)(body)` | `flow(args: OrcaArgs, leadModel, branchNaming?, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `leadModel` selects the leading model — e.g. `_.claude` or `_.codex`. Branching defaults to a slug of the prompt; pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` for issue flows. |
 | `stage[T: JsonData](name, commitMessage?)(body)` | `(name: String, commitMessage: Option[T => String] = None)(body): T` | The committing, resumable unit of work. On success, records the result, force-adds the progress log, and commits (code changes + log delta = one commit). On re-run, a stage whose result is still recorded is skipped and the stored value is returned. `T` must have `JsonData` — `case class Foo(...) derives JsonData` is enough. Commit message defaults to an `llm.cheap` summary of the diff; override via `commitMessage`. |
 | `display(message)` | `(message: String): Unit` | Progress-only output: no stage, no commit, no log entry. Callable anywhere — outside a stage or inside a fork. |
 | `fail(message)` | `(message: String): Nothing` | Abort with a message. Triggers failure teardown: stays on the feature branch so a re-run resumes. |
@@ -321,7 +320,7 @@ Review utilities, available via `import orca.review.*`:
 | `fixLoop(evaluate, fix, ...)` | Lower-level primitive `reviewAndFixLoop` is built on. |
 
 `reviewAndFixLoop` requires a `reviewerSelection: ReviewerSelector` argument.
-Typically `ReviewerSelector.llmDriven(claude.haiku)` — the picker LLM (use a
+Typically `ReviewerSelector.llmDriven(claude.cheap)` — the picker LLM (use a
 cheap model) sees each reviewer's description plus the changed file paths and
 narrows the supplied list per task. Pass
 `ReviewerSelector.allEveryRound` to run every reviewer every iteration, or
@@ -332,7 +331,7 @@ PR utilities, available via `import orca.pr.*`:
 
 | Method | Use |
 |---|---|
-| `summarisePr(llm, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. Use a cheap model (`claude.haiku`, `codex.mini`). |
+| `summarisePr(llm, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. Use a cheap model (`claude.cheap`, `<lead>.cheap`). |
 
 ### Customising prompts
 

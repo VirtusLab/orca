@@ -28,7 +28,7 @@
 
 import orca.{*, given}
 
-flow(OrcaArgs(args)):
+flow(OrcaArgs(args), _.claude):
   val plan = stage("Plan"):
     Plan.autonomous.from(userPrompt, claude).value
 
@@ -42,9 +42,9 @@ flow(OrcaArgs(args)):
       reviewAndFixLoop(                  // runs under this stage
         coder = claude, sessionId = session,
         reviewers = allReviewers(claude),
-        // claude.haiku picks the per-task reviewer subset; swap for
+        // claude.cheap picks the per-task reviewer subset; swap for
         // `ReviewerSelector.allEveryRound` to run every reviewer.
-        reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+        reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
         task = task.title.value,
         // Format after every edit so commits stay formatted and reviewers
         // skip style nits.
@@ -52,6 +52,6 @@ flow(OrcaArgs(args)):
         // Cheap sanity gate; correctness is the reviewers' and CI's job, so
         // skip the heavier tests.
         lintCommand = Some("cargo check --tests"),
-        lintLlm = Some(claude.haiku)
+        lintLlm = Some(claude.cheap)
       )
       // one commit per task: code + progress entry

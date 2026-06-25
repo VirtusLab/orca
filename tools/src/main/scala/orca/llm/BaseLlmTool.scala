@@ -55,6 +55,15 @@ abstract class BaseLlmTool[B <: BackendTag, Self <: LlmTool[B]](
   protected def withModel(model: Model): Self =
     copyTool(config = config.copy(model = Some(model)))
 
+  /** The cheap variant: a `withCheapModel` override if the caller pinned one,
+    * otherwise the backend's built-in [[defaultCheap]] tier.
+    */
+  override def cheap: LlmTool[B] =
+    config.cheapModel.map(withModel).getOrElse(defaultCheap)
+
+  override def withCheapModel(model: Model): Self =
+    copyTool(config = config.copy(cheapModel = Some(model)))
+
   /** Delegates to the backend's best-effort probe. Overrides the trait default
     * so that any tool built on a real [[orca.backend.LlmBackend]] reflects
     * actual session state rather than always returning `false`.
