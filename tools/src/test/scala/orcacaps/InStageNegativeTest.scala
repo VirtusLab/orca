@@ -32,9 +32,17 @@ class InStageNegativeTest extends munit.FunSuite:
       errors.nonEmpty,
       "expected a compile error for git.commit without an InStage"
     )
+    // `InStage`'s `@implicitNotFound` makes the error user-facing — it tells the
+    // author to move the call into a `stage(...)` rather than naming the internal
+    // `InStage` type. Pin that message (and that the cryptic default is gone).
     assert(
-      errors.contains("InStage"),
-      s"expected the error to mention the missing InStage, got: $errors"
+      errors.contains("inside a `stage(...)` body") &&
+        errors.contains("side-effecting"),
+      s"expected the friendly stage-required message, got: $errors"
+    )
+    assert(
+      !errors.contains("No given instance of type orca.InStage"),
+      s"the cryptic default message should be replaced by @implicitNotFound, got: $errors"
     )
 
 end InStageNegativeTest

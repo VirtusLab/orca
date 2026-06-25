@@ -39,7 +39,7 @@ flow(OrcaArgs(args)):
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):      // skipped on resume if already done
       claude.runSeeded(task.description, session)
-      reviewAndFixLoop(                  // runs under this stage (using InStage)
+      reviewAndFixLoop(                  // runs under this stage
         coder = claude, sessionId = session,
         reviewers = allReviewers(claude),
         // claude.haiku picks the per-task reviewer subset; swap for
