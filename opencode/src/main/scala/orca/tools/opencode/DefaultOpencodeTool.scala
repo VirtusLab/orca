@@ -44,9 +44,11 @@ private[orca] class DefaultOpencodeTool(
 
   // Cheap is provider-matched so incidental work doesn't pull in a second
   // provider's auth: an openai-led tool's cheap is an openai model, otherwise
-  // anthropic haiku (also the default when no model is pinned).
+  // anthropic haiku (also the default when no model is pinned). Reads the
+  // provider prefix directly (not OpencodeModel.split, which throws on a bare
+  // id) so resolving the cheap model can never break a flow.
   override protected def defaultCheap: OpencodeTool =
-    config.model.map(OpencodeModel.split(_)._1) match
+    config.model.map(m => Model.name(m).takeWhile(_ != '/')) match
       case Some("openai") => openaiGpt5Mini
       case _              => anthropicHaiku
 
