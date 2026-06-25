@@ -10,7 +10,7 @@ package orca.util
   * 76 columns leaves room for the `▶ ` glyph in the terminal at typical
   * stage-depth indents.
   */
-object TextWrap:
+private[orca] object TextWrap:
 
   /** Wrap `s` to `maxWidth` characters, breaking at whitespace. Continuation
     * lines are prefixed with `continuation` so they sit under the first

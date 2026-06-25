@@ -2,6 +2,8 @@ package orca
 
 import orca.progress.ProgressStore
 
+import scala.annotation.implicitNotFound
+
 /** Marker capability: the holder is permitted to start a new stage.
   *
   * `FlowControl` is a subtype of [[FlowContext]] so that any code requiring
@@ -22,6 +24,9 @@ import orca.progress.ProgressStore
   * same-named stages (ADR 0018 §2.1). `stage` requires `(using FlowControl)`;
   * `flow` supplies it.
   */
+@implicitNotFound(
+  "`stage(...)` and `llm.session(...)` can only be called inside a `flow(...)` body — and not inside a `fork` (forks can read and emit, but can't start stages). If this is a helper that starts stages, declare it `(using FlowControl)` so its caller supplies it."
+)
 trait FlowControl extends FlowContext:
   /** The store backing this run's progress log. */
   def progressStore: ProgressStore

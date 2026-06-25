@@ -76,7 +76,8 @@ import scala.util.control.NonFatal
   */
 def flow(
     args: OrcaArgs,
-    leadModel: FlowContext => LlmTool[?] = _.claude,
+    leadModel: FlowContext => LlmTool[?] =
+      _.claude, // TODO: let's remove the optional parameter, and always require the leading model to be specified
     workDir: os.Path = os.pwd,
     interaction: Option[Interaction] = None,
     extraListeners: List[OrcaListener] = Nil,

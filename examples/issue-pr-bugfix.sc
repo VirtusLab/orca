@@ -8,16 +8,16 @@
   *
   *   1. Reads the issue from GitHub (pure read, outside any stage).
   *   1. Triages: actually a bug? can a unit test reproduce it?
-  *       - Not a bug → posts the verdict on the issue. The throwaway branch
-  *         (no code committed) is auto-deleted by the runtime on exit.
-  *       - Bug, but not testable → posts reproduction steps on the issue and
-  *         stops (no PR for docs-only repros). Same branch cleanup.
+  *      - Not a bug → posts the verdict on the issue. The throwaway branch (no
+  *        code committed) is auto-deleted by the runtime on exit.
+  *      - Bug, but not testable → posts reproduction steps on the issue and
+  *        stops (no PR for docs-only repros). Same branch cleanup.
   *   1. For a testable bug:
-  *       a. "Write failing test" stage: writes and commits the test.
-  *       b. "Push + open tentative PR" stage: pushes the committed test, then
-  *          opens a PR (`gh.createPr` is idempotent by branch). These are two
-  *          separate stages because a stage commits only on completion — a push
-  *          in the same stage as the edit would push nothing (ADR 0018 §3.2 R8).
+  *      a. "Write failing test" stage: writes and commits the test. b. "Push +
+  *         open tentative PR" stage: pushes the committed test, then opens a PR
+  *         (`gh.createPr` is idempotent by branch). These are two separate
+  *         stages because a stage commits only on completion — a push in the
+  *         same stage as the edit would push nothing (ADR 0018 §3.2 R8).
   *   1. Waits for CI to go red (pure polling read, outside a stage). Fails
   *      loudly on green — the reproduction is wrong.
   *   1. Confirms the failure matches the report.
@@ -91,8 +91,8 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
       )
     )
 
-  /** Confirm the CI failure matches the original report.
-    * Each sub-stage is a one-shot sonnet call — fresh session, no seed needed.
+  /** Confirm the CI failure matches the original report. Each sub-stage is a
+    * one-shot sonnet call — fresh session, no seed needed.
     */
   def confirmReproductionMatches(pr: PrHandle)(using FlowControl): Unit =
     stage("Post focused failure comment"):
@@ -108,12 +108,19 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
            |excerpt, not the whole log. Output only the summary text;
            |it goes verbatim into a PR comment.""".stripMargin
       )
-      gh.upsertComment(pr, orcaCommentMarker(userPrompt, "ci-failure"), failureSummary)
+      gh.upsertComment(
+        pr,
+        orcaCommentMarker(userPrompt, "ci-failure"),
+        failureSummary
+      )
 
     stage("Verify failure matches the report"):
       val (_, verdict) =
-        claude.sonnet.resultAs[BugReportMatch].autonomous.run(
-          s"""Inspect the failed CI run on PR ${pr.shortRef} via `gh`
+        claude.sonnet
+          .resultAs[BugReportMatch]
+          .autonomous
+          .run(
+            s"""Inspect the failed CI run on PR ${pr.shortRef} via `gh`
              |(`gh pr checks ${pr.number} --repo ${pr.owner}/${pr.repo}`,
              |then `gh run view <run-id> --log-failed`), then decide whether
              |the failure matches the original report below. Be strict — a
@@ -121,7 +128,7 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
              |
              |Original report:
              |${issue.body}""".stripMargin
-        )
+          )
       if !verdict.matches then
         fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
 
@@ -142,10 +149,11 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
         .value
 
     for task <- fixPlan.tasks do
-      stage(s"task: ${task.title}"):    // skipped on resume if already done
+      stage(s"task: ${task.title}"): // skipped on resume if already done
         claude.runSeeded(fixPlan.taskPrompt(task), session)
         reviewAndFixLoop(
-          coder = claude, sessionId = session,
+          coder = claude,
+          sessionId = session,
           reviewers = allReviewers(claude),
           reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
           task = task.title.value,
@@ -159,6 +167,8 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
         // one commit per task: code + progress entry
 
   // ============================ the flow ============================
+
+  // TODO: let's move the logic of the flows to the top, with helper methods at the bottom. We want users to first see proper flow
 
   triage match
     case Triage.NotABug(explanation) =>
@@ -205,8 +215,11 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
         ).orThrow
 
       // `waitForBuild` is a pure polling read — outside any stage.
-      if gh.waitForBuild(pr, CiTimeout).orThrow.outcome == BuildOutcome.Success then
-        fail("CI passed on the failing-test commit — the reproduction is wrong.")
+      if gh.waitForBuild(pr, CiTimeout).orThrow.outcome == BuildOutcome.Success
+      then
+        fail(
+          "CI passed on the failing-test commit — the reproduction is wrong."
+        )
       display(s"CI red on ${pr.shortRef} — reproduction confirmed")
 
       confirmReproductionMatches(pr)

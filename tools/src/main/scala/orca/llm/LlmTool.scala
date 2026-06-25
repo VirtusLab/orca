@@ -1,5 +1,9 @@
 package orca.llm
 
+import orca.InStage
+
+import scala.util.control.NonFatal
+
 /** An LLM adapter usable from flow scripts — the handle you call from a
   * `flow(...)` block (`claude`, `codex`, etc.). Two paths to invoke the model:
   *
@@ -69,6 +73,28 @@ trait LlmTool[B <: BackendTag]:
     */
   def cheap: LlmTool[B] = this
 
+  /** Best-effort one-line reply from the cheap model. Runs `prompt` on
+    * `cheap.withReadOnly` (no prompt echo), and returns the first non-blank
+    * line trimmed — or `fallback` if the reply is empty or the call fails for
+    * any non-fatal reason. Markdown code-fence lines are skipped (cheap models
+    * sometimes wrap a one-line reply in a fenced block).
+    *
+    * Never throws: incidental cheap-model calls (branch naming, default commit
+    * messages) must never break a flow. Requires `InStage` because it is a
+    * gated LLM call.
+    */
+  def cheapOneShot(prompt: String, fallback: => String)(using InStage): String =
+    try
+      val (_, text) =
+        cheap.withReadOnly.autonomous.run(prompt, emitPrompt = false)
+      val firstLine = text.linesIterator
+        .map(_.trim)
+        .filterNot(_.startsWith("```"))
+        .find(_.nonEmpty)
+        .getOrElse("")
+      if firstLine.isBlank then fallback else firstLine
+    catch case NonFatal(_) => fallback
+
   /** Return a sibling tool that manages git itself — flips
     * [[LlmConfig.selfManagedGit]] on, suppressing the standing "runtime owns
     * git" rule the runtime otherwise injects (don't `git commit`/`push`/branch;
@@ -82,16 +108,19 @@ trait LlmTool[B <: BackendTag]:
   def withSelfManagedGit: LlmTool[B] = this
 
   /** Best-effort, non-destructive: is a live, resumable backend conversation
-    * present for `session`? Delegates to the backend probe (R22). Returns
-    * `false` by default — safe re-seed — when a concrete tool can't reach a
-    * backend instance (e.g. lightweight stubs).
+    * present for `session`? Delegates to the backend probe. Returns `false` by
+    * default — safe re-seed — when a concrete tool can't reach a backend
+    * instance (e.g. lightweight stubs).
     */
   def sessionExists(session: SessionId[B]): Boolean = false
 
-  /** The server-side session id mapped to `client`, or `None` if unknown.
-    * Delegates to the backend's registry (R22); the flow runtime reads this
-    * after a run to persist the client→server map into the progress log.
-    * Returns `None` by default for tools without a backend (stubs).
+  /** The backend-allocated (wire) session id mapped to `client`, or `None` if
+    * unknown. Client and server ids share one type (`SessionId[B]`): `client`
+    * is orca's stable handle, `server` is whatever the backend actually resumes
+    * against — equal for the backends where the client id IS the wire id
+    * (claude/pi), a learned server-thread id for codex/opencode. The flow
+    * runtime reads this after a run to persist the client→server map into the
+    * progress log. Returns `None` by default for tools without a backend.
     */
   def serverSessionId(client: SessionId[B]): Option[SessionId[B]] = None
 
@@ -152,8 +181,10 @@ trait OpencodeTool extends LlmTool[BackendTag.Opencode.type]:
   def openaiGpt5Codex: OpencodeTool
   def openaiGpt5Mini: OpencodeTool
 
-  override def cheap: OpencodeTool = anthropicHaiku
+  override def cheap: OpencodeTool =
+    anthropicHaiku // TODO: we should leave this to be implemented by the specifc model variants - "cheap" is different for openai/anthropic
 
+  // TODO: let's also add a .withCheapModel, so that a tool can be constructed properly for usage in a flow script with both "leading" and "cheap" variants specified
   /** Pin any `provider/model` id (e.g. `ollama/llama3.1`, `myhost/qwen-coder`).
     */
   def withModel(providerModel: String): OpencodeTool

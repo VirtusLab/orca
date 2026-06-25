@@ -106,6 +106,7 @@ private class OsProgressStore(val path: os.Path) extends ProgressStore:
       else log.sessions :+ record
     log.copy(sessions = updated)
 
+  // TODO: do we have to always write the entire file? Can't we append a single JSON object at a time, treating the whole file as JSONL?
   private def writeLog(log: ProgressLog): Unit =
     os.write.over(path, writeToString(log)(using codec), createFolders = true)
 
