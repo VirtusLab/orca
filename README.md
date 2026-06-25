@@ -94,7 +94,7 @@ The following are available inside a `flow(...) { ... }`:
 
 | Tool | Methods | Purpose |
 |---|---|---|
-| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withNetworkTools`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer needs it; reviewers share it); use `claude.sonnet` / `claude.haiku` for cheap one-shot calls (reviewer picker, lint, PR summariser), or `claude.fable` for the most capable tier on the hardest one-shots. `interactive` mode lives only on `resultAs[O]`. `session` needs `FlowControl` (callable outside a stage); `runSeeded` additionally needs `InStage` (must be inside a stage). Both are flow extensions. |
+| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withNetworkTools`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer; reviewers share it); use `claude.sonnet`/`claude.haiku` for cheap one-shot calls, or `claude.fable` for the hardest ones. `interactive` mode lives only on `resultAs[O]`. `session`/`runSeeded` are flow extensions (see [Sessions](#sessions)). |
 | `codex` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `mini`, `cheap` (→ mini), `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | OpenAI Codex coding/reviewing agent. |
 | `opencode` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiGpt5`/`openaiGpt5Codex`/`openaiGpt5Mini`, `cheap` (→ anthropicHaiku), `withModel(providerModel)` / `withModel(provider, modelId)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiGpt5Mini`) or `opencode.withModel("openai/gpt-4o-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
 | `pi` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withConfig(LlmConfig(model = Some(Model("provider/model"))))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
@@ -219,9 +219,10 @@ log (`.orca/progress-<hash>.json`, where `<hash>` is derived from the prompt):
 - **Start:** stash a dirty working tree with a warning (recover with `git stash
   pop`); create + checkout the feature branch; write and commit the progress log
   header.
-- **Resume:** if a progress log already exists for this prompt on the branch, read
-  the header, validate it as untrusted input (branch must match orca naming rules,
-  prompt hash must match), and resume from the first incomplete stage.
+- **Resume:** the progress log lives at a branch-independent, prompt-derived path,
+  so recovery finds it before any checkout. Its header is validated as untrusted
+  input (branch must match orca naming rules, prompt hash must match), then the run
+  resumes from the first incomplete stage.
 - **Success teardown:** remove the progress-log file in a final commit; delete
   the feature branch if it has no substantive changes vs the starting branch
   (throwaway-branch cleanup); return to the starting branch.
@@ -230,33 +231,26 @@ log (`.orca/progress-<hash>.json`, where `<hash>` is derived from the prompt):
 
 ### Sessions
 
-`llm.session(seed)` is a get-or-create keyed by position in the flow — the
-same call site resumes the same session:
+`llm.session(seed)` is a get-or-create keyed by call-site position — the same
+call site resumes the same session across re-runs. It reserves a `SessionId` and
+records it in the progress log (no LLM call); see [the capability
+model](#the-capability-model) for why it needs `FlowControl` but no `InStage`.
 
 ```scala
 val session = claude.session(seed = plan.brief)
-```
-
-It reserves a `SessionId` and writes a `SessionRecord` to the progress log (no
-LLM call, no stage commit). It needs `FlowControl` (not just `FlowContext`) and
-is callable outside a stage. The `seed` is the essential context to rebuild the
-agent — typically the **plan brief**, or the issue body when there is no brief.
-On first use `runSeeded` primes the fresh session with the seed; if the backend
-session is lost on resume, `runSeeded` re-seeds into a fresh one, prepending a
-progress preamble naming the already-completed stages. A retry that finds the
-session still alive continues it directly. Use `newSession` when you want a plain
-fresh id without any get-or-create recording.
-
-`llm.runSeeded(prompt, session)` runs the agent against `session`, handling
-seed-or-resume transparently:
-
-```scala
 claude.runSeeded(task.description, session)
 ```
 
+The `seed` is the essential context to rebuild the agent — typically the **plan
+brief**, or the issue body when there is no brief. `runSeeded` primes a fresh
+session with the seed on first use; if the backend session is lost on resume it
+re-seeds, prepending a progress preamble naming the completed stages; if the
+session is still alive it continues it directly. (`newSession` gives a plain
+fresh id with no get-or-create recording.)
+
 `llm.cheap` returns the backend's cheap/fast variant (claude → haiku, codex →
-mini, gemini → flash, opencode → anthropicHaiku, others → self). The flow
-runtime uses `llm.cheap` for branch naming and default commit messages.
+mini, gemini → flash, opencode → anthropicHaiku, others → self) — used by the
+runtime for branch naming and default commit messages.
 
 ## Authoring rules
 
@@ -289,19 +283,15 @@ you choose to follow as a flow author.
    changes + the progress-log entry). Don't call `git.commit` inside a stage
    body — the runtime commits for you when the stage completes.
 
-4. **Idempotent external effects.** `gh.createPr` is idempotent by branch: if an
-   open PR exists, the existing handle is returned rather than duplicating it.
-   `gh.upsertComment(target, marker, body)` finds a prior comment carrying
-   `marker` and edits it in place; use `orcaCommentMarker(userPrompt, purpose)`
-   to embed the prompt hash so the marker is unique to this flow run and safe on
-   re-run.
+4. **Idempotent external effects, each in its own stage.** Put each PR-open,
+   comment-post, or push in a dedicated stage so it's checkpointed. `gh.createPr`
+   is idempotent by branch (an open PR is reused, not duplicated) and
+   `gh.upsertComment(target, marker, body)` edits a prior comment carrying
+   `marker` in place — so if a crash re-opens the stage on resume, the re-run
+   reuses the PR/comment instead of duplicating it. Use
+   `orcaCommentMarker(userPrompt, purpose)` so the marker is unique to this run.
 
-5. **Each externally-visible side effect in its own stage.** Put each PR-open,
-   comment-post, or push in a dedicated stage so it is checkpointed. A crash
-   between a PR creation and its progress commit re-opens the stage on resume;
-   `gh.createPr` being idempotent means the re-run reuses the existing PR.
-
-6. **Name stages descriptively.** The stage name appears in the event log,
+5. **Name stages descriptively.** The stage name appears in the event log,
    the commit message (when no override is provided), and the progress preamble
    on resume. A name like `"Push + open PR"` lets a reader (and the resuming
    agent) understand the checkpoint without reading code.
@@ -363,10 +353,9 @@ PR utilities, available via `import orca.pr.*`:
 
 ### Customising prompts
 
-Every domain helper that bundles an LLM brief takes the prompt as a
-default-valued `instructions: String` parameter; the default value lives on a
-sibling `XxxPrompts` object in the same package. Override by passing a
-different string, or compose with the default to extend it:
+Every domain helper that bundles an LLM brief takes its prompt as a
+default-valued `instructions: String`; the default lives on a sibling
+`XxxPrompts` object. Override it, or compose with the default to extend it:
 
 ```scala
 import orca.plan.{Plan, PlanPrompts}
@@ -378,7 +367,9 @@ Plan.interactive.from(
 )
 ```
 
-Where the defaults live:
+<details>
+<summary>Where the defaults live</summary>
+
 - `orca.plan.PlanPrompts` — `Planning`, `AssessThenPlan`, `Triage`, `Review`
 - `orca.pr.PrPrompts` — `Summarise`
 - `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummariseLint`,
@@ -386,9 +377,11 @@ Where the defaults live:
 - `orca.review.ReviewerPrompts` — per-reviewer system prompts (compose your own
   list to swap or extend `allReviewers`/`minimalReviewers`)
 
-The lower-level per-call wrappers (autonomous/interactive/retry) are a
-separate layer — replace the whole set via `flow(prompts = ...)`. See ADR
-[0010](adr/0010-prompts-and-helpers-convention.md) for the full convention.
+The lower-level per-call wrappers (autonomous/interactive/retry) are a separate
+layer — replace the whole set via `flow(prompts = ...)`. See [ADR
+0010](adr/0010-prompts-and-helpers-convention.md) for the full convention.
+
+</details>
 
 ## Data structures
 
@@ -397,6 +390,9 @@ valid stage results (the stage log can record and replay them) and usable as
 structured LLM output via `claude.resultAs[T]`. Exceptions: `Sessioned` and
 `Verdict` do not derive `JsonData` — they are intermediate values, not stage
 results.
+
+<details>
+<summary>The types, in detail (click to expand)</summary>
 
 - **`orca.plan.Plan(epicId, description, tasks, brief)`** — the task list the
   agent generates in one round-trip. `epicId` is a kebab-case id used as the
@@ -421,10 +417,8 @@ results.
   Returned by `llm.session(seed)` and passed to `llm.runSeeded`. Carries the
   backend identity at the type level, so you cannot accidentally pass a Claude
   session to Codex.
-- **`orca.Title`** — opaque alias of `String` shared by `Task.title` and
-  `ReviewIssue.title`. Construct via `Title("…")`; recover the string with
-  `.value`. Keeps short labels from being silently swapped with descriptions
-  or raw user input.
+- **`orca.Title`** — opaque `String` alias for short labels (`Task.title`,
+  `ReviewIssue.title`); `Title("…")` to construct, `.value` to read.
 - **`orca.tools.PrHandle(owner, repo, number)`** — handle to an open pull
   request, returned by `gh.createPr`. `derives JsonData` so a stage can record
   it: a push-and-open-PR stage is the checkpoint before a CI wait.
@@ -440,12 +434,17 @@ results.
 - **`orca.review.IgnoredIssues`** — accumulated `IgnoredIssue(title, reason)`
   entries surfaced by `reviewAndFixLoop` once it halts.
 
+</details>
+
 ## Output
 
 While Orca runs the terminal output is split into two zones: an **event log**
 that grows top-to-bottom as stages and tools fire, and a **status line** pinned
 to the bottom, showing the active stage breadcrumb with a spinner. Nested stages
 are indented.
+
+<details>
+<summary>Glyph legend</summary>
 
 | Glyph | Meaning |
 | ----- | ------- |
@@ -457,6 +456,8 @@ are indented.
 | `✖` | Error |
 | `?` | Approval request |
 
+</details>
+
 Colours and animation auto-disable when stderr isn't a terminal. Set
 `NO_COLOR=1` or `ORCA_NO_ANIMATION=1` (suppresses the spinner) to force them
 off.
@@ -467,7 +468,8 @@ Each CLI manages its own auth; Orca stores no secrets. Before running a flow,
 log in to the backend you use — `claude`, `codex`, `opencode`, or `pi` — and to
 `gh` (for the GitHub helpers), each per its own instructions.
 
-For OpenCode with a local **Ollama** model, two options:
+<details>
+<summary>OpenCode with a local Ollama model</summary>
 
 - **Launcher (zero config):** `flow(OrcaArgs(args), opencodeLauncher =
   OpencodeLauncher.ollama("qwen3-coder"))`. Orca starts the server via `ollama
@@ -478,6 +480,8 @@ For OpenCode with a local **Ollama** model, two options:
   `~/.config/opencode/opencode.json` (baseURL `http://localhost:11434/v1`, your
   models, `num_ctx` raised for tool use), then `opencode.withModel("ollama",
   "qwen3-coder")`. Supports several models and per-turn switching.
+
+</details>
 
 ## Getting set up
 
