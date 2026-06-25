@@ -37,7 +37,9 @@
 
 import orca.{*, given}
 
-flow(OrcaArgs(args), _.claude):
+// Opens a PR at the end, so return to the starting branch afterward (the
+// default is to stay on the feature branch, for no-PR flows like implement.sc).
+flow(OrcaArgs(args), _.claude, returnToStartBranch = true):
   // Plan → review, all on one read-only planner session. The Plan structured
   // output always includes a brief, which seeds the implementer session below.
   val plan = stage("Plan"):

@@ -71,8 +71,10 @@ object FlowLifecycle:
     *     aborts rather than resuming against the wrong branch.
     *
     * On resume `startBranch` is the header's recorded `startingBranch` (the
-    * ORIGINAL branch at first run), so a resumed run returns there on success —
-    * exactly like a fresh run — not to the re-run's current (feature) branch.
+    * ORIGINAL branch at first run), so when a run does return to start (a PR
+    * flow via `returnToStartBranch`, or a throwaway) it goes to that original
+    * branch — exactly like a fresh run — not the re-run's current (feature)
+    * branch.
     */
   private[orca] def setup(
       args: OrcaArgs,
@@ -116,8 +118,9 @@ object FlowLifecycle:
               s"'$current' — was it merged? aborting rather than resuming " +
               "against the wrong branch"
           )
-        // Resume in place: already on header.branch. Return to the ORIGINAL
-        // start branch on success, not this feature branch.
+        // Resume in place: already on header.branch. The recorded start branch
+        // (where a PR flow / throwaway returns to) is the ORIGINAL one, not this
+        // feature branch.
         FlowSetup(store, header.branch, header.startingBranch)
       case None =>
         // Fresh run: resolve + create the branch, then commit the header so it
@@ -156,16 +159,20 @@ object FlowLifecycle:
       if !os.exists(path) then os.write.over(path, bytes, createFolders = true)
 
   /** Successful teardown (ADR 0018 §2.5): remove the progress-log file in a
-    * final commit so a merged branch is clean, then return to the starting
-    * branch. If the feature branch has no substantive changes vs the start
-    * branch (only orca bookkeeping), delete it (throwaway-branch cleanup).
+    * final commit so a merged branch is clean, then hand off to
+    * [[finishBranch]] for where HEAD lands — stay on the feature branch
+    * (default), return to the starting branch (`returnToStartBranch`), or
+    * delete a throwaway and return to start.
     *
-    * Errors during log removal, the cleanup commit, or branch deletion are
-    * cosmetic — swallowed so they don't trigger the failure path. The checkout
-    * back to `startBranch` is always attempted (in a `finally`) so a cleanup
-    * error never strands the user on the feature branch.
+    * Errors during log removal, the cleanup commit, or the branch handoff are
+    * cosmetic — swallowed (in a `finally`) so they don't trigger the failure
+    * path or strand the user.
     */
-  private[orca] def teardownSuccess(git: GitTool, setup: FlowSetup): Unit =
+  private[orca] def teardownSuccess(
+      git: GitTool,
+      setup: FlowSetup,
+      returnToStartBranch: Boolean
+  ): Unit =
     // Teardown is runtime code running outside any user stage, so it mints its
     // own `InStage` — the runtime is the privileged token constructor.
     given InStage = InStage.unsafe
@@ -177,37 +184,38 @@ object FlowLifecycle:
         case _: java.nio.file.NoSuchFileException => ()
         // `add -A` in commit picks up the removal; NothingToCommit (a Left) means
         // it was never committed — harmless. A genuine commit failure is swallowed:
-        // the run already succeeded, and the progress file is untracked on the
-        // starting branch we are about to return to.
+        // the run already succeeded and the progress file is gone from the tree.
       try
         val _ = git.commit("orca: remove progress log")
       catch case NonFatal(_) => ()
     finally
-      // Always attempt to return to the starting branch, even if cleanup failed.
-      git.checkoutOrCreate(setup.startBranch)
-      // After returning to the start branch, delete the feature branch if it
-      // holds no substantive changes (only orca bookkeeping). Best-effort and
-      // success-path-only; never deletes start/protected branches.
-      try autoDeleteIfThrowaway(git, setup)
+      try finishBranch(git, setup, returnToStartBranch)
       catch case NonFatal(_) => ()
 
-  /** Delete the feature branch when it holds no substantive changes vs the
-    * start branch. "No substantive changes" means the diff excluding the
-    * `.orca/` directory is empty — only orca bookkeeping was committed, not
-    * user code. Guards: skip when `featureBranch == startBranch` (in-place
-    * resume) and when the branch doesn't exist (already deleted or never
-    * created).
+  /** Where HEAD ends up after a successful run. A throwaway feature branch
+    * (only orca bookkeeping, no user code vs the start branch — diff excluding
+    * `.orca/` is empty) is always deleted and HEAD returns to the starting
+    * branch: there's nothing to keep. Otherwise the feature branch is kept, and
+    * `returnToStartBranch` chooses where HEAD lands — stay on the feature
+    * branch (the default, so the user ends on the work) or return to the
+    * starting branch (PR flows, done with the branch once the PR is up).
+    * Best-effort and success-path-only; never deletes start/protected branches.
     */
-  private def autoDeleteIfThrowaway(git: GitTool, setup: FlowSetup)(using
-      InStage
-  ): Unit =
-    if setup.featureBranch == setup.startBranch then ()
-    else
-      val diff = git.diffBranchExcludingOrca(
-        setup.startBranch,
-        setup.featureBranch
-      )
-      if diff.isBlank then git.deleteBranch(setup.featureBranch)
+  private def finishBranch(
+      git: GitTool,
+      setup: FlowSetup,
+      returnToStartBranch: Boolean
+  )(using InStage): Unit =
+    val throwaway =
+      setup.featureBranch != setup.startBranch &&
+        git
+          .diffBranchExcludingOrca(setup.startBranch, setup.featureBranch)
+          .isBlank
+    if throwaway then
+      git.checkoutOrCreate(setup.startBranch)
+      git.deleteBranch(setup.featureBranch)
+    else if returnToStartBranch then git.checkoutOrCreate(setup.startBranch)
+    // else: stay on the feature branch (the default).
 
   /** Failure teardown (ADR 0018 §2.5): discard the failed stage's uncommitted
     * partial edits with `git reset --hard` (which restores the last committed

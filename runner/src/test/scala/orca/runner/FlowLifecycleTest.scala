@@ -438,6 +438,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         interaction = Some(interaction),
         extraListeners = Nil,
         branchNaming = None,
+        returnToStartBranch = false,
         progressStore = Some(store),
         claude = Some(recorder),
         opencode = None,
@@ -477,6 +478,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         interaction = Some(interaction),
         extraListeners = Nil,
         branchNaming = None,
+        returnToStartBranch = false,
         progressStore = Some(store),
         claude = None,
         opencode = None,
@@ -527,7 +529,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(branches, Set("main"), s"expected only main, got: $branches")
 
   test(
-    "R5: success teardown keeps feature branch when code changes exist"
+    "success teardown (default): stays on the feature branch when code landed"
   ):
     val workDir = TempRepo.create()
     val prompt = "code-flow"
@@ -550,9 +552,50 @@ class FlowLifecycleTest extends munit.FunSuite:
         val _ = stage("write code"):
           os.write(workDir / "code.txt", "real code")
           "done"
-    // Back on main, but the feature branch must still exist.
-    assertEquals(git.currentBranch(), "main")
+    // Default behaviour: stay on the feature branch (the user ends on the work).
+    assertEquals(git.currentBranch(), featureBranchName)
     assert(featureBranchName.nonEmpty, "must have captured feature branch name")
+    val branches = os
+      .proc("git", "branch", "--format=%(refname:short)")
+      .call(cwd = workDir)
+      .out
+      .text()
+      .linesIterator
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .toSet
+    assert(
+      branches.contains(featureBranchName),
+      s"feature branch '$featureBranchName' must be kept; branches: $branches"
+    )
+
+  test(
+    "success teardown with returnToStartBranch=true returns to start, keeps branch"
+  ):
+    val workDir = TempRepo.create()
+    val prompt = "code-flow-return"
+    val git = new OsGitTool(workDir)
+    var featureBranchName = ""
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt),
+        leadModel = _ => StubLlm.claude,
+        workDir = workDir,
+        interaction = Some(interaction),
+        returnToStartBranch = true
+      ):
+        featureBranchName = summon[orca.FlowContext].git.currentBranch()
+        val _ = stage("write code"):
+          os.write(workDir / "code.txt", "real code")
+          "done"
+    // PR-flow behaviour: HEAD returns to the starting branch…
+    assertEquals(git.currentBranch(), "main")
+    // …but the feature branch is kept (it holds the work / backs the PR).
     val branches = os
       .proc("git", "branch", "--format=%(refname:short)")
       .call(cwd = workDir)

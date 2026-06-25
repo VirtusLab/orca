@@ -30,6 +30,7 @@ class FlowContextLlmTest extends munit.FunSuite:
         interaction = Some(interaction),
         extraListeners = Nil,
         branchNaming = None,
+        returnToStartBranch = false,
         progressStore = None,
         claude = None,
         opencode = None,

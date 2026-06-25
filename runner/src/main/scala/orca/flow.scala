@@ -81,6 +81,7 @@ def flow(
     interaction: Option[Interaction] = None,
     extraListeners: List[OrcaListener] = Nil,
     branchNaming: Option[BranchNamingStrategy] = None,
+    returnToStartBranch: Boolean = false,
     progressStore: Option[ProgressStore] = None,
     claude: Option[ClaudeTool] = None,
     opencode: Option[OpencodeTool] = None,
@@ -121,6 +122,7 @@ def flow(
         interaction,
         extraListeners ++ List(costTracker),
         branchNaming,
+        returnToStartBranch,
         progressStore,
         claude,
         opencode,
@@ -165,6 +167,7 @@ private[orca] def runFlow(
     interaction: Option[Interaction],
     extraListeners: List[OrcaListener],
     branchNaming: Option[BranchNamingStrategy],
+    returnToStartBranch: Boolean,
     progressStore: Option[ProgressStore],
     claude: Option[ClaudeTool],
     opencode: Option[OpencodeTool],
@@ -262,7 +265,8 @@ private[orca] def runFlow(
           if debug then e.printStackTrace(System.err)
           FlowLifecycle.teardownFailure(effectiveGit)
           throw e
-      if bodySucceeded then FlowLifecycle.teardownSuccess(effectiveGit, setup)
+      if bodySucceeded then
+        FlowLifecycle.teardownSuccess(effectiveGit, setup, returnToStartBranch)
     finally effectiveInteraction.close()
 
 private def installUncaughtExceptionHandler(): Unit =

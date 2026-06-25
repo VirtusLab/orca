@@ -294,7 +294,11 @@ the wrong branch.
   (CLI-flag/argument injection into `git`/`gh`) nor be empty. A non-deterministic name is
   computed once and recorded, never recomputed on resume; a deterministic name needs
   no read-back.
-- **R3** — The starting branch is recorded and restored on **successful** exit. On
+- **R3** — The starting branch is recorded. On a **successful** exit HEAD stays on
+  the feature branch by default (so the author ends on the work — the common case
+  is a flow that opens no PR); a flow that opens a PR passes `returnToStartBranch =
+  true` to switch back to the starting branch afterward. (A throwaway branch is the
+  exception — see R5 — where HEAD always returns to the starting branch.) On
   **failure** the flow stays on the feature branch, so a re-run resumes in place —
   HEAD is already on the right branch and the committed log is in the working tree.
 - **R4** — On flow start a dirty working tree is stashed, with a user-visible
@@ -337,11 +341,12 @@ the wrong branch.
 ```scala
 def flow(
     args: OrcaArgs,
-    leadModel: FlowContext => LlmTool[?] = _.claude,  // leading-model selector (R31)
-    //   ^ resolved against the built context: `_.claude` (default), `_.codex`, …
+    leadModel: FlowContext => LlmTool[?],  // required leading-model selector (R31)
+    //   ^ resolved against the built context: `_.claude`, `_.codex`, …
     // … existing tool overrides …
     branchNaming: Option[BranchNamingStrategy] = None,
     //   ^ None ⇒ slug the prompt; or Some(BranchNamingStrategy.issue(handle)) for issue flows
+    returnToStartBranch: Boolean = false,  // R3; false ⇒ stay on the feature branch
     progressStore: Option[ProgressStore] = None     // §2.4; pluggable path + format
 )(body: FlowControl ?=> Unit): Unit
 ```

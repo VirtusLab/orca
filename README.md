@@ -69,9 +69,13 @@ flow(OrcaArgs(args), _.claude):
 scala-cli run implement.sc -- "Add a rate-limiter to the /login endpoint"
 ```
 
-The feature branch is auto-created from the prompt and auto-deleted if nothing
-substantive landed (e.g. an early-exit flow). On failure the flow stays on the
-feature branch so a re-run resumes in place — HEAD is already on the right
+The feature branch is auto-created from the prompt. On success you're left **on
+the feature branch**, with the work — this flow opens no PR, so you stay where
+the code is (ready to test or open a PR by hand). A throwaway branch (nothing
+substantive landed, e.g. an early-exit flow) is deleted and HEAD returns to the
+starting branch instead. Flows that open a PR pass `returnToStartBranch = true`
+to switch back to the starting branch afterward. On failure the flow stays on
+the feature branch so a re-run resumes in place — HEAD is already on the right
 branch and the committed progress log is in the working tree.
 
 There are two runnable examples under [`examples/runnable/`](examples/runnable/):
@@ -175,7 +179,7 @@ Top-level, available via `import orca.*`:
 
 | Method | Signature | Use |
 |---|---|---|
-| `flow(args, leadModel, ...)(body)` | `flow(args: OrcaArgs, leadModel, branchNaming?, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `leadModel` selects the leading model — e.g. `_.claude` or `_.codex`. Branching defaults to a slug of the prompt; pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` for issue flows. |
+| `flow(args, leadModel, ...)(body)` | `flow(args: OrcaArgs, leadModel, branchNaming?, returnToStartBranch = false, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `leadModel` selects the leading model — e.g. `_.claude` or `_.codex`. Branching defaults to a slug of the prompt; pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` for issue flows. On success HEAD stays on the feature branch by default; pass `returnToStartBranch = true` (PR flows) to return to the starting branch. |
 | `stage[T: JsonData](name, commitMessage?)(body)` | `(name: String, commitMessage: Option[T => String] = None)(body): T` | The committing, resumable unit of work. On success, records the result, force-adds the progress log, and commits (code changes + log delta = one commit). On re-run, a stage whose result is still recorded is skipped and the stored value is returned. `T` must have `JsonData` — `case class Foo(...) derives JsonData` is enough. Commit message defaults to an `llm.cheap` summary of the diff; override via `commitMessage`. |
 | `display(message)` | `(message: String): Unit` | Progress-only output: no stage, no commit, no log entry. Callable anywhere — outside a stage or inside a fork. |
 | `fail(message)` | `(message: String): Nothing` | Abort with a message. Triggers failure teardown: stays on the feature branch so a re-run resumes. |
@@ -206,9 +210,12 @@ log (`.orca/progress-<hash>.json`, where `<hash>` is derived from the prompt):
   so recovery finds it before any checkout. Its header is validated as untrusted
   input (branch must match orca naming rules, prompt hash must match), then the run
   resumes from the first incomplete stage.
-- **Success teardown:** remove the progress-log file in a final commit; delete
-  the feature branch if it has no substantive changes vs the starting branch
-  (throwaway-branch cleanup); return to the starting branch.
+- **Success teardown:** remove the progress-log file in a final commit. A
+  throwaway feature branch (no substantive changes vs the starting branch) is
+  deleted and HEAD returns to the starting branch. Otherwise the feature branch
+  is kept and HEAD **stays on it by default** (so you end on the work); pass
+  `returnToStartBranch = true` — for flows that open a PR — to return HEAD to the
+  starting branch instead.
 - **Failure teardown:** discard the failed stage's uncommitted partial edits with
   `git reset --hard`; stay on the feature branch so a re-run resumes in place.
 

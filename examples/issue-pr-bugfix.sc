@@ -47,7 +47,14 @@ import scala.concurrent.duration.DurationInt
 val orcaArgs = OrcaArgs(args)
 val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
-flow(orcaArgs, _.claude, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
+// Opens a PR, so return to the starting branch afterward (the default is to
+// stay on the feature branch, for no-PR flows).
+flow(
+  orcaArgs,
+  _.claude,
+  branchNaming = Some(BranchNamingStrategy.issue(issueHandle)),
+  returnToStartBranch = true
+):
 
   val CiTimeout = 30.minutes
 

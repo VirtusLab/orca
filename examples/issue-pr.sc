@@ -36,7 +36,15 @@ import orca.{*, given}
 val orcaArgs = OrcaArgs(args)
 val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
-flow(orcaArgs, _.claude, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
+// returnToStartBranch: this flow opens a PR, so switch back to the starting
+// branch afterward (ready for the next task) rather than staying on the feature
+// branch — which is the default for no-PR flows like implement.sc.
+flow(
+  orcaArgs,
+  _.claude,
+  branchNaming = Some(BranchNamingStrategy.issue(issueHandle)),
+  returnToStartBranch = true
+):
   // Pure read — outside any stage (reads don't need InStage).
   val issue = gh.readIssue(issueHandle)
 
