@@ -186,6 +186,43 @@ class ClaudeBackendTest extends munit.FunSuite:
       )
 
   test(
+    "registerSession (rehydrate on resume) makes the first call use --resume, not --session-id"
+  ):
+    // Regression for the cross-process resume bug: claude's sessions are
+    // durable on disk, so a resumed run re-claims the recorded id via
+    // `registerSession` (what `rehydrateSessions` calls). The very first call in
+    // THIS process must then `--resume` the existing session rather than
+    // re-create it with `--session-id` (which the CLI rejects as "already in
+    // use"). Before the fix, claude wired neither hook, so it always re-created.
+    val sid = SessionId[BackendTag.ClaudeCode.type](
+      "44444444-4444-4444-4444-444444444444"
+    )
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    withBackend(runner): backend =>
+      backend.registerSession(sid, sid)
+      val _ =
+        backend.runAutonomous("continue", sid, LlmConfig.default, os.temp.dir())
+      val args = runner.calls.head
+      assert(args.containsSlice(Seq("--resume", SessionId.value(sid))), args)
+      assert(!args.contains("--session-id"), args)
+
+  test(
+    "serverFor reflects the claim so persistServerId records the resumable id"
+  ):
+    // `serverFor` is the source `persistServerId` reads to write `serverId` into
+    // the progress log; without it (the old default `None`) the claim was never
+    // persisted and resume re-created the session.
+    val sid = SessionId[BackendTag.ClaudeCode.type](
+      "55555555-5555-5555-5555-555555555555"
+    )
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    withBackend(runner): backend =>
+      assertEquals(backend.serverFor(sid), None) // unclaimed
+      val _ =
+        backend.runAutonomous("hi", sid, LlmConfig.default, os.temp.dir())
+      assertEquals(backend.serverFor(sid), Some(sid)) // claimed → persistable
+
+  test(
     "failed first call leaves the session unclaimed; retry still uses --session-id"
   ):
     // `sessions.commitSuccess` runs only after `new ClaudeConversation`

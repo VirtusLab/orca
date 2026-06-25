@@ -75,6 +75,26 @@ private[orca] class ClaudeBackend(
   private val sessions =
     new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type]
 
+  // Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
+  // outlive the process, so the `--session-id` (claim) → `--resume` (continue)
+  // decision must survive a resume. Wire the claim into the persist/rehydrate
+  // hooks: `serverFor` lets `persistServerId` record the claimed id (client IS
+  // the wire id) into the progress log, and `registerSession` re-claims it on
+  // rehydrate so a resumed task uses `--resume` rather than re-creating an
+  // already-existing session id (R22/R23). Unlike pi, whose sessions live in a
+  // deleteOnExit temp dir and are gone across runs, claude's are durable, so it
+  // must participate in persist/rehydrate rather than always re-seeding.
+  override def serverFor(
+      client: SessionId[BackendTag.ClaudeCode.type]
+  ): Option[SessionId[BackendTag.ClaudeCode.type]] =
+    sessions.serverFor(client)
+
+  override def registerSession(
+      client: SessionId[BackendTag.ClaudeCode.type],
+      server: SessionId[BackendTag.ClaudeCode.type]
+  ): Unit =
+    sessions.commitSuccess(client, server)
+
   def runAutonomous(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
