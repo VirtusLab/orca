@@ -195,9 +195,11 @@ trait OpencodeTool extends LlmTool[BackendTag.Opencode.type]:
   def openaiGpt5Codex: OpencodeTool
   def openaiGpt5Mini: OpencodeTool
 
-  // `defaultCheap` is provider-aware (see DefaultOpencodeTool) — cheap for an
-  // openai-led tool is an openai model, so incidental work doesn't pull in a
-  // second provider's auth.
+  /** Base cheap variant is anthropic haiku; [[DefaultOpencodeTool]] overrides
+    * this to match the leading provider, so incidental work on an openai-led
+    * tool doesn't pull in a second provider's auth.
+    */
+  override protected def defaultCheap: OpencodeTool = anthropicHaiku
 
   /** Pin any `provider/model` id (e.g. `ollama/llama3.1`, `myhost/qwen-coder`).
     */

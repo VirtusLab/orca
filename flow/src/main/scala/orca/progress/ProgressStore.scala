@@ -106,7 +106,11 @@ private class OsProgressStore(val path: os.Path) extends ProgressStore:
       else log.sessions :+ record
     log.copy(sessions = updated)
 
-  // TODO: do we have to always write the entire file? Can't we append a single JSON object at a time, treating the whole file as JSONL?
+  // We rewrite the whole file each time rather than append JSONL: the log is a
+  // single structured *document* (a header + entries + sessions object), not a
+  // flat event stream — `upsertEntry`/`upsertSession` mutate existing elements,
+  // which an append-only log can't express. It's also small and bounded (a
+  // handful of stages + sessions per run), so a full rewrite is negligible.
   private def writeLog(log: ProgressLog): Unit =
     os.write.over(path, writeToString(log)(using codec), createFolders = true)
 
