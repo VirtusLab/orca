@@ -176,40 +176,24 @@ Top-level, available via `import orca.*`:
 
 | Method | Signature | Use |
 |---|---|---|
-| `flow(args, leadModel?, ...)(body)` | `flow(args: OrcaArgs, leadModel: FlowContext => LlmTool[?] = _.claude, branchNaming?, progressStore?)(body: FlowControl ?=> Unit)` | Entry point. Creates one feature branch + one progress log for the run. `leadModel` selects the leading model — `_.claude` by default, `_.codex` to use Codex. Branching defaults to a slug of the prompt; pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` for issue flows. |
-| `stage[T: JsonData](name, commitMessage?)(body)` | `(name: String, commitMessage: Option[T => String] = None)(body: InStage ?=> T)(using FlowControl): T` | The committing, resumable unit of work. On success, records the result, force-adds the progress log, and commits (code changes + log delta = one commit). On re-run, a stage whose result is still recorded is skipped and the stored value is returned. `T` must have `JsonData` — `case class Foo(...) derives JsonData` is enough. Commit message defaults to an `llm.cheap` summary of the diff; override via `commitMessage`. |
-| `display(message)` | `(message: String)(using FlowContext): Unit` | Progress-only output: no stage, no commit, no log entry. Callable anywhere — outside a stage or inside a fork. |
-| `fail(message)` | `(message: String)(using FlowContext): Nothing` | Abort with a message. Triggers failure teardown: stays on the feature branch so a re-run resumes. |
+| `flow(args, leadModel?, ...)(body)` | `flow(args: OrcaArgs, leadModel? = _.claude, branchNaming?, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `leadModel` selects the leading model — `_.claude` by default, `_.codex` to use Codex. Branching defaults to a slug of the prompt; pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` for issue flows. |
+| `stage[T: JsonData](name, commitMessage?)(body)` | `(name: String, commitMessage: Option[T => String] = None)(body): T` | The committing, resumable unit of work. On success, records the result, force-adds the progress log, and commits (code changes + log delta = one commit). On re-run, a stage whose result is still recorded is skipped and the stored value is returned. `T` must have `JsonData` — `case class Foo(...) derives JsonData` is enough. Commit message defaults to an `llm.cheap` summary of the diff; override via `commitMessage`. |
+| `display(message)` | `(message: String): Unit` | Progress-only output: no stage, no commit, no log entry. Callable anywhere — outside a stage or inside a fork. |
+| `fail(message)` | `(message: String): Nothing` | Abort with a message. Triggers failure teardown: stays on the feature branch so a re-run resumes. |
 
-### The capability model
+### Side effects happen inside stages
 
-Three capabilities gate what code can do at compile time:
+Every side-effecting call must happen inside a `stage` body, and **the compiler
+enforces it** — a mutation written outside a stage doesn't compile, so a flow
+that side-effects without a checkpoint is a compile error, not a runtime
+surprise. That covers git mutations (`commit`/`push`/`resetHard`/…), `fs.write`,
+`gh` writes (`createPr`/`updatePr`/`writeComment`/`upsertComment`), and every
+`llm.*.run`.
 
-```scala
-trait FlowContext                       // thread-safe, shareable: reads + llm + emit
-trait FlowControl extends FlowContext   // + authority to start stages; thread-affine
-opaque type InStage                     // in-stage mutation token, from `stage(...)`
-```
-
-**Mutations** — `git.commit`/`push`/`forceAdd`/`resetHard`/`deleteBranch`,
-`fs.write`, `gh.createPr`/`updatePr`/`writeComment`/`upsertComment`, every
-`llm.*.run` call — require `InStage`, which only the body of a `stage` receives.
-The compiler rejects a mutation outside a stage.
-
-**Reads** — `git.diff`, `git.log`, `git.currentBranch`, `gh.readIssue`,
-`gh.buildStatus`/`waitForBuild`, `fs.read`, `display`, `fail`
-— need only `FlowContext` and are callable anywhere.
-
-**`llm.session(seed)`** requires `FlowControl` (not just `FlowContext`): it
-writes a `SessionRecord` to the progress log. It does **not** require `InStage`,
-so it is callable in the flow body outside a stage — but not from a `fork` that
-receives only `FlowContext`. `llm.runSeeded(prompt, session)` additionally
-requires `InStage` and must be called inside a `stage(...)` body.
-
-**Starting a stage** requires `FlowControl`. The `stage` function is called
-directly in a flow body (the context resolves implicitly); a helper that itself
-starts stages declares `using FlowControl` in its signature, making the fact
-visible.
+Reads (`git.diff`, `git.log`, `git.currentBranch`, `gh.readIssue`,
+`gh.buildStatus`/`waitForBuild`, `fs.read`), `display`, and `fail` run anywhere.
+`llm.session(seed)` also runs outside a stage — it records a session, not a side
+effect (see [Sessions](#sessions)).
 
 ### The flow lifecycle
 
@@ -233,8 +217,8 @@ log (`.orca/progress-<hash>.json`, where `<hash>` is derived from the prompt):
 
 `llm.session(seed)` is a get-or-create keyed by call-site position — the same
 call site resumes the same session across re-runs. It reserves a `SessionId` and
-records it in the progress log (no LLM call); see [the capability
-model](#the-capability-model) for why it needs `FlowControl` but no `InStage`.
+records it in the progress log (no LLM call), and is callable outside a stage —
+recording a session isn't a side effect.
 
 ```scala
 val session = claude.session(seed = plan.brief)
@@ -254,16 +238,15 @@ runtime for branch naming and default commit messages.
 
 ## Authoring rules
 
-The compiler enforces the `InStage` constraint automatically (mutations outside
-a stage body are compile errors). The rules below are the structural conventions
-you choose to follow as a flow author.
+Mutations outside a stage body are compile errors (see [Side effects happen
+inside stages](#side-effects-happen-inside-stages)). The rules below are the
+structural conventions you choose to follow as a flow author.
 
 1. **Reads outside, mutations inside.** Only side-effecting work goes in a
    stage. Pure reads (`git.diff`, `gh.readIssue`, `fs.read`, `gh.waitForBuild`)
    run outside stages — staging them wastes commits and checkpoints.
-   `llm.session(seed)` also runs outside stages (it only needs `FlowControl`,
-   not `InStage`), but it is not a pure read — it writes a session record to
-   the progress log.
+   `llm.session(seed)` also runs outside stages, but it isn't a pure read — it
+   records a session in the progress log.
 
 2. **Push lives in a later stage than the edit that produced it.** A stage
    commits only on completion: a `git.push()` in the same stage as the edit would

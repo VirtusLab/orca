@@ -16,36 +16,68 @@ listed in the README.
 ```
 orca/
 ├── build.sbt / project/
-├── tools/      # tool interfaces + os-backed impls + structured I/O + event bus
-├── flow/       # FlowContext, stage/fail; orca.review (ReviewTypes, ReviewLoop, Reviewers); orca.bug; orca.plan
-├── claude/     # Claude Code backend + DefaultClaudeTool + DefaultLlmCall
-├── codex/      # Codex backend (codex exec --json over stdio)
-└── runner/     # flow() entry + DefaultFlowContext + terminal layer
+├── tools/      # tool traits + os-backed impls (git/gh/fs), LLM SPI + session registry, InStage, events, subprocess
+├── flow/       # stage/display/fail + FlowContext/FlowControl; orca.{plan,review,pr,progress}
+├── claude/ codex/ gemini/ opencode/ pi/   # one module per coding-agent backend
+└── runner/     # flow() entry, DefaultFlowContext, FlowLifecycle, terminal UI
 ```
 
 Dependency graph:
 
 ```
 tools   (standalone)
-  ├── flow       → tools
-  ├── claude     → tools
-  ├── codex      → tools
-  └── runner     → tools + flow + claude + codex
+  ├── flow                          → tools
+  ├── claude / codex / gemini /
+  │     opencode / pi               → tools
+  └── runner                        → tools + flow + all five backends
 ```
 
 The runner module owns the `flow` entry point (`package orca`) and wires
-defaults via `DefaultFlowContext` (`package orca.runner`). Its terminal UI
-lives in its own sub-package, `orca.runner.terminal`, so swapping it for a
-Slack or HTTP equivalent is a matter of substituting one `Interaction` at
-the call site rather than rewiring modules.
+defaults via `DefaultFlowContext` (`package orca.runner`); the stage
+setup/teardown/recovery state machine is `orca.runner.FlowLifecycle`. The
+terminal UI lives in `orca.runner.terminal`, behind an `Interaction`, so
+swapping it for a Slack or HTTP equivalent is one substitution at the call
+site rather than rewiring modules.
 
-Only the user-facing surface lives in `package orca` (the `flow` entry
-point, the tool traits, the accessors, `JsonData`, `OrcaArgs`).
-Implementations live in focused subpackages: `orca.tools.fs` /
-`orca.tools.git` / `orca.tools.github` (os-backed tool impls),
-`orca.tools.claude` / `orca.tools.codex` (LLM backends), `orca.subprocess`
-(subprocess shim), `orca.io` (structured-I/O plumbing), `orca.runner` /
-`orca.runner.terminal` (wiring and terminal UI).
+The user-facing surface lives in `package orca` (the `flow` entry, the tool
+accessors, `stage`/`display`/`fail`, `JsonData`, `OrcaArgs`). Implementations
+live in focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their
+traits), `orca.llm` + `orca.backend` (LLM SPI, `SessionRegistry`, conversation
+driver), `orca.subprocess` (subprocess shim), `orca.events` (event bus), one
+`orca.tools.<backend>` per coding agent, and `orca.runner` / `orca.runner.terminal`
+(wiring + terminal UI). The flow module adds `orca.{plan,review,pr,progress}`.
+
+## The stage-bound runtime
+
+The flow runtime is specified in [ADR 0018](adr/0018-stage-bound-flow-runtime.md) —
+read it before touching `stage`, the progress log, or sessions. The invariants
+most easily broken:
+
+- **Capability gating.** Three compile-time capabilities gate side effects:
+  `FlowContext` (reads + emit; thread-safe), `FlowControl <: FlowContext`
+  (authority to start a stage; thread-affine), and the opaque `InStage` token
+  (in `tools`, `package orca`). Every mutating tool method — git writes,
+  `fs.write`, `gh` writes, every `llm.*.run` — takes `(using InStage)`, which
+  only a `stage` body mints. Don't relax this: don't mint `InStage.unsafe`
+  outside the runtime (`Flow` / `FlowLifecycle` / `Session`), and don't drop a
+  `(using InStage)` to "make it compile" — thread it up to the nearest stage.
+  `orcacaps.InStageNegativeTest` pins that a mutation outside a stage fails to
+  compile.
+
+- **Progress log + recovery.** A run commits `.orca/progress-<hash>.json` (hash =
+  prompt, so the path is branch-independent) with one entry per completed stage;
+  a re-run replays recorded entries and skips them. The header is untrusted on
+  load — `orca.progress.RecoveryCheck` validates it (safe ref, prompt-hash match,
+  protected-branch refusal) before any destructive git op.
+
+- **Sessions.** `SessionRegistry` has two shapes: `ClaimedOnce` (claude/pi — the
+  client id IS the wire id) and `ClientToServer` (codex/opencode — a server-minted
+  id learned from the protocol). A backend whose sessions survive a process
+  restart MUST wire **both** `serverFor` (so `persistServerId` records the id in
+  the log) and `registerSession` (so `rehydrateSessions` re-claims it on resume) —
+  claude and codex each shipped a resume bug from getting this wrong. `sessionExists`
+  is a best-effort, non-destructive probe; when it can't confirm a live session the
+  flow re-seeds, the uniform fallback that holds on every backend.
 
 ## Build and test
 
@@ -73,20 +105,21 @@ Some tests shell out to real external tools and skip by default:
 
 ```bash
 ORCA_INTEGRATION=1 sbt test
-ORCA_INTEGRATION=1 sbt "claude/testOnly orca.claude.ClaudeIntegrationTest"
+ORCA_INTEGRATION=1 sbt "claude/testOnly orca.tools.claude.ClaudeIntegrationTest"
 ORCA_INTEGRATION=1 sbt "tools/testOnly orca.tools.OsGitHubIntegrationTest"
 ORCA_INTEGRATION=1 sbt "runner/testOnly orca.runner.terminal.ScalaCliSmokeTest"
 ```
 
 | Suite | Needs |
 |---|---|
-| `ClaudeIntegrationTest` | `claude` authenticated |
+| `{Claude,Codex,Gemini,Opencode,Pi}IntegrationTest` (one per `orca.tools.<backend>`) | that backend's CLI authenticated |
 | `OsGitHubIntegrationTest` | `gh` authenticated |
 | `ScalaCliSmokeTest` | `scala-cli`; runs `sbt publishLocal` internally |
 
-Unit tests use in-memory fakes (`StubCliRunner`, `FakeLlmTool`,
-`FakeCliProcess`, `TestFlowContext`) — no network, no real filesystem
-outside of `os.temp.dir()`.
+Unit tests use in-memory fakes (`StubCliRunner` / `SpawnStubCliRunner`,
+`FakeLlmTool`, `FakePipedCliProcess`, `TestFlowContext` / `TestFlowControl`) and
+the shared `orca.testkit.GitRepo` temp-repo fixture (published via `tools %
+test->test`) — no network, no real filesystem outside `os.temp.dir()`.
 
 ### Iterating quickly
 
@@ -140,9 +173,9 @@ sbt publishLocal
 ```
 
 Installs `org.virtuslab::orca:0.0.14` plus its transitive modules
-(`orca-tools`, `orca-flow`, `orca-claude`, `orca-codex`) into
-`~/.ivy2/local` so a flow script with `//> using repository ivy2Local` can
-resolve them.
+(`orca-tools`, `orca-flow`, and the five backends
+`orca-{claude,codex,gemini,opencode,pi}`) into `~/.ivy2/local` so a flow script
+with `//> using repository ivy2Local` can resolve them.
 
 For an iteration loop while hacking on Orca itself, run sbt in one
 terminal with a `~` watch-and-publish:
