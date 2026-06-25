@@ -253,6 +253,13 @@ class RunSeededTest extends FunSuite:
       prompt.contains("implement"),
       s"preamble must name completed stage 'implement'; got: $prompt"
     )
+    // Neutral wording: the preamble is injected both on a true resume and on the
+    // first task after an earlier stage in the SAME run, so it must not claim
+    // the run was "interrupted".
+    assert(
+      !prompt.toLowerCase.contains("interrupted"),
+      s"preamble wording must stay neutral (no 'interrupted'); got: $prompt"
+    )
     assert(prompt.contains(seed), s"prompt must contain seed; got: $prompt")
     assert(
       prompt.contains(originalPrompt),

@@ -108,7 +108,7 @@ private def progressPreamble(log: Option[ProgressLog]): Option[String] =
   if completed.isEmpty then None
   else
     Some(
-      s"Progress so far (resuming an interrupted run): completed ${completed.mkString(", ")}. Continue from here."
+      s"Progress so far: completed ${completed.mkString(", ")}. Continue from here."
     )
 
 /** Assemble the final primed prompt from the optional preamble, optional seed,

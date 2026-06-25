@@ -270,6 +270,14 @@ class BranchNamingTest extends munit.FunSuite:
       BranchNamingStrategy.shortenPrompt.resolve("Fix login bug", llm)
     assertEquals(result, "fix-login-bug")
 
+  test("shortenPrompt: a markdown-fenced reply is unwrapped (no literal ```)"):
+    // The cheap model sometimes wraps its one-line reply in a code fence;
+    // cheapOneShot must skip the fence lines, not return a literal "```".
+    val llm = stubbedLlm("```\nfix login bug\n```")
+    val result =
+      BranchNamingStrategy.shortenPrompt.resolve("Fix login bug", llm)
+    assertEquals(result, "fix-login-bug")
+
   test(
     "producer == validator: slug output always passes RecoveryCheck.isSafeBranchRef"
   ):
