@@ -29,39 +29,41 @@ Save this as `implement.sc` and run it with your task:
 
 import orca.{*, given}
 
-// The leading model is required: `_.claude` for Claude, `_.codex` for Codex.
+// `_.claude` selects the leading agent (the coding harness — claude, codex, …).
+// Inside the body, reference it as `agent`, not `claude`, so the flow is
+// backend-agnostic: switch the selector to `_.codex` and the whole flow follows.
 flow(OrcaArgs(args), _.claude):
   // `stage` is the committing, resumable unit of work. The plan is produced in
   // one agentic turn and recorded in the stage log; a re-run with the same
   // prompt skips this stage and reads the stored Plan back.
-  // plan.brief is always present — feed it to `llm.session(seed = plan.brief)`.
+  // plan.brief is always present — feed it to `agent.session(seed = plan.brief)`.
   val plan = stage("Plan"):
-    Plan.autonomous.from(userPrompt, claude).value  // .value takes the Plan, discarding the planner's session
+    Plan.autonomous.from(userPrompt, agent).value  // .value takes the Plan, discarding the planner's session
 
   // Get-or-create the implementer session (pure: id reserved, backend created
   // on first use). The seed (plan.brief) primes it on first use and is
   // replayed if the backend session is lost on resume.
-  val session = claude.session(seed = plan.brief)
+  val session = agent.session(seed = plan.brief)
 
   // One stage per task: each stage commits its work + a progress-log entry as
   // one commit. Completed stages are skipped on resume — re-running the same
   // prompt picks up from the first incomplete task.
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):      // skipped on resume if already done
-      claude.runSeeded(task.description, session)
+      agent.runSeeded(task.description, session)
       reviewAndFixLoop(                  // runs under this stage
-        coder = claude, sessionId = session,
-        reviewers = allReviewers(claude),
-        // claude.cheap picks the per-task reviewer subset; swap for
+        coder = agent, sessionId = session,
+        reviewers = allReviewers(agent),
+        // agent.cheap picks the per-task reviewer subset; swap for
         // `ReviewerSelector.allEveryRound` to run every reviewer.
-        reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
+        reviewerSelection = ReviewerSelector.llmDriven(agent.cheap),
         task = task.title.value,
         // Format after every edit so commits stay formatted and reviewers
         // skip style nits.
         formatCommand = Some("cargo fmt"),
         // Cheap sanity gate; correctness is the reviewers' and CI's job.
         lintCommand = Some("cargo check --tests"),
-        lintLlm = Some(claude.cheap)
+        lintLlm = Some(agent.cheap)
       )
 ```
 
@@ -179,7 +181,8 @@ Top-level, available via `import orca.*`:
 
 | Method | Signature | Use |
 |---|---|---|
-| `flow(args, leadModel, ...)(body)` | `flow(args: OrcaArgs, leadModel, branchNaming?, returnToStartBranch = false, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `leadModel` selects the leading model — e.g. `_.claude` or `_.codex`. Branching defaults to a slug of the prompt; pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` for issue flows. On success HEAD stays on the feature branch by default; pass `returnToStartBranch = true` (PR flows) to return to the starting branch. |
+| `flow(args, agent, ...)(body)` | `flow(args: OrcaArgs, agent, branchNaming?, returnToStartBranch = false, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `agent` selects the leading coding agent — e.g. `_.claude` or `_.codex`. Inside the body, reference the lead via the backend-agnostic `agent` accessor instead of a concrete `claude`/`codex` (autonomous, tier-agnostic flows). Branching defaults to a slug of the prompt; pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` for issue flows. On success HEAD stays on the feature branch by default; pass `returnToStartBranch = true` (PR flows) to return to the starting branch. |
+| `agent` (in-body accessor) | `agent: LlmTool[?]` | The leading agent resolved from the `flow` selector. Use it for autonomous, tier-agnostic work (`agent.session`, `agent.runSeeded`, `agent.cheap`, `Plan.autonomous.from(_, agent)`) so the body is backend-agnostic. Backend-specific tiers (`claude.opus`) and interactive planning (`Plan.interactive`, needs `CanAskUser`) still use a concrete accessor (`claude`/`codex`). |
 | `stage[T: JsonData](name, commitMessage?)(body)` | `(name: String, commitMessage: Option[T => String] = None)(body): T` | The committing, resumable unit of work. On success, records the result, force-adds the progress log, and commits (code changes + log delta = one commit). On re-run, a stage whose result is still recorded is skipped and the stored value is returned. `T` must have `JsonData` — `case class Foo(...) derives JsonData` is enough. Commit message defaults to an `llm.cheap` summary of the diff; override via `commitMessage`. |
 | `display(message)` | `(message: String): Unit` | Progress-only output: no stage, no commit, no log entry. Callable anywhere — outside a stage or inside a fork. |
 | `fail(message)` | `(message: String): Nothing` | Abort with a message. Triggers failure teardown: stays on the feature branch so a re-run resumes. |
@@ -227,8 +230,8 @@ records it in the progress log (no LLM call), and is callable outside a stage �
 recording a session isn't a side effect.
 
 ```scala
-val session = claude.session(seed = plan.brief)
-claude.runSeeded(task.description, session)
+val session = agent.session(seed = plan.brief)
+agent.runSeeded(task.description, session)
 ```
 
 The `seed` is the essential context to rebuild the agent — typically the **plan
@@ -261,7 +264,7 @@ structural conventions you choose to follow as a flow author.
 
    ```scala
    stage("Write failing test"):
-     claude.runSeeded("Write the failing test …", session)   // commits on completion
+     agent.runSeeded("Write the failing test …", session)    // commits on completion
 
    val pr = stage("Push + open PR"):   // LATER stage — the test commit exists now
      git.push().orThrow

@@ -29,7 +29,7 @@ case class BranchSlug(name: String) derives JsonData
 object FlowCanary:
 
   // The leading model is named by a `flow(...)` selector resolved against the
-  // flow context (ADR 0018 §2.5). A positional `leadModel` selector is
+  // flow context (ADR 0018 §2.5). A positional `agent` selector is
   // required: `_.claude`, `_.codex`, etc. These canaries use the real shapes
   // the `examples/*.sc` files use — no hand-built stub.
 
@@ -98,7 +98,7 @@ object FlowCanary:
     * `flow(args = ..., workDir = ...)` straight from `import orca.*`.
     */
   def configured(): Unit =
-    flow(args = OrcaArgs("hello"), leadModel = _.claude, workDir = os.pwd):
+    flow(args = OrcaArgs("hello"), agent = _.claude, workDir = os.pwd):
       stage("cfg"):
         val _ = claude.autonomous.run(userPrompt)
 
@@ -328,11 +328,11 @@ object FlowCanary:
         gh.createPr(title = prSum.title, body = prSum.body).orThrow
 
   /** The leading-model selector resolves against the flow context (ADR 0018
-    * §2.5): a positional `leadModel` selector is required (`_.claude`,
-    * `_.codex`, …). Pins the `_.codex` positional shape so a selector
-    * regression surfaces here.
+    * §2.5): a positional `agent` selector is required (`_.claude`, `_.codex`,
+    * …). Pins the `_.codex` positional shape so a selector regression surfaces
+    * here.
     */
-  def leadModelSelector(): Unit =
+  def agentSelector(): Unit =
     flow(OrcaArgs(), _.codex):
       stage("lead"):
         val _ = codex.autonomous.run(userPrompt)

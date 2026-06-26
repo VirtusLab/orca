@@ -28,25 +28,28 @@
 
 import orca.{*, given}
 
+// `_.claude` selects the leading agent (the coding harness — claude, codex, pi,
+// …). Inside the body, reference it as `agent`, not `claude`, so the flow is
+// backend-agnostic: switch the selector to `_.codex` / `_.opencode` / … and the
+// whole body follows. `agent.cheap` is the lead's own cheap tier.
 flow(OrcaArgs(args), _.claude):
-  // TODO: instead of referencing "claude" in the plans, reference the leading llm. What's the best name for a value represnting the leading model - or rather, the chosen coding harness? Claude, Pi, Opencode, aren't really models per se, rather coding agents / harnesses, each capable of using multiple models. So how to best call this, so the name is intuitive for users and reflects what `LlmTool` really is?
   val plan = stage("Plan"):
-    Plan.autonomous.from(userPrompt, claude).value
+    Plan.autonomous.from(userPrompt, agent).value
 
   // Get-or-create the implementer session. The seed (plan brief) primes it on
   // first use and is replayed if the backend session is lost on resume.
-  val session = claude.session(seed = plan.brief)
+  val session = agent.session(seed = plan.brief)
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"): // skipped on resume if already done
-      claude.runSeeded(task.description, session)
+      agent.runSeeded(task.description, session)
       reviewAndFixLoop( // runs under this stage
-        coder = claude,
+        coder = agent,
         sessionId = session,
-        reviewers = allReviewers(claude),
-        // claude.cheap picks the per-task reviewer subset; swap for
+        reviewers = allReviewers(agent),
+        // agent.cheap picks the per-task reviewer subset; swap for
         // `ReviewerSelector.allEveryRound` to run every reviewer.
-        reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
+        reviewerSelection = ReviewerSelector.llmDriven(agent.cheap),
         task = task.title.value,
         // Format after every edit so commits stay formatted and reviewers
         // skip style nits.
@@ -54,6 +57,6 @@ flow(OrcaArgs(args), _.claude):
         // Cheap sanity gate; correctness is the reviewers' and CI's job, so
         // skip the heavier tests.
         lintCommand = Some("cargo check --tests"),
-        lintLlm = Some(claude.cheap)
+        lintLlm = Some(agent.cheap)
       )
       // one commit per task: code + progress entry

@@ -9,12 +9,12 @@ import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 
-/** Verifies that the `leadModel` selector passed to `runFlow` is resolved
-  * against the flow context and surfaced as `summon[FlowContext].llm`.
+/** Verifies that the `agent` selector passed to `runFlow` is resolved against
+  * the flow context and surfaced as `summon[FlowContext].llm`.
   */
 class FlowContextLlmTest extends munit.FunSuite:
 
-  test("FlowContext.llm resolves the leadModel selector passed to runFlow"):
+  test("FlowContext.llm resolves the agent selector passed to runFlow"):
     val workDir = TempRepo.create()
     var seen: Option[LlmTool[?]] = None
     supervised:
@@ -25,7 +25,7 @@ class FlowContextLlmTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs("test-llm"),
-        leadModel = _ => StubLlm.claude,
+        agent = _ => StubLlm.claude,
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = Nil,

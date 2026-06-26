@@ -42,8 +42,8 @@ import scala.util.control.NonFatal
   * given.
   *
   * ```
-  * flow(OrcaArgs(args)):
-  *   val plan = claude.resultAs[Plan].autonomous.run(userPrompt)
+  * flow(OrcaArgs(args), _.claude):
+  *   val plan = agent.resultAs[Plan].autonomous.run(userPrompt)
   *   ...
   * ```
   *
@@ -58,12 +58,15 @@ import scala.util.control.NonFatal
   *   ...
   * ```
   *
-  * The leading model is named by a required `leadModel` selector resolved
-  * against the built `FlowContext`: the only way to name a model is the
-  * accessor on the context, which isn't in scope at the `flow(...)` argument
-  * position, so the selector defers resolution until the context exists.
+  * The leading agent is named by a required `agent` selector resolved against
+  * the built `FlowContext`: the only way to name an agent is the accessor on
+  * the context, which isn't in scope at the `flow(...)` argument position, so
+  * the selector defers resolution until the context exists.
   * `flow(OrcaArgs(args), _.claude)` runs against claude; `flow(OrcaArgs(args),
-  * _.codex)` against codex, etc. The resolved model becomes `ctx.llm`.
+  * _.codex)` against codex, etc. Inside the body, reference the resolved lead
+  * via the backend-agnostic [[agent]] accessor (not a concrete
+  * `claude`/`codex`) so switching the selector switches the whole flow; the
+  * runtime also keeps it erased as `ctx.llm` for its own use.
   *
   * WARNING: the selector MUST NOT read `ctx.llm` — `llm` is a lazy val resolved
   * by calling this selector, so `_.llm` would recurse infinitely. Safe
@@ -76,7 +79,7 @@ import scala.util.control.NonFatal
   */
 def flow(
     args: OrcaArgs,
-    leadModel: FlowContext => LlmTool[?],
+    agent: FlowContext => LlmTool[?],
     workDir: os.Path = os.pwd,
     interaction: Option[Interaction] = None,
     extraListeners: List[OrcaListener] = Nil,
@@ -92,7 +95,7 @@ def flow(
     fs: Option[FsTool] = None,
     prompts: Prompts = DefaultPrompts,
     pricing: PriceList = Pricing.default
-)(body: FlowControl ?=> Unit): Unit =
+)(body: Lead ?=> FlowControl ?=> Unit): Unit =
   // Per-run trace file: captures every stage, prompt, tool/subprocess call and
   // result at DEBUG. Started before anything logs so the whole run is caught;
   // the path is printed by the banner and the detail stays in the file.
@@ -117,7 +120,7 @@ def flow(
     try
       runFlow(
         args,
-        leadModel,
+        agent,
         workDir,
         interaction,
         extraListeners ++ List(costTracker),
@@ -162,7 +165,7 @@ def flow(
   */
 private[orca] def runFlow(
     args: OrcaArgs,
-    leadModel: FlowContext => LlmTool[?],
+    agent: FlowContext => LlmTool[?],
     workDir: os.Path,
     interaction: Option[Interaction],
     extraListeners: List[OrcaListener],
@@ -177,7 +180,7 @@ private[orca] def runFlow(
     gh: Option[GitHubTool],
     fs: Option[FsTool],
     prompts: Prompts
-)(body: FlowControl ?=> Unit): Unit =
+)(body: Lead ?=> FlowControl ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose.value
   val flowLog = LoggerFactory.getLogger("orca.flow")
   // Default TerminalInteraction is built inside `supervised:` because its
@@ -220,7 +223,7 @@ private[orca] def runFlow(
         workDir = workDir,
         interaction = effectiveInteraction,
         progressStore = store,
-        leadModel = leadModel,
+        leadModel = agent,
         claude = claude,
         opencode = opencode,
         opencodeLauncher = opencodeLauncher,
@@ -253,7 +256,10 @@ private[orca] def runFlow(
       // (`resetHard`), and must NOT strand the user on the feature branch.
       var bodySucceeded = false
       try
-        body(using ctx)
+        // Supply the lead as a stable `Lead` carrier so the body's `agent`
+        // accessor hands back a concretely-typed tool (sessions thread), even
+        // though `ctx.llm` itself is erased to `LlmTool[?]`.
+        body(using Lead(ctx.llm))(using ctx)
         bodySucceeded = true
       catch
         case NonFatal(e) =>

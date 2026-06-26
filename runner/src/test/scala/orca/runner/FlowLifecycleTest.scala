@@ -57,7 +57,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs("lifecycle-success"),
-        leadModel = _ => StubLlm.claude,
+        agent = _ => StubLlm.claude,
         workDir = workDir,
         interaction = Some(interaction)
       ):
@@ -182,7 +182,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
-        leadModel = _ => StubLlm.claude,
+        agent = _ => StubLlm.claude,
         workDir = workDir,
         progressStore = Some(store),
         interaction = Some(interaction)
@@ -433,7 +433,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs(prompt),
-        leadModel = _ => recorder,
+        agent = _ => recorder,
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = Nil,
@@ -473,7 +473,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs(prompt),
-        leadModel = _ => StubLlm.claude,
+        agent = _ => StubLlm.claude,
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = Nil,
@@ -507,7 +507,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
-        leadModel = _ => StubLlm.claude,
+        agent = _ => StubLlm.claude,
         workDir = workDir,
         interaction = Some(interaction)
       ):
@@ -543,7 +543,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
-        leadModel = _ => StubLlm.claude,
+        agent = _ => StubLlm.claude,
         workDir = workDir,
         interaction = Some(interaction)
       ):
@@ -584,7 +584,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
-        leadModel = _ => StubLlm.claude,
+        agent = _ => StubLlm.claude,
         workDir = workDir,
         interaction = Some(interaction),
         returnToStartBranch = true
@@ -663,7 +663,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       // branchNaming defaults to None — do not pass it.
       flow(
         args = OrcaArgs(prompt),
-        leadModel = _ => StubLlm.claude,
+        agent = _ => StubLlm.claude,
         workDir = workDir,
         interaction = Some(interaction)
       ):

@@ -48,7 +48,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
-        leadModel = stubLead,
+        agent = stubLead,
         workDir = TempRepo.create(),
         fs = Some(fake),
         interaction = Some(interaction)
@@ -91,7 +91,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
-        leadModel = _ => fakeClaude,
+        agent = _ => fakeClaude,
         workDir = TempRepo.create(),
         claude = Some(fakeClaude),
         interaction = Some(interaction)
@@ -133,7 +133,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
-        leadModel = stubLead,
+        agent = stubLead,
         workDir = TempRepo.create(),
         opencode = Some(fakeOpencode),
         interaction = Some(interaction)
@@ -168,7 +168,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
-        leadModel = stubLead,
+        agent = stubLead,
         workDir = TempRepo.create(),
         pi = Some(fakePi),
         interaction = Some(interaction)
@@ -187,7 +187,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
-        leadModel = stubLead,
+        agent = stubLead,
         workDir = TempRepo.create(),
         interaction = Some(interaction),
         extraListeners = List(tracker)

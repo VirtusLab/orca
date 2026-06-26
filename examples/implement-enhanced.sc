@@ -7,7 +7,7 @@
   * Same backbone as `implement.sc` (autonomous planning → per-task implement
   * + review-and-fix loop), enhanced with a self-review pass on the plan:
   *
-  *   1. **`.reviewed(claude)`** — the planner critiques its own draft and
+  *   1. **`.reviewed(agent)`** — the planner critiques its own draft and
   *      returns an improved plan (missing/duplicated tasks, ordering, vague
   *      descriptions, steps that don't fit the code). Runs read-only on the
   *      planning session; no extra exploration cost.
@@ -39,34 +39,37 @@ import orca.{*, given}
 
 // Opens a PR at the end, so return to the starting branch afterward (the
 // default is to stay on the feature branch, for no-PR flows like implement.sc).
+// `_.claude` selects the leading agent; the body references it as `agent` (not
+// `claude`) so the flow is backend-agnostic — switch the selector to `_.codex` /
+// `_.opencode` / … and the whole flow follows.
 flow(OrcaArgs(args), _.claude, returnToStartBranch = true):
   // Plan → review, all on one read-only planner session. The Plan structured
   // output always includes a brief, which seeds the implementer session below.
   val plan = stage("Plan"):
     Plan.autonomous
-      .from(userPrompt, claude)
-      .reviewed(claude)
+      .from(userPrompt, agent)
+      .reviewed(agent)
       .value
 
   // Get-or-create the implementer session. Seeded with the brief so the agent
   // has codebase context from the start; replayed on resume if the backend
   // session is lost.
-  val session = claude.session(seed = plan.brief)
+  val session = agent.session(seed = plan.brief)
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):      // skipped on resume if already done
       // The session seed already carries the brief, so send only the task
       // description here — runSeeded re-prepends the seed on first use / resume.
-      claude.runSeeded(task.description, session)
+      agent.runSeeded(task.description, session)
       reviewAndFixLoop(
-        coder = claude, sessionId = session,
-        reviewers = allReviewers(claude),
-        reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
+        coder = agent, sessionId = session,
+        reviewers = allReviewers(agent),
+        reviewerSelection = ReviewerSelector.llmDriven(agent.cheap),
         task = task.title.value,
         // Format after every edit (the implementation and each review fix).
         formatCommand = Some("cargo fmt"),
         lintCommand = Some("cargo check --tests"),
-        lintLlm = Some(claude.cheap)
+        lintLlm = Some(agent.cheap)
       )
       // one commit per task: code + progress entry
 
@@ -75,7 +78,7 @@ flow(OrcaArgs(args), _.claude, returnToStartBranch = true):
     git.push().orThrow
 
   val prSum = stage("Generate PR title and description"):
-    summarisePr(llm = claude.cheap, diff = git.diffVsBase(git.defaultBase()))
+    summarisePr(llm = agent.cheap, diff = git.diffVsBase(git.defaultBase()))
 
   stage("Open PR"):
     // gh.createPr is idempotent by head branch (R24): if the branch already has

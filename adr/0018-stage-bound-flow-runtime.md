@@ -315,20 +315,27 @@ the wrong branch.
   records — e.g. an in-progress branch was merged, carrying the log into another
   branch — the run aborts with a clear message rather than resuming against the
   wrong branch.
-- **R31** — The leading model is named by a `leadModel` **selector** argument to
-  `flow(...)` — `FlowContext => LlmTool[?]`, defaulting to `_.claude`. The only way
-  to name a model is an accessor on the flow context (`_.claude`, `_.codex`, …),
-  which isn't in scope at the `flow(...)` argument position, so the selector defers
-  resolution until the context is built. `flow(OrcaArgs(args))` runs against claude;
-  `flow(OrcaArgs(args), _.codex)` against codex. The resolved model is exposed in the
-  body as `ctx.llm` (used by the runtime for branch naming and default commit
-  messages, and available to scripts that need the leading model directly; example
-  bodies normally call the concrete accessor `claude`). `llm.session`,
-  `reviewAndFixLoop(coder = llm, …)`, and other session-typed calls retain
-  backend correlation (R27). `LlmTool` gains a `cheap` method
-  returning the backend's cheap variant (claude → haiku, gemini → flash, codex →
-  mini); orca uses `llm.cheap` for branch naming and default commit messages. There
-  is no implicit default model.
+- **R31** — The leading **agent** (the coding harness — `LlmTool` is an agent, not
+  a model: each drives several models) is named by a required `agent` **selector**
+  argument to `flow(...)` — `FlowContext => LlmTool[?]`. The only way to name an
+  agent is an accessor on the flow context (`_.claude`, `_.codex`, …), which isn't
+  in scope at the `flow(...)` argument position, so the selector defers resolution
+  until the context is built. `flow(OrcaArgs(args), _.claude)` runs against claude;
+  `flow(OrcaArgs(args), _.codex)` against codex. Inside the body the resolved lead
+  is reached via the backend-agnostic top-level `agent` accessor, so the body reads
+  the same regardless of backend — switch the selector and the whole flow follows.
+  This works despite `ctx.llm` being erased to `LlmTool[?]`: `flow` supplies a
+  single stable `Lead` carrier given whose `B` type member pins the backend, and
+  `agent` (`def agent(using l: Lead): LlmTool[l.B]`) hands back a concretely-typed
+  tool, so a session from `agent.session` threads into `agent.runSeeded` and the
+  reviewers (R27). The runtime also keeps the lead erased as `ctx.llm` for branch
+  naming and default commit messages. `LlmTool` gains a `cheap` method returning the
+  backend's cheap variant (claude → haiku, gemini → flash, codex → mini); orca uses
+  `agent.cheap` for branch naming and default commit messages. There is no implicit
+  default agent. (Boundary: the agnostic `agent` covers the autonomous, tier-agnostic
+  path; backend-specific tiers — `claude.opus` — and interactive planning —
+  `Plan.interactive`, which needs `CanAskUser[B]`, defined only per concrete backend
+  — use a concrete accessor.)
 - **R32** — The progress header is **untrusted input** on load (the log is
   human-visible and pushable — R26 — so it may be edited). Before any destructive
   action the runtime validates it: `branch`/`startingBranch` must be safe refs
@@ -341,20 +348,21 @@ the wrong branch.
 ```scala
 def flow(
     args: OrcaArgs,
-    leadModel: FlowContext => LlmTool[?],  // required leading-model selector (R31)
+    agent: FlowContext => LlmTool[?],  // required leading-agent selector (R31)
     //   ^ resolved against the built context: `_.claude`, `_.codex`, …
     // … existing tool overrides …
     branchNaming: Option[BranchNamingStrategy] = None,
     //   ^ None ⇒ slug the prompt; or Some(BranchNamingStrategy.issue(handle)) for issue flows
     returnToStartBranch: Boolean = false,  // R3; false ⇒ stay on the feature branch
     progressStore: Option[ProgressStore] = None     // §2.4; pluggable path + format
-)(body: FlowControl ?=> Unit): Unit
+)(body: Lead ?=> FlowControl ?=> Unit): Unit  // Lead given ⇒ the `agent` accessor
 ```
 
-Per R31, `leadModel` is a selector resolved against the built `FlowContext` — the
-only way to name a model is an accessor on the context, which isn't in scope at the
-`flow(...)` argument position, so resolution is deferred. The resolved model is
-`ctx.llm`; `llm.cheap` drives branch naming and default commit messages (overridable
+Per R31, `agent` is a selector resolved against the built `FlowContext` — the
+only way to name an agent is an accessor on the context, which isn't in scope at the
+`flow(...)` argument position, so resolution is deferred. The resolved lead is
+reached in the body via the `agent` accessor (and held erased as `ctx.llm` by the
+runtime); `agent.cheap` drives branch naming and default commit messages (overridable
 per stage via `commitMessage`, §2.1). The lifecycle therefore builds the context (and
 the progress store) **before** running branch setup, since branch naming needs the
 resolved model. The body is `FlowControl ?=> Unit`
@@ -564,29 +572,29 @@ if nothing of substance happens; pushes are mid-flow.
 //> using jvm 21
 import orca.{*, given}
 
-flow(OrcaArgs(args)):                                    // leadModel defaults to `_.claude`
+flow(OrcaArgs(args), _.claude):                          // required agent selector
   val plan = stage("Plan"):
-    Plan.autonomous.from(userPrompt, claude).value       // Plan (always briefed; has JsonData)
+    Plan.autonomous.from(userPrompt, agent).value        // Plan (always briefed; has JsonData)
 
   // Get-or-create the implementer session (pure: id reserved, backend created on
   // first use). The seed (plan brief) primes it on first use, and is replayed if the
   // backend session is lost on resume.
-  val session = claude.session(seed = plan.brief)
+  val session = agent.session(seed = plan.brief)
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):                       // skipped on resume if already done
-      claude.runSeeded(task.description, session)
+      agent.runSeeded(task.description, session)
       reviewAndFixLoop(                                   // runs under this stage (using InStage)
-        coder = claude, sessionId = session,
-        reviewers = allReviewers(claude),
-        reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+        coder = agent, sessionId = session,
+        reviewers = allReviewers(agent),
+        reviewerSelection = ReviewerSelector.llmDriven(agent.cheap),
         task = task.title.value,
         formatCommand = Some("cargo fmt")
       )
       // one commit per task: code + progress entry
 ```
 
-`git.commit`, `claude.runSeeded`, and `reviewAndFixLoop` require `InStage`,
+`git.commit`, `agent.runSeeded`, and `reviewAndFixLoop` require `InStage`,
 supplied by the enclosing `stage`. There is no plan markdown file — the progress
 log subsumes it, which also removes any checkbox state to keep in sync (a
 human-readable checklist, if wanted, is cosmetic — §2.8).
