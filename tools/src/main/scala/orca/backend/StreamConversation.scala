@@ -81,15 +81,21 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
   // stdout fake (think tests) can let the reader race past EOF and
   // touch a `null` subclass val before its `val` initializer runs.
   // Concrete drivers call `start()` at the end of their constructor.
+  // Virtual threads: these workers spend their lives blocked on I/O (the stdout
+  // read loop, the stderr drain), which is exactly what virtual threads are for
+  // — cheap to spawn and they don't pin a platform thread while parked. They are
+  // always daemon, so no `setDaemon` call is needed (and none is allowed).
   private lazy val readerThread: Thread =
-    val t = new Thread(() => readLoop(), s"$backendName-conversation-reader")
-    t.setDaemon(true)
-    t
+    Thread
+      .ofVirtual()
+      .name(s"$backendName-conversation-reader")
+      .unstarted(() => readLoop())
 
   private lazy val stderrThread: Thread =
-    val t = new Thread(() => stderrLoop(), s"$backendName-conversation-stderr")
-    t.setDaemon(true)
-    t
+    Thread
+      .ofVirtual()
+      .name(s"$backendName-conversation-stderr")
+      .unstarted(() => stderrLoop())
 
   /** Spin up the stdout + stderr workers. Subclasses **must** call this at the
     * end of their constructor, after their own fields are assigned — forgetting

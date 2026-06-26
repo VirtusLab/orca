@@ -29,6 +29,10 @@
   * (`fix/issue-<n>`), so a re-run after a crash lands on the same branch.
   * Resume is stage-log based — each completed stage is skipped on a re-run.
   *
+  * The flow reads top-to-bottom below; the per-step helper methods it calls
+  * (`confirmReproductionMatches`, `planAndImplementFix`, `prSummary`) are
+  * defined at the bottom of the file.
+  *
   * Usage:
   *
   * ```bash
@@ -47,6 +51,8 @@ import scala.concurrent.duration.DurationInt
 val orcaArgs = OrcaArgs(args)
 val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
+val CiTimeout = 30.minutes
+
 // Opens a PR, so return to the starting branch afterward (the default is to
 // stay on the feature branch, for no-PR flows).
 flow(
@@ -55,9 +61,6 @@ flow(
   branchNaming = Some(BranchNamingStrategy.issue(issueHandle)),
   returnToStartBranch = true
 ):
-
-  val CiTimeout = 30.minutes
-
   // Pure read — outside any stage (reads don't need InStage).
   val issue = gh.readIssue(issueHandle)
 
@@ -75,107 +78,6 @@ flow(
   val triage: Triage = stage("Triage"):
     // Autonomous triage, read-only (read/grep to verify the report).
     Plan.autonomous.triage(issuePayload, claude).value
-
-  // ============================ pipeline helpers ============================
-  // One def per step of the testable-bug pipeline; the `Testable` branch
-  // below reads as their sequence. They close over `session`, `issue`,
-  // `issueHandle`, and `CiTimeout`.
-
-  /** PR title + body from the full branch diff, with issue context and a
-    * phase-specific `note`. Used for both the tentative (test-only) and final
-    * (test + fix) descriptions. `git.diffVsBase` (not `git.diff()` vs HEAD)
-    * because the changes are already committed.
-    */
-  def prSummary(note: String)(using FlowContext, InStage): PrSummary =
-    summarisePr(
-      llm = claude.cheap,
-      diff = git.diffVsBase(git.defaultBase()),
-      context = Some(
-        s"""Originating issue: ${issueHandle.shortRef}
-           |Issue title: ${issue.title}
-           |
-           |$note""".stripMargin
-      )
-    )
-
-  /** Confirm the CI failure matches the original report. Each sub-stage is a
-    * one-shot sonnet call — fresh session, no seed needed.
-    */
-  def confirmReproductionMatches(pr: PrHandle)(using FlowControl): Unit =
-    stage("Post focused failure comment"):
-      val (_, failureSummary) = claude.sonnet.autonomous.run(
-        s"""CI went red on PR ${pr.shortRef} (${pr.url}). Inspect the
-           |failed run via `gh` — start with:
-           |
-           |  gh pr checks ${pr.number} --repo ${pr.owner}/${pr.repo}
-           |
-           |then drill into the failing check with `gh run view <run-id>
-           |--log-failed --repo ${pr.owner}/${pr.repo}`. Produce a
-           |short, focused failure summary — the most informative
-           |excerpt, not the whole log. Output only the summary text;
-           |it goes verbatim into a PR comment.""".stripMargin
-      )
-      gh.upsertComment(
-        pr,
-        orcaCommentMarker(userPrompt, "ci-failure"),
-        failureSummary
-      )
-
-    stage("Verify failure matches the report"):
-      val (_, verdict) =
-        claude.sonnet
-          .resultAs[BugReportMatch]
-          .autonomous
-          .run(
-            s"""Inspect the failed CI run on PR ${pr.shortRef} via `gh`
-             |(`gh pr checks ${pr.number} --repo ${pr.owner}/${pr.repo}`,
-             |then `gh run view <run-id> --log-failed`), then decide whether
-             |the failure matches the original report below. Be strict — a
-             |different stack trace or assertion error counts as a mismatch.
-             |
-             |Original report:
-             |${issue.body}""".stripMargin
-          )
-      if !verdict.matches then
-        fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
-
-  /** Plan + implement the fix on the same branch. The plan always carries a
-    * brief (no separate `.briefed` step); `taskPrompt` prepends it to each
-    * task. Implementation reuses the triage `session`.
-    */
-  def planAndImplementFix()(using FlowControl): Unit =
-    val fixPlan = stage("Plan the fix"):
-      Plan.autonomous
-        .from(
-          s"""Implement the fix for ${issueHandle.shortRef}. A failing
-             |test is already on this branch — the fix must make it pass
-             |without regressing other tests.""".stripMargin,
-          claude
-        )
-        .reviewed(claude)
-        .value
-
-    for task <- fixPlan.tasks do
-      stage(s"task: ${task.title}"): // skipped on resume if already done
-        claude.runSeeded(fixPlan.taskPrompt(task), session)
-        reviewAndFixLoop(
-          coder = claude,
-          sessionId = session,
-          reviewers = allReviewers(claude),
-          reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
-          task = task.title.value,
-          // Format after every edit (the implementation and each review fix).
-          formatCommand = Some("sbt scalafmtAll"),
-          // Compile (main + test) is a cheap sanity gate; the failing test
-          // runs in CI and correctness is the reviewers' job.
-          lintCommand = Some("sbt Test/compile"),
-          lintLlm = Some(claude.cheap)
-        )
-        // one commit per task: code + progress entry
-
-  // ============================ the flow ============================
-
-  // TODO: let's move the logic of the flows to the top, with helper methods at the bottom. We want users to first see proper flow
 
   triage match
     case Triage.NotABug(explanation) =>
@@ -229,15 +131,16 @@ flow(
         )
       display(s"CI red on ${pr.shortRef} — reproduction confirmed")
 
-      confirmReproductionMatches(pr)
-      planAndImplementFix()
+      confirmReproductionMatches(pr, issue)
+      planAndImplementFix(session)
 
       // Push fix + update PR: again a LATER stage than the task edits above.
       stage("Push fix + finalise PR"):
         git.push().orThrow
         val finalSum = prSummary(
           "The branch now contains both the failing test and the fix " +
-            "that makes it pass."
+            "that makes it pass.",
+          issue
         )
         gh.updatePr(
           pr,
@@ -246,3 +149,108 @@ flow(
                     |
                     |Closes ${issueHandle.shortRef}.""".stripMargin
         )
+
+// ============================ pipeline helpers ============================
+// One def per step of the testable-bug pipeline; the `Testable` branch above
+// reads as their sequence. Defined below the flow so the high-level logic comes
+// first; each takes a `using` flow capability plus the `issue` / `session` it
+// needs.
+
+/** PR title + body from the full branch diff, with issue context and a
+  * phase-specific `note`. Used for both the tentative (test-only) and final
+  * (test + fix) descriptions. `git.diffVsBase` (not `git.diff()` vs HEAD)
+  * because the changes are already committed.
+  */
+def prSummary(note: String, issue: Issue)(using
+    FlowContext,
+    InStage
+): PrSummary =
+  summarisePr(
+    llm = claude.cheap,
+    diff = git.diffVsBase(git.defaultBase()),
+    context = Some(
+      s"""Originating issue: ${issueHandle.shortRef}
+         |Issue title: ${issue.title}
+         |
+         |$note""".stripMargin
+    )
+  )
+
+/** Confirm the CI failure matches the original report. Each sub-stage is a
+  * one-shot sonnet call — fresh session, no seed needed.
+  */
+def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
+    FlowControl
+): Unit =
+  stage("Post focused failure comment"):
+    val (_, failureSummary) = claude.sonnet.autonomous.run(
+      s"""CI went red on PR ${pr.shortRef} (${pr.url}). Inspect the
+         |failed run via `gh` — start with:
+         |
+         |  gh pr checks ${pr.number} --repo ${pr.owner}/${pr.repo}
+         |
+         |then drill into the failing check with `gh run view <run-id>
+         |--log-failed --repo ${pr.owner}/${pr.repo}`. Produce a
+         |short, focused failure summary — the most informative
+         |excerpt, not the whole log. Output only the summary text;
+         |it goes verbatim into a PR comment.""".stripMargin
+    )
+    gh.upsertComment(
+      pr,
+      orcaCommentMarker(userPrompt, "ci-failure"),
+      failureSummary
+    )
+
+  stage("Verify failure matches the report"):
+    val (_, verdict) =
+      claude.sonnet
+        .resultAs[BugReportMatch]
+        .autonomous
+        .run(
+          s"""Inspect the failed CI run on PR ${pr.shortRef} via `gh`
+           |(`gh pr checks ${pr.number} --repo ${pr.owner}/${pr.repo}`,
+           |then `gh run view <run-id> --log-failed`), then decide whether
+           |the failure matches the original report below. Be strict — a
+           |different stack trace or assertion error counts as a mismatch.
+           |
+           |Original report:
+           |${issue.body}""".stripMargin
+        )
+    if !verdict.matches then
+      fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
+
+/** Plan + implement the fix on the same branch. The plan always carries a
+  * brief (no separate `.briefed` step); `taskPrompt` prepends it to each task.
+  * Implementation reuses the triage `session`.
+  */
+def planAndImplementFix(session: SessionId[BackendTag.ClaudeCode.type])(using
+    FlowControl
+): Unit =
+  val fixPlan = stage("Plan the fix"):
+    Plan.autonomous
+      .from(
+        s"""Implement the fix for ${issueHandle.shortRef}. A failing
+           |test is already on this branch — the fix must make it pass
+           |without regressing other tests.""".stripMargin,
+        claude
+      )
+      .reviewed(claude)
+      .value
+
+  for task <- fixPlan.tasks do
+    stage(s"task: ${task.title}"): // skipped on resume if already done
+      claude.runSeeded(fixPlan.taskPrompt(task), session)
+      reviewAndFixLoop(
+        coder = claude,
+        sessionId = session,
+        reviewers = allReviewers(claude),
+        reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
+        task = task.title.value,
+        // Format after every edit (the implementation and each review fix).
+        formatCommand = Some("sbt scalafmtAll"),
+        // Compile (main + test) is a cheap sanity gate; the failing test
+        // runs in CI and correctness is the reviewers' job.
+        lintCommand = Some("sbt Test/compile"),
+        lintLlm = Some(claude.cheap)
+      )
+      // one commit per task: code + progress entry

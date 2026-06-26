@@ -3,10 +3,10 @@
 
 /** Autonomous planning + coding flow.
   *
-  * Mirrors the README example. The agent breaks the prompt into tasks; the
-  * task list and implementation progress are tracked in the stage log
-  * (`.orca/progress-<hash>.json`), committed on the branch after every stage.
-  * A re-run with the same prompt resumes from the first incomplete stage — no
+  * Mirrors the README example. The agent breaks the prompt into tasks; the task
+  * list and implementation progress are tracked in the stage log
+  * (`.orca/progress-<hash>.json`), committed on the branch after every stage. A
+  * re-run with the same prompt resumes from the first incomplete stage — no
   * plan file, no checkbox state to keep in sync.
   *
   * Each task is implemented on a single feature branch (auto-created from the
@@ -29,6 +29,7 @@
 import orca.{*, given}
 
 flow(OrcaArgs(args), _.claude):
+  // TODO: instead of referencing "claude" in the plans, reference the leading llm. What's the best name for a value represnting the leading model - or rather, the chosen coding harness? Claude, Pi, Opencode, aren't really models per se, rather coding agents / harnesses, each capable of using multiple models. So how to best call this, so the name is intuitive for users and reflects what `LlmTool` really is?
   val plan = stage("Plan"):
     Plan.autonomous.from(userPrompt, claude).value
 
@@ -37,10 +38,11 @@ flow(OrcaArgs(args), _.claude):
   val session = claude.session(seed = plan.brief)
 
   for task <- plan.tasks do
-    stage(s"task: ${task.title}"):      // skipped on resume if already done
+    stage(s"task: ${task.title}"): // skipped on resume if already done
       claude.runSeeded(task.description, session)
-      reviewAndFixLoop(                  // runs under this stage
-        coder = claude, sessionId = session,
+      reviewAndFixLoop( // runs under this stage
+        coder = claude,
+        sessionId = session,
         reviewers = allReviewers(claude),
         // claude.cheap picks the per-task reviewer subset; swap for
         // `ReviewerSelector.allEveryRound` to run every reviewer.

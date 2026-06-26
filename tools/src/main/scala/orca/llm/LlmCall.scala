@@ -46,6 +46,28 @@ trait InteractiveLlmCall[B <: BackendTag, O]:
       config: LlmConfig = LlmConfig.default
   )(using orca.InStage): (SessionId[B], O)
 
+/** Free-form text autonomous calls — the `LlmTool.autonomous` shape (the
+  * non-structured sibling of [[AutonomousLlmCall]]). Single method: pass a
+  * [[SessionId]] (typically from [[LlmTool.newSession]] or the default fresh
+  * one) and the library starts the session on the first call, resumes it on
+  * subsequent calls. Returns the (stable) session id so the caller can pass it
+  * back unchanged.
+  */
+trait AutonomousTextCall[B <: BackendTag]:
+  /** Run the agent on `prompt`. When `emitPrompt` is true (the default), fires
+    * an `OrcaEvent.UserPrompt` carrying `prompt` so listeners can surface
+    * what's being asked; framework-internal callers that produce many
+    * near-identical prompts in quick succession (e.g. the per-task reviewer
+    * fan-out) pass `false` to keep the event log focused. Other events
+    * (`ToolUse`, `AssistantMessage`, `TokensUsed`, etc.) fire regardless.
+    */
+  def run(
+      prompt: String,
+      session: SessionId[B] = SessionId.fresh[B],
+      config: LlmConfig = LlmConfig.default,
+      emitPrompt: Boolean = true
+  )(using orca.InStage): (SessionId[B], String)
+
 /** Default implementation of [[LlmCall]] for any backend.
   *
   * The trait splits into `autonomous` and `interactive` sibling objects so the
