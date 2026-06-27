@@ -317,29 +317,27 @@ the wrong branch.
   wrong branch.
 - **R31** — The leading **agent** (the coding harness — `Agent` is an agent, not
   a model: each drives several models) is named by a required `agent` **selector**
-  argument to `flow(...)` — `FlowContext => Agent[?]`. The only way to name an
-  agent is an accessor on the flow context (`_.claude`, `_.codex`, …), which isn't
-  in scope at the `flow(...)` argument position, so the selector defers resolution
-  until the context is built. `flow(OrcaArgs(args), _.claude)` runs against claude;
-  `flow(OrcaArgs(args), _.codex)` against codex. Inside the body the resolved lead
-  is reached via the backend-agnostic top-level `agent` accessor, so the body reads
-  the same regardless of backend — switch the selector and the whole flow follows.
-  This works without the lead being a `FlowContext` member: `flow` supplies a
-  single stable `Lead` carrier given whose `B` type member pins the backend, and
-  `agent` (`def agent(using l: Lead): Agent[l.B]`) hands back a concretely-typed
-  tool, so a session from `agent.session` threads into `agent.runSeeded` and the
-  reviewers (R27). The runtime resolves its own erased `Agent[?]` handle (it
-  re-applies the selector against the built context) and threads it to branch
-  naming, session rehydration, and the body's `Lead` carrier — the lead is **not**
-  exposed on `FlowContext` (no misleading `ctx.llm`). The one incidental-text need
-  that lives inside a stage — the default commit message — is served by a narrow
-  `private[orca] FlowContext.cheapOneShot(prompt, fallback)` backed by the lead's
-  `cheap`. `Agent` gains a `cheap` method returning the backend's cheap variant
-  (claude → haiku, gemini → flash, codex → mini). There is no implicit default
-  agent. (Boundary: the agnostic `agent` covers the autonomous, tier-agnostic
-  path; backend-specific tiers — `claude.opus` — and interactive planning —
-  `Plan.interactive`, which needs `CanAskUser[B]`, defined only per concrete backend
-  — use a concrete accessor.)
+  argument to `flow[B](...)` — `FlowContext => Agent[B]`. `B` is the leading agent's
+  backend tag, **inferred** from the selector (`_.claude` ⇒ `ClaudeCode`) and never
+  written by callers; `flow(OrcaArgs(args), _.claude)` is unchanged. The only way to
+  name an agent is an accessor on the flow context (`_.claude`, `_.codex`, …), which
+  isn't in scope at the `flow(...)` argument position, so the selector defers
+  resolution until the context is built. Inside the body the resolved lead is reached
+  via the backend-agnostic top-level `agent` accessor (`def agent(using ctx:
+  FlowContext): Agent[ctx.LeadB]`) — an ordinary accessor over `FlowContext`, exactly
+  like `claude`/`git` — so the body reads the same regardless of backend; switch the
+  selector and the whole flow follows. The threading works because `B` is captured at
+  construction into a **type member** `FlowContext { type LeadB }` (a *member*, not a
+  parameter, so the whole `using FlowContext` surface stays unparametrised), making
+  `agent: Agent[ctx.LeadB]` concretely typed: a session from `agent.session` threads
+  into `agent.runSeeded` and the reviewers (R27). The runtime reads the same lead off
+  `ctx.agent` (erased to `Agent[?]`) for branch naming and session rehydration, and
+  the in-stage default commit message uses `ctx.agent.cheapOneShot`. `Agent` gains a
+  `cheap` method returning the backend's cheap variant (claude → haiku, gemini →
+  flash, codex → mini). There is no implicit default agent. (Boundary: the agnostic
+  `agent` covers the autonomous, tier-agnostic path; backend-specific tiers —
+  `claude.opus` — and interactive planning — `Plan.interactive`, which needs
+  `CanAskUser[B]`, defined only per concrete backend — use a concrete accessor.)
 - **R32** — The progress header is **untrusted input** on load (the log is
   human-visible and pushable — R26 — so it may be edited). Before any destructive
   action the runtime validates it: `branch`/`startingBranch` must be safe refs
@@ -350,25 +348,25 @@ the wrong branch.
 **Design.**
 
 ```scala
-def flow(
+def flow[B <: BackendTag](        // B inferred from the selector, never written
     args: OrcaArgs,
-    agent: FlowContext => Agent[?],  // required leading-agent selector (R31)
+    agent: FlowContext => Agent[B],  // required leading-agent selector (R31)
     //   ^ resolved against the built context: `_.claude`, `_.codex`, …
     // … existing tool overrides …
     branchNaming: Option[BranchNamingStrategy] = None,
     //   ^ None ⇒ slug the prompt; or Some(BranchNamingStrategy.issue(handle)) for issue flows
     returnToStartBranch: Boolean = false,  // R3; false ⇒ stay on the feature branch
     progressStore: Option[ProgressStore] = None     // §2.4; pluggable path + format
-)(body: Lead ?=> FlowControl ?=> Unit): Unit  // Lead given ⇒ the `agent` accessor
+)(body: FlowControl ?=> Unit): Unit  // body is non-generic; `B` is pinned into FlowContext.LeadB
 ```
 
 Per R31, `agent` is a selector resolved against the built `FlowContext` — the
 only way to name an agent is an accessor on the context, which isn't in scope at the
 `flow(...)` argument position, so resolution is deferred. The resolved lead is
-reached in the body via the `agent` accessor; the runtime keeps its own erased
-`Agent[?]` handle (not a `FlowContext` member) for branch naming, and the in-stage
-default-commit-message path uses `FlowContext.cheapOneShot` (backed by the lead's
-`cheap`), overridable per stage via `commitMessage` (§2.1). The lifecycle therefore builds the context (and
+reached in the body via the `agent` accessor (`Agent[ctx.LeadB]`); the runtime reads
+the same lead off `ctx.agent` (erased) for branch naming, and the in-stage
+default-commit-message path uses `ctx.agent.cheapOneShot`, overridable per stage via
+`commitMessage` (§2.1). The lifecycle therefore builds the context (and
 the progress store) **before** running branch setup, since branch naming needs the
 resolved model. The body is `FlowControl ?=> Unit`
 (R29): a direct `stage(...)` resolves its authority while forks see only

@@ -2,6 +2,8 @@ package orca
 
 import orca.events.{EventDispatcher, OrcaEvent}
 import orca.agents.{
+  Agent,
+  BackendTag,
   ClaudeAgent,
   CodexAgent,
   GeminiAgent,
@@ -30,8 +32,8 @@ class TestFlowContext(
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowContext")
 
-  def cheapOneShot(prompt: String, fallback: => String)(using InStage): String =
-    fallback
+  type LeadB = BackendTag.ClaudeCode.type
+  lazy val agent: Agent[LeadB] = stub("agent")
   lazy val claude: ClaudeAgent = stub("claude")
   lazy val codex: CodexAgent = stub("codex")
   lazy val opencode: OpencodeAgent = stub("opencode")
@@ -57,8 +59,8 @@ class TestFlowControl(
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowControl")
 
-  def cheapOneShot(prompt: String, fallback: => String)(using InStage): String =
-    fallback
+  type LeadB = BackendTag.ClaudeCode.type
+  lazy val agent: Agent[LeadB] = stub("agent")
   lazy val claude: ClaudeAgent = stub("claude")
   lazy val codex: CodexAgent = stub("codex")
   lazy val opencode: OpencodeAgent = stub("opencode")

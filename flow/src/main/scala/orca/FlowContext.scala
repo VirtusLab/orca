@@ -5,6 +5,8 @@ import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
 import orca.agents.{
+  Agent,
+  BackendTag,
   ClaudeAgent,
   CodexAgent,
   GeminiAgent,
@@ -29,17 +31,22 @@ import scala.annotation.implicitNotFound
   "the flow tools (`claude`/`codex`/`git`/`gh`/`fs`/…), `display`, and `fail` are only available inside a `flow(...)` body. Wrap this code in `flow(OrcaArgs(args), _.claude): ...`."
 )
 trait FlowContext:
-  /** Run a one-line, read-only call on the leading agent's cheap model, falling
-    * back to `fallback` on empty/failed output. This is the runtime's hook for
-    * default commit messages: the lead itself is deliberately NOT exposed on
-    * the context (reference it inside a body via the backend-agnostic `agent`
-    * accessor) — `cheapOneShot` is the one incidental-text capability the
-    * in-stage commit path needs without it. `private[orca]`: internal, not
-    * flow-script API.
+  /** Backend tag of the leading agent (the one the `flow(...)` selector
+    * picked). A type *member* rather than a parameter, so `FlowContext` stays
+    * unparametrised — every `using FlowContext` site is unaffected — while
+    * [[agent]] is still concretely typed (`Agent[LeadB]`), which is what lets a
+    * session thread across calls. The runtime captures the concrete tag here at
+    * construction (`flow` is generic over it, inferred from the selector).
     */
-  private[orca] def cheapOneShot(prompt: String, fallback: => String)(using
-      InStage
-  ): String
+  type LeadB <: BackendTag
+
+  /** The leading agent. Reference it in a body instead of a concrete accessor
+    * (`claude`/`codex`) so the flow is backend-agnostic — switch the `flow`
+    * selector and the whole flow follows. A session from `agent.session`
+    * threads into `agent.runSeeded` and the reviewers because [[LeadB]] pins
+    * the backend.
+    */
+  def agent: Agent[LeadB]
   def claude: ClaudeAgent
   def codex: CodexAgent
   def opencode: OpencodeAgent

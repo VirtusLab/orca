@@ -164,7 +164,7 @@ private def defaultCommitMessage(
     catch case NonFatal(_) => ""
   if diff.isBlank then fallback
   else
-    fc.cheapOneShot(
+    fc.agent.cheapOneShot(
       s"Write a concise one-line git commit message (imperative mood, ≤72 chars) for this diff:\n\n$diff",
       fallback
     )

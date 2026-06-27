@@ -5,11 +5,10 @@ import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
 import orca.agents.{
-  BackendTag,
+  Agent,
   ClaudeAgent,
   CodexAgent,
   GeminiAgent,
-  Agent,
   OpencodeAgent,
   PiAgent
 }
@@ -33,28 +32,11 @@ def userPrompt(using ctx: FlowContext): String = ctx.userPrompt
   * instead of a concrete backend accessor (`claude`, `codex`) so the body is
   * backend-agnostic: switch the selector and the whole flow follows. A session
   * obtained via `agent.session(...)` threads back into `agent.runSeeded(...)`
-  * and the reviewers, because the ambient [[Lead]] carrier pins the backend
-  * type (a bare `Agent[?]` can't carry a session across calls). Available
-  * inside every `flow(...)` body, which supplies the [[Lead]] given.
+  * and the reviewers, because the result type is `Agent[ctx.LeadB]` — pinned to
+  * the backend by [[FlowContext.LeadB]], not an erased `Agent[?]`. Just another
+  * accessor over the ambient `FlowContext`, exactly like `claude`/`git`.
   */
-def agent(using l: Lead): Agent[l.B] = l.tool
-
-/** Carrier for a flow's leading agent. Supplied as a single stable given inside
-  * each `flow(...)` body; its `B` type member pins the lead's backend so the
-  * [[agent]] accessor can hand back a concretely-typed `Agent[B]` (and thus a
-  * threadable session) even though the runtime only holds the lead erased as
-  * `Agent[?]`. Users don't construct or name this — they read the lead via
-  * [[agent]]; helper defs that call `agent` declare `(using Lead)`.
-  */
-sealed trait Lead:
-  type B <: BackendTag
-  def tool: Agent[B]
-
-object Lead:
-  def apply[B0 <: BackendTag](t: Agent[B0]): Lead { type B = B0 } =
-    new Lead:
-      type B = B0
-      def tool: Agent[B0] = t
+def agent(using ctx: FlowContext): Agent[ctx.LeadB] = ctx.agent
 
 /** Build a stable, per-run HTML comment marker for use with
   * [[GitHubTool.upsertComment]]. The marker is an HTML comment invisible in the

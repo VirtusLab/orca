@@ -10,9 +10,10 @@ import orca.events.{
   Pricing
 }
 import orca.agents.{
+  Agent,
+  BackendTag,
   ClaudeAgent,
   DefaultPrompts,
-  Agent,
   OpencodeAgent,
   PiAgent,
   Prompts
@@ -65,19 +66,20 @@ import scala.util.control.NonFatal
   * `flow(OrcaArgs(args), _.claude)` runs against claude; `flow(OrcaArgs(args),
   * _.codex)` against codex, etc. Inside the body, reference the resolved lead
   * via the backend-agnostic [[agent]] accessor (not a concrete
-  * `claude`/`codex`) so switching the selector switches the whole flow. The
-  * selector reads a concrete accessor (`_.claude`, `_.codex`, `_.gemini`,
-  * `_.opencode`, `_.pi`); the context deliberately does not expose the lead
-  * itself, so a selector cannot accidentally read (and recurse on) the thing it
-  * is resolving.
+  * `claude`/`codex`) so switching the selector switches the whole flow.
+  *
+  * `B` is the leading agent's backend tag, inferred from the selector
+  * (`_.claude` ⇒ `ClaudeCode`) and never written by callers; the runtime pins
+  * it into `FlowContext.LeadB` so `agent` is concretely typed and sessions
+  * thread.
   *
   * Overrides default to `None` so the runtime can build the default lazily —
   * `TerminalInteraction`, in particular, takes the resolved `workDir` which
   * can't be threaded through a Scala 3 default-arg expression.
   */
-def flow(
+def flow[B <: BackendTag](
     args: OrcaArgs,
-    agent: FlowContext => Agent[?],
+    agent: FlowContext => Agent[B],
     workDir: os.Path = os.pwd,
     interaction: Option[Interaction] = None,
     extraListeners: List[OrcaListener] = Nil,
@@ -93,7 +95,7 @@ def flow(
     fs: Option[FsTool] = None,
     prompts: Prompts = DefaultPrompts,
     pricing: PriceList = Pricing.default
-)(body: Lead ?=> FlowControl ?=> Unit): Unit =
+)(body: FlowControl ?=> Unit): Unit =
   // Per-run trace file: captures every stage, prompt, tool/subprocess call and
   // result at DEBUG. Started before anything logs so the whole run is caught;
   // the path is printed by the banner and the detail stays in the file.
@@ -161,9 +163,9 @@ def flow(
   * interaction's own (the CLI wrapper adds its [[CostTracker]] here); a
   * [[LoggingListener]] is always appended.
   */
-private[orca] def runFlow(
+private[orca] def runFlow[B <: BackendTag](
     args: OrcaArgs,
-    agent: FlowContext => Agent[?],
+    agent: FlowContext => Agent[B],
     workDir: os.Path,
     interaction: Option[Interaction],
     extraListeners: List[OrcaListener],
@@ -178,7 +180,7 @@ private[orca] def runFlow(
     gh: Option[GitHubTool],
     fs: Option[FsTool],
     prompts: Prompts
-)(body: Lead ?=> FlowControl ?=> Unit): Unit =
+)(body: FlowControl ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose.value
   val flowLog = LoggerFactory.getLogger("orca.flow")
   // Default TerminalInteraction is built inside `supervised:` because its
@@ -231,21 +233,18 @@ private[orca] def runFlow(
         fs = fs,
         prompts = prompts
       )
-      // Re-apply the selector against the built context to get the leading
-      // agent (erased). `ctx.claude`/etc. are lazy vals, so this returns the
-      // same instance the context resolves internally — the context no longer
-      // exposes the lead, so the runtime holds its own handle here and threads
-      // it to setup, rehydrate, and the body's `Lead` carrier.
-      val lead = agent(ctx)
+      // The context resolved the leading agent (lazily, against itself) and
+      // exposes it as `ctx.agent`. The runtime needs it (erased) for branch
+      // naming and session rehydration, which run before the body.
       val setup =
-        FlowLifecycle.setup(args, lead, effectiveGit, branchNaming, store)
+        FlowLifecycle.setup(args, ctx.agent, effectiveGit, branchNaming, store)
       // Rehydrate the client→server session map: the registry is
       // in-memory, so on resume the leading agent's mapping is empty. Replay
       // the persisted records into it (after the context + log exist, before
       // the body) so `dispatchFor` resumes the right server thread and the
       // server-id existence probes work. Only the leading agent is rehydrated —
       // the common case; multi-tool flows are a known limitation (see report).
-      FlowLifecycle.rehydrateSessions(lead, store)
+      FlowLifecycle.rehydrateSessions(ctx.agent, store)
       // The whole flow body runs as a top-level stage: an otherwise
       // unhandled exception surfaces as a single Error event (the same
       // message a stage failure shows). A nested stage / `fail` marks the
@@ -260,10 +259,9 @@ private[orca] def runFlow(
       // (`resetHard`), and must NOT strand the user on the feature branch.
       var bodySucceeded = false
       try
-        // Supply the lead as a stable `Lead` carrier so the body's `agent`
-        // accessor hands back a concretely-typed tool (sessions thread), even
-        // though the runtime's `lead` handle itself is erased to `Agent[?]`.
-        body(using Lead(lead))(using ctx)
+        // The body reads the lead via the `agent` accessor; `ctx.LeadB` (pinned
+        // to `B` at construction) keeps it concretely typed so sessions thread.
+        body(using ctx)
         bodySucceeded = true
       catch
         case NonFatal(e) =>

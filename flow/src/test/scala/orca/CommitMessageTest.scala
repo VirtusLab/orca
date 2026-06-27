@@ -90,7 +90,7 @@ class CommitMessageTest extends munit.FunSuite:
 
   /** A `FlowControl` backed by a real temp git repo and the given LLM stub. */
   private class FlowControlWithAgent(
-      val agentStub: Agent[?],
+      val agentStub: Agent[BackendTag.ClaudeCode.type],
       val git: GitTool,
       val progressStore: ProgressStore,
       val userPrompt: String = "p"
@@ -104,9 +104,10 @@ class CommitMessageTest extends munit.FunSuite:
     }
     private def stub(n: String) =
       throw new NotImplementedError(s"$n not wired")
-    def cheapOneShot(prompt: String, fallback: => String)(using
-        InStage
-    ): String = agentStub.cheapOneShot(prompt, fallback)
+    type LeadB = BackendTag.ClaudeCode.type
+    // The leading agent IS the test's stub; the commit path's
+    // `fc.agent.cheapOneShot` runs the stub's canned reply.
+    def agent: Agent[LeadB] = agentStub
     lazy val claude: ClaudeAgent = stub("claude")
     lazy val codex: CodexAgent = stub("codex")
     lazy val opencode: OpencodeAgent = stub("opencode")
@@ -122,7 +123,7 @@ class CommitMessageTest extends munit.FunSuite:
     def nextSessionOccurrence(): Int = sessOcc.getAndIncrement()
 
   private def withCtx(
-      agentStub: Agent[?]
+      agentStub: Agent[BackendTag.ClaudeCode.type]
   )(body: (FlowControl, os.Path) => Unit): Unit =
     val dir = GitRepo.seeded()
     val git = new OsGitTool(dir)

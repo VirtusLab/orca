@@ -40,9 +40,10 @@ swapping it for a Slack or HTTP equivalent is one substitution at the call
 site rather than rewiring modules.
 
 The user-facing surface lives in `package orca` (the `flow` entry, the tool
-accessors — including `agent`, the backend-agnostic leading-agent accessor that
-resolves the `flow` selector via the `Lead` carrier given — `stage`/`display`/
-`fail`, `JsonData`, `OrcaArgs`). Implementations
+accessors — including `agent`, the backend-agnostic leading-agent accessor (an
+ordinary `FlowContext` member typed `Agent[ctx.LeadB]`, where `flow[B]` captures
+the selector's backend tag into the `FlowContext { type LeadB }` member) —
+`stage`/`display`/`fail`, `JsonData`, `OrcaArgs`). Implementations
 live in focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their
 traits), `orca.agents` + `orca.backend` (LLM SPI, `SessionRegistry`, conversation
 driver), `orca.subprocess` (subprocess shim), `orca.events` (event bus), one

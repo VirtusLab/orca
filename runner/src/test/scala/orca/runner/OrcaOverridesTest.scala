@@ -32,7 +32,7 @@ class OrcaOverridesTest extends munit.FunSuite:
   // The leading-model selector defaults to `_.claude` (ADR 0018 §2.5); these
   // tests assert tool-override wiring, not LLM behaviour, so they resolve a stub
   // via a `_ => StubAgent.claude` selector.
-  private val stubLead: FlowContext => Agent[?] = _ => StubAgent.claude
+  private val stubLead: FlowContext => ClaudeAgent = _ => StubAgent.claude
 
   test("flow uses a custom FsTool when supplied"):
     val fake = new FsTool:

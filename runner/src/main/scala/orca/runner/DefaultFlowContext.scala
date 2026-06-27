@@ -6,11 +6,12 @@ import orca.tools.{GitTool}
 import orca.tools.{GitHubTool}
 import orca.tools.{FsTool}
 import orca.agents.{
+  Agent,
+  AgentConfig,
+  BackendTag,
   ClaudeAgent,
   CodexAgent,
   GeminiAgent,
-  AgentConfig,
-  Agent,
   OpencodeAgent,
   PiAgent,
   Prompts
@@ -37,10 +38,10 @@ import orca.tools.OsGitHubTool
   * `flow(args, ...)`, which supplies defaults for all tools. Individual tools
   * can be replaced by passing overrides as named arguments to `flow`.
   */
-private[orca] class DefaultFlowContext(
+private[orca] class DefaultFlowContext[B <: BackendTag](
     val userPrompt: String,
     dispatcher: EventDispatcher,
-    agentSelector: FlowContext => Agent[?],
+    agentSelector: FlowContext => Agent[B],
     val claude: ClaudeAgent,
     val codex: CodexAgent,
     val opencode: OpencodeAgent,
@@ -52,19 +53,16 @@ private[orca] class DefaultFlowContext(
     val progressStore: ProgressStore
 ) extends FlowControl:
 
+  // The leading agent's backend tag, pinned from the type parameter `B` (which
+  // `flow` inferred from the selector). Concrete here, so `agent` is concretely
+  // typed and sessions thread; abstract when the context is seen as `FlowContext`
+  // in a body, where the path-dependent `ctx.LeadB` is still stable.
+  type LeadB = B
+
   // The leading agent, resolved by the selector against this context (the only
   // way to name an agent is an accessor on it — `_.claude`, `_.codex`, …).
-  // Resolved lazily so the selector sees a fully-built context. Kept PRIVATE and
-  // unexposed: flow bodies reach the lead via the typed `agent` accessor, and
-  // the runtime threads its own copy (`runFlow` re-applies the selector for
-  // branch setup / the `Lead` carrier). The only thing the context surfaces is
-  // `cheapOneShot`, the incidental-text capability the in-stage commit path needs.
-  private lazy val lead: Agent[?] = agentSelector(this)
-
-  private[orca] def cheapOneShot(prompt: String, fallback: => String)(using
-      InStage
-  ): String =
-    lead.cheapOneShot(prompt, fallback)
+  // Resolved lazily so the selector sees a fully-built context.
+  lazy val agent: Agent[B] = agentSelector(this)
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
@@ -97,13 +95,13 @@ private[orca] object DefaultFlowContext:
   /** Build a context with Orca's default tool implementations, filling in any
     * `None` override with the production default.
     */
-  def withDefaults(
+  def withDefaults[B <: BackendTag](
       userPrompt: String,
       dispatcher: EventDispatcher,
       workDir: os.Path,
       interaction: Interaction,
       progressStore: ProgressStore,
-      agentSelector: FlowContext => Agent[?],
+      agentSelector: FlowContext => Agent[B],
       claude: Option[ClaudeAgent] = None,
       codex: Option[CodexAgent] = None,
       opencode: Option[OpencodeAgent] = None,
@@ -114,8 +112,8 @@ private[orca] object DefaultFlowContext:
       gh: Option[GitHubTool] = None,
       fs: Option[FsTool] = None,
       prompts: Prompts = DefaultPrompts
-  )(using ox.Ox, ox.channels.BufferCapacity): DefaultFlowContext =
-    new DefaultFlowContext(
+  )(using ox.Ox, ox.channels.BufferCapacity): DefaultFlowContext[B] =
+    new DefaultFlowContext[B](
       userPrompt = userPrompt,
       dispatcher = dispatcher,
       agentSelector = agentSelector,
