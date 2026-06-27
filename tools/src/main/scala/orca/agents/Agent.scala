@@ -25,6 +25,10 @@ import scala.util.control.NonFatal
   * the backend identity at the type level.
   */
 trait Agent[B <: BackendTag]:
+  /** Label for this agent in the event stream (the `agent` axis of
+    * `OrcaEvent.TokensUsed`). Defaults to the backend name; set it with
+    * [[withName]] to distinguish roles in the cost report (e.g. "reviewer").
+    */
   def name: String
 
   /** Free-form text autonomous calls. Use this when the agent's reply is prose

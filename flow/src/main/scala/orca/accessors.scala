@@ -42,7 +42,10 @@ def userPrompt(using ctx: FlowContext): String = ctx.userPrompt
   *     backend or tier, or for interactive planning (`Plan.interactive` needs a
   *     concrete backend). The tier accessors (`.opus`/`.sonnet`/…) live on the
   *     concrete types, NOT on the agnostic `agent`, so `agent.opus` won't
-  *     compile — that's the cue to name the backend.
+  *     compile — that's the cue to name the backend. Name the model/tier
+  *     **first**, then any constraints — `claude.opus.withReadOnly`, not
+  *     `claude.withReadOnly.opus` — since only the tier accessors return the
+  *     concrete agent that `.opus`/`.sonnet` hang off.
   *
   * Don't mix the two for one session: a `SessionId` is backend-typed, so a
   * session minted from `claude` won't thread through `agent` once the selector

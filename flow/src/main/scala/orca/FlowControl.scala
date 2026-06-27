@@ -25,7 +25,7 @@ import scala.annotation.implicitNotFound
   * `flow` supplies it.
   */
 @implicitNotFound(
-  "`stage(...)` and `agent.session(...)` can only be called inside a `flow(...)` body — and not inside a `fork` (forks can read and emit, but can't start stages). If this is a helper that starts stages, declare it `(using FlowControl)` so its caller supplies it."
+  "`stage(...)`, `agent.session(...)`, and `agent.runSeeded(...)` can only be called inside a `flow(...)` body — and not inside a `fork` (forks can read and emit, but can't start stages). If this is a helper that starts stages, declare it `(using FlowControl)` so its caller supplies it."
 )
 trait FlowControl extends FlowContext:
   /** The store backing this run's progress log. */

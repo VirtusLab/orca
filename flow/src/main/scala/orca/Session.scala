@@ -16,6 +16,11 @@ extension [B <: BackendTag](agent: Agent[B])
     * second). The seed is only recorded here — applying it on first use and
     * replaying it on loss are separate later tasks.
     *
+    * The key is **positional** (the n-th `session(...)` call in the run), like
+    * `stage`'s id. So across runs, keep `session(...)` calls in a stable order
+    * and unconditional — reordering them, or skipping one on some runs, shifts
+    * every later session's identity and loses resume continuity.
+    *
     * No LLM call and no commit — so it is callable outside a stage. (The id is
     * a fresh UUID, so it is not referentially transparent.) The store write
     * uses a runtime-minted `InStage.unsafe` (the same pattern the `stage`
