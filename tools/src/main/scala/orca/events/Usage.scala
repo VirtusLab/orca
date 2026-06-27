@@ -2,14 +2,21 @@ package orca.events
 
 /** Token + cost accounting for one or more LLM calls.
   *
-  * `inputTokens` / `outputTokens` are the totals as billed by the backend.
-  * `cachedInputTokens` is the sub-portion of `inputTokens` served from prompt
-  * cache (cache_creation + cache_read for Claude, `cached_input_tokens` for
-  * codex); `reasoningOutputTokens` is the sub-portion of `outputTokens` that
-  * the model spent on internal reasoning (codex / o-series). Both sub-counts
-  * are non-cumulative breakdowns and are surfaced separately so callers can
-  * report cache hit ratios and reasoning overhead without doing the maths
-  * themselves.
+  * **Normalisation contract.** All backends map onto the same axes so that
+  * summing `Usage` across calls and across backends is apples-to-apples:
+  *
+  *   - `inputTokens` is the TOTAL prompt tokens, **inclusive** of any served
+  *     from prompt cache. `outputTokens` is the total completion tokens.
+  *   - `cachedInputTokens` is the cache-served sub-portion (`cachedInputTokens
+  *     <= inputTokens`); `reasoningOutputTokens` is the internal-reasoning
+  *     sub-portion of `outputTokens` (codex / o-series). Both are
+  *     non-cumulative breakdowns, surfaced so callers can report cache-hit and
+  *     reasoning ratios without re-deriving them.
+  *
+  * Backends reach this contract from different wire shapes, so a NEW backend
+  * must fold any cache-served tokens INTO `inputTokens` rather than report them
+  * alongside it. The per-backend arithmetic (and why it differs) is documented
+  * at each driver's `Usage(...)` construction site.
   */
 case class Usage(
     inputTokens: Long,

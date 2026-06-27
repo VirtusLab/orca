@@ -249,55 +249,17 @@ object Plan:
       val body = plan.tasks.map(t => s"  - ${t.title}").mkString("\n")
       s"$header\n$body"
 
-  /** Parse a plan from its markdown representation, including its trailing `##
-    * Brief` section. Throws [[PlanParseException]] on any deviation from the `#
-    * Plan:` / `## Task:` schema, but tolerates a missing `## Brief` section —
-    * substituting an empty brief — consistent with [[render]] omitting a blank
-    * brief. CRLF line endings and a leading BOM are normalised first.
-    *
-    * This is the inverse of [[render]]; it exists only for that round-trip.
-    * Resume never reads a rendered plan back — the stage log is the sole resume
-    * mechanism (ADR 0018 §2.8); [[render]] is cosmetic, a human checklist.
-    */
-  def parse(markdown: String): Plan =
-    val normalised = markdown.stripPrefix("﻿").replace("\r\n", "\n")
-    val (planPart, brief) = splitBrief(normalised)
-    parsePlan(planPart, brief.getOrElse(""))
-
-  /** Render a plan into a human-readable markdown checklist, with the brief as
-    * a trailing `## Brief` section. Round-trips through [[parse]] without
-    * information loss. Cosmetic only (a checklist for users / `reviewed`'s
-    * input) — never read back for resume.
+  /** Render a plan to markdown (tasks as a `[ ]`/`[x]` checklist, the brief as
+    * a trailing `## Brief` section). Used by [[Sessioned.reviewed]] to feed the
+    * plan back into the self-review prompt, and equally usable as a
+    * human-readable checklist. It is **never parsed back**: the stage log is
+    * the sole resume mechanism (ADR 0018 §2.8), so there is no inverse parser
+    * to keep in sync.
     */
   def render(plan: Plan): String =
     val base = renderPlan(plan)
     if plan.brief.trim.isEmpty then base
     else s"$base\n## Brief\n\n${plan.brief.stripLineEnd}\n"
-
-  // --- Brief section (rendered last, parsed first) ---
-
-  private val BriefHeaderPattern = "^##\\s+Brief\\s*$".r
-
-  /** Split a normalised document into its plan part and optional brief. The
-    * brief is the text after the first `## Brief` heading that follows the
-    * tasks — searching only past the first `## Task:` stops a stray `## Brief`
-    * in the description from swallowing them, while still letting the brief
-    * body carry its own `##` headings.
-    */
-  private def splitBrief(normalised: String): (String, Option[String]) =
-    val lines = normalised.linesIterator.toList
-    val afterFirstTask = lines.indexWhere(TaskHeaderPattern.matches) + 1
-    lines.indexWhere(BriefHeaderPattern.matches, afterFirstTask) match
-      case -1 => (normalised, None)
-      case i  =>
-        // Drop the blank line `render` writes after the heading; keep the rest
-        // verbatim (a brief may be indented).
-        val brief =
-          lines.drop(i + 1).dropWhile(_.isEmpty).mkString("\n").stripLineEnd
-        (
-          lines.take(i).mkString("\n"),
-          if brief.isEmpty then None else Some(brief)
-        )
 
   private def renderPlan(plan: Plan): String =
     val header = s"# Plan: ${plan.epicId}\n"
@@ -310,76 +272,3 @@ object Plan:
         s"\n## Task: ${t.title}\nStatus: $checkbox\n\n${t.description.stripLineEnd}\n"
       .mkString
     header + descriptionBlock + body
-
-  // --- Parser internals ---
-
-  private val HeaderPattern = "^# Plan:\\s*(\\S.*)$".r
-  private val TaskHeaderPattern = "^## Task:\\s*(\\S.*)$".r
-  private val StatusPattern = "^Status:\\s*\\[(.)\\]\\s*$".r
-
-  private def parsePlan(planMarkdown: String, brief: String): Plan =
-    val lines = planMarkdown.linesIterator.toList
-    val epicId = parseHeader(lines)
-    val description = parseDescription(lines)
-    val taskBlocks = splitTaskBlocks(lines)
-    if taskBlocks.isEmpty then throw PlanParseException("Plan has no tasks")
-    Plan(epicId, description, taskBlocks.map(parseTask), brief)
-
-  private def parseHeader(lines: List[String]): String =
-    lines.find(_.trim.nonEmpty) match
-      case Some(HeaderPattern(id)) => id.trim
-      case other =>
-        throw PlanParseException(
-          s"Expected first non-blank line to match `# Plan: <epicId>`; got: ${other.getOrElse("(empty file)")}"
-        )
-
-  /** Description sits between the `# Plan:` header and the first `## Task:`
-    * heading. Empty when the file goes straight from the header into tasks.
-    */
-  private def parseDescription(lines: List[String]): String =
-    val afterHeader = lines.dropWhile(l => !HeaderPattern.matches(l)).drop(1)
-    afterHeader
-      .takeWhile(l => !TaskHeaderPattern.matches(l))
-      .mkString("\n")
-      .trim
-
-  private def splitTaskBlocks(lines: List[String]): List[List[String]] =
-    val blocks = collection.mutable.ListBuffer[List[String]]()
-    var current = collection.mutable.ListBuffer[String]()
-    var inTask = false
-    for line <- lines do
-      if TaskHeaderPattern.matches(line) then
-        if inTask then blocks += current.toList
-        current = collection.mutable.ListBuffer(line)
-        inTask = true
-      else if inTask then current += line
-    if inTask then blocks += current.toList
-    blocks.toList
-
-  private def parseTask(block: List[String]): Task =
-    val title = block.headOption match
-      case Some(TaskHeaderPattern(t)) => t.trim
-      case _ =>
-        throw PlanParseException(
-          s"Task block doesn't start with `## Task: <title>`: ${block.headOption.getOrElse("")}"
-        )
-    val rest = block.tail.dropWhile(_.trim.isEmpty)
-    val (statusLine, afterStatus) = rest.headOption match
-      case Some(line @ StatusPattern(_)) => (line, rest.tail)
-      case _ =>
-        throw PlanParseException(
-          s"Task '$title' is missing a `Status: [ ]` / `Status: [x]` line"
-        )
-    val completed = statusLine match
-      case StatusPattern(" ") => false
-      case StatusPattern("x") => true
-      case StatusPattern(other) =>
-        throw PlanParseException(
-          s"Task '$title' has unrecognised status checkbox '$other'"
-        )
-    val description = afterStatus.mkString("\n").trim
-    if description.isEmpty then
-      throw PlanParseException(s"Task '$title' has no prompt body")
-    Task(title = Title(title), description = description, completed = completed)
-
-class PlanParseException(message: String) extends RuntimeException(message)
