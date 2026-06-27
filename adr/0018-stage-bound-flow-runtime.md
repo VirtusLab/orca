@@ -178,7 +178,7 @@ Every side-effecting tool method gains a `(using InStage)` clause. The methods g
   `removeWorktree`, `ensureClean`.
 - `FsTool`: `write`.
 - `GitHubTool`: `createPr`, `updatePr`, `writeComment`, `upsertComment` *(new)*.
-- Every `LlmTool` / `LlmCall` / `AutonomousTextCall` entry point (LLM calls are
+- Every `Agent` / `AgentCall` / `AutonomousTextCall` entry point (LLM calls are
   side-effecting: cost and non-determinism).
 
 Side-effecting library helpers (`reviewAndFixLoop`, `fixLoop`, `lint`,
@@ -315,21 +315,21 @@ the wrong branch.
   records — e.g. an in-progress branch was merged, carrying the log into another
   branch — the run aborts with a clear message rather than resuming against the
   wrong branch.
-- **R31** — The leading **agent** (the coding harness — `LlmTool` is an agent, not
+- **R31** — The leading **agent** (the coding harness — `Agent` is an agent, not
   a model: each drives several models) is named by a required `agent` **selector**
-  argument to `flow(...)` — `FlowContext => LlmTool[?]`. The only way to name an
+  argument to `flow(...)` — `FlowContext => Agent[?]`. The only way to name an
   agent is an accessor on the flow context (`_.claude`, `_.codex`, …), which isn't
   in scope at the `flow(...)` argument position, so the selector defers resolution
   until the context is built. `flow(OrcaArgs(args), _.claude)` runs against claude;
   `flow(OrcaArgs(args), _.codex)` against codex. Inside the body the resolved lead
   is reached via the backend-agnostic top-level `agent` accessor, so the body reads
   the same regardless of backend — switch the selector and the whole flow follows.
-  This works despite `ctx.llm` being erased to `LlmTool[?]`: `flow` supplies a
+  This works despite `ctx.llm` being erased to `Agent[?]`: `flow` supplies a
   single stable `Lead` carrier given whose `B` type member pins the backend, and
-  `agent` (`def agent(using l: Lead): LlmTool[l.B]`) hands back a concretely-typed
+  `agent` (`def agent(using l: Lead): Agent[l.B]`) hands back a concretely-typed
   tool, so a session from `agent.session` threads into `agent.runSeeded` and the
   reviewers (R27). The runtime also keeps the lead erased as `ctx.llm` for branch
-  naming and default commit messages. `LlmTool` gains a `cheap` method returning the
+  naming and default commit messages. `Agent` gains a `cheap` method returning the
   backend's cheap variant (claude → haiku, gemini → flash, codex → mini); orca uses
   `agent.cheap` for branch naming and default commit messages. There is no implicit
   default agent. (Boundary: the agnostic `agent` covers the autonomous, tier-agnostic
@@ -348,7 +348,7 @@ the wrong branch.
 ```scala
 def flow(
     args: OrcaArgs,
-    agent: FlowContext => LlmTool[?],  // required leading-agent selector (R31)
+    agent: FlowContext => Agent[?],  // required leading-agent selector (R31)
     //   ^ resolved against the built context: `_.claude`, `_.codex`, …
     // … existing tool overrides …
     branchNaming: Option[BranchNamingStrategy] = None,
@@ -436,7 +436,7 @@ strategy and the progress store are overridable (R21).
 - **R22** — A stage result may carry an LLM `SessionId`, persisted in the log (with
   the client→server map for server-id backends). On resume, whether the *live*
   backend conversation can be continued is decided by a **non-destructive existence
-  probe** (`LlmBackend.sessionExists(id)`) rather than guessed: most backends expose
+  probe** (`AgentBackend.sessionExists(id)`) rather than guessed: most backends expose
   one (an on-disk session file, a list command, or a `GET`), pi does not. If the
   probe is absent or says gone, resume falls back to re-seed (R23).
 - **R23** — A session is obtained via a get-or-create (`llm.session`) whose id is
@@ -474,7 +474,7 @@ the seed. The seed is a single composed blob, not a transcript replay: cheap,
 predictable, free of re-applying past effects.
 
 On resume orca decides continue-vs-re-seed by a **non-destructive existence probe**
-per backend — `LlmBackend.sessionExists(id)` — not by attempting a resume and
+per backend — `AgentBackend.sessionExists(id)` — not by attempting a resume and
 catching an error (which some CLIs don't reliably raise). The recorded id (and, for
 server-id backends, the client→server map) is persisted in the log and rehydrated,
 then probed:

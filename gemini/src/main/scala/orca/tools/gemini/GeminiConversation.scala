@@ -1,12 +1,12 @@
 package orca.tools.gemini
 
-import orca.llm.{BackendTag, Model, SessionId}
+import orca.agents.{BackendTag, Model, SessionId}
 import orca.events.Usage
 import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{
   BufferedStderrDiagnostics,
   ConversationEvent,
-  LlmResult,
+  AgentResult,
   StreamConversation,
   StreamSource
 }
@@ -27,7 +27,7 @@ import java.util.concurrent.atomic.AtomicReference
   *     emitted here.
   *   - gemini headless is one-shot; multi-turn happens via `--resume` on a
   *     fresh spawn, so `sendUserMessage` is a no-op.
-  *   - **`LlmResult.output` is synthesised**: gemini has no single terminal
+  *   - **`AgentResult.output` is synthesised**: gemini has no single terminal
   *     message carrying the answer, so assistant-role `message` content is
   *     accumulated as it streams and the result builder reads it at the
   *     `result` event. The prompt template makes the closing content JSON in
@@ -147,7 +147,7 @@ private[gemini] class GeminiConversation(
         )
       )
     else
-      val result = LlmResult(
+      val result = AgentResult(
         sessionId = SessionId[BackendTag.Gemini.type](sessionIdRef.get()),
         output = answer.toString,
         usage = usage,

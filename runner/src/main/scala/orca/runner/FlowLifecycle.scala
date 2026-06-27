@@ -1,7 +1,7 @@
 package orca.runner
 
 import orca.{BranchNamingStrategy, InStage, OrcaArgs, OrcaFlowException}
-import orca.llm.{BackendTag, LlmTool, SessionId}
+import orca.agents.{BackendTag, Agent, SessionId}
 import orca.progress.{ProgressHeader, ProgressStore, RecoveryCheck}
 import orca.tools.GitTool
 
@@ -18,15 +18,15 @@ object FlowLifecycle:
     * leading model's in-memory registry, so a resumed run resumes the right
     * server thread and the server-id existence probes target the right id.
     * Reads every [[orca.progress.SessionRecord]] that carries a `serverId` and
-    * registers the mapping via [[orca.llm.LlmTool.registerServerSession]].
+    * registers the mapping via [[orca.agents.Agent.registerServerSession]].
     *
     * The type parameter `B` binds the wildcard backend tag from `ctx.llm`
-    * (`LlmTool[?]`) so the client/server [[orca.llm.SessionId]]s share its
+    * (`Agent[?]`) so the client/server [[orca.agents.SessionId]]s share its
     * type. Only the leading model is rehydrated (the common case); a flow that
     * drives a second tool's sessions across resume is a known limitation.
     */
   private[orca] def rehydrateSessions[B <: BackendTag](
-      llm: LlmTool[B],
+      llm: Agent[B],
       store: ProgressStore
   ): Unit =
     for
@@ -78,7 +78,7 @@ object FlowLifecycle:
     */
   private[orca] def setup(
       args: OrcaArgs,
-      llm: LlmTool[?],
+      llm: Agent[?],
       git: GitTool,
       branchNaming: Option[BranchNamingStrategy],
       store: ProgressStore

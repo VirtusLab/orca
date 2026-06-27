@@ -44,7 +44,7 @@ accessors — including `agent`, the backend-agnostic leading-agent accessor tha
 resolves the `flow` selector via the `Lead` carrier given — `stage`/`display`/
 `fail`, `JsonData`, `OrcaArgs`). Implementations
 live in focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their
-traits), `orca.llm` + `orca.backend` (LLM SPI, `SessionRegistry`, conversation
+traits), `orca.agents` + `orca.backend` (LLM SPI, `SessionRegistry`, conversation
 driver), `orca.subprocess` (subprocess shim), `orca.events` (event bus), one
 `orca.tools.<backend>` per coding agent, and `orca.runner` / `orca.runner.terminal`
 (wiring + terminal UI). The flow module adds `orca.{plan,review,pr,progress}`.
@@ -119,7 +119,7 @@ ORCA_INTEGRATION=1 sbt "runner/testOnly orca.runner.terminal.ScalaCliSmokeTest"
 | `ScalaCliSmokeTest` | `scala-cli`; runs `sbt publishLocal` internally |
 
 Unit tests use in-memory fakes (`StubCliRunner` / `SpawnStubCliRunner`,
-`FakeLlmTool`, `FakePipedCliProcess`, `TestFlowContext` / `TestFlowControl`) and
+`FakeAgent`, `FakePipedCliProcess`, `TestFlowContext` / `TestFlowControl`) and
 the shared `orca.testkit.GitRepo` temp-repo fixture (published via `tools %
 test->test`) — no network, no real filesystem outside `os.temp.dir()`.
 

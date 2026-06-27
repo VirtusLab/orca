@@ -1,7 +1,7 @@
 package orca.backend
 
 import orca.events.Usage
-import orca.llm.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId}
 
 /** Drives the [[StreamConversation]] base class from a non-subprocess
   * [[StreamSource]] — the property the OpenCode backend relies on (its source
@@ -23,7 +23,7 @@ class StreamSourceConversationTest extends munit.FunSuite:
     def sendUserMessage(text: String): Unit = ()
     protected def handleLine(line: String): Unit =
       if line == "DONE" then
-        val result = LlmResult(
+        val result = AgentResult(
           SessionId[BackendTag.Codex.type]("s1"),
           output = "hello",
           usage = Usage(0L, 0L, None)

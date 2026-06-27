@@ -1,6 +1,6 @@
 package orca.tools.gemini
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
+import orca.agents.{AutoApprove, BackendTag, AgentConfig, Model, SessionId}
 import orca.backend.SupervisedBackend
 import orca.subprocess.OsProcCliRunner
 
@@ -30,8 +30,8 @@ class GeminiIntegrationTest extends munit.FunSuite:
   private val model: Model =
     Model(sys.env.getOrElse("ORCA_GEMINI_MODEL", "gemini-2.5-flash"))
 
-  private val unsandboxed: LlmConfig =
-    LlmConfig.default.copy(autoApprove = AutoApprove.All, model = Some(model))
+  private val unsandboxed: AgentConfig =
+    AgentConfig.default.copy(autoApprove = AutoApprove.All, model = Some(model))
 
   private def fresh = SessionId.fresh[BackendTag.Gemini.type]
 

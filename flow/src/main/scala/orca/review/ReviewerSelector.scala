@@ -2,7 +2,7 @@ package orca.review
 
 import orca.{FlowContext, InStage}
 import orca.events.OrcaEvent
-import orca.llm.{AgentInput, JsonData, LlmTool, given}
+import orca.agents.{AgentInput, JsonData, Agent, given}
 import orca.plan.Title
 
 import scala.util.matching.Regex
@@ -19,10 +19,10 @@ import scala.util.matching.Regex
   */
 type ReviewerSelector = (
     history: List[ReviewBatch],
-    all: List[LlmTool[?]],
+    all: List[Agent[?]],
     taskTitle: Title,
     changedFiles: List[String]
-) => List[LlmTool[?]]
+) => List[Agent[?]]
 
 object ReviewerSelector:
 
@@ -76,7 +76,7 @@ object ReviewerSelector:
     * `instructions` to retune the selection brief.
     */
   def llmDriven(
-      llm: LlmTool[?],
+      llm: Agent[?],
       instructions: String = ReviewLoopPrompts.SelectReviewers,
       descriptions: Map[String, String] =
         ReviewerPrompts.descriptionsByToolName,

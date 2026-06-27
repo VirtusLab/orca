@@ -8,7 +8,7 @@ Proposed — implementation plan.
 
 ## Context
 
-We want OpenCode (`sst/opencode`, binary `opencode`, v1.15.x) as a third `LlmTool`
+We want OpenCode (`sst/opencode`, binary `opencode`, v1.15.x) as a third `Agent`
 backend alongside Claude and Codex. The existing two backends are **CLI drivers**:
 each turn spawns a one-shot subprocess (`claude --print` stream-json, ADR 0006;
 `codex exec --json` JSONL, ADR 0007) and parses its stdout.
@@ -57,7 +57,7 @@ Session-scoped events carry `properties.sessionID`; server-level ones
 
 1. **The result lives in the event stream.** The final `message.updated` carries
    the validated `structured` payload + `tokens`, so a turn is started with
-   `prompt_async` and its `LlmResult` is read from the SSE stream — the same
+   `prompt_async` and its `AgentResult` is read from the SSE stream — the same
    single-stream shape Codex gets from `turn.completed`, so the existing
    `StreamConversation` machinery applies.
 2. **`ask_user` is native** (`question.asked` event + `/question/{id}/reply`). The
@@ -76,7 +76,7 @@ down on Ox-scope close.
 use our own ids: `POST /session` has no `id` field (verified — server always mints
 `ses_…`). And even though the autonomous path could carry the server id back, the
 framework's **interactive** path pins the caller's `SessionId` and reconciles via
-`backend.registerSession(client, server)` (`DefaultLlmCall` returns the caller's
+`backend.registerSession(client, server)` (`DefaultAgentCall` returns the caller's
 `session`, not `result.sessionId`) — so the mapping lives at the framework level
 regardless. Use `SessionRegistry.ClientToServer` + the `registerSession` override,
 exactly like Codex; return `result.copy(sessionId = session)` to keep the caller's
@@ -87,7 +87,7 @@ handle stable.
 Add an `opencode` module with an `OpencodeBackend` that drives a shared
 `opencode serve` over HTTP+SSE. Each turn starts with `POST …/prompt_async` and
 reads its **own** `GET /event` SSE stream as the single source — translating bus
-events to `ConversationEvent`s and deriving the `LlmResult` from `message.updated`
+events to `ConversationEvent`s and deriving the `AgentResult` from `message.updated`
 (native `format` gives structured output on `info.structured`) — by **reusing the
 existing `StreamConversation` machinery**. `ask_user` is answered natively (no MCP
 bridge).
@@ -106,27 +106,27 @@ opencode/src/main/scala/orca/tools/opencode/
   OpencodeServer.scala       // shared serve process: start, base URL, HTTP wiring, teardown
   OpencodeHttp.scala         // transport trait: postJson, events (SSE), close
   JavaNetOpencodeHttp.scala  // OpencodeHttp over java.net.http (HTTP/1.1, basic auth)
-  OpencodeBackend.scala      // LlmBackend[BackendTag.Opencode.type]
+  OpencodeBackend.scala      // AgentBackend[BackendTag.Opencode.type]
   OpencodeConversation.scala // one turn: SSE line source → StreamConversation; prompt_async; ask_user/permission replies
   OpencodeApi.scala          // request/response DTOs + jsoniter codecs (message body, SSE event envelope, AssistantMessage)
-  OpencodeArgs.scala         // serve argv + message-body assembly from LlmConfig
+  OpencodeArgs.scala         // serve argv + message-body assembly from AgentConfig
   OpencodeModel.scala        // provider/model id construction + split
-  DefaultOpencodeTool.scala  // OpencodeTool: provider-prefixed accessors, withModel, copyTool
+  DefaultOpencodeAgent.scala  // OpencodeAgent: provider-prefixed accessors, withModel, copyTool
 adr/0014-opencode-server-driver.md
 ```
 
 ## Shared-type changes (in `tools`)
 
-- `orca.llm.BackendTag`: add `case Opencode`.
-- `orca.llm.LlmTool`: add `trait OpencodeTool extends LlmTool[BackendTag.Opencode.type]`
+- `orca.agents.BackendTag`: add `case Opencode`.
+- `orca.agents.Agent`: add `trait OpencodeAgent extends Agent[BackendTag.Opencode.type]`
   with provider-prefixed model accessors — Anthropic
   (`anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`) and OpenAI
   (`openaiGpt5`/`openaiGpt5Codex`/`openaiGpt5Mini`), plus a public
   `withModel(providerModel: String)` for any other `provider/model` (names below).
-- `orca.llm.CanAskUser`: add `given CanAskUser[BackendTag.Opencode.type]` — the
+- `orca.agents.CanAskUser`: add `given CanAskUser[BackendTag.Opencode.type]` — the
   server supports native questions on interactive turns.
-- No change to `LlmBackend`, `Conversation`, `LlmResult`, `Usage`, `DefaultLlmCall`,
-  `BaseLlmTool` — OpenCode fits the existing SPI.
+- No change to `AgentBackend`, `Conversation`, `AgentResult`, `Usage`, `DefaultAgentCall`,
+  `BaseAgent` — OpenCode fits the existing SPI.
 
 ## Backend design
 
@@ -158,7 +158,7 @@ concurrent first calls). Responsibilities:
 Each `OpencodeConversation` owns one `GET /event` SSE connection and starts its turn
 with `POST …/prompt_async` (`204`). The SSE stream is the single source: the reader
 fork translates events to `ConversationEvent`s (mapping under *Progress events*) and
-derives the `LlmResult` from the final `message.updated` (`info.structured` +
+derives the `AgentResult` from the final `message.updated` (`info.structured` +
 `info.tokens`) at `session.idle` — the single-stream shape Codex gets from
 `turn.completed`.
 
@@ -202,14 +202,14 @@ ships accessors for more than one family:
   are a detail — any id from `opencode models` is valid; update as the catalog
   moves).
 
-Accessors are **provider-prefixed** (unlike `ClaudeTool`'s bare `opus`/`sonnet`,
+Accessors are **provider-prefixed** (unlike `ClaudeAgent`'s bare `opus`/`sonnet`,
 which can assume a single vendor) because OpenCode spans providers — the prefix
 keeps the model's provider explicit at the call site and leaves room for more
 families. Plus a public `withModel(providerModel: String)` for any other `provider/model`
 (e.g. `ollama/llama3.1`, `myhost/qwen-coder`). `Model` is an opaque `String` with
 no allowlist, so arbitrary ids pass straight through to the message body.
 
-`LlmConfig.model = None` lets the server use its configured default. `variant`
+`AgentConfig.model = None` lets the server use its configured default. `variant`
 (reasoning effort) maps from a future config field; out of scope for v1.
 
 **Model-identifier utilities.** For self-hosted / custom providers, provide a tiny
@@ -231,7 +231,7 @@ object OpencodeModel:
       case _ => throw OrcaFlowException(s"not a provider/model id: ${Model.name(m)}")
 ```
 
-`OpencodeTool.withModel(providerModel)` and the prefixed accessors both go through
+`OpencodeAgent.withModel(providerModel)` and the prefixed accessors both go through
 `OpencodeModel`; `OpencodeArgs` uses `split` to fill `model:{providerID, modelID}`.
 The split-on-first-`/` matters: self-hosted model ids often contain slashes
 (`lmstudio/google/gemma-3n-e4b`).
@@ -302,7 +302,7 @@ round-trip works end-to-end (agent unblocks with the chosen label), via `POST
 Both `runAutonomous` and `runInteractive` build an `OpencodeConversation` (per
 *Event stream*: own SSE connection + `prompt_async`, result derived from the
 stream); `runAutonomous` then drains it with `Conversations.drainAutonomous`
-(→ `OrcaListener` progress + the `LlmResult`), exactly as the Codex backend does.
+(→ `OrcaListener` progress + the `AgentResult`), exactly as the Codex backend does.
 
 ### runAutonomous
 
@@ -314,7 +314,7 @@ stream); `runAutonomous` then drains it with `Conversations.drainAutonomous`
    prompt, `format` from `outputSchema`, `tools` per `AutoApprove`/`readOnly`
    **with `question:false`** (autonomous never asks — see *Asking the user*).
 3. `Conversations.drainAutonomous(conv, events)` → emits `OrcaEvent`s and returns
-   the `LlmResult` the reader built from `message.updated`/`session.idle`
+   the `AgentResult` the reader built from `message.updated`/`session.idle`
    (`output` = `info.structured` serialised when `outputSchema` set, else accrued
    text; `usage` = `info.tokens`; `model` = `info.modelID`; `info.error` →
    `AgentTurnFailed`).
@@ -326,7 +326,7 @@ stream); `runAutonomous` then drains it with `Conversations.drainAutonomous`
 Return the live `OpencodeConversation`:
 - `events`: the `EventQueue` iterator (single-consumer), terminating on
   `session.idle`/`session.error`.
-- `awaitResult()`: joins the reader → the `LlmResult` it built from
+- `awaitResult()`: joins the reader → the `AgentResult` it built from
   `message.updated`/`session.idle` (as *runAutonomous* step 3); inherited verbatim
   from `StreamConversation`. `Left(OrcaInteractiveCancelled)` after `cancel()`.
 - `sendUserMessage(text)`: starts a **new** turn — `POST /session/{id}/message` on
@@ -344,7 +344,7 @@ Return the live `OpencodeConversation`:
   permission config (below) pre-answers so no prompt fires.
 
 `registerSession` override records client→server id (called post-drive by
-`DefaultLlmCall`, as for Codex).
+`DefaultAgentCall`, as for Codex).
 
 ### Progress events (display) — reusing `drainAutonomous`
 
@@ -377,10 +377,10 @@ model/agent switches in the spike). Drive off the `message.part` lifecycle +
 | `message.part.delta` `{field:"reasoning", delta}` | `AssistantThinkingDelta(delta)` (dropped by autonomous drain) |
 | `message.part.updated` `{part:{type:"tool", tool, state:{status:"running", input}}}` | `AssistantToolCall(tool, input)` → `ToolUse` |
 | `message.part.updated` `{part:{type:"tool", state:{status:"completed"/"error", output}}}` | `ToolResult(tool, ok, output)` (dropped: volume) |
-| `message.updated` (assistant) | capture `info` (`structured`, `tokens`, `modelID`, `finish`, `error`) — source of the `LlmResult` |
+| `message.updated` (assistant) | capture `info` (`structured`, `tokens`, `modelID`, `finish`, `error`) — source of the `AgentResult` |
 | `question.asked` `{questions[], …}` | `UserQuestion(q, respond)` — `respond` POSTs `/question/{id}/reply` (interactive; autonomous gates the tool off) |
 | `permission.asked` `{id:"per_…", permission, patterns, tool}` | `ApproveTool(permission, patterns, respond)` — `respond` POSTs `/permission/{id}/reply` `{reply:"once"\|"always"\|"reject"}` (autonomous drain auto-denies) |
-| `session.idle` `{sessionID}` | build `LlmResult` from captured `info`, CAS `outcomeRef`, `AssistantTurnEnd`, close queue |
+| `session.idle` `{sessionID}` | build `AgentResult` from captured `info`, CAS `outcomeRef`, `AssistantTurnEnd`, close queue |
 | `session.error` / `info.error` | `Outcome.Failed(AgentTurnFailed)`, close queue |
 
 Ignore `session.status`/`session.updated`/`session.diff`/`session.next.*`/
@@ -403,7 +403,7 @@ its reused `EventQueue`/`Outcome`). Beyond that:
 
 ### Config mapping (`OpencodeArgs`)
 
-| `LlmConfig` | OpenCode |
+| `AgentConfig` | OpenCode |
 |---|---|
 | `model` | message `model: {providerID, modelID}` (split on first `/`) |
 | `systemPrompt` | message `system` (native field — no prompt-folding needed, unlike Codex) |
@@ -441,15 +441,15 @@ object at `state.input` with `state.metadata.valid == true`. So the backend read
 `info.structured` for the payload (not text parts). Free-form turns instead carry a
 `text` part and `finish == "stop"`.
 
-The existing `DefaultLlmCall` retry-on-bad-JSON loop remains as a backstop (and
+The existing `DefaultAgentCall` retry-on-bad-JSON loop remains as a backstop (and
 covers `retryCount` exhaustion → `StructuredOutputError`). This is strictly better
 than Codex's resume path, which falls back to prompt-only enforcement.
 
 ## Wiring
 
-`DefaultFlowContext.withDefaults` gains an `opencode: Option[OpencodeTool] = None`
-param, defaulting to `new DefaultOpencodeTool(new OpencodeBackend(OsProcCliRunner),
-LlmConfig.default, prompts, workDir, dispatcher, interaction)`. Expose it on
+`DefaultFlowContext.withDefaults` gains an `opencode: Option[OpencodeAgent] = None`
+param, defaulting to `new DefaultOpencodeAgent(new OpencodeBackend(OsProcCliRunner),
+AgentConfig.default, prompts, workDir, dispatcher, interaction)`. Expose it on
 `FlowContext` next to `claude`/`codex`.
 
 ## Implementation steps
@@ -513,18 +513,18 @@ LlmConfig.default, prompts, workDir, dispatcher, interaction)`. Expose it on
 2. (Optional but recommended) generalise `StreamConversation` from `PipedCliProcess`
    to a small line-source abstraction (`lines`, `cancel`, terminal signal) so both
    subprocess and SSE backends share it; else reuse `EventQueue`/`Outcome` directly.
-3. `opencode` sbt module + deps; add `BackendTag.Opencode`, `OpencodeTool`,
+3. `opencode` sbt module + deps; add `BackendTag.Opencode`, `OpencodeAgent`,
    `CanAskUser` given, `OpencodeModel`.
 4. `OpencodeApi` DTOs + jsoniter codecs (message body, SSE envelope, AssistantMessage)
    from the captured payloads.
 5. `OpencodeServer`: spawn/health/teardown/auth + HTTP client (incl. streaming
    `GET /event`).
 6. `OpencodeArgs`: serve argv + message-body assembly.
-7. `OpencodeConversation`: SSE line source → events + `LlmResult` from
+7. `OpencodeConversation`: SSE line source → events + `AgentResult` from
    `message.updated`/`session.idle`; ask_user/permission replies; abort.
 8. `OpencodeBackend.runAutonomous` (`prompt_async` + `Conversations.drainAutonomous`).
 9. `OpencodeBackend.runInteractive` + `registerSession`.
-10. `DefaultOpencodeTool` + `DefaultFlowContext`/`FlowContext` wiring.
+10. `DefaultOpencodeAgent` + `DefaultFlowContext`/`FlowContext` wiring.
 11. Tests (below).
 
 ## Testing
@@ -536,14 +536,14 @@ Mirror the existing three-layer pattern (`*BackendTest` fakes, flow-level stubs,
   is HTTP not subprocess, so instead of `FakePipedCliProcess`/`SpawnStubCliRunner`,
   feed a canned list of SSE `data:` lines (captured in *Spike results*) into the
   conversation's line source and assert the `ConversationEvent` sequence + the
-  `LlmResult` (structured object, `tokens`, model, `finish`, `info.error` →
+  `AgentResult` (structured object, `tokens`, model, `finish`, `info.error` →
   `AgentTurnFailed`). Separately unit-test `OpencodeArgs.message` body assembly
   (model split incl. multi-slash ids, `format`, `system`, `readOnly` tools,
   `question:false`) and `OpencodeModel.split`. Inject a stub sttp backend for the
   `prompt_async`/reply POSTs and assert the request bodies.
 - **Flow-level e2e (no server) — a simple `implement.sc`-like plan via OpenCode.**
   Run the real `Plan` DSL (`Plan.autonomous.from` + `implementTaskLoop`) against a
-  `TestFlowContext` whose `opencode` is a scripted stub (the `CannedResultLlm` /
+  `TestFlowContext` whose `opencode` is a scripted stub (the `CannedResultAgent` /
   `OrcaOverridesTest` pattern): assert a 1-task plan is produced and the task loop
   drives `opencode.autonomous.run`/`resultAs`. Exercises the wiring end-to-end
   without a live server.

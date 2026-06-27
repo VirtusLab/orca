@@ -4,7 +4,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   CodecMakerConfig,
   ConfiguredJsonValueCodec
 }
-import orca.llm.{JsonData, given}
+import orca.agents.{JsonData, given}
 import sttp.tapir.Schema
 
 /** Header capturing the git context in which the progress log was started. */
@@ -37,7 +37,7 @@ case class StageEntry(id: String, name: String, resultJson: String)
   * `serverId` defaults to `None` and decodes to `None` when absent in older log
   * files — the lenient [[ProgressLog]] codec tolerates the missing field.
   * Stored in [[ProgressLog.sessions]] so that a resumed run reuses the same
-  * [[orca.llm.SessionId]] rather than minting a second one.
+  * [[orca.agents.SessionId]] rather than minting a second one.
   */
 case class SessionRecord(
     index: Int,

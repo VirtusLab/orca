@@ -1,6 +1,6 @@
 package orca.events
 
-import orca.llm.Model
+import orca.agents.Model
 
 import java.util.concurrent.atomic.AtomicReference
 
@@ -85,7 +85,7 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
   def totalCost: Option[Cost] =
     state.get().byAgentCost.values.reduceOption(_ + _)
 
-  /** Per-agent usage breakdown — keyed by `LlmTool.name`. */
+  /** Per-agent usage breakdown — keyed by `Agent.name`. */
   def perAgent: Map[String, Usage] = state.get().byAgent
 
   /** Per-agent cost breakdown. Missing entry means that agent's calls had
@@ -94,7 +94,7 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
   def perAgentCost: Map[String, Cost] = state.get().byAgentCost
 
   /** Per-model usage breakdown. `None` collects calls whose model the backend
-    * didn't report and the caller didn't pin in `LlmConfig`.
+    * didn't report and the caller didn't pin in `AgentConfig`.
     */
   def perModel: Map[Option[Model], Usage] = state.get().byModel
 

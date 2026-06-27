@@ -1,23 +1,23 @@
 package orca.tools.gemini
 
-import orca.llm.{BackendTag, GeminiTool, LlmConfig, Model, Prompts}
+import orca.agents.{BackendTag, GeminiAgent, AgentConfig, Model, Prompts}
 import orca.events.OrcaListener
-import orca.backend.{Interaction, LlmBackend}
-import orca.llm.BaseLlmTool
+import orca.backend.{Interaction, AgentBackend}
+import orca.agents.BaseAgent
 
-/** Default [[GeminiTool]] implementation. Inherits the autonomous-text +
-  * `resultAs[O]` plumbing from [[BaseLlmTool]] and only adds the
-  * Gemini-specific `flash` model accessor.
+/** Default [[GeminiAgent]] implementation. Inherits the autonomous-text +
+  * `resultAs[O]` plumbing from [[BaseAgent]] and only adds the Gemini-specific
+  * `flash` model accessor.
   */
-private[orca] class DefaultGeminiTool(
-    backend: LlmBackend[BackendTag.Gemini.type],
-    config: LlmConfig,
+private[orca] class DefaultGeminiAgent(
+    backend: AgentBackend[BackendTag.Gemini.type],
+    config: AgentConfig,
     prompts: Prompts,
     workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
     val name: String = "main"
-) extends BaseLlmTool[BackendTag.Gemini.type, GeminiTool](
+) extends BaseAgent[BackendTag.Gemini.type, GeminiAgent](
       backend,
       config,
       prompts,
@@ -25,20 +25,20 @@ private[orca] class DefaultGeminiTool(
       events,
       interaction
     )
-    with GeminiTool:
+    with GeminiAgent:
 
   /** Pin the cheap-and-fast model variant. The literal id matches what's
     * available in the installed `gemini` CLI; newer versions may rename, in
-    * which case callers override via `withConfig(LlmConfig(model =
+    * which case callers override via `withConfig(AgentConfig(model =
     * Some(Model("..."))))`.
     */
-  def flash: GeminiTool = withModel(Model("gemini-2.5-flash"))
+  def flash: GeminiAgent = withModel(Model("gemini-2.5-flash"))
 
   protected def copyTool(
-      config: LlmConfig = config,
+      config: AgentConfig = config,
       name: String = name
-  ): GeminiTool =
-    new DefaultGeminiTool(
+  ): GeminiAgent =
+    new DefaultGeminiAgent(
       backend,
       config,
       prompts,
@@ -48,7 +48,7 @@ private[orca] class DefaultGeminiTool(
       name
     )
 
-private[orca] object DefaultGeminiTool:
+private[orca] object DefaultGeminiAgent:
 
   /** The strong default model. Bare `gemini` pins this (in the runtime wiring,
     * mirroring claude's Opus default for the long-lived implementer); `flash`

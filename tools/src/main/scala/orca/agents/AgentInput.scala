@@ -1,10 +1,10 @@
-package orca.llm
+package orca.agents
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 
 /** Typeclass that serializes an arbitrary value into the string that gets
   * embedded in the prompt sent to the LLM. Every `run` method on
-  * `AutonomousLlmCall` / `InteractiveLlmCall` that accepts an `input: I`
+  * `AutonomousAgentCall` / `InteractiveAgentCall` that accepts an `input: I`
   * requires an `AgentInput[I]` so callers don't have to pre-stringify their
   * arguments.
   *

@@ -10,15 +10,15 @@ import orca.{
   flow
 }
 import orca.events.OrcaEvent
-import orca.llm.{
+import orca.agents.{
   Announce,
   AutonomousTextCall,
   BackendTag,
-  ClaudeTool,
+  ClaudeAgent,
   DefaultPrompts,
   JsonData,
-  LlmCall,
-  LlmConfig,
+  AgentCall,
+  AgentConfig,
   SessionId,
   ToolSet
 }
@@ -57,7 +57,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs("lifecycle-success"),
-        agent = _ => StubLlm.claude,
+        agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction)
       ):
@@ -182,7 +182,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
-        agent = _ => StubLlm.claude,
+        agent = _ => StubAgent.claude,
         workDir = workDir,
         progressStore = Some(store),
         interaction = Some(interaction)
@@ -473,7 +473,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs(prompt),
-        agent = _ => StubLlm.claude,
+        agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = Nil,
@@ -507,7 +507,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
-        agent = _ => StubLlm.claude,
+        agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction)
       ):
@@ -543,7 +543,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
-        agent = _ => StubLlm.claude,
+        agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction)
       ):
@@ -584,7 +584,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
-        agent = _ => StubLlm.claude,
+        agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
         returnToStartBranch = true
@@ -645,7 +645,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     "default branchNaming (None) resolves via shortenPrompt: branch name equals slug(prompt)"
   ):
     // When `branchNaming = None` (the default), `flowSetup` uses
-    // `BranchNamingStrategy.shortenPrompt`. With `StubLlm.claude`, `cheap`
+    // `BranchNamingStrategy.shortenPrompt`. With `StubAgent.claude`, `cheap`
     // returns `this` (haiku = this) and `autonomous` throws
     // `UnsupportedOperationException`; `shortenPrompt` catches the failure and
     // falls back to `slug(userPrompt)`. This pins that the default is
@@ -663,7 +663,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       // branchNaming defaults to None — do not pass it.
       flow(
         args = OrcaArgs(prompt),
-        agent = _ => StubLlm.claude,
+        agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction)
       ):
@@ -674,11 +674,11 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"default branchNaming must use shortenPrompt (slug fallback); got '$observedBranch'"
     )
 
-  /** A `ClaudeTool` that records `registerServerSession` calls, to assert the
+  /** A `ClaudeAgent` that records `registerServerSession` calls, to assert the
     * lifecycle rehydrates the persisted client→server map. All LLM methods
     * throw — the rehydration test never invokes the model.
     */
-  private class RecordingClaude extends ClaudeTool:
+  private class RecordingClaude extends ClaudeAgent:
     private var _registered: List[(String, String)] = Nil
     def registered: List[(String, String)] = _registered
 
@@ -694,14 +694,14 @@ class FlowLifecycleTest extends munit.FunSuite:
     def opus = this
     def fable = this
     def withNetworkTools(t: Seq[String]) = this
-    def withConfig(c: LlmConfig) = this
+    def withConfig(c: AgentConfig) = this
     def withSystemPrompt(p: String) = this
     def withName(n: String) = this
     def withTools(tools: ToolSet) = this
     def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
       throw new UnsupportedOperationException
     def resultAs[O: JsonData: Announce]
-        : LlmCall[BackendTag.ClaudeCode.type, O] =
+        : AgentCall[BackendTag.ClaudeCode.type, O] =
       throw new UnsupportedOperationException
 
 end FlowLifecycleTest

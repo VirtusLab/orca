@@ -1,6 +1,6 @@
 package orca.plan
 
-import orca.llm.JsonData
+import orca.agents.JsonData
 
 /** Wire shape the LLM produces for a triage turn — a flat record with a boolean
   * discriminator (`isBug`) plus per-branch fields. Flattened (rather than a

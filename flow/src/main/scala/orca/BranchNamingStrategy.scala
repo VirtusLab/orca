@@ -1,6 +1,6 @@
 package orca
 
-import orca.llm.LlmTool
+import orca.agents.Agent
 import orca.tools.IssueHandle
 
 import java.nio.charset.StandardCharsets
@@ -13,7 +13,7 @@ trait BranchNamingStrategy:
   /** Resolve the feature-branch name. `userPrompt` is the flow's prompt; `llm`
     * is the leading model (used only by the prompt-shortening strategy).
     */
-  def resolve(userPrompt: String, llm: LlmTool[?])(using InStage): String
+  def resolve(userPrompt: String, llm: Agent[?])(using InStage): String
 
 object BranchNamingStrategy:
 
@@ -56,7 +56,7 @@ object BranchNamingStrategy:
     // Slug the prefix once at construction, not on every `resolve` call.
     val prefixSlug = slug(prefix)
     new BranchNamingStrategy:
-      def resolve(userPrompt: String, llm: LlmTool[?])(using InStage): String =
+      def resolve(userPrompt: String, llm: Agent[?])(using InStage): String =
         s"$prefixSlug/issue-${handle.number}"
 
   /** Deterministic strategy: slugs `text` to produce the branch name. `resolve`
@@ -65,7 +65,7 @@ object BranchNamingStrategy:
     */
   def fromText(text: => String): BranchNamingStrategy =
     new BranchNamingStrategy:
-      def resolve(userPrompt: String, llm: LlmTool[?])(using InStage): String =
+      def resolve(userPrompt: String, llm: Agent[?])(using InStage): String =
         slug(text)
 
   /** Prompt-shortening strategy: asks `llm.cheap` for a 3–6 word lowercase
@@ -76,7 +76,7 @@ object BranchNamingStrategy:
     */
   val shortenPrompt: BranchNamingStrategy =
     new BranchNamingStrategy:
-      def resolve(userPrompt: String, llm: LlmTool[?])(using InStage): String =
+      def resolve(userPrompt: String, llm: Agent[?])(using InStage): String =
         // `slug` is total (never empty), so the cheap-model reply OR the
         // userPrompt fallback both produce a valid ref.
         slug(

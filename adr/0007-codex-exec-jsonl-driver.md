@@ -85,12 +85,12 @@ Concretely:
 - `CodexBackend.runHeadless` / `continueHeadless` spawn `codex exec`
   (or `codex exec resume <id>`) with `--json`, consume the JSONL
   stream, and extract `thread_id` + final `agent_message` text +
-  `usage` from `turn.completed` into an `LlmResult`. Note the
+  `usage` from `turn.completed` into an `AgentResult`. Note the
   divergence from ADR 0006's claude shape: claude emits an explicit
   terminal `result` message that carries `output` / `structured_output`
   fields the driver reads directly. Codex has no such terminal
   message — its `turn.completed` only carries usage. The driver
-  therefore *synthesises* `LlmResult.output` by snapshotting the
+  therefore *synthesises* `AgentResult.output` by snapshotting the
   text of the last `item.completed` of type `agent_message` seen
   before `turn.completed`. The prompt template instructs the agent
   to make that final message JSON-only, so the snapshot is the
@@ -114,7 +114,7 @@ Concretely:
     `ToolResult(toolName="bash", ok=(exit_code==0), content=aggregated_output)`.
   - `item.{started,completed}` with `type: "file_change"` →
     `AssistantToolCall(name="file_change", …)` / `ToolResult(…)`.
-  - `turn.completed` → record usage; finalize `LlmResult`.
+  - `turn.completed` → record usage; finalize `AgentResult`.
   - Unknown item types → dropped (forward-compat).
 
 Consequences of the JSONL limitations:
@@ -123,7 +123,7 @@ Consequences of the JSONL limitations:
   single-shot stream-json path). Multi-turn interactive requires
   `continueInteractive(sessionId, …)` which spawns a fresh `codex
   exec resume`.
-- **`ApproveTool` events are not emitted.** `LlmConfig.autoApprove`
+- **`ApproveTool` events are not emitted.** `AgentConfig.autoApprove`
   is pre-baked into the spawn args:
   - `AutoApprove.All` → `--dangerously-bypass-approvals-and-sandbox`
     (or `--full-auto` if the caller prefers a sandbox).

@@ -1,13 +1,13 @@
 package orca
 
-import orca.llm.{BackendTag, LlmTool, SessionId}
+import orca.agents.{BackendTag, Agent, SessionId}
 import orca.progress.{ProgressLog, SessionRecord}
 
-/** Get-or-create session extension for `LlmTool`. Lives in the `flow` module so
-  * it can depend on [[FlowControl]] (which is in `flow`) while [[LlmTool]]
+/** Get-or-create session extension for `Agent`. Lives in the `flow` module so
+  * it can depend on [[FlowControl]] (which is in `flow`) while [[Agent]]
   * remains in `tools` (which `flow` depends on, not the reverse).
   */
-extension [B <: BackendTag](llm: LlmTool[B])
+extension [B <: BackendTag](llm: Agent[B])
   /** Get-or-create a session keyed by call-occurrence in this run's log.
     *
     * Reserves/returns a [[SessionId]] and records `(id, seed)` in the progress
@@ -73,7 +73,7 @@ extension [B <: BackendTag](llm: LlmTool[B])
   * write.
   */
 private def persistServerId[B <: BackendTag](
-    llm: LlmTool[B],
+    llm: Agent[B],
     session: SessionId[B]
 )(using fc: FlowControl): Unit =
   llm

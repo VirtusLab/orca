@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.llm.{BackendTag}
+import orca.agents.{BackendTag}
 import orca.events.{OrcaListener}
 
 /** The channel that connects a flow to its user. `listeners` are registered on
@@ -15,11 +15,11 @@ trait Interaction:
   def listeners: List[OrcaListener]
 
   /** Drive a live interactive session to completion. Returns the final
-    * [[LlmResult]] on success, throws [[OrcaInteractiveCancelled]] if the user
-    * cancelled mid-session, or any [[OrcaFlowException]] subtype for other
+    * [[AgentResult]] on success, throws [[OrcaInteractiveCancelled]] if the
+    * user cancelled mid-session, or any [[OrcaFlowException]] subtype for other
     * failures.
     */
-  def drive[B <: BackendTag](conversation: Conversation[B]): LlmResult[B]
+  def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B]
 
   /** Release any background resources (worker threads, channels, etc.). The
     * runtime calls this once after the flow body completes, regardless of

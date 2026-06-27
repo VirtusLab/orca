@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.llm.{BackendTag}
+import orca.agents.{BackendTag}
 import orca.{OrcaInteractiveCancelled}
 
 /** One live interactive session with a backend. Owned by the driver, read and
@@ -37,7 +37,7 @@ trait Conversation[B <: BackendTag]:
 
   /** Block until the session finishes, then return its outcome.
     *
-    *   - `Right(result)` — the session produced an [[LlmResult]] cleanly.
+    *   - `Right(result)` — the session produced an [[AgentResult]] cleanly.
     *   - `Left(cancelled)` — the user (or some peer) called [[cancel]], or the
     *     subprocess died in a way the driver classified as a cancellation.
     *     Recoverable: the caller can render a "cancelled" message, fail the
@@ -47,7 +47,7 @@ trait Conversation[B <: BackendTag]:
     * abnormal exit codes) keep throwing [[OrcaFlowException]] — those aren't
     * recoverable signals; they're "the backend is broken, panic" cases.
     */
-  def awaitResult(): Either[OrcaInteractiveCancelled, LlmResult[B]]
+  def awaitResult(): Either[OrcaInteractiveCancelled, AgentResult[B]]
 
   /** Inject a user turn mid-conversation by writing to the subprocess's stdin.
     * Only meaningful when the backend keeps stdin open for the life of the

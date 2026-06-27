@@ -1,24 +1,24 @@
 package orca.tools.codex
 
-import orca.llm.{BackendTag, CodexTool, LlmConfig, Model, Prompts}
+import orca.agents.{BackendTag, CodexAgent, AgentConfig, Model, Prompts}
 import orca.events.{OrcaListener}
 
-import orca.backend.{Interaction, LlmBackend}
-import orca.llm.BaseLlmTool
+import orca.backend.{Interaction, AgentBackend}
+import orca.agents.BaseAgent
 
-/** Default [[CodexTool]] implementation. Inherits the autonomous-text +
-  * `resultAs[O]` plumbing from [[BaseLlmTool]] and only adds the Codex-specific
+/** Default [[CodexAgent]] implementation. Inherits the autonomous-text +
+  * `resultAs[O]` plumbing from [[BaseAgent]] and only adds the Codex-specific
   * `mini` model accessor.
   */
-private[orca] class DefaultCodexTool(
-    backend: LlmBackend[BackendTag.Codex.type],
-    config: LlmConfig,
+private[orca] class DefaultCodexAgent(
+    backend: AgentBackend[BackendTag.Codex.type],
+    config: AgentConfig,
     prompts: Prompts,
     workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
     val name: String = "main"
-) extends BaseLlmTool[BackendTag.Codex.type, CodexTool](
+) extends BaseAgent[BackendTag.Codex.type, CodexAgent](
       backend,
       config,
       prompts,
@@ -26,20 +26,20 @@ private[orca] class DefaultCodexTool(
       events,
       interaction
     )
-    with CodexTool:
+    with CodexAgent:
 
   /** Pin the cheap-and-fast model variant. The literal model id matches what's
     * available in the installed `codex-cli` (gpt-5.4-mini in 0.125.0); newer
     * codex versions may rename, in which case callers override via
-    * `withConfig(LlmConfig(model = Some(Model("..."))))`.
+    * `withConfig(AgentConfig(model = Some(Model("..."))))`.
     */
-  def mini: CodexTool = withModel(Model("gpt-5.4-mini"))
+  def mini: CodexAgent = withModel(Model("gpt-5.4-mini"))
 
   protected def copyTool(
-      config: LlmConfig = config,
+      config: AgentConfig = config,
       name: String = name
-  ): CodexTool =
-    new DefaultCodexTool(
+  ): CodexAgent =
+    new DefaultCodexAgent(
       backend,
       config,
       prompts,

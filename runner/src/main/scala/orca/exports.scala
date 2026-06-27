@@ -12,18 +12,18 @@ package orca
 // re-export needed.
 
 export orca.events.{OrcaEvent, OrcaListener, Pricing, PriceList, ModelPricing}
-export orca.llm.{
-  LlmTool,
-  ClaudeTool,
-  CodexTool,
-  OpencodeTool,
-  PiTool,
-  GeminiTool,
-  LlmCall,
+export orca.agents.{
+  Agent,
+  ClaudeAgent,
+  CodexAgent,
+  OpencodeAgent,
+  PiAgent,
+  GeminiAgent,
+  AgentCall,
   AutonomousTextCall,
-  AutonomousLlmCall,
-  InteractiveLlmCall,
-  LlmConfig,
+  AutonomousAgentCall,
+  InteractiveAgentCall,
+  AgentConfig,
   AutoApprove,
   ToolSet,
   BackendTag,

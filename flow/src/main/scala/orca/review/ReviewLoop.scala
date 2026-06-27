@@ -2,12 +2,12 @@ package orca.review
 
 import orca.{FlowContext, InStage}
 import orca.plan.Title
-import orca.llm.{
+import orca.agents.{
   AgentInput,
   BackendTag,
   JsonData,
-  LlmConfig,
-  LlmTool,
+  AgentConfig,
+  Agent,
   SessionId,
   given
 }
@@ -118,8 +118,8 @@ private[review] def formatReviewerOutcome(
   * `allReviewers(claude)` etc.), and lets the loop decide which reviewers to
   * re-run on the next iteration based on which ones found issues this time.
   */
-case class ReviewBatch(outcomes: List[(LlmTool[?], ReviewResult)]):
-  def reviewersWithIssues: List[LlmTool[?]] =
+case class ReviewBatch(outcomes: List[(Agent[?], ReviewResult)]):
+  def reviewersWithIssues: List[Agent[?]] =
     outcomes.collect { case (r, rr) if rr.issues.nonEmpty => r }
   def allIssues: List[ReviewIssue] =
     outcomes.flatMap(_._2.issues)
@@ -167,9 +167,9 @@ private object ReviewLoopState:
   * there's nothing new for the reviewers to find, so the loop halts.
   */
 def reviewAndFixLoop[B <: BackendTag](
-    coder: LlmTool[B],
+    coder: Agent[B],
     sessionId: SessionId[B],
-    reviewers: List[LlmTool[?]],
+    reviewers: List[Agent[?]],
     reviewerSelection: ReviewerSelector,
     task: String,
     /** Shell command run before each review round — after the implementation
@@ -184,7 +184,7 @@ def reviewAndFixLoop[B <: BackendTag](
       * `lintCommand` is set; ignored otherwise. Use a cheap model
       * (`claude.haiku`, `codex.mini`) — the lint summary is a small fold.
       */
-    lintLlm: Option[LlmTool[?]] = None,
+    lintAgent: Option[Agent[?]] = None,
     confidenceThreshold: Double = 0.7,
     maxIterations: Int = 10,
     fixInstructions: String = ReviewLoopPrompts.Fix,
@@ -201,8 +201,8 @@ def reviewAndFixLoop[B <: BackendTag](
     initialDiff: Option[String] = None
 )(using ctx: FlowContext, ev: InStage): IgnoredIssues =
   require(
-    lintCommand.isEmpty || lintLlm.isDefined,
-    "reviewAndFixLoop: lintCommand requires lintLlm"
+    lintCommand.isEmpty || lintAgent.isDefined,
+    "reviewAndFixLoop: lintCommand requires lintAgent"
   )
   require(
     reviewers.map(_.name).distinct.size == reviewers.size,
@@ -249,7 +249,7 @@ def reviewAndFixLoop[B <: BackendTag](
     * that same `RB`.
     */
   def reviewWithSession[RB <: BackendTag](
-      r: LlmTool[RB],
+      r: Agent[RB],
       sessions: Map[String, SessionId.Untyped],
       currentDiff: String
   ): (ReviewResult, Option[(String, SessionId.Untyped)]) =
@@ -279,7 +279,7 @@ def reviewAndFixLoop[B <: BackendTag](
     */
   enum AgentOutcome:
     case Reviewer(
-        tool: LlmTool[?],
+        tool: Agent[?],
         result: ReviewResult,
         entry: Option[(String, SessionId.Untyped)]
     )
@@ -296,10 +296,10 @@ def reviewAndFixLoop[B <: BackendTag](
     * payload — pre-sampling also avoids redundant shell-outs.
     */
   def runReviewersAndLint(
-      active: List[LlmTool[?]],
+      active: List[Agent[?]],
       currentState: ReviewLoopState
   ): (
-      List[(LlmTool[?], ReviewResult)],
+      List[(Agent[?], ReviewResult)],
       Option[ReviewResult],
       ReviewLoopState
   ) =
@@ -314,7 +314,7 @@ def reviewAndFixLoop[B <: BackendTag](
 
     val lintTaskOpt: Option[() => AgentOutcome] =
       lintCommand
-        .zip(lintLlm)
+        .zip(lintAgent)
         .map: (cmd, llm) =>
           () =>
             // Group lint tokens under the same `reviewer: …` prefix as the
@@ -431,7 +431,7 @@ private[review] object ReviewLoop:
   */
 def lint(
     command: String,
-    llm: LlmTool[?],
+    llm: Agent[?],
     instructions: String = ReviewLoopPrompts.SummariseLint
 )(using FlowContext, InStage): ReviewResult =
   val proc = os

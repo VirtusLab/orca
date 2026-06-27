@@ -1,12 +1,12 @@
 package orca.runner.terminal
 
 import orca.OrcaInteractiveCancelled
-import orca.llm.BackendTag
+import orca.agents.BackendTag
 import orca.backend.{
   ApprovalDecision,
   Conversation,
   ConversationEvent,
-  LlmResult
+  AgentResult
 }
 import org.jline.reader.{LineReader, LineReaderBuilder, UserInterruptException}
 import org.jline.terminal.TerminalBuilder
@@ -77,7 +77,7 @@ private[terminal] class ConversationRenderer(
     */
   def render[B <: BackendTag](
       conversation: Conversation[B]
-  ): Either[OrcaInteractiveCancelled, LlmResult[B]] =
+  ): Either[OrcaInteractiveCancelled, AgentResult[B]] =
     try
       conversation.events.foreach(dispatch(_, conversation))
       // A well-behaved backend ends each turn with AssistantTurnEnd,

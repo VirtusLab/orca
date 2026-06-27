@@ -1,6 +1,6 @@
 package orca.events
 
-import orca.llm.Model
+import orca.agents.Model
 
 import java.time.LocalDate
 

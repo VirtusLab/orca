@@ -1,15 +1,15 @@
 package orca.tools.gemini
 
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.agents.{BackendTag, AgentConfig, SessionId}
 import orca.subprocess.CliResult
 import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{
   Conversation,
   Conversations,
   Dispatch,
-  LlmBackend,
-  LlmResult,
+  AgentBackend,
+  AgentResult,
   SessionMode,
   SessionRegistry,
   SystemPromptComposer
@@ -43,7 +43,7 @@ import ox.channels.BufferCapacity
   * [[AskUserSession]]). Autonomous calls skip the bridge entirely.
   */
 private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
-    extends LlmBackend[BackendTag.Gemini.type]:
+    extends AgentBackend[BackendTag.Gemini.type]:
 
   /** Maps the client-allocated session id to gemini's `init`-reported session
     * id. `gemini -p` mints its own id, so we keep this mapping to dispatch
@@ -55,11 +55,11 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
   def runAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Gemini.type],
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
-  ): LlmResult[BackendTag.Gemini.type] =
+  ): AgentResult[BackendTag.Gemini.type] =
     val conv = openConversation(
       prompt = prompt,
       mode = SessionMode.Autonomous,
@@ -89,7 +89,7 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
       prompt: String,
       session: SessionId[BackendTag.Gemini.type],
       displayPrompt: String,
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[BackendTag.Gemini.type] =
@@ -117,7 +117,7 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
       prompt: String,
       mode: SessionMode,
       session: SessionId[BackendTag.Gemini.type],
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[BackendTag.Gemini.type] =
@@ -170,8 +170,8 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
 
   /** Record the server session id so subsequent calls with the same client id
     * resume that session. Called by [[runAutonomous]] post-drain and by
-    * [[orca.llm.DefaultLlmCall]] post-`interaction.drive` on the interactive
-    * path; delegates to the registry's `commitSuccess`.
+    * [[orca.agents.DefaultAgentCall]] post-`interaction.drive` on the
+    * interactive path; delegates to the registry's `commitSuccess`.
     */
   override def registerSession(
       client: SessionId[BackendTag.Gemini.type],
@@ -188,7 +188,7 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
     * server id appears in the output (substring scan). Returns `false` — safe
     * re-seed — when no server id is mapped (the map hasn't been rehydrated from
     * the log, so there is no known live session), on non-zero exit, any
-    * exception, or if the id fails the [[orca.llm.isSafeSessionId]] guard
+    * exception, or if the id fails the [[orca.agents.isSafeSessionId]] guard
     * (added for consistency; the substring scan is not injection-susceptible,
     * but the guard keeps all probes uniform).
     *

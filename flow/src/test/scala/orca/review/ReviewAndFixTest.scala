@@ -2,60 +2,61 @@ package orca.review
 
 import orca.{FlowContext}
 import orca.plan.Title
-import orca.llm.{
+import orca.agents.{
   AgentInput,
   Announce,
-  AutonomousLlmCall,
+  AutonomousAgentCall,
   AutonomousTextCall,
   BackendTag,
-  InteractiveLlmCall,
+  InteractiveAgentCall,
   JsonData,
-  LlmCall,
-  LlmConfig,
-  LlmTool,
+  AgentCall,
+  AgentConfig,
+  Agent,
   SessionId,
   ToolSet
 }
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.{TestFlowContext}
 
-/** Fake LlmCall whose `autonomous.run` drains a scripted sequence of outputs in
-  * order — cast through `Any` because the trait is generic over output type.
+/** Fake AgentCall whose `autonomous.run` drains a scripted sequence of outputs
+  * in order — cast through `Any` because the trait is generic over output type.
   * The session id from the call site is echoed back so tests can verify the
   * loop threaded a consistent id; `seenSessions` records each call's session id
   * so tests can assert "fresh on first, same id thereafter."
   */
-class FakeLlmCall[O](outputs: Iterator[Any])
-    extends LlmCall[BackendTag.ClaudeCode.type, O]:
+class FakeAgentCall[O](outputs: Iterator[Any])
+    extends AgentCall[BackendTag.ClaudeCode.type, O]:
 
   /** Session ids the LLM was called with, in invocation order. */
   val seenSessions = new java.util.concurrent.atomic.AtomicReference[
     List[SessionId[BackendTag.ClaudeCode.type]]
   ](Nil)
 
-  val autonomous: AutonomousLlmCall[BackendTag.ClaudeCode.type, O] =
-    new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
+  val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
+    new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
       def run[I: AgentInput](
           input: I,
           session: SessionId[BackendTag.ClaudeCode.type],
-          config: LlmConfig,
+          config: AgentConfig,
           emitPrompt: Boolean
       )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
         val _ = seenSessions.updateAndGet(session :: _)
         (session, outputs.next().asInstanceOf[O])
-  def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
+  def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] = ???
 
-class FakeLlmTool(
+class FakeAgent(
     override val name: String,
     outputs: List[Any] = Nil
-) extends LlmTool[BackendTag.ClaudeCode.type]:
+) extends Agent[BackendTag.ClaudeCode.type]:
   private val it = outputs.iterator
-  val fakeCall: FakeLlmCall[Any] = new FakeLlmCall[Any](it)
+  val fakeCall: FakeAgentCall[Any] = new FakeAgentCall[Any](it)
 
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
 
-  def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
-    fakeCall.asInstanceOf[LlmCall[BackendTag.ClaudeCode.type, O]]
+  def resultAs[O: JsonData: Announce]
+      : AgentCall[BackendTag.ClaudeCode.type, O] =
+    fakeCall.asInstanceOf[AgentCall[BackendTag.ClaudeCode.type, O]]
 
   /** Session ids this tool was called with, in invocation order. Tests assert
     * the loop threaded a stable id across iterations.
@@ -63,10 +64,10 @@ class FakeLlmTool(
   def seenSessions: List[SessionId[BackendTag.ClaudeCode.type]] =
     fakeCall.seenSessions.get().reverse
 
-  def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
+  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
+  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
+  def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
+  def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
 
 class ReviewAndFixTest extends munit.FunSuite:
 
@@ -89,11 +90,11 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("returns empty IgnoredIssues when no reviewer reports issues"):
     given FlowContext = ctx
-    val silentReviewer = new FakeLlmTool(
+    val silentReviewer = new FakeAgent(
       name = "quiet",
       outputs = List(ReviewResult.empty)
     )
-    val coder = new FakeLlmTool("coder")
+    val coder = new FakeAgent("coder")
     val result = reviewAndFixLoop(
       coder = coder,
       sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
@@ -111,11 +112,11 @@ class ReviewAndFixTest extends munit.FunSuite:
     // a fix. With `fixed` empty the loop halts after one round.
     val noisyIssue = issue("flaky", confidence = 0.3)
     val realIssue = issue("real bug", confidence = 0.95)
-    val reviewer = new FakeLlmTool(
+    val reviewer = new FakeAgent(
       name = "loud",
       outputs = List(ReviewResult(List(noisyIssue, realIssue)))
     )
-    val coder = new FakeLlmTool(
+    val coder = new FakeAgent(
       name = "coder",
       outputs =
         List(FixOutcome(Nil, List(IgnoredIssue(Title("real bug"), "accepted"))))
@@ -138,15 +139,15 @@ class ReviewAndFixTest extends munit.FunSuite:
     given FlowContext = ctx
     val issueA = issue("A")
     val issueB = issue("B")
-    val reviewerA = new FakeLlmTool(
+    val reviewerA = new FakeAgent(
       name = "a",
       outputs = List(ReviewResult(List(issueA)))
     )
-    val reviewerB = new FakeLlmTool(
+    val reviewerB = new FakeAgent(
       name = "b",
       outputs = List(ReviewResult(List(issueB)))
     )
-    val coder = new FakeLlmTool(
+    val coder = new FakeAgent(
       name = "coder",
       outputs = List(
         FixOutcome(
@@ -177,11 +178,11 @@ class ReviewAndFixTest extends munit.FunSuite:
     // across iterations.
     given FlowContext = ctx
     val stubborn = issue("never ends")
-    val reviewer = new FakeLlmTool(
+    val reviewer = new FakeAgent(
       name = "loud",
       outputs = List.fill(4)(ReviewResult(List(stubborn)))
     )
-    val coder = new FakeLlmTool(
+    val coder = new FakeAgent(
       name = "fixer",
       outputs = List.fill(3)(FixOutcome(List(Title("never ends")), Nil))
     )
@@ -208,23 +209,23 @@ class ReviewAndFixTest extends munit.FunSuite:
   test("initialDiff is embedded in the reviewer's first prompt"):
     given FlowContext = ctx
     var capturedFirst: Option[String] = None
-    val captureReviewer = new LlmTool[BackendTag.ClaudeCode.type]:
+    val captureReviewer = new Agent[BackendTag.ClaudeCode.type]:
       val name = "capturing"
       def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-      def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
-      def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] =
+      def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
+      def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
         this
-      def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-      def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
+      def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
+      def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
       def resultAs[O: JsonData: Announce]
-          : LlmCall[BackendTag.ClaudeCode.type, O] =
-        new LlmCall[BackendTag.ClaudeCode.type, O]:
-          val autonomous: AutonomousLlmCall[BackendTag.ClaudeCode.type, O] =
-            new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
+          : AgentCall[BackendTag.ClaudeCode.type, O] =
+        new AgentCall[BackendTag.ClaudeCode.type, O]:
+          val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
+            new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
               def run[I: AgentInput](
                   i: I,
                   session: SessionId[BackendTag.ClaudeCode.type],
-                  c: LlmConfig,
+                  c: AgentConfig,
                   emitPrompt: Boolean
               )(using
                   orca.InStage
@@ -234,10 +235,10 @@ class ReviewAndFixTest extends munit.FunSuite:
                   SessionId[BackendTag.ClaudeCode.type]("s"),
                   ReviewResult.empty.asInstanceOf[O]
                 )
-          def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] =
+          def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
             ???
 
-    val coder = new FakeLlmTool("coder")
+    val coder = new FakeAgent("coder")
     val _ = reviewAndFixLoop(
       coder = coder,
       sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
@@ -253,13 +254,13 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("ReviewerSelector.llmDriven asks the LLM once and caches"):
     given FlowContext = ctx
-    val perf = new FakeLlmTool(name = "performance")
-    val style = new FakeLlmTool(name = "readability")
-    val coverage = new FakeLlmTool(name = "test-coverage")
+    val perf = new FakeAgent(name = "performance")
+    val style = new FakeAgent(name = "readability")
+    val coverage = new FakeAgent(name = "test-coverage")
     val all = List(perf, style, coverage)
     // Single reply — if the selector calls the LLM more than once the iterator
     // will throw NoSuchElement on the second call, failing the test.
-    val picker = new FakeLlmTool(
+    val picker = new FakeAgent(
       name = "picker",
       outputs = List(SelectedReviewers(List("performance", "test-coverage")))
     )
@@ -283,20 +284,20 @@ class ReviewAndFixTest extends munit.FunSuite:
   ):
     given FlowContext = ctx
     val issueX = issue("only-x", confidence = 0.9)
-    val reviewerX = new FakeLlmTool(
+    val reviewerX = new FakeAgent(
       name = "x",
       outputs = List(ReviewResult(List(issueX)))
     )
-    val reviewerY = new FakeLlmTool(
+    val reviewerY = new FakeAgent(
       name = "y"
       // promptOutputs intentionally empty: if the picker mistakenly chose y,
       // the loop would hit an empty iterator and throw.
     )
-    val picker = new FakeLlmTool(
+    val picker = new FakeAgent(
       name = "picker",
       outputs = List(SelectedReviewers(List("x")))
     )
-    val coder = new FakeLlmTool(
+    val coder = new FakeAgent(
       name = "coder",
       outputs =
         List(FixOutcome(Nil, List(IgnoredIssue(Title("only-x"), "accepted"))))
@@ -319,13 +320,13 @@ class ReviewAndFixTest extends munit.FunSuite:
   ):
     given FlowContext = ctx
     val issueX = issue("only-x", confidence = 0.9)
-    val reviewerX = new FakeLlmTool(
+    val reviewerX = new FakeAgent(
       name = "x",
       outputs = List(ReviewResult(List(issueX)))
     )
     // The coder's promptOutputs is empty: if the loop wrongly invokes the
     // picker against `coder`, the empty iterator throws and the test fails.
-    val coder = new FakeLlmTool(
+    val coder = new FakeAgent(
       name = "coder",
       outputs =
         List(FixOutcome(Nil, List(IgnoredIssue(Title("only-x"), "accepted"))))
@@ -367,23 +368,23 @@ class ReviewAndFixTest extends munit.FunSuite:
     class GatedReviewer(
         label: String,
         gate: java.util.concurrent.CountDownLatch
-    ) extends LlmTool[BackendTag.ClaudeCode.type]:
+    ) extends Agent[BackendTag.ClaudeCode.type]:
       val name = label
       def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-      def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
-      def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] =
+      def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
+      def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
         this
-      def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-      def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
+      def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
+      def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
       def resultAs[O: JsonData: Announce]
-          : LlmCall[BackendTag.ClaudeCode.type, O] =
-        new LlmCall[BackendTag.ClaudeCode.type, O]:
-          val autonomous: AutonomousLlmCall[BackendTag.ClaudeCode.type, O] =
-            new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
+          : AgentCall[BackendTag.ClaudeCode.type, O] =
+        new AgentCall[BackendTag.ClaudeCode.type, O]:
+          val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
+            new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
               def run[I: AgentInput](
                   i: I,
                   session: SessionId[BackendTag.ClaudeCode.type],
-                  c: LlmConfig,
+                  c: AgentConfig,
                   emitPrompt: Boolean
               )(using
                   orca.InStage
@@ -394,14 +395,14 @@ class ReviewAndFixTest extends munit.FunSuite:
                   SessionId[BackendTag.ClaudeCode.type](s"sid-$label"),
                   ReviewResult.empty.asInstanceOf[O]
                 )
-          def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] =
+          def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
             ???
 
     val slow = new GatedReviewer("slow", gate1)
     val fast = new GatedReviewer("fast", gate2)
     val runner = new Thread(() =>
       val _ = reviewAndFixLoop(
-        coder = new FakeLlmTool("coder"),
+        coder = new FakeAgent("coder"),
         sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
         reviewers = List(slow, fast),
         task = "ordering check",
@@ -436,19 +437,19 @@ class ReviewAndFixTest extends munit.FunSuite:
     val timeoutMs = 2000L
 
     class RendezvousReviewer(label: String)
-        extends LlmTool[BackendTag.ClaudeCode.type]:
+        extends Agent[BackendTag.ClaudeCode.type]:
       val name = label
       def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-      def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
-      def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] =
+      def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
+      def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
         this
-      def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-      def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
+      def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
+      def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
       def resultAs[O: JsonData: Announce]
-          : LlmCall[BackendTag.ClaudeCode.type, O] =
-        new LlmCall[BackendTag.ClaudeCode.type, O]:
-          val autonomous: AutonomousLlmCall[BackendTag.ClaudeCode.type, O] =
-            new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
+          : AgentCall[BackendTag.ClaudeCode.type, O] =
+        new AgentCall[BackendTag.ClaudeCode.type, O]:
+          val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
+            new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
               private def rendezvousThen(): O =
                 rendezvous.countDown()
                 val ok = rendezvous.await(
@@ -464,7 +465,7 @@ class ReviewAndFixTest extends munit.FunSuite:
               def run[I: AgentInput](
                   i: I,
                   session: SessionId[BackendTag.ClaudeCode.type],
-                  c: LlmConfig,
+                  c: AgentConfig,
                   emitPrompt: Boolean
               )(using
                   orca.InStage
@@ -473,18 +474,18 @@ class ReviewAndFixTest extends munit.FunSuite:
                   SessionId[BackendTag.ClaudeCode.type](s"sid-$label"),
                   rendezvousThen()
                 )
-          def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] =
+          def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
             ???
 
     val _ = reviewAndFixLoop(
-      coder = new FakeLlmTool("coder"),
+      coder = new FakeAgent("coder"),
       sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
       reviewers = List(new RendezvousReviewer("reviewer")),
       task = "concurrency check",
       // echo emits output so `lint` doesn't short-circuit on empty stdout
       // and actually calls the (rendezvousing) LLM summariser.
       lintCommand = Some("echo lint-output"),
-      lintLlm = Some(new RendezvousReviewer("lint")),
+      lintAgent = Some(new RendezvousReviewer("lint")),
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
@@ -495,12 +496,12 @@ class ReviewAndFixTest extends munit.FunSuite:
     // then clean) mean it must run twice — once before reviewing the
     // implementation, once before re-reviewing the fix.
     val counter = os.temp.dir() / "fmt-count"
-    val reviewer = new FakeLlmTool(
+    val reviewer = new FakeAgent(
       name = "r",
       outputs =
         List(ReviewResult(List(issue("needs fixing"))), ReviewResult.empty)
     )
-    val coder = new FakeLlmTool(
+    val coder = new FakeAgent(
       name = "coder",
       outputs = List(FixOutcome(List(Title("needs fixing")), Nil))
     )

@@ -1,7 +1,7 @@
 package orca.tools.gemini
 
 import orca.backend.SupervisedBackend
-import orca.llm.{BackendTag, LlmConfig, Model, SessionId}
+import orca.agents.{BackendTag, AgentConfig, Model, SessionId}
 import orca.OrcaFlowException
 import orca.subprocess.{
   CliResult,
@@ -57,7 +57,12 @@ class GeminiBackendTest extends munit.FunSuite:
     )
     withBackend(runner): backend =>
       val result =
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig.default,
+          os.temp.dir()
+        )
       // The returned session id is the client id — the server's sess-42 is
       // mapped internally so subsequent calls resume it.
       assertEquals(result.sessionId, clientSid)
@@ -72,7 +77,12 @@ class GeminiBackendTest extends munit.FunSuite:
       )
     withBackend(runner): backend =>
       val result =
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig.default,
+          os.temp.dir()
+        )
       assertEquals(result.model, Some(Model("gemini-2.5-pro")))
 
   test("runAutonomous throws when gemini exits without a result event"):
@@ -83,7 +93,12 @@ class GeminiBackendTest extends munit.FunSuite:
     p.sendSigInt()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       intercept[OrcaFlowException]:
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig.default,
+          os.temp.dir()
+        )
 
   test("runAutonomous throws with the exit code when gemini exits non-zero"):
     val p = new FakePipedCliProcess(initiallyAlive = false):
@@ -92,7 +107,12 @@ class GeminiBackendTest extends munit.FunSuite:
     p.closeStderr()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       val ex = intercept[OrcaFlowException]:
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig.default,
+          os.temp.dir()
+        )
       assert(
         ex.getMessage.contains("exited with code 7"),
         s"expected the exit code in the message; got: ${ex.getMessage}"
@@ -106,7 +126,12 @@ class GeminiBackendTest extends munit.FunSuite:
     p.closeStderr()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       val ex = intercept[OrcaFlowException]:
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig.default,
+          os.temp.dir()
+        )
       assert(
         ex.getMessage.contains("resume failed: session not found"),
         s"expected stderr in the exception; got: ${ex.getMessage}"
@@ -118,7 +143,7 @@ class GeminiBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         "list files",
         clientSid,
-        LlmConfig.default.copy(systemPrompt = Some("be terse")),
+        AgentConfig.default.copy(systemPrompt = Some("be terse")),
         os.temp.dir()
       )
       val finalPrompt = runner.calls.head.last
@@ -135,9 +160,9 @@ class GeminiBackendTest extends munit.FunSuite:
     withBackend(runner): backend =>
       val workDir = os.temp.dir()
       val _ =
-        backend.runAutonomous("first", clientSid, LlmConfig.default, workDir)
+        backend.runAutonomous("first", clientSid, AgentConfig.default, workDir)
       val _ =
-        backend.runAutonomous("again", clientSid, LlmConfig.default, workDir)
+        backend.runAutonomous("again", clientSid, AgentConfig.default, workDir)
       val firstArgs = runner.calls(0)
       val secondArgs = runner.calls(1)
       assert(!firstArgs.contains("--resume"), firstArgs.toString)
@@ -155,7 +180,7 @@ class GeminiBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "after",
           clientSid,
-          LlmConfig.default,
+          AgentConfig.default,
           os.temp.dir()
         )
       val args = runner.calls.head
@@ -170,8 +195,8 @@ class GeminiBackendTest extends munit.FunSuite:
       val workDir = os.temp.dir()
       val sidA = SessionId[BackendTag.Gemini.type]("aaaaaaaa")
       val sidB = SessionId[BackendTag.Gemini.type]("bbbbbbbb")
-      val _ = backend.runAutonomous("for A", sidA, LlmConfig.default, workDir)
-      val _ = backend.runAutonomous("for B", sidB, LlmConfig.default, workDir)
+      val _ = backend.runAutonomous("for A", sidA, AgentConfig.default, workDir)
+      val _ = backend.runAutonomous("for B", sidB, AgentConfig.default, workDir)
       assert(
         !runner.calls(1).contains("--resume"),
         s"second call with a new client id must NOT resume; got: ${runner.calls(1)}"
@@ -183,7 +208,8 @@ class GeminiBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val workDir = os.temp.dir()
-      val _ = backend.runAutonomous("q", clientSid, LlmConfig.default, workDir)
+      val _ =
+        backend.runAutonomous("q", clientSid, AgentConfig.default, workDir)
       assert(
         !os.exists(workDir / ".gemini" / "settings.json"),
         "autonomous must not write a .gemini/settings.json"
@@ -199,7 +225,7 @@ class GeminiBackendTest extends munit.FunSuite:
         "q",
         clientSid,
         displayPrompt = "q",
-        LlmConfig.default,
+        AgentConfig.default,
         workDir,
         outputSchema = None
       )
@@ -224,7 +250,7 @@ class GeminiBackendTest extends munit.FunSuite:
         "list files",
         clientSid,
         displayPrompt = "list files",
-        LlmConfig.default.copy(systemPrompt = Some("be terse")),
+        AgentConfig.default.copy(systemPrompt = Some("be terse")),
         os.temp.dir(),
         outputSchema = None
       )

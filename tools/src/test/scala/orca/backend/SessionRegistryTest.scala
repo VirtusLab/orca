@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.llm.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId}
 
 class SessionRegistryTest extends munit.FunSuite:
 

@@ -1,6 +1,6 @@
 package orca.plan
 
-import orca.llm.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId}
 
 /** A planning-phase result paired with the agent session that produced it.
   *

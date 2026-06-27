@@ -1,14 +1,14 @@
 package orca.tools.claude
 
-import orca.llm.{BackendTag, ClaudeTool, LlmConfig, Model, Prompts}
+import orca.agents.{BackendTag, ClaudeAgent, AgentConfig, Model, Prompts}
 import orca.events.{OrcaListener}
 
 import orca.backend.Interaction
-import orca.llm.BaseLlmTool
+import orca.agents.BaseAgent
 
-/** Default ClaudeTool implementation. Inherits the autonomous-text +
-  * `resultAs[O]` plumbing from [[BaseLlmTool]] and only adds the
-  * Claude-specific model accessors (`haiku` / `sonnet` / `opus`).
+/** Default ClaudeAgent implementation. Inherits the autonomous-text +
+  * `resultAs[O]` plumbing from [[BaseAgent]] and only adds the Claude-specific
+  * model accessors (`haiku` / `sonnet` / `opus`).
   *
   * Free-form text `autonomous.run` and structured `resultAs[O].autonomous.run`
   * go through the backend's headless mode. Interactive structured calls
@@ -16,15 +16,15 @@ import orca.llm.BaseLlmTool
   * the subprocess in a `Conversation` that the supplied `interaction` drives to
   * completion.
   */
-private[orca] class DefaultClaudeTool(
+private[orca] class DefaultClaudeAgent(
     backend: ClaudeBackend,
-    config: LlmConfig,
+    config: AgentConfig,
     prompts: Prompts,
     workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
     val name: String = "main"
-) extends BaseLlmTool[BackendTag.ClaudeCode.type, ClaudeTool](
+) extends BaseAgent[BackendTag.ClaudeCode.type, ClaudeAgent](
       backend,
       config,
       prompts,
@@ -32,20 +32,20 @@ private[orca] class DefaultClaudeTool(
       events,
       interaction
     )
-    with ClaudeTool:
+    with ClaudeAgent:
 
-  def haiku: ClaudeTool = withModel(Model("claude-haiku-4-5"))
-  def sonnet: ClaudeTool = withModel(Model("claude-sonnet-4-6"))
-  def opus: ClaudeTool = withModel(DefaultClaudeTool.Opus1M)
-  def fable: ClaudeTool = withModel(DefaultClaudeTool.Fable)
+  def haiku: ClaudeAgent = withModel(Model("claude-haiku-4-5"))
+  def sonnet: ClaudeAgent = withModel(Model("claude-sonnet-4-6"))
+  def opus: ClaudeAgent = withModel(DefaultClaudeAgent.Opus1M)
+  def fable: ClaudeAgent = withModel(DefaultClaudeAgent.Fable)
 
   /** Per the trait: configure the read-only network allowlist by swapping in a
     * reconfigured backend (the allowlist is claude-specific, so it lives there
-    * rather than in the shared `LlmConfig`). Constructs directly rather than
+    * rather than in the shared `AgentConfig`). Constructs directly rather than
     * via [[copyTool]] because the latter threads the current backend unchanged.
     */
-  def withNetworkTools(tools: Seq[String]): ClaudeTool =
-    new DefaultClaudeTool(
+  def withNetworkTools(tools: Seq[String]): ClaudeAgent =
+    new DefaultClaudeAgent(
       backend.withNetworkTools(tools),
       config,
       prompts,
@@ -56,10 +56,10 @@ private[orca] class DefaultClaudeTool(
     )
 
   protected def copyTool(
-      config: LlmConfig = config,
+      config: AgentConfig = config,
       name: String = name
-  ): ClaudeTool =
-    new DefaultClaudeTool(
+  ): ClaudeAgent =
+    new DefaultClaudeAgent(
       backend,
       config,
       prompts,
@@ -69,7 +69,7 @@ private[orca] class DefaultClaudeTool(
       name
     )
 
-private[orca] object DefaultClaudeTool:
+private[orca] object DefaultClaudeAgent:
   /** The default coding model: Opus with the 1M-token context window, selected
     * via the documented `[1m]` model-alias suffix (Claude Code model-config; no
     * beta header needed). The main implementer session is long-lived and

@@ -18,7 +18,7 @@ resolve against the command line rather than silently defaulting to
 empty), any number of named overrides (`git = ...`, `interaction = ...`,
 etc.), and the body as a second parameter list typed
 `FlowContext ?=> Unit`. Top-level `def claude(using FlowContext):
-ClaudeTool`, `def git(using FlowContext): GitTool`, `def
+ClaudeAgent`, `def git(using FlowContext): GitTool`, `def
 userPrompt(using FlowContext): String`, etc. resolve the ambient
 context implicitly.
 

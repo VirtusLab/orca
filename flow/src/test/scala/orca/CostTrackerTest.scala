@@ -8,7 +8,7 @@ import orca.events.{
   PriceList,
   Usage
 }
-import orca.llm.Model
+import orca.agents.Model
 
 import java.time.LocalDate
 
@@ -46,7 +46,7 @@ class CostTrackerTest extends munit.FunSuite:
     tracker.onEvent(tokens("performance", Some("haiku"), Usage(30L, 20L, None)))
     assertEquals(tracker.total, Usage(130L, 70L, None))
 
-  test("perAgent groups by LlmTool name"):
+  test("perAgent groups by Agent name"):
     val tracker = new CostTracker
     tracker.onEvent(tokens("claude", Some("opus"), Usage(10L, 5L, None)))
     tracker.onEvent(tokens("performance", Some("opus"), Usage(20L, 15L, None)))

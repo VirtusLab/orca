@@ -41,7 +41,7 @@ flow(OrcaArgs(args), _.claude):
   val session = claude.session(seed = plan.brief)
 
   // Reviewers on codex; fixes go back to the Claude session that implemented.
-  val reviewers: List[LlmTool[?]] = allReviewers(codex)
+  val reviewers: List[Agent[?]] = allReviewers(codex)
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):      // skipped on resume if already done

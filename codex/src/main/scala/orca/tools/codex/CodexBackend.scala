@@ -1,14 +1,14 @@
 package orca.tools.codex
 
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.agents.{BackendTag, AgentConfig, SessionId}
 import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{
   Conversation,
   Conversations,
   Dispatch,
-  LlmBackend,
-  LlmResult,
+  AgentBackend,
+  AgentResult,
   SessionMode,
   SessionRegistry,
   SystemPromptComposer
@@ -42,13 +42,13 @@ private[orca] class CodexBackend(
     cli: CliRunner,
     private[codex] val sessionsDir: os.Path = os.home / ".codex" / "sessions"
 )(using Ox, BufferCapacity)
-    extends LlmBackend[BackendTag.Codex.type]:
+    extends AgentBackend[BackendTag.Codex.type]:
 
   /** Best-effort probe: walks [[sessionsDir]] looking for a file whose name
     * matches `rollout-*-<id>.jsonl`. Returns `false` — safe re-seed — when no
     * match is found, the sessions dir doesn't exist, or the id fails the
-    * [[orca.llm.isSafeSessionId]] guard (blocks regex injection; e.g. id=`.*`
-    * would match every file without the guard).
+    * [[orca.agents.isSafeSessionId]] guard (blocks regex injection; e.g.
+    * id=`.*` would match every file without the guard).
     *
     * Note: the installed codex on some machines uses SQLite
     * (`~/.codex/state_5.sqlite`) rather than `rollout-*.jsonl` files. If no
@@ -76,11 +76,11 @@ private[orca] class CodexBackend(
   def runAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Codex.type],
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
-  ): LlmResult[BackendTag.Codex.type] =
+  ): AgentResult[BackendTag.Codex.type] =
     val conv = openConversation(
       prompt = prompt,
       mode = SessionMode.Autonomous,
@@ -92,7 +92,7 @@ private[orca] class CodexBackend(
       // `--output-schema` enforces the contract on the codex side too.
       // `exec resume` rejects `--output-schema`, so retries against an
       // existing session fall back to prompt-only enforcement; the
-      // retry-with-corrective-prompt loop in `DefaultLlmCall` handles a
+      // retry-with-corrective-prompt loop in `DefaultAgentCall` handles a
       // resume that produces malformed JSON.
       outputSchema = outputSchema
     )
@@ -113,7 +113,7 @@ private[orca] class CodexBackend(
       prompt: String,
       session: SessionId[BackendTag.Codex.type],
       displayPrompt: String,
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[BackendTag.Codex.type] =
@@ -149,7 +149,7 @@ private[orca] class CodexBackend(
       prompt: String,
       mode: SessionMode,
       session: SessionId[BackendTag.Codex.type],
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[BackendTag.Codex.type] =
@@ -215,8 +215,8 @@ private[orca] class CodexBackend(
 
   /** Record the server-allocated thread id so subsequent calls with the same
     * client id resume that thread. Called by [[runAutonomous]] post-drain and
-    * by [[orca.llm.DefaultLlmCall]] post-`interaction.drive` on the interactive
-    * path; delegates to the registry's `commitSuccess`.
+    * by [[orca.agents.DefaultAgentCall]] post-`interaction.drive` on the
+    * interactive path; delegates to the registry's `commitSuccess`.
     */
   override def registerSession(
       client: SessionId[BackendTag.Codex.type],

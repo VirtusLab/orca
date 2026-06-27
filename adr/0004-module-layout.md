@@ -7,7 +7,7 @@ Status: Accepted · Date: 2026-04-22
 ```
 tools   → standalone   — tool interfaces + os-backed impls + structured I/O + events
 flow    → tools        — FlowContext, stage/fail/fixLoop/reviewAndFix/lint, review types
-claude  → tools        — Claude backend, DefaultClaudeTool, DefaultLlmCall
+claude  → tools        — Claude backend, DefaultClaudeAgent, DefaultAgentCall
 codex   → tools        — Codex backend (future)
 runner  → tools+flow+claude+codex  — flow() entry, DefaultFlowContext, terminal layer
 ```
@@ -15,7 +15,7 @@ runner  → tools+flow+claude+codex  — flow() entry, DefaultFlowContext, termi
 Implementations live under `orca.tools.<capability>` sub-packages:
 `orca.tools.fs` (OsFsTool), `orca.tools.git` (OsGitTool),
 `orca.tools.github` (OsGitHubTool), `orca.tools.claude` (ClaudeBackend +
-DefaultClaudeTool), `orca.tools.codex` (future). The top-level `orca`
+DefaultClaudeAgent), `orca.tools.codex` (future). The top-level `orca`
 namespace stays reserved for the user-facing surface (traits, accessors,
 `flow`/`flowWith`, `JsonData`, `OrcaArgs`).
 

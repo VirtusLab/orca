@@ -251,6 +251,6 @@ def planAndImplementFix(session: SessionId[BackendTag.ClaudeCode.type])(using
         // Compile (main + test) is a cheap sanity gate; the failing test
         // runs in CI and correctness is the reviewers' job.
         lintCommand = Some("sbt Test/compile"),
-        lintLlm = Some(claude.cheap)
+        lintAgent = Some(claude.cheap)
       )
       // one commit per task: code + progress entry

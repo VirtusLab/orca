@@ -5,7 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   writeToString
 }
 import munit.FunSuite
-import orca.llm.JsonData
+import orca.agents.JsonData
 
 class ProgressLogTest extends FunSuite:
 

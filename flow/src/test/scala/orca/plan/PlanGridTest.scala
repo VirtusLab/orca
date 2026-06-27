@@ -1,7 +1,7 @@
 package orca.plan
 
 import orca.events.EventDispatcher
-import orca.llm.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId}
 
 /** Runtime wiring of the autonomous planning grid: each operation pairs its
   * result with the producing session, and `triage` converts the wire
@@ -26,7 +26,8 @@ class PlanGridTest extends munit.FunSuite:
   )
 
   test("autonomous.from pairs the plan with the producing session"):
-    val result = Plan.autonomous.from("prompt", new CannedResultLlm(samplePlan))
+    val result =
+      Plan.autonomous.from("prompt", new CannedResultAgent(samplePlan))
     assertEquals(result.sessionId.value, "stub-sid")
     assertEquals(result.value, samplePlan)
 
@@ -40,7 +41,7 @@ class PlanGridTest extends munit.FunSuite:
       branchName = "fix-foo",
       summary = "Foo overflows"
     )
-    val result = Plan.autonomous.triage("report", new CannedResultLlm(wire))
+    val result = Plan.autonomous.triage("report", new CannedResultAgent(wire))
     assertEquals(result.sessionId.value, "stub-sid")
     assertEquals(
       result.value,
@@ -58,5 +59,5 @@ class PlanGridTest extends munit.FunSuite:
 
   test("reviewed returns the improved plan, brief included"):
     val improved = samplePlan.copy(description = "tighter", brief = "sharper")
-    val result = sessioned(samplePlan).reviewed(new CannedResultLlm(improved))
+    val result = sessioned(samplePlan).reviewed(new CannedResultAgent(improved))
     assertEquals(result.value, improved)

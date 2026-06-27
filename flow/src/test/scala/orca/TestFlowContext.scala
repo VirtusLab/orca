@@ -1,13 +1,13 @@
 package orca
 
 import orca.events.{EventDispatcher, OrcaEvent}
-import orca.llm.{
-  ClaudeTool,
-  CodexTool,
-  GeminiTool,
-  LlmTool,
-  OpencodeTool,
-  PiTool
+import orca.agents.{
+  ClaudeAgent,
+  CodexAgent,
+  GeminiAgent,
+  Agent,
+  OpencodeAgent,
+  PiAgent
 }
 import orca.progress.{ProgressHeader, ProgressStore}
 import orca.testkit.GitRepo
@@ -31,12 +31,12 @@ class TestFlowContext(
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowContext")
 
-  lazy val llm: LlmTool[?] = stub("llm")
-  lazy val claude: ClaudeTool = stub("claude")
-  lazy val codex: CodexTool = stub("codex")
-  lazy val opencode: OpencodeTool = stub("opencode")
-  lazy val pi: PiTool = stub("pi")
-  lazy val gemini: GeminiTool = stub("gemini")
+  lazy val llm: Agent[?] = stub("llm")
+  lazy val claude: ClaudeAgent = stub("claude")
+  lazy val codex: CodexAgent = stub("codex")
+  lazy val opencode: OpencodeAgent = stub("opencode")
+  lazy val pi: PiAgent = stub("pi")
+  lazy val gemini: GeminiAgent = stub("gemini")
   lazy val git: GitTool = stub("git")
   lazy val gh: GitHubTool = stub("gh")
   lazy val fs: FsTool = stub("fs")
@@ -57,12 +57,12 @@ class TestFlowControl(
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowControl")
 
-  lazy val llm: LlmTool[?] = stub("llm")
-  lazy val claude: ClaudeTool = stub("claude")
-  lazy val codex: CodexTool = stub("codex")
-  lazy val opencode: OpencodeTool = stub("opencode")
-  lazy val pi: PiTool = stub("pi")
-  lazy val gemini: GeminiTool = stub("gemini")
+  lazy val llm: Agent[?] = stub("llm")
+  lazy val claude: ClaudeAgent = stub("claude")
+  lazy val codex: CodexAgent = stub("codex")
+  lazy val opencode: OpencodeAgent = stub("opencode")
+  lazy val pi: PiAgent = stub("pi")
+  lazy val gemini: GeminiAgent = stub("gemini")
   lazy val gh: GitHubTool = stub("gh")
   lazy val fs: FsTool = stub("fs")
 

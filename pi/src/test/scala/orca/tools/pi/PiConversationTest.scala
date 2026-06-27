@@ -2,7 +2,7 @@ package orca.tools.pi
 
 import orca.backend.ConversationEvent
 import orca.events.Usage
-import orca.llm.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId}
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.subprocess.FakePipedCliProcess
 
@@ -11,7 +11,7 @@ class PiConversationTest extends munit.FunSuite:
   private val sid: SessionId[BackendTag.Pi.type] =
     SessionId[BackendTag.Pi.type]("pi-session")
 
-  test("text deltas complete with AssistantTurnEnd and produce LlmResult"):
+  test("text deltas complete with AssistantTurnEnd and produce AgentResult"):
     val process = new FakePipedCliProcess()
     val conv = new PiConversation(process, sid)
 

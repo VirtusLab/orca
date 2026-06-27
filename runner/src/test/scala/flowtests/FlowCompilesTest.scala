@@ -20,7 +20,7 @@ import orca.{*, given}
 // failure, referenced by name in `examples/implement-enhanced.sc`. Pinning it
 // here keeps the "import it explicitly" requirement honest.
 import orca.tools.PrAlreadyExists
-import orca.llm.LlmConfig
+import orca.agents.AgentConfig
 
 case class PlanTask(branchName: String, description: String) derives JsonData
 case class FlowPlan(tasks: List[PlanTask]) derives JsonData
@@ -71,7 +71,7 @@ object FlowCanary:
         val _ = claude.withReadOnly.withSelfManagedGit
         val _ = codex.withSelfManagedGit
         val _ = pi.withConfig(
-          LlmConfig.default.copy(model = Some(Model("gpt-5.5")))
+          AgentConfig.default.copy(model = Some(Model("gpt-5.5")))
         )
 
   /** Review-and-fix loop; pulls in `allReviewers` and the internal `display`/
@@ -91,7 +91,7 @@ object FlowCanary:
             task = task.description,
             formatCommand = Some("mvn -q spotless:apply"),
             lintCommand = Some("mvn -q test"),
-            lintLlm = Some(claude.haiku)
+            lintAgent = Some(claude.haiku)
           )
 
   /** Config overrides must be reachable as unqualified names so users can write
@@ -268,7 +268,7 @@ object FlowCanary:
             task = task.title.value,
             formatCommand = Some("cargo fmt"),
             lintCommand = Some("cargo check --tests"),
-            lintLlm = Some(claude.haiku)
+            lintAgent = Some(claude.haiku)
           )
 
   /** `implement-interactive.sc`: interactive plan → session → task loop. Only
@@ -346,7 +346,7 @@ object FlowCanary:
         Plan.autonomous.from(userPrompt, claude.opus).value
 
       val session = claude.session(seed = plan.brief)
-      val reviewers: List[LlmTool[?]] = allReviewers(codex)
+      val reviewers: List[Agent[?]] = allReviewers(codex)
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
@@ -485,7 +485,7 @@ object FlowCanary:
                 task = task.title.value,
                 formatCommand = Some("sbt scalafmtAll"),
                 lintCommand = Some("sbt Test/compile"),
-                lintLlm = Some(claude.haiku)
+                lintAgent = Some(claude.haiku)
               )
 
           // Stage: push fix + finalise PR (later than the fix-task stages).

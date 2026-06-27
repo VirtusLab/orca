@@ -1,7 +1,7 @@
 package orca.tools.opencode
 
 import orca.OrcaFlowException
-import orca.llm.Model
+import orca.agents.Model
 
 /** Construction and parsing of OpenCode's `provider/model` identifiers.
   *

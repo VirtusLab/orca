@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.llm.{JsonData, given}
+import orca.agents.{JsonData, given}
 import orca.plan.Title
 
 /** What the fixing agent reports back per iteration: the titles of issues it

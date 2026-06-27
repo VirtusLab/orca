@@ -1,6 +1,6 @@
 package orca.events
 
-import orca.llm.Model
+import orca.agents.Model
 
 /** Flow-level event fanned out to every registered [[OrcaListener]]. Covers
   * stage transitions, tool invocations, token usage, structured results, and
@@ -26,13 +26,13 @@ enum OrcaEvent:
 
   /** Token usage for a single LLM call, attributed along two independent axes:
     *
-    *   - `agent` is the [[LlmTool.name]] that issued the call. For reviewer
+    *   - `agent` is the [[Agent.name]] that issued the call. For reviewer
     *     agents this carries the reviewer identity (`abstraction`,
     *     `performance`, …); for the main coding agent it's `claude` / `codex`
     *     (or whatever the script renamed it to via `withName`).
     *   - `model` is the concrete model the backend reports it actually served
     *     the call with. `None` when the response didn't carry it and no model
-    *     was pinned via `LlmConfig.model`.
+    *     was pinned via `AgentConfig.model`.
     *
     * `CostTracker` summarises usage along both axes — by-agent shows where the
     * tokens were spent, by-model shows which models cost what.

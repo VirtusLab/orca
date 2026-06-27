@@ -1,9 +1,9 @@
 package orca.tools.codex
 
-import orca.llm.{BackendTag, Model, SessionId}
+import orca.agents.{BackendTag, Model, SessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
-import orca.backend.{ConversationEvent, LlmResult}
+import orca.backend.{ConversationEvent, AgentResult}
 import orca.backend.{
   BufferedStderrDiagnostics,
   StreamConversation,
@@ -30,7 +30,7 @@ import java.util.concurrent.atomic.AtomicReference
   *     pre-baked into spawn args. `ApproveTool` is never emitted here.
   *   - `codex exec` is one-shot; multi-turn happens via `codex exec resume` on
   *     a fresh spawn, so `sendUserMessage` is a no-op.
-  *   - **`LlmResult.output` is synthesised**: codex has no terminal message
+  *   - **`AgentResult.output` is synthesised**: codex has no terminal message
   *     carrying the structured payload, so [[lastAgentMessage]] snapshots each
   *     agent message and the result builder reads the last one at
   *     `turn.completed`. The prompt template makes the last message JSON.
@@ -219,7 +219,7 @@ private[codex] class CodexConversation(
     s"$server.$tool"
 
   private def handleTurnCompleted(usage: Usage): Unit =
-    val result = LlmResult(
+    val result = AgentResult(
       sessionId = SessionId[BackendTag.Codex.type](sessionIdRef.get()),
       output = lastAgentMessage.get(),
       usage = usage,

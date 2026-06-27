@@ -1,14 +1,14 @@
-package orca.llm
+package orca.agents
 
 import ox.scheduling.Schedule
 
 import scala.concurrent.duration.DurationInt
 
-case class LlmConfig(
+case class AgentConfig(
     model: Option[Model] = None,
-    /** Model used by [[orca.llm.LlmTool.cheap]] for incidental work (branch
+    /** Model used by [[orca.agents.Agent.cheap]] for incidental work (branch
       * naming, commit-message summaries, reviewer selection). `None` uses the
-      * backend's built-in cheap tier; set it via `LlmTool.withCheapModel`.
+      * backend's built-in cheap tier; set it via `Agent.withCheapModel`.
       */
     cheapModel: Option[Model] = None,
     systemPrompt: Option[String] = None,
@@ -18,7 +18,7 @@ case class LlmConfig(
       * [[tools]] is [[ToolSet.Full]] (the read-only tiers are autonomous
       * planners/reviewers). `Only(set)` should list a subset of the tools
       * [[tools]] makes available; entries outside it are dead. Neither
-      * invariant is type-enforced (one `LlmConfig` feeds both the interactive
+      * invariant is type-enforced (one `AgentConfig` feeds both the interactive
       * and autonomous paths).
       */
     autoApprove: AutoApprove = AutoApprove.All,
@@ -39,7 +39,7 @@ case class LlmConfig(
       * agent to drive git.
       */
     selfManagedGit: Boolean = false,
-    retrySchedule: Schedule = LlmConfig.defaultRetrySchedule
+    retrySchedule: Schedule = AgentConfig.defaultRetrySchedule
 ):
   /** Return a config whose `autoApprove` set also includes `tool`. Backends use
     * this to silently authorise their own host-side tools (e.g. the MCP
@@ -47,35 +47,35 @@ case class LlmConfig(
     * refuse. No-op when `autoApprove = AutoApprove.All` — everything is already
     * covered.
     */
-  def autoApproveAlso(tool: String): LlmConfig =
+  def autoApproveAlso(tool: String): AgentConfig =
     autoApprove match
       case AutoApprove.All => this
       case AutoApprove.Only(tools) =>
         copy(autoApprove = AutoApprove.Only(tools + tool))
 
-object LlmConfig:
+object AgentConfig:
 
   // Must be declared before `default` so the case-class default arg resolves.
   val defaultRetrySchedule: Schedule =
     Schedule.exponentialBackoff(1.second).maxRetries(3)
 
-  /** The default LlmConfig. Shared as a singleton so the framework can detect,
-    * via `eq LlmConfig.default`, that the caller omitted the per-call `config`
-    * argument; in that case the tool-level config (set via
-    * `LlmTool.withConfig`) is used instead. Any explicit `LlmConfig` passed at
+  /** The default AgentConfig. Shared as a singleton so the framework can
+    * detect, via `eq AgentConfig.default`, that the caller omitted the per-call
+    * `config` argument; in that case the tool-level config (set via
+    * `Agent.withConfig`) is used instead. Any explicit `AgentConfig` passed at
     * the call site wholly replaces the tool-level one — there is no per-field
-    * merge. Pass `LlmConfig.default` (or omit the arg) to inherit the tool's
-    * defaults; constructing a fresh `LlmConfig()` defeats the detection and
+    * merge. Pass `AgentConfig.default` (or omit the arg) to inherit the tool's
+    * defaults; constructing a fresh `AgentConfig()` defeats the detection and
     * wipes them.
     */
-  val default: LlmConfig = LlmConfig()
+  val default: AgentConfig = AgentConfig()
 
 enum AutoApprove:
   case All
   case Only(tools: Set[String])
 
 /** The set of tools available to the agent — the capability tier on
-  * [[LlmConfig.tools]]. Each backend maps the tiers onto its own permission
+  * [[AgentConfig.tools]]. Each backend maps the tiers onto its own permission
   * model:
   *
   *   - **ReadOnly** — reads only; no shell, no edits. The hard no-edit gate
@@ -91,7 +91,7 @@ enum AutoApprove:
   *     workspace-write`), so there the no-edit guarantee is **prompt-only** —
   *     the planner prompts forbid edits.
   *   - **Full** — every tool, write-capable; prompting then follows
-  *     [[LlmConfig.autoApprove]].
+  *     [[AgentConfig.autoApprove]].
   */
 enum ToolSet:
   case ReadOnly

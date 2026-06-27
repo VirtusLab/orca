@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.agents.{AutoApprove, BackendTag, AgentConfig, SessionId}
 import orca.backend.{ConversationEvent, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
 
@@ -27,8 +27,8 @@ class CodexIntegrationTest extends munit.FunSuite:
   private def withBackend(body: CodexBackend => Unit): Unit =
     SupervisedBackend.using(new CodexBackend(OsProcCliRunner))(body)
 
-  private val unsandboxed: LlmConfig =
-    LlmConfig.default.copy(autoApprove = AutoApprove.All)
+  private val unsandboxed: AgentConfig =
+    AgentConfig.default.copy(autoApprove = AutoApprove.All)
 
   private def fresh = SessionId.fresh[BackendTag.Codex.type]
 

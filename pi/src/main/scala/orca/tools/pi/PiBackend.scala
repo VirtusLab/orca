@@ -1,14 +1,14 @@
 package orca.tools.pi
 
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.agents.{BackendTag, AgentConfig, SessionId}
 import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{
   Conversation,
   Conversations,
   Dispatch,
-  LlmBackend,
-  LlmResult,
+  AgentBackend,
+  AgentResult,
   SessionMode,
   SessionRegistry,
   SystemPromptComposer
@@ -33,7 +33,7 @@ import scala.util.control.NonFatal
   * process.
   */
 private[orca] class PiBackend(cli: CliRunner)
-    extends LlmBackend[BackendTag.Pi.type]:
+    extends AgentBackend[BackendTag.Pi.type]:
 
   // Pi persists each session in a directory; one dir per Orca session id gives
   // caller-stable continuity. The registry tracks fresh-vs-resume and is
@@ -46,11 +46,11 @@ private[orca] class PiBackend(cli: CliRunner)
   def runAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Pi.type],
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
-  ): LlmResult[BackendTag.Pi.type] =
+  ): AgentResult[BackendTag.Pi.type] =
     val conv = openConversation(
       prompt = prompt,
       mode = SessionMode.Autonomous,
@@ -72,7 +72,7 @@ private[orca] class PiBackend(cli: CliRunner)
       prompt: String,
       session: SessionId[BackendTag.Pi.type],
       displayPrompt: String,
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[BackendTag.Pi.type] =
@@ -102,7 +102,7 @@ private[orca] class PiBackend(cli: CliRunner)
       prompt: String,
       mode: SessionMode,
       session: SessionId[BackendTag.Pi.type],
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
   ): PiConversation =
@@ -165,7 +165,7 @@ private[orca] class PiBackend(cli: CliRunner)
         throw e
 
   private def writeSystemPromptIfPresent(
-      config: LlmConfig,
+      config: AgentConfig,
       extraHint: Option[String]
   ): Option[TempFileResource] =
     SystemPromptComposer

@@ -5,29 +5,29 @@ import orca.progress.ProgressStore
 import orca.tools.{GitTool}
 import orca.tools.{GitHubTool}
 import orca.tools.{FsTool}
-import orca.llm.{
-  ClaudeTool,
-  CodexTool,
-  GeminiTool,
-  LlmConfig,
-  LlmTool,
-  OpencodeTool,
-  PiTool,
+import orca.agents.{
+  ClaudeAgent,
+  CodexAgent,
+  GeminiAgent,
+  AgentConfig,
+  Agent,
+  OpencodeAgent,
+  PiAgent,
   Prompts
 }
 import orca.events.{EventDispatcher, OrcaEvent}
 
 import orca.backend.Interaction
-import orca.tools.claude.{ClaudeBackend, DefaultClaudeTool}
-import orca.tools.codex.{CodexBackend, DefaultCodexTool}
+import orca.tools.claude.{ClaudeBackend, DefaultClaudeAgent}
+import orca.tools.codex.{CodexBackend, DefaultCodexAgent}
 import orca.tools.opencode.{
-  DefaultOpencodeTool,
+  DefaultOpencodeAgent,
   OpencodeBackend,
   OpencodeLauncher
 }
-import orca.tools.pi.{DefaultPiTool, PiBackend}
-import orca.tools.gemini.{GeminiBackend, DefaultGeminiTool}
-import orca.llm.DefaultPrompts
+import orca.tools.pi.{DefaultPiAgent, PiBackend}
+import orca.tools.gemini.{GeminiBackend, DefaultGeminiAgent}
+import orca.agents.DefaultPrompts
 import orca.subprocess.OsProcCliRunner
 import orca.tools.OsFsTool
 import orca.tools.OsGitTool
@@ -40,12 +40,12 @@ import orca.tools.OsGitHubTool
 private[orca] class DefaultFlowContext(
     val userPrompt: String,
     dispatcher: EventDispatcher,
-    leadModel: FlowContext => LlmTool[?],
-    val claude: ClaudeTool,
-    val codex: CodexTool,
-    val opencode: OpencodeTool,
-    val pi: PiTool,
-    val gemini: GeminiTool,
+    leadModel: FlowContext => Agent[?],
+    val claude: ClaudeAgent,
+    val codex: CodexAgent,
+    val opencode: OpencodeAgent,
+    val pi: PiAgent,
+    val gemini: GeminiAgent,
     val git: GitTool,
     val gh: GitHubTool,
     val fs: FsTool,
@@ -60,7 +60,7 @@ private[orca] class DefaultFlowContext(
   // WARNING: the selector MUST NOT read `ctx.llm` — that would recurse on this
   // lazy val and loop. The built-in selectors (`_.claude`, `_.codex`, …) are
   // safe because they read a concrete accessor, not `llm` itself.
-  lazy val llm: LlmTool[?] = leadModel(this)
+  lazy val llm: Agent[?] = leadModel(this)
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
@@ -99,13 +99,13 @@ private[orca] object DefaultFlowContext:
       workDir: os.Path,
       interaction: Interaction,
       progressStore: ProgressStore,
-      leadModel: FlowContext => LlmTool[?],
-      claude: Option[ClaudeTool] = None,
-      codex: Option[CodexTool] = None,
-      opencode: Option[OpencodeTool] = None,
+      leadModel: FlowContext => Agent[?],
+      claude: Option[ClaudeAgent] = None,
+      codex: Option[CodexAgent] = None,
+      opencode: Option[OpencodeAgent] = None,
       opencodeLauncher: OpencodeLauncher = OpencodeLauncher.default,
-      pi: Option[PiTool] = None,
-      gemini: Option[GeminiTool] = None,
+      pi: Option[PiAgent] = None,
+      gemini: Option[GeminiAgent] = None,
       git: Option[GitTool] = None,
       gh: Option[GitHubTool] = None,
       fs: Option[FsTool] = None,
@@ -116,13 +116,13 @@ private[orca] object DefaultFlowContext:
       dispatcher = dispatcher,
       leadModel = leadModel,
       claude = claude.getOrElse(
-        new DefaultClaudeTool(
+        new DefaultClaudeAgent(
           backend = new ClaudeBackend(OsProcCliRunner),
           // Bare `claude` defaults to Opus with the 1M context window — the
           // implementer session is long-lived, so it needs the big window.
           // `claude.sonnet` / `claude.haiku` opt down for cheap one-shots.
           config =
-            LlmConfig.default.copy(model = Some(DefaultClaudeTool.Opus1M)),
+            AgentConfig.default.copy(model = Some(DefaultClaudeAgent.Opus1M)),
           prompts = prompts,
           workDir = workDir,
           events = dispatcher,
@@ -130,9 +130,9 @@ private[orca] object DefaultFlowContext:
         )
       ),
       codex = codex.getOrElse(
-        new DefaultCodexTool(
+        new DefaultCodexAgent(
           backend = new CodexBackend(OsProcCliRunner),
-          config = LlmConfig.default,
+          config = AgentConfig.default,
           prompts = prompts,
           workDir = workDir,
           events = dispatcher,
@@ -140,9 +140,9 @@ private[orca] object DefaultFlowContext:
         )
       ),
       opencode = opencode.getOrElse(
-        new DefaultOpencodeTool(
+        new DefaultOpencodeAgent(
           backend = OpencodeBackend(OsProcCliRunner, opencodeLauncher),
-          config = LlmConfig.default,
+          config = AgentConfig.default,
           prompts = prompts,
           workDir = workDir,
           events = dispatcher,
@@ -150,9 +150,9 @@ private[orca] object DefaultFlowContext:
         )
       ),
       pi = pi.getOrElse(
-        new DefaultPiTool(
+        new DefaultPiAgent(
           backend = new PiBackend(OsProcCliRunner),
-          config = LlmConfig.default,
+          config = AgentConfig.default,
           prompts = prompts,
           workDir = workDir,
           events = dispatcher,
@@ -160,12 +160,13 @@ private[orca] object DefaultFlowContext:
         )
       ),
       gemini = gemini.getOrElse(
-        new DefaultGeminiTool(
+        new DefaultGeminiAgent(
           backend = new GeminiBackend(OsProcCliRunner),
           // Bare `gemini` pins Gemini Pro (the strong model, like claude
           // defaults to Opus for the long-lived implementer); `gemini.flash`
           // opts down for cheap one-shots.
-          config = LlmConfig.default.copy(model = Some(DefaultGeminiTool.Pro)),
+          config =
+            AgentConfig.default.copy(model = Some(DefaultGeminiAgent.Pro)),
           prompts = prompts,
           workDir = workDir,
           events = dispatcher,

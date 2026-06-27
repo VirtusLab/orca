@@ -1,9 +1,9 @@
 package orca.tools.pi
 
 import orca.events.Usage
-import orca.llm.{BackendTag, Model, SessionId}
+import orca.agents.{BackendTag, Model, SessionId}
 import orca.{OrcaFlowException}
-import orca.backend.{ConversationEvent, LlmResult}
+import orca.backend.{ConversationEvent, AgentResult}
 import orca.backend.{
   BufferedStderrDiagnostics,
   StreamConversation,
@@ -23,11 +23,11 @@ import scala.util.control.NonFatal
 /** Drives one `pi --mode rpc` process for a single Orca LLM call. The backend
   * sends one `prompt` command, this conversation translates Pi RPC events into
   * Orca conversation events, and `agent_end` becomes the terminal
-  * [[LlmResult]].
+  * [[AgentResult]].
   *
   * Pi has no native structured-output / JSON-schema flag, so `outputSchema` is
   * carried only for the framework's parsing: the schema is enforced through the
-  * prompt (`DefaultLlmCall` injects the rules), not the Pi CLI.
+  * prompt (`DefaultAgentCall` injects the rules), not the Pi CLI.
   */
 private[pi] class PiConversation(
     process: PipedCliProcess,
@@ -167,7 +167,7 @@ private[pi] class PiConversation(
   private def handleAgentEnd(): Unit =
     if turnState.sawAssistantMessage then
       eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
-    val result = LlmResult(
+    val result = AgentResult(
       sessionId = clientSession,
       output = turnState.lastAssistantMessage,
       usage = turnState.usage,

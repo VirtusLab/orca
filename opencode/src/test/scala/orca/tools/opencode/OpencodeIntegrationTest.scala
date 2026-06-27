@@ -1,7 +1,7 @@
 package orca.tools.opencode
 
 import orca.backend.SupervisedBackend
-import orca.llm.{BackendTag, LlmConfig, Model, SessionId, ToolSet}
+import orca.agents.{BackendTag, AgentConfig, Model, SessionId, ToolSet}
 import orca.subprocess.OsProcCliRunner
 
 /** End-to-end tests against a real `opencode serve`. Gated on the
@@ -28,7 +28,8 @@ class OpencodeIntegrationTest extends munit.FunSuite:
   private val model: Model =
     Model(sys.env.getOrElse("ORCA_OPENCODE_MODEL", "openai/gpt-4o-mini"))
 
-  private val config: LlmConfig = LlmConfig.default.copy(model = Some(model))
+  private val config: AgentConfig =
+    AgentConfig.default.copy(model = Some(model))
 
   private def withBackend(body: OpencodeBackend => Unit): Unit =
     SupervisedBackend.using(OpencodeBackend(OsProcCliRunner))(body)

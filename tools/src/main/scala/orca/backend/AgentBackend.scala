@@ -1,13 +1,13 @@
 package orca.backend
 
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId, isSafeSessionId}
+import orca.agents.{BackendTag, AgentConfig, SessionId, isSafeSessionId}
 
 import scala.util.control.NonFatal
 
 /** SPI implemented per backend (Claude, Codex, …). The framework calls these
   * methods from the autonomous-text and structured-output paths
-  * ([[AutonomousTextCall]], [[LlmCall]]).
+  * ([[AutonomousTextCall]], [[AgentCall]]).
   *
   * Each method takes a `session: SessionId[B]` — the framework hands the same
   * value across calls; the backend decides internally whether this is the first
@@ -24,7 +24,7 @@ import scala.util.control.NonFatal
   *
   * `workDir` is the working directory the agent subprocess sees.
   */
-trait LlmBackend[B <: BackendTag]:
+trait AgentBackend[B <: BackendTag]:
   /** Run one autonomous turn against `session` and return its result. The
     * backend decides whether to create the session (first call with this id) or
     * resume it (subsequent calls).
@@ -45,11 +45,11 @@ trait LlmBackend[B <: BackendTag]:
   def runAutonomous(
       prompt: String,
       session: SessionId[B],
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
-  ): LlmResult[B]
+  ): AgentResult[B]
 
   /** Launch an interactive session against `session` and return a live
     * [[Conversation]] the caller hands to [[Interaction.drive]] for rendering
@@ -65,7 +65,7 @@ trait LlmBackend[B <: BackendTag]:
       prompt: String,
       session: SessionId[B],
       displayPrompt: String,
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[B]

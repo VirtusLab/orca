@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.llm.{Announce, JsonData, given}
+import orca.agents.{Announce, JsonData, given}
 import orca.plan.Title
 
 case class IgnoredIssue(title: Title, reason: String) derives JsonData

@@ -2,16 +2,16 @@ package orca.review
 
 import orca.{FlowContext, TestFlowContext}
 import orca.events.EventDispatcher
-import orca.llm.{
+import orca.agents.{
   AgentInput,
   Announce,
-  AutonomousLlmCall,
+  AutonomousAgentCall,
   AutonomousTextCall,
   BackendTag,
   JsonData,
-  LlmCall,
-  LlmConfig,
-  LlmTool,
+  AgentCall,
+  AgentConfig,
+  Agent,
   SessionId,
   ToolSet
 }
@@ -20,26 +20,27 @@ import orca.plan.Title
 import java.util.concurrent.atomic.AtomicReference
 
 /** Captures every `ReviewerSelectionRequest` handed to the picker and replies
-  * with a scripted `SelectedReviewers`. Other `LlmTool` surface is unused.
+  * with a scripted `SelectedReviewers`. Other `Agent` surface is unused.
   */
 private class RecordingPicker(
     response: SelectedReviewers,
     captured: AtomicReference[Option[ReviewerSelectionRequest]]
-) extends LlmTool[BackendTag.ClaudeCode.type]:
+) extends Agent[BackendTag.ClaudeCode.type]:
   val name: String = "picker"
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-  def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
-  def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
-    new LlmCall[BackendTag.ClaudeCode.type, O]:
-      val autonomous: AutonomousLlmCall[BackendTag.ClaudeCode.type, O] =
-        new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
+  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
+  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
+  def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
+  def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
+  def resultAs[O: JsonData: Announce]
+      : AgentCall[BackendTag.ClaudeCode.type, O] =
+    new AgentCall[BackendTag.ClaudeCode.type, O]:
+      val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
+        new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
           def run[I: AgentInput](
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
-              config: LlmConfig,
+              config: AgentConfig,
               emitPrompt: Boolean
           )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
             input match
@@ -51,17 +52,19 @@ private class RecordingPicker(
               response.asInstanceOf[O]
             )
       def interactive
-          : orca.llm.InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
+          : orca.agents.InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
+        ???
 
 /** Inert reviewer tool — just carries the name the selector dispatches on. */
 private class NamedTool(override val name: String)
-    extends LlmTool[BackendTag.ClaudeCode.type]:
+    extends Agent[BackendTag.ClaudeCode.type]:
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-  def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-  def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
-  def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.ClaudeCode.type, O] =
+  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
+  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
+  def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
+  def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
+  def resultAs[O: JsonData: Announce]
+      : AgentCall[BackendTag.ClaudeCode.type, O] =
     ???
 
 class ReviewerSelectorTest extends munit.FunSuite:
@@ -71,9 +74,9 @@ class ReviewerSelectorTest extends munit.FunSuite:
   // `llmDriven` is now gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
 
-  private val scalaFp: LlmTool[?] = new NamedTool("reviewer: scala-fp")
-  private val generic: LlmTool[?] = new NamedTool("reviewer: generic")
-  private val all: List[LlmTool[?]] = List(scalaFp, generic)
+  private val scalaFp: Agent[?] = new NamedTool("reviewer: scala-fp")
+  private val generic: Agent[?] = new NamedTool("reviewer: generic")
+  private val all: List[Agent[?]] = List(scalaFp, generic)
 
   private val filePatterns =
     Map("reviewer: scala-fp" -> """\.scala$""".r)

@@ -2,10 +2,10 @@ package orca.backend
 
 import orca.OrcaInteractiveCancelled
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.llm.BackendTag
+import orca.agents.BackendTag
 
 /** Drains a [[Conversation]] for the autonomous path, mapping conversation
-  * events to [[OrcaEvent]]s and returning the awaited `LlmResult`.
+  * events to [[OrcaEvent]]s and returning the awaited `AgentResult`.
   *
   * Structured mode (`conv.outputSchema.isDefined`) withholds the last assistant
   * turn so the closing JSON payload doesn't surface as an `AssistantMessage` —
@@ -27,7 +27,7 @@ private[orca] object Conversations:
   def drainAutonomous[B <: BackendTag](
       conv: Conversation[B],
       events: OrcaListener = OrcaListener.noop
-  ): LlmResult[B] =
+  ): AgentResult[B] =
     val structuredMode = conv.outputSchema.isDefined
     val textBuf = new StringBuilder
     // Previously-closed turn's text, kept around in structured mode while we
@@ -85,7 +85,7 @@ private[orca] object Conversations:
           )
         case ConversationEvent.UserMessage(_) =>
           // Wire-level echo of input we already sent. Surfaced upstream as
-          // `OrcaEvent.UserPrompt` from the LlmTool layer; nothing to do
+          // `OrcaEvent.UserPrompt` from the Agent layer; nothing to do
           // here.
           ()
         case ConversationEvent.ToolResult(_, _, _) =>
@@ -104,5 +104,5 @@ private[orca] object Conversations:
     conv.awaitResult() match
       case Right(result) => result
       // Autonomous callers can't produce a Left; surface as a throw so the
-      // LlmResult call shape is honoured.
+      // AgentResult call shape is honoured.
       case Left(cancelled) => throw cancelled

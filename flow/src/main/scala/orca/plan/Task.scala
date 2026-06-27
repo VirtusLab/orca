@@ -1,7 +1,7 @@
 package orca.plan
 
 import orca.plan.Title
-import orca.llm.{JsonData}
+import orca.agents.{JsonData}
 
 /** A single task in a [[Plan]].
   *

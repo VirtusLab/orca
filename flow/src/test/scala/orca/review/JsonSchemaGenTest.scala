@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.llm.given
+import orca.agents.given
 import orca.util.JsonSchemaGen
 
 import com.networknt.schema.{InputFormat, JsonSchemaFactory, SpecVersion}

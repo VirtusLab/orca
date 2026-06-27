@@ -24,7 +24,7 @@ class OrcaTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs("hello world"),
-        agent = _ => StubLlm.claude,
+        agent = _ => StubAgent.claude,
         workDir = TempRepo.create(),
         interaction = Some(interaction)
       ):
@@ -41,7 +41,7 @@ class OrcaTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
-        agent = _ => StubLlm.claude,
+        agent = _ => StubAgent.claude,
         workDir = TempRepo.create(),
         interaction = Some(interaction)
       ):

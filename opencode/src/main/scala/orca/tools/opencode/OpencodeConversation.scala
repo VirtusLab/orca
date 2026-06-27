@@ -5,12 +5,12 @@ import orca.AgentTurnFailed
 import orca.backend.{
   ApprovalDecision,
   ConversationEvent,
-  LlmResult,
+  AgentResult,
   StreamConversation,
   StreamSource
 }
 import orca.events.Usage
-import orca.llm.{BackendTag, Model, SessionId}
+import orca.agents.{BackendTag, Model, SessionId}
 import orca.tools.opencode.OpencodeApi.{
   AssistantInfo,
   PermissionReply,
@@ -28,7 +28,7 @@ import scala.util.control.NonFatal
   * The reader-loop / event-queue / outcome lifecycle lives in
   * [[StreamConversation]]; this class supplies the OpenCode-specific
   * translation: SSE frame → [[OpencodeEvent]] → `ConversationEvent`, deriving
-  * the [[LlmResult]] from the assistant `message.updated` at `session.idle`.
+  * the [[AgentResult]] from the assistant `message.updated` at `session.idle`.
   * The SSE stream stays open after a turn, so reaching the terminal interrupts
   * `source` to make the reader observe EOF.
   *
@@ -152,10 +152,10 @@ private[opencode] class OpencodeConversation(
   /** In structured mode the validated object is the result; otherwise the
     * accrued assistant text. Usage and model come from the captured `info`.
     */
-  private def buildResult(): LlmResult[BackendTag.Opencode.type] =
+  private def buildResult(): AgentResult[BackendTag.Opencode.type] =
     val info = turnState.info
     val structured = info.flatMap(_.structured).map(_.value)
-    LlmResult(
+    AgentResult(
       sessionId = SessionId[BackendTag.Opencode.type](session),
       output = structured.getOrElse(turnState.text.mkString),
       usage = usageOf(info),

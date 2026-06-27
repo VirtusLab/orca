@@ -1,7 +1,14 @@
 package orca.tools.claude
 
 import orca.backend.Dispatch
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId, ToolSet}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  Model,
+  SessionId,
+  ToolSet
+}
 class ClaudeArgsTest extends munit.FunSuite:
 
   private val testSid =
@@ -10,7 +17,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     )
 
   private def streamJson(
-      config: LlmConfig,
+      config: AgentConfig,
       dispatch: Dispatch[BackendTag.ClaudeCode.type] = Dispatch.Fresh(testSid),
       networkTools: Seq[String] = Seq.empty
   ): Seq[String] =
@@ -22,24 +29,24 @@ class ClaudeArgsTest extends munit.FunSuite:
     )
 
   test("stream-json shape: --print, --input/--output-format stream-json, etc."):
-    val args = streamJson(LlmConfig.default)
+    val args = streamJson(AgentConfig.default)
     assert(args.contains("--print"))
     assert(args.containsSlice(Seq("--input-format", "stream-json")))
     assert(args.containsSlice(Seq("--output-format", "stream-json")))
     assert(args.contains("--verbose"))
     assert(args.contains("--include-partial-messages"))
 
-  test("model flag is emitted when LlmConfig.model is set"):
-    val args = streamJson(LlmConfig(model = Some(Model("sonnet-4"))))
+  test("model flag is emitted when AgentConfig.model is set"):
+    val args = streamJson(AgentConfig(model = Some(Model("sonnet-4"))))
     assert(args.containsSlice(Seq("--model", "sonnet-4")))
 
-  test("model flag is absent when LlmConfig.model is None"):
-    assert(!streamJson(LlmConfig.default).contains("--model"))
+  test("model flag is absent when AgentConfig.model is None"):
+    assert(!streamJson(AgentConfig.default).contains("--model"))
 
   test("system-prompt-file flag is emitted when a file is supplied"):
     val file = os.temp(contents = "content")
     val args = ClaudeArgs.streamJson(
-      config = LlmConfig.default,
+      config = AgentConfig.default,
       systemPromptFile = Some(file),
       dispatch = Dispatch.Fresh(testSid)
     )
@@ -48,20 +55,22 @@ class ClaudeArgsTest extends munit.FunSuite:
     )
 
   test("AutoApprove.All maps to --permission-mode bypassPermissions"):
-    val args = streamJson(LlmConfig(autoApprove = AutoApprove.All))
+    val args = streamJson(AgentConfig(autoApprove = AutoApprove.All))
     assert(args.containsSlice(Seq("--permission-mode", "bypassPermissions")))
     assert(!args.contains("--allowedTools"))
 
   test("AutoApprove.Only(tools) maps to acceptEdits + sorted --allowedTools"):
     val args = streamJson(
-      LlmConfig(autoApprove = AutoApprove.Only(Set("Zeta", "Alpha", "Middle")))
+      AgentConfig(autoApprove =
+        AutoApprove.Only(Set("Zeta", "Alpha", "Middle"))
+      )
     )
     assert(args.containsSlice(Seq("--permission-mode", "acceptEdits")))
     assert(args.containsSlice(Seq("--allowedTools", "Alpha,Middle,Zeta")))
 
   test("AutoApprove.Only(empty) maps to acceptEdits with no --allowedTools"):
     val args =
-      streamJson(LlmConfig(autoApprove = AutoApprove.Only(Set.empty)))
+      streamJson(AgentConfig(autoApprove = AutoApprove.Only(Set.empty)))
     assert(args.containsSlice(Seq("--permission-mode", "acceptEdits")))
     assert(!args.contains("--allowedTools"))
 
@@ -72,7 +81,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     // Edit/Write/Bash unavailable, not just non-auto-approved. It wins over
     // `autoApprove` (the agent is verifying claims, not editing).
     val args = streamJson(
-      LlmConfig(autoApprove = AutoApprove.All, tools = ToolSet.ReadOnly)
+      AgentConfig(autoApprove = AutoApprove.All, tools = ToolSet.ReadOnly)
     )
     assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
     assert(!args.contains("bypassPermissions"), args)
@@ -82,7 +91,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     "ToolSet.NetworkOnly layers networkTools onto plan mode via --allowedTools"
   ):
     val args = streamJson(
-      LlmConfig(tools = ToolSet.NetworkOnly),
+      AgentConfig(tools = ToolSet.NetworkOnly),
       networkTools = Seq("WebFetch", "Bash(gh api:*)")
     )
     assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
@@ -92,21 +101,22 @@ class ClaudeArgsTest extends munit.FunSuite:
     )
 
   test("ToolSet.NetworkOnly with no networkTools stays plain plan mode"):
-    val args = streamJson(LlmConfig(tools = ToolSet.NetworkOnly))
+    val args = streamJson(AgentConfig(tools = ToolSet.NetworkOnly))
     assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
     assert(!args.contains("--allowedTools"), args)
 
   test("ToolSet.ReadOnly never emits networkTools even when supplied"):
     // Reviewers/triage use ReadOnly and must stay network-free.
     val args = streamJson(
-      LlmConfig(tools = ToolSet.ReadOnly),
+      AgentConfig(tools = ToolSet.ReadOnly),
       networkTools = Seq("WebFetch")
     )
     assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
     assert(!args.contains("--allowedTools"), args)
 
   test("Dispatch.Fresh emits --session-id <uuid>"):
-    val args = streamJson(LlmConfig.default, dispatch = Dispatch.Fresh(testSid))
+    val args =
+      streamJson(AgentConfig.default, dispatch = Dispatch.Fresh(testSid))
     assert(
       args.containsSlice(Seq("--session-id", SessionId.value(testSid))),
       args
@@ -115,14 +125,14 @@ class ClaudeArgsTest extends munit.FunSuite:
 
   test("Dispatch.Resume emits --resume <uuid>"):
     val args =
-      streamJson(LlmConfig.default, dispatch = Dispatch.Resume(testSid))
+      streamJson(AgentConfig.default, dispatch = Dispatch.Resume(testSid))
     assert(args.containsSlice(Seq("--resume", SessionId.value(testSid))), args)
     assert(!args.contains("--session-id"), args)
 
   test("--json-schema is emitted when an output schema is supplied"):
     val schema = """{"type":"object"}"""
     val args = ClaudeArgs.streamJson(
-      config = LlmConfig.default,
+      config = AgentConfig.default,
       systemPromptFile = None,
       dispatch = Dispatch.Fresh(testSid),
       jsonSchema = Some(schema)
@@ -132,7 +142,7 @@ class ClaudeArgsTest extends munit.FunSuite:
   test("--mcp-config <file> is emitted when supplied"):
     val cfg = os.temp()
     val args = ClaudeArgs.streamJson(
-      config = LlmConfig.default,
+      config = AgentConfig.default,
       systemPromptFile = None,
       dispatch = Dispatch.Fresh(testSid),
       mcpConfig = Some(cfg)
@@ -142,7 +152,7 @@ class ClaudeArgsTest extends munit.FunSuite:
   test("all mappings compose: model + session + autoApprove + system-prompt"):
     val file = os.temp()
     val args = ClaudeArgs.streamJson(
-      config = LlmConfig(
+      config = AgentConfig(
         model = Some(Model("opus-4")),
         autoApprove = AutoApprove.Only(Set("Read"))
       ),

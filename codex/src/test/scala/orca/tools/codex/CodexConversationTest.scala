@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.llm.{SessionId}
+import orca.agents.{SessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.ConversationEvent

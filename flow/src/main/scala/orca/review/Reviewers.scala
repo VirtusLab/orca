@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.llm.{BackendTag, LlmTool}
+import orca.agents.{BackendTag, Agent}
 import orca.util.PromptResource
 
 import scala.util.matching.Regex
@@ -109,18 +109,18 @@ private[review] object ReviewerPrompts:
   val filePatternsByToolName: Map[String, Regex] =
     all.flatMap(r => r.filePattern.map(p => s"$NamePrefix${r.name}" -> p)).toMap
 
-/** Build LlmTools for every reviewer the library ships with. The picker in
+/** Build Agents for every reviewer the library ships with. The picker in
   * [[ReviewerSelector.llmDriven]] (the default in [[reviewAndFixLoop]]) narrows
   * the active set per task, so passing the full list isn't wasteful.
   */
-def allReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]] =
+def allReviewers[B <: BackendTag](base: Agent[B]): List[Agent[B]] =
   buildReviewers(base, ReviewerPrompts.all)
 
-/** Build LlmTools for the small universally-applicable subset
+/** Build Agents for the small universally-applicable subset
   * ([[ReviewerPrompts.minimal]] — correctness, test quality, clarity). Pick
   * this when the full set is overkill or the flow only touches small diffs.
   */
-def minimalReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]] =
+def minimalReviewers[B <: BackendTag](base: Agent[B]): List[Agent[B]] =
   buildReviewers(base, ReviewerPrompts.minimal)
 
 /** Layer each reviewer's system prompt onto the base tool, prefix the name with
@@ -135,9 +135,9 @@ def minimalReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]] =
   * permissions.
   */
 private def buildReviewers[B <: BackendTag](
-    base: LlmTool[B],
+    base: Agent[B],
     reviewers: List[Reviewer]
-): List[LlmTool[B]] =
+): List[Agent[B]] =
   reviewers.map: r =>
     base
       .withSystemPrompt(r.systemPrompt)

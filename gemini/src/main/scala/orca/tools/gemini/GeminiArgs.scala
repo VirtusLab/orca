@@ -1,9 +1,9 @@
 package orca.tools.gemini
 
 import orca.backend.CliArgs
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId, ToolSet}
+import orca.agents.{AutoApprove, BackendTag, AgentConfig, SessionId, ToolSet}
 
-/** Maps `LlmConfig` fields to `gemini` headless CLI flags. `systemPrompt` is
+/** Maps `AgentConfig` fields to `gemini` headless CLI flags. `systemPrompt` is
   * not handled here — gemini has no `--append-system-prompt` equivalent (it
   * picks up `GEMINI.md` files for static instructions), so the backend folds it
   * into the user prompt before this method runs. The `ask_user` MCP server is
@@ -22,7 +22,7 @@ private[gemini] object GeminiArgs:
     * cwd is set on the OS process spawn (gemini headless has no `-C` flag), so
     * it isn't rendered here.
     */
-  def headless(prompt: String, config: LlmConfig): Seq[String] =
+  def headless(prompt: String, config: AgentConfig): Seq[String] =
     Seq("gemini") ++
       trustArgs ++
       CliArgs.modelArgs(config) ++
@@ -35,7 +35,7 @@ private[gemini] object GeminiArgs:
   def resume(
       sessionId: SessionId[BackendTag.Gemini.type],
       prompt: String,
-      config: LlmConfig
+      config: AgentConfig
   ): Seq[String] =
     Seq("gemini") ++
       trustArgs ++
@@ -63,7 +63,7 @@ private[gemini] object GeminiArgs:
     */
   private val NetworkTools: Seq[String] = Seq("web_fetch")
 
-  /** Maps [[LlmConfig.tools]] to gemini's approval mode. The read-only tiers
+  /** Maps [[AgentConfig.tools]] to gemini's approval mode. The read-only tiers
     * use `--approval-mode plan` (no writes, no shelling out), matching claude's
     * `--permission-mode plan` and codex's `--sandbox read-only`. `Full` has no
     * per-tool CLI allowlist, and in headless mode `auto_edit` blocks on shell
@@ -78,7 +78,7 @@ private[gemini] object GeminiArgs:
     * so the planner can fetch issue/PR/web content — no shell `gh`, so no
     * authed GitHub, but web reads work.
     */
-  private def approvalArgs(config: LlmConfig): Seq[String] =
+  private def approvalArgs(config: AgentConfig): Seq[String] =
     config.tools match
       case ToolSet.ReadOnly => Seq("--approval-mode", "plan")
       case ToolSet.NetworkOnly =>

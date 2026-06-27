@@ -2,18 +2,18 @@ package orca.runner
 
 import orca.{FlowContext, OrcaArgs, flow, fs, pi}
 import orca.tools.{FsTool}
-import orca.llm.{
+import orca.agents.{
   Announce,
   AutonomousTextCall,
   BackendTag,
-  ClaudeTool,
+  ClaudeAgent,
   JsonData,
-  LlmTool,
-  PiTool,
-  LlmCall,
-  LlmConfig,
+  Agent,
+  PiAgent,
+  AgentCall,
+  AgentConfig,
   Model,
-  OpencodeTool,
+  OpencodeAgent,
   SessionId,
   ToolSet
 }
@@ -31,8 +31,8 @@ class OrcaOverridesTest extends munit.FunSuite:
 
   // The leading-model selector defaults to `_.claude` (ADR 0018 §2.5); these
   // tests assert tool-override wiring, not LLM behaviour, so they resolve a stub
-  // via a `_ => StubLlm.claude` selector.
-  private val stubLead: FlowContext => LlmTool[?] = _ => StubLlm.claude
+  // via a `_ => StubAgent.claude` selector.
+  private val stubLead: FlowContext => Agent[?] = _ => StubAgent.claude
 
   test("flow uses a custom FsTool when supplied"):
     val fake = new FsTool:
@@ -56,15 +56,15 @@ class OrcaOverridesTest extends munit.FunSuite:
         observed = fs.read("ignored")
     assertEquals(observed, Some("canned content"))
 
-  test("flow uses a custom ClaudeTool when supplied"):
-    val fakeClaude = new ClaudeTool:
+  test("flow uses a custom ClaudeAgent when supplied"):
+    val fakeClaude = new ClaudeAgent:
       val name = "fake"
       def haiku = this
       def sonnet = this
       def opus = this
       def fable = this
       def withNetworkTools(t: Seq[String]) = this
-      def withConfig(c: LlmConfig) = this
+      def withConfig(c: AgentConfig) = this
       def withSystemPrompt(p: String) = this
       def withName(n: String) = this
       def withTools(tools: ToolSet) = this
@@ -73,14 +73,14 @@ class OrcaOverridesTest extends munit.FunSuite:
           def run(
               p: String,
               session: SessionId[BackendTag.ClaudeCode.type],
-              c: LlmConfig,
+              c: AgentConfig,
               emitPrompt: Boolean
           )(using
               orca.InStage
           ): (SessionId[BackendTag.ClaudeCode.type], String) =
             (SessionId[BackendTag.ClaudeCode.type]("fake-sid"), s"echo: $p")
       def resultAs[O: JsonData: Announce]
-          : LlmCall[BackendTag.ClaudeCode.type, O] =
+          : AgentCall[BackendTag.ClaudeCode.type, O] =
         ???
     var observed: String = ""
     supervised:
@@ -99,8 +99,8 @@ class OrcaOverridesTest extends munit.FunSuite:
         observed = summon[FlowContext].claude.autonomous.run("hi")._2
     assertEquals(observed, "echo: hi")
 
-  test("flow uses a custom OpencodeTool when supplied"):
-    val fakeOpencode = new OpencodeTool:
+  test("flow uses a custom OpencodeAgent when supplied"):
+    val fakeOpencode = new OpencodeAgent:
       val name = "fake"
       def anthropicOpus = this
       def anthropicSonnet = this
@@ -109,7 +109,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       def openaiGpt5Codex = this
       def openaiGpt5Mini = this
       def withModel(providerModel: String) = this
-      def withConfig(c: LlmConfig) = this
+      def withConfig(c: AgentConfig) = this
       def withSystemPrompt(p: String) = this
       def withName(n: String) = this
       def withTools(tools: ToolSet) = this
@@ -118,12 +118,12 @@ class OrcaOverridesTest extends munit.FunSuite:
           def run(
               p: String,
               session: SessionId[BackendTag.Opencode.type],
-              c: LlmConfig,
+              c: AgentConfig,
               emitPrompt: Boolean
           )(using orca.InStage): (SessionId[BackendTag.Opencode.type], String) =
             (SessionId[BackendTag.Opencode.type]("fake-sid"), s"opencode: $p")
       def resultAs[O: JsonData: Announce]
-          : LlmCall[BackendTag.Opencode.type, O] = ???
+          : AgentCall[BackendTag.Opencode.type, O] = ???
     var observed: String = ""
     supervised:
       val interaction = TerminalInteraction.start(
@@ -141,10 +141,10 @@ class OrcaOverridesTest extends munit.FunSuite:
         observed = summon[FlowContext].opencode.autonomous.run("hi")._2
     assertEquals(observed, "opencode: hi")
 
-  test("flow uses a custom PiTool when supplied"):
-    val fakePi = new PiTool:
+  test("flow uses a custom PiAgent when supplied"):
+    val fakePi = new PiAgent:
       val name = "fake-pi"
-      def withConfig(c: LlmConfig) = this
+      def withConfig(c: AgentConfig) = this
       def withSystemPrompt(p: String) = this
       def withName(n: String) = this
       def withTools(tools: ToolSet) = this
@@ -153,11 +153,11 @@ class OrcaOverridesTest extends munit.FunSuite:
           def run(
               p: String,
               session: SessionId[BackendTag.Pi.type],
-              c: LlmConfig,
+              c: AgentConfig,
               emitPrompt: Boolean
           )(using orca.InStage): (SessionId[BackendTag.Pi.type], String) =
             (SessionId[BackendTag.Pi.type]("fake-pi-sid"), s"pi: $p")
-      def resultAs[O: JsonData: Announce]: LlmCall[BackendTag.Pi.type, O] =
+      def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Pi.type, O] =
         ???
     var observed: String = ""
     supervised:

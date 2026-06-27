@@ -1,9 +1,9 @@
 package orca.tools.claude
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
+import orca.agents.{AutoApprove, BackendTag, AgentConfig, Model, SessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
-import orca.backend.{ApprovalDecision, ConversationEvent, LlmResult}
+import orca.backend.{ApprovalDecision, ConversationEvent, AgentResult}
 import orca.backend.{StreamConversation, StreamSource}
 import orca.subprocess.PipedCliProcess
 import orca.tools.claude.streamjson.{
@@ -26,7 +26,7 @@ import orca.tools.claude.streamjson.{
   */
 private[claude] class ClaudeConversation(
     process: PipedCliProcess,
-    config: LlmConfig,
+    config: AgentConfig,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
     override val askUser: Option[orca.backend.mcp.AskUserSession] = None
@@ -180,7 +180,7 @@ private[claude] class ClaudeConversation(
       usage: Usage,
       model: Option[String]
   ): Unit =
-    val result = LlmResult(
+    val result = AgentResult(
       sessionId = SessionId[BackendTag.ClaudeCode.type](sid),
       output = structured.orElse(output).getOrElse(""),
       usage = usage,

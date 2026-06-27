@@ -1,7 +1,7 @@
-package orca.llm
+package orca.agents
 
 import orca.AgentTurnFailed
-import orca.backend.{Interaction, LlmBackend}
+import orca.backend.{Interaction, AgentBackend}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.util.JsonSchemaGen
 import ox.resilience.{ResultPolicy, RetryConfig, retry}
@@ -10,16 +10,16 @@ import ox.resilience.{ResultPolicy, RetryConfig, retry}
   * autonomous-vs-interactive choice into two sibling objects so the call site
   * always shows which mode it picked.
   */
-trait LlmCall[B <: BackendTag, O]:
-  def autonomous: AutonomousLlmCall[B, O]
-  def interactive: InteractiveLlmCall[B, O]
+trait AgentCall[B <: BackendTag, O]:
+  def autonomous: AutonomousAgentCall[B, O]
+  def interactive: InteractiveAgentCall[B, O]
 
 /** Autonomous structured calls — single agentic turn, no human in the loop.
-  * Single method: pass a [[SessionId]] (typically from [[LlmTool.newSession]]
-  * or the default fresh one); the library starts on the first call, resumes on
+  * Single method: pass a [[SessionId]] (typically from [[Agent.newSession]] or
+  * the default fresh one); the library starts on the first call, resumes on
   * subsequent calls. Returns the (stable) session id.
   */
-trait AutonomousLlmCall[B <: BackendTag, O]:
+trait AutonomousAgentCall[B <: BackendTag, O]:
   /** Run the agent on `input`. When `emitPrompt` is true (the default), fires
     * an `OrcaEvent.UserPrompt` carrying the human-readable form of `input` (the
     * `AgentInput[I]` serialization) so listeners can surface what's being
@@ -31,7 +31,7 @@ trait AutonomousLlmCall[B <: BackendTag, O]:
   def run[I: AgentInput](
       input: I,
       session: SessionId[B] = SessionId.fresh[B],
-      config: LlmConfig = LlmConfig.default,
+      config: AgentConfig = AgentConfig.default,
       emitPrompt: Boolean = true
   )(using orca.InStage): (SessionId[B], O)
 
@@ -39,17 +39,17 @@ trait AutonomousLlmCall[B <: BackendTag, O]:
   * (clarifying questions, refinements) before the agent produces the final
   * structured `O`. Same shape as the autonomous variant.
   */
-trait InteractiveLlmCall[B <: BackendTag, O]:
+trait InteractiveAgentCall[B <: BackendTag, O]:
   def run[I: AgentInput](
       input: I,
       session: SessionId[B] = SessionId.fresh[B],
-      config: LlmConfig = LlmConfig.default
+      config: AgentConfig = AgentConfig.default
   )(using orca.InStage): (SessionId[B], O)
 
-/** Free-form text autonomous calls — the `LlmTool.autonomous` shape (the
-  * non-structured sibling of [[AutonomousLlmCall]]). Single method: pass a
-  * [[SessionId]] (typically from [[LlmTool.newSession]] or the default fresh
-  * one) and the library starts the session on the first call, resumes it on
+/** Free-form text autonomous calls — the `Agent.autonomous` shape (the
+  * non-structured sibling of [[AutonomousAgentCall]]). Single method: pass a
+  * [[SessionId]] (typically from [[Agent.newSession]] or the default fresh one)
+  * and the library starts the session on the first call, resumes it on
   * subsequent calls. Returns the (stable) session id so the caller can pass it
   * back unchanged.
   */
@@ -64,11 +64,11 @@ trait AutonomousTextCall[B <: BackendTag]:
   def run(
       prompt: String,
       session: SessionId[B] = SessionId.fresh[B],
-      config: LlmConfig = LlmConfig.default,
+      config: AgentConfig = AgentConfig.default,
       emitPrompt: Boolean = true
   )(using orca.InStage): (SessionId[B], String)
 
-/** Default implementation of [[LlmCall]] for any backend.
+/** Default implementation of [[AgentCall]] for any backend.
   *
   * The trait splits into `autonomous` and `interactive` sibling objects so the
   * call site shows which mode it picked. This class wires both:
@@ -82,40 +82,40 @@ trait AutonomousTextCall[B <: BackendTag]:
   *     user steering. No retry: the user is steering, and a parse failure on
   *     the final payload is more useful surfaced than silently relaunched.
   */
-class DefaultLlmCall[B <: BackendTag, O](
-    backend: LlmBackend[B],
-    effectiveConfig: LlmConfig => LlmConfig,
+class DefaultAgentCall[B <: BackendTag, O](
+    backend: AgentBackend[B],
+    effectiveConfig: AgentConfig => AgentConfig,
     prompts: Prompts,
     workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
     /** Used as the `agent` axis on `OrcaEvent.TokensUsed` — typically the
-      * owning `LlmTool.name`, which carries the reviewer identity for tools
+      * owning `Agent.name`, which carries the reviewer identity for tools
       * renamed via `withName`. The `model` axis is read from the response (or
       * the pinned config); this name is the always-present agent identifier.
       */
     agentName: String
 )(using jd: JsonData[O], announce: Announce[O])
-    extends LlmCall[B, O]:
+    extends AgentCall[B, O]:
 
   private given sttp.tapir.Schema[O] = jd.schema
   private given com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[O] =
     jd.codec
 
-  val autonomous: AutonomousLlmCall[B, O] = new AutonomousLlmCall[B, O]:
+  val autonomous: AutonomousAgentCall[B, O] = new AutonomousAgentCall[B, O]:
     def run[I: AgentInput](
         input: I,
         session: SessionId[B] = SessionId.fresh[B],
-        config: LlmConfig = LlmConfig.default,
+        config: AgentConfig = AgentConfig.default,
         emitPrompt: Boolean = true
     )(using orca.InStage): (SessionId[B], O) =
       runAutonomousWithRetry(input, config, session, emitPrompt)
 
-  val interactive: InteractiveLlmCall[B, O] = new InteractiveLlmCall[B, O]:
+  val interactive: InteractiveAgentCall[B, O] = new InteractiveAgentCall[B, O]:
     def run[I: AgentInput](
         input: I,
         session: SessionId[B] = SessionId.fresh[B],
-        config: LlmConfig = LlmConfig.default
+        config: AgentConfig = AgentConfig.default
     )(using orca.InStage): (SessionId[B], O) =
       runInteractiveOnce(input, config, session)
 
@@ -133,7 +133,7 @@ class DefaultLlmCall[B <: BackendTag, O](
     */
   private def runAutonomousWithRetry[I](
       input: I,
-      config: LlmConfig,
+      config: AgentConfig,
       session: SessionId[B],
       emitPrompt: Boolean
   )(using ai: AgentInput[I]): (SessionId[B], O) =
@@ -220,7 +220,7 @@ class DefaultLlmCall[B <: BackendTag, O](
     */
   private def runInteractiveOnce[I](
       input: I,
-      config: LlmConfig,
+      config: AgentConfig,
       session: SessionId[B]
   )(using ai: AgentInput[I]): (SessionId[B], O) =
     val serialized = ai.serialize(input)

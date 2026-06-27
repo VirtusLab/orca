@@ -1,7 +1,7 @@
 package orca.tools.opencode
 
 import orca.backend.{SessionMode, SystemPromptComposer}
-import orca.llm.{LlmConfig, Model, ToolSet}
+import orca.agents.{AgentConfig, Model, ToolSet}
 import orca.tools.opencode.OpencodeApi.{
   MessageBody,
   MessagePart,
@@ -10,7 +10,7 @@ import orca.tools.opencode.OpencodeApi.{
 }
 import orca.util.RawJson
 
-/** Maps an [[orca.llm.LlmConfig]] onto OpenCode's wire shapes: the `serve`
+/** Maps an [[orca.agents.AgentConfig]] onto OpenCode's wire shapes: the `serve`
   * launch argv and the per-turn message body (ADR 0014).
   *
   * Unlike the subprocess backends, almost everything travels in the request
@@ -42,7 +42,7 @@ private[opencode] object OpencodeArgs:
     * answer.
     */
   def message(
-      config: LlmConfig,
+      config: AgentConfig,
       prompt: String,
       outputSchema: Option[String],
       mode: SessionMode
@@ -72,7 +72,7 @@ private[opencode] object OpencodeArgs:
     * pre-fetch issue/PR context instead.
     */
   private def toolFlags(
-      config: LlmConfig,
+      config: AgentConfig,
       mode: SessionMode
   ): Option[Map[String, Boolean]] =
     val writeGate =

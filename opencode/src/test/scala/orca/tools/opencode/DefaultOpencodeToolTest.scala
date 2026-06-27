@@ -1,39 +1,39 @@
 package orca.tools.opencode
 
-import orca.backend.{Conversation, Interaction, LlmBackend, LlmResult}
+import orca.backend.{Conversation, Interaction, AgentBackend, AgentResult}
 import orca.events.{OrcaListener, Usage}
-import orca.llm.{
+import orca.agents.{
   BackendTag,
   DefaultPrompts,
-  LlmConfig,
-  OpencodeTool,
+  AgentConfig,
+  OpencodeAgent,
   SessionId,
   ToolSet
 }
 
-class DefaultOpencodeToolTest extends munit.FunSuite:
+class DefaultOpencodeAgentTest extends munit.FunSuite:
 
   // LLM `run` is now gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
 
   /** Captures the config the tool resolves for an autonomous call. */
-  private class RecordingBackend extends LlmBackend[BackendTag.Opencode.type]:
-    var lastConfig: Option[LlmConfig] = None
+  private class RecordingBackend extends AgentBackend[BackendTag.Opencode.type]:
+    var lastConfig: Option[AgentConfig] = None
     def runAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
-        config: LlmConfig,
+        config: AgentConfig,
         workDir: os.Path,
         events: OrcaListener,
         outputSchema: Option[String]
-    ): LlmResult[BackendTag.Opencode.type] =
+    ): AgentResult[BackendTag.Opencode.type] =
       lastConfig = Some(config)
-      LlmResult(session, "ok", Usage(0L, 0L, None))
+      AgentResult(session, "ok", Usage(0L, 0L, None))
     def runInteractive(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
         displayPrompt: String,
-        config: LlmConfig,
+        config: AgentConfig,
         workDir: os.Path,
         outputSchema: Option[String]
     ): Conversation[BackendTag.Opencode.type] =
@@ -43,12 +43,12 @@ class DefaultOpencodeToolTest extends munit.FunSuite:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
         conversation: Conversation[B]
-    ): LlmResult[B] = throw new UnsupportedOperationException
+    ): AgentResult[B] = throw new UnsupportedOperationException
 
-  private def toolWith(backend: RecordingBackend): OpencodeTool =
-    new DefaultOpencodeTool(
+  private def toolWith(backend: RecordingBackend): OpencodeAgent =
+    new DefaultOpencodeAgent(
       backend,
-      LlmConfig.default,
+      AgentConfig.default,
       DefaultPrompts,
       os.temp.dir(),
       OrcaListener.noop,
@@ -57,7 +57,7 @@ class DefaultOpencodeToolTest extends munit.FunSuite:
 
   /** Run an autonomous call and return the model id the backend saw. */
   private def modelOf(
-      tool: OpencodeTool,
+      tool: OpencodeAgent,
       backend: RecordingBackend
   ): Option[String] =
     val _ = tool.autonomous.run("x")

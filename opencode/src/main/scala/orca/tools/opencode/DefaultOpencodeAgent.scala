@@ -1,30 +1,30 @@
 package orca.tools.opencode
 
-import orca.backend.{Interaction, LlmBackend}
+import orca.backend.{Interaction, AgentBackend}
 import orca.events.OrcaListener
-import orca.llm.{
+import orca.agents.{
   BackendTag,
-  BaseLlmTool,
-  LlmConfig,
+  BaseAgent,
+  AgentConfig,
   Model,
-  OpencodeTool,
+  OpencodeAgent,
   Prompts
 }
 
-/** Default [[OpencodeTool]]. Inherits the autonomous-text + `resultAs[O]`
-  * plumbing from [[BaseLlmTool]] and adds OpenCode's provider-prefixed model
+/** Default [[OpencodeAgent]]. Inherits the autonomous-text + `resultAs[O]`
+  * plumbing from [[BaseAgent]] and adds OpenCode's provider-prefixed model
   * accessors. The pinned ids are convenience defaults — any id from `opencode
   * models` is valid; bump them as the catalog moves.
   */
-private[orca] class DefaultOpencodeTool(
-    backend: LlmBackend[BackendTag.Opencode.type],
-    config: LlmConfig,
+private[orca] class DefaultOpencodeAgent(
+    backend: AgentBackend[BackendTag.Opencode.type],
+    config: AgentConfig,
     prompts: Prompts,
     workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
     val name: String = "main"
-) extends BaseLlmTool[BackendTag.Opencode.type, OpencodeTool](
+) extends BaseAgent[BackendTag.Opencode.type, OpencodeAgent](
       backend,
       config,
       prompts,
@@ -32,40 +32,40 @@ private[orca] class DefaultOpencodeTool(
       events,
       interaction
     )
-    with OpencodeTool:
+    with OpencodeAgent:
 
-  def anthropicOpus: OpencodeTool = withModel("anthropic", "claude-opus-4-8")
-  def anthropicSonnet: OpencodeTool =
+  def anthropicOpus: OpencodeAgent = withModel("anthropic", "claude-opus-4-8")
+  def anthropicSonnet: OpencodeAgent =
     withModel("anthropic", "claude-sonnet-4-6")
-  def anthropicHaiku: OpencodeTool = withModel("anthropic", "claude-haiku-4-5")
-  def openaiGpt5: OpencodeTool = withModel("openai", "gpt-5.4")
-  def openaiGpt5Codex: OpencodeTool = withModel("openai", "gpt-5.3-codex")
-  def openaiGpt5Mini: OpencodeTool = withModel("openai", "gpt-5-mini")
+  def anthropicHaiku: OpencodeAgent = withModel("anthropic", "claude-haiku-4-5")
+  def openaiGpt5: OpencodeAgent = withModel("openai", "gpt-5.4")
+  def openaiGpt5Codex: OpencodeAgent = withModel("openai", "gpt-5.3-codex")
+  def openaiGpt5Mini: OpencodeAgent = withModel("openai", "gpt-5-mini")
 
   // Cheap is provider-matched so incidental work doesn't pull in a second
   // provider's auth: an openai-led tool's cheap is an openai model, otherwise
   // anthropic haiku (also the default when no model is pinned). Reads the
   // provider prefix directly (not OpencodeModel.split, which throws on a bare
   // id) so resolving the cheap model can never break a flow.
-  override protected def defaultCheap: OpencodeTool =
+  override protected def defaultCheap: OpencodeAgent =
     config.model.map(m => Model.name(m).takeWhile(_ != '/')) match
       case Some("openai") => openaiGpt5Mini
       case _              => anthropicHaiku
 
   // Two-arg form validates and joins via OpencodeModel (one place); the
   // accessors above share it. `withModel(String)` takes an already-joined id.
-  override def withModel(provider: String, modelId: String): OpencodeTool =
-    super[BaseLlmTool].withModel(OpencodeModel(provider, modelId))
+  override def withModel(provider: String, modelId: String): OpencodeAgent =
+    super[BaseAgent].withModel(OpencodeModel(provider, modelId))
 
-  // `super` disambiguates from BaseLlmTool's protected `withModel(Model)`.
-  def withModel(providerModel: String): OpencodeTool =
-    super[BaseLlmTool].withModel(Model(providerModel))
+  // `super` disambiguates from BaseAgent's protected `withModel(Model)`.
+  def withModel(providerModel: String): OpencodeAgent =
+    super[BaseAgent].withModel(Model(providerModel))
 
   protected def copyTool(
-      config: LlmConfig = config,
+      config: AgentConfig = config,
       name: String = name
-  ): OpencodeTool =
-    new DefaultOpencodeTool(
+  ): OpencodeAgent =
+    new DefaultOpencodeAgent(
       backend,
       config,
       prompts,

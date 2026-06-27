@@ -5,7 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   writeToString
 }
 import orca.{InStage}
-import orca.llm.JsonData
+import orca.agents.JsonData
 import scala.util.control.NonFatal
 
 /** Persistent store for a single flow run's [[ProgressLog]].

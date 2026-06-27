@@ -1,9 +1,9 @@
 package orca.tools.claude
 
 import orca.backend.{CliArgs, Dispatch}
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId, ToolSet}
+import orca.agents.{AutoApprove, BackendTag, AgentConfig, SessionId, ToolSet}
 
-/** Maps LlmConfig fields to Claude Code CLI flags. `systemPrompt` is consumed
+/** Maps AgentConfig fields to Claude Code CLI flags. `systemPrompt` is consumed
   * by the backend (written to a file whose path is passed in via
   * `systemPromptFile`); `onUnapproved` and `retrySchedule` have no CLI
   * equivalent and are handled by the orchestrator at runtime.
@@ -23,7 +23,7 @@ private[claude] object ClaudeArgs:
     * stay open.
     */
   def streamJson(
-      config: LlmConfig,
+      config: AgentConfig,
       systemPromptFile: Option[os.Path],
       dispatch: Dispatch[BackendTag.ClaudeCode.type],
       jsonSchema: Option[String] = None,
@@ -72,11 +72,11 @@ private[claude] object ClaudeArgs:
   private def mcpConfigArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--mcp-config", f.toString))
 
-  /** Maps [[LlmConfig.tools]] to claude's permission flags. Both read-only
+  /** Maps [[AgentConfig.tools]] to claude's permission flags. Both read-only
     * tiers use `--permission-mode plan`, which makes Edit/Write/Bash
     * unavailable (not just non-auto-approved) — turning the planner's advisory
     * "don't edit" prompt into a hard guarantee. `Full` follows
-    * [[LlmConfig.autoApprove]].
+    * [[AgentConfig.autoApprove]].
     *
     * `NetworkOnly` additionally pre-approves `networkTools` via
     * `--allowedTools`, layering read-only network access (web + scoped `gh`)
@@ -86,7 +86,7 @@ private[claude] object ClaudeArgs:
     * plain plan mode.
     */
   private def autoApproveArgs(
-      config: LlmConfig,
+      config: AgentConfig,
       networkTools: Seq[String]
   ): Seq[String] =
     config.tools match

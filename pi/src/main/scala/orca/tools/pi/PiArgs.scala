@@ -1,7 +1,7 @@
 package orca.tools.pi
 
 import orca.backend.CliArgs
-import orca.llm.{LlmConfig, ToolSet}
+import orca.agents.{AgentConfig, ToolSet}
 
 /** Maps Orca backend configuration to Pi CLI arguments. The backend drives Pi
   * through RPC mode and sends prompts over stdin, so the argv carries only
@@ -27,7 +27,7 @@ private[pi] object PiArgs:
   def rpc(
       sessionDir: os.Path,
       resume: Boolean,
-      config: LlmConfig,
+      config: AgentConfig,
       systemPromptFile: Option[os.Path],
       askUserExtension: Option[os.Path] = None
   ): Seq[String] =
@@ -41,13 +41,13 @@ private[pi] object PiArgs:
   private def systemPromptArgs(file: Option[os.Path]): Seq[String] =
     file.toSeq.flatMap(f => Seq("--append-system-prompt", f.toString))
 
-  /** Maps [[LlmConfig.tools]] to pi's `--tools` allowlist. `Full` omits the
+  /** Maps [[AgentConfig.tools]] to pi's `--tools` allowlist. `Full` omits the
     * flag (all built-in tools enabled); `ReadOnly` restricts to
     * [[ReadOnlyTools]]; `NetworkOnly` adds [[NetworkTool]] (`bash`) for network
     * access. The ask-user extension tool is appended when present.
     */
   private def toolsArgs(
-      config: LlmConfig,
+      config: AgentConfig,
       includeAskUser: Boolean
   ): Seq[String] =
     config.tools match

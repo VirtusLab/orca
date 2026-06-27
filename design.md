@@ -91,8 +91,8 @@ implementers and advanced callers opt into explicitly.
 |---|---|
 | `orca` | Flow DSL — `flow`, `stage`, `fail`, accessors (`claude`, `codex`, `git`, `gh`, `fs`, `userPrompt`), `OrcaArgs`, `FlowContext`, `OrcaFlowException`, `OrcaInteractiveCancelled`. Plus a thin `exports.scala` re-exporting the user surface from sub-packages. |
 | `orca.events` | Flow-wide event log: `OrcaEvent`, `OrcaListener`, `EventDispatcher`, `CostTracker`, `Usage`. |
-| `orca.llm` | LLM call API + default implementations: `LlmTool` / `ClaudeTool` / `CodexTool` / `LlmCall`, `LlmConfig`, `AutoApprove`, `UnapprovedPolicy`, `BackendTag`, `SessionId`, `JsonData`, `Announce`, `AgentInput`, `Prompts`, plus the `AbstractDefaultLlmTool`, `DefaultLlmCall`, `DefaultPrompts`, `ResponseParser` defaults backend tools extend. |
-| `orca.backend` | LLM SPI (implemented per backend, never named in scripts): `LlmBackend`, `LlmResult`, `Conversation`, `ConversationEvent` (+ `ApprovalDecision`), `Interaction`, `StreamConversation`. |
+| `orca.agents` | LLM call API + default implementations: `Agent` / `ClaudeAgent` / `CodexAgent` / `AgentCall`, `AgentConfig`, `AutoApprove`, `UnapprovedPolicy`, `BackendTag`, `SessionId`, `JsonData`, `Announce`, `AgentInput`, `Prompts`, plus the `AbstractDefaultAgent`, `DefaultAgentCall`, `DefaultPrompts`, `ResponseParser` defaults backend tools extend. |
+| `orca.backend` | LLM SPI (implemented per backend, never named in scripts): `AgentBackend`, `AgentResult`, `Conversation`, `ConversationEvent` (+ `ApprovalDecision`), `Interaction`, `StreamConversation`. |
 | `orca.tools` | Tool traits + default `Os*` implementations in single files: `GitTool.scala` (incl. `OsGitTool` and the error/data types), `GitHubTool.scala`, `FsTool.scala`. User-facing GitHub data types (`Issue`, `IssueHandle`, `PrHandle`, `Comment`, `BuildStatus`, `BuildOutcome`) are re-exported from `orca`. |
 | `orca.plan`, `orca.review` | Higher-level workflow APIs and their domain types. The user-callable entry points are re-exported from `orca`. Bug-triage types live in `orca.plan` alongside `Plan`/`Task`. |
 | `orca.subprocess` | CLI-runner internals: `CliRunner`, `PipedCliProcess`, `OsProcCliRunner`, `QuietProc`. |
@@ -101,9 +101,9 @@ implementers and advanced callers opt into explicitly.
 
 `orca/exports.scala` re-exports the user-facing subset of every sub-package
 into the root `orca` namespace, so the standard `import orca.{*, given}`
-continues to pick up `LlmTool`, `Plan`, `IssueHandle`, etc. without
+continues to pick up `Agent`, `Plan`, `IssueHandle`, etc. without
 sub-package imports. Sub-packages exist for navigability and to keep the
-root namespace focused. Backend authors writing a new `LlmBackend` import
+root namespace focused. Backend authors writing a new `AgentBackend` import
 `orca.backend.*`; channel authors writing a new `Interaction` import
 `orca.backend.{Conversation, ...}`; flow scripts import nothing more than
 `orca.{*, given}`.
@@ -111,8 +111,8 @@ root namespace focused. Backend authors writing a new `LlmBackend` import
 ### Trait + canonical default: one file
 
 A trait and its single canonical implementation share one file, named after
-the trait. Examples in this codebase: `LlmCall.scala` contains
-`trait LlmCall` + `class DefaultLlmCall`; `FsTool.scala` contains
+the trait. Examples in this codebase: `AgentCall.scala` contains
+`trait AgentCall` + `class DefaultAgentCall`; `FsTool.scala` contains
 `trait FsTool` + `class OsFsTool`; `GitTool.scala` / `GitHubTool.scala` /
 `Prompts.scala` follow the same shape.
 
@@ -128,7 +128,7 @@ Split into separate files when a second peer implementation appears
 (`ClaudeBackend` + `CodexBackend`), when the implementation lives in a
 different module from the trait (`Interaction` in `tools` vs.
 `TerminalInteraction` in `runner`), or when the "implementation" is an
-abstract base others extend (`StreamConversation`, `AbstractDefaultLlmTool`).
+abstract base others extend (`StreamConversation`, `AbstractDefaultAgent`).
 
 ### Tool traits
 
@@ -173,7 +173,7 @@ claude.sonnet.resultAs[TaskPlan].prompt(input)   // Claude Code, Sonnet
 claude.haiku.ask("quick question")             // Haiku (untyped convenience)
 codex.resultAs[TaskPlan].prompt(input)           // Codex, default model
 
-claude.withConfig(LlmConfig(
+claude.withConfig(AgentConfig(
   systemPrompt = Some("You are a performance reviewer...")
 )).resultAs[ReviewResult].prompt(diff)
 ```
@@ -190,33 +190,33 @@ enum BackendTag:
 The full traits:
 
 ```scala
-trait LlmTool[B <: BackendTag]:
-  def resultAs[O: Schema: ConfiguredJsonValueCodec]: LlmCall[B, O]
-  def ask(prompt: String, config: LlmConfig = LlmConfig.default): String
-  def withConfig(config: LlmConfig): LlmTool[B]
-  def withSystemPrompt(prompt: String): LlmTool[B]
+trait Agent[B <: BackendTag]:
+  def resultAs[O: Schema: ConfiguredJsonValueCodec]: AgentCall[B, O]
+  def ask(prompt: String, config: AgentConfig = AgentConfig.default): String
+  def withConfig(config: AgentConfig): Agent[B]
+  def withSystemPrompt(prompt: String): Agent[B]
 
 /** Model variants are backend-specific. */
-trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode]:
-  def haiku: ClaudeTool
-  def sonnet: ClaudeTool
-  def opus: ClaudeTool
+trait ClaudeAgent extends Agent[BackendTag.ClaudeCode]:
+  def haiku: ClaudeAgent
+  def sonnet: ClaudeAgent
+  def opus: ClaudeAgent
 
-trait CodexTool extends LlmTool[BackendTag.Codex]:
-  def mini: CodexTool
+trait CodexAgent extends Agent[BackendTag.Codex]:
+  def mini: CodexAgent
 
-trait LlmCall[B <: BackendTag, O]:
-  def prompt[I: AgentInput](input: I, config: LlmConfig = LlmConfig.default): O
-  def startSession[I: AgentInput](input: I, config: LlmConfig = LlmConfig.default): (SessionId[B], O)
-  def continueSession[I: AgentInput](sessionId: SessionId[B], input: I, config: LlmConfig = LlmConfig.default): O
-  def interactive[I: AgentInput](input: I, config: LlmConfig = LlmConfig.default): (SessionId[B], O)
-  def continueInteractive[I: AgentInput](sessionId: SessionId[B], input: I, config: LlmConfig = LlmConfig.default): O
+trait AgentCall[B <: BackendTag, O]:
+  def prompt[I: AgentInput](input: I, config: AgentConfig = AgentConfig.default): O
+  def startSession[I: AgentInput](input: I, config: AgentConfig = AgentConfig.default): (SessionId[B], O)
+  def continueSession[I: AgentInput](sessionId: SessionId[B], input: I, config: AgentConfig = AgentConfig.default): O
+  def interactive[I: AgentInput](input: I, config: AgentConfig = AgentConfig.default): (SessionId[B], O)
+  def continueInteractive[I: AgentInput](sessionId: SessionId[B], input: I, config: AgentConfig = AgentConfig.default): O
 ```
 
 #### LLM configuration
 
 ```scala
-case class LlmConfig(
+case class AgentConfig(
   model: Option[String] = None,
   systemPrompt: Option[String] = None,
   autoApprove: AutoApprove = AutoApprove.All,
@@ -233,7 +233,7 @@ enum UnapprovedPolicy:
   case AskUser    // prompt the user (interactive stages only)
 ```
 
-Retries use Ox's `Schedule` directly. Failures that exhaust retries throw `LlmCallFailedException`.
+Retries use Ox's `Schedule` directly. Failures that exhaust retries throw `AgentCallFailedException`.
 
 #### Structured types
 
@@ -267,14 +267,14 @@ case class IgnoredIssues(issues: List[IgnoredIssue]) derives Schema, ConfiguredJ
 
 case class ReviewContext(summary: String, filesChanged: List[String]) derives Schema, ConfiguredJsonValueCodec
 case class SelectedReviewers(names: List[String]) derives Schema, ConfiguredJsonValueCodec:
-  def pick(all: List[LlmTool[?]]): List[LlmTool[?]] = all.filter(r => names.contains(r.name))
+  def pick(all: List[Agent[?]]): List[Agent[?]] = all.filter(r => names.contains(r.name))
 
 case class Usage(inputTokens: Long, outputTokens: Long, cost: Option[BigDecimal])
 
 /** Build pre-configured reviewer agents on top of a base LLM tool. */
-def allReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]]
+def allReviewers[B <: BackendTag](base: Agent[B]): List[Agent[B]]
 // performance, readability, test, code-functionality, abstraction, backend-architect, scala-fp
-def minimalReviewers[B <: BackendTag](base: LlmTool[B]): List[LlmTool[B]]
+def minimalReviewers[B <: BackendTag](base: Agent[B]): List[Agent[B]]
 // code-functionality, readability, test
 ```
 
@@ -291,9 +291,9 @@ def fixLoop(
 
 /** Review + fix loop with parallel reviewers and optional linter. Built on fixLoop. */
 def reviewAndFix[B <: BackendTag](
-  coder: LlmTool[B],
+  coder: Agent[B],
   sessionId: SessionId[B],
-  reviewers: List[LlmTool[?]],
+  reviewers: List[Agent[?]],
   task: String,
   lintCommand: Option[String] = None,
   confidenceThreshold: Double = 0.7
@@ -302,7 +302,7 @@ def reviewAndFix[B <: BackendTag](
 /** Built-in lint: run a command, summarize errors via LLM, return as ReviewResult. */
 def lint(
   command: String,
-  llm: LlmTool[?] = claude.haiku
+  llm: Agent[?] = claude.haiku
 )(using FlowContext): ReviewResult
 ```
 
@@ -312,8 +312,8 @@ Note: `reviewAndFix` uses a shared type parameter `B` for `coder` and `sessionId
 
 ```scala
 trait FlowContext:
-  val claude: ClaudeTool
-  val codex: CodexTool
+  val claude: ClaudeAgent
+  val codex: CodexAgent
   val git: GitTool
   val gh: GitHubTool
   val fs: FsTool
@@ -327,8 +327,8 @@ The prompt sent to the backend is assembled from a pluggable `Prompts`:
 
 ```scala
 trait Prompts:
-  def autonomous(input: String, outputSchema: String, config: LlmConfig): String
-  def interactive(input: String, outputSchema: String, config: LlmConfig): String
+  def autonomous(input: String, outputSchema: String, config: AgentConfig): String
+  def interactive(input: String, outputSchema: String, config: AgentConfig): String
 ```
 
 Custom prompt builders can be provided via `flow(..., prompts = ...)`. For **headless** calls, the backend returns JSON on stdout; a parse failure triggers a corrective-retry prompt (counts against the retry budget). For **interactive** calls, the backend runs a stream-json subprocess (ADR 0006) and emits typed `ConversationEvent`s; the final `result` message carries the validated `structured_output` when `--json-schema` is supplied. Interactive parse failures surface to the caller without retry — the user is steering the session.
@@ -357,7 +357,7 @@ Events are dispatched synchronously. The library emits events automatically for 
 ```scala
 trait Interaction:
   def listeners: List[OrcaListener]
-  def drive[B <: BackendTag](conversation: Conversation[B]): LlmResult[B]
+  def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B]
 ```
 
 Built-in: `TerminalInteraction` (default, JLine 3 + fansi), `SlackInteraction(channel)`. Additional listeners for telemetry:
@@ -377,17 +377,17 @@ def fail(message: String)(using FlowContext): Nothing  // emits Error, throws Or
 ### Backend abstraction
 
 ```scala
-trait LlmBackend[B <: BackendTag]:
-  def runHeadless(prompt: String, config: LlmConfig, workDir: Path): LlmResult[B]
-  def continueHeadless(sessionId: SessionId[B], prompt: String, config: LlmConfig, workDir: Path): LlmResult[B]
-  def runInteractive(prompt: String, config: LlmConfig, workDir: Path, outputSchema: Option[String]): Conversation[B]
-  def continueInteractive(sessionId: SessionId[B], prompt: String, config: LlmConfig, workDir: Path, outputSchema: Option[String]): Conversation[B]
+trait AgentBackend[B <: BackendTag]:
+  def runHeadless(prompt: String, config: AgentConfig, workDir: Path): AgentResult[B]
+  def continueHeadless(sessionId: SessionId[B], prompt: String, config: AgentConfig, workDir: Path): AgentResult[B]
+  def runInteractive(prompt: String, config: AgentConfig, workDir: Path, outputSchema: Option[String]): Conversation[B]
+  def continueInteractive(sessionId: SessionId[B], prompt: String, config: AgentConfig, workDir: Path, outputSchema: Option[String]): Conversation[B]
 
-case class LlmResult[B <: BackendTag](sessionId: SessionId[B], output: String, usage: Usage)
+case class AgentResult[B <: BackendTag](sessionId: SessionId[B], output: String, usage: Usage)
 
 trait Conversation[B <: BackendTag]:
   def events: Iterator[ConversationEvent]
-  def awaitResult(): LlmResult[B]
+  def awaitResult(): AgentResult[B]
   def sendUserMessage(text: String): Unit
   def cancel(): Unit
 ```
@@ -479,7 +479,7 @@ flow:
     val result = stage(s"Coding: ${task.description}"):
       claude.resultAs[CodingResult].continueSession(
         sessionId, task.description,
-        LlmConfig(autoApprove = AutoApprove.All)
+        AgentConfig(autoApprove = AutoApprove.All)
       )
     if !result.success then
       fail(s"Coding failed: ${result.message}")

@@ -1,14 +1,14 @@
 package orca.backend
 
-import orca.llm.{BackendTag, Model, SessionId}
+import orca.agents.{BackendTag, Model, SessionId}
 import orca.events.{Usage}
 
-/** Outcome of a single LLM call. Returned by [[LlmBackend.runAutonomous]] /
-  * [[LlmBackend.continueAutonomous]] for the autonomous path, and by
+/** Outcome of a single LLM call. Returned by [[AgentBackend.runAutonomous]] /
+  * [[AgentBackend.continueAutonomous]] for the autonomous path, and by
   * [[Conversation.awaitResult]] / [[Interaction.drive]] for the interactive
   * path.
   */
-case class LlmResult[B <: BackendTag](
+case class AgentResult[B <: BackendTag](
     sessionId: SessionId[B],
     output: String,
     usage: Usage,

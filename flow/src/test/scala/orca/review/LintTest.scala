@@ -2,17 +2,17 @@ package orca.review
 
 import orca.{FlowContext}
 import orca.plan.Title
-import orca.llm.{
+import orca.agents.{
   AgentInput,
   Announce,
-  AutonomousLlmCall,
+  AutonomousAgentCall,
   AutonomousTextCall,
   BackendTag,
-  InteractiveLlmCall,
+  InteractiveAgentCall,
   JsonData,
-  LlmCall,
-  LlmConfig,
-  LlmTool,
+  AgentCall,
+  AgentConfig,
+  Agent,
   SessionId,
   ToolSet
 }
@@ -27,31 +27,31 @@ class LintTest extends munit.FunSuite:
   private def ctx: FlowContext =
     new TestFlowContext(new EventDispatcher(Nil))
 
-  /** LlmTool that records the serialized prompt passed to
+  /** Agent that records the serialized prompt passed to
     * `resultAs.autonomous.run` and returns a canned ReviewResult. Method-scope
     * mutable var holds the captured string.
     */
-  private class CapturingLlmTool(canned: ReviewResult)
-      extends LlmTool[BackendTag.ClaudeCode.type]:
+  private class CapturingAgent(canned: ReviewResult)
+      extends Agent[BackendTag.ClaudeCode.type]:
     var captured: String = ""
     // Contents of the `*.log` file the prompt references, read inside `run`
     // while it still exists — `lint` deletes it once `run` returns.
     var capturedFileContent: String = ""
     val name = "mock"
     def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-    def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
-    def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
-    def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-    def withTools(tools: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
+    def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
+    def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
+    def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
+    def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
     def resultAs[O: JsonData: Announce]
-        : LlmCall[BackendTag.ClaudeCode.type, O] =
-      new LlmCall[BackendTag.ClaudeCode.type, O]:
-        val autonomous: AutonomousLlmCall[BackendTag.ClaudeCode.type, O] =
-          new AutonomousLlmCall[BackendTag.ClaudeCode.type, O]:
+        : AgentCall[BackendTag.ClaudeCode.type, O] =
+      new AgentCall[BackendTag.ClaudeCode.type, O]:
+        val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
+          new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
             def run[I](
                 i: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
-                c: LlmConfig,
+                c: AgentConfig,
                 emitPrompt: Boolean
             )(using
                 a: AgentInput[I],
@@ -66,7 +66,8 @@ class LintTest extends munit.FunSuite:
                 SessionId[BackendTag.ClaudeCode.type]("lint-test"),
                 canned.asInstanceOf[O]
               )
-        def interactive: InteractiveLlmCall[BackendTag.ClaudeCode.type, O] = ???
+        def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
+          ???
 
   test("lint writes output to a file the prompt points to, returns its result"):
     given FlowContext = ctx
@@ -83,7 +84,7 @@ class LintTest extends munit.FunSuite:
         )
       )
     )
-    val mock = new CapturingLlmTool(expected)
+    val mock = new CapturingAgent(expected)
     val result = lint("echo LINT-BODY-MARKER", mock)
     assertEquals(result, expected)
     // The output goes to a file (so unbounded lint output can't overflow the
@@ -104,7 +105,7 @@ class LintTest extends munit.FunSuite:
 
   test("lint short-circuits to ReviewResult.empty when the command is silent"):
     given FlowContext = ctx
-    val mock = new CapturingLlmTool(ReviewResult.empty)
+    val mock = new CapturingAgent(ReviewResult.empty)
     val result = lint("true", mock)
     assertEquals(result, ReviewResult.empty)
     assertEquals(

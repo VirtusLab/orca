@@ -1,13 +1,13 @@
 package orca.runner.terminal
 
-import orca.llm.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId}
 import orca.events.{Usage}
 import orca.{OrcaInteractiveCancelled}
 import orca.backend.{
   ApprovalDecision,
   Conversation,
   ConversationEvent,
-  LlmResult
+  AgentResult
 }
 
 import java.io.{ByteArrayOutputStream, PrintStream}
@@ -48,12 +48,12 @@ class ConversationRendererTest extends munit.FunSuite:
     */
   private class ScriptedConversation[B <: BackendTag](
       scripted: List[ConversationEvent],
-      outcome: Either[Throwable, LlmResult[B]],
+      outcome: Either[Throwable, AgentResult[B]],
       val outputSchema: Option[String] = None
   ) extends Conversation[B]:
     val cancelled = new AtomicReference[Boolean](false)
     def events: Iterator[ConversationEvent] = scripted.iterator
-    def awaitResult(): Either[OrcaInteractiveCancelled, LlmResult[B]] =
+    def awaitResult(): Either[OrcaInteractiveCancelled, AgentResult[B]] =
       outcome match
         case Right(r)                          => Right(r)
         case Left(c: OrcaInteractiveCancelled) => Left(c)
@@ -75,8 +75,8 @@ class ConversationRendererTest extends munit.FunSuite:
       next.getOrElse(throw new IllegalStateException("prompter exhausted"))
     def close(): Unit = ()
 
-  private def sampleResult: LlmResult[BackendTag.ClaudeCode.type] =
-    LlmResult(
+  private def sampleResult: AgentResult[BackendTag.ClaudeCode.type] =
+    AgentResult(
       sessionId = SessionId[BackendTag.ClaudeCode.type]("sid"),
       output = """{"ok":true}""",
       usage = Usage(0L, 0L, None)

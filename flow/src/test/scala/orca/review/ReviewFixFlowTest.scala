@@ -2,7 +2,7 @@ package orca.review
 
 import orca.{FlowContext}
 import orca.plan.Title
-import orca.llm.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId}
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.{TestFlowContext}
 
@@ -40,11 +40,11 @@ class ReviewFixFlowTest extends munit.FunSuite:
     given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
 
     val real = issue("real problem", confidence = 0.9)
-    val reviewer = new FakeLlmTool(
+    val reviewer = new FakeAgent(
       name = "perf",
       outputs = List(ReviewResult(List(real)))
     )
-    val coder = new FakeLlmTool(
+    val coder = new FakeAgent(
       name = "coder",
       outputs = List(
         FixOutcome(Nil, List(IgnoredIssue(Title("real problem"), "trade-off")))
@@ -79,11 +79,11 @@ class ReviewFixFlowTest extends munit.FunSuite:
     // still finds it. The cap is the only thing that can stop this.
     // Reviewer keeps reporting the same issue across all iterations.
     val stubborn = issue("never ends")
-    val reviewer = new FakeLlmTool(
+    val reviewer = new FakeAgent(
       name = "loud",
       outputs = List.fill(21)(ReviewResult(List(stubborn)))
     )
-    val coder = new FakeLlmTool(
+    val coder = new FakeAgent(
       name = "fixer",
       outputs = List.fill(20)(FixOutcome(List(Title("never ends")), Nil))
     )

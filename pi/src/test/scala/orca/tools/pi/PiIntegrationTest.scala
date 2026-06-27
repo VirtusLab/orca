@@ -1,6 +1,6 @@
 package orca.tools.pi
 
-import orca.llm.{BackendTag, LlmConfig, SessionId, ToolSet}
+import orca.agents.{BackendTag, AgentConfig, SessionId, ToolSet}
 import orca.subprocess.OsProcCliRunner
 
 /** End-to-end smoke test against the real `pi` CLI. Gated on `ORCA_INTEGRATION`
@@ -24,7 +24,7 @@ class PiIntegrationTest extends munit.FunSuite:
     val result = backend.runAutonomous(
       prompt = "Reply with the single word: READY",
       session = fresh,
-      config = LlmConfig.default.copy(tools = ToolSet.ReadOnly),
+      config = AgentConfig.default.copy(tools = ToolSet.ReadOnly),
       workDir = os.temp.dir()
     )
     assert(

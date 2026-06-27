@@ -8,14 +8,14 @@ import orca.backend.{
   Conversation,
   Conversations,
   Dispatch,
-  LlmBackend,
-  LlmResult,
+  AgentBackend,
+  AgentResult,
   SessionMode,
   SessionRegistry,
   StreamSource
 }
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.agents.{BackendTag, AgentConfig, SessionId}
 import orca.subprocess.CliRunner
 import orca.tools.opencode.OpencodeApi.{SessionCreateBody, SessionCreated}
 import ox.Ox
@@ -50,7 +50,7 @@ private[orca] object OpencodeBackend:
     )
 
 private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
-    extends LlmBackend[BackendTag.Opencode.type]:
+    extends AgentBackend[BackendTag.Opencode.type]:
 
   private val sessions =
     new SessionRegistry.ClientToServer[BackendTag.Opencode.type]
@@ -69,11 +69,11 @@ private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
   def runAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Opencode.type],
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
-  ): LlmResult[BackendTag.Opencode.type] =
+  ): AgentResult[BackendTag.Opencode.type] =
     val http = server(workDir)
     val source = http.events()
     try
@@ -96,7 +96,7 @@ private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
       prompt: String,
       session: SessionId[BackendTag.Opencode.type],
       displayPrompt: String,
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[BackendTag.Opencode.type] =
@@ -124,9 +124,9 @@ private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
 
   /** Probe `http` for the given session id via `GET /session/<id>` → status
     * 200. Callable directly in tests without going through the lazy-init guard.
-    * Returns `false` on any transport error. The [[orca.llm.isSafeSessionId]]
-    * guard must have passed before this method is called — it is not re-checked
-    * here.
+    * Returns `false` on any transport error. The
+    * [[orca.agents.isSafeSessionId]] guard must have passed before this method
+    * is called — it is not re-checked here.
     */
   private[opencode] def probeSession(id: String, http: OpencodeHttp): Boolean =
     try http.getStatus(s"/session/$id") == 200
@@ -138,7 +138,7 @@ private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
     * — when no server id is mapped (the map hasn't been rehydrated from the
     * log, so there is no known live session), the opencode server has not been
     * started yet, the request fails for any reason, or the id fails the
-    * [[orca.llm.isSafeSessionId]] guard (blocks URL injection such as `a/b`
+    * [[orca.agents.isSafeSessionId]] guard (blocks URL injection such as `a/b`
     * routing to a different endpoint).
     *
     * The client→server map is persisted in the progress log and rehydrated on
@@ -172,7 +172,7 @@ private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
       http: OpencodeHttp,
       source: StreamSource,
       serverSession: String,
-      config: LlmConfig,
+      config: AgentConfig,
       prompt: String,
       outputSchema: Option[String],
       mode: SessionMode

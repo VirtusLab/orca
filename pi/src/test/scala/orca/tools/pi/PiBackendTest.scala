@@ -2,7 +2,7 @@ package orca.tools.pi
 
 import orca.backend.SystemPromptComposer
 import orca.events.Usage
-import orca.llm.{BackendTag, LlmConfig, Model, SessionId, ToolSet}
+import orca.agents.{BackendTag, AgentConfig, Model, SessionId, ToolSet}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 
 class PiBackendTest extends munit.FunSuite:
@@ -33,7 +33,8 @@ class PiBackendTest extends munit.FunSuite:
     val backend = new PiBackend(runner)
     val workDir = os.temp.dir()
 
-    val result = backend.runAutonomous("do it", sid, LlmConfig.default, workDir)
+    val result =
+      backend.runAutonomous("do it", sid, AgentConfig.default, workDir)
 
     assertEquals(result.sessionId, sid)
     assertEquals(result.output, "answer")
@@ -57,8 +58,8 @@ class PiBackendTest extends munit.FunSuite:
     val backend = new PiBackend(runner)
     val workDir = os.temp.dir()
 
-    val _ = backend.runAutonomous("one", sid, LlmConfig.default, workDir)
-    val _ = backend.runAutonomous("two", sid, LlmConfig.default, workDir)
+    val _ = backend.runAutonomous("one", sid, AgentConfig.default, workDir)
+    val _ = backend.runAutonomous("two", sid, AgentConfig.default, workDir)
 
     val Seq(first, second) = runner.spawnCalls.take(2): @unchecked
     assert(!first.args.contains("--continue"), first.args)
@@ -76,9 +77,9 @@ class PiBackendTest extends munit.FunSuite:
     val workDir = os.temp.dir()
 
     val _ = intercept[Exception](
-      backend.runAutonomous("one", sid, LlmConfig.default, workDir)
+      backend.runAutonomous("one", sid, AgentConfig.default, workDir)
     )
-    val _ = backend.runAutonomous("two", sid, LlmConfig.default, workDir)
+    val _ = backend.runAutonomous("two", sid, AgentConfig.default, workDir)
 
     val Seq(first, second) = runner.spawnCalls.take(2): @unchecked
     assert(!first.args.contains("--continue"), first.args)
@@ -93,7 +94,7 @@ class PiBackendTest extends munit.FunSuite:
     val _ = backend.runAutonomous(
       "q",
       sid,
-      LlmConfig.default.copy(
+      AgentConfig.default.copy(
         model = Some(Model("anthropic/claude-sonnet")),
         tools = ToolSet.ReadOnly
       ),
@@ -114,7 +115,7 @@ class PiBackendTest extends munit.FunSuite:
       "q",
       sid,
       displayPrompt = "q",
-      LlmConfig.default.copy(tools = ToolSet.ReadOnly),
+      AgentConfig.default.copy(tools = ToolSet.ReadOnly),
       os.temp.dir(),
       outputSchema = Some("{}")
     )
@@ -142,7 +143,7 @@ class PiBackendTest extends munit.FunSuite:
       "q",
       sid,
       displayPrompt = "q",
-      LlmConfig.default.copy(systemPrompt = Some("be terse")),
+      AgentConfig.default.copy(systemPrompt = Some("be terse")),
       os.temp.dir(),
       outputSchema = None
     )
@@ -174,7 +175,7 @@ class PiBackendTest extends munit.FunSuite:
     val _ = backend.runAutonomous(
       "q",
       sid,
-      LlmConfig.default.copy(selfManagedGit = true),
+      AgentConfig.default.copy(selfManagedGit = true),
       os.temp.dir()
     )
 

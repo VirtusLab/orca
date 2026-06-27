@@ -1,13 +1,13 @@
 package orca.tools.claude
 
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId}
+import orca.agents.{BackendTag, AgentConfig, SessionId}
 import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{
   Conversation,
   Conversations,
-  LlmBackend,
-  LlmResult,
+  AgentBackend,
+  AgentResult,
   SessionMode,
   SessionRegistry,
   SystemPromptComposer
@@ -27,7 +27,7 @@ import ox.channels.BufferCapacity
   *
   * The autonomous path drains those events via
   * [[orca.backend.Conversations.drainAutonomous]] and returns the awaited
-  * `LlmResult`. The interactive path hands the `Conversation` back to the
+  * `AgentResult`. The interactive path hands the `Conversation` back to the
   * caller who runs `Interaction.drive`.
   *
   * Interactive calls also stand up an MCP host bridge: a tiny HTTP server (via
@@ -43,12 +43,12 @@ private[orca] class ClaudeBackend(
     private[claude] val projectsDir: os.Path = os.home / ".claude" / "projects",
     private[claude] val cwdForProbe: os.Path = os.pwd
 )(using Ox, BufferCapacity)
-    extends LlmBackend[BackendTag.ClaudeCode.type]:
+    extends AgentBackend[BackendTag.ClaudeCode.type]:
 
   /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns,
     * pre-approves `tools` (claude `--allowedTools` syntax). The configuration
-    * seam behind `ClaudeTool.withNetworkTools`; lives on the backend, not
-    * `LlmConfig`, since the strings are claude-specific.
+    * seam behind `ClaudeAgent.withNetworkTools`; lives on the backend, not
+    * `AgentConfig`, since the strings are claude-specific.
     */
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
     new ClaudeBackend(cli, tools, projectsDir, cwdForProbe)
@@ -58,8 +58,8 @@ private[orca] class ClaudeBackend(
     * the working directory by replacing every `/` with `-` (e.g.
     * `/home/foo/orca` → `-home-foo-orca`). Returns `false` — safe re-seed —
     * when the file is absent, the projects dir doesn't exist yet, or the id
-    * fails the [[orca.llm.isSafeSessionId]] guard (blocks path traversal such
-    * as `../../etc/passwd`).
+    * fails the [[orca.agents.isSafeSessionId]] guard (blocks path traversal
+    * such as `../../etc/passwd`).
     */
   override def sessionExists(
       session: SessionId[BackendTag.ClaudeCode.type]
@@ -98,11 +98,11 @@ private[orca] class ClaudeBackend(
   def runAutonomous(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
-  ): LlmResult[BackendTag.ClaudeCode.type] =
+  ): AgentResult[BackendTag.ClaudeCode.type] =
     val conv = openConversation(
       prompt = prompt,
       mode = SessionMode.Autonomous,
@@ -130,7 +130,7 @@ private[orca] class ClaudeBackend(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
       displayPrompt: String,
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[BackendTag.ClaudeCode.type] =
@@ -184,7 +184,7 @@ private[orca] class ClaudeBackend(
       prompt: String,
       mode: SessionMode,
       session: SessionId[BackendTag.ClaudeCode.type],
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
   ): Conversation[BackendTag.ClaudeCode.type] =
@@ -218,7 +218,7 @@ private[orca] class ClaudeBackend(
       // leave the registry wedged — a retry will still try `--session-id`.
       // Callers must not share a session id across concurrent calls;
       // `reviewAndFixLoop`'s parallel reviewer fan-out is safe because each
-      // reviewer mints its own distinct id via `LlmTool.newSession`.
+      // reviewer mints its own distinct id via `Agent.newSession`.
       val args = ClaudeArgs.streamJson(
         effectiveConfig,
         systemPromptFile,
@@ -292,7 +292,7 @@ private[orca] class ClaudeBackend(
     * once on startup via `--append-system-prompt-file`).
     */
   private def writeSystemPromptIfPresent(
-      config: LlmConfig,
+      config: AgentConfig,
       includeAskUserHint: Boolean = false
   ): Option[os.Path] =
     val hint = Option.when(includeAskUserHint)(AskUserMcpServer.Hint)

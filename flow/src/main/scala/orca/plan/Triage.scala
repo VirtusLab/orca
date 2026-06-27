@@ -1,6 +1,6 @@
 package orca.plan
 
-import orca.llm.{Announce, JsonData}
+import orca.agents.{Announce, JsonData}
 
 /** Outcome of triaging a bug report against a codebase. Three variants:
   *

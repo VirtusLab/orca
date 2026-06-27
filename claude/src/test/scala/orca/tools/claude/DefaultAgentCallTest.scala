@@ -1,11 +1,11 @@
 package orca.tools.claude
 
 import orca.{AgentTurnFailed, OrcaFlowException}
-import orca.llm.{BackendTag, JsonData, LlmConfig, SessionId}
+import orca.agents.{BackendTag, JsonData, AgentConfig, SessionId}
 import orca.events.{OrcaListener, Usage}
 
-import orca.backend.{Interaction, LlmBackend, LlmResult}
-import orca.llm.{DefaultLlmCall, DefaultPrompts}
+import orca.backend.{Interaction, AgentBackend, AgentResult}
+import orca.agents.{DefaultAgentCall, DefaultPrompts}
 import ox.supervised
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
@@ -17,7 +17,7 @@ case class Answer(value: Int) derives JsonData
   * test here.
   */
 class SequencedBackend(outputs: List[String])
-    extends LlmBackend[BackendTag.ClaudeCode.type]:
+    extends AgentBackend[BackendTag.ClaudeCode.type]:
   private val remaining: AtomicReference[List[String]] =
     AtomicReference(outputs)
   private val promptsRef: AtomicReference[List[String]] =
@@ -36,19 +36,19 @@ class SequencedBackend(outputs: List[String])
   def prompts: List[String] = promptsRef.get().reverse
 
   /** Listeners the backend was called with, in invocation order. Lets tests
-    * assert that `DefaultLlmCall` threaded its own `events` through rather than
-    * silently dropping it on the floor.
+    * assert that `DefaultAgentCall` threaded its own `events` through rather
+    * than silently dropping it on the floor.
     */
   def events: List[orca.events.OrcaListener] = seenEvents.get().reverse
 
   /** `outputSchema` values the backend received, in invocation order. Lets
-    * tests assert that `DefaultLlmCall` actually passes `Some(<schema>)` rather
-    * than dropping to `None`.
+    * tests assert that `DefaultAgentCall` actually passes `Some(<schema>)`
+    * rather than dropping to `None`.
     */
   def schemas: List[Option[String]] = seenSchemas.get().reverse
 
   /** `(clientSid, serverSid)` pairs the framework passed to `registerSession`,
-    * in invocation order. Lets tests assert that `DefaultLlmCall` wired the
+    * in invocation order. Lets tests assert that `DefaultAgentCall` wired the
     * post-drain hook through to the backend.
     */
   def registered: List[
@@ -67,11 +67,11 @@ class SequencedBackend(outputs: List[String])
   def runAutonomous(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       events: orca.events.OrcaListener,
       outputSchema: Option[String]
-  ): LlmResult[BackendTag.ClaudeCode.type] =
+  ): AgentResult[BackendTag.ClaudeCode.type] =
     val _ = seenEvents.updateAndGet(events :: _)
     val _ = seenSchemas.updateAndGet(outputSchema :: _)
     nextResult(prompt).copy(sessionId = session)
@@ -80,12 +80,12 @@ class SequencedBackend(outputs: List[String])
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
       displayPrompt: String,
-      config: LlmConfig,
+      config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
   ): orca.backend.Conversation[BackendTag.ClaudeCode.type] =
     // Minimal stand-in: the conversation is not actually driven — the test's
-    // `Interaction.drive` ignores it and returns a canned `LlmResult`. We
+    // `Interaction.drive` ignores it and returns a canned `AgentResult`. We
     // still need *something* to return so the interactive path compiles.
     new orca.backend.Conversation[BackendTag.ClaudeCode.type]:
       val outputSchema: Option[String] = None
@@ -97,19 +97,19 @@ class SequencedBackend(outputs: List[String])
 
   private def nextResult(
       prompt: String
-  ): LlmResult[BackendTag.ClaudeCode.type] =
+  ): AgentResult[BackendTag.ClaudeCode.type] =
     val _ = promptsRef.updateAndGet(prompt :: _)
     val next = remaining
       .getAndUpdate(rs => rs.drop(1))
       .headOption
       .getOrElse(throw new IllegalStateException("ran out of canned outputs"))
-    LlmResult(
+    AgentResult(
       sessionId = SessionId[BackendTag.ClaudeCode.type]("sess-test"),
       output = next,
       usage = Usage.empty
     )
 
-class DefaultLlmCallTest extends munit.FunSuite:
+class DefaultAgentCallTest extends munit.FunSuite:
 
   // LLM `run` is now gated on `InStage`; mint the token once for the suite
   // (package `orca.tools.claude` can reach `InStage.unsafe`).
@@ -125,12 +125,12 @@ class DefaultLlmCallTest extends munit.FunSuite:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
         conversation: orca.backend.Conversation[B]
-    ): LlmResult[B] = throw new UnsupportedOperationException("test stub")
+    ): AgentResult[B] = throw new UnsupportedOperationException("test stub")
 
   private def makeCall(
       backend: SequencedBackend
-  ): DefaultLlmCall[BackendTag.ClaudeCode.type, Answer] =
-    new DefaultLlmCall[BackendTag.ClaudeCode.type, Answer](
+  ): DefaultAgentCall[BackendTag.ClaudeCode.type, Answer] =
+    new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
       backend = backend,
       effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
@@ -201,11 +201,11 @@ class DefaultLlmCallTest extends munit.FunSuite:
     // A specific Announce[Answer] wins over Announce.default; the call
     // emits a single StructuredResult event carrying both the raw
     // payload (the agent's JSON) and the summary derived from Announce.
-    given orca.llm.Announce[Answer] =
-      orca.llm.Announce.from(a => s"answer is ${a.value}")
+    given orca.agents.Announce[Answer] =
+      orca.agents.Announce.from(a => s"answer is ${a.value}")
     val backend = new SequencedBackend(List("""{"value":99}"""))
     val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
-    val call = new DefaultLlmCall[BackendTag.ClaudeCode.type, Answer](
+    val call = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
       backend = backend,
       effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
@@ -250,11 +250,11 @@ class DefaultLlmCallTest extends munit.FunSuite:
     // Without this wiring, structured calls (which is what every reviewer
     // uses) lose tool-use / assistant-message visibility — the per-turn
     // events fire only when the backend gets the same listener the
-    // DefaultLlmCall was constructed with.
+    // DefaultAgentCall was constructed with.
     val backend = new SequencedBackend(List("""{"value":1}"""))
     val myListener: orca.events.OrcaListener = (_: orca.events.OrcaEvent) => ()
     supervised:
-      val _ = new DefaultLlmCall[BackendTag.ClaudeCode.type, Answer](
+      val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
         effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
@@ -269,12 +269,12 @@ class DefaultLlmCallTest extends munit.FunSuite:
     "autonomous emits StructuredResult with summary=None under default Announce"
   ):
     // The library's catch-all `Announce.default` returns an empty
-    // string, which DefaultLlmCall normalises to `None` so listeners
+    // string, which DefaultAgentCall normalises to `None` so listeners
     // can pattern-match without an empty-string sentinel.
     val backend = new SequencedBackend(List("""{"value":1}"""))
     val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
     supervised:
-      val _ = new DefaultLlmCall[BackendTag.ClaudeCode.type, Answer](
+      val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
         effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
@@ -305,7 +305,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
     )
     val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
     supervised:
-      val _ = new DefaultLlmCall[BackendTag.ClaudeCode.type, Answer](
+      val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
         effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
@@ -341,11 +341,11 @@ class DefaultLlmCallTest extends munit.FunSuite:
       override def runAutonomous(
           prompt: String,
           session: SessionId[BackendTag.ClaudeCode.type],
-          config: LlmConfig,
+          config: AgentConfig,
           workDir: os.Path,
           events: OrcaListener,
           outputSchema: Option[String]
-      ): LlmResult[BackendTag.ClaudeCode.type] =
+      ): AgentResult[BackendTag.ClaudeCode.type] =
         val _ = calls.incrementAndGet()
         throw new AgentTurnFailed("Prompt is too long")
     supervised:
@@ -366,11 +366,11 @@ class DefaultLlmCallTest extends munit.FunSuite:
       override def runAutonomous(
           prompt: String,
           session: SessionId[BackendTag.ClaudeCode.type],
-          config: LlmConfig,
+          config: AgentConfig,
           workDir: os.Path,
           events: OrcaListener,
           outputSchema: Option[String]
-      ): LlmResult[BackendTag.ClaudeCode.type] =
+      ): AgentResult[BackendTag.ClaudeCode.type] =
         if calls.getAndIncrement() == 0 then
           throw new OrcaFlowException(
             "Failed to open claude stream-json session: Broken pipe"
@@ -397,7 +397,7 @@ class DefaultLlmCallTest extends munit.FunSuite:
     // `interaction.drive` returns, and restamp the returned id to the
     // caller-supplied `session` so a follow-up `.run(prompt, sid)` resumes
     // the right thread. Removing the `backend.registerSession` line in
-    // `DefaultLlmCall.runInteractiveOnce` would fail this test.
+    // `DefaultAgentCall.runInteractiveOnce` would fail this test.
     val clientSid =
       SessionId[BackendTag.ClaudeCode.type]("client-uuid-aaaa")
     val serverSid =
@@ -407,14 +407,14 @@ class DefaultLlmCallTest extends munit.FunSuite:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
           conversation: orca.backend.Conversation[B]
-      ): LlmResult[B] =
-        LlmResult[B](
+      ): AgentResult[B] =
+        AgentResult[B](
           sessionId = SessionId[B](SessionId.value(serverSid)),
           output = """{"value":3}""",
           usage = Usage.empty
         )
     supervised:
-      val (returned, answer) = new DefaultLlmCall[
+      val (returned, answer) = new DefaultAgentCall[
         BackendTag.ClaudeCode.type,
         Answer
       ](

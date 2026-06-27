@@ -36,7 +36,8 @@ private[opencode] enum OpencodeEvent:
       output: String
   )
 
-  /** The assistant message metadata updated — the source of the `LlmResult`. */
+  /** The assistant message metadata updated — the source of the `AgentResult`.
+    */
   case MessageUpdated(session: String, info: AssistantInfo)
   case QuestionAsked(request: QuestionRequest)
   case PermissionAsked(request: PermissionRequest)

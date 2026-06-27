@@ -1,7 +1,7 @@
 package orca.plan
 
 import orca.events.EventDispatcher
-import orca.llm.ToolSet
+import orca.agents.ToolSet
 
 class AssessThenPlanTest extends munit.FunSuite:
 
@@ -74,7 +74,7 @@ class AssessThenPlanTest extends munit.FunSuite:
     )
     val result = Plan.autonomous.assessThenPlan(
       "the report",
-      new CannedResultLlm(assessed)
+      new CannedResultAgent(assessed)
     )
     // The verdict is carried alongside the session that produced it.
     assertEquals(result.sessionId.value, "stub-sid")
@@ -85,7 +85,7 @@ class AssessThenPlanTest extends munit.FunSuite:
 
   test("Plan.autonomous planner runs NetworkOnly (reads + read-only network)"):
     given orca.FlowContext = new orca.TestFlowContext(new EventDispatcher(Nil))
-    val stub = new CannedResultLlm(
+    val stub = new CannedResultAgent(
       AssessedPlan("proceed", Some(samplePlan), None, None)
     )
     val _ = Plan.autonomous.assessThenPlan("the report", stub)
@@ -99,6 +99,6 @@ class AssessThenPlanTest extends munit.FunSuite:
     val ex = intercept[orca.OrcaFlowException]:
       Plan.autonomous.assessThenPlan(
         "the report",
-        new CannedResultLlm(malformed)
+        new CannedResultAgent(malformed)
       )
     assert(ex.getMessage.contains("no plan"), ex.getMessage)

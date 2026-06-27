@@ -1,7 +1,7 @@
 package orca.plan
 
 import orca.{FlowContext, InStage, OrcaFlowException}
-import orca.llm.{Announce, BackendTag, CanAskUser, JsonData, LlmTool, given}
+import orca.agents.{Announce, BackendTag, CanAskUser, JsonData, Agent, given}
 
 /** A development plan: an ordered list of [[Task]]s the agent will work
   * through, all on a single branch named by `epicId` (kebab-case, used directly
@@ -71,7 +71,7 @@ object Plan:
     * planning turn (see [[autonomousResult]] for the per-backend guarantee).
     * Sibling of [[interactive]]; the choice between the two is visible at the
     * call site (`Plan.autonomous.from(...)` vs `Plan.interactive.from(...)`),
-    * mirroring `LlmTool`'s own `autonomous` / `interactive` split.
+    * mirroring `Agent`'s own `autonomous` / `interactive` split.
     *
     * Each operation returns a [[Sessioned]]: the read-only planning turn's
     * session is still resumable by a later writable call, so the caller can
@@ -84,7 +84,7 @@ object Plan:
     /** Produce a [[Plan]] directly from `userPrompt`. */
     def from[B <: BackendTag](
         userPrompt: String,
-        llm: LlmTool[B],
+        llm: Agent[B],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext, InStage): Sessioned[B, Plan] =
       autonomousResult[B, Plan, Plan](llm, userPrompt, instructions)(identity)
@@ -95,7 +95,7 @@ object Plan:
       */
     def assessThenPlan[B <: BackendTag](
         userPrompt: String,
-        llm: LlmTool[B],
+        llm: Agent[B],
         instructions: String = PlanPrompts.AssessThenPlan
     )(using FlowContext, InStage): Sessioned[B, Verdict[Plan]] =
       autonomousResult[B, AssessedPlan, Verdict[Plan]](
@@ -109,7 +109,7 @@ object Plan:
       */
     def triage[B <: BackendTag](
         report: String,
-        llm: LlmTool[B],
+        llm: Agent[B],
         instructions: String = PlanPrompts.Triage
     )(using FlowContext, InStage): Sessioned[B, Triage] =
       autonomousResult[B, BugTriage, Triage](llm, report, instructions)(b =>
@@ -135,7 +135,7 @@ object Plan:
     /** Produce a [[Plan]] directly from `userPrompt`. */
     def from[B <: BackendTag: CanAskUser](
         userPrompt: String,
-        llm: LlmTool[B],
+        llm: Agent[B],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext, InStage): Sessioned[B, Plan] =
       interactiveResult[B, Plan, Plan](llm, userPrompt, instructions)(identity)
@@ -146,7 +146,7 @@ object Plan:
       */
     def assessThenPlan[B <: BackendTag: CanAskUser](
         userPrompt: String,
-        llm: LlmTool[B],
+        llm: Agent[B],
         instructions: String = PlanPrompts.AssessThenPlan
     )(using FlowContext, InStage): Sessioned[B, Verdict[Plan]] =
       interactiveResult[B, AssessedPlan, Verdict[Plan]](
@@ -160,7 +160,7 @@ object Plan:
       */
     def triage[B <: BackendTag: CanAskUser](
         report: String,
-        llm: LlmTool[B],
+        llm: Agent[B],
         instructions: String = PlanPrompts.Triage
     )(using FlowContext, InStage): Sessioned[B, Triage] =
       interactiveResult[B, BugTriage, Triage](llm, report, instructions)(b =>
@@ -190,7 +190,7 @@ object Plan:
     * everywhere.
     */
   private def autonomousResult[B <: BackendTag, O: JsonData: Announce, A](
-      llm: LlmTool[B],
+      llm: Agent[B],
       input: String,
       instructions: String
   )(convert: O => A)(using FlowContext, InStage): Sessioned[B, A] =
@@ -206,7 +206,7 @@ object Plan:
       O: JsonData: Announce,
       A
   ](
-      llm: LlmTool[B],
+      llm: Agent[B],
       input: String,
       instructions: String
   )(convert: O => A)(using FlowContext, InStage): Sessioned[B, A] =
@@ -225,7 +225,7 @@ object Plan:
       * improved plan (brief included) paired with the (same) session.
       */
     def reviewed(
-        llm: LlmTool[B],
+        llm: Agent[B],
         instructions: String = PlanPrompts.Review
     )(using FlowContext, InStage): Sessioned[B, Plan] =
       val (sessionId, improved) = llm.withReadOnly

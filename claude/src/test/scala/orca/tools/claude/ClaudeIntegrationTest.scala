@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.agents.{AutoApprove, BackendTag, AgentConfig, SessionId}
 import orca.backend.{ApprovalDecision, ConversationEvent, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
 
@@ -29,7 +29,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       val result = backend.runAutonomous(
         prompt = "Reply with the single word: READY",
         session = fresh,
-        config = LlmConfig.default,
+        config = AgentConfig.default,
         workDir = os.temp.dir()
       )
       assert(
@@ -45,13 +45,13 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         prompt = "Remember the number 42. Reply with: stored.",
         session = session,
-        config = LlmConfig.default,
+        config = AgentConfig.default,
         workDir = workDir
       )
       val second = backend.runAutonomous(
         prompt = "What number did I ask you to remember?",
         session = session,
-        config = LlmConfig.default,
+        config = AgentConfig.default,
         workDir = workDir
       )
       assert(
@@ -65,7 +65,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         prompt = "Reply with just the number 7. Nothing else.",
         session = fresh,
         displayPrompt = "reply with 7",
-        config = LlmConfig.default,
+        config = AgentConfig.default,
         workDir = os.temp.dir(),
         outputSchema = None
       )
@@ -88,7 +88,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
           "Count from 1 to 5, one per line, then stop. Do not emit anything else.",
         session = fresh,
         displayPrompt = "count 1..5",
-        config = LlmConfig.default,
+        config = AgentConfig.default,
         workDir = os.temp.dir(),
         outputSchema = None
       )
@@ -119,7 +119,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         session = fresh,
         displayPrompt = "read /etc/hostname",
         config =
-          LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set.empty)),
+          AgentConfig.default.copy(autoApprove = AutoApprove.Only(Set.empty)),
         workDir = os.temp.dir(),
         outputSchema = None
       )

@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig}
+import orca.agents.{AutoApprove, BackendTag, AgentConfig}
 import orca.events.{Usage}
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{ApprovalDecision, ConversationEvent}
@@ -10,7 +10,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   test("stream_event text_delta becomes AssistantTextDelta"):
     val process = new FakePipedCliProcess()
-    val conv = new ClaudeConversation(process, LlmConfig.default)
+    val conv = new ClaudeConversation(process, AgentConfig.default)
 
     process.enqueueStdout(
       """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}}"""
@@ -26,7 +26,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   test("result message finishes the session and carries usage"):
     val process = new FakePipedCliProcess()
-    val conv = new ClaudeConversation(process, LlmConfig.default)
+    val conv = new ClaudeConversation(process, AgentConfig.default)
 
     process.enqueueStdout(
       """{"type":"result","subtype":"success","session_id":"sid-2","result":"done","usage":{"input_tokens":5,"output_tokens":7}}"""
@@ -40,7 +40,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   test("is_error after streaming deltas emits a short marker, not a duplicate"):
     val process = new FakePipedCliProcess()
-    val conv = new ClaudeConversation(process, LlmConfig.default)
+    val conv = new ClaudeConversation(process, AgentConfig.default)
 
     process.enqueueStdout(
       """{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"API Error: 400 quota exceeded"}}}"""
@@ -71,7 +71,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     "result message with is_error=true fails the session and surfaces the message"
   ):
     val process = new FakePipedCliProcess()
-    val conv = new ClaudeConversation(process, LlmConfig.default)
+    val conv = new ClaudeConversation(process, AgentConfig.default)
 
     process.enqueueStdout(
       """{"type":"result","subtype":"error","session_id":"sid-err","result":"API Error: 400 rate limited","is_error":true}"""
@@ -91,7 +91,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   test("cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"):
     val process = new FakePipedCliProcess()
-    val conv = new ClaudeConversation(process, LlmConfig.default)
+    val conv = new ClaudeConversation(process, AgentConfig.default)
 
     conv.cancel()
     conv.awaitResult() match
@@ -106,7 +106,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(
       process,
-      LlmConfig.default.copy(autoApprove = AutoApprove.All)
+      AgentConfig.default.copy(autoApprove = AutoApprove.All)
     )
 
     process.enqueueStdout(
@@ -132,7 +132,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(
       process,
-      LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set("Read")))
+      AgentConfig.default.copy(autoApprove = AutoApprove.Only(Set("Read")))
     )
 
     process.enqueueStdout(
@@ -164,7 +164,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   test("sendUserMessage writes a stream-json user turn to stdin"):
     val process = new FakePipedCliProcess()
-    val conv = new ClaudeConversation(process, LlmConfig.default)
+    val conv = new ClaudeConversation(process, AgentConfig.default)
 
     conv.sendUserMessage("keep going")
     val injected = process.writes.headOption
@@ -190,7 +190,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     // (if it ever flipped). Pin both: feed the streaming events, then
     // the full-turn message, and expect exactly one AssistantToolCall.
     val process = new FakePipedCliProcess()
-    val conv = new ClaudeConversation(process, LlmConfig.default)
+    val conv = new ClaudeConversation(process, AgentConfig.default)
 
     process.enqueueStdout(
       """{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"id-1","name":"Bash","input":{}}}}"""
@@ -227,7 +227,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     "assistant turn with text falls back to an AssistantTextDelta when no partials streamed"
   ):
     val process = new FakePipedCliProcess()
-    val conv = new ClaudeConversation(process, LlmConfig.default)
+    val conv = new ClaudeConversation(process, AgentConfig.default)
 
     process.enqueueStdout(
       """{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"no-partials"}]}}"""
@@ -249,7 +249,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   test("user turn with tool_result blocks emits ToolResult events"):
     val process = new FakePipedCliProcess()
-    val conv = new ClaudeConversation(process, LlmConfig.default)
+    val conv = new ClaudeConversation(process, AgentConfig.default)
 
     process.enqueueStdout(
       """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"id-1","content":"output","is_error":false}]}}"""
@@ -276,7 +276,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     "malformed NDJSON line surfaces as ConversationEvent.Error and the loop continues"
   ):
     val process = new FakePipedCliProcess()
-    val conv = new ClaudeConversation(process, LlmConfig.default)
+    val conv = new ClaudeConversation(process, AgentConfig.default)
 
     process.enqueueStdout("this is not json")
     process.enqueueStdout(
@@ -298,7 +298,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(
       process,
-      LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set("Read")))
+      AgentConfig.default.copy(autoApprove = AutoApprove.Only(Set("Read")))
     )
 
     process.enqueueStdout(
@@ -320,7 +320,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(
       process,
-      LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set.empty))
+      AgentConfig.default.copy(autoApprove = AutoApprove.Only(Set.empty))
     )
 
     process.enqueueStdout(
@@ -368,7 +368,7 @@ class ClaudeConversationTest extends munit.FunSuite:
       val askUser = AskUserSession.allocate()
       val conv = new ClaudeConversation(
         process,
-        LlmConfig.default,
+        AgentConfig.default,
         askUser = Some(askUser)
       )
       val bridge = askUser.bridge
@@ -398,7 +398,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
   test("canAskUser is false when no bridge is provided"):
     val process = new FakePipedCliProcess()
-    val conv = new ClaudeConversation(process, LlmConfig.default)
+    val conv = new ClaudeConversation(process, AgentConfig.default)
     assertEquals(conv.canAskUser, false)
     process.closeStdout()
     val _ = conv.events.toList
@@ -407,7 +407,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     "handleAssistantTurn suppresses the agent's ToolUse for ask_user"
   ):
     val process = new FakePipedCliProcess()
-    val conv = new ClaudeConversation(process, LlmConfig.default)
+    val conv = new ClaudeConversation(process, AgentConfig.default)
 
     // Assistant turn carrying a tool_use block for the MCP-prefixed
     // ask_user tool name. Our renderer-side suppression should drop the

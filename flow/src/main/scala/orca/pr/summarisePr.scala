@@ -1,7 +1,7 @@
 package orca.pr
 
 import orca.{FlowContext, InStage}
-import orca.llm.{Announce, JsonData, LlmTool}
+import orca.agents.{Announce, JsonData, Agent}
 
 /** What [[summarisePr]] produces: a one-line PR title and a multi-paragraph
   * body. `gh.createPr(title = …, body = …)` accepts the two fields directly, so
@@ -28,7 +28,7 @@ object PrSummary:
   * diff dominates the prompt and would dwarf the event log.
   */
 def summarisePr(
-    llm: LlmTool[?],
+    llm: Agent[?],
     diff: String,
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise

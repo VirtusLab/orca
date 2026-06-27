@@ -59,14 +59,14 @@ enum OrcaEvent:
 
 - **Catch-all default given returns `""`.** Every type has an
   `Announce[O]` resolvable — the empty string is the contract for
-  "no announcement to make". `DefaultLlmCall` normalises the
+  "no announcement to make". `DefaultAgentCall` normalises the
   empty-string sentinel to `None` so listeners can pattern-match
   on `summary` cleanly.
 - **Specific instances win via Scala 3's specificity rules.**
   `given Announce[Plan] = Announce.from(...)` in `Plan`'s companion
   is more specific than the catch-all and resolves preferentially.
-- **`LlmCall.resultAs[O]` adds the bound:**
-  `def resultAs[O: JsonData : Announce]`. `DefaultLlmCall` consumes
+- **`AgentCall.resultAs[O]` adds the bound:**
+  `def resultAs[O: JsonData : Announce]`. `DefaultAgentCall` consumes
   the instance via a `using` parameter and emits a single
   `StructuredResult(raw, summary)` event after parsing — on every
   invocation variant (`autonomous`, `startSession`, `continueSession`,
@@ -124,13 +124,13 @@ The typeclass won on three counts:
   anything extra.
 - **Renderer is dumber.** ~30 lines of suppression heuristic
   removed; the renderer now flushes whatever the agent emitted.
-- **Test stubs propagate the bound.** Every hand-rolled `LlmTool`
-  or `LlmCall` in tests grew `: Announce` on its `resultAs[O]`
+- **Test stubs propagate the bound.** Every hand-rolled `Agent`
+  or `AgentCall` in tests grew `: Announce` on its `resultAs[O]`
   override. Mechanical churn, but a real consequence of widening
   the structural surface.
 - **Module split.** The typeclass + default + `from` helper sit in
   `tools/`; the `value.announce` extension sits in `flow/`. A
-  callsite that only needs the bound (e.g. `DefaultLlmCall`)
+  callsite that only needs the bound (e.g. `DefaultAgentCall`)
   imports from `tools/` and doesn't pull in `FlowContext`.
 - **The empty-string contract is load-bearing.** `Announce.from(_ => "")`
   and an absent specific given are observationally identical. A

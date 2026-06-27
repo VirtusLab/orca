@@ -1,7 +1,7 @@
 package orca.backend
 
 import orca.backend.mcp.{AskUserBridge, AskUserSession}
-import orca.llm.BackendTag
+import orca.agents.BackendTag
 import orca.util.OrcaDebug
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 
@@ -19,8 +19,8 @@ import scala.util.control.NonFatal
   *   - A daemon diagnostic drain thread that calls [[handleStderr]] on each
   *     [[StreamSource.errorLines]] line.
   *   - A single-consumer event queue surfaced via [[events]].
-  *   - Lifecycle: `awaitResult` joins the reader, returns `Right(LlmResult)` /
-  *     `Left(OrcaInteractiveCancelled)` / throws for anything else; `cancel`
+  *   - Lifecycle: `awaitResult` joins the reader, returns `Right(AgentResult)`
+  *     / `Left(OrcaInteractiveCancelled)` / throws for anything else; `cancel`
   *     interrupts the source and lets the reader observe EOF.
   *
   * Backends supply only the protocol-specific bits: [[handleLine]] (parse +
@@ -158,7 +158,7 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
     ensureStarted("events")
     eventQueue.iterator
 
-  def awaitResult(): Either[OrcaInteractiveCancelled, LlmResult[B]] =
+  def awaitResult(): Either[OrcaInteractiveCancelled, AgentResult[B]] =
     ensureStarted("awaitResult")
     readerThread.join()
     outcomeRef.get() match
@@ -190,7 +190,7 @@ private[orca] abstract class StreamConversation[B <: BackendTag](
     * [[readLoop]] throw, which would otherwise CAS a failure outcome — harmless
     * only because the success is already in place.
     */
-  protected def succeedWith(result: LlmResult[B]): Unit =
+  protected def succeedWith(result: AgentResult[B]): Unit =
     val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
     source.interrupt()
 
@@ -339,14 +339,14 @@ private[orca] object StreamConversation:
     * assignable to any `Outcome[B]` while the pattern match still narrows
     * `Success`'s `B` correctly.
     *
-    * `Outcome` is invariant in `B` because `LlmResult[B]` is invariant (the
+    * `Outcome` is invariant in `B` because `AgentResult[B]` is invariant (the
     * phantom `B` in `SessionId[B]` etc. is meant to be exact); `Cancelled` and
     * `Failed` get a wide-bounded `Outcome[B]` via the `Outcome.cancelled` /
     * `Outcome.failed` smart constructors below.
     */
   sealed trait Outcome[B <: BackendTag]
   object Outcome:
-    final case class Success[B <: BackendTag](result: LlmResult[B])
+    final case class Success[B <: BackendTag](result: AgentResult[B])
         extends Outcome[B]
     final case class Cancelled[B <: BackendTag]() extends Outcome[B]
     final case class Failed[B <: BackendTag](error: Throwable)

@@ -2,13 +2,15 @@ package orca.backend
 
 import orca.OrcaInteractiveCancelled
 import orca.events.{OrcaEvent, OrcaListener, Usage}
-import orca.llm.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId}
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 private class ScriptedConversation(
     eventList: List[ConversationEvent],
-    outcome: Either[OrcaInteractiveCancelled, LlmResult[BackendTag.Codex.type]],
+    outcome: Either[OrcaInteractiveCancelled, AgentResult[
+      BackendTag.Codex.type
+    ]],
     val outputSchema: Option[String] = None
 ) extends Conversation[BackendTag.Codex.type]:
   val drained = new AtomicInteger(0)
@@ -17,7 +19,7 @@ private class ScriptedConversation(
     e
   }
   def awaitResult()
-      : Either[OrcaInteractiveCancelled, LlmResult[BackendTag.Codex.type]] =
+      : Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
     outcome
   def sendUserMessage(text: String): Unit = ()
   def canAskUser: Boolean = false
@@ -34,7 +36,7 @@ private class RecordingListener extends OrcaListener:
 
 class ConversationsTest extends munit.FunSuite:
 
-  private val sampleResult = LlmResult[BackendTag.Codex.type](
+  private val sampleResult = AgentResult[BackendTag.Codex.type](
     sessionId = SessionId[BackendTag.Codex.type]("sid"),
     output = "out",
     usage = Usage(0L, 0L, None)

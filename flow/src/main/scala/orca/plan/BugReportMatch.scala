@@ -1,6 +1,6 @@
 package orca.plan
 
-import orca.llm.{Announce, JsonData}
+import orca.agents.{Announce, JsonData}
 
 /** The agent's verdict on whether a CI failure (or other reproduction artefact)
   * actually matches the original bug report. Used after CI comes back red to

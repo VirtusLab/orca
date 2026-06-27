@@ -1,7 +1,7 @@
 package orca.plan
 
 import orca.plan.Title
-import orca.llm.JsonData
+import orca.agents.JsonData
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
@@ -70,7 +70,7 @@ class PlanTest extends munit.FunSuite:
       ),
       brief = ""
     )
-    val msg = summon[orca.llm.Announce[Plan]]
+    val msg = summon[orca.agents.Announce[Plan]]
       .message(plan)
       .getOrElse(fail("expected a non-empty announce message"))
     assert(msg.startsWith("Planned 2 tasks on branch 'feat-pair'"))
@@ -79,7 +79,7 @@ class PlanTest extends munit.FunSuite:
 
   test("Announce[Plan] returns None for an empty plan (no Step emitted)"):
     assertEquals(
-      summon[orca.llm.Announce[Plan]].message(Plan("empty", "", Nil, "")),
+      summon[orca.agents.Announce[Plan]].message(Plan("empty", "", Nil, "")),
       None
     )
 

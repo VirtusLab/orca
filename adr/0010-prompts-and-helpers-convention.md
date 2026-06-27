@@ -50,7 +50,7 @@ For every domain helper that bundles an LLM brief, follow this pattern:
    ```scala
    def lint(
        command: String,
-       llm: LlmTool[?],
+       llm: Agent[?],
        instructions: String = ReviewLoopPrompts.SummariseLint
    )(using FlowContext): ReviewResult
    ```

@@ -8,7 +8,7 @@ Related: [ADR 0006](0006-stream-json-conversation-driver.md) (Claude stream-json
 
 Orca already ships two LLM backends — Claude (bidirectional stream-json,
 ADR 0006) and Codex (one-shot `exec --json`, ADR 0007). Adding Google's
-`gemini` CLI as a third backend follows the established `LlmBackend[B]`
+`gemini` CLI as a third backend follows the established `AgentBackend[B]`
 SPI. The open question was which of gemini's headless output shapes to
 drive and how closely it maps to the existing infrastructure.
 
@@ -38,7 +38,7 @@ Key differences from the existing backends:
 1. **No single terminal payload.** Unlike Claude's terminal `result`
    message (which carries `output`/`structured_output`), gemini's
    `result` event carries only status + stats. Like Codex, the driver
-   **synthesises** `LlmResult.output` — but where Codex snapshots the
+   **synthesises** `AgentResult.output` — but where Codex snapshots the
    *last* `agent_message`, gemini streams assistant prose as `message`
    chunks, so the driver *accumulates* the content of every non-`user`
    message and reads the buffer at the `result` event.
@@ -52,7 +52,7 @@ Key differences from the existing backends:
    the only workable non-read-only mapping is `yolo`.
 4. **No `--output-schema` flag.** Gemini has no native structured-output
    gate. `resultAs[O]` enforcement is prompt-template + the post-hoc
-   `DefaultLlmCall` corrective-retry loop only; `outputSchema` is still
+   `DefaultAgentCall` corrective-retry loop only; `outputSchema` is still
    threaded to `GeminiConversation` so the autonomous drain suppresses
    the raw JSON payload from the user log.
 5. **Session resume** works via `gemini --resume <session-id> -p …`,
@@ -107,7 +107,7 @@ Concretely:
     only the id) be keyed by name.
   - `tool_result` → `ToolResult(name, ok = status == "success", output)`.
   - `error` → `ConversationEvent.Error`.
-  - `result` → emit `AssistantTurnEnd`, then finalise `LlmResult` with the
+  - `result` → emit `AssistantTurnEnd`, then finalise `AgentResult` with the
     accumulated answer + usage.
   - Unknown top-level types → dropped (forward-compat).
 - **System prompt fold.** Gemini has no `--append-system-prompt`, so the
@@ -117,7 +117,7 @@ Concretely:
   - `readOnly = true` → `--approval-mode plan`
   - `AutoApprove.All` → `--approval-mode yolo`
   - `AutoApprove.Only(_)` → `--approval-mode yolo` (widened — see below)
-- **Models.** `GeminiTool.flash` pins `gemini-2.5-flash`; bare `gemini`
+- **Models.** `GeminiAgent.flash` pins `gemini-2.5-flash`; bare `gemini`
   pins `gemini-2.5-pro` in the runtime wiring (mirroring claude's Opus
   default for the long-lived implementer). Model literals may rename in
   future CLI versions; override via `withConfig`.
@@ -183,6 +183,6 @@ Two sharp edges, accepted:
   restore, file removal when none existed.
 - `GeminiBackendTest` — session id / usage extraction, resume dispatch,
   systemPrompt fold, MCP registration on interactive (autonomous skips it).
-- `DefaultGeminiToolTest` — `flash`/pro model pins reach `--model`.
+- `DefaultGeminiAgentTest` — `flash`/pro model pins reach `--model`.
 - `GeminiIntegrationTest` (gated on `ORCA_INTEGRATION`) — real `gemini`:
   headless round-trip and a resumed turn that recalls prior context.

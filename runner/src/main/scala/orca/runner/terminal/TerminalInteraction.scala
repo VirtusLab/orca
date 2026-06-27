@@ -1,8 +1,8 @@
 package orca.runner.terminal
 
-import orca.backend.{Conversation, Interaction, LlmResult}
+import orca.backend.{Conversation, Interaction, AgentResult}
 import orca.events.OrcaListener
-import orca.llm.BackendTag
+import orca.agents.BackendTag
 import ox.Ox
 import ox.channels.BufferCapacity
 import ox.either.orThrow
@@ -52,7 +52,7 @@ class TerminalInteraction private[terminal] (
     * when the conversation finishes. Backend errors surface as
     * `OrcaInteractiveCancelled` or other throwables from `awaitResult`.
     */
-  def drive[B <: BackendTag](conversation: Conversation[B]): LlmResult[B] =
+  def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
     new ConversationRenderer(
       useColor = useColor,
       output = output,

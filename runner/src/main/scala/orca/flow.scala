@@ -9,12 +9,12 @@ import orca.events.{
   PriceList,
   Pricing
 }
-import orca.llm.{
-  ClaudeTool,
+import orca.agents.{
+  ClaudeAgent,
   DefaultPrompts,
-  LlmTool,
-  OpencodeTool,
-  PiTool,
+  Agent,
+  OpencodeAgent,
+  PiAgent,
   Prompts
 }
 import orca.progress.ProgressStore
@@ -79,17 +79,17 @@ import scala.util.control.NonFatal
   */
 def flow(
     args: OrcaArgs,
-    agent: FlowContext => LlmTool[?],
+    agent: FlowContext => Agent[?],
     workDir: os.Path = os.pwd,
     interaction: Option[Interaction] = None,
     extraListeners: List[OrcaListener] = Nil,
     branchNaming: Option[BranchNamingStrategy] = None,
     returnToStartBranch: Boolean = false,
     progressStore: Option[ProgressStore] = None,
-    claude: Option[ClaudeTool] = None,
-    opencode: Option[OpencodeTool] = None,
+    claude: Option[ClaudeAgent] = None,
+    opencode: Option[OpencodeAgent] = None,
     opencodeLauncher: OpencodeLauncher = OpencodeLauncher.default,
-    pi: Option[PiTool] = None,
+    pi: Option[PiAgent] = None,
     git: Option[GitTool] = None,
     gh: Option[GitHubTool] = None,
     fs: Option[FsTool] = None,
@@ -165,17 +165,17 @@ def flow(
   */
 private[orca] def runFlow(
     args: OrcaArgs,
-    agent: FlowContext => LlmTool[?],
+    agent: FlowContext => Agent[?],
     workDir: os.Path,
     interaction: Option[Interaction],
     extraListeners: List[OrcaListener],
     branchNaming: Option[BranchNamingStrategy],
     returnToStartBranch: Boolean,
     progressStore: Option[ProgressStore],
-    claude: Option[ClaudeTool],
-    opencode: Option[OpencodeTool],
+    claude: Option[ClaudeAgent],
+    opencode: Option[OpencodeAgent],
     opencodeLauncher: OpencodeLauncher,
-    pi: Option[PiTool],
+    pi: Option[PiAgent],
     git: Option[GitTool],
     gh: Option[GitHubTool],
     fs: Option[FsTool],
@@ -258,7 +258,7 @@ private[orca] def runFlow(
       try
         // Supply the lead as a stable `Lead` carrier so the body's `agent`
         // accessor hands back a concretely-typed tool (sessions thread), even
-        // though `ctx.llm` itself is erased to `LlmTool[?]`.
+        // though `ctx.llm` itself is erased to `Agent[?]`.
         body(using Lead(ctx.llm))(using ctx)
         bodySucceeded = true
       catch

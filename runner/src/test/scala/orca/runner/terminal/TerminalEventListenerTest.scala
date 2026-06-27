@@ -1,7 +1,7 @@
 package orca.runner.terminal
 
 import orca.events.{OrcaEvent, Usage}
-import orca.llm.Model
+import orca.agents.Model
 import java.io.{ByteArrayOutputStream, PrintStream}
 
 /** These tests exercise the listener's synchronous state-mutation behaviour by

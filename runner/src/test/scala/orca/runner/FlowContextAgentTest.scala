@@ -1,10 +1,10 @@
 package orca.runner
 
 import orca.{FlowContext, OrcaArgs, runFlow}
-import orca.llm.LlmTool
+import orca.agents.Agent
 import orca.runner.terminal.TerminalInteraction
 import orca.tools.opencode.OpencodeLauncher
-import orca.llm.DefaultPrompts
+import orca.agents.DefaultPrompts
 import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
@@ -12,11 +12,11 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 /** Verifies that the `agent` selector passed to `runFlow` is resolved against
   * the flow context and surfaced as `summon[FlowContext].llm`.
   */
-class FlowContextLlmTest extends munit.FunSuite:
+class FlowContextAgentTest extends munit.FunSuite:
 
   test("FlowContext.llm resolves the agent selector passed to runFlow"):
     val workDir = TempRepo.create()
-    var seen: Option[LlmTool[?]] = None
+    var seen: Option[Agent[?]] = None
     supervised:
       val interaction = TerminalInteraction.start(
         out = new PrintStream(new ByteArrayOutputStream()),
@@ -25,7 +25,7 @@ class FlowContextLlmTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs("test-llm"),
-        agent = _ => StubLlm.claude,
+        agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = Nil,
@@ -43,8 +43,8 @@ class FlowContextLlmTest extends munit.FunSuite:
       ):
         seen = Some(summon[FlowContext].llm)
     assert(
-      seen.exists(_ eq StubLlm.claude),
-      s"expected FlowContext.llm to be StubLlm.claude but got: $seen"
+      seen.exists(_ eq StubAgent.claude),
+      s"expected FlowContext.llm to be StubAgent.claude but got: $seen"
     )
 
-end FlowContextLlmTest
+end FlowContextAgentTest

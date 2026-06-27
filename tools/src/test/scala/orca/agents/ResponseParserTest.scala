@@ -1,4 +1,4 @@
-package orca.llm
+package orca.agents
 
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 

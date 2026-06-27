@@ -5,7 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   writeToString
 }
 import orca.events.OrcaEvent
-import orca.llm.JsonData
+import orca.agents.JsonData
 import orca.progress.StageEntry
 import org.slf4j.LoggerFactory
 
@@ -92,7 +92,7 @@ private def runStage[T: JsonData](
       // exception so an enclosing stage / the flow boundary doesn't
       // re-report it as it unwinds.
       e match
-        case mao: orca.llm.MalformedAgentOutputException =>
+        case mao: orca.agents.MalformedAgentOutputException =>
           fc.emit(OrcaEvent.Error(formatMalformedOutput(name, mao)))
           e.alreadyEmitted = true
         case _ if e.alreadyEmitted => ()
@@ -183,7 +183,7 @@ private[orca] def throwableMessage(
 
 private def formatMalformedOutput(
     stage: String,
-    e: orca.llm.MalformedAgentOutputException
+    e: orca.agents.MalformedAgentOutputException
 ): String =
   val snippet =
     val collapsed = e.rawOutput.replaceAll("\\s+", " ").trim

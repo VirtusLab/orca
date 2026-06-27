@@ -1,7 +1,7 @@
-package orca.llm
+package orca.agents
 
 /** A human-readable summary for a domain value. The library calls
-  * `message(parsed)` after `LlmCall.resultAs[O]` succeeds and emits a `Step`
+  * `message(parsed)` after `AgentCall.resultAs[O]` succeeds and emits a `Step`
   * event with the result; `None` means "nothing to say" and is dropped
   * silently. Provide a specific given in the type's companion to opt into a
   * friendlier rendering.

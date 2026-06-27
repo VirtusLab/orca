@@ -48,14 +48,14 @@ All traits, types, and signatures — compilable, no implementations yet. This i
 
 | # | Task | Description | Status |
 |---|---|---|---|
-| 2.1 | Base types | `Backend` enum, `SessionId` opaque type, `LlmConfig`, `AutoApprove`, `UnapprovedPolicy`, `Usage`. Verify `derives` works for enums. | ✅ |
+| 2.1 | Base types | `Backend` enum, `SessionId` opaque type, `AgentConfig`, `AutoApprove`, `UnapprovedPolicy`, `Usage`. Verify `derives` works for enums. | ✅ |
 | 2.2 | Tool traits | `GitTool`, `GitHubTool`, `FsTool` traits. Supporting types: `PrHandle`, `BuildStatus`, `Comment`, `CommitInfo`. | ✅ |
-| 2.3 | LLM traits | `LlmTool[B]`, `ClaudeTool`, `CodexTool`, `LlmCall[B, O]`. Verify the type parameter + opaque type + method chaining compiles. | ✅ |
+| 2.3 | LLM traits | `Agent[B]`, `ClaudeAgent`, `CodexAgent`, `AgentCall[B, O]`. Verify the type parameter + opaque type + method chaining compiles. | ✅ |
 | 2.4 | AgentInput typeclass | `AgentInput` trait, `given` instances for `String` and `ConfiguredJsonValueCodec`. Unit test: serialization of String and a case class. | ✅ |
 | 2.5 | Structured types | `ReviewIssue`, `Severity`, `ReviewResult`, `IgnoredIssue`, `IgnoredIssues`, `ReviewContext`, `SelectedReviewers`. Verify `derives Schema, ConfiguredJsonValueCodec` compiles. Unit test: serialize/deserialize round-trip. | ✅ |
 | 2.6 | Event types | `OrcaEvent` enum, `OrcaListener` trait, `Interaction` trait. | ✅ |
 | 2.7 | FlowContext & helpers | `FlowContext` trait, `OrcaFlowException`. Signatures for `stage`, `fail`, `fixLoop`, `reviewAndFix`, `lint`. `PromptTemplate` trait. | ✅ |
-| 2.8 | Backend abstraction | `LlmBackend[B]` trait, `LlmResult[B]`, `InteractiveHandle[B]`. | ✅ |
+| 2.8 | Backend abstraction | `AgentBackend[B]` trait, `AgentResult[B]`, `InteractiveHandle[B]`. | ✅ |
 
 **Exit criteria**: `sbt compile` green across all modules. All types and traits exist with correct signatures. Unit tests for AgentInput and structured type round-trips pass.
 
@@ -84,12 +84,12 @@ First real backend. Subprocess-based, testable with a `CliRunner` abstraction.
 | # | Task | Description | Status |
 |---|---|---|---|
 | 4.1 | CliRunner abstraction | Trait with `run(args, stdin, env, cwd)` returning `(exitCode, stdout, stderr)`. Real implementation via `os.proc`. Test stub returning canned responses. | ✅ |
-| 4.2 | Headless invocation | Implement `runHeadless`: construct `claude -p` command with flags (`--output-format json`, `--append-system-prompt-file`, `--allowedTools`, `--permission-mode`). Parse JSON response into `LlmResult`. Unit test with stubbed CliRunner. | ✅ |
+| 4.2 | Headless invocation | Implement `runHeadless`: construct `claude -p` command with flags (`--output-format json`, `--append-system-prompt-file`, `--allowedTools`, `--permission-mode`). Parse JSON response into `AgentResult`. Unit test with stubbed CliRunner. | ✅ |
 | 4.3 | Session management | Implement `continueHeadless` with `--resume <id>`. Parse `session_id` from response. Unit test: verify `--resume` flag is passed, session ID extracted. | ✅ |
 | 4.4 | NDJSON streaming | Parse `stream-json` output line by line. Emit `OrcaEvent.LlmOutput` for each text event. Unit test with canned NDJSON. | ✅ |
 | 4.5 | Stop hook generation | `prepareWorkspace`: write `.claude/settings.json` with the Stop hook that detects `<<<ORCA_DONE>>>` and writes the sentinel file. Unit test: verify generated JSON is valid, hook script is correct. | ✅ |
 | 4.6 | Interactive mode | `launchInteractive`: spawn `claude` (no `-p`) with `--session-id` and `--append-system-prompt-file`. Terminal handoff via `os.Inherit`. `awaitTermination`: watch for sentinel file, then SIGINT. Unit test with stubbed CliRunner. | ✅ |
-| 4.7 | Config mapping | Map `LlmConfig` fields to Claude CLI flags: `autoApprove` → `--permission-mode`, model → `--model`, etc. Unit test: config → args mapping. | ✅ |
+| 4.7 | Config mapping | Map `AgentConfig` fields to Claude CLI flags: `autoApprove` → `--permission-mode`, model → `--model`, etc. Unit test: config → args mapping. | ✅ |
 | 4.8 | Integration tests | Real `claude -p` calls (gated). Test: headless prompt returns valid JSON, session resume works, streaming emits events. | ✅ |
 
 **Exit criteria**: Claude Code backend passes unit tests with stubbed CLI. Integration tests pass against real `claude` (when available).
@@ -164,7 +164,7 @@ Higher-level flow combinators, built on all previous epics.
 
 Second backend. Mirrors the Claude architecture established in Epics 4
 and 11 — `PipedCliProcess` subprocess, daemon reader thread producing
-`ConversationEvent`s, `DefaultLlmCall` driving retries unchanged. The
+`ConversationEvent`s, `DefaultAgentCall` driving retries unchanged. The
 plan's original WebSocket/app-server path may no longer be necessary:
 if `codex exec --json` streams per-turn events and tool calls, we get
 interactive support over the same stdio shape Claude uses, for free.
@@ -174,8 +174,8 @@ Task 9.1 decides.
 |---|---|---|---|
 | 9.1 | Capability probe | Drive `codex exec --json --full-auto` with a tool-using, multi-turn prompt and inspect the JSONL stream. Does it emit partial text deltas, tool calls, and a mid-turn tool-approval channel — or only a batched final result? Answer determines whether 9.2 follows the Claude stdio pattern or falls back to app-server + WebSocket. Document findings in a short ADR. See [ADR 0007](adr/0007-codex-exec-jsonl-driver.md). | ✅ |
 | 9.2 | Conversation driver | `CodexConversation` built on the same skeleton as `ClaudeConversation`: `PipedCliProcess`, daemon reader thread, `LinkedBlockingQueue[Option[ConversationEvent]]`, stderr drain thread, `outcomeRef` + `cancelled` gates, SIGINT on `cancel()`, `finalizeLoop` resolving the terminal outcome. Translate Codex's JSONL events (`thread.started`, `item.completed`, `turn.completed`, tool events) into `ConversationEvent.*`. Unit tests via `FakePipedCliProcess`. Only add a WebSocket + app-server path if 9.1 rules stdio out. | ✅ |
-| 9.3 | Headless + interactive surface | `CodexBackend.runHeadless` / `continueHeadless` parse the final result out of the same JSONL stream (or use `--resume` for continuation). `runInteractive` / `continueInteractive` return `Conversation[Backend.Codex.type]` and accept both `prompt` (wire) and `displayPrompt` (renderer-facing), enqueuing a `ConversationEvent.UserMessage(displayPrompt)` at startup — contract established for Claude and already wired into `LlmBackend`. Tool approvals route through `ConversationEvent.ApproveTool(name, input, respond)` when the CLI exposes mid-turn approvals; otherwise `LlmConfig.autoApprove` is pre-baked into the spawn args. | ✅ |
-| 9.4 | Config mapping | `LlmConfig.autoApprove` / `model` / `systemPrompt` → Codex CLI flags. Reuse `LlmConfig.defaultRetrySchedule` and `DefaultLlmCall`'s retry-with-corrective-prompt loop — no backend-specific retry logic. | ✅ |
+| 9.3 | Headless + interactive surface | `CodexBackend.runHeadless` / `continueHeadless` parse the final result out of the same JSONL stream (or use `--resume` for continuation). `runInteractive` / `continueInteractive` return `Conversation[Backend.Codex.type]` and accept both `prompt` (wire) and `displayPrompt` (renderer-facing), enqueuing a `ConversationEvent.UserMessage(displayPrompt)` at startup — contract established for Claude and already wired into `AgentBackend`. Tool approvals route through `ConversationEvent.ApproveTool(name, input, respond)` when the CLI exposes mid-turn approvals; otherwise `AgentConfig.autoApprove` is pre-baked into the spawn args. | ✅ |
+| 9.4 | Config mapping | `AgentConfig.autoApprove` / `model` / `systemPrompt` → Codex CLI flags. Reuse `AgentConfig.defaultRetrySchedule` and `DefaultAgentCall`'s retry-with-corrective-prompt loop — no backend-specific retry logic. | ✅ |
 | 9.5 | Prompt template | Verify `DefaultPromptTemplate` applies as-is. It now tells the agent to "deliver the final answer as a JSON-only message" and relies on `ResponseParser.parse` (fence-stripping + right-to-left balanced-`{...}` extraction + `MalformedAgentOutputException`). If Codex enforces a different structured-output convention, write a Codex-specific `PromptTemplate` rather than bending the shared one. | ✅ |
 | 9.6 | Integration tests | Real `codex` calls gated on `ORCA_INTEGRATION`. Headless round-trip, `continueHeadless` resume, streaming deltas + `AssistantTurnEnd`, tool-approval denial (if supported). Mirror `ClaudeIntegrationTest`. | ✅ |
 
@@ -200,10 +200,10 @@ Task 9.1 decides.
 - **Cancellation is SIGINT.** The reader thread sees EOF, `finalizeLoop`
   compare-and-sets `outcomeRef` to `Outcome.Cancelled`, the event queue
   closes. Don't force-close the queue from another thread.
-- **`LlmConfig` val order.** `default` reads `defaultRetrySchedule`; Scala
+- **`AgentConfig` val order.** `default` reads `defaultRetrySchedule`; Scala
   evaluates object vals in source order, so the schedule must appear
   first or the case-class default latches on null and downstream `retry`
-  calls NPE. Already fixed in the shared `LlmConfig` but worth knowing
+  calls NPE. Already fixed in the shared `AgentConfig` but worth knowing
   when touching that file.
 
 **UX parity checklist** (so swapping `claude` for `codex` in a flow
@@ -225,7 +225,7 @@ requires zero script changes):
 
 **Exit criteria**: Codex backend passes unit tests with stubbed CLI.
 Integration tests pass against a real `codex`. Swapping `claude` for
-`codex` in `DefaultLlmCall.autonomous` / `continueSession` / `interactive`
+`codex` in `DefaultAgentCall.autonomous` / `continueSession` / `interactive`
 paths requires no flow-script changes.
 
 ---
@@ -285,7 +285,7 @@ Follow-up to Epics 3 & 4. Replaces the `<<<ORCA_DONE>>>` marker + stop-hook + se
 | 11.2 | Bidirectional CliProcess | `PipedCliProcess` with `writeLine`, `stdoutLines` / `stderrLines` iterators, `tryExitCode`, `closeStdin`. `FakePipedCliProcess` for tests. | ✅ |
 | 11.3 | Conversation contract | `Conversation[B]` (events + awaitResult + sendUserMessage + cancel), `ConversationEvent` enum, `ApprovalDecision`, `OrcaInteractiveCancelled`. `Interaction.drive(conversation)` replaces `runInteractive(handle)`. | ✅ |
 | 11.4 | ClaudeConversation driver | Reader thread, event queue, autoapprove gating, per-message translation, cancel via SIGINT. | ✅ |
-| 11.5 | Backend rewrite | `ClaudeBackend.runInteractive` / `continueInteractive` return `Conversation[B]`. `ClaudeArgs.streamJson` replaces the old `interactive`. `DefaultLlmCall.interactive` delegates to `interaction.drive`. | ✅ |
+| 11.5 | Backend rewrite | `ClaudeBackend.runInteractive` / `continueInteractive` return `Conversation[B]`. `ClaudeArgs.streamJson` replaces the old `interactive`. `DefaultAgentCall.interactive` delegates to `interaction.drive`. | ✅ |
 | 11.6 | Prompt template | Drop `<<<ORCA_DONE>>>` from `DefaultPromptTemplate.interactive`; thread `--json-schema` via `outputSchema: Option[String]`. | ✅ |
 | 11.7 | Stop-hook cleanup | Delete `ClaudeStopHook`, `ClaudeInteractiveHandle`, `DoneMarkerExtractor`, `InteractiveHandle` trait, the inherited-stdio `spawn` path, `prepareWorkspace` on the backend trait. | ✅ |
 | 11.8 | TerminalConversationRenderer | Per-event rendering (streaming text, tool calls, tool results, errors), spinner coordination, approval prompts via a `Prompter` seam. | ✅ |
@@ -302,14 +302,14 @@ Items deferred during the Epic 11 reviews. Independent, order-agnostic, each ~ha
 
 | # | Item | Description | Status |
 |---|---|---|---|
-| 12.1 | `ConversationEvent.Usage` | Emit an event as `result.usage` arrives (and, if upstream ever adds it, mid-session usage deltas) so Slack/HTTP channels can show live cost/token readouts. `DefaultLlmCall` keeps translating to `OrcaEvent.TokensUsed` for `CostTracker`. | |
+| 12.1 | `ConversationEvent.Usage` | Emit an event as `result.usage` arrives (and, if upstream ever adds it, mid-session usage deltas) so Slack/HTTP channels can show live cost/token readouts. `DefaultAgentCall` keeps translating to `OrcaEvent.TokensUsed` for `CostTracker`. | |
 | 12.2 | Ctrl-C-during-streaming → graceful cancel | Today Ctrl-C kills the JVM when no readline prompt is active; only approval prompts cancel gracefully (via `UserInterruptException`). Install a `Signal("INT")` handler around `TerminalConversationRenderer.render` that calls `conversation.cancel()` instead of exiting, then removes itself on return. | |
 | 12.3 | Real-subprocess cancel integration test | `ClaudeConversation.cancel()` is unit-tested against `FakePipedCliProcess` only. Add a gated integration case that spawns real `claude` with a long-running prompt, calls `cancel`, asserts `awaitResult` throws `OrcaInteractiveCancelled` within a timeout, and the subprocess exits. | |
-| 12.4 | Interactive-path schema-threading test | `DefaultLlmCall.interactive` generates `JsonSchemaGen[O]` and forwards it as `Some(schema)` to `backend.runInteractive`. No unit test pins this; add one that captures `outputSchema` on a stub `LlmBackend.runInteractive` and asserts the schema is present + shaped for the case-class `O`. | |
+| 12.4 | Interactive-path schema-threading test | `DefaultAgentCall.interactive` generates `JsonSchemaGen[O]` and forwards it as `Some(schema)` to `backend.runInteractive`. No unit test pins this; add one that captures `outputSchema` on a stub `AgentBackend.runInteractive` and asserts the schema is present + shaped for the case-class `O`. | |
 | 12.5 | `writeOutbound` I/O failures fail the session | `ClaudeConversation.handleControlRequest`'s stdin writes can throw `IOException` if the child died; today that surfaces as a `ConversationEvent.Error` and the reader keeps polling. Let the exception propagate so the reader's `NonFatal` catch records `Outcome.Failed` and `awaitResult` rethrows. | |
 | 12.6 | `ClaudeConversation` safe-publication factory | The reader thread starts in the constructor — safe in practice given final-field + `Thread.start` happens-before, not structurally enforced. Split into a private constructor + `object ClaudeConversation.open(process, config)` that constructs then starts the thread. | |
 | 12.7 | Reader-thread join timeout on `awaitResult` | If the child ignores SIGINT (hung GC, attached debugger), the reader leaks forever. `readerThread.join(timeout)` with a sensible default (30s?) + a `Failed(OrcaFlowException("reader did not terminate"))` path. | |
-| 12.8 | ACP client adapter | N-backend portability play. Once Codex work (Epic 9) lands, wrap `LlmBackend` dispatch behind an Agent Client Protocol JSON-RPC client: one Scala client covers Claude/Codex/Gemini/Copilot CLIs (native or via sidecar adapters). See the tradeoffs discussion in ADR 0006's "Alternatives" section. Bigger task — budget 3–5 days. | |
+| 12.8 | ACP client adapter | N-backend portability play. Once Codex work (Epic 9) lands, wrap `AgentBackend` dispatch behind an Agent Client Protocol JSON-RPC client: one Scala client covers Claude/Codex/Gemini/Copilot CLIs (native or via sidecar adapters). See the tradeoffs discussion in ADR 0006's "Alternatives" section. Bigger task — budget 3–5 days. | |
 | 12.9 | `ConversationEvent.Error` at WARN, not ERROR | Unknown `InboundMessage` types currently surface as `Error` events; semantically they're "protocol drift, not actionable". Add a `Warning` variant (or a severity field) so the channel can render them at a lower level. | |
 
 **Exit criteria**: none as a gate — each item stands alone. 12.2 and 12.8 are the highest-user-facing impact; 12.5 and 12.7 are the highest-reliability impact.

@@ -1,4 +1,4 @@
-package orca.llm
+package orca.agents
 
 import orca.InStage
 
@@ -24,7 +24,7 @@ import scala.util.control.NonFatal
   * Parameterized by the concrete `BackendTag` so session ids and results carry
   * the backend identity at the type level.
   */
-trait LlmTool[B <: BackendTag]:
+trait Agent[B <: BackendTag]:
   def name: String
 
   /** Free-form text autonomous calls. Use this when the agent's reply is prose
@@ -42,50 +42,50 @@ trait LlmTool[B <: BackendTag]:
     * `None` (no auto-announce), so callers don't need to do anything unless
     * they want a friendly summary on the channel. See [[Announce]].
     */
-  def resultAs[O: JsonData: Announce]: LlmCall[B, O]
+  def resultAs[O: JsonData: Announce]: AgentCall[B, O]
 
-  def withConfig(config: LlmConfig): LlmTool[B]
-  def withSystemPrompt(prompt: String): LlmTool[B]
-  def withName(name: String): LlmTool[B]
+  def withConfig(config: AgentConfig): Agent[B]
+  def withSystemPrompt(prompt: String): Agent[B]
+  def withName(name: String): Agent[B]
 
-  /** Return a sibling tool whose config pins [[LlmConfig.tools]] to `tools` —
+  /** Return a sibling tool whose config pins [[AgentConfig.tools]] to `tools` —
     * the capability tier (see [[ToolSet]]). The primitive behind
     * [[withReadOnly]] and [[withNetworkOnly]]; preserves the rest of the tool's
     * config (model, system prompt, autoApprove).
     */
-  def withTools(tools: ToolSet): LlmTool[B]
+  def withTools(tools: ToolSet): Agent[B]
 
   /** Sibling tool restricted to read-only tools ([[ToolSet.ReadOnly]]): no
     * edits, no shell. Used by planning and review helpers so e.g.
     * `claude.opus.withReadOnly` keeps the opus pin while gating writes.
     */
-  def withReadOnly: LlmTool[B] = withTools(ToolSet.ReadOnly)
+  def withReadOnly: Agent[B] = withTools(ToolSet.ReadOnly)
 
   /** Sibling tool restricted to reads plus network ([[ToolSet.NetworkOnly]]) —
     * for planner turns that must read an issue/PR. See [[ToolSet]] for the
     * per-backend no-edit guarantee (hard on most; prompt-only on pi / codex).
     */
-  def withNetworkOnly: LlmTool[B] = withTools(ToolSet.NetworkOnly)
+  def withNetworkOnly: Agent[B] = withTools(ToolSet.NetworkOnly)
 
   /** A cheaper/faster variant of this model for incidental work (commit-message
     * summaries, reviewer selection, prompt shortening). Returns the model
     * pinned via [[withCheapModel]] if one was set, otherwise the backend's
     * built-in cheap tier ([[defaultCheap]]).
     */
-  def cheap: LlmTool[B] = defaultCheap
+  def cheap: Agent[B] = defaultCheap
 
   /** The backend's built-in cheap variant (claude→haiku, codex→mini, …), before
     * any [[withCheapModel]] override; `this` when a backend has no cheaper
     * tier. Backends override this — flow code calls [[cheap]].
     */
-  protected def defaultCheap: LlmTool[B] = this
+  protected def defaultCheap: Agent[B] = this
 
   /** Pin the cheap-model variant [[cheap]] (and [[cheapOneShot]]) use,
     * overriding the backend default. Lets a flow specify both a leading and a
     * cheap model, e.g.
     * `_.opencode.anthropicSonnet.withCheapModel(Model("anthropic/claude-haiku-4-5"))`.
     */
-  def withCheapModel(model: Model): LlmTool[B] = this
+  def withCheapModel(model: Model): Agent[B] = this
 
   /** Best-effort one-line reply from the cheap model. Runs `prompt` on
     * `cheap.withReadOnly` (no prompt echo), and returns the first non-blank
@@ -110,16 +110,16 @@ trait LlmTool[B <: BackendTag]:
     catch case NonFatal(_) => fallback
 
   /** Return a sibling tool that manages git itself — flips
-    * [[LlmConfig.selfManagedGit]] on, suppressing the standing "runtime owns
+    * [[AgentConfig.selfManagedGit]] on, suppressing the standing "runtime owns
     * git" rule the runtime otherwise injects (don't `git commit`/`push`/branch;
     * leave edits in the working tree). Use only for a flow that genuinely wants
     * the agent to drive git; the default keeps git runtime-owned.
     *
     * Unlike [[withReadOnly]] this carries a no-op default (returns `this`), so
-    * a custom `LlmTool` that forgets to wire it simply keeps the safe
+    * a custom `Agent` that forgets to wire it simply keeps the safe
     * runtime-owns-git behaviour rather than silently granting the escape hatch.
     */
-  def withSelfManagedGit: LlmTool[B] = this
+  def withSelfManagedGit: Agent[B] = this
 
   /** Best-effort, non-destructive: is a live, resumable backend conversation
     * present for `session`? Delegates to the backend probe. Returns `false` by
@@ -158,66 +158,66 @@ trait LlmTool[B <: BackendTag]:
     */
   def newSession: SessionId[B] = SessionId.fresh[B]
 
-trait ClaudeTool extends LlmTool[BackendTag.ClaudeCode.type]:
-  /** Pin the Claude model for subsequent calls, overriding `LlmConfig.model`.
+trait ClaudeAgent extends Agent[BackendTag.ClaudeCode.type]:
+  /** Pin the Claude model for subsequent calls, overriding `AgentConfig.model`.
     * Typical usage: `claude.haiku.autonomous.run("summarize this")._2` for a
     * cheap fast one-shot call (discard the returned session id).
     */
-  def haiku: ClaudeTool
-  def sonnet: ClaudeTool
-  def opus: ClaudeTool
-  def fable: ClaudeTool
+  def haiku: ClaudeAgent
+  def sonnet: ClaudeAgent
+  def opus: ClaudeAgent
+  def fable: ClaudeAgent
 
-  override protected def defaultCheap: ClaudeTool = haiku
+  override protected def defaultCheap: ClaudeAgent = haiku
 
   /** Set the read-only network allowlist used on [[ToolSet.NetworkOnly]] turns
     * (claude `--allowedTools` syntax, e.g. `Bash(gh api:*)`, `WebFetch`).
-    * Claude-specific, so it's here rather than on `LlmConfig`; defaults to
+    * Claude-specific, so it's here rather than on `AgentConfig`; defaults to
     * `ClaudeBackend.DefaultNetworkTools`. Pass it before handing the tool to a
     * planning helper: `claude.opus.withNetworkTools(Seq("WebFetch"))`.
     */
-  def withNetworkTools(tools: Seq[String]): ClaudeTool
+  def withNetworkTools(tools: Seq[String]): ClaudeAgent
 
-trait CodexTool extends LlmTool[BackendTag.Codex.type]:
-  def mini: CodexTool
+trait CodexAgent extends Agent[BackendTag.Codex.type]:
+  def mini: CodexAgent
 
-  override protected def defaultCheap: CodexTool = mini
+  override protected def defaultCheap: CodexAgent = mini
 
 /** OpenCode spans providers, so its model accessors are provider-prefixed (the
   * prefix keeps the vendor explicit at the call site). [[withModel]] takes any
   * `provider/model` id — including self-hosted ones, e.g. `ollama/llama3.1`.
   */
-trait OpencodeTool extends LlmTool[BackendTag.Opencode.type]:
-  def anthropicOpus: OpencodeTool
-  def anthropicSonnet: OpencodeTool
-  def anthropicHaiku: OpencodeTool
-  def openaiGpt5: OpencodeTool
-  def openaiGpt5Codex: OpencodeTool
-  def openaiGpt5Mini: OpencodeTool
+trait OpencodeAgent extends Agent[BackendTag.Opencode.type]:
+  def anthropicOpus: OpencodeAgent
+  def anthropicSonnet: OpencodeAgent
+  def anthropicHaiku: OpencodeAgent
+  def openaiGpt5: OpencodeAgent
+  def openaiGpt5Codex: OpencodeAgent
+  def openaiGpt5Mini: OpencodeAgent
 
-  /** Base cheap variant is anthropic haiku; [[DefaultOpencodeTool]] overrides
+  /** Base cheap variant is anthropic haiku; [[DefaultOpencodeAgent]] overrides
     * this to match the leading provider, so incidental work on an openai-led
     * tool doesn't pull in a second provider's auth.
     */
-  override protected def defaultCheap: OpencodeTool = anthropicHaiku
+  override protected def defaultCheap: OpencodeAgent = anthropicHaiku
 
   /** Pin any `provider/model` id (e.g. `ollama/llama3.1`, `myhost/qwen-coder`).
     */
-  def withModel(providerModel: String): OpencodeTool
+  def withModel(providerModel: String): OpencodeAgent
 
   /** Two-arg form of [[withModel]], e.g. `withModel("ollama", "llama3.1")`. The
     * default joins with `/`; the concrete tool validates the parts.
     */
-  def withModel(provider: String, modelId: String): OpencodeTool =
+  def withModel(provider: String, modelId: String): OpencodeAgent =
     withModel(s"$provider/$modelId")
 
-trait PiTool extends LlmTool[BackendTag.Pi.type]
+trait PiAgent extends Agent[BackendTag.Pi.type]
 
-trait GeminiTool extends LlmTool[BackendTag.Gemini.type]:
+trait GeminiAgent extends Agent[BackendTag.Gemini.type]:
   /** Pin the cheap-and-fast Gemini Flash model for subsequent calls, overriding
-    * `LlmConfig.model`. Bare `gemini` runs on Gemini Pro (pinned in the runtime
-    * wiring); `gemini.flash` opts down for cheap one-shots.
+    * `AgentConfig.model`. Bare `gemini` runs on Gemini Pro (pinned in the
+    * runtime wiring); `gemini.flash` opts down for cheap one-shots.
     */
-  def flash: GeminiTool
+  def flash: GeminiAgent
 
-  override protected def defaultCheap: GeminiTool = flash
+  override protected def defaultCheap: GeminiAgent = flash

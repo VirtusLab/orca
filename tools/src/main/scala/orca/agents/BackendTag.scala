@@ -1,10 +1,10 @@
-package orca.llm
+package orca.agents
 
 /** Type tag for a concrete LLM backend. Carried as the `B` parameter on
-  * [[SessionId]], [[orca.backend.LlmResult]], [[orca.backend.Conversation]],
-  * [[LlmTool]], and [[orca.backend.LlmBackend]] so a session id from one
+  * [[SessionId]], [[orca.backend.AgentResult]], [[orca.backend.Conversation]],
+  * [[Agent]], and [[orca.backend.AgentBackend]] so a session id from one
   * backend can't accidentally flow into another. Distinct from
-  * [[orca.backend.LlmBackend]], which is the runtime SPI; this enum is the
+  * [[orca.backend.AgentBackend]], which is the runtime SPI; this enum is the
   * compile-time discriminator.
   */
 enum BackendTag:

@@ -3,7 +3,7 @@ package orca.tools
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.{InStage, OrcaFlowException}
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.llm.JsonData
+import orca.agents.JsonData
 import orca.subprocess.{CliResult, CliRunner}
 import ox.sleep
 import ox.resilience.{ResultPolicy, RetryConfig, retry}

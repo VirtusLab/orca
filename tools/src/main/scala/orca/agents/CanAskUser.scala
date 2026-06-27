@@ -1,4 +1,4 @@
-package orca.llm
+package orca.agents
 
 /** Compile-time capability typeclass: an instance exists iff the backend tagged
   * `B` exposes a host-side `ask_user` tool — i.e. interactive sessions on that
@@ -8,7 +8,7 @@ package orca.llm
   * Used as a constraint on flow helpers that depend on the capability:
   *
   * {{{
-  *   def from[B <: BackendTag: CanAskUser](llm: LlmTool[B], ...): T
+  *   def from[B <: BackendTag: CanAskUser](llm: Agent[B], ...): T
   * }}}
   *
   * Calling with a backend that lacks an instance is a compile error.

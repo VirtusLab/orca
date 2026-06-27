@@ -1,13 +1,13 @@
 package orca
 
-import orca.llm.{
+import orca.agents.{
   Announce,
   AutonomousTextCall,
   BackendTag,
   JsonData,
-  LlmCall,
-  LlmConfig,
-  LlmTool,
+  AgentCall,
+  AgentConfig,
+  Agent,
   SessionId,
   ToolSet
 }
@@ -19,65 +19,65 @@ import orca.tools.IssueHandle
 class BranchNamingTest extends munit.FunSuite:
 
   /** Throwing stub — issue/fromText must never touch the LLM. */
-  private object ThrowingLlm extends LlmTool[BackendTag.ClaudeCode.type]:
+  private object ThrowingAgent extends Agent[BackendTag.ClaudeCode.type]:
     val name: String = "throwing-stub"
     def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
       throw new AssertionError("LLM must not be called")
-    def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
-    def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
-    def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-    def withTools(t: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
+    def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
+    def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
+    def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
+    def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
     def resultAs[O: JsonData: Announce]
-        : LlmCall[BackendTag.ClaudeCode.type, O] =
+        : AgentCall[BackendTag.ClaudeCode.type, O] =
       throw new AssertionError("LLM must not be called")
 
   /** Stub LLM that returns a fixed reply from `autonomous.run`. Used to test
     * `shortenPrompt` without a real model.
     */
-  private def stubbedLlm(reply: String): LlmTool[BackendTag.ClaudeCode.type] =
-    new LlmTool[BackendTag.ClaudeCode.type]:
+  private def stubbedAgent(reply: String): Agent[BackendTag.ClaudeCode.type] =
+    new Agent[BackendTag.ClaudeCode.type]:
       val name: String = "stubbed"
       def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
         new AutonomousTextCall[BackendTag.ClaudeCode.type]:
           def run(
               prompt: String,
               session: SessionId[BackendTag.ClaudeCode.type],
-              config: LlmConfig,
+              config: AgentConfig,
               emitPrompt: Boolean
           )(using
               orca.InStage
           ): (SessionId[BackendTag.ClaudeCode.type], String) =
             (session, reply)
-      def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
-      def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] =
+      def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
+      def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
         this
-      def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-      def withTools(t: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
+      def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
+      def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
       def resultAs[O: JsonData: Announce]
-          : LlmCall[BackendTag.ClaudeCode.type, O] = ???
+          : AgentCall[BackendTag.ClaudeCode.type, O] = ???
 
   /** Stub LLM that throws on `autonomous.run`. */
-  private val throwingAutonomousLlm: LlmTool[BackendTag.ClaudeCode.type] =
-    new LlmTool[BackendTag.ClaudeCode.type]:
+  private val throwingAutonomousAgent: Agent[BackendTag.ClaudeCode.type] =
+    new Agent[BackendTag.ClaudeCode.type]:
       val name: String = "throwing-autonomous"
       def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
         new AutonomousTextCall[BackendTag.ClaudeCode.type]:
           def run(
               prompt: String,
               session: SessionId[BackendTag.ClaudeCode.type],
-              config: LlmConfig,
+              config: AgentConfig,
               emitPrompt: Boolean
           )(using
               orca.InStage
           ): (SessionId[BackendTag.ClaudeCode.type], String) =
             throw new RuntimeException("LLM unavailable")
-      def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
-      def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] =
+      def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
+      def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
         this
-      def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-      def withTools(t: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
+      def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
+      def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
       def resultAs[O: JsonData: Announce]
-          : LlmCall[BackendTag.ClaudeCode.type, O] = ???
+          : AgentCall[BackendTag.ClaudeCode.type, O] = ???
 
   private given InStage = InStage.unsafe
 
@@ -200,19 +200,19 @@ class BranchNamingTest extends munit.FunSuite:
   test("issue strategy resolves to fix/issue-<number>"):
     val handle = IssueHandle("acme", "repo", 42)
     val strategy = BranchNamingStrategy.issue(handle)
-    val result = strategy.resolve("ignored prompt", ThrowingLlm)
+    val result = strategy.resolve("ignored prompt", ThrowingAgent)
     assertEquals(result, "fix/issue-42")
 
   test("issue strategy with custom prefix slugs the prefix"):
     val handle = IssueHandle("acme", "repo", 7)
     val strategy = BranchNamingStrategy.issue(handle, prefix = "feature")
-    val result = strategy.resolve("ignored", ThrowingLlm)
+    val result = strategy.resolve("ignored", ThrowingAgent)
     assertEquals(result, "feature/issue-7")
 
   test("issue strategy prefix is slugged"):
     val handle = IssueHandle("acme", "repo", 3)
     val strategy = BranchNamingStrategy.issue(handle, prefix = "Hot Fix!")
-    val result = strategy.resolve("ignored", ThrowingLlm)
+    val result = strategy.resolve("ignored", ThrowingAgent)
     assertEquals(result, "hot-fix/issue-3")
 
   // ---------------------------------------------------------------------------
@@ -221,12 +221,12 @@ class BranchNamingTest extends munit.FunSuite:
 
   test("fromText strategy slugs the text"):
     val strategy = BranchNamingStrategy.fromText("Add a Multiply Function!")
-    val result = strategy.resolve("ignored prompt", ThrowingLlm)
+    val result = strategy.resolve("ignored prompt", ThrowingAgent)
     assertEquals(result, "add-a-multiply-function")
 
   test("fromText strategy ignores userPrompt and llm"):
     val strategy = BranchNamingStrategy.fromText("my-feature")
-    val result = strategy.resolve("should be ignored", ThrowingLlm)
+    val result = strategy.resolve("should be ignored", ThrowingAgent)
     assertEquals(result, "my-feature")
 
   // ---------------------------------------------------------------------------
@@ -234,7 +234,7 @@ class BranchNamingTest extends munit.FunSuite:
   // ---------------------------------------------------------------------------
 
   test("shortenPrompt slugs the llm reply"):
-    val llm = stubbedLlm("add multiply function")
+    val llm = stubbedAgent("add multiply function")
     val result = BranchNamingStrategy.shortenPrompt.resolve(
       "Add a multiply function to the calc",
       llm
@@ -244,7 +244,7 @@ class BranchNamingTest extends munit.FunSuite:
   test(
     "shortenPrompt: llm returns phrase with extra whitespace, still slugged"
   ):
-    val llm = stubbedLlm("  fix login bug  ")
+    val llm = stubbedAgent("  fix login bug  ")
     val result =
       BranchNamingStrategy.shortenPrompt.resolve("Fix the login bug", llm)
     assertEquals(result, "fix-login-bug")
@@ -252,20 +252,20 @@ class BranchNamingTest extends munit.FunSuite:
   test("shortenPrompt: llm throws -> falls back to slug(userPrompt)"):
     val result = BranchNamingStrategy.shortenPrompt.resolve(
       "add multiply function",
-      throwingAutonomousLlm
+      throwingAutonomousAgent
     )
     assertEquals(result, "add-multiply-function")
 
   test(
     "shortenPrompt: llm returns blank string -> falls back to slug(userPrompt)"
   ):
-    val llm = stubbedLlm("   ")
+    val llm = stubbedAgent("   ")
     val result =
       BranchNamingStrategy.shortenPrompt.resolve("fix the login bug", llm)
     assertEquals(result, "fix-the-login-bug")
 
   test("shortenPrompt: llm returns multi-line reply, uses only first line"):
-    val llm = stubbedLlm("fix login bug\nsome extra explanation")
+    val llm = stubbedAgent("fix login bug\nsome extra explanation")
     val result =
       BranchNamingStrategy.shortenPrompt.resolve("Fix login bug", llm)
     assertEquals(result, "fix-login-bug")
@@ -273,7 +273,7 @@ class BranchNamingTest extends munit.FunSuite:
   test("shortenPrompt: a markdown-fenced reply is unwrapped (no literal ```)"):
     // The cheap model sometimes wraps its one-line reply in a code fence;
     // cheapOneShot must skip the fence lines, not return a literal "```".
-    val llm = stubbedLlm("```\nfix login bug\n```")
+    val llm = stubbedAgent("```\nfix login bug\n```")
     val result =
       BranchNamingStrategy.shortenPrompt.resolve("Fix login bug", llm)
     assertEquals(result, "fix-login-bug")

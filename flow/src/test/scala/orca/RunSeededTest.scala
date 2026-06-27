@@ -1,26 +1,26 @@
 package orca
 
 import munit.FunSuite
-import orca.backend.{Conversation, Interaction, LlmBackend, LlmResult}
+import orca.backend.{Conversation, Interaction, AgentBackend, AgentResult}
 import orca.events.OrcaListener
-import orca.llm.{
+import orca.agents.{
   Announce,
   AutonomousTextCall,
   BackendTag,
   JsonData,
-  LlmCall,
-  LlmConfig,
-  LlmTool,
+  AgentCall,
+  AgentConfig,
+  Agent,
   Prompts,
   SessionId,
   ToolSet,
-  BaseLlmTool
+  BaseAgent
 }
 import orca.progress.{ProgressHeader, ProgressStore, StageEntry, SessionRecord}
 
 /** Tests for `llm.runSeeded` (ADR 0018 §2.6, task D-seed).
   *
-  * Each test scenario uses a [[StubLlmForSeeded]] whose `sessionExists` and
+  * Each test scenario uses a [[StubAgentForSeeded]] whose `sessionExists` and
   * `autonomous.run` behaviours are injected at construction time, and whose
   * `capturedPrompt` lets tests assert what the prompt looked like after
   * preamble/seed composition.
@@ -38,7 +38,7 @@ class RunSeededTest extends FunSuite:
   private val testSession: SessionId[BackendTag.ClaudeCode.type] =
     SessionId[BackendTag.ClaudeCode.type](testSessionId)
 
-  /** Controllable LlmTool stub for seeded-run tests.
+  /** Controllable Agent stub for seeded-run tests.
     *
     * @param existsResult
     *   The value `sessionExists` returns — set `true` to exercise the "live
@@ -46,11 +46,11 @@ class RunSeededTest extends FunSuite:
     * @param runResult
     *   The text `autonomous.run` echoes back.
     */
-  private class StubLlmForSeeded(
+  private class StubAgentForSeeded(
       existsResult: Boolean,
       runResult: String = "ok",
       serverId: Option[String] = None
-  ) extends LlmTool[BackendTag.ClaudeCode.type]:
+  ) extends Agent[BackendTag.ClaudeCode.type]:
     val name: String = "stub-seeded"
 
     private var _capturedPrompt: Option[String] = None
@@ -75,38 +75,38 @@ class RunSeededTest extends FunSuite:
         def run(
             prompt: String,
             session: SessionId[BackendTag.ClaudeCode.type],
-            config: LlmConfig,
+            config: AgentConfig,
             emitPrompt: Boolean
         )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], String) =
           _capturedPrompt = Some(prompt)
           (session, runResult)
 
     def resultAs[O: JsonData: Announce]
-        : LlmCall[BackendTag.ClaudeCode.type, O] =
+        : AgentCall[BackendTag.ClaudeCode.type, O] =
       ???
-    def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] = this
-    def withSystemPrompt(p: String): LlmTool[BackendTag.ClaudeCode.type] = this
-    def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-    def withTools(t: ToolSet): LlmTool[BackendTag.ClaudeCode.type] = this
+    def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
+    def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
+    def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
+    def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
 
-  /** A minimal `LlmBackend` stub whose `sessionExists` returns a fixed value.
+  /** A minimal `AgentBackend` stub whose `sessionExists` returns a fixed value.
     * All other methods throw — they must never be called in these tests.
     */
   private class StubBackend(existsResult: Boolean)
-      extends LlmBackend[BackendTag.ClaudeCode.type]:
+      extends AgentBackend[BackendTag.ClaudeCode.type]:
     def runAutonomous(
         prompt: String,
         session: SessionId[BackendTag.ClaudeCode.type],
-        config: LlmConfig,
+        config: AgentConfig,
         workDir: os.Path,
         events: OrcaListener,
         outputSchema: Option[String]
-    ): LlmResult[BackendTag.ClaudeCode.type] = ???
+    ): AgentResult[BackendTag.ClaudeCode.type] = ???
     def runInteractive(
         prompt: String,
         session: SessionId[BackendTag.ClaudeCode.type],
         displayPrompt: String,
-        config: LlmConfig,
+        config: AgentConfig,
         workDir: os.Path,
         outputSchema: Option[String]
     ): Conversation[BackendTag.ClaudeCode.type] = ???
@@ -114,16 +114,16 @@ class RunSeededTest extends FunSuite:
         session: SessionId[BackendTag.ClaudeCode.type]
     ): Boolean = existsResult
 
-  /** A minimal `BaseLlmTool`-derived tool backed by [[StubBackend]]. Exercises
-    * the real `BaseLlmTool.sessionExists → backend.sessionExists` delegation
-    * path in production wiring.
+  /** A minimal `BaseAgent`-derived tool backed by [[StubBackend]]. Exercises
+    * the real `BaseAgent.sessionExists → backend.sessionExists` delegation path
+    * in production wiring.
     */
   private class StubBasedTool(backend: StubBackend)
-      extends BaseLlmTool[BackendTag.ClaudeCode.type, LlmTool[
+      extends BaseAgent[BackendTag.ClaudeCode.type, Agent[
         BackendTag.ClaudeCode.type
       ]](
         backend,
-        LlmConfig.default,
+        AgentConfig.default,
         NoOpPrompts,
         os.temp.dir(),
         OrcaListener.noop,
@@ -131,19 +131,19 @@ class RunSeededTest extends FunSuite:
       ):
     val name: String = "stub-based"
     protected def copyTool(
-        config: LlmConfig,
+        config: AgentConfig,
         name: String
-    ): LlmTool[BackendTag.ClaudeCode.type] = this
-    override def withConfig(c: LlmConfig): LlmTool[BackendTag.ClaudeCode.type] =
+    ): Agent[BackendTag.ClaudeCode.type] = this
+    override def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] =
       this
     override def withSystemPrompt(
         p: String
-    ): LlmTool[BackendTag.ClaudeCode.type] = this
-    override def withName(n: String): LlmTool[BackendTag.ClaudeCode.type] = this
-    override def withTools(t: ToolSet): LlmTool[BackendTag.ClaudeCode.type] =
+    ): Agent[BackendTag.ClaudeCode.type] = this
+    override def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
+    override def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] =
       this
     override def resultAs[O: JsonData: Announce]
-        : LlmCall[BackendTag.ClaudeCode.type, O] =
+        : AgentCall[BackendTag.ClaudeCode.type, O] =
       ???
 
   /** No-op [[Prompts]] for use in [[StubBasedTool]]; never called in these
@@ -153,12 +153,12 @@ class RunSeededTest extends FunSuite:
     def autonomous(
         input: String,
         outputSchema: String,
-        config: LlmConfig
+        config: AgentConfig
     ): String = ???
     def interactive(
         input: String,
         outputSchema: String,
-        config: LlmConfig
+        config: AgentConfig
     ): String = ???
     def retry(failedResponse: String, parseError: String): String = ???
 
@@ -167,7 +167,7 @@ class RunSeededTest extends FunSuite:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
         conversation: Conversation[B]
-    ): LlmResult[B] = ???
+    ): AgentResult[B] = ???
 
   // ── test helpers ──────────────────────────────────────────────────────────
 
@@ -198,7 +198,7 @@ class RunSeededTest extends FunSuite:
     val fc = makeControl(
       sessions = List(SessionRecord(index = 0, id = testSessionId, seed = seed))
     )
-    val llm = new StubLlmForSeeded(existsResult = true)
+    val llm = new StubAgentForSeeded(existsResult = true)
     val originalPrompt = "implement feature X"
     val _ = llm.runSeeded(originalPrompt, testSession)(using fc)
     assertEquals(
@@ -214,7 +214,7 @@ class RunSeededTest extends FunSuite:
     val fc = makeControl(
       sessions = List(SessionRecord(index = 0, id = testSessionId, seed = seed))
     )
-    val llm = new StubLlmForSeeded(existsResult = false)
+    val llm = new StubAgentForSeeded(existsResult = false)
     val originalPrompt = "implement feature X"
     val _ = llm.runSeeded(originalPrompt, testSession)(using fc)
     val prompt = llm.capturedPrompt.getOrElse(fail("no prompt captured"))
@@ -237,7 +237,7 @@ class RunSeededTest extends FunSuite:
         List(SessionRecord(index = 0, id = testSessionId, seed = seed)),
       completedStages = List("triage", "implement")
     )
-    val llm = new StubLlmForSeeded(existsResult = false)
+    val llm = new StubAgentForSeeded(existsResult = false)
     val originalPrompt = "continue the work"
     val _ = llm.runSeeded(originalPrompt, testSession)(using fc)
     val prompt = llm.capturedPrompt.getOrElse(fail("no prompt captured"))
@@ -285,7 +285,7 @@ class RunSeededTest extends FunSuite:
     // (no completed stages) -> prompt must be forwarded verbatim with no
     // leading `---` separator or seed blob.
     val fc = makeControl(sessions = Nil)
-    val llm = new StubLlmForSeeded(existsResult = false)
+    val llm = new StubAgentForSeeded(existsResult = false)
     val originalPrompt = "do something"
     val _ = llm.runSeeded(originalPrompt, testSession)(using fc)
     assertEquals(
@@ -305,7 +305,7 @@ class RunSeededTest extends FunSuite:
       sessions = List(SessionRecord(index = 0, id = testSessionId, seed = "")),
       completedStages = List("triage")
     )
-    val llm = new StubLlmForSeeded(existsResult = false)
+    val llm = new StubAgentForSeeded(existsResult = false)
     val originalPrompt = "continue"
     val _ = llm.runSeeded(originalPrompt, testSession)(using fc)
     val prompt = llm.capturedPrompt.getOrElse(fail("no prompt captured"))
@@ -328,7 +328,7 @@ class RunSeededTest extends FunSuite:
       sessions = List(SessionRecord(index = 0, id = testSessionId, seed = seed))
     )
     val llm =
-      new StubLlmForSeeded(existsResult = false, runResult = "agent output")
+      new StubAgentForSeeded(existsResult = false, runResult = "agent output")
     val (returnedSession, output) =
       llm.runSeeded("prompt", testSession)(using fc)
     assertEquals(returnedSession, testSession)
@@ -341,7 +341,7 @@ class RunSeededTest extends FunSuite:
       sessions =
         List(SessionRecord(index = 0, id = testSessionId, seed = "seed"))
     )
-    val llm = new StubLlmForSeeded(
+    val llm = new StubAgentForSeeded(
       existsResult = false,
       serverId = Some("server-thread-xyz")
     )
@@ -358,7 +358,7 @@ class RunSeededTest extends FunSuite:
       sessions =
         List(SessionRecord(index = 0, id = testSessionId, seed = "seed"))
     )
-    val llm = new StubLlmForSeeded(existsResult = false, serverId = None)
+    val llm = new StubAgentForSeeded(existsResult = false, serverId = None)
     val _ = llm.runSeeded("prompt", testSession)(using fc)
     val record =
       fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
@@ -382,7 +382,7 @@ class RunSeededTest extends FunSuite:
         )
       )
     )
-    val llm = new StubLlmForSeeded(existsResult = false, serverId = None)
+    val llm = new StubAgentForSeeded(existsResult = false, serverId = None)
     val _ = llm.runSeeded("prompt", testSession)(using fc)
     val record =
       fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
@@ -393,15 +393,15 @@ class RunSeededTest extends FunSuite:
     )
 
   test(
-    "LlmTool.sessionExists: BaseLlmTool delegates to backend (returns false)"
+    "Agent.sessionExists: BaseAgent delegates to backend (returns false)"
   ):
-    // Real delegation: StubBasedTool → BaseLlmTool.sessionExists → StubBackend.sessionExists
+    // Real delegation: StubBasedTool → BaseAgent.sessionExists → StubBackend.sessionExists
     val tool = new StubBasedTool(new StubBackend(existsResult = false))
     assert(!tool.sessionExists(testSession))
 
   test(
-    "LlmTool.sessionExists: BaseLlmTool delegates to backend (returns true)"
+    "Agent.sessionExists: BaseAgent delegates to backend (returns true)"
   ):
-    // Real delegation: StubBasedTool → BaseLlmTool.sessionExists → StubBackend.sessionExists
+    // Real delegation: StubBasedTool → BaseAgent.sessionExists → StubBackend.sessionExists
     val tool = new StubBasedTool(new StubBackend(existsResult = true))
     assert(tool.sessionExists(testSession))

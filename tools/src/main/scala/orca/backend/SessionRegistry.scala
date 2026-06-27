@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.llm.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId}
 
 /** Whether a backend call against a given caller-supplied session id should
   * start a fresh session or resume an existing one. Each backend has its own
@@ -27,7 +27,7 @@ enum Dispatch[B <: BackendTag]:
   * flows fan reviewers out via `mapParUnordered`. The `dispatchFor` → spawn →
   * `commitSuccess` sequence is NOT atomic, so callers must not share a session
   * id across concurrent calls — each reviewer mints its own via
-  * `LlmTool.newSession`.
+  * `Agent.newSession`.
   */
 trait SessionRegistry[B <: BackendTag]:
   def dispatchFor(client: SessionId[B]): Dispatch[B]

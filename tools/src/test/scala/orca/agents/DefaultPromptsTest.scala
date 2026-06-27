@@ -1,9 +1,9 @@
-package orca.llm
+package orca.agents
 
 class DefaultPromptsTest extends munit.FunSuite:
   private val input = """{"task":"refactor"}"""
   private val schema = """{"type":"object"}"""
-  private val config = LlmConfig.default
+  private val config = AgentConfig.default
 
   test("autonomous prompt embeds input and schema and forbids code fences"):
     val prompt = DefaultPrompts.autonomous(input, schema, config)

@@ -1,11 +1,11 @@
-package orca.llm
+package orca.agents
 
-import orca.backend.{Conversation, Interaction, LlmBackend, LlmResult}
+import orca.backend.{Conversation, Interaction, AgentBackend, AgentResult}
 import orca.events.OrcaListener
 
-/** `withCheapModel` pins the model that [[LlmTool.cheap]] resolves to,
-  * overriding the backend default, and the override rides on the config so it
-  * survives other builders.
+/** `withCheapModel` pins the model that [[Agent.cheap]] resolves to, overriding
+  * the backend default, and the override rides on the config so it survives
+  * other builders.
   */
 class WithCheapModelTest extends munit.FunSuite:
 
@@ -25,17 +25,17 @@ class WithCheapModelTest extends munit.FunSuite:
       "model:cheap-x"
     )
 
-  private def newTool(): LlmTool[BackendTag.Pi.type] = new StubTool(
-    LlmConfig.default
+  private def newTool(): Agent[BackendTag.Pi.type] = new StubTool(
+    AgentConfig.default
   )
 
-  /** Minimal real `BaseLlmTool` whose `name` reflects the pinned model, so the
+  /** Minimal real `BaseAgent` whose `name` reflects the pinned model, so the
     * model `cheap` lands on is observable. `copyTool` threads the config
     * (unlike a degenerate `this`-returning stub), which is exactly what
     * `withCheapModel` relies on.
     */
-  private class StubTool(cfg: LlmConfig)
-      extends BaseLlmTool[BackendTag.Pi.type, LlmTool[BackendTag.Pi.type]](
+  private class StubTool(cfg: AgentConfig)
+      extends BaseAgent[BackendTag.Pi.type, Agent[BackendTag.Pi.type]](
         StubBackend,
         cfg,
         StubPrompts,
@@ -45,24 +45,24 @@ class WithCheapModelTest extends munit.FunSuite:
       ):
     val name: String = "model:" + cfg.model.map(Model.name).getOrElse("none")
     protected def copyTool(
-        config: LlmConfig = cfg,
+        config: AgentConfig = cfg,
         name: String = name
-    ): LlmTool[BackendTag.Pi.type] = new StubTool(config)
+    ): Agent[BackendTag.Pi.type] = new StubTool(config)
 
-  private object StubBackend extends LlmBackend[BackendTag.Pi.type]:
+  private object StubBackend extends AgentBackend[BackendTag.Pi.type]:
     def runAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
-        config: LlmConfig,
+        config: AgentConfig,
         workDir: os.Path,
         events: OrcaListener,
         outputSchema: Option[String]
-    ): LlmResult[BackendTag.Pi.type] = ???
+    ): AgentResult[BackendTag.Pi.type] = ???
     def runInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
-        config: LlmConfig,
+        config: AgentConfig,
         workDir: os.Path,
         outputSchema: Option[String]
     ): Conversation[BackendTag.Pi.type] = ???
@@ -71,16 +71,16 @@ class WithCheapModelTest extends munit.FunSuite:
     def autonomous(
         input: String,
         outputSchema: String,
-        config: LlmConfig
+        config: AgentConfig
     ): String = ???
     def interactive(
         input: String,
         outputSchema: String,
-        config: LlmConfig
+        config: AgentConfig
     ): String = ???
     def retry(failedResponse: String, parseError: String): String = ???
 
   private object StubInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](conversation: Conversation[B]): LlmResult[B] =
+    def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
       ???

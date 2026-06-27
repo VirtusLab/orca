@@ -1,13 +1,13 @@
 package orca.tools.pi
 
-import orca.llm.{LlmConfig, Model, ToolSet}
+import orca.agents.{AgentConfig, Model, ToolSet}
 
 class PiArgsTest extends munit.FunSuite:
 
   private val dir: os.Path = os.Path("/tmp/orca-pi-session")
 
   test("a fresh turn opens the session dir without --continue"):
-    val args = PiArgs.rpc(dir, resume = false, LlmConfig.default, None)
+    val args = PiArgs.rpc(dir, resume = false, AgentConfig.default, None)
     assertEquals(
       args.take(5),
       Seq("pi", "--mode", "rpc", "--session-dir", dir.toString)
@@ -15,7 +15,7 @@ class PiArgsTest extends munit.FunSuite:
     assert(!args.contains("--continue"), args)
 
   test("a resumed turn adds --continue for the same session dir"):
-    val args = PiArgs.rpc(dir, resume = true, LlmConfig.default, None)
+    val args = PiArgs.rpc(dir, resume = true, AgentConfig.default, None)
     assert(args.containsSlice(Seq("--session-dir", dir.toString)), args)
     assert(args.contains("--continue"), args)
 
@@ -23,7 +23,7 @@ class PiArgsTest extends munit.FunSuite:
     val args = PiArgs.rpc(
       dir,
       resume = false,
-      LlmConfig.default.copy(model = Some(Model("openai/gpt-5"))),
+      AgentConfig.default.copy(model = Some(Model("openai/gpt-5"))),
       Some(os.Path("/tmp/system.md"))
     )
     assert(args.containsSlice(Seq("--model", "openai/gpt-5")), args)
@@ -36,7 +36,7 @@ class PiArgsTest extends munit.FunSuite:
     val args = PiArgs.rpc(
       dir,
       resume = false,
-      LlmConfig.default.copy(tools = ToolSet.ReadOnly),
+      AgentConfig.default.copy(tools = ToolSet.ReadOnly),
       None
     )
     assert(args.containsSlice(Seq("--tools", "read,grep,find,ls")), args)
@@ -45,7 +45,7 @@ class PiArgsTest extends munit.FunSuite:
     val args = PiArgs.rpc(
       dir,
       resume = false,
-      LlmConfig.default.copy(tools = ToolSet.NetworkOnly),
+      AgentConfig.default.copy(tools = ToolSet.NetworkOnly),
       None
     )
     assert(args.containsSlice(Seq("--tools", "read,grep,find,ls,bash")), args)
@@ -54,7 +54,7 @@ class PiArgsTest extends munit.FunSuite:
     val args = PiArgs.rpc(
       dir,
       resume = false,
-      LlmConfig.default.copy(tools = ToolSet.ReadOnly),
+      AgentConfig.default.copy(tools = ToolSet.ReadOnly),
       None,
       askUserExtension = Some(os.Path("/tmp/ask-user.ts"))
     )

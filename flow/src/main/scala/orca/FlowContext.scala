@@ -4,13 +4,13 @@ import orca.events.OrcaEvent
 import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
-import orca.llm.{
-  ClaudeTool,
-  CodexTool,
-  GeminiTool,
-  LlmTool,
-  OpencodeTool,
-  PiTool
+import orca.agents.{
+  ClaudeAgent,
+  CodexAgent,
+  GeminiAgent,
+  Agent,
+  OpencodeAgent,
+  PiAgent
 }
 
 import scala.annotation.implicitNotFound
@@ -33,12 +33,12 @@ trait FlowContext:
   /** The flow's leading model (the one passed to `flow(...)`). Flows use it for
     * planning/implementation; `llm.cheap` for incidental work.
     */
-  def llm: LlmTool[?]
-  def claude: ClaudeTool
-  def codex: CodexTool
-  def opencode: OpencodeTool
-  def pi: PiTool
-  def gemini: GeminiTool
+  def llm: Agent[?]
+  def claude: ClaudeAgent
+  def codex: CodexAgent
+  def opencode: OpencodeAgent
+  def pi: PiAgent
+  def gemini: GeminiAgent
   def git: GitTool
   def gh: GitHubTool
   def fs: FsTool
