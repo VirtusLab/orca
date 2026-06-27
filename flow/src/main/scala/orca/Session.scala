@@ -65,33 +65,32 @@ extension [B <: BackendTag](agent: Agent[B])
         val preamble = progressPreamble(log)
         val primedPrompt = composePrimedPrompt(preamble, seed, prompt)
         agent.autonomous.run(primedPrompt, session)
-    persistServerId(agent, session)
+    persistResumeWireId(agent, session)
     result
 
-/** After a run, persist the server-side session id the backend has now learned
-  * (server-id backends only — claude/pi return `None`), so a resumed run can
-  * rehydrate the client→server map and continue/probe the right server thread.
-  * Upserts the matching [[SessionRecord]] only when the learned server id
-  * differs from what is already recorded (and a record for `session` exists),
-  * so a no-op run writes nothing. The store write uses a runtime-minted
-  * `InStage.unsafe`, the same pattern [[session]] uses for the setup-phase
-  * write.
+/** After a run, persist the wire id to resume against that the backend has now
+  * learned (durable backends only — pi returns `None`), so a resumed run can
+  * rehydrate the map and continue/probe the right session. Upserts the matching
+  * [[SessionRecord]] only when the learned wire id differs from what is already
+  * recorded (and a record for `session` exists), so a no-op run writes nothing.
+  * The store write uses a runtime-minted `InStage.unsafe`, the same pattern
+  * [[session]] uses for the setup-phase write.
   */
-private def persistServerId[B <: BackendTag](
+private def persistResumeWireId[B <: BackendTag](
     agent: Agent[B],
     session: SessionId[B]
 )(using fc: FlowControl): Unit =
   agent
-    .serverSessionId(session)
-    .foreach: server =>
+    .resumeWireId(session)
+    .foreach: wireId =>
       val log = fc.progressStore.load()
       log
         .flatMap(_.sessions.find(_.id == session.value))
         .foreach: record =>
-          if !record.serverId.contains(server.value) then
+          if !record.resumeWireId.contains(wireId.value) then
             given InStage = InStage.unsafe
             fc.progressStore.upsertSession(
-              record.copy(serverId = Some(server.value))
+              record.copy(resumeWireId = Some(wireId.value))
             )
 
 /** Look up the recorded seed for `session` from the log. Returns `None` if the

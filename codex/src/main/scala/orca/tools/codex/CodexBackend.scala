@@ -201,9 +201,9 @@ private[orca] class CodexBackend(
       server: SessionId[BackendTag.Codex.type]
   ): Unit = sessions.commitSuccess(client, server)
 
-  override def serverFor(
+  override def resumeWireId(
       client: SessionId[BackendTag.Codex.type]
-  ): Option[SessionId[BackendTag.Codex.type]] = sessions.serverFor(client)
+  ): Option[SessionId[BackendTag.Codex.type]] = sessions.resumeWireId(client)
 
   private def writeSchemaIfPresent(
       schema: Option[String],

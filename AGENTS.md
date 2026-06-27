@@ -74,13 +74,18 @@ most easily broken:
   protected-branch refusal) before any destructive git op.
 
 - **Sessions.** `SessionRegistry` has two shapes: `ClaimedOnce` (claude/pi — the
-  client id IS the wire id) and `ClientToServer` (codex/opencode — a server-minted
-  id learned from the protocol). A backend whose sessions survive a process
-  restart MUST wire **both** `serverFor` (so `persistServerId` records the id in
-  the log) and `registerSession` (so `rehydrateSessions` re-claims it on resume) —
-  claude and codex each shipped a resume bug from getting this wrong. `sessionExists`
-  is a best-effort, non-destructive probe; when it can't confirm a live session the
-  flow re-seeds, the uniform fallback that holds on every backend.
+  client id IS the wire id) and `ClientToServer` (codex/gemini/opencode — a
+  server-minted id learned from the protocol). The id persisted for resume is the **resume wire
+  id** — uniformly "the id to put on the wire when resuming" (`Dispatch.wireId`):
+  for codex/gemini/opencode a server-thread id, for claude the client id itself,
+  for pi `None` (ephemeral). A backend whose sessions survive a process restart
+  MUST wire **both** `resumeWireId` (so the runtime records it in the log) and
+  `registerSession` (so `rehydrateSessions` re-claims it on resume) — claude and
+  codex each shipped a resume bug from getting this wrong. Note `ClaimedOnce` is
+  not enough on its own: claude overrides `resumeWireId` to persist (durable
+  on-disk sessions), pi does **not** (its temp-dir sessions can't survive).
+  `sessionExists` is a best-effort, non-destructive probe; when it can't confirm a
+  live session the flow re-seeds, the uniform fallback that holds on every backend.
 
 ## Build and test
 

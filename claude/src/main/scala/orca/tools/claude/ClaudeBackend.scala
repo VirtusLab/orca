@@ -78,16 +78,16 @@ private[orca] class ClaudeBackend(
   // Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
   // outlive the process, so the `--session-id` (claim) → `--resume` (continue)
   // decision must survive a resume. Wire the claim into the persist/rehydrate
-  // hooks: `serverFor` lets the runtime record the claimed id (claude's
+  // hooks: `resumeWireId` lets the runtime record the claimed id (claude's
   // client id IS the wire id) into the progress log, and `registerSession`
   // re-claims it on rehydrate so a resumed task uses `--resume` rather than
   // re-creating an already-existing session id. Unlike pi, whose sessions live
   // in a deleteOnExit temp dir and are gone across runs, claude's are durable,
   // so it must participate in persist/rehydrate rather than always re-seeding.
-  override def serverFor(
+  override def resumeWireId(
       client: SessionId[BackendTag.ClaudeCode.type]
   ): Option[SessionId[BackendTag.ClaudeCode.type]] =
-    sessions.serverFor(client)
+    sessions.resumeWireId(client)
 
   override def registerSession(
       client: SessionId[BackendTag.ClaudeCode.type],

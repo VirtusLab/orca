@@ -14,17 +14,16 @@ import scala.util.control.NonFatal
   */
 object FlowLifecycle:
 
-  /** Replay the persisted client→server session map (ADR 0018 §2.6) into the
-    * leading agent's in-memory registry, so a resumed run resumes the right
-    * server thread and the server-id existence probes target the right id.
-    * Reads every [[orca.progress.SessionRecord]] that carries a `serverId` and
-    * registers the mapping via [[orca.agents.Agent.registerServerSession]].
+  /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into the leading
+    * agent's in-memory registry, so a resumed run resumes against the right
+    * wire id and the existence probes target the right id. Reads every
+    * [[orca.progress.SessionRecord]] that carries a `resumeWireId` and
+    * registers it via [[orca.agents.Agent.registerResumeWireId]].
     *
     * The type parameter `B` binds the wildcard backend tag from the `agent`
-    * parameter (`Agent[?]`) so the client/server [[orca.agents.SessionId]]s
-    * share its type. Only the leading agent is rehydrated (the common case); a
-    * flow that drives a second tool's sessions across resume is a known
-    * limitation.
+    * parameter (`Agent[?]`) so the client/wire [[orca.agents.SessionId]]s share
+    * its type. Only the leading agent is rehydrated (the common case); a flow
+    * that drives a second tool's sessions across resume is a known limitation.
     */
   private[orca] def rehydrateSessions[B <: BackendTag](
       agent: Agent[B],
@@ -33,11 +32,11 @@ object FlowLifecycle:
     for
       log <- store.load().toList
       record <- log.sessions
-      serverId <- record.serverId
+      wireId <- record.resumeWireId
     do
-      agent.registerServerSession(
+      agent.registerResumeWireId(
         SessionId[B](record.id),
-        SessionId[B](serverId)
+        SessionId[B](wireId)
       )
 
   /** Outcome of [[setup]]: the resolved progress store, the feature branch the

@@ -33,16 +33,16 @@ trait SessionRegistry[B <: BackendTag]:
   def dispatchFor(client: SessionId[B]): Dispatch[B]
   def commitSuccess(client: SessionId[B], server: SessionId[B]): Unit
 
-  /** Pure, thread-safe read of the server-side id mapped to `client`, or `None`
-    * if no live mapping is known. For [[ClientToServer]] this is the recorded
-    * server thread id; for [[ClaimedOnce]] (claude/pi) the client IS the wire
-    * id, so it returns `Some(client)` once claimed and `None` before.
+  /** Pure, thread-safe read of the wire id to resume `client` against, or
+    * `None` if no live mapping is known. For [[ClientToServer]] this is the
+    * recorded server thread id; for [[ClaimedOnce]] the client IS the wire id,
+    * so it returns `Some(client)` once claimed and `None` before.
     *
-    * Used by the flow runtime to persist the client→server map into the
-    * progress log and to drive the server-id existence probe. Never creates,
-    * mutates, or resumes a session.
+    * Used by the flow runtime to persist the resume wire id into the progress
+    * log and to drive the existence probe. Never creates, mutates, or resumes a
+    * session.
     */
-  def serverFor(client: SessionId[B]): Option[SessionId[B]]
+  def resumeWireId(client: SessionId[B]): Option[SessionId[B]]
 
 object SessionRegistry:
 
@@ -67,8 +67,10 @@ object SessionRegistry:
     def commitSuccess(client: SessionId[B], server: SessionId[B]): Unit =
       val _ = claimed.add(SessionId.value(client))
 
-    /** The client id IS the wire id, so a claimed client maps to itself. */
-    def serverFor(client: SessionId[B]): Option[SessionId[B]] =
+    /** The client id IS the wire id, so a claimed client resumes against
+      * itself.
+      */
+    def resumeWireId(client: SessionId[B]): Option[SessionId[B]] =
       Option.when(claimed.contains(SessionId.value(client)))(client)
 
   /** For backends whose session id is server-minted at first use, learned from
@@ -99,5 +101,5 @@ object SessionRegistry:
         SessionId.value(server)
       )
 
-    def serverFor(client: SessionId[B]): Option[SessionId[B]] =
+    def resumeWireId(client: SessionId[B]): Option[SessionId[B]] =
       Option(map.get(SessionId.value(client))).map(SessionId[B](_))

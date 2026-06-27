@@ -49,7 +49,7 @@ class RunSeededTest extends FunSuite:
   private class StubAgentForSeeded(
       existsResult: Boolean,
       runResult: String = "ok",
-      serverId: Option[String] = None
+      learnedWireId: Option[String] = None
   ) extends Agent[BackendTag.ClaudeCode.type]:
     val name: String = "stub-seeded"
 
@@ -62,13 +62,13 @@ class RunSeededTest extends FunSuite:
         session: SessionId[BackendTag.ClaudeCode.type]
     ): Boolean = existsResult
 
-    /** Reports a learned server id (server-id backends) so the persist path can
-      * be exercised; `None` mirrors claude/pi (client == wire id).
+    /** Reports a learned wire id (server-id backends) so the persist path can
+      * be exercised; `None` mirrors pi (no durable resume).
       */
-    override def serverSessionId(
+    override def resumeWireId(
         client: SessionId[BackendTag.ClaudeCode.type]
     ): Option[SessionId[BackendTag.ClaudeCode.type]] =
-      serverId.map(SessionId[BackendTag.ClaudeCode.type](_))
+      learnedWireId.map(SessionId[BackendTag.ClaudeCode.type](_))
 
     val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
       new AutonomousTextCall[BackendTag.ClaudeCode.type]:
@@ -335,7 +335,7 @@ class RunSeededTest extends FunSuite:
     assertEquals(output, "agent output")
 
   test(
-    "runSeeded persists a newly-learned server id into the SessionRecord"
+    "runSeeded persists a newly-learned wire id into the SessionRecord"
   ):
     val fc = makeControl(
       sessions =
@@ -343,53 +343,55 @@ class RunSeededTest extends FunSuite:
     )
     val agent = new StubAgentForSeeded(
       existsResult = false,
-      serverId = Some("server-thread-xyz")
+      learnedWireId = Some("server-thread-xyz")
     )
     val _ = agent.runSeeded("prompt", testSession)(using fc)
     val record =
       fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
-    assertEquals(record.serverId, Some("server-thread-xyz"))
+    assertEquals(record.resumeWireId, Some("server-thread-xyz"))
 
   test(
-    "runSeeded leaves serverId None when the backend reports no server id"
+    "runSeeded leaves resumeWireId None when the backend reports no wire id"
   ):
-    // claude/pi: client IS the wire id, serverSessionId returns None.
+    // pi: ephemeral sessions, resumeWireId returns None.
     val fc = makeControl(
       sessions =
         List(SessionRecord(index = 0, id = testSessionId, seed = "seed"))
     )
-    val agent = new StubAgentForSeeded(existsResult = false, serverId = None)
+    val agent =
+      new StubAgentForSeeded(existsResult = false, learnedWireId = None)
     val _ = agent.runSeeded("prompt", testSession)(using fc)
     val record =
       fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
-    assertEquals(record.serverId, None)
+    assertEquals(record.resumeWireId, None)
 
   test(
-    "runSeeded does NOT clobber a previously-persisted serverId when the backend reports None"
+    "runSeeded does NOT clobber a previously-persisted resumeWireId when the backend reports None"
   ):
-    // The guard in persistServerId calls agent.serverSessionId(session).foreach { … }
-    // so a None result short-circuits and the record's serverId is left intact.
-    // Pre-seed the log with a SessionRecord whose serverId is already Some("server-1"),
-    // then run with a stub whose serverSessionId returns None, and confirm the stored
-    // serverId is still Some("server-1") (not cleared).
+    // The guard in persistResumeWireId calls agent.resumeWireId(session).foreach { … }
+    // so a None result short-circuits and the record's resumeWireId is left intact.
+    // Pre-seed the log with a SessionRecord whose resumeWireId is already
+    // Some("server-1"), then run with a stub whose resumeWireId returns None, and
+    // confirm the stored resumeWireId is still Some("server-1") (not cleared).
     val fc = makeControl(
       sessions = List(
         SessionRecord(
           index = 0,
           id = testSessionId,
           seed = "seed",
-          serverId = Some("server-1")
+          resumeWireId = Some("server-1")
         )
       )
     )
-    val agent = new StubAgentForSeeded(existsResult = false, serverId = None)
+    val agent =
+      new StubAgentForSeeded(existsResult = false, learnedWireId = None)
     val _ = agent.runSeeded("prompt", testSession)(using fc)
     val record =
       fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
     assertEquals(
-      record.serverId,
+      record.resumeWireId,
       Some("server-1"),
-      "a previously-persisted serverId must NOT be clobbered when the backend reports None"
+      "a previously-persisted resumeWireId must NOT be clobbered when the backend reports None"
     )
 
   test(

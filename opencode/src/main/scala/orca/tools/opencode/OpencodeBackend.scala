@@ -118,9 +118,9 @@ private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
       serverSession: SessionId[BackendTag.Opencode.type]
   ): Unit = sessions.commitSuccess(client, serverSession)
 
-  override def serverFor(
+  override def resumeWireId(
       client: SessionId[BackendTag.Opencode.type]
-  ): Option[SessionId[BackendTag.Opencode.type]] = sessions.serverFor(client)
+  ): Option[SessionId[BackendTag.Opencode.type]] = sessions.resumeWireId(client)
 
   /** Probe `http` for the given session id via `GET /session/<id>` → status
     * 200. Callable directly in tests without going through the lazy-init guard.

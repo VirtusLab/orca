@@ -212,20 +212,23 @@ class ClaudeBackendTest extends munit.FunSuite:
       assert(!args.contains("--session-id"), args)
 
   test(
-    "serverFor reflects the claim so persistServerId records the resumable id"
+    "resumeWireId reflects the claim so the runtime records the resumable id"
   ):
-    // `serverFor` is the source `persistServerId` reads to write `serverId` into
-    // the progress log; without it (the old default `None`) the claim was never
-    // persisted and resume re-created the session.
+    // `resumeWireId` is the source the runtime reads to write the resume wire id
+    // into the progress log; without it (the old default `None`) the claim was
+    // never persisted and resume re-created the session.
     val sid = SessionId[BackendTag.ClaudeCode.type](
       "55555555-5555-5555-5555-555555555555"
     )
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
-      assertEquals(backend.serverFor(sid), None) // unclaimed
+      assertEquals(backend.resumeWireId(sid), None) // unclaimed
       val _ =
         backend.runAutonomous("hi", sid, AgentConfig.default, os.temp.dir())
-      assertEquals(backend.serverFor(sid), Some(sid)) // claimed → persistable
+      assertEquals(
+        backend.resumeWireId(sid),
+        Some(sid)
+      ) // claimed → persistable
 
   test(
     "failed first call leaves the session unclaimed; retry still uses --session-id"

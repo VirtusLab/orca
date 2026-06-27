@@ -159,9 +159,9 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
       server: SessionId[BackendTag.Gemini.type]
   ): Unit = sessions.commitSuccess(client, server)
 
-  override def serverFor(
+  override def resumeWireId(
       client: SessionId[BackendTag.Gemini.type]
-  ): Option[SessionId[BackendTag.Gemini.type]] = sessions.serverFor(client)
+  ): Option[SessionId[BackendTag.Gemini.type]] = sessions.resumeWireId(client)
 
   /** Best-effort probe: resolves the SERVER id mapped to `client` (gemini mints
     * its own session id; the caller's stable id never appears in

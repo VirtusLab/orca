@@ -24,18 +24,26 @@ case class StageEntry(id: String, name: String, resultJson: String)
     derives JsonData
 
 /** A persisted session: the occurrence index, a minted UUID, the seed string
-  * the author supplied, and — for server-id backends (codex/gemini/opencode) —
-  * the learned server-side session id.
+  * the author supplied, and — when the session is durably resumable — the wire
+  * id to resume against.
   *
   * `id` is the stable client id the framework hands across calls;
-  * [[SessionRecord.serverId]] is the backend-minted id the client maps to (for
-  * claude/pi the client id IS the wire id, so `serverId` stays `None`). It is
-  * persisted so a resumed run can rehydrate the in-memory client→server map and
-  * (a) resume the right server thread and (b) probe the server id for
-  * existence.
+  * [[SessionRecord.resumeWireId]] is the id to put on the wire when resuming
+  * the live backend conversation (the same `wireId` notion as
+  * [[orca.backend.Dispatch]]). Its value depends on the backend, but its
+  * meaning is uniform:
+  *   - codex/gemini/opencode: a backend-minted server-thread id (≠ `id`);
+  *   - claude: equal to `id` itself — claude's sessions are durable on disk and
+  *     its client id IS the wire id, so recording it re-claims the session
+  *     (`--resume`) on a resumed run rather than re-creating it;
+  *   - pi: `None` — pi's sessions live in a `deleteOnExit` temp dir, so nothing
+  *     survives a restart and a resumed run always re-seeds.
   *
-  * `serverId` defaults to `None` and decodes to `None` when absent in older log
-  * files — the lenient [[ProgressLog]] codec tolerates the missing field.
+  * It is persisted so a resumed run can rehydrate the in-memory map and (a)
+  * resume against the right wire id and (b) probe it for existence.
+  *
+  * `resumeWireId` defaults to `None` and decodes to `None` when absent in older
+  * log files — the lenient [[ProgressLog]] codec tolerates the missing field.
   * Stored in [[ProgressLog.sessions]] so that a resumed run reuses the same
   * [[orca.agents.SessionId]] rather than minting a second one.
   */
@@ -43,7 +51,7 @@ case class SessionRecord(
     index: Int,
     id: String,
     seed: String,
-    serverId: Option[String] = None
+    resumeWireId: Option[String] = None
 ) derives JsonData
 
 /** An append-only log of stage outcomes and session records for one flow run,

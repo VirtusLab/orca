@@ -132,24 +132,25 @@ trait Agent[B <: BackendTag]:
     */
   def sessionExists(session: SessionId[B]): Boolean = false
 
-  /** The backend-allocated (wire) session id mapped to `client`, or `None` if
-    * unknown. Client and server ids share one type (`SessionId[B]`): `client`
-    * is orca's stable handle, `server` is whatever the backend actually resumes
-    * against — equal for the backends where the client id IS the wire id
-    * (claude/pi), a learned server-thread id for codex/opencode. The flow
-    * runtime reads this after a run to persist the client→server map into the
+  /** The wire id to resume `client` against, or `None` if unknown (or the
+    * backend's sessions aren't durably resumable). Client and wire ids share
+    * one type (`SessionId[B]`): `client` is orca's stable handle; the result is
+    * whatever the backend actually resumes against — equal to `client` where
+    * the client id IS the wire id (claude), a learned server-thread id for
+    * codex/gemini/opencode, `None` for pi (ephemeral sessions). The flow
+    * runtime reads this after a run to persist the resume wire id into the
     * progress log. Returns `None` by default for tools without a backend.
     */
-  def serverSessionId(client: SessionId[B]): Option[SessionId[B]] = None
+  def resumeWireId(client: SessionId[B]): Option[SessionId[B]] = None
 
-  /** Record a learned client→server mapping in the backend's registry. The flow
+  /** Record a resume wire id for `client` in the backend's registry. The flow
     * runtime calls this on resume to rehydrate the map from the persisted log,
-    * so `dispatchFor` resumes the right server thread and the probes target the
-    * server id. No-op by default for tools without a backend (stubs).
+    * so `dispatchFor` resumes against the right wire id and the probes target
+    * it. No-op by default for tools without a backend (stubs).
     */
-  def registerServerSession(
+  def registerResumeWireId(
       client: SessionId[B],
-      server: SessionId[B]
+      wireId: SessionId[B]
   ): Unit = ()
 
   /** Mint a fresh, unrecorded session id — used by the runtime for ephemeral

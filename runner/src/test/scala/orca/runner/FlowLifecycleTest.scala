@@ -395,9 +395,9 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "rehydrate: persisted client→server map is replayed into the leading model before the body"
   ):
-    // An aborted run left a session record carrying a learned serverId. On
+    // An aborted run left a session record carrying a learned resumeWireId. On
     // resume, flow setup must replay it into the leading model's registry via
-    // registerServerSession BEFORE the body runs.
+    // registerResumeWireId BEFORE the body runs.
     val workDir = TempRepo.create()
     val prompt = "rehydrate-feature"
     val store = ProgressStore.default(workDir, prompt)
@@ -419,7 +419,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         index = 0,
         id = "client-uuid",
         seed = "brief",
-        serverId = Some("ses_server_1")
+        resumeWireId = Some("ses_server_1")
       )
     )
     git.forceAdd(store.path)
@@ -456,7 +456,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         assertEquals(
           recorder.registered,
           List(("client-uuid", "ses_server_1")),
-          "registerServerSession must be called once with the persisted mapping"
+          "registerResumeWireId must be called once with the persisted mapping"
         )
 
   /** Drive `runFlow` directly (exit-free) with a null-sink interaction so no
@@ -679,19 +679,19 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"default branchNaming must use shortenPrompt (slug fallback); got '$observedBranch'"
     )
 
-  /** A `ClaudeAgent` that records `registerServerSession` calls, to assert the
-    * lifecycle rehydrates the persisted client→server map. All LLM methods
+  /** A `ClaudeAgent` that records `registerResumeWireId` calls, to assert the
+    * lifecycle rehydrates the persisted resume-wire-id map. All LLM methods
     * throw — the rehydration test never invokes the model.
     */
   private class RecordingClaude extends ClaudeAgent:
     private var _registered: List[(String, String)] = Nil
     def registered: List[(String, String)] = _registered
 
-    override def registerServerSession(
+    override def registerResumeWireId(
         client: SessionId[BackendTag.ClaudeCode.type],
-        server: SessionId[BackendTag.ClaudeCode.type]
+        wireId: SessionId[BackendTag.ClaudeCode.type]
     ): Unit =
-      _registered = _registered :+ (client.value -> server.value)
+      _registered = _registered :+ (client.value -> wireId.value)
 
     val name = "recording-claude"
     def haiku = this

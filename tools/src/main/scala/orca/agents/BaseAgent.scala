@@ -74,21 +74,21 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     backend.sessionExists(session)
 
   /** Delegates to the backend's registry read so the flow runtime can persist
-    * the learned client→server mapping after a run.
+    * the resume wire id after a run.
     */
-  override def serverSessionId(
+  override def resumeWireId(
       client: SessionId[B]
   ): Option[SessionId[B]] =
-    backend.serverFor(client)
+    backend.resumeWireId(client)
 
   /** Delegates to the backend's `registerSession` so the flow runtime can
-    * rehydrate the client→server map from the persisted log on resume.
+    * rehydrate the resume wire id from the persisted log on resume.
     */
-  override def registerServerSession(
+  override def registerResumeWireId(
       client: SessionId[B],
-      server: SessionId[B]
+      wireId: SessionId[B]
   ): Unit =
-    backend.registerSession(client, server)
+    backend.registerSession(client, wireId)
 
   val autonomous: AutonomousTextCall[B] = new AutonomousTextCall[B]:
     def run(

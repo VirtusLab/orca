@@ -88,15 +88,17 @@ trait AgentBackend[B <: BackendTag]:
     */
   def sessionExists(session: SessionId[B]): Boolean = false
 
-  /** Read the server-side session id this backend has mapped `client` to, or
-    * `None` if no live mapping is known. Pure, thread-safe, side-effect-free.
+  /** Read the wire id to resume `client` against, or `None` if no live mapping
+    * is known (or the backend's sessions aren't durably resumable). Pure,
+    * thread-safe, side-effect-free.
     *
-    * Backends with a [[SessionRegistry]] delegate to its `serverFor`; the
-    * default returns `None`. Used by the flow runtime to persist the
-    * client→server map into the progress log (so a resumed run can rehydrate it
-    * via [[registerSession]]) and to probe the server id for existence.
+    * Backends with a durable [[SessionRegistry]] delegate to its
+    * `resumeWireId`; the default returns `None` (pi, whose temp-dir sessions
+    * don't survive a restart, keeps the default). Used by the flow runtime to
+    * persist the resume wire id into the progress log (so a resumed run can
+    * rehydrate it via [[registerSession]]) and to probe it for existence.
     */
-  def serverFor(client: SessionId[B]): Option[SessionId[B]] = None
+  def resumeWireId(client: SessionId[B]): Option[SessionId[B]] = None
 
   /** Run `probe` on `id` only if `id` is a safe session id, treating ANY
     * non-fatal failure (and an unsafe id) as "not found". The non-destructive,
@@ -108,13 +110,13 @@ trait AgentBackend[B <: BackendTag]:
       try probe(id)
       catch case NonFatal(_) => false
 
-  /** For server-id backends: resolve the recorded client→server id via
-    * `registry` (None ⇒ not found, no probe) and `probeGuarded` the server id.
+  /** For server-id backends: resolve the recorded resume wire id via `registry`
+    * (None ⇒ not found, no probe) and `probeGuarded` it.
     */
   protected def probeServerSession(
       session: SessionId[B],
       registry: SessionRegistry[B]
   )(probe: String => Boolean): Boolean =
-    registry.serverFor(session) match
+    registry.resumeWireId(session) match
       case None      => false
       case Some(srv) => probeGuarded(SessionId.value(srv))(probe)

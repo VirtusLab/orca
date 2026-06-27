@@ -87,7 +87,7 @@ private[orca] class PiBackend(cli: CliRunner)
       client: SessionId[BackendTag.Pi.type],
       serverSession: SessionId[BackendTag.Pi.type]
   ): Unit = sessions.commitSuccess(client, serverSession)
-  // No `serverFor` override: pi's sessions live in a `deleteOnExit` temp dir
+  // No `resumeWireId` override: pi's sessions live in a `deleteOnExit` temp dir
   // (gone across runs), so there is nothing durable to persist or rehydrate — pi
   // always re-seeds (ADR 0018 §2.6). The default `None` keeps pi unaffected by
   // the persist/rehydrate path.
