@@ -244,11 +244,9 @@ private[orca] class OsGitHubTool(
   ): Either[PrCreateFailed, PrHandle] =
     // Inspect exit code + stderr ourselves so we can split the recoverable
     // "branch already has a PR" / "no commits to push" cases out from
-    // genuine system failures.
-    val result = cli.run(
-      Seq("gh", "pr", "create", "--title", title, "--body", body),
-      cwd = workDir
-    )
+    // genuine system failures — so this goes through `runGhResult` (which
+    // returns the raw result) rather than `ghRead`/`ghMutate` (which abort).
+    val result = runGhResult("pr", "create", "--title", title, "--body", body)
     if result.exitCode == 0 then
       val output = result.stdout.trim
       PrUrlPattern.findFirstMatchIn(output) match
@@ -261,8 +259,8 @@ private[orca] class OsGitHubTool(
             s"Unexpected output from gh pr create: $output"
           )
     else
-      val combined = (result.stdout + "\n" + result.stderr).toLowerCase
-      if combined.contains("already exists") then
+      val combined = result.stdout + "\n" + result.stderr
+      if OsGitHubTool.isPrAlreadyExists(combined) then
         // R24: look up the existing open PR rather than failing — crash-safe
         // for flows that may re-enter a "push + open PR" stage.
         findOpenPr(currentBranchGit()) match
@@ -270,9 +268,8 @@ private[orca] class OsGitHubTool(
             events.onEvent(OrcaEvent.Step(s"Reusing existing PR: ${pr.url}"))
             Right(pr)
           case None => Left(new PrAlreadyExists)
-      else if combined.contains("no commits") ||
-        combined.contains("must first push")
-      then Left(new NoCommitsToPr)
+      else if OsGitHubTool.isNoCommitsToPr(combined) then
+        Left(new NoCommitsToPr)
       else fail("gh pr create", result)
 
   /** Resolve the current branch name via `git rev-parse --abbrev-ref HEAD`.
@@ -354,7 +351,7 @@ private[orca] class OsGitHubTool(
     // GraphQL metadata query that selects `projectCards` before applying any
     // edit, which fails outright on repos where GitHub has sunset Projects
     // (classic). The REST PATCH endpoint doesn't touch projects.
-    val _ = gh(
+    val _ = ghMutate(
       "api",
       "-X",
       "PATCH",
@@ -367,7 +364,7 @@ private[orca] class OsGitHubTool(
     events.onEvent(OrcaEvent.Step(s"Updated PR: ${pr.url}"))
 
   def writeComment(pr: PrHandle, body: String)(using InStage): Unit =
-    val _ = gh(
+    val _ = ghMutate(
       "pr",
       "comment",
       pr.number.toString,
@@ -378,7 +375,7 @@ private[orca] class OsGitHubTool(
     )
 
   def writeComment(issue: IssueHandle, body: String)(using InStage): Unit =
-    val _ = gh(
+    val _ = ghMutate(
       "issue",
       "comment",
       issue.number.toString,
@@ -447,7 +444,7 @@ private[orca] class OsGitHubTool(
       id: Long,
       body: String
   ): Unit =
-    val _ = gh(
+    val _ = ghMutate(
       "api",
       "-X",
       "PATCH",
@@ -507,8 +504,21 @@ private[orca] class OsGitHubTool(
 
     loop(sawAnyCheck = false)
 
-  private def gh(args: String*): String =
-    val result = cli.run("gh" +: args, cwd = workDir)
+  /** Run `gh` once and return the raw [[CliResult]]. The single point every gh
+    * invocation funnels through. Used directly only by [[createPr]], which
+    * inspects the exit code itself to split recoverable cases from failures;
+    * every other call goes through [[ghRead]] or [[ghMutate]].
+    */
+  private def runGhResult(args: String*): CliResult =
+    cli.run("gh" +: args, cwd = workDir)
+
+  /** Run `gh` once, returning stdout or aborting on a non-zero exit. The shared
+    * abort-on-failure logic behind [[ghRead]] and [[ghMutate]] — NOT called
+    * directly, so the read-vs-mutate (and thus retry-vs-no-retry) choice is
+    * always explicit at the call site via one of those two wrappers.
+    */
+  private def runGh(args: String*): String =
+    val result = runGhResult(args*)
     if result.exitCode != 0 then fail(s"gh ${args.mkString(" ")}", result)
     result.stdout
 
@@ -521,13 +531,21 @@ private[orca] class OsGitHubTool(
       s"$label failed (exit ${result.exitCode}): ${result.stderr}"
     )
 
-  /** Like [[gh]] but retries a transient failure under [[readRetryConfig]].
-    * ONLY for idempotent reads (`api`/`pr view`); never wrap a mutating call
-    * (`pr create`, `pr comment`, `pr edit`) — a retry after a lost response
-    * would double the side effect (duplicate PR / comment).
+  /** Run an **idempotent read** (`api` GET, `pr view`, `pr list`), retrying a
+    * transient failure under [[readRetryConfig]]. Safe to retry precisely
+    * because it has no side effect.
     */
   private def ghRead(args: String*): String =
-    retry(readRetryConfig)(gh(args*))
+    retry(readRetryConfig)(runGh(args*))
+
+  /** Run a **mutating** `gh` call (`pr comment`, `pr edit`, …) exactly once —
+    * deliberately NOT retried: a retry after a lost response would double the
+    * side effect (duplicate comment / PR edit). Use [[ghRead]] for reads. The
+    * one-PR-per-branch idempotency for `pr create` is handled separately in
+    * [[createPr]] (it inspects the exit code itself), which is why it doesn't
+    * go through this wrapper.
+    */
+  private def ghMutate(args: String*): String = runGh(args*)
 
 private[orca] object OsGitHubTool:
 
@@ -538,6 +556,31 @@ private[orca] object OsGitHubTool:
     */
   val defaultReadRetry: Schedule =
     Schedule.exponentialBackoff(1.second).maxRetries(4)
+
+  // --- Recoverable `gh pr create` stderr/stdout predicates ---
+  //
+  // gh has no machine-readable signal for "an open PR already exists" or "the
+  // branch has no commits", so `createPr` splits these recoverable cases from a
+  // system failure by matching gh's human-readable output (combined
+  // stdout+stderr). gh's messages are UI text, not a contract, so the matchers
+  // are centralised here — named, documented, unit-tested — and kept lenient so
+  // a wording tweak doesn't reclassify a recoverable failure as fatal. Each
+  // case-folds its input internally, so callers pass gh's output verbatim.
+
+  /** True when `gh pr create` reported that an open PR already exists for the
+    * head branch — the case `createPr` resolves by reusing the existing PR
+    * (R24). Takes gh's combined stdout+stderr verbatim and case-folds itself.
+    */
+  private[tools] def isPrAlreadyExists(combined: String): Boolean =
+    combined.toLowerCase.contains("already exists")
+
+  /** True when `gh pr create` reported there is nothing to open a PR from (the
+    * branch has no commits ahead of base, or hasn't been pushed yet).
+    * Case-folds internally (see [[isPrAlreadyExists]]).
+    */
+  private[tools] def isNoCommitsToPr(combined: String): Boolean =
+    val lower = combined.toLowerCase
+    lower.contains("no commits") || lower.contains("must first push")
 
   private val StatusCompleted = "COMPLETED"
   private val SuccessfulConclusions = Set("SUCCESS", "NEUTRAL", "SKIPPED")

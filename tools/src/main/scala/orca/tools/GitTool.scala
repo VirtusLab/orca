@@ -336,7 +336,7 @@ private[orca] class OsGitTool(
       Right(())
     else
       val stderr = result.err.text()
-      if stderr.contains("non-fast-forward") || stderr.contains("rejected") then
+      if OsGitTool.isPushRejection(stderr) then
         Left(new PushRejected(stderr.trim))
       else fail("git push", result)
 
@@ -433,11 +433,8 @@ private[orca] class OsGitTool(
       Right(Worktree(path, branch))
     else
       val stderr = result.err.text().trim
-      // git surfaces both expected cases ("already exists", "is already
-      // checked out") via stderr. Anything else is a system-level failure.
-      if stderr.contains("already exists") ||
-        stderr.contains("already checked out")
-      then Left(new WorktreeAddFailed(path, stderr))
+      if OsGitTool.isWorktreeAlreadyPresent(stderr) then
+        Left(new WorktreeAddFailed(path, stderr))
       else fail("git worktree add", result)
 
   def removeWorktree(
@@ -512,6 +509,32 @@ private[orca] class OsGitTool(
     result.out.text()
 
 private[orca] object OsGitTool:
+
+  // --- Recoverable-failure stderr predicates ---
+  //
+  // git exits non-zero with a uniform code for many distinct failures, so the
+  // ONLY way to split a recoverable case (caller gets a `Left`) from a system
+  // failure (we throw) is to match git's human-readable stderr. These strings
+  // are git porcelain, not a stable contract, so the matchers are centralised
+  // here — named, documented, and unit-tested — rather than inlined at the call
+  // sites, so the fragile coupling lives in one place. Each is intentionally
+  // lenient (substring, any matching phrase) so a wording tweak across git
+  // versions doesn't silently reclassify a recoverable failure as fatal.
+
+  /** True when `git push` stderr indicates the push was rejected because the
+    * remote moved on or a hook refused it (`! [rejected] … (non-fast-forward)`)
+    * — the recoverable case the caller can resolve by pulling/rebasing. Any
+    * other non-zero push (auth, network, bad refspec) is a system failure.
+    */
+  private[tools] def isPushRejection(stderr: String): Boolean =
+    stderr.contains("non-fast-forward") || stderr.contains("rejected")
+
+  /** True when `git worktree add` stderr indicates the target path or branch is
+    * already a worktree (`… already exists` / `… is already checked out`) — the
+    * recoverable case. Anything else is a system failure.
+    */
+  private[tools] def isWorktreeAlreadyPresent(stderr: String): Boolean =
+    stderr.contains("already exists") || stderr.contains("already checked out")
 
   /** Environment that forces git — and any ssh it spawns — to run
     * non-interactively. A flow subprocess has no usable TTY, so an HTTPS
