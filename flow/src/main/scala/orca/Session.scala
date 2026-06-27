@@ -1,6 +1,7 @@
 package orca
 
 import orca.agents.{BackendTag, Agent, SessionId}
+import orca.events.OrcaEvent
 import orca.progress.{ProgressLog, SessionRecord}
 
 /** Get-or-create session extension for `Agent`. Lives in the `flow` module so
@@ -30,7 +31,20 @@ extension [B <: BackendTag](agent: Agent[B])
     val idx = fc.nextSessionOccurrence()
     fc.progressStore.load().flatMap(_.sessions.find(_.index == idx)) match
       case Some(recorded) =>
-        // Resume path: return the recorded session id without minting a new one.
+        // Sessions are keyed by positional index (see the scaladoc), so a
+        // recorded seed differing from this call's means the `session(...)`
+        // sequence likely shifted between runs, or the author edited the seed.
+        // The recorded session is reused either way (re-seed is the safe
+        // fallback, ADR 0018 §2.6) — surface the divergence rather than resume
+        // the wrong session silently.
+        if recorded.seed != seed then
+          fc.emit(
+            OrcaEvent.Step(
+              s"warning: session #$idx resumed with a seed differing from the " +
+                "recorded one; using the recorded session (the call sequence " +
+                "may have shifted, or the seed was edited)"
+            )
+          )
         SessionId[B](recorded.id)
       case None =>
         // First run: mint a fresh id, record it, and return it.

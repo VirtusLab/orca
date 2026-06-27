@@ -1,7 +1,7 @@
 package orca
 
 import munit.FunSuite
-import orca.events.EventDispatcher
+import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.agents.{
   Announce,
   AutonomousTextCall,
@@ -41,9 +41,21 @@ class SessionTest extends FunSuite:
     )
     (store, dir)
 
-  private def makeControl(store: ProgressStore, dir: os.Path): TestFlowControl =
+  private def makeControl(
+      store: ProgressStore,
+      dir: os.Path,
+      listeners: List[OrcaListener] = Nil
+  ): TestFlowControl =
     val git = new OsGitTool(dir)
-    new TestFlowControl(new EventDispatcher(Nil), git, store, "p")
+    new TestFlowControl(new EventDispatcher(listeners), git, store, "p")
+
+  /** Captures emitted `Step` messages so a test can assert on warnings. */
+  private class RecordingListener extends OrcaListener:
+    private val buf = scala.collection.mutable.ListBuffer.empty[String]
+    def steps: List[String] = buf.toList
+    def onEvent(event: OrcaEvent): Unit = event match
+      case OrcaEvent.Step(msg) => buf += msg
+      case _                   => ()
 
   test("first agent.session call mints a SessionId and records it at index 0"):
     val (store, dir) = freshStore()
@@ -83,3 +95,35 @@ class SessionTest extends FunSuite:
     assertEquals(resumedId, originalId)
     // Must not mint a second record — still exactly one session.
     assertEquals(store.load().get.sessions.size, 1)
+
+  test("resume with a matching seed emits no divergence warning"):
+    val (store, dir) = freshStore()
+    val agent = new StubAgent
+    val _ = agent.session("plan brief")(using makeControl(store, dir))
+    val recorder = new RecordingListener
+    val _ =
+      agent.session("plan brief")(using makeControl(store, dir, List(recorder)))
+    assert(
+      !recorder.steps.exists(_.contains("warning")),
+      s"no warning expected; got: ${recorder.steps}"
+    )
+
+  test("resume with a divergent seed at the same index warns loudly"):
+    // The positional key (index 0) matches but the seed differs — the most
+    // likely symptom of a shifted `session(...)` call sequence.
+    val (store, dir) = freshStore()
+    val agent = new StubAgent
+    val originalId =
+      agent.session("original seed")(using makeControl(store, dir))
+    val recorder = new RecordingListener
+    val resumedId =
+      agent.session("different seed")(using
+        makeControl(store, dir, List(recorder))
+      )
+    // Still returns the recorded id (re-seed is the safe fallback)...
+    assertEquals(resumedId, originalId)
+    // ...but the divergence is surfaced.
+    assert(
+      recorder.steps.exists(s => s.contains("warning") && s.contains("#0")),
+      s"expected a divergence warning; got: ${recorder.steps}"
+    )
