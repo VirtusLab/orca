@@ -2,7 +2,6 @@ package orca.tools.claude
 
 import orca.events.OrcaListener
 import orca.agents.{BackendTag, AgentConfig, SessionId}
-import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -10,6 +9,7 @@ import orca.backend.{
   AgentResult,
   SessionMode,
   SessionRegistry,
+  SubprocessSpawn,
   SystemPromptComposer
 }
 import orca.subprocess.CliRunner
@@ -78,12 +78,12 @@ private[orca] class ClaudeBackend(
   // Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
   // outlive the process, so the `--session-id` (claim) → `--resume` (continue)
   // decision must survive a resume. Wire the claim into the persist/rehydrate
-  // hooks: `serverFor` lets `persistServerId` record the claimed id (client IS
-  // the wire id) into the progress log, and `registerSession` re-claims it on
-  // rehydrate so a resumed task uses `--resume` rather than re-creating an
-  // already-existing session id. Unlike pi, whose sessions live in a
-  // deleteOnExit temp dir and are gone across runs, claude's are durable, so it
-  // must participate in persist/rehydrate rather than always re-seeding.
+  // hooks: `serverFor` lets the runtime record the claimed id (claude's
+  // client id IS the wire id) into the progress log, and `registerSession`
+  // re-claims it on rehydrate so a resumed task uses `--resume` rather than
+  // re-creating an already-existing session id. Unlike pi, whose sessions live
+  // in a deleteOnExit temp dir and are gone across runs, claude's are durable,
+  // so it must participate in persist/rehydrate rather than always re-seeding.
   override def serverFor(
       client: SessionId[BackendTag.ClaudeCode.type]
   ): Option[SessionId[BackendTag.ClaudeCode.type]] =
@@ -111,20 +111,11 @@ private[orca] class ClaudeBackend(
       workDir = workDir,
       outputSchema = outputSchema
     )
-    val result =
-      try Conversations.drainAutonomous(conv, events)
-      catch
-        // Preserve the non-retryable type: a turn that ran and failed must not
-        // be retried (it would reopen the now-registered session id).
-        case e: AgentTurnFailed => throw e
-        case e: OrcaFlowException =>
-          throw OrcaFlowException(s"claude CLI failed: ${e.getMessage}")
-    // Commit only after a successful drain: a subprocess that crashed before
-    // claude could register the session id (e.g. exit before `system.init`)
-    // would otherwise leave the registry wedged, forcing a retry to
-    // `--resume` a session claude never created.
-    sessions.commitSuccess(session, session)
-    result
+    // drainAndCommit commits only after a successful drain: a subprocess that
+    // crashed before claude could register the session id (e.g. exit before
+    // `system.init`) would otherwise leave the registry wedged, forcing a retry
+    // to `--resume` a session claude never created.
+    Conversations.drainAndCommit("claude", conv, session, sessions, events)
 
   def runInteractive(
       prompt: String,
@@ -202,7 +193,7 @@ private[orca] class ClaudeBackend(
             )
           (Some(resources), p)
         case SessionMode.Autonomous => (None, "")
-    try
+    SubprocessSpawn.open("claude stream-json", askUser.toList) {
       val systemPromptFile =
         writeSystemPromptIfPresent(
           config,
@@ -227,35 +218,20 @@ private[orca] class ClaudeBackend(
         mcpConfig = askUser.map(r => mcpConfigPath(r.server, workDir)),
         networkTools = networkTools
       )
-      val process = cli.spawnPiped(args, cwd = workDir)
-      try
-        process.writeLine(
-          OutboundMessage.toJson(OutboundMessage.UserText(prompt))
-        )
-        process.closeStdin()
-        new ClaudeConversation(
-          process,
-          config,
-          initialPrompt = displayPrompt,
-          outputSchema = outputSchema,
-          askUser = askUser
-        )
-      catch
-        case e: Exception =>
-          // SIGINT the process; the outer catch closes askUser.
-          process.sendSigInt()
-          throw OrcaFlowException(
-            s"Failed to open claude stream-json session: ${e.getMessage}"
-          )
-    catch
-      case e: Throwable =>
-        // Any failure between resource allocation and a fully-constructed
-        // ClaudeConversation: tear down the MCP server (and delete the
-        // config file) so we don't leak a Netty binding or workDir
-        // artefact. Once the conversation owns the resources they ride
-        // through `onFinalize`.
-        askUser.foreach(_.close())
-        throw e
+      cli.spawnPiped(args, cwd = workDir)
+    } { process =>
+      process.writeLine(
+        OutboundMessage.toJson(OutboundMessage.UserText(prompt))
+      )
+      process.closeStdin()
+      new ClaudeConversation(
+        process,
+        config,
+        initialPrompt = displayPrompt,
+        outputSchema = outputSchema,
+        askUser = askUser
+      )
+    }
 
   /** Path of the workDir-local MCP config file advertising the host's MCP
     * server. Named with the bound port so two interactive conversations sharing

@@ -2,7 +2,6 @@ package orca.tools.codex
 
 import orca.events.OrcaListener
 import orca.agents.{BackendTag, AgentConfig, SessionId}
-import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -11,6 +10,7 @@ import orca.backend.{
   AgentResult,
   SessionMode,
   SessionRegistry,
+  SubprocessSpawn,
   SystemPromptComposer
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
@@ -96,18 +96,11 @@ private[orca] class CodexBackend(
       // resume that produces malformed JSON.
       outputSchema = outputSchema
     )
-    try
-      val result = Conversations.drainAutonomous(conv, events)
-      sessions.commitSuccess(session, result.sessionId)
-      // Hide the server-allocated id from the caller — they keep using the
-      // client id they passed in. Future calls resolve via the registry.
-      result.copy(sessionId = session)
-    catch
-      // Preserve the non-retryable type: a turn that ran and failed must not
-      // be retried (it would reopen the now-registered session id).
-      case e: AgentTurnFailed => throw e
-      case e: OrcaFlowException =>
-        throw new OrcaFlowException(s"codex CLI failed: ${e.getMessage}")
+    // Hide the server-allocated id from the caller — they keep using the client
+    // id they passed in. Future calls resolve via the registry.
+    Conversations
+      .drainAndCommit("codex", conv, session, sessions, events)
+      .copy(sessionId = session)
 
   def runInteractive(
       prompt: String,
@@ -157,7 +150,7 @@ private[orca] class CodexBackend(
       mode match
         case SessionMode.Interactive(p) => (Some(AskUserSession.allocate()), p)
         case SessionMode.Autonomous     => (None, "")
-    try
+    SubprocessSpawn.open("codex", askUser.toList) {
       // codex `exec` has no `--system-prompt` flag (it picks up `AGENTS.md`
       // files for static instructions), so fold the composed system prompt into
       // the user prompt.
@@ -184,34 +177,19 @@ private[orca] class CodexBackend(
             workDir,
             mcpServerUrl = mcpUrl
           )
-      val process = cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
-      try
-        // codex doesn't accept user turns over stdin once the initial
-        // prompt has been argv-supplied; close immediately so the
-        // child stops waiting on stdin EOF. Same reflex as claude's
-        // single-shot stream-json path.
-        process.closeStdin()
-        new CodexConversation(
-          process,
-          initialPrompt = displayPrompt,
-          outputSchema = outputSchema,
-          askUser = askUser
-        )
-      catch
-        case e: Exception =>
-          // SIGINT the process; the outer catch closes askUser.
-          process.sendSigInt()
-          throw OrcaFlowException(
-            s"Failed to open codex session: ${e.getMessage}"
-          )
-    catch
-      case e: Throwable =>
-        // Any failure between resource allocation and a fully-constructed
-        // CodexConversation: tear down the MCP server so the Netty
-        // binding doesn't leak. Once the conversation owns the resources
-        // they ride through `onFinalize`.
-        askUser.foreach(_.close())
-        throw e
+      cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
+    } { process =>
+      // codex doesn't accept user turns over stdin once the initial prompt has
+      // been argv-supplied; close immediately so the child stops waiting on
+      // stdin EOF. Same reflex as claude's single-shot stream-json path.
+      process.closeStdin()
+      new CodexConversation(
+        process,
+        initialPrompt = displayPrompt,
+        outputSchema = outputSchema,
+        askUser = askUser
+      )
+    }
 
   /** Record the server-allocated thread id so subsequent calls with the same
     * client id resume that thread. Called by [[runAutonomous]] post-drain and

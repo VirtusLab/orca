@@ -1,8 +1,8 @@
 package orca.backend
 
-import orca.OrcaInteractiveCancelled
+import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.agents.BackendTag
+import orca.agents.{BackendTag, SessionId}
 
 /** Drains a [[Conversation]] for the autonomous path, mapping conversation
   * events to [[OrcaEvent]]s and returning the awaited `AgentResult`.
@@ -106,3 +106,44 @@ private[orca] object Conversations:
       // Autonomous callers can't produce a Left; surface as a throw so the
       // AgentResult call shape is honoured.
       case Left(cancelled) => throw cancelled
+
+  /** The shared autonomous-turn finalize for the subprocess backends
+    * (claude/codex/gemini/pi): drain the conversation, then — on success only —
+    * commit the session as resumable. Returns the drained result verbatim;
+    * codex/gemini/pi re-stamp the caller's stable handle with `.copy(sessionId
+    * \= session)` at the call site. Only claude leaves the result's session id
+    * untouched — it surfaces the id claude reported, which in production
+    * already equals the client id.
+    *
+    * Two invariants are centralised here because each backend got them subtly
+    * wrong at some point:
+    *
+    *   - [[AgentTurnFailed]] is re-thrown verbatim (a turn that ran and failed
+    *     must NOT be retried — a retry would reopen the now-registered session
+    *     id). Any other [[OrcaFlowException]] is rewrapped under `backendName`
+    *     so the user sees which backend failed; the corrective-retry loop in
+    *     `DefaultAgentCall` still recognises it as retryable.
+    *   - `commitSuccess` runs only after a clean drain, so a subprocess that
+    *     crashed before registering its session doesn't wedge the registry into
+    *     resuming a session that was never created.
+    *
+    * `registry.commitSuccess(session, result.sessionId)` is uniform across both
+    * registry shapes: [[SessionRegistry.ClientToServer]] records the learned
+    * server id, while [[SessionRegistry.ClaimedOnce]] ignores the server arg
+    * and just marks the client id claimed.
+    */
+  def drainAndCommit[B <: BackendTag](
+      backendName: String,
+      conv: Conversation[B],
+      session: SessionId[B],
+      registry: SessionRegistry[B],
+      events: OrcaListener = OrcaListener.noop
+  ): AgentResult[B] =
+    val result =
+      try drainAutonomous(conv, events)
+      catch
+        case e: AgentTurnFailed => throw e
+        case e: OrcaFlowException =>
+          throw OrcaFlowException(s"$backendName CLI failed: ${e.getMessage}")
+    registry.commitSuccess(session, result.sessionId)
+    result

@@ -59,9 +59,9 @@ private[claude] class ClaudeConversation(
   /** Tool-use ids of `ask_user` calls suppressed in `handleAssistantTurn`.
     * `handleUserTurn` drops the matching `tool_result` so the user's typed
     * answer doesn't re-render as `⎿ <answer>` right after the UserQuestion
-    * prompt already surfaced it.
+    * prompt already surfaced it. See [[orca.backend.AskUserEchoes]].
     */
-  private var suppressedToolUseIds: Set[String] = Set.empty
+  private val askUserEchoes = new orca.backend.AskUserEchoes
 
   // --- Conversation surface (only the bit not covered by the base) ---
 
@@ -142,7 +142,7 @@ private[claude] class ClaudeConversation(
       // `⎿ <answer>` after the prompt already surfaced it).
       case ContentBlock.ToolUse(id, name, _)
           if name == ClaudeBackend.AskUserToolName =>
-        suppressedToolUseIds = suppressedToolUseIds + id
+        askUserEchoes.suppress(id)
       case ContentBlock.ToolUse(_, name, rawInput) =>
         eventQueue.enqueue(ConversationEvent.AssistantToolCall(name, rawInput))
       case ContentBlock.Text(text) if !sawDeltasThisTurn =>
@@ -159,10 +159,11 @@ private[claude] class ClaudeConversation(
   private def handleUserTurn(content: List[ContentBlock]): Unit =
     content.foreach:
       case ContentBlock.ToolResult(toolUseId, _, _)
-          if suppressedToolUseIds.contains(toolUseId) =>
+          if askUserEchoes.consume(toolUseId) =>
         // Paired with a suppressed `ask_user` ToolUse; the user has already
         // seen their own typed answer at the prompt, so don't echo it back.
-        suppressedToolUseIds = suppressedToolUseIds - toolUseId
+        // `consume` removes the id as it matches.
+        ()
       case ContentBlock.ToolResult(_, body, isError) =>
         eventQueue.enqueue(
           ConversationEvent.ToolResult(

@@ -62,12 +62,10 @@ private[codex] class CodexConversation(
     * has already surfaced the corresponding `UserQuestion` event, so rendering
     * the tool call on top would be noise. The matching `item.completed` is also
     * suppressed: the user's typed answer would otherwise re-render as `⎿
-    * <answer>` after the prompt surfaced it.
-    *
-    * Single-threaded reader (the JSONL reader thread is the sole writer), so a
-    * plain `var` Set is enough.
+    * <answer>` after the prompt surfaced it. See
+    * [[orca.backend.AskUserEchoes]].
     */
-  private var suppressedMcpItemIds: Set[String] = Set.empty
+  private val askUserEchoes = new orca.backend.AskUserEchoes
 
   // Subclass fields above are assigned now; safe to spin up the reader +
   // stderr workers. See [[StreamConversation.start]] — the base also
@@ -157,7 +155,7 @@ private[codex] class CodexConversation(
       // ask_user is surfaced through the host-side bridge as a
       // UserQuestion event; the matching item.completed echo is dropped
       // too — the user has already seen their typed answer at the prompt.
-      suppressedMcpItemIds = suppressedMcpItemIds + id
+      askUserEchoes.suppress(id)
     case Item.McpToolCall(_, server, tool, args, _, _) =>
       eventQueue.enqueue(
         ConversationEvent.AssistantToolCall(
@@ -194,11 +192,10 @@ private[codex] class CodexConversation(
           content = changes.map(c => s"${c.kind} ${c.path}").mkString("\n")
         )
       )
-    case Item.McpToolCall(id, _, _, _, _, _)
-        if suppressedMcpItemIds.contains(id) =>
-      // Matched a suppressed ask_user call started above; drop the
-      // mirrored completion and clear the id.
-      suppressedMcpItemIds = suppressedMcpItemIds - id
+    case Item.McpToolCall(id, _, _, _, _, _) if askUserEchoes.consume(id) =>
+      // Matched a suppressed ask_user call started above; drop the mirrored
+      // completion. `consume` clears the id as it matches.
+      ()
     case Item.McpToolCall(_, server, tool, _, result, status) =>
       eventQueue.enqueue(
         ConversationEvent.ToolResult(

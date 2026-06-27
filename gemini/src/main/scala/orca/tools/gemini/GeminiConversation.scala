@@ -64,9 +64,10 @@ private[gemini] class GeminiConversation(
 
   /** tool_use ids for `ask_user` MCP calls whose echo we drop — the host-side
     * bridge already surfaced the matching `UserQuestion`, so rendering the tool
-    * call + the answer-as-result on top would be noise.
+    * call + the answer-as-result on top would be noise. See
+    * [[orca.backend.AskUserEchoes]].
     */
-  private var suppressedToolIds: Set[String] = Set.empty
+  private val askUserEchoes = new orca.backend.AskUserEchoes
 
   // Subclass fields above are assigned; safe to spin up the reader.
   start()
@@ -167,8 +168,7 @@ private[gemini] class GeminiConversation(
       eventQueue.enqueue(ConversationEvent.AssistantTextDelta(content))
 
   private def handleToolUse(name: String, id: String, params: String): Unit =
-    if GeminiConversation.isAskUserTool(name) then
-      suppressedToolIds = suppressedToolIds + id
+    if GeminiConversation.isAskUserTool(name) then askUserEchoes.suppress(id)
     else
       toolNames = toolNames + (id -> name)
       eventQueue.enqueue(
@@ -180,8 +180,7 @@ private[gemini] class GeminiConversation(
       status: String,
       output: String
   ): Unit =
-    if suppressedToolIds.contains(id) then
-      suppressedToolIds = suppressedToolIds - id
+    if askUserEchoes.consume(id) then ()
     else
       eventQueue.enqueue(
         ConversationEvent.ToolResult(

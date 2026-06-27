@@ -3,7 +3,6 @@ package orca.tools.gemini
 import orca.events.OrcaListener
 import orca.agents.{BackendTag, AgentConfig, SessionId}
 import orca.subprocess.CliResult
-import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -12,6 +11,7 @@ import orca.backend.{
   AgentResult,
   SessionMode,
   SessionRegistry,
+  SubprocessSpawn,
   SystemPromptComposer
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
@@ -71,19 +71,11 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
       // `--output-schema` flag, so enforcement is prompt-only.
       outputSchema = outputSchema
     )
-    try
-      val result = Conversations.drainAutonomous(conv, events)
-      sessions.commitSuccess(session, result.sessionId)
-      // Hide the server-allocated id from the caller — they keep using the
-      // client id they passed in. Future calls resolve via the registry.
-      result.copy(sessionId = session)
-    catch
-      // Preserve the non-retryable type: a turn that genuinely ran and failed
-      // must keep its `AgentTurnFailed` so the corrective-retry loop (which only
-      // retries parse failures) doesn't re-run it.
-      case e: AgentTurnFailed => throw e
-      case e: OrcaFlowException =>
-        throw new OrcaFlowException(s"gemini CLI failed: ${e.getMessage}")
+    // Hide the server-allocated id from the caller — they keep using the client
+    // id they passed in. Future calls resolve via the registry.
+    Conversations
+      .drainAndCommit("gemini", conv, session, sessions, events)
+      .copy(sessionId = session)
 
   def runInteractive(
       prompt: String,
@@ -128,7 +120,9 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
             List(GeminiSettings.register(workDir, server.url))
           (Some(askUserSession), p)
         case SessionMode.Autonomous => (None, "")
-    try
+    // On a spawn/build failure the ask_user bundle is closed, which also
+    // restores the settings.json via its `extras`, so nothing leaks.
+    SubprocessSpawn.open("gemini", askUser.toList) {
       // gemini has no `--append-system-prompt` flag (it picks up `GEMINI.md`
       // files for static instructions), so fold the composed system prompt into
       // the user prompt — same approach as codex.
@@ -142,31 +136,18 @@ private[orca] class GeminiBackend(cli: CliRunner)(using Ox, BufferCapacity)
           GeminiArgs.resume(serverId, finalPrompt, config)
         case Dispatch.Fresh(_) =>
           GeminiArgs.headless(finalPrompt, config)
-      val process = cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
-      try
-        // Close stdin so the child stops waiting on EOF (gemini reads the
-        // prompt argv-side).
-        process.closeStdin()
-        new GeminiConversation(
-          process,
-          initialPrompt = displayPrompt,
-          outputSchema = outputSchema,
-          askUser = askUser
-        )
-      catch
-        case e: Exception =>
-          process.sendSigInt()
-          throw OrcaFlowException(
-            s"Failed to open gemini session: ${e.getMessage}"
-          )
-    catch
-      case e: Throwable =>
-        // Any failure between resource allocation and a fully-constructed
-        // GeminiConversation: tear down the MCP server (which also restores
-        // the settings.json via its extras) so nothing leaks. Once the
-        // conversation owns the resources they ride through `onFinalize`.
-        askUser.foreach(_.close())
-        throw e
+      cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
+    } { process =>
+      // Close stdin so the child stops waiting on EOF (gemini reads the prompt
+      // argv-side).
+      process.closeStdin()
+      new GeminiConversation(
+        process,
+        initialPrompt = displayPrompt,
+        outputSchema = outputSchema,
+        askUser = askUser
+      )
+    }
 
   /** Record the server session id so subsequent calls with the same client id
     * resume that session. Called by [[runAutonomous]] post-drain and by

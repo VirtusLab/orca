@@ -2,7 +2,6 @@ package orca.tools.pi
 
 import orca.events.OrcaListener
 import orca.agents.{BackendTag, AgentConfig, SessionId}
-import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -11,12 +10,12 @@ import orca.backend.{
   AgentResult,
   SessionMode,
   SessionRegistry,
+  SubprocessSpawn,
   SystemPromptComposer
 }
 import orca.subprocess.CliRunner
 
 import scala.collection.mutable.ListBuffer
-import scala.util.control.NonFatal
 
 /** Pi backend driven through `pi --mode rpc` JSONL over stdio.
   *
@@ -59,14 +58,9 @@ private[orca] class PiBackend(cli: CliRunner)
       workDir = workDir,
       outputSchema = outputSchema
     )
-    try
-      val result = Conversations.drainAutonomous(conv, events)
-      sessions.commitSuccess(session, session) // now resumable
-      result.copy(sessionId = session)
-    catch
-      case e: AgentTurnFailed => throw e
-      case e: OrcaFlowException =>
-        throw new OrcaFlowException(s"pi CLI failed: ${e.getMessage}")
+    Conversations
+      .drainAndCommit("pi", conv, session, sessions, events)
+      .copy(sessionId = session)
 
   def runInteractive(
       prompt: String,
@@ -93,10 +87,10 @@ private[orca] class PiBackend(cli: CliRunner)
       client: SessionId[BackendTag.Pi.type],
       serverSession: SessionId[BackendTag.Pi.type]
   ): Unit = sessions.commitSuccess(client, serverSession)
-  // No `serverFor` override: pi's client id IS the wire id and its sessions live
-  // in a `deleteOnExit` temp dir (gone across runs), so there is nothing durable
-  // to persist or rehydrate — pi always re-seeds (ADR 0018 §2.6). The default
-  // `None` keeps pi unaffected by the persist/rehydrate path.
+  // No `serverFor` override: pi's sessions live in a `deleteOnExit` temp dir
+  // (gone across runs), so there is nothing durable to persist or rehydrate — pi
+  // always re-seeds (ADR 0018 §2.6). The default `None` keeps pi unaffected by
+  // the persist/rehydrate path.
 
   private def openConversation(
       prompt: String,
@@ -117,16 +111,16 @@ private[orca] class PiBackend(cli: CliRunner)
       resources += resource
       resource
 
-    def closeResources(): Unit = resources.reverseIterator.foreach(closeQuietly)
+    val (displayPrompt, askUserExtension, extraHint) = mode match
+      case SessionMode.Autonomous =>
+        ("", None, None)
+      case SessionMode.Interactive(p) =>
+        val extension = register(PiAskUserExtension.allocate())
+        (p, Some(extension), Some(PiAskUserExtension.Hint))
 
-    try
-      val (displayPrompt, askUserExtension, extraHint) = mode match
-        case SessionMode.Autonomous =>
-          ("", None, None)
-        case SessionMode.Interactive(p) =>
-          val extension = register(PiAskUserExtension.allocate())
-          (p, Some(extension), Some(PiAskUserExtension.Hint))
-
+    // `resources` is accumulated above (and as the argv is built); SubprocessSpawn
+    // reads it (by-name) only on a spawn/build failure to release it.
+    SubprocessSpawn.open("pi RPC", resources.toList) {
       val systemPromptFile = writeSystemPromptIfPresent(config, extraHint)
         .map(register)
 
@@ -140,29 +134,19 @@ private[orca] class PiBackend(cli: CliRunner)
         systemPromptFile = systemPromptFile.map(_.file),
         askUserExtension = askUserExtension.map(_.file)
       )
-      val process = cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
-      try
-        val conversation = new PiConversation(
-          process = process,
-          clientSession = session,
-          initialPrompt = displayPrompt,
-          outputSchema = outputSchema,
-          askUserEnabled = askUserExtension.isDefined,
-          resources = resources.toList
-        )
-        conversation.sendPrompt(prompt)
-        conversation
-      catch
-        case e: Exception =>
-          process.sendSigInt()
-          closeResources()
-          throw OrcaFlowException(
-            s"Failed to open pi RPC session: ${e.getMessage}"
-          )
-    catch
-      case NonFatal(e) =>
-        closeResources()
-        throw e
+      cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
+    } { process =>
+      val conversation = new PiConversation(
+        process = process,
+        clientSession = session,
+        initialPrompt = displayPrompt,
+        outputSchema = outputSchema,
+        askUserEnabled = askUserExtension.isDefined,
+        resources = resources.toList
+      )
+      conversation.sendPrompt(prompt)
+      conversation
+    }
 
   private def writeSystemPromptIfPresent(
       config: AgentConfig,
