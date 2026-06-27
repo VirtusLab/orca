@@ -13,9 +13,9 @@ import scala.util.control.NonFatal
   *     exposes both `autonomous` and `interactive` modes.
   *
   * Each mode has a single `run(input, session = …, config = …)` method that
-  * always returns `(SessionId[B], output)`. Pre-allocate a session with
-  * [[newSession]] and pass it across calls to keep one conversation alive; omit
-  * the argument to get a fresh one-shot session per call.
+  * always returns `(SessionId[B], output)`. Pass a `SessionId[B]` across calls
+  * to keep one conversation alive — in a flow, obtain a resumable one with
+  * `agent.session(seed)` — or omit it to get a fresh one-shot session per call.
   *
   * The API never hides the autonomous-vs-interactive choice behind a default —
   * it's always visible at the call site as the leftmost segment after the tool
@@ -80,24 +80,24 @@ trait Agent[B <: BackendTag]:
     */
   protected def defaultCheap: Agent[B] = this
 
-  /** Pin the cheap-model variant [[cheap]] (and [[cheapOneShot]]) use,
-    * overriding the backend default. Lets a flow specify both a leading and a
-    * cheap model, e.g.
+  /** Pin the model that [[cheap]] resolves to, overriding the backend default.
+    * Lets a flow specify both a leading and a cheap model, e.g.
     * `_.opencode.anthropicSonnet.withCheapModel(Model("anthropic/claude-haiku-4-5"))`.
     */
   def withCheapModel(model: Model): Agent[B] = this
 
-  /** Best-effort one-line reply from the cheap model. Runs `prompt` on
-    * `cheap.withReadOnly` (no prompt echo), and returns the first non-blank
-    * line trimmed — or `fallback` if the reply is empty or the call fails for
-    * any non-fatal reason. Markdown code-fence lines are skipped (cheap models
-    * sometimes wrap a one-line reply in a fenced block).
-    *
-    * Never throws: incidental cheap-model calls (branch naming, default commit
-    * messages) must never break a flow. Requires `InStage` because it is a
-    * gated LLM call.
+  /** Best-effort one-line reply from the cheap model, for the runtime's own
+    * incidental text (branch naming, default commit messages). Runs `prompt` on
+    * `cheap.withReadOnly` (no prompt echo), returns the first non-blank line
+    * trimmed — or `fallback` if the reply is empty or the call fails for any
+    * non-fatal reason (markdown fence lines are skipped). Never throws: these
+    * calls must never break a flow. `private[orca]` — internal; flow scripts
+    * use `cheap.autonomous.run(...)` directly if they want a one-off cheap
+    * call.
     */
-  def cheapOneShot(prompt: String, fallback: => String)(using InStage): String =
+  private[orca] def cheapOneShot(prompt: String, fallback: => String)(using
+      InStage
+  ): String =
     try
       val (_, text) =
         cheap.withReadOnly.autonomous.run(prompt, emitPrompt = false)
@@ -148,25 +148,35 @@ trait Agent[B <: BackendTag]:
       server: SessionId[B]
   ): Unit = ()
 
-  /** Mint a fresh session id you can pass to `.run(...)` across multiple calls.
-    * The first call with this id starts the session; subsequent calls resume
-    * it. Lets flow scripts hold a stable `val session = claude.newSession`
-    * instead of threading a `var Option[SessionId]` through the loop.
+  /** Mint a fresh, unrecorded session id — used by the runtime for ephemeral
+    * one-off conversations (e.g. each reviewer's own turn). NOT resume-aware:
+    * it isn't recorded in the progress log, so a re-run mints a different id.
+    * Flow scripts that need a session to survive restarts use
+    * `agent.session(seed)` instead, which keys off the log. `private[orca]` —
+    * internal.
     *
     * Default implementation generates a UUID via [[SessionId.fresh]]; backends
     * that need a different format (or eager server-side allocation) override.
     */
-  def newSession: SessionId[B] = SessionId.fresh[B]
+  private[orca] def newSession: SessionId[B] = SessionId.fresh[B]
 
+/** Bare `claude` runs Opus with the 1M-token context window (the long-lived
+  * implementer); the accessors below pin a specific tier, e.g.
+  * `claude.haiku.autonomous.run("summarize this")._2` for a cheap fast
+  * one-shot.
+  */
 trait ClaudeAgent extends Agent[BackendTag.ClaudeCode.type]:
   /** Pin the Claude model for subsequent calls, overriding `AgentConfig.model`.
-    * Typical usage: `claude.haiku.autonomous.run("summarize this")._2` for a
-    * cheap fast one-shot call (discard the returned session id).
     */
   def haiku: ClaudeAgent
   def sonnet: ClaudeAgent
   def opus: ClaudeAgent
   def fable: ClaudeAgent
+
+  /** Pin any Claude model id beyond the named tiers, e.g.
+    * `claude.withModel(Model("claude-opus-4-1-some-snapshot"))`.
+    */
+  def withModel(model: Model): ClaudeAgent
 
   override protected def defaultCheap: ClaudeAgent = haiku
 
@@ -178,8 +188,17 @@ trait ClaudeAgent extends Agent[BackendTag.ClaudeCode.type]:
     */
   def withNetworkTools(tools: Seq[String]): ClaudeAgent
 
+/** Bare `codex` runs the installed `codex-cli`'s default model; `codex.mini`
+  * opts down to the cheap tier, and `codex.withModel(Model("..."))` pins any
+  * other id the CLI offers.
+  */
 trait CodexAgent extends Agent[BackendTag.Codex.type]:
   def mini: CodexAgent
+
+  /** Pin any codex model the installed `codex-cli` offers, beyond `mini` — e.g.
+    * `codex.withModel(Model("gpt-5.4-pro"))`.
+    */
+  def withModel(model: Model): CodexAgent
 
   override protected def defaultCheap: CodexAgent = mini
 
@@ -211,7 +230,10 @@ trait OpencodeAgent extends Agent[BackendTag.Opencode.type]:
   def withModel(provider: String, modelId: String): OpencodeAgent =
     withModel(s"$provider/$modelId")
 
-trait PiAgent extends Agent[BackendTag.Pi.type]
+trait PiAgent extends Agent[BackendTag.Pi.type]:
+  /** Pin a pi model id; pi otherwise selects the model via its own CLI config.
+    */
+  def withModel(model: Model): PiAgent
 
 trait GeminiAgent extends Agent[BackendTag.Gemini.type]:
   /** Pin the cheap-and-fast Gemini Flash model for subsequent calls, overriding
@@ -219,5 +241,10 @@ trait GeminiAgent extends Agent[BackendTag.Gemini.type]:
     * runtime wiring); `gemini.flash` opts down for cheap one-shots.
     */
   def flash: GeminiAgent
+
+  /** Pin any Gemini model id beyond `flash`, e.g.
+    * `gemini.withModel(Model("gemini-2.5-pro"))`.
+    */
+  def withModel(model: Model): GeminiAgent
 
   override protected def defaultCheap: GeminiAgent = flash

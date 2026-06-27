@@ -99,11 +99,11 @@ The following are available inside a `flow(...) { ... }`:
 
 | Tool | Methods | Purpose |
 |---|---|---|
-| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `withCheapModel`, `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withNetworkTools`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer; reviewers share it); use `claude.sonnet`/`claude.haiku` for cheap one-shot calls, or `claude.fable` for the hardest ones. `interactive` mode lives only on `resultAs[O]`. `session`/`runSeeded` are flow extensions (see [Sessions](#sessions)). |
-| `codex` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `mini`, `cheap` (→ mini), `withCheapModel`, `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | OpenAI Codex coding/reviewing agent. |
-| `opencode` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiGpt5`/`openaiGpt5Codex`/`openaiGpt5Mini`, `cheap` (provider-matched: openai→mini, else anthropicHaiku), `withCheapModel`, `withModel(providerModel)` / `withModel(provider, modelId)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiGpt5Mini`) or `opencode.withModel("openai/gpt-4o-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
-| `pi` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withConfig(AgentConfig(model = Some(Model("provider/model"))))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
-| `gemini` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `newSession`, `session(seed)`, `runSeeded(prompt, session)`, `flash`, `cheap` (→ flash), `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
+| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `session(seed)`, `runSeeded(prompt, session)`, `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `withModel(Model)`, `withCheapModel`, `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withNetworkTools`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer; reviewers share it); use `claude.sonnet`/`claude.haiku` for cheap one-shot calls, or `claude.fable` for the hardest ones. `interactive` mode lives only on `resultAs[O]`. `session`/`runSeeded` are flow extensions (see [Sessions](#sessions)). |
+| `codex` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `session(seed)`, `runSeeded(prompt, session)`, `mini`, `cheap` (→ mini), `withModel(Model)`, `withCheapModel`, `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | OpenAI Codex coding/reviewing agent. |
+| `opencode` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `session(seed)`, `runSeeded(prompt, session)`, `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiGpt5`/`openaiGpt5Codex`/`openaiGpt5Mini`, `cheap` (provider-matched: openai→mini, else anthropicHaiku), `withCheapModel`, `withModel(providerModel)` / `withModel(provider, modelId)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiGpt5Mini`) or `opencode.withModel("openai/gpt-4o-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
+| `pi` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `session(seed)`, `runSeeded(prompt, session)`, `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
+| `gemini` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `session(seed)`, `runSeeded(prompt, session)`, `flash`, `cheap` (→ flash), `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
 | `git` | `createBranch`, `checkout`, `checkoutOrCreate`, `ensureClean`, `commit`, `forceAdd`, `push`, `currentBranch`, `diff`, `diffVsBase`, `defaultBase`, `log`, `resetHard`, `deleteBranch`, `addWorktree`, `removeWorktree`, `listWorktrees`, `diffBranchExcludingOrca` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushRejected`, `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `resetHard`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. |
 | `gh` | `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (safe on re-run — use `orcaCommentMarker(userPrompt, purpose)` to embed the prompt hash as the marker). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
@@ -132,6 +132,21 @@ flow(OrcaArgs(args)):
 ```
 
 ## Coding agent tools
+
+There are two ways to drive a model in a flow:
+
+- **The leading agent — `agent`.** Backend-agnostic: it's whatever the `flow`
+  selector picked (`_.claude`, `_.codex`, …). Use it for the flow's planning,
+  implementation, reviewing, and its session (`agent.session(seed)` →
+  `agent.runSeeded(...)`). Switch the selector and the whole flow follows; you
+  never name a backend in the body.
+- **A specific agent + model — `claude.opus`, `codex.mini`, `opencode.openaiGpt5Mini`.**
+  Use a concrete accessor when you want a particular backend or tier, or for
+  interactive planning (`Plan.interactive` needs a concrete backend). The tier
+  accessors (`.opus`/`.sonnet`/…) live on the concrete agents, not on `agent` —
+  so `agent.opus` won't compile; that's the cue to name the backend. Pin any
+  other model with `withModel(Model("…"))`. Don't mix the two for one session
+  (a `SessionId` is backend-typed).
 
 > [!WARNING]
 > **Coding agent tool usage is auto-approved by default** (`tools =
@@ -238,8 +253,9 @@ The `seed` is the essential context to rebuild the agent — typically the **pla
 brief**, or the issue body when there is no brief. `runSeeded` primes a fresh
 session with the seed on first use; if the backend session is lost on resume it
 re-seeds, prepending a progress preamble naming the completed stages; if the
-session is still alive it continues it directly. (`newSession` gives a plain
-fresh id with no get-or-create recording.)
+session is still alive it continues it directly. For a one-off call that doesn't
+need to survive restarts, just omit the session argument (`agent.autonomous.run(prompt)`
+mints a fresh one per call).
 
 `agent.cheap` returns the backend's cheap/fast variant (claude → haiku, codex →
 mini, gemini → flash, opencode → anthropicHaiku, others → self) — used by the

@@ -8,6 +8,7 @@ import orca.agents.{
   JsonData,
   AgentCall,
   AgentConfig,
+  Model,
   ToolSet
 }
 
@@ -22,6 +23,7 @@ object StubAgent:
     def sonnet = this
     def opus = this
     def fable = this
+    def withModel(model: Model) = this
     def withNetworkTools(t: Seq[String]) = this
     def withConfig(c: AgentConfig) = this
     def withSystemPrompt(p: String) = this

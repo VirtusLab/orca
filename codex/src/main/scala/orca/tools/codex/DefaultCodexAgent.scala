@@ -30,8 +30,8 @@ private[orca] class DefaultCodexAgent(
 
   /** Pin the cheap-and-fast model variant. The literal model id matches what's
     * available in the installed `codex-cli` (gpt-5.4-mini in 0.125.0); newer
-    * codex versions may rename, in which case callers override via
-    * `withConfig(AgentConfig(model = Some(Model("..."))))`.
+    * codex versions may rename, in which case callers pin the right id with
+    * `codex.withModel(Model("..."))`.
     */
   def mini: CodexAgent = withModel(Model("gpt-5.4-mini"))
 

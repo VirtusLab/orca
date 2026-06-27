@@ -145,12 +145,11 @@ private def recordAndCommit[T: JsonData](
       log.debug("stage {} commit was empty (already recorded?)", name)
 
 /** Generate a commit message from the current working-tree diff via the leading
-  * agent's cheap model (`FlowContext.cheapOneShot`). The diff is captured
-  * before the progress file is force-added, so it reflects only code changes
-  * the stage body produced. Falls back to `"stage: <name>"` when the diff is
-  * empty, the agent returns blank, or any `NonFatal` is thrown — committing
-  * must never break. Only called when the caller supplied no explicit
-  * `commitMessage`.
+  * agent's cheap model (`fc.agent.cheapOneShot`). The diff is captured before
+  * the progress file is force-added, so it reflects only code changes the stage
+  * body produced. Falls back to `"stage: <name>"` when the diff is empty, the
+  * agent returns blank, or any `NonFatal` is thrown — committing must never
+  * break. Only called when the caller supplied no explicit `commitMessage`.
   */
 private def defaultCommitMessage(
     name: String

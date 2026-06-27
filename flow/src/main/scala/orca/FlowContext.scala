@@ -31,12 +31,13 @@ import scala.annotation.implicitNotFound
   "the flow tools (`claude`/`codex`/`git`/`gh`/`fs`/…), `display`, and `fail` are only available inside a `flow(...)` body. Wrap this code in `flow(OrcaArgs(args), _.claude): ...`."
 )
 trait FlowContext:
-  /** Backend tag of the leading agent (the one the `flow(...)` selector
-    * picked). A type *member* rather than a parameter, so `FlowContext` stays
-    * unparametrised — every `using FlowContext` site is unaffected — while
-    * [[agent]] is still concretely typed (`Agent[LeadB]`), which is what lets a
-    * session thread across calls. The runtime captures the concrete tag here at
-    * construction (`flow` is generic over it, inferred from the selector).
+  /** Backend tag of the leading agent. You never write this — it's the backend
+    * of the agent your `flow(...)` selector picked, and it's why `agent` is
+    * precisely typed (`Agent[LeadB]`) so sessions thread. (A type *member*
+    * rather than a parameter, so `FlowContext` stays unparametrised — every
+    * `using FlowContext` site is unaffected; the runtime captures the concrete
+    * tag here at construction, with `flow` generic over it, inferred from the
+    * selector.)
     */
   type LeadB <: BackendTag
 

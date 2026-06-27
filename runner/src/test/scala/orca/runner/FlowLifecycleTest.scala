@@ -19,6 +19,7 @@ import orca.agents.{
   JsonData,
   AgentCall,
   AgentConfig,
+  Model,
   SessionId,
   ToolSet
 }
@@ -693,6 +694,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     def sonnet = this
     def opus = this
     def fable = this
+    def withModel(model: Model) = this
     def withNetworkTools(t: Seq[String]) = this
     def withConfig(c: AgentConfig) = this
     def withSystemPrompt(p: String) = this

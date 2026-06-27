@@ -39,7 +39,7 @@ object FlowCanary:
   def structuredResult(): Unit =
     flow(OrcaArgs(), _.claude):
       stage("plan"):
-        val session = claude.newSession
+        val session = claude.session(seed = userPrompt)
         val _ = claude.resultAs[FlowPlan].interactive.run(userPrompt, session)
         val _ = claude.resultAs[FlowPlan].interactive.run("refine", session)
         val _ = claude.resultAs[FlowPlan].autonomous.run(userPrompt, session)
@@ -51,7 +51,7 @@ object FlowCanary:
   def continuedSession(): Unit =
     flow(OrcaArgs(), _.claude):
       stage("impl"):
-        val session = claude.newSession
+        val session = claude.session(seed = userPrompt)
         val _ = claude.autonomous.run("kick off", session)
         val _ = claude.autonomous.run("keep going", session)
         val _ = claude.autonomous.run("one-shot")
@@ -236,8 +236,8 @@ object FlowCanary:
 
       for task <- plan.tasks do
         stage(s"task: ${task.title.value}"):
-          val _ =
-            claude.autonomous.run(plan.taskPrompt(task), claude.newSession)
+          // omitting the session arg gives a fresh one-shot session
+          val _ = claude.autonomous.run(plan.taskPrompt(task))
 
   // -----------------------------------------------------------------------
   // Example-shape canaries (ADR 0018 §3, Task F2)

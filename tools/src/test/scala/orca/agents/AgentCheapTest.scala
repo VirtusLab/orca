@@ -61,6 +61,7 @@ class AgentCheapTest extends munit.FunSuite:
     def sonnet: ClaudeAgent = namedClaude("sonnet")
     def opus: ClaudeAgent = namedClaude("opus")
     def fable: ClaudeAgent = namedClaude("fable")
+    def withModel(model: Model): ClaudeAgent = this
     def withNetworkTools(t: Seq[String]): ClaudeAgent = this
     def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
     def resultAs[O: JsonData: Announce]
@@ -78,6 +79,7 @@ class AgentCheapTest extends munit.FunSuite:
         def sonnet: ClaudeAgent = self.sonnet
         def opus: ClaudeAgent = self.opus
         def fable: ClaudeAgent = self.fable
+        def withModel(model: Model): ClaudeAgent = self
         def withNetworkTools(t: Seq[String]): ClaudeAgent = self
         def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
         def resultAs[O: JsonData: Announce]
@@ -91,6 +93,7 @@ class AgentCheapTest extends munit.FunSuite:
   private class StubCodexAgent extends CodexAgent:
     val name: String = "codex"
     def mini: CodexAgent = namedCodex("mini")
+    def withModel(model: Model): CodexAgent = this
     def autonomous: AutonomousTextCall[BackendTag.Codex.type] = ???
     def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Codex.type, O] =
       ???
@@ -102,6 +105,7 @@ class AgentCheapTest extends munit.FunSuite:
       new CodexAgent:
         val name: String = n
         def mini: CodexAgent = this
+        def withModel(model: Model): CodexAgent = this
         def autonomous: AutonomousTextCall[BackendTag.Codex.type] = ???
         def resultAs[O: JsonData: Announce]
             : AgentCall[BackendTag.Codex.type, O] =
@@ -114,6 +118,7 @@ class AgentCheapTest extends munit.FunSuite:
   private class StubGeminiAgent extends GeminiAgent:
     val name: String = "gemini"
     def flash: GeminiAgent = namedGemini("flash")
+    def withModel(model: Model): GeminiAgent = this
     def autonomous: AutonomousTextCall[BackendTag.Gemini.type] = ???
     def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Gemini.type, O] =
       ???
@@ -125,6 +130,7 @@ class AgentCheapTest extends munit.FunSuite:
       new GeminiAgent:
         val name: String = n
         def flash: GeminiAgent = this
+        def withModel(model: Model): GeminiAgent = this
         def autonomous: AutonomousTextCall[BackendTag.Gemini.type] = ???
         def resultAs[O: JsonData: Announce]
             : AgentCall[BackendTag.Gemini.type, O] =
@@ -172,6 +178,7 @@ class AgentCheapTest extends munit.FunSuite:
 
   private class StubPiAgent extends PiAgent:
     val name: String = "pi"
+    def withModel(model: Model): PiAgent = this
     def autonomous: AutonomousTextCall[BackendTag.Pi.type] = ???
     def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Pi.type, O] = ???
     def withConfig(c: AgentConfig): Agent[BackendTag.Pi.type] = this

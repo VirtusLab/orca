@@ -48,11 +48,13 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
   override def withSelfManagedGit: Self =
     copyTool(config = config.copy(selfManagedGit = true))
 
-  /** Pin the underlying CLI's `--model` flag for subsequent calls. Subclasses
-    * expose backend-specific accessors (`haiku`/`sonnet`/`opus`, `mini`) on top
-    * of this.
+  /** Pin the underlying CLI's `--model` flag for subsequent calls. Public so
+    * each backend trait can surface it (`claude.withModel(...)`,
+    * `codex.withModel(...)`); the named accessors (`haiku`/`sonnet`/`opus`,
+    * `mini`) are conveniences over it. Returns `Self` so they keep the concrete
+    * type.
     */
-  protected def withModel(model: Model): Self =
+  def withModel(model: Model): Self =
     copyTool(config = config.copy(model = Some(model)))
 
   /** The cheap variant: a `withCheapModel` override if the caller pinned one,

@@ -63,6 +63,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       def sonnet = this
       def opus = this
       def fable = this
+      def withModel(model: Model) = this
       def withNetworkTools(t: Seq[String]) = this
       def withConfig(c: AgentConfig) = this
       def withSystemPrompt(p: String) = this
@@ -144,6 +145,7 @@ class OrcaOverridesTest extends munit.FunSuite:
   test("flow uses a custom PiAgent when supplied"):
     val fakePi = new PiAgent:
       val name = "fake-pi"
+      def withModel(model: Model) = this
       def withConfig(c: AgentConfig) = this
       def withSystemPrompt(p: String) = this
       def withName(n: String) = this
