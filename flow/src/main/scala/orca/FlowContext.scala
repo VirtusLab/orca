@@ -8,7 +8,6 @@ import orca.agents.{
   ClaudeAgent,
   CodexAgent,
   GeminiAgent,
-  Agent,
   OpencodeAgent,
   PiAgent
 }
@@ -30,10 +29,17 @@ import scala.annotation.implicitNotFound
   "the flow tools (`claude`/`codex`/`git`/`gh`/`fs`/…), `display`, and `fail` are only available inside a `flow(...)` body. Wrap this code in `flow(OrcaArgs(args), _.claude): ...`."
 )
 trait FlowContext:
-  /** The flow's leading model (the one passed to `flow(...)`). Flows use it for
-    * planning/implementation; `llm.cheap` for incidental work.
+  /** Run a one-line, read-only call on the leading agent's cheap model, falling
+    * back to `fallback` on empty/failed output. This is the runtime's hook for
+    * default commit messages: the lead itself is deliberately NOT exposed on
+    * the context (reference it inside a body via the backend-agnostic `agent`
+    * accessor) — `cheapOneShot` is the one incidental-text capability the
+    * in-stage commit path needs without it. `private[orca]`: internal, not
+    * flow-script API.
     */
-  def llm: Agent[?]
+  private[orca] def cheapOneShot(prompt: String, fallback: => String)(using
+      InStage
+  ): String
   def claude: ClaudeAgent
   def codex: CodexAgent
   def opencode: OpencodeAgent

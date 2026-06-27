@@ -11,7 +11,7 @@ Orca ships two kinds of LLM-using surface:
 2. **Domain helpers** — flow-script-friendly functions that bundle a
    domain-specific multi-step pattern with a default LLM brief: planning
    (`Plan.interactive.*`, `Plan.autonomous.*`), review (`reviewAndFixLoop`,
-   `lint`, `ReviewerSelector.llmDriven`), the canonical reviewer set
+   `lint`, `ReviewerSelector.agentDriven`), the canonical reviewer set
    (`allReviewers`, `minimalReviewers`).
 
 Before this ADR, prompts in domain helpers lived in three different shapes:
@@ -50,7 +50,7 @@ For every domain helper that bundles an LLM brief, follow this pattern:
    ```scala
    def lint(
        command: String,
-       llm: Agent[?],
+       agent: Agent[?],
        instructions: String = ReviewLoopPrompts.SummariseLint
    )(using FlowContext): ReviewResult
    ```

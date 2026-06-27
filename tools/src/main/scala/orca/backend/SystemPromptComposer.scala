@@ -25,7 +25,7 @@ private[orca] object SystemPromptComposer:
     * changed files and runs no reviewers. Omitted on read-only turns (planning,
     * triage, reviewer selection — they can't write anyway) and on
     * [[AgentConfig.selfManagedGit]] turns (the caller's explicit escape hatch
-    * via `llm.withSelfManagedGit`). Otherwise an invariant of orca's
+    * via `agent.withSelfManagedGit`). Otherwise an invariant of orca's
     * runtime-owns-git model, applied on top of any `withSystemPrompt`.
     */
   val RuntimeOwnsGit: String =

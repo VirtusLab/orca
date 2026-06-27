@@ -224,7 +224,7 @@ class BranchNamingTest extends munit.FunSuite:
     val result = strategy.resolve("ignored prompt", ThrowingAgent)
     assertEquals(result, "add-a-multiply-function")
 
-  test("fromText strategy ignores userPrompt and llm"):
+  test("fromText strategy ignores userPrompt and agent"):
     val strategy = BranchNamingStrategy.fromText("my-feature")
     val result = strategy.resolve("should be ignored", ThrowingAgent)
     assertEquals(result, "my-feature")
@@ -233,23 +233,23 @@ class BranchNamingTest extends munit.FunSuite:
   // shortenPrompt strategy
   // ---------------------------------------------------------------------------
 
-  test("shortenPrompt slugs the llm reply"):
-    val llm = stubbedAgent("add multiply function")
+  test("shortenPrompt slugs the agent reply"):
+    val agent = stubbedAgent("add multiply function")
     val result = BranchNamingStrategy.shortenPrompt.resolve(
       "Add a multiply function to the calc",
-      llm
+      agent
     )
     assertEquals(result, "add-multiply-function")
 
   test(
-    "shortenPrompt: llm returns phrase with extra whitespace, still slugged"
+    "shortenPrompt: agent returns phrase with extra whitespace, still slugged"
   ):
-    val llm = stubbedAgent("  fix login bug  ")
+    val agent = stubbedAgent("  fix login bug  ")
     val result =
-      BranchNamingStrategy.shortenPrompt.resolve("Fix the login bug", llm)
+      BranchNamingStrategy.shortenPrompt.resolve("Fix the login bug", agent)
     assertEquals(result, "fix-login-bug")
 
-  test("shortenPrompt: llm throws -> falls back to slug(userPrompt)"):
+  test("shortenPrompt: agent throws -> falls back to slug(userPrompt)"):
     val result = BranchNamingStrategy.shortenPrompt.resolve(
       "add multiply function",
       throwingAutonomousAgent
@@ -257,25 +257,25 @@ class BranchNamingTest extends munit.FunSuite:
     assertEquals(result, "add-multiply-function")
 
   test(
-    "shortenPrompt: llm returns blank string -> falls back to slug(userPrompt)"
+    "shortenPrompt: agent returns blank string -> falls back to slug(userPrompt)"
   ):
-    val llm = stubbedAgent("   ")
+    val agent = stubbedAgent("   ")
     val result =
-      BranchNamingStrategy.shortenPrompt.resolve("fix the login bug", llm)
+      BranchNamingStrategy.shortenPrompt.resolve("fix the login bug", agent)
     assertEquals(result, "fix-the-login-bug")
 
-  test("shortenPrompt: llm returns multi-line reply, uses only first line"):
-    val llm = stubbedAgent("fix login bug\nsome extra explanation")
+  test("shortenPrompt: agent returns multi-line reply, uses only first line"):
+    val agent = stubbedAgent("fix login bug\nsome extra explanation")
     val result =
-      BranchNamingStrategy.shortenPrompt.resolve("Fix login bug", llm)
+      BranchNamingStrategy.shortenPrompt.resolve("Fix login bug", agent)
     assertEquals(result, "fix-login-bug")
 
   test("shortenPrompt: a markdown-fenced reply is unwrapped (no literal ```)"):
     // The cheap model sometimes wraps its one-line reply in a code fence;
     // cheapOneShot must skip the fence lines, not return a literal "```".
-    val llm = stubbedAgent("```\nfix login bug\n```")
+    val agent = stubbedAgent("```\nfix login bug\n```")
     val result =
-      BranchNamingStrategy.shortenPrompt.resolve("Fix login bug", llm)
+      BranchNamingStrategy.shortenPrompt.resolve("Fix login bug", agent)
     assertEquals(result, "fix-login-bug")
 
   test(

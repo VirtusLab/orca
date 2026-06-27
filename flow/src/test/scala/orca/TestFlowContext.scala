@@ -5,7 +5,6 @@ import orca.agents.{
   ClaudeAgent,
   CodexAgent,
   GeminiAgent,
-  Agent,
   OpencodeAgent,
   PiAgent
 }
@@ -31,7 +30,8 @@ class TestFlowContext(
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowContext")
 
-  lazy val llm: Agent[?] = stub("llm")
+  def cheapOneShot(prompt: String, fallback: => String)(using InStage): String =
+    fallback
   lazy val claude: ClaudeAgent = stub("claude")
   lazy val codex: CodexAgent = stub("codex")
   lazy val opencode: OpencodeAgent = stub("opencode")
@@ -57,7 +57,8 @@ class TestFlowControl(
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowControl")
 
-  lazy val llm: Agent[?] = stub("llm")
+  def cheapOneShot(prompt: String, fallback: => String)(using InStage): String =
+    fallback
   lazy val claude: ClaudeAgent = stub("claude")
   lazy val codex: CodexAgent = stub("codex")
   lazy val opencode: OpencodeAgent = stub("opencode")

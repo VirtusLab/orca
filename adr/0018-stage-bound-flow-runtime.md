@@ -3,7 +3,7 @@
 Status: Accepted · Date: 2026-06-23
 Supersedes: [ADR 0013](0013-persistent-plans.md) (persistent plans)
 Related: [ADR 0002](0002-context-function-flow-dsl.md) (flow DSL / `FlowContext`),
-[ADR 0003](0003-pluggable-llm-backends.md) (backend SPI),
+[ADR 0003](0003-pluggable-agent-backends.md) (backend SPI),
 [ADR 0016](0016-toolset-capability-axis-and-planner-network.md) (capability axis)
 
 A `flow(...)` run is bound to a branch and a progress log, and is composed of
@@ -80,7 +80,7 @@ the design.)
   `FlowControl`, so a fork (e.g. a parallel reviewer) cannot start a stage. It is a
   convention today (a fork could still lexically capture an outer `FlowControl`) and
   becomes compiler-enforced under capture checking.
-- **R13** — The commit message defaults to an `llm.cheap` summary of the diff; a
+- **R13** — The commit message defaults to an `agent.cheap` summary of the diff; a
   stage may pass `commitMessage: Option[T => String]` to derive it from its result.
 - **R14** — `display(...)` gives progress-only output: no stage, id, commit, or log
   entry.
@@ -105,7 +105,7 @@ A `stage` runs `body` with `InStage` evidence in scope, then records and commits
 3. **Record & commit.** Append a `StageEntry` (id, name, result JSON), force-add the
    log, then make one commit covering the log delta plus any code changes. The
    message is `commitMessage(result)` if the stage supplied one, otherwise an
-   `llm.cheap` summary of the changed files. The log always changes, so the commit
+   `agent.cheap` summary of the changed files. The log always changes, so the commit
    is never empty.
 
 `display` shows a progress line without checkpointing; `fail` emits an error and
@@ -143,7 +143,7 @@ that stage's progress entry. Why two stages can't run concurrently — the
   task still yields a single commit. A helper that itself *starts* stages instead
   declares `using FlowControl` (R29), making that visible in its signature.
 - **R29** — Starting a stage requires a `FlowControl` capability, where
-  `FlowControl <: FlowContext`: everything a `FlowContext` is (reads, `llm`, `emit`)
+  `FlowControl <: FlowContext`: everything a `FlowContext` is (reads, `agent`, `emit`)
   plus the authority to open a stage — but **thread-affine**, never handed to a fork.
   `flow` provides it; `stage` requires it. At a direct `stage(...)` in a flow body it
   resolves implicitly (zero ceremony); a stage-starting *helper* spells out
@@ -152,14 +152,14 @@ that stage's progress entry. Why two stages can't run concurrently — the
 **Design.**
 
 ```scala
-trait FlowContext                       // thread-safe, shareable: reads + llm + emit
+trait FlowContext                       // thread-safe, shareable: reads + agent + emit
 trait FlowControl extends FlowContext   // + authority to start stages; thread-affine
 opaque type InStage                     // in-stage mutation token, from `stage(...)`
 ```
 
 Three capabilities, all constructible only inside `orca`:
 
-- **`FlowContext`** — the narrow, thread-safe context (tool reads, `llm`,
+- **`FlowContext`** — the narrow, thread-safe context (tool reads, `agent`,
   `userPrompt`, `emit`/`display`). Safe to share into parallel forks, so concurrent
   reviewers each use it.
 - **`FlowControl`** — a *subtype* of `FlowContext` adding the authority to start a
@@ -287,7 +287,7 @@ the wrong branch.
   cases **safely**: **deterministic** ones derive a git-ref-safe name from structured
   input (e.g. `issue(handle)` → `fix/issue-42`) or slug arbitrary text (`fromText`),
   and a **prompt-shortening** one condenses a free-form prompt via the leading
-  model's cheap variant (`llm.cheap`, R31) then slugs it. **All** free text — author
+  model's cheap variant (`agent.cheap`, R31) then slugs it. **All** free text — author
   titles and untrusted LLM output alike — routes through `slug`, which strips
   leading/trailing hyphens, forces a leading alphanumeric, caps length, and falls
   back to `flow-<shorthash>` on empty: so a branch name can never begin with `-`
@@ -324,15 +324,19 @@ the wrong branch.
   `flow(OrcaArgs(args), _.codex)` against codex. Inside the body the resolved lead
   is reached via the backend-agnostic top-level `agent` accessor, so the body reads
   the same regardless of backend — switch the selector and the whole flow follows.
-  This works despite `ctx.llm` being erased to `Agent[?]`: `flow` supplies a
+  This works without the lead being a `FlowContext` member: `flow` supplies a
   single stable `Lead` carrier given whose `B` type member pins the backend, and
   `agent` (`def agent(using l: Lead): Agent[l.B]`) hands back a concretely-typed
   tool, so a session from `agent.session` threads into `agent.runSeeded` and the
-  reviewers (R27). The runtime also keeps the lead erased as `ctx.llm` for branch
-  naming and default commit messages. `Agent` gains a `cheap` method returning the
-  backend's cheap variant (claude → haiku, gemini → flash, codex → mini); orca uses
-  `agent.cheap` for branch naming and default commit messages. There is no implicit
-  default agent. (Boundary: the agnostic `agent` covers the autonomous, tier-agnostic
+  reviewers (R27). The runtime resolves its own erased `Agent[?]` handle (it
+  re-applies the selector against the built context) and threads it to branch
+  naming, session rehydration, and the body's `Lead` carrier — the lead is **not**
+  exposed on `FlowContext` (no misleading `ctx.llm`). The one incidental-text need
+  that lives inside a stage — the default commit message — is served by a narrow
+  `private[orca] FlowContext.cheapOneShot(prompt, fallback)` backed by the lead's
+  `cheap`. `Agent` gains a `cheap` method returning the backend's cheap variant
+  (claude → haiku, gemini → flash, codex → mini). There is no implicit default
+  agent. (Boundary: the agnostic `agent` covers the autonomous, tier-agnostic
   path; backend-specific tiers — `claude.opus` — and interactive planning —
   `Plan.interactive`, which needs `CanAskUser[B]`, defined only per concrete backend
   — use a concrete accessor.)
@@ -361,9 +365,10 @@ def flow(
 Per R31, `agent` is a selector resolved against the built `FlowContext` — the
 only way to name an agent is an accessor on the context, which isn't in scope at the
 `flow(...)` argument position, so resolution is deferred. The resolved lead is
-reached in the body via the `agent` accessor (and held erased as `ctx.llm` by the
-runtime); `agent.cheap` drives branch naming and default commit messages (overridable
-per stage via `commitMessage`, §2.1). The lifecycle therefore builds the context (and
+reached in the body via the `agent` accessor; the runtime keeps its own erased
+`Agent[?]` handle (not a `FlowContext` member) for branch naming, and the in-stage
+default-commit-message path uses `FlowContext.cheapOneShot` (backed by the lead's
+`cheap`), overridable per stage via `commitMessage` (§2.1). The lifecycle therefore builds the context (and
 the progress store) **before** running branch setup, since branch naming needs the
 resolved model. The body is `FlowControl ?=> Unit`
 (R29): a direct `stage(...)` resolves its authority while forks see only
@@ -400,7 +405,7 @@ Setup (before the body):
 2. `ensureClean` — stash a dirty tree with a warning (R4).
 3. Resolve the feature branch: if a header already exists (resume), take its branch
    name; otherwise compute the name via `branchNaming` (R2) — the deterministic
-   strategies are pure, the prompt-shortening one calls `llm.cheap`. Branch naming is
+   strategies are pure, the prompt-shortening one calls `agent.cheap`. Branch naming is
    a *setup step*, not a committing stage — it runs before the branch exists and its
    result is captured in the header.
 4. Fresh run: create + checkout the branch, then write and commit the header (R19).
@@ -426,7 +431,7 @@ Teardown on **failure**:
 Setup's own git and LLM operations (branch naming, header commit) run with
 runtime-supplied `InStage` — the runtime is the privileged constructor of the
 token, so it can mutate during setup before any user stage exists. Push and PR
-creation remain ordinary stage actions (R6). The leading model (`llm`) and the
+creation remain ordinary stage actions (R6). The leading model (`agent`) and the
 resolved branch are exposed through `FlowContext` accessors. The branch-naming
 strategy and the progress store are overridable (R21).
 
@@ -439,7 +444,7 @@ strategy and the progress store are overridable (R21).
   probe** (`AgentBackend.sessionExists(id)`) rather than guessed: most backends expose
   one (an on-disk session file, a list command, or a `GET`), pi does not. If the
   probe is absent or says gone, resume falls back to re-seed (R23).
-- **R23** — A session is obtained via a get-or-create (`llm.session`) whose id is
+- **R23** — A session is obtained via a get-or-create (`agent.session`) whose id is
   recorded in the log, so a retry reuses it rather than minting a second. A flow
   attaches a `seed` — the essential context to rebuild the agent if its backend
   conversation is lost (typically the plan brief, or the issue/plan when there is no
@@ -451,16 +456,16 @@ strategy and the progress store are overridable (R21).
 
 **Design.**
 
-A flow obtains a session via `llm.session(...)` — a *get-or-create* keyed by the
+A flow obtains a session via `agent.session(...)` — a *get-or-create* keyed by the
 log, not a plain `new`. It is **pure**: it reserves a session id (a UUID) and records
 the id + seed in the log; the backend conversation is created lazily on the first
-gated `run`. So `llm.session(...)` is callable outside a stage while the actual LLM
+gated `run`. So `agent.session(...)` is callable outside a stage while the actual LLM
 effect stays inside one (R15). On resume it returns the recorded id. Naming it
 `session` rather than `newSession` reflects the upsert: a retry does not create a
 second session.
 
 ```scala
-val session = llm.session(seed = plan.brief)   // author's essential context (a String)
+val session = agent.session(seed = plan.brief)   // author's essential context (a String)
 ```
 
 `seed` is a string the author composes from whatever the agent needs to rebuild
@@ -587,7 +592,7 @@ flow(OrcaArgs(args), _.claude):                          // required agent selec
       reviewAndFixLoop(                                   // runs under this stage (using InStage)
         coder = agent, sessionId = session,
         reviewers = allReviewers(agent),
-        reviewerSelection = ReviewerSelector.llmDriven(agent.cheap),
+        reviewerSelection = ReviewerSelector.agentDriven(agent.cheap),
         task = task.title.value,
         formatCommand = Some("cargo fmt")
       )
@@ -678,9 +683,9 @@ per-task TDD steps, dependency order). Summary:
   validation (R32).
 - **D — Stage runtime + resumption.** `stage`/`display`/`fail`; decode-or-rerun;
   per-stage commit; the `sessionExists` probe on the backend SPI and a persistable
-  `SessionRegistry`; `llm.session` / `llm.cheap`; re-seed on resume.
+  `SessionRegistry`; `agent.session` / `agent.cheap`; re-seed on resume.
 - **E — Flow lifecycle + config.** `flow(...)` setup/teardown, `FlowControl`
-  provision, `BranchNamingStrategy`, mandatory leading `llm`.
+  provision, `BranchNamingStrategy`, mandatory leading `agent`.
 - **F — Replace `Plan` persistence; migrate examples.** Retire `Plan.recover` etc.;
   always-briefed plans; convert the example flows.
 - **G — User documentation.** README coverage of the authoring rules, the capability

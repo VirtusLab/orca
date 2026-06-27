@@ -56,7 +56,7 @@ flow(OrcaArgs(args), _.claude):
         reviewers = allReviewers(agent),
         // agent.cheap picks the per-task reviewer subset; swap for
         // `ReviewerSelector.allEveryRound` to run every reviewer.
-        reviewerSelection = ReviewerSelector.llmDriven(agent.cheap),
+        reviewerSelection = ReviewerSelector.agentDriven(agent.cheap),
         task = task.title.value,
         // Format after every edit so commits stay formatted and reviewers
         // skip style nits.
@@ -183,7 +183,7 @@ Top-level, available via `import orca.*`:
 |---|---|---|
 | `flow(args, agent, ...)(body)` | `flow(args: OrcaArgs, agent, branchNaming?, returnToStartBranch = false, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `agent` selects the leading coding agent — e.g. `_.claude` or `_.codex`. Inside the body, reference the lead via the backend-agnostic `agent` accessor instead of a concrete `claude`/`codex` (autonomous, tier-agnostic flows). Branching defaults to a slug of the prompt; pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` for issue flows. On success HEAD stays on the feature branch by default; pass `returnToStartBranch = true` (PR flows) to return to the starting branch. |
 | `agent` (in-body accessor) | `agent: Agent[?]` | The leading agent resolved from the `flow` selector. Use it for autonomous, tier-agnostic work (`agent.session`, `agent.runSeeded`, `agent.cheap`, `Plan.autonomous.from(_, agent)`) so the body is backend-agnostic. Backend-specific tiers (`claude.opus`) and interactive planning (`Plan.interactive`, needs `CanAskUser`) still use a concrete accessor (`claude`/`codex`). |
-| `stage[T: JsonData](name, commitMessage?)(body)` | `(name: String, commitMessage: Option[T => String] = None)(body): T` | The committing, resumable unit of work. On success, records the result, force-adds the progress log, and commits (code changes + log delta = one commit). On re-run, a stage whose result is still recorded is skipped and the stored value is returned. `T` must have `JsonData` — `case class Foo(...) derives JsonData` is enough. Commit message defaults to an `llm.cheap` summary of the diff; override via `commitMessage`. |
+| `stage[T: JsonData](name, commitMessage?)(body)` | `(name: String, commitMessage: Option[T => String] = None)(body): T` | The committing, resumable unit of work. On success, records the result, force-adds the progress log, and commits (code changes + log delta = one commit). On re-run, a stage whose result is still recorded is skipped and the stored value is returned. `T` must have `JsonData` — `case class Foo(...) derives JsonData` is enough. Commit message defaults to an `agent.cheap` summary of the diff; override via `commitMessage`. |
 | `display(message)` | `(message: String): Unit` | Progress-only output: no stage, no commit, no log entry. Callable anywhere — outside a stage or inside a fork. |
 | `fail(message)` | `(message: String): Nothing` | Abort with a message. Triggers failure teardown: stays on the feature branch so a re-run resumes. |
 
@@ -194,11 +194,11 @@ enforces it** — a mutation written outside a stage doesn't compile, so a flow
 that side-effects without a checkpoint is a compile error, not a runtime
 surprise. That covers git mutations (`commit`/`push`/`resetHard`/…), `fs.write`,
 `gh` writes (`createPr`/`updatePr`/`writeComment`/`upsertComment`), and every
-`llm.*.run`.
+`agent.*.run`.
 
 Reads (`git.diff`, `git.log`, `git.currentBranch`, `gh.readIssue`,
 `gh.buildStatus`/`waitForBuild`, `fs.read`), `display`, and `fail` run anywhere.
-`llm.session(seed)` also runs outside a stage — it records a session, not a side
+`agent.session(seed)` also runs outside a stage — it records a session, not a side
 effect (see [Sessions](#sessions)).
 
 ### The flow lifecycle
@@ -224,7 +224,7 @@ log (`.orca/progress-<hash>.json`, where `<hash>` is derived from the prompt):
 
 ### Sessions
 
-`llm.session(seed)` is a get-or-create keyed by call-site position — the same
+`agent.session(seed)` is a get-or-create keyed by call-site position — the same
 call site resumes the same session across re-runs. It reserves a `SessionId` and
 records it in the progress log (no LLM call), and is callable outside a stage —
 recording a session isn't a side effect.
@@ -241,7 +241,7 @@ re-seeds, prepending a progress preamble naming the completed stages; if the
 session is still alive it continues it directly. (`newSession` gives a plain
 fresh id with no get-or-create recording.)
 
-`llm.cheap` returns the backend's cheap/fast variant (claude → haiku, codex →
+`agent.cheap` returns the backend's cheap/fast variant (claude → haiku, codex →
 mini, gemini → flash, opencode → anthropicHaiku, others → self) — used by the
 runtime for branch naming and default commit messages.
 
@@ -254,7 +254,7 @@ structural conventions you choose to follow as a flow author.
 1. **Reads outside, mutations inside.** Only side-effecting work goes in a
    stage. Pure reads (`git.diff`, `gh.readIssue`, `fs.read`, `gh.waitForBuild`)
    run outside stages — staging them wastes commits and checkpoints.
-   `llm.session(seed)` also runs outside stages, but it isn't a pure read — it
+   `agent.session(seed)` also runs outside stages, but it isn't a pure read — it
    records a session in the progress log.
 
 2. **Push lives in a later stage than the edit that produced it.** A stage
@@ -299,18 +299,18 @@ splits `autonomous` / `interactive`:
 
 | Operation | Result | `autonomous` (read-only + network, no human) | `interactive` (agent can `ask_user`) |
 |---|---|---|---|
-| `from(userPrompt, llm, instructions?)` | `Plan` | plan in one agentic turn | drive the planner conversationally |
-| `assessThenPlan(userPrompt, llm, instructions?)` | `Verdict[Plan]` | assess, then `Proceed(plan)` or `Rejection(kind, body)` | same, but can ask the reporter to clarify instead of rejecting |
-| `triage(report, llm, instructions?)` | `Triage` | classify a bug report (not-a-bug / untestable / testable) | same, with clarifying questions |
+| `from(userPrompt, agent, instructions?)` | `Plan` | plan in one agentic turn | drive the planner conversationally |
+| `assessThenPlan(userPrompt, agent, instructions?)` | `Verdict[Plan]` | assess, then `Proceed(plan)` or `Rejection(kind, body)` | same, but can ask the reporter to clarify instead of rejecting |
+| `triage(report, agent, instructions?)` | `Triage` | classify a bug report (not-a-bug / untestable / testable) | same, with clarifying questions |
 
 Every cell returns `Sessioned[B, <result>]` — the result paired with the agent
 session that produced it. Continue that session into implementation
-(`llm.runSeeded(task, session)` — the planning turn's session is still resumable
+(`agent.runSeeded(task, session)` — the planning turn's session is still resumable
 with write access), or `.value` it and get a fresh implementer session via
-`llm.session(seed = plan.brief)`. Destructure positionally when you want both:
+`agent.session(seed = plan.brief)`. Destructure positionally when you want both:
 `val Sessioned(session, plan) = Plan.autonomous.from(...)`.
 
-From a `Sessioned[B, Plan]`, an optional `.reviewed(llm)` step refines the plan
+From a `Sessioned[B, Plan]`, an optional `.reviewed(agent)` step refines the plan
 before implementing — the planner critiques its own draft, producing an improved
 `Plan`. Chain it: `Plan.autonomous.from(...).reviewed(claude).value`.
 
@@ -323,14 +323,14 @@ Review utilities, available via `import orca.review.*`:
 
 | Method | Use |
 |---|---|
-| `lint(command, llm, instructions?)` | Run a shell lint, write its combined output to a temp file, and have `llm` read and summarise it as a `ReviewResult` (file, not prompt, so unbounded output can't overflow the context). |
+| `lint(command, agent, instructions?)` | Run a shell lint, write its combined output to a temp file, and have `agent` read and summarise it as a `ReviewResult` (file, not prompt, so unbounded output can't overflow the context). |
 | `reviewAndFixLoop(coder, sessionId, reviewers, task, ..., fixInstructions?)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to `coder` to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. |
 | `allReviewers(base)` | All eight canonical reviewer agents (code-functionality, test, readability, code-structure, simplicity, performance, security, scala-fp) layered on top of `base`. |
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test). Pair with the default LLM-driven selector when the full set is overkill. |
 | `fixLoop(evaluate, fix, ...)` | Lower-level primitive `reviewAndFixLoop` is built on. |
 
 `reviewAndFixLoop` requires a `reviewerSelection: ReviewerSelector` argument.
-Typically `ReviewerSelector.llmDriven(claude.cheap)` — the picker LLM (use a
+Typically `ReviewerSelector.agentDriven(claude.cheap)` — the picker LLM (use a
 cheap model) sees each reviewer's description plus the changed file paths and
 narrows the supplied list per task. Pass
 `ReviewerSelector.allEveryRound` to run every reviewer every iteration, or
@@ -341,7 +341,7 @@ PR utilities, available via `import orca.pr.*`:
 
 | Method | Use |
 |---|---|
-| `summarisePr(llm, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. Use a cheap model (`claude.cheap`, `<lead>.cheap`). |
+| `summarisePr(agent, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. Use a cheap model (`claude.cheap`, `<lead>.cheap`). |
 
 ### Customising prompts
 
@@ -389,7 +389,7 @@ results.
 - **`orca.plan.Plan(epicId, description, tasks, brief)`** — the task list the
   agent generates in one round-trip. `epicId` is a kebab-case id used as the
   plan's git branch; `description` is the planner's epic summary; `brief` is a
-  concise codebase briefing always included (feed it to `llm.session(seed =
+  concise codebase briefing always included (feed it to `agent.session(seed =
   plan.brief)`). `taskPrompt(task)` prepends the brief to a task's description.
 - **`orca.plan.Task(title, description, completed?)`** — `title` is the
   human-readable label shown in the event log.
@@ -406,7 +406,7 @@ results.
 - **`orca.plan.BugReportMatch`** — the agent's decision on whether a CI failure
   matches the original report.
 - **`orca.agents.SessionId[B]`** — typed session id, parameterised by backend.
-  Returned by `llm.session(seed)` and passed to `llm.runSeeded`. Carries the
+  Returned by `agent.session(seed)` and passed to `agent.runSeeded`. Carries the
   backend identity at the type level, so you cannot accidentally pass a Claude
   session to Codex.
 - **`orca.Title`** — opaque `String` alias for short labels (`Task.title`,

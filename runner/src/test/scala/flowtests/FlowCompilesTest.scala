@@ -87,7 +87,7 @@ object FlowCanary:
             coder = claude,
             sessionId = sessionId,
             reviewers = allReviewers(claude),
-            reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+            reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.description,
             formatCommand = Some("mvn -q spotless:apply"),
             lintCommand = Some("mvn -q test"),
@@ -112,7 +112,7 @@ object FlowCanary:
         val _ = claude.autonomous.run(userPrompt)
 
   /** `summarisePr` + `PrSummary` surface; exercised by `examples/issue-pr.sc`.
-    * Pins the call shape (`llm`, `diff`, optional `context`, optional
+    * Pins the call shape (`agent`, `diff`, optional `context`, optional
     * `instructions`) and the result type so a rename or signature drift
     * surfaces in this test instead of at the next live run.
     */
@@ -120,7 +120,7 @@ object FlowCanary:
     flow(OrcaArgs(), _.claude):
       stage("pr"):
         val summary: PrSummary = summarisePr(
-          llm = claude.haiku,
+          agent = claude.haiku,
           diff = git.diff(),
           context = Some("Originating issue: acme/widgets#7")
         )
@@ -157,7 +157,7 @@ object FlowCanary:
       stage("pr"):
         git.push().orThrow
         val summary = summarisePr(
-          llm = claude.haiku,
+          agent = claude.haiku,
           diff = git.diffVsBase(git.defaultBase())
         )
         gh.createPr(title = summary.title, body = summary.body) match
@@ -264,7 +264,7 @@ object FlowCanary:
             coder = claude,
             sessionId = session,
             reviewers = allReviewers(claude),
-            reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+            reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
             formatCommand = Some("cargo fmt"),
             lintCommand = Some("cargo check --tests"),
@@ -288,7 +288,7 @@ object FlowCanary:
             coder = claude,
             sessionId = session,
             reviewers = allReviewers(claude),
-            reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+            reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
             formatCommand = Some("cargo fmt")
           )
@@ -310,7 +310,7 @@ object FlowCanary:
             coder = claude,
             sessionId = session,
             reviewers = allReviewers(claude),
-            reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+            reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
             formatCommand = Some("cargo fmt")
           )
@@ -320,7 +320,7 @@ object FlowCanary:
 
       val prSum = stage("Generate PR title and description"):
         summarisePr(
-          llm = claude.haiku,
+          agent = claude.haiku,
           diff = git.diffVsBase(git.defaultBase())
         )
 
@@ -355,7 +355,7 @@ object FlowCanary:
             coder = claude,
             sessionId = session,
             reviewers = reviewers,
-            reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+            reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
             formatCommand = Some("mvn -q spotless:apply")
           )
@@ -400,7 +400,7 @@ object FlowCanary:
               coder = claude,
               sessionId = session,
               reviewers = allReviewers(claude),
-              reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+              reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
               task = task.title.value,
               formatCommand = Some("npx prettier --write .")
             )
@@ -481,7 +481,7 @@ object FlowCanary:
                 coder = claude,
                 sessionId = session,
                 reviewers = allReviewers(claude),
-                reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+                reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
                 task = task.title.value,
                 formatCommand = Some("sbt scalafmtAll"),
                 lintCommand = Some("sbt Test/compile"),

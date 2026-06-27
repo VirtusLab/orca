@@ -59,7 +59,7 @@ most easily broken:
   `FlowContext` (reads + emit; thread-safe), `FlowControl <: FlowContext`
   (authority to start a stage; thread-affine), and the opaque `InStage` token
   (in `tools`, `package orca`). Every mutating tool method — git writes,
-  `fs.write`, `gh` writes, every `llm.*.run` — takes `(using InStage)`, which
+  `fs.write`, `gh` writes, every `agent.*.run` — takes `(using InStage)`, which
   only a `stage` body mints. Don't relax this: don't mint `InStage.unsafe`
   outside the runtime (`Flow` / `FlowLifecycle` / `Session`), and don't drop a
   `(using InStage)` to "make it compile" — thread it up to the nearest stage.

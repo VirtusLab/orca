@@ -71,7 +71,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
 
   private given FlowContext = new TestFlowContext(new EventDispatcher(Nil))
 
-  // `llmDriven` is now gated on `InStage`; mint the token for the suite.
+  // `agentDriven` is now gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
 
   private val scalaFp: Agent[?] = new NamedTool("reviewer: scala-fp")
@@ -87,8 +87,8 @@ class ReviewerSelectorTest extends munit.FunSuite:
       SelectedReviewers(List("scala-fp", "generic")),
       captured
     )
-    val selector = ReviewerSelector.llmDriven(
-      llm = picker,
+    val selector = ReviewerSelector.agentDriven(
+      agent = picker,
       filePatterns = filePatterns
     )
     val picked = selector(Nil, all, Title("any"), List("src/lib.rs"))
@@ -109,7 +109,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
       SelectedReviewers(List("generic", "reviewer: scala-fp")),
       captured
     )
-    val selector = ReviewerSelector.llmDriven(llm = picker)
+    val selector = ReviewerSelector.agentDriven(agent = picker)
     val picked =
       selector(Nil, all, Title("any"), List("src/main/scala/Foo.scala"))
     assertEquals(
@@ -122,8 +122,8 @@ class ReviewerSelectorTest extends munit.FunSuite:
   ):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val picker = new RecordingPicker(SelectedReviewers(Nil), captured)
-    val selector = ReviewerSelector.llmDriven(
-      llm = picker,
+    val selector = ReviewerSelector.agentDriven(
+      agent = picker,
       filePatterns = filePatterns
     )
     // scala-fp is filtered out for a .rs change; generic is eligible. The
@@ -137,8 +137,8 @@ class ReviewerSelectorTest extends munit.FunSuite:
       SelectedReviewers(List("reviewer: scala-fp", "reviewer: generic")),
       captured
     )
-    val selector = ReviewerSelector.llmDriven(
-      llm = picker,
+    val selector = ReviewerSelector.agentDriven(
+      agent = picker,
       filePatterns = filePatterns
     )
     val picked = selector(
@@ -159,8 +159,8 @@ class ReviewerSelectorTest extends munit.FunSuite:
       captured
     )
     val onlyScala = List(scalaFp)
-    val selector = ReviewerSelector.llmDriven(
-      llm = picker,
+    val selector = ReviewerSelector.agentDriven(
+      agent = picker,
       filePatterns = filePatterns
     )
     val picked = selector(Nil, onlyScala, Title("any"), List("src/lib.rs"))

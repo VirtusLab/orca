@@ -20,7 +20,7 @@ import orca.agents.{Announce, JsonData}
   * Produced by [[Plan.autonomous.triage]] / [[Plan.interactive.triage]], both
   * wrapped in a [[Sessioned]] that carries the triage session id. Flows
   * typically discard the triage session (calling `.value`) and start a FRESH
-  * implementer session seeded with the issue body (`llm.session(seed =
+  * implementer session seeded with the issue body (`agent.session(seed =
   * issue.body)`) rather than continuing the triage session — so the `Sessioned`
   * wrapper is available but no carry-over is guaranteed.
   *

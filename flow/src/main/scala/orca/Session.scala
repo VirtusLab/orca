@@ -7,7 +7,7 @@ import orca.progress.{ProgressLog, SessionRecord}
   * it can depend on [[FlowControl]] (which is in `flow`) while [[Agent]]
   * remains in `tools` (which `flow` depends on, not the reverse).
   */
-extension [B <: BackendTag](llm: Agent[B])
+extension [B <: BackendTag](agent: Agent[B])
   /** Get-or-create a session keyed by call-occurrence in this run's log.
     *
     * Reserves/returns a [[SessionId]] and records `(id, seed)` in the progress
@@ -53,14 +53,14 @@ extension [B <: BackendTag](llm: Agent[B])
       session: SessionId[B]
   )(using fc: FlowControl, ev: InStage): (SessionId[B], String) =
     val result =
-      if llm.sessionExists(session) then llm.autonomous.run(prompt, session)
+      if agent.sessionExists(session) then agent.autonomous.run(prompt, session)
       else
         val log = fc.progressStore.load()
         val seed = lookupSeed(log, session)
         val preamble = progressPreamble(log)
         val primedPrompt = composePrimedPrompt(preamble, seed, prompt)
-        llm.autonomous.run(primedPrompt, session)
-    persistServerId(llm, session)
+        agent.autonomous.run(primedPrompt, session)
+    persistServerId(agent, session)
     result
 
 /** After a run, persist the server-side session id the backend has now learned
@@ -73,10 +73,10 @@ extension [B <: BackendTag](llm: Agent[B])
   * write.
   */
 private def persistServerId[B <: BackendTag](
-    llm: Agent[B],
+    agent: Agent[B],
     session: SessionId[B]
 )(using fc: FlowControl): Unit =
-  llm
+  agent
     .serverSessionId(session)
     .foreach: server =>
       val log = fc.progressStore.load()

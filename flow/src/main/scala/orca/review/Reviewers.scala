@@ -6,8 +6,8 @@ import orca.util.PromptResource
 import scala.util.matching.Regex
 
 /** A reviewer agent definition: a short slug name, a description suitable for
-  * LLM-driven selection ([[ReviewerSelector.llmDriven]]), and the system prompt
-  * that personalises the underlying LLM tool. `filePattern`, when set,
+  * LLM-driven selection ([[ReviewerSelector.agentDriven]]), and the system
+  * prompt that personalises the underlying LLM tool. `filePattern`, when set,
   * restricts the reviewer to changes that touch at least one matching file —
   * the selector drops the reviewer before the picker LLM sees it.
   */
@@ -83,7 +83,7 @@ private[review] object ReviewerPrompts:
   /** A small universally-applicable subset: correctness, test quality, clarity.
     * Useful as a starting point when the full set is overkill — e.g. a flow
     * that touches small diffs where performance/architecture concerns are
-    * rarely actionable. Pair with [[ReviewerSelector.llmDriven]] (the default
+    * rarely actionable. Pair with [[ReviewerSelector.agentDriven]] (the default
     * in [[reviewAndFixLoop]]) to let the picker narrow further.
     */
   val minimal: List[Reviewer] = List(
@@ -93,7 +93,7 @@ private[review] object ReviewerPrompts:
   )
 
   /** Descriptions keyed by the prefixed tool name a builder produces
-    * (`reviewer: <slug>`). [[ReviewerSelector.llmDriven]] consults this by
+    * (`reviewer: <slug>`). [[ReviewerSelector.agentDriven]] consults this by
     * default so the picker LLM gets each reviewer's purpose alongside its name.
     * Covers every shipped reviewer, regardless of which preset list was used to
     * build the actual tools.
@@ -110,8 +110,8 @@ private[review] object ReviewerPrompts:
     all.flatMap(r => r.filePattern.map(p => s"$NamePrefix${r.name}" -> p)).toMap
 
 /** Build Agents for every reviewer the library ships with. The picker in
-  * [[ReviewerSelector.llmDriven]] (the default in [[reviewAndFixLoop]]) narrows
-  * the active set per task, so passing the full list isn't wasteful.
+  * [[ReviewerSelector.agentDriven]] (the default in [[reviewAndFixLoop]])
+  * narrows the active set per task, so passing the full list isn't wasteful.
   */
 def allReviewers[B <: BackendTag](base: Agent[B]): List[Agent[B]] =
   buildReviewers(base, ReviewerPrompts.all)

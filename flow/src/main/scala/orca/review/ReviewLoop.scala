@@ -156,7 +156,7 @@ private object ReviewLoopState:
 /** Run reviewers in parallel against `task`, gather per-reviewer outcomes, hand
   * any issues above `confidenceThreshold` to `coder` via `run(session =
   * sessionId)`, and loop. `reviewerSelection` decides which reviewers run each
-  * iteration — typically [[ReviewerSelector.llmDriven]] wired against a cheap
+  * iteration — typically [[ReviewerSelector.agentDriven]] wired against a cheap
   * picker LLM; pass [[ReviewerSelector.allEveryRound]] to skip selection
   * entirely.
   *
@@ -315,11 +315,11 @@ def reviewAndFixLoop[B <: BackendTag](
     val lintTaskOpt: Option[() => AgentOutcome] =
       lintCommand
         .zip(lintAgent)
-        .map: (cmd, llm) =>
+        .map: (cmd, agent) =>
           () =>
             // Group lint tokens under the same `reviewer: …` prefix as the
             // dimension reviewers; the renamed copy stays local to this call.
-            val labelled = llm.withName("reviewer: lint")
+            val labelled = agent.withName("reviewer: lint")
             AgentOutcome.Lint(filterByConfidence(lint(cmd, labelled)))
 
     val tasks = reviewerTasks ++ lintTaskOpt.toList
@@ -411,7 +411,7 @@ private[review] object ReviewLoop:
       .distinct
 
 /** Run `command` via `bash -c`, capture both stdout and stderr, write the
-  * combined output to a temp file, and ask `llm` to read that file and
+  * combined output to a temp file, and ask `agent` to read that file and
   * summarise it as a `ReviewResult`. An empty output short-circuits to
   * `ReviewResult.empty` so clean runs skip the round-trip to the LLM. Override
   * `instructions` when the lint produces unusual shapes the default phrasing
@@ -431,7 +431,7 @@ private[review] object ReviewLoop:
   */
 def lint(
     command: String,
-    llm: Agent[?],
+    agent: Agent[?],
     instructions: String = ReviewLoopPrompts.SummariseLint
 )(using FlowContext, InStage): ReviewResult =
   val proc = os
@@ -450,7 +450,7 @@ def lint(
         deleteOnExit = false
       )
     try
-      llm.withReadOnly
+      agent.withReadOnly
         .resultAs[ReviewResult]
         .autonomous
         .run(

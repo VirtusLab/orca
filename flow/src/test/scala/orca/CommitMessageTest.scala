@@ -19,7 +19,7 @@ import orca.tools.{GitTool, OsGitTool}
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
-/** Tests for the llm-generated commit-message path in `recordAndCommit`.
+/** Tests for the agent-generated commit-message path in `recordAndCommit`.
   *
   * Strategy: build a `TestFlowControlWithAgent` that wires a real temp repo and
   * a stubbed LLM, then assert the message in `git log` after a stage runs.
@@ -30,9 +30,10 @@ class CommitMessageTest extends munit.FunSuite:
   // Stubs
   // --------------------------------------------------------------------------
 
-  /** LLM stub whose `autonomous.run` returns a fixed reply. Models both the
+  /** Agent stub whose `autonomous.run` returns a fixed reply. Models both the
     * cheap (via `cheap`) and the full tool — the commit-message path calls
-    * `fc.llm.cheap`, so `cheap` must also return this stub.
+    * `fc.cheapOneShot`, which runs the lead's `cheap`, so `cheap` must also
+    * return this stub.
     */
   private def stubbedAgent(
       reply: String
@@ -89,7 +90,7 @@ class CommitMessageTest extends munit.FunSuite:
 
   /** A `FlowControl` backed by a real temp git repo and the given LLM stub. */
   private class FlowControlWithAgent(
-      val llmStub: Agent[?],
+      val agentStub: Agent[?],
       val git: GitTool,
       val progressStore: ProgressStore,
       val userPrompt: String = "p"
@@ -103,7 +104,9 @@ class CommitMessageTest extends munit.FunSuite:
     }
     private def stub(n: String) =
       throw new NotImplementedError(s"$n not wired")
-    def llm: Agent[?] = llmStub
+    def cheapOneShot(prompt: String, fallback: => String)(using
+        InStage
+    ): String = agentStub.cheapOneShot(prompt, fallback)
     lazy val claude: ClaudeAgent = stub("claude")
     lazy val codex: CodexAgent = stub("codex")
     lazy val opencode: OpencodeAgent = stub("opencode")
@@ -119,7 +122,7 @@ class CommitMessageTest extends munit.FunSuite:
     def nextSessionOccurrence(): Int = sessOcc.getAndIncrement()
 
   private def withCtx(
-      llmStub: Agent[?]
+      agentStub: Agent[?]
   )(body: (FlowControl, os.Path) => Unit): Unit =
     val dir = GitRepo.seeded()
     val git = new OsGitTool(dir)
@@ -128,7 +131,7 @@ class CommitMessageTest extends munit.FunSuite:
     store.writeHeader(
       orca.progress.ProgressHeader("main", "feat/test", "deadbeef")
     )
-    body(new FlowControlWithAgent(llmStub, git, store), dir)
+    body(new FlowControlWithAgent(agentStub, git, store), dir)
 
   private def lastCommitMessage(dir: os.Path): String =
     os.proc("git", "log", "-1", "--pretty=%s").call(cwd = dir).out.text().trim
@@ -137,7 +140,9 @@ class CommitMessageTest extends munit.FunSuite:
   // Tests
   // --------------------------------------------------------------------------
 
-  test("stage with no commitMessage and non-empty diff uses llm.cheap message"):
+  test(
+    "stage with no commitMessage and non-empty diff uses agent.cheap message"
+  ):
     withCtx(stubbedAgent("Add feature file")): (ctx, dir) =>
       given FlowControl = ctx
       val _ = stage("write file"):
@@ -160,7 +165,7 @@ class CommitMessageTest extends munit.FunSuite:
       assertEquals(lastCommitMessage(dir), "stage: no-op")
 
   test(
-    "stage with no commitMessage and throwing llm falls back to stage:<name>"
+    "stage with no commitMessage and throwing agent falls back to stage:<name>"
   ):
     withCtx(throwingAgent): (ctx, dir) =>
       given FlowControl = ctx
@@ -169,7 +174,7 @@ class CommitMessageTest extends munit.FunSuite:
         "done"
       assertEquals(lastCommitMessage(dir), "stage: write file")
 
-  test("stage with explicit commitMessage uses it verbatim (no llm call)"):
+  test("stage with explicit commitMessage uses it verbatim (no agent call)"):
     // The explicit message path must not touch the LLM — use throwingAgent to
     // prove it.
     withCtx(throwingAgent): (ctx, dir) =>
@@ -183,7 +188,7 @@ class CommitMessageTest extends munit.FunSuite:
       assertEquals(lastCommitMessage(dir), "explicit: my message")
 
   test(
-    "stage with no commitMessage and blank llm reply falls back to stage:<name>"
+    "stage with no commitMessage and blank agent reply falls back to stage:<name>"
   ):
     withCtx(stubbedAgent("   ")): (ctx, dir) =>
       given FlowControl = ctx
@@ -192,7 +197,7 @@ class CommitMessageTest extends munit.FunSuite:
         "done"
       assertEquals(lastCommitMessage(dir), "stage: write file")
 
-  test("stage with no commitMessage uses first line of multi-line llm reply"):
+  test("stage with no commitMessage uses first line of multi-line agent reply"):
     withCtx(stubbedAgent("Add feature\n\nSome explanation here.")):
       (ctx, dir) =>
         given FlowControl = ctx

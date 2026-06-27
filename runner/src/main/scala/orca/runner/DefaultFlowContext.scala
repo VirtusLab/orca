@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.{FlowContext, FlowControl}
+import orca.{FlowContext, FlowControl, InStage}
 import orca.progress.ProgressStore
 import orca.tools.{GitTool}
 import orca.tools.{GitHubTool}
@@ -40,7 +40,7 @@ import orca.tools.OsGitHubTool
 private[orca] class DefaultFlowContext(
     val userPrompt: String,
     dispatcher: EventDispatcher,
-    leadModel: FlowContext => Agent[?],
+    agentSelector: FlowContext => Agent[?],
     val claude: ClaudeAgent,
     val codex: CodexAgent,
     val opencode: OpencodeAgent,
@@ -52,15 +52,19 @@ private[orca] class DefaultFlowContext(
     val progressStore: ProgressStore
 ) extends FlowControl:
 
-  // The leading model is named by a selector resolved against this context (the
-  // only way to name a model is an accessor on the context — `_.claude`,
-  // `_.codex`, …). Resolved lazily so the selector sees a fully-built context;
-  // the result is the run's `llm`, used by branch setup and the body.
-  //
-  // WARNING: the selector MUST NOT read `ctx.llm` — that would recurse on this
-  // lazy val and loop. The built-in selectors (`_.claude`, `_.codex`, …) are
-  // safe because they read a concrete accessor, not `llm` itself.
-  lazy val llm: Agent[?] = leadModel(this)
+  // The leading agent, resolved by the selector against this context (the only
+  // way to name an agent is an accessor on it — `_.claude`, `_.codex`, …).
+  // Resolved lazily so the selector sees a fully-built context. Kept PRIVATE and
+  // unexposed: flow bodies reach the lead via the typed `agent` accessor, and
+  // the runtime threads its own copy (`runFlow` re-applies the selector for
+  // branch setup / the `Lead` carrier). The only thing the context surfaces is
+  // `cheapOneShot`, the incidental-text capability the in-stage commit path needs.
+  private lazy val lead: Agent[?] = agentSelector(this)
+
+  private[orca] def cheapOneShot(prompt: String, fallback: => String)(using
+      InStage
+  ): String =
+    lead.cheapOneShot(prompt, fallback)
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
@@ -99,7 +103,7 @@ private[orca] object DefaultFlowContext:
       workDir: os.Path,
       interaction: Interaction,
       progressStore: ProgressStore,
-      leadModel: FlowContext => Agent[?],
+      agentSelector: FlowContext => Agent[?],
       claude: Option[ClaudeAgent] = None,
       codex: Option[CodexAgent] = None,
       opencode: Option[OpencodeAgent] = None,
@@ -114,7 +118,7 @@ private[orca] object DefaultFlowContext:
     new DefaultFlowContext(
       userPrompt = userPrompt,
       dispatcher = dispatcher,
-      leadModel = leadModel,
+      agentSelector = agentSelector,
       claude = claude.getOrElse(
         new DefaultClaudeAgent(
           backend = new ClaudeBackend(OsProcCliRunner),

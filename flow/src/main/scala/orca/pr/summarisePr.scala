@@ -15,7 +15,7 @@ object PrSummary:
     */
   given Announce[PrSummary] = Announce.from(_ => "")
 
-/** Ask `llm` to fold `diff` (and optionally `context`) into a [[PrSummary]] —
+/** Ask `agent` to fold `diff` (and optionally `context`) into a [[PrSummary]] —
   * the one-line title and multi-paragraph body that `gh.createPr` consumes.
   *
   * `context` is rendered above the diff as a preamble; typical contents are the
@@ -28,7 +28,7 @@ object PrSummary:
   * diff dominates the prompt and would dwarf the event log.
   */
 def summarisePr(
-    llm: Agent[?],
+    agent: Agent[?],
     diff: String,
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
@@ -42,4 +42,4 @@ def summarisePr(
        |```diff
        |$diff
        |```""".stripMargin
-  llm.resultAs[PrSummary].autonomous.run(prompt, emitPrompt = false)._2
+  agent.resultAs[PrSummary].autonomous.run(prompt, emitPrompt = false)._2

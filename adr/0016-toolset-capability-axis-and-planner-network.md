@@ -1,7 +1,7 @@
 # 0016. `ToolSet` capability axis and planner read-only network access
 
 Status: Accepted · Date: 2026-06-11
-Related: [ADR 0003](0003-pluggable-llm-backends.md) (backend surface), [ADR 0011](0011-reviewer-roster.md) (reviewers run read-only)
+Related: [ADR 0003](0003-pluggable-agent-backends.md) (backend surface), [ADR 0011](0011-reviewer-roster.md) (reviewers run read-only)
 
 ## Context
 

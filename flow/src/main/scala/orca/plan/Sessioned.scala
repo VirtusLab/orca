@@ -8,12 +8,12 @@ import orca.agents.{BackendTag, SessionId}
   * these so the caller can choose to continue the same conversation for the
   * downstream implementation phase (the agent keeps the context it built up
   * while planning / assessing / triaging) or discard the session and mint a
-  * fresh one via `llm.newSession`.
+  * fresh one via `agent.newSession`.
   *
   * Autonomous planning runs read-only, but the returned `sessionId` is still
-  * resumable: a later writable `llm.autonomous.run(task, sessionId)` reuses the
-  * same conversation thread with write access restored — read-only applied only
-  * to the planning turn, not to the thread.
+  * resumable: a later writable `agent.autonomous.run(task, sessionId)` reuses
+  * the same conversation thread with write access restored — read-only applied
+  * only to the planning turn, not to the thread.
   *
   * Destructure at the call site:
   *

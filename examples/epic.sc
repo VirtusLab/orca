@@ -49,7 +49,7 @@ flow(OrcaArgs(args), _.claude):
       reviewAndFixLoop(
         coder = claude, sessionId = session,
         reviewers = reviewers,
-        reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
+        reviewerSelection = ReviewerSelector.agentDriven(claude.cheap),
         task = task.title.value,
         // Format after every edit; Spotless is wired into the seed pom.
         formatCommand = Some("mvn -q spotless:apply")

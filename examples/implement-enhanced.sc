@@ -64,7 +64,7 @@ flow(OrcaArgs(args), _.claude, returnToStartBranch = true):
       reviewAndFixLoop(
         coder = agent, sessionId = session,
         reviewers = allReviewers(agent),
-        reviewerSelection = ReviewerSelector.llmDriven(agent.cheap),
+        reviewerSelection = ReviewerSelector.agentDriven(agent.cheap),
         task = task.title.value,
         // Format after every edit (the implementation and each review fix).
         formatCommand = Some("cargo fmt"),
@@ -78,7 +78,7 @@ flow(OrcaArgs(args), _.claude, returnToStartBranch = true):
     git.push().orThrow
 
   val prSum = stage("Generate PR title and description"):
-    summarisePr(llm = agent.cheap, diff = git.diffVsBase(git.defaultBase()))
+    summarisePr(agent = agent.cheap, diff = git.diffVsBase(git.defaultBase()))
 
   stage("Open PR"):
     // gh.createPr is idempotent by head branch (R24): if the branch already has

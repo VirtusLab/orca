@@ -166,7 +166,7 @@ def prSummary(note: String, issue: Issue)(using
     InStage
 ): PrSummary =
   summarisePr(
-    llm = claude.cheap,
+    agent = claude.cheap,
     diff = git.diffVsBase(git.defaultBase()),
     context = Some(
       s"""Originating issue: ${issueHandle.shortRef}
@@ -244,7 +244,7 @@ def planAndImplementFix(session: SessionId[BackendTag.ClaudeCode.type])(using
         coder = claude,
         sessionId = session,
         reviewers = allReviewers(claude),
-        reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
+        reviewerSelection = ReviewerSelector.agentDriven(claude.cheap),
         task = task.title.value,
         // Format after every edit (the implementation and each review fix).
         formatCommand = Some("sbt scalafmtAll"),

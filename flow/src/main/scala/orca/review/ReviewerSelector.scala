@@ -14,8 +14,8 @@ import scala.util.matching.Regex
   *     first iteration when there's no history yet.
   *   - `taskTitle` and `changedFiles` come from `reviewAndFixLoop`'s `task` and
   *     the diff it sampled at loop entry. They're passed through on every call
-  *     so that selectors which need them (e.g. [[llmDriven]]) don't have to be
-  *     reconstructed per task.
+  *     so that selectors which need them (e.g. [[agentDriven]]) don't have to
+  *     be reconstructed per task.
   */
 type ReviewerSelector = (
     history: List[ReviewBatch],
@@ -43,8 +43,8 @@ object ReviewerSelector:
     */
   val allEveryRound: ReviewerSelector = (_, all, _, _) => all
 
-  /** Asks `llm` to pick which reviewers are worth running for a given task. The
-    * selection is computed on the first call and cached for subsequent
+  /** Asks `agent` to pick which reviewers are worth running for a given task.
+    * The selection is computed on the first call and cached for subsequent
     * iterations — task context doesn't change mid-loop, so re-querying the
     * model would just burn tokens for the same answer.
     *
@@ -75,8 +75,8 @@ object ReviewerSelector:
     * Pick a cheap model (e.g. `claude.haiku`); the request is small. Override
     * `instructions` to retune the selection brief.
     */
-  def llmDriven(
-      llm: Agent[?],
+  def agentDriven(
+      agent: Agent[?],
       instructions: String = ReviewLoopPrompts.SelectReviewers,
       descriptions: Map[String, String] =
         ReviewerPrompts.descriptionsByToolName,
@@ -115,7 +115,7 @@ object ReviewerSelector:
             // to run; it should never edit files during the selection
             // turn. If the model reads context (Cargo.toml, etc.) to
             // make a better choice, that's fine.
-            llm.withReadOnly
+            agent.withReadOnly
               .resultAs[SelectedReviewers]
               .autonomous
               .run(

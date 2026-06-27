@@ -44,7 +44,7 @@ class SystemPromptComposerTest extends munit.FunSuite:
     assertEquals(out, Some("be terse"))
 
   test("selfManagedGit escape hatch omits the git rule"):
-    // `llm.withSelfManagedGit` flips this flag; the runtime then stays out of
+    // `agent.withSelfManagedGit` flips this flag; the runtime then stays out of
     // the agent's git so the agent may commit/push itself.
     val out = SystemPromptComposer.combine(
       AgentConfig.default.copy(selfManagedGit = true),

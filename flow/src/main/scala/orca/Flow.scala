@@ -132,7 +132,8 @@ private def recordAndCommit[T: JsonData](
   given InStage = InStage.unsafe
   // Capture the code diff BEFORE force-adding the progress file so the LLM
   // sees only the body's substantive changes, not the orca bookkeeping.
-  val message = commitMessage.map(_(result)).getOrElse(llmCommitMessage(name))
+  val message =
+    commitMessage.map(_(result)).getOrElse(defaultCommitMessage(name))
   fc.progressStore.appendEntry(StageEntry(id, name, resultJson))
   fc.git.forceAdd(fc.progressStore.path)
   // The log always changed, so a clean tree here is unexpected (a prior partial
@@ -143,26 +144,27 @@ private def recordAndCommit[T: JsonData](
     case Left(_) =>
       log.debug("stage {} commit was empty (already recorded?)", name)
 
-/** Generate a commit message via `llm.cheap` from the current working-tree
-  * diff. The diff is captured before the progress file is force-added, so it
-  * reflects only code changes the stage body produced. Falls back to `"stage:
-  * <name>"` when the diff is empty, the LLM returns blank, or any `NonFatal` is
-  * thrown — committing must never break. Only called when the caller supplied
-  * no explicit `commitMessage`.
+/** Generate a commit message from the current working-tree diff via the leading
+  * agent's cheap model (`FlowContext.cheapOneShot`). The diff is captured
+  * before the progress file is force-added, so it reflects only code changes
+  * the stage body produced. Falls back to `"stage: <name>"` when the diff is
+  * empty, the agent returns blank, or any `NonFatal` is thrown — committing
+  * must never break. Only called when the caller supplied no explicit
+  * `commitMessage`.
   */
-private def llmCommitMessage(
+private def defaultCommitMessage(
     name: String
 )(using fc: FlowControl, ev: InStage): String =
   val fallback = s"stage: $name"
   // `git.diff` is a read and shouldn't fail, but stay defensive: a commit
-  // message must never break a stage. The cheap LLM call is guarded by
+  // message must never break a stage. The cheap agent call is guarded by
   // `cheapOneShot` itself.
   val diff =
     try fc.git.diff()
     catch case NonFatal(_) => ""
   if diff.isBlank then fallback
   else
-    fc.llm.cheapOneShot(
+    fc.cheapOneShot(
       s"Write a concise one-line git commit message (imperative mood, ≤72 chars) for this diff:\n\n$diff",
       fallback
     )

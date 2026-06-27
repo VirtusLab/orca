@@ -84,7 +84,7 @@ flow(
           reviewers = allReviewers(claude),
           // claude.cheap picks the per-task reviewer subset; swap for
           // `ReviewerSelector.allEveryRound` to run every reviewer.
-          reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
+          reviewerSelection = ReviewerSelector.agentDriven(claude.cheap),
           task = task.title.value,
           // Format after every edit; Prettier for a TS/JS project — swap for
           // your formatter.
@@ -97,7 +97,7 @@ flow(
 
     val summary = stage("Generate PR title and description"):
       summarisePr(
-        llm = claude.cheap,
+        agent = claude.cheap,
         // Branch-vs-base diff — `git.diff()` (vs HEAD) would be empty, since
         // every task is already committed.
         diff = git.diffVsBase(git.defaultBase()),

@@ -84,10 +84,10 @@ object Plan:
     /** Produce a [[Plan]] directly from `userPrompt`. */
     def from[B <: BackendTag](
         userPrompt: String,
-        llm: Agent[B],
+        agent: Agent[B],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext, InStage): Sessioned[B, Plan] =
-      autonomousResult[B, Plan, Plan](llm, userPrompt, instructions)(identity)
+      autonomousResult[B, Plan, Plan](agent, userPrompt, instructions)(identity)
 
     /** Skeptically assess `userPrompt` (typically a bug/feature report) and
       * either proceed with a plan or reject with a [[Verdict.Rejection]] the
@@ -95,11 +95,11 @@ object Plan:
       */
     def assessThenPlan[B <: BackendTag](
         userPrompt: String,
-        llm: Agent[B],
+        agent: Agent[B],
         instructions: String = PlanPrompts.AssessThenPlan
     )(using FlowContext, InStage): Sessioned[B, Verdict[Plan]] =
       autonomousResult[B, AssessedPlan, Verdict[Plan]](
-        llm,
+        agent,
         userPrompt,
         instructions
       )(a => getOrFail(a.toVerdict))
@@ -109,10 +109,10 @@ object Plan:
       */
     def triage[B <: BackendTag](
         report: String,
-        llm: Agent[B],
+        agent: Agent[B],
         instructions: String = PlanPrompts.Triage
     )(using FlowContext, InStage): Sessioned[B, Triage] =
-      autonomousResult[B, BugTriage, Triage](llm, report, instructions)(b =>
+      autonomousResult[B, BugTriage, Triage](agent, report, instructions)(b =>
         getOrFail(b.toTriage)
       )
 
@@ -135,10 +135,12 @@ object Plan:
     /** Produce a [[Plan]] directly from `userPrompt`. */
     def from[B <: BackendTag: CanAskUser](
         userPrompt: String,
-        llm: Agent[B],
+        agent: Agent[B],
         instructions: String = PlanPrompts.Planning
     )(using FlowContext, InStage): Sessioned[B, Plan] =
-      interactiveResult[B, Plan, Plan](llm, userPrompt, instructions)(identity)
+      interactiveResult[B, Plan, Plan](agent, userPrompt, instructions)(
+        identity
+      )
 
     /** Skeptically assess `userPrompt`, but able to ask the reporter clarifying
       * questions mid-turn rather than only rejecting with a
@@ -146,11 +148,11 @@ object Plan:
       */
     def assessThenPlan[B <: BackendTag: CanAskUser](
         userPrompt: String,
-        llm: Agent[B],
+        agent: Agent[B],
         instructions: String = PlanPrompts.AssessThenPlan
     )(using FlowContext, InStage): Sessioned[B, Verdict[Plan]] =
       interactiveResult[B, AssessedPlan, Verdict[Plan]](
-        llm,
+        agent,
         userPrompt,
         instructions
       )(a => getOrFail(a.toVerdict))
@@ -160,10 +162,10 @@ object Plan:
       */
     def triage[B <: BackendTag: CanAskUser](
         report: String,
-        llm: Agent[B],
+        agent: Agent[B],
         instructions: String = PlanPrompts.Triage
     )(using FlowContext, InStage): Sessioned[B, Triage] =
-      interactiveResult[B, BugTriage, Triage](llm, report, instructions)(b =>
+      interactiveResult[B, BugTriage, Triage](agent, report, instructions)(b =>
         getOrFail(b.toTriage)
       )
 
@@ -190,11 +192,11 @@ object Plan:
     * everywhere.
     */
   private def autonomousResult[B <: BackendTag, O: JsonData: Announce, A](
-      llm: Agent[B],
+      agent: Agent[B],
       input: String,
       instructions: String
   )(convert: O => A)(using FlowContext, InStage): Sessioned[B, A] =
-    val (sessionId, raw) = llm.withNetworkOnly
+    val (sessionId, raw) = agent.withNetworkOnly
       .resultAs[O]
       .autonomous
       .run(withInstructions(input, instructions))
@@ -206,12 +208,12 @@ object Plan:
       O: JsonData: Announce,
       A
   ](
-      llm: Agent[B],
+      agent: Agent[B],
       input: String,
       instructions: String
   )(convert: O => A)(using FlowContext, InStage): Sessioned[B, A] =
     val (sessionId, raw) =
-      llm.resultAs[O].interactive.run(withInstructions(input, instructions))
+      agent.resultAs[O].interactive.run(withInstructions(input, instructions))
     Sessioned(sessionId, convert(raw))
 
   // == Post-planning step on a produced plan ==
@@ -225,10 +227,10 @@ object Plan:
       * improved plan (brief included) paired with the (same) session.
       */
     def reviewed(
-        llm: Agent[B],
+        agent: Agent[B],
         instructions: String = PlanPrompts.Review
     )(using FlowContext, InStage): Sessioned[B, Plan] =
-      val (sessionId, improved) = llm.withReadOnly
+      val (sessionId, improved) = agent.withReadOnly
         .resultAs[Plan]
         .autonomous
         .run(s"$instructions\n\n${render(sp.value)}", session = sp.sessionId)

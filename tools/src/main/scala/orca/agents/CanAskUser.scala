@@ -8,7 +8,7 @@ package orca.agents
   * Used as a constraint on flow helpers that depend on the capability:
   *
   * {{{
-  *   def from[B <: BackendTag: CanAskUser](llm: Agent[B], ...): T
+  *   def from[B <: BackendTag: CanAskUser](agent: Agent[B], ...): T
   * }}}
   *
   * Calling with a backend that lacks an instance is a compile error.

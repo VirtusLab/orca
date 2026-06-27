@@ -75,7 +75,7 @@ class CodexArgsTest extends munit.FunSuite:
     "ToolSet.ReadOnly maps to --sandbox read-only and overrides autoApprove"
   ):
     // Pins the gate used by `.withReadOnly` callers — reviewers,
-    // ReviewerSelector.llmDriven, lint, Plan.autonomous.from. Without
+    // ReviewerSelector.agentDriven, lint, Plan.autonomous.from. Without
     // this mapping codex's reviewers inherit the base tool's permissions
     // and could edit files during a review turn.
     val args = CodexArgs.exec(

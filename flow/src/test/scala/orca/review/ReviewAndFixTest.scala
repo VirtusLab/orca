@@ -252,7 +252,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     assert(sent.contains("--- a/Foo.scala"), s"diff missing from prompt: $sent")
     assert(sent.contains("do thing"), s"task missing from prompt: $sent")
 
-  test("ReviewerSelector.llmDriven asks the LLM once and caches"):
+  test("ReviewerSelector.agentDriven asks the LLM once and caches"):
     given FlowContext = ctx
     val perf = new FakeAgent(name = "performance")
     val style = new FakeAgent(name = "readability")
@@ -264,7 +264,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       name = "picker",
       outputs = List(SelectedReviewers(List("performance", "test-coverage")))
     )
-    val select = ReviewerSelector.llmDriven(llm = picker)
+    val select = ReviewerSelector.agentDriven(agent = picker)
     val title = Title("optimize hot path")
     val files = List("src/Cache.scala")
     assertEquals(
@@ -280,7 +280,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test(
-    "an llmDriven reviewerSelection narrows the active set via its picker LLM"
+    "an agentDriven reviewerSelection narrows the active set via its picker LLM"
   ):
     given FlowContext = ctx
     val issueX = issue("only-x", confidence = 0.9)
@@ -306,7 +306,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       coder = coder,
       sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
       reviewers = List(reviewerX, reviewerY),
-      reviewerSelection = ReviewerSelector.llmDriven(llm = picker),
+      reviewerSelection = ReviewerSelector.agentDriven(agent = picker),
       task = "picker-routing check",
       initialDiff = Some("")
     )

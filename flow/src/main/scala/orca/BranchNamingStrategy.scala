@@ -10,10 +10,11 @@ import java.security.MessageDigest
   * flow run, inside a stage (the `InStage` token gates the call).
   */
 trait BranchNamingStrategy:
-  /** Resolve the feature-branch name. `userPrompt` is the flow's prompt; `llm`
-    * is the leading model (used only by the prompt-shortening strategy).
+  /** Resolve the feature-branch name. `userPrompt` is the flow's prompt;
+    * `agent` is the leading model (used only by the prompt-shortening
+    * strategy).
     */
-  def resolve(userPrompt: String, llm: Agent[?])(using InStage): String
+  def resolve(userPrompt: String, agent: Agent[?])(using InStage): String
 
 object BranchNamingStrategy:
 
@@ -47,7 +48,7 @@ object BranchNamingStrategy:
     s.nonEmpty && isSlugChar(s.head) && s.head != '-' && s.forall(isSlugChar)
 
   /** `<prefix>/issue-<number>` — number is an Int, prefix slugged; safe by
-    * construction. `resolve` ignores `userPrompt` and `llm`.
+    * construction. `resolve` ignores `userPrompt` and `agent`.
     */
   def issue(
       handle: IssueHandle,
@@ -56,19 +57,19 @@ object BranchNamingStrategy:
     // Slug the prefix once at construction, not on every `resolve` call.
     val prefixSlug = slug(prefix)
     new BranchNamingStrategy:
-      def resolve(userPrompt: String, llm: Agent[?])(using InStage): String =
+      def resolve(userPrompt: String, agent: Agent[?])(using InStage): String =
         s"$prefixSlug/issue-${handle.number}"
 
   /** Deterministic strategy: slugs `text` to produce the branch name. `resolve`
-    * ignores `userPrompt` and `llm`; `text` is evaluated once per `resolve`
+    * ignores `userPrompt` and `agent`; `text` is evaluated once per `resolve`
     * call (by-name for callers that want late binding).
     */
   def fromText(text: => String): BranchNamingStrategy =
     new BranchNamingStrategy:
-      def resolve(userPrompt: String, llm: Agent[?])(using InStage): String =
+      def resolve(userPrompt: String, agent: Agent[?])(using InStage): String =
         slug(text)
 
-  /** Prompt-shortening strategy: asks `llm.cheap` for a 3–6 word lowercase
+  /** Prompt-shortening strategy: asks `agent.cheap` for a 3–6 word lowercase
     * branch label, then slugs it. Falls back to `slug(userPrompt)` on any
     * failure (LLM throws, empty/blank result) so branch naming can never break
     * the flow. Non-deterministic — computed once and persisted in the header;
@@ -76,11 +77,11 @@ object BranchNamingStrategy:
     */
   val shortenPrompt: BranchNamingStrategy =
     new BranchNamingStrategy:
-      def resolve(userPrompt: String, llm: Agent[?])(using InStage): String =
+      def resolve(userPrompt: String, agent: Agent[?])(using InStage): String =
         // `slug` is total (never empty), so the cheap-model reply OR the
         // userPrompt fallback both produce a valid ref.
         slug(
-          llm.cheapOneShot(
+          agent.cheapOneShot(
             s"Reply with ONLY a 3–6 word lowercase branch label (hyphen-separated, no other punctuation) that summarises this task:\n\n$userPrompt",
             fallback = userPrompt
           )

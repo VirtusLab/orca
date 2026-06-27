@@ -65,13 +65,11 @@ import scala.util.control.NonFatal
   * `flow(OrcaArgs(args), _.claude)` runs against claude; `flow(OrcaArgs(args),
   * _.codex)` against codex, etc. Inside the body, reference the resolved lead
   * via the backend-agnostic [[agent]] accessor (not a concrete
-  * `claude`/`codex`) so switching the selector switches the whole flow; the
-  * runtime also keeps it erased as `ctx.llm` for its own use.
-  *
-  * WARNING: the selector MUST NOT read `ctx.llm` — `llm` is a lazy val resolved
-  * by calling this selector, so `_.llm` would recurse infinitely. Safe
-  * selectors read a concrete accessor (`_.claude`, `_.codex`, `_.gemini`,
-  * `_.opencode`, `_.pi`) and never `_.llm`.
+  * `claude`/`codex`) so switching the selector switches the whole flow. The
+  * selector reads a concrete accessor (`_.claude`, `_.codex`, `_.gemini`,
+  * `_.opencode`, `_.pi`); the context deliberately does not expose the lead
+  * itself, so a selector cannot accidentally read (and recurse on) the thing it
+  * is resolving.
   *
   * Overrides default to `None` so the runtime can build the default lazily —
   * `TerminalInteraction`, in particular, takes the resolved `workDir` which
@@ -201,16 +199,16 @@ private[orca] def runFlow(
       // and after the body, outside any user stage, so they need git
       // directly. The same instance is handed to the context.
       val effectiveGit = git.getOrElse(new OsGitTool(workDir, dispatcher))
-      // Order matters (and is delicate): the leading model is now a selector
-      // resolved against the context (`ctx.llm`), and branch setup needs the
-      // resolved model for branch naming. So the store and the context must
-      // exist BEFORE setup runs:
-      //   1. Resolve the progress store (pure — no git effect, no model).
+      // Order matters (and is delicate): the leading agent is a selector
+      // resolved against the context, and branch setup needs the resolved agent
+      // for branch naming. So the store and the context must exist BEFORE setup
+      // runs:
+      //   1. Resolve the progress store (pure — no git effect, no agent).
       //   2. Build the context (pure construction — backends are created but
-      //      no subprocess spawns until the first gated `run`; `ctx.llm` is a
-      //      lazy selector resolution).
-      //   3. Run branch setup (stash → resume-vs-fresh → checkout → header
-      //      commit) using `ctx.llm` for branch naming.
+      //      no subprocess spawns until the first gated `run`).
+      //   3. Resolve the leading agent (`agent(ctx)`) and run branch setup
+      //      (stash → resume-vs-fresh → checkout → header commit) using it for
+      //      branch naming.
       // Teardown is unchanged (the `bodySucceeded` gate + disjoint
       // success/failure paths below), so CORE's invariants are preserved.
       val store =
@@ -223,7 +221,7 @@ private[orca] def runFlow(
         workDir = workDir,
         interaction = effectiveInteraction,
         progressStore = store,
-        leadModel = agent,
+        agentSelector = agent,
         claude = claude,
         opencode = opencode,
         opencodeLauncher = opencodeLauncher,
@@ -233,15 +231,21 @@ private[orca] def runFlow(
         fs = fs,
         prompts = prompts
       )
+      // Re-apply the selector against the built context to get the leading
+      // agent (erased). `ctx.claude`/etc. are lazy vals, so this returns the
+      // same instance the context resolves internally — the context no longer
+      // exposes the lead, so the runtime holds its own handle here and threads
+      // it to setup, rehydrate, and the body's `Lead` carrier.
+      val lead = agent(ctx)
       val setup =
-        FlowLifecycle.setup(args, ctx.llm, effectiveGit, branchNaming, store)
+        FlowLifecycle.setup(args, lead, effectiveGit, branchNaming, store)
       // Rehydrate the client→server session map: the registry is
-      // in-memory, so on resume the leading model's mapping is empty. Replay
+      // in-memory, so on resume the leading agent's mapping is empty. Replay
       // the persisted records into it (after the context + log exist, before
       // the body) so `dispatchFor` resumes the right server thread and the
-      // server-id existence probes work. Only the leading model is rehydrated —
+      // server-id existence probes work. Only the leading agent is rehydrated —
       // the common case; multi-tool flows are a known limitation (see report).
-      FlowLifecycle.rehydrateSessions(ctx.llm, store)
+      FlowLifecycle.rehydrateSessions(lead, store)
       // The whole flow body runs as a top-level stage: an otherwise
       // unhandled exception surfaces as a single Error event (the same
       // message a stage failure shows). A nested stage / `fail` marks the
@@ -258,8 +262,8 @@ private[orca] def runFlow(
       try
         // Supply the lead as a stable `Lead` carrier so the body's `agent`
         // accessor hands back a concretely-typed tool (sessions thread), even
-        // though `ctx.llm` itself is erased to `Agent[?]`.
-        body(using Lead(ctx.llm))(using ctx)
+        // though the runtime's `lead` handle itself is erased to `Agent[?]`.
+        body(using Lead(lead))(using ctx)
         bodySucceeded = true
       catch
         case NonFatal(e) =>

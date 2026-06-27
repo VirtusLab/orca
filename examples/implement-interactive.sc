@@ -45,7 +45,7 @@ flow(OrcaArgs(args), _.claude):
         reviewers = allReviewers(claude),
         // claude.cheap picks the per-task reviewer subset; swap for
         // `ReviewerSelector.allEveryRound` to run every reviewer.
-        reviewerSelection = ReviewerSelector.llmDriven(claude.cheap),
+        reviewerSelection = ReviewerSelector.agentDriven(claude.cheap),
         task = task.title.value,
         // Format after every edit so commits stay formatted and reviewers
         // skip style nits.

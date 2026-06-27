@@ -18,7 +18,7 @@ import orca.agents.{
 }
 import orca.progress.{ProgressHeader, ProgressStore, StageEntry, SessionRecord}
 
-/** Tests for `llm.runSeeded` (ADR 0018 §2.6, task D-seed).
+/** Tests for `agent.runSeeded` (ADR 0018 §2.6, task D-seed).
   *
   * Each test scenario uses a [[StubAgentForSeeded]] whose `sessionExists` and
   * `autonomous.run` behaviours are injected at construction time, and whose
@@ -198,11 +198,11 @@ class RunSeededTest extends FunSuite:
     val fc = makeControl(
       sessions = List(SessionRecord(index = 0, id = testSessionId, seed = seed))
     )
-    val llm = new StubAgentForSeeded(existsResult = true)
+    val agent = new StubAgentForSeeded(existsResult = true)
     val originalPrompt = "implement feature X"
-    val _ = llm.runSeeded(originalPrompt, testSession)(using fc)
+    val _ = agent.runSeeded(originalPrompt, testSession)(using fc)
     assertEquals(
-      llm.capturedPrompt,
+      agent.capturedPrompt,
       Some(originalPrompt),
       "live session must pass prompt verbatim"
     )
@@ -214,10 +214,10 @@ class RunSeededTest extends FunSuite:
     val fc = makeControl(
       sessions = List(SessionRecord(index = 0, id = testSessionId, seed = seed))
     )
-    val llm = new StubAgentForSeeded(existsResult = false)
+    val agent = new StubAgentForSeeded(existsResult = false)
     val originalPrompt = "implement feature X"
-    val _ = llm.runSeeded(originalPrompt, testSession)(using fc)
-    val prompt = llm.capturedPrompt.getOrElse(fail("no prompt captured"))
+    val _ = agent.runSeeded(originalPrompt, testSession)(using fc)
+    val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
     assert(prompt.contains(seed), s"prompt must contain seed; got: $prompt")
     assert(
       prompt.contains(originalPrompt),
@@ -237,10 +237,10 @@ class RunSeededTest extends FunSuite:
         List(SessionRecord(index = 0, id = testSessionId, seed = seed)),
       completedStages = List("triage", "implement")
     )
-    val llm = new StubAgentForSeeded(existsResult = false)
+    val agent = new StubAgentForSeeded(existsResult = false)
     val originalPrompt = "continue the work"
-    val _ = llm.runSeeded(originalPrompt, testSession)(using fc)
-    val prompt = llm.capturedPrompt.getOrElse(fail("no prompt captured"))
+    val _ = agent.runSeeded(originalPrompt, testSession)(using fc)
+    val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
     assert(
       prompt.contains("Progress so far"),
       s"expected preamble on resume; got: $prompt"
@@ -285,11 +285,11 @@ class RunSeededTest extends FunSuite:
     // (no completed stages) -> prompt must be forwarded verbatim with no
     // leading `---` separator or seed blob.
     val fc = makeControl(sessions = Nil)
-    val llm = new StubAgentForSeeded(existsResult = false)
+    val agent = new StubAgentForSeeded(existsResult = false)
     val originalPrompt = "do something"
-    val _ = llm.runSeeded(originalPrompt, testSession)(using fc)
+    val _ = agent.runSeeded(originalPrompt, testSession)(using fc)
     assertEquals(
-      llm.capturedPrompt,
+      agent.capturedPrompt,
       Some(originalPrompt),
       "no seed + no preamble must produce bare original prompt, not '---\\n\\n' + prompt"
     )
@@ -305,10 +305,10 @@ class RunSeededTest extends FunSuite:
       sessions = List(SessionRecord(index = 0, id = testSessionId, seed = "")),
       completedStages = List("triage")
     )
-    val llm = new StubAgentForSeeded(existsResult = false)
+    val agent = new StubAgentForSeeded(existsResult = false)
     val originalPrompt = "continue"
-    val _ = llm.runSeeded(originalPrompt, testSession)(using fc)
-    val prompt = llm.capturedPrompt.getOrElse(fail("no prompt captured"))
+    val _ = agent.runSeeded(originalPrompt, testSession)(using fc)
+    val prompt = agent.capturedPrompt.getOrElse(fail("no prompt captured"))
     assert(
       prompt.contains("Progress so far"),
       s"expected preamble when stages completed; got: $prompt"
@@ -327,10 +327,10 @@ class RunSeededTest extends FunSuite:
     val fc = makeControl(
       sessions = List(SessionRecord(index = 0, id = testSessionId, seed = seed))
     )
-    val llm =
+    val agent =
       new StubAgentForSeeded(existsResult = false, runResult = "agent output")
     val (returnedSession, output) =
-      llm.runSeeded("prompt", testSession)(using fc)
+      agent.runSeeded("prompt", testSession)(using fc)
     assertEquals(returnedSession, testSession)
     assertEquals(output, "agent output")
 
@@ -341,11 +341,11 @@ class RunSeededTest extends FunSuite:
       sessions =
         List(SessionRecord(index = 0, id = testSessionId, seed = "seed"))
     )
-    val llm = new StubAgentForSeeded(
+    val agent = new StubAgentForSeeded(
       existsResult = false,
       serverId = Some("server-thread-xyz")
     )
-    val _ = llm.runSeeded("prompt", testSession)(using fc)
+    val _ = agent.runSeeded("prompt", testSession)(using fc)
     val record =
       fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
     assertEquals(record.serverId, Some("server-thread-xyz"))
@@ -358,8 +358,8 @@ class RunSeededTest extends FunSuite:
       sessions =
         List(SessionRecord(index = 0, id = testSessionId, seed = "seed"))
     )
-    val llm = new StubAgentForSeeded(existsResult = false, serverId = None)
-    val _ = llm.runSeeded("prompt", testSession)(using fc)
+    val agent = new StubAgentForSeeded(existsResult = false, serverId = None)
+    val _ = agent.runSeeded("prompt", testSession)(using fc)
     val record =
       fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
     assertEquals(record.serverId, None)
@@ -367,7 +367,7 @@ class RunSeededTest extends FunSuite:
   test(
     "runSeeded does NOT clobber a previously-persisted serverId when the backend reports None"
   ):
-    // The guard in persistServerId calls llm.serverSessionId(session).foreach { … }
+    // The guard in persistServerId calls agent.serverSessionId(session).foreach { … }
     // so a None result short-circuits and the record's serverId is left intact.
     // Pre-seed the log with a SessionRecord whose serverId is already Some("server-1"),
     // then run with a stub whose serverSessionId returns None, and confirm the stored
@@ -382,8 +382,8 @@ class RunSeededTest extends FunSuite:
         )
       )
     )
-    val llm = new StubAgentForSeeded(existsResult = false, serverId = None)
-    val _ = llm.runSeeded("prompt", testSession)(using fc)
+    val agent = new StubAgentForSeeded(existsResult = false, serverId = None)
+    val _ = agent.runSeeded("prompt", testSession)(using fc)
     val record =
       fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
     assertEquals(

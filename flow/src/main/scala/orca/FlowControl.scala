@@ -25,7 +25,7 @@ import scala.annotation.implicitNotFound
   * `flow` supplies it.
   */
 @implicitNotFound(
-  "`stage(...)` and `llm.session(...)` can only be called inside a `flow(...)` body — and not inside a `fork` (forks can read and emit, but can't start stages). If this is a helper that starts stages, declare it `(using FlowControl)` so its caller supplies it."
+  "`stage(...)` and `agent.session(...)` can only be called inside a `flow(...)` body — and not inside a `fork` (forks can read and emit, but can't start stages). If this is a helper that starts stages, declare it `(using FlowControl)` so its caller supplies it."
 )
 trait FlowControl extends FlowContext:
   /** The store backing this run's progress log. */
@@ -39,8 +39,8 @@ trait FlowControl extends FlowContext:
   def nextOccurrence(stageName: String): Int
 
   /** Next session occurrence index in this run: 0 for the first
-    * `llm.session(...)`, 1 for the second, and so on. Independent of the stage
-    * counter so sessions can be obtained outside stages without perturbing
-    * stage ids.
+    * `agent.session(...)`, 1 for the second, and so on. Independent of the
+    * stage counter so sessions can be obtained outside stages without
+    * perturbing stage ids.
     */
   def nextSessionOccurrence(): Int

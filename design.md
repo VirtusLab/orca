@@ -302,7 +302,7 @@ def reviewAndFix[B <: BackendTag](
 /** Built-in lint: run a command, summarize errors via LLM, return as ReviewResult. */
 def lint(
   command: String,
-  llm: Agent[?] = claude.haiku
+  agent: Agent[?] = claude.haiku
 )(using FlowContext): ReviewResult
 ```
 

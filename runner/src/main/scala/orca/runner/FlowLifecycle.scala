@@ -15,18 +15,19 @@ import scala.util.control.NonFatal
 object FlowLifecycle:
 
   /** Replay the persisted client→server session map (ADR 0018 §2.6) into the
-    * leading model's in-memory registry, so a resumed run resumes the right
+    * leading agent's in-memory registry, so a resumed run resumes the right
     * server thread and the server-id existence probes target the right id.
     * Reads every [[orca.progress.SessionRecord]] that carries a `serverId` and
     * registers the mapping via [[orca.agents.Agent.registerServerSession]].
     *
-    * The type parameter `B` binds the wildcard backend tag from `ctx.llm`
-    * (`Agent[?]`) so the client/server [[orca.agents.SessionId]]s share its
-    * type. Only the leading model is rehydrated (the common case); a flow that
-    * drives a second tool's sessions across resume is a known limitation.
+    * The type parameter `B` binds the wildcard backend tag from the `agent`
+    * parameter (`Agent[?]`) so the client/server [[orca.agents.SessionId]]s
+    * share its type. Only the leading agent is rehydrated (the common case); a
+    * flow that drives a second tool's sessions across resume is a known
+    * limitation.
     */
   private[orca] def rehydrateSessions[B <: BackendTag](
-      llm: Agent[B],
+      agent: Agent[B],
       store: ProgressStore
   ): Unit =
     for
@@ -34,7 +35,7 @@ object FlowLifecycle:
       record <- log.sessions
       serverId <- record.serverId
     do
-      llm.registerServerSession(
+      agent.registerServerSession(
         SessionId[B](record.id),
         SessionId[B](serverId)
       )
@@ -78,7 +79,7 @@ object FlowLifecycle:
     */
   private[orca] def setup(
       args: OrcaArgs,
-      llm: Agent[?],
+      agent: Agent[?],
       git: GitTool,
       branchNaming: Option[BranchNamingStrategy],
       store: ProgressStore
@@ -127,7 +128,7 @@ object FlowLifecycle:
         // is the branch's first commit.
         val strategy =
           branchNaming.getOrElse(BranchNamingStrategy.shortenPrompt)
-        val branch = strategy.resolve(args.userPrompt, llm)
+        val branch = strategy.resolve(args.userPrompt, agent)
         git.checkoutOrCreate(branch)
         store.writeHeader(
           ProgressHeader(
