@@ -4,21 +4,21 @@ import orca.agents.BackendTag
 
 import java.util.concurrent.atomic.AtomicReference
 
-/** Bounded-stderr diagnostics shared by the subprocess [[StreamConversation]]s
-  * (codex, pi). Keeps the last few trimmed stderr lines (capped on count and
-  * bytes) so a non-zero exit / clean-exit-without-result carries the real
-  * failure context in the thrown exception — listener subscribers saw each line
-  * as a `ConversationEvent.Error`, but a noop listener (tests, simple scripts)
-  * would otherwise lose it. Also joins the stderr drain at finalize so trailing
-  * lines reach the queue before it closes.
+/** Bounded-stderr diagnostics shared by the subprocess [[ForkedConversation]]s
+  * (codex, gemini, pi). Keeps the last few trimmed stderr lines (capped on
+  * count and bytes) so a non-zero exit / clean-exit-without-result carries the
+  * real failure context in the thrown exception — listener subscribers saw each
+  * line as a `ConversationEvent.Error`, but a noop listener (tests, simple
+  * scripts) would otherwise lose it. Also joins the stderr drain at finalize so
+  * trailing lines reach the queue before it closes.
   *
-  * The driver keeps its own [[StreamConversation.handleStderr]] (the noise
+  * The driver keeps its own [[ForkedConversation.handleStderr]] (the noise
   * filter and prefix genuinely differ per backend) and calls [[recordStderr]]
   * for lines worth keeping. A driver needing extra teardown overrides
   * `onFinalize` and calls `super.onFinalize()`.
   */
 private[orca] trait BufferedStderrDiagnostics[B <: BackendTag]
-    extends StreamConversation[B]:
+    extends ForkedConversation[B]:
 
   import BufferedStderrDiagnostics.*
 
@@ -28,10 +28,13 @@ private[orca] trait BufferedStderrDiagnostics[B <: BackendTag]
   protected def recordStderr(line: String): Unit =
     val _ = stderrBuffer.updateAndGet(appendBounded(_, line))
 
-  /** Bounded wait for the stderr drain so trailing lines reach the queue. */
+  /** Wait for the stderr drain so trailing lines reach the queue before the
+    * failure outcome is computed. No timeout is needed: `cancel()`'s
+    * `destroyForcibly` (and a real process's exit) always EOFs the stderr
+    * stream, so the drain fork terminates.
+    */
   override protected def onFinalize(): Unit =
-    try stderrDrainThread.join(DrainTimeoutMs)
-    catch case _: InterruptedException => Thread.currentThread().interrupt()
+    stderrDrainFork.join()
 
   /** Recent stderr lines as a `stderr:` block; the base owns the outer framing.
     */
@@ -41,8 +44,6 @@ private[orca] trait BufferedStderrDiagnostics[B <: BackendTag]
     else Some(lines.mkString("stderr:\n    ", "\n    ", ""))
 
 private[orca] object BufferedStderrDiagnostics:
-  /** Bounded wait for the stderr drain thread at finalize. */
-  val DrainTimeoutMs: Long = 500L
 
   /** Cap on lines kept — sized for a typical stack trace plus a brief
     * explanation, bounded so a chatty subprocess can't grow memory.

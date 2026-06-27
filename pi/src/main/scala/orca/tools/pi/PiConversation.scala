@@ -6,7 +6,7 @@ import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, AgentResult}
 import orca.backend.{
   BufferedStderrDiagnostics,
-  StreamConversation,
+  ForkedConversation,
   StreamSource
 }
 import orca.subprocess.PipedCliProcess
@@ -17,6 +17,8 @@ import orca.tools.pi.rpc.{
   MessageDelta,
   OutboundMessage
 }
+
+import ox.Ox
 
 import scala.util.control.NonFatal
 
@@ -36,7 +38,8 @@ private[pi] class PiConversation(
     val outputSchema: Option[String] = None,
     askUserEnabled: Boolean = false,
     resources: List[AutoCloseable] = Nil
-) extends StreamConversation[BackendTag.Pi.type](
+)(using Ox)
+    extends ForkedConversation[BackendTag.Pi.type](
       StreamSource.fromProcess(process),
       backendName = "pi",
       initialPrompt = initialPrompt,
@@ -65,13 +68,14 @@ private[pi] class PiConversation(
   private var turnState: TurnState = TurnState()
 
   // All stdin writes funnel through this lock: `sendPrompt` runs on the caller's
-  // thread, the ask-user reply on the event consumer's, and the reader thread
-  // may write an extension cancel. `writeLine` is an unsynchronised write+flush,
-  // so concurrent callers would otherwise interleave JSONL frames. Declared
-  // before `start()` so the reader thread never observes a null lock.
+  // thread, the ask-user reply on the event consumer's, and the reader fork may
+  // write an extension cancel. `writeLine` is an unsynchronised write+flush, so
+  // concurrent callers would otherwise interleave JSONL frames.
   private val stdinLock = new AnyRef
 
-  start()
+  // No `start()`: the base spawns its reader / stderr forks lazily on first
+  // touch of the conversation surface, after this subclass's fields (incl.
+  // `stdinLock`) are initialised.
 
   def sendPrompt(prompt: String): Unit =
     sendLine(OutboundMessage.prompt(prompt))
@@ -81,12 +85,6 @@ private[pi] class PiConversation(
 
   private def closeStdin(): Unit =
     stdinLock.synchronized(process.closeStdin())
-
-  /** Pi RPC prompts are command messages rather than a writable chat stdin.
-    * Orca's interactive Pi support currently routes human input through the
-    * ask_user extension UI bridge, so unsolicited user turns are a no-op.
-    */
-  def sendUserMessage(text: String): Unit = ()
 
   override protected def handleLine(line: String): Unit =
     handle(InboundEvent.parse(line))

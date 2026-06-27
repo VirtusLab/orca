@@ -111,26 +111,29 @@ class PiBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(process))
     val backend = new PiBackend(runner)
 
-    val conv = backend.runInteractive(
-      "q",
-      sid,
-      displayPrompt = "q",
-      AgentConfig.default.copy(tools = ToolSet.ReadOnly),
-      os.temp.dir(),
-      outputSchema = Some("{}")
-    )
-    assert(conv.canAskUser)
-    assertEquals(conv.outputSchema, Some("{}"))
+    // The conversation forks its workers into the surrounding Ox scope, so it
+    // must be created AND consumed within the same `supervised` block.
+    ox.supervised:
+      val conv = backend.runInteractive(
+        "q",
+        sid,
+        displayPrompt = "q",
+        AgentConfig.default.copy(tools = ToolSet.ReadOnly),
+        os.temp.dir(),
+        outputSchema = Some("{}")
+      )
+      assert(conv.canAskUser)
+      assertEquals(conv.outputSchema, Some("{}"))
 
-    val args = runner.calls.head
-    assert(
-      args.containsSlice(Seq("--tools", "read,grep,find,ls,ask_user")),
-      args
-    )
-    assert(args.contains("--extension"), args)
+      val args = runner.calls.head
+      assert(
+        args.containsSlice(Seq("--tools", "read,grep,find,ls,ask_user")),
+        args
+      )
+      assert(args.contains("--extension"), args)
 
-    val _ = conv.events.toList
-    val _ = conv.awaitResult()
+      val _ = conv.events.toList
+      val _ = conv.awaitResult()
 
   test(
     "interactive system prompt file contains configured prompt, hint, and git rule"
@@ -139,33 +142,39 @@ class PiBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(process))
     val backend = new PiBackend(runner)
 
-    val conv = backend.runInteractive(
-      "q",
-      sid,
-      displayPrompt = "q",
-      AgentConfig.default.copy(systemPrompt = Some("be terse")),
-      os.temp.dir(),
-      outputSchema = None
-    )
+    // The conversation forks its workers into the surrounding Ox scope, so it
+    // must be created AND consumed within the same `supervised` block.
+    ox.supervised:
+      val conv = backend.runInteractive(
+        "q",
+        sid,
+        displayPrompt = "q",
+        AgentConfig.default.copy(systemPrompt = Some("be terse")),
+        os.temp.dir(),
+        outputSchema = None
+      )
 
-    val args = runner.calls.head
-    val promptFile = args(args.indexOf("--append-system-prompt") + 1)
-    val promptText = os.read(os.Path(promptFile))
-    assert(promptText.contains("be terse"), promptText)
-    assert(promptText.contains(PiAskUserExtension.Hint), promptText)
-    assert(promptText.contains(SystemPromptComposer.RuntimeOwnsGit), promptText)
+      val args = runner.calls.head
+      val promptFile = args(args.indexOf("--append-system-prompt") + 1)
+      val promptText = os.read(os.Path(promptFile))
+      assert(promptText.contains("be terse"), promptText)
+      assert(promptText.contains(PiAskUserExtension.Hint), promptText)
+      assert(
+        promptText.contains(SystemPromptComposer.RuntimeOwnsGit),
+        promptText
+      )
 
-    val extensionFile = os.Path(args(args.indexOf("--extension") + 1))
-    assert(os.exists(extensionFile))
+      val extensionFile = os.Path(args(args.indexOf("--extension") + 1))
+      assert(os.exists(extensionFile))
 
-    process.enqueueStdout(
-      """{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}"""
-    )
-    process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
-    val _ = conv.events.toList
-    val _ = conv.awaitResult()
-    assert(!os.exists(os.Path(promptFile)))
-    assert(!os.exists(extensionFile))
+      process.enqueueStdout(
+        """{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}"""
+      )
+      process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
+      val _ = conv.events.toList
+      val _ = conv.awaitResult()
+      assert(!os.exists(os.Path(promptFile)))
+      assert(!os.exists(extensionFile))
 
   test("self-managed git suppresses the runtime git rule"):
     val process = successfulProcess()

@@ -15,7 +15,7 @@ import orca.backend.{
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.CliRunner
-import ox.Ox
+import ox.{Ox, supervised}
 import ox.channels.BufferCapacity
 
 /** Codex backend. Both autonomous and interactive paths drive `codex exec
@@ -41,7 +41,7 @@ import ox.channels.BufferCapacity
 private[orca] class CodexBackend(
     cli: CliRunner,
     private[codex] val sessionsDir: os.Path = os.home / ".codex" / "sessions"
-)(using Ox, BufferCapacity)
+)(using BufferCapacity)
     extends AgentBackend[BackendTag.Codex.type]:
 
   /** Best-effort probe: walks [[sessionsDir]] looking for a file whose name
@@ -81,26 +81,32 @@ private[orca] class CodexBackend(
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Codex.type] =
-    val conv = openConversation(
-      prompt = prompt,
-      mode = SessionMode.Autonomous,
-      session = session,
-      config = config,
-      workDir = workDir,
-      // Forwarded so (a) `conv.outputSchema` signals structured mode to the
-      // drain (suppressing the raw JSON payload from the user log) and (b)
-      // `--output-schema` enforces the contract on the codex side too.
-      // `exec resume` rejects `--output-schema`, so retries against an
-      // existing session fall back to prompt-only enforcement; the
-      // retry-with-corrective-prompt loop in `DefaultAgentCall` handles a
-      // resume that produces malformed JSON.
-      outputSchema = outputSchema
-    )
-    // Hide the server-allocated id from the caller — they keep using the client
-    // id they passed in. Future calls resolve via the registry.
-    Conversations
-      .drainAndCommit("codex", conv, session, sessions, events)
-      .copy(sessionId = session)
+    // Self-scoped: the conversation forks its workers into this per-call Ox, the
+    // drain consumes them, and `cancel` (the `finally`) tears the subprocess +
+    // forks down before the scope joins.
+    supervised:
+      val conv = openConversation(
+        prompt = prompt,
+        mode = SessionMode.Autonomous,
+        session = session,
+        config = config,
+        workDir = workDir,
+        // Forwarded so (a) `conv.outputSchema` signals structured mode to the
+        // drain (suppressing the raw JSON payload from the user log) and (b)
+        // `--output-schema` enforces the contract on the codex side too.
+        // `exec resume` rejects `--output-schema`, so retries against an
+        // existing session fall back to prompt-only enforcement; the
+        // retry-with-corrective-prompt loop in `DefaultAgentCall` handles a
+        // resume that produces malformed JSON.
+        outputSchema = outputSchema
+      )
+      // Hide the server-allocated id from the caller — they keep using the
+      // client id they passed in. Future calls resolve via the registry.
+      try
+        Conversations
+          .drainAndCommit("codex", conv, session, sessions, events)
+          .copy(sessionId = session)
+      finally conv.cancel()
 
   def runInteractive(
       prompt: String,
@@ -109,7 +115,7 @@ private[orca] class CodexBackend(
       config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): Conversation[BackendTag.Codex.type] =
+  )(using Ox): Conversation[BackendTag.Codex.type] =
     openConversation(
       prompt,
       mode = SessionMode.Interactive(displayPrompt),
@@ -145,7 +151,7 @@ private[orca] class CodexBackend(
       config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): Conversation[BackendTag.Codex.type] =
+  )(using Ox): Conversation[BackendTag.Codex.type] =
     val (askUser, displayPrompt): (Option[AskUserSession], String) =
       mode match
         case SessionMode.Interactive(p) => (Some(AskUserSession.allocate()), p)

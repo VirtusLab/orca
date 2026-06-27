@@ -4,8 +4,9 @@ import orca.agents.{AutoApprove, BackendTag, AgentConfig, Model, SessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ApprovalDecision, ConversationEvent, AgentResult}
-import orca.backend.{StreamConversation, StreamSource}
+import orca.backend.{ForkedConversation, StreamSource}
 import orca.subprocess.PipedCliProcess
+import ox.Ox
 import orca.tools.claude.streamjson.{
   ContentBlock,
   ControlDecision,
@@ -17,8 +18,8 @@ import orca.tools.claude.streamjson.{
 
 /** Drives a stream-json conversation with claude to completion.
   *
-  * Boilerplate (reader thread, event queue, outcome lifecycle, stderr drain)
-  * lives in [[StreamConversation]]; this class supplies the claude-specific
+  * Boilerplate (reader fork, event queue, outcome lifecycle, stderr drain)
+  * lives in [[ForkedConversation]]; this class supplies the claude-specific
   * protocol translation: NDJSON → [[InboundMessage]] → `ConversationEvent`s,
   * plus auto-approve policy for tools listed in `config.autoApprove`. Outbound
   * writes (user turns, tool-approval responses) happen on the channel's thread
@@ -30,13 +31,12 @@ private[claude] class ClaudeConversation(
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
     override val askUser: Option[orca.backend.mcp.AskUserSession] = None
-) extends StreamConversation[BackendTag.ClaudeCode.type](
+)(using Ox)
+    extends ForkedConversation[BackendTag.ClaudeCode.type](
       source = StreamSource.fromProcess(process),
       backendName = "claude",
       initialPrompt = initialPrompt
     ):
-
-  import StreamConversation.Outcome
 
   // The reader thread is the sole writer for all three fields below.
   // No cross-thread visibility concerns: reads happen on the same thread
@@ -63,19 +63,10 @@ private[claude] class ClaudeConversation(
     */
   private val askUserEchoes = new orca.backend.AskUserEchoes
 
-  // --- Conversation surface (only the bit not covered by the base) ---
-
-  def sendUserMessage(text: String): Unit =
-    writeOutbound(OutboundMessage.UserText(text))
-
   // `canAskUser` + ask_user bridge drainer + onFinalize close are owned by
   // the base; this subclass just declares `askUser` on the ctor param
   // above. Stdin-as-user-channel is closed right after the initial prompt,
   // so mid-session input flows through the MCP tool result either way.
-
-  // Subclass fields above are assigned now; safe to spin up the reader +
-  // stderr workers. See [[StreamConversation.start]].
-  start()
 
   // --- Reader hook ---
 
@@ -189,16 +180,16 @@ private[claude] class ClaudeConversation(
       // result message omits it.
       model = model.orElse(initModel).map(Model.apply)
     )
-    val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
+    succeedWith(result)
 
   /** Claude sets `is_error: true` for out-of-band failures (API errors, rate
     * limits, auth problems) that happen at the CLI boundary rather than inside
     * a turn. Treat these as session-ending failures rather than feeding the
     * error body into the downstream response parser, which might otherwise
     * accept a `{"type":"error",...}` payload as a structurally valid agent
-    * output. `Outcome.Failed` carries the full message for `awaitResult` to
-    * surface; the in-stream `Error` event is short if the user already saw the
-    * body as part of a streamed turn.
+    * output. `failWith` carries the full message for `awaitResult` to surface;
+    * the in-stream `Error` event is short if the user already saw the body as
+    * part of a streamed turn.
     */
   private def handleResultError(output: Option[String]): Unit =
     val message =
@@ -207,14 +198,7 @@ private[claude] class ClaudeConversation(
       if deltasSinceTurnBoundary then "session failed (see message above)"
       else message
     eventQueue.enqueue(ConversationEvent.Error(displayed))
-    val _ = outcomeRef.compareAndSet(
-      None,
-      Some(
-        Outcome.Failed(
-          new OrcaFlowException(s"claude session failed: $message")
-        )
-      )
-    )
+    failWith(new OrcaFlowException(s"claude session failed: $message"))
 
   private def handleControlRequest(
       requestId: String,

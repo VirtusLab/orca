@@ -17,7 +17,7 @@ package orca.backend
   * `<server>__<tool>` or the bare slug. (Gemini notably must NOT match any name
   * merely *containing* the slug.)
   *
-  * Single-threaded: like the rest of the `StreamConversation` subclass state,
+  * Single-threaded: like the rest of the `ForkedConversation` subclass state,
   * it is touched only from the reader thread.
   */
 private[orca] final class AskUserEchoes:

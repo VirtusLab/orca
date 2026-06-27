@@ -67,9 +67,16 @@ class OpencodeBackendTest extends munit.FunSuite:
       assertEquals(result.model, Some(Model("gpt-4o-mini")))
       // The caller's id stays the handle; the server id is hidden.
       assertEquals(result.sessionId, client)
+      // The turn finalizes through `conv.cancel()` (the self-scoped per-turn
+      // `finally`), whose best-effort `POST /abort` trails the turn — a no-op on
+      // the already-idle session.
       assertEquals(
         http.posts.map(_._1),
-        List("/session", "/session/ses_server1/prompt_async")
+        List(
+          "/session",
+          "/session/ses_server1/prompt_async",
+          "/session/ses_server1/abort"
+        )
       )
       // The backend forwards the prompt into the prompt_async body.
       val (_, body) = http.posts.find(_._1.endsWith("/prompt_async")).get

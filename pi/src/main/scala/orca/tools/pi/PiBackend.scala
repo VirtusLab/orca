@@ -15,6 +15,8 @@ import orca.backend.{
 }
 import orca.subprocess.CliRunner
 
+import ox.{Ox, supervised}
+
 import scala.collection.mutable.ListBuffer
 
 /** Pi backend driven through `pi --mode rpc` JSONL over stdio.
@@ -50,17 +52,23 @@ private[orca] class PiBackend(cli: CliRunner)
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Pi.type] =
-    val conv = openConversation(
-      prompt = prompt,
-      mode = SessionMode.Autonomous,
-      session = session,
-      config = config,
-      workDir = workDir,
-      outputSchema = outputSchema
-    )
-    Conversations
-      .drainAndCommit("pi", conv, session, sessions, events)
-      .copy(sessionId = session)
+    // Self-scoped: the conversation forks its workers into this per-call Ox, the
+    // drain consumes them, and `cancel` (the `finally`) tears the subprocess +
+    // forks (and the per-turn temp resources) down before the scope joins.
+    supervised:
+      val conv = openConversation(
+        prompt = prompt,
+        mode = SessionMode.Autonomous,
+        session = session,
+        config = config,
+        workDir = workDir,
+        outputSchema = outputSchema
+      )
+      try
+        Conversations
+          .drainAndCommit("pi", conv, session, sessions, events)
+          .copy(sessionId = session)
+      finally conv.cancel()
 
   def runInteractive(
       prompt: String,
@@ -69,7 +77,7 @@ private[orca] class PiBackend(cli: CliRunner)
       config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): Conversation[BackendTag.Pi.type] =
+  )(using Ox): Conversation[BackendTag.Pi.type] =
     openConversation(
       prompt = prompt,
       mode = SessionMode.Interactive(displayPrompt),
@@ -99,7 +107,7 @@ private[orca] class PiBackend(cli: CliRunner)
       config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): PiConversation =
+  )(using Ox): PiConversation =
     // Temp files (ask-user extension, system prompt) Pi reads for the whole
     // turn. Ownership passes to the conversation once it's constructed — it
     // closes them in `onFinalize` when the turn ends; `closeResources` here is

@@ -227,15 +227,22 @@ class DefaultAgentCall[B <: BackendTag, O](
     val outputSchema = JsonSchemaGen[O]
     val prompt = prompts.interactive(serialized, outputSchema, config)
     val effective = effectiveConfig(config)
-    val conversation = backend.runInteractive(
-      prompt,
-      session,
-      displayPrompt = serialized,
-      effective,
-      workDir,
-      Some(outputSchema)
-    )
-    val result = interaction.drive(conversation)
+    // Per-turn structured-concurrency scope: `runInteractive` forks its workers
+    // into this Ox, `drive` consumes them, and `cancel` (in the `finally`) tears
+    // the conversation down before the scope joins — so a cancelled turn never
+    // leaks the subprocess/forks. On cancel `drive` throws, skipping the
+    // registerSession / TokensUsed bookkeeping below, as before.
+    val result = ox.supervised:
+      val conversation = backend.runInteractive(
+        prompt,
+        session,
+        displayPrompt = serialized,
+        effective,
+        workDir,
+        Some(outputSchema)
+      )(using summon[ox.Ox])
+      try interaction.drive(conversation)
+      finally conversation.cancel()
     // Codex mints its server thread id inside the drain (not at spawn);
     // surface it back to the backend so a follow-up call with the same
     // `session` can resume the right thread. No-op for backends whose

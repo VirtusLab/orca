@@ -11,7 +11,7 @@ class CodexBackendTest extends munit.FunSuite:
     SessionId[BackendTag.Codex.type]("00000000-0000-0000-0000-000000000000")
 
   private def withBackend[T](runner: SpawnStubCliRunner)(
-      body: CodexBackend => T
+      body: ox.Ox ?=> CodexBackend => T
   ): T = SupervisedBackend.using(new CodexBackend(runner))(body)
 
   private def successfulProcess(

@@ -18,7 +18,7 @@ import orca.events.OrcaListener
 import orca.agents.{BackendTag, AgentConfig, SessionId}
 import orca.subprocess.CliRunner
 import orca.tools.opencode.OpencodeApi.{SessionCreateBody, SessionCreated}
-import ox.Ox
+import ox.{Ox, supervised}
 
 import java.util.concurrent.atomic.AtomicReference
 import scala.util.control.NonFatal
@@ -49,7 +49,7 @@ private[orca] object OpencodeBackend:
       new OpencodeServer(cli, workDir, launcher).http
     )
 
-private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
+private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)
     extends AgentBackend[BackendTag.Opencode.type]:
 
   private val sessions =
@@ -75,8 +75,13 @@ private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Opencode.type] =
     val http = server(workDir)
-    val source = http.events()
-    try
+    // Self-scoped: the conversation forks its reader into this per-turn Ox, the
+    // drain consumes it, and `cancel` (the `finally`) POSTs `/abort`, interrupts
+    // the SSE source, and finalizes — tearing the stream + forks down before the
+    // scope joins. `drainAutonomous` doesn't tear down, so the `finally` is
+    // load-bearing (and harmless on the happy path).
+    supervised:
+      val source = http.events()
       val conv = openConversation(
         http,
         source,
@@ -86,11 +91,11 @@ private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
         outputSchema,
         SessionMode.Autonomous
       )
-      val result = Conversations.drainAutonomous(conv, events)
-      sessions.commitSuccess(session, result.sessionId)
-      result.copy(sessionId = session) // keep the caller's id as the handle
-    finally
-      source.interrupt() // release the SSE connection at turn end (idempotent)
+      try
+        val result = Conversations.drainAutonomous(conv, events)
+        sessions.commitSuccess(session, result.sessionId)
+        result.copy(sessionId = session) // keep the caller's id as the handle
+      finally conv.cancel()
 
   def runInteractive(
       prompt: String,
@@ -99,7 +104,7 @@ private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
       config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): Conversation[BackendTag.Opencode.type] =
+  )(using Ox): Conversation[BackendTag.Opencode.type] =
     val http = server(workDir)
     // The returned conversation owns its stream: it interrupts on the terminal
     // event or `cancel`, so no scope-level backstop is needed here.
@@ -176,7 +181,7 @@ private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)(using Ox)
       prompt: String,
       outputSchema: Option[String],
       mode: SessionMode
-  ): OpencodeConversation =
+  )(using Ox): OpencodeConversation =
     val displayPrompt = mode match
       case SessionMode.Interactive(p) => p
       case SessionMode.Autonomous     => ""

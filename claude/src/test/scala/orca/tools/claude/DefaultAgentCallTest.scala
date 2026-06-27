@@ -83,7 +83,7 @@ class SequencedBackend(outputs: List[String])
       config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): orca.backend.Conversation[BackendTag.ClaudeCode.type] =
+  )(using ox.Ox): orca.backend.Conversation[BackendTag.ClaudeCode.type] =
     // Minimal stand-in: the conversation is not actually driven — the test's
     // `Interaction.drive` ignores it and returns a canned `AgentResult`. We
     // still need *something* to return so the interactive path compiles.
@@ -91,7 +91,6 @@ class SequencedBackend(outputs: List[String])
       val outputSchema: Option[String] = None
       val events: Iterator[orca.backend.ConversationEvent] = Iterator.empty
       def awaitResult() = throw new UnsupportedOperationException("test stub")
-      def sendUserMessage(text: String): Unit = ()
       def canAskUser: Boolean = false
       def cancel(): Unit = ()
 

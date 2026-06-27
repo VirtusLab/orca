@@ -3,6 +3,8 @@ package orca.backend
 import orca.events.OrcaListener
 import orca.agents.{BackendTag, AgentConfig, SessionId, isSafeSessionId}
 
+import ox.Ox
+
 import scala.util.control.NonFatal
 
 /** SPI implemented per backend (Claude, Codex, …). The framework calls these
@@ -68,7 +70,7 @@ trait AgentBackend[B <: BackendTag]:
       config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): Conversation[B]
+  )(using Ox): Conversation[B]
 
   /** Hook for backends that mint server-side session ids during a conversation
     * drain: after the interactive `Conversation` returned by [[runInteractive]]

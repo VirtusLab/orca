@@ -35,6 +35,17 @@ class FakePipedCliProcess(
 
   def isAlive: Boolean = alive.get()
 
+  /** Forcible kill: close both streams so a reader blocked on `stdoutLines` /
+    * `stderrLines` unblocks, mirroring the real process's pipes closing. Unlike
+    * `sendSigInt`, this does not bump `sigIntCount` — it is the backstop, not a
+    * SIGINT. Idempotent (closing an already-closed queue just offers another
+    * EOF sentinel, which the single-consumer iterator ignores).
+    */
+  def destroyForcibly(): Unit =
+    alive.set(false)
+    closeStdout()
+    closeStderr()
+
   def waitForExit(): Int = 0
 
   def tryExitCode: Option[Int] = if alive.get() then None else Some(0)

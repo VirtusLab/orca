@@ -16,7 +16,7 @@ class GeminiBackendTest extends munit.FunSuite:
     SessionId[BackendTag.Gemini.type]("00000000-0000-0000-0000-000000000000")
 
   private def withBackend[T](runner: SpawnStubCliRunner)(
-      body: GeminiBackend => T
+      body: ox.Ox ?=> GeminiBackend => T
   ): T = SupervisedBackend.using(new GeminiBackend(runner))(body)
 
   private def successfulProcess(

@@ -36,7 +36,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
         config: AgentConfig,
         workDir: os.Path,
         outputSchema: Option[String]
-    ): Conversation[BackendTag.Opencode.type] =
+    )(using ox.Ox): Conversation[BackendTag.Opencode.type] =
       throw new UnsupportedOperationException
 
   private val noInteraction: Interaction = new Interaction:

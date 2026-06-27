@@ -33,7 +33,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     p
 
   private def withBackend[T](runner: SpawnStubCliRunner)(
-      body: ClaudeBackend => T
+      body: ox.Ox ?=> ClaudeBackend => T
   ): T = SupervisedBackend.using(new ClaudeBackend(runner))(body)
 
   private def freshSid: SessionId[BackendTag.ClaudeCode.type] =

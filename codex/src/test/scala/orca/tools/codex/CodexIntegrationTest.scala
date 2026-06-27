@@ -24,7 +24,7 @@ class CodexIntegrationTest extends munit.FunSuite:
     import scala.concurrent.duration.DurationInt
     3.minutes
 
-  private def withBackend(body: CodexBackend => Unit): Unit =
+  private def withBackend(body: ox.Ox ?=> CodexBackend => Unit): Unit =
     SupervisedBackend.using(new CodexBackend(OsProcCliRunner))(body)
 
   private val unsandboxed: AgentConfig =

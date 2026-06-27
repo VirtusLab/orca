@@ -21,7 +21,6 @@ private class ScriptedConversation(
   def awaitResult()
       : Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
     outcome
-  def sendUserMessage(text: String): Unit = ()
   def canAskUser: Boolean = false
   def cancel(): Unit = ()
 

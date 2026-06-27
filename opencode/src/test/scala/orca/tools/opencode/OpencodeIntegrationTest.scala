@@ -31,7 +31,7 @@ class OpencodeIntegrationTest extends munit.FunSuite:
   private val config: AgentConfig =
     AgentConfig.default.copy(model = Some(model))
 
-  private def withBackend(body: OpencodeBackend => Unit): Unit =
+  private def withBackend(body: ox.Ox ?=> OpencodeBackend => Unit): Unit =
     SupervisedBackend.using(OpencodeBackend(OsProcCliRunner))(body)
 
   private def fresh = SessionId.fresh[BackendTag.Opencode.type]

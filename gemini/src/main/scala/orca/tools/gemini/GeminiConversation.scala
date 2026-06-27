@@ -7,19 +7,20 @@ import orca.backend.{
   BufferedStderrDiagnostics,
   ConversationEvent,
   AgentResult,
-  StreamConversation,
+  ForkedConversation,
   StreamSource
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
 import orca.tools.gemini.jsonl.InboundEvent
+import ox.Ox
 
 import java.util.concurrent.atomic.AtomicReference
 
 /** Drives a `gemini -p <prompt> --output-format stream-json` session to
-  * completion. Boilerplate lives in [[StreamConversation]]; this class supplies
-  * the gemini-specific protocol translation: JSONL → [[InboundEvent]] →
-  * `ConversationEvent`s.
+  * completion. Boilerplate lives in [[orca.backend.ForkedConversation]]; this
+  * class supplies the gemini-specific protocol translation: JSONL →
+  * [[InboundEvent]] → `ConversationEvent`s.
   *
   * Notable parity gaps vs. claude (deliberate — see ADR 0015):
   *   - gemini emits whole `message` chunks, not negotiated tool approvals;
@@ -38,14 +39,13 @@ private[gemini] class GeminiConversation(
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
     override val askUser: Option[AskUserSession] = None
-) extends StreamConversation[BackendTag.Gemini.type](
+)(using Ox)
+    extends ForkedConversation[BackendTag.Gemini.type](
       source = StreamSource.fromProcess(process),
       backendName = "gemini",
       initialPrompt = initialPrompt
     )
     with BufferedStderrDiagnostics[BackendTag.Gemini.type]:
-
-  import StreamConversation.Outcome
 
   private val sessionIdRef = new AtomicReference[String]("")
   private val modelRef = new AtomicReference[Option[String]](None)
@@ -69,16 +69,9 @@ private[gemini] class GeminiConversation(
     */
   private val askUserEchoes = new orca.backend.AskUserEchoes
 
-  // Subclass fields above are assigned; safe to spin up the reader.
-  start()
-
-  // --- Conversation surface ---
-
-  /** gemini headless consumes its prompt argv-side and exits; injecting more
-    * user turns mid-session isn't supported (multi-turn is a fresh `--resume`
-    * spawn). The contract still requires a callable method — this is a no-op.
-    */
-  def sendUserMessage(text: String): Unit = ()
+  // No `start()`: the base spawns its reader / stderr / ask-user forks lazily
+  // on first touch of the conversation surface, after this subclass's fields
+  // are initialised.
 
   // --- Reader hooks ---
 
@@ -134,17 +127,12 @@ private[gemini] class GeminiConversation(
     */
   private def handleResult(usage: Usage, status: String): Unit =
     if status.nonEmpty && status != "success" then
-      val _ = outcomeRef.compareAndSet(
-        None,
-        Some(
-          Outcome.failed[BackendTag.Gemini.type](
-            // Fold in the buffered stderr (the real reason — quota, auth, …)
-            // so the exception carries it even for a noop listener, matching
-            // the non-zero-exit and missing-result failure paths.
-            new AgentTurnFailed(
-              appendContext(s"gemini turn ended with status '$status'")
-            )
-          )
+      // Fold in the buffered stderr (the real reason — quota, auth, …) so the
+      // exception carries it even for a noop listener, matching the
+      // non-zero-exit and missing-result failure paths.
+      failWith(
+        new AgentTurnFailed(
+          appendContext(s"gemini turn ended with status '$status'")
         )
       )
     else
@@ -154,7 +142,7 @@ private[gemini] class GeminiConversation(
         usage = usage,
         model = modelRef.get().map(Model.apply)
       )
-      val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
+      succeedWith(result)
 
   /** A `user`-role message is the prompt echo (the base already surfaced the
     * opening prompt as a `UserMessage`), so it's dropped from both the event

@@ -22,7 +22,11 @@ private[orca] object SupervisedBackend:
     */
   private val DefaultBufferCapacity: BufferCapacity = BufferCapacity(8)
 
-  def using[B, T](make: (Ox, BufferCapacity) ?=> B)(body: B => T): T =
+  /** `body` is a context function so the scope's `Ox` is visible inside it —
+    * interactive backends need it to call `runInteractive(...)(using Ox)`.
+    * Autonomous bodies simply ignore the given.
+    */
+  def using[B, T](make: (Ox, BufferCapacity) ?=> B)(body: Ox ?=> B => T): T =
     supervised:
       given BufferCapacity = DefaultBufferCapacity
       body(make)

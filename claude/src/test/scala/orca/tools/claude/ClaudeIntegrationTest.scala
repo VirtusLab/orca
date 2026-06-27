@@ -19,7 +19,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     import scala.concurrent.duration.DurationInt
     2.minutes
 
-  private def withBackend(body: ClaudeBackend => Unit): Unit =
+  private def withBackend(body: ox.Ox ?=> ClaudeBackend => Unit): Unit =
     SupervisedBackend.using(new ClaudeBackend(OsProcCliRunner))(body)
 
   private def fresh = SessionId.fresh[BackendTag.ClaudeCode.type]

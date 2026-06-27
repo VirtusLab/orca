@@ -107,6 +107,9 @@ private final class OsPipedSubProcess(
 
   def isAlive: Boolean = sub.isAlive()
 
+  def destroyForcibly(): Unit =
+    val _ = sub.wrapped.destroyForcibly()
+
   def waitForExit(): Int =
     val _ = sub.join()
     sub.exitCode()

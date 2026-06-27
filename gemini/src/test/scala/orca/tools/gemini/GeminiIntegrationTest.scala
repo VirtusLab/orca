@@ -23,7 +23,7 @@ class GeminiIntegrationTest extends munit.FunSuite:
     import scala.concurrent.duration.DurationInt
     3.minutes
 
-  private def withBackend(body: GeminiBackend => Unit): Unit =
+  private def withBackend(body: ox.Ox ?=> GeminiBackend => Unit): Unit =
     SupervisedBackend.using(new GeminiBackend(OsProcCliRunner))(body)
 
   // A cheap, widely-available model; override via ORCA_GEMINI_MODEL.

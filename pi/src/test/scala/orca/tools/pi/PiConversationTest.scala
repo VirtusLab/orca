@@ -5,13 +5,23 @@ import orca.events.Usage
 import orca.agents.{BackendTag, SessionId}
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.subprocess.FakePipedCliProcess
+import ox.{Ox, supervised}
 
 class PiConversationTest extends munit.FunSuite:
 
   private val sid: SessionId[BackendTag.Pi.type] =
     SessionId[BackendTag.Pi.type]("pi-session")
 
-  test("text deltas complete with AssistantTurnEnd and produce AgentResult"):
+  /** `PiConversation` forks its reader/stderr workers into the caller's
+    * per-turn Ox, so construction needs a `using Ox`. Run each test body in a
+    * fresh supervised scope that provides it.
+    */
+  private def convTest(name: String)(body: Ox ?=> Unit): Unit =
+    test(name)(supervised(body))
+
+  convTest(
+    "text deltas complete with AssistantTurnEnd and produce AgentResult"
+  ):
     val process = new FakePipedCliProcess()
     val conv = new PiConversation(process, sid)
 
@@ -38,7 +48,7 @@ class PiConversationTest extends munit.FunSuite:
     assertEquals(process.sigIntCount, 1)
     assert(process.isStdinClosed)
 
-  test("message_end emits assistant text when no text delta streamed"):
+  convTest("message_end emits assistant text when no text delta streamed"):
     val process = new FakePipedCliProcess()
     val conv = new PiConversation(process, sid)
 
@@ -57,7 +67,7 @@ class PiConversationTest extends munit.FunSuite:
     val Right(result) = conv.awaitResult(): @unchecked
     assertEquals(result.output, "fallback")
 
-  test("thinking delta becomes AssistantThinkingDelta"):
+  convTest("thinking delta becomes AssistantThinkingDelta"):
     val process = new FakePipedCliProcess()
     val conv = new PiConversation(process, sid)
 
@@ -76,7 +86,7 @@ class PiConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("tool execution events become tool call and tool result"):
+  convTest("tool execution events become tool call and tool result"):
     val process = new FakePipedCliProcess()
     val conv = new PiConversation(process, sid)
 
@@ -102,7 +112,7 @@ class PiConversationTest extends munit.FunSuite:
       case other => fail(s"expected ToolResult, got $other")
     val _ = conv.awaitResult()
 
-  test("unknown events are ignored"):
+  convTest("unknown events are ignored"):
     val process = new FakePipedCliProcess()
     val conv = new PiConversation(process, sid)
 
@@ -117,7 +127,7 @@ class PiConversationTest extends munit.FunSuite:
     val Right(result) = conv.awaitResult(): @unchecked
     assertEquals(result.output, "ok")
 
-  test("usage accumulates across assistant messages"):
+  convTest("usage accumulates across assistant messages"):
     val process = new FakePipedCliProcess()
     val conv = new PiConversation(process, sid)
 
@@ -136,7 +146,7 @@ class PiConversationTest extends munit.FunSuite:
     assertEquals(result.output, "second")
     assertEquals(result.usage, Usage(5L, 7L, None, 9L))
 
-  test("failed prompt response fails the conversation"):
+  convTest("failed prompt response fails the conversation"):
     val process = new FakePipedCliProcess()
     val conv = new PiConversation(process, sid)
 
@@ -153,7 +163,9 @@ class PiConversationTest extends munit.FunSuite:
     val ex = intercept[OrcaFlowException](conv.awaitResult())
     assert(ex.getMessage.contains("model unavailable"))
 
-  test("extension UI input request becomes UserQuestion and writes response"):
+  convTest(
+    "extension UI input request becomes UserQuestion and writes response"
+  ):
     val process = new FakePipedCliProcess()
     val conv = new PiConversation(process, sid, askUserEnabled = true)
     assert(conv.canAskUser)
@@ -176,7 +188,7 @@ class PiConversationTest extends munit.FunSuite:
       case other =>
         fail(s"expected cancellation after test cleanup, got $other")
 
-  test("fire-and-forget extension UI requests are ignored"):
+  convTest("fire-and-forget extension UI requests are ignored"):
     val process = new FakePipedCliProcess()
     val conv = new PiConversation(process, sid)
 
@@ -193,7 +205,9 @@ class PiConversationTest extends munit.FunSuite:
     assert(!process.writes.exists(_.contains("extension_ui_response")))
     val _ = conv.awaitResult()
 
-  test("an extension_ui_request without a method is cancelled, not dropped"):
+  convTest(
+    "an extension_ui_request without a method is cancelled, not dropped"
+  ):
     val process = new FakePipedCliProcess()
     val conv = new PiConversation(process, sid)
 
@@ -210,7 +224,9 @@ class PiConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("message_end without content surfaces the error, not a parse failure"):
+  convTest(
+    "message_end without content surfaces the error, not a parse failure"
+  ):
     val process = new FakePipedCliProcess()
     val conv = new PiConversation(process, sid)
 
@@ -236,7 +252,7 @@ class PiConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("clean exit before agent_end fails"):
+  convTest("clean exit before agent_end fails"):
     val process = new FakePipedCliProcess(initiallyAlive = false)
     val conv = new PiConversation(process, sid)
     process.closeStdout()
@@ -246,7 +262,7 @@ class PiConversationTest extends munit.FunSuite:
     val ex = intercept[OrcaFlowException](conv.awaitResult())
     assert(ex.getMessage.contains("agent_end"))
 
-  test("stderr diagnostics are attached to failures"):
+  convTest("stderr diagnostics are attached to failures"):
     val process = new FakePipedCliProcess(initiallyAlive = false):
       override def tryExitCode: Option[Int] = Some(7)
     val conv = new PiConversation(process, sid)
@@ -258,7 +274,7 @@ class PiConversationTest extends munit.FunSuite:
     val ex = intercept[OrcaFlowException](conv.awaitResult())
     assert(ex.getMessage.contains("Pi auth failed"), ex.getMessage)
 
-  test("terminal notification stderr noise is ignored"):
+  convTest("terminal notification stderr noise is ignored"):
     val process = new FakePipedCliProcess()
     val conv = new PiConversation(process, sid)
 
@@ -272,7 +288,7 @@ class PiConversationTest extends munit.FunSuite:
     assertEquals(events, Nil)
     val _ = conv.awaitResult()
 
-  test("stderr strips terminal controls before surfacing diagnostics"):
+  convTest("stderr strips terminal controls before surfacing diagnostics"):
     val process = new FakePipedCliProcess(initiallyAlive = false):
       override def tryExitCode: Option[Int] = Some(7)
     val conv = new PiConversation(process, sid)

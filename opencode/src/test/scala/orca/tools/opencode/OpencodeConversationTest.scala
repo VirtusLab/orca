@@ -2,8 +2,17 @@ package orca.tools.opencode
 
 import orca.AgentTurnFailed
 import orca.backend.{ApprovalDecision, ConversationEvent, StreamSource}
+import ox.{Ox, supervised}
 
 class OpencodeConversationTest extends munit.FunSuite:
+
+  /** `OpencodeConversation` forks its reader into the caller's per-turn Ox, so
+    * construction needs a `using Ox`. Run each test body in a fresh supervised
+    * scope that provides it — keeping build + consume in one scope so the
+    * reader fork isn't cancelled before the events are drained.
+    */
+  private def convTest(name: String)(body: Ox ?=> Any): Unit =
+    test(name)(supervised(body))
 
   /** Records reply POSTs; never serves the event stream (the source is injected
     * directly).
@@ -32,7 +41,7 @@ class OpencodeConversationTest extends munit.FunSuite:
       lines: List[String],
       session: String = "ses_A",
       schema: Option[String] = None
-  ): (OpencodeConversation, RecordingHttp) =
+  )(using Ox): (OpencodeConversation, RecordingHttp) =
     val http = new RecordingHttp
     val conv = new OpencodeConversation(
       source(lines),
@@ -43,7 +52,9 @@ class OpencodeConversationTest extends munit.FunSuite:
     )
     (conv, http)
 
-  test("free-form turn: text deltas, then result from accrued text + tokens"):
+  convTest(
+    "free-form turn: text deltas, then result from accrued text + tokens"
+  ):
     val (conv, _) = conversation(
       List(
         data(
@@ -76,7 +87,7 @@ class OpencodeConversationTest extends munit.FunSuite:
     assertEquals(result.usage.outputTokens, 2L)
     assertEquals(result.model.map(_.name), Some("gpt-4o-mini"))
 
-  test("structured turn: result is the validated object, not text"):
+  convTest("structured turn: result is the validated object, not text"):
     val (conv, _) = conversation(
       List(
         data(
@@ -98,7 +109,7 @@ class OpencodeConversationTest extends munit.FunSuite:
     )
     assertEquals(conv.awaitResult().toOption.get.output, """{"x":1}""")
 
-  test("a repeated tool part surfaces one AssistantToolCall"):
+  convTest("a repeated tool part surfaces one AssistantToolCall"):
     val running =
       data(
         """{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"bash","state":{"status":"running","input":{"command":"echo hi"}},"id":"prt_1","sessionID":"ses_A"}}}"""
@@ -126,7 +137,7 @@ class OpencodeConversationTest extends munit.FunSuite:
       )
     )
 
-  test("events for other sessions are dropped"):
+  convTest("events for other sessions are dropped"):
     val (conv, _) = conversation(
       List(
         data(
@@ -149,7 +160,7 @@ class OpencodeConversationTest extends munit.FunSuite:
       )
     )
 
-  test("blank, comment, and event: framing lines are skipped"):
+  convTest("blank, comment, and event: framing lines are skipped"):
     val (conv, _) = conversation(
       List(
         ":heartbeat",
@@ -169,7 +180,7 @@ class OpencodeConversationTest extends munit.FunSuite:
       )
     )
 
-  test("free-form turn with no message.updated: text result, zero usage"):
+  convTest("free-form turn with no message.updated: text result, zero usage"):
     val (conv, _) = conversation(
       List(
         data(
@@ -185,7 +196,7 @@ class OpencodeConversationTest extends munit.FunSuite:
     assertEquals(result.usage.outputTokens, 0L)
     assertEquals(result.model, None)
 
-  test("idle with no assistant message at all fails the turn"):
+  convTest("idle with no assistant message at all fails the turn"):
     val (conv, _) = conversation(
       List(
         data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
@@ -194,7 +205,7 @@ class OpencodeConversationTest extends munit.FunSuite:
     conv.events.foreach(_ => ())
     intercept[AgentTurnFailed](conv.awaitResult())
 
-  test("message.updated carrying info.error fails the turn"):
+  convTest("message.updated carrying info.error fails the turn"):
     val (conv, _) = conversation(
       List(
         data(
@@ -206,7 +217,7 @@ class OpencodeConversationTest extends munit.FunSuite:
     conv.events.foreach(_ => ())
     intercept[AgentTurnFailed](conv.awaitResult())
 
-  test("session.error fails the turn"):
+  convTest("session.error fails the turn"):
     val (conv, _) = conversation(
       List(
         data(
@@ -217,7 +228,7 @@ class OpencodeConversationTest extends munit.FunSuite:
     conv.events.foreach(_ => ())
     intercept[AgentTurnFailed](conv.awaitResult())
 
-  test("answering a question.asked POSTs the reply"):
+  convTest("answering a question.asked POSTs the reply"):
     val (conv, http) = conversation(
       List(
         data(
@@ -238,7 +249,7 @@ class OpencodeConversationTest extends munit.FunSuite:
 
   private def permissionReplyPost(
       decision: ApprovalDecision
-  ): List[(String, String)] =
+  )(using Ox): List[(String, String)] =
     val (conv, http) = conversation(
       List(
         data(
@@ -255,19 +266,19 @@ class OpencodeConversationTest extends munit.FunSuite:
       case _ => ()
     http.posts
 
-  test("approving a permission.asked POSTs reply=once"):
+  convTest("approving a permission.asked POSTs reply=once"):
     assertEquals(
       permissionReplyPost(ApprovalDecision.Allow()),
       List("/permission/per_1/reply" -> """{"reply":"once"}""")
     )
 
-  test("denying a permission.asked POSTs reply=reject"):
+  convTest("denying a permission.asked POSTs reply=reject"):
     assertEquals(
       permissionReplyPost(ApprovalDecision.Deny()),
       List("/permission/per_1/reply" -> """{"reply":"reject"}""")
     )
 
-  test("canAskUser reflects the constructor flag"):
+  convTest("canAskUser reflects the constructor flag"):
     val http = new RecordingHttp
     val conv =
       new OpencodeConversation(empty, http, "ses_A", None, canAsk = false)

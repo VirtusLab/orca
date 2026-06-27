@@ -5,10 +5,19 @@ import orca.events.{Usage}
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.ConversationEvent
 import orca.subprocess.FakePipedCliProcess
+import ox.{Ox, supervised}
 
 class CodexConversationTest extends munit.FunSuite:
 
-  test("agent_message item completes a turn with TextDelta + TurnEnd"):
+  /** `CodexConversation` forks its reader/stderr/ask-user workers into the
+    * caller's per-turn Ox, so construction needs a `using Ox`. Run each test
+    * body in a fresh supervised scope that provides it. Tests managing their
+    * own scope (the ask-user ones) stay on plain `test`.
+    */
+  private def convTest(name: String)(body: Ox ?=> Unit): Unit =
+    test(name)(supervised(body))
+
+  convTest("agent_message item completes a turn with TextDelta + TurnEnd"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -38,7 +47,7 @@ class CodexConversationTest extends munit.FunSuite:
     assertEquals(result.output, "hello")
     assertEquals(result.usage, Usage(10L, 3L, None))
 
-  test("initialPrompt becomes a UserMessage event before agent output"):
+  convTest("initialPrompt becomes a UserMessage event before agent output"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process, initialPrompt = "do the thing")
 
@@ -59,7 +68,7 @@ class CodexConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("the LAST agent_message wins when a turn produces several"):
+  convTest("the LAST agent_message wins when a turn produces several"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -80,7 +89,7 @@ class CodexConversationTest extends munit.FunSuite:
     val Right(result) = conv.awaitResult(): @unchecked
     assertEquals(result.output, "final answer")
 
-  test(
+  convTest(
     "command_execution items become AssistantToolCall + ToolResult events"
   ):
     val process = new FakePipedCliProcess()
@@ -114,7 +123,7 @@ class CodexConversationTest extends munit.FunSuite:
       case other => fail(s"expected ToolResult, got $other")
     val _ = conv.awaitResult()
 
-  test("command_execution with non-zero exit yields ok=false"):
+  convTest("command_execution with non-zero exit yields ok=false"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -142,7 +151,7 @@ class CodexConversationTest extends munit.FunSuite:
     assertEquals(toolResult.ok, false)
     val _ = conv.awaitResult()
 
-  test("file_change items become file_change tool calls and results"):
+  convTest("file_change items become file_change tool calls and results"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -177,7 +186,7 @@ class CodexConversationTest extends munit.FunSuite:
     assertEquals(toolResult.ok, true)
     val _ = conv.awaitResult()
 
-  test("reasoning items emit AssistantThinkingDelta when non-empty"):
+  convTest("reasoning items emit AssistantThinkingDelta when non-empty"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -201,7 +210,9 @@ class CodexConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"):
+  convTest(
+    "cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"
+  ):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
     conv.cancel()
@@ -211,7 +222,7 @@ class CodexConversationTest extends munit.FunSuite:
         fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
     assertEquals(process.sigIntCount, 1)
 
-  test(
+  convTest(
     "clean process exit without turn.completed surfaces as OrcaFlowException"
   ):
     val process = new FakePipedCliProcess(initiallyAlive = false)
@@ -228,7 +239,7 @@ class CodexConversationTest extends munit.FunSuite:
       s"expected the missing-turn.completed message; got: ${ex.getMessage}"
     )
 
-  test(
+  convTest(
     "malformed JSONL line surfaces as ConversationEvent.Error and the loop continues"
   ):
     val process = new FakePipedCliProcess()
@@ -255,7 +266,7 @@ class CodexConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("stderr noise about reading stdin is filtered out"):
+  convTest("stderr noise about reading stdin is filtered out"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -280,7 +291,7 @@ class CodexConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test(
+  convTest(
     "`failed to record rollout items` shutdown noise is filtered out"
   ):
     // Codex emits this ERROR line on stderr during its shutdown sequence
@@ -314,7 +325,7 @@ class CodexConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("real stderr lines surface as ConversationEvent.Error"):
+  convTest("real stderr lines surface as ConversationEvent.Error"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -337,28 +348,7 @@ class CodexConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("sendUserMessage is a documented no-op (no stdin write)"):
-    val process = new FakePipedCliProcess()
-    val conv = new CodexConversation(process)
-    conv.sendUserMessage("ignored")
-    assertEquals(process.writes, Nil)
-
-    process.enqueueStdout(
-      """{"type":"thread.started","thread_id":"thr-noop"}"""
-    )
-    process.enqueueStdout(
-      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}"""
-    )
-    process.enqueueStdout(
-      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
-    )
-    process.closeStdout()
-    process.closeStderr()
-    val _ = conv.events.toList
-    val _ = conv.awaitResult()
-    assertEquals(process.writes, Nil)
-
-  test("mcp_tool_call emits AssistantToolCall + ToolResult"):
+  convTest("mcp_tool_call emits AssistantToolCall + ToolResult"):
     // A non-ask_user MCP tool: started and completed items round-trip
     // into matching AssistantToolCall + ToolResult events using the
     // dotted `server.tool` naming.
@@ -397,7 +387,7 @@ class CodexConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test(
+  convTest(
     "mcp_tool_call ToolResult drops non-text content fragments"
   ):
     // The MCP content array can carry text + image + resource fragments;
@@ -427,7 +417,7 @@ class CodexConversationTest extends munit.FunSuite:
     assertEquals(result, Some("text1text2"))
     val _ = conv.awaitResult()
 
-  test(
+  convTest(
     "mcp_tool_call ToolResult surfaces raw JSON when result fails to parse"
   ):
     // MCP servers in the wild emit non-standard result shapes too; the
@@ -543,14 +533,15 @@ class CodexConversationTest extends munit.FunSuite:
       respond("magenta")
       assertEquals(askResult.join(), "magenta")
 
-  test("canAskUser is false when no bridge is provided"):
+  convTest("canAskUser is false when no bridge is provided"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
     assertEquals(conv.canAskUser, false)
     process.closeStdout()
+    process.closeStderr()
     val _ = conv.events.toList
 
-  test("unknown top-level events are ignored without surfacing"):
+  convTest("unknown top-level events are ignored without surfacing"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 

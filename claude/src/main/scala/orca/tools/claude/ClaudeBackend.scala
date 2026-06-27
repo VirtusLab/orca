@@ -15,7 +15,7 @@ import orca.backend.{
 import orca.subprocess.CliRunner
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.tools.claude.streamjson.OutboundMessage
-import ox.Ox
+import ox.{Ox, supervised}
 import ox.channels.BufferCapacity
 
 /** Claude Code backend. All calls — autonomous and interactive — drive a
@@ -42,7 +42,7 @@ private[orca] class ClaudeBackend(
     networkTools: Seq[String] = ClaudeBackend.DefaultNetworkTools,
     private[claude] val projectsDir: os.Path = os.home / ".claude" / "projects",
     private[claude] val cwdForProbe: os.Path = os.pwd
-)(using Ox, BufferCapacity)
+)(using BufferCapacity)
     extends AgentBackend[BackendTag.ClaudeCode.type]:
 
   /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns,
@@ -103,19 +103,26 @@ private[orca] class ClaudeBackend(
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.ClaudeCode.type] =
-    val conv = openConversation(
-      prompt = prompt,
-      mode = SessionMode.Autonomous,
-      session = session,
-      config = config,
-      workDir = workDir,
-      outputSchema = outputSchema
-    )
-    // drainAndCommit commits only after a successful drain: a subprocess that
-    // crashed before claude could register the session id (e.g. exit before
-    // `system.init`) would otherwise leave the registry wedged, forcing a retry
-    // to `--resume` a session claude never created.
-    Conversations.drainAndCommit("claude", conv, session, sessions, events)
+    // Self-scoped: the conversation forks its workers into this per-call Ox, the
+    // drain consumes them, and `cancel` (the `finally`) tears the subprocess +
+    // forks down before the scope joins. `drainAndCommit` doesn't tear down, so
+    // the `finally` is load-bearing (and a no-op on the happy path).
+    supervised:
+      val conv = openConversation(
+        prompt = prompt,
+        mode = SessionMode.Autonomous,
+        session = session,
+        config = config,
+        workDir = workDir,
+        outputSchema = outputSchema
+      )
+      // drainAndCommit commits only after a successful drain: a subprocess that
+      // crashed before claude could register the session id (e.g. exit before
+      // `system.init`) would otherwise leave the registry wedged, forcing a
+      // retry to `--resume` a session claude never created.
+      try
+        Conversations.drainAndCommit("claude", conv, session, sessions, events)
+      finally conv.cancel()
 
   def runInteractive(
       prompt: String,
@@ -124,7 +131,7 @@ private[orca] class ClaudeBackend(
       config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): Conversation[BackendTag.ClaudeCode.type] =
+  )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
     val conv = openConversation(
       prompt = prompt,
       mode = SessionMode.Interactive(displayPrompt),
@@ -178,7 +185,7 @@ private[orca] class ClaudeBackend(
       config: AgentConfig,
       workDir: os.Path,
       outputSchema: Option[String]
-  ): Conversation[BackendTag.ClaudeCode.type] =
+  )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
     // Allocate ask_user resources up front so we can close them
     // deterministically on a downstream failure. `None` for autonomous —
     // those calls don't expose the tool. Claude's `extras` deletes the

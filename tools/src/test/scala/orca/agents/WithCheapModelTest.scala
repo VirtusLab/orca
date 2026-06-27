@@ -65,7 +65,7 @@ class WithCheapModelTest extends munit.FunSuite:
         config: AgentConfig,
         workDir: os.Path,
         outputSchema: Option[String]
-    ): Conversation[BackendTag.Pi.type] = ???
+    )(using ox.Ox): Conversation[BackendTag.Pi.type] = ???
 
   private object StubPrompts extends Prompts:
     def autonomous(

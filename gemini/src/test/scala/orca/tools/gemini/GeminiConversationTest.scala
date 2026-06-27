@@ -5,8 +5,17 @@ import orca.events.Usage
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.ConversationEvent
 import orca.subprocess.FakePipedCliProcess
+import ox.{Ox, supervised}
 
 class GeminiConversationTest extends munit.FunSuite:
+
+  /** `GeminiConversation` forks its reader/stderr/ask-user workers into the
+    * caller's per-turn Ox, so construction needs a `using Ox`. Run each test
+    * body in a fresh supervised scope that provides it. Tests managing their
+    * own scope (the ask-user ones) stay on plain `test`.
+    */
+  private def convTest(name: String)(body: Ox ?=> Unit): Unit =
+    test(name)(supervised(body))
 
   /** Minimal terminating tail: a `result` event ends the turn and lets
     * `awaitResult` succeed.
@@ -14,7 +23,9 @@ class GeminiConversationTest extends munit.FunSuite:
   private def result(input: Long = 0L, output: Long = 0L): String =
     s"""{"type":"result","status":"success","stats":{"input_tokens":$input,"output_tokens":$output}}"""
 
-  test("assistant message accumulates into output; init sets session + model"):
+  convTest(
+    "assistant message accumulates into output; init sets session + model"
+  ):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
 
@@ -42,7 +53,7 @@ class GeminiConversationTest extends munit.FunSuite:
     assertEquals(r.usage, Usage(10L, 3L, None))
     assertEquals(r.model.map(_.name), Some("gemini-2.5-pro"))
 
-  test("a user-role message is ignored (prompt echo, not agent output)"):
+  convTest("a user-role message is ignored (prompt echo, not agent output)"):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
 
@@ -65,7 +76,7 @@ class GeminiConversationTest extends munit.FunSuite:
     val Right(r) = conv.awaitResult(): @unchecked
     assertEquals(r.output, "done")
 
-  test("multiple assistant chunks concatenate into the output"):
+  convTest("multiple assistant chunks concatenate into the output"):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
 
@@ -84,7 +95,7 @@ class GeminiConversationTest extends munit.FunSuite:
     val Right(r) = conv.awaitResult(): @unchecked
     assertEquals(r.output, "foobar")
 
-  test("initialPrompt becomes a UserMessage event before agent output"):
+  convTest("initialPrompt becomes a UserMessage event before agent output"):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process, initialPrompt = "do the thing")
 
@@ -100,7 +111,7 @@ class GeminiConversationTest extends munit.FunSuite:
     assertEquals(events.head, ConversationEvent.UserMessage("do the thing"))
     val _ = conv.awaitResult()
 
-  test("tool_use + tool_result become AssistantToolCall + ToolResult"):
+  convTest("tool_use + tool_result become AssistantToolCall + ToolResult"):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
 
@@ -133,7 +144,7 @@ class GeminiConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("a tool whose name merely contains 'ask_user' is NOT suppressed"):
+  convTest("a tool whose name merely contains 'ask_user' is NOT suppressed"):
     // Suppression matches gemini's exact MCP qualification (orca__ask_user),
     // not any name containing the slug — an unrelated tool must still surface.
     val process = new FakePipedCliProcess()
@@ -157,7 +168,7 @@ class GeminiConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("tool_result with a non-success status yields ok=false"):
+  convTest("tool_result with a non-success status yields ok=false"):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
 
@@ -179,7 +190,7 @@ class GeminiConversationTest extends munit.FunSuite:
     assertEquals(tr.ok, false)
     val _ = conv.awaitResult()
 
-  test("benign gemini stderr chatter is filtered (no Error events)"):
+  convTest("benign gemini stderr chatter is filtered (no Error events)"):
     // Observed on every successful headless run (gemini 0.45.2): a 256-color
     // warning, YOLO-mode notices, a cwd-reset line, and IDE-companion probe
     // chatter — all informational.
@@ -214,7 +225,7 @@ class GeminiConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("a real stderr line still surfaces as ConversationEvent.Error"):
+  convTest("a real stderr line still surfaces as ConversationEvent.Error"):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
 
@@ -234,7 +245,7 @@ class GeminiConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("error event surfaces as ConversationEvent.Error"):
+  convTest("error event surfaces as ConversationEvent.Error"):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
 
@@ -254,7 +265,7 @@ class GeminiConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("malformed JSONL surfaces as Error and the loop continues"):
+  convTest("malformed JSONL surfaces as Error and the loop continues"):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
 
@@ -278,7 +289,7 @@ class GeminiConversationTest extends munit.FunSuite:
     val Right(r) = conv.awaitResult(): @unchecked
     assertEquals(r.output, "ok")
 
-  test("clean exit without a result event surfaces as OrcaFlowException"):
+  convTest("clean exit without a result event surfaces as OrcaFlowException"):
     val process = new FakePipedCliProcess(initiallyAlive = false)
     val conv = new GeminiConversation(process)
 
@@ -293,7 +304,7 @@ class GeminiConversationTest extends munit.FunSuite:
       s"expected the missing-result message; got: ${ex.getMessage}"
     )
 
-  test("a result event with a non-success status fails the turn"):
+  convTest("a result event with a non-success status fails the turn"):
     // gemini's `result` carries a status; a failed turn that still exits 0
     // must not be reported as success. "success" is the documented good
     // token (headless stream-json) — anything else non-empty is a failure.
@@ -317,7 +328,7 @@ class GeminiConversationTest extends munit.FunSuite:
       s"expected the failing status in the message; got: ${ex.getMessage}"
     )
 
-  test("a result event with no status is treated as success"):
+  convTest("a result event with no status is treated as success"):
     // The status field is optional; an absent/empty status is success, not a
     // failed turn.
     val process = new FakePipedCliProcess()
@@ -337,7 +348,7 @@ class GeminiConversationTest extends munit.FunSuite:
     val Right(r) = conv.awaitResult(): @unchecked
     assertEquals(r.output, "done")
 
-  test("interleaved tool calls are each keyed back to their own name"):
+  convTest("interleaved tool calls are each keyed back to their own name"):
     // Two tool calls complete out of order (B before A); each tool_result,
     // which carries only the id, must resolve to the right tool_name.
     val process = new FakePipedCliProcess()
@@ -375,7 +386,9 @@ class GeminiConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"):
+  convTest(
+    "cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"
+  ):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
     conv.cancel()
@@ -385,22 +398,7 @@ class GeminiConversationTest extends munit.FunSuite:
         fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
     assertEquals(process.sigIntCount, 1)
 
-  test("sendUserMessage is a documented no-op (no stdin write)"):
-    val process = new FakePipedCliProcess()
-    val conv = new GeminiConversation(process)
-    conv.sendUserMessage("ignored")
-    process.enqueueStdout("""{"type":"init","session_id":"s"}""")
-    process.enqueueStdout(
-      """{"type":"message","role":"assistant","content":"ok"}"""
-    )
-    process.enqueueStdout(result())
-    process.closeStdout()
-    process.closeStderr()
-    val _ = conv.events.toList
-    val _ = conv.awaitResult()
-    assertEquals(process.writes, Nil)
-
-  test("unknown top-level events are ignored without surfacing"):
+  convTest("unknown top-level events are ignored without surfacing"):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
 
@@ -423,11 +421,12 @@ class GeminiConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("canAskUser is false when no bridge is provided"):
+  convTest("canAskUser is false when no bridge is provided"):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
     assertEquals(conv.canAskUser, false)
     process.closeStdout()
+    process.closeStderr()
     val _ = conv.events.toList
 
   test("ask_user tool_use/tool_result are suppressed (no echo)"):

@@ -109,7 +109,7 @@ class RunSeededTest extends FunSuite:
         config: AgentConfig,
         workDir: os.Path,
         outputSchema: Option[String]
-    ): Conversation[BackendTag.ClaudeCode.type] = ???
+    )(using ox.Ox): Conversation[BackendTag.ClaudeCode.type] = ???
     override def sessionExists(
         session: SessionId[BackendTag.ClaudeCode.type]
     ): Boolean = existsResult

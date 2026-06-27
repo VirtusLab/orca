@@ -6,11 +6,12 @@ import orca.backend.{
   ApprovalDecision,
   ConversationEvent,
   AgentResult,
-  StreamConversation,
+  ForkedConversation,
   StreamSource
 }
 import orca.events.Usage
 import orca.agents.{BackendTag, Model, SessionId}
+import ox.Ox
 import orca.tools.opencode.OpencodeApi.{
   AssistantInfo,
   PermissionReply,
@@ -26,7 +27,7 @@ import scala.util.control.NonFatal
   * 0014).
   *
   * The reader-loop / event-queue / outcome lifecycle lives in
-  * [[StreamConversation]]; this class supplies the OpenCode-specific
+  * [[ForkedConversation]]; this class supplies the OpenCode-specific
   * translation: SSE frame → [[OpencodeEvent]] → `ConversationEvent`, deriving
   * the [[AgentResult]] from the assistant `message.updated` at `session.idle`.
   * The SSE stream stays open after a turn, so reaching the terminal interrupts
@@ -43,28 +44,24 @@ private[opencode] class OpencodeConversation(
     val outputSchema: Option[String],
     canAsk: Boolean,
     initialPrompt: String = ""
-) extends StreamConversation[BackendTag.Opencode.type](
+)(using Ox)
+    extends ForkedConversation[BackendTag.Opencode.type](
       source,
       "opencode",
       initialPrompt,
       nativeAskUser = canAsk
     ):
 
-  /** Follow-up turns are issued as separate `runInteractive` calls (a fresh
-    * `prompt_async`); mid-turn injection isn't wired. A turn paused on
-    * `ask_user` resumes via the question reply, not this.
-    */
-  def sendUserMessage(text: String): Unit = ()
-
   /** Best-effort `POST /session/{id}/abort` before closing the stream, so a
     * cancelled turn stops running (and writing) on the shared server instead of
-    * continuing headless after the user has moved on.
+    * continuing headless after the user has moved on. `super.cancel` (the base
+    * [[ForkedConversation.cancel]]) is idempotent, so a second call is a no-op
+    * past the best-effort abort.
     */
   override def cancel(): Unit =
-    if !cancelled.get() then
-      try
-        val _ = http.postJson(s"/session/$session/abort", "{}")
-      catch case NonFatal(_) => ()
+    try
+      val _ = http.postJson(s"/session/$session/abort", "{}")
+    catch case NonFatal(_) => ()
     super.cancel()
 
   /** Turn state, accumulated as the reader thread processes frames.
@@ -74,6 +71,13 @@ private[opencode] class OpencodeConversation(
     * after joining the reader, which publishes these writes.
     */
   private var turnState: TurnState = TurnState()
+
+  /** Flips once [[finishTurn]]/[[failTurn]] settle the outcome, so frames the
+    * SSE stream emits after the terminal event are ignored. Written and read
+    * only on the reader thread (inside [[handleLine]]), so a plain `var` is
+    * safe — see [[turnState]].
+    */
+  private var settled: Boolean = false
 
   private case class TurnState(
       text: Vector[String] = Vector.empty,
@@ -85,7 +89,7 @@ private[opencode] class OpencodeConversation(
     sseData(rawLine).foreach: json =>
       val event = OpencodeEvent.parse(json)
       // Drop other sessions' frames; once the turn has settled, ignore the rest.
-      if forThisSession(event) && outcomeRef.get().isEmpty then translate(event)
+      if forThisSession(event) && !settled then translate(event)
 
   /** The JSON payload of one SSE line, or `None` for blank / comment / framing
     * lines (`event:`, `id:`, heartbeat `:`).
@@ -144,9 +148,11 @@ private[opencode] class OpencodeConversation(
           failTurn("session went idle without an assistant message")
         else
           eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
+          settled = true
           succeedWith(buildResult())
 
   private def failTurn(message: String): Unit =
+    settled = true
     failWith(AgentTurnFailed(message))
 
   /** In structured mode the validated object is the result; otherwise the
@@ -194,5 +200,3 @@ private[opencode] class OpencodeConversation(
       s"/permission/${req.id}/reply",
       writeToString(PermissionReplyBody(verdict))
     )
-
-  start()

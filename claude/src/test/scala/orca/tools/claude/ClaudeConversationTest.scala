@@ -5,10 +5,19 @@ import orca.events.{Usage}
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{ApprovalDecision, ConversationEvent}
 import orca.subprocess.FakePipedCliProcess
+import ox.{Ox, supervised}
 
 class ClaudeConversationTest extends munit.FunSuite:
 
-  test("stream_event text_delta becomes AssistantTextDelta"):
+  /** `ClaudeConversation` forks its reader/stderr/ask-user workers into the
+    * caller's per-turn Ox, so construction needs a `using Ox`. Run each test
+    * body in a fresh supervised scope that provides it (and joins the forks on
+    * exit). The ask-user test manages its own scope and stays on plain `test`.
+    */
+  private def convTest(name: String)(body: Ox ?=> Unit): Unit =
+    test(name)(supervised(body))
+
+  convTest("stream_event text_delta becomes AssistantTextDelta"):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, AgentConfig.default)
 
@@ -24,7 +33,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     assertEquals(events, List(ConversationEvent.AssistantTextDelta("hello")))
     val _ = conv.awaitResult()
 
-  test("result message finishes the session and carries usage"):
+  convTest("result message finishes the session and carries usage"):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, AgentConfig.default)
 
@@ -38,7 +47,9 @@ class ClaudeConversationTest extends munit.FunSuite:
     assertEquals(result.output, "done")
     assertEquals(result.usage, Usage(5L, 7L, None))
 
-  test("is_error after streaming deltas emits a short marker, not a duplicate"):
+  convTest(
+    "is_error after streaming deltas emits a short marker, not a duplicate"
+  ):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, AgentConfig.default)
 
@@ -67,7 +78,7 @@ class ClaudeConversationTest extends munit.FunSuite:
       s"awaitResult should still carry the full body; got: ${failure.getMessage}"
     )
 
-  test(
+  convTest(
     "result message with is_error=true fails the session and surfaces the message"
   ):
     val process = new FakePipedCliProcess()
@@ -89,7 +100,9 @@ class ClaudeConversationTest extends munit.FunSuite:
     val failure = intercept[OrcaFlowException](conv.awaitResult())
     assert(failure.getMessage.contains("rate limited"))
 
-  test("cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"):
+  convTest(
+    "cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"
+  ):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, AgentConfig.default)
 
@@ -100,7 +113,7 @@ class ClaudeConversationTest extends munit.FunSuite:
         fail(s"expected Left(OrcaInteractiveCancelled), got: $other")
     assertEquals(process.sigIntCount, 1)
 
-  test(
+  convTest(
     "can_use_tool with autoApprove=All responds allow without emitting an event"
   ):
     val process = new FakePipedCliProcess()
@@ -126,7 +139,7 @@ class ClaudeConversationTest extends munit.FunSuite:
       s"expected allow response, got: ${process.writes.head}"
     )
 
-  test(
+  convTest(
     "can_use_tool with autoApprove=Only not matching emits ApproveTool for the channel"
   ):
     val process = new FakePipedCliProcess()
@@ -162,23 +175,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     assert(denyLine.get.contains("too risky"))
 
-  test("sendUserMessage writes a stream-json user turn to stdin"):
-    val process = new FakePipedCliProcess()
-    val conv = new ClaudeConversation(process, AgentConfig.default)
-
-    conv.sendUserMessage("keep going")
-    val injected = process.writes.headOption
-    assert(injected.isDefined, "expected a stdin write")
-    assert(injected.get.contains(""""type":"user""""))
-    assert(injected.get.contains(""""text":"keep going""""))
-
-    process.enqueueStdout(
-      """{"type":"result","subtype":"success","session_id":"sid-5"}"""
-    )
-    process.closeStdout()
-    val _ = conv.awaitResult()
-
-  test(
+  convTest(
     "tool_use surrounding streaming events are ignored; emission comes from the full-turn message"
   ):
     // In claude's live protocol the `assistant` message arrives BEFORE
@@ -223,7 +220,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test(
+  convTest(
     "assistant turn with text falls back to an AssistantTextDelta when no partials streamed"
   ):
     val process = new FakePipedCliProcess()
@@ -247,7 +244,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("user turn with tool_result blocks emits ToolResult events"):
+  convTest("user turn with tool_result blocks emits ToolResult events"):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, AgentConfig.default)
 
@@ -272,7 +269,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test(
+  convTest(
     "malformed NDJSON line surfaces as ConversationEvent.Error and the loop continues"
   ):
     val process = new FakePipedCliProcess()
@@ -294,7 +291,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  test("autoApprove.Only matches the tool → silent allow"):
+  convTest("autoApprove.Only matches the tool → silent allow"):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(
       process,
@@ -314,7 +311,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     val _ = conv.awaitResult()
     assert(process.writes.head.contains(""""behavior":"allow""""))
 
-  test(
+  convTest(
     "multiple back-to-back ApproveTool events carry distinct respond closures"
   ):
     val process = new FakePipedCliProcess()
@@ -396,14 +393,14 @@ class ClaudeConversationTest extends munit.FunSuite:
       val _ = conv.events.toList
       val _ = conv.awaitResult()
 
-  test("canAskUser is false when no bridge is provided"):
+  convTest("canAskUser is false when no bridge is provided"):
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, AgentConfig.default)
     assertEquals(conv.canAskUser, false)
     process.closeStdout()
     val _ = conv.events.toList
 
-  test(
+  convTest(
     "handleAssistantTurn suppresses the agent's ToolUse for ask_user"
   ):
     val process = new FakePipedCliProcess()

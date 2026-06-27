@@ -6,12 +6,13 @@ import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, AgentResult}
 import orca.backend.{
   BufferedStderrDiagnostics,
-  StreamConversation,
+  ForkedConversation,
   StreamSource
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
+import ox.Ox
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
@@ -19,8 +20,8 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import java.util.concurrent.atomic.AtomicReference
 
 /** Drives a `codex exec --json` session to completion. Boilerplate lives in
-  * [[StreamConversation]]; this class supplies the codex-specific protocol
-  * translation: JSONL → [[InboundEvent]] → `ConversationEvent`s.
+  * [[orca.backend.ForkedConversation]]; this class supplies the codex-specific
+  * protocol translation: JSONL → [[InboundEvent]] → `ConversationEvent`s.
   *
   * Notable parity gaps vs. claude (deliberate, driven by codex's JSONL protocol
   * — see ADR 0007):
@@ -40,7 +41,8 @@ private[codex] class CodexConversation(
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
     override val askUser: Option[AskUserSession] = None
-) extends StreamConversation[BackendTag.Codex.type](
+)(using Ox)
+    extends ForkedConversation[BackendTag.Codex.type](
       source = StreamSource.fromProcess(process),
       backendName = "codex",
       initialPrompt = initialPrompt
@@ -48,7 +50,6 @@ private[codex] class CodexConversation(
     with BufferedStderrDiagnostics[BackendTag.Codex.type]:
 
   import CodexConversation.*
-  import StreamConversation.Outcome
 
   private val sessionIdRef = new AtomicReference[String]("")
   private val modelRef = new AtomicReference[Option[String]](None)
@@ -67,18 +68,11 @@ private[codex] class CodexConversation(
     */
   private val askUserEchoes = new orca.backend.AskUserEchoes
 
-  // Subclass fields above are assigned now; safe to spin up the reader +
-  // stderr workers. See [[StreamConversation.start]] — the base also
-  // spawns the ask_user drainer if one was wired.
-  start()
+  // No `start()`: the base spawns its reader / stderr / ask-user forks lazily
+  // on first touch of the conversation surface, after this subclass's fields
+  // are initialised.
 
   // --- Conversation surface ---
-
-  /** Codex exec consumes its prompt argv-side and ignores stdin thereafter;
-    * injecting more user turns mid-session isn't supported. The contract still
-    * requires a callable method — this is a no-op.
-    */
-  def sendUserMessage(text: String): Unit = ()
 
   // `canAskUser` is owned by the base — true when this conversation was
   // constructed with `askUser = Some(...)`. Codex exec has no in-session
@@ -222,7 +216,7 @@ private[codex] class CodexConversation(
       usage = usage,
       model = modelRef.get().map(Model.apply)
     )
-    val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
+    succeedWith(result)
 
   private def toWire(c: FileChangeDetail): FileChangeWire =
     FileChangeWire(c.path, c.kind)
