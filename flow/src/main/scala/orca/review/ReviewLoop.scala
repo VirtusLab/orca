@@ -22,30 +22,57 @@ import ox.flow.Flow
   * cap is hit are folded into the returned `IgnoredIssues` with a `max
   * iterations reached` reason so callers can surface them.
   *
-  * Each call to `evaluate` runs inside a nested `Iteration N` stage.
+  * Each round emits an `Iteration N` progress marker (a `display`, not a
+  * committing stage — it runs under the caller's task stage, ADR 0018 §2.2).
   */
 def fixLoop(
     evaluate: () => ReviewResult,
     fix: List[ReviewIssue] => FixOutcome,
     maxIterations: Int = 10
 )(using ctx: FlowContext): IgnoredIssues =
-  // `fixLoop` itself does not call any gated method directly — the gated work
-  // lives in the `evaluate`/`fix` thunks the caller supplies, which close over
-  // their own `InStage`. So no `(using InStage)` is needed here.
+  // The stateless entry point: a caller with no cross-iteration state delegates
+  // to the threaded driver with `Unit` state.
+  fixLoopWithState[Unit](
+    initial = (),
+    evaluate = _ => (evaluate(), ()),
+    fix = fix,
+    maxIterations = maxIterations
+  )
+
+/** The iteration driver behind [[fixLoop]], generalised to thread a
+  * caller-supplied state `S` explicitly through each round instead of letting
+  * `evaluate` mutate a captured `var`. `evaluate` receives the state from the
+  * previous round and returns its result together with the next state; the
+  * driver feeds that forward. [[reviewAndFixLoop]] threads its
+  * [[ReviewLoopState]] (reviewer history + sessions) this way, so the
+  * cross-iteration data flow is visible in the type rather than hidden in a
+  * closure.
+  *
+  * Like [[fixLoop]], this calls no gated method itself — the gated work lives
+  * in the `evaluate`/`fix` thunks, which close over their own `InStage`.
+  */
+private def fixLoopWithState[S](
+    initial: S,
+    evaluate: S => (ReviewResult, S),
+    fix: List[ReviewIssue] => FixOutcome,
+    maxIterations: Int
+)(using ctx: FlowContext): IgnoredIssues =
 
   def emitStep(msg: String): Unit = ctx.emit(OrcaEvent.Step(msg))
 
-  // Either keep going (and accumulate ignored entries) or stop. The Stop
-  // variant carries any final additions to the accumulator.
+  // Either keep going or stop, carrying any additions to the accumulator. Only
+  // `Continue` carries the next state — on a stop the loop ends, so the state
+  // produced by the final round is irrelevant.
   enum Step:
-    case Continue(addIgnored: IgnoredIssues)
+    case Continue(addIgnored: IgnoredIssues, next: S)
     case Stop(addIgnored: IgnoredIssues)
 
-  def runIteration(iteration: Int): Step =
+  def runIteration(iteration: Int, state: S): Step =
     // A progress marker, not a committing stage: this runs under the caller's
     // task stage (ADR 0018 §2.2), so it must not open its own stage.
     orca.display(s"Iteration ${iteration + 1}")
-    val issues = evaluate().issues
+    val (result, nextState) = evaluate(state)
+    val issues = result.issues
     if issues.isEmpty then
       emitStep("No review comments")
       Step.Stop(IgnoredIssues(Nil))
@@ -64,15 +91,20 @@ def fixLoop(
         s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}"
       )
       if outcome.fixed.isEmpty then Step.Stop(IgnoredIssues(outcome.ignored))
-      else Step.Continue(IgnoredIssues(outcome.ignored))
+      else Step.Continue(IgnoredIssues(outcome.ignored), nextState)
 
   @scala.annotation.tailrec
-  def loop(accumulated: IgnoredIssues, iteration: Int): IgnoredIssues =
-    runIteration(iteration) match
-      case Step.Stop(add)     => accumulated ++ add
-      case Step.Continue(add) => loop(accumulated ++ add, iteration + 1)
+  def loop(
+      accumulated: IgnoredIssues,
+      iteration: Int,
+      state: S
+  ): IgnoredIssues =
+    runIteration(iteration, state) match
+      case Step.Stop(add) => accumulated ++ add
+      case Step.Continue(add, next) =>
+        loop(accumulated ++ add, iteration + 1, next)
 
-  loop(IgnoredIssues(Nil), 0)
+  loop(IgnoredIssues(Nil), 0, initial)
 
 /** Format a single review comment as the body lines of a `Step`.
   *
@@ -220,13 +252,6 @@ def reviewAndFixLoop[B <: BackendTag](
   val taskTitle = Title(task)
   val changedFiles = ReviewLoop.extractChangedFiles(sampleDiff())
 
-  // All loop state lives in one immutable case class threaded through
-  // a method-scope `var`. Within an iteration reviewers fan out via
-  // `par`, but the parallel forks read a stable snapshot and the
-  // var is reassigned exactly once after they all return — so no
-  // concurrent mutation, no `mutable.Map`, no `ConcurrentHashMap`.
-  var state: ReviewLoopState = ReviewLoopState.empty
-
   def filterByConfidence(result: ReviewResult): ReviewResult =
     ReviewResult(issues =
       result.issues.filter(_.confidence >= confidenceThreshold)
@@ -351,7 +376,7 @@ def reviewAndFixLoop[B <: BackendTag](
       )
       (reviewerOutcomes, lintOutcome, nextState)
 
-  def evaluate(): ReviewResult =
+  def evaluate(state: ReviewLoopState): (ReviewResult, ReviewLoopState) =
     // Format before reviewing so the implementation's (and each prior fix's)
     // edits are cleaned up before reviewers and the lint see them, and the
     // committed tree stays formatted. Exit status ignored — a formatter failure
@@ -371,10 +396,10 @@ def reviewAndFixLoop[B <: BackendTag](
     // what the fixer receives — otherwise low-confidence issues are listed
     // per-reviewer but silently dropped from the fix payload.
     val (results, lintResult, nextState) = runReviewersAndLint(active, state)
-    state = nextState
-    ReviewResult(issues =
+    val result = ReviewResult(issues =
       results.flatMap(_._2.issues) ++ lintResult.toList.flatMap(_.issues)
     )
+    (result, nextState)
 
   def fix(issues: List[ReviewIssue]): FixOutcome =
     coder
@@ -390,8 +415,14 @@ def reviewAndFixLoop[B <: BackendTag](
   // A progress marker, not a committing stage: the enclosing implement-task
   // stage already names the work and owns the commit (ADR 0018 §2.2).
   orca.display("Review & fix")
-  fixLoop(
-    evaluate = () => evaluate(),
+  // All loop state lives in one immutable ReviewLoopState threaded explicitly
+  // through `fixLoopWithState` (no captured `var`): within an iteration the
+  // reviewers fan out via `par`, but each fork reads the snapshot it was handed
+  // and the next state is computed once after they all return — so no concurrent
+  // mutation, no `mutable.Map`, no `ConcurrentHashMap`.
+  fixLoopWithState[ReviewLoopState](
+    initial = ReviewLoopState.empty,
+    evaluate = evaluate,
     fix = fix,
     maxIterations = maxIterations
   )
