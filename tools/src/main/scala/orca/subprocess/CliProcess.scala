@@ -13,21 +13,14 @@ trait CliProcess:
     */
   def destroyForcibly(): Unit
 
-  /** Forcibly terminate this process AND any descendants — the SIGKILL analogue
-    * of [[sendSigIntTree]]. Default = just this process; override where a
-    * launch wrapper (e.g. `ollama launch opencode`) forks the real process,
-    * which inherits the stdout/stderr pipe fds: a single-PID kill would orphan
-    * it and leave those write-ends open, so a reader blocked on the pipe would
-    * never see EOF. Same call-anywhere / idempotent contract as
-    * [[destroyForcibly]].
+  /** Forcibly terminate this process AND any descendants. Default = just this
+    * process; override where a launch wrapper (e.g. `ollama launch opencode`)
+    * forks the real process, which inherits the stdout/stderr pipe fds: a
+    * single-PID kill would orphan it and leave those write-ends open, so a
+    * reader blocked on the pipe would never see EOF. Same call-anywhere /
+    * idempotent contract as [[destroyForcibly]].
     */
   def destroyForciblyTree(): Unit = destroyForcibly()
-
-  /** SIGINT this process and any descendants. Default = just this process;
-    * override where a launch wrapper (e.g. `ollama launch opencode`) may fork
-    * the real process — a single-PID SIGINT would orphan it.
-    */
-  def sendSigIntTree(): Unit = sendSigInt()
 
 /** A spawned process whose stdin / stdout / stderr are connected to pipes the
   * caller controls. The backend writes the opening user turn (or any further

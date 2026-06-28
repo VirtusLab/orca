@@ -50,8 +50,8 @@ private[opencode] class OpencodeServer(
   /** The HTTP/SSE client against this server. Forcing it spawns `opencode
     * serve` exactly once: a `lazy val` gives one spawn under concurrent first
     * use and does not cache a failed start (Scala re-runs the initializer if it
-    * threw). This is the load-bearing once-init — `OpencodeBackend`'s
-    * AtomicReference only guarantees a single server *instance*; this
+    * threw). This is the load-bearing once-init — `OpencodeBackend`'s lazy
+    * `sharedServer` only guarantees a single server *instance*; this `lazy val`
     * guarantees a single *spawn*.
     */
   lazy val http: OpencodeHttp = start()
@@ -62,12 +62,12 @@ private[opencode] class OpencodeServer(
     * in the flow body's `finally`, before the scope joins the drain forks (see
     * class scaladoc).
     *
-    * Assumes the synchronous handoff the runner provides: `http` is forced
-    * during the flow body and `shutdown` runs in the body's `finally`
-    * afterwards, so the process is already recorded here. (If a stray
-    * background fork forced `http` concurrently with this call, the CAS could
-    * latch before `processRef` is set and miss the kill — but the runner never
-    * does that.)
+    * In the runner's normal flow `http` is forced during the body and
+    * `shutdown` runs in the same scope's `finally` afterwards, so the process
+    * is already recorded here. Should a background fork ever force `http`
+    * concurrently with this call and lose the `processRef` write/read race,
+    * `start` re-checks `stopped` after spawning and tree-destroys the process
+    * itself — so the kill is never silently missed.
     */
   def shutdown(): Unit =
     if stopped.compareAndSet(false, true) then
@@ -133,6 +133,10 @@ private[opencode] class OpencodeServer(
     forkDiscard:
       try out.foreach(_ => ())
       catch case NonFatal(e) => log.debug("opencode stdout drain ended", e)
+    // Close the shutdown-before-processRef window structurally: if `shutdown`
+    // latched `stopped` before `processRef` was set, it destroyed nothing — do
+    // it here so the drains we just forked don't outlive that shutdown.
+    if stopped.get() then process.destroyForciblyTree()
     val client = httpFor(baseUrl, password)
     clientRef.set(client)
     client

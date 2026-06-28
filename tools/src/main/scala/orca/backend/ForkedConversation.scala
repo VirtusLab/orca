@@ -63,8 +63,8 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
   private val channel: Channel[ConversationEvent] =
     Channel.buffered(EventQueueCapacity)
 
-  /** `enqueue` / `close` shim so subclass code written against
-    * `StreamConversation`'s `EventQueue` still works unchanged. Both use the
+  /** `enqueue` / `close` facade over the channel for subclass drivers. It
+    * centralises the swallow-on-closed decision in one place: both use the
     * `*OrClosed` variants so a late enqueue (e.g. the ask-user drainer racing
     * the reader's close) is a no-op rather than a thrown `ChannelClosed` that
     * would tear the scope.

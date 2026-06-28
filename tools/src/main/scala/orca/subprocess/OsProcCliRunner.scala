@@ -3,7 +3,6 @@ package orca.subprocess
 import org.slf4j.LoggerFactory
 
 import scala.jdk.CollectionConverters.given
-import scala.jdk.StreamConverters.*
 
 /** Runs external commands via os-lib. `check = false` is intentional — callers
   * inspect `exitCode` and `stderr` rather than handling thrown exceptions,
@@ -93,28 +92,20 @@ private final class OsPipedSubProcess(
   def sendSigInt(): Unit =
     val _ = QuietProc.call(Seq("kill", "-INT", sub.wrapped.pid.toString))
 
-  override def sendSigIntTree(): Unit =
-    // Descendants first, then the root: if the spawned process is a launch
-    // wrapper that forked the real `opencode serve`, SIGINT-ing only the root
-    // PID would leave the server orphaned. Snapshot is best-effort.
-    val handle = sub.wrapped.toHandle
-    val pids =
-      (handle.descendants().toScala(List) :+ handle)
-        .filter(_.isAlive)
-        .map(_.pid.toString)
-    if pids.nonEmpty then
-      val _ = QuietProc.call(Seq("kill", "-INT") ++ pids)
-
   def isAlive: Boolean = sub.isAlive()
 
   def destroyForcibly(): Unit =
     val _ = sub.wrapped.destroyForcibly()
 
   override def destroyForciblyTree(): Unit =
-    // Descendants first, then the root — same rationale as `sendSigIntTree`, but
-    // SIGKILL: a launch wrapper that forked the real `serve` child leaves it
-    // holding the inherited stdout/stderr pipe write-ends, so killing only the
-    // root PID would never EOF a blocked drain. Snapshot is best-effort.
+    // Descendants first, then the root: a launch wrapper that forked the real
+    // `serve` child leaves it holding the inherited stdout/stderr pipe
+    // write-ends, so killing only the root PID would never EOF a blocked drain.
+    // `descendants()` is a best-effort snapshot of live parent→child linkage; it
+    // catches a wrapper that stays alive as the worker's parent (the `ollama
+    // launch` case). It would NOT catch a wrapper that double-forks and exits,
+    // reparenting the worker to init — that would need a process-group kill or a
+    // recorded worker PID. No current launcher does that.
     val handle = sub.wrapped.toHandle
     handle.descendants().forEach(h => { val _ = h.destroyForcibly() })
     val _ = handle.destroyForcibly()
