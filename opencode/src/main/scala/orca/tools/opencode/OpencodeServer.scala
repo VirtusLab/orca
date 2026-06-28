@@ -56,19 +56,27 @@ private[opencode] class OpencodeServer(
     */
   lazy val http: OpencodeHttp = start()
 
-  /** Tear down the server: destroy the process (unblocking the drain forks'
-    * reads so the enclosing scope can join them) and close the HTTP client.
-    * Idempotent and a no-op if the server was never started. Must run in the
-    * flow body's `finally`, before the scope joins the drain forks (see class
-    * scaladoc).
+  /** Tear down the server: tree-destroy the process (unblocking the drain
+    * forks' reads so the enclosing scope can join them) and close the HTTP
+    * client. Idempotent and a no-op if the server was never started. Must run
+    * in the flow body's `finally`, before the scope joins the drain forks (see
+    * class scaladoc).
+    *
+    * Assumes the synchronous handoff the runner provides: `http` is forced
+    * during the flow body and `shutdown` runs in the body's `finally`
+    * afterwards, so the process is already recorded here. (If a stray
+    * background fork forced `http` concurrently with this call, the CAS could
+    * latch before `processRef` is set and miss the kill — but the runner never
+    * does that.)
     */
   def shutdown(): Unit =
     if stopped.compareAndSet(false, true) then
       val proc = Option(processRef.get())
       if proc.isDefined then log.debug("opencode server stopping")
-      // Destroy (not SIGINT) so the drains' native reads hit EOF promptly,
-      // before the enclosing scope joins them.
-      proc.foreach(_.destroyForcibly())
+      // Tree-destroy (not SIGINT, not PID-only) so EVERY pipe holder dies and
+      // the drains' native reads hit EOF before the enclosing scope joins them —
+      // a launch wrapper (ollama) forks the real serve, which inherits the pipes.
+      proc.foreach(_.destroyForciblyTree())
       Option(clientRef.get()).foreach(_.close())
 
   private def start(): OpencodeHttp =
@@ -97,7 +105,7 @@ private[opencode] class OpencodeServer(
           errTail.addLast(line)
           while errTail.size > OpencodeServer.MaxErrTailLines do
             val _ = errTail.poll()
-      catch case NonFatal(_) => ()
+      catch case NonFatal(e) => log.debug("opencode stderr drain ended", e)
     // serve prints "listening on …" within ~1s of binding; a serve that exits
     // without it surfaces as EOF here.
     val out = process.stdoutLines
@@ -106,9 +114,10 @@ private[opencode] class OpencodeServer(
       .nextOption()
       .getOrElse:
         // stdout closed with no listening line — the launcher/serve exited.
-        // Destroy first so the stderr fork's read EOFs and the join below can't
-        // hang, then surface its stderr (e.g. ollama's "model not found").
-        process.destroyForcibly()
+        // Tree-destroy first so the stderr fork's read EOFs (even if a wrapper
+        // forked a pipe-holding child) and the join below can't hang, then
+        // surface its stderr (e.g. ollama's "model not found").
+        process.destroyForciblyTree()
         errFork.join()
         val tail = String.join("\n", errTail)
         throw OrcaFlowException(
@@ -123,7 +132,7 @@ private[opencode] class OpencodeServer(
     // before the scope joins it (the read is native and interrupt-immune).
     forkDiscard:
       try out.foreach(_ => ())
-      catch case NonFatal(_) => ()
+      catch case NonFatal(e) => log.debug("opencode stdout drain ended", e)
     val client = httpFor(baseUrl, password)
     clientRef.set(client)
     client

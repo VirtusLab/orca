@@ -110,6 +110,15 @@ private final class OsPipedSubProcess(
   def destroyForcibly(): Unit =
     val _ = sub.wrapped.destroyForcibly()
 
+  override def destroyForciblyTree(): Unit =
+    // Descendants first, then the root — same rationale as `sendSigIntTree`, but
+    // SIGKILL: a launch wrapper that forked the real `serve` child leaves it
+    // holding the inherited stdout/stderr pipe write-ends, so killing only the
+    // root PID would never EOF a blocked drain. Snapshot is best-effort.
+    val handle = sub.wrapped.toHandle
+    handle.descendants().forEach(h => { val _ = h.destroyForcibly() })
+    val _ = handle.destroyForcibly()
+
   def waitForExit(): Int =
     val _ = sub.join()
     sub.exitCode()
