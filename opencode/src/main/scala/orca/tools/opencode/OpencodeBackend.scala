@@ -45,12 +45,28 @@ private[orca] object OpencodeBackend:
       cli: CliRunner,
       launcher: OpencodeLauncher = OpencodeLauncher.default
   )(using Ox): OpencodeBackend =
-    new OpencodeBackend(workDir =>
-      new OpencodeServer(cli, workDir, launcher).http
+    // Retain the server (created on first use) so its drain forks can be torn
+    // down at flow teardown via `shutdown` — see OpencodeServer's scaladoc.
+    val serverRef = new AtomicReference[OpencodeServer]()
+    new OpencodeBackend(
+      httpFor = workDir => {
+        val server = new OpencodeServer(cli, workDir, launcher)
+        serverRef.set(server)
+        server.http
+      },
+      onShutdown = () => Option(serverRef.get()).foreach(_.shutdown())
     )
 
-private[orca] class OpencodeBackend(httpFor: os.Path => OpencodeHttp)
-    extends AgentBackend[BackendTag.Opencode.type]:
+private[orca] class OpencodeBackend(
+    httpFor: os.Path => OpencodeHttp,
+    onShutdown: () => Unit = () => ()
+) extends AgentBackend[BackendTag.Opencode.type]:
+
+  /** Tear down the shared `opencode serve` process and its drain forks. A no-op
+    * if the server was never started (opencode wired but unused). Called by the
+    * runner in the flow body's `finally`, before the flow scope joins forks.
+    */
+  def shutdown(): Unit = onShutdown()
 
   private val sessions =
     new SessionRegistry.ClientToServer[BackendTag.Opencode.type]

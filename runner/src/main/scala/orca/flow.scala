@@ -198,6 +198,11 @@ private[orca] def runFlow[B <: BackendTag](
     val effectiveInteraction = interaction.getOrElse(
       TerminalInteraction.start(workDir = Some(workDir))
     )
+    // Set once the context exists; called in the body's `finally` (below) so
+    // context-owned background forks — the opencode `serve` drains — are torn
+    // down BEFORE this `supervised` scope joins them. Ox runs `releaseAfterScope`
+    // after the join, so this must be a body-finally, not a finalizer.
+    var closeContext: () => Unit = () => ()
     try
       val dispatcher = new EventDispatcher(
         effectiveInteraction.listeners ++ List(
@@ -243,6 +248,7 @@ private[orca] def runFlow[B <: BackendTag](
         fs = fs,
         prompts = prompts
       )
+      closeContext = () => ctx.close()
       // The context resolved the leading agent (lazily, against itself) and
       // exposes it as `ctx.agent`. The runtime needs it (erased) for branch
       // naming and session rehydration, which run before the body.
@@ -285,7 +291,12 @@ private[orca] def runFlow[B <: BackendTag](
           throw e
       if bodySucceeded then
         FlowLifecycle.teardownSuccess(effectiveGit, setup, returnToStartBranch)
-    finally effectiveInteraction.close()
+    finally
+      // Both run before the `supervised` scope joins its forks. closeContext
+      // first: it destroys the opencode `serve` process so its drain forks'
+      // reads EOF and the join can't hang.
+      try closeContext()
+      finally effectiveInteraction.close()
 
 private def installUncaughtExceptionHandler(): Unit =
   // Idempotent across nested or repeated `flow(...)` calls — we only install
