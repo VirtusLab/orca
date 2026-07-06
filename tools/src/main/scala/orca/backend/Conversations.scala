@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
+import orca.OrcaInteractiveCancelled
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.agents.{BackendTag, SessionId}
 
@@ -117,17 +117,14 @@ private[orca] object Conversations:
     * callers hand back the stable client handle they already hold, and the wire
     * id lives on the result only for the registry to learn the mapping.
     *
-    * Two invariants are centralised here because each backend got them subtly
-    * wrong at some point:
-    *
-    *   - [[AgentTurnFailed]] is re-thrown verbatim (a turn that ran and failed
-    *     must NOT be retried — a retry would reopen the now-registered session
-    *     id). Any other [[OrcaFlowException]] is rewrapped under `backendName`
-    *     so the user sees which backend failed; the corrective-retry loop in
-    *     `DefaultAgentCall` still recognises it as retryable.
-    *   - `commitSuccess` runs only after a clean drain, so a subprocess that
-    *     crashed before registering its session doesn't wedge the registry into
-    *     resuming a session that was never created.
+    * `commitSuccess` runs only after a clean drain, so a subprocess that
+    * crashed before registering its session doesn't wedge the registry into
+    * resuming a session that was never created. Drain failures propagate
+    * verbatim — the retryability classification already happened in
+    * [[ForkedConversation.awaitResult]], the sole place that decides whether a
+    * failure is an [[orca.AgentTurnFailed]] or a plain retryable
+    * [[orca.OrcaFlowException]]; relabelling here would only obscure that
+    * decision.
     *
     * `registry.commitSuccess(session, result.wireId)` is uniform across both
     * registry shapes: [[SessionRegistry.ClientToServer]] records the learned
@@ -135,18 +132,12 @@ private[orca] object Conversations:
     * and just marks the client id claimed.
     */
   def drainAndCommit[B <: BackendTag](
-      backendName: String,
       conv: Conversation[B],
       session: SessionId[B],
       registry: SessionRegistry[B],
       events: OrcaListener = OrcaListener.noop
   ): AgentResult[B] =
-    val result =
-      try drainAutonomous(conv, events)
-      catch
-        case e: AgentTurnFailed => throw e
-        case e: OrcaFlowException =>
-          throw OrcaFlowException(s"$backendName CLI failed: ${e.getMessage}")
+    val result = drainAutonomous(conv, events)
     registry.commitSuccess(session, result.wireId)
     result
 
@@ -164,5 +155,5 @@ private[orca] object Conversations:
   )(open: Ox ?=> Conversation[B]): AgentResult[B] =
     supervised:
       val conv = open
-      try drainAndCommit(backendName, conv, session, registry, events)
+      try drainAndCommit(conv, session, registry, events)
       finally conv.cancel()

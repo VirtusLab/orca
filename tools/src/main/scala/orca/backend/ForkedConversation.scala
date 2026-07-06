@@ -145,13 +145,20 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     ensureStarted()
     channelIterator
 
+  /** THE retryability classifier: every post-spawn failure surfacing here is
+    * (re)thrown as [[AgentTurnFailed]] — by the time the reader fork settles,
+    * the turn has run and the wire session may already exist, so a retry
+    * against the same id would only cascade into "already in use" / a broken
+    * pipe rather than a clean re-attempt. Pre-spawn *open* failures never reach
+    * this method at all — they throw from `openConversation` (before a
+    * `Conversation` exists to call `awaitResult` on) as plain
+    * [[OrcaFlowException]]s and stay retryable. The retry POLICY that acts on
+    * this classification lives in `DefaultAgentCall.runAutonomousWithRetry`.
+    */
   def awaitResult(): Either[OrcaInteractiveCancelled, AgentResult[B]] =
     readerFork.join() match
       case Outcome.Success(r)  => Right(r)
       case Outcome.Cancelled() => Left(new OrcaInteractiveCancelled())
-      // A failure here means the turn ran (the session is registered) and then
-      // errored — tag it non-retryable so the autonomous retry loop doesn't
-      // reopen the locked session id. See [[AgentTurnFailed]].
       case Outcome.Failed(e: AgentTurnFailed) => throw e
       case Outcome.Failed(e) =>
         throw new AgentTurnFailed(

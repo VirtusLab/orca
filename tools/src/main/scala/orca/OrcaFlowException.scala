@@ -42,5 +42,10 @@ class OrcaInteractiveCancelled(
   * `AgentTurnFailed` is therefore NOT retried — it propagates immediately with
   * the real cause instead of that misleading cascade. Open failures and parse
   * failures remain retryable.
+  *
+  * Two sites, one contract: [[orca.backend.ForkedConversation.awaitResult]] is
+  * the classifier (decides whether a failure becomes an `AgentTurnFailed`), and
+  * `DefaultAgentCall.runAutonomousWithRetry` is the policy (the only place that
+  * acts on the classification by refusing to retry it).
   */
 class AgentTurnFailed(message: String) extends OrcaFlowException(message)

@@ -68,11 +68,28 @@ class ConversationsTest extends munit.FunSuite:
       Nil,
       Right(sampleResult.copy(wireId = reportedWire))
     )
-    val result = Conversations.drainAndCommit("codex", conv, client, registry)
+    val result = Conversations.drainAndCommit(conv, client, registry)
     assert(result.wireId == reportedWire) // result reports the wire truth
     assert(
       registry.resumeWireId(client).contains(reportedWire)
     ) // registry learned it
+
+  test(
+    "drainAndCommit propagates an AgentTurnFailed from the drain verbatim " +
+      "(no rewrap)"
+  ):
+    // Pins the deleted laundering branch: `awaitResult` is THE classifier
+    // that decided this failure is non-retryable, so `drainAndCommit` must
+    // not relabel it under "$backendName CLI failed: ...".
+    val client = SessionId.fresh[BackendTag.Codex.type]
+    val registry = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+    val failure = new AgentTurnFailed("Prompt is too long")
+    val conv = new FailingConversation(failure)
+    val thrown = intercept[AgentTurnFailed]:
+      Conversations.drainAndCommit(conv, client, registry)
+    assertEquals(thrown, failure)
+    assertEquals(thrown.getMessage, "Prompt is too long")
+    assert(registry.resumeWireId(client).isEmpty) // never committed
 
   test("drainAutonomous walks every event before returning the result"):
     val conv = new ScriptedConversation(

@@ -127,9 +127,16 @@ class DefaultAgentCall[B <: BackendTag, O](
   private def emitStructuredResult(raw: String, value: O): Unit =
     events.onEvent(OrcaEvent.StructuredResult(raw, announce.message(value)))
 
-  /** Autonomous retry loop used by `autonomous.run`. On a parse failure the
-    * next attempt swaps the original prompt for a corrective one; the returned
-    * session id is whichever one succeeded.
+  /** THE retry policy — the only place in the framework that decides whether an
+    * autonomous-turn failure gets retried: parse failures (corrective
+    * re-prompt, same session resumed) and pre-spawn open failures (a fresh
+    * spawn) are retried; [[AgentTurnFailed]] never is, because it means the
+    * turn ran and the backend already locked the session id — reopening it
+    * would only yield "already in use" / a broken pipe instead of a clean
+    * attempt. See [[orca.backend.ForkedConversation.awaitResult]], the
+    * classifier that produces that distinction in the first place. On a parse
+    * failure the next attempt swaps the original prompt for a corrective one;
+    * the returned session id is whichever attempt succeeded.
     */
   private def runAutonomousWithRetry[I](
       input: I,
@@ -149,16 +156,18 @@ class DefaultAgentCall[B <: BackendTag, O](
     // shows what the follow-up turn was asked to fix.
     if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(serialized))
 
-    // Threaded across retry attempts via closure so a parse failure can
-    // steer the next attempt with the corrective prompt. Method-scope var
-    // allowed by the project's FP conventions.
+    // Carries a parse failure into the next attempt's corrective prompt
+    // (below: `lastFailure match { ... }` picks it up to build the retry
+    // text). Method-scope var, sanctioned by the project's FP conventions
+    // because its contract is entirely local: written only in the
+    // `MalformedAgentOutputException` catch a few lines down, read only at
+    // the top of the next `retry` iteration — single-threaded because
+    // `retry` re-executes the block sequentially, never concurrently.
     var lastFailure: Option[FailedAttempt] = None
 
-    // Retry parse failures (corrective re-prompt, resumed) and transient OPEN
-    // failures (a fresh spawn), but never an `AgentTurnFailed` — a turn that
-    // ran and failed (e.g. "Prompt is too long") leaves the session id
-    // registered, so reopening it would only yield "already in use" / broken
-    // pipe. Propagate it immediately with the real cause instead.
+    // Never retry an `AgentTurnFailed` (see the classifier/policy scaladoc
+    // above); every other throwable — parse failures and pre-spawn open
+    // failures alike — is retryable.
     val retryConfig = RetryConfig(
       effective.retrySchedule,
       ResultPolicy.retryWhen[Throwable, (SessionId[B], O)](e =>

@@ -115,8 +115,10 @@ private[orca] class ClaudeBackend(
   ): AgentResult[BackendTag.ClaudeCode.type] =
     // drainAndCommit commits only after a successful drain: a subprocess that
     // crashed before claude could register the session id (e.g. exit before
-    // `system.init`) would otherwise leave the registry wedged, forcing a
-    // retry to `--resume` a session claude never created.
+    // `system.init`) would otherwise leave the registry wedged. That crash
+    // surfaces as AgentTurnFailed and is never auto-retried — the commit
+    // ordering matters for the NEXT `session(...)` call (or a resumed run),
+    // which must see a registry that agrees with what claude actually did.
     Conversations.runAutonomous("claude", session, registry, events):
       openConversation(
         prompt = prompt,
@@ -216,7 +218,10 @@ private[orca] class ClaudeBackend(
       // The registry decides fresh-vs-resume; commit happens only after the
       // conversation is up (in the runAutonomous/runInteractive shells) so
       // a spawn that fails before claude registers the session doesn't
-      // leave the registry wedged — a retry will still try `--session-id`.
+      // leave the registry wedged. This is not about enabling an automatic
+      // retry (a post-spawn failure is AgentTurnFailed and is never
+      // auto-retried) — it's so the NEXT `session(...)` call, whenever it
+      // comes, still sees `--session-id` as the correct dispatch.
       // Callers must not share a session id across concurrent calls;
       // `reviewAndFixLoop`'s parallel reviewer fan-out is safe because each
       // reviewer mints its own distinct id via `Agent.newSession`.
