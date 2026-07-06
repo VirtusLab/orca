@@ -29,6 +29,14 @@ private val log = LoggerFactory.getLogger("orca.flow")
   *     changes, so a stage yields one commit covering code + progress). Emit
   *     StageCompleted.
   *
+  * A nested stage's commit stages the whole tree, so it sweeps up any
+  * uncommitted edits the outer stage's body made before the nesting point. If
+  * the flow later fails, the outer stage re-runs against a tree already
+  * containing its own partial work (committed under the inner stage's message)
+  * — resume is only correct if the outer body is idempotent over its own
+  * leftovers. Prefer doing edits inside their own stage rather than around a
+  * nested one.
+  *
   * Error handling mirrors `fail`/tool-adapter semantics: a non-fatal failure in
   * `body` emits an Error event (once — `fail` and malformed-output already
   * carry their own emission state) and re-raises. Fatal throwables propagate

@@ -129,6 +129,14 @@ checkpoint; wrapping a stage solely around other stages yields a commit carrying
 that stage's progress entry. Why two stages can't run concurrently — the
 `FlowControl`-vs-`FlowContext` capability split — is in §2.2 (R12).
 
+> **Amendment (2026-07-06).** A nested stage's commit stages the whole tree, so
+> it sweeps up any uncommitted edits the outer stage's body made before the
+> nesting point. If the flow later fails, the outer stage re-runs against a
+> tree already containing its own partial work (committed under the inner
+> stage's message) — resume is only correct if the outer body is idempotent
+> over its own leftovers. Prefer doing edits inside their own stage rather
+> than around a nested one.
+
 ### 2.2 Capability gating
 
 **Requirements.**

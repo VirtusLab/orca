@@ -110,7 +110,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
 
 ## 3. Shutdown & lifecycle choreography (HIGH)
 
-- [ ] **3.1 Localize backend shutdown ownership.** `runFlow` holds a reassigned
+- [x] **3.1 Localize backend shutdown ownership.** (done: 98da368) `runFlow` holds a reassigned
   `var closeContext: () => Unit` invoked in a body-level `finally` in mandated
   order, existing solely for opencode's drain forks; `opencodeLauncher` leaks into
   the public `flow(...)` signature and `DefaultFlowContext` grew a one-backend
@@ -118,18 +118,18 @@ comments, ADRs) rather than types, several with shipped-bug history.
   Ox-ordering knowledge collapses into the backend.
   Refs: `runner/.../flow.scala:94,197-299`, `runner/.../DefaultFlowContext.scala:54-65,129-144`.
 
-- [ ] **3.2 Simplify opencode once-init/shutdown.** `serverRef` AtomicReference +
+- [x] **3.2 Simplify opencode once-init/shutdown.** (done: 519ab81) `serverRef` AtomicReference +
   `firstWorkDir` CAS side-channel smuggling an argument into a `lazy val` + second
   load-bearing lazy + `stopped` re-check race close — for a cold path that runs
   once. workDir is already assumed constant: construct eagerly, use `synchronized`.
   Refs: `opencode/.../OpencodeBackend.scala:43-83,168-173`, `opencode/.../OpencodeServer.scala:22-57,133-141`.
 
-- [ ] **3.3 Flatten `flow()`'s exit path; delete `bodySucceeded`.** Cleanup duplicated
+- [x] **3.3 Flatten `flow()`'s exit path; delete `bodySucceeded`.** (done: b197dce) Cleanup duplicated
   on two routes because `System.exit(1)` skips the outer finally; `bodySucceeded`
   is dead weight (the catch rethrows). Set a `failed` flag, exit after the finally.
   Refs: `runner/.../flow.scala:119-158,276-293`.
 
-- [ ] **3.4 Give the phase-ordering protocol a single owner.** ~7 cross-module
+- [x] **3.4 Give the phase-ordering protocol a single owner.** (done: d1e71cd) ~7 cross-module
   ordering invariants (setup ordering, snapshot-before-stash, diff-before-append,
   emits-outside-try, closeContext-before-interaction-close-before-join, disjoint
   teardowns) enforced only by prose. Move the bracketing wholly into
@@ -138,14 +138,14 @@ comments, ADRs) rather than types, several with shipped-bug history.
   Refs: `runner/.../flow.scala:200-299`, `flow/.../Flow.scala:55-58,130-141`,
   `runner/.../FlowLifecycle.scala:88-92`.
 
-- [ ] **3.5 Document the nested-stage commit sweep.** Inner-stage commits use
+- [x] **3.5 Document the nested-stage commit sweep.** (done: session-identity-fixes docs commit) Inner-stage commits use
   `add -A`, sweeping the outer stage's uncommitted edits under the inner commit;
   on failure the outer stage re-runs against its own leftovers. Documented nowhere
   (ADR 0018 §2.1 nesting note doesn't cover it). Document in the ADR authoring
   rules or forbid interleaved edits around nested stages.
   Refs: `flow/.../Flow.scala:28-29,122-145`.
 
-- [ ] **3.6 Collapse the 17-parameter wiring tunnel.** ~15 override knobs spelled out
+- [x] **3.6 Collapse the 17-parameter wiring tunnel.** (done: 611f5e3) ~15 override knobs spelled out
   four times (`flow` → private mirror → `withDefaults` → ctor); duplicated
   now-unreachable git default in `withDefaults` can silently drift. Introduce a
   `FlowWiring` case class; delete the dead default.
