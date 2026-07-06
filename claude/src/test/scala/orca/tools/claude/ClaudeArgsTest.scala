@@ -59,20 +59,26 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--permission-mode", "bypassPermissions")))
     assert(!args.contains("--allowedTools"))
 
-  test("AutoApprove.Only(tools) maps to acceptEdits + sorted --allowedTools"):
+  test(
+    "AutoApprove.Only(tools) maps to sorted --allowedTools in default mode"
+  ):
+    // Honest Only (finding 2.1): default permission mode, only the listed
+    // tools pre-approved — no acceptEdits blanket-approving every edit.
     val args = streamJson(
       AgentConfig(autoApprove =
         AutoApprove.Only(Set("Zeta", "Alpha", "Middle"))
       )
     )
-    assert(args.containsSlice(Seq("--permission-mode", "acceptEdits")))
     assert(args.containsSlice(Seq("--allowedTools", "Alpha,Middle,Zeta")))
+    assert(!args.contains("acceptEdits"), args)
+    assert(!args.contains("bypassPermissions"), args)
 
-  test("AutoApprove.Only(empty) maps to acceptEdits with no --allowedTools"):
+  test("AutoApprove.Only(empty) emits no permission flags"):
+    // Nothing pre-approved: default mode, no allowlist — every tool prompts.
     val args =
       streamJson(AgentConfig(autoApprove = AutoApprove.Only(Set.empty)))
-    assert(args.containsSlice(Seq("--permission-mode", "acceptEdits")))
-    assert(!args.contains("--allowedTools"))
+    assert(!args.contains("--permission-mode"), args)
+    assert(!args.contains("--allowedTools"), args)
 
   test(
     "ToolSet.ReadOnly maps to --permission-mode plan, overriding autoApprove"
@@ -167,5 +173,5 @@ class ClaudeArgsTest extends munit.FunSuite:
       args.containsSlice(Seq("--append-system-prompt-file", file.toString))
     )
     assert(args.containsSlice(Seq("--resume", WireSessionId.value(testSid))))
-    assert(args.containsSlice(Seq("--permission-mode", "acceptEdits")))
     assert(args.containsSlice(Seq("--allowedTools", "Read")))
+    assert(!args.contains("acceptEdits"), args)

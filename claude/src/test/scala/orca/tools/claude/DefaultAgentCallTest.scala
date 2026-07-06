@@ -93,6 +93,11 @@ class SequencedBackend(outputs: List[String])
 
   val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
 
+  def enforcement(
+      tools: orca.agents.ToolSet,
+      autoApprove: orca.agents.AutoApprove
+  ): orca.agents.Enforcement = orca.agents.Enforcement.Ignored
+
   def runAutonomous(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],

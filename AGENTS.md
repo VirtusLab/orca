@@ -101,6 +101,25 @@ most easily broken:
   (untagged/older records fall back to the lead; a tag matching none of the
   context's accessors is skipped, not guessed).
 
+- **Tool enforcement.** `AgentConfig.tools: ToolSet` (ReadOnly/NetworkOnly/Full)
+  and `autoApprove: AutoApprove` (All/Only) request a restriction, but each
+  backend enforces it differently. `AgentBackend.enforcement(tools, autoApprove)`
+  surfaces the actual guarantee as the `Enforcement` enum — **Hard** (mechanically
+  blocked: permission mode / sandbox / allowlist), **SandboxApprox** (a coarser
+  sandbox, semantics widened), **PromptOnly** (only the prompt forbids it), or
+  **Ignored** (not encoded; depends on backend/server config outside orca):
+
+  | tools, approve  | claude | codex         | gemini  | opencode | pi        |
+  |-----------------|--------|---------------|---------|----------|-----------|
+  | ReadOnly, *     | Hard   | Hard          | Hard    | Hard     | Hard      |
+  | NetworkOnly, *  | Hard   | PromptOnly    | Hard    | Hard     | PromptOnly|
+  | Full, All       | Hard   | Hard          | Hard    | Ignored  | Ignored   |
+  | Full, Only(_)   | Hard   | SandboxApprox | Ignored | Ignored  | Ignored   |
+
+  The matrix is machine-checked in
+  `runner/src/test/scala/orca/runner/EnforcementTableTest.scala` (the source of
+  truth); per-cell rationale lives in each backend's `*Args.enforcement`.
+
 ## Build and test
 
 ```bash

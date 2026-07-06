@@ -119,6 +119,11 @@ class OpencodeFlowTest extends munit.FunSuite:
       SessionSupport.Ephemeral(new SessionRegistry.ClaimedOnce)
     val tag: BackendTag.Opencode.type = BackendTag.Opencode
 
+    def enforcement(
+        tools: orca.agents.ToolSet,
+        autoApprove: orca.agents.AutoApprove
+    ): orca.agents.Enforcement = orca.agents.Enforcement.Ignored
+
   private val noInteraction: Interaction = new Interaction:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](

@@ -76,6 +76,11 @@ class BaseAgentTest extends munit.FunSuite:
       SessionSupport.Ephemeral(new SessionRegistry.ClaimedOnce)
     val tag: BackendTag.Pi.type = BackendTag.Pi
 
+    def enforcement(
+        tools: orca.agents.ToolSet,
+        autoApprove: orca.agents.AutoApprove
+    ): orca.agents.Enforcement = orca.agents.Enforcement.Ignored
+
   private object StubPrompts extends Prompts:
     def autonomous(
         input: String,

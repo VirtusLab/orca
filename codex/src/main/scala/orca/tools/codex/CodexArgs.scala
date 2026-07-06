@@ -6,6 +6,7 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
+  Enforcement,
   WireSessionId,
   ToolSet
 }
@@ -165,3 +166,29 @@ private[codex] object CodexArgs:
       case ToolSet.NetworkOnly =>
         Seq("-c", "sandbox_workspace_write.network_access=true")
       case ToolSet.ReadOnly | ToolSet.Full => Nil
+
+  /** How strongly codex enforces each `(tools, autoApprove)` combination — see
+    * [[sandboxArgs]] / [[networkConfigArgs]] for the flags this classifies.
+    *
+    *   - `ReadOnly` → `Hard`: `--sandbox read-only` mechanically blocks writes
+    *     and shell side-effects.
+    *   - `NetworkOnly` → `PromptOnly`: codex has no read-only-with-network
+    *     sandbox — network needs `--full-auto`'s workspace-write, which also
+    *     permits edits, so the no-edit guarantee rests only on the planner
+    *     prompt.
+    *   - `Full` + `AutoApprove.All` → `Hard`:
+    *     `--dangerously-bypass-approvals-and-sandbox` is exactly "approve
+    *     everything".
+    *   - `Full` + `AutoApprove.Only(_)` → `SandboxApprox`: codex has no
+    *     per-tool CLI allowlist, so an `Only` set is approximated by the
+    *     coarser `--full-auto` sandbox (workspace-write, no prompts) — wider
+    *     than the requested subset.
+    */
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+    tools match
+      case ToolSet.ReadOnly    => Enforcement.Hard
+      case ToolSet.NetworkOnly => Enforcement.PromptOnly
+      case ToolSet.Full =>
+        autoApprove match
+          case AutoApprove.All     => Enforcement.Hard
+          case AutoApprove.Only(_) => Enforcement.SandboxApprox

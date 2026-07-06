@@ -1,7 +1,7 @@
 package orca.tools.opencode
 
 import orca.backend.{SessionMode, SystemPromptComposer}
-import orca.agents.{AgentConfig, Model, ToolSet}
+import orca.agents.{AgentConfig, AutoApprove, Enforcement, Model, ToolSet}
 import orca.tools.opencode.OpencodeApi.{
   MessageBody,
   MessagePart,
@@ -91,3 +91,22 @@ private[opencode] object OpencodeArgs:
     // The two key sets are disjoint, so the merge order is irrelevant.
     val flags = writeGate ++ question
     Option.when(flags.nonEmpty)(flags)
+
+  /** How strongly opencode enforces each `(tools, autoApprove)` combination —
+    * see [[toolFlags]] for the gate this classifies.
+    *
+    *   - `ReadOnly` / `NetworkOnly` → `Hard`: both tiers disable the write
+    *     tools (`write`/`edit`/`bash`/`patch`) on the message body, a
+    *     mechanical no-edit gate. (`NetworkOnly` gets no dedicated handling —
+    *     it behaves like `ReadOnly`.)
+    *   - `Full` + `AutoApprove.All` / `Only(_)` → `Ignored`: `autoApprove` is
+    *     never encoded here — the approval policy is whatever the user's
+    *     `opencode` server config says via the `permission.asked` reply, which
+    *     is outside orca's control (ADR 0014 risk).
+    */
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+    tools match
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly => Enforcement.Hard
+      case ToolSet.Full =>
+        autoApprove match
+          case AutoApprove.All | AutoApprove.Only(_) => Enforcement.Ignored

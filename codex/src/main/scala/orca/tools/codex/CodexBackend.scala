@@ -1,7 +1,14 @@
 package orca.tools.codex
 
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  Enforcement,
+  SessionId,
+  ToolSet
+}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -71,6 +78,9 @@ private[orca] class CodexBackend(
     * matching files exist, the probe returns `false` → re-seed, always safe.
     */
   val tag: BackendTag.Codex.type = BackendTag.Codex
+
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+    CodexArgs.enforcement(tools, autoApprove)
 
   val sessions: SessionSupport[BackendTag.Codex.type] =
     SessionSupport.Durable(

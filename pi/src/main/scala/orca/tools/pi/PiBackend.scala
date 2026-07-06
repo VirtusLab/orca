@@ -1,7 +1,14 @@
 package orca.tools.pi
 
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  Enforcement,
+  SessionId,
+  ToolSet
+}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -56,6 +63,9 @@ private[orca] class PiBackend(cli: CliRunner)
     SessionSupport.Ephemeral(registry)
 
   val tag: BackendTag.Pi.type = BackendTag.Pi
+
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+    PiArgs.enforcement(tools, autoApprove)
 
   def runAutonomous(
       prompt: String,

@@ -23,11 +23,11 @@ case class AgentConfig(
       */
     autoApprove: AutoApprove = AutoApprove.All,
     /** Which tools exist for the agent at all — the capability axis (distinct
-      * from [[autoApprove]], the prompting axis). See [[ToolSet]] for the tiers
-      * and their per-backend mapping. `Full` is write-capable; the read-only
-      * tiers gate writes (hard on claude / gemini / opencode; prompt-only on pi
-      * / codex under [[ToolSet.NetworkOnly]], where granting network forces a
-      * writable shell).
+      * from [[autoApprove]], the prompting axis). See [[ToolSet]] for the
+      * tiers; `Full` is write-capable, the read-only tiers gate writes. How
+      * strongly each backend actually enforces that gate is [[Enforcement]]
+      * (e.g. `NetworkOnly` is hard on claude/gemini/opencode but prompt-only on
+      * pi/codex, where granting network forces a writable shell).
       */
     tools: ToolSet = ToolSet.Full,
     /** Let the agent manage git itself — suppresses the standing "runtime owns
@@ -74,24 +74,38 @@ enum AutoApprove:
   case All
   case Only(tools: Set[String])
 
-/** The set of tools available to the agent — the capability tier on
-  * [[AgentConfig.tools]]. Each backend maps the tiers onto its own permission
-  * model:
+/** How strongly a backend enforces the restriction a `(ToolSet, AutoApprove)`
+  * combination requests. For the read-only tiers the restriction is "no
+  * edits/shell"; for `Full` it is the approval policy itself.
   *
-  *   - **ReadOnly** — reads only; no shell, no edits. The hard no-edit gate
-  *     planners and reviewers rely on (claude `--permission-mode plan`, codex
-  *     `--sandbox read-only`, pi `--tools read,grep,find,ls`, gemini
-  *     `--approval-mode plan`, opencode write/edit/bash/patch disabled).
+  *   - Hard — mechanically blocked (permission mode, sandbox, tool allowlist).
+  *   - SandboxApprox — approximated by a coarser sandbox; semantics widened.
+  *   - PromptOnly — only the prompt forbids it; the tools can physically do it.
+  *   - Ignored — not encoded at all; actual behavior depends on backend/server
+  *     configuration outside orca's control.
+  *
+  * The per-backend mapping is machine-checked in
+  * `runner/.../EnforcementTableTest.scala` and rendered in `AGENTS.md`; see
+  * each backend's `*Args.enforcement` for the per-cell rationale.
+  */
+enum Enforcement:
+  case Hard, SandboxApprox, PromptOnly, Ignored
+
+/** The set of tools available to the agent — the capability tier on
+  * [[AgentConfig.tools]]:
+  *
+  *   - **ReadOnly** — reads only; no shell, no edits. The no-edit gate planners
+  *     and reviewers rely on.
   *   - **NetworkOnly** — reads plus read-only network (web + GitHub), for
-  *     planners that must read an issue/PR they were pointed at. Backend
-  *     support varies: claude and gemini keep a **hard** no-edit guarantee and
-  *     add a scoped web allowlist (claude also pre-approves read-only `gh`);
-  *     opencode keeps its web tool available (server-dependent), also hard; pi
-  *     and codex can only grant network via a writable shell (`pi bash`, `codex
-  *     workspace-write`), so there the no-edit guarantee is **prompt-only** —
-  *     the planner prompts forbid edits.
+  *     planners that must read an issue/PR they were pointed at.
   *   - **Full** — every tool, write-capable; prompting then follows
   *     [[AgentConfig.autoApprove]].
+  *
+  * How strongly each backend actually enforces these — and the approval policy
+  * under `Full` — varies; that is captured as [[Enforcement]] and machine-
+  * checked in `runner/.../EnforcementTableTest.scala` (rendered in
+  * `AGENTS.md`), with per-cell rationale in each backend's `*Args.enforcement`.
+  * This enum only names the tier the caller asks for.
   */
 enum ToolSet:
   case ReadOnly

@@ -1,7 +1,15 @@
 package orca.tools.claude
 
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId, onWire}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  Enforcement,
+  SessionId,
+  ToolSet,
+  onWire
+}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -81,6 +89,9 @@ private[orca] class ClaudeBackend(
     * traversal such as `../../etc/passwd`).
     */
   val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
+
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+    ClaudeArgs.enforcement(tools, autoApprove)
 
   val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
     SessionSupport.Durable(

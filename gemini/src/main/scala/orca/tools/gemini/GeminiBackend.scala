@@ -1,7 +1,14 @@
 package orca.tools.gemini
 
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  Enforcement,
+  SessionId,
+  ToolSet
+}
 import orca.subprocess.CliResult
 import orca.backend.{
   Conversation,
@@ -67,6 +74,9 @@ private[orca] class GeminiBackend(cli: CliRunner)(using BufferCapacity)
     * probes; the substring scan is not injection-susceptible).
     */
   val tag: BackendTag.Gemini.type = BackendTag.Gemini
+
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+    GeminiArgs.enforcement(tools, autoApprove)
 
   val sessions: SessionSupport[BackendTag.Gemini.type] =
     SessionSupport.Durable(

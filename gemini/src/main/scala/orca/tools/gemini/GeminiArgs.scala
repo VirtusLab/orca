@@ -5,6 +5,7 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
+  Enforcement,
   WireSessionId,
   ToolSet
 }
@@ -98,3 +99,25 @@ private[gemini] object GeminiArgs:
         config.autoApprove match
           case AutoApprove.All | AutoApprove.Only(_) =>
             Seq("--approval-mode", "yolo")
+
+  /** How strongly gemini enforces each `(tools, autoApprove)` combination — see
+    * [[approvalArgs]] for the flags this classifies.
+    *
+    *   - `ReadOnly` / `NetworkOnly` → `Hard`: `--approval-mode plan` makes
+    *     writes and shell mechanically unavailable; `NetworkOnly` only layers a
+    *     scoped `--allowed-tools` web allowlist, so the no-edit gate stays
+    *     hard.
+    *   - `Full` + `AutoApprove.All` → `Hard`: `yolo` is exactly "approve
+    *     everything" — the requested policy is honoured verbatim.
+    *   - `Full` + `AutoApprove.Only(_)` → `Ignored`: gemini has no per-tool CLI
+    *     allowlist and `auto_edit` blocks on unanswerable shell approvals in
+    *     headless mode, so any `Only` set is widened to `yolo` (ADR 0015) — the
+    *     requested subset is not encoded at all.
+    */
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+    tools match
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly => Enforcement.Hard
+      case ToolSet.Full =>
+        autoApprove match
+          case AutoApprove.All     => Enforcement.Hard
+          case AutoApprove.Only(_) => Enforcement.Ignored

@@ -16,7 +16,15 @@ import orca.backend.{
   StreamSource
 }
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId, WireSessionId}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  Enforcement,
+  SessionId,
+  ToolSet,
+  WireSessionId
+}
 import orca.subprocess.CliRunner
 import orca.tools.opencode.OpencodeApi.{SessionCreateBody, SessionCreated}
 import ox.Ox
@@ -148,6 +156,9 @@ private[orca] class OpencodeBackend(
     * endpoint).
     */
   val tag: BackendTag.Opencode.type = BackendTag.Opencode
+
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+    OpencodeArgs.enforcement(tools, autoApprove)
 
   val sessions: SessionSupport[BackendTag.Opencode.type] =
     SessionSupport.Durable(

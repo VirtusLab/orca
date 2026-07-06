@@ -5,6 +5,7 @@ import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
+  Enforcement,
   WireSessionId,
   ToolSet
 }
@@ -90,6 +91,11 @@ private[claude] object ClaudeArgs:
     * permission prompt it can't answer. The list is command-scoped, so plan
     * mode still hard-blocks general bash and every edit. An empty list leaves
     * plain plan mode.
+    *
+    * `Full` is the only tier whose approval policy claude mechanically honours
+    * (see [[enforcement]]): `All` → `bypassPermissions`; `Only(_)` → default
+    * permission mode plus an `--allowedTools` allowlist, so ONLY the listed
+    * tools are pre-approved and everything else (edits included) still prompts.
     */
   private def autoApproveArgs(
       config: AgentConfig,
@@ -110,12 +116,27 @@ private[claude] object ClaudeArgs:
         config.autoApprove match
           case AutoApprove.All =>
             Seq("--permission-mode", "bypassPermissions")
-          case AutoApprove.Only(tools) if tools.isEmpty =>
-            Seq("--permission-mode", "acceptEdits")
+          // Honest Only semantics: default permission mode — nothing is
+          // pre-approved except the listed tools. Edits are NOT implicitly
+          // approved (they were, via acceptEdits, before complexity-review
+          // finding 2.1); in autonomous mode an unlisted tool's prompt is
+          // auto-denied by the drain.
+          case AutoApprove.Only(tools) if tools.isEmpty => Seq.empty
           case AutoApprove.Only(tools) =>
-            Seq(
-              "--permission-mode",
-              "acceptEdits",
-              "--allowedTools",
-              tools.toSeq.sorted.mkString(",")
-            )
+            Seq("--allowedTools", tools.toSeq.sorted.mkString(","))
+
+  /** How strongly claude enforces each `(tools, autoApprove)` combination — see
+    * [[autoApproveArgs]] for the flags this classifies.
+    *
+    *   - `ReadOnly` / `NetworkOnly` → `Hard`: `--permission-mode plan` makes
+    *     edits/shell mechanically unavailable; `NetworkOnly` only layers a
+    *     command-scoped `--allowedTools`, so the no-edit gate stays hard.
+    *   - `Full` + `AutoApprove.All` → `Hard`: `bypassPermissions` is exactly
+    *     "approve everything" — the requested policy is honoured verbatim.
+    *   - `Full` + `AutoApprove.Only(_)` → `Hard`: default permission mode with
+    *     an `--allowedTools` allowlist is a mechanical per-tool gate; unlisted
+    *     tools still prompt (post finding 2.1), so the policy is enforced, not
+    *     approximated.
+    */
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+    Enforcement.Hard

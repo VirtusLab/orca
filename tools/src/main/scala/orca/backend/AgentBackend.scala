@@ -1,7 +1,14 @@
 package orca.backend
 
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  Enforcement,
+  SessionId,
+  ToolSet
+}
 
 import ox.Ox
 
@@ -82,3 +89,18 @@ trait AgentBackend[B <: BackendTag]:
     * backend a session belongs to.
     */
   def tag: B
+
+  /** How strongly THIS backend enforces the restriction that a `(tools,
+    * autoApprove)` combination requests — a pure classification of the flags
+    * this backend's `*Args` would build, with no side effects. The mapping
+    * differs materially across backends (a `Full` + `AutoApprove.Only` is a
+    * mechanical allowlist on claude but a whole-sandbox approximation on codex
+    * and unencoded on the rest), so it is surfaced as data rather than left in
+    * scattered scaladoc.
+    *
+    * The complete matrix is machine-checked in
+    * `runner/src/test/scala/orca/runner/EnforcementTableTest.scala` — that test
+    * is the human-readable source of truth; each backend implements this by
+    * delegating to its `*Args.enforcement`, where the per-cell rationale lives.
+    */
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement
