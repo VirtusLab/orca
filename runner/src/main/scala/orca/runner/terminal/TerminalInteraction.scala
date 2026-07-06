@@ -43,7 +43,8 @@ class TerminalInteraction private[terminal] (
     output: TerminalOutput,
     listener: TerminalEventListener,
     useColor: Boolean,
-    workDir: Option[os.Path]
+    workDir: Option[os.Path],
+    prompter: ConversationRenderer.Prompter
 ) extends Interaction:
 
   val listeners: List[OrcaListener] = List(listener)
@@ -58,10 +59,18 @@ class TerminalInteraction private[terminal] (
       output = output,
       currentIndent = () => listener.currentIndent,
       workDir = workDir,
-      structuredMode = conversation.outputSchema.isDefined
+      structuredMode = conversation.outputSchema.isDefined,
+      prompter = prompter
     ).render(conversation).orThrow
 
-  override def close(): Unit = output.close()
+  /** Close in construction-reverse order: the prompter (process-scoped, shared
+    * across every conversation this interaction drove — renderers never close
+    * it) then the output. A test-injected prompter is closed here too; there's
+    * no hardcoded singleton in this path.
+    */
+  override def close(): Unit =
+    prompter.close()
+    output.close()
 
 object TerminalInteraction:
 
@@ -74,11 +83,13 @@ object TerminalInteraction:
       out: PrintStream = utf8Stderr,
       useColor: Boolean = defaultUseColor,
       animated: Boolean = defaultAnimated,
-      workDir: Option[os.Path] = None
+      workDir: Option[os.Path] = None,
+      prompter: ConversationRenderer.Prompter =
+        ConversationRenderer.JLinePrompter
   )(using Ox, BufferCapacity): TerminalInteraction =
     val output = TerminalOutput.start(out, useColor, animated)
     val listener = new TerminalEventListener(output, useColor, workDir)
-    new TerminalInteraction(output, listener, useColor, workDir)
+    new TerminalInteraction(output, listener, useColor, workDir, prompter)
 
   /** ANSI colors default off when stderr isn't attached to a terminal (no
     * controlling console), the `NO_COLOR` convention is honoured, or we detect

@@ -11,7 +11,7 @@ import orca.backend.{
 }
 
 import java.io.{ByteArrayOutputStream, PrintStream}
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 class ConversationRendererTest extends munit.FunSuite:
 
@@ -67,11 +67,13 @@ class ConversationRendererTest extends munit.FunSuite:
       extends Prompter:
     private val remaining = new AtomicReference[List[PromptOutcome]](outcomes)
     val asked = new AtomicReference[List[String]](Nil)
+    val closes = new AtomicInteger(0)
     def ask(prompt: String): PromptOutcome =
       val _ = asked.updateAndGet(prompt :: _)
       val next = remaining.getAndUpdate(_.drop(1)).headOption
       next.getOrElse(throw new IllegalStateException("prompter exhausted"))
-    def close(): Unit = ()
+    override def close(): Unit =
+      val _ = closes.incrementAndGet()
 
   private def sampleResult: AgentResult[BackendTag.ClaudeCode.type] =
     AgentResult(
@@ -242,6 +244,32 @@ class ConversationRendererTest extends munit.FunSuite:
     )
     val _ = renderer(buf, prompter = prompter).render(conv)
     assert(conv.cancelled.get(), "expected conversation.cancel() to fire")
+
+  test("render does not close its prompter (prompter is process-scoped)"):
+    // The prompter is shared across every conversation in a run; a
+    // per-conversation renderer must never close it, or the next
+    // interactive prompt would operate on closed I/O.
+    val buf = new ByteArrayOutputStream()
+    val prompter = new ScriptedPrompter(Nil)
+    val conv = new ScriptedConversation(Nil, Right(sampleResult))
+    val _ = renderer(buf, prompter = prompter).render(conv)
+    assertEquals(prompter.closes.get(), 0)
+
+  test("two sequential render+prompt cycles against one prompter both ask"):
+    // Pins the second-prompt-usable property: a single shared prompter
+    // survives across conversations, so a second render still reaches
+    // `ask` rather than a closed reader.
+    val buf = new ByteArrayOutputStream()
+    val prompter = new ScriptedPrompter(
+      List(PromptOutcome.Answer("yes"), PromptOutcome.Answer("no"))
+    )
+    def approveConv() = new ScriptedConversation(
+      List(ConversationEvent.ApproveTool("Bash", "{}", _ => ())),
+      Right(sampleResult)
+    )
+    val _ = renderer(buf, prompter = prompter).render(approveConv())
+    val _ = renderer(buf, prompter = prompter).render(approveConv())
+    assertEquals(prompter.asked.get().size, 2)
 
   test("UserQuestion: question rendered, typed reply passed to respond"):
     val buf = new ByteArrayOutputStream()

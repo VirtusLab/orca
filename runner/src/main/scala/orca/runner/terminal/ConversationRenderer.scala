@@ -9,9 +9,7 @@ import orca.backend.{
   AgentResult
 }
 import org.jline.reader.{LineReader, LineReaderBuilder, UserInterruptException}
-import org.jline.terminal.TerminalBuilder
-
-import scala.util.control.NonFatal
+import org.jline.terminal.{Terminal, TerminalBuilder}
 
 /** Renders a [[Conversation]] to the terminal. The layout aims for a
   * Claude-Code-like aesthetic: the user's opening prompt sits on its own
@@ -78,14 +76,12 @@ private[terminal] class ConversationRenderer(
   def render[B <: BackendTag](
       conversation: Conversation[B]
   ): Either[OrcaInteractiveCancelled, AgentResult[B]] =
-    try
-      conversation.events.foreach(dispatch(_, conversation))
-      // A well-behaved backend ends each turn with AssistantTurnEnd,
-      // which already flushes; this is a safety net for sessions that
-      // close without one (e.g. cancellation mid-turn).
-      flushBufferedText()
-      conversation.awaitResult()
-    finally closePrompter()
+    conversation.events.foreach(dispatch(_, conversation))
+    // A well-behaved backend ends each turn with AssistantTurnEnd,
+    // which already flushes; this is a safety net for sessions that
+    // close without one (e.g. cancellation mid-turn).
+    flushBufferedText()
+    conversation.awaitResult()
 
   private def dispatch[B <: BackendTag](
       event: ConversationEvent,
@@ -240,10 +236,6 @@ private[terminal] class ConversationRenderer(
 
   // --- Helpers ---
 
-  private def closePrompter(): Unit =
-    try prompter.close()
-    catch case NonFatal(_) => ()
-
   /** Inset prose under a header glyph by 2 spaces. Operates on the raw text —
     * the outer stage-depth indent is added later by [[appendBlock]].
     */
@@ -309,14 +301,26 @@ private[terminal] object ConversationRenderer:
     */
   trait Prompter:
     def ask(prompt: String): PromptOutcome
-    def close(): Unit
+
+    /** Release any I/O resources the prompter acquired. Process-scoped: called
+      * once at interaction teardown, never per conversation. The default is a
+      * no-op — a prompter that never opens anything has nothing to release.
+      */
+    def close(): Unit = ()
 
   /** Default production prompter: JLine line reader. Lazy so the terminal is
     * only opened when an approval prompt actually fires — pure non-interactive
     * sessions never allocate a terminal.
     */
   object JLinePrompter extends Prompter:
-    private lazy val terminal =
+    // Guard so close() never forces the lazy terminal: pure non-interactive
+    // runs must never allocate one (that laziness is the object's whole
+    // point). `opened` is set inside the lazy-init lock as the initializer's
+    // first statement, but read from whatever thread calls close() — @volatile
+    // keeps that read correct.
+    @volatile private var opened = false
+    private lazy val terminal: Terminal =
+      opened = true
       TerminalBuilder.builder().system(true).dumb(true).build()
     private lazy val reader: LineReader =
       LineReaderBuilder.builder().terminal(terminal).build()
@@ -325,4 +329,4 @@ private[terminal] object ConversationRenderer:
       try PromptOutcome.Answer(reader.readLine(prompt))
       catch case _: UserInterruptException => PromptOutcome.Interrupted
 
-    def close(): Unit = terminal.close()
+    override def close(): Unit = if opened then terminal.close()
