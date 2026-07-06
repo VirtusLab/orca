@@ -150,6 +150,52 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val output = renderEvents(List(OrcaEvent.UserPrompt("   \n\t  ")))
     assertEquals(output, "")
 
+  test(
+    "StructuredResult without a summary renders the collapsed raw payload as a `●` line"
+  ):
+    val output = renderEvents(
+      List(OrcaEvent.StructuredResult("""{"answer":42}""", None))
+    )
+    assert(output.contains(TerminalEventListener.AssistantGlyph), output)
+    assert(output.contains("""{"answer":42}"""), output)
+
+  test(
+    "StructuredResult with a summary renders the summary as a `▶` line, not the raw payload"
+  ):
+    val output = renderEvents(
+      List(
+        OrcaEvent.StructuredResult(
+          """{"answer":42}""",
+          Some("Answer: 42")
+        )
+      )
+    )
+    assert(output.contains(TerminalEventListener.StageStartGlyph), output)
+    assert(output.contains("Answer: 42"), output)
+    assert(!output.contains("""{"answer":42}"""), output)
+
+  test(
+    "StructuredResult raw fallback truncates long payloads with an ellipsis"
+  ):
+    val long = "{\"x\":\"" + ("a" * 300) + "\"}"
+    val output = renderEvents(List(OrcaEvent.StructuredResult(long, None)))
+    assert(output.contains("…"), output)
+    val bodyLines = output.split('\n').filter(_.contains("a"))
+    assert(
+      bodyLines.forall(
+        _.length <= TerminalEventListener.MaxStructuredResultRawLength + 10
+      ),
+      bodyLines.toList
+    )
+
+  test(
+    "StructuredResult raw fallback collapses multi-line payloads to one line"
+  ):
+    val raw = "{\n  \"a\": 1,\n  \"b\": 2\n}"
+    val output = renderEvents(List(OrcaEvent.StructuredResult(raw, None)))
+    val rendered = output.split('\n').filter(_.contains("\"a\"")).mkString
+    assert(rendered.contains("""{ "a": 1, "b": 2 }"""), rendered)
+
   test("TokensUsed events are ignored (owned by CostTracker)"):
     val output = renderEvents(
       List(

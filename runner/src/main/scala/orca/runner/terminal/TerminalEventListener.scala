@@ -24,6 +24,7 @@ private[runner] class TerminalEventListener(
     AssistantGlyphStyle,
     ErrorGlyph,
     MaxAssistantMessageLength,
+    MaxStructuredResultRawLength,
     StageStartGlyph,
     StepGlyphStyle,
     UserPromptGlyph,
@@ -59,15 +60,23 @@ private[runner] class TerminalEventListener(
       // hanging-indented continuation lines) re-indents on each newline so
       // the body stays aligned under the glyph.
       output.log(formatStepLine(message))
-    case OrcaEvent.StructuredResult(_, summary) =>
+    case OrcaEvent.StructuredResult(raw, summary) =>
       // The conversation renderer suppresses the agent's streamed JSON
       // when in structured mode; this event is what surfaces the result.
-      // We render only when an `Announce[O]` summary is provided —
-      // falling back to raw JSON would just reverse the suppression we
-      // did upstream. Types that want to stay visible without a
-      // typeclass-driven summary should define an `Announce[O]` that
-      // returns the desired text.
-      summary.foreach(s => output.log(formatStepLine(s)))
+      // ADR 0008 fallback: render the `Announce[O]` summary as a `▶`
+      // step when one is provided; otherwise fall back to the raw
+      // payload — collapsed to one line and truncated — in the `●`
+      // assistant-message style. This guarantees a visible result either
+      // way, which is what makes the renderer's structured-mode
+      // suppression (see `ConversationRenderer`'s `structuredMode` doc)
+      // safe: a call site that never wired up an `Announce[O]` still
+      // shows the agent's answer instead of silently dropping it.
+      summary match
+        case Some(s) => output.log(formatStepLine(s))
+        case None =>
+          val collapsed = Text.oneLine(raw, MaxStructuredResultRawLength)
+          val glyph = paint(AssistantGlyphStyle, s"$AssistantGlyph ")
+          output.log(formatIndented(glyph + collapsed))
     case OrcaEvent.UserPrompt(text) =>
       // Same one-line treatment as AssistantMessage so a long task
       // description doesn't dominate the log. Empty payloads are dropped.
@@ -144,3 +153,10 @@ private[runner] object TerminalEventListener:
     * renderer uses for tool-result content.
     */
   val MaxAssistantMessageLength: Int = 100
+
+  /** Cap for the raw-payload fallback in [[OrcaEvent.StructuredResult]] when no
+    * `Announce[O]` summary was provided (ADR 0008). Matches the 200-char budget
+    * `Flow`'s malformed-output snippet uses for the same kind of "show a
+    * bounded slice of raw agent output" fallback.
+    */
+  val MaxStructuredResultRawLength: Int = 200

@@ -42,8 +42,11 @@ private[terminal] class ConversationRenderer(
       * agent's final assistant text is the JSON payload the library will
       * deserialize and surface via `OrcaEvent.StructuredResult`. We swallow the
       * streamed text to avoid showing the raw JSON twice (once mid-stream as
-      * `●`, once via the structured-result event); the listener decides what to
-      * render based on whether an `Announce[O]` summary is available.
+      * `●`, once via the structured-result event). This drop is safe only
+      * because `TerminalEventListener`'s `StructuredResult` case (ADR 0008)
+      * guarantees a visible result either way: the `Announce[O]` summary as `▶`
+      * when available, otherwise the truncated raw payload as `●` — never
+      * silence.
       */
     structuredMode: Boolean = false,
     prompter: ConversationRenderer.Prompter = ConversationRenderer.JLinePrompter
