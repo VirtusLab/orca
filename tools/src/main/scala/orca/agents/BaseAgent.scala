@@ -79,6 +79,9 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     */
   override private[orca] def backendTag: Option[BackendTag] = Some(backend.tag)
 
+  /** Delegates to the backend — see [[Agent.close]]. */
+  override private[orca] def close(): Unit = backend.close()
+
   val autonomous: AutonomousTextCall[B] = new AutonomousTextCall[B]:
     def run(
         prompt: String,

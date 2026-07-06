@@ -77,9 +77,10 @@ private[orca] class OpencodeBackend(server: OpencodeServerHandle)
 
   /** Tear down the shared `opencode serve` process and its drain forks. A no-op
     * if the server was never started (opencode wired but unused). Called by the
-    * runner in the flow body's `finally`, before the flow scope joins forks.
+    * runtime in the flow body's `finally`, before the flow scope joins forks
+    * (see [[orca.backend.AgentBackend.close]]).
     */
-  def shutdown(): Unit = server.close()
+  override def close(): Unit = server.close()
 
   private val registry =
     new SessionRegistry.ClientToServer[BackendTag.Opencode.type]

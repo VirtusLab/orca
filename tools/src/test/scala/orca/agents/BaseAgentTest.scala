@@ -34,6 +34,12 @@ class BaseAgentTest extends munit.FunSuite:
     )
     assertEquals(output, "out")
 
+  test("close() delegates to the backend"):
+    val backend = new RecordingCloseBackend
+    val tool = new StubTool(backend)
+    tool.close()
+    assertEquals(backend.closeCount, 1)
+
   private class StubTool(backend: AgentBackend[BackendTag.Pi.type])
       extends BaseAgent[BackendTag.Pi.type, Agent[BackendTag.Pi.type]](
         backend,
@@ -72,6 +78,29 @@ class BaseAgentTest extends munit.FunSuite:
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
+    val sessions: SessionSupport[BackendTag.Pi.type] =
+      SessionSupport.Ephemeral(new SessionRegistry.ClaimedOnce)
+    val tag: BackendTag.Pi.type = BackendTag.Pi
+
+  private class RecordingCloseBackend extends AgentBackend[BackendTag.Pi.type]:
+    var closeCount: Int = 0
+    override def close(): Unit = closeCount += 1
+    def runAutonomous(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        config: AgentConfig,
+        workDir: os.Path,
+        events: OrcaListener,
+        outputSchema: Option[String]
+    ): AgentResult[BackendTag.Pi.type] = ???
+    def runInteractive(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        displayPrompt: String,
+        config: AgentConfig,
+        workDir: os.Path,
+        outputSchema: Option[String]
+    )(using ox.Ox): Conversation[BackendTag.Pi.type] = ???
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.Ephemeral(new SessionRegistry.ClaimedOnce)
     val tag: BackendTag.Pi.type = BackendTag.Pi

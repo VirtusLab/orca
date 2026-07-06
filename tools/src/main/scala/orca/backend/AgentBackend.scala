@@ -111,3 +111,11 @@ trait AgentBackend[B <: BackendTag]:
     */
   def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
     Enforcement.Ignored
+
+  /** Release background resources this backend owns (processes, servers, drain
+    * forks). Called by the runtime in the flow body's `finally`, BEFORE the
+    * flow scope joins its forks — a resource whose teardown unblocks a
+    * non-interruptible read must happen here, not in a `releaseAfterScope`
+    * finalizer (Ox runs those after the join). Idempotent; default no-op.
+    */
+  def close(): Unit = ()

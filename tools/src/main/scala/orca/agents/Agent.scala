@@ -185,6 +185,14 @@ trait Agent[B <: BackendTag]:
     */
   private[orca] def newSession: SessionId[B] = SessionId.fresh[B]
 
+  /** Release background resources this agent's backend owns. Delegates to
+    * [[orca.backend.AgentBackend.close]]; a lightweight stub built directly on
+    * `Agent` (no backend) keeps the no-op default. `private[orca]` — the
+    * runtime calls this from `DefaultFlowContext.close()`; flow scripts never
+    * call it directly.
+    */
+  private[orca] def close(): Unit = ()
+
 /** Bare `claude` runs Opus with the 1M-token context window (the long-lived
   * implementer); the accessors below pin a specific tier, e.g.
   * `claude.haiku.autonomous.run("summarize this")._2` for a cheap fast

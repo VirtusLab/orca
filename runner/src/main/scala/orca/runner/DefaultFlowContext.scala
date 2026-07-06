@@ -27,6 +27,9 @@ import orca.subprocess.OsProcCliRunner
 import orca.tools.OsFsTool
 import orca.tools.OsGitTool
 import orca.tools.OsGitHubTool
+import org.slf4j.LoggerFactory
+
+import scala.util.control.NonFatal
 
 /** Production FlowContext wiring. Callers typically construct one via
   * `flow(args, ...)`, which supplies defaults for all tools. Individual tools
@@ -44,19 +47,22 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
     val git: GitTool,
     val gh: GitHubTool,
     val fs: FsTool,
-    val progressStore: ProgressStore,
-    closeHook: () => Unit = () => ()
+    val progressStore: ProgressStore
 ) extends FlowControl:
 
-  /** Tear down context-owned background resources (currently the shared
-    * opencode `serve` process and its drain forks). The runner calls this in
-    * the flow body's `finally`, BEFORE the flow scope joins its forks — Ox runs
-    * `releaseAfterScope` finalizers after the join, so a fork blocked on a
-    * non-interruptible read must be unblocked here (by destroying the process)
-    * rather than via `releaseAfterScope`. Idempotent / no-op when nothing
-    * started.
+  private val log = LoggerFactory.getLogger(getClass)
+
+  /** Tear down context-owned background resources by closing every agent (each
+    * delegates to its backend; all default to no-op — today only opencode holds
+    * a live resource, the shared `serve` process). Runs in the flow body's
+    * `finally`, before the flow scope joins its forks (see
+    * [[orca.backend.AgentBackend.close]]). Per-agent best-effort: one failing
+    * close must not keep the others (or the interaction) from closing.
     */
-  def close(): Unit = closeHook()
+  def close(): Unit =
+    List(claude, codex, opencode, pi, gemini).foreach: a =>
+      try a.close()
+      catch case NonFatal(e) => log.debug("agent close failed", e)
 
   // The leading agent's backend tag, pinned from the type parameter `B` (which
   // `flow` inferred from the selector). Concrete here, so `agent` is concretely
@@ -108,7 +114,11 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
 private[orca] object DefaultFlowContext:
 
   /** Build a context with Orca's default tool implementations, filling in any
-    * `None` override with the production default.
+    * `None` override with the production default. `close()` on the resulting
+    * context closes all five agents (see [[DefaultFlowContext.close]]) —
+    * including caller-supplied ones: the no-op default on [[Agent.close]] makes
+    * this behaviour-preserving for a caller who didn't override it, and a
+    * caller whose agent DOES override `close` presumably wants it called.
     */
   def withDefaults[B <: BackendTag](
       userPrompt: String,
@@ -120,25 +130,6 @@ private[orca] object DefaultFlowContext:
       wiring: FlowWiring = FlowWiring()
   )(using ox.Ox, ox.channels.BufferCapacity): DefaultFlowContext[B] =
     val prompts = wiring.prompts
-    // Build the opencode agent up-front so the default backend's `shutdown` can
-    // be wired into the context's `close` (the runner calls it in the flow body's
-    // finally). A caller-supplied opencode agent owns its own lifecycle, so the
-    // hook is a no-op then.
-    val (opencodeAgent, opencodeClose): (OpencodeAgent, () => Unit) =
-      wiring.opencode match
-        case Some(a) => (a, () => ())
-        case None =>
-          val backend =
-            OpencodeBackend(OsProcCliRunner, workDir, wiring.opencodeLauncher)
-          val a = new DefaultOpencodeAgent(
-            backend = backend,
-            config = AgentConfig.default,
-            prompts = prompts,
-            workDir = workDir,
-            events = dispatcher,
-            interaction = interaction
-          )
-          (a, () => backend.shutdown())
     new DefaultFlowContext[B](
       userPrompt = userPrompt,
       dispatcher = dispatcher,
@@ -167,7 +158,17 @@ private[orca] object DefaultFlowContext:
           interaction = interaction
         )
       ),
-      opencode = opencodeAgent,
+      opencode = wiring.opencode.getOrElse(
+        new DefaultOpencodeAgent(
+          backend =
+            OpencodeBackend(OsProcCliRunner, workDir, wiring.opencodeLauncher),
+          config = AgentConfig.default,
+          prompts = prompts,
+          workDir = workDir,
+          events = dispatcher,
+          interaction = interaction
+        )
+      ),
       pi = wiring.pi.getOrElse(
         new DefaultPiAgent(
           backend = new PiBackend(OsProcCliRunner),
@@ -197,6 +198,5 @@ private[orca] object DefaultFlowContext:
         new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
       ),
       fs = wiring.fs.getOrElse(new OsFsTool(workDir)),
-      progressStore = progressStore,
-      closeHook = opencodeClose
+      progressStore = progressStore
     )
