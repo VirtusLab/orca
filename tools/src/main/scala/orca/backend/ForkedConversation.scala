@@ -349,21 +349,28 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
   /** Single-consumer iterator over the event channel; `done` ends it. */
   private val channelIterator: Iterator[ConversationEvent] =
     new Iterator[ConversationEvent]:
-      // null — nothing peeked yet (will block on next `hasNext`); Some(e) —
-      // peeked event; None — stream closed, `hasNext` stays false forever.
-      private var peeked: Option[ConversationEvent] = null
+      private enum Peek:
+        case Empty // nothing buffered; next `hasNext` blocks on the channel
+        case Ready(event: ConversationEvent) // buffered, not yet consumed
+        case Closed // stream ended; `hasNext` stays false forever
+
+      // Reader-thread-confined: only this iterator's own thread ever touches
+      // `peek`, so a plain `var` (no atomics) is correct.
+      private var peek: Peek = Peek.Empty
 
       def hasNext: Boolean =
-        if peeked == null then
-          peeked = channel.receiveOrClosed() match
-            case _: ChannelClosed     => None
-            case e: ConversationEvent => Some(e)
-        peeked.isDefined
+        if peek == Peek.Empty then
+          peek = channel.receiveOrClosed() match
+            case _: ChannelClosed     => Peek.Closed
+            case e: ConversationEvent => Peek.Ready(e)
+        peek match
+          case Peek.Ready(_) => true
+          case _             => false
 
       def next(): ConversationEvent =
         if !hasNext then throw new NoSuchElementException("event stream closed")
-        val value = peeked.get
-        peeked = null
+        val Peek.Ready(value) = peek: @unchecked
+        peek = Peek.Empty
         value
 
 private[orca] object ForkedConversation:

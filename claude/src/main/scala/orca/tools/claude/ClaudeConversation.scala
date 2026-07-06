@@ -38,7 +38,7 @@ private[claude] class ClaudeConversation(
       initialPrompt = initialPrompt
     ):
 
-  // The reader thread is the sole writer for all three fields below.
+  // The reader thread is the sole writer for all four fields below.
   // No cross-thread visibility concerns: reads happen on the same thread
   // immediately after writes, within `handle(...)` dispatch. Plain `var`s
   // suffice — atomics would be theatre.
@@ -50,11 +50,21 @@ private[claude] class ClaudeConversation(
   private var initModel: Option[String] = None
 
   /** Set when a text or thinking delta streams during the current turn, cleared
-    * when the full turn message lands. Gates the fallback in
-    * `handleAssistantTurn` that re-emits Text/Thinking blocks when no partials
-    * arrived (older claude builds, partials disabled).
+    * when the full turn message lands. Consumed only by `handleAssistantTurn`,
+    * which relies on claude's wire ordering — the full `assistant` message
+    * arrives AFTER any partials for the same turn — to gate its fallback that
+    * re-emits Text/Thinking blocks when no partials arrived (older claude
+    * builds, partials disabled).
     */
-  private var deltasSinceTurnBoundary: Boolean = false
+  private var partialsSeenThisTurn: Boolean = false
+
+  /** Set when a text or thinking delta streams, cleared when the next full turn
+    * message lands. Consumed only by `handleResultError`, which relies on the
+    * same wire ordering as above: an `is_error` result with this flag set means
+    * the error body itself already streamed as deltas this turn, so the short
+    * marker suffices instead of repeating the full body.
+    */
+  private var deltasSinceLastFullTurn: Boolean = false
 
   /** Tool-use ids of `ask_user` calls suppressed in `handleAssistantTurn`.
     * `handleUserTurn` drops the matching `tool_result` so the user's typed
@@ -103,7 +113,8 @@ private[claude] class ClaudeConversation(
         evt match
           case _: ConversationEvent.AssistantTextDelta |
               _: ConversationEvent.AssistantThinkingDelta =>
-            deltasSinceTurnBoundary = true
+            partialsSeenThisTurn = true
+            deltasSinceLastFullTurn = true
           case _ => ()
         eventQueue.enqueue(evt)
       }
@@ -122,8 +133,9 @@ private[claude] class ClaudeConversation(
     * delta.
     */
   private def handleAssistantTurn(content: List[ContentBlock]): Unit =
-    val sawDeltasThisTurn = deltasSinceTurnBoundary
-    deltasSinceTurnBoundary = false
+    val sawDeltasThisTurn = partialsSeenThisTurn
+    partialsSeenThisTurn = false
+    deltasSinceLastFullTurn = false
     content.foreach:
       // Suppress the agent's own ToolCall block for `ask_user` — the
       // host-side bridge emits a UserQuestion event for the same exchange
@@ -197,7 +209,7 @@ private[claude] class ClaudeConversation(
     val message =
       output.filter(_.nonEmpty).getOrElse("claude reported is_error")
     val displayed =
-      if deltasSinceTurnBoundary then "session failed (see message above)"
+      if deltasSinceLastFullTurn then "session failed (see message above)"
       else message
     eventQueue.enqueue(ConversationEvent.Error(displayed))
     failWith(new OrcaFlowException(s"claude session failed: $message"))
