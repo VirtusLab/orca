@@ -22,89 +22,50 @@ import ox.flow.Flow
   * cap is hit are folded into the returned `IgnoredIssues` with a `max
   * iterations reached` reason so callers can surface them.
   *
+  * `maxIterations` counts FIX attempts, not evaluations: the loop bails only
+  * once `iteration >= maxIterations`, so it performs up to `maxIterations + 1`
+  * evaluations (the extra one is the final round that discovers the cap was
+  * reached).
+  *
   * Each round emits an `Iteration N` progress marker (a `display`, not a
   * committing stage — it runs under the caller's task stage, ADR 0018 §2.2).
+  *
+  * This is the state-free entry point: it has no cross-iteration data to
+  * thread, so it recurses directly. [[reviewAndFixLoop]] carries the same stop
+  * policy in [[ReviewFixLoop.run]], where it additionally threads a
+  * [[ReviewLoopState]].
   */
 def fixLoop(
     evaluate: () => ReviewResult,
     fix: List[ReviewIssue] => FixOutcome,
     maxIterations: Int = 10
 )(using ctx: FlowContext): IgnoredIssues =
-  // The stateless entry point: a caller with no cross-iteration state delegates
-  // to the threaded driver with `Unit` state.
-  fixLoopWithState[Unit](
-    initial = (),
-    evaluate = _ => (evaluate(), ()),
-    fix = fix,
-    maxIterations = maxIterations
-  )
-
-/** The iteration driver behind [[fixLoop]], generalised to thread a
-  * caller-supplied state `S` explicitly through each round instead of letting
-  * `evaluate` mutate a captured `var`. `evaluate` receives the state from the
-  * previous round and returns its result together with the next state; the
-  * driver feeds that forward. [[reviewAndFixLoop]] threads its
-  * [[ReviewLoopState]] (reviewer history + sessions) this way, so the
-  * cross-iteration data flow is visible in the type rather than hidden in a
-  * closure.
-  *
-  * Like [[fixLoop]], this calls no gated method itself — the gated work lives
-  * in the `evaluate`/`fix` thunks, which close over their own `InStage`.
-  */
-private def fixLoopWithState[S](
-    initial: S,
-    evaluate: S => (ReviewResult, S),
-    fix: List[ReviewIssue] => FixOutcome,
-    maxIterations: Int
-)(using ctx: FlowContext): IgnoredIssues =
-
   def emitStep(msg: String): Unit = ctx.emit(OrcaEvent.Step(msg))
 
-  // Either keep going or stop, carrying any additions to the accumulator. Only
-  // `Continue` carries the next state — on a stop the loop ends, so the state
-  // produced by the final round is irrelevant.
-  enum Step:
-    case Continue(addIgnored: IgnoredIssues, next: S)
-    case Stop(addIgnored: IgnoredIssues)
-
-  def runIteration(iteration: Int, state: S): Step =
+  @scala.annotation.tailrec
+  def loop(accumulated: IgnoredIssues, iteration: Int): IgnoredIssues =
     // A progress marker, not a committing stage: this runs under the caller's
     // task stage (ADR 0018 §2.2), so it must not open its own stage.
     orca.display(s"Iteration ${iteration + 1}")
-    val (result, nextState) = evaluate(state)
-    val issues = result.issues
+    val issues = evaluate().issues
     if issues.isEmpty then
       emitStep("No review comments")
-      Step.Stop(IgnoredIssues(Nil))
+      accumulated
     else if iteration >= maxIterations then
       emitStep(s"Reached max iterations ($maxIterations); bailing out")
-      Step.Stop(
-        IgnoredIssues(
-          issues.map(i =>
-            IgnoredIssue(i.title, s"max iterations ($maxIterations) reached")
-          )
+      accumulated ++ IgnoredIssues(
+        issues.map(i =>
+          IgnoredIssue(i.title, s"max iterations ($maxIterations) reached")
         )
       )
     else
       val outcome = fix(issues)
-      emitStep(
-        s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}"
-      )
-      if outcome.fixed.isEmpty then Step.Stop(IgnoredIssues(outcome.ignored))
-      else Step.Continue(IgnoredIssues(outcome.ignored), nextState)
+      emitStep(s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}")
+      if outcome.fixed.isEmpty then
+        accumulated ++ IgnoredIssues(outcome.ignored)
+      else loop(accumulated ++ IgnoredIssues(outcome.ignored), iteration + 1)
 
-  @scala.annotation.tailrec
-  def loop(
-      accumulated: IgnoredIssues,
-      iteration: Int,
-      state: S
-  ): IgnoredIssues =
-    runIteration(iteration, state) match
-      case Step.Stop(add) => accumulated ++ add
-      case Step.Continue(add, next) =>
-        loop(accumulated ++ add, iteration + 1, next)
-
-  loop(IgnoredIssues(Nil), 0, initial)
+  loop(IgnoredIssues(Nil), 0)
 
 /** Format a single review comment as the body lines of a `Step`.
   *
@@ -232,6 +193,68 @@ def reviewAndFixLoop[B <: BackendTag](
       */
     initialDiff: Option[String] = None
 )(using ctx: FlowContext, ev: InStage): IgnoredIssues =
+  new ReviewFixLoop(
+    coder = coder,
+    sessionId = sessionId,
+    reviewers = reviewers,
+    reviewerSelection = reviewerSelection,
+    task = task,
+    formatCommand = formatCommand,
+    lintCommand = lintCommand,
+    lintAgent = lintAgent,
+    confidenceThreshold = confidenceThreshold,
+    maxIterations = maxIterations,
+    fixInstructions = fixInstructions,
+    initialDiff = initialDiff
+  ).run()
+
+/** Implementation of [[reviewAndFixLoop]]: one instance per invocation holds
+  * the loop-constant configuration as fields, so the per-iteration logic reads
+  * top-down as plain methods rather than a stack of nested closures. Construct
+  * and call [[run]].
+  *
+  * All cross-iteration state lives in one immutable [[ReviewLoopState]]
+  * threaded explicitly through [[run]] (no captured `var`): within an iteration
+  * the reviewers fan out via `Flow.mapParUnordered`, but each fork reads the
+  * snapshot it was handed and the next state is computed once after they all
+  * return — so no concurrent mutation, no `mutable.Map`, no
+  * `ConcurrentHashMap`.
+  *
+  * @param formatCommand
+  *   Shell command run before each review round — after the implementation and
+  *   after every fix — so reviewers and the lint see formatted code and the
+  *   committed tree stays formatted. Run via `bash -c`, exit status ignored (a
+  *   formatter that fails shouldn't abort the review). E.g. `"sbt
+  *   scalafmtAll"`, `"cargo fmt"`, `"prettier -w ."`.
+  * @param lintAgent
+  *   LLM that summarises lint output into a `ReviewResult`. Required when
+  *   `lintCommand` is set; ignored otherwise. Use a cheap model
+  *   (`claude.haiku`, `codex.mini`) — the lint summary is a small fold.
+  * @param initialDiff
+  *   Override the diff handed to each reviewer in its initial prompt. Defaults
+  *   to `ctx.git.diff()` re-sampled at the start of every iteration: a reviewer
+  *   that joins the active set on iteration N (e.g. picked up by an
+  *   `onlyPreviouslyReporting` selector after N-1 silent rounds) sees the
+  *   working tree as it stands then, including the fixes from earlier
+  *   iterations. Reviewers that already have a session resume it and don't get
+  *   the diff again — their session has the original framing. Pass `Some(...)`
+  *   to pin the diff (tests, or when the change set has already been committed
+  *   and `git.diff()` would be empty).
+  */
+private[review] class ReviewFixLoop[B <: BackendTag](
+    coder: Agent[B],
+    sessionId: SessionId[B],
+    reviewers: List[Agent[?]],
+    reviewerSelection: ReviewerSelector,
+    task: String,
+    formatCommand: Option[String],
+    lintCommand: Option[String],
+    lintAgent: Option[Agent[?]],
+    confidenceThreshold: Double,
+    maxIterations: Int,
+    fixInstructions: String,
+    initialDiff: Option[String]
+)(using ctx: FlowContext, ev: InStage):
   require(
     lintCommand.isEmpty || lintAgent.isDefined,
     "reviewAndFixLoop: lintCommand requires lintAgent"
@@ -241,18 +264,22 @@ def reviewAndFixLoop[B <: BackendTag](
     "reviewAndFixLoop: reviewer names must be unique — " +
       "the per-reviewer session map is keyed by name"
   )
-  // Sampled per iteration in `runReviewers`. A constant override skips the
-  // git call; the default thunk shells out fresh each iteration so a newly-
+
+  private def emitStep(msg: String): Unit = ctx.emit(OrcaEvent.Step(msg))
+
+  // Sampled per iteration in `runReviewersAndLint`. A constant override skips
+  // the git call; the default thunk shells out fresh each iteration so a newly-
   // active reviewer sees the latest diff rather than the loop-start one.
-  def sampleDiff(): String = initialDiff.getOrElse(ctx.git.diff())
+  private def sampleDiff(): String = initialDiff.getOrElse(ctx.git.diff())
 
   // Loop-constant context handed to the selector on every iteration: the
   // task's title, plus the file paths derived from the diff at loop entry.
   // Sampled here so each iteration's selector call doesn't re-shell-out.
-  val taskTitle = Title(task)
-  val changedFiles = ReviewLoop.extractChangedFiles(sampleDiff())
+  private val taskTitle: Title = Title(task)
+  private val changedFiles: List[String] =
+    ReviewLoop.extractChangedFiles(sampleDiff())
 
-  def filterByConfidence(result: ReviewResult): ReviewResult =
+  private def filterByConfidence(result: ReviewResult): ReviewResult =
     ReviewResult(issues =
       result.issues.filter(_.confidence >= confidenceThreshold)
     )
@@ -273,7 +300,7 @@ def reviewAndFixLoop[B <: BackendTag](
     * above): the entry retrieved with a given reviewer's `RB` was written under
     * that same `RB`.
     */
-  def reviewWithSession[RB <: BackendTag](
+  private def reviewWithSession[RB <: BackendTag](
       r: Agent[RB],
       sessions: Map[String, SessionId.Untyped],
       currentDiff: String
@@ -302,7 +329,7 @@ def reviewAndFixLoop[B <: BackendTag](
     * configured tool and any new session entry that needs folding into the loop
     * state; `Lint` carries only its filtered result (no LLM session).
     */
-  enum AgentOutcome:
+  private enum AgentOutcome:
     case Reviewer(
         tool: Agent[?],
         result: ReviewResult,
@@ -320,7 +347,7 @@ def reviewAndFixLoop[B <: BackendTag](
     * The diff is sampled once per call so all first-time reviewers see the same
     * payload — pre-sampling also avoids redundant shell-outs.
     */
-  def runReviewersAndLint(
+  private def runReviewersAndLint(
       active: List[Agent[?]],
       currentState: ReviewLoopState
   ): (
@@ -376,13 +403,18 @@ def reviewAndFixLoop[B <: BackendTag](
       )
       (reviewerOutcomes, lintOutcome, nextState)
 
-  def evaluate(state: ReviewLoopState): (ReviewResult, ReviewLoopState) =
+  private def evaluate(
+      state: ReviewLoopState
+  ): (ReviewResult, ReviewLoopState) =
     // Format before reviewing so the implementation's (and each prior fix's)
     // edits are cleaned up before reviewers and the lint see them, and the
     // committed tree stays formatted. Exit status ignored — a formatter failure
-    // shouldn't abort the review; output is captured (not printed) by `call`.
+    // shouldn't abort the review. `mergeErrIntoOut` folds stderr into the
+    // captured stdout so neither stream reaches the terminal and tears the
+    // status row (previously stdout was captured but stderr leaked through).
     formatCommand.foreach: cmd =>
-      val _ = os.proc("bash", "-c", cmd).call(check = false)
+      val _ =
+        os.proc("bash", "-c", cmd).call(check = false, mergeErrIntoOut = true)
     val active =
       reviewerSelection(state.history, reviewers, taskTitle, changedFiles)
     val totalAgents = active.size + (if lintCommand.isDefined then 1 else 0)
@@ -401,7 +433,7 @@ def reviewAndFixLoop[B <: BackendTag](
     )
     (result, nextState)
 
-  def fix(issues: List[ReviewIssue]): FixOutcome =
+  private def fix(issues: List[ReviewIssue]): FixOutcome =
     coder
       .resultAs[FixOutcome]
       .autonomous
@@ -412,20 +444,50 @@ def reviewAndFixLoop[B <: BackendTag](
       )
       ._2
 
-  // A progress marker, not a committing stage: the enclosing implement-task
-  // stage already names the work and owns the commit (ADR 0018 §2.2).
-  orca.display("Review & fix")
-  // All loop state lives in one immutable ReviewLoopState threaded explicitly
-  // through `fixLoopWithState` (no captured `var`): within an iteration the
-  // reviewers fan out via `par`, but each fork reads the snapshot it was handed
-  // and the next state is computed once after they all return — so no concurrent
-  // mutation, no `mutable.Map`, no `ConcurrentHashMap`.
-  fixLoopWithState[ReviewLoopState](
-    initial = ReviewLoopState.empty,
-    evaluate = evaluate,
-    fix = fix,
-    maxIterations = maxIterations
-  )
+  /** Run the evaluate/fix loop to convergence and return the accumulated
+    * [[IgnoredIssues]]. Same stop policy as [[fixLoop]] — `maxIterations`
+    * counts FIX attempts, so up to `maxIterations + 1` evaluations run — but
+    * additionally threads the immutable [[ReviewLoopState]] (reviewer history +
+    * sessions) through each round so the cross-iteration data flow stays
+    * explicit.
+    */
+  def run(): IgnoredIssues =
+    // A progress marker, not a committing stage: the enclosing implement-task
+    // stage already names the work and owns the commit (ADR 0018 §2.2).
+    orca.display("Review & fix")
+    @scala.annotation.tailrec
+    def loop(
+        accumulated: IgnoredIssues,
+        iteration: Int,
+        state: ReviewLoopState
+    ): IgnoredIssues =
+      orca.display(s"Iteration ${iteration + 1}")
+      val (result, nextState) = evaluate(state)
+      val issues = result.issues
+      if issues.isEmpty then
+        emitStep("No review comments")
+        accumulated
+      else if iteration >= maxIterations then
+        emitStep(s"Reached max iterations ($maxIterations); bailing out")
+        accumulated ++ IgnoredIssues(
+          issues.map(i =>
+            IgnoredIssue(i.title, s"max iterations ($maxIterations) reached")
+          )
+        )
+      else
+        val outcome = fix(issues)
+        emitStep(
+          s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}"
+        )
+        if outcome.fixed.isEmpty then
+          accumulated ++ IgnoredIssues(outcome.ignored)
+        else
+          loop(
+            accumulated ++ IgnoredIssues(outcome.ignored),
+            iteration + 1,
+            nextState
+          )
+    loop(IgnoredIssues(Nil), 0, ReviewLoopState.empty)
 
 private[review] object ReviewLoop:
   /** Parse a unified diff and return the changed file paths (the `b/` side of
