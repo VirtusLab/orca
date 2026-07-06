@@ -173,7 +173,7 @@ private[codex] class CodexConversation(
     case Item.CommandExecution(_, _, output, exitCode, status) =>
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
-          toolName = "bash",
+          toolName = Some("bash"),
           ok = exitCode.contains(0) && status == "completed",
           content = output
         )
@@ -181,7 +181,7 @@ private[codex] class CodexConversation(
     case Item.FileChange(_, changes, status) =>
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
-          toolName = "file_change",
+          toolName = Some("file_change"),
           ok = status == "completed",
           content = changes.map(c => s"${c.kind} ${c.path}").mkString("\n")
         )
@@ -193,7 +193,7 @@ private[codex] class CodexConversation(
     case Item.McpToolCall(_, server, tool, _, result, status) =>
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
-          toolName = mcpToolName(server, tool),
+          toolName = Some(mcpToolName(server, tool)),
           ok = status == "completed",
           content = result.getOrElse("")
         )

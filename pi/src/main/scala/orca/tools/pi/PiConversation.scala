@@ -56,14 +56,17 @@ private[pi] class PiConversation(
     *
     * `textStreamedThisMessage` lets `message_end` emit the completed text as a
     * fallback only when no `text_delta` already streamed it;
-    * `sawAssistantMessage` gates the single `AssistantTurnEnd` at `agent_end`.
+    * `sawAssistantActivity` gates the single `AssistantTurnEnd` at `agent_end`
+    * — set by any assistant activity (text/thinking delta OR tool call), so a
+    * tool-call-only turn still terminates and an error-only `message_end`
+    * (which emits no activity) doesn't produce an empty turn.
     */
   private case class TurnState(
       lastAssistantMessage: String = "",
       usage: Usage = Usage.empty,
       model: Option[String] = None,
       textStreamedThisMessage: Boolean = false,
-      sawAssistantMessage: Boolean = false
+      sawAssistantActivity: Boolean = false
   )
   private var turnState: TurnState = TurnState()
 
@@ -112,9 +115,12 @@ private[pi] class PiConversation(
     case InboundEvent.MessageEnd(message)  => handleMessageEnd(message)
     case InboundEvent.AgentEnd             => handleAgentEnd()
     case InboundEvent.ToolExecutionStart(toolName, rawArgs) =>
+      turnState = turnState.copy(sawAssistantActivity = true)
       eventQueue.enqueue(ConversationEvent.AssistantToolCall(toolName, rawArgs))
     case InboundEvent.ToolExecutionEnd(toolName, ok, content) =>
-      eventQueue.enqueue(ConversationEvent.ToolResult(toolName, ok, content))
+      eventQueue.enqueue(
+        ConversationEvent.ToolResult(Some(toolName), ok, content)
+      )
     case InboundEvent.ExtensionUiRequest(id, method, question) =>
       handleExtensionUiRequest(id, method, question)
     case InboundEvent.Unknown(_) => ()
@@ -137,10 +143,14 @@ private[pi] class PiConversation(
 
   private def handleDelta(delta: MessageDelta): Unit = delta match
     case MessageDelta.Text(text) =>
-      if text.nonEmpty then
-        turnState = turnState.copy(textStreamedThisMessage = true)
+      turnState = turnState.copy(
+        sawAssistantActivity = true,
+        textStreamedThisMessage =
+          turnState.textStreamedThisMessage || text.nonEmpty
+      )
       eventQueue.enqueue(ConversationEvent.AssistantTextDelta(text))
     case MessageDelta.Thinking(text) =>
+      turnState = turnState.copy(sawAssistantActivity = true)
       eventQueue.enqueue(ConversationEvent.AssistantThinkingDelta(text))
     case MessageDelta.Other(_) => ()
 
@@ -150,20 +160,24 @@ private[pi] class PiConversation(
         if error.nonEmpty then
           eventQueue.enqueue(ConversationEvent.Error(error))
       val streamed = turnState.textStreamedThisMessage
+      // The fallback below is the message_end's own assistant activity when no
+      // delta streamed; an error-only message (empty text) emits nothing, so it
+      // must not register activity (else agent_end would close an empty turn).
+      val fallbackText = message.text.nonEmpty && !streamed
       turnState = turnState.copy(
         lastAssistantMessage = message.text,
         usage = message.usage.fold(turnState.usage)(turnState.usage + _),
         model = message.model.orElse(turnState.model),
-        sawAssistantMessage = true,
+        sawAssistantActivity = turnState.sawAssistantActivity || fallbackText,
         textStreamedThisMessage = false // reset for the next message
       )
-      if message.text.nonEmpty && !streamed then
+      if fallbackText then
         eventQueue.enqueue(ConversationEvent.AssistantTextDelta(message.text))
 
   // A turn can span several assistant messages (each ends with `message_end`),
   // so the single turn boundary is `agent_end`, not per-message.
   private def handleAgentEnd(): Unit =
-    if turnState.sawAssistantMessage then
+    if turnState.sawAssistantActivity then
       eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
     val result = AgentResult[BackendTag.Pi.type](
       wireId = clientSession.onWire,

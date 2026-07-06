@@ -156,8 +156,8 @@ class ConversationRendererTest extends munit.FunSuite:
     val buf = new ByteArrayOutputStream()
     val conv = new ScriptedConversation(
       List(
-        ConversationEvent.ToolResult("Bash", ok = true, "ok-output"),
-        ConversationEvent.ToolResult("Bash", ok = false, "failed")
+        ConversationEvent.ToolResult(Some("Bash"), ok = true, "ok-output"),
+        ConversationEvent.ToolResult(Some("Bash"), ok = false, "failed")
       ),
       Right(sampleResult)
     )

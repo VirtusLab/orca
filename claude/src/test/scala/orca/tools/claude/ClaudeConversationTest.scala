@@ -3,7 +3,11 @@ package orca.tools.claude
 import orca.agents.{AutoApprove, BackendTag, AgentConfig}
 import orca.events.{Usage}
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
-import orca.backend.{ApprovalDecision, ConversationEvent}
+import orca.backend.{
+  ApprovalDecision,
+  ConversationEvent,
+  ConversationEventConformance
+}
 import orca.subprocess.FakePipedCliProcess
 import ox.{Ox, supervised}
 
@@ -97,6 +101,9 @@ class ClaudeConversationTest extends munit.FunSuite:
       },
       s"expected an Error event carrying the result body; got: $events"
     )
+    // Out-of-band is_error before any assistant turn: no turn opened, so the
+    // settled-failure sequence is grammar-clean with no AssistantTurnEnd.
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val failure = intercept[OrcaFlowException](conv.awaitResult())
     assert(failure.getMessage.contains("rate limited"))
 
@@ -242,6 +249,7 @@ class ClaudeConversationTest extends munit.FunSuite:
         ConversationEvent.AssistantTurnEnd
       )
     )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val _ = conv.awaitResult()
 
   convTest("user turn with tool_result blocks emits ToolResult events"):
@@ -261,7 +269,7 @@ class ClaudeConversationTest extends munit.FunSuite:
       events,
       List(
         ConversationEvent.ToolResult(
-          toolName = "",
+          toolName = None,
           ok = true,
           content = "output"
         )

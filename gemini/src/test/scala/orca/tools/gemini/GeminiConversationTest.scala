@@ -3,7 +3,7 @@ package orca.tools.gemini
 import orca.agents.WireSessionId
 import orca.events.Usage
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
-import orca.backend.ConversationEvent
+import orca.backend.{ConversationEvent, ConversationEventConformance}
 import orca.subprocess.FakePipedCliProcess
 import ox.{Ox, supervised}
 
@@ -47,6 +47,7 @@ class GeminiConversationTest extends munit.FunSuite:
         ConversationEvent.AssistantTurnEnd
       )
     )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val Right(r) = conv.awaitResult(): @unchecked
     assertEquals(WireSessionId.value(r.wireId), "sess-1")
     assertEquals(r.output, "hello")
@@ -138,7 +139,7 @@ class GeminiConversationTest extends munit.FunSuite:
     )
     assert(
       events.contains(
-        ConversationEvent.ToolResult("Bash", ok = true, "hello.txt")
+        ConversationEvent.ToolResult(Some("Bash"), ok = true, "hello.txt")
       ),
       s"expected matching ToolResult keyed by name; got: $events"
     )
@@ -321,7 +322,10 @@ class GeminiConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
+    val events = conv.events.toList
+    // gemini emits AssistantTurnEnd before settling the result, so even a
+    // failed turn is grammar-terminated (see the contract) — completedNormally.
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val ex = intercept[orca.AgentTurnFailed](conv.awaitResult())
     assert(
       ex.getMessage.contains("error"),
@@ -374,13 +378,13 @@ class GeminiConversationTest extends munit.FunSuite:
     val events = conv.events.toList
     assert(
       events.contains(
-        ConversationEvent.ToolResult("Bash", ok = true, "ls-out")
+        ConversationEvent.ToolResult(Some("Bash"), ok = true, "ls-out")
       ),
       s"tool_result b must key to Bash; got: $events"
     )
     assert(
       events.contains(
-        ConversationEvent.ToolResult("Read", ok = true, "file-out")
+        ConversationEvent.ToolResult(Some("Read"), ok = true, "file-out")
       ),
       s"tool_result a must key to Read; got: $events"
     )
@@ -460,8 +464,9 @@ class GeminiConversationTest extends munit.FunSuite:
         !events.exists {
           case ConversationEvent.AssistantToolCall(n, _) =>
             n.contains("ask_user")
-          case ConversationEvent.ToolResult(n, _, _) => n.contains("ask_user")
-          case _                                     => false
+          case ConversationEvent.ToolResult(n, _, _) =>
+            n.exists(_.contains("ask_user"))
+          case _ => false
         },
         s"ask_user exchange must be suppressed; got: $events"
       )

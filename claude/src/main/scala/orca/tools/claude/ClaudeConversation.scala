@@ -158,7 +158,9 @@ private[claude] class ClaudeConversation(
       case ContentBlock.ToolResult(_, body, isError) =>
         eventQueue.enqueue(
           ConversationEvent.ToolResult(
-            toolName = "",
+            // claude's tool_result block carries only a tool_use_id, not the
+            // name — the grammar legalizes None here (see ConversationEvent).
+            toolName = None,
             ok = !isError,
             content = body
           )

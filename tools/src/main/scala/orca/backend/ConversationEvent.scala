@@ -15,6 +15,28 @@ package orca.backend
   *
   * Distinct from [[OrcaEvent]], which fans out flow-wide; conversation events
   * stay between driver and channel.
+  *
+  * ==Turn grammar (the contract every driver honours)==
+  *
+  * A *turn* starts at the first assistant activity (`AssistantTextDelta` /
+  * `AssistantThinkingDelta` / `AssistantToolCall`) after the stream start or
+  * the previous `AssistantTurnEnd`.
+  *
+  * Every turn the wire *completed* — the backend reported a turn end, or the
+  * conversation settled, whether in success or failure — is terminated by
+  * exactly one `AssistantTurnEnd`. A missing trailing `AssistantTurnEnd` is
+  * legal only when the stream terminates abnormally mid-turn; consumers must
+  * flush at end-of-stream (as [[Conversations.drainAutonomous]] does).
+  *
+  * `AssistantTurnEnd` never fires without assistant activity since the last one
+  * — there are no empty turns.
+  *
+  * `ToolResult.toolName` is `Some(name)` when the wire carries the name and
+  * `None` when it doesn't (claude's `tool_result` blocks carry only a tool-use
+  * id, so claude emits `None`). It is never `Some("")`.
+  *
+  * [[orca.backend.ConversationEventConformance]] (tools test sources) asserts
+  * this grammar over a recorded sequence; backend scripted tests wire it in.
   */
 enum ConversationEvent:
   /** A user turn — either the opening prompt (emitted by the driver when the
@@ -26,7 +48,7 @@ enum ConversationEvent:
   case AssistantTextDelta(text: String)
   case AssistantThinkingDelta(text: String)
   case AssistantToolCall(toolName: String, rawInput: String)
-  case ToolResult(toolName: String, ok: Boolean, content: String)
+  case ToolResult(toolName: Option[String], ok: Boolean, content: String)
   case AssistantTurnEnd
 
   /** Non-fatal error surfaced mid-session (e.g. a line from the subprocess's

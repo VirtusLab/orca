@@ -1,7 +1,12 @@
 package orca.tools.opencode
 
 import orca.AgentTurnFailed
-import orca.backend.{ApprovalDecision, ConversationEvent, StreamSource}
+import orca.backend.{
+  ApprovalDecision,
+  ConversationEvent,
+  ConversationEventConformance,
+  StreamSource
+}
 import ox.{Ox, supervised}
 
 class OpencodeConversationTest extends munit.FunSuite:
@@ -69,14 +74,16 @@ class OpencodeConversationTest extends munit.FunSuite:
         data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
       )
     )
+    val events = conv.events.toList
     assertEquals(
-      conv.events.toList,
+      events,
       List(
         ConversationEvent.AssistantTextDelta("Hel"),
         ConversationEvent.AssistantTextDelta("lo"),
         ConversationEvent.AssistantTurnEnd
       )
     )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val result = conv.awaitResult().toOption.get
     assertEquals(result.output, "Hello")
     assertEquals(
@@ -103,7 +110,7 @@ class OpencodeConversationTest extends munit.FunSuite:
     assertEquals(
       conv.events.toList,
       List(
-        ConversationEvent.ToolResult("StructuredOutput", ok = true, "ok"),
+        ConversationEvent.ToolResult(Some("StructuredOutput"), ok = true, "ok"),
         ConversationEvent.AssistantTurnEnd
       )
     )
@@ -132,7 +139,7 @@ class OpencodeConversationTest extends munit.FunSuite:
       List(
         ConversationEvent
           .AssistantToolCall("bash", """{"command":"echo hi"}"""),
-        ConversationEvent.ToolResult("bash", ok = true, "hi\n"),
+        ConversationEvent.ToolResult(Some("bash"), ok = true, "hi\n"),
         ConversationEvent.AssistantTurnEnd
       )
     )
@@ -215,6 +222,30 @@ class OpencodeConversationTest extends munit.FunSuite:
       )
     )
     conv.events.foreach(_ => ())
+    intercept[AgentTurnFailed](conv.awaitResult())
+
+  convTest(
+    "a failure settle after assistant activity still emits AssistantTurnEnd"
+  ):
+    val (conv, _) = conversation(
+      List(
+        data(
+          """{"type":"message.part.delta","properties":{"sessionID":"ses_A","field":"text","delta":"partial"}}"""
+        ),
+        data(
+          """{"type":"session.error","properties":{"sessionID":"ses_A","error":{"message":"boom"}}}"""
+        )
+      )
+    )
+    val events = conv.events.toList
+    assertEquals(
+      events,
+      List(
+        ConversationEvent.AssistantTextDelta("partial"),
+        ConversationEvent.AssistantTurnEnd
+      )
+    )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     intercept[AgentTurnFailed](conv.awaitResult())
 
   convTest("session.error fails the turn"):

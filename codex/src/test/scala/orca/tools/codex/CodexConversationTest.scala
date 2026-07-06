@@ -3,7 +3,7 @@ package orca.tools.codex
 import orca.agents.{WireSessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
-import orca.backend.ConversationEvent
+import orca.backend.{ConversationEvent, ConversationEventConformance}
 import orca.subprocess.FakePipedCliProcess
 import ox.{Ox, supervised}
 
@@ -42,6 +42,7 @@ class CodexConversationTest extends munit.FunSuite:
         ConversationEvent.AssistantTurnEnd
       )
     )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val Right(result) = conv.awaitResult(): @unchecked
     assertEquals(WireSessionId.value(result.wireId), "thr-1")
     assertEquals(result.output, "hello")
@@ -117,7 +118,7 @@ class CodexConversationTest extends munit.FunSuite:
       case other => fail(s"expected AssistantToolCall, got $other")
     events(1) match
       case ConversationEvent.ToolResult(name, ok, content) =>
-        assertEquals(name, "bash")
+        assertEquals(name, Some("bash"))
         assertEquals(ok, true)
         assertEquals(content, "hello.txt\n")
       case other => fail(s"expected ToolResult, got $other")
@@ -180,7 +181,9 @@ class CodexConversationTest extends munit.FunSuite:
     assert(toolCall.rawInput.contains("update"))
     val toolResult = events
       .collectFirst {
-        case r: ConversationEvent.ToolResult if r.toolName == "file_change" => r
+        case r: ConversationEvent.ToolResult
+            if r.toolName == Some("file_change") =>
+          r
       }
       .getOrElse(fail("expected file_change ToolResult"))
     assertEquals(toolResult.ok, true)
@@ -232,7 +235,13 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
+    val events = conv.events.toList
+    // Abnormal termination: the stream ends before turn.completed, so a
+    // trailing open turn (none here) is legal — completedNormally = false.
+    ConversationEventConformance.assertGrammar(
+      events,
+      completedNormally = false
+    )
     val ex = intercept[OrcaFlowException](conv.awaitResult())
     assert(
       ex.getMessage.contains("turn.completed"),
@@ -381,7 +390,7 @@ class CodexConversationTest extends munit.FunSuite:
     )
     assert(
       events.contains(
-        ConversationEvent.ToolResult("docs.search", ok = true, "page-1")
+        ConversationEvent.ToolResult(Some("docs.search"), ok = true, "page-1")
       ),
       s"expected matching ToolResult; got: $events"
     )
@@ -412,7 +421,8 @@ class CodexConversationTest extends munit.FunSuite:
 
     val events = conv.events.toList
     val result = events.collectFirst {
-      case ConversationEvent.ToolResult("docs.search", _, content) => content
+      case ConversationEvent.ToolResult(Some("docs.search"), _, content) =>
+        content
     }
     assertEquals(result, Some("text1text2"))
     val _ = conv.awaitResult()
@@ -441,7 +451,7 @@ class CodexConversationTest extends munit.FunSuite:
 
     val events = conv.events.toList
     val result = events.collectFirst {
-      case ConversationEvent.ToolResult("odd.do", _, content) => content
+      case ConversationEvent.ToolResult(Some("odd.do"), _, content) => content
     }
     assert(
       result.exists(_.contains("not")),
@@ -495,8 +505,9 @@ class CodexConversationTest extends munit.FunSuite:
       )
       assert(
         !events.exists {
-          case ConversationEvent.ToolResult("orca.ask_user", _, _) => true
-          case _                                                   => false
+          case ConversationEvent.ToolResult(Some("orca.ask_user"), _, _) =>
+            true
+          case _ => false
         },
         s"ask_user ToolResult must be suppressed; got: $events"
       )

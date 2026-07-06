@@ -1,6 +1,6 @@
 package orca.tools.pi
 
-import orca.backend.ConversationEvent
+import orca.backend.{ConversationEvent, ConversationEventConformance}
 import orca.events.Usage
 import orca.agents.{BackendTag, SessionId, WireSessionId, onWire}
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
@@ -33,13 +33,15 @@ class PiConversationTest extends munit.FunSuite:
     )
     process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
 
+    val events = conv.events.toList
     assertEquals(
-      conv.events.toList,
+      events,
       List(
         ConversationEvent.AssistantTextDelta("hello"),
         ConversationEvent.AssistantTurnEnd
       )
     )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val Right(result) = conv.awaitResult(): @unchecked
     val wire: WireSessionId[BackendTag.Pi.type] = sid.onWire
     assertEquals(result.wireId, wire)
@@ -107,10 +109,27 @@ class PiConversationTest extends munit.FunSuite:
       case other => fail(s"expected AssistantToolCall, got $other")
     events(1) match
       case ConversationEvent.ToolResult(name, ok, content) =>
-        assertEquals(name, "bash")
+        assertEquals(name, Some("bash"))
         assertEquals(ok, true)
         assertEquals(content, "ok\n")
       case other => fail(s"expected ToolResult, got $other")
+    val _ = conv.awaitResult()
+
+  convTest("a tool-call-only turn still ends with AssistantTurnEnd"):
+    val process = new FakePipedCliProcess()
+    val conv = new PiConversation(process, sid)
+
+    process.enqueueStdout(
+      """{"type":"tool_execution_start","toolCallId":"call-1","toolName":"bash","args":{"command":"ls"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"tool_execution_end","toolCallId":"call-1","toolName":"bash","result":{"content":[{"type":"text","text":"ok\n"}],"details":{}},"isError":false}"""
+    )
+    process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
+
+    val events = conv.events.toList
+    assertEquals(events.count(_ == ConversationEvent.AssistantTurnEnd), 1)
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val _ = conv.awaitResult()
 
   convTest("unknown events are ignored"):
@@ -161,6 +180,8 @@ class PiConversationTest extends munit.FunSuite:
         message.contains("model unavailable")
       case _ => false
     })
+    // Failure with no assistant activity: no turn opened, so no turn end.
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val ex = intercept[OrcaFlowException](conv.awaitResult())
     assert(ex.getMessage.contains("model unavailable"))
 

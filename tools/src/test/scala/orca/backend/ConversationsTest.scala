@@ -198,7 +198,9 @@ class ConversationsTest extends munit.FunSuite:
   test("ToolResult is swallowed (already surfaced via the preceding ToolUse)"):
     val recorder = new RecordingListener
     val conv = new ScriptedConversation(
-      List(ConversationEvent.ToolResult("Bash", ok = true, "stdout text")),
+      List(
+        ConversationEvent.ToolResult(Some("Bash"), ok = true, "stdout text")
+      ),
       Right(sampleResult)
     )
     val _ = Conversations.drainAutonomous(conv, recorder)

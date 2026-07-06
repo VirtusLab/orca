@@ -172,7 +172,7 @@ private[gemini] class GeminiConversation(
     else
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
-          toolName = toolNames.getOrElse(id, id),
+          toolName = Some(toolNames.getOrElse(id, id)),
           ok = status == "success",
           content = output
         )
