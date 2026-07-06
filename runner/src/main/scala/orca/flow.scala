@@ -120,6 +120,7 @@ def flow[B <: BackendTag](
   // `try/finally` so the cost summary always lands — even when a fatal
   // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
   // Tokens may have already been spent; the user deserves to see what.
+  var failed = false
   try
     try
       runFlow(
@@ -144,18 +145,13 @@ def flow[B <: BackendTag](
       )(body)
     catch
       // The failure was already surfaced inside the scope (the flow body runs
-      // as a top-level stage): the message went to the console, the stack to
-      // the trace file. Here we only fail the process — the summary +
-      // trace-detach run before `System.exit(1)` skips the outer `finally`.
-      case NonFatal(_) =>
-        costTracker.printSummary()
-        orcaLog.finish()
-        System.exit(1)
+      // as a top-level stage). Only the exit code remains to decide — after
+      // the finally below has printed the summary and detached the trace.
+      case NonFatal(_) => failed = true
   finally
     costTracker.printSummary()
-    // Detach the trace appender. Idempotent — the error path above already
-    // finished it before exiting.
     orcaLog.finish()
+  if failed then System.exit(1)
 
 /** Exit-free flow lifecycle: builds the interaction/context, runs setup, then
   * runs the body as a top-level stage with disjoint success/failure teardown.
@@ -224,8 +220,8 @@ private[orca] def runFlow[B <: BackendTag](
       //   3. Resolve the leading agent (`agent(ctx)`) and run branch setup
       //      (stash → resume-vs-fresh → checkout → header commit) using it for
       //      branch naming.
-      // Teardown is unchanged (the `bodySucceeded` gate + disjoint
-      // success/failure paths below), so CORE's invariants are preserved.
+      // Teardown is unchanged (the disjoint success/failure paths below), so
+      // CORE's invariants are preserved.
       val store =
         progressStore.getOrElse(
           ProgressStore.default(workDir, args.userPrompt)
@@ -272,15 +268,15 @@ private[orca] def runFlow[B <: BackendTag](
       // stderr.
       //
       // Teardown separation: body-failure and body-success teardowns are
-      // completely disjoint. A success-teardown error (e.g. a cosmetic
-      // cleanup-commit failure) must NOT trigger the failure teardown
-      // (`resetHard`), and must NOT strand the user on the feature branch.
-      var bodySucceeded = false
+      // completely disjoint — structurally, not flag-guarded: the catch below
+      // rethrows, so success teardown is unreachable on failure. A
+      // success-teardown error (e.g. a cosmetic cleanup-commit failure) must
+      // NOT trigger the failure teardown (`resetHard`), and must NOT strand
+      // the user on the feature branch.
       try
         // The body reads the lead via the `agent` accessor; `ctx.LeadB` (pinned
         // to `B` at construction) keeps it concretely typed so sessions thread.
         body(using ctx)
-        bodySucceeded = true
       catch
         case NonFatal(e) =>
           val alreadyEmitted = e match
@@ -291,8 +287,7 @@ private[orca] def runFlow[B <: BackendTag](
           if debug then e.printStackTrace(System.err)
           FlowLifecycle.teardownFailure(effectiveGit)
           throw e
-      if bodySucceeded then
-        FlowLifecycle.teardownSuccess(effectiveGit, setup, returnToStartBranch)
+      FlowLifecycle.teardownSuccess(effectiveGit, setup, returnToStartBranch)
     finally
       // Both run before the `supervised` scope joins its forks. closeContext
       // first: it destroys the opencode `serve` process so its drain forks'
