@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.OrcaInteractiveCancelled
+import orca.{AgentTurnFailed, OrcaInteractiveCancelled}
 import orca.events.{OrcaEvent, OrcaListener, Usage}
 import orca.agents.{BackendTag, SessionId, WireSessionId}
 
@@ -14,6 +14,7 @@ private class ScriptedConversation(
     val outputSchema: Option[String] = None
 ) extends Conversation[BackendTag.Codex.type]:
   val drained = new AtomicInteger(0)
+  val cancelCount = new AtomicInteger(0)
   val events: Iterator[ConversationEvent] = eventList.iterator.map { e =>
     val _ = drained.incrementAndGet()
     e
@@ -22,7 +23,23 @@ private class ScriptedConversation(
       : Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
     outcome
   def canAskUser: Boolean = false
-  def cancel(): Unit = ()
+  def cancel(): Unit =
+    val _ = cancelCount.incrementAndGet()
+
+/** A conversation whose `awaitResult()` throws instead of returning, standing
+  * in for a drain that fails mid-turn (e.g. `AgentTurnFailed`).
+  */
+private class FailingConversation(failure: Throwable)
+    extends Conversation[BackendTag.Codex.type]:
+  val cancelCount = new AtomicInteger(0)
+  val events: Iterator[ConversationEvent] = Iterator.empty
+  val outputSchema: Option[String] = None
+  def awaitResult()
+      : Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
+    throw failure
+  def canAskUser: Boolean = false
+  def cancel(): Unit =
+    val _ = cancelCount.incrementAndGet()
 
 /** Records every `OrcaEvent` it sees so tests can assert on the emission order
   * without scaffolding a full listener.
@@ -301,3 +318,35 @@ class ConversationsTest extends munit.FunSuite:
         OrcaEvent.AssistantMessage("turn two")
       )
     )
+
+  test("runAutonomous opens, drains, commits, and cancels exactly once"):
+    val client = SessionId.fresh[BackendTag.Codex.type]
+    val reportedWire = WireSessionId[BackendTag.Codex.type]("server-thread-7")
+    val registry = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("hi"),
+        ConversationEvent.AssistantTurnEnd
+      ),
+      Right(sampleResult.copy(wireId = reportedWire))
+    )
+    val result =
+      Conversations.runAutonomous("codex", client, registry, OrcaListener.noop):
+        conv
+    assertEquals(result.wireId, reportedWire)
+    assert(registry.resumeWireId(client).contains(reportedWire))
+    assertEquals(conv.cancelCount.get(), 1)
+
+  test(
+    "runAutonomous still cancels when the drain throws AgentTurnFailed"
+  ):
+    val client = SessionId.fresh[BackendTag.Codex.type]
+    val registry = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+    val failure = new AgentTurnFailed("turn blew up")
+    val conv = new FailingConversation(failure)
+    val thrown = intercept[AgentTurnFailed]:
+      Conversations.runAutonomous("codex", client, registry, OrcaListener.noop):
+        conv
+    assertEquals(thrown, failure)
+    assertEquals(conv.cancelCount.get(), 1)
+    assert(registry.resumeWireId(client).isEmpty) // never committed

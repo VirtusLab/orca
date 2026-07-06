@@ -4,6 +4,8 @@ import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.agents.{BackendTag, SessionId}
 
+import ox.{Ox, supervised}
+
 /** Drains a [[Conversation]] for the autonomous path, mapping conversation
   * events to [[OrcaEvent]]s and returning the awaited `AgentResult`.
   *
@@ -147,3 +149,20 @@ private[orca] object Conversations:
           throw OrcaFlowException(s"$backendName CLI failed: ${e.getMessage}")
     registry.commitSuccess(session, result.wireId)
     result
+
+  /** The complete autonomous-turn shell shared by all backends: open the
+    * conversation inside its own supervised scope, drain + commit, and ALWAYS
+    * cancel before the scope joins (the cancel is load-bearing on failure paths
+    * — `drainAndCommit` does not tear down). `open` runs inside the scope so
+    * the conversation's forks bind to it.
+    */
+  def runAutonomous[B <: BackendTag](
+      backendName: String,
+      session: SessionId[B],
+      registry: SessionRegistry[B],
+      events: OrcaListener
+  )(open: Ox ?=> Conversation[B]): AgentResult[B] =
+    supervised:
+      val conv = open
+      try drainAndCommit(backendName, conv, session, registry, events)
+      finally conv.cancel()

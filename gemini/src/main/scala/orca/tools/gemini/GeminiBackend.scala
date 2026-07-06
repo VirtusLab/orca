@@ -17,7 +17,7 @@ import orca.backend.{
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.CliRunner
-import ox.{Ox, supervised}
+import ox.Ox
 import ox.channels.BufferCapacity
 
 /** Gemini backend. Both autonomous and interactive paths drive `gemini -p
@@ -86,11 +86,11 @@ private[orca] class GeminiBackend(cli: CliRunner)(using BufferCapacity)
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Gemini.type] =
-    // Self-scoped: the conversation forks its workers into this per-call Ox, the
-    // drain consumes them, and `cancel` (the `finally`) tears the subprocess +
-    // forks down before the scope joins.
-    supervised:
-      val conv = openConversation(
+    // drainAndCommit records the client→server mapping so a follow-up call on
+    // this client id resumes the right thread; the result carries the server
+    // thread id as its wireId, and the caller keeps using the client id.
+    Conversations.runAutonomous("gemini", session, registry, events):
+      openConversation(
         prompt = prompt,
         mode = SessionMode.Autonomous,
         session = session,
@@ -101,12 +101,6 @@ private[orca] class GeminiBackend(cli: CliRunner)(using BufferCapacity)
         // `--output-schema` flag, so enforcement is prompt-only.
         outputSchema = outputSchema
       )
-      // drainAndCommit records the client→server mapping so a follow-up call on
-      // this client id resumes the right thread; the result carries the server
-      // thread id as its wireId, and the caller keeps using the client id.
-      try
-        Conversations.drainAndCommit("gemini", conv, session, registry, events)
-      finally conv.cancel()
 
   def runInteractive(
       prompt: String,

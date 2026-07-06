@@ -19,7 +19,7 @@ import orca.events.OrcaListener
 import orca.agents.{BackendTag, AgentConfig, SessionId, WireSessionId}
 import orca.subprocess.CliRunner
 import orca.tools.opencode.OpencodeApi.{SessionCreateBody, SessionCreated}
-import ox.{Ox, supervised}
+import ox.Ox
 
 import java.util.concurrent.atomic.AtomicReference
 import scala.util.control.NonFatal
@@ -92,31 +92,16 @@ private[orca] class OpencodeBackend(
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Opencode.type] =
     val http = server(workDir)
-    // Self-scoped: the conversation forks its reader into this per-turn Ox, the
-    // drain consumes it, and `cancel` (the `finally`) POSTs `/abort`, interrupts
-    // the SSE source, and finalizes — tearing the stream + forks down before the
-    // scope joins. `drainAndCommit` doesn't tear down, so the `finally` is
-    // load-bearing (and harmless on the happy path).
-    supervised:
-      val source = http.events()
-      val conv = openConversation(
+    Conversations.runAutonomous("opencode", session, registry, events):
+      openConversation(
         http,
-        source,
+        http.events(),
         serverSessionFor(http, session),
         config,
         prompt,
         outputSchema,
         SessionMode.Autonomous
       )
-      try
-        Conversations.drainAndCommit(
-          "opencode",
-          conv,
-          session,
-          registry,
-          events
-        )
-      finally conv.cancel()
 
   def runInteractive(
       prompt: String,

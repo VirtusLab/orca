@@ -16,7 +16,7 @@ import orca.backend.{
 }
 import orca.subprocess.CliRunner
 
-import ox.{Ox, supervised}
+import ox.Ox
 
 import scala.collection.mutable.ListBuffer
 
@@ -65,11 +65,8 @@ private[orca] class PiBackend(cli: CliRunner)
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Pi.type] =
-    // Self-scoped: the conversation forks its workers into this per-call Ox, the
-    // drain consumes them, and `cancel` (the `finally`) tears the subprocess +
-    // forks (and the per-turn temp resources) down before the scope joins.
-    supervised:
-      val conv = openConversation(
+    Conversations.runAutonomous("pi", session, registry, events):
+      openConversation(
         prompt = prompt,
         mode = SessionMode.Autonomous,
         session = session,
@@ -77,8 +74,6 @@ private[orca] class PiBackend(cli: CliRunner)
         workDir = workDir,
         outputSchema = outputSchema
       )
-      try Conversations.drainAndCommit("pi", conv, session, registry, events)
-      finally conv.cancel()
 
   def runInteractive(
       prompt: String,

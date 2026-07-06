@@ -16,7 +16,7 @@ import orca.backend.{
 import orca.subprocess.CliRunner
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.tools.claude.streamjson.OutboundMessage
-import ox.{Ox, supervised}
+import ox.Ox
 import ox.channels.BufferCapacity
 
 /** Claude Code backend. All calls — autonomous and interactive — drive a
@@ -99,12 +99,12 @@ private[orca] class ClaudeBackend(
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.ClaudeCode.type] =
-    // Self-scoped: the conversation forks its workers into this per-call Ox, the
-    // drain consumes them, and `cancel` (the `finally`) tears the subprocess +
-    // forks down before the scope joins. `drainAndCommit` doesn't tear down, so
-    // the `finally` is load-bearing (and a no-op on the happy path).
-    supervised:
-      val conv = openConversation(
+    // drainAndCommit commits only after a successful drain: a subprocess that
+    // crashed before claude could register the session id (e.g. exit before
+    // `system.init`) would otherwise leave the registry wedged, forcing a
+    // retry to `--resume` a session claude never created.
+    Conversations.runAutonomous("claude", session, registry, events):
+      openConversation(
         prompt = prompt,
         mode = SessionMode.Autonomous,
         session = session,
@@ -112,13 +112,6 @@ private[orca] class ClaudeBackend(
         workDir = workDir,
         outputSchema = outputSchema
       )
-      // drainAndCommit commits only after a successful drain: a subprocess that
-      // crashed before claude could register the session id (e.g. exit before
-      // `system.init`) would otherwise leave the registry wedged, forcing a
-      // retry to `--resume` a session claude never created.
-      try
-        Conversations.drainAndCommit("claude", conv, session, registry, events)
-      finally conv.cancel()
 
   def runInteractive(
       prompt: String,
