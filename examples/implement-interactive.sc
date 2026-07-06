@@ -35,7 +35,7 @@ flow(OrcaArgs(args), _.claude):
   // Stable autonomous session shared by implementer and fixer (ask_user was
   // only needed for planning). The seed primes it on first use and is
   // replayed if the backend session is lost on resume.
-  val session = claude.session(seed = plan.brief)
+  val session = claude.session("implementer", seed = plan.brief)
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):      // skipped on resume if already done

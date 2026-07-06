@@ -16,11 +16,13 @@ import orca.agents.{
 import orca.progress.{ProgressHeader, ProgressStore}
 import orca.tools.OsGitTool
 
-/** Tests for `agent.session(seed)` get-or-create (ADR 0018 §2.6). */
+/** Tests for `agent.session(name, seed)` get-or-create, keyed stage-style by
+  * `(name, occurrence)` (ADR 0018 §2.6).
+  */
 class SessionTest extends FunSuite:
 
-  /** Minimal Agent stub — `session(seed)` is pure and never calls the backend,
-    * so no methods need real implementations.
+  /** Minimal Agent stub — `session(name, seed)` is pure and never calls the
+    * backend, so no methods need real implementations.
     */
   private class StubAgent extends Agent[BackendTag.ClaudeCode.type]:
     val name: String = "stub-agent"
@@ -57,52 +59,83 @@ class SessionTest extends FunSuite:
       case OrcaEvent.Step(msg) => buf += msg
       case _                   => ()
 
-  test("first agent.session call mints a SessionId and records it at index 0"):
+  test(
+    "first agent.session call mints a SessionId and records it at occurrence 0"
+  ):
     val (store, dir) = freshStore()
     val fc = makeControl(store, dir)
     val agent = new StubAgent
-    val id = agent.session("plan brief")(using fc)
+    val id = agent.session("implementer", "plan brief")(using fc)
     val log = store.load().get
     assertEquals(log.sessions.size, 1)
-    assertEquals(log.sessions.head.index, 0)
+    assertEquals(log.sessions.head.name, "implementer")
+    assertEquals(log.sessions.head.occurrence, 0)
     assertEquals(log.sessions.head.seed, "plan brief")
     assertEquals(log.sessions.head.id, id.value)
 
-  test("second agent.session call mints a separate id at index 1"):
+  test("two calls with the same name get distinct occurrences"):
     val (store, dir) = freshStore()
     val fc = makeControl(store, dir)
     val agent = new StubAgent
-    val id0 = agent.session("seed zero")(using fc)
-    val id1 = agent.session("seed one")(using fc)
-    assert(id0.value != id1.value, "distinct sessions must have different ids")
+    val a = agent.session("reviewer", "s1")(using fc)
+    val b = agent.session("reviewer", "s2")(using fc)
+    assert(a.value != b.value, "distinct sessions must have different ids")
     val sessions = store.load().get.sessions
     assertEquals(sessions.size, 2)
-    assertEquals(sessions(0).index, 0)
-    assertEquals(sessions(1).index, 1)
+    assertEquals(sessions(0).name, "reviewer")
+    assertEquals(sessions(0).occurrence, 0)
+    assertEquals(sessions(1).name, "reviewer")
+    assertEquals(sessions(1).occurrence, 1)
 
-  test(
-    "resume: a fresh FlowControl over the same store returns the recorded id"
-  ):
+  test("same name+occurrence resumes the recorded id across runs"):
     val (store, dir) = freshStore()
     val fc1 = makeControl(store, dir)
     val agent = new StubAgent
-    val originalId = agent.session("plan brief")(using fc1)
+    val id1 = agent.session("implementer", "brief")(using fc1)
 
     // Simulate a second run: new FlowControl, same underlying store.
     val fc2 = makeControl(store, dir)
-    val resumedId = agent.session("plan brief")(using fc2)
+    val id2 = agent.session("implementer", "brief")(using fc2)
 
-    assertEquals(resumedId, originalId)
+    assertEquals(id2, id1)
     // Must not mint a second record — still exactly one session.
     assertEquals(store.load().get.sessions.size, 1)
+
+  test("an unrelated session inserted before does not re-key a named session"):
+    val (store, dir) = freshStore()
+    val agent = new StubAgent
+
+    // Run 1: only "implementer" is requested.
+    val implementerRun1 =
+      agent.session("implementer", "brief")(using makeControl(store, dir))
+
+    // Run 2 (fresh FlowControl, same underlying store — a resumed run whose
+    // flow now starts a "planner" session first): "planner" is requested
+    // before "implementer". Stage-style per-name keying means this insertion
+    // must not perturb "implementer"'s identity or occurrence.
+    val fc2 = makeControl(store, dir)
+    val _ = agent.session("planner", "plan seed")(using fc2)
+    val implementerRun2 = agent.session("implementer", "brief")(using fc2)
+
+    assertEquals(implementerRun2, implementerRun1)
+    val implementerRecord =
+      store.load().get.sessions.find(_.name == "implementer").get
+    assertEquals(implementerRecord.occurrence, 0)
 
   test("resume with a matching seed emits no divergence warning"):
     val (store, dir) = freshStore()
     val agent = new StubAgent
-    val _ = agent.session("plan brief")(using makeControl(store, dir))
+    val _ = agent.session("implementer", "plan brief")(using
+      makeControl(
+        store,
+        dir
+      )
+    )
     val recorder = new RecordingListener
     val _ =
-      agent.session("plan brief")(using makeControl(store, dir, List(recorder)))
+      agent.session("implementer", "plan brief")(using
+        makeControl(store, dir, List(recorder))
+      )
     assert(
       !recorder.steps.exists(_.contains("warning")),
       s"no warning expected; got: ${recorder.steps}"
@@ -114,32 +147,41 @@ class SessionTest extends FunSuite:
     val agent = new StubAgent:
       override private[orca] def backendTag: Option[BackendTag] =
         Some(BackendTag.Codex)
-    val _ = agent.session("plan brief")(using fc)
+    val _ = agent.session("implementer", "plan brief")(using fc)
     assertEquals(store.load().get.sessions.head.backend, Some("Codex"))
 
   test("first agent.session call records no backend when the agent has none"):
     val (store, dir) = freshStore()
     val fc = makeControl(store, dir)
     val agent = new StubAgent
-    val _ = agent.session("plan brief")(using fc)
+    val _ = agent.session("implementer", "plan brief")(using fc)
     assertEquals(store.load().get.sessions.head.backend, None)
 
-  test("resume with a divergent seed at the same index warns loudly"):
-    // The positional key (index 0) matches but the seed differs — the most
-    // likely symptom of a shifted `session(...)` call sequence.
+  test(
+    "resume with a divergent seed at the same name+occurrence warns loudly"
+  ):
+    // The key (name "implementer", occurrence 0) matches but the seed
+    // differs — the seed was edited between runs.
     val (store, dir) = freshStore()
     val agent = new StubAgent
     val originalId =
-      agent.session("original seed")(using makeControl(store, dir))
+      agent.session("implementer", "original seed")(using
+        makeControl(
+          store,
+          dir
+        )
+      )
     val recorder = new RecordingListener
     val resumedId =
-      agent.session("different seed")(using
+      agent.session("implementer", "different seed")(using
         makeControl(store, dir, List(recorder))
       )
     // Still returns the recorded id (re-seed is the safe fallback)...
     assertEquals(resumedId, originalId)
-    // ...but the divergence is surfaced.
+    // ...but the divergence is surfaced, naming the session and occurrence.
     assert(
-      recorder.steps.exists(s => s.contains("warning") && s.contains("#0")),
+      recorder.steps.exists(s =>
+        s.contains("warning") && s.contains("implementer") && s.contains("#0")
+      ),
       s"expected a divergence warning; got: ${recorder.steps}"
     )

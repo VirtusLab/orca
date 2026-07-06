@@ -15,7 +15,8 @@ import scala.util.control.NonFatal
   * Each mode has a single `run(input, session = …, config = …)` method that
   * always returns `(SessionId[B], output)`. Pass a `SessionId[B]` across calls
   * to keep one conversation alive — in a flow, obtain a resumable one with
-  * `agent.session(seed)` — or omit it to get a fresh one-shot session per call.
+  * `agent.session(name, seed)` — or omit it to get a fresh one-shot session per
+  * call.
   *
   * The API never hides the autonomous-vs-interactive choice behind a default —
   * it's always visible at the call site as the leftmost segment after the tool
@@ -176,8 +177,8 @@ trait Agent[B <: BackendTag]:
     * one-off conversations (e.g. each reviewer's own turn). NOT resume-aware:
     * it isn't recorded in the progress log, so a re-run mints a different id.
     * Flow scripts that need a session to survive restarts use
-    * `agent.session(seed)` instead, which keys off the log. `private[orca]` —
-    * internal.
+    * `agent.session(name, seed)` instead, which keys off the log.
+    * `private[orca]` — internal.
     *
     * Default implementation generates a UUID via [[SessionId.fresh]]; backends
     * that need a different format (or eager server-side allocation) override.

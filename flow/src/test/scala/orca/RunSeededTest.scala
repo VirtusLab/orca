@@ -230,7 +230,8 @@ class RunSeededTest extends FunSuite:
   test("live session: prompt forwarded verbatim, no preamble, no seed"):
     val seed = "You are a planning agent."
     val fc = makeControl(
-      sessions = List(SessionRecord(index = 0, id = testSessionId, seed = seed))
+      sessions =
+        List(SessionRecord(occurrence = 0, id = testSessionId, seed = seed))
     )
     val agent = new StubAgentForSeeded(existsResult = true)
     val originalPrompt = "implement feature X"
@@ -246,7 +247,8 @@ class RunSeededTest extends FunSuite:
   ):
     val seed = "You are a planning agent."
     val fc = makeControl(
-      sessions = List(SessionRecord(index = 0, id = testSessionId, seed = seed))
+      sessions =
+        List(SessionRecord(occurrence = 0, id = testSessionId, seed = seed))
     )
     val agent = new StubAgentForSeeded(existsResult = false)
     val originalPrompt = "implement feature X"
@@ -268,7 +270,7 @@ class RunSeededTest extends FunSuite:
     val seed = "You are a planning agent."
     val fc = makeControl(
       sessions =
-        List(SessionRecord(index = 0, id = testSessionId, seed = seed)),
+        List(SessionRecord(occurrence = 0, id = testSessionId, seed = seed)),
       completedStages = List("triage", "implement")
     )
     val agent = new StubAgentForSeeded(existsResult = false)
@@ -336,7 +338,8 @@ class RunSeededTest extends FunSuite:
     // original prompt but MUST NOT contain a seed blob (it's empty) and MUST
     // NOT start with `---` (the separator only appears between context and prompt).
     val fc = makeControl(
-      sessions = List(SessionRecord(index = 0, id = testSessionId, seed = "")),
+      sessions =
+        List(SessionRecord(occurrence = 0, id = testSessionId, seed = "")),
       completedStages = List("triage")
     )
     val agent = new StubAgentForSeeded(existsResult = false)
@@ -359,7 +362,8 @@ class RunSeededTest extends FunSuite:
   test("runSeeded returns the session id and output from autonomous.run"):
     val seed = "seed text"
     val fc = makeControl(
-      sessions = List(SessionRecord(index = 0, id = testSessionId, seed = seed))
+      sessions =
+        List(SessionRecord(occurrence = 0, id = testSessionId, seed = seed))
     )
     val agent =
       new StubAgentForSeeded(existsResult = false, runResult = "agent output")
@@ -373,7 +377,7 @@ class RunSeededTest extends FunSuite:
   ):
     val fc = makeControl(
       sessions =
-        List(SessionRecord(index = 0, id = testSessionId, seed = "seed"))
+        List(SessionRecord(occurrence = 0, id = testSessionId, seed = "seed"))
     )
     val agent = new StubAgentForSeeded(
       existsResult = false,
@@ -390,7 +394,7 @@ class RunSeededTest extends FunSuite:
     // pi: ephemeral sessions, resumeWireId returns None.
     val fc = makeControl(
       sessions =
-        List(SessionRecord(index = 0, id = testSessionId, seed = "seed"))
+        List(SessionRecord(occurrence = 0, id = testSessionId, seed = "seed"))
     )
     val agent =
       new StubAgentForSeeded(existsResult = false, learnedWireId = None)
@@ -410,7 +414,7 @@ class RunSeededTest extends FunSuite:
     val fc = makeControl(
       sessions = List(
         SessionRecord(
-          index = 0,
+          occurrence = 0,
           id = testSessionId,
           seed = "seed",
           resumeWireId = Some("server-1")

@@ -119,8 +119,9 @@ class CommitMessageTest extends munit.FunSuite:
     private val occ = new ConcurrentHashMap[String, AtomicInteger]
     def nextOccurrence(name: String): Int =
       occ.computeIfAbsent(name, _ => new AtomicInteger(0)).getAndIncrement()
-    private val sessOcc = new AtomicInteger(0)
-    def nextSessionOccurrence(): Int = sessOcc.getAndIncrement()
+    private val sessOcc = new ConcurrentHashMap[String, AtomicInteger]
+    def nextSessionOccurrence(name: String): Int =
+      sessOcc.computeIfAbsent(name, _ => new AtomicInteger(0)).getAndIncrement()
 
   private def withCtx(
       agentStub: Agent[BackendTag.ClaudeCode.type]

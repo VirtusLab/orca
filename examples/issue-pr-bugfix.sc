@@ -73,7 +73,7 @@ flow(
   // Get-or-create the implementer session before the triage stage (pure:
   // reserves the session id, no LLM call). The seed primes it on first use
   // and is replayed if the backend session is lost on resume.
-  val session = claude.session(seed = issue.body)
+  val session = claude.session("fixer", seed = issue.body)
 
   val triage: Triage = stage("Triage"):
     // Autonomous triage, read-only (read/grep to verify the report).

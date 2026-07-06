@@ -405,7 +405,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     val store = storeWith(
       SessionRecord(
-        index = 0,
+        occurrence = 0,
         id = "c-1",
         seed = "s",
         resumeWireId = Some("srv-9"),
@@ -424,7 +424,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     val store = storeWith(
       SessionRecord(
-        index = 0,
+        occurrence = 0,
         id = "old-1",
         seed = "s",
         resumeWireId = Some("srv-1")
@@ -438,7 +438,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   test("rehydrateSessions skips a record with an unknown backend tag"):
     val store = storeWith(
       SessionRecord(
-        index = 0,
+        occurrence = 0,
         id = "x-1",
         seed = "s",
         resumeWireId = Some("srv-2"),
@@ -493,7 +493,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val _ = git.commit("orca: progress log")
     store.upsertSession(
       SessionRecord(
-        index = 0,
+        occurrence = 0,
         id = "client-uuid",
         seed = "brief",
         resumeWireId = Some("ses_server_1")

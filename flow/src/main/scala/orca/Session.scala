@@ -9,40 +9,45 @@ import orca.progress.{ProgressLog, SessionRecord}
   * remains in `tools` (which `flow` depends on, not the reverse).
   */
 extension [B <: BackendTag](agent: Agent[B])
-  /** Get-or-create a session keyed by call-occurrence in this run's log.
+  /** Get-or-create a session keyed by `name` + call-occurrence in this run's
+    * log, stage-style (mirrors `stage(name)`'s id, ADR 0018 §2.1).
     *
-    * Reserves/returns a [[SessionId]] and records `(id, seed)` in the progress
-    * log; the backend conversation is created lazily on the first gated `run`.
-    * On resume, returns the id recorded at this occurrence (does not mint a
-    * second). The seed is only recorded here — applying it on first use and
-    * replaying it on loss are separate later tasks.
+    * Reserves/returns a [[SessionId]] and records `(name, occurrence, id,
+    * seed)` in the progress log; the backend conversation is created lazily on
+    * the first gated `run`. On resume, returns the id recorded at this `(name,
+    * occurrence)`, matching `fc.nextSessionOccurrence(name)` against the
+    * same-named calls so far in this run (does not mint a second). The seed is
+    * only recorded here — applying it on first use and replaying it on loss are
+    * separate later tasks.
     *
-    * The key is **positional** (the n-th `session(...)` call in the run), like
-    * `stage`'s id. So across runs, keep `session(...)` calls in a stable order
-    * and unconditional — reordering them, or skipping one on some runs, shifts
-    * every later session's identity and loses resume continuity.
+    * Because the key is `name` + occurrence rather than call position, identity
+    * survives inserting/reordering *other* `session(...)` calls between runs —
+    * only the call order among calls sharing this `name` matters for
+    * disambiguating duplicates.
     *
     * No LLM call and no commit — so it is callable outside a stage. (The id is
     * a fresh UUID, so it is not referentially transparent.) The store write
     * uses a runtime-minted `InStage.unsafe` (the same pattern the `stage`
     * runtime uses for setup-phase mutations).
     */
-  def session(seed: String)(using fc: FlowControl): SessionId[B] =
-    val idx = fc.nextSessionOccurrence()
-    fc.progressStore.load().flatMap(_.sessions.find(_.index == idx)) match
+  def session(name: String, seed: String)(using fc: FlowControl): SessionId[B] =
+    val occ = fc.nextSessionOccurrence(name)
+    fc.progressStore
+      .load()
+      .flatMap(
+        _.sessions.find(r => r.name == name && r.occurrence == occ)
+      ) match
       case Some(recorded) =>
-        // Sessions are keyed by positional index (see the scaladoc), so a
-        // recorded seed differing from this call's means the `session(...)`
-        // sequence likely shifted between runs, or the author edited the seed.
-        // The recorded session is reused either way (re-seed is the safe
-        // fallback, ADR 0018 §2.6) — surface the divergence rather than resume
-        // the wrong session silently.
+        // Sessions are keyed by name + occurrence (see the scaladoc), so a
+        // recorded seed differing from this call's means the seed was edited
+        // between runs. The recorded session is reused either way (re-seed is
+        // the safe fallback, ADR 0018 §2.6) — surface the divergence rather
+        // than resume the wrong session silently.
         if recorded.seed != seed then
           fc.emit(
             OrcaEvent.Step(
-              s"warning: session #$idx resumed with a seed differing from the " +
-                "recorded one; using the recorded session (the call sequence " +
-                "may have shifted, or the seed was edited)"
+              s"warning: session '$name' #$occ recorded seed differs for " +
+                "this name — the seed was edited; reusing the recorded session"
             )
           )
         SessionId[B](recorded.id)
@@ -52,7 +57,8 @@ extension [B <: BackendTag](agent: Agent[B])
         given InStage = InStage.unsafe
         fc.progressStore.upsertSession(
           SessionRecord(
-            index = idx,
+            name = name,
+            occurrence = occ,
             id = freshId.value,
             seed = seed,
             backend = agent.backendTag.map(_.toString)

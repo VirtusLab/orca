@@ -15,9 +15,9 @@ trait AgentCall[B <: BackendTag, O]:
   def interactive: InteractiveAgentCall[B, O]
 
 /** Autonomous structured calls — single agentic turn, no human in the loop.
-  * Single method: pass a [[SessionId]] (typically from `agent.session(seed)`
-  * (in a flow) or the default fresh one); the library starts on the first call,
-  * resumes on subsequent calls. Returns the (stable) session id.
+  * Single method: pass a [[SessionId]] (typically from `agent.session(name,
+  * seed)` (in a flow) or the default fresh one); the library starts on the
+  * first call, resumes on subsequent calls. Returns the (stable) session id.
   */
 trait AutonomousAgentCall[B <: BackendTag, O]:
   /** Run the agent on `input`. When `emitPrompt` is true (the default), fires
@@ -48,7 +48,7 @@ trait InteractiveAgentCall[B <: BackendTag, O]:
 
 /** Free-form text autonomous calls — the `Agent.autonomous` shape (the
   * non-structured sibling of [[AutonomousAgentCall]]). Single method: pass a
-  * [[SessionId]] (typically from `agent.session(seed)` (in a flow) or the
+  * [[SessionId]] (typically from `agent.session(name, seed)` (in a flow) or the
   * default fresh one) and the library starts the session on the first call,
   * resumes it on subsequent calls. Returns the (stable) session id so the
   * caller can pass it back unchanged.

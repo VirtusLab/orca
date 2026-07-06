@@ -8,7 +8,7 @@ import orca.agents.{BackendTag, SessionId}
   * these so the caller can choose to continue the same conversation for the
   * downstream implementation phase (the agent keeps the context it built up
   * while planning / assessing / triaging) or discard the session and mint a
-  * resumable one via `agent.session(seed)`.
+  * resumable one via `agent.session(name, seed)`.
   *
   * Autonomous planning runs read-only, but the returned `sessionId` is still
   * resumable: a later writable `agent.autonomous.run(task, sessionId)` reuses

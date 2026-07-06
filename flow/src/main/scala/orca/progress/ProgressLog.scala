@@ -23,9 +23,15 @@ case class ProgressHeader(
 case class StageEntry(id: String, name: String, resultJson: String)
     derives JsonData
 
-/** A persisted session: the occurrence index, a minted UUID, the seed string
+/** A persisted session: the name + occurrence that key it (stage-style — see
+  * [[orca.FlowControl.nextSessionOccurrence]]), a minted UUID, the seed string
   * the author supplied, and — when the session is durably resumable — the wire
   * id to resume against.
+  *
+  * `name` + `occurrence` default to `""` + `0` so log files written before this
+  * field existed still decode — they degrade to that key and simply re-seed on
+  * the next `session(...)` call. The progress log is a per-run artifact;
+  * cross-version resume of an in-flight run is not supported.
   *
   * `id` is the stable client id the framework hands across calls;
   * [[SessionRecord.resumeWireId]] is the id to put on the wire when resuming
@@ -56,7 +62,8 @@ case class StageEntry(id: String, name: String, resultJson: String)
   * `None` record falls back to the lead, the pre-tagging behaviour.
   */
 case class SessionRecord(
-    index: Int,
+    name: String = "",
+    occurrence: Int = 0,
     id: String,
     seed: String,
     resumeWireId: Option[String] = None,

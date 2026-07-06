@@ -20,9 +20,10 @@ import orca.agents.{Announce, JsonData}
   * Produced by [[Plan.autonomous.triage]] / [[Plan.interactive.triage]], both
   * wrapped in a [[Sessioned]] that carries the triage session id. Flows
   * typically discard the triage session (calling `.value`) and start a FRESH
-  * implementer session seeded with the issue body (`agent.session(seed =
-  * issue.body)`) rather than continuing the triage session — so the `Sessioned`
-  * wrapper is available but no carry-over is guaranteed.
+  * implementer session seeded with the issue body
+  * (`agent.session("implementer", seed = issue.body)`) rather than continuing
+  * the triage session — so the `Sessioned` wrapper is available but no
+  * carry-over is guaranteed.
   *
   * `derives JsonData` so a `stage` can record and replay a `Triage` result —
   * the triage stage is a checkpoint before the failing-test / fix pipeline (ADR

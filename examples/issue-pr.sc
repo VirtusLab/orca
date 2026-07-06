@@ -74,7 +74,7 @@ flow(
   maybePlan.foreach: plan =>
     // Get-or-create the implementer session. Seeded with the brief so the
     // agent has codebase context; replayed on resume if the session is lost.
-    val session = claude.session(seed = plan.brief)
+    val session = claude.session("implementer", seed = plan.brief)
 
     for task <- plan.tasks do
       stage(s"task: ${task.title}"):    // skipped on resume if already done

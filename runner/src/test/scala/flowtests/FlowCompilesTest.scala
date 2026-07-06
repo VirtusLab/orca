@@ -39,7 +39,7 @@ object FlowCanary:
   def structuredResult(): Unit =
     flow(OrcaArgs(), _.claude):
       stage("plan"):
-        val session = claude.session(seed = userPrompt)
+        val session = claude.session("plan", seed = userPrompt)
         val _ = claude.resultAs[FlowPlan].interactive.run(userPrompt, session)
         val _ = claude.resultAs[FlowPlan].interactive.run("refine", session)
         val _ = claude.resultAs[FlowPlan].autonomous.run(userPrompt, session)
@@ -51,7 +51,7 @@ object FlowCanary:
   def continuedSession(): Unit =
     flow(OrcaArgs(), _.claude):
       stage("impl"):
-        val session = claude.session(seed = userPrompt)
+        val session = claude.session("impl", seed = userPrompt)
         val _ = claude.autonomous.run("kick off", session)
         val _ = claude.autonomous.run("keep going", session)
         val _ = claude.autonomous.run("one-shot")
@@ -248,14 +248,14 @@ object FlowCanary:
 
   /** `implement.sc`: autonomous plan → session seeded from brief → task loop
     * with `runSeeded` + `reviewAndFixLoop`. The session-based shapes
-    * (`session(seed=)`, `runSeeded`) are the core new-API additions.
+    * (`session(name, seed=)`, `runSeeded`) are the core new-API additions.
     */
   def implementFlowShape(): Unit =
     flow(OrcaArgs(), _.claude):
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude).value
 
-      val session = claude.session(seed = plan.brief)
+      val session = claude.session("implementer", seed = plan.brief)
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
@@ -279,7 +279,7 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.interactive.from(userPrompt, claude).value
 
-      val session = claude.session(seed = plan.brief)
+      val session = claude.session("implementer", seed = plan.brief)
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
@@ -301,7 +301,7 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude).reviewed(claude).value
 
-      val session = claude.session(seed = plan.brief)
+      val session = claude.session("implementer", seed = plan.brief)
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
@@ -345,7 +345,7 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude.opus).value
 
-      val session = claude.session(seed = plan.brief)
+      val session = claude.session("implementer", seed = plan.brief)
       val reviewers: List[Agent[?]] = allReviewers(codex)
 
       for task <- plan.tasks do
@@ -391,7 +391,7 @@ object FlowCanary:
           gh.writeComment(issueHandle, rejectionBody)
 
       maybePlan.foreach: plan =>
-        val session = claude.session(seed = plan.brief)
+        val session = claude.session("implementer", seed = plan.brief)
 
         for task <- plan.tasks do
           stage(s"task: ${task.title}"):
@@ -429,7 +429,7 @@ object FlowCanary:
       // Pure read outside any stage.
       val issue: Issue = gh.readIssue(issueHandle)
 
-      val session = claude.session(seed = issue.body)
+      val session = claude.session("fixer", seed = issue.body)
 
       val triage: Triage = stage("Triage"):
         Plan.autonomous.triage(issue.body, claude).value

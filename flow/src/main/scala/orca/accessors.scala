@@ -34,8 +34,8 @@ def userPrompt(using ctx: FlowContext): String = ctx.userPrompt
   * Two ways to drive a model in a flow:
   *   - **`agent`** — the leading agent, backend-agnostic. Use it for the flow's
   *     planning / implementing / reviewing and its session
-  *     (`agent.session(seed)` → `agent.runSeeded`): switch the selector and the
-  *     whole flow follows. A session threads because `agent` is
+  *     (`agent.session(name, seed)` → `agent.runSeeded`): switch the selector
+  *     and the whole flow follows. A session threads because `agent` is
   *     `Agent[ctx.LeadB]` (pinned to the backend), not an erased `Agent[?]`.
   *   - **a concrete accessor + model** — `claude.opus`, `claude.sonnet`,
   *     `codex.mini`, `opencode.openaiGpt5Mini`. Use these for a specific

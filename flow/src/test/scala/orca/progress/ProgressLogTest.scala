@@ -49,8 +49,8 @@ class ProgressLogTest extends FunSuite:
         )
       ),
       sessions = List(
-        SessionRecord(index = 0, id = "sess-uuid-1", seed = "plan brief"),
-        SessionRecord(index = 1, id = "sess-uuid-2", seed = "other seed")
+        SessionRecord(occurrence = 0, id = "sess-uuid-1", seed = "plan brief"),
+        SessionRecord(occurrence = 1, id = "sess-uuid-2", seed = "other seed")
       )
     )
     assertEquals(roundTrip(log), log)
@@ -61,7 +61,7 @@ class ProgressLogTest extends FunSuite:
       entries = Nil,
       sessions = List(
         SessionRecord(
-          index = 0,
+          occurrence = 0,
           id = "client-uuid",
           seed = "brief",
           resumeWireId = Some("ses_server_123")
@@ -76,7 +76,7 @@ class ProgressLogTest extends FunSuite:
       entries = Nil,
       sessions = List(
         SessionRecord(
-          index = 0,
+          occurrence = 0,
           id = "client-uuid",
           seed = "brief",
           resumeWireId = Some("ses_server_123"),
@@ -108,6 +108,19 @@ class ProgressLogTest extends FunSuite:
     val codec = summon[JsonData[ProgressLog]].codec
     val decoded = readFromString[ProgressLog](oldJson)(using codec)
     assertEquals(decoded.sessions.head.resumeWireId, None)
+
+  test(
+    "SessionRecord JSON without name/occurrence fields decodes to (\"\", 0) (back-compat)"
+  ):
+    // JSON produced before name/occurrence replaced the old positional index —
+    // it degrades to the default key and simply re-seeds on next use.
+    val oldJson =
+      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc"},""" +
+        """"entries":[],"sessions":[{"index":0,"id":"u","seed":"s"}]}"""
+    val codec = summon[JsonData[ProgressLog]].codec
+    val decoded = readFromString[ProgressLog](oldJson)(using codec)
+    assertEquals(decoded.sessions.head.name, "")
+    assertEquals(decoded.sessions.head.occurrence, 0)
 
   test(
     "ProgressLog JSON without a sessions field decodes to empty sessions list (back-compat)"

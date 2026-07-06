@@ -95,11 +95,21 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
       .getAndIncrement()
 
   // Independent of the stage counter so sessions can be obtained outside stages
-  // without perturbing stage occurrence indices.
+  // without perturbing stage occurrence indices. Keyed per-name, mirroring
+  // `occurrences` above.
   private val sessionOccurrences =
-    new java.util.concurrent.atomic.AtomicInteger(0)
+    new java.util.concurrent.ConcurrentHashMap[
+      String,
+      java.util.concurrent.atomic.AtomicInteger
+    ]
 
-  def nextSessionOccurrence(): Int = sessionOccurrences.getAndIncrement()
+  def nextSessionOccurrence(name: String): Int =
+    sessionOccurrences
+      .computeIfAbsent(
+        name,
+        _ => new java.util.concurrent.atomic.AtomicInteger(0)
+      )
+      .getAndIncrement()
 
 private[orca] object DefaultFlowContext:
 

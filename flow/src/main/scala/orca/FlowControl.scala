@@ -38,9 +38,10 @@ trait FlowControl extends FlowContext:
     */
   def nextOccurrence(stageName: String): Int
 
-  /** Next session occurrence index in this run: 0 for the first
-    * `agent.session(...)`, 1 for the second, and so on. Independent of the
-    * stage counter so sessions can be obtained outside stages without
-    * perturbing stage ids.
+  /** Next occurrence index for a session `name` in this run: 0 for the first
+    * `agent.session(name, ...)`, 1 for the second, and so on. Keyed per-name,
+    * mirroring [[nextOccurrence]] for stages, and independent of the stage
+    * counter so sessions can be obtained outside stages without perturbing
+    * stage ids.
     */
-  def nextSessionOccurrence(): Int
+  def nextSessionOccurrence(name: String): Int

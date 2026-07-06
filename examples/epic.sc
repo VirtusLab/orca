@@ -38,7 +38,7 @@ flow(OrcaArgs(args), _.claude):
   // Stable coder session reused across every task (and the docs pass) so the
   // agent retains context. Seeded with the plan brief; replayed on resume if
   // the backend session is lost.
-  val session = claude.session(seed = plan.brief)
+  val session = claude.session("implementer", seed = plan.brief)
 
   // Reviewers on codex; fixes go back to the Claude session that implemented.
   val reviewers: List[Agent[?]] = allReviewers(codex)

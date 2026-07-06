@@ -38,7 +38,7 @@ flow(OrcaArgs(args), _.claude):
 
   // Get-or-create the implementer session. The seed (plan brief) primes it on
   // first use and is replayed if the backend session is lost on resume.
-  val session = agent.session(seed = plan.brief)
+  val session = agent.session("implementer", seed = plan.brief)
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"): // skipped on resume if already done
