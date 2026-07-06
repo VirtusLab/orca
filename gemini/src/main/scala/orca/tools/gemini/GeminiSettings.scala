@@ -51,7 +51,7 @@ private[gemini] object GeminiSettings:
       else if os.exists(file) then
         val _ = os.remove(file)
 
-  /** Pure merge: inject `mcpServers.<ServerName>.httpUrl = mcpUrl` into the
+  /** Pure merge: inject `mcpServers.<ServerName> = {httpUrl, timeout}` into the
     * top-level settings object, preserving every other key.
     */
   private[gemini] def merge(content: String, mcpUrl: String): String =
@@ -61,9 +61,20 @@ private[gemini] object GeminiSettings:
       .map(raw => readFromString[Map[String, RawJson]](raw.value))
       .getOrElse(Map.empty)
     // Serialize the URL through the codec rather than interpolating it into a
-    // raw JSON string, so a value containing `"` or `\` stays valid JSON.
+    // raw JSON string, so a value containing `"` or `\` stays valid JSON. The
+    // entry is hand-assembled (rather than a single Map codec) because it's
+    // heterogeneous: a string URL and a numeric timeout.
+    //
+    // `timeout` (ms) is one of three renderings of
+    // [[orca.backend.mcp.AskUserMcpServer.ToolTimeout]] — claude JSON ms /
+    // codex TOML sec / gemini settings.json ms; keep in sync. Without it,
+    // gemini's own MCP client default (10 min) undercuts the shared 1h
+    // budget, giving up on `ask_user` mid-answer and firing a duplicate
+    // question.
     val orcaEntry = RawJson(
-      writeToString(Map("httpUrl" -> mcpUrl))(using strMapCodec)
+      s"""{"httpUrl":${writeToString(mcpUrl)(using
+          strCodec
+        )},"timeout":${AskUserMcpServer.ToolTimeout.toMillis}}"""
     )
     val mergedServers =
       servers + (AskUserMcpServer.ServerName -> orcaEntry)
@@ -90,5 +101,4 @@ private[gemini] object GeminiSettings:
 
   private given listCodec: JsonValueCodec[List[String]] = JsonCodecMaker.make
 
-  private given strMapCodec: JsonValueCodec[Map[String, String]] =
-    JsonCodecMaker.make
+  private given strCodec: JsonValueCodec[String] = JsonCodecMaker.make

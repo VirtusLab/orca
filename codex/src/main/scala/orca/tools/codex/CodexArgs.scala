@@ -105,6 +105,9 @@ private[codex] object CodexArgs:
     * 60s default to [[AskUserMcpServer.ToolTimeout]]. Without it, codex gives
     * up on `ask_user` after 60s and fires a follow-up — the user ends up
     * answering twice.
+    *
+    * One of three renderings of `AskUserMcpServer.ToolTimeout` — claude JSON ms
+    * / codex TOML sec / gemini settings.json ms; keep in sync.
     */
   private def mcpServerArgs(url: Option[String]): Seq[String] =
     url.toSeq.flatMap: u =>

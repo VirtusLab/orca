@@ -34,10 +34,24 @@ class GeminiSettingsTest extends munit.FunSuite:
     // can't break out of the string and produce invalid JSON.
     val merged = GeminiSettings.merge("{}", """http://h/"x\y""")
     val servers = topLevel(topLevel(merged)("mcpServers").value)
-    val httpUrl = readFromString[Map[String, String]](servers("orca").value)(
-      using JsonCodecMaker.make[Map[String, String]]
+    val orcaEntry = topLevel(servers("orca").value)
+    val httpUrl = readFromString[String](orcaEntry("httpUrl").value)(using
+      JsonCodecMaker.make[String]
     )
-    assertEquals(httpUrl("httpUrl"), """http://h/"x\y""")
+    assertEquals(httpUrl, """http://h/"x\y""")
+
+  test("merge sets the orca server's timeout to the shared ToolTimeout"):
+    // 3 600 000 ms == 1h == AskUserMcpServer.ToolTimeout, the same value
+    // claude (ms) and codex (sec) render for the same tool. Without this,
+    // gemini's own MCP client default (10 min) undercuts the shared budget —
+    // the same answer-twice bug class as claude/codex's 60s defaults, just
+    // with a longer fuse.
+    val merged = GeminiSettings.merge("{}", "http://x/mcp")
+    val servers = topLevel(topLevel(merged)("mcpServers").value)
+    assertEquals(
+      servers("orca").value,
+      """{"httpUrl":"http://x/mcp","timeout":3600000}"""
+    )
 
   test("register does NOT add an allowlist when the user has none"):
     // allowedMcpServerNames is an allowlist; adding one where there was none

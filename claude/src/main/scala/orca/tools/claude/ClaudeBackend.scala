@@ -257,6 +257,9 @@ private[orca] class ClaudeBackend(
     * up on `ask_user` if the human takes more than 60s to type their answer —
     * claude then synthesises a tool failure, fires a follow-up `ask_user` with
     * a similar question, and the user ends up answering twice.
+    *
+    * One of three renderings of `AskUserMcpServer.ToolTimeout` — claude JSON ms
+    * / codex TOML sec / gemini settings.json ms; keep in sync.
     */
   private def writeMcpConfig(
       server: AskUserMcpServer,

@@ -66,6 +66,9 @@ private[orca] object AskUserMcpServer:
     * `ask_user` fires while the user is still typing. Each consumer converts to
     * its native unit (claude wants ms, codex wants seconds, Netty wants
     * `FiniteDuration`).
+    *
+    * One of three renderings of this value across backends — claude JSON ms /
+    * codex TOML sec / gemini settings.json ms; keep in sync.
     */
   private[orca] val ToolTimeout: FiniteDuration = 1.hour
 
