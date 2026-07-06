@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.{AgentTurnFailed, OrcaInteractiveCancelled}
+import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.events.{OrcaEvent, OrcaListener, Usage}
 import orca.agents.{BackendTag, SessionId, WireSessionId}
 
@@ -89,6 +89,27 @@ class ConversationsTest extends munit.FunSuite:
       Conversations.drainAndCommit(conv, client, registry)
     assertEquals(thrown, failure)
     assertEquals(thrown.getMessage, "Prompt is too long")
+    assert(registry.resumeWireId(client).isEmpty) // never committed
+
+  test(
+    "a plain OrcaFlowException propagates verbatim through drainAndCommit " +
+      "(no relabelling)"
+  ):
+    // Same shape as the AgentTurnFailed test above, but with a plain
+    // OrcaFlowException — the exact type the deleted branch used to catch
+    // and rewrap as "$backendName CLI failed: ...". Both tests throw through
+    // the identical drainAndCommit code path; this one is the one that would
+    // actually fail if the relabelling branch were reintroduced, since a
+    // plain OrcaFlowException (unlike AgentTurnFailed) matches its catch
+    // clause.
+    val client = SessionId.fresh[BackendTag.Codex.type]
+    val registry = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+    val failure = new OrcaFlowException("boom")
+    val conv = new FailingConversation(failure)
+    val thrown = intercept[OrcaFlowException]:
+      Conversations.drainAndCommit(conv, client, registry)
+    assertEquals(thrown, failure)
+    assertEquals(thrown.getMessage, "boom")
     assert(registry.resumeWireId(client).isEmpty) // never committed
 
   test("drainAutonomous walks every event before returning the result"):
@@ -350,7 +371,7 @@ class ConversationsTest extends munit.FunSuite:
       Right(sampleResult.copy(wireId = reportedWire))
     )
     val result =
-      Conversations.runAutonomous("codex", client, registry, OrcaListener.noop):
+      Conversations.runAutonomous(client, registry, OrcaListener.noop):
         conv
     assertEquals(result.wireId, reportedWire)
     assert(registry.resumeWireId(client).contains(reportedWire))
@@ -364,7 +385,7 @@ class ConversationsTest extends munit.FunSuite:
     val failure = new AgentTurnFailed("turn blew up")
     val conv = new FailingConversation(failure)
     val thrown = intercept[AgentTurnFailed]:
-      Conversations.runAutonomous("codex", client, registry, OrcaListener.noop):
+      Conversations.runAutonomous(client, registry, OrcaListener.noop):
         conv
     assertEquals(thrown, failure)
     assertEquals(conv.cancelCount.get(), 1)

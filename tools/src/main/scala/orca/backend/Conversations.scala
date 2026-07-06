@@ -148,7 +148,6 @@ private[orca] object Conversations:
     * the conversation's forks bind to it.
     */
   def runAutonomous[B <: BackendTag](
-      backendName: String,
       session: SessionId[B],
       registry: SessionRegistry[B],
       events: OrcaListener

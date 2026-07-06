@@ -78,7 +78,7 @@ private[orca] class PiBackend(cli: CliRunner)
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Pi.type] =
-    Conversations.runAutonomous("pi", session, registry, events):
+    Conversations.runAutonomous(session, registry, events):
       openConversation(
         prompt = prompt,
         mode = SessionMode.Autonomous,

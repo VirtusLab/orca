@@ -119,7 +119,7 @@ private[orca] class ClaudeBackend(
     // surfaces as AgentTurnFailed and is never auto-retried — the commit
     // ordering matters for the NEXT `session(...)` call (or a resumed run),
     // which must see a registry that agrees with what claude actually did.
-    Conversations.runAutonomous("claude", session, registry, events):
+    Conversations.runAutonomous(session, registry, events):
       openConversation(
         prompt = prompt,
         mode = SessionMode.Autonomous,

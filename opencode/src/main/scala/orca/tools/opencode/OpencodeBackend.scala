@@ -94,7 +94,7 @@ private[orca] class OpencodeBackend(server: OpencodeServerHandle)
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Opencode.type] =
     val http = server.http
-    Conversations.runAutonomous("opencode", session, registry, events):
+    Conversations.runAutonomous(session, registry, events):
       openConversation(
         http,
         http.events(),
