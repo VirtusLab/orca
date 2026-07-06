@@ -546,7 +546,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchNaming = None,
         returnToStartBranch = false,
         progressStore = Some(store),
-        wiring = FlowWiring(claude = Some(recorder))
+        wiring = FlowWiring(claude = Some(_ => recorder))
       ):
         // The body observes the already-rehydrated mapping.
         assertEquals(
@@ -608,7 +608,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           branchNaming = None,
           returnToStartBranch = false,
           progressStore = None,
-          wiring = FlowWiring(opencode = Some(recorder))
+          wiring = FlowWiring(opencode = Some(_ => recorder))
         ):
           throw new RuntimeException("boom in body")
     assertEquals(thrown.getMessage, "boom in body")

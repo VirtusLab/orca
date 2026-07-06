@@ -7,7 +7,6 @@ import orca.tools.{GitHubTool}
 import orca.tools.{FsTool}
 import orca.agents.{
   Agent,
-  AgentConfig,
   BackendTag,
   ClaudeAgent,
   CodexAgent,
@@ -17,12 +16,12 @@ import orca.agents.{
 }
 import orca.events.{EventDispatcher, OrcaEvent}
 
-import orca.backend.Interaction
-import orca.tools.claude.{ClaudeBackend, DefaultClaudeAgent}
-import orca.tools.codex.{CodexBackend, DefaultCodexAgent}
-import orca.tools.opencode.{DefaultOpencodeAgent, OpencodeBackend}
-import orca.tools.pi.{DefaultPiAgent, PiBackend}
-import orca.tools.gemini.{GeminiBackend, DefaultGeminiAgent}
+import orca.backend.{AgentWiring, Interaction}
+import orca.tools.claude.ClaudeAgents
+import orca.tools.codex.CodexAgents
+import orca.tools.opencode.OpencodeAgents
+import orca.tools.pi.PiAgents
+import orca.tools.gemini.GeminiAgents
 import orca.subprocess.OsProcCliRunner
 import orca.tools.OsFsTool
 import orca.tools.OsGitTool
@@ -136,75 +135,37 @@ private[orca] object DefaultFlowContext:
       agentSelector: FlowContext => Agent[B],
       wiring: FlowWiring
   )(using ox.Ox, ox.channels.BufferCapacity): DefaultFlowContext[B] =
-    val prompts = wiring.prompts
+    // One wiring bundle handed to every agent factory — overrides and defaults
+    // build against the SAME event sink (dispatcher), interaction, workDir and
+    // prompts, so a user agent is wired into the run exactly like the default
+    // (complexity-review 7.8). The default configs (Opus1M/Pro pins) live in
+    // the per-backend `*Agents.default` factories, the single source of truth.
+    val agentWiring = AgentWiring(
+      events = dispatcher,
+      interaction = interaction,
+      workDir = workDir,
+      prompts = wiring.prompts
+    )
     new DefaultFlowContext[B](
       userPrompt = userPrompt,
       dispatcher = dispatcher,
       agentSelector = agentSelector,
-      claude = wiring.claude.getOrElse(
-        new DefaultClaudeAgent(
-          // `cwdForProbe = workDir`: agents SPAWN with the flow's per-call
-          // workDir (below), which in a worktree flow differs from the
-          // process's `os.pwd` default — the existence probe must check the
-          // same directory the transcript actually lands under, or a resumed
-          // worktree flow always re-seeds. See `ClaudeBackend.cwdForProbe`.
-          backend = new ClaudeBackend(OsProcCliRunner, cwdForProbe = workDir),
-          // Bare `claude` defaults to Opus with the 1M context window — the
-          // implementer session is long-lived, so it needs the big window.
-          // `claude.sonnet` / `claude.haiku` opt down for cheap one-shots.
-          config =
-            AgentConfig.default.copy(model = Some(DefaultClaudeAgent.Opus1M)),
-          prompts = prompts,
-          workDir = workDir,
-          events = dispatcher,
-          interaction = interaction
-        )
-      ),
-      codex = wiring.codex.getOrElse(
-        new DefaultCodexAgent(
-          backend = new CodexBackend(OsProcCliRunner),
-          config = AgentConfig.default,
-          prompts = prompts,
-          workDir = workDir,
-          events = dispatcher,
-          interaction = interaction
-        )
-      ),
-      opencode = wiring.opencode.getOrElse(
-        new DefaultOpencodeAgent(
-          backend =
-            OpencodeBackend(OsProcCliRunner, workDir, wiring.opencodeLauncher),
-          config = AgentConfig.default,
-          prompts = prompts,
-          workDir = workDir,
-          events = dispatcher,
-          interaction = interaction
-        )
-      ),
-      pi = wiring.pi.getOrElse(
-        new DefaultPiAgent(
-          backend = new PiBackend(OsProcCliRunner),
-          config = AgentConfig.default,
-          prompts = prompts,
-          workDir = workDir,
-          events = dispatcher,
-          interaction = interaction
-        )
-      ),
-      gemini = wiring.gemini.getOrElse(
-        new DefaultGeminiAgent(
-          backend = new GeminiBackend(OsProcCliRunner),
-          // Bare `gemini` pins Gemini Pro (the strong model, like claude
-          // defaults to Opus for the long-lived implementer); `gemini.flash`
-          // opts down for cheap one-shots.
-          config =
-            AgentConfig.default.copy(model = Some(DefaultGeminiAgent.Pro)),
-          prompts = prompts,
-          workDir = workDir,
-          events = dispatcher,
-          interaction = interaction
-        )
-      ),
+      claude = wiring.claude
+        .map(_(agentWiring))
+        .getOrElse(ClaudeAgents.default(agentWiring)),
+      codex = wiring.codex
+        .map(_(agentWiring))
+        .getOrElse(CodexAgents.default(agentWiring)),
+      opencode = wiring.opencode
+        .map(_(agentWiring))
+        .getOrElse(
+          OpencodeAgents.default(agentWiring, wiring.opencodeLauncher)
+        ),
+      pi =
+        wiring.pi.map(_(agentWiring)).getOrElse(PiAgents.default(agentWiring)),
+      gemini = wiring.gemini
+        .map(_(agentWiring))
+        .getOrElse(GeminiAgents.default(agentWiring)),
       git = wiring.git.getOrElse(new OsGitTool(workDir, dispatcher)),
       gh = wiring.gh.getOrElse(
         new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)

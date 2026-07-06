@@ -17,7 +17,8 @@ import orca.agents.{
   SessionId,
   ToolSet
 }
-import orca.events.{CostTracker, OrcaEvent, Usage}
+import orca.events.{CostTracker, OrcaEvent, OrcaListener, Usage}
+import orca.backend.AgentWiring
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
 
@@ -94,7 +95,7 @@ class OrcaOverridesTest extends munit.FunSuite:
         args = OrcaArgs(),
         agent = _ => fakeClaude,
         workDir = TempRepo.create(),
-        claude = Some(fakeClaude),
+        claude = Some(_ => fakeClaude),
         interaction = Some(interaction)
       ):
         observed = summon[FlowContext].claude.autonomous.run("hi")._2
@@ -136,7 +137,7 @@ class OrcaOverridesTest extends munit.FunSuite:
         args = OrcaArgs(),
         agent = stubLead,
         workDir = TempRepo.create(),
-        opencode = Some(fakeOpencode),
+        opencode = Some(_ => fakeOpencode),
         interaction = Some(interaction)
       ):
         observed = summon[FlowContext].opencode.autonomous.run("hi")._2
@@ -172,11 +173,79 @@ class OrcaOverridesTest extends munit.FunSuite:
         args = OrcaArgs(),
         agent = stubLead,
         workDir = TempRepo.create(),
-        pi = Some(fakePi),
+        pi = Some(_ => fakePi),
         interaction = Some(interaction)
       ):
         observed = pi.autonomous.run("hi")._2
     assertEquals(observed, "pi: hi")
+
+  test(
+    "an agent-override factory receives the run's event sink (7.8): its TokensUsed reaches extraListeners"
+  ):
+    // The pin for complexity-review 7.8: a user agent built by the override
+    // factory must land on the SAME dispatcher as the defaults, so the tokens
+    // it spends reach the cost tracker and terminal. The factory receives
+    // `w.events`; the stub emits a TokensUsed through it on `run`. The old
+    // `Option[Agent]` overrides were built before the dispatcher existed and
+    // could never do this.
+    def wiredClaude(events: OrcaListener): ClaudeAgent = new ClaudeAgent:
+      val name = "wired"
+      def haiku = this
+      def sonnet = this
+      def opus = this
+      def fable = this
+      def withModel(model: Model) = this
+      def withNetworkTools(t: Seq[String]) = this
+      def withConfig(c: AgentConfig) = this
+      def withSystemPrompt(p: String) = this
+      def withName(n: String) = this
+      def withTools(tools: ToolSet) = this
+      val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
+        new AutonomousTextCall[BackendTag.ClaudeCode.type]:
+          def run(
+              p: String,
+              session: SessionId[BackendTag.ClaudeCode.type],
+              c: AgentConfig,
+              emitPrompt: Boolean
+          )(using
+              orca.InStage
+          ): (SessionId[BackendTag.ClaudeCode.type], String) =
+            events.onEvent(
+              OrcaEvent.TokensUsed(
+                "wired",
+                Some(Model("wired-model")),
+                Usage(7L, 3L, None)
+              )
+            )
+            (SessionId[BackendTag.ClaudeCode.type]("wired-sid"), s"ok: $p")
+      def resultAs[O: JsonData: Announce]
+          : AgentCall[BackendTag.ClaudeCode.type, O] = ???
+    val factory: AgentWiring => ClaudeAgent = w => wiredClaude(w.events)
+    // Records which agents' TokensUsed reach a run listener — the override
+    // agent's "wired" event must be among them.
+    var seen: List[String] = Nil
+    val recorder: OrcaListener =
+      case OrcaEvent.TokensUsed(agent, _, _) => seen = agent :: seen
+      case _                                 => ()
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(),
+        agent = _.claude,
+        workDir = TempRepo.create(),
+        claude = Some(factory),
+        interaction = Some(interaction),
+        extraListeners = List(recorder)
+      ):
+        val _ = summon[FlowContext].claude.autonomous.run("hi")
+    assert(
+      seen.contains("wired"),
+      s"override's TokensUsed never reached the run listener; saw $seen"
+    )
 
   test("flow collects extra listeners alongside the interaction's"):
     val buf = new ByteArrayOutputStream()

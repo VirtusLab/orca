@@ -66,7 +66,7 @@ class OpencodeFlowTest extends munit.FunSuite:
         args = OrcaArgs(),
         agent = _.opencode,
         workDir = TempRepo.create(),
-        opencode = Some(canned),
+        opencode = Some(_ => canned),
         interaction = Some(interaction)
       ):
         observed = Some(

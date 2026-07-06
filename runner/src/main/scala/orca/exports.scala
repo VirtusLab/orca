@@ -57,4 +57,12 @@ export orca.tools.{
   PrHandle
 }
 export orca.tools.opencode.OpencodeLauncher
+// Agent-override surface: the wiring an override factory receives, plus each
+// backend's public default-agent factory (`ClaudeAgents.default(w).opus`, …).
+export orca.backend.AgentWiring
+export orca.tools.claude.ClaudeAgents
+export orca.tools.codex.CodexAgents
+export orca.tools.gemini.GeminiAgents
+export orca.tools.pi.PiAgents
+export orca.tools.opencode.OpencodeAgents
 export ox.either.orThrow

@@ -1,6 +1,6 @@
 package orca
 
-import orca.backend.Interaction
+import orca.backend.{AgentWiring, Interaction}
 import orca.events.{
   CostTracker,
   EventDispatcher,
@@ -60,6 +60,13 @@ import scala.util.control.NonFatal
   *   ...
   * ```
   *
+  * Agent overrides are `AgentWiring => Agent` factories, not prebuilt agents:
+  * the runtime hands the factory the run's wiring (event sink, interaction,
+  * workDir, prompts) so a user agent lands on the same dispatcher as the
+  * defaults — start from a per-backend factory and tune it, `claude = Some(w =>
+  * ClaudeAgents.default(w).opus)`, or wrap a prebuilt agent `claude = Some(_ =>
+  * myAgent)`.
+  *
   * The leading agent is named by a required `agent` selector resolved against
   * the built `FlowContext`: the only way to name an agent is the accessor on
   * the context, which isn't in scope at the `flow(...)` argument position, so
@@ -87,12 +94,12 @@ def flow[B <: BackendTag](
     branchNaming: Option[BranchNamingStrategy] = None,
     returnToStartBranch: Boolean = false,
     progressStore: Option[ProgressStore] = None,
-    claude: Option[ClaudeAgent] = None,
-    codex: Option[CodexAgent] = None,
-    opencode: Option[OpencodeAgent] = None,
+    claude: Option[AgentWiring => ClaudeAgent] = None,
+    codex: Option[AgentWiring => CodexAgent] = None,
+    opencode: Option[AgentWiring => OpencodeAgent] = None,
     opencodeLauncher: OpencodeLauncher = OpencodeLauncher.default,
-    pi: Option[PiAgent] = None,
-    gemini: Option[GeminiAgent] = None,
+    pi: Option[AgentWiring => PiAgent] = None,
+    gemini: Option[AgentWiring => GeminiAgent] = None,
     git: Option[GitTool] = None,
     gh: Option[GitHubTool] = None,
     fs: Option[FsTool] = None,
