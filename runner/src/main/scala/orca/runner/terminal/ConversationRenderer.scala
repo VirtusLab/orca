@@ -182,8 +182,7 @@ private[terminal] class ConversationRenderer(
     * content stays aligned with the leading glyph.
     */
   private def appendBlock(s: String): Unit =
-    val indent = currentIndent()
-    output.log(indent + s.replace("\n", "\n" + indent))
+    output.log(Text.indentBlock(currentIndent(), s))
 
   // --- Prompts ---
 

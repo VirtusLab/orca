@@ -23,3 +23,11 @@ private[terminal] object Text:
   def oneLine(s: String, max: Int): String =
     val collapsed = s.replaceAll("\\s+", " ").trim
     truncate(collapsed, max)
+
+  /** Prefix `text` with `indent`, and re-indent every embedded newline so a
+    * multi-line block stays aligned under the leading glyph/indent. Shared by
+    * [[TerminalEventListener]] and [[ConversationRenderer]], the two places
+    * that print a block under the current stage indent.
+    */
+  def indentBlock(indent: String, text: String): String =
+    indent + text.replace("\n", "\n" + indent)

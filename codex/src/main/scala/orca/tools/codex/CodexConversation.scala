@@ -17,8 +17,6 @@ import ox.Ox
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
-import java.util.concurrent.atomic.AtomicReference
-
 /** Drives a `codex exec --json` session to completion. Boilerplate lives in
   * [[orca.backend.ForkedConversation]]; this class supplies the codex-specific
   * protocol translation: JSONL → [[InboundEvent]] → `ConversationEvent`s.
@@ -51,13 +49,17 @@ private[codex] class CodexConversation(
 
   import CodexConversation.*
 
-  private val sessionIdRef = new AtomicReference[String]("")
-  private val modelRef = new AtomicReference[Option[String]](None)
+  // Reader-thread-confined: written only from `handle` (called from
+  // `handleLine`, on the reader fork) and read only from `handleTurnCompleted`
+  // on that same fork. `awaitResult`'s `readerFork.join()` publishes the final
+  // values to the caller.
+  private var sessionId: String = ""
+  private var model: Option[String] = None
 
   /** The most recent agent_message text the model produced. See the class
     * scaladoc for why we synthesise rather than receive.
     */
-  private val lastAgentMessage = new AtomicReference[String]("")
+  private var lastAgentMessage: String = ""
 
   /** MCP item ids whose `AssistantToolCall` echo we drop — the host-side bridge
     * has already surfaced the corresponding `UserQuestion` event, so rendering
@@ -117,8 +119,8 @@ private[codex] class CodexConversation(
 
   private def handle(event: InboundEvent): Unit = event match
     case InboundEvent.ThreadStarted(threadId, model) =>
-      sessionIdRef.set(threadId)
-      modelRef.set(model)
+      sessionId = threadId
+      this.model = model
     case InboundEvent.TurnStarted          => ()
     case InboundEvent.TurnCompleted(usage) => handleTurnCompleted(usage)
     case InboundEvent.ItemStarted(item)    => handleItemStarted(item)
@@ -164,7 +166,7 @@ private[codex] class CodexConversation(
 
   private def handleItemCompleted(item: Item): Unit = item match
     case Item.AgentMessage(_, text) =>
-      lastAgentMessage.set(text)
+      lastAgentMessage = text
       eventQueue.enqueue(ConversationEvent.AssistantTextDelta(text))
       eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
     case Item.Reasoning(_, text) if text.nonEmpty =>
@@ -211,10 +213,10 @@ private[codex] class CodexConversation(
 
   private def handleTurnCompleted(usage: Usage): Unit =
     val result = AgentResult(
-      wireId = WireSessionId[BackendTag.Codex.type](sessionIdRef.get()),
-      output = lastAgentMessage.get(),
+      wireId = WireSessionId[BackendTag.Codex.type](sessionId),
+      output = lastAgentMessage,
       usage = usage,
-      model = modelRef.get().map(Model.apply)
+      model = model.map(Model.apply)
     )
     succeedWith(result)
 

@@ -17,9 +17,6 @@ import orca.tools.GitTool
 import orca.tools.GitHubTool
 import orca.tools.OsGitTool
 
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
-
 /** Minimal FlowContext stub for unit-testing stage/fail and other helpers that
   * only touch `emit` + `userPrompt`. Tool accessors are lazy so merely
   * constructing the context doesn't throw; tests that exercise them should
@@ -71,17 +68,19 @@ class TestFlowControl(
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
-  private val occurrences = new ConcurrentHashMap[String, AtomicInteger]
+  // Reached only through FlowControl, which is thread-affine by R12 (ADR 0018
+  // §2.2) — a plain var mirrors the production DefaultFlowContext shape.
+  private var occurrences: Map[String, Int] = Map.empty
   def nextOccurrence(stageName: String): Int =
-    occurrences
-      .computeIfAbsent(stageName, _ => new AtomicInteger(0))
-      .getAndIncrement()
+    val n = occurrences.getOrElse(stageName, 0)
+    occurrences = occurrences.updated(stageName, n + 1)
+    n
 
-  private val sessionOccurrences = new ConcurrentHashMap[String, AtomicInteger]
+  private var sessionOccurrences: Map[String, Int] = Map.empty
   def nextSessionOccurrence(name: String): Int =
-    sessionOccurrences
-      .computeIfAbsent(name, _ => new AtomicInteger(0))
-      .getAndIncrement()
+    val n = sessionOccurrences.getOrElse(name, 0)
+    sessionOccurrences = sessionOccurrences.updated(name, n + 1)
+    n
 
 object TestFlowControl:
   /** Build a `TestFlowControl` over a fresh temp git repo (with one seed commit

@@ -15,8 +15,6 @@ import orca.subprocess.PipedCliProcess
 import orca.tools.gemini.jsonl.InboundEvent
 import ox.Ox
 
-import java.util.concurrent.atomic.AtomicReference
-
 /** Drives a `gemini -p <prompt> --output-format stream-json` session to
   * completion. Boilerplate lives in [[orca.backend.ForkedConversation]]; this
   * class supplies the gemini-specific protocol translation: JSONL →
@@ -47,8 +45,12 @@ private[gemini] class GeminiConversation(
     )
     with BufferedStderrDiagnostics[BackendTag.Gemini.type]:
 
-  private val sessionIdRef = new AtomicReference[String]("")
-  private val modelRef = new AtomicReference[Option[String]](None)
+  // Reader-thread-confined: written and read only from the JSONL reader
+  // thread (`handle`/`handleResult`, called from `handleLine`); `awaitResult`'s
+  // `readerFork.join()` publishes the final values to the caller. Same
+  // single-threaded-reader reasoning as `answer` and `toolNames` below.
+  private var sessionId: String = ""
+  private var model: Option[String] = None
 
   /** Accumulated assistant-role `message` content — the synthesised answer. See
     * the class scaladoc for why we build rather than receive.
@@ -101,8 +103,8 @@ private[gemini] class GeminiConversation(
 
   private def handle(event: InboundEvent): Unit = event match
     case InboundEvent.Init(sessionId, model) =>
-      sessionIdRef.set(sessionId)
-      modelRef.set(model)
+      this.sessionId = sessionId
+      this.model = model
     case InboundEvent.Message(role, content) => handleMessage(role, content)
     case InboundEvent.ToolUse(name, id, params) =>
       handleToolUse(name, id, params)
@@ -137,10 +139,10 @@ private[gemini] class GeminiConversation(
       )
     else
       val result = AgentResult(
-        wireId = WireSessionId[BackendTag.Gemini.type](sessionIdRef.get()),
+        wireId = WireSessionId[BackendTag.Gemini.type](sessionId),
         output = answer.toString,
         usage = usage,
-        model = modelRef.get().map(Model.apply)
+        model = model.map(Model.apply)
       )
       succeedWith(result)
 

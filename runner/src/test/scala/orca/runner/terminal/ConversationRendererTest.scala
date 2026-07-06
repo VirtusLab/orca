@@ -28,11 +28,10 @@ class ConversationRendererTest extends munit.FunSuite:
     // leak into the captured buffer.
     val terminalOutput =
       new TerminalOutputState(ps, useColor = false, animated = false)
-    val depth = new StageDepth
     new ConversationRenderer(
       useColor = false,
       output = terminalOutput,
-      currentIndent = () => depth.contentIndent,
+      currentIndent = () => "",
       showThinking = showThinking,
       structuredMode = structuredMode,
       prompter = prompter

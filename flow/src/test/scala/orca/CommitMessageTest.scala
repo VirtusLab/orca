@@ -16,9 +16,6 @@ import orca.progress.ProgressStore
 import orca.testkit.GitRepo
 import orca.tools.{GitTool, OsGitTool}
 
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
-
 /** Tests for the agent-generated commit-message path in `recordAndCommit`.
   *
   * Strategy: build a `TestFlowControlWithAgent` that wires a real temp repo and
@@ -116,12 +113,16 @@ class CommitMessageTest extends munit.FunSuite:
     lazy val gh: orca.tools.GitHubTool = stub("gh")
     lazy val fs: orca.tools.FsTool = stub("fs")
     def emit(event: OrcaEvent): Unit = ()
-    private val occ = new ConcurrentHashMap[String, AtomicInteger]
+    private var occ: Map[String, Int] = Map.empty
     def nextOccurrence(name: String): Int =
-      occ.computeIfAbsent(name, _ => new AtomicInteger(0)).getAndIncrement()
-    private val sessOcc = new ConcurrentHashMap[String, AtomicInteger]
+      val n = occ.getOrElse(name, 0)
+      occ = occ.updated(name, n + 1)
+      n
+    private var sessOcc: Map[String, Int] = Map.empty
     def nextSessionOccurrence(name: String): Int =
-      sessOcc.computeIfAbsent(name, _ => new AtomicInteger(0)).getAndIncrement()
+      val n = sessOcc.getOrElse(name, 0)
+      sessOcc = sessOcc.updated(name, n + 1)
+      n
 
   private def withCtx(
       agentStub: Agent[BackendTag.ClaudeCode.type]

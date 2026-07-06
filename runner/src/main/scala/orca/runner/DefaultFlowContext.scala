@@ -82,39 +82,26 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
-  // Per-run occurrence counter. A ConcurrentHashMap + AtomicInteger is pure
-  // atomic state (no class-level `var`); stages run sequentially, so this is
-  // really just sequential bookkeeping made safe by construction.
-  private val occurrences =
-    new java.util.concurrent.ConcurrentHashMap[
-      String,
-      java.util.concurrent.atomic.AtomicInteger
-    ]
+  // Reached only through FlowControl, which is thread-affine by R12 (ADR 0018
+  // §2.2) — stages and session(...) calls never run concurrently, so a plain
+  // var states the real invariant where a concurrent map would falsely
+  // advertise cross-thread sharing.
+  private var occurrences: Map[String, Int] = Map.empty
 
   def nextOccurrence(stageName: String): Int =
-    occurrences
-      .computeIfAbsent(
-        stageName,
-        _ => new java.util.concurrent.atomic.AtomicInteger(0)
-      )
-      .getAndIncrement()
+    val n = occurrences.getOrElse(stageName, 0)
+    occurrences = occurrences.updated(stageName, n + 1)
+    n
 
   // Independent of the stage counter so sessions can be obtained outside stages
   // without perturbing stage occurrence indices. Keyed per-name, mirroring
   // `occurrences` above.
-  private val sessionOccurrences =
-    new java.util.concurrent.ConcurrentHashMap[
-      String,
-      java.util.concurrent.atomic.AtomicInteger
-    ]
+  private var sessionOccurrences: Map[String, Int] = Map.empty
 
   def nextSessionOccurrence(name: String): Int =
-    sessionOccurrences
-      .computeIfAbsent(
-        name,
-        _ => new java.util.concurrent.atomic.AtomicInteger(0)
-      )
-      .getAndIncrement()
+    val n = sessionOccurrences.getOrElse(name, 0)
+    sessionOccurrences = sessionOccurrences.updated(name, n + 1)
+    n
 
 private[orca] object DefaultFlowContext:
 

@@ -8,7 +8,7 @@ import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import ox.{Ox, discard, fork, forkUnsupervised, Fork, UnsupervisedFork}
 import ox.channels.{Channel, ChannelClosed}
 
-import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
+import java.util.concurrent.atomic.AtomicBoolean
 import scala.util.control.NonFatal
 
 /** Structured-concurrency base for stream-driven [[Conversation]] drivers — the
@@ -78,11 +78,15 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
 
   /** In-stream settled outcome, written once by [[succeedWith]] / [[failWith]]
     * (on the reader thread, inside [[handleLine]]) and read by the reader at
-    * end-of-stream. Not read by [[awaitResult]] — the outcome flows out as the
-    * reader fork's return value.
+    * end-of-stream (`runReader`, same thread). Not read by [[awaitResult]] —
+    * the outcome flows out as the reader fork's return value. Every caller of
+    * `succeedWith`/`failWith` across the backends (claude, codex, gemini, pi,
+    * opencode) settles from inside its `handleLine` dispatch, and `cancel()`
+    * never touches this field — so "first write wins" is a single-thread
+    * property a plain `var` gets for free; the CAS was defending a race that
+    * can't happen.
     */
-  private val settledOutcome: AtomicReference[Option[Outcome[B]]] =
-    AtomicReference(None)
+  private var settledOutcome: Option[Outcome[B]] = None
 
   private val cancelled: AtomicBoolean = new AtomicBoolean(false)
 
@@ -174,14 +178,15 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * closes on its own and the interrupt is a harmless early teardown.
     */
   protected def succeedWith(result: AgentResult[B]): Unit =
-    settledOutcome.compareAndSet(None, Some(Outcome.Success(result))).discard
+    if settledOutcome.isEmpty then
+      settledOutcome = Some(Outcome.Success(result))
     source.interrupt()
 
   /** Settle the turn as a failure, then interrupt the source (see
     * [[succeedWith]] for the ordering rationale).
     */
   protected def failWith(error: Throwable): Unit =
-    settledOutcome.compareAndSet(None, Some(Outcome.failed(error))).discard
+    if settledOutcome.isEmpty then settledOutcome = Some(Outcome.failed(error))
     source.interrupt()
 
   // --- Hooks for backend implementations ---
@@ -277,7 +282,6 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
         // `readException` — a Ctrl-C must surface as `Cancelled`, never as a
         // spurious turn failure.
         settledOutcome
-          .get()
           .orElse(Option.when(cancelled.get())(Outcome.cancelled[B]))
           .orElse(readException.map(Outcome.failed[B]))
           .getOrElse(outcomeFromExit(source.tryExitCode))

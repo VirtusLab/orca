@@ -335,7 +335,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
   (unstated). Emit eagerly and defer exactly one pending emission, or suppress at
   the listener.
   Refs: `tools/.../backend/Conversations.scala:31-103`.
-- [ ] **8.6 Simplify indent plumbing in the terminal listener.** Four coordinated
+- [x] **8.6 Simplify indent plumbing in the terminal listener.** (done: concurrency-audit commit, session-identity-fixes) Four coordinated
   mutable artifacts (`StageDepth`, `StageStack`, lock, `@volatile` snapshot) for
   one value; desync possible after a stray pop; re-indent transform duplicated
   char-for-char in two files; class doc misstates the concurrency model (dispatcher
