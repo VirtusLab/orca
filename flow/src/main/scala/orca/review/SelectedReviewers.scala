@@ -3,12 +3,10 @@ package orca.review
 import orca.agents.{JsonData, Agent}
 
 case class SelectedReviewers(names: List[String]) derives JsonData:
-  /** Resolve the picker's reply to tools. Matches either the bare slug (what
-    * the picker is shown and is asked to echo) or the full `reviewer: <slug>`
-    * tool name, so a model that returns either form still resolves — the
-    * `reviewer: ` cost-attribution prefix must not gate selection.
+  /** Resolve the picker's reply to tools by matching the bare slug — a
+    * reviewer's identity, and exactly what the picker is shown and asked to
+    * echo. The `reviewer: ` cost-attribution prefix never reaches the picker,
+    * so it plays no part in selection.
     */
   def pick(all: List[Agent[?]]): List[Agent[?]] =
-    all.filter: r =>
-      val slug = ReviewerPrompts.stripNamePrefix(r.name)
-      names.contains(r.name) || names.contains(slug)
+    all.filter(r => names.contains(r.name))

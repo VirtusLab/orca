@@ -78,12 +78,12 @@ class ReviewerSelectorTest extends munit.FunSuite:
   // token for the suite.
   private given orca.InStage = orca.InStage.unsafe
 
-  private val scalaFp: Agent[?] = new NamedTool("reviewer: scala-fp")
-  private val generic: Agent[?] = new NamedTool("reviewer: generic")
+  private val scalaFp: Agent[?] = new NamedTool("scala-fp")
+  private val generic: Agent[?] = new NamedTool("generic")
   private val all: List[Agent[?]] = List(scalaFp, generic)
 
   private val filePatterns =
-    Map("reviewer: scala-fp" -> """\.scala$""".r)
+    Map("scala-fp" -> """\.scala$""".r)
 
   test("file-pattern reviewers are dropped before the picker sees them"):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
@@ -99,19 +99,18 @@ class ReviewerSelectorTest extends munit.FunSuite:
       selector.prepare(all, Title("any"), List("src/lib.rs"))(Nil)
     // Even though the picker tried to include scala-fp, it was never offered
     // and the post-filter drops it from the result.
-    assertEquals(picked.map(_.name), List("reviewer: generic"))
-    // The picker is shown bare slugs, not the `reviewer: ` cost-attribution
-    // prefix.
+    assertEquals(picked.map(_.name), List("generic"))
+    // The picker is shown bare slugs (which are now the reviewers' identity —
+    // no `reviewer: ` cost-attribution prefix reaches it).
     assertEquals(
       captured.get().map(_.availableReviewers.map(_.name)),
       Some(List("generic"))
     )
 
-  test("picker reply matches whether it echoes the slug or the full name"):
+  test("picker reply resolves reviewers by bare slug"):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
-    // Mixed: slug for one, full prefixed name for the other — both resolve.
     val picker = new RecordingPicker(
-      SelectedReviewers(List("generic", "reviewer: scala-fp")),
+      SelectedReviewers(List("generic", "scala-fp")),
       captured
     )
     val selector = ReviewerSelector.agentDriven(agent = picker)
@@ -119,7 +118,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
       selector.prepare(all, Title("any"), List("src/main/scala/Foo.scala"))(Nil)
     assertEquals(
       picked.map(_.name).toSet,
-      Set("reviewer: generic", "reviewer: scala-fp")
+      Set("generic", "scala-fp")
     )
 
   test(
@@ -135,12 +134,12 @@ class ReviewerSelectorTest extends munit.FunSuite:
     // picker picks nothing, so the floor falls back to the eligible set.
     val picked =
       selector.prepare(all, Title("any"), List("src/lib.rs"))(Nil)
-    assertEquals(picked.map(_.name), List("reviewer: generic"))
+    assertEquals(picked.map(_.name), List("generic"))
 
   test("file-pattern reviewers are offered when matching files are present"):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val picker = new RecordingPicker(
-      SelectedReviewers(List("reviewer: scala-fp", "reviewer: generic")),
+      SelectedReviewers(List("scala-fp", "generic")),
       captured
     )
     val selector = ReviewerSelector.agentDriven(
@@ -154,13 +153,13 @@ class ReviewerSelectorTest extends munit.FunSuite:
     )(Nil)
     assertEquals(
       picked.map(_.name),
-      List("reviewer: scala-fp", "reviewer: generic")
+      List("scala-fp", "generic")
     )
 
   test("selector skips the picker LLM entirely when no reviewer is eligible"):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val picker = new RecordingPicker(
-      SelectedReviewers(List("reviewer: scala-fp")),
+      SelectedReviewers(List("scala-fp")),
       captured
     )
     val onlyScala = List(scalaFp)
@@ -194,7 +193,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
     val r3 = selectRound(List(ReviewBatch(Nil), ReviewBatch(Nil)))
     assertEquals(
       r1.map(_.name),
-      List("reviewer: scala-fp", "reviewer: generic")
+      List("scala-fp", "generic")
     )
     assertEquals(r2, r1)
     assertEquals(r3, r1)

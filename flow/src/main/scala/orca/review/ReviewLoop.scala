@@ -296,16 +296,24 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * framing.
     *
     * The `stored.as[RB]` recovery is sound because `name → backend` is fixed
-    * for the lifetime of the loop (enforced by the uniqueness precondition
-    * above): the entry retrieved with a given reviewer's `RB` was written under
-    * that same `RB`.
+    * for the lifetime of the loop: [[resolveAgainstRoster]] maps every selected
+    * agent back to its canonical roster instance by slug (so a renamed/rebuilt
+    * copy can't deliver a wrong-backend session id), and the roster's
+    * slug-uniqueness `require` guarantees the entry retrieved with a given
+    * reviewer's `RB` was written under that same `RB`.
+    *
+    * The LLM run is labelled with the `reviewer: <slug>` cost prefix
+    * ([[ReviewerPrompts.NamePrefix]]) so the `TokensUsed` breakdown groups
+    * reviewer spend; the session map stays keyed by the BARE slug (`r.name`),
+    * which is the reviewer's identity everywhere else.
     */
   private def reviewWithSession[RB <: BackendTag](
       r: Agent[RB],
       sessions: Map[String, SessionId.Untyped],
       currentDiff: String
   ): (ReviewResult, Option[(String, SessionId.Untyped)]) =
-    val call = r.resultAs[ReviewResult].autonomous
+    val labelled = r.withName(s"${ReviewerPrompts.NamePrefix}${r.name}")
+    val call = labelled.resultAs[ReviewResult].autonomous
     sessions.get(r.name) match
       case Some(stored) =>
         val (_, result) =
@@ -316,7 +324,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           )
         (result, None)
       case None =>
-        val session = r.newSession
+        val session = labelled.newSession
         val (sid, result) =
           call.run(
             ReviewLoopPrompts.initialReview(task, currentDiff),
@@ -369,9 +377,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         .zip(lintAgent)
         .map: (cmd, agent) =>
           () =>
-            // Group lint tokens under the same `reviewer: …` prefix as the
+            // Group lint tokens under the same `reviewer: …` cost prefix as the
             // dimension reviewers; the renamed copy stays local to this call.
-            val labelled = agent.withName("reviewer: lint")
+            val labelled = agent.withName(s"${ReviewerPrompts.NamePrefix}lint")
             AgentOutcome.Lint(filterByConfidence(lint(cmd, labelled)))
 
     val tasks = reviewerTasks ++ lintTaskOpt.toList
@@ -382,12 +390,12 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           .fromIterable(tasks)
           .mapParUnordered(tasks.size)(_.apply())
           .tap:
+            // Display the bare slug — the `reviewer: ` prefix is a cost-report
+            // grouping detail, not part of what the user sees per reviewer.
             case AgentOutcome.Reviewer(r, res, _) =>
               ctx.emit(OrcaEvent.Step(formatReviewerOutcome(r.name, res)))
             case AgentOutcome.Lint(res) =>
-              ctx.emit(
-                OrcaEvent.Step(formatReviewerOutcome("reviewer: lint", res))
-              )
+              ctx.emit(OrcaEvent.Step(formatReviewerOutcome("lint", res)))
           .runToList()
 
       val reviewerOutcomes = outcomes.collect:
@@ -403,6 +411,25 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       )
       (reviewerOutcomes, lintOutcome, nextState)
 
+  /** The selector may return arbitrary agents; only roster members run. Foreign
+    * agents (same-named copies from another backend, or agents never in the
+    * roster) are dropped with a visible warning — the per-reviewer session map
+    * is keyed by roster slug, and its `SessionId.Untyped.as[RB]` recovery is
+    * sound only because slug → backend is fixed by the roster (uniqueness is
+    * `require`d at construction).
+    */
+  private def resolveAgainstRoster(selected: List[Agent[?]]): List[Agent[?]] =
+    val byName = reviewers.map(r => r.name -> r).toMap
+    val (known, foreign) = selected.partition(a =>
+      byName.get(a.name).exists(_ eq a) || byName.contains(a.name)
+    )
+    if foreign.nonEmpty then
+      emitStep(
+        s"reviewer selection: dropped ${foreign.map(_.name).mkString(", ")} " +
+          "— not in the configured roster"
+      )
+    known.map(a => byName(a.name))
+
   private def evaluate(
       state: ReviewLoopState,
       selectRound: List[ReviewBatch] => List[Agent[?]]
@@ -416,7 +443,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     formatCommand.foreach: cmd =>
       val _ =
         os.proc("bash", "-c", cmd).call(check = false, mergeErrIntoOut = true)
-    val active = selectRound(state.history)
+    val active = resolveAgainstRoster(selectRound(state.history))
     val totalAgents = active.size + (if lintCommand.isDefined then 1 else 0)
     if totalAgents > 0 then
       ctx.emit(

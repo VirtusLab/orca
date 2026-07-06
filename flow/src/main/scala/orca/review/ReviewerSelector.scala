@@ -66,19 +66,19 @@ object ReviewerSelector:
     * optionally tunes prompts/descriptions).
     *
     * The picker sees each reviewer as a `(name, description)` pair. By default
-    * `descriptions` is [[ReviewerPrompts.descriptionsByToolName]], so users who
+    * `descriptions` is [[ReviewerPrompts.descriptionsBySlug]], so users who
     * pass `allReviewers(...)` get rich purpose-aware selection without extra
-    * wiring; supply a custom map (keyed by the tool's prefixed name, e.g.
-    * `"reviewer: my-thing"`) when overriding the default set. If the picker
-    * would see all-empty descriptions, a one-time `Step` warning fires so the
+    * wiring; supply a custom map (keyed by the reviewer's bare slug, e.g.
+    * `"my-thing"`) when overriding the default set. If the picker would see
+    * all-empty descriptions, a one-time `Step` warning fires so the
     * silent-name-only-selection failure mode is visible.
     *
     * `filePatterns` is a code-side pre-filter applied before the LLM call:
     * reviewers whose pattern doesn't match any of the iteration's
     * `changedFiles` are dropped, so the picker can't pick them. The default
-    * uses [[ReviewerPrompts.filePatternsByToolName]] — only reviewers that
-    * declared a `files:` frontmatter entry are constrained; everything else is
-    * offered to the picker as-is.
+    * uses [[ReviewerPrompts.filePatternsBySlug]] — only reviewers that declared
+    * a `files:` frontmatter entry are constrained; everything else is offered
+    * to the picker as-is.
     *
     * Pick a cheap model (e.g. `claude.haiku`); the request is small. Override
     * `instructions` to retune the selection brief.
@@ -86,9 +86,8 @@ object ReviewerSelector:
   def agentDriven(
       agent: Agent[?],
       instructions: String = ReviewLoopPrompts.SelectReviewers,
-      descriptions: Map[String, String] =
-        ReviewerPrompts.descriptionsByToolName,
-      filePatterns: Map[String, Regex] = ReviewerPrompts.filePatternsByToolName
+      descriptions: Map[String, String] = ReviewerPrompts.descriptionsBySlug,
+      filePatterns: Map[String, Regex] = ReviewerPrompts.filePatternsBySlug
   ): ReviewerSelector = new ReviewerSelector:
     def prepare(
         all: List[Agent[?]],
@@ -103,22 +102,19 @@ object ReviewerSelector:
           case None     => true
           case Some(rx) => changedFiles.exists(f => rx.findFirstIn(f).isDefined)
       val infos = eligible.map: r =>
+        // Names are bare slugs; the cost-attribution prefix never reaches the
+        // picker (it's applied only at the loop's emission edge), so there's
+        // nothing to strip and no ambiguity in the `name: description` line.
         ReviewerInfo(
-          // Show the picker the bare slug, not the `reviewer: …`
-          // cost-attribution prefix: the prefix plus the `name: description`
-          // serialization made the name ambiguous (a `:`-in-name inside a
-          // `:`-separated line), so the model echoed something that didn't
-          // match and selection collapsed to zero. `pick` matches either
-          // form back.
-          name = ReviewerPrompts.stripNamePrefix(r.name),
+          name = r.name,
           description = descriptions.getOrElse(r.name, "")
         )
       if eligible.nonEmpty && infos.forall(_.description.isEmpty) then
         ctx.emit(
           OrcaEvent.Step(
             "reviewer selection: no descriptions matched the supplied " +
-              "reviewers (names lack the `reviewer: ` prefix from a " +
-              "preset builder?). The picker will see names only."
+              "reviewers (custom reviewers without matching description " +
+              "keys?). The picker will see names only."
           )
         )
       val names =

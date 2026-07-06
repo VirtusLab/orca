@@ -16,7 +16,7 @@ import orca.agents.{
   SessionId,
   ToolSet
 }
-import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
+import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, Usage}
 import orca.{TestFlowContext}
 
 /** Fake AgentCall whose `autonomous.run` drains a scripted sequence of outputs
@@ -68,6 +68,39 @@ class FakeAgent(
   def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
   def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
   def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
+
+/** A reviewer stub that emits a `TokensUsed` event carrying the name captured
+  * at `resultAs` time — mirroring `BaseAgent`, whose `resultAs` snapshots
+  * `name` for the cost axis. `withName` returns a renamed copy, so the copy the
+  * loop makes at its emission edge reports the prefixed name.
+  */
+private class TokenEmittingReviewer(
+    override val name: String,
+    result: ReviewResult
+)(using ctx: FlowContext)
+    extends Agent[BackendTag.ClaudeCode.type]:
+  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
+  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
+  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
+  def withName(n: String): Agent[BackendTag.ClaudeCode.type] =
+    new TokenEmittingReviewer(n, result)
+  def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
+  def resultAs[O: JsonData: Announce]
+      : AgentCall[BackendTag.ClaudeCode.type, O] =
+    val capturedName = name
+    new AgentCall[BackendTag.ClaudeCode.type, O]:
+      val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
+        new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
+          def run[I: AgentInput](
+              i: I,
+              session: SessionId[BackendTag.ClaudeCode.type],
+              c: AgentConfig,
+              emitPrompt: Boolean
+          )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
+            ctx.emit(OrcaEvent.TokensUsed(capturedName, None, Usage.empty))
+            (session, result.asInstanceOf[O])
+      def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
+        ???
 
 class ReviewAndFixTest extends munit.FunSuite:
 
@@ -517,3 +550,108 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     val runs = if os.exists(counter) then os.read.lines(counter).size else 0
     assertEquals(runs, 2)
+
+  test("reviewer LLM runs are labelled with the cost prefix"):
+    // The loop keeps reviewer identity as the bare slug but runs the LLM under a
+    // `reviewer: <slug>` copy so `CostTracker` can group the spend. Assert the
+    // emitted `TokensUsed.agent` still carries the prefix.
+    val recorded =
+      new java.util.concurrent.ConcurrentLinkedQueue[OrcaEvent.TokensUsed]()
+    val listener: OrcaListener =
+      case t: OrcaEvent.TokensUsed => recorded.add(t): Unit
+      case _                       => ()
+    given FlowContext =
+      new TestFlowContext(new EventDispatcher(List(listener)))
+    val reviewer = new TokenEmittingReviewer("performance", ReviewResult.empty)
+    val coder = new FakeAgent("coder")
+    val _ = reviewAndFixLoop(
+      coder = coder,
+      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      reviewers = List(reviewer),
+      task = "cost labelling",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    val agents = recorded.toArray.toList.collect:
+      case t: OrcaEvent.TokensUsed => t.agent
+    assertEquals(agents, List("reviewer: performance"))
+
+  test(
+    "a selector returning a same-named foreign agent runs the roster instance"
+  ):
+    // The selector hands back a rebuilt copy sharing a roster slug but backed by
+    // a different (empty-output) stub. Roster resolution must map it back to the
+    // canonical instance: the roster stub runs (its scripted issue flows out),
+    // and the foreign stub is never touched (its empty iterator would throw).
+    given FlowContext = ctx
+    val rosterX = new FakeAgent(
+      name = "x",
+      outputs = List(ReviewResult(List(issue("from-roster", confidence = 0.9))))
+    )
+    val foreignX = new FakeAgent(name = "x") // no outputs: throws if run
+    val foreignSelector = new ReviewerSelector:
+      def prepare(
+          all: List[Agent[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using FlowContext, orca.InStage): List[ReviewBatch] => List[Agent[?]] =
+        _ => List(foreignX)
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs =
+        List(FixOutcome(Nil, List(IgnoredIssue(Title("from-roster"), "ok"))))
+    )
+    val result = reviewAndFixLoop(
+      coder = coder,
+      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      reviewers = List(rosterX),
+      reviewerSelection = foreignSelector,
+      task = "roster resolution",
+      initialDiff = Some("")
+    )
+    assertEquals(result.issues, List(IgnoredIssue(Title("from-roster"), "ok")))
+    assert(
+      rosterX.seenSessions.nonEmpty,
+      "the canonical roster instance must have been the one that ran"
+    )
+
+  test(
+    "a selector returning an agent outside the roster drops it with a warning"
+  ):
+    // A truly foreign agent (name not in the roster) is dropped, with a visible
+    // Step naming it, rather than run.
+    val steps =
+      new java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val listener: OrcaListener =
+      case OrcaEvent.Step(msg) => steps.add(msg): Unit
+      case _                   => ()
+    given FlowContext =
+      new TestFlowContext(new EventDispatcher(List(listener)))
+    val stranger = new FakeAgent(name = "stranger") // no outputs: throws if run
+    val roster = new FakeAgent(name = "x")
+    val strangerSelector = new ReviewerSelector:
+      def prepare(
+          all: List[Agent[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using FlowContext, orca.InStage): List[ReviewBatch] => List[Agent[?]] =
+        _ => List(stranger)
+    val _ = reviewAndFixLoop(
+      coder = new FakeAgent("coder"),
+      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      reviewers = List(roster),
+      reviewerSelection = strangerSelector,
+      task = "drop foreign",
+      initialDiff = Some("")
+    )
+    assert(
+      steps.toArray.toList.exists(m =>
+        m.asInstanceOf[String].contains("stranger") &&
+          m.asInstanceOf[String].contains("not in the configured roster")
+      ),
+      s"expected a drop warning naming 'stranger'; got ${steps.toArray.toList}"
+    )
+    assert(
+      stranger.seenSessions.isEmpty,
+      "the foreign agent must not have been run"
+    )
