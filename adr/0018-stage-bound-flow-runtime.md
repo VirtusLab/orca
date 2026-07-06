@@ -782,6 +782,24 @@ Deliberately deferred; recorded here so nothing is lost:
   escaping positions (stage bodies, fork thunks) as pure, so a smuggled `InStage` or
   a `FlowControl` captured into a fork is a compile error. Additive — no call-site
   changes (§2.2, §5).
+
+  > **Amendment (2026-07-06).** As written, this endgame is too blunt: the reviewer
+  > fan-out (`ReviewLoop`, via `Flow.mapParUnordered`) *deliberately* captures the
+  > ambient `InStage` into each parallel fork, because a gated LLM call
+  > (`(using InStage)`-gated `run`) must be reachable from inside those forks —
+  > that capture is load-bearing, not a smuggling bug. A rule that types every fork
+  > thunk as pure would outlaw it along with the mutations it's meant to catch.
+  > The real distinction is between two things `InStage` currently authorizes
+  > together: capabilities that mutate shared, index-like state (git/store writes)
+  > — which must NOT cross a fork boundary, since concurrent forks racing on the
+  > same progress log or git index is exactly what capture-checking should catch —
+  > and capabilities that merely gate an LLM call — which MUST cross, since
+  > parallel reviewers are the point. Capture-checking work should split these
+  > before it lands, e.g. via a future `Sharable` sub-capability that is safe to
+  > capture into forks while plain `InStage` (or an index-mutating capability
+  > carved out of it) stays fork-opaque. No implementation decision is made here;
+  > this only records the constraint so the eventual capture-checking design
+  > doesn't calcify the wrong rule.
 - **Progress-log redaction hook.** A seam to redact/secret-scrub stage results before
   they are committed, addressing the open-PR confidentiality surface (§5, R26).
 - **Nested, repeated, or concurrent `flow(...)` calls.** A flow binds one branch and

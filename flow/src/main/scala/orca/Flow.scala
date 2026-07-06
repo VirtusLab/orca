@@ -86,7 +86,7 @@ private def runStage[T: JsonData](
   fc.emit(OrcaEvent.StageStarted(name))
   try
     val result =
-      given InStage = InStage.unsafe
+      given InStage = RuntimeInStage.token()
       body
     recordAndCommit(id, name, result, commitMessage)
     fc.emit(OrcaEvent.StageCompleted(name))
@@ -129,7 +129,7 @@ private def recordAndCommit[T: JsonData](
   // Deliberately mints a fresh runtime `InStage` rather than threading the
   // body's token: recording + committing the stage result is the runtime's own
   // privileged step, not part of the user body.
-  given InStage = InStage.unsafe
+  given InStage = RuntimeInStage.token()
   // Capture the code diff BEFORE force-adding the progress file so the LLM
   // sees only the body's substantive changes, not the orca bookkeeping.
   val message =

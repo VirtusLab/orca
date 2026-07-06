@@ -25,12 +25,13 @@ import scala.annotation.implicitNotFound
   * ADR 0018 §5. The convention is that only the `stage` runtime does so.
   */
 @implicitNotFound(
-  "side-effecting calls (git/file/GitHub writes, LLM runs) must be made inside a `stage(...)` body, which commits and checkpoints them. Move this call into a stage."
+  "side-effecting calls (git/file/GitHub writes, LLM runs) must be made inside a `stage(...)` body, which commits and checkpoints them. Move this call into a stage. If this is a helper meant to run inside a stage, declare it `(using InStage)` so its caller's token flows through."
 )
 opaque type InStage = Unit
 
 object InStage:
-  /** Mint a fresh [[InStage]] token. Called exclusively by the `stage` runtime
-    * (package `orca`). Nothing outside the `orca` package can call this.
+  /** Mint a fresh [[InStage]] token. Called only by `orca.RuntimeInStage` (the
+    * runtime's single named door — see it for the whitelist) and test code;
+    * library code must never call this directly.
     */
   private[orca] def unsafe: InStage = ()

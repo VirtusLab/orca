@@ -7,6 +7,7 @@ import orca.{
   InStage,
   OrcaArgs,
   OrcaFlowException,
+  RuntimeInStage,
   throwableMessage
 }
 import orca.agents.{BackendTag, Agent, SessionId, WireSessionId}
@@ -168,7 +169,7 @@ object FlowLifecycle:
       branchNaming: Option[BranchNamingStrategy],
       store: ProgressStore
   ): FlowSetup =
-    given InStage = InStage.unsafe
+    given InStage = RuntimeInStage.token()
     val startBranch = git.currentBranch()
     // Snapshot the log file before the stash, restore it if the stash
     // removed it — so an uncommitted/untracked log is still readable below.
@@ -259,8 +260,9 @@ object FlowLifecycle:
       returnToStartBranch: Boolean
   ): Unit =
     // Teardown is runtime code running outside any user stage, so it mints its
-    // own `InStage` — the runtime is the privileged token constructor.
-    given InStage = InStage.unsafe
+    // own `InStage` via `RuntimeInStage` — the runtime is the privileged token
+    // constructor.
+    given InStage = RuntimeInStage.token()
     try
       // Best-effort: a missing file (already gone) or a failing cleanup commit is
       // cosmetic on an already-successful run, so neither must escape teardown.
@@ -308,5 +310,5 @@ object FlowLifecycle:
     */
   private[orca] def teardownFailure(git: GitTool): Unit =
     // Runtime teardown mints its own token, as in `teardownSuccess`.
-    given InStage = InStage.unsafe
+    given InStage = RuntimeInStage.token()
     git.resetHard()
