@@ -24,6 +24,13 @@ import scala.util.control.NonFatal
   * the run. If logback isn't the active slf4j backend, or the temp file can't
   * be created, file logging is skipped (best-effort) rather than failing the
   * flow — [[file]] is then `None`.
+  *
+  * Convention: the trace file carries full diagnostics — every level, including
+  * stacks, for every legitimate error (logged at ERROR) or degraded condition
+  * (WARN). The console shows only high-level lines: framework loggers'
+  * WARN-and-above still reach it (they stay additive), and orca's own code
+  * reaches it only through deliberate `[orca]`-prefixed `System.err` lines for
+  * cases the file-only `orca` logger can't surface on its own.
   */
 private[orca] final class OrcaLog private (
     val file: Option[os.Path],

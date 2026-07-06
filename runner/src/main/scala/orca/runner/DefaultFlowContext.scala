@@ -65,9 +65,13 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
       try a.close()
       catch
         case NonFatal(e) =>
-          log.warn(
+          log.error(
             "agent close failed — a backend resource may have leaked",
             e
+          )
+          System.err.println(
+            s"[orca] failed to close ${a.getClass.getSimpleName} (a backend " +
+              s"resource may have leaked): ${e.getMessage}"
           )
 
   // The leading agent's backend tag, pinned from the type parameter `B` (which
