@@ -102,5 +102,12 @@ trait AgentBackend[B <: BackendTag]:
     * `runner/src/test/scala/orca/runner/EnforcementTableTest.scala` — that test
     * is the human-readable source of truth; each backend implements this by
     * delegating to its `*Args.enforcement`, where the per-cell rationale lives.
+    *
+    * The default is the conservative "not encoded" answer, so an audit surfaces
+    * an under-promise rather than a false guarantee. REAL backends MUST
+    * override this AND add their rows to `EnforcementTableTest` (which pins the
+    * five shipped ones); the default exists only to spare test doubles a
+    * meaningless override.
     */
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+    Enforcement.Ignored

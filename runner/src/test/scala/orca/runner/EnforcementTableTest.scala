@@ -77,9 +77,14 @@ class EnforcementTableTest extends munit.FunSuite:
         ("opencode", ToolSet.Full, onlyEmpty, Ignored),
         ("pi", ToolSet.Full, onlyEmpty, Ignored)
       )
-      for (name, tools, approve, expected) <- cases do
-        assertEquals(
-          get(name).enforcement(tools, approve),
-          expected,
-          s"$name / $tools / $approve"
+      // Collect every mismatched cell and fail once with the full list, so one
+      // run surfaces all divergences rather than stopping at the first.
+      val mismatches = cases.flatMap: (name, tools, approve, expected) =>
+        val actual = get(name).enforcement(tools, approve)
+        Option.when(actual != expected)(
+          s"$name / $tools / $approve: expected $expected, got $actual"
         )
+      assert(
+        mismatches.isEmpty,
+        s"enforcement matrix mismatches:\n${mismatches.mkString("\n")}"
+      )

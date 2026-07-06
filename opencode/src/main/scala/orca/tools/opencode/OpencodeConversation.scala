@@ -127,6 +127,9 @@ private[opencode] class OpencodeConversation(
         activitySinceTurnEnd = true
         eventQueue.enqueue(ConversationEvent.AssistantToolCall(tool, input))
     case OpencodeEvent.ToolFinished(_, _, tool, ok, output) =>
+      // A tool result IS turn-opening activity — a tool ran in this turn — so a
+      // completed-tool-only turn is not empty (ConversationEvent grammar).
+      activitySinceTurnEnd = true
       eventQueue.enqueue(ConversationEvent.ToolResult(Some(tool), ok, output))
     case OpencodeEvent.MessageUpdated(_, info) =>
       turnState = turnState.copy(info = Some(info))
@@ -148,8 +151,11 @@ private[opencode] class OpencodeConversation(
 
   /** Terminal (`session.idle`): a turn whose assistant message carries
     * `info.error`, or that went idle without producing anything, is a failure;
-    * otherwise mark turn end and settle with the built result. Both paths close
-    * the otherwise open-ended SSE stream (via [[succeedWith]]/[[failWith]]).
+    * otherwise mark turn end and settle with the built result. The turn end is
+    * gated on `activitySinceTurnEnd` so a turn with no frames (e.g. idle after
+    * a bare `message.updated`) emits nothing rather than an empty turn end.
+    * Both paths close the otherwise open-ended SSE stream (via
+    * [[succeedWith]]/[[failWith]]).
     */
   private def finishTurn(): Unit =
     turnState.info.flatMap(_.error) match
@@ -158,7 +164,7 @@ private[opencode] class OpencodeConversation(
         if turnState.info.isEmpty && turnState.text.isEmpty then
           failTurn("session went idle without an assistant message")
         else
-          emitTurnEnd()
+          if activitySinceTurnEnd then emitTurnEnd()
           settled = true
           succeedWith(buildResult())
 

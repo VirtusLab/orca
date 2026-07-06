@@ -107,13 +107,15 @@ class OpencodeConversationTest extends munit.FunSuite:
       ),
       schema = Some("""{"type":"object"}""")
     )
+    val events = conv.events.toList
     assertEquals(
-      conv.events.toList,
+      events,
       List(
         ConversationEvent.ToolResult(Some("StructuredOutput"), ok = true, "ok"),
         ConversationEvent.AssistantTurnEnd
       )
     )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     assertEquals(conv.awaitResult().toOption.get.output, """{"x":1}""")
 
   convTest("a repeated tool part surfaces one AssistantToolCall"):
@@ -256,7 +258,11 @@ class OpencodeConversationTest extends munit.FunSuite:
         )
       )
     )
-    conv.events.foreach(_ => ())
+    val events = conv.events.toList
+    // No activity before the error, so the failure settle emits no turn end —
+    // an empty turn is forbidden by the grammar.
+    assert(!events.contains(ConversationEvent.AssistantTurnEnd), events)
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     intercept[AgentTurnFailed](conv.awaitResult())
 
   convTest("answering a question.asked POSTs the reply"):

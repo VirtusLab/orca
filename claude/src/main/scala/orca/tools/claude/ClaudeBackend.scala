@@ -90,7 +90,10 @@ private[orca] class ClaudeBackend(
     */
   val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
 
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+  override def enforcement(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): Enforcement =
     ClaudeArgs.enforcement(tools, autoApprove)
 
   val sessions: SessionSupport[BackendTag.ClaudeCode.type] =

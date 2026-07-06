@@ -64,7 +64,10 @@ private[orca] class PiBackend(cli: CliRunner)
 
   val tag: BackendTag.Pi.type = BackendTag.Pi
 
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+  override def enforcement(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): Enforcement =
     PiArgs.enforcement(tools, autoApprove)
 
   def runAutonomous(

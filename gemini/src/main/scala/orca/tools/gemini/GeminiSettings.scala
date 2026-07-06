@@ -33,6 +33,13 @@ private[gemini] object GeminiSettings:
   private given objCodec: JsonValueCodec[Map[String, RawJson]] =
     JsonCodecMaker.make
 
+  /** One `mcpServers.<name>` entry. jsoniter emits fields in declaration order,
+    * so this serialises as `{"httpUrl":…,"timeout":…}`.
+    */
+  private case class OrcaServerEntry(httpUrl: String, timeout: Long)
+  private given entryCodec: JsonValueCodec[OrcaServerEntry] =
+    JsonCodecMaker.make
+
   /** Merge the orca MCP server into `<workDir>/.gemini/settings.json` and
     * return an [[AutoCloseable]] that restores the prior state (original bytes,
     * or file removal if it didn't exist) on `close()`.
@@ -60,21 +67,19 @@ private[gemini] object GeminiSettings:
       .get("mcpServers")
       .map(raw => readFromString[Map[String, RawJson]](raw.value))
       .getOrElse(Map.empty)
-    // Serialize the URL through the codec rather than interpolating it into a
-    // raw JSON string, so a value containing `"` or `\` stays valid JSON. The
-    // entry is hand-assembled (rather than a single Map codec) because it's
-    // heterogeneous: a string URL and a numeric timeout.
+    // Serialize through a typed codec rather than interpolating into a raw JSON
+    // string, so a URL containing `"` or `\` stays valid JSON.
     //
     // `timeout` (ms) is one of three renderings of
     // [[orca.backend.mcp.AskUserMcpServer.ToolTimeout]] — claude JSON ms /
     // codex TOML sec / gemini settings.json ms; keep in sync. Without it,
-    // gemini's own MCP client default (10 min) undercuts the shared 1h
-    // budget, giving up on `ask_user` mid-answer and firing a duplicate
+    // gemini falls back to its own per-server default (shorter than our 1h
+    // ToolTimeout), giving up on `ask_user` mid-answer and firing a duplicate
     // question.
     val orcaEntry = RawJson(
-      s"""{"httpUrl":${writeToString(mcpUrl)(using
-          strCodec
-        )},"timeout":${AskUserMcpServer.ToolTimeout.toMillis}}"""
+      writeToString(
+        OrcaServerEntry(mcpUrl, AskUserMcpServer.ToolTimeout.toMillis)
+      )
     )
     val mergedServers =
       servers + (AskUserMcpServer.ServerName -> orcaEntry)
@@ -100,5 +105,3 @@ private[gemini] object GeminiSettings:
           ))
 
   private given listCodec: JsonValueCodec[List[String]] = JsonCodecMaker.make
-
-  private given strCodec: JsonValueCodec[String] = JsonCodecMaker.make

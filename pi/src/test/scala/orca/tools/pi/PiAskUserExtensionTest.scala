@@ -12,5 +12,4 @@ class PiAskUserExtensionTest extends munit.FunSuite:
         content
       )
       assert(!content.contains("__TOOL_NAME__"), content)
-      assert(content.nonEmpty)
     finally extension.close()

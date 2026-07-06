@@ -157,7 +157,10 @@ private[orca] class OpencodeBackend(
     */
   val tag: BackendTag.Opencode.type = BackendTag.Opencode
 
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+  override def enforcement(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): Enforcement =
     OpencodeArgs.enforcement(tools, autoApprove)
 
   val sessions: SessionSupport[BackendTag.Opencode.type] =

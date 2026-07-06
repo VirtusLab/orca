@@ -72,6 +72,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--allowedTools", "Alpha,Middle,Zeta")))
     assert(!args.contains("acceptEdits"), args)
     assert(!args.contains("bypassPermissions"), args)
+    assert(!args.contains("--permission-mode"), args)
 
   test("AutoApprove.Only(empty) emits no permission flags"):
     // Nothing pre-approved: default mode, no allowlist — every tool prompts.
@@ -175,3 +176,4 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--resume", WireSessionId.value(testSid))))
     assert(args.containsSlice(Seq("--allowedTools", "Read")))
     assert(!args.contains("acceptEdits"), args)
+    assert(!args.contains("--permission-mode"), args)

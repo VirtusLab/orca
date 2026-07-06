@@ -142,11 +142,6 @@ class RunSeededTest extends FunSuite:
       stubSupport(existsResult)
     val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
 
-    def enforcement(
-        tools: orca.agents.ToolSet,
-        autoApprove: orca.agents.AutoApprove
-    ): orca.agents.Enforcement = orca.agents.Enforcement.Ignored
-
   /** A minimal `BaseAgent`-derived tool backed by [[StubBackend]]. Exercises
     * the real `BaseAgent.sessionSupport = Some(backend.sessions)` wiring, which
     * `Agent.sessionExists` routes through (`sessions.exists`), in production

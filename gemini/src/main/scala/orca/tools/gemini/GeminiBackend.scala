@@ -75,7 +75,10 @@ private[orca] class GeminiBackend(cli: CliRunner)(using BufferCapacity)
     */
   val tag: BackendTag.Gemini.type = BackendTag.Gemini
 
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+  override def enforcement(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): Enforcement =
     GeminiArgs.enforcement(tools, autoApprove)
 
   val sessions: SessionSupport[BackendTag.Gemini.type] =

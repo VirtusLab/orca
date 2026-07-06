@@ -118,7 +118,8 @@ most easily broken:
 
   The matrix is machine-checked in
   `runner/src/test/scala/orca/runner/EnforcementTableTest.scala` (the source of
-  truth); per-cell rationale lives in each backend's `*Args.enforcement`.
+  truth) — keep this table in sync with `EnforcementTableTest`; per-cell
+  rationale lives in each backend's `*Args.enforcement`.
 
 - **Conversation events.** The event grammar (turn boundaries, `Option` tool
   names) is specified on `ConversationEvent`'s scaladoc and pinned per backend

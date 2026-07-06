@@ -136,7 +136,17 @@ private[claude] object ClaudeArgs:
     *   - `Full` + `AutoApprove.Only(_)` → `Hard`: default permission mode with
     *     an `--allowedTools` allowlist is a mechanical per-tool gate; unlisted
     *     tools still prompt (post finding 2.1), so the policy is enforced, not
-    *     approximated.
+    *     approximated. `Only(empty)` emits no allowlist at all — plain default
+    *     mode where every tool prompts — which is still a hard per-tool gate.
+    *
+    * Written as an exhaustive match (all arms `Hard`) rather than a bare
+    * constant so a future `ToolSet`/`AutoApprove` case fails compilation here,
+    * as it does on the other four backends.
     */
   def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
-    Enforcement.Hard
+    tools match
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly => Enforcement.Hard
+      case ToolSet.Full =>
+        autoApprove match
+          case AutoApprove.All     => Enforcement.Hard
+          case AutoApprove.Only(_) => Enforcement.Hard

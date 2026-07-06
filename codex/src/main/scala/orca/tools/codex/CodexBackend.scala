@@ -79,7 +79,10 @@ private[orca] class CodexBackend(
     */
   val tag: BackendTag.Codex.type = BackendTag.Codex
 
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+  override def enforcement(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): Enforcement =
     CodexArgs.enforcement(tools, autoApprove)
 
   val sessions: SessionSupport[BackendTag.Codex.type] =

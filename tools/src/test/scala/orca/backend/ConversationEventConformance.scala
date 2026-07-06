@@ -7,7 +7,7 @@ package orca.backend
   * The three invariants checked here mirror the contract verbatim:
   *   - no empty turns — an `AssistantTurnEnd` must be preceded by assistant
   *     activity (`AssistantTextDelta` / `AssistantThinkingDelta` /
-  *     `AssistantToolCall`) since the previous turn end;
+  *     `AssistantToolCall` / `ToolResult`) since the previous turn end;
   *   - `ToolResult.toolName` is never `Some("")` — an absent name is `None`;
   *   - when the scenario settled (`completedNormally = true`), no assistant
   *     activity may trail the sequence without a closing `AssistantTurnEnd`.
@@ -24,9 +24,12 @@ object ConversationEventConformance extends munit.Assertions:
   ): Unit =
     var activitySinceTurnEnd = false
     events.foreach:
+      case ConversationEvent.ToolResult(Some(""), _, _) =>
+        fail(s"ToolResult.toolName must be None, never Some(\"\"), in: $events")
       case ConversationEvent.AssistantTextDelta(_) |
           ConversationEvent.AssistantThinkingDelta(_) |
-          ConversationEvent.AssistantToolCall(_, _) =>
+          ConversationEvent.AssistantToolCall(_, _) |
+          ConversationEvent.ToolResult(_, _, _) =>
         activitySinceTurnEnd = true
       case ConversationEvent.AssistantTurnEnd =>
         assert(
@@ -34,8 +37,6 @@ object ConversationEventConformance extends munit.Assertions:
           s"AssistantTurnEnd with no assistant activity since the last turn end (empty turn) in: $events"
         )
         activitySinceTurnEnd = false
-      case ConversationEvent.ToolResult(Some(""), _, _) =>
-        fail(s"ToolResult.toolName must be None, never Some(\"\"), in: $events")
       case _ => ()
     if completedNormally && activitySinceTurnEnd then
       fail(

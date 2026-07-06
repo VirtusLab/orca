@@ -19,8 +19,9 @@ package orca.backend
   * ==Turn grammar (the contract every driver honours)==
   *
   * A *turn* starts at the first assistant activity (`AssistantTextDelta` /
-  * `AssistantThinkingDelta` / `AssistantToolCall`) after the stream start or
-  * the previous `AssistantTurnEnd`.
+  * `AssistantThinkingDelta` / `AssistantToolCall` / `ToolResult`) after the
+  * stream start or the previous `AssistantTurnEnd`. A `ToolResult` counts — a
+  * tool ran in the turn, so a completed-tool-only turn is not empty.
   *
   * Every turn the wire *completed* — the backend reported a turn end, or the
   * conversation settled, whether in success or failure — is terminated by
