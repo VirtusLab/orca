@@ -66,6 +66,8 @@ private[orca] class GeminiBackend(cli: CliRunner)(using BufferCapacity)
     * [[orca.agents.isSafeSessionId]] guard (kept for uniformity with the other
     * probes; the substring scan is not injection-susceptible).
     */
+  val tag: BackendTag.Gemini.type = BackendTag.Gemini
+
   val sessions: SessionSupport[BackendTag.Gemini.type] =
     SessionSupport.Durable(
       registry,

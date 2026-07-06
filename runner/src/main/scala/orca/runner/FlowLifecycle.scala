@@ -1,6 +1,12 @@
 package orca.runner
 
-import orca.{BranchNamingStrategy, InStage, OrcaArgs, OrcaFlowException}
+import orca.{
+  BranchNamingStrategy,
+  FlowContext,
+  InStage,
+  OrcaArgs,
+  OrcaFlowException
+}
 import orca.agents.{BackendTag, Agent, SessionId, WireSessionId}
 import orca.progress.{ProgressHeader, ProgressStore, RecoveryCheck}
 import orca.tools.GitTool
@@ -14,30 +20,56 @@ import scala.util.control.NonFatal
   */
 object FlowLifecycle:
 
-  /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into the leading
-    * agent's in-memory registry, so a resumed run resumes against the right
-    * wire id and the existence probes target the right id. Reads every
-    * [[orca.progress.SessionRecord]] that carries a `resumeWireId` and
-    * registers it via [[orca.agents.Agent.registerResumeWireId]].
-    *
-    * The type parameter `B` binds the wildcard backend tag from the `agent`
-    * parameter (`Agent[?]`) so the client/wire [[orca.agents.SessionId]]s share
-    * its type. Only the leading agent is rehydrated (the common case); a flow
-    * that drives a second tool's sessions across resume is a known limitation.
+  /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
+    * session's OWN agent's in-memory registry, so a resumed run resumes against
+    * the right wire id and the existence probes target the right id. Reads
+    * every [[orca.progress.SessionRecord]] that carries a `resumeWireId` and
+    * registers it — via [[orca.agents.Agent.registerResumeWireId]] — into the
+    * agent [[targetAgent]] resolves for the record's `backend` tag: untagged
+    * (older) records go to `lead`, a tag matching one of `ctx`'s per-backend
+    * accessors goes there, and a tag matching none of them (an edited log) is
+    * skipped rather than guessed.
     */
-  private[orca] def rehydrateSessions[B <: BackendTag](
-      agent: Agent[B],
+  private[orca] def rehydrateSessions(
+      ctx: FlowContext,
+      lead: Agent[?],
       store: ProgressStore
   ): Unit =
     for
       log <- store.load().toList
       record <- log.sessions
       wireId <- record.resumeWireId
-    do
-      agent.registerResumeWireId(
-        SessionId[B](record.id),
-        WireSessionId[B](wireId)
-      )
+      agent <- targetAgent(ctx, lead, record.backend)
+    do register(agent, record.id, wireId)
+
+  /** Untagged records (older logs) go to the lead — the pre-tagging behaviour.
+    * A tag that matches no accessor (edited log) is skipped, not guessed.
+    * Resolving an accessor may construct that backend's default agent; that is
+    * correct — a record for backend X means the body will use X again anyway.
+    */
+  private def targetAgent(
+      ctx: FlowContext,
+      lead: Agent[?],
+      tag: Option[String]
+  ): Option[Agent[?]] =
+    tag match
+      case None => Some(lead)
+      case Some(t) =>
+        BackendTag.values
+          .find(_.toString == t)
+          .map:
+            case BackendTag.ClaudeCode => ctx.claude
+            case BackendTag.Codex      => ctx.codex
+            case BackendTag.Opencode   => ctx.opencode
+            case BackendTag.Pi         => ctx.pi
+            case BackendTag.Gemini     => ctx.gemini
+
+  private def register[B <: BackendTag](
+      agent: Agent[B],
+      id: String,
+      wire: String
+  ): Unit =
+    agent.registerResumeWireId(SessionId[B](id), WireSessionId[B](wire))
 
   /** Outcome of [[setup]]: the resolved progress store, the feature branch the
     * run is bound to, and the starting branch to restore on success.

@@ -77,3 +77,8 @@ trait AgentBackend[B <: BackendTag]:
     * providing one of persist/probe/register and forgetting the others.
     */
   def sessions: SessionSupport[B]
+
+  /** Runtime value of the compile-time tag `B`; lets the runtime record which
+    * backend a session belongs to.
+    */
+  def tag: B

@@ -162,6 +162,8 @@ private[orca] class OpencodeBackend(
     * guard (blocks URL injection such as `a/b` routing to a different
     * endpoint).
     */
+  val tag: BackendTag.Opencode.type = BackendTag.Opencode
+
   val sessions: SessionSupport[BackendTag.Opencode.type] =
     SessionSupport.Durable(
       registry,

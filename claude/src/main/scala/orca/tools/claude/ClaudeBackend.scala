@@ -80,6 +80,8 @@ private[orca] class ClaudeBackend(
     * just moves the `false` earlier. The guard rejects unsafe ids (path
     * traversal such as `../../etc/passwd`).
     */
+  val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
+
   val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
     SessionSupport.Durable(
       registry,

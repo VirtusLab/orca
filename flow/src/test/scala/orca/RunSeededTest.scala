@@ -146,6 +146,7 @@ class RunSeededTest extends FunSuite:
     )(using ox.Ox): Conversation[BackendTag.ClaudeCode.type] = ???
     val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
       stubSupport(existsResult)
+    val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
 
   /** A minimal `BaseAgent`-derived tool backed by [[StubBackend]]. Exercises
     * the real `BaseAgent.sessionExists → backend.sessionExists` delegation path

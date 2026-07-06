@@ -46,12 +46,21 @@ case class StageEntry(id: String, name: String, resultJson: String)
   * log files — the lenient [[ProgressLog]] codec tolerates the missing field.
   * Stored in [[ProgressLog.sessions]] so that a resumed run reuses the same
   * [[orca.agents.SessionId]] rather than minting a second one.
+  *
+  * `backend` records the minting agent's [[orca.agents.BackendTag]] (via its
+  * `toString`, e.g. `"Codex"`), so a resumed run's targeted rehydration
+  * (`FlowLifecycle.rehydrateSessions`) knows which agent to replay this
+  * record's `resumeWireId` into rather than always assuming the lead. Defaults
+  * to `None` and decodes to `None` when absent in older log files (written
+  * before this field existed, or before the record's agent carried a tag) — a
+  * `None` record falls back to the lead, the pre-tagging behaviour.
   */
 case class SessionRecord(
     index: Int,
     id: String,
     seed: String,
-    resumeWireId: Option[String] = None
+    resumeWireId: Option[String] = None,
+    backend: Option[String] = None
 ) derives JsonData
 
 /** An append-only log of stage outcomes and session records for one flow run,

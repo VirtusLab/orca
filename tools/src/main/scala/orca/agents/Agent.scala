@@ -135,6 +135,14 @@ trait Agent[B <: BackendTag]:
   private[orca] def sessionSupport: Option[orca.backend.SessionSupport[B]] =
     None
 
+  /** This tool's backend tag, or `None` for tools without a backend
+    * (lightweight stubs). Used to stamp [[orca.progress.SessionRecord.backend]]
+    * so a resumed run's targeted rehydration knows which agent a session
+    * belongs to. `BaseAgent` overrides this to `Some(backend.tag)`; a concrete
+    * tool built directly on `Agent` (no backend) keeps the `None` default.
+    */
+  private[orca] def backendTag: Option[BackendTag] = None
+
   /** Best-effort, non-destructive: is a live, resumable backend conversation
     * present for `session`? Delegates to [[sessionSupport]]. Returns `false` —
     * safe re-seed — when a concrete tool can't reach a backend instance.

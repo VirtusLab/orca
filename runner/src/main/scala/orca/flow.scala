@@ -254,13 +254,15 @@ private[orca] def runFlow[B <: BackendTag](
       // naming and session rehydration, which run before the body.
       val setup =
         FlowLifecycle.setup(args, ctx.agent, effectiveGit, branchNaming, store)
-      // Rehydrate the client→server session map: the registry is
-      // in-memory, so on resume the leading agent's mapping is empty. Replay
-      // the persisted records into it (after the context + log exist, before
-      // the body) so `dispatchFor` resumes the right server thread and the
-      // server-id existence probes work. Only the leading agent is rehydrated —
-      // the common case; multi-tool flows are a known limitation (see report).
-      FlowLifecycle.rehydrateSessions(ctx.agent, store)
+      // Rehydrate the client→server session map: each backend's registry is
+      // in-memory, so on resume it starts out empty. Replay the persisted
+      // records into it (after the context + log exist, before the body) so
+      // `dispatchFor` resumes the right server thread and the server-id
+      // existence probes work. Rehydration is targeted per record's `backend`
+      // tag — untagged (older) records go to the lead, a tagged record goes to
+      // that backend's agent (even when it isn't the lead), and an unknown tag
+      // is skipped rather than guessed.
+      FlowLifecycle.rehydrateSessions(ctx, ctx.agent, store)
       // The whole flow body runs as a top-level stage: an otherwise
       // unhandled exception surfaces as a single Error event (the same
       // message a stage failure shows). A nested stage / `fail` marks the

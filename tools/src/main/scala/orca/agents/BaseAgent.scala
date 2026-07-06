@@ -75,6 +75,10 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       : Option[orca.backend.SessionSupport[B]] =
     Some(backend.sessions)
 
+  /** Delegates to the backend's runtime tag — see [[Agent.backendTag]].
+    */
+  override private[orca] def backendTag: Option[BackendTag] = Some(backend.tag)
+
   val autonomous: AutonomousTextCall[B] = new AutonomousTextCall[B]:
     def run(
         prompt: String,

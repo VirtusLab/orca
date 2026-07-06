@@ -55,6 +55,8 @@ private[orca] class PiBackend(cli: CliRunner)
   val sessions: SessionSupport[BackendTag.Pi.type] =
     SessionSupport.Ephemeral(registry)
 
+  val tag: BackendTag.Pi.type = BackendTag.Pi
+
   def runAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Pi.type],

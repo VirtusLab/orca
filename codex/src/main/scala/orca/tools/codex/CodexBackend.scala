@@ -70,6 +70,8 @@ private[orca] class CodexBackend(
     * (`~/.codex/state_5.sqlite`) rather than `rollout-*.jsonl` files. If no
     * matching files exist, the probe returns `false` → re-seed, always safe.
     */
+  val tag: BackendTag.Codex.type = BackendTag.Codex
+
   val sessions: SessionSupport[BackendTag.Codex.type] =
     SessionSupport.Durable(
       registry,

@@ -11,15 +11,20 @@ import orca.{
 }
 import orca.events.OrcaEvent
 import orca.agents.{
+  Agent,
   Announce,
   AutonomousTextCall,
   BackendTag,
   ClaudeAgent,
+  CodexAgent,
   DefaultPrompts,
+  GeminiAgent,
   JsonData,
   AgentCall,
   AgentConfig,
   Model,
+  OpencodeAgent,
+  PiAgent,
   SessionId,
   WireSessionId,
   ToolSet,
@@ -28,7 +33,7 @@ import orca.agents.{
 import orca.backend.{Dispatch, SessionRegistry, SessionSupport}
 import orca.progress.{ProgressHeader, ProgressStore, SessionRecord, StageEntry}
 import orca.runner.terminal.TerminalInteraction
-import orca.tools.OsGitTool
+import orca.tools.{FsTool, GitHubTool, GitTool, OsGitTool}
 import orca.tools.opencode.OpencodeLauncher
 import ox.supervised
 
@@ -396,6 +401,75 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
+    "rehydrateSessions replays a codex-tagged record into the codex agent, not the lead"
+  ):
+    val store = storeWith(
+      SessionRecord(
+        index = 0,
+        id = "c-1",
+        seed = "s",
+        resumeWireId = Some("srv-9"),
+        backend = Some("Codex")
+      )
+    )
+    val lead = new RecordingClaude
+    val codex = new RecordingCodex
+    val ctx = new StubFlowContext(codexOverride = codex)
+    FlowLifecycle.rehydrateSessions(ctx, lead, store)
+    assertEquals(lead.registered, Nil)
+    assertEquals(codex.registered, List("c-1" -> "srv-9"))
+
+  test(
+    "rehydrateSessions falls back to the lead for an untagged (older) record"
+  ):
+    val store = storeWith(
+      SessionRecord(
+        index = 0,
+        id = "old-1",
+        seed = "s",
+        resumeWireId = Some("srv-1")
+      )
+    )
+    val lead = new RecordingClaude
+    val ctx = new StubFlowContext()
+    FlowLifecycle.rehydrateSessions(ctx, lead, store)
+    assertEquals(lead.registered, List("old-1" -> "srv-1"))
+
+  test("rehydrateSessions skips a record with an unknown backend tag"):
+    val store = storeWith(
+      SessionRecord(
+        index = 0,
+        id = "x-1",
+        seed = "s",
+        resumeWireId = Some("srv-2"),
+        backend = Some("Bogus")
+      )
+    )
+    val lead = new RecordingClaude
+    val codex = new RecordingCodex
+    val ctx = new StubFlowContext(codexOverride = codex)
+    FlowLifecycle.rehydrateSessions(ctx, lead, store)
+    assert(lead.registered.isEmpty && codex.registered.isEmpty)
+
+  /** A fresh progress store (temp dir, header already written) carrying
+    * `sessions` as its session records — the minimal fixture
+    * `rehydrateSessions` reads from.
+    */
+  private def storeWith(sessions: SessionRecord*): ProgressStore =
+    val dir = os.temp.dir()
+    val store = ProgressStore.default(dir, "rehydrate-targeted")
+    given InStage = InStage.unsafe
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/rehydrate-targeted",
+        promptHash = ProgressStore.hashPrompt("rehydrate-targeted")
+      )
+    )
+    sessions.foreach(store.upsertSession)
+    store
+
+  test(
     "rehydrate: persisted client→server map is replayed into the leading model before the body"
   ):
     // An aborted run left a session record carrying a learned resumeWireId. On
@@ -682,33 +756,34 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"default branchNaming must use shortenPrompt (slug fallback); got '$observedBranch'"
     )
 
-  /** A `ClaudeAgent` that records `registerResumeWireId` calls (routed through
-    * the `final` `Agent.registerResumeWireId` → [[SessionSupport.register]] →
-    * this recording registry's `commitSuccess`), to assert the lifecycle
-    * rehydrates the persisted resume-wire-id map. All LLM methods throw — the
-    * rehydration test never invokes the model.
+  /** In-memory `SessionRegistry` that records every `commitSuccess` call as a
+    * `(client, server)` string pair, exposed via `registered`. Shared by the
+    * per-backend recording stubs below (routed through the `final`
+    * `Agent.registerResumeWireId` → [[SessionSupport.register]] →
+    * `commitSuccess`) so each stub only wires its own instance rather than
+    * repeating the bookkeeping.
     */
-  private class RecordingClaude extends ClaudeAgent:
+  private class RecordingRegistry[B <: BackendTag] extends SessionRegistry[B]:
     private var _registered: List[(String, String)] = Nil
     def registered: List[(String, String)] = _registered
+    def dispatchFor(client: SessionId[B]): Dispatch[B] =
+      Dispatch.Fresh(client.onWire)
+    def commitSuccess(client: SessionId[B], server: WireSessionId[B]): Unit =
+      _registered = _registered :+ (client.value -> server.value)
+    def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] = None
 
-    private val recordingRegistry =
-      new SessionRegistry[BackendTag.ClaudeCode.type]:
-        def dispatchFor(
-            client: SessionId[BackendTag.ClaudeCode.type]
-        ): Dispatch[BackendTag.ClaudeCode.type] = Dispatch.Fresh(client.onWire)
-        def commitSuccess(
-            client: SessionId[BackendTag.ClaudeCode.type],
-            server: WireSessionId[BackendTag.ClaudeCode.type]
-        ): Unit =
-          _registered = _registered :+ (client.value -> server.value)
-        def resumeWireId(
-            client: SessionId[BackendTag.ClaudeCode.type]
-        ): Option[WireSessionId[BackendTag.ClaudeCode.type]] = None
+  /** A `ClaudeAgent` that records `registerResumeWireId` calls, to assert the
+    * lifecycle rehydrates the persisted resume-wire-id map into the RIGHT
+    * agent. All LLM methods throw — the rehydration tests never invoke the
+    * model.
+    */
+  private class RecordingClaude extends ClaudeAgent:
+    private val registry = new RecordingRegistry[BackendTag.ClaudeCode.type]
+    def registered: List[(String, String)] = registry.registered
 
     override private[orca] def sessionSupport
         : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
-      Some(SessionSupport.Durable(recordingRegistry, _ => false))
+      Some(SessionSupport.Durable(registry, _ => false))
 
     val name = "recording-claude"
     def haiku = this
@@ -726,5 +801,60 @@ class FlowLifecycleTest extends munit.FunSuite:
     def resultAs[O: JsonData: Announce]
         : AgentCall[BackendTag.ClaudeCode.type, O] =
       throw new UnsupportedOperationException
+
+  /** Codex counterpart of [[RecordingClaude]], used to assert that a
+    * codex-tagged session record rehydrates into the codex agent rather than
+    * the (claude) lead.
+    */
+  private class RecordingCodex extends CodexAgent:
+    private val registry = new RecordingRegistry[BackendTag.Codex.type]
+    def registered: List[(String, String)] = registry.registered
+
+    override private[orca] def sessionSupport
+        : Option[SessionSupport[BackendTag.Codex.type]] =
+      Some(SessionSupport.Durable(registry, _ => false))
+
+    val name = "recording-codex"
+    def mini = this
+    def withModel(model: Model) = this
+    def withConfig(c: AgentConfig) = this
+    def withSystemPrompt(p: String) = this
+    def withName(n: String) = this
+    def withTools(tools: ToolSet) = this
+    def autonomous: AutonomousTextCall[BackendTag.Codex.type] =
+      throw new UnsupportedOperationException
+    def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Codex.type, O] =
+      throw new UnsupportedOperationException
+
+  /** Throws — for `FlowContext` accessors a test doesn't wire and expects
+    * `rehydrateSessions` never to touch (it resolves purely off the per-backend
+    * accessors matching a record's `backend` tag).
+    */
+  private def notWired(name: String): Nothing =
+    throw new NotImplementedError(s"$name is not wired in StubFlowContext")
+
+  /** Minimal `FlowContext` stub for the targeted-rehydration tests above: only
+    * the per-backend accessor(s) a test overrides are live; every other member
+    * (including `claude`, when the test doesn't pass one) throws if touched.
+    */
+  private class StubFlowContext(
+      claudeOverride: => ClaudeAgent = notWired("claude"),
+      codexOverride: => CodexAgent = notWired("codex"),
+      opencodeOverride: => OpencodeAgent = notWired("opencode"),
+      piOverride: => PiAgent = notWired("pi"),
+      geminiOverride: => GeminiAgent = notWired("gemini")
+  ) extends FlowContext:
+    type LeadB = BackendTag.ClaudeCode.type
+    def agent: Agent[LeadB] = notWired("agent")
+    def claude: ClaudeAgent = claudeOverride
+    def codex: CodexAgent = codexOverride
+    def opencode: OpencodeAgent = opencodeOverride
+    def pi: PiAgent = piOverride
+    def gemini: GeminiAgent = geminiOverride
+    def git: GitTool = notWired("git")
+    def gh: GitHubTool = notWired("gh")
+    def fs: FsTool = notWired("fs")
+    def userPrompt: String = ""
+    def emit(event: OrcaEvent): Unit = ()
 
 end FlowLifecycleTest

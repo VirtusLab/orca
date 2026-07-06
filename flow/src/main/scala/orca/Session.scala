@@ -51,7 +51,12 @@ extension [B <: BackendTag](agent: Agent[B])
         val freshId = SessionId.fresh[B]
         given InStage = InStage.unsafe
         fc.progressStore.upsertSession(
-          SessionRecord(index = idx, id = freshId.value, seed = seed)
+          SessionRecord(
+            index = idx,
+            id = freshId.value,
+            seed = seed,
+            backend = agent.backendTag.map(_.toString)
+          )
         )
         freshId
 

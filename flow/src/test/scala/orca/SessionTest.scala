@@ -108,6 +108,22 @@ class SessionTest extends FunSuite:
       s"no warning expected; got: ${recorder.steps}"
     )
 
+  test("first agent.session call records the agent's backend tag"):
+    val (store, dir) = freshStore()
+    val fc = makeControl(store, dir)
+    val agent = new StubAgent:
+      override private[orca] def backendTag: Option[BackendTag] =
+        Some(BackendTag.Codex)
+    val _ = agent.session("plan brief")(using fc)
+    assertEquals(store.load().get.sessions.head.backend, Some("Codex"))
+
+  test("first agent.session call records no backend when the agent has none"):
+    val (store, dir) = freshStore()
+    val fc = makeControl(store, dir)
+    val agent = new StubAgent
+    val _ = agent.session("plan brief")(using fc)
+    assertEquals(store.load().get.sessions.head.backend, None)
+
   test("resume with a divergent seed at the same index warns loudly"):
     // The positional key (index 0) matches but the seed differs — the most
     // likely symptom of a shifted `session(...)` call sequence.

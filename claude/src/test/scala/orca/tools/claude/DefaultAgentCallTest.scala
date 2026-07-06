@@ -91,6 +91,8 @@ class SequencedBackend(outputs: List[String])
         ): Option[WireSessionId[BackendTag.ClaudeCode.type]] = None
     )
 
+  val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
+
   def runAutonomous(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
