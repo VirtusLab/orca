@@ -15,7 +15,7 @@ import orca.backend.{
   StreamSource
 }
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId}
+import orca.agents.{BackendTag, AgentConfig, SessionId, WireSessionId}
 import orca.subprocess.CliRunner
 import orca.tools.opencode.OpencodeApi.{SessionCreateBody, SessionCreated}
 import ox.{Ox, supervised}
@@ -94,7 +94,7 @@ private[orca] class OpencodeBackend(
     // Self-scoped: the conversation forks its reader into this per-turn Ox, the
     // drain consumes it, and `cancel` (the `finally`) POSTs `/abort`, interrupts
     // the SSE source, and finalizes — tearing the stream + forks down before the
-    // scope joins. `drainAutonomous` doesn't tear down, so the `finally` is
+    // scope joins. `drainAndCommit` doesn't tear down, so the `finally` is
     // load-bearing (and harmless on the happy path).
     supervised:
       val source = http.events()
@@ -108,9 +108,13 @@ private[orca] class OpencodeBackend(
         SessionMode.Autonomous
       )
       try
-        val result = Conversations.drainAutonomous(conv, events)
-        sessions.commitSuccess(session, result.sessionId)
-        result.copy(sessionId = session) // keep the caller's id as the handle
+        Conversations.drainAndCommit(
+          "opencode",
+          conv,
+          session,
+          sessions,
+          events
+        )
       finally conv.cancel()
 
   def runInteractive(
@@ -136,12 +140,13 @@ private[orca] class OpencodeBackend(
 
   override def registerSession(
       client: SessionId[BackendTag.Opencode.type],
-      serverSession: SessionId[BackendTag.Opencode.type]
+      serverSession: WireSessionId[BackendTag.Opencode.type]
   ): Unit = sessions.commitSuccess(client, serverSession)
 
   override def resumeWireId(
       client: SessionId[BackendTag.Opencode.type]
-  ): Option[SessionId[BackendTag.Opencode.type]] = sessions.resumeWireId(client)
+  ): Option[WireSessionId[BackendTag.Opencode.type]] =
+    sessions.resumeWireId(client)
 
   /** Probe `http` for the given session id via `GET /session/<id>` → status
     * 200. Callable directly in tests without going through the lazy-init guard.
@@ -180,7 +185,7 @@ private[orca] class OpencodeBackend(
       session: SessionId[BackendTag.Opencode.type]
   ): String =
     sessions.dispatchFor(session) match
-      case Dispatch.Resume(serverId) => SessionId.value(serverId)
+      case Dispatch.Resume(serverId) => WireSessionId.value(serverId)
       case Dispatch.Fresh(_) =>
         val resp = http.postJson("/session", writeToString(SessionCreateBody()))
         readFromString[SessionCreated](resp).id

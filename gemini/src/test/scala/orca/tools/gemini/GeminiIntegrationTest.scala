@@ -1,6 +1,13 @@
 package orca.tools.gemini
 
-import orca.agents.{AutoApprove, BackendTag, AgentConfig, Model, SessionId}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  Model,
+  SessionId,
+  WireSessionId
+}
 import orca.backend.SupervisedBackend
 import orca.subprocess.OsProcCliRunner
 
@@ -48,7 +55,7 @@ class GeminiIntegrationTest extends munit.FunSuite:
         result.output.toUpperCase.contains("READY"),
         s"expected output to contain READY, got: ${result.output}"
       )
-      assert(SessionId.value(result.sessionId).nonEmpty)
+      assert(WireSessionId.value(result.wireId).nonEmpty)
 
   test("a resumed call carries conversational context across turns"):
     withBackend: backend =>

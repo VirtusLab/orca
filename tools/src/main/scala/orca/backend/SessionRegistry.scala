@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.agents.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId, WireSessionId, onWire}
 
 /** Whether a backend call against a given caller-supplied session id should
   * start a fresh session or resume an existing one. Each backend has its own
@@ -14,14 +14,16 @@ import orca.agents.{BackendTag, SessionId}
   * `Fresh` vs `Resume` and forward the id to the CLI.
   */
 enum Dispatch[B <: BackendTag]:
-  case Fresh(wireId: SessionId[B])
-  case Resume(wireId: SessionId[B])
+  case Fresh(wireId: WireSessionId[B])
+  case Resume(wireId: WireSessionId[B])
 
 /** Backend-internal bookkeeping for the fresh-vs-resume decision. Each backend
   * picks one of the impls below (caller-allocated vs server-allocated id
   * schemes); the SPI doesn't constrain when `commitSuccess` fires — backends
-  * commit at whatever protocol point makes the id durable (claude at spawn,
-  * codex post-drain).
+  * commit at whatever protocol point makes the id durable (autonomous turns
+  * commit after a clean drain via Conversations.drainAndCommit; claude's
+  * interactive path commits at spawn; other interactive paths commit after the
+  * drive settles).
   *
   * Thread safety: implementations must tolerate concurrent reads/writes since
   * flows fan reviewers out via `mapParUnordered`. The `dispatchFor` → spawn →
@@ -31,7 +33,7 @@ enum Dispatch[B <: BackendTag]:
   */
 trait SessionRegistry[B <: BackendTag]:
   def dispatchFor(client: SessionId[B]): Dispatch[B]
-  def commitSuccess(client: SessionId[B], server: SessionId[B]): Unit
+  def commitSuccess(client: SessionId[B], server: WireSessionId[B]): Unit
 
   /** Pure, thread-safe read of the wire id to resume `client` against, or
     * `None` if no live mapping is known. For [[ClientToServer]] this is the
@@ -42,7 +44,7 @@ trait SessionRegistry[B <: BackendTag]:
     * log and to drive the existence probe. Never creates, mutates, or resumes a
     * session.
     */
-  def resumeWireId(client: SessionId[B]): Option[SessionId[B]]
+  def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]]
 
 object SessionRegistry:
 
@@ -58,20 +60,21 @@ object SessionRegistry:
       java.util.concurrent.ConcurrentHashMap.newKeySet[String]()
 
     def dispatchFor(client: SessionId[B]): Dispatch[B] =
-      if claimed.contains(SessionId.value(client)) then Dispatch.Resume(client)
-      else Dispatch.Fresh(client)
+      if claimed.contains(SessionId.value(client)) then
+        Dispatch.Resume(client.onWire)
+      else Dispatch.Fresh(client.onWire)
 
     /** The `server` parameter is ignored — for backends using this registry,
       * the wire id IS the client id.
       */
-    def commitSuccess(client: SessionId[B], server: SessionId[B]): Unit =
+    def commitSuccess(client: SessionId[B], server: WireSessionId[B]): Unit =
       val _ = claimed.add(SessionId.value(client))
 
     /** The client id IS the wire id, so a claimed client resumes against
       * itself.
       */
-    def resumeWireId(client: SessionId[B]): Option[SessionId[B]] =
-      Option.when(claimed.contains(SessionId.value(client)))(client)
+    def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] =
+      Option.when(claimed.contains(SessionId.value(client)))(client.onWire)
 
   /** For backends whose session id is server-minted at first use, learned from
     * the protocol response. The framework hands the caller a stable client id;
@@ -92,14 +95,14 @@ object SessionRegistry:
 
     def dispatchFor(client: SessionId[B]): Dispatch[B] =
       Option(map.get(SessionId.value(client))) match
-        case Some(serverId) => Dispatch.Resume(SessionId[B](serverId))
-        case None           => Dispatch.Fresh(client)
+        case Some(serverId) => Dispatch.Resume(WireSessionId[B](serverId))
+        case None           => Dispatch.Fresh(client.onWire)
 
-    def commitSuccess(client: SessionId[B], server: SessionId[B]): Unit =
+    def commitSuccess(client: SessionId[B], server: WireSessionId[B]): Unit =
       val _ = map.putIfAbsent(
         SessionId.value(client),
-        SessionId.value(server)
+        WireSessionId.value(server)
       )
 
-    def resumeWireId(client: SessionId[B]): Option[SessionId[B]] =
-      Option(map.get(SessionId.value(client))).map(SessionId[B](_))
+    def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] =
+      Option(map.get(SessionId.value(client))).map(WireSessionId[B](_))

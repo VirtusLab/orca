@@ -63,3 +63,24 @@ object SessionId:
     */
   given [B <: BackendTag]: JsonData[SessionId[B]] =
     JsonData.given_JsonData_String
+
+/** The id a backend actually resumes a conversation against on the wire —
+  * distinct from [[SessionId]], orca's stable client handle. For claude (and
+  * pi's claimed ids) the two coincide; for codex/gemini/opencode the wire id is
+  * a server-minted thread id learned from the protocol. A separate opaque type
+  * makes returning a wire id as the caller's handle — or resuming against a
+  * client id — a compile error (the bug class behind two shipped resume bugs;
+  * see complexity review finding 1.1).
+  */
+opaque type WireSessionId[B <: BackendTag] = String
+
+object WireSessionId:
+  def apply[B <: BackendTag](value: String): WireSessionId[B] = value
+  extension [B <: BackendTag](id: WireSessionId[B]) def value: String = id
+
+extension [B <: BackendTag](id: SessionId[B])
+  /** The client id used verbatim on the wire — the one legitimate crossing
+    * between the two id spaces, for registries where the caller-allocated id IS
+    * the wire id ([[orca.backend.SessionRegistry.ClaimedOnce]]).
+    */
+  def onWire: WireSessionId[B] = id

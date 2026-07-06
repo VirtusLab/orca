@@ -1,7 +1,13 @@
 package orca.backend
 
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId, isSafeSessionId}
+import orca.agents.{
+  BackendTag,
+  AgentConfig,
+  SessionId,
+  WireSessionId,
+  isSafeSessionId
+}
 
 import ox.Ox
 
@@ -81,7 +87,8 @@ trait AgentBackend[B <: BackendTag]:
     * `runAutonomous` / `runInteractive` on the same client id resumes the right
     * thread.
     */
-  def registerSession(client: SessionId[B], server: SessionId[B]): Unit = ()
+  def registerSession(client: SessionId[B], server: WireSessionId[B]): Unit =
+    ()
 
   /** Non-destructive check: does a live, resumable backend conversation exist
     * for `session`? Best-effort — returns `false` when the backend store/CLI is
@@ -100,7 +107,7 @@ trait AgentBackend[B <: BackendTag]:
     * persist the resume wire id into the progress log (so a resumed run can
     * rehydrate it via [[registerSession]]) and to probe it for existence.
     */
-  def resumeWireId(client: SessionId[B]): Option[SessionId[B]] = None
+  def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] = None
 
   /** Run `probe` on `id` only if `id` is a safe session id, treating ANY
     * non-fatal failure (and an unsafe id) as "not found". The non-destructive,
@@ -121,4 +128,4 @@ trait AgentBackend[B <: BackendTag]:
   )(probe: String => Boolean): Boolean =
     registry.resumeWireId(session) match
       case None      => false
-      case Some(srv) => probeGuarded(SessionId.value(srv))(probe)
+      case Some(srv) => probeGuarded(srv.value)(probe)

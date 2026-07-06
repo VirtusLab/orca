@@ -8,7 +8,8 @@ import orca.agents.{
   AgentConfig,
   OpencodeAgent,
   SessionId,
-  ToolSet
+  ToolSet,
+  onWire
 }
 
 class DefaultOpencodeAgentTest extends munit.FunSuite:
@@ -28,7 +29,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Opencode.type] =
       lastConfig = Some(config)
-      AgentResult(session, "ok", Usage(0L, 0L, None))
+      AgentResult(session.onWire, "ok", Usage(0L, 0L, None))
     def runInteractive(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],

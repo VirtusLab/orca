@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.agents.{BackendTag, Model, SessionId}
+import orca.agents.{BackendTag, Model, WireSessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, AgentResult}
@@ -211,7 +211,7 @@ private[codex] class CodexConversation(
 
   private def handleTurnCompleted(usage: Usage): Unit =
     val result = AgentResult(
-      sessionId = SessionId[BackendTag.Codex.type](sessionIdRef.get()),
+      wireId = WireSessionId[BackendTag.Codex.type](sessionIdRef.get()),
       output = lastAgentMessage.get(),
       usage = usage,
       model = modelRef.get().map(Model.apply)

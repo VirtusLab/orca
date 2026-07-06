@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.agents.{BackendTag, Model, SessionId}
+import orca.agents.{BackendTag, Model, WireSessionId}
 import orca.events.{Usage}
 
 /** Outcome of a single LLM call. Returned by [[AgentBackend.runAutonomous]] /
@@ -9,7 +9,13 @@ import orca.events.{Usage}
   * path.
   */
 case class AgentResult[B <: BackendTag](
-    sessionId: SessionId[B],
+    /** The session id the backend reported for this turn — the WIRE id (server
+      * thread id for codex/gemini/opencode; the claimed client id for
+      * claude/pi). Callers wanting the stable client handle already hold it —
+      * they passed it in; this field exists so the registry can learn the
+      * mapping.
+      */
+    wireId: WireSessionId[B],
     output: String,
     usage: Usage,
     /** Model the backend reports it actually served the call with — usually

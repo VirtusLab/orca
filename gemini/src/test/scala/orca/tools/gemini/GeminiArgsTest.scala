@@ -5,7 +5,7 @@ import orca.agents.{
   BackendTag,
   AgentConfig,
   Model,
-  SessionId,
+  WireSessionId,
   ToolSet
 }
 
@@ -79,14 +79,14 @@ class GeminiArgsTest extends munit.FunSuite:
     )
 
   test("resume builds gemini ... --resume <id> with the prompt"):
-    val sid = SessionId[BackendTag.Gemini.type]("uuid-123")
+    val sid = WireSessionId[BackendTag.Gemini.type]("uuid-123")
     val args = GeminiArgs.resume(sid, "next step", AgentConfig.default)
     assertEquals(args.head, "gemini")
     assert(args.containsSlice(Seq("--resume", "uuid-123")), args.toString)
     assert(args.containsSlice(Seq("-p", "next step")), args.toString)
 
   test("resume propagates --model when AgentConfig.model is set"):
-    val sid = SessionId[BackendTag.Gemini.type]("sid")
+    val sid = WireSessionId[BackendTag.Gemini.type]("sid")
     val args = GeminiArgs.resume(
       sid,
       "x",

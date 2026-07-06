@@ -1,23 +1,26 @@
 package orca.backend
 
-import orca.agents.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId, WireSessionId, onWire}
 
 class SessionRegistryTest extends munit.FunSuite:
 
   private def sid(s: String): SessionId[BackendTag.ClaudeCode.type] =
     SessionId[BackendTag.ClaudeCode.type](s)
 
-  private def serverSid(s: String): SessionId[BackendTag.Codex.type] =
+  private def clientSid(s: String): SessionId[BackendTag.Codex.type] =
     SessionId[BackendTag.Codex.type](s)
+
+  private def wireSid(s: String): WireSessionId[BackendTag.Codex.type] =
+    WireSessionId[BackendTag.Codex.type](s)
 
   test(
     "ClaimedOnce: dispatchFor flips Fresh → Resume after commitSuccess"
   ):
     val reg = new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type]
     val client = sid("client-A")
-    assertEquals(reg.dispatchFor(client), Dispatch.Fresh(client))
-    reg.commitSuccess(client, client)
-    assertEquals(reg.dispatchFor(client), Dispatch.Resume(client))
+    assertEquals(reg.dispatchFor(client), Dispatch.Fresh(client.onWire))
+    reg.commitSuccess(client, client.onWire)
+    assertEquals(reg.dispatchFor(client), Dispatch.Resume(client.onWire))
 
   test(
     "ClaimedOnce: distinct client ids are tracked independently"
@@ -25,9 +28,9 @@ class SessionRegistryTest extends munit.FunSuite:
     val reg = new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type]
     val a = sid("a")
     val b = sid("b")
-    reg.commitSuccess(a, a)
-    assertEquals(reg.dispatchFor(a), Dispatch.Resume(a))
-    assertEquals(reg.dispatchFor(b), Dispatch.Fresh(b))
+    reg.commitSuccess(a, a.onWire)
+    assertEquals(reg.dispatchFor(a), Dispatch.Resume(a.onWire))
+    assertEquals(reg.dispatchFor(b), Dispatch.Fresh(b.onWire))
 
   test(
     "ClientToServer: dispatchFor returns Resume with the recorded server id"
@@ -35,9 +38,9 @@ class SessionRegistryTest extends munit.FunSuite:
     // Codex's contract: the client id is the framework's stable handle;
     // the wire id (server thread id) is what `exec resume` consumes.
     val reg = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
-    val client = serverSid("client-uuid")
-    val server = serverSid("server-thread-xyz")
-    assertEquals(reg.dispatchFor(client), Dispatch.Fresh(client))
+    val client = clientSid("client-uuid")
+    val server = wireSid("server-thread-xyz")
+    assertEquals(reg.dispatchFor(client), Dispatch.Fresh(client.onWire))
     reg.commitSuccess(client, server)
     assertEquals(reg.dispatchFor(client), Dispatch.Resume(server))
 
@@ -45,8 +48,8 @@ class SessionRegistryTest extends munit.FunSuite:
     "ClientToServer: resumeWireId is None before commit, Some(server) after"
   ):
     val reg = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
-    val client = serverSid("client-uuid")
-    val server = serverSid("server-thread-xyz")
+    val client = clientSid("client-uuid")
+    val server = wireSid("server-thread-xyz")
     assertEquals(reg.resumeWireId(client), None)
     reg.commitSuccess(client, server)
     assertEquals(reg.resumeWireId(client), Some(server))
@@ -56,9 +59,10 @@ class SessionRegistryTest extends munit.FunSuite:
   ):
     val reg = new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type]
     val client = sid("client-A")
+    val wire: WireSessionId[BackendTag.ClaudeCode.type] = client.onWire
     assertEquals(reg.resumeWireId(client), None)
-    reg.commitSuccess(client, client)
-    assertEquals(reg.resumeWireId(client), Some(client))
+    reg.commitSuccess(client, wire)
+    assertEquals(reg.resumeWireId(client), Some(wire))
 
   test(
     "ClientToServer: putIfAbsent semantics — second commit doesn't overwrite"
@@ -68,9 +72,9 @@ class SessionRegistryTest extends munit.FunSuite:
     // benign re-commit or a bug. Either way, drop it — don't surprise
     // callers with a silently-changed mapping.
     val reg = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
-    val client = serverSid("client")
-    val first = serverSid("server-1")
-    val second = serverSid("server-2")
+    val client = clientSid("client")
+    val first = wireSid("server-1")
+    val second = wireSid("server-2")
     reg.commitSuccess(client, first)
     reg.commitSuccess(client, second)
     assertEquals(reg.dispatchFor(client), Dispatch.Resume(first))

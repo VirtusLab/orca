@@ -1,7 +1,7 @@
 package orca.tools.codex
 
 import orca.backend.SupervisedBackend
-import orca.agents.{BackendTag, AgentConfig, Model, SessionId}
+import orca.agents.{BackendTag, AgentConfig, Model, SessionId, WireSessionId}
 import orca.{OrcaFlowException}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 
@@ -46,10 +46,13 @@ class CodexBackendTest extends munit.FunSuite:
           AgentConfig.default,
           os.temp.dir()
         )
-      // The returned session id is the client-allocated one — the server's
-      // thr-42 is mapped internally so subsequent calls can resume it without
-      // the caller having to thread a new id back in.
-      assertEquals(result.sessionId, clientSid)
+      // The result reports the WIRE id — the server-minted thr-42 — while the
+      // client→server mapping is recorded in the registry so subsequent calls
+      // resume it without the caller threading a new id back in.
+      assertEquals(
+        result.wireId,
+        WireSessionId[BackendTag.Codex.type]("thr-42")
+      )
       assertEquals(result.output, "the answer")
       assertEquals(result.usage.inputTokens, 100L)
       assertEquals(result.usage.outputTokens, 25L)
@@ -208,7 +211,7 @@ class CodexBackendTest extends munit.FunSuite:
       // integration path is wired in AgentCall.runInteractiveOnce).
       backend.registerSession(
         clientSid,
-        SessionId[BackendTag.Codex.type]("thr-via-interactive")
+        WireSessionId[BackendTag.Codex.type]("thr-via-interactive")
       )
       val _ =
         backend.runAutonomous("after", clientSid, AgentConfig.default, workDir)

@@ -1,7 +1,14 @@
 package orca.tools.opencode
 
 import orca.backend.SupervisedBackend
-import orca.agents.{BackendTag, AgentConfig, Model, SessionId, ToolSet}
+import orca.agents.{
+  BackendTag,
+  AgentConfig,
+  Model,
+  SessionId,
+  WireSessionId,
+  ToolSet
+}
 import orca.subprocess.OsProcCliRunner
 
 /** End-to-end tests against a real `opencode serve`. Gated on the
@@ -48,7 +55,7 @@ class OpencodeIntegrationTest extends munit.FunSuite:
         result.output.toUpperCase.contains("READY"),
         s"expected READY, got: ${result.output}"
       )
-      assert(SessionId.value(result.sessionId).nonEmpty)
+      assert(WireSessionId.value(result.wireId).nonEmpty)
 
   test("structured output returns the validated object"):
     withBackend: backend =>

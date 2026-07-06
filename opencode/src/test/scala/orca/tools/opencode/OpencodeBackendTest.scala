@@ -1,7 +1,7 @@
 package orca.tools.opencode
 
 import orca.backend.StreamSource
-import orca.agents.{BackendTag, AgentConfig, Model, SessionId}
+import orca.agents.{BackendTag, AgentConfig, Model, SessionId, WireSessionId}
 import ox.supervised
 
 class OpencodeBackendTest extends munit.FunSuite:
@@ -65,8 +65,12 @@ class OpencodeBackendTest extends munit.FunSuite:
 
       assertEquals(result.output, "done")
       assertEquals(result.model, Some(Model("gpt-4o-mini")))
-      // The caller's id stays the handle; the server id is hidden.
-      assertEquals(result.sessionId, client)
+      // The result reports the WIRE id — the server-minted ses_server1 — while
+      // the client→server mapping is recorded in the registry.
+      assertEquals(
+        result.wireId,
+        WireSessionId[BackendTag.Opencode.type]("ses_server1")
+      )
       // The turn finalizes through `conv.cancel()` (the self-scoped per-turn
       // `finally`), whose best-effort `POST /abort` trails the turn — a no-op on
       // the already-idle session.
@@ -103,7 +107,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val client = fresh
       backend.registerSession(
         client,
-        SessionId[BackendTag.Opencode.type]("ses_X")
+        WireSessionId[BackendTag.Opencode.type]("ses_X")
       )
       val _ =
         backend.runAutonomous("hi", client, AgentConfig.default, os.temp.dir())
@@ -231,7 +235,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       // Even if the registry maps to a malicious server id, the guard blocks it.
       backend.registerSession(
         client,
-        SessionId[BackendTag.Opencode.type]("a/b")
+        WireSessionId[BackendTag.Opencode.type]("a/b")
       )
       assert(!backend.sessionExists(client))
 
@@ -244,6 +248,6 @@ class OpencodeBackendTest extends munit.FunSuite:
       val client = fresh
       backend.registerSession(
         client,
-        SessionId[BackendTag.Opencode.type]("x?y#z")
+        WireSessionId[BackendTag.Opencode.type]("x?y#z")
       )
       assert(!backend.sessionExists(client))

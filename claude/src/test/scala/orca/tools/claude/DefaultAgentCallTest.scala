@@ -1,7 +1,7 @@
 package orca.tools.claude
 
 import orca.{AgentTurnFailed, OrcaFlowException}
-import orca.agents.{BackendTag, JsonData, AgentConfig, SessionId}
+import orca.agents.{BackendTag, JsonData, AgentConfig, SessionId, WireSessionId}
 import orca.events.{OrcaListener, Usage}
 
 import orca.backend.{Interaction, AgentBackend, AgentResult}
@@ -29,7 +29,7 @@ class SequencedBackend(outputs: List[String])
   private val registrations: AtomicReference[List[
     (
         SessionId[BackendTag.ClaudeCode.type],
-        SessionId[BackendTag.ClaudeCode.type]
+        WireSessionId[BackendTag.ClaudeCode.type]
     )
   ]] = AtomicReference(Nil)
 
@@ -54,13 +54,13 @@ class SequencedBackend(outputs: List[String])
   def registered: List[
     (
         SessionId[BackendTag.ClaudeCode.type],
-        SessionId[BackendTag.ClaudeCode.type]
+        WireSessionId[BackendTag.ClaudeCode.type]
     )
   ] = registrations.get().reverse
 
   override def registerSession(
       client: SessionId[BackendTag.ClaudeCode.type],
-      server: SessionId[BackendTag.ClaudeCode.type]
+      server: WireSessionId[BackendTag.ClaudeCode.type]
   ): Unit =
     val _ = registrations.updateAndGet((client, server) :: _)
 
@@ -74,7 +74,7 @@ class SequencedBackend(outputs: List[String])
   ): AgentResult[BackendTag.ClaudeCode.type] =
     val _ = seenEvents.updateAndGet(events :: _)
     val _ = seenSchemas.updateAndGet(outputSchema :: _)
-    nextResult(prompt).copy(sessionId = session)
+    nextResult(prompt)
 
   def runInteractive(
       prompt: String,
@@ -103,7 +103,7 @@ class SequencedBackend(outputs: List[String])
       .headOption
       .getOrElse(throw new IllegalStateException("ran out of canned outputs"))
     AgentResult(
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("sess-test"),
+      wireId = WireSessionId[BackendTag.ClaudeCode.type]("sess-test"),
       output = next,
       usage = Usage.empty
     )
@@ -392,15 +392,15 @@ class DefaultAgentCallTest extends munit.FunSuite:
     "interactive.run registers (clientSid, serverSid) and returns the client id"
   ):
     // Pins the codex-interactive bug fix end-to-end: the framework must call
-    // `backend.registerSession(session, result.sessionId)` after
-    // `interaction.drive` returns, and restamp the returned id to the
-    // caller-supplied `session` so a follow-up `.run(prompt, sid)` resumes
-    // the right thread. Removing the `backend.registerSession` line in
+    // `backend.registerSession(session, result.wireId)` after
+    // `interaction.drive` returns, and return the caller-supplied `session`
+    // so a follow-up `.run(prompt, sid)` resumes the right thread. Removing
+    // the `backend.registerSession` line in
     // `DefaultAgentCall.runInteractiveOnce` would fail this test.
     val clientSid =
       SessionId[BackendTag.ClaudeCode.type]("client-uuid-aaaa")
     val serverSid =
-      SessionId[BackendTag.ClaudeCode.type]("server-uuid-bbbb")
+      WireSessionId[BackendTag.ClaudeCode.type]("server-uuid-bbbb")
     val backend = new SequencedBackend(List("""{"value":3}"""))
     val drivingInteraction: Interaction = new Interaction:
       val listeners: List[OrcaListener] = Nil
@@ -408,7 +408,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
           conversation: orca.backend.Conversation[B]
       ): AgentResult[B] =
         AgentResult[B](
-          sessionId = SessionId[B](SessionId.value(serverSid)),
+          wireId = WireSessionId[B](WireSessionId.value(serverSid)),
           output = """{"value":3}""",
           usage = Usage.empty
         )

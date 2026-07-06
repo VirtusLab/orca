@@ -1,7 +1,7 @@
 package orca.tools.pi
 
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId}
+import orca.agents.{BackendTag, AgentConfig, SessionId, WireSessionId}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -64,10 +64,7 @@ private[orca] class PiBackend(cli: CliRunner)
         workDir = workDir,
         outputSchema = outputSchema
       )
-      try
-        Conversations
-          .drainAndCommit("pi", conv, session, sessions, events)
-          .copy(sessionId = session)
+      try Conversations.drainAndCommit("pi", conv, session, sessions, events)
       finally conv.cancel()
 
   def runInteractive(
@@ -93,7 +90,7 @@ private[orca] class PiBackend(cli: CliRunner)
     */
   override def registerSession(
       client: SessionId[BackendTag.Pi.type],
-      serverSession: SessionId[BackendTag.Pi.type]
+      serverSession: WireSessionId[BackendTag.Pi.type]
   ): Unit = sessions.commitSuccess(client, serverSession)
   // No `resumeWireId` override: pi's sessions live in a `deleteOnExit` temp dir
   // (gone across runs), so there is nothing durable to persist or rehydrate — pi

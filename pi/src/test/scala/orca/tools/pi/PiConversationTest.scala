@@ -2,7 +2,7 @@ package orca.tools.pi
 
 import orca.backend.ConversationEvent
 import orca.events.Usage
-import orca.agents.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId, WireSessionId, onWire}
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.subprocess.FakePipedCliProcess
 import ox.{Ox, supervised}
@@ -41,7 +41,8 @@ class PiConversationTest extends munit.FunSuite:
       )
     )
     val Right(result) = conv.awaitResult(): @unchecked
-    assertEquals(result.sessionId, sid)
+    val wire: WireSessionId[BackendTag.Pi.type] = sid.onWire
+    assertEquals(result.wireId, wire)
     assertEquals(result.output, "hello")
     assertEquals(result.model.map(_.name), Some("anthropic/claude-sonnet"))
     assertEquals(result.usage, Usage(10L, 3L, Some(BigDecimal("0.01")), 3L))

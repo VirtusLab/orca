@@ -1,6 +1,6 @@
 package orca.tools.gemini
 
-import orca.agents.{BackendTag, Model, SessionId}
+import orca.agents.{BackendTag, Model, WireSessionId}
 import orca.events.Usage
 import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{
@@ -137,7 +137,7 @@ private[gemini] class GeminiConversation(
       )
     else
       val result = AgentResult(
-        sessionId = SessionId[BackendTag.Gemini.type](sessionIdRef.get()),
+        wireId = WireSessionId[BackendTag.Gemini.type](sessionIdRef.get()),
         output = answer.toString,
         usage = usage,
         model = modelRef.get().map(Model.apply)

@@ -1,7 +1,13 @@
 package orca.tools.claude
 
 import orca.backend.{CliArgs, Dispatch}
-import orca.agents.{AutoApprove, BackendTag, AgentConfig, SessionId, ToolSet}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  WireSessionId,
+  ToolSet
+}
 
 /** Maps AgentConfig fields to Claude Code CLI flags. `systemPrompt` is consumed
   * by the backend (written to a file whose path is passed in via
@@ -57,8 +63,8 @@ private[claude] object ClaudeArgs:
   private def sessionArgs(
       dispatch: Dispatch[BackendTag.ClaudeCode.type]
   ): Seq[String] = dispatch match
-    case Dispatch.Fresh(id)  => Seq("--session-id", SessionId.value(id))
-    case Dispatch.Resume(id) => Seq("--resume", SessionId.value(id))
+    case Dispatch.Fresh(id)  => Seq("--session-id", WireSessionId.value(id))
+    case Dispatch.Resume(id) => Seq("--resume", WireSessionId.value(id))
 
   /** claude's CLI only accepts `--json-schema <inline>` — there's no
     * `--json-schema-file` form. For typical Orca schemas (a few KB) inlining is

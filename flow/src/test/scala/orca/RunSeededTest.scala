@@ -13,6 +13,7 @@ import orca.agents.{
   Agent,
   Prompts,
   SessionId,
+  WireSessionId,
   ToolSet,
   BaseAgent
 }
@@ -67,8 +68,8 @@ class RunSeededTest extends FunSuite:
       */
     override def resumeWireId(
         client: SessionId[BackendTag.ClaudeCode.type]
-    ): Option[SessionId[BackendTag.ClaudeCode.type]] =
-      learnedWireId.map(SessionId[BackendTag.ClaudeCode.type](_))
+    ): Option[WireSessionId[BackendTag.ClaudeCode.type]] =
+      learnedWireId.map(WireSessionId[BackendTag.ClaudeCode.type](_))
 
     val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
       new AutonomousTextCall[BackendTag.ClaudeCode.type]:

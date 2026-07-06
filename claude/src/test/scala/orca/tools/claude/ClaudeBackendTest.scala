@@ -1,7 +1,14 @@
 package orca.tools.claude
 
 import orca.backend.SupervisedBackend
-import orca.agents.{BackendTag, AgentConfig, SessionId, ToolSet}
+import orca.agents.{
+  BackendTag,
+  AgentConfig,
+  SessionId,
+  WireSessionId,
+  ToolSet,
+  onWire
+}
 import orca.{OrcaFlowException}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 
@@ -112,7 +119,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     withBackend(runner): backend =>
       val result =
         backend.runAutonomous("x", freshSid, AgentConfig.default, os.temp.dir())
-      assertEquals(SessionId.value(result.sessionId), "sess-123")
+      assertEquals(WireSessionId.value(result.wireId), "sess-123")
       assertEquals(result.output, "hello world")
       assertEquals(result.usage.inputTokens, 10L)
       assertEquals(result.usage.outputTokens, 5L)
@@ -199,7 +206,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     )
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
-      backend.registerSession(sid, sid)
+      backend.registerSession(sid, sid.onWire)
       val _ =
         backend.runAutonomous(
           "continue",
@@ -225,9 +232,10 @@ class ClaudeBackendTest extends munit.FunSuite:
       assertEquals(backend.resumeWireId(sid), None) // unclaimed
       val _ =
         backend.runAutonomous("hi", sid, AgentConfig.default, os.temp.dir())
+      val wire: WireSessionId[BackendTag.ClaudeCode.type] = sid.onWire
       assertEquals(
         backend.resumeWireId(sid),
-        Some(sid)
+        Some(wire)
       ) // claimed → persistable
 
   test(

@@ -1,6 +1,12 @@
 package orca.tools.claude
 
-import orca.agents.{AutoApprove, BackendTag, AgentConfig, SessionId}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  SessionId,
+  WireSessionId
+}
 import orca.backend.{ApprovalDecision, ConversationEvent, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
 
@@ -36,7 +42,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         result.output.contains("READY"),
         s"expected output to contain READY, got: ${result.output}"
       )
-      assert(SessionId.value(result.sessionId).nonEmpty)
+      assert(WireSessionId.value(result.wireId).nonEmpty)
 
   test("a resumed call carries conversational context across turns"):
     withBackend: backend =>
@@ -78,7 +84,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
           result.output.contains("7"),
           s"expected a reply containing '7', got: ${result.output}"
         )
-        assert(SessionId.value(result.sessionId).nonEmpty)
+        assert(WireSessionId.value(result.wireId).nonEmpty)
       finally conversation.cancel()
 
   test("stream-json session emits text deltas as the agent streams"):

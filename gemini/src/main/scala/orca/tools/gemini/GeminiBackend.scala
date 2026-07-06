@@ -1,7 +1,7 @@
 package orca.tools.gemini
 
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId}
+import orca.agents.{BackendTag, AgentConfig, SessionId, WireSessionId}
 import orca.subprocess.CliResult
 import orca.backend.{
   Conversation,
@@ -75,12 +75,11 @@ private[orca] class GeminiBackend(cli: CliRunner)(using BufferCapacity)
         // `--output-schema` flag, so enforcement is prompt-only.
         outputSchema = outputSchema
       )
-      // Hide the server-allocated id from the caller — they keep using the
-      // client id they passed in. Future calls resolve via the registry.
+      // drainAndCommit records the client→server mapping so a follow-up call on
+      // this client id resumes the right thread; the result carries the server
+      // thread id as its wireId, and the caller keeps using the client id.
       try
-        Conversations
-          .drainAndCommit("gemini", conv, session, sessions, events)
-          .copy(sessionId = session)
+        Conversations.drainAndCommit("gemini", conv, session, sessions, events)
       finally conv.cancel()
 
   def runInteractive(
@@ -162,12 +161,13 @@ private[orca] class GeminiBackend(cli: CliRunner)(using BufferCapacity)
     */
   override def registerSession(
       client: SessionId[BackendTag.Gemini.type],
-      server: SessionId[BackendTag.Gemini.type]
+      server: WireSessionId[BackendTag.Gemini.type]
   ): Unit = sessions.commitSuccess(client, server)
 
   override def resumeWireId(
       client: SessionId[BackendTag.Gemini.type]
-  ): Option[SessionId[BackendTag.Gemini.type]] = sessions.resumeWireId(client)
+  ): Option[WireSessionId[BackendTag.Gemini.type]] =
+    sessions.resumeWireId(client)
 
   /** Best-effort probe: resolves the SERVER id mapped to `client` (gemini mints
     * its own session id; the caller's stable id never appears in

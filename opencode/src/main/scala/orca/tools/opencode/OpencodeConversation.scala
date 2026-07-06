@@ -10,7 +10,7 @@ import orca.backend.{
   StreamSource
 }
 import orca.events.Usage
-import orca.agents.{BackendTag, Model, SessionId}
+import orca.agents.{BackendTag, Model, WireSessionId}
 import ox.Ox
 import orca.tools.opencode.OpencodeApi.{
   AssistantInfo,
@@ -162,7 +162,7 @@ private[opencode] class OpencodeConversation(
     val info = turnState.info
     val structured = info.flatMap(_.structured).map(_.value)
     AgentResult(
-      sessionId = SessionId[BackendTag.Opencode.type](session),
+      wireId = WireSessionId[BackendTag.Opencode.type](session),
       output = structured.getOrElse(turnState.text.mkString),
       usage = usageOf(info),
       model = info.flatMap(_.modelID).map(Model.apply)

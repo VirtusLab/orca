@@ -2,7 +2,13 @@ package orca.tools.codex
 
 import orca.backend.CliArgs
 import orca.backend.mcp.AskUserMcpServer
-import orca.agents.{AutoApprove, BackendTag, AgentConfig, SessionId, ToolSet}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  WireSessionId,
+  ToolSet
+}
 
 /** Maps `AgentConfig` fields to `codex exec` CLI flags. `systemPrompt` is not
   * handled here — codex doesn't accept an `--append-system-prompt` equivalent
@@ -59,7 +65,7 @@ private[codex] object CodexArgs:
     * always finds a rollout.
     */
   def execResume(
-      sessionId: SessionId[BackendTag.Codex.type],
+      sessionId: WireSessionId[BackendTag.Codex.type],
       prompt: String,
       config: AgentConfig,
       mcpServerUrl: Option[String] = None
@@ -67,7 +73,7 @@ private[codex] object CodexArgs:
     Seq("codex") ++
       mcpServerArgs(mcpServerUrl) ++
       networkConfigArgs(config) ++
-      Seq("exec", "resume", "--json", SessionId.value(sessionId)) ++
+      Seq("exec", "resume", "--json", WireSessionId.value(sessionId)) ++
       resumeSandboxArgs(config) ++
       CliArgs.modelArgs(config) ++
       Seq("--skip-git-repo-check") ++

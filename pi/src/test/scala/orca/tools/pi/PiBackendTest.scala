@@ -2,7 +2,15 @@ package orca.tools.pi
 
 import orca.backend.SystemPromptComposer
 import orca.events.Usage
-import orca.agents.{BackendTag, AgentConfig, Model, SessionId, ToolSet}
+import orca.agents.{
+  BackendTag,
+  AgentConfig,
+  Model,
+  SessionId,
+  WireSessionId,
+  ToolSet,
+  onWire
+}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 
 class PiBackendTest extends munit.FunSuite:
@@ -36,7 +44,8 @@ class PiBackendTest extends munit.FunSuite:
     val result =
       backend.runAutonomous("do it", sid, AgentConfig.default, workDir)
 
-    assertEquals(result.sessionId, sid)
+    val wire: WireSessionId[BackendTag.Pi.type] = sid.onWire
+    assertEquals(result.wireId, wire)
     assertEquals(result.output, "answer")
     assertEquals(result.usage, Usage(10L, 5L, None))
     assertEquals(result.model.map(_.name), Some("pi-model"))

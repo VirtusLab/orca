@@ -133,15 +133,15 @@ trait Agent[B <: BackendTag]:
   def sessionExists(session: SessionId[B]): Boolean = false
 
   /** The wire id to resume `client` against, or `None` if unknown (or the
-    * backend's sessions aren't durably resumable). Client and wire ids share
-    * one type (`SessionId[B]`): `client` is orca's stable handle; the result is
-    * whatever the backend actually resumes against — equal to `client` where
-    * the client id IS the wire id (claude), a learned server-thread id for
-    * codex/gemini/opencode, `None` for pi (ephemeral sessions). The flow
-    * runtime reads this after a run to persist the resume wire id into the
-    * progress log. Returns `None` by default for tools without a backend.
+    * backend's sessions aren't durably resumable). `client` is orca's stable
+    * handle ([[SessionId]]); the result is the [[WireSessionId]] the backend
+    * actually resumes against — equal to `client` where the client id IS the
+    * wire id (claude), a learned server-thread id for codex/gemini/opencode,
+    * `None` for pi (ephemeral sessions). The flow runtime reads this after a
+    * run to persist the resume wire id into the progress log. Returns `None` by
+    * default for tools without a backend.
     */
-  def resumeWireId(client: SessionId[B]): Option[SessionId[B]] = None
+  def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] = None
 
   /** Record a resume wire id for `client` in the backend's registry. The flow
     * runtime calls this on resume to rehydrate the map from the persisted log,
@@ -150,7 +150,7 @@ trait Agent[B <: BackendTag]:
     */
   def registerResumeWireId(
       client: SessionId[B],
-      wireId: SessionId[B]
+      wireId: WireSessionId[B]
   ): Unit = ()
 
   /** Mint a fresh, unrecorded session id — used by the runtime for ephemeral

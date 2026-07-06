@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.agents.{AutoApprove, BackendTag, AgentConfig, Model, SessionId}
+import orca.agents.{AutoApprove, BackendTag, AgentConfig, Model, WireSessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ApprovalDecision, ConversationEvent, AgentResult}
@@ -173,7 +173,7 @@ private[claude] class ClaudeConversation(
       model: Option[String]
   ): Unit =
     val result = AgentResult(
-      sessionId = SessionId[BackendTag.ClaudeCode.type](sid),
+      wireId = WireSessionId[BackendTag.ClaudeCode.type](sid),
       output = structured.orElse(output).getOrElse(""),
       usage = usage,
       // Fall back to the model claude announced in system.init when the

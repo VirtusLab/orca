@@ -1,7 +1,13 @@
 package orca.tools.gemini
 
 import orca.backend.CliArgs
-import orca.agents.{AutoApprove, BackendTag, AgentConfig, SessionId, ToolSet}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  WireSessionId,
+  ToolSet
+}
 
 /** Maps `AgentConfig` fields to `gemini` headless CLI flags. `systemPrompt` is
   * not handled here — gemini has no `--append-system-prompt` equivalent (it
@@ -33,7 +39,7 @@ private[gemini] object GeminiArgs:
     * session id learned from the prior run's `init` event.
     */
   def resume(
-      sessionId: SessionId[BackendTag.Gemini.type],
+      sessionId: WireSessionId[BackendTag.Gemini.type],
       prompt: String,
       config: AgentConfig
   ): Seq[String] =
@@ -41,7 +47,7 @@ private[gemini] object GeminiArgs:
       trustArgs ++
       CliArgs.modelArgs(config) ++
       approvalArgs(config) ++
-      Seq("--resume", SessionId.value(sessionId)) ++
+      Seq("--resume", WireSessionId.value(sessionId)) ++
       Seq("--output-format", "stream-json", "-p", prompt)
 
   /** gemini refuses to run headless in a folder it doesn't consider "trusted"

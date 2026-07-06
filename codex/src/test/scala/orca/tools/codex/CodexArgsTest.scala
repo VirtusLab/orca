@@ -5,7 +5,7 @@ import orca.agents.{
   BackendTag,
   AgentConfig,
   Model,
-  SessionId,
+  WireSessionId,
   ToolSet
 }
 class CodexArgsTest extends munit.FunSuite:
@@ -147,7 +147,7 @@ class CodexArgsTest extends munit.FunSuite:
     )
 
   test("execResume builds codex exec resume <id> [...] <prompt>"):
-    val sid = SessionId[BackendTag.Codex.type]("019dc-thread")
+    val sid = WireSessionId[BackendTag.Codex.type]("019dc-thread")
     val args = CodexArgs.execResume(
       sid,
       "next step",
@@ -158,7 +158,7 @@ class CodexArgsTest extends munit.FunSuite:
     assertEquals(args.last, "next step")
 
   test("execResume omits -C and --output-schema (codex doesn't accept them)"):
-    val sid = SessionId[BackendTag.Codex.type]("sid")
+    val sid = WireSessionId[BackendTag.Codex.type]("sid")
     val args = CodexArgs.execResume(sid, "x", AgentConfig.default)
     assert(!args.contains("-C"))
     assert(!args.contains("--output-schema"))
@@ -168,7 +168,7 @@ class CodexArgsTest extends munit.FunSuite:
   ):
     // Regression: `codex exec resume` errors with "unexpected argument
     // '--sandbox'"; the resumed session inherits its sandbox from creation.
-    val sid = SessionId[BackendTag.Codex.type]("sid")
+    val sid = WireSessionId[BackendTag.Codex.type]("sid")
     val readOnly =
       CodexArgs.execResume(
         sid,
@@ -195,7 +195,7 @@ class CodexArgsTest extends munit.FunSuite:
   ):
     // The one sandbox flag `exec resume` accepts; re-asserted each turn to keep
     // approvals off for an auto-approve-all coder session.
-    val sid = SessionId[BackendTag.Codex.type]("sid")
+    val sid = WireSessionId[BackendTag.Codex.type]("sid")
     val args = CodexArgs.execResume(
       sid,
       "x",
@@ -204,7 +204,7 @@ class CodexArgsTest extends munit.FunSuite:
     assert(args.contains("--dangerously-bypass-approvals-and-sandbox"), args)
 
   test("execResume propagates --model when AgentConfig.model is set"):
-    val sid = SessionId[BackendTag.Codex.type]("sid")
+    val sid = WireSessionId[BackendTag.Codex.type]("sid")
     val args = CodexArgs.execResume(
       sid,
       "x",

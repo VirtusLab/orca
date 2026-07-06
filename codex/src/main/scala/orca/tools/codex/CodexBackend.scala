@@ -1,7 +1,7 @@
 package orca.tools.codex
 
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId}
+import orca.agents.{BackendTag, AgentConfig, SessionId, WireSessionId}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -100,12 +100,10 @@ private[orca] class CodexBackend(
         // resume that produces malformed JSON.
         outputSchema = outputSchema
       )
-      // Hide the server-allocated id from the caller — they keep using the
-      // client id they passed in. Future calls resolve via the registry.
-      try
-        Conversations
-          .drainAndCommit("codex", conv, session, sessions, events)
-          .copy(sessionId = session)
+      // drainAndCommit records the client→server mapping so a follow-up call on
+      // this client id resumes the right thread; the result carries the server
+      // thread id as its wireId, and the caller keeps using the client id.
+      try Conversations.drainAndCommit("codex", conv, session, sessions, events)
       finally conv.cancel()
 
   def runInteractive(
@@ -204,12 +202,13 @@ private[orca] class CodexBackend(
     */
   override def registerSession(
       client: SessionId[BackendTag.Codex.type],
-      server: SessionId[BackendTag.Codex.type]
+      server: WireSessionId[BackendTag.Codex.type]
   ): Unit = sessions.commitSuccess(client, server)
 
   override def resumeWireId(
       client: SessionId[BackendTag.Codex.type]
-  ): Option[SessionId[BackendTag.Codex.type]] = sessions.resumeWireId(client)
+  ): Option[WireSessionId[BackendTag.Codex.type]] =
+    sessions.resumeWireId(client)
 
   private def writeSchemaIfPresent(
       schema: Option[String],

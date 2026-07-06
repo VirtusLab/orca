@@ -1,6 +1,6 @@
 package orca.runner.terminal
 
-import orca.agents.{BackendTag, SessionId}
+import orca.agents.{BackendTag, WireSessionId}
 import orca.events.{Usage}
 import orca.{OrcaInteractiveCancelled}
 import orca.backend.{
@@ -76,7 +76,7 @@ class ConversationRendererTest extends munit.FunSuite:
 
   private def sampleResult: AgentResult[BackendTag.ClaudeCode.type] =
     AgentResult(
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("sid"),
+      wireId = WireSessionId[BackendTag.ClaudeCode.type]("sid"),
       output = """{"ok":true}""",
       usage = Usage(0L, 0L, None)
     )

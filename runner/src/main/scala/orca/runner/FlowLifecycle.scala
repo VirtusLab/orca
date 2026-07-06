@@ -1,7 +1,7 @@
 package orca.runner
 
 import orca.{BranchNamingStrategy, InStage, OrcaArgs, OrcaFlowException}
-import orca.agents.{BackendTag, Agent, SessionId}
+import orca.agents.{BackendTag, Agent, SessionId, WireSessionId}
 import orca.progress.{ProgressHeader, ProgressStore, RecoveryCheck}
 import orca.tools.GitTool
 
@@ -36,7 +36,7 @@ object FlowLifecycle:
     do
       agent.registerResumeWireId(
         SessionId[B](record.id),
-        SessionId[B](wireId)
+        WireSessionId[B](wireId)
       )
 
   /** Outcome of [[setup]]: the resolved progress store, the feature branch the

@@ -1,7 +1,7 @@
 package orca.tools.pi
 
 import orca.events.Usage
-import orca.agents.{BackendTag, Model, SessionId}
+import orca.agents.{BackendTag, Model, SessionId, onWire}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, AgentResult}
 import orca.backend.{
@@ -165,8 +165,8 @@ private[pi] class PiConversation(
   private def handleAgentEnd(): Unit =
     if turnState.sawAssistantMessage then
       eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
-    val result = AgentResult(
-      sessionId = clientSession,
+    val result = AgentResult[BackendTag.Pi.type](
+      wireId = clientSession.onWire,
       output = turnState.lastAssistantMessage,
       usage = turnState.usage,
       model = turnState.model.map(Model.apply)

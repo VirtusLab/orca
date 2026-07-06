@@ -192,7 +192,8 @@ class DefaultAgentCall[B <: BackendTag, O](
         try
           val parsed = ResponseParser.parse[O](result.output)
           emitStructuredResult(result.output, parsed)
-          (result.sessionId, parsed)
+          // The stable client handle; result.wireId is the wire-side truth.
+          (session, parsed)
         catch
           case e: MalformedAgentOutputException =>
             lastFailure = Some(
@@ -247,7 +248,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     // surface it back to the backend so a follow-up call with the same
     // `session` can resume the right thread. No-op for backends whose
     // session id IS the client-supplied UUID (claude).
-    backend.registerSession(session, result.sessionId)
+    backend.registerSession(session, result.wireId)
     // TokensUsed emits on the normal path only. If the user cancels
     // mid-session, drive throws before this line — and the wire
     // protocols don't always carry partial usage, so there's nothing
@@ -261,8 +262,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     )
     val parsed = ResponseParser.parse[O](result.output)
     emitStructuredResult(result.output, parsed)
-    // Return the caller-supplied `session` (the stable handle), not
-    // `result.sessionId` which for codex is the server thread id.
+    // The stable client handle; result.wireId is the wire-side truth.
     (session, parsed)
 
 private case class FailedAttempt(response: String, parserError: String)

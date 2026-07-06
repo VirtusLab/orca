@@ -78,7 +78,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     */
   override def resumeWireId(
       client: SessionId[B]
-  ): Option[SessionId[B]] =
+  ): Option[WireSessionId[B]] =
     backend.resumeWireId(client)
 
   /** Delegates to the backend's `registerSession` so the flow runtime can
@@ -86,7 +86,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     */
   override def registerResumeWireId(
       client: SessionId[B],
-      wireId: SessionId[B]
+      wireId: WireSessionId[B]
   ): Unit =
     backend.registerSession(client, wireId)
 
@@ -102,7 +102,9 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       val result =
         backend.runAutonomous(prompt, session, effective, workDir, events)
       emitTokens(effective, result)
-      (result.sessionId, result.output)
+      // Return the caller-supplied client handle; result.wireId is the
+      // wire-side truth, learned by the registry, not a caller handle.
+      (session, result.output)
 
   def resultAs[O: JsonData: Announce]: AgentCall[B, O] =
     new DefaultAgentCall[B, O](

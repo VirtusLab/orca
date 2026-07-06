@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.agents.{SessionId}
+import orca.agents.{WireSessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.ConversationEvent
@@ -43,7 +43,7 @@ class CodexConversationTest extends munit.FunSuite:
       )
     )
     val Right(result) = conv.awaitResult(): @unchecked
-    assertEquals(SessionId.value(result.sessionId), "thr-1")
+    assertEquals(WireSessionId.value(result.wireId), "thr-1")
     assertEquals(result.output, "hello")
     assertEquals(result.usage, Usage(10L, 3L, None))
 

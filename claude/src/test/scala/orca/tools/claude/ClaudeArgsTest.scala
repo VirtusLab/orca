@@ -6,13 +6,13 @@ import orca.agents.{
   BackendTag,
   AgentConfig,
   Model,
-  SessionId,
+  WireSessionId,
   ToolSet
 }
 class ClaudeArgsTest extends munit.FunSuite:
 
   private val testSid =
-    SessionId[BackendTag.ClaudeCode.type](
+    WireSessionId[BackendTag.ClaudeCode.type](
       "00000000-0000-0000-0000-000000000000"
     )
 
@@ -118,7 +118,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     val args =
       streamJson(AgentConfig.default, dispatch = Dispatch.Fresh(testSid))
     assert(
-      args.containsSlice(Seq("--session-id", SessionId.value(testSid))),
+      args.containsSlice(Seq("--session-id", WireSessionId.value(testSid))),
       args
     )
     assert(!args.contains("--resume"), args)
@@ -126,7 +126,10 @@ class ClaudeArgsTest extends munit.FunSuite:
   test("Dispatch.Resume emits --resume <uuid>"):
     val args =
       streamJson(AgentConfig.default, dispatch = Dispatch.Resume(testSid))
-    assert(args.containsSlice(Seq("--resume", SessionId.value(testSid))), args)
+    assert(
+      args.containsSlice(Seq("--resume", WireSessionId.value(testSid))),
+      args
+    )
     assert(!args.contains("--session-id"), args)
 
   test("--json-schema is emitted when an output schema is supplied"):
@@ -163,6 +166,6 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(
       args.containsSlice(Seq("--append-system-prompt-file", file.toString))
     )
-    assert(args.containsSlice(Seq("--resume", SessionId.value(testSid))))
+    assert(args.containsSlice(Seq("--resume", WireSessionId.value(testSid))))
     assert(args.containsSlice(Seq("--permission-mode", "acceptEdits")))
     assert(args.containsSlice(Seq("--allowedTools", "Read")))

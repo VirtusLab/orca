@@ -1,7 +1,7 @@
 package orca.tools.gemini
 
 import orca.backend.SupervisedBackend
-import orca.agents.{BackendTag, AgentConfig, Model, SessionId}
+import orca.agents.{BackendTag, AgentConfig, Model, SessionId, WireSessionId}
 import orca.OrcaFlowException
 import orca.subprocess.{
   CliResult,
@@ -63,9 +63,13 @@ class GeminiBackendTest extends munit.FunSuite:
           AgentConfig.default,
           os.temp.dir()
         )
-      // The returned session id is the client id — the server's sess-42 is
-      // mapped internally so subsequent calls resume it.
-      assertEquals(result.sessionId, clientSid)
+      // The result reports the WIRE id — the server-minted sess-42 — while the
+      // client→server mapping is recorded in the registry so subsequent calls
+      // resume it.
+      assertEquals(
+        result.wireId,
+        WireSessionId[BackendTag.Gemini.type]("sess-42")
+      )
       assertEquals(result.output, "the answer")
       assertEquals(result.usage.inputTokens, 100L)
       assertEquals(result.usage.outputTokens, 25L)
@@ -174,7 +178,7 @@ class GeminiBackendTest extends munit.FunSuite:
     withBackend(runner): backend =>
       backend.registerSession(
         clientSid,
-        SessionId[BackendTag.Gemini.type]("sess-via-int")
+        WireSessionId[BackendTag.Gemini.type]("sess-via-int")
       )
       val _ =
         backend.runAutonomous(
@@ -264,7 +268,8 @@ class GeminiBackendTest extends munit.FunSuite:
   // `--list-sessions` for that server id. A `registerSession` seeds the map.
 
   private val clientForProbe = SessionId[BackendTag.Gemini.type]("client-uuid")
-  private val serverForProbe = SessionId[BackendTag.Gemini.type]("sess-abc-123")
+  private val serverForProbe =
+    WireSessionId[BackendTag.Gemini.type]("sess-abc-123")
 
   test(
     "sessionExists probes the SERVER id: true when it appears in --list-sessions"
@@ -337,7 +342,7 @@ class GeminiBackendTest extends munit.FunSuite:
     "sessionExists returns false for a malicious server id containing path chars"
   ):
     val maliciousServer =
-      SessionId[BackendTag.Gemini.type]("../../etc/passwd")
+      WireSessionId[BackendTag.Gemini.type]("../../etc/passwd")
     val stub = new StubCliRunner(CliResult(0, "../../etc/passwd", ""))
     SupervisedBackend.using(new GeminiBackend(stub)): backend =>
       backend.registerSession(clientForProbe, maliciousServer)

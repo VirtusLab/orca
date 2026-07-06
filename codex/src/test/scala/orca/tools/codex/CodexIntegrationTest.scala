@@ -1,6 +1,12 @@
 package orca.tools.codex
 
-import orca.agents.{AutoApprove, BackendTag, AgentConfig, SessionId}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  SessionId,
+  WireSessionId
+}
 import orca.backend.{ConversationEvent, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
 
@@ -45,7 +51,7 @@ class CodexIntegrationTest extends munit.FunSuite:
         result.output.toUpperCase.contains("READY"),
         s"expected output to contain READY, got: ${result.output}"
       )
-      assert(SessionId.value(result.sessionId).nonEmpty)
+      assert(WireSessionId.value(result.wireId).nonEmpty)
 
   test("a resumed call carries conversational context across turns"):
     withBackend: backend =>
@@ -86,7 +92,7 @@ class CodexIntegrationTest extends munit.FunSuite:
           result.output.contains("7"),
           s"expected a reply containing '7', got: ${result.output}"
         )
-        assert(SessionId.value(result.sessionId).nonEmpty)
+        assert(WireSessionId.value(result.wireId).nonEmpty)
       finally conversation.cancel()
 
   test("interactive session emits AssistantTextDelta + AssistantTurnEnd"):

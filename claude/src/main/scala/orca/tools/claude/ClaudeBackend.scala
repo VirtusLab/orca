@@ -1,7 +1,7 @@
 package orca.tools.claude
 
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId}
+import orca.agents.{BackendTag, AgentConfig, SessionId, WireSessionId, onWire}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -86,12 +86,12 @@ private[orca] class ClaudeBackend(
   // so it must participate in persist/rehydrate rather than always re-seeding.
   override def resumeWireId(
       client: SessionId[BackendTag.ClaudeCode.type]
-  ): Option[SessionId[BackendTag.ClaudeCode.type]] =
+  ): Option[WireSessionId[BackendTag.ClaudeCode.type]] =
     sessions.resumeWireId(client)
 
   override def registerSession(
       client: SessionId[BackendTag.ClaudeCode.type],
-      server: SessionId[BackendTag.ClaudeCode.type]
+      server: WireSessionId[BackendTag.ClaudeCode.type]
   ): Unit =
     sessions.commitSuccess(client, server)
 
@@ -145,7 +145,7 @@ private[orca] class ClaudeBackend(
     // A crash mid-conversation will still leave the mark in place, but
     // interactive sessions aren't auto-retried by the orchestrator —
     // the user reruns with a fresh `claude.newSession`.
-    sessions.commitSuccess(session, session)
+    sessions.commitSuccess(session, session.onWire)
     conv
 
   /** Spawn `claude` in stream-json mode, write the opening user turn, close

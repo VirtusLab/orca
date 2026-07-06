@@ -1,6 +1,6 @@
 package orca.tools.gemini
 
-import orca.agents.SessionId
+import orca.agents.WireSessionId
 import orca.events.Usage
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.ConversationEvent
@@ -48,7 +48,7 @@ class GeminiConversationTest extends munit.FunSuite:
       )
     )
     val Right(r) = conv.awaitResult(): @unchecked
-    assertEquals(SessionId.value(r.sessionId), "sess-1")
+    assertEquals(WireSessionId.value(r.wireId), "sess-1")
     assertEquals(r.output, "hello")
     assertEquals(r.usage, Usage(10L, 3L, None))
     assertEquals(r.model.map(_.name), Some("gemini-2.5-pro"))

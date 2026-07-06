@@ -16,7 +16,8 @@ import orca.agents.{
   AgentConfig,
   OpencodeAgent,
   SessionId,
-  ToolSet
+  ToolSet,
+  onWire
 }
 import orca.plan.{Plan, Task, Title}
 import orca.tools.opencode.DefaultOpencodeAgent
@@ -97,7 +98,7 @@ class OpencodeFlowTest extends munit.FunSuite:
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Opencode.type] =
-      AgentResult(session, json, Usage(0L, 0L, None))
+      AgentResult(session.onWire, json, Usage(0L, 0L, None))
     def runInteractive(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],

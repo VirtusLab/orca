@@ -2,7 +2,7 @@ package orca.backend
 
 import orca.OrcaInteractiveCancelled
 import orca.events.{OrcaEvent, OrcaListener, Usage}
-import orca.agents.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId, WireSessionId}
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
@@ -36,10 +36,26 @@ private class RecordingListener extends OrcaListener:
 class ConversationsTest extends munit.FunSuite:
 
   private val sampleResult = AgentResult[BackendTag.Codex.type](
-    sessionId = SessionId[BackendTag.Codex.type]("sid"),
+    wireId = WireSessionId[BackendTag.Codex.type]("sid"),
     output = "out",
     usage = Usage(0L, 0L, None)
   )
+
+  test(
+    "drainAndCommit commits the reported wire id against the caller's client id"
+  ):
+    val client = SessionId.fresh[BackendTag.Codex.type]
+    val reportedWire = WireSessionId[BackendTag.Codex.type]("server-thread-42")
+    val registry = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+    val conv = new ScriptedConversation(
+      Nil,
+      Right(sampleResult.copy(wireId = reportedWire))
+    )
+    val result = Conversations.drainAndCommit("codex", conv, client, registry)
+    assert(result.wireId == reportedWire) // result reports the wire truth
+    assert(
+      registry.resumeWireId(client).contains(reportedWire)
+    ) // registry learned it
 
   test("drainAutonomous walks every event before returning the result"):
     val conv = new ScriptedConversation(

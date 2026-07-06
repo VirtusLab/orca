@@ -109,11 +109,11 @@ private[orca] object Conversations:
 
   /** The shared autonomous-turn finalize for the subprocess backends
     * (claude/codex/gemini/pi): drain the conversation, then — on success only —
-    * commit the session as resumable. Returns the drained result verbatim;
-    * codex/gemini/pi re-stamp the caller's stable handle with `.copy(sessionId
-    * \= session)` at the call site. Only claude leaves the result's session id
-    * untouched — it surfaces the id claude reported, which in production
-    * already equals the client id.
+    * commit the session as resumable. Returns the drained result verbatim. The
+    * result carries the backend-reported wire id under its own
+    * [[orca.agents.WireSessionId]] type, so there is nothing to re-stamp:
+    * callers hand back the stable client handle they already hold, and the wire
+    * id lives on the result only for the registry to learn the mapping.
     *
     * Two invariants are centralised here because each backend got them subtly
     * wrong at some point:
@@ -127,7 +127,7 @@ private[orca] object Conversations:
     *     crashed before registering its session doesn't wedge the registry into
     *     resuming a session that was never created.
     *
-    * `registry.commitSuccess(session, result.sessionId)` is uniform across both
+    * `registry.commitSuccess(session, result.wireId)` is uniform across both
     * registry shapes: [[SessionRegistry.ClientToServer]] records the learned
     * server id, while [[SessionRegistry.ClaimedOnce]] ignores the server arg
     * and just marks the client id claimed.
@@ -145,5 +145,5 @@ private[orca] object Conversations:
         case e: AgentTurnFailed => throw e
         case e: OrcaFlowException =>
           throw OrcaFlowException(s"$backendName CLI failed: ${e.getMessage}")
-    registry.commitSuccess(session, result.sessionId)
+    registry.commitSuccess(session, result.wireId)
     result

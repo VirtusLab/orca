@@ -21,6 +21,7 @@ import orca.agents.{
   AgentConfig,
   Model,
   SessionId,
+  WireSessionId,
   ToolSet
 }
 import orca.progress.{ProgressHeader, ProgressStore, SessionRecord, StageEntry}
@@ -689,7 +690,7 @@ class FlowLifecycleTest extends munit.FunSuite:
 
     override def registerResumeWireId(
         client: SessionId[BackendTag.ClaudeCode.type],
-        wireId: SessionId[BackendTag.ClaudeCode.type]
+        wireId: WireSessionId[BackendTag.ClaudeCode.type]
     ): Unit =
       _registered = _registered :+ (client.value -> wireId.value)
 
