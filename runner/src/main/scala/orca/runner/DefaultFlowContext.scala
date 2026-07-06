@@ -13,22 +13,16 @@ import orca.agents.{
   CodexAgent,
   GeminiAgent,
   OpencodeAgent,
-  PiAgent,
-  Prompts
+  PiAgent
 }
 import orca.events.{EventDispatcher, OrcaEvent}
 
 import orca.backend.Interaction
 import orca.tools.claude.{ClaudeBackend, DefaultClaudeAgent}
 import orca.tools.codex.{CodexBackend, DefaultCodexAgent}
-import orca.tools.opencode.{
-  DefaultOpencodeAgent,
-  OpencodeBackend,
-  OpencodeLauncher
-}
+import orca.tools.opencode.{DefaultOpencodeAgent, OpencodeBackend}
 import orca.tools.pi.{DefaultPiAgent, PiBackend}
 import orca.tools.gemini.{GeminiBackend, DefaultGeminiAgent}
-import orca.agents.DefaultPrompts
 import orca.subprocess.OsProcCliRunner
 import orca.tools.OsFsTool
 import orca.tools.OsGitTool
@@ -123,26 +117,19 @@ private[orca] object DefaultFlowContext:
       interaction: Interaction,
       progressStore: ProgressStore,
       agentSelector: FlowContext => Agent[B],
-      claude: Option[ClaudeAgent] = None,
-      codex: Option[CodexAgent] = None,
-      opencode: Option[OpencodeAgent] = None,
-      opencodeLauncher: OpencodeLauncher = OpencodeLauncher.default,
-      pi: Option[PiAgent] = None,
-      gemini: Option[GeminiAgent] = None,
-      git: Option[GitTool] = None,
-      gh: Option[GitHubTool] = None,
-      fs: Option[FsTool] = None,
-      prompts: Prompts = DefaultPrompts
+      wiring: FlowWiring = FlowWiring()
   )(using ox.Ox, ox.channels.BufferCapacity): DefaultFlowContext[B] =
+    val prompts = wiring.prompts
     // Build the opencode agent up-front so the default backend's `shutdown` can
     // be wired into the context's `close` (the runner calls it in the flow body's
     // finally). A caller-supplied opencode agent owns its own lifecycle, so the
     // hook is a no-op then.
     val (opencodeAgent, opencodeClose): (OpencodeAgent, () => Unit) =
-      opencode match
+      wiring.opencode match
         case Some(a) => (a, () => ())
         case None =>
-          val backend = OpencodeBackend(OsProcCliRunner, opencodeLauncher)
+          val backend =
+            OpencodeBackend(OsProcCliRunner, wiring.opencodeLauncher)
           val a = new DefaultOpencodeAgent(
             backend = backend,
             config = AgentConfig.default,
@@ -156,7 +143,7 @@ private[orca] object DefaultFlowContext:
       userPrompt = userPrompt,
       dispatcher = dispatcher,
       agentSelector = agentSelector,
-      claude = claude.getOrElse(
+      claude = wiring.claude.getOrElse(
         new DefaultClaudeAgent(
           backend = new ClaudeBackend(OsProcCliRunner),
           // Bare `claude` defaults to Opus with the 1M context window — the
@@ -170,7 +157,7 @@ private[orca] object DefaultFlowContext:
           interaction = interaction
         )
       ),
-      codex = codex.getOrElse(
+      codex = wiring.codex.getOrElse(
         new DefaultCodexAgent(
           backend = new CodexBackend(OsProcCliRunner),
           config = AgentConfig.default,
@@ -181,7 +168,7 @@ private[orca] object DefaultFlowContext:
         )
       ),
       opencode = opencodeAgent,
-      pi = pi.getOrElse(
+      pi = wiring.pi.getOrElse(
         new DefaultPiAgent(
           backend = new PiBackend(OsProcCliRunner),
           config = AgentConfig.default,
@@ -191,7 +178,7 @@ private[orca] object DefaultFlowContext:
           interaction = interaction
         )
       ),
-      gemini = gemini.getOrElse(
+      gemini = wiring.gemini.getOrElse(
         new DefaultGeminiAgent(
           backend = new GeminiBackend(OsProcCliRunner),
           // Bare `gemini` pins Gemini Pro (the strong model, like claude
@@ -205,11 +192,11 @@ private[orca] object DefaultFlowContext:
           interaction = interaction
         )
       ),
-      git = git.getOrElse(new OsGitTool(workDir, dispatcher)),
-      gh = gh.getOrElse(
+      git = wiring.git.getOrElse(new OsGitTool(workDir, dispatcher)),
+      gh = wiring.gh.getOrElse(
         new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
       ),
-      fs = fs.getOrElse(new OsFsTool(workDir)),
+      fs = wiring.fs.getOrElse(new OsFsTool(workDir)),
       progressStore = progressStore,
       closeHook = opencodeClose
     )

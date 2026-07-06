@@ -3,8 +3,6 @@ package orca.runner
 import orca.{OrcaArgs, agent, runFlow}
 import orca.agents.Agent
 import orca.runner.terminal.TerminalInteraction
-import orca.tools.opencode.OpencodeLauncher
-import orca.agents.DefaultPrompts
 import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
@@ -32,17 +30,7 @@ class FlowContextAgentTest extends munit.FunSuite:
         extraListeners = Nil,
         branchNaming = None,
         returnToStartBranch = false,
-        progressStore = None,
-        claude = None,
-        codex = None,
-        opencode = None,
-        opencodeLauncher = OpencodeLauncher.default,
-        pi = None,
-        gemini = None,
-        git = None,
-        gh = None,
-        fs = None,
-        prompts = DefaultPrompts
+        progressStore = None
       ):
         seen = Some(agent)
     assert(

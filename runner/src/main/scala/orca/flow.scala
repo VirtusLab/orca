@@ -25,6 +25,7 @@ import orca.tools.opencode.OpencodeLauncher
 import orca.runner.{
   DefaultFlowContext,
   FlowLifecycle,
+  FlowWiring,
   LoggingListener,
   OrcaBanner,
   OrcaLog
@@ -34,7 +35,6 @@ import org.slf4j.LoggerFactory
 import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
-import orca.tools.OsGitTool
 import orca.util.OrcaDebug
 import ox.supervised
 
@@ -132,16 +132,18 @@ def flow[B <: BackendTag](
         branchNaming,
         returnToStartBranch,
         progressStore,
-        claude,
-        codex,
-        opencode,
-        opencodeLauncher,
-        pi,
-        gemini,
-        git,
-        gh,
-        fs,
-        prompts
+        FlowWiring(
+          claude = claude,
+          codex = codex,
+          opencode = opencode,
+          opencodeLauncher = opencodeLauncher,
+          pi = pi,
+          gemini = gemini,
+          git = git,
+          gh = gh,
+          fs = fs,
+          prompts = prompts
+        )
       )(body)
     catch
       // The failure was already surfaced inside the scope (the flow body runs
@@ -174,16 +176,7 @@ private[orca] def runFlow[B <: BackendTag](
     branchNaming: Option[BranchNamingStrategy],
     returnToStartBranch: Boolean,
     progressStore: Option[ProgressStore],
-    claude: Option[ClaudeAgent],
-    codex: Option[CodexAgent],
-    opencode: Option[OpencodeAgent],
-    opencodeLauncher: OpencodeLauncher,
-    pi: Option[PiAgent],
-    gemini: Option[GeminiAgent],
-    git: Option[GitTool],
-    gh: Option[GitHubTool],
-    fs: Option[FsTool],
-    prompts: Prompts
+    wiring: FlowWiring = FlowWiring()
 )(body: FlowControl ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose.value
   val flowLog = LoggerFactory.getLogger("orca.flow")
@@ -205,11 +198,6 @@ private[orca] def runFlow[B <: BackendTag](
           new LoggingListener
         ) ++ extraListeners
       )
-      // Resolve the git tool up-front: the lifecycle's setup (stash, branch
-      // checkout, header commit) and teardown (cleanup, restore) run before
-      // and after the body, outside any user stage, so they need git
-      // directly. The same instance is handed to the context.
-      val effectiveGit = git.getOrElse(new OsGitTool(workDir, dispatcher))
       // Order matters (and is delicate): the leading agent is a selector
       // resolved against the context, and branch setup needs the resolved agent
       // for branch naming. So the store and the context must exist BEFORE setup
@@ -233,23 +221,16 @@ private[orca] def runFlow[B <: BackendTag](
         interaction = effectiveInteraction,
         progressStore = store,
         agentSelector = agent,
-        claude = claude,
-        codex = codex,
-        opencode = opencode,
-        opencodeLauncher = opencodeLauncher,
-        pi = pi,
-        gemini = gemini,
-        git = Some(effectiveGit),
-        gh = gh,
-        fs = fs,
-        prompts = prompts
+        wiring = wiring
       )
       closeContext = () => ctx.close()
       // The context resolved the leading agent (lazily, against itself) and
       // exposes it as `ctx.agent`. The runtime needs it (erased) for branch
-      // naming and session rehydration, which run before the body.
+      // naming and session rehydration, which run before the body. Git is
+      // resolved inside the context (the only default site is in
+      // `withDefaults`); the lifecycle reads the same instance via `ctx.git`.
       val setup =
-        FlowLifecycle.setup(args, ctx.agent, effectiveGit, branchNaming, store)
+        FlowLifecycle.setup(args, ctx.agent, ctx.git, branchNaming, store)
       // Rehydrate the client→server session map: each backend's registry is
       // in-memory, so on resume it starts out empty. Replay the persisted
       // records into it (after the context + log exist, before the body) so
@@ -285,9 +266,9 @@ private[orca] def runFlow[B <: BackendTag](
           if !alreadyEmitted then ctx.emit(OrcaEvent.Error(throwableMessage(e)))
           flowLog.debug("flow aborted", e)
           if debug then e.printStackTrace(System.err)
-          FlowLifecycle.teardownFailure(effectiveGit)
+          FlowLifecycle.teardownFailure(ctx.git)
           throw e
-      FlowLifecycle.teardownSuccess(effectiveGit, setup, returnToStartBranch)
+      FlowLifecycle.teardownSuccess(ctx.git, setup, returnToStartBranch)
     finally
       // Both run before the `supervised` scope joins its forks. closeContext
       // first: it destroys the opencode `serve` process so its drain forks'

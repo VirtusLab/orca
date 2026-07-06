@@ -17,7 +17,6 @@ import orca.agents.{
   BackendTag,
   ClaudeAgent,
   CodexAgent,
-  DefaultPrompts,
   GeminiAgent,
   JsonData,
   AgentCall,
@@ -34,7 +33,6 @@ import orca.backend.{Dispatch, SessionRegistry, SessionSupport}
 import orca.progress.{ProgressHeader, ProgressStore, SessionRecord, StageEntry}
 import orca.runner.terminal.TerminalInteraction
 import orca.tools.{FsTool, GitHubTool, GitTool, OsGitTool}
-import orca.tools.opencode.OpencodeLauncher
 import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
@@ -518,16 +516,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         branchNaming = None,
         returnToStartBranch = false,
         progressStore = Some(store),
-        claude = Some(recorder),
-        codex = None,
-        opencode = None,
-        opencodeLauncher = OpencodeLauncher.default,
-        pi = None,
-        gemini = None,
-        git = None,
-        gh = None,
-        fs = None,
-        prompts = DefaultPrompts
+        wiring = FlowWiring(claude = Some(recorder))
       ):
         // The body observes the already-rehydrated mapping.
         assertEquals(
@@ -559,17 +548,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         extraListeners = Nil,
         branchNaming = None,
         returnToStartBranch = false,
-        progressStore = Some(store),
-        claude = None,
-        codex = None,
-        opencode = None,
-        opencodeLauncher = OpencodeLauncher.default,
-        pi = None,
-        gemini = None,
-        git = None,
-        gh = None,
-        fs = None,
-        prompts = DefaultPrompts
+        progressStore = Some(store)
       )(body)
 
   test(
