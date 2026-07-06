@@ -97,6 +97,24 @@ class StageRuntimeTest extends munit.FunSuite:
     assert(ids.contains("inner#0"), s"inner must be recorded; got $ids")
     assert(ids.contains("outer#0"), s"outer must be recorded; got $ids")
 
+  test(
+    "a plain exception unwinding through nested stages is reported exactly once"
+  ):
+    val listener = new RecordingListener
+    val (ctx, _) = TestFlowControl.create(new EventDispatcher(List(listener)))
+    given FlowControl = ctx
+    val _ = intercept[RuntimeException]:
+      stage[String]("outer"):
+        val _ = stage[String]("inner"):
+          throw new RuntimeException("boom")
+        "outer-result"
+    val errors = listener.events.collect { case e: OrcaEvent.Error => e }
+    assertEquals(
+      errors.size,
+      1,
+      s"a plain exception must surface one Error as it unwinds, got: $errors"
+    )
+
   test("an undecodable stored entry re-runs the stage"):
     val (ctx, dir) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = ctx

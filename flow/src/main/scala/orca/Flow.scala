@@ -92,33 +92,25 @@ private def runStage[T: JsonData](
     fc.emit(OrcaEvent.StageCompleted(name))
     result
   catch
-    case e: OrcaFlowException =>
-      // Three sub-cases. Malformed-output carries extra render context.
-      // Exceptions from `fail(...)` carry `alreadyEmitted = true` and
-      // need no further emission. Anything else (tool adapters that
-      // throw directly) lands here without a prior emit, and would be
-      // invisible if we didn't surface it. After emitting, mark the
-      // exception so an enclosing stage / the flow boundary doesn't
-      // re-report it as it unwinds.
-      e match
-        case mao: orca.agents.MalformedAgentOutputException =>
-          fc.emit(OrcaEvent.Error(formatMalformedOutput(name, mao)))
-          e.alreadyEmitted = true
-        case _ if e.alreadyEmitted => ()
-        case _ =>
-          fc.emit(
-            OrcaEvent.Error(
-              s"Stage '$name' failed: ${throwableMessage(e, firstLineOnly = true)}"
-            )
-          )
-          e.alreadyEmitted = true
-      throw e
     case NonFatal(e) =>
-      fc.emit(
-        OrcaEvent.Error(
-          s"Stage '$name' failed: ${throwableMessage(e, firstLineOnly = true)}"
-        )
-      )
+      // Report the failure once, then mark it so an enclosing stage / the flow
+      // boundary doesn't re-report it as it unwinds. The check-then-mark covers
+      // every non-fatal throwable by identity: exceptions from `fail(...)`
+      // arrive already marked (skipped here), tool adapters that throw directly
+      // and plain RuntimeExceptions arrive unmarked (surfaced here, else the
+      // user would see `exit 1` with no diagnostic). Malformed-output keeps its
+      // richer render context.
+      if !fc.errorAlreadyReported(e) then
+        e match
+          case mao: orca.agents.MalformedAgentOutputException =>
+            fc.emit(OrcaEvent.Error(formatMalformedOutput(name, mao)))
+          case _ =>
+            fc.emit(
+              OrcaEvent.Error(
+                s"Stage '$name' failed: ${throwableMessage(e, firstLineOnly = true)}"
+              )
+            )
+        fc.markErrorReported(e)
       throw e
 
 /** Append the stage's result to the log and commit code + log as one commit.
@@ -214,7 +206,9 @@ def display(message: String)(using ctx: FlowContext): Unit =
 
 def fail(message: String)(using ctx: FlowContext): Nothing =
   ctx.emit(OrcaEvent.Error(message))
-  throw new OrcaFlowException(message, alreadyEmitted = true)
+  val e = new OrcaFlowException(message)
+  ctx.markErrorReported(e)
+  throw e
 
 /** Pluralize an English noun by appending "s" when `n != 1`. The same count
   * goes into the rendered string (`"1 review comment"` / `"3 review

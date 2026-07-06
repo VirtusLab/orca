@@ -29,6 +29,7 @@ import orca.tools.OsGitTool
 import orca.tools.OsGitHubTool
 import org.slf4j.LoggerFactory
 
+import ox.discard
 import scala.util.control.NonFatal
 
 /** Production FlowContext wiring. Callers typically construct one via
@@ -81,6 +82,16 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
   lazy val agent: Agent[B] = agentSelector(this)
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
+
+  // Written possibly from fork threads (`fail` inside a parallel block), read on
+  // the stage thread during unwind — pure atomic state, per the concurrency
+  // conventions. Identity comparison: the mark belongs to the object instance.
+  private val reportedErrors =
+    new java.util.concurrent.atomic.AtomicReference[List[Throwable]](Nil)
+  private[orca] def markErrorReported(e: Throwable): Unit =
+    reportedErrors.updateAndGet(e :: _).discard
+  private[orca] def errorAlreadyReported(e: Throwable): Boolean =
+    reportedErrors.get().exists(_ eq e)
 
   // Reached only through FlowControl, which is thread-affine by R12 (ADR 0018
   // §2.2) — stages and session(...) calls never run concurrently, so a plain

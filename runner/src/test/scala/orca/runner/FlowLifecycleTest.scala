@@ -894,5 +894,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     def fs: FsTool = notWired("fs")
     def userPrompt: String = ""
     def emit(event: OrcaEvent): Unit = ()
+    // Rehydration tests never fail through this stub; a no-op reported-set is fine.
+    private[orca] def markErrorReported(e: Throwable): Unit = ()
+    private[orca] def errorAlreadyReported(e: Throwable): Boolean = false
 
 end FlowLifecycleTest

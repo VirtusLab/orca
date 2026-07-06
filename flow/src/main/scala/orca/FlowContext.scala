@@ -58,3 +58,13 @@ trait FlowContext:
   def fs: FsTool
   def userPrompt: String
   def emit(event: OrcaEvent): Unit
+
+  /** Exactly-once error reporting: the runtime marks a throwable here when it
+    * publishes an `OrcaEvent.Error` for it, and every enclosing frame (nested
+    * stages, the flow boundary) checks before re-reporting. Identity-based
+    * (`eq`) — the mark travels with the object, not its type or message, so
+    * plain RuntimeExceptions are covered too. `private[orca]`: user code never
+    * participates.
+    */
+  private[orca] def markErrorReported(e: Throwable): Unit
+  private[orca] def errorAlreadyReported(e: Throwable): Boolean

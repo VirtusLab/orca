@@ -50,10 +50,10 @@ object FlowLifecycle:
     // The whole flow body runs as a top-level stage: an otherwise
     // unhandled exception surfaces as a single Error event (the same
     // message a stage failure shows). A nested stage / `fail` marks the
-    // exception `alreadyEmitted` once it has reported it, so we don't
-    // re-report it here. The stack goes to the trace file only (DEBUG,
-    // below the console's WARN threshold); `--verbose` also prints it to
-    // stderr.
+    // throwable reported on the context once it has surfaced it, so we
+    // don't re-report it here. The stack goes to the trace file only
+    // (DEBUG, below the console's WARN threshold); `--verbose` also prints
+    // it to stderr.
     //
     // Teardown separation: body-failure and body-success teardowns are
     // completely disjoint — structurally, not flag-guarded: the catch below
@@ -64,10 +64,9 @@ object FlowLifecycle:
     try body(using ctx)
     catch
       case NonFatal(e) =>
-        val alreadyEmitted = e match
-          case fe: OrcaFlowException => fe.alreadyEmitted
-          case _                     => false
-        if !alreadyEmitted then ctx.emit(OrcaEvent.Error(throwableMessage(e)))
+        if !ctx.errorAlreadyReported(e) then
+          ctx.emit(OrcaEvent.Error(throwableMessage(e)))
+          ctx.markErrorReported(e)
         log.debug("flow aborted", e)
         if debug then e.printStackTrace(System.err)
         teardownFailure(ctx.git)

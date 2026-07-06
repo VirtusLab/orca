@@ -42,6 +42,13 @@ class TestFlowContext(
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
+  // Single-threaded test context: a plain var mirrors the reported-set contract.
+  private var reportedErrors: List[Throwable] = Nil
+  private[orca] def markErrorReported(e: Throwable): Unit =
+    reportedErrors = e :: reportedErrors
+  private[orca] def errorAlreadyReported(e: Throwable): Boolean =
+    reportedErrors.exists(_ eq e)
+
 /** A `FlowControl` backed by a real temp git repo and a real temp progress
   * store, for exercising the `stage` runtime (commit + resume). Stubs the LLM
   * tools (stages under test don't call them) but wires a real `OsGitTool` and a
@@ -67,6 +74,13 @@ class TestFlowControl(
   lazy val fs: FsTool = stub("fs")
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
+
+  // Single-threaded test context: a plain var mirrors the reported-set contract.
+  private var reportedErrors: List[Throwable] = Nil
+  private[orca] def markErrorReported(e: Throwable): Unit =
+    reportedErrors = e :: reportedErrors
+  private[orca] def errorAlreadyReported(e: Throwable): Boolean =
+    reportedErrors.exists(_ eq e)
 
   // Reached only through FlowControl, which is thread-affine by R12 (ADR 0018
   // §2.2) — a plain var mirrors the production DefaultFlowContext shape.

@@ -3,19 +3,14 @@ package orca
 /** Exception type thrown by `fail(...)` and tool adapters. Signals that the
   * current flow cannot continue.
   *
-  * The `alreadyEmitted` flag tells the stage machinery whether an
-  * `OrcaEvent.Error` has already been published for this failure: true when
-  * thrown by `fail(...)` (which emits before throwing), false for direct throws
-  * from tool code. A `stage` (and the top-level flow boundary) reads it to skip
-  * a duplicate emit, and sets it to true once it does publish an Error — so an
-  * enclosing stage, or the flow boundary, surfaces a tool-side failure exactly
-  * once instead of re-reporting it at every level it unwinds through.
+  * Exactly-once error reporting no longer rides on this exception: the runtime
+  * tracks which throwables have already surfaced an `OrcaEvent.Error` in a
+  * context-owned identity set (`FlowContext.markErrorReported` /
+  * `errorAlreadyReported`), so a failure is reported once no matter how many
+  * stages it unwinds through — and plain `RuntimeException`s are covered too,
+  * not just this type.
   */
-class OrcaFlowException private[orca] (
-    message: String,
-    private[orca] var alreadyEmitted: Boolean
-) extends RuntimeException(message):
-  def this(message: String) = this(message, alreadyEmitted = false)
+class OrcaFlowException(message: String) extends RuntimeException(message)
 
 /** Returned in the `Left` of [[orca.backend.Conversation.awaitResult]] when the
   * user cancels the current interactive call, and rethrown by
