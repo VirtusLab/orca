@@ -220,26 +220,18 @@ def reviewAndFixLoop[B <: BackendTag](
   * return — so no concurrent mutation, no `mutable.Map`, no
   * `ConcurrentHashMap`.
   *
+  * See [[reviewAndFixLoop]]'s parameter docs for the full description of each
+  * constructor parameter.
+  *
   * @param formatCommand
-  *   Shell command run before each review round — after the implementation and
-  *   after every fix — so reviewers and the lint see formatted code and the
-  *   committed tree stays formatted. Run via `bash -c`, exit status ignored (a
-  *   formatter that fails shouldn't abort the review). E.g. `"sbt
-  *   scalafmtAll"`, `"cargo fmt"`, `"prettier -w ."`.
+  *   Shell command run before each review round; see `reviewAndFixLoop`'s
+  *   parameter docs.
   * @param lintAgent
-  *   LLM that summarises lint output into a `ReviewResult`. Required when
-  *   `lintCommand` is set; ignored otherwise. Use a cheap model
-  *   (`claude.haiku`, `codex.mini`) — the lint summary is a small fold.
+  *   Summarises lint output into a `ReviewResult`; see `reviewAndFixLoop`'s
+  *   parameter docs.
   * @param initialDiff
-  *   Override the diff handed to each reviewer in its initial prompt. Defaults
-  *   to `ctx.git.diff()` re-sampled at the start of every iteration: a reviewer
-  *   that joins the active set on iteration N (e.g. picked up by an
-  *   `onlyPreviouslyReporting` selector after N-1 silent rounds) sees the
-  *   working tree as it stands then, including the fixes from earlier
-  *   iterations. Reviewers that already have a session resume it and don't get
-  *   the diff again — their session has the original framing. Pass `Some(...)`
-  *   to pin the diff (tests, or when the change set has already been committed
-  *   and `git.diff()` would be empty).
+  *   Override for the reviewers' initial diff; see `reviewAndFixLoop`'s
+  *   parameter docs.
   */
 private[review] class ReviewFixLoop[B <: BackendTag](
     coder: Agent[B],
@@ -411,24 +403,30 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       )
       (reviewerOutcomes, lintOutcome, nextState)
 
-  /** The selector may return arbitrary agents; only roster members run. Foreign
-    * agents (same-named copies from another backend, or agents never in the
-    * roster) are dropped with a visible warning — the per-reviewer session map
-    * is keyed by roster slug, and its `SessionId.Untyped.as[RB]` recovery is
-    * sound only because slug → backend is fixed by the roster (uniqueness is
-    * `require`d at construction).
+  /** The selector may return arbitrary agents; only roster members run, and
+    * every selection is mapped back to its CANONICAL roster instance by slug —
+    * the per-reviewer session map is keyed by slug, so a renamed/rebuilt copy
+    * can't deliver a wrong-backend session id. Foreign names are dropped with a
+    * visible warning; duplicates collapse to one run. Safety floor: if a
+    * non-empty selection resolves to nothing (e.g. a custom selector still
+    * using pre-rename `reviewer: <slug>` names), fall back to the full roster —
+    * orca's contract is that AI-written code is never silently unreviewed. An
+    * empty selection stays empty: that is the loop's designed stop signal.
     */
   private def resolveAgainstRoster(selected: List[Agent[?]]): List[Agent[?]] =
     val byName = reviewers.map(r => r.name -> r).toMap
-    val (known, foreign) = selected.partition(a =>
-      byName.get(a.name).exists(_ eq a) || byName.contains(a.name)
-    )
+    val (known, foreign) = selected.partition(a => byName.contains(a.name))
     if foreign.nonEmpty then
       emitStep(
-        s"reviewer selection: dropped ${foreign.map(_.name).mkString(", ")} " +
-          "— not in the configured roster"
+        s"reviewer selection: dropped ${foreign.map(_.name).mkString(", ")} — not in the configured roster"
       )
-    known.map(a => byName(a.name))
+    val resolved = known.flatMap(a => byName.get(a.name)).distinctBy(_.name)
+    if resolved.isEmpty && selected.nonEmpty then
+      emitStep(
+        s"reviewer selection: nothing resolved against the roster; falling back to all ${reviewers.size} reviewer(s)"
+      )
+      reviewers
+    else resolved
 
   private def evaluate(
       state: ReviewLoopState,

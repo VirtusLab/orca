@@ -49,15 +49,17 @@ private[codex] class CodexConversation(
 
   import CodexConversation.*
 
-  // Reader-thread-confined: written only from `handle` (called from
-  // `handleLine`, on the reader fork) and read only from `handleTurnCompleted`
-  // on that same fork. `awaitResult`'s `readerFork.join()` publishes the final
-  // values to the caller.
+  // Reader-thread-confined: `sessionId`, `model` and `lastAgentMessage` below
+  // are written only from `handle` (called from `handleLine`, on the reader
+  // fork) and read only from `handleTurnCompleted` on that same fork.
+  // `awaitResult`'s `readerFork.join()` publishes the final values to the
+  // caller.
   private var sessionId: String = ""
   private var model: Option[String] = None
 
-  /** The most recent agent_message text the model produced. See the class
-    * scaladoc for why we synthesise rather than receive.
+  /** The most recent agent_message text the model produced (reader-thread-
+    * confined; see the group comment above). See the class scaladoc for why we
+    * synthesise rather than receive.
     */
   private var lastAgentMessage: String = ""
 

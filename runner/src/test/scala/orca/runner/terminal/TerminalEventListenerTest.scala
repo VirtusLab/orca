@@ -227,3 +227,38 @@ class TerminalEventListenerTest extends munit.FunSuite:
       !output.contains(TerminalEventListener.StageDoneGlyph),
       s"no ✔ should appear in the event log; got: $output"
     )
+
+  test("currentIndent stays readable while stages push and pop concurrently"):
+    // A light regression guard for the single-writer / @volatile publication
+    // contract, NOT a race proof: the test thread is the sole writer (pushing
+    // then popping 500 StageStarted/StageCompleted pairs) while a reader thread
+    // polls `currentIndent` from another thread — the same lock-free access the
+    // ConversationRenderer makes mid-readLine. It asserts the reader never
+    // crashes and that the stack unwinds to empty once every pair is balanced.
+    val buf = new ByteArrayOutputStream()
+    val ps = new PrintStream(buf)
+    val output =
+      new TerminalOutputState(ps, useColor = false, animated = false)
+    val listener = new TerminalEventListener(output, useColor = false)
+
+    @volatile var readerFailure: Option[Throwable] = None
+    @volatile var stop = false
+    val reader = new Thread(() =>
+      try
+        while !stop do
+          val _ = listener.currentIndent.length
+      catch case t: Throwable => readerFailure = Some(t)
+    )
+    reader.start()
+    for _ <- 1 to 500 do
+      listener.onEvent(OrcaEvent.StageStarted("s"))
+      listener.onEvent(OrcaEvent.StageCompleted("s"))
+    stop = true
+    reader.join(5000)
+
+    assertEquals(readerFailure, None, s"reader thread failed: $readerFailure")
+    assertEquals(
+      listener.currentIndent,
+      "",
+      "balanced push/pop pairs must unwind the indent stack to empty"
+    )

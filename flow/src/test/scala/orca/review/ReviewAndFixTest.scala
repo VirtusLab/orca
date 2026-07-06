@@ -285,34 +285,6 @@ class ReviewAndFixTest extends munit.FunSuite:
     assert(sent.contains("--- a/Foo.scala"), s"diff missing from prompt: $sent")
     assert(sent.contains("do thing"), s"task missing from prompt: $sent")
 
-  test("ReviewerSelector.agentDriven asks the LLM once per prepare"):
-    given FlowContext = ctx
-    val perf = new FakeAgent(name = "performance")
-    val style = new FakeAgent(name = "readability")
-    val coverage = new FakeAgent(name = "test-coverage")
-    val all = List(perf, style, coverage)
-    // Single reply — the pick happens once in `prepare`; the returned per-round
-    // function replays it. A second LLM call would drain the iterator and throw
-    // NoSuchElement, failing the test.
-    val picker = new FakeAgent(
-      name = "picker",
-      outputs = List(SelectedReviewers(List("performance", "test-coverage")))
-    )
-    val select = ReviewerSelector.agentDriven(agent = picker)
-    val title = Title("optimize hot path")
-    val files = List("src/Cache.scala")
-    val selectRound = select.prepare(all, title, files)
-    // First round (empty history) and a later round (populated history) both
-    // replay the single pick — no second LLM call.
-    assertEquals(
-      selectRound(Nil).map(_.name),
-      List("performance", "test-coverage")
-    )
-    assertEquals(
-      selectRound(List(ReviewBatch(Nil))).map(_.name),
-      List("performance", "test-coverage")
-    )
-
   test(
     "an agentDriven reviewerSelection narrows the active set via its picker LLM"
   ):
@@ -616,10 +588,13 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test(
-    "a selector returning an agent outside the roster drops it with a warning"
+    "an all-foreign selection warns and falls back to the full roster, not zero"
   ):
-    // A truly foreign agent (name not in the roster) is dropped, with a visible
-    // Step naming it, rather than run.
+    // Every selected name is outside the roster (e.g. a pre-rename custom
+    // selector still building `reviewer: <slug>` names). Rather than run zero
+    // reviewers and ship unreviewed code, the safety floor falls back to the
+    // full roster: both members run, the foreign name is dropped with a
+    // visible Step, and the foreign stub is never touched.
     val steps =
       new java.util.concurrent.ConcurrentLinkedQueue[String]()
     val listener: OrcaListener =
@@ -627,8 +602,16 @@ class ReviewAndFixTest extends munit.FunSuite:
       case _                   => ()
     given FlowContext =
       new TestFlowContext(new EventDispatcher(List(listener)))
-    val stranger = new FakeAgent(name = "stranger") // no outputs: throws if run
-    val roster = new FakeAgent(name = "x")
+    val stranger =
+      new FakeAgent(name = "stranger") // never run: throws if it is
+    val rosterA = new FakeAgent(
+      name = "a",
+      outputs = List(ReviewResult(List(issue("from-a", confidence = 0.9))))
+    )
+    val rosterB = new FakeAgent(
+      name = "b",
+      outputs = List(ReviewResult(List(issue("from-b", confidence = 0.9))))
+    )
     val strangerSelector = new ReviewerSelector:
       def prepare(
           all: List[Agent[?]],
@@ -636,13 +619,31 @@ class ReviewAndFixTest extends munit.FunSuite:
           changedFiles: List[String]
       )(using FlowContext, orca.InStage): List[ReviewBatch] => List[Agent[?]] =
         _ => List(stranger)
-    val _ = reviewAndFixLoop(
-      coder = new FakeAgent("coder"),
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(
+          Nil,
+          List(
+            IgnoredIssue(Title("from-a"), "ok"),
+            IgnoredIssue(Title("from-b"), "ok")
+          )
+        )
+      )
+    )
+    val result = reviewAndFixLoop(
+      coder = coder,
       sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
-      reviewers = List(roster),
+      reviewers = List(rosterA, rosterB),
       reviewerSelection = strangerSelector,
-      task = "drop foreign",
+      task = "all-foreign floor",
       initialDiff = Some("")
+    )
+    assert(rosterA.seenSessions.nonEmpty, "roster A must run under the floor")
+    assert(rosterB.seenSessions.nonEmpty, "roster B must run under the floor")
+    assert(
+      stranger.seenSessions.isEmpty,
+      "the foreign agent must not have been run"
     )
     assert(
       steps.toArray.toList.exists(m =>
@@ -652,6 +653,98 @@ class ReviewAndFixTest extends munit.FunSuite:
       s"expected a drop warning naming 'stranger'; got ${steps.toArray.toList}"
     )
     assert(
-      stranger.seenSessions.isEmpty,
-      "the foreign agent must not have been run"
+      steps.toArray.toList.exists(m =>
+        m.asInstanceOf[String].contains("falling back to all")
+      ),
+      s"expected a fallback warning; got ${steps.toArray.toList}"
     )
+    assertEquals(
+      result.issues.map(_.title).toSet,
+      Set(Title("from-a"), Title("from-b"))
+    )
+
+  test("a duplicate same-slug selection runs the reviewer once that round"):
+    // The selector returns the same roster instance twice; `distinctBy` collapses
+    // it so the reviewer runs a single time (one session, one scripted output —
+    // a second run would drain its empty iterator and throw).
+    given FlowContext = ctx
+    val rosterX = new FakeAgent(
+      name = "x",
+      outputs = List(ReviewResult(List(issue("from-x", confidence = 0.9))))
+    )
+    val dupSelector = new ReviewerSelector:
+      def prepare(
+          all: List[Agent[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using FlowContext, orca.InStage): List[ReviewBatch] => List[Agent[?]] =
+        _ => List(rosterX, rosterX)
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(Nil, List(IgnoredIssue(Title("from-x"), "ok"))))
+    )
+    val result = reviewAndFixLoop(
+      coder = coder,
+      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      reviewers = List(rosterX),
+      reviewerSelection = dupSelector,
+      task = "duplicate selection",
+      initialDiff = Some("")
+    )
+    assertEquals(rosterX.seenSessions.size, 1)
+    assertEquals(result.issues, List(IgnoredIssue(Title("from-x"), "ok")))
+
+  test(
+    "roster resolution resumes one session across rounds despite a foreign copy"
+  ):
+    // Round 1 the selector returns the roster instance; round 2 it returns a
+    // FOREIGN same-slug copy. Both resolve to the canonical instance, so the
+    // reviewer RESUMES its single session on round 2 rather than minting a new
+    // one. Round 1's fix keeps the loop going; round 2 stops it.
+    given FlowContext = ctx
+    val rosterX = new FakeAgent(
+      name = "x",
+      outputs = List(
+        ReviewResult(List(issue("round-1", confidence = 0.9))),
+        ReviewResult(List(issue("round-2", confidence = 0.9)))
+      )
+    )
+    val foreignX = new FakeAgent(name = "x") // no outputs: throws if ever run
+    val twoRoundSelector = new ReviewerSelector:
+      def prepare(
+          all: List[Agent[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using FlowContext, orca.InStage): List[ReviewBatch] => List[Agent[?]] =
+        history => if history.isEmpty then List(rosterX) else List(foreignX)
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(List(Title("round-1")), Nil),
+        FixOutcome(Nil, List(IgnoredIssue(Title("round-2"), "ok")))
+      )
+    )
+    val result = reviewAndFixLoop(
+      coder = coder,
+      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      reviewers = List(rosterX),
+      reviewerSelection = twoRoundSelector,
+      task = "two-round resume",
+      initialDiff = Some("")
+    )
+    assertEquals(
+      rosterX.seenSessions.size,
+      2,
+      s"reviewer must run in both rounds; got ${rosterX.seenSessions}"
+    )
+    assertEquals(
+      rosterX.seenSessions.distinct.size,
+      1,
+      s"round 2 must resume the round-1 session; got ${rosterX.seenSessions
+          .map(SessionId.value)}"
+    )
+    assert(
+      foreignX.seenSessions.isEmpty,
+      "the foreign same-slug copy must never run"
+    )
+    assertEquals(result.issues, List(IgnoredIssue(Title("round-2"), "ok")))
