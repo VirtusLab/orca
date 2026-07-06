@@ -4,7 +4,6 @@ import orca.backend.Interaction
 import orca.events.{
   CostTracker,
   EventDispatcher,
-  OrcaEvent,
   OrcaListener,
   PriceList,
   Pricing
@@ -179,7 +178,6 @@ private[orca] def runFlow[B <: BackendTag](
     wiring: FlowWiring = FlowWiring()
 )(body: FlowControl ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose.value
-  val flowLog = LoggerFactory.getLogger("orca.flow")
   // Default TerminalInteraction is built inside `supervised:` because its
   // worker is a `forkUser` bound to that scope; close() in the body's
   // `finally` lets the worker drain and exit before the scope joins it.
@@ -193,18 +191,14 @@ private[orca] def runFlow[B <: BackendTag](
           new LoggingListener
         ) ++ extraListeners
       )
-      // Order matters (and is delicate): the leading agent is a selector
-      // resolved against the context, and branch setup needs the resolved agent
-      // for branch naming. So the store and the context must exist BEFORE setup
-      // runs:
+      // Construction order matters: `FlowLifecycle.run`'s setup phase resolves
+      // the leading agent (for branch naming) and reads `ctx.git`, so the
+      // store and the context must both exist BEFORE it runs.
       //   1. Resolve the progress store (pure — no git effect, no agent).
       //   2. Build the context (pure construction — backends are created but
       //      no subprocess spawns until the first gated `run`).
-      //   3. Resolve the leading agent (`agent(ctx)`) and run branch setup
-      //      (stash → resume-vs-fresh → checkout → header commit) using it for
-      //      branch naming.
-      // Teardown is unchanged (the disjoint success/failure paths below), so
-      // CORE's invariants are preserved.
+      // `FlowLifecycle.run` (below) then resolves the leading agent and drives
+      // the rest of the phase protocol (setup → rehydrate → body → teardown).
       val store =
         progressStore.getOrElse(
           ProgressStore.default(workDir, args.userPrompt)
@@ -226,53 +220,16 @@ private[orca] def runFlow[B <: BackendTag](
       // opencode `serve` process so its drain forks' reads EOF and the join
       // can't hang (Ox runs `releaseAfterScope` only after the join).
       try
-        // The context resolved the leading agent (lazily, against itself) and
-        // exposes it as `ctx.agent`. The runtime needs it (erased) for branch
-        // naming and session rehydration, which run before the body. Git is
-        // resolved inside the context (the only default site is in
-        // `withDefaults`); the lifecycle reads the same instance via `ctx.git`.
-        val setup =
-          FlowLifecycle.setup(args, ctx.agent, ctx.git, branchNaming, store)
-        // Rehydrate the client→server session map: each backend's registry is
-        // in-memory, so on resume it starts out empty. Replay the persisted
-        // records into it (after the context + log exist, before the body) so
-        // `dispatchFor` resumes the right server thread and the server-id
-        // existence probes work. Rehydration is targeted per record's `backend`
-        // tag — untagged (older) records go to the lead, a tagged record goes to
-        // that backend's agent (even when it isn't the lead), and an unknown tag
-        // is skipped rather than guessed.
-        FlowLifecycle.rehydrateSessions(ctx, ctx.agent, store)
-        // The whole flow body runs as a top-level stage: an otherwise
-        // unhandled exception surfaces as a single Error event (the same
-        // message a stage failure shows). A nested stage / `fail` marks the
-        // exception `alreadyEmitted` once it has reported it, so we don't
-        // re-report it here. The stack goes to the trace file only (DEBUG,
-        // below the console's WARN threshold); `--verbose` also prints it to
-        // stderr.
-        //
-        // Teardown separation: body-failure and body-success teardowns are
-        // completely disjoint — structurally, not flag-guarded: the catch below
-        // rethrows, so success teardown is unreachable on failure. A
-        // success-teardown error (e.g. a cosmetic cleanup-commit failure) must
-        // NOT trigger the failure teardown (`resetHard`), and must NOT strand
-        // the user on the feature branch.
-        try
-          // The body reads the lead via the `agent` accessor; `ctx.LeadB`
-          // (pinned to `B` at construction) keeps it concretely typed so
-          // sessions thread.
-          body(using ctx)
-        catch
-          case NonFatal(e) =>
-            val alreadyEmitted = e match
-              case fe: OrcaFlowException => fe.alreadyEmitted
-              case _                     => false
-            if !alreadyEmitted then
-              ctx.emit(OrcaEvent.Error(throwableMessage(e)))
-            flowLog.debug("flow aborted", e)
-            if debug then e.printStackTrace(System.err)
-            FlowLifecycle.teardownFailure(ctx.git)
-            throw e
-        FlowLifecycle.teardownSuccess(ctx.git, setup, returnToStartBranch)
+        FlowLifecycle.run(
+          args,
+          ctx,
+          branchNaming,
+          store,
+          returnToStartBranch,
+          debug
+        )(
+          body
+        )
       finally ctx.close()
     finally effectiveInteraction.close()
 

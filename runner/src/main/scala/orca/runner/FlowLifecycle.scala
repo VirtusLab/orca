@@ -3,13 +3,17 @@ package orca.runner
 import orca.{
   BranchNamingStrategy,
   FlowContext,
+  FlowControl,
   InStage,
   OrcaArgs,
-  OrcaFlowException
+  OrcaFlowException,
+  throwableMessage
 }
 import orca.agents.{BackendTag, Agent, SessionId, WireSessionId}
+import orca.events.OrcaEvent
 import orca.progress.{ProgressHeader, ProgressStore, RecoveryCheck}
 import orca.tools.GitTool
+import org.slf4j.LoggerFactory
 
 import scala.util.control.NonFatal
 
@@ -19,6 +23,57 @@ import scala.util.control.NonFatal
   * and progress-store mutations that bracket the body.
   */
 object FlowLifecycle:
+
+  /** The complete phase protocol for one run, in its mandated order: setup
+    * (branch + log binding) → session rehydration → body → disjoint
+    * success/failure teardown. Extracted here so the ordering invariants that
+    * used to live as comments in the runner's entry point have one executable
+    * owner (ADR 0018 §2.4/§2.5). The context must be fully constructed (setup
+    * resolves the leading agent for branch naming and reads `ctx.git`).
+    *
+    * Failure path: emits the error (unless the exception already reported
+    * itself), logs, runs `teardownFailure`, rethrows. Success path runs
+    * `teardownSuccess`. The two are structurally disjoint — the catch rethrows,
+    * so success teardown is unreachable on failure.
+    */
+  private[orca] def run[B <: BackendTag](
+      args: OrcaArgs,
+      ctx: DefaultFlowContext[B],
+      branchNaming: Option[BranchNamingStrategy],
+      store: ProgressStore,
+      returnToStartBranch: Boolean,
+      debug: Boolean
+  )(body: FlowControl ?=> Unit): Unit =
+    val log = LoggerFactory.getLogger("orca.flow")
+    val setup =
+      FlowLifecycle.setup(args, ctx.agent, ctx.git, branchNaming, store)
+    rehydrateSessions(ctx, ctx.agent, store)
+    // The whole flow body runs as a top-level stage: an otherwise
+    // unhandled exception surfaces as a single Error event (the same
+    // message a stage failure shows). A nested stage / `fail` marks the
+    // exception `alreadyEmitted` once it has reported it, so we don't
+    // re-report it here. The stack goes to the trace file only (DEBUG,
+    // below the console's WARN threshold); `--verbose` also prints it to
+    // stderr.
+    //
+    // Teardown separation: body-failure and body-success teardowns are
+    // completely disjoint — structurally, not flag-guarded: the catch below
+    // rethrows, so success teardown is unreachable on failure. A
+    // success-teardown error (e.g. a cosmetic cleanup-commit failure) must
+    // NOT trigger the failure teardown (`resetHard`), and must NOT strand
+    // the user on the feature branch.
+    try body(using ctx)
+    catch
+      case NonFatal(e) =>
+        val alreadyEmitted = e match
+          case fe: OrcaFlowException => fe.alreadyEmitted
+          case _                     => false
+        if !alreadyEmitted then ctx.emit(OrcaEvent.Error(throwableMessage(e)))
+        log.debug("flow aborted", e)
+        if debug then e.printStackTrace(System.err)
+        teardownFailure(ctx.git)
+        throw e
+    teardownSuccess(ctx.git, setup, returnToStartBranch)
 
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
     * session's OWN agent's in-memory registry, so a resumed run resumes against
