@@ -1,9 +1,11 @@
 package orca.events
 
+import org.slf4j.LoggerFactory
+
+import scala.util.control.NonFatal
+
 /** Synchronously forwards every `OrcaEvent` to a fixed list of listeners in
-  * registration order. Listener exceptions propagate — an observation layer
-  * that throws is almost certainly a bug, and silent swallowing would hide it
-  * from the flow author.
+  * registration order.
   *
   * Implements `OrcaListener` itself so it composes naturally: a tool that
   * accepts an `OrcaListener` can take a dispatcher directly, and dispatchers
@@ -14,5 +16,21 @@ package orca.events
   * listeners must themselves be thread-safe (see [[OrcaListener]]).
   */
 class EventDispatcher(listeners: List[OrcaListener]) extends OrcaListener:
+  private val log = LoggerFactory.getLogger(classOf[EventDispatcher])
+
+  /** Total: a listener that throws is logged (WARN — visible on the console)
+    * and skipped; the remaining listeners still see the event and the emitter
+    * is never disturbed. Observation must not alter flow control — stage
+    * bookkeeping used to depend on emit-placement relative to try blocks to
+    * defend against throwing listeners; making emit total retires that whole
+    * class of ordering constraints.
+    */
   def onEvent(event: OrcaEvent): Unit =
-    listeners.foreach(_.onEvent(event))
+    listeners.foreach: l =>
+      try l.onEvent(event)
+      catch
+        case NonFatal(e) =>
+          log.warn(
+            s"listener ${l.getClass.getName} failed on ${event.getClass.getSimpleName}",
+            e
+          )

@@ -72,9 +72,10 @@ enum OrcaEvent:
   * LLM calls via `ox.par`), often without any external synchronization on the
   * caller side. Listeners that mutate shared state must do so atomically
   * (`AtomicReference`, `synchronized`, etc.); listeners that delegate to other
-  * sinks must ensure those sinks tolerate concurrent calls too. Throwing from
-  * `onEvent` propagates up to the caller — return cleanly or swallow as the
-  * concrete listener sees fit.
+  * sinks must ensure those sinks tolerate concurrent calls too. Implementations
+  * should not throw from `onEvent`, but if they do, the dispatcher logs the
+  * failure at WARN and skips the listener — a listener failure is never
+  * surfaced to the emitting flow.
   */
 trait OrcaListener:
   def onEvent(event: OrcaEvent): Unit

@@ -60,10 +60,11 @@ private def resumeFrom[T: JsonData](id: String, name: String)(using
     .load()
     .flatMap(_.entries.find(_.id == id))
     .flatMap: entry =>
-      // Only the decode is fail-safe: a decode failure means the stage's result
-      // type changed under this id, so we fall through and re-run (None). The
-      // emits must NOT be inside the try — if `emit` threw, a catch here would
-      // spuriously re-run an already-recorded stage.
+      // The try is scoped to the decode only: a decode failure means the
+      // stage's result type changed under this id, so we fall through and
+      // re-run (None). The emits sit outside the try because listener throws
+      // no longer escape `emit` — there's nothing left for the try to guard
+      // against there.
       val decoded =
         try
           Some(
