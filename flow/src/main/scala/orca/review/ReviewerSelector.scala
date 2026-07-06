@@ -7,22 +7,22 @@ import orca.plan.Title
 
 import scala.util.matching.Regex
 
-/** Picks which reviewers to run on each iteration of [[reviewAndFixLoop]].
+/** Picks which reviewers run on each iteration of [[reviewAndFixLoop]].
   *
-  *   - `history` holds prior batches with the most recent first.
-  *   - `all` is the originally configured reviewer set, useful for the very
-  *     first iteration when there's no history yet.
-  *   - `taskTitle` and `changedFiles` come from `reviewAndFixLoop`'s `task` and
-  *     the diff it sampled at loop entry. They're passed through on every call
-  *     so that selectors which need them (e.g. [[agentDriven]]) don't have to
-  *     be reconstructed per task.
+  * Two-phase: [[prepare]] is called ONCE at loop start with the loop-constant
+  * context (roster, task title, changed files) and the loop's own capabilities
+  * — any gated effect (e.g. [[ReviewerSelector.agentDriven]]'s picker LLM call)
+  * happens there, inside the loop's stage. It returns the pure per-iteration
+  * narrowing: given the review history (most recent batch first), which
+  * reviewers run this round. Nothing is captured across loops, so selector
+  * values are freely reusable.
   */
-type ReviewerSelector = (
-    history: List[ReviewBatch],
-    all: List[Agent[?]],
-    taskTitle: Title,
-    changedFiles: List[String]
-) => List[Agent[?]]
+trait ReviewerSelector:
+  def prepare(
+      all: List[Agent[?]],
+      taskTitle: Title,
+      changedFiles: List[String]
+  )(using FlowContext, InStage): List[ReviewBatch] => List[Agent[?]]
 
 object ReviewerSelector:
 
@@ -32,30 +32,38 @@ object ReviewerSelector:
     * introduced by a fix won't see the fix. Was the default before LLM-driven
     * selection landed; pass explicitly when you want this behaviour back.
     */
-  val onlyPreviouslyReporting: ReviewerSelector = (history, all, _, _) =>
-    history.headOption match
-      case None        => all
-      case Some(batch) => batch.reviewersWithIssues
+  val onlyPreviouslyReporting: ReviewerSelector = new ReviewerSelector:
+    def prepare(
+        all: List[Agent[?]],
+        taskTitle: Title,
+        changedFiles: List[String]
+    )(using FlowContext, InStage): List[ReviewBatch] => List[Agent[?]] =
+      history =>
+        history.headOption match
+          case None        => all
+          case Some(batch) => batch.reviewersWithIssues
 
   /** Costlier but thorough: every reviewer runs every iteration, regardless of
     * whether it's been quiet so far. Pick this when regression coverage matters
     * more than tokens.
     */
-  val allEveryRound: ReviewerSelector = (_, all, _, _) => all
+  val allEveryRound: ReviewerSelector = new ReviewerSelector:
+    def prepare(
+        all: List[Agent[?]],
+        taskTitle: Title,
+        changedFiles: List[String]
+    )(using FlowContext, InStage): List[ReviewBatch] => List[Agent[?]] =
+      _ => all
 
   /** Asks `agent` to pick which reviewers are worth running for a given task.
-    * The selection is computed on the first call and cached for subsequent
-    * iterations — task context doesn't change mid-loop, so re-querying the
-    * model would just burn tokens for the same answer.
+    * The selection is computed once, in [[ReviewerSelector.prepare]] at loop
+    * start — task context doesn't change mid-loop, so a single query answers
+    * every round; the returned per-round function is pure (it just replays the
+    * pick, ignoring history).
     *
-    * `taskTitle` and `changedFiles` arrive on each invocation from
+    * `taskTitle` and `changedFiles` arrive at `prepare` from
     * `reviewAndFixLoop`; the call site only supplies the picker LLM (and
     * optionally tunes prompts/descriptions).
-    *
-    * **Single-loop scope.** The returned selector closes over a per-instance
-    * cache. Reusing one selector across two `reviewAndFixLoop` invocations for
-    * different tasks would yield iteration 1's pick on both. Build a fresh
-    * selector per loop.
     *
     * The picker sees each reviewer as a `(name, description)` pair. By default
     * `descriptions` is [[ReviewerPrompts.descriptionsByToolName]], so users who
@@ -81,56 +89,59 @@ object ReviewerSelector:
       descriptions: Map[String, String] =
         ReviewerPrompts.descriptionsByToolName,
       filePatterns: Map[String, Regex] = ReviewerPrompts.filePatternsByToolName
-  )(using ctx: FlowContext, ev: InStage): ReviewerSelector =
-    var cached: Option[List[String]] = None
-    (_, all, taskTitle, changedFiles) =>
+  ): ReviewerSelector = new ReviewerSelector:
+    def prepare(
+        all: List[Agent[?]],
+        taskTitle: Title,
+        changedFiles: List[String]
+    )(using
+        ctx: FlowContext,
+        ev: InStage
+    ): List[ReviewBatch] => List[Agent[?]] =
       val eligible = all.filter: r =>
         filePatterns.get(r.name) match
           case None     => true
           case Some(rx) => changedFiles.exists(f => rx.findFirstIn(f).isDefined)
-      val names = cached.getOrElse:
-        val infos = eligible.map: r =>
-          ReviewerInfo(
-            // Show the picker the bare slug, not the `reviewer: …`
-            // cost-attribution prefix: the prefix plus the `name: description`
-            // serialization made the name ambiguous (a `:`-in-name inside a
-            // `:`-separated line), so the model echoed something that didn't
-            // match and selection collapsed to zero. `pick` matches either
-            // form back.
-            name = ReviewerPrompts.stripNamePrefix(r.name),
-            description = descriptions.getOrElse(r.name, "")
+      val infos = eligible.map: r =>
+        ReviewerInfo(
+          // Show the picker the bare slug, not the `reviewer: …`
+          // cost-attribution prefix: the prefix plus the `name: description`
+          // serialization made the name ambiguous (a `:`-in-name inside a
+          // `:`-separated line), so the model echoed something that didn't
+          // match and selection collapsed to zero. `pick` matches either
+          // form back.
+          name = ReviewerPrompts.stripNamePrefix(r.name),
+          description = descriptions.getOrElse(r.name, "")
+        )
+      if eligible.nonEmpty && infos.forall(_.description.isEmpty) then
+        ctx.emit(
+          OrcaEvent.Step(
+            "reviewer selection: no descriptions matched the supplied " +
+              "reviewers (names lack the `reviewer: ` prefix from a " +
+              "preset builder?). The picker will see names only."
           )
-        if eligible.nonEmpty && infos.forall(_.description.isEmpty) then
-          ctx.emit(
-            OrcaEvent.Step(
-              "reviewer selection: no descriptions matched the supplied " +
-                "reviewers (names lack the `reviewer: ` prefix from a " +
-                "preset builder?). The picker will see names only."
+        )
+      val names =
+        if eligible.isEmpty then Nil
+        else
+          // Read-only: the picker only needs to decide which reviewers
+          // to run; it should never edit files during the selection
+          // turn. If the model reads context (Cargo.toml, etc.) to
+          // make a better choice, that's fine.
+          agent.withReadOnly
+            .resultAs[SelectedReviewers]
+            .autonomous
+            .run(
+              ReviewerSelectionRequest(
+                taskTitle = taskTitle,
+                changedFiles = changedFiles,
+                availableReviewers = infos,
+                instructions = instructions
+              ),
+              emitPrompt = false
             )
-          )
-        val picked =
-          if eligible.isEmpty then Nil
-          else
-            // Read-only: the picker only needs to decide which reviewers
-            // to run; it should never edit files during the selection
-            // turn. If the model reads context (Cargo.toml, etc.) to
-            // make a better choice, that's fine.
-            agent.withReadOnly
-              .resultAs[SelectedReviewers]
-              .autonomous
-              .run(
-                ReviewerSelectionRequest(
-                  taskTitle = taskTitle,
-                  changedFiles = changedFiles,
-                  availableReviewers = infos,
-                  instructions = instructions
-                ),
-                emitPrompt = false
-              )
-              ._2
-              .names
-        cached = Some(picked)
-        picked
+            ._2
+            .names
       // Post-filter against `eligible`, not `all`, so a picker that hallucinates
       // a name pre-filtered out can't resurrect it.
       val selected = SelectedReviewers(names).pick(eligible)
@@ -139,15 +150,17 @@ object ReviewerSelector:
       // hallucinated set that matches nothing) while reviewers are eligible,
       // fall back to all eligible so a real change is never silently unreviewed
       // — orca's contract is that AI-written code gets reviewed.
-      if selected.isEmpty && eligible.nonEmpty then
-        ctx.emit(
-          OrcaEvent.Step(
-            s"reviewer selection: picker returned no usable names; " +
-              s"falling back to all ${eligible.size} eligible reviewer(s)"
+      val active =
+        if selected.isEmpty && eligible.nonEmpty then
+          ctx.emit(
+            OrcaEvent.Step(
+              s"reviewer selection: picker returned no usable names; " +
+                s"falling back to all ${eligible.size} eligible reviewer(s)"
+            )
           )
-        )
-        eligible
-      else selected
+          eligible
+        else selected
+      _ => active
 
 private case class ReviewerInfo(name: String, description: String)
     derives JsonData

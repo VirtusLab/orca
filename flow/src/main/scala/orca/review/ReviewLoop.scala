@@ -404,7 +404,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       (reviewerOutcomes, lintOutcome, nextState)
 
   private def evaluate(
-      state: ReviewLoopState
+      state: ReviewLoopState,
+      selectRound: List[ReviewBatch] => List[Agent[?]]
   ): (ReviewResult, ReviewLoopState) =
     // Format before reviewing so the implementation's (and each prior fix's)
     // edits are cleaned up before reviewers and the lint see them, and the
@@ -415,8 +416,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     formatCommand.foreach: cmd =>
       val _ =
         os.proc("bash", "-c", cmd).call(check = false, mergeErrIntoOut = true)
-    val active =
-      reviewerSelection(state.history, reviewers, taskTitle, changedFiles)
+    val active = selectRound(state.history)
     val totalAgents = active.size + (if lintCommand.isDefined then 1 else 0)
     if totalAgents > 0 then
       ctx.emit(
@@ -455,6 +455,12 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // A progress marker, not a committing stage: the enclosing implement-task
     // stage already names the work and owns the commit (ADR 0018 §2.2).
     orca.display("Review & fix")
+    // Two-phase selection: run the selector's gated effects (e.g. the
+    // agentDriven picker LLM call) ONCE here, at loop start, inside this stage.
+    // `selectRound` is the resulting pure per-iteration narrowing — passed down
+    // to `evaluate` so it stays a function of its inputs.
+    val selectRound: List[ReviewBatch] => List[Agent[?]] =
+      reviewerSelection.prepare(reviewers, taskTitle, changedFiles)
     @scala.annotation.tailrec
     def loop(
         accumulated: IgnoredIssues,
@@ -462,7 +468,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         state: ReviewLoopState
     ): IgnoredIssues =
       orca.display(s"Iteration ${iteration + 1}")
-      val (result, nextState) = evaluate(state)
+      val (result, nextState) = evaluate(state, selectRound)
       val issues = result.issues
       if issues.isEmpty then
         emitStep("No review comments")

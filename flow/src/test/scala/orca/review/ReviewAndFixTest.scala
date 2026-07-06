@@ -252,14 +252,15 @@ class ReviewAndFixTest extends munit.FunSuite:
     assert(sent.contains("--- a/Foo.scala"), s"diff missing from prompt: $sent")
     assert(sent.contains("do thing"), s"task missing from prompt: $sent")
 
-  test("ReviewerSelector.agentDriven asks the LLM once and caches"):
+  test("ReviewerSelector.agentDriven asks the LLM once per prepare"):
     given FlowContext = ctx
     val perf = new FakeAgent(name = "performance")
     val style = new FakeAgent(name = "readability")
     val coverage = new FakeAgent(name = "test-coverage")
     val all = List(perf, style, coverage)
-    // Single reply — if the selector calls the LLM more than once the iterator
-    // will throw NoSuchElement on the second call, failing the test.
+    // Single reply — the pick happens once in `prepare`; the returned per-round
+    // function replays it. A second LLM call would drain the iterator and throw
+    // NoSuchElement, failing the test.
     val picker = new FakeAgent(
       name = "picker",
       outputs = List(SelectedReviewers(List("performance", "test-coverage")))
@@ -267,15 +268,15 @@ class ReviewAndFixTest extends munit.FunSuite:
     val select = ReviewerSelector.agentDriven(agent = picker)
     val title = Title("optimize hot path")
     val files = List("src/Cache.scala")
+    val selectRound = select.prepare(all, title, files)
+    // First round (empty history) and a later round (populated history) both
+    // replay the single pick — no second LLM call.
     assertEquals(
-      select(Nil, all, title, files).map(_.name),
+      selectRound(Nil).map(_.name),
       List("performance", "test-coverage")
     )
-    // Second call with a populated history (matches what reviewAndFixLoop would
-    // pass on iteration 2) reuses the cached selection — no second LLM call.
-    val fakeBatch = ReviewBatch(Nil)
     assertEquals(
-      select(List(fakeBatch), all, title, files).map(_.name),
+      selectRound(List(ReviewBatch(Nil))).map(_.name),
       List("performance", "test-coverage")
     )
 
