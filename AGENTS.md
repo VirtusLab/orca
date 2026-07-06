@@ -120,6 +120,10 @@ most easily broken:
   `runner/src/test/scala/orca/runner/EnforcementTableTest.scala` (the source of
   truth); per-cell rationale lives in each backend's `*Args.enforcement`.
 
+- **Conversation events.** The event grammar (turn boundaries, `Option` tool
+  names) is specified on `ConversationEvent`'s scaladoc and pinned per backend
+  by `ConversationEventConformance` assertions in each module's tests.
+
 ## Build and test
 
 ```bash

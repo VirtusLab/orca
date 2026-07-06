@@ -65,7 +65,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
 
 ## 2. Cross-backend divergence (HIGH)
 
-- [ ] **2.1 Unify/surface `autoApprove` + `ToolSet` enforcement semantics.** The same
+- [x] **2.1 Unify/surface `autoApprove` + `ToolSet` enforcement semantics.** (done: 178351a) The same
   typed knob means: real allowlist (claude; but `Only(empty)` still widens to
   `acceptEdits`), sandbox approximation dropped on resume (codex), widened to yolo
   (gemini), not encoded at all — depends on server permission default (opencode),
@@ -77,7 +77,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
   `gemini/.../GeminiArgs.scala:81-94`, `opencode/.../OpencodeArgs.scala:74-93`,
   `pi/.../PiArgs.scala:20-65`.
 
-- [ ] **2.2 Hoist the autonomous drain/commit shell into `Conversations`/`AgentBackend`.**
+- [x] **2.2 Hoist the autonomous drain/commit shell into `Conversations`/`AgentBackend`.** (done: 53d36f9 — shared shell hoist; opencode divergence was absorbed earlier by 4835328, see the existing note)
   Four backends repeat `supervised → open → drainAndCommit → finally cancel`;
   opencode inlines a divergent copy that skips the error rewrap (no comment why),
   so the next `drainAndCommit` fix silently misses it.
@@ -90,7 +90,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
   `supervised → open → drainAndCommit → finally cancel` across all five backends)
   remains open.
 
-- [ ] **2.3 Pin the `ConversationEvent` grammar.** Turn-end-on-failure and
+- [x] **2.3 Pin the `ConversationEvent` grammar.** (done: a74a4cc) Turn-end-on-failure and
   `ToolResult.toolName` behaviour differ across all five drivers; consumers survive
   via defensive flushes. Document the sequence contract on `ConversationEvent` and
   add one parameterized conformance test.
@@ -98,13 +98,13 @@ comments, ADRs) rather than types, several with shipped-bug history.
   `pi/.../PiConversation.scala:165-167`, `codex/.../CodexConversation.scala:165-169`,
   `claude/.../ClaudeConversation.scala:158-165`.
 
-- [ ] **2.4 De-duplicate the ask_user 60s-timeout workaround; clarify gemini.** Same
+- [x] **2.4 De-duplicate the ask_user 60s-timeout workaround; clarify gemini.** (done: f0e582c) Same
   fix implemented twice in different units/encodings (millis in hand-built JSON for
   claude, seconds in TOML for codex); gemini sets no timeout — immune or forgotten?
   Hoist one constant with per-backend renderers; state the answer in `GeminiSettings`.
   Refs: `claude/.../ClaudeBackend.scala:261-269`, `codex/.../CodexArgs.scala:96-110`.
 
-- [ ] **2.5 Move the pi ask_user extension out of a Scala string literal.** Untyped,
+- [x] **2.5 Move the pi ask_user extension out of a Scala string literal.** (done: e87c207) Untyped,
   unhighlighted TypeScript embedded in Scala; move to a classpath resource.
   Refs: `pi/.../PiAskUserExtension.scala:36-70`.
 
