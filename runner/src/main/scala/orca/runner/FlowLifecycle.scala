@@ -44,8 +44,10 @@ object FlowLifecycle:
 
   /** Untagged records (older logs) go to the lead — the pre-tagging behaviour.
     * A tag that matches no accessor (edited log) is skipped, not guessed.
-    * Resolving an accessor may construct that backend's default agent; that is
-    * correct — a record for backend X means the body will use X again anyway.
+    * `DefaultFlowContext` holds all five per-backend agents as eager
+    * constructor vals, so resolving an accessor here just reads the
+    * already-constructed agent — touching it is safe even for backends the flow
+    * body never otherwise uses.
     */
   private def targetAgent(
       ctx: FlowContext,

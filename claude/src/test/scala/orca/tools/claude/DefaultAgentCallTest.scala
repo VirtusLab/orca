@@ -421,10 +421,10 @@ class DefaultAgentCallTest extends munit.FunSuite:
     "interactive.run registers (clientSid, serverSid) and returns the client id"
   ):
     // Pins the codex-interactive bug fix end-to-end: the framework must call
-    // `backend.registerSession(session, result.wireId)` after
+    // `backend.sessions.register(session, result.wireId)` after
     // `interaction.drive` returns, and return the caller-supplied `session`
     // so a follow-up `.run(prompt, sid)` resumes the right thread. Removing
-    // the `backend.registerSession` line in
+    // the `backend.sessions.register` call in
     // `DefaultAgentCall.runInteractiveOnce` would fail this test.
     val clientSid =
       SessionId[BackendTag.ClaudeCode.type]("client-uuid-aaaa")

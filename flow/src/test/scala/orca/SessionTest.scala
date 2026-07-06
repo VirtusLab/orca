@@ -185,3 +185,10 @@ class SessionTest extends FunSuite:
       ),
       s"expected a divergence warning; got: ${recorder.steps}"
     )
+
+  test("an empty name is rejected"):
+    val (store, dir) = freshStore()
+    val fc = makeControl(store, dir)
+    val agent = new StubAgent
+    intercept[IllegalArgumentException]:
+      agent.session("", "seed")(using fc)

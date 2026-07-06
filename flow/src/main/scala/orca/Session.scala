@@ -34,6 +34,10 @@ extension [B <: BackendTag](agent: Agent[B])
     * and re-seeds (see `ProgressStore.upsertSession`).
     */
   def session(name: String, seed: String)(using fc: FlowControl): SessionId[B] =
+    // An empty name would collide with legacy (pre-naming) records that
+    // decode to name="" — that's an authoring defect, so require rather than
+    // return an Either.
+    require(name.nonEmpty, "session name must be non-empty")
     val occ = fc.nextSessionOccurrence(name)
     fc.progressStore
       .load()
