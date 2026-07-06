@@ -3,12 +3,14 @@ package orca.runner.terminal
 import orca.backend.{Conversation, Interaction, AgentResult}
 import orca.events.OrcaListener
 import orca.agents.BackendTag
+import org.slf4j.LoggerFactory
 import ox.Ox
 import ox.channels.BufferCapacity
 import ox.either.orThrow
 
 import java.io.PrintStream
 import java.nio.charset.StandardCharsets.UTF_8
+import scala.util.control.NonFatal
 
 /** Terminal-based `Interaction`. Renders stage transitions, tool uses,
   * streaming LLM output, and errors to a `PrintStream` (defaults to stderr so
@@ -47,6 +49,8 @@ class TerminalInteraction private[terminal] (
     prompter: ConversationRenderer.Prompter
 ) extends Interaction:
 
+  private val log = LoggerFactory.getLogger(getClass)
+
   val listeners: List[OrcaListener] = List(listener)
 
   /** Drive a live conversation to completion on the caller's thread. Returns
@@ -67,9 +71,15 @@ class TerminalInteraction private[terminal] (
     * across every conversation this interaction drove — renderers never close
     * it) then the output. A test-injected prompter is closed here too; there's
     * no hardcoded singleton in this path.
+    *
+    * The prompter close is guarded: it's teardown-only degradation, and a
+    * throwing prompter must never strand the output (leaving the status row
+    * uncleared) or mask whatever error is already unwinding through the
+    * caller's `finally`.
     */
   override def close(): Unit =
-    prompter.close()
+    try prompter.close()
+    catch case NonFatal(e) => log.error("prompter close failed", e)
     output.close()
 
 object TerminalInteraction:

@@ -315,13 +315,15 @@ private[terminal] object ConversationRenderer:
   object JLinePrompter extends Prompter:
     // Guard so close() never forces the lazy terminal: pure non-interactive
     // runs must never allocate one (that laziness is the object's whole
-    // point). `opened` is set inside the lazy-init lock as the initializer's
-    // first statement, but read from whatever thread calls close() — @volatile
-    // keeps that read correct.
+    // point). `opened` records a SUCCESSFUL build — set only after `build()`
+    // returns, inside the lazy-init lock — so a failed build leaves nothing
+    // to close and a later close() won't re-run the failed initializer. Read
+    // from whatever thread calls close(); @volatile keeps that read correct.
     @volatile private var opened = false
     private lazy val terminal: Terminal =
+      val t = TerminalBuilder.builder().system(true).dumb(true).build()
       opened = true
-      TerminalBuilder.builder().system(true).dumb(true).build()
+      t
     private lazy val reader: LineReader =
       LineReaderBuilder.builder().terminal(terminal).build()
 
