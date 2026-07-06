@@ -179,7 +179,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
 
 ## 5. Exception-based control-flow protocols (MEDIUM)
 
-- [ ] **5.1 Single-home retry classification.** Retryability = which exception class
+- [x] **5.1 Single-home retry classification.** (done: 943e9b1 + ac3f180) Retryability = which exception class
   survives a four-file relay (`awaitResult` blanket-wraps into non-retryable;
   `drainAndCommit` launders others back to retryable; `DefaultAgentCall` checks
   `isInstanceOf`; parse-retry state rides a captured `var lastFailure`). The
@@ -189,7 +189,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
   Refs: `tools/.../agents/AgentCall.scala:155-214`, `tools/.../backend/ForkedConversation.scala:144-155`,
   `tools/.../backend/Conversations.scala:135-149`, `claude/.../ClaudeBackend.scala:119-125,213-219`.
 
-- [ ] **5.2 Replace `alreadyEmitted` var with a type or identity-set.** Exactly-once
+- [x] **5.2 Replace `alreadyEmitted` var with a type or identity-set.** (done: b494133) Exactly-once
   error reporting via a mutable field on the in-flight exception, cooperating
   across three modules; only `OrcaFlowException` participates, so a plain
   `RuntimeException` unwinding nested stages is reported twice. Wrapper type
@@ -197,7 +197,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
   Refs: `tools/.../OrcaFlowException.scala:14-18`, `flow/.../Flow.scala:85-113,206-208`,
   `runner/.../flow.scala:283-287`.
 
-- [ ] **5.3 Make `emit` total at the dispatcher.** Listener exceptions propagate into
+- [x] **5.3 Make `emit` total at the dispatcher.** (done: d87fde5) Listener exceptions propagate into
   stage control flow by design; every emit site is ordered defensively (one
   near-miss already documented at `Flow.scala:55-58`), and `extraListeners` is
   public API on fork threads. Catch per-listener, log loudly, optionally
