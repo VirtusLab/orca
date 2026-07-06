@@ -23,8 +23,7 @@ object ClaudeAgents:
     new DefaultClaudeAgent(
       backend =
         new ClaudeBackend(OsProcCliRunner, cwdForProbe = wiring.workDir),
-      config =
-        AgentConfig.default.copy(model = Some(DefaultClaudeAgent.Opus1M)),
+      config = AgentConfig(model = Some(DefaultClaudeAgent.Opus1M)),
       prompts = wiring.prompts,
       workDir = wiring.workDir,
       events = wiring.events,

@@ -59,7 +59,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
   private def toolWith(backend: RecordingBackend): OpencodeAgent =
     new DefaultOpencodeAgent(
       backend,
-      AgentConfig.default,
+      AgentConfig(),
       DefaultPrompts,
       os.temp.dir(),
       OrcaListener.noop,

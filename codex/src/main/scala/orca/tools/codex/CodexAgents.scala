@@ -14,7 +14,7 @@ object CodexAgents:
   def default(wiring: AgentWiring): CodexAgent =
     new DefaultCodexAgent(
       backend = new CodexBackend(OsProcCliRunner),
-      config = AgentConfig.default,
+      config = AgentConfig(),
       prompts = wiring.prompts,
       workDir = wiring.workDir,
       events = wiring.events,

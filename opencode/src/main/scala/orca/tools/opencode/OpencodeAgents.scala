@@ -22,7 +22,7 @@ object OpencodeAgents:
   )(using Ox): OpencodeAgent =
     new DefaultOpencodeAgent(
       backend = OpencodeBackend(OsProcCliRunner, wiring.workDir, launcher),
-      config = AgentConfig.default,
+      config = AgentConfig(),
       prompts = wiring.prompts,
       workDir = wiring.workDir,
       events = wiring.events,

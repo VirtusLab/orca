@@ -55,20 +55,8 @@ case class AgentConfig(
 
 object AgentConfig:
 
-  // Must be declared before `default` so the case-class default arg resolves.
   val defaultRetrySchedule: Schedule =
     Schedule.exponentialBackoff(1.second).maxRetries(3)
-
-  /** The default AgentConfig. Shared as a singleton so the framework can
-    * detect, via `eq AgentConfig.default`, that the caller omitted the per-call
-    * `config` argument; in that case the tool-level config (set via
-    * `Agent.withConfig`) is used instead. Any explicit `AgentConfig` passed at
-    * the call site wholly replaces the tool-level one — there is no per-field
-    * merge. Pass `AgentConfig.default` (or omit the arg) to inherit the tool's
-    * defaults; constructing a fresh `AgentConfig()` defeats the detection and
-    * wipes them.
-    */
-  val default: AgentConfig = AgentConfig()
 
 enum AutoApprove:
   case All

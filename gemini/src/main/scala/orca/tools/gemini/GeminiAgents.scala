@@ -17,7 +17,7 @@ object GeminiAgents:
   def default(wiring: AgentWiring): GeminiAgent =
     new DefaultGeminiAgent(
       backend = new GeminiBackend(OsProcCliRunner),
-      config = AgentConfig.default.copy(model = Some(DefaultGeminiAgent.Pro)),
+      config = AgentConfig(model = Some(DefaultGeminiAgent.Pro)),
       prompts = wiring.prompts,
       workDir = wiring.workDir,
       events = wiring.events,

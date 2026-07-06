@@ -38,7 +38,7 @@ class FakeAgentCall[O](outputs: Iterator[Any])
       def run[I: AgentInput](
           input: I,
           session: SessionId[BackendTag.ClaudeCode.type],
-          config: AgentConfig,
+          config: Option[AgentConfig],
           emitPrompt: Boolean
       )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
         val _ = seenSessions.updateAndGet(session :: _)
@@ -94,7 +94,7 @@ private class TokenEmittingReviewer(
           def run[I: AgentInput](
               i: I,
               session: SessionId[BackendTag.ClaudeCode.type],
-              c: AgentConfig,
+              c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
             ctx.emit(OrcaEvent.TokensUsed(capturedName, None, Usage.empty))
@@ -258,7 +258,7 @@ class ReviewAndFixTest extends munit.FunSuite:
               def run[I: AgentInput](
                   i: I,
                   session: SessionId[BackendTag.ClaudeCode.type],
-                  c: AgentConfig,
+                  c: Option[AgentConfig],
                   emitPrompt: Boolean
               )(using
                   orca.InStage
@@ -390,7 +390,7 @@ class ReviewAndFixTest extends munit.FunSuite:
               def run[I: AgentInput](
                   i: I,
                   session: SessionId[BackendTag.ClaudeCode.type],
-                  c: AgentConfig,
+                  c: Option[AgentConfig],
                   emitPrompt: Boolean
               )(using
                   orca.InStage
@@ -471,7 +471,7 @@ class ReviewAndFixTest extends munit.FunSuite:
               def run[I: AgentInput](
                   i: I,
                   session: SessionId[BackendTag.ClaudeCode.type],
-                  c: AgentConfig,
+                  c: Option[AgentConfig],
                   emitPrompt: Boolean
               )(using
                   orca.InStage

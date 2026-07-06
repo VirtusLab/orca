@@ -29,7 +29,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     )
 
   test("stream-json shape: --print, --input/--output-format stream-json, etc."):
-    val args = streamJson(AgentConfig.default)
+    val args = streamJson(AgentConfig())
     assert(args.contains("--print"))
     assert(args.containsSlice(Seq("--input-format", "stream-json")))
     assert(args.containsSlice(Seq("--output-format", "stream-json")))
@@ -41,12 +41,12 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--model", "sonnet-4")))
 
   test("model flag is absent when AgentConfig.model is None"):
-    assert(!streamJson(AgentConfig.default).contains("--model"))
+    assert(!streamJson(AgentConfig()).contains("--model"))
 
   test("system-prompt-file flag is emitted when a file is supplied"):
     val file = os.temp(contents = "content")
     val args = ClaudeArgs.streamJson(
-      config = AgentConfig.default,
+      config = AgentConfig(),
       systemPromptFile = Some(file),
       dispatch = Dispatch.Fresh(testSid)
     )
@@ -123,7 +123,7 @@ class ClaudeArgsTest extends munit.FunSuite:
 
   test("Dispatch.Fresh emits --session-id <uuid>"):
     val args =
-      streamJson(AgentConfig.default, dispatch = Dispatch.Fresh(testSid))
+      streamJson(AgentConfig(), dispatch = Dispatch.Fresh(testSid))
     assert(
       args.containsSlice(Seq("--session-id", WireSessionId.value(testSid))),
       args
@@ -132,7 +132,7 @@ class ClaudeArgsTest extends munit.FunSuite:
 
   test("Dispatch.Resume emits --resume <uuid>"):
     val args =
-      streamJson(AgentConfig.default, dispatch = Dispatch.Resume(testSid))
+      streamJson(AgentConfig(), dispatch = Dispatch.Resume(testSid))
     assert(
       args.containsSlice(Seq("--resume", WireSessionId.value(testSid))),
       args
@@ -142,7 +142,7 @@ class ClaudeArgsTest extends munit.FunSuite:
   test("--json-schema is emitted when an output schema is supplied"):
     val schema = """{"type":"object"}"""
     val args = ClaudeArgs.streamJson(
-      config = AgentConfig.default,
+      config = AgentConfig(),
       systemPromptFile = None,
       dispatch = Dispatch.Fresh(testSid),
       jsonSchema = Some(schema)
@@ -152,7 +152,7 @@ class ClaudeArgsTest extends munit.FunSuite:
   test("--mcp-config <file> is emitted when supplied"):
     val cfg = os.temp()
     val args = ClaudeArgs.streamJson(
-      config = AgentConfig.default,
+      config = AgentConfig(),
       systemPromptFile = None,
       dispatch = Dispatch.Fresh(testSid),
       mcpConfig = Some(cfg)

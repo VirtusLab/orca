@@ -79,7 +79,7 @@ class OpencodeFlowTest extends munit.FunSuite:
   test("resultAs[O] parses the backend output through DefaultOpencodeAgent"):
     val tool = new DefaultOpencodeAgent(
       new CannedBackend("""{"decision":"go","score":7}"""),
-      AgentConfig.default,
+      AgentConfig(),
       DefaultPrompts,
       os.temp.dir(),
       OrcaListener.noop,
@@ -152,7 +152,7 @@ class OpencodeFlowTest extends munit.FunSuite:
             def run[I: AgentInput](
                 input: I,
                 session: SessionId[BackendTag.Opencode.type],
-                config: AgentConfig,
+                config: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using orca.InStage): (SessionId[BackendTag.Opencode.type], O) =
               (

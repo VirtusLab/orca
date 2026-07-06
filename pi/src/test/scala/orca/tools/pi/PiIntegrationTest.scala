@@ -24,7 +24,7 @@ class PiIntegrationTest extends munit.FunSuite:
     val result = backend.runAutonomous(
       prompt = "Reply with the single word: READY",
       session = fresh,
-      config = AgentConfig.default.copy(tools = ToolSet.ReadOnly),
+      config = AgentConfig().copy(tools = ToolSet.ReadOnly),
       workDir = os.temp.dir()
     )
     assert(

@@ -42,7 +42,7 @@ class PiBackendTest extends munit.FunSuite:
     val workDir = os.temp.dir()
 
     val result =
-      backend.runAutonomous("do it", sid, AgentConfig.default, workDir)
+      backend.runAutonomous("do it", sid, AgentConfig(), workDir)
 
     val wire: WireSessionId[BackendTag.Pi.type] = sid.onWire
     assertEquals(result.wireId, wire)
@@ -67,8 +67,8 @@ class PiBackendTest extends munit.FunSuite:
     val backend = new PiBackend(runner)
     val workDir = os.temp.dir()
 
-    val _ = backend.runAutonomous("one", sid, AgentConfig.default, workDir)
-    val _ = backend.runAutonomous("two", sid, AgentConfig.default, workDir)
+    val _ = backend.runAutonomous("one", sid, AgentConfig(), workDir)
+    val _ = backend.runAutonomous("two", sid, AgentConfig(), workDir)
 
     val Seq(first, second) = runner.spawnCalls.take(2): @unchecked
     assert(!first.args.contains("--continue"), first.args)
@@ -86,9 +86,9 @@ class PiBackendTest extends munit.FunSuite:
     val workDir = os.temp.dir()
 
     val _ = intercept[Exception](
-      backend.runAutonomous("one", sid, AgentConfig.default, workDir)
+      backend.runAutonomous("one", sid, AgentConfig(), workDir)
     )
-    val _ = backend.runAutonomous("two", sid, AgentConfig.default, workDir)
+    val _ = backend.runAutonomous("two", sid, AgentConfig(), workDir)
 
     val Seq(first, second) = runner.spawnCalls.take(2): @unchecked
     assert(!first.args.contains("--continue"), first.args)
@@ -103,7 +103,7 @@ class PiBackendTest extends munit.FunSuite:
     val _ = backend.runAutonomous(
       "q",
       sid,
-      AgentConfig.default.copy(
+      AgentConfig().copy(
         model = Some(Model("anthropic/claude-sonnet")),
         tools = ToolSet.ReadOnly
       ),
@@ -127,7 +127,7 @@ class PiBackendTest extends munit.FunSuite:
         "q",
         sid,
         displayPrompt = "q",
-        AgentConfig.default.copy(tools = ToolSet.ReadOnly),
+        AgentConfig().copy(tools = ToolSet.ReadOnly),
         os.temp.dir(),
         outputSchema = Some("{}")
       )
@@ -158,7 +158,7 @@ class PiBackendTest extends munit.FunSuite:
         "q",
         sid,
         displayPrompt = "q",
-        AgentConfig.default.copy(systemPrompt = Some("be terse")),
+        AgentConfig().copy(systemPrompt = Some("be terse")),
         os.temp.dir(),
         outputSchema = None
       )
@@ -193,7 +193,7 @@ class PiBackendTest extends munit.FunSuite:
     val _ = backend.runAutonomous(
       "q",
       sid,
-      AgentConfig.default.copy(selfManagedGit = true),
+      AgentConfig().copy(selfManagedGit = true),
       os.temp.dir()
     )
 

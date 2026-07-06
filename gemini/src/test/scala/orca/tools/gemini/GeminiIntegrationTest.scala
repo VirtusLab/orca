@@ -38,7 +38,7 @@ class GeminiIntegrationTest extends munit.FunSuite:
     Model(sys.env.getOrElse("ORCA_GEMINI_MODEL", "gemini-2.5-flash"))
 
   private val unsandboxed: AgentConfig =
-    AgentConfig.default.copy(autoApprove = AutoApprove.All, model = Some(model))
+    AgentConfig().copy(autoApprove = AutoApprove.All, model = Some(model))
 
   private def fresh = SessionId.fresh[BackendTag.Gemini.type]
 

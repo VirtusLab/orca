@@ -60,7 +60,7 @@ class GeminiBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
       // The result reports the WIRE id — the server-minted sess-42 — while the
@@ -84,7 +84,7 @@ class GeminiBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
       assertEquals(result.model, Some(Model("gemini-2.5-pro")))
@@ -100,7 +100,7 @@ class GeminiBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
 
@@ -114,7 +114,7 @@ class GeminiBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
       assert(
@@ -133,7 +133,7 @@ class GeminiBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
       assert(
@@ -147,7 +147,7 @@ class GeminiBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         "list files",
         clientSid,
-        AgentConfig.default.copy(systemPrompt = Some("be terse")),
+        AgentConfig().copy(systemPrompt = Some("be terse")),
         os.temp.dir()
       )
       val finalPrompt = runner.calls.head.last
@@ -164,9 +164,9 @@ class GeminiBackendTest extends munit.FunSuite:
     withBackend(runner): backend =>
       val workDir = os.temp.dir()
       val _ =
-        backend.runAutonomous("first", clientSid, AgentConfig.default, workDir)
+        backend.runAutonomous("first", clientSid, AgentConfig(), workDir)
       val _ =
-        backend.runAutonomous("again", clientSid, AgentConfig.default, workDir)
+        backend.runAutonomous("again", clientSid, AgentConfig(), workDir)
       val firstArgs = runner.calls(0)
       val secondArgs = runner.calls(1)
       assert(!firstArgs.contains("--resume"), firstArgs.toString)
@@ -184,7 +184,7 @@ class GeminiBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "after",
           clientSid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
       val args = runner.calls.head
@@ -199,8 +199,8 @@ class GeminiBackendTest extends munit.FunSuite:
       val workDir = os.temp.dir()
       val sidA = SessionId[BackendTag.Gemini.type]("aaaaaaaa")
       val sidB = SessionId[BackendTag.Gemini.type]("bbbbbbbb")
-      val _ = backend.runAutonomous("for A", sidA, AgentConfig.default, workDir)
-      val _ = backend.runAutonomous("for B", sidB, AgentConfig.default, workDir)
+      val _ = backend.runAutonomous("for A", sidA, AgentConfig(), workDir)
+      val _ = backend.runAutonomous("for B", sidB, AgentConfig(), workDir)
       assert(
         !runner.calls(1).contains("--resume"),
         s"second call with a new client id must NOT resume; got: ${runner.calls(1)}"
@@ -213,7 +213,7 @@ class GeminiBackendTest extends munit.FunSuite:
     withBackend(runner): backend =>
       val workDir = os.temp.dir()
       val _ =
-        backend.runAutonomous("q", clientSid, AgentConfig.default, workDir)
+        backend.runAutonomous("q", clientSid, AgentConfig(), workDir)
       assert(
         !os.exists(workDir / ".gemini" / "settings.json"),
         "autonomous must not write a .gemini/settings.json"
@@ -229,7 +229,7 @@ class GeminiBackendTest extends munit.FunSuite:
         "q",
         clientSid,
         displayPrompt = "q",
-        AgentConfig.default,
+        AgentConfig(),
         workDir,
         outputSchema = None
       )
@@ -254,7 +254,7 @@ class GeminiBackendTest extends munit.FunSuite:
         "list files",
         clientSid,
         displayPrompt = "list files",
-        AgentConfig.default.copy(systemPrompt = Some("be terse")),
+        AgentConfig().copy(systemPrompt = Some("be terse")),
         os.temp.dir(),
         outputSchema = None
       )

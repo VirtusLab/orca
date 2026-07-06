@@ -51,7 +51,7 @@ class LintTest extends munit.FunSuite:
             def run[I](
                 i: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
-                c: AgentConfig,
+                c: Option[AgentConfig],
                 emitPrompt: Boolean
             )(using
                 a: AgentInput[I],

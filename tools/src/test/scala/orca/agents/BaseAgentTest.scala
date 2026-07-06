@@ -40,10 +40,42 @@ class BaseAgentTest extends munit.FunSuite:
     tool.close()
     assertEquals(backend.closeCount, 1)
 
-  private class StubTool(backend: AgentBackend[BackendTag.Pi.type])
-      extends BaseAgent[BackendTag.Pi.type, Agent[BackendTag.Pi.type]](
+  // Pins finding 6.3's fix: `config` is `Option[AgentConfig]`, not the old
+  // `AgentConfig.default` eq-sentinel. An explicit `Some(...)` wholly
+  // replaces the tool-level config (no per-field merge); omission (`None`)
+  // inherits it — see `BaseAgent.effectiveConfig`.
+  test(
+    "run(config = Some(AgentConfig())) wholly replaces the tool-level config"
+  ):
+    val backend = new RecordingConfigBackend
+    val toolConfig = AgentConfig(
+      model = Some(Model("tool-level-model")),
+      systemPrompt = Some("tool-level-prompt")
+    )
+    val tool = new StubTool(backend, toolConfig)
+    val _ = tool.autonomous.run("prompt", config = Some(AgentConfig()))
+    assertEquals(
+      backend.lastConfig,
+      Some(AgentConfig()),
+      "an explicit Some(...) must wipe the tool-level config, not merge with it"
+    )
+
+  test("run() with config omitted falls back to the tool-level config"):
+    val backend = new RecordingConfigBackend
+    val toolConfig = AgentConfig(
+      model = Some(Model("tool-level-model")),
+      systemPrompt = Some("tool-level-prompt")
+    )
+    val tool = new StubTool(backend, toolConfig)
+    val _ = tool.autonomous.run("prompt")
+    assertEquals(backend.lastConfig, Some(toolConfig))
+
+  private class StubTool(
+      backend: AgentBackend[BackendTag.Pi.type],
+      toolConfig: AgentConfig = AgentConfig()
+  ) extends BaseAgent[BackendTag.Pi.type, Agent[BackendTag.Pi.type]](
         backend,
-        AgentConfig.default,
+        toolConfig,
         StubPrompts,
         os.temp.dir(),
         OrcaListener.noop,
@@ -51,9 +83,41 @@ class BaseAgentTest extends munit.FunSuite:
       ):
     val name: String = "stub"
     protected def copyTool(
-        config: AgentConfig = AgentConfig.default,
+        config: AgentConfig = toolConfig,
         name: String = name
     ): Agent[BackendTag.Pi.type] = this
+
+  /** Records the `AgentConfig` the framework actually resolved and passed to
+    * the backend, so tests can assert on it directly.
+    */
+  private class RecordingConfigBackend extends AgentBackend[BackendTag.Pi.type]:
+    var lastConfig: Option[AgentConfig] = None
+    def runAutonomous(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        config: AgentConfig,
+        workDir: os.Path,
+        events: OrcaListener,
+        outputSchema: Option[String]
+    ): AgentResult[BackendTag.Pi.type] =
+      lastConfig = Some(config)
+      AgentResult(
+        WireSessionId[BackendTag.Pi.type]("server-wire-id"),
+        "out",
+        Usage.empty
+      )
+    def runInteractive(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        displayPrompt: String,
+        config: AgentConfig,
+        workDir: os.Path,
+        outputSchema: Option[String]
+    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
+      throw new UnsupportedOperationException
+    val sessions: SessionSupport[BackendTag.Pi.type] =
+      SessionSupport.Ephemeral(new SessionRegistry.ClaimedOnce)
+    val tag: BackendTag.Pi.type = BackendTag.Pi
 
   private object StubBackend extends AgentBackend[BackendTag.Pi.type]:
     def runAutonomous(

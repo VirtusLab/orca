@@ -33,7 +33,7 @@ class WithCheapModelTest extends munit.FunSuite:
     )
 
   private def newTool(): Agent[BackendTag.Pi.type] = new StubTool(
-    AgentConfig.default
+    AgentConfig()
   )
 
   /** Minimal real `BaseAgent` whose `name` reflects the pinned model, so the

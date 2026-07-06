@@ -43,7 +43,7 @@ class CodexBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
       // The result reports the WIRE id — the server-minted thr-42 — while the
@@ -77,7 +77,7 @@ class CodexBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
       assertEquals(result.model, Some(Model("gpt-5")))
@@ -93,7 +93,7 @@ class CodexBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
 
@@ -107,7 +107,7 @@ class CodexBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
       assert(
@@ -126,7 +126,7 @@ class CodexBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
       assert(
@@ -145,7 +145,7 @@ class CodexBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
       assert(
@@ -159,7 +159,7 @@ class CodexBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         "list files",
         clientSid,
-        AgentConfig.default.copy(systemPrompt = Some("be terse")),
+        AgentConfig().copy(systemPrompt = Some("be terse")),
         os.temp.dir()
       )
       val args = runner.calls.head
@@ -179,9 +179,9 @@ class CodexBackendTest extends munit.FunSuite:
     withBackend(runner): backend =>
       val workDir = os.temp.dir()
       val _ =
-        backend.runAutonomous("first", clientSid, AgentConfig.default, workDir)
+        backend.runAutonomous("first", clientSid, AgentConfig(), workDir)
       val _ =
-        backend.runAutonomous("again", clientSid, AgentConfig.default, workDir)
+        backend.runAutonomous("again", clientSid, AgentConfig(), workDir)
       val firstArgs = runner.calls(0)
       val secondArgs = runner.calls(1)
       assert(!firstArgs.contains("resume"), firstArgs)
@@ -214,7 +214,7 @@ class CodexBackendTest extends munit.FunSuite:
         WireSessionId[BackendTag.Codex.type]("thr-via-interactive")
       )
       val _ =
-        backend.runAutonomous("after", clientSid, AgentConfig.default, workDir)
+        backend.runAutonomous("after", clientSid, AgentConfig(), workDir)
       val args = runner.calls.head
       assert(args.contains("resume"), args)
       assert(args.contains("thr-via-interactive"), args)
@@ -234,8 +234,8 @@ class CodexBackendTest extends munit.FunSuite:
         SessionId[BackendTag.Codex.type]("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
       val sidB =
         SessionId[BackendTag.Codex.type]("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
-      val _ = backend.runAutonomous("for A", sidA, AgentConfig.default, workDir)
-      val _ = backend.runAutonomous("for B", sidB, AgentConfig.default, workDir)
+      val _ = backend.runAutonomous("for A", sidA, AgentConfig(), workDir)
+      val _ = backend.runAutonomous("for B", sidB, AgentConfig(), workDir)
       val secondArgs = runner.calls(1)
       assert(
         !secondArgs.contains("resume"),
@@ -270,7 +270,7 @@ class CodexBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         "q",
         clientSid,
-        AgentConfig.default,
+        AgentConfig(),
         workDir,
         outputSchema = Some("""{"type":"object"}""")
       )
@@ -312,14 +312,14 @@ class CodexBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         "a",
         sidA,
-        AgentConfig.default,
+        AgentConfig(),
         workDir,
         outputSchema = schema
       )
       val _ = backend.runAutonomous(
         "b",
         sidB,
-        AgentConfig.default,
+        AgentConfig(),
         workDir,
         outputSchema = schema
       )
@@ -339,7 +339,7 @@ class CodexBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
       val args = runner.calls.head
@@ -358,7 +358,7 @@ class CodexBackendTest extends munit.FunSuite:
         "q",
         clientSid,
         displayPrompt = "q",
-        AgentConfig.default,
+        AgentConfig(),
         workDir,
         Some("""{"type":"object"}""")
       )
@@ -387,7 +387,7 @@ class CodexBackendTest extends munit.FunSuite:
         "q",
         clientSid,
         displayPrompt = "q",
-        AgentConfig.default,
+        AgentConfig(),
         os.temp.dir(),
         outputSchema = None
       )
@@ -418,7 +418,7 @@ class CodexBackendTest extends munit.FunSuite:
         "list files",
         clientSid,
         displayPrompt = "list files",
-        AgentConfig.default.copy(systemPrompt = Some("be terse")),
+        AgentConfig().copy(systemPrompt = Some("be terse")),
         os.temp.dir(),
         outputSchema = None
       )

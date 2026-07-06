@@ -78,7 +78,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val backend = new OpencodeBackend(new FakeHandle(http))
       val client = fresh
       val result =
-        backend.runAutonomous("hi", client, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("hi", client, AgentConfig(), os.temp.dir())
 
       assertEquals(result.output, "done")
       assertEquals(result.model, Some(Model("gpt-4o-mini")))
@@ -111,9 +111,9 @@ class OpencodeBackendTest extends munit.FunSuite:
       val backend = new OpencodeBackend(new FakeHandle(http))
       val client = fresh
       val _ =
-        backend.runAutonomous("one", client, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("one", client, AgentConfig(), os.temp.dir())
       val _ =
-        backend.runAutonomous("two", client, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("two", client, AgentConfig(), os.temp.dir())
       assertEquals(http.posts.count(_._1 == "/session"), 1)
       assertEquals(http.posts.count(_._1.endsWith("/prompt_async")), 2)
 
@@ -127,7 +127,7 @@ class OpencodeBackendTest extends munit.FunSuite:
         WireSessionId[BackendTag.Opencode.type]("ses_X")
       )
       val _ =
-        backend.runAutonomous("hi", client, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("hi", client, AgentConfig(), os.temp.dir())
       assertEquals(
         http.posts.count(_._1 == "/session"),
         0
@@ -152,7 +152,7 @@ class OpencodeBackendTest extends munit.FunSuite:
         "q",
         fresh,
         "display",
-        AgentConfig.default,
+        AgentConfig(),
         os.temp.dir(),
         outputSchema = Some("""{"type":"object"}""")
       )
@@ -199,7 +199,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       )
       val backend = new OpencodeBackend(new FakeHandle(http))
       val _ =
-        backend.runAutonomous("hi", fresh, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("hi", fresh, AgentConfig(), os.temp.dir())
       // A different, unmapped client id resolves to no server id → false.
       assert(!backend.sessions.exists(fresh))
 
@@ -231,7 +231,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val client = fresh
       // A real turn maps client → ses_server1 in the registry.
       val _ =
-        backend.runAutonomous("hi", client, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("hi", client, AgentConfig(), os.temp.dir())
       // Probing the CLIENT id resolves to the server id, which the server has.
       assert(backend.sessions.exists(client))
 
@@ -243,7 +243,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val backend = new OpencodeBackend(new FakeHandle(http))
       val client = fresh
       val _ =
-        backend.runAutonomous("hi", client, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("hi", client, AgentConfig(), os.temp.dir())
       // client → ses_server1 is mapped, but the server now 404s for it.
       assert(!backend.sessions.exists(client))
 

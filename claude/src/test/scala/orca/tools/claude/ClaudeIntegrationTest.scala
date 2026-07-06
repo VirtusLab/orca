@@ -35,7 +35,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       val result = backend.runAutonomous(
         prompt = "Reply with the single word: READY",
         session = fresh,
-        config = AgentConfig.default,
+        config = AgentConfig(),
         workDir = os.temp.dir()
       )
       assert(
@@ -51,13 +51,13 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         prompt = "Remember the number 42. Reply with: stored.",
         session = session,
-        config = AgentConfig.default,
+        config = AgentConfig(),
         workDir = workDir
       )
       val second = backend.runAutonomous(
         prompt = "What number did I ask you to remember?",
         session = session,
-        config = AgentConfig.default,
+        config = AgentConfig(),
         workDir = workDir
       )
       assert(
@@ -71,7 +71,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         prompt = "Reply with just the number 7. Nothing else.",
         session = fresh,
         displayPrompt = "reply with 7",
-        config = AgentConfig.default,
+        config = AgentConfig(),
         workDir = os.temp.dir(),
         outputSchema = None
       )
@@ -94,7 +94,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
           "Count from 1 to 5, one per line, then stop. Do not emit anything else.",
         session = fresh,
         displayPrompt = "count 1..5",
-        config = AgentConfig.default,
+        config = AgentConfig(),
         workDir = os.temp.dir(),
         outputSchema = None
       )
@@ -124,8 +124,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         prompt = "Read the file at /etc/hostname and reply with its contents.",
         session = fresh,
         displayPrompt = "read /etc/hostname",
-        config =
-          AgentConfig.default.copy(autoApprove = AutoApprove.Only(Set.empty)),
+        config = AgentConfig().copy(autoApprove = AutoApprove.Only(Set.empty)),
         workDir = os.temp.dir(),
         outputSchema = None
       )

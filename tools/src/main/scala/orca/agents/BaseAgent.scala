@@ -86,7 +86,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     def run(
         prompt: String,
         session: SessionId[B] = SessionId.fresh[B],
-        callConfig: AgentConfig = AgentConfig.default,
+        callConfig: Option[AgentConfig] = None,
         emitPrompt: Boolean = true
     )(using orca.InStage): (SessionId[B], String) =
       val effective = effectiveConfig(callConfig)
@@ -117,10 +117,9 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     val model = result.model.orElse(effective.model)
     events.onEvent(OrcaEvent.TokensUsed(name, model, result.usage))
 
-  /** If the caller omitted the per-call `config` arg they get the shared
-    * `AgentConfig.default` singleton; in that case fall back to the tool-level
-    * config. Any explicit `AgentConfig` from the call site wholly replaces the
-    * tool-level one — no per-field merge.
+  /** `None` (the caller omitted the per-call `config` arg) falls back to the
+    * tool-level config. An explicit `Some(...)` from the call site wholly
+    * replaces the tool-level one — there is no per-field merge.
     */
-  private def effectiveConfig(callConfig: AgentConfig): AgentConfig =
-    if callConfig eq AgentConfig.default then config else callConfig
+  private def effectiveConfig(callConfig: Option[AgentConfig]): AgentConfig =
+    callConfig.getOrElse(config)

@@ -34,7 +34,7 @@ class CodexIntegrationTest extends munit.FunSuite:
     SupervisedBackend.using(new CodexBackend(OsProcCliRunner))(body)
 
   private val unsandboxed: AgentConfig =
-    AgentConfig.default.copy(autoApprove = AutoApprove.All)
+    AgentConfig().copy(autoApprove = AutoApprove.All)
 
   private def fresh = SessionId.fresh[BackendTag.Codex.type]
 

@@ -160,7 +160,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
   ): DefaultAgentCall[BackendTag.ClaudeCode.type, Answer] =
     new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
       backend = backend,
-      effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
+      effectiveConfig = cfg =>
+        cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
       workDir = os.pwd,
       events = orca.events.OrcaListener.noop,
@@ -235,7 +236,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
     val call = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
       backend = backend,
-      effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
+      effectiveConfig =
+        cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
       workDir = os.pwd,
       events = (e: orca.events.OrcaEvent) => {
@@ -284,7 +286,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
     supervised:
       val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
-        effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
+        effectiveConfig =
+          cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
         workDir = os.pwd,
         events = myListener,
@@ -304,7 +307,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
     supervised:
       val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
-        effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
+        effectiveConfig =
+          cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
         workDir = os.pwd,
         events = (e: orca.events.OrcaEvent) => {
@@ -335,7 +339,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
     supervised:
       val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
         backend = backend,
-        effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
+        effectiveConfig =
+          cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
         workDir = os.pwd,
         events = (e: orca.events.OrcaEvent) => {
@@ -447,7 +452,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
         Answer
       ](
         backend = backend,
-        effectiveConfig = cfg => cfg.copy(retrySchedule = fastRetry),
+        effectiveConfig =
+          cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
         workDir = os.pwd,
         events = orca.events.OrcaListener.noop,

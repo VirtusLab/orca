@@ -48,7 +48,7 @@ class DefaultGeminiAgentTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     toolWith(
       runner,
-      AgentConfig.default.copy(model = Some(DefaultGeminiAgent.Pro))
+      AgentConfig().copy(model = Some(DefaultGeminiAgent.Pro))
     ): tool =>
       val _ = tool.autonomous.run("q")
       assert(
@@ -60,7 +60,7 @@ class DefaultGeminiAgentTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     toolWith(
       runner,
-      AgentConfig.default.copy(model = Some(DefaultGeminiAgent.Pro))
+      AgentConfig().copy(model = Some(DefaultGeminiAgent.Pro))
     ): tool =>
       val _ = tool.flash.autonomous.run("q")
       assert(
@@ -70,6 +70,6 @@ class DefaultGeminiAgentTest extends munit.FunSuite:
 
   test("withName preserves the GeminiAgent type and renames"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
-    toolWith(runner, AgentConfig.default): tool =>
+    toolWith(runner, AgentConfig()): tool =>
       val renamed = tool.withName("planner")
       assertEquals(renamed.name, "planner")

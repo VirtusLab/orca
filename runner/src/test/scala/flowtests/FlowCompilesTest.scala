@@ -71,7 +71,7 @@ object FlowCanary:
         val _ = claude.withReadOnly.withSelfManagedGit
         val _ = codex.withSelfManagedGit
         val _ = pi.withConfig(
-          AgentConfig.default.copy(model = Some(Model("gpt-5.5")))
+          AgentConfig().copy(model = Some(Model("gpt-5.5")))
         )
 
   /** Review-and-fix loop; pulls in `allReviewers` and the internal `display`/

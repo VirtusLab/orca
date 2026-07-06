@@ -36,7 +36,7 @@ class OpencodeIntegrationTest extends munit.FunSuite:
     Model(sys.env.getOrElse("ORCA_OPENCODE_MODEL", "openai/gpt-4o-mini"))
 
   private val config: AgentConfig =
-    AgentConfig.default.copy(model = Some(model))
+    AgentConfig().copy(model = Some(model))
 
   private def withBackend(body: ox.Ox ?=> OpencodeBackend => Unit): Unit =
     SupervisedBackend.using(OpencodeBackend(OsProcCliRunner, os.temp.dir()))(

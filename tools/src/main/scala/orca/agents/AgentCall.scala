@@ -31,7 +31,7 @@ trait AutonomousAgentCall[B <: BackendTag, O]:
   def run[I: AgentInput](
       input: I,
       session: SessionId[B] = SessionId.fresh[B],
-      config: AgentConfig = AgentConfig.default,
+      config: Option[AgentConfig] = None,
       emitPrompt: Boolean = true
   )(using orca.InStage): (SessionId[B], O)
 
@@ -43,7 +43,7 @@ trait InteractiveAgentCall[B <: BackendTag, O]:
   def run[I: AgentInput](
       input: I,
       session: SessionId[B] = SessionId.fresh[B],
-      config: AgentConfig = AgentConfig.default
+      config: Option[AgentConfig] = None
   )(using orca.InStage): (SessionId[B], O)
 
 /** Free-form text autonomous calls — the `Agent.autonomous` shape (the
@@ -64,7 +64,7 @@ trait AutonomousTextCall[B <: BackendTag]:
   def run(
       prompt: String,
       session: SessionId[B] = SessionId.fresh[B],
-      config: AgentConfig = AgentConfig.default,
+      config: Option[AgentConfig] = None,
       emitPrompt: Boolean = true
   )(using orca.InStage): (SessionId[B], String)
 
@@ -84,7 +84,7 @@ trait AutonomousTextCall[B <: BackendTag]:
   */
 class DefaultAgentCall[B <: BackendTag, O](
     backend: AgentBackend[B],
-    effectiveConfig: AgentConfig => AgentConfig,
+    effectiveConfig: Option[AgentConfig] => AgentConfig,
     prompts: Prompts,
     workDir: os.Path,
     events: OrcaListener,
@@ -106,7 +106,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     def run[I: AgentInput](
         input: I,
         session: SessionId[B] = SessionId.fresh[B],
-        config: AgentConfig = AgentConfig.default,
+        config: Option[AgentConfig] = None,
         emitPrompt: Boolean = true
     )(using orca.InStage): (SessionId[B], O) =
       runAutonomousWithRetry(input, config, session, emitPrompt)
@@ -115,7 +115,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     def run[I: AgentInput](
         input: I,
         session: SessionId[B] = SessionId.fresh[B],
-        config: AgentConfig = AgentConfig.default
+        config: Option[AgentConfig] = None
     )(using orca.InStage): (SessionId[B], O) =
       runInteractiveOnce(input, config, session)
 
@@ -138,14 +138,14 @@ class DefaultAgentCall[B <: BackendTag, O](
     */
   private def runAutonomousWithRetry[I](
       input: I,
-      config: AgentConfig,
+      config: Option[AgentConfig],
       session: SessionId[B],
       emitPrompt: Boolean
   )(using ai: AgentInput[I]): (SessionId[B], O) =
     val serialized = ai.serialize(input)
     val outputSchema = JsonSchemaGen[O]
-    val initialPrompt = prompts.autonomous(serialized, outputSchema, config)
     val effective = effectiveConfig(config)
+    val initialPrompt = prompts.autonomous(serialized, outputSchema, effective)
 
     // Surface `serialized` (the human-readable input) rather than
     // `initialPrompt` (the schema-wrapped form the agent sees). Listeners
@@ -228,13 +228,13 @@ class DefaultAgentCall[B <: BackendTag, O](
     */
   private def runInteractiveOnce[I](
       input: I,
-      config: AgentConfig,
+      config: Option[AgentConfig],
       session: SessionId[B]
   )(using ai: AgentInput[I]): (SessionId[B], O) =
     val serialized = ai.serialize(input)
     val outputSchema = JsonSchemaGen[O]
-    val prompt = prompts.interactive(serialized, outputSchema, config)
     val effective = effectiveConfig(config)
+    val prompt = prompts.interactive(serialized, outputSchema, effective)
     // Per-turn structured-concurrency scope: `runInteractive` forks its workers
     // into this Ox, `drive` consumes them, and `cancel` (in the `finally`) tears
     // the conversation down before the scope joins — so a cancelled turn never

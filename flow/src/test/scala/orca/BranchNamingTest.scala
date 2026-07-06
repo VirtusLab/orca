@@ -42,7 +42,7 @@ class BranchNamingTest extends munit.FunSuite:
           def run(
               prompt: String,
               session: SessionId[BackendTag.ClaudeCode.type],
-              config: AgentConfig,
+              config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using
               orca.InStage
@@ -65,7 +65,7 @@ class BranchNamingTest extends munit.FunSuite:
           def run(
               prompt: String,
               session: SessionId[BackendTag.ClaudeCode.type],
-              config: AgentConfig,
+              config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using
               orca.InStage

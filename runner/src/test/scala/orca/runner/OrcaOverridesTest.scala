@@ -75,7 +75,7 @@ class OrcaOverridesTest extends munit.FunSuite:
           def run(
               p: String,
               session: SessionId[BackendTag.ClaudeCode.type],
-              c: AgentConfig,
+              c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using
               orca.InStage
@@ -120,7 +120,7 @@ class OrcaOverridesTest extends munit.FunSuite:
           def run(
               p: String,
               session: SessionId[BackendTag.Opencode.type],
-              c: AgentConfig,
+              c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): (SessionId[BackendTag.Opencode.type], String) =
             (SessionId[BackendTag.Opencode.type]("fake-sid"), s"opencode: $p")
@@ -156,7 +156,7 @@ class OrcaOverridesTest extends munit.FunSuite:
           def run(
               p: String,
               session: SessionId[BackendTag.Pi.type],
-              c: AgentConfig,
+              c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): (SessionId[BackendTag.Pi.type], String) =
             (SessionId[BackendTag.Pi.type]("fake-pi-sid"), s"pi: $p")
@@ -205,7 +205,7 @@ class OrcaOverridesTest extends munit.FunSuite:
           def run(
               p: String,
               session: SessionId[BackendTag.ClaudeCode.type],
-              c: AgentConfig,
+              c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using
               orca.InStage

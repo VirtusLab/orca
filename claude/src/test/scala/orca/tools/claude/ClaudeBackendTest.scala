@@ -55,7 +55,7 @@ class ClaudeBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "summarize",
           freshSid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
       val args = runner.calls.head
@@ -70,7 +70,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         "x",
         freshSid,
-        AgentConfig.default.copy(tools = ToolSet.NetworkOnly),
+        AgentConfig().copy(tools = ToolSet.NetworkOnly),
         os.temp.dir()
       )
       val args = runner.calls.head
@@ -87,7 +87,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         "x",
         freshSid,
-        AgentConfig.default.copy(tools = ToolSet.NetworkOnly),
+        AgentConfig().copy(tools = ToolSet.NetworkOnly),
         os.temp.dir()
       )
       val args = runner.calls.head
@@ -104,7 +104,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         "x",
         freshSid,
-        AgentConfig.default,
+        AgentConfig(),
         os.temp.dir(),
         outputSchema = Some("""{"type":"object"}""")
       )
@@ -118,7 +118,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val result =
-        backend.runAutonomous("x", freshSid, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("x", freshSid, AgentConfig(), os.temp.dir())
       assertEquals(WireSessionId.value(result.wireId), "sess-123")
       assertEquals(result.output, "hello world")
       assertEquals(result.usage.inputTokens, 10L)
@@ -138,7 +138,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     p.sendSigInt()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       intercept[OrcaFlowException]:
-        backend.runAutonomous("x", freshSid, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("x", freshSid, AgentConfig(), os.temp.dir())
 
   test("runAutonomous throws when the subprocess exits non-zero"):
     val p = new FakePipedCliProcess(initiallyAlive = false):
@@ -147,7 +147,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     p.closeStderr()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       intercept[OrcaFlowException]:
-        backend.runAutonomous("x", freshSid, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("x", freshSid, AgentConfig(), os.temp.dir())
 
   test(
     "runAutonomous passes a --append-system-prompt-file pointing at the config's prompt"
@@ -178,9 +178,9 @@ class ClaudeBackendTest extends munit.FunSuite:
     )
     withBackend(runner): backend =>
       val _ =
-        backend.runAutonomous("first", sid, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("first", sid, AgentConfig(), os.temp.dir())
       val _ =
-        backend.runAutonomous("again", sid, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("again", sid, AgentConfig(), os.temp.dir())
       val first = runner.calls(0)
       val second = runner.calls(1)
       assert(
@@ -211,7 +211,7 @@ class ClaudeBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "continue",
           sid,
-          AgentConfig.default,
+          AgentConfig(),
           os.temp.dir()
         )
       val args = runner.calls.head
@@ -231,7 +231,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     withBackend(runner): backend =>
       assertEquals(backend.sessions.persistableWireId(sid), None) // unclaimed
       val _ =
-        backend.runAutonomous("hi", sid, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("hi", sid, AgentConfig(), os.temp.dir())
       val wire: WireSessionId[BackendTag.ClaudeCode.type] = sid.onWire
       assertEquals(
         backend.sessions.persistableWireId(sid),
@@ -261,9 +261,9 @@ class ClaudeBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(failing, successfulProcess()))
     withBackend(runner): backend =>
       val _ = intercept[OrcaFlowException]:
-        backend.runAutonomous("first", sid, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("first", sid, AgentConfig(), os.temp.dir())
       val _ =
-        backend.runAutonomous("retry", sid, AgentConfig.default, os.temp.dir())
+        backend.runAutonomous("retry", sid, AgentConfig(), os.temp.dir())
       val second = runner.calls(1)
       assert(
         second.containsSlice(Seq("--session-id", SessionId.value(sid))),

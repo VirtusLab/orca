@@ -103,7 +103,7 @@ class RunSeededTest extends FunSuite:
         def run(
             prompt: String,
             session: SessionId[BackendTag.ClaudeCode.type],
-            config: AgentConfig,
+            config: Option[AgentConfig],
             emitPrompt: Boolean
         )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], String) =
           _capturedPrompt = Some(prompt)
@@ -152,7 +152,7 @@ class RunSeededTest extends FunSuite:
         BackendTag.ClaudeCode.type
       ]](
         backend,
-        AgentConfig.default,
+        AgentConfig(),
         NoOpPrompts,
         os.temp.dir(),
         OrcaListener.noop,

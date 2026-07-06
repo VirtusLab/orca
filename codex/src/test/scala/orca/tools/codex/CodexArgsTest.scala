@@ -13,7 +13,7 @@ class CodexArgsTest extends munit.FunSuite:
   test("exec emits codex exec --json with the prompt as the trailing arg"):
     val args = CodexArgs.exec(
       prompt = "summarize",
-      config = AgentConfig.default,
+      config = AgentConfig(),
       outputSchemaFile = None,
       workDir = os.pwd
     )
@@ -23,7 +23,7 @@ class CodexArgsTest extends munit.FunSuite:
   test("exec passes --model when AgentConfig.model is set"):
     val args = CodexArgs.exec(
       prompt = "x",
-      config = AgentConfig.default.copy(model = Some(Model("gpt-5.4-mini"))),
+      config = AgentConfig().copy(model = Some(Model("gpt-5.4-mini"))),
       outputSchemaFile = None,
       workDir = os.pwd
     )
@@ -33,20 +33,20 @@ class CodexArgsTest extends munit.FunSuite:
     val workDir = os.temp.dir()
     val args = CodexArgs.exec(
       prompt = "x",
-      config = AgentConfig.default,
+      config = AgentConfig(),
       outputSchemaFile = None,
       workDir = workDir
     )
     assert(args.containsSlice(Seq("-C", workDir.toString)))
 
   test("exec includes --skip-git-repo-check"):
-    val args = CodexArgs.exec("x", AgentConfig.default, None, os.pwd)
+    val args = CodexArgs.exec("x", AgentConfig(), None, os.pwd)
     assert(args.contains("--skip-git-repo-check"))
 
   test("exec passes --output-schema <file> when supplied"):
     val schemaFile = os.temp() / "schema.json"
     val args =
-      CodexArgs.exec("x", AgentConfig.default, Some(schemaFile), os.pwd)
+      CodexArgs.exec("x", AgentConfig(), Some(schemaFile), os.pwd)
     assert(args.containsSlice(Seq("--output-schema", schemaFile.toString)))
 
   test(
@@ -54,7 +54,7 @@ class CodexArgsTest extends munit.FunSuite:
   ):
     val args = CodexArgs.exec(
       "x",
-      AgentConfig.default.copy(autoApprove = AutoApprove.All),
+      AgentConfig().copy(autoApprove = AutoApprove.All),
       None,
       os.pwd
     )
@@ -64,7 +64,7 @@ class CodexArgsTest extends munit.FunSuite:
   test("AutoApprove.Only maps to --full-auto"):
     val args = CodexArgs.exec(
       "x",
-      AgentConfig.default.copy(autoApprove = AutoApprove.Only(Set("Bash"))),
+      AgentConfig().copy(autoApprove = AutoApprove.Only(Set("Bash"))),
       None,
       os.pwd
     )
@@ -80,7 +80,7 @@ class CodexArgsTest extends munit.FunSuite:
     // and could edit files during a review turn.
     val args = CodexArgs.exec(
       "x",
-      AgentConfig.default.copy(
+      AgentConfig().copy(
         tools = ToolSet.ReadOnly,
         autoApprove = AutoApprove.All
       ),
@@ -97,7 +97,7 @@ class CodexArgsTest extends munit.FunSuite:
     // which must precede the `exec` subcommand.
     val args = CodexArgs.exec(
       "x",
-      AgentConfig.default.copy(tools = ToolSet.NetworkOnly),
+      AgentConfig().copy(tools = ToolSet.NetworkOnly),
       None,
       os.pwd
     )
@@ -117,7 +117,7 @@ class CodexArgsTest extends munit.FunSuite:
     // internal MCP timeout and a duplicate follow-up question.
     val args = CodexArgs.exec(
       "x",
-      AgentConfig.default,
+      AgentConfig(),
       None,
       os.pwd,
       mcpServerUrl = Some("http://127.0.0.1:9876/mcp")
@@ -140,7 +140,7 @@ class CodexArgsTest extends munit.FunSuite:
     )
 
   test("exec omits -c mcp_servers when no MCP url is supplied"):
-    val args = CodexArgs.exec("x", AgentConfig.default, None, os.pwd)
+    val args = CodexArgs.exec("x", AgentConfig(), None, os.pwd)
     assert(
       !args.exists(_.startsWith("mcp_servers.")),
       s"args should not mention mcp_servers; got: $args"
@@ -151,7 +151,7 @@ class CodexArgsTest extends munit.FunSuite:
     val args = CodexArgs.execResume(
       sid,
       "next step",
-      AgentConfig.default
+      AgentConfig()
     )
     assertEquals(args.take(4), Seq("codex", "exec", "resume", "--json"))
     assert(args.contains("019dc-thread"))
@@ -159,7 +159,7 @@ class CodexArgsTest extends munit.FunSuite:
 
   test("execResume omits -C and --output-schema (codex doesn't accept them)"):
     val sid = WireSessionId[BackendTag.Codex.type]("sid")
-    val args = CodexArgs.execResume(sid, "x", AgentConfig.default)
+    val args = CodexArgs.execResume(sid, "x", AgentConfig())
     assert(!args.contains("-C"))
     assert(!args.contains("--output-schema"))
 
@@ -173,20 +173,20 @@ class CodexArgsTest extends munit.FunSuite:
       CodexArgs.execResume(
         sid,
         "x",
-        AgentConfig.default.copy(tools = ToolSet.ReadOnly)
+        AgentConfig().copy(tools = ToolSet.ReadOnly)
       )
     assert(!readOnly.contains("--sandbox"), readOnly)
     val networkOnly =
       CodexArgs.execResume(
         sid,
         "x",
-        AgentConfig.default.copy(tools = ToolSet.NetworkOnly)
+        AgentConfig().copy(tools = ToolSet.NetworkOnly)
       )
     assert(!networkOnly.contains("--full-auto"), networkOnly)
     val fullOnly = CodexArgs.execResume(
       sid,
       "x",
-      AgentConfig.default.copy(autoApprove = AutoApprove.Only(Set("Bash")))
+      AgentConfig().copy(autoApprove = AutoApprove.Only(Set("Bash")))
     )
     assert(!fullOnly.contains("--full-auto"), fullOnly)
 
@@ -199,7 +199,7 @@ class CodexArgsTest extends munit.FunSuite:
     val args = CodexArgs.execResume(
       sid,
       "x",
-      AgentConfig.default.copy(autoApprove = AutoApprove.All)
+      AgentConfig().copy(autoApprove = AutoApprove.All)
     )
     assert(args.contains("--dangerously-bypass-approvals-and-sandbox"), args)
 
@@ -208,6 +208,6 @@ class CodexArgsTest extends munit.FunSuite:
     val args = CodexArgs.execResume(
       sid,
       "x",
-      AgentConfig.default.copy(model = Some(Model("gpt-5.4-mini")))
+      AgentConfig().copy(model = Some(Model("gpt-5.4-mini")))
     )
     assert(args.containsSlice(Seq("--model", "gpt-5.4-mini")))

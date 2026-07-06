@@ -44,7 +44,7 @@ private[plan] class CannedResultAgent[T](value: T)
           def run[I: AgentInput](
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
-              config: AgentConfig,
+              config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
             (
