@@ -206,7 +206,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     )
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
-      backend.registerSession(sid, sid.onWire)
+      backend.sessions.register(sid, sid.onWire)
       val _ =
         backend.runAutonomous(
           "continue",
@@ -229,12 +229,12 @@ class ClaudeBackendTest extends munit.FunSuite:
     )
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
-      assertEquals(backend.resumeWireId(sid), None) // unclaimed
+      assertEquals(backend.sessions.persistableWireId(sid), None) // unclaimed
       val _ =
         backend.runAutonomous("hi", sid, AgentConfig.default, os.temp.dir())
       val wire: WireSessionId[BackendTag.ClaudeCode.type] = sid.onWire
       assertEquals(
-        backend.resumeWireId(sid),
+        backend.sessions.persistableWireId(sid),
         Some(wire)
       ) // claimed → persistable
 
@@ -270,7 +270,9 @@ class ClaudeBackendTest extends munit.FunSuite:
         s"retry after failure must re-claim with --session-id; got: $second"
       )
 
-  test("sessionExists returns true when the transcript file exists"):
+  test(
+    "sessionExists returns true when the id is claimed and the transcript exists"
+  ):
     val tmpProjects = os.temp.dir()
     val cwd = os.temp.dir()
     val slug = ClaudeBackend.cwdSlug(cwd)
@@ -283,9 +285,33 @@ class ClaudeBackendTest extends munit.FunSuite:
         cwdForProbe = cwd
       )
     ): backend =>
-      assert(backend.sessionExists(freshSid))
+      backend.sessions.register(freshSid, freshSid.onWire)
+      assert(backend.sessions.exists(freshSid))
 
-  test("sessionExists returns false when the transcript file is absent"):
+  test(
+    "sessionExists returns false when the transcript is present but never claimed"
+  ):
+    // Registry gate: existence is only answered for an id the registry knows
+    // (claimed this run or rehydrated). A stray transcript for an id we never
+    // claimed reports false — outcome-preserving, since dispatch would say
+    // `Fresh` and the CLI would refuse the duplicate `--session-id` anyway.
+    val tmpProjects = os.temp.dir()
+    val cwd = os.temp.dir()
+    val slug = ClaudeBackend.cwdSlug(cwd)
+    os.makeDir.all(tmpProjects / slug)
+    os.write(tmpProjects / slug / s"${SessionId.value(freshSid)}.jsonl", "")
+    SupervisedBackend.using(
+      new ClaudeBackend(
+        new SpawnStubCliRunner(Nil),
+        projectsDir = tmpProjects,
+        cwdForProbe = cwd
+      )
+    ): backend =>
+      assert(!backend.sessions.exists(freshSid))
+
+  test(
+    "sessionExists returns false when the id is claimed but the transcript is absent"
+  ):
     val tmpProjects = os.temp.dir()
     val cwd = os.temp.dir()
     SupervisedBackend.using(
@@ -295,7 +321,8 @@ class ClaudeBackendTest extends munit.FunSuite:
         cwdForProbe = cwd
       )
     ): backend =>
-      assert(!backend.sessionExists(freshSid))
+      backend.sessions.register(freshSid, freshSid.onWire)
+      assert(!backend.sessions.exists(freshSid))
 
   test("sessionExists returns false when the projects dir is absent"):
     val missing = os.temp.dir() / "no-such-dir"
@@ -307,7 +334,8 @@ class ClaudeBackendTest extends munit.FunSuite:
         cwdForProbe = cwd
       )
     ): backend =>
-      assert(!backend.sessionExists(freshSid))
+      backend.sessions.register(freshSid, freshSid.onWire)
+      assert(!backend.sessions.exists(freshSid))
 
   test(
     "sessionExists returns false for a malicious id with path traversal chars"
@@ -323,4 +351,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     ): backend =>
       val maliciousId =
         SessionId[BackendTag.ClaudeCode.type]("../../etc/passwd")
-      assert(!backend.sessionExists(maliciousId))
+      // Claim it so the probe is reached: the isSafeSessionId guard inside
+      // `exists` must still reject the traversal wire id.
+      backend.sessions.register(maliciousId, maliciousId.onWire)
+      assert(!backend.sessions.exists(maliciousId))

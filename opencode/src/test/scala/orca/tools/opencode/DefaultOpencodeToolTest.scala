@@ -1,6 +1,13 @@
 package orca.tools.opencode
 
-import orca.backend.{Conversation, Interaction, AgentBackend, AgentResult}
+import orca.backend.{
+  Conversation,
+  Interaction,
+  AgentBackend,
+  AgentResult,
+  SessionRegistry,
+  SessionSupport
+}
 import orca.events.{OrcaListener, Usage}
 import orca.agents.{
   BackendTag,
@@ -39,6 +46,8 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.Opencode.type] =
       throw new UnsupportedOperationException
+    val sessions: SessionSupport[BackendTag.Opencode.type] =
+      SessionSupport.Ephemeral(new SessionRegistry.ClaimedOnce)
 
   private val noInteraction: Interaction = new Interaction:
     def listeners: List[OrcaListener] = Nil

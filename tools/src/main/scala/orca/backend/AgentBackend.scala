@@ -1,17 +1,9 @@
 package orca.backend
 
 import orca.events.OrcaListener
-import orca.agents.{
-  BackendTag,
-  AgentConfig,
-  SessionId,
-  WireSessionId,
-  isSafeSessionId
-}
+import orca.agents.{BackendTag, AgentConfig, SessionId}
 
 import ox.Ox
-
-import scala.util.control.NonFatal
 
 /** SPI implemented per backend (Claude, Codex, …). The framework calls these
   * methods from the autonomous-text and structured-output paths
@@ -78,54 +70,10 @@ trait AgentBackend[B <: BackendTag]:
       outputSchema: Option[String]
   )(using Ox): Conversation[B]
 
-  /** Hook for backends that mint server-side session ids during a conversation
-    * drain: after the interactive `Conversation` returned by [[runInteractive]]
-    * settles, the framework calls this with the client session id it dispatched
-    * on and the server id learned from the result. Backends with
-    * caller-supplied ids (claude — `--session-id <uuid>`) can leave the default
-    * no-op. Codex overrides to record the client→server mapping so a follow-up
-    * `runAutonomous` / `runInteractive` on the same client id resumes the right
-    * thread.
+  /** This backend's session-durability capability as one structural value: a
+    * [[SessionSupport.Durable]] (registry + existence probe) or a
+    * [[SessionSupport.Ephemeral]] (registry only). The framework reaches
+    * durability exclusively through this — a backend cannot half-wire resume by
+    * providing one of persist/probe/register and forgetting the others.
     */
-  def registerSession(client: SessionId[B], server: WireSessionId[B]): Unit =
-    ()
-
-  /** Non-destructive check: does a live, resumable backend conversation exist
-    * for `session`? Best-effort — returns `false` when the backend store/CLI is
-    * absent or the answer can't be determined (the caller then re-seeds, which
-    * is always safe). Must NOT create, mutate, or resume the session.
-    */
-  def sessionExists(session: SessionId[B]): Boolean = false
-
-  /** Read the wire id to resume `client` against, or `None` if no live mapping
-    * is known (or the backend's sessions aren't durably resumable). Pure,
-    * thread-safe, side-effect-free.
-    *
-    * Backends with a durable [[SessionRegistry]] delegate to its
-    * `resumeWireId`; the default returns `None` (pi, whose temp-dir sessions
-    * don't survive a restart, keeps the default). Used by the flow runtime to
-    * persist the resume wire id into the progress log (so a resumed run can
-    * rehydrate it via [[registerSession]]) and to probe it for existence.
-    */
-  def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] = None
-
-  /** Run `probe` on `id` only if `id` is a safe session id, treating ANY
-    * non-fatal failure (and an unsafe id) as "not found". The non-destructive,
-    * best-effort contract every `sessionExists` probe shares.
-    */
-  protected def probeGuarded(id: String)(probe: String => Boolean): Boolean =
-    if !isSafeSessionId(id) then false
-    else
-      try probe(id)
-      catch case NonFatal(_) => false
-
-  /** For server-id backends: resolve the recorded resume wire id via `registry`
-    * (None ⇒ not found, no probe) and `probeGuarded` it.
-    */
-  protected def probeServerSession(
-      session: SessionId[B],
-      registry: SessionRegistry[B]
-  )(probe: String => Boolean): Boolean =
-    registry.resumeWireId(session) match
-      case None      => false
-      case Some(srv) => probeGuarded(srv.value)(probe)
+  def sessions: SessionSupport[B]

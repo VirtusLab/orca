@@ -1,7 +1,7 @@
 package orca.tools.gemini
 
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId, WireSessionId}
+import orca.agents.{BackendTag, AgentConfig, SessionId}
 import orca.subprocess.CliResult
 import orca.backend.{
   Conversation,
@@ -11,6 +11,7 @@ import orca.backend.{
   AgentResult,
   SessionMode,
   SessionRegistry,
+  SessionSupport,
   SubprocessSpawn,
   SystemPromptComposer
 }
@@ -30,7 +31,7 @@ import ox.channels.BufferCapacity
   * path drains it internally via [[orca.backend.Conversations.drainAutonomous]]
   * while the interactive path returns the conversation for an `Interaction` to
   * drive. Multi-turn: subsequent calls with the same session id route through
-  * `gemini --resume <session-id>` via the [[sessions]] registry (a
+  * `gemini --resume <session-id>` via the [[registry]] (a
   * [[SessionRegistry.ClientToServer]]), where the id was learned from the
   * `init` event of the prior run.
   *
@@ -49,8 +50,31 @@ private[orca] class GeminiBackend(cli: CliRunner)(using BufferCapacity)
     * id. `gemini -p` mints its own id, so we keep this mapping to dispatch
     * subsequent calls through `gemini --resume <server-id>`.
     */
-  private val sessions =
+  private val registry =
     new SessionRegistry.ClientToServer[BackendTag.Gemini.type]
+
+  /** Gemini's sessions are server-side and durable, so it is
+    * [[SessionSupport.Durable]]: the client→server map is persisted to the
+    * progress log and rehydrated on resume. Existence probes the SERVER id the
+    * registry resolves for a client (gemini mints its own id; the caller's
+    * stable id never appears in `--list-sessions`): it runs `gemini
+    * --list-sessions` and scans the output for that server id (substring).
+    *
+    * Because [[SessionSupport.exists]] is registry-gated, `false` results when
+    * no server id is mapped (the map hasn't been rehydrated ⇒ no known live
+    * session), on non-zero exit, any exception, or if the server id fails the
+    * [[orca.agents.isSafeSessionId]] guard (kept for uniformity with the other
+    * probes; the substring scan is not injection-susceptible).
+    */
+  val sessions: SessionSupport[BackendTag.Gemini.type] =
+    SessionSupport.Durable(
+      registry,
+      id =>
+        val result = listSessionsOutput()
+        result.exitCode == 0 && result.stdout.linesIterator.exists(
+          _.contains(id)
+        )
+    )
 
   def runAutonomous(
       prompt: String,
@@ -79,7 +103,7 @@ private[orca] class GeminiBackend(cli: CliRunner)(using BufferCapacity)
       // this client id resumes the right thread; the result carries the server
       // thread id as its wireId, and the caller keeps using the client id.
       try
-        Conversations.drainAndCommit("gemini", conv, session, sessions, events)
+        Conversations.drainAndCommit("gemini", conv, session, registry, events)
       finally conv.cancel()
 
   def runInteractive(
@@ -136,7 +160,7 @@ private[orca] class GeminiBackend(cli: CliRunner)(using BufferCapacity)
         prompt,
         extraHint = Option.when(askUser.isDefined)(AskUserMcpServer.Hint)
       )
-      val args = sessions.dispatchFor(session) match
+      val args = registry.dispatchFor(session) match
         case Dispatch.Resume(serverId) =>
           GeminiArgs.resume(serverId, finalPrompt, config)
         case Dispatch.Fresh(_) =>
@@ -153,41 +177,6 @@ private[orca] class GeminiBackend(cli: CliRunner)(using BufferCapacity)
         askUser = askUser
       )
     }
-
-  /** Record the server session id so subsequent calls with the same client id
-    * resume that session. Called by [[runAutonomous]] post-drain and by
-    * [[orca.agents.DefaultAgentCall]] post-`interaction.drive` on the
-    * interactive path; delegates to the registry's `commitSuccess`.
-    */
-  override def registerSession(
-      client: SessionId[BackendTag.Gemini.type],
-      server: WireSessionId[BackendTag.Gemini.type]
-  ): Unit = sessions.commitSuccess(client, server)
-
-  override def resumeWireId(
-      client: SessionId[BackendTag.Gemini.type]
-  ): Option[WireSessionId[BackendTag.Gemini.type]] =
-    sessions.resumeWireId(client)
-
-  /** Best-effort probe: resolves the SERVER id mapped to `client` (gemini mints
-    * its own session id; the caller's stable id never appears in
-    * `--list-sessions`), runs `gemini --list-sessions`, and checks whether the
-    * server id appears in the output (substring scan). Returns `false` — safe
-    * re-seed — when no server id is mapped (the map hasn't been rehydrated from
-    * the log, so there is no known live session), on non-zero exit, any
-    * exception, or if the id fails the [[orca.agents.isSafeSessionId]] guard
-    * (added for consistency; the substring scan is not injection-susceptible,
-    * but the guard keeps all probes uniform).
-    *
-    * The client→server map is persisted in the progress log and rehydrated on
-    * resume (D2), so on a resumed run this targets the right server id.
-    */
-  override def sessionExists(
-      session: SessionId[BackendTag.Gemini.type]
-  ): Boolean =
-    probeServerSession(session, sessions): id =>
-      val result = listSessionsOutput()
-      result.exitCode == 0 && result.stdout.linesIterator.exists(_.contains(id))
 
   /** Overridable in tests via a stub `CliRunner`; default runs `gemini
     * --list-sessions`.

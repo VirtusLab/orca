@@ -232,7 +232,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     // into this Ox, `drive` consumes them, and `cancel` (in the `finally`) tears
     // the conversation down before the scope joins — so a cancelled turn never
     // leaks the subprocess/forks. On cancel `drive` throws, skipping the
-    // registerSession / TokensUsed bookkeeping below, as before.
+    // sessions.register / TokensUsed bookkeeping below, as before.
     val result = ox.supervised:
       val conversation = backend.runInteractive(
         prompt,
@@ -248,7 +248,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     // surface it back to the backend so a follow-up call with the same
     // `session` can resume the right thread. No-op for backends whose
     // session id IS the client-supplied UUID (claude).
-    backend.registerSession(session, result.wireId)
+    backend.sessions.register(session, result.wireId)
     // TokensUsed emits on the normal path only. If the user cancels
     // mid-session, drive throws before this line — and the wire
     // protocols don't always carry partial usage, so there's nothing

@@ -1,10 +1,24 @@
 package orca.tools.claude
 
 import orca.{AgentTurnFailed, OrcaFlowException}
-import orca.agents.{BackendTag, JsonData, AgentConfig, SessionId, WireSessionId}
+import orca.agents.{
+  BackendTag,
+  JsonData,
+  AgentConfig,
+  SessionId,
+  WireSessionId,
+  onWire
+}
 import orca.events.{OrcaListener, Usage}
 
-import orca.backend.{Interaction, AgentBackend, AgentResult}
+import orca.backend.{
+  Interaction,
+  AgentBackend,
+  AgentResult,
+  Dispatch,
+  SessionRegistry,
+  SessionSupport
+}
 import orca.agents.{DefaultAgentCall, DefaultPrompts}
 import ox.supervised
 
@@ -47,9 +61,9 @@ class SequencedBackend(outputs: List[String])
     */
   def schemas: List[Option[String]] = seenSchemas.get().reverse
 
-  /** `(clientSid, serverSid)` pairs the framework passed to `registerSession`,
-    * in invocation order. Lets tests assert that `DefaultAgentCall` wired the
-    * post-drain hook through to the backend.
+  /** `(clientSid, serverSid)` pairs the framework passed to
+    * `sessions.register`, in invocation order. Lets tests assert that
+    * `DefaultAgentCall` wired the post-drain hook through to the backend.
     */
   def registered: List[
     (
@@ -58,11 +72,24 @@ class SequencedBackend(outputs: List[String])
     )
   ] = registrations.get().reverse
 
-  override def registerSession(
-      client: SessionId[BackendTag.ClaudeCode.type],
-      server: WireSessionId[BackendTag.ClaudeCode.type]
-  ): Unit =
-    val _ = registrations.updateAndGet((client, server) :: _)
+  /** Records every `register` the framework routes through the durability
+    * capability (`AgentCall.runInteractiveOnce` → `backend.sessions.register`).
+    */
+  val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
+    SessionSupport.Ephemeral(
+      new SessionRegistry[BackendTag.ClaudeCode.type]:
+        def dispatchFor(
+            client: SessionId[BackendTag.ClaudeCode.type]
+        ): Dispatch[BackendTag.ClaudeCode.type] = Dispatch.Fresh(client.onWire)
+        def commitSuccess(
+            client: SessionId[BackendTag.ClaudeCode.type],
+            server: WireSessionId[BackendTag.ClaudeCode.type]
+        ): Unit =
+          val _ = registrations.updateAndGet((client, server) :: _)
+        def resumeWireId(
+            client: SessionId[BackendTag.ClaudeCode.type]
+        ): Option[WireSessionId[BackendTag.ClaudeCode.type]] = None
+    )
 
   def runAutonomous(
       prompt: String,

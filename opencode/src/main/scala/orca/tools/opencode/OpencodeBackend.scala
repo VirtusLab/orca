@@ -12,6 +12,7 @@ import orca.backend.{
   AgentResult,
   SessionMode,
   SessionRegistry,
+  SessionSupport,
   StreamSource
 }
 import orca.events.OrcaListener
@@ -68,7 +69,7 @@ private[orca] class OpencodeBackend(
     */
   def shutdown(): Unit = onShutdown()
 
-  private val sessions =
+  private val registry =
     new SessionRegistry.ClientToServer[BackendTag.Opencode.type]
 
   // The shared server is built exactly once by a `lazy val`: Scala serialises
@@ -112,7 +113,7 @@ private[orca] class OpencodeBackend(
           "opencode",
           conv,
           session,
-          sessions,
+          registry,
           events
         )
       finally conv.cancel()
@@ -138,16 +139,6 @@ private[orca] class OpencodeBackend(
       SessionMode.Interactive(displayPrompt)
     )
 
-  override def registerSession(
-      client: SessionId[BackendTag.Opencode.type],
-      serverSession: WireSessionId[BackendTag.Opencode.type]
-  ): Unit = sessions.commitSuccess(client, serverSession)
-
-  override def resumeWireId(
-      client: SessionId[BackendTag.Opencode.type]
-  ): Option[WireSessionId[BackendTag.Opencode.type]] =
-    sessions.resumeWireId(client)
-
   /** Probe `http` for the given session id via `GET /session/<id>` → status
     * 200. Callable directly in tests without going through the lazy-init guard.
     * Returns `false` on any transport error. The
@@ -158,24 +149,26 @@ private[orca] class OpencodeBackend(
     try http.getStatus(s"/session/$id") == 200
     catch case NonFatal(_) => false
 
-  /** Best-effort probe: resolves the SERVER id (`ses_…`) mapped to `client`
-    * (opencode mints server-side ids; the caller's stable id never matches one)
-    * and checks `GET /session/<serverId>` → 200. Returns `false` — safe re-seed
-    * — when no server id is mapped (the map hasn't been rehydrated from the
-    * log, so there is no known live session), the opencode server has not been
-    * started yet, the request fails for any reason, or the id fails the
-    * [[orca.agents.isSafeSessionId]] guard (blocks URL injection such as `a/b`
-    * routing to a different endpoint).
+  /** OpenCode's `ses_…` sessions are server-side and durable, so it is
+    * [[SessionSupport.Durable]]: the client→server map is persisted to the
+    * progress log and rehydrated on resume. Existence probes the SERVER id the
+    * registry resolves for a client (opencode mints server-side ids; the
+    * caller's stable id never matches one) via `GET /session/<serverId>` → 200.
     *
-    * The client→server map is persisted in the progress log and rehydrated on
-    * resume (D2), so on a resumed run this targets the right server id.
+    * Because [[SessionSupport.exists]] is registry-gated, `false` results when
+    * no server id is mapped (the map hasn't been rehydrated ⇒ no known live
+    * session), the opencode server has not been started yet, the request fails
+    * for any reason, or the server id fails the [[orca.agents.isSafeSessionId]]
+    * guard (blocks URL injection such as `a/b` routing to a different
+    * endpoint).
     */
-  override def sessionExists(
-      session: SessionId[BackendTag.Opencode.type]
-  ): Boolean =
-    probeServerSession(session, sessions): id =>
-      if firstWorkDir.get() == null then false
-      else probeSession(id, sharedServer)
+  val sessions: SessionSupport[BackendTag.Opencode.type] =
+    SessionSupport.Durable(
+      registry,
+      id =>
+        if firstWorkDir.get() == null then false
+        else probeSession(id, sharedServer)
+    )
 
   /** The server `ses_…` to drive: a fresh `POST /session`, or the one a prior
     * turn registered for this caller id.
@@ -184,7 +177,7 @@ private[orca] class OpencodeBackend(
       http: OpencodeHttp,
       session: SessionId[BackendTag.Opencode.type]
   ): String =
-    sessions.dispatchFor(session) match
+    registry.dispatchFor(session) match
       case Dispatch.Resume(serverId) => WireSessionId.value(serverId)
       case Dispatch.Fresh(_) =>
         val resp = http.postJson("/session", writeToString(SessionCreateBody()))

@@ -66,29 +66,14 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
   override def withCheapModel(model: Model): Self =
     copyTool(config = config.copy(cheapModel = Some(model)))
 
-  /** Delegates to the backend's best-effort probe. Overrides the trait default
-    * so that any tool built on a real [[orca.backend.AgentBackend]] reflects
-    * actual session state rather than always returning `false`.
+  /** Exposes the backend's whole session-durability capability, so a tool built
+    * on a real [[orca.backend.AgentBackend]] reflects actual session state
+    * rather than the trait's `None` default. The `final` `sessionExists` /
+    * `resumeWireId` / `registerResumeWireId` on [[Agent]] route through this.
     */
-  override def sessionExists(session: SessionId[B]): Boolean =
-    backend.sessionExists(session)
-
-  /** Delegates to the backend's registry read so the flow runtime can persist
-    * the resume wire id after a run.
-    */
-  override def resumeWireId(
-      client: SessionId[B]
-  ): Option[WireSessionId[B]] =
-    backend.resumeWireId(client)
-
-  /** Delegates to the backend's `registerSession` so the flow runtime can
-    * rehydrate the resume wire id from the persisted log on resume.
-    */
-  override def registerResumeWireId(
-      client: SessionId[B],
-      wireId: WireSessionId[B]
-  ): Unit =
-    backend.registerSession(client, wireId)
+  override private[orca] def sessionSupport
+      : Option[orca.backend.SessionSupport[B]] =
+    Some(backend.sessions)
 
   val autonomous: AutonomousTextCall[B] = new AutonomousTextCall[B]:
     def run(

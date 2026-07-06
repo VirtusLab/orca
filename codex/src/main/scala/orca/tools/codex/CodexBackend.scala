@@ -1,7 +1,7 @@
 package orca.tools.codex
 
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId, WireSessionId}
+import orca.agents.{BackendTag, AgentConfig, SessionId}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -10,6 +10,7 @@ import orca.backend.{
   AgentResult,
   SessionMode,
   SessionRegistry,
+  SessionSupport,
   SubprocessSpawn,
   SystemPromptComposer
 }
@@ -30,7 +31,7 @@ import ox.channels.BufferCapacity
   * while the interactive path returns the conversation for an `Interaction` to
   * drive. Multi-turn: subsequent `runAutonomous` / `runInteractive` calls with
   * the same session id route through `codex exec resume <server-id>` via the
-  * [[sessions]] registry (a [[SessionRegistry.ClientToServer]]).
+  * [[registry]] (a [[SessionRegistry.ClientToServer]]).
   *
   * Interactive calls additionally stand up an `ask_user` MCP host bridge
   * ([[AskUserMcpServer]]) on an ephemeral port and register it with codex via
@@ -44,34 +45,41 @@ private[orca] class CodexBackend(
 )(using BufferCapacity)
     extends AgentBackend[BackendTag.Codex.type]:
 
-  /** Best-effort probe: walks [[sessionsDir]] looking for a file whose name
-    * matches `rollout-*-<id>.jsonl`. Returns `false` — safe re-seed — when no
-    * match is found, the sessions dir doesn't exist, or the id fails the
-    * [[orca.agents.isSafeSessionId]] guard (blocks regex injection; e.g.
-    * id=`.*` would match every file without the guard).
-    *
-    * Note: the installed codex on some machines uses SQLite
-    * (`~/.codex/state_5.sqlite`) rather than `rollout-*.jsonl` files. If no
-    * matching files exist, the probe returns `false` → re-seed, which is always
-    * safe.
-    */
-  override def sessionExists(
-      session: SessionId[BackendTag.Codex.type]
-  ): Boolean =
-    probeGuarded(SessionId.value(session)): id =>
-      os.exists(sessionsDir) && os.walk
-        .stream(sessionsDir)
-        .exists(p =>
-          p.last.startsWith("rollout-") && p.last.endsWith(s"-$id.jsonl")
-        )
-
   /** Maps the client-allocated session id (the UUID the caller passes around)
     * to codex's server-allocated thread id (learned from `thread.started`).
     * `codex exec` mints its own id, so we keep this mapping so subsequent calls
     * dispatch through `codex exec resume <server-id>`.
     */
-  private val sessions =
+  private val registry =
     new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+
+  /** Codex's threads are server-side and durable, so it is
+    * [[SessionSupport.Durable]]: the client→server mapping is persisted to the
+    * progress log and rehydrated on resume, and existence probes the SERVER id
+    * the registry resolves for a client (the caller's stable id never appears
+    * in a rollout filename). The probe walks [[sessionsDir]] for a file whose
+    * name matches `rollout-*-<server-id>.jsonl`.
+    *
+    * Because [[SessionSupport.exists]] is registry-gated, `false` results when
+    * no server id is mapped (map not rehydrated ⇒ no known live session), the
+    * sessions dir doesn't exist, or the server id fails the
+    * [[orca.agents.isSafeSessionId]] guard (blocks regex injection; e.g. a
+    * server id of `.*` would otherwise match every rollout file).
+    *
+    * Note: the installed codex on some machines uses SQLite
+    * (`~/.codex/state_5.sqlite`) rather than `rollout-*.jsonl` files. If no
+    * matching files exist, the probe returns `false` → re-seed, always safe.
+    */
+  val sessions: SessionSupport[BackendTag.Codex.type] =
+    SessionSupport.Durable(
+      registry,
+      id =>
+        os.exists(sessionsDir) && os.walk
+          .stream(sessionsDir)
+          .exists(p =>
+            p.last.startsWith("rollout-") && p.last.endsWith(s"-$id.jsonl")
+          )
+    )
 
   def runAutonomous(
       prompt: String,
@@ -103,7 +111,7 @@ private[orca] class CodexBackend(
       // drainAndCommit records the client→server mapping so a follow-up call on
       // this client id resumes the right thread; the result carries the server
       // thread id as its wireId, and the caller keeps using the client id.
-      try Conversations.drainAndCommit("codex", conv, session, sessions, events)
+      try Conversations.drainAndCommit("codex", conv, session, registry, events)
       finally conv.cancel()
 
   def runInteractive(
@@ -127,10 +135,10 @@ private[orca] class CodexBackend(
     * (continuation), and wrap the process in a live [[CodexConversation]].
     * Stdin is closed immediately — codex consumes the prompt argv-side.
     *
-    * The fresh-vs-resume decision is driven by [[sessions.dispatchFor]]: if
-    * we've seen this client id before we resume against its mapped server
-    * thread, otherwise we start fresh and the post-drain `commitSuccess` (via
-    * [[registerSession]] on the interactive path) records the mapping.
+    * The fresh-vs-resume decision is driven by `registry.dispatchFor`: if we've
+    * seen this client id before we resume against its mapped server thread,
+    * otherwise we start fresh and the post-drain `commitSuccess` (via
+    * `sessions.register` on the interactive path) records the mapping.
     *
     * `Interactive` mode wires the MCP `ask_user` tool: stand up the bridge +
     * Netty server, hand the URL to `CodexArgs` for the `-c mcp_servers.orca`
@@ -165,7 +173,7 @@ private[orca] class CodexBackend(
       )
       val schemaFile = writeSchemaIfPresent(outputSchema, workDir)
       val mcpUrl = askUser.map(_.server.url)
-      val args = sessions.dispatchFor(session) match
+      val args = registry.dispatchFor(session) match
         case Dispatch.Resume(serverId) =>
           CodexArgs.execResume(
             serverId,
@@ -194,21 +202,6 @@ private[orca] class CodexBackend(
         askUser = askUser
       )
     }
-
-  /** Record the server-allocated thread id so subsequent calls with the same
-    * client id resume that thread. Called by [[runAutonomous]] post-drain and
-    * by [[orca.agents.DefaultAgentCall]] post-`interaction.drive` on the
-    * interactive path; delegates to the registry's `commitSuccess`.
-    */
-  override def registerSession(
-      client: SessionId[BackendTag.Codex.type],
-      server: WireSessionId[BackendTag.Codex.type]
-  ): Unit = sessions.commitSuccess(client, server)
-
-  override def resumeWireId(
-      client: SessionId[BackendTag.Codex.type]
-  ): Option[WireSessionId[BackendTag.Codex.type]] =
-    sessions.resumeWireId(client)
 
   private def writeSchemaIfPresent(
       schema: Option[String],

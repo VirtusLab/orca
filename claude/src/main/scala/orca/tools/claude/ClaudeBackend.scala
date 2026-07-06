@@ -1,7 +1,7 @@
 package orca.tools.claude
 
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId, WireSessionId, onWire}
+import orca.agents.{BackendTag, AgentConfig, SessionId, onWire}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -9,6 +9,7 @@ import orca.backend.{
   AgentResult,
   SessionMode,
   SessionRegistry,
+  SessionSupport,
   SubprocessSpawn,
   SystemPromptComposer
 }
@@ -53,47 +54,40 @@ private[orca] class ClaudeBackend(
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
     new ClaudeBackend(cli, tools, projectsDir, cwdForProbe)
 
-  /** Best-effort probe: checks for the on-disk transcript file at
-    * `<projectsDir>/<cwdSlug>/<id>.jsonl`. The project-dir slug is derived from
-    * the working directory by replacing every `/` with `-` (e.g.
-    * `/home/foo/orca` → `-home-foo-orca`). Returns `false` — safe re-seed —
-    * when the file is absent, the projects dir doesn't exist yet, or the id
-    * fails the [[orca.agents.isSafeSessionId]] guard (blocks path traversal
-    * such as `../../etc/passwd`).
-    */
-  override def sessionExists(
-      session: SessionId[BackendTag.ClaudeCode.type]
-  ): Boolean =
-    probeGuarded(SessionId.value(session)): id =>
-      val slug = ClaudeBackend.cwdSlug(cwdForProbe)
-      os.exists(projectsDir / slug / s"$id.jsonl")
-
   /** Tracks which session ids we've already claimed via `--session-id` so
     * subsequent calls use `--resume` (the CLI refuses to reuse `--session-id`
     * once the session exists).
     */
-  private val sessions =
+  private val registry =
     new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type]
 
-  // Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
-  // outlive the process, so the `--session-id` (claim) → `--resume` (continue)
-  // decision must survive a resume. Wire the claim into the persist/rehydrate
-  // hooks: `resumeWireId` lets the runtime record the claimed id (claude's
-  // client id IS the wire id) into the progress log, and `registerSession`
-  // re-claims it on rehydrate so a resumed task uses `--resume` rather than
-  // re-creating an already-existing session id. Unlike pi, whose sessions live
-  // in a deleteOnExit temp dir and are gone across runs, claude's are durable,
-  // so it must participate in persist/rehydrate rather than always re-seeding.
-  override def resumeWireId(
-      client: SessionId[BackendTag.ClaudeCode.type]
-  ): Option[WireSessionId[BackendTag.ClaudeCode.type]] =
-    sessions.resumeWireId(client)
-
-  override def registerSession(
-      client: SessionId[BackendTag.ClaudeCode.type],
-      server: WireSessionId[BackendTag.ClaudeCode.type]
-  ): Unit =
-    sessions.commitSuccess(client, server)
+  /** Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
+    * outlive the process, so it is [[SessionSupport.Durable]]: the claim
+    * survives a restart via the registry (persisted to the progress log,
+    * rehydrated on resume so a resumed task uses `--resume` rather than
+    * re-creating an already-existing `--session-id`), and existence is a
+    * best-effort transcript-file probe.
+    *
+    * The probe checks `<projectsDir>/<cwdSlug>/<id>.jsonl` — the project-dir
+    * slug replaces every `/` in the working directory with `-` (e.g.
+    * `/home/foo/orca` → `-home-foo-orca`). Because [[SessionSupport.exists]] is
+    * registry-gated, the probe only runs for an id the registry already knows
+    * (claimed this run, or rehydrated from the log): a stray transcript file
+    * for an id we never claimed reports `false`. That is outcome-preserving —
+    * the one divergent case (a claude session id with a transcript but no
+    * persisted claim) already re-seeded before, because the registry said
+    * `Fresh` and the CLI then refused the duplicate `--session-id`; the gate
+    * just moves the `false` earlier. The guard rejects unsafe ids (path
+    * traversal such as `../../etc/passwd`).
+    */
+  val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
+    SessionSupport.Durable(
+      registry,
+      id =>
+        os.exists(
+          projectsDir / ClaudeBackend.cwdSlug(cwdForProbe) / s"$id.jsonl"
+        )
+    )
 
   def runAutonomous(
       prompt: String,
@@ -121,7 +115,7 @@ private[orca] class ClaudeBackend(
       // `system.init`) would otherwise leave the registry wedged, forcing a
       // retry to `--resume` a session claude never created.
       try
-        Conversations.drainAndCommit("claude", conv, session, sessions, events)
+        Conversations.drainAndCommit("claude", conv, session, registry, events)
       finally conv.cancel()
 
   def runInteractive(
@@ -145,7 +139,7 @@ private[orca] class ClaudeBackend(
     // A crash mid-conversation will still leave the mark in place, but
     // interactive sessions aren't auto-retried by the orchestrator —
     // the user reruns with a fresh `claude.newSession`.
-    sessions.commitSuccess(session, session.onWire)
+    registry.commitSuccess(session, session.onWire)
     conv
 
   /** Spawn `claude` in stream-json mode, write the opening user turn, close
@@ -220,7 +214,7 @@ private[orca] class ClaudeBackend(
       val args = ClaudeArgs.streamJson(
         effectiveConfig,
         systemPromptFile,
-        dispatch = sessions.dispatchFor(session),
+        dispatch = registry.dispatchFor(session),
         outputSchema,
         mcpConfig = askUser.map(r => mcpConfigPath(r.server, workDir)),
         networkTools = networkTools

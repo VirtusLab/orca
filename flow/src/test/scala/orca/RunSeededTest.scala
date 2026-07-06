@@ -1,7 +1,15 @@
 package orca
 
 import munit.FunSuite
-import orca.backend.{Conversation, Interaction, AgentBackend, AgentResult}
+import orca.backend.{
+  Conversation,
+  Interaction,
+  AgentBackend,
+  AgentResult,
+  Dispatch,
+  SessionRegistry,
+  SessionSupport
+}
 import orca.events.OrcaListener
 import orca.agents.{
   Announce,
@@ -15,7 +23,8 @@ import orca.agents.{
   SessionId,
   WireSessionId,
   ToolSet,
-  BaseAgent
+  BaseAgent,
+  onWire
 }
 import orca.progress.{ProgressHeader, ProgressStore, StageEntry, SessionRecord}
 
@@ -30,6 +39,34 @@ class RunSeededTest extends FunSuite:
 
   // `runSeeded` is now gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
+
+  /** Builds the durability capability the stubs expose through
+    * `sessionSupport`. Both `sessionExists` and `resumeWireId` route through it
+    * (the trio is now `final` on [[Agent]], and existence is registry-gated). A
+    * safe placeholder wire id is mapped when `exists` is wanted so the probe
+    * (which returns `exists`) runs; otherwise the registry resolves the
+    * caller-supplied `learnedWireId`, which is what `resumeWireId` surfaces for
+    * persistence.
+    */
+  private def stubSupport(
+      exists: Boolean,
+      learnedWireId: Option[String] = None
+  ): SessionSupport[BackendTag.ClaudeCode.type] =
+    val reg = new SessionRegistry[BackendTag.ClaudeCode.type]:
+      def dispatchFor(
+          client: SessionId[BackendTag.ClaudeCode.type]
+      ): Dispatch[BackendTag.ClaudeCode.type] = Dispatch.Fresh(client.onWire)
+      def commitSuccess(
+          client: SessionId[BackendTag.ClaudeCode.type],
+          server: WireSessionId[BackendTag.ClaudeCode.type]
+      ): Unit = ()
+      def resumeWireId(
+          client: SessionId[BackendTag.ClaudeCode.type]
+      ): Option[WireSessionId[BackendTag.ClaudeCode.type]] =
+        if exists then
+          Some(WireSessionId[BackendTag.ClaudeCode.type]("live-session-wire"))
+        else learnedWireId.map(WireSessionId[BackendTag.ClaudeCode.type](_))
+    SessionSupport.Durable(reg, _ => exists)
 
   /** A fixed session id used across all tests; avoids UUID randomness in
     * assertions and lets `makeControl` pre-populate the log without forward
@@ -59,17 +96,13 @@ class RunSeededTest extends FunSuite:
     /** The prompt the stub's `autonomous.run` actually received. */
     def capturedPrompt: Option[String] = _capturedPrompt
 
-    override def sessionExists(
-        session: SessionId[BackendTag.ClaudeCode.type]
-    ): Boolean = existsResult
-
-    /** Reports a learned wire id (server-id backends) so the persist path can
-      * be exercised; `None` mirrors pi (no durable resume).
+    /** Drives both `sessionExists` (via the registry-gated probe) and
+      * `resumeWireId` (via the registry's `resumeWireId`) — `learnedWireId`
+      * mirrors a server-id backend's persist path, `None` mirrors pi.
       */
-    override def resumeWireId(
-        client: SessionId[BackendTag.ClaudeCode.type]
-    ): Option[WireSessionId[BackendTag.ClaudeCode.type]] =
-      learnedWireId.map(WireSessionId[BackendTag.ClaudeCode.type](_))
+    override private[orca] def sessionSupport
+        : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
+      Some(stubSupport(existsResult, learnedWireId))
 
     val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
       new AutonomousTextCall[BackendTag.ClaudeCode.type]:
@@ -111,9 +144,8 @@ class RunSeededTest extends FunSuite:
         workDir: os.Path,
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.ClaudeCode.type] = ???
-    override def sessionExists(
-        session: SessionId[BackendTag.ClaudeCode.type]
-    ): Boolean = existsResult
+    val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
+      stubSupport(existsResult)
 
   /** A minimal `BaseAgent`-derived tool backed by [[StubBackend]]. Exercises
     * the real `BaseAgent.sessionExists → backend.sessionExists` delegation path

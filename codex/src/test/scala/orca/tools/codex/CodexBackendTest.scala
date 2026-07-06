@@ -209,7 +209,7 @@ class CodexBackendTest extends munit.FunSuite:
       // Simulate the post-interactive-drain registration that DefaultAgentCall
       // performs (this test exercises the backend in isolation; the
       // integration path is wired in AgentCall.runInteractiveOnce).
-      backend.registerSession(
+      backend.sessions.register(
         clientSid,
         WireSessionId[BackendTag.Codex.type]("thr-via-interactive")
       )
@@ -361,37 +361,73 @@ class CodexBackendTest extends munit.FunSuite:
         s"systemPrompt and ask_user hint should be separated; got: $finalPrompt"
       )
 
-  test("sessionExists returns true when a matching rollout file exists"):
-    val sid = SessionId[BackendTag.Codex.type]("test-session-id-123")
+  test(
+    "sessionExists is registry-gated: true when the mapped SERVER id has a rollout file"
+  ):
+    // Codex mints its own thread id; a rollout file is named with that SERVER
+    // id, never the client id. `exists` resolves client→server via the registry
+    // (rehydrated from the log on resume) and probes THAT id.
+    val serverId = "test-session-id-123"
     val tmpSessions = os.temp.dir()
-    os.write(tmpSessions / "rollout-2024-01-01-test-session-id-123.jsonl", "")
+    os.write(tmpSessions / s"rollout-2024-01-01-$serverId.jsonl", "")
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
     ): backend =>
-      assert(backend.sessionExists(sid))
+      backend.sessions.register(
+        clientSid,
+        WireSessionId[BackendTag.Codex.type](serverId)
+      )
+      assert(backend.sessions.exists(clientSid))
+
+  test("sessionExists returns false when there is no client→server mapping"):
+    // No registration: the client id resolves to no server id, so the probe
+    // never runs — even if a rollout file happens to be named with the client
+    // id (which codex never does in practice).
+    val tmpSessions = os.temp.dir()
+    os.write(
+      tmpSessions / s"rollout-2024-01-01-${SessionId.value(clientSid)}.jsonl",
+      ""
+    )
+    SupervisedBackend.using(
+      new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
+    ): backend =>
+      assert(!backend.sessions.exists(clientSid))
 
   test("sessionExists returns false when no matching file exists"):
     val tmpSessions = os.temp.dir()
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
     ): backend =>
-      assert(!backend.sessionExists(clientSid))
+      backend.sessions.register(
+        clientSid,
+        WireSessionId[BackendTag.Codex.type]("thr-server-1")
+      )
+      assert(!backend.sessions.exists(clientSid))
 
   test("sessionExists returns false when the sessions dir is absent"):
     val missing = os.temp.dir() / "no-such-sessions"
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), missing)
     ): backend =>
-      assert(!backend.sessionExists(clientSid))
+      backend.sessions.register(
+        clientSid,
+        WireSessionId[BackendTag.Codex.type]("thr-server-1")
+      )
+      assert(!backend.sessions.exists(clientSid))
 
   test(
-    "sessionExists returns false for id `.*` even when rollout files exist (blocks regex injection)"
+    "sessionExists returns false for a mapped SERVER id `.*` even when rollout files exist (blocks regex injection)"
   ):
     val tmpSessions = os.temp.dir()
     // Create a rollout file that the old regex `rollout-.*-.*\.jsonl` would match
     os.write(tmpSessions / "rollout-2024-01-01-some-real-id.jsonl", "")
-    val maliciousId = SessionId[BackendTag.Codex.type](".*")
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
     ): backend =>
-      assert(!backend.sessionExists(maliciousId))
+      // The malicious id is the resolved WIRE id; the isSafeSessionId guard
+      // inside `exists` must reject it before the walk.
+      backend.sessions.register(
+        clientSid,
+        WireSessionId[BackendTag.Codex.type](".*")
+      )
+      assert(!backend.sessions.exists(clientSid))

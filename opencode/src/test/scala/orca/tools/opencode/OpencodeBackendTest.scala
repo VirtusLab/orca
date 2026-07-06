@@ -105,7 +105,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val http = new FakeHttp(turn("ses_X", "stop", Nil))
       val backend = new OpencodeBackend(_ => http)
       val client = fresh
-      backend.registerSession(
+      backend.sessions.register(
         client,
         WireSessionId[BackendTag.Opencode.type]("ses_X")
       )
@@ -152,7 +152,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val http = new FakeHttp(Nil, _ => 200)
       val backend = new OpencodeBackend(_ => http)
       // No runAutonomous call — no client→server mapping AND firstWorkDir null.
-      assert(!backend.sessionExists(fresh))
+      assert(!backend.sessions.exists(fresh))
 
   test(
     "sessionExists returns false when there is no client→server mapping"
@@ -169,7 +169,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val _ =
         backend.runAutonomous("hi", fresh, AgentConfig.default, os.temp.dir())
       // A different, unmapped client id resolves to no server id → false.
-      assert(!backend.sessionExists(fresh))
+      assert(!backend.sessions.exists(fresh))
 
   test("probeSession returns true when getStatus is 200"):
     supervised:
@@ -201,7 +201,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val _ =
         backend.runAutonomous("hi", client, AgentConfig.default, os.temp.dir())
       // Probing the CLIENT id resolves to the server id, which the server has.
-      assert(backend.sessionExists(client))
+      assert(backend.sessions.exists(client))
 
   test(
     "sessionExists returns false when the mapped server id is unknown to the server"
@@ -213,7 +213,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val _ =
         backend.runAutonomous("hi", client, AgentConfig.default, os.temp.dir())
       // client → ses_server1 is mapped, but the server now 404s for it.
-      assert(!backend.sessionExists(client))
+      assert(!backend.sessions.exists(client))
 
   test(
     "probeSession returns false when getStatus throws (verifies NonFatal catch)"
@@ -233,11 +233,11 @@ class OpencodeBackendTest extends munit.FunSuite:
       val backend = new OpencodeBackend(_ => http)
       val client = fresh
       // Even if the registry maps to a malicious server id, the guard blocks it.
-      backend.registerSession(
+      backend.sessions.register(
         client,
         WireSessionId[BackendTag.Opencode.type]("a/b")
       )
-      assert(!backend.sessionExists(client))
+      assert(!backend.sessions.exists(client))
 
   test(
     "sessionExists returns false for a malicious mapped server id (query/fragment chars)"
@@ -246,8 +246,8 @@ class OpencodeBackendTest extends munit.FunSuite:
       val http = new FakeHttp(Nil, _ => 200)
       val backend = new OpencodeBackend(_ => http)
       val client = fresh
-      backend.registerSession(
+      backend.sessions.register(
         client,
         WireSessionId[BackendTag.Opencode.type]("x?y#z")
       )
-      assert(!backend.sessionExists(client))
+      assert(!backend.sessions.exists(client))

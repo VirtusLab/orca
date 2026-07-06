@@ -1,6 +1,13 @@
 package orca.agents
 
-import orca.backend.{Conversation, Interaction, AgentBackend, AgentResult}
+import orca.backend.{
+  Conversation,
+  Interaction,
+  AgentBackend,
+  AgentResult,
+  SessionRegistry,
+  SessionSupport
+}
 import orca.events.OrcaListener
 
 /** `withCheapModel` pins the model that [[Agent.cheap]] resolves to, overriding
@@ -66,6 +73,8 @@ class WithCheapModelTest extends munit.FunSuite:
         workDir: os.Path,
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.Pi.type] = ???
+    val sessions: SessionSupport[BackendTag.Pi.type] =
+      SessionSupport.Ephemeral(new SessionRegistry.ClaimedOnce)
 
   private object StubPrompts extends Prompts:
     def autonomous(

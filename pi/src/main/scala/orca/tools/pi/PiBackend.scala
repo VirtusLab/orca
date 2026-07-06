@@ -1,7 +1,7 @@
 package orca.tools.pi
 
 import orca.events.OrcaListener
-import orca.agents.{BackendTag, AgentConfig, SessionId, WireSessionId}
+import orca.agents.{BackendTag, AgentConfig, SessionId}
 import orca.backend.{
   Conversation,
   Conversations,
@@ -10,6 +10,7 @@ import orca.backend.{
   AgentResult,
   SessionMode,
   SessionRegistry,
+  SessionSupport,
   SubprocessSpawn,
   SystemPromptComposer
 }
@@ -42,7 +43,17 @@ private[orca] class PiBackend(cli: CliRunner)
   // fresh rather than `--continue`-ing a dir Pi never created.
   private val sessionsBase: os.Path =
     os.temp.dir(prefix = "orca-pi-sessions-", deleteOnExit = true)
-  private val sessions = new SessionRegistry.ClaimedOnce[BackendTag.Pi.type]
+  private val registry = new SessionRegistry.ClaimedOnce[BackendTag.Pi.type]
+
+  /** Pi's sessions live in a `deleteOnExit` temp dir (gone across runs), so it
+    * is [[SessionSupport.Ephemeral]]: the registry tracks fresh-vs-resume
+    * within a live process, but there is nothing durable to persist, rehydrate,
+    * or probe — pi always re-seeds across runs (ADR 0018 §2.6). The `Ephemeral`
+    * case says this structurally, so `resumeWireId`/`sessionExists` report
+    * absence without a per-backend override.
+    */
+  val sessions: SessionSupport[BackendTag.Pi.type] =
+    SessionSupport.Ephemeral(registry)
 
   def runAutonomous(
       prompt: String,
@@ -64,7 +75,7 @@ private[orca] class PiBackend(cli: CliRunner)
         workDir = workDir,
         outputSchema = outputSchema
       )
-      try Conversations.drainAndCommit("pi", conv, session, sessions, events)
+      try Conversations.drainAndCommit("pi", conv, session, registry, events)
       finally conv.cancel()
 
   def runInteractive(
@@ -83,19 +94,6 @@ private[orca] class PiBackend(cli: CliRunner)
       workDir = workDir,
       outputSchema = outputSchema
     )
-
-  /** Marks an interactive session resumable once its turn has succeeded — the
-    * framework calls this after driving the returned conversation to
-    * completion.
-    */
-  override def registerSession(
-      client: SessionId[BackendTag.Pi.type],
-      serverSession: WireSessionId[BackendTag.Pi.type]
-  ): Unit = sessions.commitSuccess(client, serverSession)
-  // No `resumeWireId` override: pi's sessions live in a `deleteOnExit` temp dir
-  // (gone across runs), so there is nothing durable to persist or rehydrate — pi
-  // always re-seeds (ADR 0018 §2.6). The default `None` keeps pi unaffected by
-  // the persist/rehydrate path.
 
   private def openConversation(
       prompt: String,
@@ -129,7 +127,7 @@ private[orca] class PiBackend(cli: CliRunner)
       val systemPromptFile = writeSystemPromptIfPresent(config, extraHint)
         .map(register)
 
-      val resume = sessions.dispatchFor(session) match
+      val resume = registry.dispatchFor(session) match
         case Dispatch.Resume(_) => true
         case Dispatch.Fresh(_)  => false
       val args = PiArgs.rpc(

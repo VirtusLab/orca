@@ -22,8 +22,10 @@ import orca.agents.{
   Model,
   SessionId,
   WireSessionId,
-  ToolSet
+  ToolSet,
+  onWire
 }
+import orca.backend.{Dispatch, SessionRegistry, SessionSupport}
 import orca.progress.{ProgressHeader, ProgressStore, SessionRecord, StageEntry}
 import orca.runner.terminal.TerminalInteraction
 import orca.tools.OsGitTool
@@ -680,19 +682,33 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"default branchNaming must use shortenPrompt (slug fallback); got '$observedBranch'"
     )
 
-  /** A `ClaudeAgent` that records `registerResumeWireId` calls, to assert the
-    * lifecycle rehydrates the persisted resume-wire-id map. All LLM methods
-    * throw — the rehydration test never invokes the model.
+  /** A `ClaudeAgent` that records `registerResumeWireId` calls (routed through
+    * the `final` `Agent.registerResumeWireId` → [[SessionSupport.register]] →
+    * this recording registry's `commitSuccess`), to assert the lifecycle
+    * rehydrates the persisted resume-wire-id map. All LLM methods throw — the
+    * rehydration test never invokes the model.
     */
   private class RecordingClaude extends ClaudeAgent:
     private var _registered: List[(String, String)] = Nil
     def registered: List[(String, String)] = _registered
 
-    override def registerResumeWireId(
-        client: SessionId[BackendTag.ClaudeCode.type],
-        wireId: WireSessionId[BackendTag.ClaudeCode.type]
-    ): Unit =
-      _registered = _registered :+ (client.value -> wireId.value)
+    private val recordingRegistry =
+      new SessionRegistry[BackendTag.ClaudeCode.type]:
+        def dispatchFor(
+            client: SessionId[BackendTag.ClaudeCode.type]
+        ): Dispatch[BackendTag.ClaudeCode.type] = Dispatch.Fresh(client.onWire)
+        def commitSuccess(
+            client: SessionId[BackendTag.ClaudeCode.type],
+            server: WireSessionId[BackendTag.ClaudeCode.type]
+        ): Unit =
+          _registered = _registered :+ (client.value -> server.value)
+        def resumeWireId(
+            client: SessionId[BackendTag.ClaudeCode.type]
+        ): Option[WireSessionId[BackendTag.ClaudeCode.type]] = None
+
+    override private[orca] def sessionSupport
+        : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
+      Some(SessionSupport.Durable(recordingRegistry, _ => false))
 
     val name = "recording-claude"
     def haiku = this

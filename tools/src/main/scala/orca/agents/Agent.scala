@@ -125,12 +125,22 @@ trait Agent[B <: BackendTag]:
     */
   def withSelfManagedGit: Agent[B] = this
 
-  /** Best-effort, non-destructive: is a live, resumable backend conversation
-    * present for `session`? Delegates to the backend probe. Returns `false` by
-    * default — safe re-seed — when a concrete tool can't reach a backend
-    * instance (e.g. lightweight stubs).
+  /** The backend's session-durability capability, or `None` for tools without a
+    * backend (lightweight stubs). The ONLY overridable session hook — the
+    * `sessionExists` / `resumeWireId` / `registerResumeWireId` trio below is
+    * `final`, implemented uniformly through this. A concrete tool exposes its
+    * backend's whole [[orca.backend.SessionSupport]] or nothing, so it cannot
+    * reflect one session operation while silently defaulting the others.
     */
-  def sessionExists(session: SessionId[B]): Boolean = false
+  private[orca] def sessionSupport: Option[orca.backend.SessionSupport[B]] =
+    None
+
+  /** Best-effort, non-destructive: is a live, resumable backend conversation
+    * present for `session`? Delegates to [[sessionSupport]]. Returns `false` —
+    * safe re-seed — when a concrete tool can't reach a backend instance.
+    */
+  final def sessionExists(session: SessionId[B]): Boolean =
+    sessionSupport.exists(_.exists(session))
 
   /** The wire id to resume `client` against, or `None` if unknown (or the
     * backend's sessions aren't durably resumable). `client` is orca's stable
@@ -138,20 +148,21 @@ trait Agent[B <: BackendTag]:
     * actually resumes against — equal to `client` where the client id IS the
     * wire id (claude), a learned server-thread id for codex/gemini/opencode,
     * `None` for pi (ephemeral sessions). The flow runtime reads this after a
-    * run to persist the resume wire id into the progress log. Returns `None` by
-    * default for tools without a backend.
+    * run to persist the resume wire id into the progress log.
     */
-  def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] = None
+  final def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] =
+    sessionSupport.flatMap(_.persistableWireId(client))
 
   /** Record a resume wire id for `client` in the backend's registry. The flow
     * runtime calls this on resume to rehydrate the map from the persisted log,
     * so `dispatchFor` resumes against the right wire id and the probes target
-    * it. No-op by default for tools without a backend (stubs).
+    * it. No-op when there is no backend (stubs).
     */
-  def registerResumeWireId(
+  final def registerResumeWireId(
       client: SessionId[B],
       wireId: WireSessionId[B]
-  ): Unit = ()
+  ): Unit =
+    sessionSupport.foreach(_.register(client, wireId))
 
   /** Mint a fresh, unrecorded session id — used by the runtime for ephemeral
     * one-off conversations (e.g. each reviewer's own turn). NOT resume-aware:

@@ -202,4 +202,4 @@ class PiBackendTest extends munit.FunSuite:
 
   test("sessionExists always returns false (Pi has no server-side probe)"):
     val backend = new PiBackend(new SpawnStubCliRunner(Nil))
-    assert(!backend.sessionExists(sid))
+    assert(!backend.sessions.exists(sid))
