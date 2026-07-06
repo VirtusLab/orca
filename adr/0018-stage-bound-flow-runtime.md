@@ -499,6 +499,24 @@ today's `SessionRegistry` is in-memory and not rehydrated from the log; and (b) 
 current CLIs (claude/codex on-machine; the rest from docs/source); gemini's
 list output and opencode's directory-scoping should be pinned when the probes land.
 
+> **Amendment (2026-07-06).** Implementation landed on the `session-identity-fixes`
+> branch and supersedes two details above:
+> - Sessions are now **name-keyed**, not positional: `agent.session(name, seed)`
+>   records a `SessionRecord` under `(name, occurrence)` — `occurrence` from
+>   `FlowControl.nextSessionOccurrence(name)` — mirroring `stage(name)`'s own keying
+>   (§2.1). Reordering or conditionally skipping *other* `session(...)` calls between
+>   runs no longer re-keys this one.
+> - Each `SessionRecord` is tagged with the minting agent's `backend`, and
+>   `FlowLifecycle.rehydrateSessions` replays a record's resume wire id into the agent
+>   for *that* backend (untagged/older records fall back to the lead; a tag matching
+>   none of the run's accessors is skipped, not guessed) — the lead-only rehydration
+>   limitation this section originally shipped with is gone.
+> - Durability is declared as one structural choice per backend —
+>   `AgentBackend.sessions: SessionSupport[B]`, either `Ephemeral(registry)` (pi) or
+>   `Durable(registry, probe)` (claude/codex/gemini/opencode) — rather than the three
+>   independently-overridable `sessionExists`/`resumeWireId`/`registerSession` hooks
+>   this section describes; see AGENTS.md's "Sessions" section for the current model.
+
 ### 2.7 External-effect idempotency
 
 **Requirements.**

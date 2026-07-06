@@ -16,7 +16,7 @@ listed in the README.
 ```
 orca/
 ├── build.sbt / project/
-├── tools/      # tool traits + os-backed impls (git/gh/fs), LLM SPI + session registry, InStage, events, subprocess
+├── tools/      # tool traits + os-backed impls (git/gh/fs), LLM SPI + session durability, InStage, events, subprocess
 ├── flow/       # stage/display/fail + FlowContext/FlowControl; orca.{plan,review,pr,progress}
 ├── claude/ codex/ gemini/ opencode/ pi/   # one module per coding-agent backend
 └── runner/     # flow() entry, DefaultFlowContext, FlowLifecycle, terminal UI
@@ -45,9 +45,10 @@ ordinary `FlowContext` member typed `Agent[ctx.LeadB]`, where `flow[B]` captures
 the selector's backend tag into the `FlowContext { type LeadB }` member) —
 `stage`/`display`/`fail`, `JsonData`, `OrcaArgs`). Implementations
 live in focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their
-traits), `orca.agents` + `orca.backend` (LLM SPI, `SessionRegistry`, conversation
-driver), `orca.subprocess` (subprocess shim), `orca.events` (event bus), one
-`orca.tools.<backend>` per coding agent, and `orca.runner` / `orca.runner.terminal`
+traits), `orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`/
+`SessionRegistry`, conversation driver), `orca.subprocess` (subprocess shim),
+`orca.events` (event bus), one `orca.tools.<backend>` per coding agent, and
+`orca.runner` / `orca.runner.terminal`
 (wiring + terminal UI). The flow module adds `orca.{plan,review,pr,progress}`.
 
 ## The stage-bound runtime
@@ -73,19 +74,32 @@ most easily broken:
   load — `orca.progress.RecoveryCheck` validates it (safe ref, prompt-hash match,
   protected-branch refusal) before any destructive git op.
 
-- **Sessions.** `SessionRegistry` has two shapes: `ClaimedOnce` (claude/pi — the
-  client id IS the wire id) and `ClientToServer` (codex/gemini/opencode — a
-  server-minted id learned from the protocol). The id persisted for resume is the **resume wire
-  id** — uniformly "the id to put on the wire when resuming" (`Dispatch.wireId`):
-  for codex/gemini/opencode a server-thread id, for claude the client id itself,
-  for pi `None` (ephemeral). A backend whose sessions survive a process restart
-  MUST wire **both** `resumeWireId` (so the runtime records it in the log) and
-  `registerSession` (so `rehydrateSessions` re-claims it on resume) — claude and
-  codex each shipped a resume bug from getting this wrong. Note `ClaimedOnce` is
-  not enough on its own: claude overrides `resumeWireId` to persist (durable
-  on-disk sessions), pi does **not** (its temp-dir sessions can't survive).
-  `sessionExists` is a best-effort, non-destructive probe; when it can't confirm a
-  live session the flow re-seeds, the uniform fallback that holds on every backend.
+- **Sessions.** Durability is ONE structural choice per backend:
+  `AgentBackend.sessions: SessionSupport[B]` is either `Ephemeral(registry)`
+  (pi — nothing survives a process restart) or `Durable(registry, probe)`
+  (claude/codex/gemini/opencode — sessions outlive the process). `Agent`
+  derives `sessionExists` / `resumeWireId` / `registerResumeWireId` as `final`
+  methods over the single `sessionSupport` hook, so a concrete tool can't wire
+  one session operation while silently defaulting the others — the
+  half-wiring that shipped resume bugs in both claude and codex is
+  unrepresentable now. Underneath, `SessionRegistry` still has two shapes:
+  `ClaimedOnce` (claude/pi — the client id IS the wire id) and
+  `ClientToServer` (codex/gemini/opencode — a server-minted id learned from the
+  protocol); and `SessionId[B]` (the client-side handle) is split from
+  `WireSessionId[B]` (what actually goes on the wire) — `SessionId#onWire` is
+  the only client→wire crossing. `sessionExists` stays a best-effort,
+  non-destructive probe; when it can't confirm a live session the flow
+  re-seeds, the uniform fallback that holds on every backend.
+
+  Sessions have named identity: `agent.session(name, seed)` keys a
+  `SessionRecord` by `(name, occurrence)` — stage-style, via
+  `FlowControl.nextSessionOccurrence(name)` — so reordering or conditionally
+  skipping *other* `session(...)` calls between runs doesn't silently re-key
+  this one. Each record also carries the minting agent's `backend` tag, so
+  `FlowLifecycle.rehydrateSessions` replays a resumed run's resume wire ids
+  into the record's own backend's agent rather than always the lead
+  (untagged/older records fall back to the lead; a tag matching none of the
+  context's accessors is skipped, not guessed).
 
 ## Build and test
 

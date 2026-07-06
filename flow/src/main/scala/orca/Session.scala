@@ -28,7 +28,10 @@ extension [B <: BackendTag](agent: Agent[B])
     * No LLM call and no commit — so it is callable outside a stage. (The id is
     * a fresh UUID, so it is not referentially transparent.) The store write
     * uses a runtime-minted `InStage.unsafe` (the same pattern the `stage`
-    * runtime uses for setup-phase mutations).
+    * runtime uses for setup-phase mutations). Because that write isn't
+    * committed, a failure teardown's `git reset --hard` can erase it before the
+    * next stage commit carries the log — the retry then mints a fresh session
+    * and re-seeds (see `ProgressStore.upsertSession`).
     */
   def session(name: String, seed: String)(using fc: FlowControl): SessionId[B] =
     val occ = fc.nextSessionOccurrence(name)
