@@ -64,9 +64,7 @@ object FlowLifecycle:
     try body(using ctx)
     catch
       case NonFatal(e) =>
-        if !ctx.errorAlreadyReported(e) then
-          ctx.emit(OrcaEvent.Error(throwableMessage(e)))
-          ctx.markErrorReported(e)
+        ctx.reportOnce(e)(ctx.emit(OrcaEvent.Error(throwableMessage(e))))
         log.debug("flow aborted", e)
         if debug then e.printStackTrace(System.err)
         teardownFailure(ctx.git)

@@ -9,7 +9,7 @@ import orca.{
   stage,
   flow
 }
-import orca.events.OrcaEvent
+import orca.events.{OrcaEvent, OrcaListener}
 import orca.agents.{
   Agent,
   Announce,
@@ -36,7 +36,7 @@ import orca.tools.{FsTool, GitHubTool, GitTool, OsGitTool}
 import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 /** Tests for the flow lifecycle: success teardown, failure teardown, and resume
   * across two calls. Each test uses a real temp git repo via `TempRepo` and a
@@ -303,6 +303,36 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
+    "runFlow does not double-report a plain exception that already surfaced at a stage"
+  ):
+    // A plain RuntimeException thrown inside a stage surfaces its Error at the
+    // stage boundary; as it unwinds to the flow boundary, the reported-set (the
+    // production DefaultFlowContext one) must suppress a second Error.
+    val workDir = TempRepo.create()
+    val prompt = "boundary-stage-once"
+    val store = ProgressStore.default(workDir, prompt)
+    val listener = new RecordingListener
+    val _ = intercept[RuntimeException]:
+      runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
+        val _ = stage[String]("crash"):
+          throw new RuntimeException("boom")
+    val errors = listener.events.collect { case e: OrcaEvent.Error => e }
+    assertEquals(errors.size, 1, s"exactly one Error expected, got: $errors")
+
+  test("runFlow reports a body failure outside any stage exactly once"):
+    // A body that throws directly (never entering a stage) is reported once at
+    // the flow boundary itself.
+    val workDir = TempRepo.create()
+    val prompt = "boundary-body-once"
+    val store = ProgressStore.default(workDir, prompt)
+    val listener = new RecordingListener
+    val _ = intercept[RuntimeException]:
+      runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
+        throw new RuntimeException("boom outside any stage")
+    val errors = listener.events.collect { case e: OrcaEvent.Error => e }
+    assertEquals(errors.size, 1, s"exactly one Error expected, got: $errors")
+
+  test(
     "R20: snapshot-before-stash restores the log file if the stash removed it"
   ):
     // The end-to-end stash hazard is belt-and-suspenders (the log is normally
@@ -532,7 +562,8 @@ class FlowLifecycleTest extends munit.FunSuite:
   private def runFlowForTest(
       workDir: os.Path,
       prompt: String,
-      store: ProgressStore
+      store: ProgressStore,
+      extraListeners: List[OrcaListener] = Nil
   )(body: orca.FlowControl ?=> Unit): Unit =
     supervised:
       val interaction = TerminalInteraction.start(
@@ -545,7 +576,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
-        extraListeners = Nil,
+        extraListeners = extraListeners,
         branchNaming = None,
         returnToStartBranch = false,
         progressStore = Some(store)
@@ -769,6 +800,15 @@ class FlowLifecycleTest extends munit.FunSuite:
       expectedBranch,
       s"default branchNaming must use shortenPrompt (slug fallback); got '$observedBranch'"
     )
+
+  /** Records every `OrcaEvent` it sees, so the boundary-emission tests can
+    * count how many `OrcaEvent.Error`s a failing run produced.
+    */
+  private class RecordingListener extends OrcaListener:
+    private val seen = new AtomicReference[List[OrcaEvent]](Nil)
+    def onEvent(event: OrcaEvent): Unit =
+      val _ = seen.updateAndGet(event :: _)
+    def events: List[OrcaEvent] = seen.get().reverse
 
   /** In-memory `SessionRegistry` that records every `commitSuccess` call as a
     * `(client, server)` string pair, exposed via `registered`. Shared by the

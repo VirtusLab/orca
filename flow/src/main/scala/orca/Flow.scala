@@ -94,13 +94,13 @@ private def runStage[T: JsonData](
   catch
     case NonFatal(e) =>
       // Report the failure once, then mark it so an enclosing stage / the flow
-      // boundary doesn't re-report it as it unwinds. The check-then-mark covers
-      // every non-fatal throwable by identity: exceptions from `fail(...)`
-      // arrive already marked (skipped here), tool adapters that throw directly
-      // and plain RuntimeExceptions arrive unmarked (surfaced here, else the
-      // user would see `exit 1` with no diagnostic). Malformed-output keeps its
-      // richer render context.
-      if !fc.errorAlreadyReported(e) then
+      // boundary doesn't re-report it as it unwinds. `reportOnce` covers every
+      // non-fatal throwable by identity: exceptions from `fail(...)` arrive
+      // already marked (skipped), tool adapters that throw directly and plain
+      // RuntimeExceptions arrive unmarked (surfaced here, else the user would
+      // see `exit 1` with no diagnostic). Malformed-output keeps its richer
+      // render context.
+      fc.reportOnce(e):
         e match
           case mao: orca.agents.MalformedAgentOutputException =>
             fc.emit(OrcaEvent.Error(formatMalformedOutput(name, mao)))
@@ -110,7 +110,6 @@ private def runStage[T: JsonData](
                 s"Stage '$name' failed: ${throwableMessage(e, firstLineOnly = true)}"
               )
             )
-        fc.markErrorReported(e)
       throw e
 
 /** Append the stage's result to the log and commit code + log as one commit.

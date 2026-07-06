@@ -65,6 +65,20 @@ trait FlowContext:
     * (`eq`) — the mark travels with the object, not its type or message, so
     * plain RuntimeExceptions are covered too. `private[orca]`: user code never
     * participates.
+    *
+    * The contract assumes a freshly-constructed throwable per failure (as every
+    * failure site in orca produces): identity marking would suppress a
+    * semantically-new failure that happened to reuse a cached/singleton
+    * exception instance — nothing in orca does that today.
     */
   private[orca] def markErrorReported(e: Throwable): Unit
   private[orca] def errorAlreadyReported(e: Throwable): Boolean
+
+  /** Emit-once helper over the two primitives: runs `emit` and marks `e` only
+    * when `e` hasn't been reported yet. The runtime's three report sites all
+    * use this shape.
+    */
+  private[orca] final def reportOnce(e: Throwable)(emit: => Unit): Unit =
+    if !errorAlreadyReported(e) then
+      emit
+      markErrorReported(e)

@@ -17,6 +17,19 @@ import orca.tools.GitTool
 import orca.tools.GitHubTool
 import orca.tools.OsGitTool
 
+/** Single-threaded test-only backing for the reported-error set
+  * ([[FlowContext.markErrorReported]] / [[FlowContext.errorAlreadyReported]]):
+  * a plain var + identity (`eq`) scan mirrors the production reported-set
+  * contract. The test contexts that mix this in are driven from a single
+  * thread, so the bare var needs no synchronisation.
+  */
+private[orca] trait ReportedErrorsSupport:
+  private var reportedErrors: List[Throwable] = Nil
+  private[orca] def markErrorReported(e: Throwable): Unit =
+    reportedErrors = e :: reportedErrors
+  private[orca] def errorAlreadyReported(e: Throwable): Boolean =
+    reportedErrors.exists(_ eq e)
+
 /** Minimal FlowContext stub for unit-testing stage/fail and other helpers that
   * only touch `emit` + `userPrompt`. Tool accessors are lazy so merely
   * constructing the context doesn't throw; tests that exercise them should
@@ -25,7 +38,8 @@ import orca.tools.OsGitTool
 class TestFlowContext(
     dispatcher: EventDispatcher,
     val userPrompt: String = ""
-) extends FlowContext:
+) extends FlowContext,
+      ReportedErrorsSupport:
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowContext")
 
@@ -42,13 +56,6 @@ class TestFlowContext(
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
-  // Single-threaded test context: a plain var mirrors the reported-set contract.
-  private var reportedErrors: List[Throwable] = Nil
-  private[orca] def markErrorReported(e: Throwable): Unit =
-    reportedErrors = e :: reportedErrors
-  private[orca] def errorAlreadyReported(e: Throwable): Boolean =
-    reportedErrors.exists(_ eq e)
-
 /** A `FlowControl` backed by a real temp git repo and a real temp progress
   * store, for exercising the `stage` runtime (commit + resume). Stubs the LLM
   * tools (stages under test don't call them) but wires a real `OsGitTool` and a
@@ -59,7 +66,8 @@ class TestFlowControl(
     val git: GitTool,
     val progressStore: ProgressStore,
     val userPrompt: String = ""
-) extends FlowControl:
+) extends FlowControl,
+      ReportedErrorsSupport:
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowControl")
 
@@ -74,13 +82,6 @@ class TestFlowControl(
   lazy val fs: FsTool = stub("fs")
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
-
-  // Single-threaded test context: a plain var mirrors the reported-set contract.
-  private var reportedErrors: List[Throwable] = Nil
-  private[orca] def markErrorReported(e: Throwable): Unit =
-    reportedErrors = e :: reportedErrors
-  private[orca] def errorAlreadyReported(e: Throwable): Boolean =
-    reportedErrors.exists(_ eq e)
 
   // Reached only through FlowControl, which is thread-affine by R12 (ADR 0018
   // §2.2) — a plain var mirrors the production DefaultFlowContext shape.

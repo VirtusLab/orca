@@ -27,20 +27,13 @@ class OrcaInteractiveCancelled(
 /** A semantic failure of an agent *turn that actually ran*: the conversation
   * was spawned — so the backend has already registered the session id — and
   * then ended in a terminal error (`is_error` such as "Prompt is too long", a
-  * rate limit, a non-zero CLI exit, or a clean exit with no result).
+  * rate limit, a non-zero CLI exit, or a clean exit with no result). Distinct
+  * from a pre-spawn *open* failure (e.g. a transient broken pipe before the
+  * session was registered), which stays a plain [[OrcaFlowException]].
   *
-  * Distinct from a pre-spawn *open* failure (e.g. a transient broken pipe
-  * before the session was registered), which stays a plain
-  * [[OrcaFlowException]]. The distinction drives retry: the autonomous retry
-  * loop reuses the same session id, which the backend locks once the turn has
-  * run, so reopening it only yields "session already in use" / "broken pipe".
-  * `AgentTurnFailed` is therefore NOT retried — it propagates immediately with
-  * the real cause instead of that misleading cascade. Open failures and parse
-  * failures remain retryable.
-  *
-  * Two sites, one contract: [[orca.backend.ForkedConversation.awaitResult]] is
-  * the classifier (decides whether a failure becomes an `AgentTurnFailed`), and
-  * `DefaultAgentCall.runAutonomousWithRetry` is the policy (the only place that
-  * acts on the classification by refusing to retry it).
+  * Role: this tag marks a failure as non-retryable. Why reusing the locked
+  * session id makes a retry futile is owned at the decision point,
+  * [[orca.backend.ForkedConversation.awaitResult]] (the classifier);
+  * `DefaultAgentCall.runAutonomousWithRetry` is the policy that acts on it.
   */
 class AgentTurnFailed(message: String) extends OrcaFlowException(message)

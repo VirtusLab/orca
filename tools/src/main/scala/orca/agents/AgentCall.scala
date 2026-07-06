@@ -130,11 +130,9 @@ class DefaultAgentCall[B <: BackendTag, O](
   /** THE retry policy — the only place in the framework that decides whether an
     * autonomous-turn failure gets retried: parse failures (corrective
     * re-prompt, same session resumed) and pre-spawn open failures (a fresh
-    * spawn) are retried; [[AgentTurnFailed]] never is, because it means the
-    * turn ran and the backend already locked the session id — reopening it
-    * would only yield "already in use" / a broken pipe instead of a clean
-    * attempt. See [[orca.backend.ForkedConversation.awaitResult]], the
-    * classifier that produces that distinction in the first place. On a parse
+    * spawn) are retried; [[AgentTurnFailed]] never is. Why reopening a locked
+    * session id makes an `AgentTurnFailed` retry futile is owned by the
+    * classifier, [[orca.backend.ForkedConversation.awaitResult]]. On a parse
     * failure the next attempt swaps the original prompt for a corrective one;
     * the returned session id is whichever attempt succeeded.
     */

@@ -91,7 +91,8 @@ class CommitMessageTest extends munit.FunSuite:
       val git: GitTool,
       val progressStore: ProgressStore,
       val userPrompt: String = "p"
-  ) extends FlowControl:
+  ) extends FlowControl,
+        ReportedErrorsSupport:
     import orca.agents.{
       ClaudeAgent,
       CodexAgent,
@@ -113,12 +114,6 @@ class CommitMessageTest extends munit.FunSuite:
     lazy val gh: orca.tools.GitHubTool = stub("gh")
     lazy val fs: orca.tools.FsTool = stub("fs")
     def emit(event: OrcaEvent): Unit = ()
-    // Single-threaded test context: a plain var mirrors the reported-set contract.
-    private var reportedErrors: List[Throwable] = Nil
-    private[orca] def markErrorReported(e: Throwable): Unit =
-      reportedErrors = e :: reportedErrors
-    private[orca] def errorAlreadyReported(e: Throwable): Boolean =
-      reportedErrors.exists(_ eq e)
     private var occ: Map[String, Int] = Map.empty
     def nextOccurrence(name: String): Int =
       val n = occ.getOrElse(name, 0)

@@ -115,6 +115,50 @@ class StageRuntimeTest extends munit.FunSuite:
       s"a plain exception must surface one Error as it unwinds, got: $errors"
     )
 
+  test(
+    "a single stage throwing MalformedAgentOutputException reports one Error"
+  ):
+    val listener = new RecordingListener
+    val (ctx, _) = TestFlowControl.create(new EventDispatcher(List(listener)))
+    given FlowControl = ctx
+    val _ = intercept[orca.agents.MalformedAgentOutputException]:
+      stage[String]("parse"):
+        throw new orca.agents.MalformedAgentOutputException(
+          "raw output",
+          "not JSON",
+          new RuntimeException("boom")
+        )
+    val errors = listener.events.collect { case e: OrcaEvent.Error => e }
+    assertEquals(errors.size, 1, s"exactly one Error expected, got: $errors")
+    assert(
+      errors.head.message.contains("didn't parse as structured JSON"),
+      s"MAO must use the malformed-output render, got: ${errors.head.message}"
+    )
+
+  test(
+    "a MalformedAgentOutputException unwinding through nested stages reports one Error"
+  ):
+    // Pins the guard-first ordering that makes MAO exactly-once: the inner
+    // stage renders it, marks it reported, and the outer stage skips it.
+    val listener = new RecordingListener
+    val (ctx, _) = TestFlowControl.create(new EventDispatcher(List(listener)))
+    given FlowControl = ctx
+    val _ = intercept[orca.agents.MalformedAgentOutputException]:
+      stage[String]("outer"):
+        val _ = stage[String]("inner"):
+          throw new orca.agents.MalformedAgentOutputException(
+            "raw output",
+            "not JSON",
+            new RuntimeException("boom")
+          )
+        "outer-result"
+    val errors = listener.events.collect { case e: OrcaEvent.Error => e }
+    assertEquals(errors.size, 1, s"exactly one Error expected, got: $errors")
+    assert(
+      errors.head.message.contains("didn't parse as structured JSON"),
+      s"MAO must use the malformed-output render, got: ${errors.head.message}"
+    )
+
   test("an undecodable stored entry re-runs the stage"):
     val (ctx, dir) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = ctx

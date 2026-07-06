@@ -2,7 +2,7 @@ package orca
 
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 class EventDispatcherTest extends munit.FunSuite:
 
@@ -49,3 +49,16 @@ class EventDispatcherTest extends munit.FunSuite:
     val dispatcher = new EventDispatcher(List(bad, good))
     dispatcher.onEvent(OrcaEvent.Step("x")) // must NOT throw
     assertEquals(received.result(), List("good"))
+
+  test("a listener that threw on one event is still invoked on the next"):
+    // No quarantine: a throwing listener is not dropped from the fan-out, so it
+    // still sees every subsequent event.
+    val invocations = new AtomicInteger(0)
+    val flaky = new OrcaListener:
+      def onEvent(event: OrcaEvent): Unit =
+        val _ = invocations.incrementAndGet()
+        throw new RuntimeException("always throws")
+    val dispatcher = new EventDispatcher(List(flaky))
+    dispatcher.onEvent(OrcaEvent.Step("one"))
+    dispatcher.onEvent(OrcaEvent.Step("two"))
+    assertEquals(invocations.get(), 2)
