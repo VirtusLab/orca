@@ -69,13 +69,15 @@ object JsonData:
   // triggering the package-level `schemaFromJsonData` given, which would
   // reference the very instance being initialised (causing an infinite loop).
 
-  given JsonData[String] =
+  given stringJsonData: JsonData[String] =
     apply(Schema.schemaForString, wrap(JsonCodecMaker.make))
-  given JsonData[Int] = apply(Schema.schemaForInt, wrap(JsonCodecMaker.make))
-  given JsonData[Long] = apply(Schema.schemaForLong, wrap(JsonCodecMaker.make))
-  given JsonData[Boolean] =
+  given intJsonData: JsonData[Int] =
+    apply(Schema.schemaForInt, wrap(JsonCodecMaker.make))
+  given longJsonData: JsonData[Long] =
+    apply(Schema.schemaForLong, wrap(JsonCodecMaker.make))
+  given booleanJsonData: JsonData[Boolean] =
     apply(Schema.schemaForBoolean, wrap(JsonCodecMaker.make))
-  given JsonData[Double] =
+  given doubleJsonData: JsonData[Double] =
     apply(Schema.schemaForDouble, wrap(JsonCodecMaker.make))
 
   /** Unit serialises as `{}` (an empty JSON object) — a valid, round-trippable
@@ -86,7 +88,7 @@ object JsonData:
     * produces, rejecting any other token (including `null`). So `Option[Unit]`
     * round-trips correctly — `None`/`Some(())` map to `null`/`{}`.
     */
-  given JsonData[Unit] = apply(
+  given unitJsonData: JsonData[Unit] = apply(
     Schema.schemaForUnit,
     new ConfiguredJsonValueCodec[Unit]:
       def decodeValue(in: JsonReader, default: Unit): Unit =

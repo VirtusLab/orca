@@ -55,14 +55,14 @@ object SessionId:
 
   /** `SessionId[B]` is an opaque alias over `String`; within this file the
     * alias is transparent, so we can delegate to the `JsonData[String]`
-    * instance directly. Referencing it by its synthesized name avoids the
-    * infinite-loop the compiler detects when `summon[JsonData[String]]` sees
-    * this given as a candidate (since `SessionId[B] = String` inside the
-    * opaque-alias file). A session id is a plain JSON string on the wire — no
-    * wrapping, lossless round-trip.
+    * instance directly. Referencing the named `stringJsonData` given directly
+    * avoids the infinite loop the compiler detects when
+    * `summon[JsonData[String]]` sees this given as a candidate (since
+    * `SessionId[B] = String` inside the opaque-alias file). A session id is a
+    * plain JSON string on the wire — no wrapping, lossless round-trip.
     */
   given [B <: BackendTag]: JsonData[SessionId[B]] =
-    JsonData.given_JsonData_String
+    JsonData.stringJsonData
 
 /** The id a backend actually resumes a conversation against on the wire —
   * distinct from [[SessionId]], orca's stable client handle. For claude (and
