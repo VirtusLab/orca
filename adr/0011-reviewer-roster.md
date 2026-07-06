@@ -109,3 +109,32 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
   produce wide-ranging feedback (duplication *and* visibility *and*
   layering). Acceptable: they're the same skill ("zoom out on the
   diff"), and the negative-scope line keeps it from drifting further.
+
+> **Amendment (2026-07-06).** Reviewer *identity* and *selection* landed on
+> the `session-identity-fixes` branch and supersede any earlier assumption of
+> a prefixed name or a function-shaped selector:
+> - **Identity is the bare slug** (e.g. `performance`) everywhere — the
+>   roster, the per-reviewer session map, the picker's `name: description`
+>   list, and on-screen outcomes. The `reviewer: ` prefix
+>   (`ReviewerPrompts.NamePrefix`) is applied only when labelling the actual
+>   LLM run, for cost attribution — it groups a reviewer's `TokensUsed`
+>   entries under `CostTracker` — and never reaches the picker or the session
+>   map.
+> - **Selection is two-phase.** `ReviewerSelector` is a trait with
+>   `prepare(all, taskTitle, changedFiles)(using FlowContext, InStage): List[ReviewBatch] => List[Agent[?]]`,
+>   not a 4-ary function. `prepare` runs once per loop (inside the loop's own
+>   stage), so any gated effect — `agentDriven`'s picker LLM call — happens
+>   exactly once; the returned function is pure per-round narrowing over the
+>   review history. This replaces the earlier shape where `agentDriven`
+>   closed over a mutable cache and a captured stage token.
+> - **The loop resolves selections against the roster.** `ReviewFixLoop`
+>   maps every agent `prepare`/the per-round function returns back to its
+>   canonical roster instance by slug; an agent not in the roster (a foreign,
+>   possibly wrong-backend, same-named copy) is dropped with a visible
+>   warning rather than run. This closes the soundness gap where a selector
+>   could hand back an unconstrained agent whose session-id recovery
+>   (`SessionId.Untyped.as[RB]`) would silently assume the wrong backend.
+>
+> See `flow/src/main/scala/orca/review/ReviewerSelector.scala` and
+> `flow/src/main/scala/orca/review/ReviewLoop.scala` (`resolveAgainstRoster`,
+> `reviewWithSession`) for the current implementation.

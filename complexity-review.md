@@ -153,7 +153,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
 
 ## 4. Review-and-fix loop (HIGH within flow)
 
-- [ ] **4.1 Restructure `reviewAndFixLoop`.** 230-line closure forest: 11 params,
+- [x] **4.1 Restructure `reviewAndFixLoop`.** (done: 0b09312) 230-line closure forest: 11 params,
   nested generic method, local enum, 3-tuple-returning helper, stop policy in a
   separately-defined generic driver (`fixLoopWithState`, whose `S` threading serves
   two callers, one `Unit`). State split across threaded state, closure captures,
@@ -161,7 +161,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
   inline the driver; keep `fixLoop` as a thin recursion.
   Refs: `flow/.../review/ReviewLoop.scala:28-107,201-428`.
 
-- [ ] **4.2 Replace stringly reviewer identity with structured refs.** `Agent.name`
+- [x] **4.2 Replace stringly reviewer identity with structured refs.** (done: 394cc6f) `Agent.name`
   doubles as identity and cost prefix (`"reviewer: "`), forcing strip/re-match/warn
   across three files (one bug already shipped); the `.as[RB]` session retag's
   soundness rests on roster uniqueness while agents actually come from an
@@ -171,7 +171,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
   Refs: `flow/.../review/Reviewers.scala:31-45,101-145`, `flow/.../review/ReviewerSelector.scala:20-25,63-65,86-150`,
   `flow/.../review/SelectedReviewers.scala:11-14`, `flow/.../review/ReviewLoop.scala:176-184,239-243,270-287`.
 
-- [ ] **4.3 Remove `agentDriven`'s captured `InStage` + `var cached`.** Institutionalises
+- [x] **4.3 Remove `agentDriven`'s captured `InStage` + `var cached`.** (done: ad1a366) Institutionalises
   the smuggled-token pattern ADR 0018 §5 warns about, plus a single-loop-only cache
   contract enforced by nothing. Hoist the one-time pick into `reviewAndFixLoop`
   from a pure selector spec.
@@ -289,7 +289,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
   Refs: `runner/.../terminal/ConversationRenderer.scala:43-50,151-166`,
   `runner/.../terminal/TerminalEventListener.scala:74-84`, `adr/0008-terminal-output-design.md`.
 
-- [ ] **7.7 `formatCommand` stderr leak.** Bare `os.proc("bash","-c",cmd).call(check=false)`
+- [x] **7.7 `formatCommand` stderr leak.** (done: 0b09312) Bare `os.proc("bash","-c",cmd).call(check=false)`
   inherits stderr (can tear the status row), violating the project's own QuietProc
   rule; sibling `lint` 80 lines away is compliant; adjacent comment is wrong about
   capture. Route through `QuietProc.call` / `mergeErrIntoOut = true`; fix comment.
@@ -317,7 +317,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
   constructors (used nowhere; opencode/pi already dropped it).
   Refs: `claude/.../ClaudeBackend.scala:19,45`, `codex/.../CodexBackend.scala:19,44`,
   `gemini/.../GeminiBackend.scala:20,45`.
-- [ ] **8.2 Delete dead `ReviewContext`** (zero usages in main, tests, exports, examples).
+- [x] **8.2 Delete dead `ReviewContext`** (done: this docs commit — ReviewContext deleted) (zero usages in main, tests, exports, examples).
   Refs: `flow/.../review/ReviewContext.scala`.
 - [ ] **8.3 Remove or relocate `Task.completed`/`markComplete`/`firstIncomplete`** —
   checkbox state retired by ADR 0018; nothing in the library sets `completed`.
