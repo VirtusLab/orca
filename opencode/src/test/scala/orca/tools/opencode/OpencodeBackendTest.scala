@@ -164,12 +164,12 @@ class OpencodeBackendTest extends munit.FunSuite:
       conv.events.foreach(_ => ())
       assertEquals(conv.awaitResult().toOption.get.output, "hi")
 
-  test("sessionExists returns false when the server has not been started yet"):
-    supervised:
-      val http = new FakeHttp(Nil, _ => 200)
-      val backend = new OpencodeBackend(new FakeHandle(http))
-      // No runAutonomous call — no client→server mapping AND server never forced.
-      assert(!backend.sessions.exists(fresh))
+  test("close() delegates to the server handle"):
+    val http = new FakeHttp(Nil, _ => 200)
+    val handle = new FakeHandle(http)
+    val backend = new OpencodeBackend(handle)
+    backend.close()
+    assert(handle.closed, "backend.close() must close the server handle")
 
   test("sessionExists is false when the server was never started (no spawn)"):
     supervised:

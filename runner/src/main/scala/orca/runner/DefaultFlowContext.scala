@@ -62,7 +62,12 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
   def close(): Unit =
     List(claude, codex, opencode, pi, gemini).foreach: a =>
       try a.close()
-      catch case NonFatal(e) => log.debug("agent close failed", e)
+      catch
+        case NonFatal(e) =>
+          log.warn(
+            "agent close failed — a backend resource may have leaked",
+            e
+          )
 
   // The leading agent's backend tag, pinned from the type parameter `B` (which
   // `flow` inferred from the selector). Concrete here, so `agent` is concretely
@@ -127,7 +132,7 @@ private[orca] object DefaultFlowContext:
       interaction: Interaction,
       progressStore: ProgressStore,
       agentSelector: FlowContext => Agent[B],
-      wiring: FlowWiring = FlowWiring()
+      wiring: FlowWiring
   )(using ox.Ox, ox.channels.BufferCapacity): DefaultFlowContext[B] =
     val prompts = wiring.prompts
     new DefaultFlowContext[B](

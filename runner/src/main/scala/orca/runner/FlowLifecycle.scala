@@ -40,14 +40,13 @@ object FlowLifecycle:
       args: OrcaArgs,
       ctx: DefaultFlowContext[B],
       branchNaming: Option[BranchNamingStrategy],
-      store: ProgressStore,
       returnToStartBranch: Boolean,
       debug: Boolean
   )(body: FlowControl ?=> Unit): Unit =
     val log = LoggerFactory.getLogger("orca.flow")
-    val setup =
-      FlowLifecycle.setup(args, ctx.agent, ctx.git, branchNaming, store)
-    rehydrateSessions(ctx, ctx.agent, store)
+    val flowSetup =
+      setup(args, ctx.agent, ctx.git, branchNaming, ctx.progressStore)
+    rehydrateSessions(ctx, ctx.agent, ctx.progressStore)
     // The whole flow body runs as a top-level stage: an otherwise
     // unhandled exception surfaces as a single Error event (the same
     // message a stage failure shows). A nested stage / `fail` marks the
@@ -73,7 +72,7 @@ object FlowLifecycle:
         if debug then e.printStackTrace(System.err)
         teardownFailure(ctx.git)
         throw e
-    teardownSuccess(ctx.git, setup, returnToStartBranch)
+    teardownSuccess(ctx.git, flowSetup, returnToStartBranch)
 
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
     * session's OWN agent's in-memory registry, so a resumed run resumes against

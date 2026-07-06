@@ -552,6 +552,41 @@ class FlowLifecycleTest extends munit.FunSuite:
       )(body)
 
   test(
+    "runFlow closes the context (and its agents) even when the body throws"
+  ):
+    // ctx.close() runs in runFlow's `finally`, so it must fire on the failure
+    // path too — not just on success. Wire a recording opencode agent and
+    // assert its close() ran after a body that throws.
+    val workDir = TempRepo.create()
+    val prompt = "close-on-body-throw"
+    var opencodeClosed = false
+    val recorder = new RecordingOpencode(() => opencodeClosed = true)
+    val thrown = intercept[RuntimeException]:
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        runFlow(
+          args = OrcaArgs(prompt),
+          agent = _ => StubAgent.claude,
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = Nil,
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = None,
+          wiring = FlowWiring(opencode = Some(recorder))
+        ):
+          throw new RuntimeException("boom in body")
+    assertEquals(thrown.getMessage, "boom in body")
+    assert(
+      opencodeClosed,
+      "ctx.close() must run on the failure path too, closing the opencode agent"
+    )
+
+  test(
     "R5: success teardown auto-deletes feature branch when only orca commits exist"
   ):
     // A flow whose body does nothing besides getting staged (only the orca
@@ -804,6 +839,30 @@ class FlowLifecycleTest extends munit.FunSuite:
       throw new UnsupportedOperationException
     def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Codex.type, O] =
       throw new UnsupportedOperationException
+
+  /** An `OpencodeAgent` whose `close()` calls `onClose` — used to pin that
+    * `runFlow` closes the context (and its agents) on the body-throw path, not
+    * just on success. Every LLM call throws — no test reaches one.
+    */
+  private class RecordingOpencode(onClose: () => Unit) extends OpencodeAgent:
+    val name = "recording-opencode"
+    def anthropicOpus = this
+    def anthropicSonnet = this
+    def anthropicHaiku = this
+    def openaiGpt5 = this
+    def openaiGpt5Codex = this
+    def openaiGpt5Mini = this
+    def withModel(providerModel: String) = this
+    def withConfig(c: AgentConfig) = this
+    def withSystemPrompt(p: String) = this
+    def withName(n: String) = this
+    def withTools(tools: ToolSet) = this
+    def autonomous: AutonomousTextCall[BackendTag.Opencode.type] =
+      throw new UnsupportedOperationException
+    def resultAs[O: JsonData: Announce]
+        : AgentCall[BackendTag.Opencode.type, O] =
+      throw new UnsupportedOperationException
+    override private[orca] def close(): Unit = onClose()
 
   /** Throws — for `FlowContext` accessors a test doesn't wire and expects
     * `rehydrateSessions` never to touch (it resolves purely off the per-backend

@@ -224,7 +224,6 @@ private[orca] def runFlow[B <: BackendTag](
           args,
           ctx,
           branchNaming,
-          store,
           returnToStartBranch,
           debug
         )(
