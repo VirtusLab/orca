@@ -172,7 +172,16 @@ private[orca] class CodexBackend(
       mode match
         case SessionMode.Interactive(p) => (Some(AskUserSession.allocate()), p)
         case SessionMode.Autonomous     => (None, "")
-    SubprocessSpawn.open("codex", askUser.toList) {
+    // Written before the spawn (like askUser above) so it's in `resources` for
+    // failure-path cleanup, and threaded into the conversation below for
+    // success-path cleanup via `onFinalize`. A unique temp file outside the
+    // tree — never `workDir` — so concurrent structured calls (the reviewer
+    // fan-out) each get their own file and `git add -A` never sees it.
+    val schemaFile = writeSchemaIfPresent(outputSchema)
+    SubprocessSpawn.open(
+      "codex",
+      askUser.toList ++ schemaFile.map(CodexBackend.deleteFileResource).toList
+    ) {
       // codex `exec` has no `--system-prompt` flag (it picks up `AGENTS.md`
       // files for static instructions), so fold the composed system prompt into
       // the user prompt.
@@ -181,7 +190,6 @@ private[orca] class CodexBackend(
         prompt,
         extraHint = Option.when(askUser.isDefined)(AskUserMcpServer.Hint)
       )
-      val schemaFile = writeSchemaIfPresent(outputSchema, workDir)
       val mcpUrl = askUser.map(_.server.url)
       val args = registry.dispatchFor(session) match
         case Dispatch.Resume(serverId) =>
@@ -209,15 +217,35 @@ private[orca] class CodexBackend(
         process,
         initialPrompt = displayPrompt,
         outputSchema = outputSchema,
-        askUser = askUser
+        askUser = askUser,
+        schemaFile = schemaFile
       )
     }
 
-  private def writeSchemaIfPresent(
-      schema: Option[String],
-      workDir: os.Path
-  ): Option[os.Path] =
+  /** Write the `--output-schema` payload (if any) to a unique temp file OUTSIDE
+    * the working tree — never `workDir` — so it can't race a concurrent
+    * structured call for the same directory (the reviewer fan-out) and never
+    * gets swept into a flow's `git add -A`. `deleteOnExit = false`: cleanup is
+    * explicit, via [[CodexBackend.deleteFileResource]] wired into the
+    * conversation's finalize (success path) and `SubprocessSpawn.open`'s
+    * `resources` (failure path) — not left to JVM-exit best-effort.
+    */
+  private def writeSchemaIfPresent(schema: Option[String]): Option[os.Path] =
     schema.map: body =>
-      val file = workDir / ".codex" / "orca-output-schema.json"
-      os.write.over(file, body, createFolders = true)
-      file
+      os.temp(
+        body,
+        prefix = "orca-codex-schema-",
+        suffix = ".json",
+        deleteOnExit = false
+      )
+
+private[orca] object CodexBackend:
+
+  /** Returns an `AutoCloseable` that best-effort deletes the given file when
+    * closed. Mirrors `ClaudeBackend.deleteFileResource` — used so the per-call
+    * output-schema temp file is removed on both the failure path (via
+    * `SubprocessSpawn.open`'s `resources`) and the success path (via
+    * `CodexConversation.onFinalize`).
+    */
+  private[codex] def deleteFileResource(path: os.Path): AutoCloseable =
+    () => if os.exists(path) then os.remove(path): Unit

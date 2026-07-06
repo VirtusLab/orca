@@ -50,6 +50,15 @@ private[orca] class ClaudeBackend(
     cli: CliRunner,
     networkTools: Seq[String] = ClaudeBackend.DefaultNetworkTools,
     private[claude] val projectsDir: os.Path = os.home / ".claude" / "projects",
+    /** The workDir the existence probe (see [[sessions]]) slugs to find a
+      * session's transcript. MUST be the workDir agents actually SPAWN with —
+      * claude writes a session's transcript under
+      * `<projectsDir>/<cwdSlug(spawnWorkDir)>/<id>.jsonl`, so a probe against
+      * any other directory silently reports `false` and the caller re-seeds.
+      * The runtime (`DefaultFlowContext.withDefaults`) passes the flow's
+      * per-call `workDir`; the `os.pwd` default here serves only bare/test
+      * construction (`new ClaudeBackend(cli)`) where no flow workDir exists.
+      */
     private[claude] val cwdForProbe: os.Path = os.pwd
 )(using BufferCapacity)
     extends AgentBackend[BackendTag.ClaudeCode.type]:

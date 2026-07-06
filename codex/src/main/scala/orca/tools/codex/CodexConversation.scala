@@ -38,7 +38,12 @@ private[codex] class CodexConversation(
     process: PipedCliProcess,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
-    override val askUser: Option[AskUserSession] = None
+    override val askUser: Option[AskUserSession] = None,
+    /** The temp file backing `--output-schema` (if any), owned by this
+      * conversation so it's removed exactly once the turn finalizes — see
+      * [[CodexBackend.deleteFileResource]] and [[onFinalize]].
+      */
+    schemaFile: Option[os.Path] = None
 )(using Ox)
     extends ForkedConversation[BackendTag.Codex.type](
       source = StreamSource.fromProcess(process),
@@ -107,6 +112,16 @@ private[codex] class CodexConversation(
     if trimmed.nonEmpty && !CodexConversation.isKnownStderrNoise(trimmed) then
       eventQueue.enqueue(ConversationEvent.Error(s"codex: $trimmed"))
       recordStderr(trimmed)
+
+  /** Best-effort delete the `--output-schema` temp file (if any), then defer to
+    * [[BufferedStderrDiagnostics.onFinalize]] to join the stderr drain. Runs
+    * exactly once (reader happy-path OR `cancel()` — see
+    * `ForkedConversation.runFinalize`), so the file never outlives the turn
+    * that wrote it.
+    */
+  override protected def onFinalize(): Unit =
+    schemaFile.foreach(p => CodexBackend.deleteFileResource(p).close())
+    super.onFinalize()
 
   override protected def cleanExitWithoutResult(): Throwable =
     // Defer the framing to the base so the diagnosticContext below gets

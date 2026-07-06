@@ -289,6 +289,47 @@ class ClaudeBackendTest extends munit.FunSuite:
       assert(backend.sessions.exists(freshSid))
 
   test(
+    "sessionExists probes the workDir agents actually spawn with, not the process cwd (worktree flows)"
+  ):
+    // Pins finding 7.5: `cwdForProbe` must track the flow's per-call workDir
+    // (what `DefaultFlowContext.withDefaults` now passes), not the `os.pwd`
+    // default — in a worktree flow those differ, and probing the wrong
+    // directory silently reports false, causing a pointless re-seed on every
+    // resume. Two backends share the same transcript location and differ
+    // only in `cwdForProbe`: only the one pointed at the actual spawn workDir
+    // sees it.
+    val tmpProjects = os.temp.dir()
+    val spawnWorkDir =
+      os.temp.dir() // stands in for a worktree checkout, != os.pwd
+    assert(
+      spawnWorkDir != os.pwd,
+      "test setup requires a workDir distinct from the process cwd"
+    )
+    val slug = ClaudeBackend.cwdSlug(spawnWorkDir)
+    os.makeDir.all(tmpProjects / slug)
+    os.write(tmpProjects / slug / s"${SessionId.value(freshSid)}.jsonl", "")
+
+    SupervisedBackend.using(
+      new ClaudeBackend(
+        new SpawnStubCliRunner(Nil),
+        projectsDir = tmpProjects,
+        cwdForProbe = spawnWorkDir
+      )
+    ): backend =>
+      backend.sessions.register(freshSid, freshSid.onWire)
+      assert(backend.sessions.exists(freshSid))
+
+    // The bare-construction default (`cwdForProbe = os.pwd`) probes the
+    // WRONG directory when the process cwd differs from the flow's
+    // workDir — exactly the bug `DefaultFlowContext.withDefaults` must avoid
+    // by passing `cwdForProbe = workDir` explicitly.
+    SupervisedBackend.using(
+      new ClaudeBackend(new SpawnStubCliRunner(Nil), projectsDir = tmpProjects)
+    ): backend =>
+      backend.sessions.register(freshSid, freshSid.onWire)
+      assert(!backend.sessions.exists(freshSid))
+
+  test(
     "sessionExists returns false when the transcript is present but never claimed"
   ):
     // Registry gate: existence is only answered for an id the registry knows

@@ -95,6 +95,29 @@ class ConversationsTest extends munit.FunSuite:
     assertEquals(thrown.getMessage, "boom")
     assert(registry.resumeWireId(client).isEmpty) // never committed
 
+  test(
+    "drainAndCommit refuses an empty/unsafe reported wire id and never commits it"
+  ):
+    // A missing init event (e.g. a crash before `thread.started`) leaves the
+    // wire id defaulted to "" upstream; committing that would let a later
+    // call resume against an empty session id. The guard throws BEFORE
+    // `commitSuccess`, so the registry stays clean either way.
+    val client = SessionId.fresh[BackendTag.Codex.type]
+    val registry = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+    val conv = new ScriptedConversation(
+      Nil,
+      Right(
+        sampleResult.copy(wireId = WireSessionId[BackendTag.Codex.type](""))
+      )
+    )
+    val thrown = intercept[OrcaFlowException]:
+      Conversations.drainAndCommit(conv, client, registry)
+    assert(
+      thrown.getMessage.contains("invalid session id"),
+      thrown.getMessage
+    )
+    assert(registry.resumeWireId(client).isEmpty) // never committed
+
   test("drainAutonomous walks every event before returning the result"):
     val conv = new ScriptedConversation(
       List(

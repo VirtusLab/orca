@@ -242,14 +242,28 @@ class CodexBackendTest extends munit.FunSuite:
         s"second call with a new client id must NOT resume; got: $secondArgs"
       )
 
+  /** Pulls the `--output-schema <path>` value out of a recorded argv, as an
+    * `os.Path`. Fails the test if the flag isn't present.
+    */
+  private def schemaPathFrom(args: Seq[String]): os.Path =
+    os.Path(
+      args
+        .zip(args.tail)
+        .collectFirst { case ("--output-schema", v) => v }
+        .getOrElse(fail(s"--output-schema not found in: $args"))
+    )
+
   test(
-    "runAutonomous writes the output schema and passes --output-schema"
+    "runAutonomous writes the output schema to a temp file outside workDir, and removes it once the turn finalizes"
   ):
     // Autonomous structured calls (reviewers) get codex-side schema
     // enforcement: the drain needs `conv.outputSchema` set so it suppresses
     // the raw JSON payload, and `--output-schema` adds codex-side
-    // validation on top of the prompt template. `JsonSchemaGen` produces
-    // OpenAI-strict schemas so codex accepts them.
+    // validation on top of the prompt template. The file must live OUTSIDE
+    // workDir — a fixed workDir-relative path would race the parallel
+    // reviewer fan-out and get swept into the flow's `git add -A` — and must
+    // not survive the call, or long flows would accumulate orphan schema
+    // files.
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val workDir = os.temp.dir()
@@ -260,11 +274,61 @@ class CodexBackendTest extends munit.FunSuite:
         workDir,
         outputSchema = Some("""{"type":"object"}""")
       )
-      val schemaFile = workDir / ".codex" / "orca-output-schema.json"
-      assert(os.exists(schemaFile))
-      assertEquals(os.read(schemaFile), """{"type":"object"}""")
-      val args = runner.calls.head
-      assert(args.containsSlice(Seq("--output-schema", schemaFile.toString)))
+      val schemaFile = schemaPathFrom(runner.calls.head)
+      assert(
+        !schemaFile.startsWith(workDir),
+        s"schema file must live outside workDir; got: $schemaFile"
+      )
+      assert(
+        schemaFile.last.startsWith("orca-codex-schema-"),
+        s"expected the orca-codex-schema- temp-file prefix; got: $schemaFile"
+      )
+      assertEquals(
+        os.list(workDir).toList,
+        Nil,
+        "nothing should be written under workDir for a structured call"
+      )
+      // runAutonomous drains the conversation to completion synchronously, so
+      // by the time it returns, `onFinalize` has already run and removed the
+      // temp file.
+      assert(
+        !os.exists(schemaFile),
+        "schema temp file should be deleted once the turn finalizes"
+      )
+
+  test(
+    "two structured autonomous calls each get their own schema file (no race on a shared path)"
+  ):
+    val runner = new SpawnStubCliRunner(
+      List(successfulProcess("thr-1"), successfulProcess("thr-2"))
+    )
+    withBackend(runner): backend =>
+      val workDir = os.temp.dir()
+      val schema = Some("""{"type":"object"}""")
+      val sidA =
+        SessionId[BackendTag.Codex.type]("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+      val sidB =
+        SessionId[BackendTag.Codex.type]("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+      val _ = backend.runAutonomous(
+        "a",
+        sidA,
+        AgentConfig.default,
+        workDir,
+        outputSchema = schema
+      )
+      val _ = backend.runAutonomous(
+        "b",
+        sidB,
+        AgentConfig.default,
+        workDir,
+        outputSchema = schema
+      )
+      val schemaFileA = schemaPathFrom(runner.calls(0))
+      val schemaFileB = schemaPathFrom(runner.calls(1))
+      assert(
+        schemaFileA != schemaFileB,
+        s"concurrent/successive structured calls must not share a schema path; got: $schemaFileA and $schemaFileB"
+      )
 
   test(
     "runAutonomous does NOT pass -c mcp_servers (autonomous skips the bridge)"
@@ -284,7 +348,9 @@ class CodexBackendTest extends munit.FunSuite:
         s"autonomous must not register an MCP server; got: $args"
       )
 
-  test("runInteractive writes the output schema to a file in the workdir"):
+  test(
+    "runInteractive writes the output schema to a temp file outside the workdir"
+  ):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val workDir = os.temp.dir()
@@ -296,11 +362,17 @@ class CodexBackendTest extends munit.FunSuite:
         workDir,
         Some("""{"type":"object"}""")
       )
-      val schemaFile = workDir / ".codex" / "orca-output-schema.json"
+      // Unlike runAutonomous, runInteractive hands back a Conversation the
+      // test never drains, so `onFinalize` hasn't fired yet — the file is
+      // still there to inspect.
+      val schemaFile = schemaPathFrom(runner.calls.head)
+      assert(
+        !schemaFile.startsWith(workDir),
+        s"schema file must live outside workDir; got: $schemaFile"
+      )
       assert(os.exists(schemaFile))
       assertEquals(os.read(schemaFile), """{"type":"object"}""")
-      val args = runner.calls.head
-      assert(args.containsSlice(Seq("--output-schema", schemaFile.toString)))
+      assertEquals(os.list(workDir).toList, Nil)
 
   test(
     "runInteractive registers an MCP server and folds the ask_user hint"

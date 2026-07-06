@@ -143,7 +143,12 @@ private[orca] object DefaultFlowContext:
       agentSelector = agentSelector,
       claude = wiring.claude.getOrElse(
         new DefaultClaudeAgent(
-          backend = new ClaudeBackend(OsProcCliRunner),
+          // `cwdForProbe = workDir`: agents SPAWN with the flow's per-call
+          // workDir (below), which in a worktree flow differs from the
+          // process's `os.pwd` default — the existence probe must check the
+          // same directory the transcript actually lands under, or a resumed
+          // worktree flow always re-seeds. See `ClaudeBackend.cwdForProbe`.
+          backend = new ClaudeBackend(OsProcCliRunner, cwdForProbe = workDir),
           // Bare `claude` defaults to Opus with the 1M context window — the
           // implementer session is long-lived, so it needs the big window.
           // `claude.sonnet` / `claude.haiku` opt down for cheap one-shots.
