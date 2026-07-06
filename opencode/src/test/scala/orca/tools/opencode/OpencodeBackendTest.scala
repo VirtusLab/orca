@@ -25,6 +25,23 @@ class OpencodeBackendTest extends munit.FunSuite:
       def tryExitCode: Option[Int] = Some(0)
     override def getStatus(path: String): Int = statusFor(path)
 
+  /** Fake [[OpencodeServerHandle]] standing in for the eager server. Forcing
+    * `http` (as a turn does) flips `started`, mirroring the real server whose
+    * `clientRef` is set only once the process has spawned; `started` on its own
+    * never touches `http`, so the probe can answer "absent" without spawning.
+    */
+  private class FakeHandle(
+      httpThunk: => OpencodeHttp,
+      startedInit: Boolean = false
+  ) extends OpencodeServerHandle:
+    private var startedFlag: Boolean = startedInit
+    var closed: Boolean = false
+    def http: OpencodeHttp =
+      startedFlag = true
+      httpThunk
+    def started: Boolean = startedFlag
+    def close(): Unit = closed = true
+
   private def data(json: String): String = s"data: $json"
 
   private def turn(
@@ -58,7 +75,7 @@ class OpencodeBackendTest extends munit.FunSuite:
           )
         )
       )
-      val backend = new OpencodeBackend(_ => http)
+      val backend = new OpencodeBackend(new FakeHandle(http))
       val client = fresh
       val result =
         backend.runAutonomous("hi", client, AgentConfig.default, os.temp.dir())
@@ -91,7 +108,7 @@ class OpencodeBackendTest extends munit.FunSuite:
   ):
     supervised:
       val http = new FakeHttp(turn("ses_server1", "stop", Nil))
-      val backend = new OpencodeBackend(_ => http)
+      val backend = new OpencodeBackend(new FakeHandle(http))
       val client = fresh
       val _ =
         backend.runAutonomous("one", client, AgentConfig.default, os.temp.dir())
@@ -103,7 +120,7 @@ class OpencodeBackendTest extends munit.FunSuite:
   test("registerSession lets a later call resume that server session directly"):
     supervised:
       val http = new FakeHttp(turn("ses_X", "stop", Nil))
-      val backend = new OpencodeBackend(_ => http)
+      val backend = new OpencodeBackend(new FakeHandle(http))
       val client = fresh
       backend.sessions.register(
         client,
@@ -130,7 +147,7 @@ class OpencodeBackendTest extends munit.FunSuite:
           )
         )
       )
-      val backend = new OpencodeBackend(_ => http)
+      val backend = new OpencodeBackend(new FakeHandle(http))
       val conv = backend.runInteractive(
         "q",
         fresh,
@@ -150,9 +167,24 @@ class OpencodeBackendTest extends munit.FunSuite:
   test("sessionExists returns false when the server has not been started yet"):
     supervised:
       val http = new FakeHttp(Nil, _ => 200)
-      val backend = new OpencodeBackend(_ => http)
-      // No runAutonomous call — no client→server mapping AND firstWorkDir null.
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      // No runAutonomous call — no client→server mapping AND server never forced.
       assert(!backend.sessions.exists(fresh))
+
+  test("sessionExists is false when the server was never started (no spawn)"):
+    supervised:
+      // The probe is `started && probeSession(...)`: with `started` false the
+      // `&&` short-circuits, so `http` (which would spawn a process) is never
+      // forced — even though a client→server mapping IS present to resolve.
+      val backend = new OpencodeBackend(
+        new FakeHandle(fail("must not spawn"), startedInit = false)
+      )
+      val client = fresh
+      backend.sessions.register(
+        client,
+        WireSessionId[BackendTag.Opencode.type]("ses_server1")
+      )
+      assert(!backend.sessions.exists(client))
 
   test(
     "sessionExists returns false when there is no client→server mapping"
@@ -165,7 +197,7 @@ class OpencodeBackendTest extends munit.FunSuite:
         turn(existingId, "stop", Nil),
         path => if path == s"/session/$existingId" then 200 else 404
       )
-      val backend = new OpencodeBackend(_ => http)
+      val backend = new OpencodeBackend(new FakeHandle(http))
       val _ =
         backend.runAutonomous("hi", fresh, AgentConfig.default, os.temp.dir())
       // A different, unmapped client id resolves to no server id → false.
@@ -177,13 +209,13 @@ class OpencodeBackendTest extends munit.FunSuite:
         Nil,
         path => if path == "/session/ses_abc" then 200 else 404
       )
-      val backend = new OpencodeBackend(_ => http)
+      val backend = new OpencodeBackend(new FakeHandle(http))
       assert(backend.probeSession("ses_abc", http))
 
   test("probeSession returns false when getStatus is 404"):
     supervised:
       val http = new FakeHttp(Nil, _ => 404)
-      val backend = new OpencodeBackend(_ => http)
+      val backend = new OpencodeBackend(new FakeHandle(http))
       assert(!backend.probeSession("ses_missing", http))
 
   test(
@@ -195,7 +227,7 @@ class OpencodeBackendTest extends munit.FunSuite:
         turn(existingId, "stop", Nil),
         path => if path == s"/session/$existingId" then 200 else 404
       )
-      val backend = new OpencodeBackend(_ => http)
+      val backend = new OpencodeBackend(new FakeHandle(http))
       val client = fresh
       // A real turn maps client → ses_server1 in the registry.
       val _ =
@@ -208,7 +240,7 @@ class OpencodeBackendTest extends munit.FunSuite:
   ):
     supervised:
       val http = new FakeHttp(turn("ses_server1", "stop", Nil), _ => 404)
-      val backend = new OpencodeBackend(_ => http)
+      val backend = new OpencodeBackend(new FakeHandle(http))
       val client = fresh
       val _ =
         backend.runAutonomous("hi", client, AgentConfig.default, os.temp.dir())
@@ -222,7 +254,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val http = new FakeHttp(Nil):
         override def getStatus(path: String): Int =
           throw new java.io.IOException("connection refused")
-      val backend = new OpencodeBackend(_ => http)
+      val backend = new OpencodeBackend(new FakeHandle(http))
       assert(!backend.probeSession("ses_abc", http))
 
   test(
@@ -230,7 +262,7 @@ class OpencodeBackendTest extends munit.FunSuite:
   ):
     supervised:
       val http = new FakeHttp(Nil, _ => 200) // would return 200 if called
-      val backend = new OpencodeBackend(_ => http)
+      val backend = new OpencodeBackend(new FakeHandle(http))
       val client = fresh
       // Even if the registry maps to a malicious server id, the guard blocks it.
       backend.sessions.register(
@@ -244,7 +276,7 @@ class OpencodeBackendTest extends munit.FunSuite:
   ):
     supervised:
       val http = new FakeHttp(Nil, _ => 200)
-      val backend = new OpencodeBackend(_ => http)
+      val backend = new OpencodeBackend(new FakeHandle(http))
       val client = fresh
       backend.sessions.register(
         client,

@@ -29,16 +29,25 @@ import orca.subprocess.CliRunner
 import orca.tools.opencode.OpencodeApi.{SessionCreateBody, SessionCreated}
 import ox.Ox
 
-import java.util.concurrent.atomic.AtomicReference
 import scala.util.control.NonFatal
+
+/** Lifecycle seam between the backend and the shared `opencode serve` owner —
+  * lets tests substitute a fake without a real process. `http` may spawn on
+  * first force; `started` must never spawn (probes use it to answer "absent"
+  * without side effects); `close()` is idempotent.
+  */
+private[opencode] trait OpencodeServerHandle:
+  def http: OpencodeHttp
+  def started: Boolean
+  def close(): Unit
 
 /** OpenCode backend (ADR 0014). Drives a shared `opencode serve` over HTTP+SSE.
   *
   * Each turn opens its own `GET /event` SSE stream, starts the turn with
   * `prompt_async`, and reads the result off the stream via
-  * [[OpencodeConversation]]. The server is created lazily on first use and
-  * shared thereafter; per-turn working directories are assumed constant (orca
-  * flows run in one repo), so the first call's `workDir` fixes the server's.
+  * [[OpencodeConversation]]. The single [[OpencodeServerHandle]] is built once
+  * at construction ([[OpencodeBackend.apply]]) and shared across turns; the
+  * process spawn behind it stays lazy.
   *
   * OpenCode mints `ses_…` ids, so — like Codex — a
   * [[SessionRegistry.ClientToServer]] maps the caller's stable id to the server
@@ -50,46 +59,30 @@ import scala.util.control.NonFatal
   * flow's own timeout) is the backstop for a server that wedges mid-turn.
   */
 private[orca] object OpencodeBackend:
+  /** Build the backend with its server fixed at construction. Per-turn working
+    * directories are assumed constant (orca flows run in one repo), so the
+    * server's `workDir` is pinned here; the per-call `workDir` SPI parameter on
+    * [[OpencodeBackend.runAutonomous]]/[[OpencodeBackend.runInteractive]]
+    * remains for the interface but is ignored by opencode.
+    */
   def apply(
       cli: CliRunner,
+      workDir: os.Path,
       launcher: OpencodeLauncher = OpencodeLauncher.default
   )(using Ox): OpencodeBackend =
-    // Retain the server (created on first use) so its drain forks can be torn
-    // down at flow teardown via `shutdown` — see OpencodeServer's scaladoc.
-    val serverRef = new AtomicReference[OpencodeServer]()
-    new OpencodeBackend(
-      httpFor = workDir => {
-        val server = new OpencodeServer(cli, workDir, launcher)
-        serverRef.set(server)
-        server.http
-      },
-      onShutdown = () => Option(serverRef.get()).foreach(_.shutdown())
-    )
+    new OpencodeBackend(new OpencodeServer(cli, workDir, launcher))
 
-private[orca] class OpencodeBackend(
-    httpFor: os.Path => OpencodeHttp,
-    onShutdown: () => Unit = () => ()
-) extends AgentBackend[BackendTag.Opencode.type]:
+private[orca] class OpencodeBackend(server: OpencodeServerHandle)
+    extends AgentBackend[BackendTag.Opencode.type]:
 
   /** Tear down the shared `opencode serve` process and its drain forks. A no-op
     * if the server was never started (opencode wired but unused). Called by the
     * runner in the flow body's `finally`, before the flow scope joins forks.
     */
-  def shutdown(): Unit = onShutdown()
+  def shutdown(): Unit = server.close()
 
   private val registry =
     new SessionRegistry.ClientToServer[BackendTag.Opencode.type]
-
-  // The shared server is built exactly once by a `lazy val`: Scala serialises
-  // the initialiser, so `httpFor` can't run twice even under a first-call race.
-  // A `lazy val` can't take a parameter, so the first caller's `workDir` — which
-  // all turns share — is recorded here for the initialiser to read.
-  private val firstWorkDir = new AtomicReference[os.Path]()
-  private lazy val sharedServer: OpencodeHttp = httpFor(firstWorkDir.get())
-
-  private def server(workDir: os.Path): OpencodeHttp =
-    val _ = firstWorkDir.compareAndSet(null, workDir)
-    sharedServer
 
   def runAutonomous(
       prompt: String,
@@ -99,7 +92,7 @@ private[orca] class OpencodeBackend(
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Opencode.type] =
-    val http = server(workDir)
+    val http = server.http
     Conversations.runAutonomous("opencode", session, registry, events):
       openConversation(
         http,
@@ -119,7 +112,7 @@ private[orca] class OpencodeBackend(
       workDir: os.Path,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.Opencode.type] =
-    val http = server(workDir)
+    val http = server.http
     // The returned conversation owns its stream: it interrupts on the terminal
     // event or `cancel`, so no scope-level backstop is needed here.
     openConversation(
@@ -166,9 +159,7 @@ private[orca] class OpencodeBackend(
   val sessions: SessionSupport[BackendTag.Opencode.type] =
     SessionSupport.Durable(
       registry,
-      id =>
-        if firstWorkDir.get() == null then false
-        else probeSession(id, sharedServer)
+      id => server.started && probeSession(id, server.http)
     )
 
   /** The server `ses_…` to drive: a fresh `POST /session`, or the one a prior

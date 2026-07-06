@@ -18,8 +18,8 @@ import ox.supervised
   *
   * Every backend's `enforcement` is a pure function delegating to its
   * `*Args.enforcement`, so construction is cheap: a [[StubCliRunner]] the
-  * method never touches. opencode's server is lazy, so a `httpFor` that throws
-  * is never evaluated.
+  * method never touches. opencode builds its server object eagerly but the
+  * process spawn stays lazy, so the [[StubCliRunner]] is never spawned.
   */
 class EnforcementTableTest extends munit.FunSuite:
 
@@ -34,9 +34,7 @@ class EnforcementTableTest extends munit.FunSuite:
         "claude" -> new ClaudeBackend(cli),
         "codex" -> new CodexBackend(cli),
         "gemini" -> new GeminiBackend(cli),
-        "opencode" -> new OpencodeBackend(_ =>
-          throw new AssertionError("enforcement must not touch the server")
-        ),
+        "opencode" -> OpencodeBackend(cli, os.temp.dir()),
         "pi" -> new PiBackend(cli)
       )
       def get(name: String): AgentBackend[?] =

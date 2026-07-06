@@ -30,13 +30,19 @@ import scala.util.control.NonFatal
   * A random `OPENCODE_SERVER_PASSWORD` keeps the bound localhost port closed to
   * other processes; `--pure` is *not* passed (`OpencodeArgs.serve`) so the
   * server inherits the user's configured providers.
+  *
+  * The internal `processRef`/`clientRef`/`stopped` atomics are deliberately not
+  * a single monitor: [[shutdown]] must be able to run while [[start]] is
+  * blocked in a non-interruptible native read, and destroying the process is
+  * precisely what unblocks that read — a shared lock would deadlock there.
   */
 private[opencode] class OpencodeServer(
     cli: CliRunner,
     workDir: os.Path,
     launcher: OpencodeLauncher = OpencodeLauncher.default,
     httpFor: (String, String) => OpencodeHttp = JavaNetOpencodeHttp.start
-)(using Ox):
+)(using Ox)
+    extends OpencodeServerHandle:
 
   private val log = LoggerFactory.getLogger(classOf[OpencodeServer])
 
@@ -50,11 +56,16 @@ private[opencode] class OpencodeServer(
   /** The HTTP/SSE client against this server. Forcing it spawns `opencode
     * serve` exactly once: a `lazy val` gives one spawn under concurrent first
     * use and does not cache a failed start (Scala re-runs the initializer if it
-    * threw). This is the load-bearing once-init — `OpencodeBackend`'s lazy
-    * `sharedServer` only guarantees a single server *instance*; this `lazy val`
-    * guarantees a single *spawn*.
+    * threw). This is the load-bearing once-init — `OpencodeBackend` holds a
+    * single server *instance* (built eagerly at construction); this `lazy val`
+    * guarantees a single *spawn* of it.
     */
   lazy val http: OpencodeHttp = start()
+
+  /** Whether the server has spawned (its client is recorded). Reading it never
+    * forces [[http]], so a probe can answer "absent" without a spawn.
+    */
+  def started: Boolean = clientRef.get() != null
 
   /** Tear down the server: tree-destroy the process (unblocking the drain
     * forks' reads so the enclosing scope can join them) and close the HTTP
@@ -78,6 +89,11 @@ private[opencode] class OpencodeServer(
       // a launch wrapper (ollama) forks the real serve, which inherits the pipes.
       proc.foreach(_.destroyForciblyTree())
       Option(clientRef.get()).foreach(_.close())
+
+  /** [[OpencodeServerHandle.close]] — the handle's idempotent teardown, aliased
+    * to [[shutdown]].
+    */
+  def close(): Unit = shutdown()
 
   private def start(): OpencodeHttp =
     val password = UUID.randomUUID.toString

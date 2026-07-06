@@ -129,7 +129,7 @@ private[orca] object DefaultFlowContext:
         case Some(a) => (a, () => ())
         case None =>
           val backend =
-            OpencodeBackend(OsProcCliRunner, wiring.opencodeLauncher)
+            OpencodeBackend(OsProcCliRunner, workDir, wiring.opencodeLauncher)
           val a = new DefaultOpencodeAgent(
             backend = backend,
             config = AgentConfig.default,
