@@ -160,7 +160,7 @@ the outer frame. Absorbs open item 7.2 from the first tracker.
 Refs: `runner/src/main/scala/orca/flow.scala:161-169`,
 `runner/src/main/scala/orca/runner/FlowLifecycle.scala:46-73,215-228,299-313`.
 
-- [ ] 1.1 Introduce `private[orca] SurfacedFlowFailure(cause)` — thrown only
+- [x] 1.1 (done: eb74028) Introduce `private[orca] SurfacedFlowFailure(cause)` — thrown only
   after the failure was emitted/logged — and a `surfaced(...)` bracket in
   `FlowLifecycle.run` applied to **every** phase (setup, rehydrate, body,
   teardownSuccess). `flow()`'s catch matches `SurfacedFlowFailure` to discard,
@@ -172,10 +172,10 @@ Refs: `runner/src/main/scala/orca/flow.scala:161-169`,
   Body reporting keeps `reportOnce` so `runStage`'s existing first-report is
   not duplicated. Budget: `runFlow`'s exposed exception type changes —
   ~7 `FlowLifecycleTest` intercepts adapt deliberately.)
-- [ ] 1.2 `teardownFailure` throwing inside the body catch must not mask the
+- [x] 1.2 (done: eb74028 + 988e222) `teardownFailure` throwing inside the body catch must not mask the
   original: `e.addSuppressed(t)`, rethrow `e`.
   Refs: `runner/.../FlowLifecycle.scala:71`.
-- [ ] 1.3 Close first-tracker 7.2: uniform `bestEffort(what)(op)` helper (catch
+- [x] 1.3 (done: fe3cf4e) Close first-tracker 7.2: uniform `bestEffort(what)(op)` helper (catch
   `NonFatal` + debug-log) for all three `teardownSuccess` legs
   (remove/commit/handoff), making the "cosmetic — swallowed" doc true. A
   successful run can then never exit 1.
@@ -183,14 +183,14 @@ Refs: `runner/src/main/scala/orca/flow.scala:161-169`,
   `NonFatal` broadly — the real gaps are (a) the `os.remove` leg's
   `NoSuchFileException`-only catch and (b) zero logging on all three legs.)
   Refs: `runner/.../FlowLifecycle.scala:308-319`.
-- [ ] 1.4 Route setup-phase warnings through the dispatcher — the "no event
+- [x] 1.4 (done: eb74028) Route setup-phase warnings through the dispatcher — the "no event
   dispatcher threaded through setup" comment is stale (`ctx` demonstrably
   exists at the call site); a custom `Interaction` (Slack) currently never sees
   "starting fresh — the previous run's stages will re-run".
   (Research 2026-07-07: no `OrcaEvent.Warning` case exists — reuse
   `OrcaEvent.Step`, matching `GitTool.resetHard`'s existing convention.)
   Refs: `runner/.../FlowLifecycle.scala:48-49,182-199`.
-- [ ] 1.5 Verify `--verbose` prints stacks on the newly-surfaced paths (the
+- [x] 1.5 (done: eb74028 + 988e222) Verify `--verbose` prints stacks on the newly-surfaced paths (the
   `debug` stack-print currently lives only in the body catch).
 
 ## Epic 2 — `FlowSession`: one door for durable sessions
