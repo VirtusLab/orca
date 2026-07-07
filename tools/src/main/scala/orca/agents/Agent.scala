@@ -14,9 +14,11 @@ import scala.util.control.NonFatal
   *
   * Each mode has a single `run(input, session = …, config = …)` method that
   * always returns `(SessionId[B], output)`. Pass a `SessionId[B]` across calls
-  * to keep one conversation alive — in a flow, obtain a resumable one with
-  * `agent.session(name, seed)` — or omit it to get a fresh one-shot session per
-  * call.
+  * to keep one ephemeral conversation alive within a run, or omit it to get a
+  * fresh one-shot session per call. For a DURABLE, resumable session (one that
+  * survives a flow crash/resume, seeded and persisted), obtain an
+  * `orca.FlowSession` with `agent.session(name, seed)` and call its
+  * `run`/`resultAs` rather than feeding its `.id` into these raw doors.
   *
   * The API never hides the autonomous-vs-interactive choice behind a default —
   * it's always visible at the call site as the leftmost segment after the tool

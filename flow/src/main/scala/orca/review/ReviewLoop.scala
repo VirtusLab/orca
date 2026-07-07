@@ -12,7 +12,7 @@ import orca.{CheckedPar, FlowContext, InStage}
 import orca.plan.Title
 
 import scala.annotation.unused
-import orca.agents.{BackendTag, Agent, SessionId, given}
+import orca.agents.{BackendTag, Agent, SessionId}
 import orca.events.OrcaEvent
 
 import orca.util.TextWrap

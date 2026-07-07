@@ -71,7 +71,7 @@ class SessionTest extends FunSuite:
     assertEquals(log.sessions.head.name, "implementer")
     assertEquals(log.sessions.head.occurrence, 0)
     assertEquals(log.sessions.head.seed, "plan brief")
-    assertEquals(log.sessions.head.id, id.value)
+    assertEquals(log.sessions.head.id, id.id.value)
 
   test("two calls with the same name get distinct occurrences"):
     val (store, dir) = freshStore()
@@ -79,7 +79,10 @@ class SessionTest extends FunSuite:
     val agent = new StubAgent
     val a = agent.session("reviewer", "s1")(using fc)
     val b = agent.session("reviewer", "s2")(using fc)
-    assert(a.value != b.value, "distinct sessions must have different ids")
+    assert(
+      a.id.value != b.id.value,
+      "distinct sessions must have different ids"
+    )
     val sessions = store.load().get.sessions
     assertEquals(sessions.size, 2)
     assertEquals(sessions(0).name, "reviewer")
@@ -97,7 +100,7 @@ class SessionTest extends FunSuite:
     val fc2 = makeControl(store, dir)
     val id2 = agent.session("implementer", "brief")(using fc2)
 
-    assertEquals(id2, id1)
+    assertEquals(id2.id, id1.id)
     // Must not mint a second record — still exactly one session.
     assertEquals(store.load().get.sessions.size, 1)
 
@@ -117,7 +120,7 @@ class SessionTest extends FunSuite:
     val _ = agent.session("planner", "plan seed")(using fc2)
     val implementerRun2 = agent.session("implementer", "brief")(using fc2)
 
-    assertEquals(implementerRun2, implementerRun1)
+    assertEquals(implementerRun2.id, implementerRun1.id)
     val implementerRecord =
       store.load().get.sessions.find(_.name == "implementer").get
     assertEquals(implementerRecord.occurrence, 0)
@@ -177,7 +180,7 @@ class SessionTest extends FunSuite:
         makeControl(store, dir, List(recorder))
       )
     // Still returns the recorded id (re-seed is the safe fallback)...
-    assertEquals(resumedId, originalId)
+    assertEquals(resumedId.id, originalId.id)
     // ...but the divergence is surfaced, naming the session and occurrence.
     assert(
       recorder.steps.exists(s =>

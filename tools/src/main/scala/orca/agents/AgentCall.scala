@@ -15,9 +15,15 @@ trait AgentCall[B <: BackendTag, O]:
   def interactive: InteractiveAgentCall[B, O]
 
 /** Autonomous structured calls — single agentic turn, no human in the loop.
-  * Single method: pass a [[SessionId]] (typically from `agent.session(name,
-  * seed)` (in a flow) or the default fresh one); the library starts on the
-  * first call, resumes on subsequent calls. Returns the (stable) session id.
+  * Single method: pass a [[SessionId]] for an ephemeral in-run continuation, or
+  * omit it for a fresh one-shot session; the library starts on the first call,
+  * resumes on subsequent calls. Returns the (stable) session id.
+  *
+  * This is the EPHEMERAL door: it does not seed, probe, or persist. For a
+  * durable, resumable session (one that survives a flow crash/resume), obtain
+  * an `orca.FlowSession` via `agent.session(name, seed)` and call its
+  * `resultAs[O].autonomous.run(input)` — feeding a durable session's `.id` here
+  * forfeits seeding and wire-id persistence.
   */
 trait AutonomousAgentCall[B <: BackendTag, O]:
   /** Run the agent on `input`. When `emitPrompt` is true (the default), fires
@@ -38,6 +44,10 @@ trait AutonomousAgentCall[B <: BackendTag, O]:
 /** Interactive structured calls — open a conversation the user can drive
   * (clarifying questions, refinements) before the agent produces the final
   * structured `O`. Same shape as the autonomous variant.
+  *
+  * Pass a [[SessionId]] only for an ephemeral in-run continuation. Durable
+  * (seeded, resumable) interactive sessions are not offered: a live human is
+  * steering the turn, so there is no seed to replay — see `orca.FlowSession`.
   */
 trait InteractiveAgentCall[B <: BackendTag, O]:
   def run[I: AgentInput](
@@ -48,10 +58,16 @@ trait InteractiveAgentCall[B <: BackendTag, O]:
 
 /** Free-form text autonomous calls — the `Agent.autonomous` shape (the
   * non-structured sibling of [[AutonomousAgentCall]]). Single method: pass a
-  * [[SessionId]] (typically from `agent.session(name, seed)` (in a flow) or the
-  * default fresh one) and the library starts the session on the first call,
-  * resumes it on subsequent calls. Returns the (stable) session id so the
-  * caller can pass it back unchanged.
+  * [[SessionId]] for an ephemeral in-run continuation, or omit it for a fresh
+  * one-shot session; the library starts the session on the first call, resumes
+  * it on subsequent calls. Returns the (stable) session id so the caller can
+  * pass it back unchanged.
+  *
+  * This is the EPHEMERAL door: it does not seed, probe, or persist. For a
+  * durable, resumable session (one that survives a flow crash/resume), obtain
+  * an `orca.FlowSession` via `agent.session(name, seed)` and call its
+  * `run(prompt)` — feeding a durable session's `.id` here forfeits seeding and
+  * wire-id persistence.
   */
 trait AutonomousTextCall[B <: BackendTag]:
   /** Run the agent on `prompt`. When `emitPrompt` is true (the default), fires

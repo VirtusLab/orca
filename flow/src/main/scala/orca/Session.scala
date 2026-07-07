@@ -1,24 +1,154 @@
 package orca
 
-import orca.agents.{BackendTag, Agent, SessionId}
+import orca.agents.{
+  BackendTag,
+  Agent,
+  SessionId,
+  AgentInput,
+  Announce,
+  JsonData
+}
 import orca.events.OrcaEvent
 import orca.progress.{ProgressLog, SessionRecord}
+
+/** A durable, resumable LLM-session handle — the single door for sessions that
+  * must survive a flow crash and resume. Obtain one with `agent.session(name,
+  * seed)`; it bundles the [[Agent]] with the reserved [[SessionId]] and owns
+  * the entire probe → seed/preamble → run → persist protocol, so a durable run
+  * can never silently skip seeding or wire-id persistence the way a raw
+  * `agent.autonomous.run(prompt, session)` door does.
+  *
+  * Use [[run]] for free-form text and [[resultAs]]`.autonomous.run` for a
+  * structured `O`. Both prime the conversation with the recorded seed and a
+  * progress preamble when the backend conversation isn't live (first use or
+  * lost on resume), then persist the backend's learned resume wire id — mirror
+  * images of the same protocol on the two doors.
+  *
+  * '''Escape hatch:''' [[id]] exposes the underlying [[SessionId]]. Passing it
+  * to a raw `agent.autonomous.run` / `agent.resultAs[O]...run` door FORFEITS
+  * seeding and wire-id persistence (those doors are for ephemeral in-run
+  * continuations only) — reach for it only when you deliberately want an
+  * unseeded continuation.
+  *
+  * '''Interactive is deliberately not offered here.''' Durable sessions replay
+  * a seed precisely because no human is present to re-explain; an interactive
+  * turn's whole premise is a live human steering it, so the two don't combine.
+  * If a genuine interactive-durable use case lands, route it through
+  * `agent.interactive.run(input, session.id)` (the escape hatch) for now, and a
+  * seeded interactive door can be added additively then.
+  *
+  * The handle is a plain immutable value ([[Agent]] + [[SessionId]]): mint it
+  * once (outside/before stages) and freely close over it into any later
+  * `stage(...)`. Only the capabilities its methods require ([[InStage]],
+  * [[WorkspaceWrite]]) are stage-scoped — the handle itself carries no stage
+  * affinity.
+  */
+final class FlowSession[B <: BackendTag] private[orca] (
+    agent: Agent[B],
+    /** The underlying reserved session id — the documented escape hatch (see
+      * the class scaladoc). Prefer [[run]] / [[resultAs]]; reach for `.id` only
+      * to hand the raw doors an ephemeral continuation.
+      */
+    val id: SessionId[B]
+):
+
+  /** Run the agent autonomously against this session on free-form `prompt`,
+    * priming it with the recorded seed + a progress preamble IF the backend
+    * conversation isn't live (a fresh first use, or lost on resume). If the
+    * session is live, runs `prompt` as-is (continues the conversation). Returns
+    * the run's output.
+    *
+    * The seed is looked up from the progress log by matching [[id]]; if no
+    * record is found the seed is treated as empty (does not throw). The
+    * progress preamble names completed stages and is only included when there
+    * is at least one completed entry — a true first use gets just `seed +
+    * prompt`, with no misleading "resuming" text.
+    *
+    * The [[WorkspaceWrite]] token is supplied explicitly (not self-minted):
+    * inside a stage body it is already ambient, so this costs the caller
+    * nothing, while making "durable runs are flow-thread-only, never from a
+    * `fork`" a signature-level fact (ADR 0018 §6).
+    */
+  def run(prompt: String)(using
+      fc: FlowControl,
+      ev: InStage,
+      ws: WorkspaceWrite
+  ): String =
+    val (_, output) =
+      if agent.sessionExists(id) then agent.autonomous.run(prompt, id)
+      else
+        val log = fc.progressStore.load()
+        val seed = lookupSeed(log, id)
+        val preamble = progressPreamble(log)
+        val primedPrompt = composePrimedPrompt(preamble, seed, prompt)
+        agent.autonomous.run(primedPrompt, id)
+    persistResumeWireId(agent, id)
+    output
+
+  /** Structured (`resultAs[O]`) durable door. Fixes the output type and yields
+    * a gateway whose `autonomous.run(input)` applies the same probe →
+    * seed/preamble → run → persist protocol as [[run]] to the structured call
+    * (see [[FlowSessionCall]]).
+    */
+  def resultAs[O: JsonData: Announce]: FlowSessionCall[B, O] =
+    new FlowSessionCall(agent, id)
+
+/** Structured-durable gateway for a [[FlowSession]] (obtained via
+  * [[FlowSession.resultAs]]). Mirrors the raw `agent.resultAs[O]` gateway so
+  * the mode stays visible at the call site, but exposes only `autonomous` —
+  * interactive durable sessions are deliberately not offered (see the
+  * [[FlowSession]] class scaladoc).
+  */
+final class FlowSessionCall[B <: BackendTag, O] private[orca] (
+    agent: Agent[B],
+    id: SessionId[B]
+)(using JsonData[O], Announce[O]):
+
+  /** Autonomous structured turn against the durable session. Applies the same
+    * seed/probe/persist protocol as [[FlowSession.run]]: on a lost/fresh
+    * session it prepends the recorded seed + progress preamble to the
+    * serialized `input`, runs the structured `resultAs[O].autonomous` door,
+    * then persists the learned resume wire id. `emitPrompt = false` suppresses
+    * the `UserPrompt` event for framework-internal callers that produce
+    * near-identical prompts in quick succession (e.g. a per-task fix turn).
+    */
+  object autonomous:
+    def run[I](input: I, emitPrompt: Boolean = true)(using
+        fc: FlowControl,
+        ai: AgentInput[I],
+        ev: InStage,
+        ws: WorkspaceWrite
+    ): O =
+      val serialized = ai.serialize(input)
+      val door = agent.resultAs[O].autonomous
+      val (_, output) =
+        if agent.sessionExists(id) then
+          door.run(serialized, id, emitPrompt = emitPrompt)
+        else
+          val log = fc.progressStore.load()
+          val seed = lookupSeed(log, id)
+          val preamble = progressPreamble(log)
+          val primed = composePrimedPrompt(preamble, seed, serialized)
+          door.run(primed, id, emitPrompt = emitPrompt)
+      persistResumeWireId(agent, id)
+      output
 
 /** Get-or-create session extension for `Agent`. Lives in the `flow` module so
   * it can depend on [[FlowControl]] (which is in `flow`) while [[Agent]]
   * remains in `tools` (which `flow` depends on, not the reverse).
   */
 extension [B <: BackendTag](agent: Agent[B])
-  /** Get-or-create a session keyed by `name` + call-occurrence in this run's
-    * log, stage-style (mirrors `stage(name)`'s id, ADR 0018 §2.1).
+  /** Get-or-create a durable [[FlowSession]] keyed by `name` + call-occurrence
+    * in this run's log, stage-style (mirrors `stage(name)`'s id, ADR 0018
+    * §2.1).
     *
-    * Reserves/returns a [[SessionId]] and records `(name, occurrence, id,
-    * seed)` in the progress log; the backend conversation is created lazily on
-    * the first gated `run`. On resume, returns the id recorded at this `(name,
-    * occurrence)`, matching `fc.nextSessionOccurrence(name)` against the
-    * same-named calls so far in this run (does not mint a second). The seed is
-    * only recorded here — applying it on first use and replaying it on loss are
-    * separate later tasks.
+    * Reserves a [[SessionId]] and records `(name, occurrence, id, seed)` in the
+    * progress log, then returns a [[FlowSession]] handle wrapping it; the
+    * backend conversation is created lazily on the handle's first gated `run`.
+    * On resume, wraps the id recorded at this `(name, occurrence)`, matching
+    * `fc.nextSessionOccurrence(name)` against the same-named calls so far in
+    * this run (does not mint a second). The seed is only recorded here;
+    * [[FlowSession.run]] applies it on first use and replays it on loss.
     *
     * Because the key is `name` + occurrence rather than call position, identity
     * survives inserting/reordering *other* `session(...)` calls between runs —
@@ -28,18 +158,23 @@ extension [B <: BackendTag](agent: Agent[B])
     * No LLM call and no commit — so it is callable outside a stage. (The id is
     * a fresh UUID, so it is not referentially transparent.) The store write
     * mints its [[WorkspaceWrite]] token via [[RuntimeInStage]] (the same door
-    * the `stage` runtime uses for setup-phase mutations). Because that write
-    * isn't committed, a failure teardown's `git reset --hard` can erase it
-    * before the next stage commit carries the log — the retry then mints a
-    * fresh session and re-seeds (see `ProgressStore.upsertSession`).
+    * the `stage` runtime uses for setup-phase mutations) — this is the one call
+    * in the family that must remain outside-stage-callable, so it self-mints;
+    * [[FlowSession.run]]/[[FlowSessionCall]] instead take the token explicitly.
+    * Because that write isn't committed, a failure teardown's `git reset
+    * --hard` can erase it before the next stage commit carries the log — the
+    * retry then mints a fresh session and re-seeds (see
+    * `ProgressStore.upsertSession`).
     */
-  def session(name: String, seed: String)(using fc: FlowControl): SessionId[B] =
+  def session(name: String, seed: String)(using
+      fc: FlowControl
+  ): FlowSession[B] =
     // An empty name would collide with legacy (pre-naming) records that
     // decode to name="" — that's an authoring defect, so require rather than
     // return an Either.
     require(name.nonEmpty, "session name must be non-empty")
     val occ = fc.nextSessionOccurrence(name)
-    fc.progressStore
+    val id = fc.progressStore
       .load()
       .flatMap(
         _.sessions.find(r => r.name == name && r.occurrence == occ)
@@ -72,46 +207,22 @@ extension [B <: BackendTag](agent: Agent[B])
           )
         )
         freshId
-
-  /** Run the agent autonomously against `session`, priming it with the recorded
-    * seed + a progress preamble IF the backend conversation isn't live (a fresh
-    * first use, or lost on resume). If the session is live, runs `prompt` as-is
-    * (continues the conversation). Returns the run's (SessionId, output).
-    *
-    * The seed is looked up from the progress log by matching `session`'s id; if
-    * no record is found the seed is treated as empty (does not throw).
-    *
-    * The progress preamble names completed stages and is only included when
-    * there is at least one completed entry — a true first use gets just `seed +
-    * prompt`, with no misleading "resuming" text.
-    */
-  def runSeeded(
-      prompt: String,
-      session: SessionId[B]
-  )(using fc: FlowControl, ev: InStage): (SessionId[B], String) =
-    val result =
-      if agent.sessionExists(session) then agent.autonomous.run(prompt, session)
-      else
-        val log = fc.progressStore.load()
-        val seed = lookupSeed(log, session)
-        val preamble = progressPreamble(log)
-        val primedPrompt = composePrimedPrompt(preamble, seed, prompt)
-        agent.autonomous.run(primedPrompt, session)
-    persistResumeWireId(agent, session)
-    result
+    new FlowSession(agent, id)
 
 /** After a run, persist the wire id to resume against that the backend has now
   * learned (durable backends only — pi returns `None`), so a resumed run can
   * rehydrate the map and continue/probe the right session. Upserts the matching
   * [[SessionRecord]] only when the learned wire id differs from what is already
   * recorded (and a record for `session` exists), so a no-op run writes nothing.
-  * The store write mints its [[WorkspaceWrite]] token via [[RuntimeInStage]],
-  * the same pattern [[session]] uses for the setup-phase write.
+  * Takes the [[WorkspaceWrite]] token explicitly — its callers
+  * ([[FlowSession.run]] / [[FlowSessionCall]]) run inside a stage where the
+  * token is ambient, and requiring it keeps these persisting writes
+  * flow-thread-only (ADR 0018 §6).
   */
 private def persistResumeWireId[B <: BackendTag](
     agent: Agent[B],
     session: SessionId[B]
-)(using fc: FlowControl): Unit =
+)(using fc: FlowControl, ws: WorkspaceWrite): Unit =
   agent
     .resumeWireId(session)
     .foreach: wireId =>
@@ -120,7 +231,6 @@ private def persistResumeWireId[B <: BackendTag](
         .flatMap(_.sessions.find(_.id == session.value))
         .foreach: record =>
           if !record.resumeWireId.contains(wireId.value) then
-            given WorkspaceWrite = RuntimeInStage.workspaceToken()
             fc.progressStore.upsertSession(
               record.copy(resumeWireId = Some(wireId.value))
             )

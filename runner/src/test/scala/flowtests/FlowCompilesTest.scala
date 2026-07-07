@@ -39,11 +39,16 @@ object FlowCanary:
   def structuredResult(): Unit =
     flow(OrcaArgs(), _.claude):
       stage("plan"):
+        // Durable structured turns go through the FlowSession door (seeded,
+        // persisted); the raw `resultAs[O]` door is exercised with ephemeral
+        // (fresh / `.id`) sessions only — never a durable-session id.
         val session = claude.session("plan", seed = userPrompt)
-        val _ = claude.resultAs[FlowPlan].interactive.run(userPrompt, session)
-        val _ = claude.resultAs[FlowPlan].interactive.run("refine", session)
-        val _ = claude.resultAs[FlowPlan].autonomous.run(userPrompt, session)
-        val _ = claude.resultAs[FlowPlan].autonomous.run("follow up", session)
+        val _ = session.resultAs[FlowPlan].autonomous.run(userPrompt)
+        val _ = session.resultAs[FlowPlan].autonomous.run("follow up")
+        // Interactive is deliberately ephemeral-only (see FlowSession); the
+        // escape hatch `.id` pins the raw interactive door's shape.
+        val _ = claude.resultAs[FlowPlan].interactive.run(userPrompt)
+        val _ = claude.resultAs[FlowPlan].interactive.run("refine", session.id)
 
   /** Free-form text prompts and session continuation; the shape the README
     * promises for per-task implementation.
@@ -51,9 +56,11 @@ object FlowCanary:
   def continuedSession(): Unit =
     flow(OrcaArgs(), _.claude):
       stage("impl"):
+        // Durable free-text continuation goes through the FlowSession door.
         val session = claude.session("impl", seed = userPrompt)
-        val _ = claude.autonomous.run("kick off", session)
-        val _ = claude.autonomous.run("keep going", session)
+        val _ = session.run("kick off")
+        val _ = session.run("keep going")
+        // A bare (fresh) ephemeral session on the raw door is unchanged.
         val _ = claude.autonomous.run("one-shot")
 
   /** Every top-level accessor must resolve from `import orca.*` alone.
@@ -247,8 +254,9 @@ object FlowCanary:
   // -----------------------------------------------------------------------
 
   /** `implement.sc`: autonomous plan → session seeded from brief → task loop
-    * with `runSeeded` + `reviewAndFixLoop`. The session-based shapes
-    * (`session(name, seed=)`, `runSeeded`) are the core new-API additions.
+    * with `session.run` + `reviewAndFixLoop`. The session-based shapes
+    * (`session(name, seed=)` → `FlowSession`, `session.run`) are the core
+    * new-API additions.
     */
   def implementFlowShape(): Unit =
     flow(OrcaArgs(), _.claude):
@@ -259,10 +267,10 @@ object FlowCanary:
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
-          val _ = claude.runSeeded(task.description, session)
+          val _ = session.run(task.description)
           reviewAndFixLoop(
             coder = claude,
-            sessionId = session,
+            sessionId = session.id,
             reviewers = allReviewers(claude),
             reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
@@ -283,10 +291,10 @@ object FlowCanary:
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
-          val _ = claude.runSeeded(task.description, session)
+          val _ = session.run(task.description)
           reviewAndFixLoop(
             coder = claude,
-            sessionId = session,
+            sessionId = session.id,
             reviewers = allReviewers(claude),
             reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
@@ -305,10 +313,10 @@ object FlowCanary:
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
-          val _ = claude.runSeeded(plan.taskPrompt(task), session)
+          val _ = session.run(plan.taskPrompt(task))
           reviewAndFixLoop(
             coder = claude,
-            sessionId = session,
+            sessionId = session.id,
             reviewers = allReviewers(claude),
             reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
@@ -350,10 +358,10 @@ object FlowCanary:
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
-          val _ = claude.runSeeded(task.description, session)
+          val _ = session.run(task.description)
           reviewAndFixLoop(
             coder = claude,
-            sessionId = session,
+            sessionId = session.id,
             reviewers = reviewers,
             reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
@@ -361,9 +369,8 @@ object FlowCanary:
           )
 
       stage("Update documentation"):
-        val _ = claude.runSeeded(
-          "Update project docs based on the changes made.",
-          session
+        val _ = session.run(
+          "Update project docs based on the changes made."
         )
 
   /** `issue-pr.sc`: read issue outside stage, `assessThenPlan`, optional plan,
@@ -395,10 +402,10 @@ object FlowCanary:
 
         for task <- plan.tasks do
           stage(s"task: ${task.title}"):
-            val _ = claude.runSeeded(task.description, session)
+            val _ = session.run(task.description)
             reviewAndFixLoop(
               coder = claude,
-              sessionId = session,
+              sessionId = session.id,
               reviewers = allReviewers(claude),
               reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
               task = task.title.value,
@@ -415,7 +422,7 @@ object FlowCanary:
   /** `issue-pr-bugfix.sc`: the push-after-edit authoring rule (ADR 0018).
     * "Write failing test" commits the test; a LATER "Push + open PR" stage
     * pushes it. Also covers `triage`, `waitForBuild` outside a stage,
-    * `claude.runSeeded` in a nested helper, and the final push+updatePr stage.
+    * `session.run` in a nested helper, and the final push+updatePr stage.
     */
   def bugfixFlowShape(): Unit =
     import scala.concurrent.duration.DurationInt
@@ -446,9 +453,8 @@ object FlowCanary:
         case Triage.Testable(summary, _, failingTestPath) =>
           // Stage 1: write + commit the test.
           stage("Write failing test"):
-            val _ = claude.runSeeded(
-              s"Write the failing test at $failingTestPath.",
-              session
+            val _ = session.run(
+              s"Write the failing test at $failingTestPath."
             )
 
           // Stage 2: LATER stage — push the already-committed test, open PR.
@@ -476,10 +482,10 @@ object FlowCanary:
               .value
           for task <- fixPlan.tasks do
             stage(s"task: ${task.title}"):
-              val _ = claude.runSeeded(fixPlan.taskPrompt(task), session)
+              val _ = session.run(fixPlan.taskPrompt(task))
               reviewAndFixLoop(
                 coder = claude,
-                sessionId = session,
+                sessionId = session.id,
                 reviewers = allReviewers(claude),
                 reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
                 task = task.title.value,
