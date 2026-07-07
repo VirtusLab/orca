@@ -777,11 +777,28 @@ alongside.
 
 Deliberately deferred; recorded here so nothing is lost:
 
-- **Capture-checking migration.** Turn the convention guard-rails into compile-time
-  guarantees: mark `InStage` and `FlowControl` as `caps.Capability` and type the
-  escaping positions (stage bodies, fork thunks) as pure, so a smuggled `InStage` or
-  a `FlowControl` captured into a fork is a compile error. Additive — no call-site
-  changes (§2.2, §5).
+- **Capture-checking migration.** Shipped (Epic 0, `complexity-review-2` branch;
+  commits `7437569`, `365ea76`, `4011187`, `0e8501d`). The convention guard-rails
+  are now compile-time guarantees, via the split the 2026-07-06 amendment below
+  called for: `InStage` extends `caps.SharedCapability` — the LLM-call gate,
+  covering **any** LLM call regardless of toolset (owner decision, 2026-07-07:
+  no toolset-aware typing, because capability types cannot constrain what the
+  agent subprocess does — that's `AgentConfig.tools` plus the `Enforcement`
+  matrix — and adversarial agent behavior is outside the threat model) — and
+  stays freely fork-capturable, matching the reviewer fan-out's load-bearing
+  capture. `WorkspaceWrite` (new) and `FlowControl` extend
+  `caps.ExclusiveCapability` — workspace/index-mutation and stage-starting
+  authority — so separation checking rejects two concurrent forks capturing
+  either. `stage(...)` bodies receive both tokens; both mint only through the
+  `RuntimeInStage` single door (`token()` / `workspaceToken()`). The checked
+  fork funnel is `CheckedPar` (`tools`, package `orca`, not on the exported API
+  surface) — CC-compiled wrappers around Ox's combinators, and the only
+  load-bearing enforcement point until Ox itself adopts capture checking
+  (upstream plan, owner 2026-07-07: once `fork`/`supervised` track the `Ox`
+  capability, the fork-boundary rejection moves to `ox.fork` directly and
+  `CheckedPar` stops being load-bearing); raw `ox.fork` / plain Ox flows remain
+  the unchecked escape hatch until then. Additive — no call-site changes beyond
+  the two-token split (§2.2, §5).
 
   > **Amendment (2026-07-06).** As written, this endgame is too blunt: the reviewer
   > fan-out (`ReviewLoop`, via `Flow.mapParUnordered`) *deliberately* captures the
@@ -800,6 +817,42 @@ Deliberately deferred; recorded here so nothing is lost:
   > carved out of it) stays fork-opaque. No implementation decision is made here;
   > this only records the constraint so the eventual capture-checking design
   > doesn't calcify the wrong rule.
+
+  > **Amendment (2026-07-07).** The above constraint is resolved by the shipped
+  > design (main text above), and the following was verified along the way, on
+  > stable Scala 3.8.4 (no flags, no nightly):
+  > - `caps.Capability` is sealed — extend the sub-markers, never the root.
+  >   `caps.SharedCapability` is non-experimental, so `InStage.scala` carries no
+  >   language import; `caps.ExclusiveCapability` is `@experimental`, so the
+  >   `WorkspaceWrite` and `FlowControl` files carry
+  >   `import language.experimental.captureChecking`.
+  > - Taint is narrower than first assumed: a plain consumer of a CC-importing
+  >   file's definitions compiles under zero flags (pinned by
+  >   `NoTaintCanaryTest`) — but a signature carrying a capture-set parameter
+  >   (`C^`, as `CheckedPar.mapParUnordered` does) is only *callable* from a
+  >   CC-enabled compilation unit. That's why `CheckedPar` stays off the
+  >   exported API surface.
+  > - Enforcement is per compilation unit, at the **caller's** site: both the
+  >   wrapper file and every calling file need the language imports; a user
+  >   `.sc` script only gets fork-capture checking if the script itself carries
+  >   them.
+  > - Separation checking does not fire through a non-CC-compiled library's
+  >   combinators (verified against an Ox-shaped jar) — so `CheckedPar`'s
+  >   wrappers are load-bearing, not cosmetic, until Ox ships its own capture
+  >   checking.
+  > - munit's `compileErrors`/`typeCheckErrors` are blind to capture/separation
+  >   violations (capture checking runs post-typer); the CC negative suite
+  >   instead invokes `dotc` in a separate-compilation harness (flow test scope)
+  >   and pins three cases: a fork capturing `InStage` compiles (protecting the
+  >   load-bearing reviewer fan-out), and forks capturing `WorkspaceWrite` or
+  >   `FlowControl` fail with "Separation failure".
+  > - Tooling caveats worth recording: scalafmt 3.8.3 cannot tokenize `^`
+  >   (`CheckedPar.scala` is excluded from formatting, the one hand-formatted
+  >   file); tapir's `derives JsonData` is CC-incompatible (keep such
+  >   derivations out of CC-compiled files); and a `Test / resourceGenerators`
+  >   task that reads `fullClasspath` deadlocks sbt silently — use
+  >   `dependencyClasspath` instead.
+
 - **Progress-log redaction hook.** A seam to redact/secret-scrub stage results before
   they are committed, addressing the open-PR confidentiality surface (§5, R26).
 - **Nested, repeated, or concurrent `flow(...)` calls.** A flow binds one branch and

@@ -66,15 +66,17 @@ most easily broken:
 
 - **Capability gating.** Four compile-time capabilities gate side effects:
   `FlowContext` (reads + emit; thread-safe), `FlowControl <: FlowContext`
-  (authority to start a stage; thread-affine), and a SPLIT pair of opaque
-  stage-bound tokens (both in `tools`, `package orca`) — `InStage`, the SHARED
-  half: every `agent.*.run` / `runSeeded` (spend tokens, drive an agent) takes
-  `(using InStage)`, and it is safe to capture into a `fork` (the reviewer
-  fan-out's shared `InStage` capture is load-bearing); and `WorkspaceWrite`,
-  the EXCLUSIVE half: every git write, `fs.write`, `gh` write, and
-  progress-log write takes `(using WorkspaceWrite)`, and it must NOT cross a
-  `fork` boundary (two concurrent forks racing on the same git index or
-  progress log is exactly what this is meant to catch). A helper that does
+  (authority to start a stage; thread-affine), and a SPLIT pair of stage-bound
+  capability tokens (both in `tools`, `package orca`) — `InStage`, the SHARED
+  half (`caps.SharedCapability`, fork-capturable): every `agent.*.run` /
+  `runSeeded` (spend tokens, drive an agent) takes `(using InStage)`, and it is
+  safe to capture into a `fork` (the reviewer fan-out's shared `InStage`
+  capture is load-bearing); and `WorkspaceWrite`, the EXCLUSIVE half
+  (`caps.ExclusiveCapability`, fork-opaque): every git write, `fs.write`, `gh`
+  write, and progress-log write takes `(using WorkspaceWrite)`, and it must NOT
+  cross a `fork` boundary (two concurrent forks racing on the same git index or
+  progress log is exactly what this is meant to catch, and now what capture
+  checking enforces at compile time — ADR 0018 §6). A helper that does
   both (e.g. `Flow`'s `recordAndCommit`, which appends the progress log and
   commits AND may call the cheap model for a commit message) takes BOTH.
   Only a `stage` body mints — and is handed both tokens together. Don't relax
