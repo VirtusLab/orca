@@ -41,6 +41,26 @@ private class FailingConversation(failure: Throwable)
   def cancel(): Unit =
     val _ = cancelCount.incrementAndGet()
 
+/** A conversation whose event stream throws partway through iteration, standing
+  * in for a subprocess that dies mid-turn: the scripted events are yielded
+  * first, then the next `foreach` step raises `crash`. `awaitResult()` is never
+  * reached because the drain's event loop throws before it.
+  */
+private class CrashingConversation(
+    eventList: List[ConversationEvent],
+    crash: Throwable,
+    override val outputSchema: Option[String] = None
+) extends Conversation[BackendTag.Codex.type]:
+  val cancelCount = new AtomicInteger(0)
+  val events: Iterator[ConversationEvent] =
+    eventList.iterator ++ Iterator.continually[ConversationEvent](throw crash)
+  def awaitResult()
+      : Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
+    throw new IllegalStateException("awaitResult should be unreachable")
+  def canAskUser: Boolean = false
+  def cancel(): Unit =
+    val _ = cancelCount.incrementAndGet()
+
 /** Records every `OrcaEvent` it sees so tests can assert on the emission order
   * without scaffolding a full listener.
   */
@@ -300,13 +320,14 @@ class ConversationsTest extends munit.FunSuite:
     )
 
   test(
-    "structured mode drops a mid-turn-crash partial (no closing TurnEnd)"
+    "structured mode flushes an unfinished trailing buffer on a clean close"
   ):
-    // Mid-turn subprocess crash in structured mode: deltas arrive, then EOF
-    // before TurnEnd. Outside structured mode we flush the partial so the
-    // user can see what the agent had built up. Inside structured mode it
-    // would only ever be a half-formed JSON payload — drop it; the thrown
-    // exception (not modelled here) carries the real diagnostic.
+    // Structured mode, clean drain, but the stream ended with deltas and no
+    // closing TurnEnd. The payload is always a COMPLETED turn (the withheld
+    // one, dropped by finishNormally); an unfinished trailing buffer never
+    // became the payload, so finishNormally flushes it rather than dropping
+    // prose. Here there is no completed turn at all, so only the partial
+    // surfaces.
     val recorder = new RecordingListener
     val conv = new ScriptedConversation(
       List(
@@ -317,7 +338,42 @@ class ConversationsTest extends munit.FunSuite:
       outputSchema = Some("""{"type":"object"}""")
     )
     val _ = Conversations.drainAutonomous(conv, recorder)
-    assertEquals(recorder.events, Nil)
+    assertEquals(
+      recorder.events,
+      List(OrcaEvent.AssistantMessage("""{"answer":1"""))
+    )
+
+  test(
+    "structured mode: an abnormal mid-stream end flushes withheld + partial"
+  ):
+    // Turn 1 completes (and is withheld, awaiting the next turn to decide if
+    // it's the payload); turn 2 streams deltas, then the stream crashes before
+    // its TurnEnd. On an abnormal end nothing is reliably the payload, so both
+    // the withheld completed turn AND the partial are flushed — the old drain
+    // dropped the partial (and only surfaced turn 1 via a finally-side
+    // closeTurn). The crash is rethrown verbatim.
+    val recorder = new RecordingListener
+    val crash = new OrcaFlowException("stream died mid-turn")
+    val conv = new CrashingConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("turn one"),
+        ConversationEvent.AssistantTurnEnd,
+        ConversationEvent.AssistantTextDelta("partial "),
+        ConversationEvent.AssistantTextDelta("two")
+      ),
+      crash,
+      outputSchema = Some("""{"type":"object"}""")
+    )
+    val thrown = intercept[OrcaFlowException]:
+      Conversations.drainAutonomous(conv, recorder)
+    assertEquals(thrown, crash)
+    assertEquals(
+      recorder.events,
+      List(
+        OrcaEvent.AssistantMessage("turn one"),
+        OrcaEvent.AssistantMessage("partial two")
+      )
+    )
 
   test(
     "structured mode drops the final turn's text (the JSON payload)"
