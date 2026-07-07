@@ -483,14 +483,14 @@ class FlowLifecycleTest extends munit.FunSuite:
 
     // A fresh branch was resolved and created, distinct from the start branch
     // — not an abort, and not a no-op that leaves HEAD where it was.
-    assertEquals(git.currentBranch(), setup.featureBranch)
-    assertNotEquals(setup.featureBranch, startBranch)
+    assertEquals(git.currentBranch(), setup.featureBranch.value)
+    assertNotEquals(setup.featureBranch.value, startBranch)
     assertEquals(setup.startBranch, startBranch)
     // A brand-new header was written and committed — the corrupt bytes are
     // gone, replaced by a valid fresh log with no entries.
     val loaded = store.load()
     assert(loaded.isDefined, "a fresh header must have been written")
-    assertEquals(loaded.get.header.branch, setup.featureBranch)
+    assertEquals(loaded.get.header.branch, setup.featureBranch.value)
     assertEquals(loaded.get.entries, Nil)
 
   test(
@@ -945,6 +945,128 @@ class FlowLifecycleTest extends munit.FunSuite:
       ),
       s"expected a Step warning naming the protected branch and the fallback, got: $steps"
     )
+
+  test(
+    "fresh run does not silently adopt a pre-existing branch with the same resolved name"
+  ):
+    // The other tracker hazard task 3.4 closes: `checkoutOrCreate`'s
+    // silent-adopt path took over ANY existing branch with the resolved
+    // name, binding the whole run to whatever unrelated history that branch
+    // already carried — with zero signal. Pre-create a branch with the exact
+    // name `freshRun` will resolve to (a deterministic `branchNaming`), give
+    // it a commit of its own ("unrelated history"), then run a fresh flow
+    // that resolves to that same name. Today (pre-fix) `checkoutOrCreate`
+    // just checks it out and proceeds silently — this test is RED before the
+    // create/checkout split lands: `featureBranchName` observes
+    // `"taken-name"` and the pre-existing branch's head has moved.
+    val workDir = TempRepo.create()
+    val prompt = "adoption-hazard"
+    val git = new OsGitTool(workDir)
+    val listener = new RecordingListener
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("taken-name")
+    os.write(workDir / "unrelated.txt", "pre-existing work")
+    val _ = git.commit("unrelated pre-existing commit")
+    val preExistingHead = os
+      .proc("git", "rev-parse", "taken-name")
+      .call(cwd = workDir)
+      .out
+      .text()
+      .trim
+    val _ = git.checkout("main")
+    var featureBranchName = ""
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt),
+        agent = _ => StubAgent.claude,
+        workDir = workDir,
+        interaction = Some(interaction),
+        extraListeners = List(listener),
+        branchNaming = Some(BranchNamingStrategy.fromText("taken-name"))
+      ):
+        // Record the feature branch before any teardown runs.
+        featureBranchName = summon[orca.FlowContext].git.currentBranch()
+        val _ = stage("write code"):
+          os.write(workDir / "code.txt", "real code")
+          "done"
+    assertNotEquals(
+      featureBranchName,
+      "taken-name",
+      "a fresh run must never silently adopt a pre-existing branch's history"
+    )
+    // The pre-existing branch itself must be untouched: same head, and the
+    // run's own commits never landed on it.
+    val afterHead = os
+      .proc("git", "rev-parse", "taken-name")
+      .call(cwd = workDir)
+      .out
+      .text()
+      .trim
+    assertEquals(
+      afterHead,
+      preExistingHead,
+      "the pre-existing 'taken-name' branch must be untouched by the run"
+    )
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s }
+    assert(
+      steps.exists(s =>
+        s.message.contains("taken-name") && s.message.contains("already exists")
+      ),
+      s"expected a Step warning naming the pre-existing branch and the fallback, got: $steps"
+    )
+
+  test(
+    "fresh run aborts loudly when the deterministic fallback branch itself already exists"
+  ):
+    // The interaction the brief calls out: if the resolved name already went
+    // to the deterministic `flow-<hash>` fallback (here: because a
+    // protected-name collision fires first), a git-level "already exists"
+    // collision on THAT fallback must abort rather than hash a second time —
+    // a deterministic name colliding twice for the same prompt means a
+    // previous run's branch is genuinely still there, and the user must
+    // decide, not have orca guess again. Pre-create the exact deterministic
+    // fallback name as an unrelated branch, then force the protected-name
+    // fallback to land on it by resolving to "main".
+    val workDir = TempRepo.create()
+    val prompt = "fallback-collision-hazard"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    val expectedFallback = BranchNamingStrategy.flowFallbackName(prompt)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch(expectedFallback)
+    val _ = git.checkout("main")
+    val listener = new RecordingListener
+    val thrown = intercept[SurfacedFlowFailure]:
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        runFlow(
+          args = OrcaArgs(prompt),
+          agent = _ => StubAgent.claude,
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = List(listener),
+          branchNaming = Some(BranchNamingStrategy.fromText("main")),
+          returnToStartBranch = false,
+          progressStore = Some(store)
+        ):
+          val _ = stage("never-runs")("x")
+    val errors = listener.events.collect { case e: OrcaEvent.Error => e }
+    assertEquals(errors.size, 1, s"exactly one Error expected, got: $errors")
+    assert(
+      thrown.cause.getMessage.contains(expectedFallback),
+      s"abort message must name the colliding branch: ${thrown.cause.getMessage}"
+    )
+    // The repo must not have been left on the colliding branch.
+    assertEquals(git.currentBranch(), "main")
 
   test(
     "surfaced: a setup resume-refusal reaches the user as one Error and escapes as SurfacedFlowFailure"

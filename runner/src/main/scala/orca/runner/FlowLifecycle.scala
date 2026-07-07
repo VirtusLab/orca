@@ -22,6 +22,7 @@ import orca.progress.{
 }
 import orca.tools.GitTool
 import org.slf4j.LoggerFactory
+import ox.either.orThrow
 
 import scala.util.control.NonFatal
 
@@ -210,10 +211,18 @@ object FlowLifecycle:
 
   /** Outcome of [[setup]]: the resolved progress store, the feature branch the
     * run is bound to, and the starting branch to restore on success.
+    *
+    * `featureBranch` is a [[FeatureBranch]], not a bare `String`: both arms of
+    * `setup` only ever construct one via [[FeatureBranch.resolve]] (the fresh
+    * arm directly, the resume arm via [[RecoveryCheck.validateHeader]]), so
+    * "delete/checkout an unvalidated name" is unrepresentable here — a
+    * protected name can never reach this field, not just "doesn't today because
+    * nothing upstream produces one." `finishBranch` unwraps `.value` only at
+    * the actual `GitTool` call sites.
     */
   private[orca] case class FlowSetup(
       store: ProgressStore,
-      featureBranch: String,
+      featureBranch: FeatureBranch,
       startBranch: String
   )
 
@@ -325,16 +334,17 @@ object FlowLifecycle:
         // protected set is the main/master floor plus the repo's ACTUAL default
         // branch (best-effort), so a tampered header naming e.g. `trunk` as a
         // feature branch is refused too.
-        RecoveryCheck.validateHeader(
-          header,
-          args.userPrompt,
-          protectedBranches
-        ) match
-          case Left(reason) =>
-            throw new OrcaFlowException(
-              s"refusing to resume: progress log header failed validation ($reason)"
-            )
-          case Right(()) => ()
+        val featureBranch =
+          RecoveryCheck.validateHeader(
+            header,
+            args.userPrompt,
+            protectedBranches
+          ) match
+            case Left(reason) =>
+              throw new OrcaFlowException(
+                s"refusing to resume: progress log header failed validation ($reason)"
+              )
+            case Right(featureBranch) => featureBranch
         // Only resume IN PLACE. If the log surfaced on a branch it does not
         // name, it was likely carried here by a merge — abort, don't replay.
         val current = git.currentBranch()
@@ -347,7 +357,7 @@ object FlowLifecycle:
         // Resume in place: already on header.branch. The recorded start branch
         // (where a PR flow / throwaway returns to) is the ORIGINAL one, not this
         // feature branch.
-        FlowSetup(store, header.branch, header.startingBranch)
+        FlowSetup(store, featureBranch, header.startingBranch)
 
   /** Fresh run: resolve + create the branch, then commit the header so it is
     * the branch's first commit. Shared by the genuinely-absent-log case and the
@@ -367,6 +377,13 @@ object FlowLifecycle:
     * must not flip between success and failure purely because the cheap model's
     * summary happened to phrase itself as "main" this time (mirrors
     * `shortenPrompt`'s existing "naming never blocks the flow" idiom).
+    *
+    * The (now protection-checked) name still isn't bound to git yet:
+    * [[createFreshBranch]] applies the SAME "never silently adopt" policy to a
+    * git-level `BranchAlreadyExists` collision — an unrelated pre-existing
+    * branch (leftover from an earlier run, hand-created, or a slug collision
+    * between two different prompts) must never be silently checked out and
+    * carried into this run.
     */
   private def freshRun(
       args: OrcaArgs,
@@ -381,38 +398,101 @@ object FlowLifecycle:
     val strategy =
       branchNaming.getOrElse(BranchNamingStrategy.shortenPrompt)
     val resolvedName = strategy.resolve(args.userPrompt, agent)
-    val branch = FeatureBranch.resolve(resolvedName, protectedBranches) match
-      case Right(featureBranch) => featureBranch.value
-      case Left(ProtectedBranchRefused(name)) =>
-        val fallbackName =
-          BranchNamingStrategy.flowFallbackName(args.userPrompt)
-        emit(
-          OrcaEvent.Step(
-            s"branch name '$name' is protected — using '$fallbackName' instead"
-          )
-        )
-        // Defensive re-check (see `flowFallbackName`'s scaladoc): a
-        // `flow-`-prefixed hash can't realistically collide with a protected
-        // name, but re-validating rather than assuming keeps the invariant
-        // airtight instead of merely believed.
-        FeatureBranch.resolve(fallbackName, protectedBranches) match
-          case Right(featureBranch) => featureBranch.value
-          case Left(_) =>
-            throw new OrcaFlowException(
-              s"internal error: deterministic fallback branch name " +
-                s"'$fallbackName' is itself a protected branch"
+    // Resolved once, eagerly: a cheap pure hash + set lookup, shared by BOTH
+    // fallback triggers below (a protected-name refusal and a git-level
+    // `BranchAlreadyExists` collision use the exact same deterministic name).
+    val fallback = resolveFallback(args.userPrompt, protectedBranches)
+    val protectionChecked =
+      FeatureBranch.resolve(resolvedName, protectedBranches) match
+        case Right(featureBranch) => featureBranch
+        case Left(ProtectedBranchRefused(name)) =>
+          emit(
+            OrcaEvent.Step(
+              s"branch name '$name' is protected — using '${fallback.value}' instead"
             )
-    git.checkoutOrCreate(branch)
+          )
+          fallback
+    val branch = createFreshBranch(git, protectionChecked, fallback, emit)
     store.writeHeader(
       ProgressHeader(
         startingBranch = startBranch,
-        branch = branch,
+        branch = branch.value,
         promptHash = ProgressStore.hashPrompt(args.userPrompt)
       )
     )
     git.forceAdd(store.path)
     val _ = git.commit("orca: progress log")
     FlowSetup(store, branch, startBranch)
+
+  /** The deterministic `flow-<hash>` fallback name for `userPrompt`
+    * (`BranchNamingStrategy.flowFallbackName`), minted into a
+    * [[FeatureBranch]]. Shared by both places `freshRun` needs a
+    * guaranteed-safe rename: a protected-name refusal and a git-level
+    * `BranchAlreadyExists` collision — one computation, so both triggers agree
+    * on (and can compare against) the exact same name.
+    *
+    * Defensive re-check: a `flow-`-prefixed hash can't realistically collide
+    * with a protected name, but re-validating rather than assuming keeps the
+    * invariant airtight instead of merely believed.
+    */
+  private def resolveFallback(
+      userPrompt: String,
+      protectedBranches: Set[String]
+  ): FeatureBranch =
+    val fallbackName = BranchNamingStrategy.flowFallbackName(userPrompt)
+    FeatureBranch.resolve(fallbackName, protectedBranches) match
+      case Right(featureBranch) => featureBranch
+      case Left(_) =>
+        throw new OrcaFlowException(
+          s"internal error: deterministic fallback branch name " +
+            s"'$fallbackName' is itself a protected branch"
+        )
+
+  /** Create `candidate` fresh via `git.createBranch`, never falling back to
+    * `checkoutOrCreate`'s old silent-adopt behaviour: a
+    * `Left(BranchAlreadyExists)` means a branch by that name is ALREADY there
+    * for some unrelated reason (an earlier run's leftover, a manually created
+    * branch, a slug collision between two different prompts) — carrying that
+    * branch's prior history into this run with zero signal is exactly the
+    * hazard task 3.4 closes.
+    *
+    * Applies the SAME fallback-rename policy `freshRun` already uses for a
+    * protected-name refusal: retry once, loudly (`Step`), with `fallback` (the
+    * SAME deterministic name `freshRun` resolved once via [[resolveFallback]]).
+    * If `candidate` IS ALREADY `fallback` (the protected-name fallback in
+    * `freshRun` already rewrote it once), retrying would recreate the identical
+    * name and collide again for certain — abort immediately instead of trying a
+    * second time. Either way, a deterministic name colliding on a FRESH run (no
+    * resume in play) means a previous run's branch is genuinely still there;
+    * the user must decide what to do with it, not have orca guess again.
+    */
+  private def createFreshBranch(
+      git: GitTool,
+      candidate: FeatureBranch,
+      fallback: FeatureBranch,
+      emit: OrcaEvent => Unit
+  )(using WorkspaceWrite): FeatureBranch =
+    def doubleCollisionAbort(name: String): Nothing =
+      throw new OrcaFlowException(
+        s"branch '$name' already exists — this deterministic name collided " +
+          "on a fresh run, which means a previous run's branch is still " +
+          "around; delete it or use a different prompt before retrying"
+      )
+    git.createBranch(candidate.value) match
+      case Right(()) => candidate
+      case Left(_) =>
+        if fallback.value == candidate.value then
+          doubleCollisionAbort(fallback.value)
+        else
+          emit(
+            OrcaEvent.Step(
+              s"branch '${candidate.value}' already exists — using " +
+                s"'${fallback.value}' instead"
+            )
+          )
+          git.createBranch(fallback.value) match
+            case Right(()) => fallback
+            case Left(_)   => doubleCollisionAbort(fallback.value)
 
   /** Read the bytes of the progress-log file if it exists. Returns `None` when
     * the file is absent — the normal fresh-run case and the case where the log
@@ -496,14 +576,18 @@ object FlowLifecycle:
       returnToStartBranch: Boolean
   )(using WorkspaceWrite): Unit =
     val throwaway =
-      setup.featureBranch != setup.startBranch &&
+      setup.featureBranch.value != setup.startBranch &&
         git
-          .diffBranchExcludingOrca(setup.startBranch, setup.featureBranch)
+          .diffBranchExcludingOrca(setup.startBranch, setup.featureBranch.value)
           .isBlank
     if throwaway then
-      git.checkoutOrCreate(setup.startBranch)
-      git.deleteBranch(setup.featureBranch)
-    else if returnToStartBranch then git.checkoutOrCreate(setup.startBranch)
+      // The start branch existed when this run began (it's either the repo's
+      // HEAD at setup time or a prior run's recorded header) — a plain
+      // `checkout` is enough; if it's gone mid-run that's genuinely
+      // exceptional, not a case to silently paper over by creating it anew.
+      git.checkout(setup.startBranch).orThrow
+      git.deleteBranch(setup.featureBranch.value)
+    else if returnToStartBranch then git.checkout(setup.startBranch).orThrow
     // else: stay on the feature branch (the default).
 
   /** Failure teardown (ADR 0018 §2.5): discard the failed stage's uncommitted

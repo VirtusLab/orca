@@ -58,8 +58,8 @@ class RecoveryCheckTest extends FunSuite:
     // ...but a normal feature branch still passes with the same set.
     val ok = header.copy(branch = "feat/do-the-thing")
     assertEquals(
-      RecoveryCheck.validateHeader(ok, prompt, Set("trunk")),
-      Right(())
+      RecoveryCheck.validateHeader(ok, prompt, Set("trunk")).map(_.value),
+      Right("feat/do-the-thing")
     )
 
   test("validateHeader allows a protected startingBranch"):
@@ -70,8 +70,8 @@ class RecoveryCheckTest extends FunSuite:
       promptHash = ProgressStore.hashPrompt(prompt)
     )
     assertEquals(
-      RecoveryCheck.validateHeader(header, prompt, Set.empty),
-      Right(())
+      RecoveryCheck.validateHeader(header, prompt, Set.empty).map(_.value),
+      Right("feat/do-the-thing")
     )
 
   test("validateHeader rejects a prompt-hash mismatch"):

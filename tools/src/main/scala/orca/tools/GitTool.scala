@@ -3,7 +3,6 @@ package orca.tools
 import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.subprocess.QuietProc
-import ox.either.orThrow
 
 import scala.util.control.NonFatal
 
@@ -89,13 +88,6 @@ trait GitTool:
     * unchanged. Throws `OrcaFlowException` for system-level failures.
     */
   def checkout(name: String)(using WorkspaceWrite): Either[BranchNotFound, Unit]
-
-  /** Switch to `name`, creating it from `HEAD` if it doesn't exist yet.
-    * Idempotent: calling on the current branch is a no-op (no `Step` event
-    * emitted in that case). Useful for resumable flows that may run against a
-    * repo where the branch was already created on a previous attempt.
-    */
-  def checkoutOrCreate(name: String)(using WorkspaceWrite): Unit
 
   /** Stage all tracked + untracked changes, then commit them with `message`.
     * Flow scripts rarely want to manage the index separately, so staging is
@@ -258,13 +250,6 @@ private[orca] class OsGitTool(
       val _ = git("checkout", name)
       events.onEvent(OrcaEvent.Step(s"Switched to branch '$name'"))
       Right(())
-
-  def checkoutOrCreate(name: String)(using WorkspaceWrite): Unit =
-    if currentBranch() == name then
-      // Already on the target — no work to do, no event to emit.
-      ()
-    else if branchExists(name) then checkout(name).orThrow
-    else createBranch(name).orThrow
 
   private def branchExists(name: String): Boolean =
     git("branch", "--list", name).trim.nonEmpty

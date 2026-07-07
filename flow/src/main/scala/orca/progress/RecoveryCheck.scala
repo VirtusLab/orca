@@ -36,7 +36,10 @@ object RecoveryCheck:
   val alwaysProtected: Set[String] = Set("main", "master")
 
   /** Validate the header before any destructive action. Returns `Left(reason)`
-    * on the first failure, `Right(())` when the header is trustworthy.
+    * on the first failure, `Right(featureBranch)` — the header's `branch`
+    * minted as a [[FeatureBranch]] — when the header is trustworthy, so the
+    * caller (`FlowLifecycle.setup`'s resume arm) can bind `FlowSetup` to a
+    * typed branch without a second, redundant resolve call.
     *
     *   - `branch` and `startingBranch` must be safe refs.
     *   - `branch` must not be a protected branch (`startingBranch` may be) —
@@ -52,7 +55,7 @@ object RecoveryCheck:
       header: ProgressHeader,
       userPrompt: String,
       protectedBranches: Set[String]
-  ): Either[String, Unit] =
+  ): Either[String, FeatureBranch] =
     if !isSafeBranchRef(header.branch) then
       Left(s"branch '${header.branch}' is not a safe ref")
     else if !isSafeBranchRef(header.startingBranch) then
@@ -61,7 +64,7 @@ object RecoveryCheck:
       FeatureBranch.resolve(header.branch, protectedBranches) match
         case Left(ProtectedBranchRefused(name)) =>
           Left(s"branch '$name' is a protected branch")
-        case Right(_) =>
+        case Right(featureBranch) =>
           if header.promptHash != ProgressStore.hashPrompt(userPrompt) then
             Left("promptHash does not match the current prompt")
-          else Right(())
+          else Right(featureBranch)

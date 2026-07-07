@@ -191,33 +191,6 @@ class OsGitToolTest extends munit.FunSuite:
       val branches = git.listWorktrees().map(_.branch).toSet
       assert(!branches.contains("feature/gone"))
 
-  test("checkoutOrCreate creates a missing branch"):
-    withRepo: (git, dir) =>
-      os.write(dir / "x.txt", "x")
-      git.commit("seed").orThrow
-      git.checkoutOrCreate("feature/new")
-      assertEquals(git.currentBranch(), "feature/new")
-
-  test("checkoutOrCreate switches to an existing branch"):
-    withRepo: (git, dir) =>
-      os.write(dir / "x.txt", "x")
-      git.commit("seed").orThrow
-      git.createBranch("feature/existing").orThrow
-      git.checkout("main").orThrow
-      git.checkoutOrCreate("feature/existing")
-      assertEquals(git.currentBranch(), "feature/existing")
-
-  test(
-    "checkoutOrCreate is a no-op (no event) when already on the target branch"
-  ):
-    withRepoCapturingEvents: (git, dir, seen) =>
-      os.write(dir / "x.txt", "x")
-      git.commit("seed").orThrow
-      git.createBranch("feature/here").orThrow
-      val before = seen.get().size
-      git.checkoutOrCreate("feature/here")
-      assertEquals(seen.get().size, before, "no new events should fire")
-
   test("ensureClean returns false on a clean tree"):
     withRepo: (git, dir) =>
       os.write(dir / "x.txt", "x")
