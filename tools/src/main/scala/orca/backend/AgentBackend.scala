@@ -35,7 +35,21 @@ import ox.Ox
   *
   * `workDir` is the working directory the agent subprocess sees.
   */
-trait AgentBackend[B <: BackendTag]:
+trait AgentBackend[B <: BackendTag](
+    /** Backing store for [[isClosed]]/[[markClosed]]. Defaults to a fresh,
+      * unshared flag, correct for every backend whose builders (`withConfig`,
+      * `withModel`, …) go through `BaseAgent.copyTool` and so stay on the SAME
+      * backend instance. A backend whose builder instead constructs a SIBLING
+      * backend instance (today only claude's `withNetworkTools`, see
+      * [[orca.tools.claude.ClaudeBackend.withNetworkTools]]) MUST pass the
+      * parent's `closedFlag` into the sibling's constructor here, so
+      * `markClosed()` on either instance is visible through both — otherwise a
+      * handle derived via that builder and leaked past flow-end bypasses the
+      * Epic 7.5 use-after-close guard entirely (it latches a flag nothing else
+      * reads).
+      */
+    private[orca] val closedFlag: AtomicBoolean = new AtomicBoolean(false)
+):
   /** Run one autonomous turn against `session` and return its result. The
     * backend decides whether to create the session (first call with this id) or
     * resume it (subsequent calls).
@@ -132,9 +146,9 @@ trait AgentBackend[B <: BackendTag]:
   // goes through `BaseAgent.copyTool`, which constructs a NEW agent instance
   // sharing this same backend — a per-agent flag would silently reset to
   // "open" on every derived handle, letting `leaked.opus.autonomous.run(...)`
-  // bypass the guard. Final and private state so no override (production or
-  // test stub) can drop the latch.
-  private val closedFlag = new AtomicBoolean(false)
+  // bypass the guard. `closedFlag` itself is a constructor parameter (see
+  // above) rather than a fresh field here, so a backend-swapping builder can
+  // thread the SAME flag into a sibling instance instead of resetting it.
 
   /** Latch this backend as closed — its owning flow has ended, and every run
     * entry point gated on [[isClosed]] must refuse from now on. Called by
@@ -148,3 +162,12 @@ trait AgentBackend[B <: BackendTag]:
     * (and every agent handle sharing it) has ended.
     */
   private[orca] final def isClosed: Boolean = closedFlag.get()
+
+object AgentBackend:
+  /** Epic 7.5's user-facing message, thrown by every `isClosed` gate
+    * (`BaseAgent.checkNotClosed`, `DefaultAgentCall.checkNotClosed`) so a
+    * leaked-handle failure reads identically no matter which gate caught it.
+    * Single home for the string rather than one literal copy per gate.
+    */
+  private[orca] val ClosedMessage: String =
+    "agent used after its flow ended — agents are scoped to the flow(...) that created them"

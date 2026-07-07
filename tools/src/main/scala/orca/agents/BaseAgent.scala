@@ -90,9 +90,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     */
   private def checkNotClosed(): Unit =
     if backend.isClosed then
-      throw new OrcaFlowException(
-        "agent used after its flow ended — agents are scoped to the flow(...) that created them"
-      )
+      throw new OrcaFlowException(AgentBackend.ClosedMessage)
 
   /** Latches the shared backend closed first (so a `run`/`resultAs` call racing
     * this close observes one consistent state or the other, never a

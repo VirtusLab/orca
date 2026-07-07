@@ -1,18 +1,32 @@
 package orca.tools.claude
 
-import orca.backend.SupervisedBackend
+import orca.backend.{Interaction, SupervisedBackend}
 import orca.agents.{
   BackendTag,
   AgentConfig,
+  DefaultPrompts,
   SessionId,
   WireSessionId,
   ToolSet,
   onWire
 }
+import orca.events.OrcaListener
 import orca.{OrcaFlowException}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 
 class ClaudeBackendTest extends munit.FunSuite:
+
+  // LLM `run` is gated on `InStage`; mint the token for the suite.
+  private given orca.InStage = orca.InStage.unsafe
+
+  // Never driven — the closed-latch test throws before reaching a
+  // conversation.
+  private val stubInteraction: Interaction = new Interaction:
+    val listeners: List[OrcaListener] = Nil
+    def drive[B <: BackendTag](
+        conversation: orca.backend.Conversation[B]
+    ): orca.backend.AgentResult[B] =
+      throw new UnsupportedOperationException("test stub")
 
   /** Stream-json transcript for a clean autonomous call. Order matters:
     * `system.init` first, then the `result` message; `closeStdout` triggers EOF
@@ -92,6 +106,33 @@ class ClaudeBackendTest extends munit.FunSuite:
       )
       val args = runner.calls.head
       assert(args.containsSlice(Seq("--allowedTools", "WebFetch")), args)
+
+  test(
+    "a withNetworkTools sibling shares the parent's closed latch (Epic 7.5)"
+  ):
+    // withNetworkTools is the one builder that swaps in a genuinely NEW
+    // ClaudeBackend instance rather than reusing the caller's (every other
+    // builder — withConfig/withModel/opus/withName/… — goes through
+    // BaseAgent.copyTool, which keeps the same backend). Before this fix each
+    // fresh instance got its own closedFlag, so a handle derived via
+    // `agent.withNetworkTools(...)` while the flow was open and used AFTER
+    // the leading agent's flow closed would silently bypass the Epic 7.5
+    // use-after-close guard. `run` never reaches the (empty) stub runner: the
+    // guard must throw first.
+    val backend = new ClaudeBackend(new SpawnStubCliRunner(Nil))
+    val agent = new DefaultClaudeAgent(
+      backend,
+      AgentConfig(),
+      DefaultPrompts,
+      os.temp.dir(),
+      OrcaListener.noop,
+      stubInteraction
+    )
+    val derived = agent.withNetworkTools(Seq("WebFetch"))
+    agent.close() // latches the shared backend, not just `agent`'s own handle
+    val thrown = intercept[OrcaFlowException]:
+      derived.autonomous.run("prompt")
+    assertEquals(thrown.getMessage, orca.backend.AgentBackend.ClosedMessage)
 
   test(
     "runAutonomous passes --json-schema when an output schema is supplied"

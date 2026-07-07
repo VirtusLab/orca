@@ -126,9 +126,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     */
   private def checkNotClosed(): Unit =
     if backend.isClosed then
-      throw new orca.OrcaFlowException(
-        "agent used after its flow ended — agents are scoped to the flow(...) that created them"
-      )
+      throw new orca.OrcaFlowException(AgentBackend.ClosedMessage)
 
   val autonomous: AutonomousAgentCall[B, O] = new AutonomousAgentCall[B, O]:
     def run[I: AgentInput](

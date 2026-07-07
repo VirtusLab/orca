@@ -180,6 +180,13 @@ def flow[B <: BackendTag](
   finally
     costTracker.printSummary()
     orcaLog.finish()
+  // Residual: for a NESTED `flow()` call (the outer flow's body invoking
+  // `flow()` again), this `System.exit` tears down the JVM before the OUTER
+  // flow's own `finally` (branch restore, workdir-lock release) ever runs —
+  // the outer branch is left checked out and `.orca/flow.lock` stays behind
+  // (self-heals: the next run steals the dead-PID lock with a warning).
+  // Known, not fixed — see complexity-review-2.md Epic 7 note ("Epic 7
+  // residual").
   if failed then System.exit(1)
 
 // --- Epic 7.4: reentrancy/concurrency guards -------------------------------
@@ -244,6 +251,12 @@ private def excludeLockFromGit(workDir: os.Path): Unit =
       os.write.append(excludePath, s"$line\n", createFolders = true)
   catch case NonFatal(_) => ()
 
+/** Bound on [[acquireWorkdirLock]]'s total `CREATE_NEW` races (the initial try
+  * plus every re-race after a losing steal or a holder that released mid-check)
+  * — pathological churn must end in a refusal, not a spin.
+  */
+private val MaxLockAcquireAttempts = 4
+
 /** Acquire the `workDir`-keyed lock file, returning its path (release it with
   * [[releaseWorkdirLock]]). Refuses with the tracker's message when the holder
   * PID is still alive; steals (after a stderr warning) when it isn't.
@@ -253,8 +266,9 @@ private def excludeLockFromGit(workDir: os.Path): Unit =
   * re-racing the create (two racing stealers then can't both win — the loser's
   * `CREATE_NEW` fails and it re-reads the winner's live PID), and a lock that
   * vanishes between the failed create and the read (the holder just released)
-  * simply retries the create. Attempts are bounded so pathological churn ends
-  * in a refusal rather than a spin.
+  * simply retries the create. Bounded at [[MaxLockAcquireAttempts]] total tries
+  * (not retries — `attemptsLeft` below counts attempts remaining, including the
+  * one about to run).
   */
 private def acquireWorkdirLock(workDir: os.Path): os.Path =
   os.makeDir.all(workDir / ".orca")
@@ -262,14 +276,14 @@ private def acquireWorkdirLock(workDir: os.Path): os.Path =
   val lockPath = flowLockPath(workDir)
   val pid = ProcessHandle.current().pid()
 
-  @tailrec def attempt(retriesLeft: Int): Unit =
+  @tailrec def attempt(attemptsLeft: Int): Unit =
     val acquired =
       try
         os.write(lockPath, pid.toString)
         true
       catch case _: FileAlreadyExistsException => false
     if !acquired then
-      if retriesLeft <= 0 then
+      if attemptsLeft <= 1 then
         throw new OrcaFlowException(
           "a flow is already running in this working tree (the lock at " +
             s"$lockPath could not be acquired)"
@@ -281,7 +295,7 @@ private def acquireWorkdirLock(workDir: os.Path): os.Path =
         case None =>
           // The holder released between our failed create and the read —
           // the lock is free again; re-race the atomic create.
-          attempt(retriesLeft - 1)
+          attempt(attemptsLeft - 1)
         case Some(content) =>
           val holderPid = content.toLongOption
           // `isPresent` alone can report a zombie (terminated, unreaped)
@@ -302,9 +316,9 @@ private def acquireWorkdirLock(workDir: os.Path): os.Path =
             // would let two concurrent stealers both think they won.
             try os.remove(lockPath): Unit
             catch case NonFatal(_) => ()
-            attempt(retriesLeft - 1)
+            attempt(attemptsLeft - 1)
 
-  attempt(retriesLeft = 3)
+  attempt(attemptsLeft = MaxLockAcquireAttempts)
   lockPath
 
 private def releaseWorkdirLock(lockPath: os.Path): Unit =

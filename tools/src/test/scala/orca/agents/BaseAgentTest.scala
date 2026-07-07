@@ -49,7 +49,7 @@ class BaseAgentTest extends munit.FunSuite:
       tool.autonomous.run("prompt")
     assertEquals(
       thrown.getMessage,
-      "agent used after its flow ended — agents are scoped to the flow(...) that created them"
+      AgentBackend.ClosedMessage
     )
 
   test("resultAs after close() throws OrcaFlowException"):
@@ -59,7 +59,7 @@ class BaseAgentTest extends munit.FunSuite:
       tool.resultAs[String]
     assertEquals(
       thrown.getMessage,
-      "agent used after its flow ended — agents are scoped to the flow(...) that created them"
+      AgentBackend.ClosedMessage
     )
 
   // The closed latch lives on the shared backend, so it must survive the two
@@ -75,7 +75,7 @@ class BaseAgentTest extends munit.FunSuite:
       derived.autonomous.run("prompt")
     assertEquals(
       thrown.getMessage,
-      "agent used after its flow ended — agents are scoped to the flow(...) that created them"
+      AgentBackend.ClosedMessage
     )
 
   test("a resultAs gateway obtained before close() throws when run after it"):
@@ -86,7 +86,7 @@ class BaseAgentTest extends munit.FunSuite:
       gateway.autonomous.run("prompt")
     assertEquals(
       thrown.getMessage,
-      "agent used after its flow ended — agents are scoped to the flow(...) that created them"
+      AgentBackend.ClosedMessage
     )
 
   // Pins finding 6.3's fix: `config` is `Option[AgentConfig]`, not the old

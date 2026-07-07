@@ -1,5 +1,7 @@
 package orca.tools.claude
 
+import java.util.concurrent.atomic.AtomicBoolean
+
 import orca.events.OrcaListener
 import orca.agents.{
   AutoApprove,
@@ -58,21 +60,30 @@ private[orca] class ClaudeBackend(
       * per-call `workDir`; the `os.pwd` default here serves only bare/test
       * construction (`new ClaudeBackend(cli)`) where no flow workDir exists.
       */
-    private[claude] val cwdForProbe: os.Path = os.pwd
-) extends AgentBackend[BackendTag.ClaudeCode.type]:
+    private[claude] val cwdForProbe: os.Path = os.pwd,
+    /** Threaded straight into [[AgentBackend]]'s `closedFlag` parameter. Bare
+      * construction gets a fresh flag; [[withNetworkTools]] passes THIS
+      * instance's flag so the sibling it builds shares one latch with its
+      * parent — see the parameter's scaladoc on `AgentBackend` for why a
+      * backend-swapping builder must do this.
+      */
+    sharedClosedFlag: AtomicBoolean = new AtomicBoolean(false)
+) extends AgentBackend[BackendTag.ClaudeCode.type](sharedClosedFlag):
 
   /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns,
     * pre-approves `tools` (claude `--allowedTools` syntax). The configuration
     * seam behind `ClaudeAgent.withNetworkTools`; lives on the backend, not
     * `AgentConfig`, since the strings are claude-specific.
+    *
+    * Shares `closedFlag` with `this` rather than starting a fresh one: the
+    * sibling is a genuinely different `AgentBackend` instance (not a
+    * `copyTool`-style clone reusing the same backend), so without threading the
+    * SAME `AtomicBoolean` through, a handle derived here and leaked past
+    * flow-end would carry its own always-open latch and bypass the Epic 7.5
+    * use-after-close guard entirely.
     */
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
-    val sibling = new ClaudeBackend(cli, tools, projectsDir, cwdForProbe)
-    // The Epic 7.5 closed latch must survive reconfiguration: a leaked handle
-    // must not resurrect itself via `leaked.withNetworkTools(...)` when every
-    // other builder (which shares the backend via `copyTool`) stays latched.
-    if isClosed then sibling.markClosed()
-    sibling
+    new ClaudeBackend(cli, tools, projectsDir, cwdForProbe, closedFlag)
 
   /** Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
     * outlive the process, so it is [[SessionSupport.Durable]]: the claim

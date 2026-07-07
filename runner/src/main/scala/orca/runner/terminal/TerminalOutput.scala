@@ -199,6 +199,12 @@ private[terminal] class TerminalOutputState(
     * suspend/resume/tick interaction directly without a `readUser` thunk. Not
     * part of the [[TerminalOutput]] trait — [[prompt]] is the only public way
     * to open this window in production.
+    *
+    * CAUTION: calling `suspend`/`resume` directly (rather than through
+    * [[prompt]]) bypasses the `promptGate` semaphore transaction that
+    * serializes concurrent prompts (see [[ActorTerminalOutput]]) — production
+    * code MUST go through `prompt`; this pair is exposed at package level for
+    * tests only.
     */
   def suspend(): Unit =
     if !suspended then
