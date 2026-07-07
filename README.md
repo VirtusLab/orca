@@ -24,6 +24,7 @@ OpenCode, or Pi (depending which backend you use), as well as `gh` and `git`.
 Save this as `implement.sc` and run it with your task:
 
 ```scala
+//> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.0.14"
 //> using jvm 21
 

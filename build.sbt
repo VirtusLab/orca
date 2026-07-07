@@ -141,7 +141,9 @@ lazy val orcaRoot = (project in file("."))
     // Chain two passes so both coord forms get bumped: sbt-style
     // `"org" %% "name" % "ver"` (the stock `UpdateVersionInDocs`) and scala-cli
     // `using dep "org::name:ver"` (the form Orca's flow scripts and READMEs
-    // actually use today).
+    // actually use today). The scala-cli pass also keeps `//> using scala`
+    // pins in sync with `V.scala` — the build's own Scala version and the
+    // floor consumers must be on.
     updateDocs := {
       val log = sLog.value
       val org = organization.value
@@ -152,6 +154,7 @@ lazy val orcaRoot = (project in file("."))
         log,
         org,
         ver,
+        V.scala,
         List(
           file("README.md"),
           file("AGENTS.md"),
