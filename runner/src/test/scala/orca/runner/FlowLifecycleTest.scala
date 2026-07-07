@@ -623,6 +623,34 @@ class FlowLifecycleTest extends munit.FunSuite:
       )(body)
 
   test(
+    "teardownSuccess is best-effort: a non-missing-file removal error does not fail an otherwise-successful run"
+  ):
+    // teardownSuccess's doc comment promises log-removal/commit/handoff errors
+    // are "cosmetic — swallowed", but the removal leg only ever caught
+    // NoSuchFileException. Replace the progress-log file with a non-empty
+    // directory (after the last stage's own commit has already landed it as a
+    // plain file) so `os.remove` throws DirectoryNotEmptyException instead —
+    // a real, not-NoSuchFile IO error. The run must still complete: nothing
+    // should escape teardown and turn a successful run into exit 1.
+    val workDir = TempRepo.create()
+    val prompt = "bestEffort-teardown"
+    val store = ProgressStore.default(workDir, prompt)
+    runFlowForTest(workDir, prompt, store):
+      val _ = stage("stage-one"):
+        os.write(workDir / "one.txt", "content")
+        "one-done"
+      val _ = os.remove(store.path)
+      os.makeDir.all(store.path)
+      os.write(store.path / "blocker.txt", "x")
+    // Reaching here (no thrown exception) is the assertion: teardownSuccess
+    // must not propagate the removal failure.
+    assert(
+      os.isDir(store.path),
+      "the corrupted path should still be a (now-orphaned) directory: " +
+        "teardownSuccess's removal attempt must have failed and been swallowed"
+    )
+
+  test(
     "runFlow closes the context (and its agents) even when the body throws"
   ):
     // ctx.close() runs in runFlow's `finally`, so it must fire on the failure

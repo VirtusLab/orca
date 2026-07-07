@@ -283,6 +283,18 @@ object FlowLifecycle:
     snapshot.foreach: bytes =>
       if !os.exists(path) then os.write.over(path, bytes, createFolders = true)
 
+  /** Run a teardownSuccess leg best-effort: any `NonFatal` failure is caught
+    * and debug-logged (never printed, never surfaced) so it cannot escape
+    * teardown, trigger the failure path, or strand the user on a successful
+    * run. `what` names the leg for the log line.
+    */
+  private def bestEffort(what: String)(op: => Unit): Unit =
+    val log = LoggerFactory.getLogger("orca.flow")
+    try op
+    catch
+      case NonFatal(e) =>
+        log.debug(s"teardownSuccess: $what failed (cosmetic, swallowed)", e)
+
   /** Successful teardown (ADR 0018 §2.5): remove the progress-log file in a
     * final commit so a merged branch is clean, then hand off to
     * [[finishBranch]] for where HEAD lands — stay on the feature branch
@@ -290,8 +302,11 @@ object FlowLifecycle:
     * delete a throwaway and return to start.
     *
     * Errors during log removal, the cleanup commit, or the branch handoff are
-    * cosmetic — swallowed (in a `finally`) so they don't trigger the failure
-    * path or strand the user.
+    * cosmetic on an already-successful run — every leg runs through
+    * [[bestEffort]], so none of them can escape teardown, trigger the failure
+    * path, or strand the user. A missing progress-log file
+    * (`NoSuchFileException`, the ordinary "already removed" case) stays fully
+    * silent rather than debug-logged; every other failure is debug-logged.
     */
   private[orca] def teardownSuccess(
       git: GitTool,
@@ -303,20 +318,19 @@ object FlowLifecycle:
     // token constructor. No LLM call happens here, so `InStage` isn't needed.
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
     try
-      // Best-effort: a missing file (already gone) or a failing cleanup commit is
-      // cosmetic on an already-successful run, so neither must escape teardown.
-      try os.remove(setup.store.path)
-      catch
-        case _: java.nio.file.NoSuchFileException => ()
-        // `add -A` in commit picks up the removal; NothingToCommit (a Left) means
-        // it was never committed — harmless. A genuine commit failure is swallowed:
-        // the run already succeeded and the progress file is gone from the tree.
-      try
+      bestEffort("remove progress log"):
+        try
+          val _ = os.remove(setup.store.path)
+        catch case _: java.nio.file.NoSuchFileException => ()
+      // `add -A` in commit picks up the removal; NothingToCommit (a Left) means
+      // it was never committed — harmless. A genuine commit failure is
+      // cosmetic: the run already succeeded and the progress file is gone
+      // from the tree.
+      bestEffort("commit progress-log removal"):
         val _ = git.commit("orca: remove progress log")
-      catch case NonFatal(_) => ()
     finally
-      try finishBranch(git, setup, returnToStartBranch)
-      catch case NonFatal(_) => ()
+      bestEffort("branch handoff"):
+        finishBranch(git, setup, returnToStartBranch)
 
   /** Where HEAD ends up after a successful run. A throwaway feature branch
     * (only orca bookkeeping, no user code vs the start branch — diff excluding
