@@ -208,7 +208,7 @@ Refs: `flow/src/main/scala/orca/Session.scala:88-126`,
 `flow/src/main/scala/orca/review/ReviewLoop.scala:461-470`,
 `runner/src/main/scala/orca/runner/FlowLifecycle.scala:85-95`.
 
-- [ ] 2.1 Introduce `FlowSession[B]` (agent + `SessionId[B]`, `private[orca]`
+- [x] 2.1 (done: 1c665b0) Introduce `FlowSession[B]` (agent + `SessionId[B]`, `private[orca]`
   ctor): `session(name, seed)` returns it; its `run`/`resultAs` own the whole
   probe → seed/preamble → run → `persistResumeWireId` protocol in one place.
   No widening to `SessionId` — `.id` is the visible escape hatch.
@@ -224,9 +224,9 @@ Refs: `flow/src/main/scala/orca/Session.scala:88-126`,
   free-text run + structured `resultAs` are both proven necessary
   (ReviewLoop.fix uses the structured raw door today); interactive is
   deliberately deferred with a documented rationale, not silently omitted.)
-- [ ] 2.2 `AutonomousTextCall.run(prompt, session)` keeps `SessionId[B]` for
+- [x] 2.2 (done: 1c665b0) `AutonomousTextCall.run(prompt, session)` keeps `SessionId[B]` for
   ephemeral use only; scaladoc stops pointing log-backed sessions at it.
-- [ ] 2.3 `reviewAndFixLoop` / `ReviewFixLoop.fix` take the bundled handle
+- [x] 2.3 (done: c903889) `reviewAndFixLoop` / `ReviewFixLoop.fix` take the bundled handle
   instead of a separate `coder + sessionId` pair (also fixes the fix-turn raw
   bypass).
   (Research: highest-risk item — ~26 call sites incl. 17 hand-constructed
@@ -235,7 +235,7 @@ Refs: `flow/src/main/scala/orca/Session.scala:88-126`,
   FlowSession directly. Also update `FlowContext.scala:56-61`'s scaladoc,
   which cites the old reviewAndFixLoop signature.)
   Refs: `flow/.../review/ReviewLoop.scala:454-463`.
-- [ ] 2.4 Drop (not deprecate) the `JsonData[SessionId[B]]` given.
+- [x] 2.4 (done: 64f446c, after 2.3 unblocked it) Drop (not deprecate) the `JsonData[SessionId[B]]` given.
   (Implementation note 2026-07-07: research's "zero internal clients" was
   falsified by the 2B implementer's stop-condition — FlowCompilesTest's
   review-loop canary persists the interactive door's `(SessionId, FlowPlan)`
@@ -244,11 +244,11 @@ Refs: `flow/src/main/scala/orca/Session.scala:88-126`,
   the given-drop then lands truly zero-client.) The given is the attractive
   nuisance: a session persisted as a stage result gets neither map
   persistence nor seed lookup. Amend ADR 0018 R22 to match reality.
-- [ ] 2.5 Fix the AGENTS.md helper-authoring sentence: `Sessioned[B, A]` is a
+- [x] 2.5 (done: e557e18 + 64f446c) Fix the AGENTS.md helper-authoring sentence: `Sessioned[B, A]` is a
   *result* pair, not the promised agent+session bundle — point it at
   `FlowSession[B]` once it exists.
   Refs: `AGENTS.md:52-59`, `flow/src/main/scala/orca/plan/Sessioned.scala:24`.
-- [ ] 2.6 Update README tool tables to present the durable door and the
+- [x] 2.6 (done: e557e18) Update README tool tables to present the durable door and the
   ephemeral door as different things.
 
 ## Epic 3 — Protected-branch safety on the fresh path
