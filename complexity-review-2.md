@@ -284,6 +284,17 @@ Refs: `runner/src/main/scala/orca/runner/FlowLifecycle.scala:206-213,239-260,324
 - [x] 3.3 (done: c2d6bfc) `finishBranch` / lifecycle-level delete take `FeatureBranch`, making
   "delete an unvalidated name" unrepresentable (the current guard is only
   "never the current branch").
+> Epic 3 residual (security review, 2026-07-07, recorded not fixed): the
+> protected set is `{main, master} ∪ detected default` — a long-lived
+> non-default branch (`develop`, `staging`) named as the header's feature
+> branch could still be deleted by the throwaway cleanup on a narrow
+> resume-only path (requires a hand-moved/tampered header + checked-out on
+> it + matching promptHash + blank diff; reflog-recoverable; pre-existing,
+> and this epic narrowed it for main/master/default). If it should close:
+> either a user-configurable protected set on `flow(...)`, or refuse
+> throwaway-delete for any branch orca's header didn't record as
+> orca-created. Owner call.
+
 - [x] 3.4 (done: c2d6bfc, checkoutOrCreate deleted) Split fresh-create from resume-checkout at the lifecycle layer
   (`createFlowBranch: Either[BranchAlreadyExists, Unit]` vs `checkout`) so
   silently adopting an unrelated pre-existing branch becomes a visible
