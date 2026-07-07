@@ -1,7 +1,6 @@
 package orca.events
 
 import org.slf4j.LoggerFactory
-import ox.discard
 
 import scala.util.control.NonFatal
 
@@ -46,26 +45,29 @@ class EventDispatcher(listeners: List[OrcaListener]) extends OrcaListener:
         try l.onEvent(event)
         catch
           case NonFatal(e) =>
-            quarantined.add(l).discard
-            log.error(
-              s"listener ${l.getClass.getName} failed on ${event.getClass.getSimpleName}" +
-                " — listener disabled for the rest of the run",
-              e
-            )
-            // The ERROR above (with its stack) lands in the trace file only (the
-            // `orca` logger is file-only once OrcaLog.start() runs), so ALSO
-            // write a direct stderr line — otherwise the pathological case (a
-            // broken terminal listener throwing on the very Error event that
-            // carries the user's failure) would leave nothing visible on the
-            // console. When the event is an Error, fold its message payload in
-            // so that underlying failure isn't lost. Raw stderr may tear the
-            // terminal's status row, but this path fires only when a listener —
-            // possibly the terminal itself — is broken; visibility beats tidiness
-            // here.
-            val payload = event match
-              case OrcaEvent.Error(message) => s" (event error: $message)"
-              case _                        => ""
-            System.err.println(
-              s"[orca] listener ${l.getClass.getName} failed on " +
-                s"${event.getClass.getSimpleName}: ${e.getMessage}$payload (listener disabled)"
-            )
+            // `add` returns false if another thread already quarantined this
+            // listener — gating the announcement on it means concurrent
+            // first-failures on the same listener still announce exactly once.
+            if quarantined.add(l) then
+              log.error(
+                s"listener ${l.getClass.getName} failed on ${event.getClass.getSimpleName}" +
+                  " — listener disabled for the rest of the run",
+                e
+              )
+              // The ERROR above (with its stack) lands in the trace file only (the
+              // `orca` logger is file-only once OrcaLog.start() runs), so ALSO
+              // write a direct stderr line — otherwise the pathological case (a
+              // broken terminal listener throwing on the very Error event that
+              // carries the user's failure) would leave nothing visible on the
+              // console. When the event is an Error, fold its message payload in
+              // so that underlying failure isn't lost. Raw stderr may tear the
+              // terminal's status row, but this path fires only when a listener —
+              // possibly the terminal itself — is broken; visibility beats tidiness
+              // here.
+              val payload = event match
+                case OrcaEvent.Error(message) => s" (event error: $message)"
+                case _                        => ""
+              System.err.println(
+                s"[orca] listener ${l.getClass.getName} failed on " +
+                  s"${event.getClass.getSimpleName}: ${e.getMessage}$payload (listener disabled)"
+              )

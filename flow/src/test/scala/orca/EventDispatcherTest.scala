@@ -50,6 +50,12 @@ class EventDispatcherTest extends munit.FunSuite:
     dispatcher.onEvent(OrcaEvent.Step("x")) // must NOT throw
     assertEquals(received.result(), List("good"))
 
+  // The announcement is gated on `quarantined.add(l)` returning true, so that
+  // under concurrent emitters two threads racing to quarantine the same first
+  // failure still announce exactly once (whichever `add` loses stays silent).
+  // That race is inherently non-deterministic under the JMM and isn't given a
+  // dedicated test here; this sequential test instead pins the property the
+  // gate preserves — a single failure quarantines and announces exactly once.
   test(
     "a throwing listener is quarantined: announced once, skipped afterwards"
   ):
