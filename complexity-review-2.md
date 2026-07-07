@@ -235,10 +235,15 @@ Refs: `flow/src/main/scala/orca/Session.scala:88-126`,
   FlowSession directly. Also update `FlowContext.scala:56-61`'s scaladoc,
   which cites the old reviewAndFixLoop signature.)
   Refs: `flow/.../review/ReviewLoop.scala:454-463`.
-- [ ] 2.4 Drop (not deprecate — research verified zero internal clients;
-  `SessionRecord` stores a plain String) the `JsonData[SessionId[B]]` given
-  (attractive nuisance: a session persisted as a stage result gets neither
-  map persistence nor seed lookup); amend ADR 0018 R22 to match reality.
+- [ ] 2.4 Drop (not deprecate) the `JsonData[SessionId[B]]` given.
+  (Implementation note 2026-07-07: research's "zero internal clients" was
+  falsified by the 2B implementer's stop-condition — FlowCompilesTest's
+  review-loop canary persists the interactive door's `(SessionId, FlowPlan)`
+  tuple as a stage result, i.e. the exact R22 attractive-nuisance pattern.
+  Resolution: 2.3 migrates that canary to the named-session pattern FIRST;
+  the given-drop then lands truly zero-client.) The given is the attractive
+  nuisance: a session persisted as a stage result gets neither map
+  persistence nor seed lookup. Amend ADR 0018 R22 to match reality.
 - [ ] 2.5 Fix the AGENTS.md helper-authoring sentence: `Sessioned[B, A]` is a
   *result* pair, not the promised agent+session bundle — point it at
   `FlowSession[B]` once it exists.
