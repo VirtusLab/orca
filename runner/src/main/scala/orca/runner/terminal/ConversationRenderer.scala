@@ -80,9 +80,11 @@ private[terminal] class ConversationRenderer(
       conversation: Conversation[B]
   ): Either[OrcaInteractiveCancelled, AgentResult[B]] =
     conversation.events.foreach(dispatch(_, conversation))
-    // A well-behaved backend ends each turn with AssistantTurnEnd,
-    // which already flushes; this is a safety net for sessions that
-    // close without one (e.g. cancellation mid-turn).
+    // The turn grammar (ForkedConversation auto-closes every completed turn)
+    // guarantees each turn ends with an AssistantTurnEnd that already flushed
+    // the buffer, so on the normal path this is a no-op. It only flushes for a
+    // turn the stream left open — abnormal termination (cancellation/crash
+    // mid-turn) the grammar permits; a safety net, not driver-slop compensation.
     flushBufferedText()
     conversation.awaitResult()
 

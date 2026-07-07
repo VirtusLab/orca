@@ -49,30 +49,25 @@ private[claude] class ClaudeConversation(
     */
   private var initModel: Option[String] = None
 
-  /** Set when a text or thinking delta streams during the current turn, cleared
-    * when the full turn message lands. Consumed only by `handleAssistantTurn`,
-    * which relies on claude's wire ordering — the full `assistant` message
-    * arrives AFTER any partials for the same turn — to gate its fallback that
-    * re-emits Text/Thinking blocks when no partials arrived (older claude
-    * builds, partials disabled).
+  /** Set when a text or thinking delta streams, cleared when the next full-turn
+    * `assistant` message lands (reset at the top of `handleAssistantTurn`).
+    * Both consumers rely on claude's wire ordering — the full `assistant`
+    * message arrives AFTER any partials for the same turn — and ask the same
+    * question: "did the model's prose already stream as deltas since the last
+    * full-turn boundary?"
+    *   - `handleAssistantTurn` gates its fallback that re-emits Text/Thinking
+    *     blocks when no partials arrived (older claude builds, partials
+    *     disabled);
+    *   - `handleResultError` shows a short marker instead of repeating the full
+    *     body when an `is_error`'s body already streamed as deltas this turn.
     *
-    * This flag and `deltasSinceLastFullTurn` below are currently written and
-    * reset together (value-identical today). The split exists so the two
-    * CONSUMERS can evolve their transitions independently — editing this flag's
-    * write/reset sites must not implicitly serve the other's semantics.
-    */
-  private var partialsSeenThisTurn: Boolean = false
-
-  /** Set when a text or thinking delta streams, cleared when the next full turn
-    * message lands. Consumed only by `handleResultError`, which relies on the
-    * same wire ordering as above: an `is_error` result with this flag set means
-    * the error body itself already streamed as deltas this turn, so the short
-    * marker suffices instead of repeating the full body.
-    *
-    * Currently written and reset in lockstep with `partialsSeenThisTurn` above
-    * (value-identical today); kept as a separate flag so this consumer
-    * (`handleResultError`) can change its transition rules without dragging
-    * `handleAssistantTurn`'s along, and vice versa.
+    * NOTE: this is deliberately NOT the base's `turnIsOpen`. `turnIsOpen`
+    * counts a `ToolResult` as turn-opening activity (correct for the grammar),
+    * but a tool result is not streamed prose. After `tool_use → tool_result →
+    * is_error` with no assistant text, `turnIsOpen` is `true` while this flag
+    * is `false`; wiring `handleResultError` to `turnIsOpen` would then show
+    * "session failed (see message above)" pointing at a tool result instead of
+    * surfacing the actual error body. So the flag stays delta-specific.
     */
   private var deltasSinceLastFullTurn: Boolean = false
 
@@ -123,7 +118,6 @@ private[claude] class ClaudeConversation(
         evt match
           case _: ConversationEvent.AssistantTextDelta |
               _: ConversationEvent.AssistantThinkingDelta =>
-            partialsSeenThisTurn = true
             deltasSinceLastFullTurn = true
           case _ => ()
         eventQueue.enqueue(evt)
@@ -143,8 +137,7 @@ private[claude] class ClaudeConversation(
     * delta.
     */
   private def handleAssistantTurn(content: List[ContentBlock]): Unit =
-    val sawDeltasThisTurn = partialsSeenThisTurn
-    partialsSeenThisTurn = false
+    val sawDeltasThisTurn = deltasSinceLastFullTurn
     deltasSinceLastFullTurn = false
     content.foreach:
       // Suppress the agent's own ToolCall block for `ask_user` — the

@@ -323,8 +323,9 @@ class GeminiConversationTest extends munit.FunSuite:
     process.closeStderr()
 
     val events = conv.events.toList
-    // gemini emits AssistantTurnEnd before settling the result, so even a
-    // failed turn is grammar-terminated (see the contract) — completedNormally.
+    // The streamed message opened a turn; the base funnel auto-closes it when
+    // the failing `result` settles via `failWith`, so even a failed turn is
+    // grammar-terminated (see the contract) — completedNormally.
     ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val ex = intercept[orca.AgentTurnFailed](conv.awaitResult())
     assert(

@@ -72,14 +72,6 @@ private[opencode] class OpencodeConversation(
     */
   private var turnState: TurnState = TurnState()
 
-  /** Tracks whether the current turn has emitted assistant activity
-    * (text/reasoning delta or a tool call) since the last `AssistantTurnEnd`,
-    * so a failure settle can terminate an open turn per the ConversationEvent
-    * grammar. Reset when a turn end is emitted. Reader-thread only — see
-    * [[turnState]].
-    */
-  private var activitySinceTurnEnd: Boolean = false
-
   private case class TurnState(
       text: Vector[String] = Vector.empty,
       info: Option[AssistantInfo] = None,
@@ -107,22 +99,16 @@ private[opencode] class OpencodeConversation(
   private def translate(event: OpencodeEvent): Unit = event match
     case OpencodeEvent.TextDelta(_, delta) =>
       turnState = turnState.copy(text = turnState.text :+ delta)
-      activitySinceTurnEnd = true
       eventQueue.enqueue(ConversationEvent.AssistantTextDelta(delta))
     case OpencodeEvent.ReasoningDelta(_, delta) =>
-      activitySinceTurnEnd = true
       eventQueue.enqueue(ConversationEvent.AssistantThinkingDelta(delta))
     case OpencodeEvent.ToolStarted(_, partId, tool, input) =>
       // A tool part repeats `running` frames; surface the call once per part.
       if !turnState.startedTools.contains(partId) then
         turnState =
           turnState.copy(startedTools = turnState.startedTools + partId)
-        activitySinceTurnEnd = true
         eventQueue.enqueue(ConversationEvent.AssistantToolCall(tool, input))
     case OpencodeEvent.ToolFinished(_, _, tool, ok, output) =>
-      // A tool result IS turn-opening activity — a tool ran in this turn — so a
-      // completed-tool-only turn is not empty (ConversationEvent grammar).
-      activitySinceTurnEnd = true
       eventQueue.enqueue(ConversationEvent.ToolResult(Some(tool), ok, output))
     case OpencodeEvent.MessageUpdated(_, info) =>
       turnState = turnState.copy(info = Some(info))
@@ -144,11 +130,11 @@ private[opencode] class OpencodeConversation(
 
   /** Terminal (`session.idle`): a turn whose assistant message carries
     * `info.error`, or that went idle without producing anything, is a failure;
-    * otherwise mark turn end and settle with the built result. The turn end is
-    * gated on `activitySinceTurnEnd` so a turn with no frames (e.g. idle after
-    * a bare `message.updated`) emits nothing rather than an empty turn end.
-    * Both paths close the otherwise open-ended SSE stream (via
-    * [[succeedWith]]/[[failWith]]).
+    * otherwise settle with the built result. The base funnel auto-closes any
+    * still-open turn at settle (and drops an empty one), so no turn end is
+    * emitted here — a `session.idle` is a single turn per conversation, hence
+    * always settle-adjacent. Both paths close the otherwise open-ended SSE
+    * stream (via [[succeedWith]]/[[failWith]]).
     */
   private def finishTurn(): Unit =
     turnState.info.flatMap(_.error) match
@@ -156,23 +142,10 @@ private[opencode] class OpencodeConversation(
       case None =>
         if turnState.info.isEmpty && turnState.text.isEmpty then
           failTurn("session went idle without an assistant message")
-        else
-          if activitySinceTurnEnd then emitTurnEnd()
-          succeedWith(buildResult())
+        else succeedWith(buildResult())
 
-  /** Terminate an open turn (assistant activity since the last turn end) on a
-    * failure settle, matching the success path — the ConversationEvent grammar
-    * requires exactly one `AssistantTurnEnd` for every completed turn, success
-    * or failure. A turn with no activity (e.g. idle straight to error) stays
-    * empty, so no spurious turn end is emitted.
-    */
   private def failTurn(message: String): Unit =
-    if activitySinceTurnEnd then emitTurnEnd()
     failWith(AgentTurnFailed(message))
-
-  private def emitTurnEnd(): Unit =
-    activitySinceTurnEnd = false
-    eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
 
   /** In structured mode the validated object is the result; otherwise the
     * accrued assistant text. Usage and model come from the captured `info`.

@@ -62,6 +62,14 @@ private[orca] object Conversations:
       * non-structured mode `withheld` is always empty, so the drop is a no-op
       * and only the unfinished buffer flushes — matching the historical
       * end-of-stream behaviour.)
+      *
+      * Post-turn-grammar (ForkedConversation auto-closes every completed turn),
+      * a normally-completed session always ends its last turn with an
+      * `AssistantTurnEnd` that already ran `turnEnd()`, so `current` is empty
+      * and `flushCurrent()` is a no-op. It only flushes something for a turn
+      * the stream left open — i.e. abnormal termination (cancel/crash mid-turn)
+      * the grammar explicitly permits. It is a safety net, not driver-slop
+      * compensation.
       */
     def finishNormally(): Unit =
       withheld = None

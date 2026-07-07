@@ -113,7 +113,10 @@ private[gemini] class GeminiConversation(
     case InboundEvent.Error(message) =>
       eventQueue.enqueue(ConversationEvent.Error(s"gemini: $message"))
     case InboundEvent.Result(usage, status) =>
-      eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
+      // `result` is terminal (one turn per conversation): the base funnel
+      // auto-closes any open turn when `handleResult` settles, and drops the
+      // turn end entirely when the turn was empty (e.g. an immediate failure
+      // with no streamed content) — so nothing is emitted here.
       handleResult(usage, status)
     case InboundEvent.Unknown(_) =>
       // Forward-compat: gemini may add new top-level event types; drop them
