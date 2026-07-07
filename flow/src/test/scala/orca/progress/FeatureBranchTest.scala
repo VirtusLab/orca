@@ -31,3 +31,15 @@ class FeatureBranchTest extends FunSuite:
     val Right(fb) =
       FeatureBranch.resolve("flow-1a2b3c4d", Set.empty): @unchecked
     assertEquals(fb.value, "flow-1a2b3c4d")
+
+  test("resolve refuses an unsafe ref shape, distinctly from a protected name"):
+    assertEquals(
+      FeatureBranch.resolve("Feat", Set.empty),
+      Left(UnsafeBranchRefRefused("Feat"))
+    )
+
+  test("resolve passes an already-slugged, multi-segment name through"):
+    assertEquals(
+      FeatureBranch.resolve("fix/issue-42", Set("trunk")).map(_.value),
+      Right("fix/issue-42")
+    )

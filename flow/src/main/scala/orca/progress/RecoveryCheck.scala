@@ -64,6 +64,14 @@ object RecoveryCheck:
       FeatureBranch.resolve(header.branch, protectedBranches) match
         case Left(ProtectedBranchRefused(name)) =>
           Left(s"branch '$name' is a protected branch")
+        case Left(UnsafeBranchRefRefused(name)) =>
+          // Unreachable in practice: `header.branch` already passed
+          // `isSafeBranchRef` above, before `resolve` was even called.
+          // `resolve`'s own shape check is redundant here — this arm exists
+          // only so the match stays exhaustive — but the message matches the
+          // existing shape-check message above for consistency if it were
+          // ever hit.
+          Left(s"branch '$name' is not a safe ref")
         case Right(featureBranch) =>
           if header.promptHash != ProgressStore.hashPrompt(userPrompt) then
             Left("promptHash does not match the current prompt")

@@ -18,7 +18,8 @@ import orca.progress.{
   ProgressHeader,
   ProgressStore,
   ProtectedBranchRefused,
-  RecoveryCheck
+  RecoveryCheck,
+  UnsafeBranchRefRefused
 }
 import orca.tools.GitTool
 import org.slf4j.LoggerFactory
@@ -284,7 +285,9 @@ object FlowLifecycle:
     // identical set — this is what makes "a protected name can never reach
     // `FlowSetup.featureBranch`" true from either arm.
     val protectedBranches =
-      RecoveryCheck.alwaysProtected ++ git.defaultBranch().map(_.toLowerCase)
+      RecoveryCheck.alwaysProtected ++ git
+        .defaultBranch()
+        .map(_.toLowerCase(java.util.Locale.ROOT))
     store.loadDetailed() match
       case ProgressStore.LoadResult.Corrupt(reason) =>
         // The log file exists but didn't parse — a truncated/corrupted write,
@@ -412,6 +415,15 @@ object FlowLifecycle:
             )
           )
           fallback
+        case Left(UnsafeBranchRefRefused(name)) =>
+          // Unreachable: `strategy.resolve` (`BranchNamingStrategy`) always
+          // returns an already-slugged name, so `resolve`'s shape check can
+          // never refuse it. Guarded rather than assumed, matching
+          // `resolveFallback`'s existing defensive re-check below.
+          throw new OrcaFlowException(
+            s"internal error: strategy-resolved branch name '$name' is not " +
+              "a safe ref"
+          )
     val branch = createFreshBranch(git, protectionChecked, fallback, emit)
     store.writeHeader(
       ProgressHeader(
