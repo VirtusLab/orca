@@ -113,10 +113,17 @@ object FlowLifecycle:
       case f @ SurfacedFlowFailure(e) =>
         // `e` was already reported by `surfaced`. Discard the failed stage's
         // partial edits; if the reset ITSELF fails, attach it as suppressed so
-        // it travels with `e` (debug shows both) rather than masking the
-        // original body failure the user needs to see.
+        // it travels with `e` rather than masking the original body failure
+        // the user needs to see. `e` was reported (and its stack printed
+        // under `--verbose`) BEFORE this reset ran, so the suppressed
+        // teardown failure would otherwise never reach the console/trace —
+        // log and (under the same `--verbose`/debug flag) print it here.
         try teardownFailure(ctx.git)
-        catch case NonFatal(t) => e.addSuppressed(t)
+        catch
+          case NonFatal(t) =>
+            e.addSuppressed(t)
+            log.debug("teardownFailure failed after body failure", t)
+            if debug then t.printStackTrace(System.err)
         throw f
     surfaced(teardownSuccess(ctx.git, flowSetup, returnToStartBranch))
 
@@ -199,7 +206,7 @@ object FlowLifecycle:
     *     parseable-but-invalid header is a HARD abort (`OrcaFlowException`),
     *     not a silent fresh start — it signals tampering or a mismatch. (An
     *     *unparseable* log is `loadDetailed() == Corrupt(reason)` → fresh run,
-    *     but WARNED (logger + stderr) since it's distinguishable from a
+    *     but WARNED (logger + `emit(Step)`) since it's distinguishable from a
     *     genuinely absent log; that path is separate below.)
     *   - Cross-checks that the current branch is the one the header records
     *     (the in-place invariant): a log that surfaced on a branch it does not
