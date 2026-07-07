@@ -218,15 +218,27 @@ Refs: `flow/src/main/scala/orca/Session.scala:88-126`,
   type-level fact once CC lands, while raw ephemeral `run` (2.2) stays
   fork-sharable. The two doors map 1:1 onto the capability split; do not ship
   2.1 with a plain `(using InStage)` signature that 0.4 would then break.
+  (Research 2026-07-07, epic2-research.md: signature DECIDED —
+  `(using InStage, WorkspaceWrite)` explicit, NOT self-minted; `session()`
+  itself keeps self-minting since it must work outside stages. Method set:
+  free-text run + structured `resultAs` are both proven necessary
+  (ReviewLoop.fix uses the structured raw door today); interactive is
+  deliberately deferred with a documented rationale, not silently omitted.)
 - [ ] 2.2 `AutonomousTextCall.run(prompt, session)` keeps `SessionId[B]` for
   ephemeral use only; scaladoc stops pointing log-backed sessions at it.
 - [ ] 2.3 `reviewAndFixLoop` / `ReviewFixLoop.fix` take the bundled handle
   instead of a separate `coder + sessionId` pair (also fixes the fix-turn raw
   bypass).
-  Refs: `flow/.../review/ReviewLoop.scala:461-470`.
-- [ ] 2.4 Drop or deprecate the `JsonData[SessionId[B]]` given (attractive
-  nuisance: a session persisted as a stage result gets neither map persistence
-  nor seed lookup); amend ADR 0018 R22 to match reality.
+  (Research: highest-risk item — ~26 call sites incl. 17 hand-constructed
+  `SessionId` fixtures in ReviewAndFixTest/ReviewFixFlowTest; those tests
+  live in `orca.review`, so they can construct the `private[orca]`
+  FlowSession directly. Also update `FlowContext.scala:56-61`'s scaladoc,
+  which cites the old reviewAndFixLoop signature.)
+  Refs: `flow/.../review/ReviewLoop.scala:454-463`.
+- [ ] 2.4 Drop (not deprecate — research verified zero internal clients;
+  `SessionRecord` stores a plain String) the `JsonData[SessionId[B]]` given
+  (attractive nuisance: a session persisted as a stage result gets neither
+  map persistence nor seed lookup); amend ADR 0018 R22 to match reality.
 - [ ] 2.5 Fix the AGENTS.md helper-authoring sentence: `Sessioned[B, A]` is a
   *result* pair, not the promised agent+session bundle — point it at
   `FlowSession[B]` once it exists.
