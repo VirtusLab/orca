@@ -117,11 +117,43 @@ lazy val flow = (project in file("flow"))
   .settings(commonSettings)
   .settings(
     name := "orca-flow",
-    libraryDependencies ++= Seq(ox, jsoniterMacros, jsonSchemaValidator)
+    libraryDependencies ++= Seq(
+      ox,
+      jsoniterMacros,
+      jsonSchemaValidator,
+      scala3Compiler
+    ),
+    // The CC negative-compile suite invokes `dotc` in-process against this
+    // module's own test classpath (it needs orca.CheckedPar, orca.FlowControl,
+    // the capability tokens, ox and the Scala library). flow's tests are not
+    // forked, so `java.class.path` is only sbt's launcher classpath — unusable.
+    // Materialise the classpath into a resource the suite reads. It must be
+    // `dependencyClasspath`, NOT `fullClasspath`: the latter includes this
+    // module's own Test products, whose task graph depends back on Test
+    // resources — a cycle that deadlocks sbt's task engine (observed, not
+    // hypothetical). dependencyClasspath still carries everything the fixtures
+    // reference (tools/flow Compile classes plus external deps).
+    Test / resourceGenerators += Def.task {
+      val cp = (Test / dependencyClasspath).value
+        .map(_.data.getAbsolutePath)
+        .mkString(java.io.File.pathSeparator)
+      val f = (Test / resourceManaged).value / "cc-test-classpath.txt"
+      IO.write(f, cp)
+      Seq(f)
+    }.taskValue
   )
 
 lazy val runner = (project in file("runner"))
-  .dependsOn(tools, tools % "test->test", flow, claude, codex, opencode, pi, gemini)
+  .dependsOn(
+    tools,
+    tools % "test->test",
+    flow,
+    claude,
+    codex,
+    opencode,
+    pi,
+    gemini
+  )
   .settings(commonSettings)
   .settings(
     // Published as just "orca" so flow-script coordinates stay short.

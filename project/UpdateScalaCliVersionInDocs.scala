@@ -7,8 +7,8 @@ import java.util.regex.{Matcher, Pattern}
   *
   * Two independent rewrites run over the same file set:
   *
-  *   - `<organization>::<module>:<version>` — the form Orca's flow scripts
-  *     and READMEs use for the library coordinate. Complement to the stock
+  *   - `<organization>::<module>:<version>` — the form Orca's flow scripts and
+  *     READMEs use for the library coordinate. Complement to the stock
   *     `com.softwaremill.UpdateVersionInDocs`, which is hardcoded to the sbt
   *     build coordinate `"org" %% "name" % "version"`; the two are typically
   *     chained from the `updateDocs` task so either form gets bumped.
@@ -18,8 +18,8 @@ import java.util.regex.{Matcher, Pattern}
   *
   * Each entry in `filesToUpdate` is either a file or a directory; directories
   * are walked recursively and `.md` / `.sc` files are rewritten in place.
-  * Returns the files that actually changed so the release driver can stage
-  * them with `git add`.
+  * Returns the files that actually changed so the release driver can stage them
+  * with `git add`.
   */
 object UpdateScalaCliVersionInDocs {
   def apply(
