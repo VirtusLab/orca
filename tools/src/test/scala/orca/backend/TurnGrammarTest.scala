@@ -158,3 +158,51 @@ class TurnGrammarTest extends munit.FunSuite:
       events,
       completedNormally = false
     )
+
+  /** Fake driver whose only purpose is counting
+    * [[ForkedConversation.onCancelRequested]] invocations, so `cancel()`'s
+    * settled-gate can be pinned independently of any backend's own hook body
+    * (Epic 8.2).
+    */
+  private class HookFakeConversation(source: StreamSource)(using Ox)
+      extends ForkedConversation[BackendTag.ClaudeCode.type](
+        source = source,
+        backendName = "fake"
+      ):
+    val outputSchema: Option[String] = None
+    var cancelRequests: Int = 0
+    override protected def onCancelRequested(): Unit = cancelRequests += 1
+    protected def handleLine(line: String): Unit =
+      line match
+        case "succeed" =>
+          succeedWith(AgentResult(WireSessionId("fake"), "done", Usage.empty))
+        case other =>
+          throw new IllegalStateException(s"unknown script line: $other")
+
+  test(
+    "onCancelRequested fires once for a genuine mid-turn cancel; repeat cancel() does not re-fire"
+  ):
+    supervised:
+      val process = new FakePipedCliProcess()
+      val conv = new HookFakeConversation(StreamSource.fromProcess(process))
+      // No settle ever happens — this IS the genuine "torn down mid-turn" case.
+      conv.cancel()
+      conv.cancel()
+      assertEquals(conv.cancelRequests, 1)
+      val _ = conv.awaitResult()
+
+  test(
+    "onCancelRequested does NOT fire when cancel() runs after the turn already settled"
+  ):
+    supervised:
+      val process = new FakePipedCliProcess()
+      val conv = new HookFakeConversation(StreamSource.fromProcess(process))
+      process.enqueueStdout("succeed")
+      process.closeStdout()
+      process.closeStderr()
+      conv.events.foreach(_ => ())
+      val _ = conv.awaitResult()
+      // The routine `finally cancel()` every caller runs after a turn that
+      // already succeeded on its own — must be a pure teardown, no hook.
+      conv.cancel()
+      assertEquals(conv.cancelRequests, 0)

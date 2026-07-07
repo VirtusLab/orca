@@ -52,17 +52,19 @@ private[opencode] class OpencodeConversation(
       nativeAskUser = canAsk
     ):
 
-  /** Best-effort `POST /session/{id}/abort` before closing the stream, so a
-    * cancelled turn stops running (and writing) on the shared server instead of
-    * continuing headless after the user has moved on. `super.cancel` (the base
-    * [[ForkedConversation.cancel]]) is idempotent, so a second call is a no-op
-    * past the best-effort abort.
+  /** Best-effort `POST /session/{id}/abort`, so a GENUINELY cancelled turn
+    * (mid-flight, never settled) stops running (and writing) on the shared
+    * server instead of continuing headless after the user has moved on. The
+    * base [[ForkedConversation.cancel]] only calls this hook when the turn
+    * hasn't already settled via `succeedWith`/`failWith` — a turn that finished
+    * normally and is merely being torn down in a `finally` never reaches here,
+    * so a just-idle session (which may be resumed next turn) doesn't get a
+    * spurious abort.
     */
-  override def cancel(): Unit =
+  override protected def onCancelRequested(): Unit =
     try
       val _ = http.postJson(s"/session/$session/abort", "{}")
     catch case NonFatal(_) => ()
-    super.cancel()
 
   /** Turn state, accumulated as the reader thread processes frames.
     * `handleLine` (and the `buildResult` it drives at `session.idle`) run only

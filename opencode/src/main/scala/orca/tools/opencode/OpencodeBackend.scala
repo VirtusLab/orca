@@ -71,6 +71,9 @@ private[orca] object OpencodeBackend:
   )(using Ox): OpencodeBackend =
     new OpencodeBackend(new OpencodeServer(cli, workDir, launcher), workDir)
 
+/** `server` and `workDir` must agree; `apply` is the only production
+  * constructor.
+  */
 private[orca] class OpencodeBackend(
     server: OpencodeServerHandle,
     override val workDir: os.Path = os.pwd
@@ -92,10 +95,9 @@ private[orca] class OpencodeBackend(
   ): AgentResult[BackendTag.Opencode.type] =
     val http = server.http
     Conversations.runAutonomous(session, sessions, events):
-      openConversation(
+      startTurn(
         http,
-        http.events(),
-        serverSessionFor(http, session),
+        session,
         config,
         prompt,
         outputSchema,
@@ -112,10 +114,9 @@ private[orca] class OpencodeBackend(
     val http = server.http
     // The returned conversation owns its stream: it interrupts on the terminal
     // event or `cancel`, so no scope-level backstop is needed here.
-    openConversation(
+    startTurn(
       http,
-      http.events(),
-      serverSessionFor(http, session),
+      session,
       config,
       prompt,
       outputSchema,
@@ -180,9 +181,47 @@ private[orca] class OpencodeBackend(
         val resp = http.postJson("/session", writeToString(SessionCreateBody()))
         readFromString[SessionCreated](resp).id
 
+  /** Resolve the server session, THEN open the SSE stream —
+    * [[serverSessionFor]] can throw (a fresh `POST /session`, or a bad resume
+    * id), and Scala evaluates call arguments left-to-right, so putting
+    * `http.events()` in argument position ahead of it used to open a live `GET
+    * /event` connection that a subsequent `serverSessionFor` failure then
+    * discarded uninterrupted (leaking the connection/socket). Resolving the
+    * session first means that failure never gets near the stream at all. The
+    * `try`/`catch` is defense-in-depth for any throw between the stream opening
+    * and [[openConversation]] handing it to the [[OpencodeConversation]] that
+    * owns it (that method's own `catch` only covers the later `prompt_async`
+    * POST).
+    */
+  private def startTurn(
+      http: OpencodeHttp,
+      session: SessionId[BackendTag.Opencode.type],
+      config: AgentConfig,
+      prompt: String,
+      outputSchema: Option[String],
+      mode: SessionMode
+  )(using Ox): OpencodeConversation =
+    val serverSession = serverSessionFor(http, session)
+    val source = http.events()
+    try
+      openConversation(
+        http,
+        source,
+        serverSession,
+        config,
+        prompt,
+        outputSchema,
+        mode
+      )
+    catch
+      case e: Throwable =>
+        source.interrupt()
+        throw e
+
   /** Open the SSE stream (reader running) **then** fire `prompt_async`, so no
     * turn events are missed. The conversation derives the result from the
-    * stream.
+    * stream. Callers ([[startTurn]]) are responsible for resolving the server
+    * session and opening `source` in the leak-safe order.
     */
   private def openConversation(
       http: OpencodeHttp,

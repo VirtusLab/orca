@@ -230,6 +230,13 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
 
   def cancel(): Unit =
     if cancelled.compareAndSet(false, true) then
+      // Only a turn that hasn't settled yet is a GENUINE cancel (the user hit
+      // Ctrl-C, or the driving loop unwound mid-turn); a turn already settled
+      // via succeedWith/failWith is merely being torn down here in a
+      // `finally` after it finished on its own, so the hook must not see it
+      // as a cancellation. Checked before the interrupt/destroy sequence,
+      // which must always run regardless (idle teardown is harmless there).
+      if !isSettled then onCancelRequested()
       // Graceful SIGINT first, then the guaranteed forcible backstop, so the
       // non-interruptible reader's `source.lines` always reaches EOF and the
       // scope join never hangs. On the happy path both are no-ops (the source
@@ -296,6 +303,17 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * no-op.
     */
   protected def onFinalize(): Unit = ()
+
+  /** Hook called from inside [[cancel]]'s idempotence guard, but ONLY when the
+    * turn hasn't already settled (see [[isSettled]]) — i.e. exactly the genuine
+    * "torn down mid-turn" case, never the routine `finally cancel()` that every
+    * caller runs after a turn that already succeeded or failed on its own. Runs
+    * before the interrupt/destroy sequence. Default: no-op. Backends that need
+    * to notify a remote peer the turn is being abandoned (e.g. OpenCode's `POST
+    * /abort`) override this instead of [[cancel]], so that notification never
+    * fires for a session merely being torn down after a normal turn.
+    */
+  protected def onCancelRequested(): Unit = ()
 
   /** The exception used when the subprocess exits with code 0 without having
     * sent a terminal protocol message. Default folds [[diagnosticContext]] into

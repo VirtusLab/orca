@@ -320,3 +320,18 @@ class OpencodeConversationTest extends munit.FunSuite:
     val conv =
       new OpencodeConversation(empty, http, "ses_A", None, canAsk = false)
     assertEquals(conv.canAskUser, false)
+
+  convTest(
+    "a genuine cancel before any settle POSTs /abort once; a repeat cancel() does not re-post (Epic 8.2)"
+  ):
+    val (conv, http) = conversation(
+      List(
+        data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
+      )
+    )
+    // Cancelled before the reader ever touches the (unconsumed) stream above —
+    // the turn genuinely never settled, mirroring how every caller's `finally
+    // cancel()` can race an interactive interrupt mid-turn.
+    conv.cancel()
+    conv.cancel()
+    assertEquals(http.posts, List("/session/ses_A/abort" -> "{}"))

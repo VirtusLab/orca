@@ -1,5 +1,6 @@
 package orca.tools.opencode
 
+import orca.OrcaFlowException
 import orca.backend.StreamSource
 import orca.agents.{BackendTag, AgentConfig, Model, SessionId, WireSessionId}
 import ox.supervised
@@ -89,14 +90,14 @@ class OpencodeBackendTest extends munit.FunSuite:
         WireSessionId[BackendTag.Opencode.type]("ses_server1")
       )
       // The turn finalizes through `conv.cancel()` (the self-scoped per-turn
-      // `finally`), whose best-effort `POST /abort` trails the turn — a no-op on
-      // the already-idle session.
+      // `finally`) — but the turn already settled via `session.idle`, so
+      // `onCancelRequested`'s settled-gate (Epic 8.2) means NO `/abort` POST
+      // fires for this just-idle session, which may be resumed next turn.
       assertEquals(
         http.posts.map(_._1),
         List(
           "/session",
-          "/session/ses_server1/prompt_async",
-          "/session/ses_server1/abort"
+          "/session/ses_server1/prompt_async"
         )
       )
       // The backend forwards the prompt into the prompt_async body.
@@ -282,3 +283,24 @@ class OpencodeBackendTest extends munit.FunSuite:
         WireSessionId[BackendTag.Opencode.type]("x?y#z")
       )
       assert(!backend.sessions.exists(client))
+
+  test(
+    "a session-creation failure never opens the SSE stream (Epic 8.3 open-path leak)"
+  ):
+    supervised:
+      var eventsOpened = false
+      val http = new FakeHttp(Nil):
+        override def events(): StreamSource =
+          eventsOpened = true
+          super.events()
+        override def postJson(path: String, body: String): String =
+          if path == "/session" then
+            throw new OrcaFlowException("boom: session create failed")
+          else super.postJson(path, body)
+      val backend = new OpencodeBackend(new FakeHandle(http))
+      val _ = intercept[OrcaFlowException]:
+        backend.runAutonomous("hi", fresh, AgentConfig())
+      assert(
+        !eventsOpened,
+        "GET /event must not open when POST /session throws"
+      )
