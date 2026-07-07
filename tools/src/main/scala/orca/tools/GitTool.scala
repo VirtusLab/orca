@@ -175,6 +175,11 @@ trait GitTool:
     * known-clean starting state without silently destroying the user's
     * work-in-progress.
     *
+    * The stash-recovery hint rides on the `Step` reaching the run's dispatcher
+    * — a custom `GitTool` (e.g. via [[orca.flow]]'s `git` override) built
+    * without wiring in the run's listener loses this hint, and the user never
+    * learns to `git stash pop`.
+    *
     * Returns `true` if a stash was created, `false` if the tree was already
     * clean.
     */

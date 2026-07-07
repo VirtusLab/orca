@@ -335,6 +335,47 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(errors.size, 1, s"exactly one Error expected, got: $errors")
 
   test(
+    "runFlow: a pre-ctx agent-factory failure escapes UNWRAPPED, not as SurfacedFlowFailure"
+  ):
+    // The `SurfacedFlowFailure` discriminator's other half: `FlowLifecycle.run`'s
+    // `surfaced` bracket only wraps phases that run once `ctx` exists (setup,
+    // rehydration, body, success teardown). A per-backend agent factory
+    // (`wiring.claude`, etc.) runs eagerly inside `DefaultFlowContext.withDefaults`
+    // — called from `runFlow` at flow.scala:234-242, BEFORE `ctx` (and hence
+    // before any bracket) exists — so its failure has no event surface to report
+    // to and must escape this exit-free seam as a plain, unwrapped exception.
+    // (In production, `flow()`'s backstop catches it — stderr line + `System.exit(1)`
+    // — but that tail is untestable here by design: `runFlow` never exits.)
+    val workDir = TempRepo.create()
+    val prompt = "factory-boom"
+    val thrown = intercept[RuntimeException]:
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        runFlow(
+          args = OrcaArgs(prompt),
+          agent = _ => StubAgent.claude,
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = Nil,
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = None,
+          wiring = FlowWiring(claude =
+            Some(_ => throw new RuntimeException("factory boom"))
+          )
+        ):
+          ()
+    assertEquals(thrown.getMessage, "factory boom")
+    assert(
+      !thrown.isInstanceOf[SurfacedFlowFailure],
+      s"a pre-ctx factory failure must NOT be wrapped in SurfacedFlowFailure: $thrown"
+    )
+
+  test(
     "R20: snapshot-before-stash restores the log file if the stash removed it"
   ):
     // The end-to-end stash hazard is belt-and-suspenders (the log is normally
@@ -401,38 +442,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         message.contains(currentBranch) &&
         message.contains("merged"),
       s"abort message must name both branches and the merge hazard: $message"
-    )
-
-  test(
-    "R32: a tampered header (prompt-hash mismatch) aborts rather than resuming"
-  ):
-    // A committed log on the feature branch whose promptHash does not match the
-    // current prompt — a hand-edited/mismatched header. Resume must hard-abort.
-    val workDir = TempRepo.create()
-    val prompt = "tampered-feature"
-    val store = ProgressStore.default(workDir, prompt)
-    val git = new OsGitTool(workDir)
-
-    given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = git.createBranch("feat/tampered-feature")
-    store.writeHeader(
-      ProgressHeader(
-        startingBranch = "main",
-        branch = "feat/tampered-feature",
-        promptHash = "deadbeefcafe"
-      )
-    )
-    git.forceAdd(store.path)
-    val _ = git.commit("orca: progress log")
-
-    val thrown = intercept[SurfacedFlowFailure]:
-      runFlowForTest(workDir, prompt, store):
-        val _ = stage("never-runs"):
-          "x"
-    assert(thrown.cause.isInstanceOf[orca.OrcaFlowException])
-    assert(
-      thrown.cause.getMessage.contains("failed validation"),
-      s"abort message must mention validation failure: ${thrown.cause.getMessage}"
     )
 
   test(
@@ -921,6 +930,12 @@ class FlowLifecycleTest extends munit.FunSuite:
       thrown.cause.isInstanceOf[orca.OrcaFlowException],
       s"the surfaced cause must be the original refusal: ${thrown.cause}"
     )
+    // Folded from the deleted R32 (same fixture, same validation branch): the
+    // header-validation failure reason rides along in the same message.
+    assert(
+      thrown.cause.getMessage.contains("failed validation"),
+      s"abort message must mention validation failure: ${thrown.cause.getMessage}"
+    )
 
   test(
     "surfaced: a rehydration failure reaches the user as one Error, not a silent exit"
@@ -1019,6 +1034,13 @@ class FlowLifecycleTest extends munit.FunSuite:
       thrown.cause.getSuppressed.exists(_.getMessage.contains("reset boom")),
       s"the failing reset must be suppressed on the original: " +
         thrown.cause.getSuppressed.mkString(", ")
+    )
+    // The reset failure ALSO gets a user-visible note (in addition to, not
+    // instead of, the suppressed exception above).
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s }
+    assert(
+      steps.exists(_.message.contains("workspace reset failed")),
+      s"a Step warning about the failed reset must be emitted: $steps"
     )
 
   /** Records every `OrcaEvent` it sees, so the boundary-emission tests can

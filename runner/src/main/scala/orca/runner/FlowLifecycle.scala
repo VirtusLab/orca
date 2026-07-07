@@ -49,13 +49,23 @@ object FlowLifecycle:
     * owner (ADR 0018 §2.4/§2.5). The context must be fully constructed (setup
     * resolves the leading agent for branch naming and reads `ctx.git`).
     *
-    * Failure path: every phase runs inside the `surfaced` bracket, which
-    * reports the error (unless the exception already reported itself), logs,
-    * and rethrows a [[SurfacedFlowFailure]] so `flow()` never exits without an
-    * explanation. The body phase additionally runs `teardownFailure` on the way
-    * out. Success path runs `teardownSuccess`. The failure and success
-    * teardowns are structurally disjoint — the body catch rethrows, so success
-    * teardown is unreachable on a body failure.
+    * Failure path: three phases — setup, rehydration, and the body — run inside
+    * the `surfaced` bracket, which reports the error (unless the exception
+    * already reported itself), logs, and rethrows a [[SurfacedFlowFailure]] so
+    * `flow()` never exits without an explanation. The body phase additionally
+    * runs `teardownFailure` on the way out.
+    *
+    * Success path runs `teardownSuccess` OUTSIDE `surfaced`, deliberately: it
+    * is already internally best-effort (every leg is wrapped in `bestEffort`,
+    * so nothing `NonFatal` can escape it), and wrapping a phase that can't fail
+    * with a bracket meant for reporting failures would be directionally wrong —
+    * it would convert a future non-`bestEffort` leg into a *reported, failed*
+    * successful run instead of the silent cosmetic failure `teardownSuccess`'s
+    * own contract promises. So the phase protocol is three bracketed phases
+    * plus one best-effort phase, not four bracketed ones.
+    *
+    * The failure and success teardowns are structurally disjoint — the body
+    * catch rethrows, so success teardown is unreachable on a body failure.
     */
   private[orca] def run[B <: BackendTag](
       args: OrcaArgs,
@@ -65,14 +75,15 @@ object FlowLifecycle:
       debug: Boolean
   )(body: FlowControl ?=> Unit): Unit =
     val log = LoggerFactory.getLogger("orca.flow")
-    // Report/log/wrap bracket applied to EVERY phase so no failure — setup's
-    // resume refusals, rehydration, the body, or success teardown — can reach
+    // Report/log/wrap bracket applied to every phase that CAN fail — setup's
+    // resume refusals, rehydration, and the body — so none of them can reach
     // `flow()` unreported and exit 1 in silence. Phase-agnostic by design: it
     // reports once (reusing the context's reported-set so it never
     // double-prints a failure a nested stage already surfaced), logs, prints
     // the stack under `--verbose`/debug, then throws `SurfacedFlowFailure`.
     // It carries NO teardown side effect — `teardownFailure` (git reset) is
-    // the body phase's job alone (below), never setup's or success teardown's.
+    // the body phase's job alone (below), never setup's. Success teardown is
+    // NOT wrapped here — see its own scaladoc for why.
     def surfaced[T](op: => T): T =
       try op
       catch
@@ -117,15 +128,26 @@ object FlowLifecycle:
         // the user needs to see. `e` was reported (and its stack printed
         // under `--verbose`) BEFORE this reset ran, so the suppressed
         // teardown failure would otherwise never reach the console/trace —
-        // log and (under the same `--verbose`/debug flag) print it here.
+        // log and (under the same `--verbose`/debug flag) print it here. Also
+        // emit a user-visible `Step` (in ADDITION to, not instead of, the
+        // suppressed exception + debug log): `emit` is total (the dispatcher
+        // quarantines a misbehaving listener), so it's safe to call from this
+        // catch, and the user needs to know the working tree may still hold
+        // the failed run's partial edits.
         try teardownFailure(ctx.git)
         catch
           case NonFatal(t) =>
             e.addSuppressed(t)
             log.debug("teardownFailure failed after body failure", t)
             if debug then t.printStackTrace(System.err)
+            ctx.emit(
+              OrcaEvent.Step(
+                "warning: workspace reset failed after the flow failure — " +
+                  "the working tree may still contain the failed run's partial edits"
+              )
+            )
         throw f
-    surfaced(teardownSuccess(ctx.git, flowSetup, returnToStartBranch))
+    teardownSuccess(ctx.git, flowSetup, returnToStartBranch)
 
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
     * session's OWN agent's in-memory registry, so a resumed run resumes against

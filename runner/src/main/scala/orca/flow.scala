@@ -183,12 +183,15 @@ def flow[B <: BackendTag](
   * runs the body as a top-level stage with disjoint success/failure teardown.
   * Unlike [[flow]], a failure in any phase is **propagated** (after any
   * body-failure teardown), not turned into a `System.exit` — so the
-  * crash→`resetHard`→resume wiring is directly testable end-to-end. Every
-  * phase runs inside `FlowLifecycle.run`'s reporting bracket, so a `NonFatal`
-  * failure escapes here wrapped in
-  * [[orca.runner.SurfacedFlowFailure]]`(cause)` (already reported to the event
-  * surface); tests inspect its `cause`. [[flow]] wraps this to keep the
-  * observable CLI behaviour (cost summary, OrcaLog, `System.exit(1)`).
+  * crash→`resetHard`→resume wiring is directly testable end-to-end. Every phase
+  * that can fail — setup, rehydration, and the body — runs inside
+  * `FlowLifecycle.run`'s reporting bracket, so a `NonFatal` failure from one of
+  * those escapes here wrapped in [[orca.runner.SurfacedFlowFailure]]`(cause)`
+  * (already reported to the event surface); tests inspect its `cause`. A
+  * failure from BEFORE `ctx` exists (e.g. an agent-override factory, built just
+  * above) has no bracket to run inside and so escapes unwrapped instead — see
+  * [[orca.runner.FlowLifecycle.run]]'s scaladoc. [[flow]] wraps this to keep
+  * the observable CLI behaviour (cost summary, OrcaLog, `System.exit(1)`).
   *
   * `extraListeners` is the full listener set this run should observe beyond the
   * interaction's own (the CLI wrapper adds its [[CostTracker]] here); a
