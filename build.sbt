@@ -162,6 +162,15 @@ lazy val runner = (project in file("runner"))
     // per-run appender) and can `System.exit` on a NonFatal failure — a forked
     // JVM keeps that out of the shared test runner.
     Test / fork := true,
+    // `runFlow`'s Epic 7.4 reentrancy guard is a process-wide `AtomicBoolean`
+    // — correct for real usage (one `flow(...)` per process), but sbt's
+    // default `Test / parallelExecution` would let two unrelated test classes
+    // in this forked JVM both call `flow(...)`/`runFlow(...)` concurrently
+    // (different workDirs, no real conflict) and spuriously trip each other's
+    // guard. Serialize this module's tests instead of keying the guard by
+    // workDir, which would water down the exact single-process semantics the
+    // tracker calls for.
+    Test / parallelExecution := false,
     libraryDependencies ++= Seq(ox, mainargs, jline, fansi, jsoniterMacros)
   )
 

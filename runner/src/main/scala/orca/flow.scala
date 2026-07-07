@@ -38,6 +38,9 @@ import orca.tools.GitHubTool
 import orca.util.OrcaDebug
 import ox.{Ox, supervised}
 
+import java.nio.file.{FileAlreadyExistsException, NoSuchFileException}
+import java.util.concurrent.atomic.AtomicBoolean
+import scala.annotation.tailrec
 import scala.util.control.NonFatal
 
 /** Entry point for flow scripts. Takes the parsed CLI args (required) plus any
@@ -179,6 +182,135 @@ def flow[B <: BackendTag](
     orcaLog.finish()
   if failed then System.exit(1)
 
+// --- Epic 7.4: reentrancy/concurrency guards -------------------------------
+//
+// A nested or concurrent `flow(...)` today would stash the outer flow's tree,
+// switch branches under it, and `reset --hard` its work (ADR 0018 §6 flags
+// this as accepted-but-deferred scope). Two layers, acquired at the very
+// start of `runFlow` — before `DefaultFlowContext` even exists, since
+// construction is pure but `FlowLifecycle.setup` mutates git immediately
+// after — and released in a `finally` around the whole body:
+//   1. A process-wide flag: catches same-JVM nesting/concurrency cheaply, no
+//      I/O, before any git mutation.
+//   2. A `workDir`-keyed lock file: catches the two-process case a same-JVM
+//      flag can't see. Content is the holder's PID; on contention, a live PID
+//      hard-refuses, a dead one is stolen with a warning (crash leftovers
+//      must not permanently wedge a working tree).
+// Both guards fire before `ctx` exists, so a violation is a plain, unwrapped
+// exception out of `runFlow` (see that method's own doc) — `flow()`'s stderr
+// backstop (the `NonFatal` catch below `SurfacedFlowFailure`), not the
+// event-reported/`SurfacedFlowFailure` path, is what a caller of `flow()`
+// sees.
+
+private val processFlowLock = new AtomicBoolean(false)
+
+private def acquireProcessLock(): Unit =
+  if !processFlowLock.compareAndSet(false, true) then
+    throw new OrcaFlowException("a flow is already running in this process")
+
+private def releaseProcessLock(): Unit = processFlowLock.set(false)
+
+private def flowLockPath(workDir: os.Path): os.Path =
+  workDir / ".orca" / "flow.lock"
+
+/** Best-effort: keep `git add -A` (the stage runtime's commit,
+  * `GitTool.commit`) from ever sweeping the lock file into a commit. ADR 0018
+  * only *encourages* projects to gitignore `.orca/`, it doesn't enforce it, so
+  * — unlike the progress log, which the stage runtime deliberately force-adds —
+  * the lock file needs its own guarantee. Appends to the repo-local,
+  * never-committed `<git-common-dir>/info/exclude` rather than a tracked
+  * `.gitignore`, so the legal-path commit history is unchanged. The common dir
+  * is resolved via `git rev-parse` (not a hand-rolled `.git` check) so a
+  * `workDir` that is itself a linked worktree — where `.git` is a pointer file,
+  * and `info/` lives in the shared common dir — is covered too. Silently
+  * skipped when `workDir` isn't a git repo at all (or git is unavailable): this
+  * is belt-and-suspenders, never worth failing the guard over.
+  */
+private def excludeLockFromGit(workDir: os.Path): Unit =
+  try
+    val commonDir = os.Path(
+      os.proc("git", "rev-parse", "--path-format=absolute", "--git-common-dir")
+        .call(cwd = workDir)
+        .out
+        .text()
+        .trim
+    )
+    val excludePath = commonDir / "info" / "exclude"
+    val line = ".orca/flow.lock"
+    val existing =
+      if os.exists(excludePath) then os.read.lines(excludePath)
+      else IndexedSeq.empty
+    if !existing.contains(line) then
+      os.write.append(excludePath, s"$line\n", createFolders = true)
+  catch case NonFatal(_) => ()
+
+/** Acquire the `workDir`-keyed lock file, returning its path (release it with
+  * [[releaseWorkdirLock]]). Refuses with the tracker's message when the holder
+  * PID is still alive; steals (after a stderr warning) when it isn't.
+  *
+  * The only atomic primitive here is `os.write`'s `CREATE_NEW`, so everything
+  * else must funnel back through it: a stale lock is stolen by DELETING it and
+  * re-racing the create (two racing stealers then can't both win — the loser's
+  * `CREATE_NEW` fails and it re-reads the winner's live PID), and a lock that
+  * vanishes between the failed create and the read (the holder just released)
+  * simply retries the create. Attempts are bounded so pathological churn ends
+  * in a refusal rather than a spin.
+  */
+private def acquireWorkdirLock(workDir: os.Path): os.Path =
+  os.makeDir.all(workDir / ".orca")
+  excludeLockFromGit(workDir)
+  val lockPath = flowLockPath(workDir)
+  val pid = ProcessHandle.current().pid()
+
+  @tailrec def attempt(retriesLeft: Int): Unit =
+    val acquired =
+      try
+        os.write(lockPath, pid.toString)
+        true
+      catch case _: FileAlreadyExistsException => false
+    if !acquired then
+      if retriesLeft <= 0 then
+        throw new OrcaFlowException(
+          "a flow is already running in this working tree (the lock at " +
+            s"$lockPath could not be acquired)"
+        )
+      val holderContent =
+        try Some(os.read(lockPath).trim)
+        catch case _: NoSuchFileException => None
+      holderContent match
+        case None =>
+          // The holder released between our failed create and the read —
+          // the lock is free again; re-race the atomic create.
+          attempt(retriesLeft - 1)
+        case Some(content) =>
+          val holderPid = content.toLongOption
+          // `isPresent` alone can report a zombie (terminated, unreaped)
+          // process as a holder; `isAlive` is the authoritative test.
+          val holderAlive = holderPid.exists(p =>
+            ProcessHandle.of(p).map(_.isAlive).orElse(false)
+          )
+          if holderAlive then
+            throw new OrcaFlowException(
+              s"a flow is already running in this working tree (pid ${holderPid.get})"
+            )
+          else
+            System.err.println(
+              s"[orca] found a stale lock from PID ${holderPid.getOrElse("?")}, " +
+                "which is no longer running — proceeding"
+            )
+            // Steal = delete + re-race the create; never `write.over`, which
+            // would let two concurrent stealers both think they won.
+            try os.remove(lockPath): Unit
+            catch case NonFatal(_) => ()
+            attempt(retriesLeft - 1)
+
+  attempt(retriesLeft = 3)
+  lockPath
+
+private def releaseWorkdirLock(lockPath: os.Path): Unit =
+  try os.remove(lockPath): Unit
+  catch case NonFatal(_) => ()
+
 /** Exit-free flow lifecycle: builds the interaction/context, runs setup, then
   * runs the body as a top-level stage with disjoint success/failure teardown.
   * Unlike [[flow]], a failure in any phase is **propagated** (after any
@@ -209,59 +341,69 @@ private[orca] def runFlow[B <: BackendTag](
     wiring: FlowWiring = FlowWiring()
 )(body: FlowControl ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose.value
-  // Default TerminalInteraction is built inside `supervised:` because its
-  // worker is a `forkUser` bound to that scope; close() in the body's
-  // `finally` lets the worker drain and exit before the scope joins it.
-  supervised:
-    val effectiveInteraction = interaction.getOrElse(
-      TerminalInteraction.start(workDir = Some(workDir))
-    )
+  // Epic 7.4: acquire both reentrancy/concurrency guards before anything else
+  // — including before `supervised:`, since neither needs an `Ox` scope — so
+  // a violation is caught before any git mutation. See the guards' own doc
+  // above for the two-layer rationale and the release-ordering symmetry.
+  acquireProcessLock()
+  try
+    val lockPath = acquireWorkdirLock(workDir)
     try
-      val dispatcher = new EventDispatcher(
-        effectiveInteraction.listeners ++ List(
-          new LoggingListener
-        ) ++ extraListeners
-      )
-      // Construction order matters: `FlowLifecycle.run`'s setup phase resolves
-      // the leading agent (for branch naming) and reads `ctx.git`, so the
-      // store and the context must both exist BEFORE it runs.
-      //   1. Resolve the progress store (pure — no git effect, no agent).
-      //   2. Build the context (pure construction — backends are created but
-      //      no subprocess spawns until the first gated `run`).
-      // `FlowLifecycle.run` (below) then resolves the leading agent and drives
-      // the rest of the phase protocol (setup → rehydrate → body → teardown).
-      val store =
-        progressStore.getOrElse(
-          ProgressStore.default(workDir, args.userPrompt)
+      // Default TerminalInteraction is built inside `supervised:` because its
+      // worker is a `forkUser` bound to that scope; close() in the body's
+      // `finally` lets the worker drain and exit before the scope joins it.
+      supervised:
+        val effectiveInteraction = interaction.getOrElse(
+          TerminalInteraction.start(workDir = Some(workDir))
         )
-      val ctx = DefaultFlowContext.withDefaults(
-        userPrompt = args.userPrompt,
-        dispatcher = dispatcher,
-        workDir = workDir,
-        interaction = effectiveInteraction,
-        progressStore = store,
-        agentSelector = agent,
-        wiring = wiring
-      )
-      // Construction is pure (backends spawn nothing until the first gated
-      // `run`), so a failure before this point has nothing to close — `ctx`
-      // doesn't exist yet, and the outer `finally` below only closes the
-      // interaction. From here on, `ctx.close()` runs in this `finally`,
-      // BEFORE the `supervised` scope joins its forks: it destroys the
-      // opencode `serve` process so its drain forks' reads EOF and the join
-      // can't hang (Ox runs `releaseAfterScope` only after the join).
-      try
-        FlowLifecycle.run(
-          args,
-          ctx,
-          branchNaming,
-          returnToStartBranch,
-          debug
-        )(
-          body
-        )
-      finally ctx.close()
-    finally effectiveInteraction.close()
+        try
+          val dispatcher = new EventDispatcher(
+            effectiveInteraction.listeners ++ List(
+              new LoggingListener
+            ) ++ extraListeners
+          )
+          // Construction order matters: `FlowLifecycle.run`'s setup phase resolves
+          // the leading agent (for branch naming) and reads `ctx.git`, so the
+          // store and the context must both exist BEFORE it runs.
+          //   1. Resolve the progress store (pure — no git effect, no agent).
+          //   2. Build the context (pure construction — backends are created but
+          //      no subprocess spawns until the first gated `run`).
+          // `FlowLifecycle.run` (below) then resolves the leading agent and drives
+          // the rest of the phase protocol (setup → rehydrate → body → teardown).
+          val store =
+            progressStore.getOrElse(
+              ProgressStore.default(workDir, args.userPrompt)
+            )
+          val ctx = DefaultFlowContext.withDefaults(
+            userPrompt = args.userPrompt,
+            dispatcher = dispatcher,
+            workDir = workDir,
+            interaction = effectiveInteraction,
+            progressStore = store,
+            agentSelector = agent,
+            wiring = wiring
+          )
+          // Construction is pure (backends spawn nothing until the first gated
+          // `run`), so a failure before this point has nothing to close — `ctx`
+          // doesn't exist yet, and the outer `finally` below only closes the
+          // interaction. From here on, `ctx.close()` runs in this `finally`,
+          // BEFORE the `supervised` scope joins its forks: it destroys the
+          // opencode `serve` process so its drain forks' reads EOF and the join
+          // can't hang (Ox runs `releaseAfterScope` only after the join).
+          try
+            FlowLifecycle.run(
+              args,
+              ctx,
+              branchNaming,
+              returnToStartBranch,
+              debug
+            )(
+              body
+            )
+          finally ctx.close()
+        finally effectiveInteraction.close()
+    finally releaseWorkdirLock(lockPath)
+  finally releaseProcessLock()
 
 private def installUncaughtExceptionHandler(): Unit =
   // Idempotent across nested or repeated `flow(...)` calls — we only install

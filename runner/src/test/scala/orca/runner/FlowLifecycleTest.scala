@@ -1324,6 +1324,185 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"a Step warning about the failed reset must be emitted: $steps"
     )
 
+  // --- Epic 7.4: flow() reentrancy/concurrency guards ----------------------
+
+  test(
+    "R7.4: a nested runFlow in the same process is refused before any git mutation, and the outer flow is unaffected"
+  ):
+    val workDir = TempRepo.create()
+    val prompt = "nested-guard"
+    var innerThrown: Option[Throwable] = None
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      runFlow(
+        args = OrcaArgs(prompt),
+        agent = _ => StubAgent.claude,
+        workDir = workDir,
+        interaction = Some(interaction),
+        extraListeners = Nil,
+        branchNaming = None,
+        returnToStartBranch = false,
+        progressStore = None
+      ):
+        innerThrown =
+          try
+            runFlow(
+              args = OrcaArgs("inner"),
+              agent = _ => StubAgent.claude,
+              workDir = workDir,
+              interaction = Some(interaction),
+              extraListeners = Nil,
+              branchNaming = None,
+              returnToStartBranch = false,
+              progressStore = None
+            )(())
+            None
+          catch case e: Throwable => Some(e)
+    val thrown = innerThrown.getOrElse(fail("nested runFlow must throw"))
+    assert(thrown.isInstanceOf[orca.OrcaFlowException])
+    assertEquals(thrown.getMessage, "a flow is already running in this process")
+    assert(
+      !thrown.isInstanceOf[SurfacedFlowFailure],
+      "a pre-ctx guard failure must NOT be wrapped in SurfacedFlowFailure"
+    )
+    // The outer flow, unaffected by the refused nested attempt, still ends
+    // cleanly back on the starting branch — the guard must not corrupt an
+    // outer flow's state (ADR 0018 §6).
+    val branch =
+      os.proc("git", "rev-parse", "--abbrev-ref", "HEAD")
+        .call(cwd = workDir)
+        .out
+        .text()
+        .trim
+    assertEquals(branch, "main")
+
+  test("R7.4: a workdir lock held by a live PID refuses a new runFlow"):
+    val workDir = TempRepo.create()
+    val livePid = ProcessHandle.current().pid()
+    os.write(
+      workDir / ".orca" / "flow.lock",
+      livePid.toString,
+      createFolders = true
+    )
+    val thrown = intercept[orca.OrcaFlowException]:
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        runFlow(
+          args = OrcaArgs("live-pid"),
+          agent = _ => StubAgent.claude,
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = Nil,
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = None
+        ):
+          ()
+    // `intercept[orca.OrcaFlowException]` above already pins the static type
+    // — an unwrapped `OrcaFlowException`, not a `SurfacedFlowFailure` — since
+    // the two types are unrelated; nothing further to assert on that front.
+    assertEquals(
+      thrown.getMessage,
+      s"a flow is already running in this working tree (pid $livePid)"
+    )
+    // The refusal must not steal or clear a lock still held by a live PID.
+    assertEquals(
+      os.read(workDir / ".orca" / "flow.lock").trim,
+      livePid.toString
+    )
+
+  test(
+    "R7.4: a stale dead-PID lock is stolen with a warning, and the flow proceeds"
+  ):
+    val workDir = TempRepo.create()
+    val dead = os.proc("true").spawn()
+    dead.join(): Unit
+    val deadPid = dead.wrapped.pid()
+    os.write(
+      workDir / ".orca" / "flow.lock",
+      deadPid.toString,
+      createFolders = true
+    )
+    val originalErr = System.err
+    val captured = new ByteArrayOutputStream()
+    System.setErr(new PrintStream(captured))
+    try
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        runFlow(
+          args = OrcaArgs("steal"),
+          agent = _ => StubAgent.claude,
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = Nil,
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = None
+        ):
+          summon[FlowContext].emit(OrcaEvent.Step("ran"))
+    finally System.setErr(originalErr)
+    val warning = captured.toString
+    assert(
+      warning.contains("stale lock") && warning.contains(deadPid.toString),
+      s"expected a stale-lock warning mentioning pid $deadPid, got: $warning"
+    )
+    // The guard released cleanly after a successful run — no lock left behind.
+    assert(
+      !os.exists(workDir / ".orca" / "flow.lock"),
+      "lock must be released after a successful run"
+    )
+
+  test("R7.4: the lock file is never swept into a stage commit"):
+    // The stage runtime's commit is `git add -A` + a force-add of the progress
+    // log only; the lock must stay out of history even though the temp repo
+    // has no `.gitignore` for `.orca/` (the guard writes it to the repo-local
+    // `<git-common-dir>/info/exclude` on acquisition).
+    val workDir = TempRepo.create()
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      runFlow(
+        args = OrcaArgs("lock-not-committed"),
+        agent = _ => StubAgent.claude,
+        workDir = workDir,
+        interaction = Some(interaction),
+        extraListeners = Nil,
+        branchNaming = None,
+        returnToStartBranch = false,
+        progressStore = None
+      ):
+        val _ = stage[String]("write"):
+          os.write(workDir / "out.txt", "data")
+          "done"
+    val everTracked = os
+      .proc("git", "log", "--all", "--name-only", "--pretty=format:")
+      .call(cwd = workDir)
+      .out
+      .text()
+    assert(
+      everTracked.contains("out.txt"),
+      s"the stage's code change must be committed; history files: $everTracked"
+    )
+    assert(
+      !everTracked.contains(".orca/flow.lock"),
+      "the flow lock must never appear in any commit"
+    )
+
   /** Records every `OrcaEvent` it sees, so the boundary-emission tests can
     * count how many `OrcaEvent.Error`s a failing run produced.
     */

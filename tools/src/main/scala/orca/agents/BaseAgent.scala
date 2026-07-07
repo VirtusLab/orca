@@ -1,5 +1,6 @@
 package orca.agents
 
+import orca.OrcaFlowException
 import orca.backend.{Interaction, AgentBackend, AgentResult}
 import orca.events.{OrcaEvent, OrcaListener}
 
@@ -79,8 +80,28 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     */
   override private[orca] def backendTag: Option[BackendTag] = Some(backend.tag)
 
-  /** Delegates to the backend — see [[Agent.close]]. */
-  override private[orca] def close(): Unit = backend.close()
+  /** Gates [[autonomous]]`.run` and [[resultAs]]'s gateway construction on the
+    * backend's closed latch (Epic 7.5). A leaked agent handle used after its
+    * flow ended would otherwise silently emit to a closed run's dispatcher —
+    * loud on opencode (a dead `serve` process), invisible on claude/codex. The
+    * latch lives on the shared `backend`, not this instance, so every
+    * `copyTool`-derived sibling (`leaked.opus`, `leaked.withConfig(...)`, …) is
+    * covered too — see [[orca.backend.AgentBackend.markClosed]].
+    */
+  private def checkNotClosed(): Unit =
+    if backend.isClosed then
+      throw new OrcaFlowException(
+        "agent used after its flow ended — agents are scoped to the flow(...) that created them"
+      )
+
+  /** Latches the shared backend closed first (so a `run`/`resultAs` call racing
+    * this close observes one consistent state or the other, never a
+    * live-looking agent whose backend has already been torn down), then
+    * delegates resource teardown — see [[Agent.close]].
+    */
+  override private[orca] def close(): Unit =
+    backend.markClosed()
+    backend.close()
 
   val autonomous: AutonomousTextCall[B] = new AutonomousTextCall[B]:
     def run(
@@ -89,6 +110,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         callConfig: Option[AgentConfig] = None,
         emitPrompt: Boolean = true
     )(using orca.InStage): (SessionId[B], String) =
+      checkNotClosed()
       val effective = effectiveConfig(callConfig)
       if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
       val result =
@@ -99,6 +121,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       (session, result.output)
 
   def resultAs[O: JsonData: Announce]: AgentCall[B, O] =
+    checkNotClosed()
     new DefaultAgentCall[B, O](
       backend,
       effectiveConfig,

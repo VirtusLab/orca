@@ -1,5 +1,7 @@
 package orca.backend
 
+import java.util.concurrent.atomic.AtomicBoolean
+
 import scala.annotation.unused
 
 import orca.events.OrcaListener
@@ -124,3 +126,25 @@ trait AgentBackend[B <: BackendTag]:
     * finalizer (Ox runs those after the join). Idempotent; default no-op.
     */
   def close(): Unit = ()
+
+  // Epic 7.5's closed latch lives HERE, on the backend, not on the Agent
+  // instance: every builder (`withConfig`, `withModel`, `opus`, `withName`, …)
+  // goes through `BaseAgent.copyTool`, which constructs a NEW agent instance
+  // sharing this same backend — a per-agent flag would silently reset to
+  // "open" on every derived handle, letting `leaked.opus.autonomous.run(...)`
+  // bypass the guard. Final and private state so no override (production or
+  // test stub) can drop the latch.
+  private val closedFlag = new AtomicBoolean(false)
+
+  /** Latch this backend as closed — its owning flow has ended, and every run
+    * entry point gated on [[isClosed]] must refuse from now on. Called by
+    * `BaseAgent.close()` alongside (before) [[close]]; separate from [[close]]
+    * so a subclass overriding `close()` for resource teardown cannot forget the
+    * latch.
+    */
+  private[orca] final def markClosed(): Unit = closedFlag.set(true)
+
+  /** Whether [[markClosed]] has run — i.e. the flow that created this backend
+    * (and every agent handle sharing it) has ended.
+    */
+  private[orca] final def isClosed: Boolean = closedFlag.get()

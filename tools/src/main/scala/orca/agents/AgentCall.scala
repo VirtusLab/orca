@@ -118,6 +118,18 @@ class DefaultAgentCall[B <: BackendTag, O](
   private given com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[O] =
     jd.codec
 
+  /** Epic 7.5, second gate: `resultAs[O]` refuses construction on a closed
+    * agent, but a gateway built BEFORE the flow ended and stored across the
+    * close boundary would still reach the backend — this per-call check (free,
+    * since the closed latch lives on the `backend` this class already holds)
+    * closes that gap with the same user-facing message.
+    */
+  private def checkNotClosed(): Unit =
+    if backend.isClosed then
+      throw new orca.OrcaFlowException(
+        "agent used after its flow ended — agents are scoped to the flow(...) that created them"
+      )
+
   val autonomous: AutonomousAgentCall[B, O] = new AutonomousAgentCall[B, O]:
     def run[I: AgentInput](
         input: I,
@@ -125,6 +137,7 @@ class DefaultAgentCall[B <: BackendTag, O](
         config: Option[AgentConfig] = None,
         emitPrompt: Boolean = true
     )(using orca.InStage): (SessionId[B], O) =
+      checkNotClosed()
       runAutonomousWithRetry(input, config, session, emitPrompt)
 
   val interactive: InteractiveAgentCall[B, O] = new InteractiveAgentCall[B, O]:
@@ -133,6 +146,7 @@ class DefaultAgentCall[B <: BackendTag, O](
         session: SessionId[B] = SessionId.fresh[B],
         config: Option[AgentConfig] = None
     )(using orca.InStage): (SessionId[B], O) =
+      checkNotClosed()
       runInteractiveOnce(input, config, session)
 
   /** Emit a `StructuredResult` event carrying the raw payload and the

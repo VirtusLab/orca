@@ -67,7 +67,12 @@ private[orca] class ClaudeBackend(
     * `AgentConfig`, since the strings are claude-specific.
     */
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
-    new ClaudeBackend(cli, tools, projectsDir, cwdForProbe)
+    val sibling = new ClaudeBackend(cli, tools, projectsDir, cwdForProbe)
+    // The Epic 7.5 closed latch must survive reconfiguration: a leaked handle
+    // must not resurrect itself via `leaked.withNetworkTools(...)` when every
+    // other builder (which shares the backend via `copyTool`) stays latched.
+    if isClosed then sibling.markClosed()
+    sibling
 
   /** Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
     * outlive the process, so it is [[SessionSupport.Durable]]: the claim

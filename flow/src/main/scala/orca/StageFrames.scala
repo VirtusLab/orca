@@ -37,11 +37,42 @@ package orca
   * single-threaded per top-level `flow(...)` (R12, ADR 0018 §2.2) — stages,
   * `enterStage`, `exitStage` and `session(...)` calls never run concurrently,
   * so plain vars state the real invariant where a concurrent map would falsely
-  * advertise cross-thread sharing. (Epic 7.1 adds the runtime owner-thread
-  * assert; when it lands it must cover `enterStage`/`exitStage` here alongside
-  * the `next*` methods it already names.)
+  * advertise cross-thread sharing. `ownerThread` (captured when the concrete
+  * class mixing this trait in is constructed) is asserted against
+  * `Thread.currentThread()` on [[enterStage]], [[exitStage]], and
+  * [[nextSessionOccurrence]], so a stray call from an `ox.fork` — always a
+  * fresh thread, verified for the pinned ox 1.0.5 — throws immediately instead
+  * of silently corrupting the frame stack / occurrence counters. Every
+  * `StageFrames` implementation (production `DefaultFlowContext`, every test
+  * double) gets this for free, per this trait's own purpose above. Note that Ox
+  * runs a `supervised:` block's own body on a fresh fork as well, so
+  * `stage(...)` from the direct body of a user-opened nested scope is rejected
+  * just like an explicit `fork` — the same boundary CC's separation checking
+  * draws (that body is a fork closure capturing the exclusive capability).
+  * Production is unaffected: `runFlow` constructs the context inside the same
+  * `supervised:` body that runs the flow, so owner and body thread coincide.
+  *
+  * '''This is the only enforcement of R12 for user flow scripts.''' Epic 0's
+  * capture/separation checking catches a fork boundary violation at compile
+  * time, but only in files that opt into the `captureChecking`/
+  * `separationChecking` language imports — today that's exactly one internal
+  * call site (`orca.review.ReviewLoop`'s reviewer fan-out); no example or user
+  * `.sc` script carries them. It's also strictly stronger than CC regardless: a
+  * capture check can't see a leak via mutable storage (a fork reading a
+  * `FlowControl` out of a `var`/global a stage stashed it in), only this
+  * runtime assert can.
   */
 private[orca] trait StageFrames:
+  private val ownerThread: Thread = Thread.currentThread()
+
+  /** Throws with the R12 message when called off `ownerThread` — see the trait
+    * scaladoc's "only enforcement of R12 for user flow scripts" note.
+    */
+  private def assertOwnerThread(): Unit =
+    if Thread.currentThread() ne ownerThread then
+      throw new OrcaFlowException(
+        "stage(...)/session(...) called from a fork — forks get FlowContext only (ADR 0018 R12)"
+      )
 
   /** One open stage's scope: its own path id (the prefix children join under)
     * and the per-name occurrence counters for stages nested directly beneath
@@ -64,6 +95,7 @@ private[orca] trait StageFrames:
     * this must be called exactly once per stage attempt.
     */
   def enterStage(name: String): String =
+    assertOwnerThread()
     val parent = frames.head
     val segment = s"$name#${parent.next(name)}"
     val id = if parent.path.isEmpty then segment else s"${parent.path}/$segment"
@@ -74,6 +106,7 @@ private[orca] trait StageFrames:
     * try/finally; never pops the root frame in correct use.
     */
   def exitStage(): Unit =
+    assertOwnerThread()
     frames = frames.tail
 
   /** True when at least one stage frame is open — i.e. execution is inside a
@@ -87,6 +120,7 @@ private[orca] trait StageFrames:
   // root scope. Keyed per-name, mirroring a frame's stage counter.
   private var sessionCounts: Map[String, Int] = Map.empty
   def nextSessionOccurrence(name: String): Int =
+    assertOwnerThread()
     val n = sessionCounts.getOrElse(name, 0)
     sessionCounts = sessionCounts.updated(name, n + 1)
     n

@@ -40,6 +40,55 @@ class BaseAgentTest extends munit.FunSuite:
     tool.close()
     assertEquals(backend.closeCount, 1)
 
+  // Epic 7.5: a closed agent must fail loud rather than let a leaked handle
+  // silently emit to a closed run's dispatcher.
+  test("autonomous.run after close() throws OrcaFlowException"):
+    val tool = new StubTool(new RecordingCloseBackend)
+    tool.close()
+    val thrown = intercept[orca.OrcaFlowException]:
+      tool.autonomous.run("prompt")
+    assertEquals(
+      thrown.getMessage,
+      "agent used after its flow ended — agents are scoped to the flow(...) that created them"
+    )
+
+  test("resultAs after close() throws OrcaFlowException"):
+    val tool = new StubTool(new RecordingCloseBackend)
+    tool.close()
+    val thrown = intercept[orca.OrcaFlowException]:
+      tool.resultAs[String]
+    assertEquals(
+      thrown.getMessage,
+      "agent used after its flow ended — agents are scoped to the flow(...) that created them"
+    )
+
+  // The closed latch lives on the shared backend, so it must survive the two
+  // ways a leaked handle can re-derive a "fresh" object after close: the
+  // copyTool builders (`withName`/`withConfig`/model accessors — a new Agent
+  // instance over the same backend) and a resultAs gateway built before the
+  // close and invoked after (a DefaultAgentCall holding the backend directly).
+  test("a copyTool-derived handle after close() throws OrcaFlowException"):
+    val tool = new StubTool(new RecordingCloseBackend)
+    tool.close()
+    val derived = tool.withName("derived")
+    val thrown = intercept[orca.OrcaFlowException]:
+      derived.autonomous.run("prompt")
+    assertEquals(
+      thrown.getMessage,
+      "agent used after its flow ended — agents are scoped to the flow(...) that created them"
+    )
+
+  test("a resultAs gateway obtained before close() throws when run after it"):
+    val tool = new StubTool(new RecordingCloseBackend)
+    val gateway = tool.resultAs[String]
+    tool.close()
+    val thrown = intercept[orca.OrcaFlowException]:
+      gateway.autonomous.run("prompt")
+    assertEquals(
+      thrown.getMessage,
+      "agent used after its flow ended — agents are scoped to the flow(...) that created them"
+    )
+
   // Pins finding 6.3's fix: `config` is `Option[AgentConfig]`, not the old
   // `AgentConfig.default` eq-sentinel. An explicit `Some(...)` wholly
   // replaces the tool-level config (no per-field merge); omission (`None`)
@@ -82,10 +131,14 @@ class BaseAgentTest extends munit.FunSuite:
         StubInteraction
       ):
     val name: String = "stub"
+    // Mirrors every production implementation: a NEW instance over the SAME
+    // backend — so the copyTool-after-close test exercises the real leak
+    // shape (a fresh Agent object whose only tie to the closed flow is the
+    // shared backend), not a trivial same-instance alias.
     protected def copyTool(
         config: AgentConfig = toolConfig,
         name: String = name
-    ): Agent[BackendTag.Pi.type] = this
+    ): Agent[BackendTag.Pi.type] = new StubTool(backend, config)
 
   /** Records the `AgentConfig` the framework actually resolved and passed to
     * the backend, so tests can assert on it directly.

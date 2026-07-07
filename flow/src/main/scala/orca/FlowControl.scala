@@ -41,8 +41,9 @@ import scala.annotation.implicitNotFound
   *
   * Thread-affine: `enterStage`/`exitStage` (and the occurrence counters they
   * drive) are covered by the same single-thread affinity contract as the rest
-  * of `FlowControl` (see below); Epic 7.1's runtime owner-thread assert must
-  * cover them alongside [[nextSessionOccurrence]].
+  * of `FlowControl` (see below); [[StageFrames]]'s runtime owner-thread assert
+  * enforces it, alongside [[nextSessionOccurrence]] — see that trait's scaladoc
+  * for why it's the only enforcement of this for user flow scripts.
   */
 @implicitNotFound(
   "`stage(...)`, `agent.session(...)`, and `session.run(...)` on a FlowSession can only be called inside a `flow(...)` body — and not inside a `fork` (forks can read and emit, but can't start stages). If this is a helper that starts stages, declare it `(using FlowControl)` so its caller supplies it."
