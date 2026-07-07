@@ -1,14 +1,16 @@
 package orca.review
 
-import orca.{FlowContext, InStage}
+import language.experimental.captureChecking
+import language.experimental.separationChecking
+
+import orca.{CheckedPar, FlowContext, InStage}
 import orca.plan.Title
 
 import scala.annotation.unused
-import orca.agents.{AgentInput, BackendTag, JsonData, Agent, SessionId, given}
+import orca.agents.{BackendTag, Agent, SessionId, given}
 import orca.events.OrcaEvent
 
 import orca.util.TextWrap
-import ox.flow.Flow
 
 /** Evaluate, fix, re-evaluate until the reviewer reports no issues, the fixer
   * reports zero fixes (so re-evaluating would just rediscover the same things),
@@ -110,20 +112,6 @@ case class ReviewBatch(outcomes: List[(Agent[?], ReviewResult)]):
     outcomes.collect { case (r, rr) if rr.issues.nonEmpty => r }
   def allIssues: List[ReviewIssue] =
     outcomes.flatMap(_._2.issues)
-
-private case class FixRequest(
-    instructions: String,
-    issues: List[ReviewIssue]
-) derives JsonData
-
-private object FixRequest:
-  given AgentInput[FixRequest] with
-    def serialize(r: FixRequest): String =
-      val formatted = r.issues.map(formatIssue).mkString("\n")
-      s"""${r.instructions}
-         |
-         |Issues to fix:
-         |$formatted""".stripMargin
 
 /** All cross-iteration state for `reviewAndFixLoop`, in one immutable record.
   * `history` is consulted by [[ReviewerSelector]]; `sessions` maps a reviewer's
@@ -368,21 +356,23 @@ private[review] class ReviewFixLoop[B <: BackendTag](
             val labelled = agent.withName(s"${ReviewerPrompts.NamePrefix}lint")
             AgentOutcome.Lint(filterByConfidence(lint(cmd, labelled)))
 
-    val tasks = reviewerTasks ++ lintTaskOpt.toList
+    val tasks = reviewerTasks.++[() => AgentOutcome](lintTaskOpt.toList)
     if tasks.isEmpty then (Nil, None, currentState)
     else
       val outcomes: List[AgentOutcome] =
-        Flow
-          .fromIterable(tasks)
-          .mapParUnordered(tasks.size)(_.apply())
-          .tap:
-            // Display the bare slug — the `reviewer: ` prefix is a cost-report
-            // grouping detail, not part of what the user sees per reviewer.
-            case AgentOutcome.Reviewer(r, res, _) =>
-              ctx.emit(OrcaEvent.Step(formatReviewerOutcome(r.name, res)))
-            case AgentOutcome.Lint(res) =>
-              ctx.emit(OrcaEvent.Step(formatReviewerOutcome("lint", res)))
-          .runToList()
+        // Fan out through the capture-checked funnel (CheckedPar) rather than
+        // Ox's Flow directly, so separation checking guards the fork boundary:
+        // the shared `InStage` these thunks capture is admitted (load-bearing —
+        // each reviewer reaches a gated LLM `run`), while an exclusive
+        // `WorkspaceWrite`/`FlowControl` capture would be a compile error here
+        // (ADR 0018 §6). Enforcement needs this file's two language imports.
+        CheckedPar.mapParUnordered(tasks.size)(tasks):
+          // Display the bare slug — the `reviewer: ` prefix is a cost-report
+          // grouping detail, not part of what the user sees per reviewer.
+          case AgentOutcome.Reviewer(r, res, _) =>
+            ctx.emit(OrcaEvent.Step(formatReviewerOutcome(r.name, res)))
+          case AgentOutcome.Lint(res) =>
+            ctx.emit(OrcaEvent.Step(formatReviewerOutcome("lint", res)))
 
       val reviewerOutcomes = outcomes.collect:
         case AgentOutcome.Reviewer(r, res, _) => (r, res)
