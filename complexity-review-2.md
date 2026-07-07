@@ -494,6 +494,16 @@ BOTH autonomous.run and resultAs construction. Split: 7A=7.1+7.4+7.5,
   is already running in this working tree". A nested `flow` today stashes the
   outer flow's tree, switches branches under it, and `reset --hard`s its work.
   Refs: `runner/src/main/scala/orca/flow.scala:115-169,249-261`.
+> Epic 7 residual (7A review, 2026-07-07, recorded not fixed): a NESTED
+> public `flow()` call fail-fasts correctly at the process-lock guard, but
+> its System.exit(1) skips the OUTER flow's finallys — outer branch stays
+> checked out and `.orca/flow.lock` remains (self-heals: next run steals the
+> dead-PID lock with a warning). Undefined path per ADR 0018 §6, strictly
+> better than the prior silent corruption. Full fix = the outer teardown
+> surviving an inner exit — owner call whether to pursue. Also noted:
+> the git-exclude for the lock assumes workDir = repo root (true for all
+> current usage).
+
 - [ ] 7.5 Agents must not outlive their flow silently: `close()` flips a
   `closed` flag in `BaseAgent`; run entry points throw "agent used after its
   flow ended" (leaked agents currently emit to a closed run's dispatcher —
