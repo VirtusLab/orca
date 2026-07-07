@@ -321,6 +321,16 @@ Refs: `tools/src/main/scala/orca/backend/ConversationEvent.scala:26-31`,
   tracks `openTurn` (reader-thread-confined var, same invariant as
   `settledOutcome`), drops empty `AssistantTurnEnd`s, and
   `succeedWith`/`failWith` auto-close an open turn before settling.
+  (Research 2026-07-07, epic4-research.md: all five violations re-verified;
+  every enqueue site already goes through the ONE `EventQueue.enqueue`
+  funnel — the fix is one file, not five. Activity classification confirmed
+  authoritative in ConversationEvent scaladoc + assertGrammar: activity =
+  deltas/toolcall/toolresult; neutral = UserMessage/Error/ApproveTool/
+  UserQuestion. CAVEAT to document: stderr/askUser forks also enqueue, but
+  only neutral events — make that invariant explicit like settledOutcome's.
+  Two scripted tests change observable sequences (claude deltas-then-error,
+  codex tool-only asserting events.size==2) — update deliberately. Gemini's
+  violation has zero current coverage — the base test must include it.)
 - [ ] 4.2 Delete the per-driver machinery it obsoletes: opencode's
   `activitySinceTurnEnd`/`failTurn`/`emitTurnEnd`, pi's
   `sawAssistantActivity`, gemini's unconditional pre-result turn end, claude's
