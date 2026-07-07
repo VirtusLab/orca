@@ -34,6 +34,17 @@ object BranchNamingStrategy:
     if capped.isEmpty || capped.startsWith("-") then fallback(text)
     else capped
 
+  /** Deterministic `"flow-<8-hex-chars>"` name for `text` — the exact fallback
+    * shape [[slug]] uses internally when it can't produce a safe non-empty
+    * result from its input. Exposed as a public entry point so callers that
+    * need a guaranteed-safe deterministic rename OUTSIDE of `slug`'s own
+    * trigger conditions (e.g. [[orca.progress.FeatureBranch]]'s
+    * protected-name-collision fallback, keyed on the prompt rather than the
+    * rejected name so the rename is stable across retries of the same prompt)
+    * reuse this one format rather than inventing a second one.
+    */
+  def flowFallbackName(text: String): String = fallback(text)
+
   /** True iff `c` may appear in a slug: lower-case alphanumeric or `-`. */
   private[orca] def isSlugChar(c: Char): Boolean =
     (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'

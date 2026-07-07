@@ -39,8 +39,9 @@ object RecoveryCheck:
     * on the first failure, `Right(())` when the header is trustworthy.
     *
     *   - `branch` and `startingBranch` must be safe refs.
-    *   - `branch` must not be a protected branch (`startingBranch` may be):
-    *     `protectedBranches` (lower-cased) plus the `main`/`master` floor.
+    *   - `branch` must not be a protected branch (`startingBranch` may be) —
+    *     delegated to [[FeatureBranch.resolve]], which unions
+    *     `protectedBranches` with the `main`/`master` floor.
     *   - `promptHash` must equal the recomputed hash of the current prompt.
     *
     * `protectedBranches` lets the runtime pass the repo's ACTUAL default branch
@@ -52,14 +53,15 @@ object RecoveryCheck:
       userPrompt: String,
       protectedBranches: Set[String]
   ): Either[String, Unit] =
-    val protectedLower =
-      (protectedBranches ++ alwaysProtected).map(_.toLowerCase)
     if !isSafeBranchRef(header.branch) then
       Left(s"branch '${header.branch}' is not a safe ref")
     else if !isSafeBranchRef(header.startingBranch) then
       Left(s"startingBranch '${header.startingBranch}' is not a safe ref")
-    else if protectedLower.contains(header.branch.toLowerCase) then
-      Left(s"branch '${header.branch}' is a protected branch")
-    else if header.promptHash != ProgressStore.hashPrompt(userPrompt) then
-      Left("promptHash does not match the current prompt")
-    else Right(())
+    else
+      FeatureBranch.resolve(header.branch, protectedBranches) match
+        case Left(ProtectedBranchRefused(name)) =>
+          Left(s"branch '$name' is a protected branch")
+        case Right(_) =>
+          if header.promptHash != ProgressStore.hashPrompt(userPrompt) then
+            Left("promptHash does not match the current prompt")
+          else Right(())

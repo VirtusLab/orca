@@ -13,7 +13,13 @@ import orca.{
 }
 import orca.agents.{BackendTag, Agent, SessionId, WireSessionId}
 import orca.events.OrcaEvent
-import orca.progress.{ProgressHeader, ProgressStore, RecoveryCheck}
+import orca.progress.{
+  FeatureBranch,
+  ProgressHeader,
+  ProgressStore,
+  ProtectedBranchRefused,
+  RecoveryCheck
+}
 import orca.tools.GitTool
 import org.slf4j.LoggerFactory
 
@@ -258,6 +264,18 @@ object FlowLifecycle:
     val snapshot = snapshotLog(store.path)
     val _ = git.ensureClean("orca: starting flow")
     restoreLogIfMissing(store.path, snapshot)
+    // The protected set BOTH arms enforce: the always-protected floor
+    // (`main`/`master`) plus the repo's ACTUAL detected default branch
+    // (best-effort — `git.defaultBranch()` is read-only/cheap and already
+    // collapses "no remote"/detection failure to `None` internally, so a
+    // failed detection silently falls back to just the floor here, exactly
+    // as it already does for the resume arm). Computed ONCE so the fresh arm
+    // (via `FeatureBranch.resolve`) and the resume arm (via
+    // `RecoveryCheck.validateHeader`) apply the identical policy from the
+    // identical set — this is what makes "a protected name can never reach
+    // `FlowSetup.featureBranch`" true from either arm.
+    val protectedBranches =
+      RecoveryCheck.alwaysProtected ++ git.defaultBranch().map(_.toLowerCase)
     store.loadDetailed() match
       case ProgressStore.LoadResult.Corrupt(reason) =>
         // The log file exists but didn't parse — a truncated/corrupted write,
@@ -280,17 +298,33 @@ object FlowLifecycle:
               "starting fresh — the previous run's stages will re-run"
           )
         )
-        freshRun(args, agent, git, branchNaming, store, startBranch)
+        freshRun(
+          args,
+          agent,
+          git,
+          branchNaming,
+          store,
+          startBranch,
+          protectedBranches,
+          emit
+        )
       case ProgressStore.LoadResult.Absent =>
-        freshRun(args, agent, git, branchNaming, store, startBranch)
+        freshRun(
+          args,
+          agent,
+          git,
+          branchNaming,
+          store,
+          startBranch,
+          protectedBranches,
+          emit
+        )
       case ProgressStore.LoadResult.Loaded(progressLog) =>
         val header = progressLog.header
         // Validate the untrusted header before any destructive action. The
         // protected set is the main/master floor plus the repo's ACTUAL default
         // branch (best-effort), so a tampered header naming e.g. `trunk` as a
         // feature branch is refused too.
-        val protectedBranches =
-          Set("main", "master") ++ git.defaultBranch().map(_.toLowerCase)
         RecoveryCheck.validateHeader(
           header,
           args.userPrompt,
@@ -322,6 +356,17 @@ object FlowLifecycle:
     * tokens: `InStage` because branch-name resolution may call the cheap model
     * (`BranchNamingStrategy.shortenPrompt`), `WorkspaceWrite` for the git
     * checkout/commit and header write.
+    *
+    * The resolved name is minted into a [[FeatureBranch]] before it ever
+    * reaches git: a strategy/cheap-model reply that collides with a protected
+    * branch (`main`, `master`, or the repo's detected default) is REFUSED, not
+    * bound to. Refusal falls back to a deterministic
+    * `BranchNamingStrategy.flowFallbackName(args.userPrompt)` (same prompt →
+    * same fallback, so a resumed run still finds the branch) — loudly, via an
+    * `OrcaEvent.Step` — rather than aborting the run: unattended/scheduled runs
+    * must not flip between success and failure purely because the cheap model's
+    * summary happened to phrase itself as "main" this time (mirrors
+    * `shortenPrompt`'s existing "naming never blocks the flow" idiom).
     */
   private def freshRun(
       args: OrcaArgs,
@@ -329,11 +374,34 @@ object FlowLifecycle:
       git: GitTool,
       branchNaming: Option[BranchNamingStrategy],
       store: ProgressStore,
-      startBranch: String
+      startBranch: String,
+      protectedBranches: Set[String],
+      emit: OrcaEvent => Unit
   )(using InStage, WorkspaceWrite): FlowSetup =
     val strategy =
       branchNaming.getOrElse(BranchNamingStrategy.shortenPrompt)
-    val branch = strategy.resolve(args.userPrompt, agent)
+    val resolvedName = strategy.resolve(args.userPrompt, agent)
+    val branch = FeatureBranch.resolve(resolvedName, protectedBranches) match
+      case Right(featureBranch) => featureBranch.value
+      case Left(ProtectedBranchRefused(name)) =>
+        val fallbackName =
+          BranchNamingStrategy.flowFallbackName(args.userPrompt)
+        emit(
+          OrcaEvent.Step(
+            s"branch name '$name' is protected — using '$fallbackName' instead"
+          )
+        )
+        // Defensive re-check (see `flowFallbackName`'s scaladoc): a
+        // `flow-`-prefixed hash can't realistically collide with a protected
+        // name, but re-validating rather than assuming keeps the invariant
+        // airtight instead of merely believed.
+        FeatureBranch.resolve(fallbackName, protectedBranches) match
+          case Right(featureBranch) => featureBranch.value
+          case Left(_) =>
+            throw new OrcaFlowException(
+              s"internal error: deterministic fallback branch name " +
+                s"'$fallbackName' is itself a protected branch"
+            )
     git.checkoutOrCreate(branch)
     store.writeHeader(
       ProgressHeader(

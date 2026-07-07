@@ -895,6 +895,58 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
+    "fresh run refuses to bind to a protected branch name"
+  ):
+    // The headline hazard this task closes: a `branchNaming` strategy (or,
+    // in production, the cheap-model reply `shortenPrompt` slugs) that
+    // resolves to "main" must NOT bind the whole flow to the repo's default
+    // branch. Today (pre-fix) `freshRun` calls `checkoutOrCreate("main")`
+    // with zero protected-branch check, so this test is RED before
+    // `FeatureBranch` lands: `featureBranchName` observes "main" and no
+    // protecting Step event is emitted.
+    val workDir = TempRepo.create()
+    val prompt = "fresh-protected"
+    val git = new OsGitTool(workDir)
+    val listener = new RecordingListener
+    var featureBranchName = ""
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt),
+        agent = _ => StubAgent.claude,
+        workDir = workDir,
+        interaction = Some(interaction),
+        extraListeners = List(listener),
+        branchNaming = Some(BranchNamingStrategy.fromText("main"))
+      ):
+        // Record the feature branch before any teardown runs.
+        featureBranchName = summon[orca.FlowContext].git.currentBranch()
+        val _ = stage("write code"):
+          os.write(workDir / "code.txt", "real code")
+          "done"
+    assertNotEquals(
+      featureBranchName,
+      "main",
+      "a fresh run must never bind to the protected default branch"
+    )
+    assertEquals(
+      git.currentBranch(),
+      featureBranchName,
+      "run should stay on the (fallback) feature branch since code landed"
+    )
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s }
+    assert(
+      steps.exists(s =>
+        s.message.contains("protected") && s.message.contains("main")
+      ),
+      s"expected a Step warning naming the protected branch and the fallback, got: $steps"
+    )
+
+  test(
     "surfaced: a setup resume-refusal reaches the user as one Error and escapes as SurfacedFlowFailure"
   ):
     // The silent-exit family's headline case: a tampered header makes `setup`
@@ -935,6 +987,43 @@ class FlowLifecycleTest extends munit.FunSuite:
     assert(
       thrown.cause.getMessage.contains("failed validation"),
       s"abort message must mention validation failure: ${thrown.cause.getMessage}"
+    )
+
+  test(
+    "surfaced: a resume header naming a protected branch is refused end-to-end through setup"
+  ):
+    // Unlike the tampered-promptHash fixture above, this one names a
+    // genuinely protected branch (`master`) as the header's feature branch —
+    // exercising the OTHER `validateHeader` failure mode end-to-end through
+    // `FlowLifecycle.setup`, not just at the `RecoveryCheckTest` unit level.
+    val workDir = TempRepo.create()
+    val prompt = "resume-protected-branch"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("feat/resume-protected-branch")
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "master",
+        promptHash = ProgressStore.hashPrompt(prompt)
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    val listener = new RecordingListener
+    val thrown = intercept[SurfacedFlowFailure]:
+      runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
+        val _ = stage("never-runs")("x")
+    val errors = listener.events.collect { case e: OrcaEvent.Error => e }
+    assertEquals(errors.size, 1, s"exactly one Error expected, got: $errors")
+    assert(
+      errors.head.message.contains("refusing to resume"),
+      s"the refusal message must reach the user: ${errors.head.message}"
+    )
+    assert(
+      thrown.cause.getMessage.contains("protected branch"),
+      s"abort message must name the protected branch: ${thrown.cause.getMessage}"
     )
 
   test(
