@@ -294,7 +294,7 @@ private[orca] class ClaudeBackend(
     */
   private def writeSystemPromptIfPresent(
       config: AgentConfig,
-      includeAskUserHint: Boolean = false
+      includeAskUserHint: Boolean
   ): Option[os.Path] =
     val hint = Option.when(includeAskUserHint)(AskUserMcpServer.Hint)
     SystemPromptComposer

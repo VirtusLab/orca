@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.{OrcaFlowException, OrcaInteractiveCancelled}
+import orca.OrcaFlowException
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.agents.{BackendTag, SessionId, WireSessionId}
 

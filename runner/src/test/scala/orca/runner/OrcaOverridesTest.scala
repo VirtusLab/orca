@@ -8,7 +8,6 @@ import orca.agents.{
   BackendTag,
   ClaudeAgent,
   JsonData,
-  Agent,
   PiAgent,
   AgentCall,
   AgentConfig,

@@ -205,7 +205,7 @@ class RunSeededTest extends FunSuite:
     * can exercise the "progress preamble" and "recorded seed" paths.
     */
   private def makeControl(
-      sessions: List[SessionRecord] = Nil,
+      sessions: List[SessionRecord],
       completedStages: List[String] = Nil
   ): TestFlowControl =
     val dir = os.temp.dir()

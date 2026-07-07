@@ -2,15 +2,9 @@ package orca.review
 
 import orca.{FlowContext, InStage}
 import orca.plan.Title
-import orca.agents.{
-  AgentInput,
-  BackendTag,
-  JsonData,
-  AgentConfig,
-  Agent,
-  SessionId,
-  given
-}
+
+import scala.annotation.unused
+import orca.agents.{AgentInput, BackendTag, JsonData, Agent, SessionId, given}
 import orca.events.OrcaEvent
 
 import orca.util.TextWrap
@@ -557,7 +551,7 @@ def lint(
     command: String,
     agent: Agent[?],
     instructions: String = ReviewLoopPrompts.SummariseLint
-)(using FlowContext, InStage): ReviewResult =
+)(using @unused ctx: FlowContext, ev: InStage): ReviewResult =
   val proc = os
     .proc("bash", "-c", command)
     .call(check = false, mergeErrIntoOut = true)

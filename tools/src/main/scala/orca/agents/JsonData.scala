@@ -105,7 +105,7 @@ object JsonData:
 
   given [A](using jd: JsonData[A]): JsonData[Option[A]] =
     given JsonValueCodec[A] = jd.codec
-    apply(Schema.schemaForOption(jd.schema), wrap(JsonCodecMaker.make))
+    apply(Schema.schemaForOption(using jd.schema), wrap(JsonCodecMaker.make))
 
   given [A](using jd: JsonData[A]): JsonData[List[A]] =
     given JsonValueCodec[A] = jd.codec
@@ -113,7 +113,7 @@ object JsonData:
     // is safe because at runtime both are the same array schema with A elements.
     apply(
       Schema
-        .schemaForIterable[A, List](jd.schema)
+        .schemaForIterable[A, List](using jd.schema)
         .asInstanceOf[Schema[List[A]]],
       wrap(JsonCodecMaker.make)
     )

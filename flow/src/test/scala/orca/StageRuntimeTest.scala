@@ -160,7 +160,7 @@ class StageRuntimeTest extends munit.FunSuite:
     )
 
   test("an undecodable stored entry re-runs the stage"):
-    val (ctx, dir) = TestFlowControl.create(new EventDispatcher(Nil))
+    val (ctx, _) = TestFlowControl.create(new EventDispatcher(Nil))
     given FlowControl = ctx
     val ran = new AtomicInteger(0)
     // Seed an entry under id "typed#0" whose JSON cannot decode to Int.

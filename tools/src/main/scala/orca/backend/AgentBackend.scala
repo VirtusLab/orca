@@ -1,5 +1,7 @@
 package orca.backend
 
+import scala.annotation.unused
+
 import orca.events.OrcaListener
 import orca.agents.{
   AutoApprove,
@@ -109,7 +111,10 @@ trait AgentBackend[B <: BackendTag]:
     * five shipped ones); the default exists only to spare test doubles a
     * meaningless override.
     */
-  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+  def enforcement(
+      @unused tools: ToolSet,
+      @unused autoApprove: AutoApprove
+  ): Enforcement =
     Enforcement.Ignored
 
   /** Release background resources this backend owns (processes, servers, drain

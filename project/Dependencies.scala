@@ -2,12 +2,12 @@ import sbt.*
 
 object Dependencies {
   object V {
-    val scala = "3.3.6"
+    val scala = "3.8.4"
     val osLib = "0.11.4"
-    val jsoniter = "2.33.3"
-    val tapir = "1.13.18"
+    val jsoniter = "2.38.17"
+    val tapir = "1.13.25"
     val sttpApispec = "0.11.10"
-    val ox = "1.0.2"
+    val ox = "1.0.5"
     val mainargs = "0.7.6"
     val jline = "3.28.0"
     val fansi = "0.5.0"

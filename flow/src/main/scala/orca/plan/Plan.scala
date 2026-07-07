@@ -3,6 +3,8 @@ package orca.plan
 import orca.{FlowContext, InStage, OrcaFlowException}
 import orca.agents.{Announce, BackendTag, CanAskUser, JsonData, Agent, given}
 
+import scala.annotation.unused
+
 /** A development plan: an ordered list of [[Task]]s the agent will work
   * through, all on a single branch named by `epicId` (kebab-case, used directly
   * as the git branch name), plus a `brief` — a concise codebase briefing the
@@ -184,7 +186,10 @@ object Plan:
       agent: Agent[B],
       input: String,
       instructions: String
-  )(convert: O => A)(using FlowContext, InStage): Sessioned[B, A] =
+  )(convert: O => A)(using
+      @unused ctx: FlowContext,
+      ev: InStage
+  ): Sessioned[B, A] =
     val (sessionId, raw) = agent.withNetworkOnly
       .resultAs[O]
       .autonomous
@@ -200,7 +205,10 @@ object Plan:
       agent: Agent[B],
       input: String,
       instructions: String
-  )(convert: O => A)(using FlowContext, InStage): Sessioned[B, A] =
+  )(convert: O => A)(using
+      @unused ctx: FlowContext,
+      ev: InStage
+  ): Sessioned[B, A] =
     val (sessionId, raw) =
       agent.resultAs[O].interactive.run(withInstructions(input, instructions))
     Sessioned(sessionId, convert(raw))
@@ -218,7 +226,7 @@ object Plan:
     def reviewed(
         agent: Agent[B],
         instructions: String = PlanPrompts.Review
-    )(using FlowContext, InStage): Sessioned[B, Plan] =
+    )(using @unused ctx: FlowContext, ev: InStage): Sessioned[B, Plan] =
       val (sessionId, improved) = agent.withReadOnly
         .resultAs[Plan]
         .autonomous

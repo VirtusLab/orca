@@ -3,6 +3,8 @@ package orca.pr
 import orca.{FlowContext, InStage}
 import orca.agents.{Announce, JsonData, Agent}
 
+import scala.annotation.unused
+
 /** What [[summarisePr]] produces: a one-line PR title and a multi-paragraph
   * body. `gh.createPr(title = …, body = …)` accepts the two fields directly, so
   * call sites typically destructure or pass them positionally.
@@ -32,7 +34,7 @@ def summarisePr(
     diff: String,
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
-)(using FlowContext, InStage): PrSummary =
+)(using @unused ctx: FlowContext, ev: InStage): PrSummary =
   val contextBlock = context.fold("")(c => s"$c\n\n")
   val prompt =
     s"""$instructions
