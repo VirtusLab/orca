@@ -453,6 +453,17 @@ target guard sites are defined by 6.2's commitAfterDrain.)
 
 ## Epic 7 — Concurrency invariants get teeth
 
+(Research 2026-07-07, epic7-research.md: all five valid/unaddressed.
+Corrections+decisions: the 7.1 assert lives in StageFrames itself (all impls
+incl. test doubles get it free); Ox 1.0.5 fork = always a fresh thread
+(verified in the jar); the CC note OVERSTATED — compile-time enforcement
+covers exactly one internal call site (ReviewLoop), so the runtime assert is
+the ONLY enforcement for user scripts, not a backstop. 7.4: in-process
+AtomicBoolean + .orca/flow.lock with PID-liveness (steal-with-warning if
+dead, refuse if alive). 7.5: resultAs[O] bypasses BaseAgent per call — gate
+BOTH autonomous.run and resultAs construction. Split: 7A=7.1+7.4+7.5,
+7B=7.3-then-7.2.)
+
 - [ ] 7.1 R12 bridge enforcement: `DefaultFlowContext` records `ownerThread`;
   `nextOccurrence`/`nextSessionOccurrence` assert thread identity and throw
   "stage(...)/session(...) called from a fork — forks get FlowContext only
