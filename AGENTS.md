@@ -54,9 +54,9 @@ straight-line `flow(...)` body sharing one `using FlowContext` — it doesn't
 survive being factored into a helper function, since two `FlowContext`
 parameters' `LeadB` members don't unify even when they're the same backend at
 runtime. A helper should instead take an explicit `[B <: BackendTag]` type
-parameter, or bundle the agent and its session as a `Sessioned[B, A]` pair —
-see the `LeadB` scaladoc (`flow/src/main/scala/orca/FlowContext.scala`) for
-the full rationale.
+parameter, or bundle the agent and its durable session as a `FlowSession[B]`
+handle (`agent.session(name, seed)`) — see the `LeadB` scaladoc
+(`flow/src/main/scala/orca/FlowContext.scala`) for the full rationale.
 
 ## The stage-bound runtime
 
@@ -69,9 +69,9 @@ most easily broken:
   (authority to start a stage; thread-affine), and a SPLIT pair of stage-bound
   capability tokens (both in `tools`, `package orca`) — `InStage`, the SHARED
   half (`caps.SharedCapability`, fork-capturable): every `agent.*.run` /
-  `runSeeded` (spend tokens, drive an agent) takes `(using InStage)`, and it is
-  safe to capture into a `fork` (the reviewer fan-out's shared `InStage`
-  capture is load-bearing); and `WorkspaceWrite`, the EXCLUSIVE half
+  `FlowSession.run` (spend tokens, drive an agent) takes `(using InStage)`,
+  and it is safe to capture into a `fork` (the reviewer fan-out's shared
+  `InStage` capture is load-bearing); and `WorkspaceWrite`, the EXCLUSIVE half
   (`caps.ExclusiveCapability`, fork-opaque): every git write, `fs.write`, `gh`
   write, and progress-log write takes `(using WorkspaceWrite)`, and it must NOT
   cross a `fork` boundary (two concurrent forks racing on the same git index or

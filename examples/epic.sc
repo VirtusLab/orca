@@ -46,9 +46,9 @@ flow(OrcaArgs(args), _.claude):
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):      // skipped on resume if already done
-      claude.runSeeded(task.description, session)
+      session.run(task.description)
       reviewAndFixLoop(
-        coder = claude, sessionId = session,
+        coderSession = session,
         reviewers = reviewers,
         reviewerSelection = ReviewerSelector.agentDriven(claude.cheap),
         task = task.title.value,
@@ -58,8 +58,7 @@ flow(OrcaArgs(args), _.claude):
       // one commit per task: code + progress entry
 
   stage("Update documentation"):
-    claude.runSeeded(
+    session.run(
       "All tasks done. Update project docs (README, doc-comments) based " +
-        "on the changes made. Only update what's affected — no new sections.",
-      session
+        "on the changes made. Only update what's affected — no new sections."
     )

@@ -361,7 +361,7 @@ the wrong branch.
   construction into a **type member** `FlowContext { type LeadB }` (a *member*, not a
   parameter, so the whole `using FlowContext` surface stays unparametrised), making
   `agent: Agent[ctx.LeadB]` concretely typed: a session from `agent.session` threads
-  into `agent.runSeeded` and the reviewers (R27). The runtime reads the same lead off
+  into `session.run` and the reviewers (R27). The runtime reads the same lead off
   `ctx.agent` (erased to `Agent[?]`) for branch naming and session rehydration, and
   the in-stage default commit message uses `ctx.agent.cheapOneShot`. `Agent` gains a
   `cheap` method returning the backend's cheap variant (claude → haiku, gemini →
@@ -640,9 +640,9 @@ flow(OrcaArgs(args), _.claude):                          // required agent selec
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):                       // skipped on resume if already done
-      agent.runSeeded(task.description, session)
+      session.run(task.description)
       reviewAndFixLoop(                                   // runs under this stage (using InStage)
-        coder = agent, sessionId = session,
+        coderSession = session,
         reviewers = allReviewers(agent),
         reviewerSelection = ReviewerSelector.agentDriven(agent.cheap),
         task = task.title.value,
@@ -651,7 +651,7 @@ flow(OrcaArgs(args), _.claude):                          // required agent selec
       // one commit per task: code + progress entry
 ```
 
-`git.commit` requires `WorkspaceWrite`; `agent.runSeeded` (which also needs
+`git.commit` requires `WorkspaceWrite`; `session.run` (which also needs
 `FlowControl`) and `reviewAndFixLoop` require `InStage` — all supplied within
 a `flow`'s enclosing `stage`. There is no plan
 markdown file — the progress log subsumes it, which also removes any checkbox
@@ -689,7 +689,7 @@ flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):  /
 
     case Triage.Testable(summary, _, failingTestPath) =>
       stage("Write failing test"):                                   // commits the test
-        claude.runSeeded(s"Write the failing test at $failingTestPath …", session)
+        session.run(s"Write the failing test at $failingTestPath …")
 
       val pr = stage("Push + open tentative PR"):                    // later stage: the test is committed
         git.push().orThrow                                           // push #1

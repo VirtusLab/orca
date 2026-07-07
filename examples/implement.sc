@@ -43,10 +43,9 @@ flow(OrcaArgs(args), _.claude):
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"): // skipped on resume if already done
-      agent.runSeeded(task.description, session)
+      session.run(task.description)
       reviewAndFixLoop( // runs under this stage
-        coder = agent,
-        sessionId = session,
+        coderSession = session,
         reviewers = allReviewers(agent),
         // agent.cheap picks the per-task reviewer subset; swap for
         // `ReviewerSelector.allEveryRound` to run every reviewer.

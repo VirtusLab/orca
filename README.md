@@ -50,9 +50,9 @@ flow(OrcaArgs(args), _.claude):
   // prompt picks up from the first incomplete task.
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):      // skipped on resume if already done
-      agent.runSeeded(task.description, session)
+      session.run(task.description)
       reviewAndFixLoop(                  // runs under this stage
-        coder = agent, sessionId = session,
+        coderSession = session,
         reviewers = allReviewers(agent),
         // agent.cheap picks the per-task reviewer subset; swap for
         // `ReviewerSelector.allEveryRound` to run every reviewer.
@@ -99,11 +99,11 @@ The following are available inside a `flow(...) { ... }`:
 
 | Tool | Methods | Purpose |
 |---|---|---|
-| `claude` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `session(name, seed)`, `runSeeded(prompt, session)`, `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `withModel(Model)`, `withCheapModel`, `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withNetworkTools`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer; reviewers share it); use `claude.sonnet`/`claude.haiku` for cheap one-shot calls, or `claude.fable` for the hardest ones. `interactive` mode lives only on `resultAs[O]`. `session`/`runSeeded` are flow extensions (see [Sessions](#sessions)). |
-| `codex` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `session(name, seed)`, `runSeeded(prompt, session)`, `mini`, `cheap` (→ mini), `withModel(Model)`, `withCheapModel`, `sessionExists(session)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | OpenAI Codex coding/reviewing agent. |
-| `opencode` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `session(name, seed)`, `runSeeded(prompt, session)`, `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiGpt5`/`openaiGpt5Codex`/`openaiGpt5Mini`, `cheap` (provider-matched: openai→mini, else anthropicHaiku), `withCheapModel`, `withModel(providerModel)` / `withModel(provider, modelId)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiGpt5Mini`) or `opencode.withModel("openai/gpt-4o-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
-| `pi` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `session(name, seed)`, `runSeeded(prompt, session)`, `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
-| `gemini` | `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `session(name, seed)`, `runSeeded(prompt, session)`, `flash`, `cheap` (→ flash), `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
+| `claude` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].autonomous.run(input)`. Ephemeral: `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `sessionExists(session)`. Tuning: `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withNetworkTools`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer; reviewers share it); use `claude.sonnet`/`claude.haiku` for cheap one-shot calls, or `claude.fable` for the hardest ones. `interactive` mode lives only on `resultAs[O]`. `session` (durable) and `autonomous`/`resultAs[O]` (ephemeral) are flow extensions (see [Sessions](#sessions)). |
+| `codex` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].autonomous.run(input)`. Ephemeral: `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`, `sessionExists(session)`. Tuning: `mini`, `cheap` (→ mini), `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | OpenAI Codex coding/reviewing agent. |
+| `opencode` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].autonomous.run(input)`. Ephemeral: `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`. Tuning: `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiGpt5`/`openaiGpt5Codex`/`openaiGpt5Mini`, `cheap` (provider-matched: openai→mini, else anthropicHaiku), `withCheapModel`, `withModel(providerModel)` / `withModel(provider, modelId)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiGpt5Mini`) or `opencode.withModel("openai/gpt-4o-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
+| `pi` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].autonomous.run(input)`. Ephemeral: `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`. Tuning: `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
+| `gemini` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].autonomous.run(input)`. Ephemeral: `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`. Tuning: `flash`, `cheap` (→ flash), `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
 | `git` | `createBranch`, `checkout`, `checkoutOrCreate`, `ensureClean`, `commit`, `forceAdd`, `push`, `currentBranch`, `diff`, `diffVsBase`, `defaultBase`, `log`, `resetHard`, `deleteBranch`, `addWorktree`, `removeWorktree`, `listWorktrees`, `diffBranchExcludingOrca` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushRejected`, `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `resetHard`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. |
 | `gh` | `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (safe on re-run — use `orcaCommentMarker(userPrompt, purpose)` to embed the prompt hash as the marker). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
@@ -128,7 +128,7 @@ and is driven through RPC mode under the hood:
 flow(OrcaArgs(args)):
   val session = pi.session("run", seed = userPrompt)
   stage("Run"):
-    pi.runSeeded(userPrompt, session)
+    session.run(userPrompt)
 ```
 
 ## Coding agent tools
@@ -137,9 +137,9 @@ There are two ways to drive a model in a flow:
 
 - **The leading agent — `agent`.** Backend-agnostic: it's whatever the `flow`
   selector picked (`_.claude`, `_.codex`, …). Use it for the flow's planning,
-  implementation, reviewing, and its session (`agent.session(name, seed)` →
-  `agent.runSeeded(...)`). Switch the selector and the whole flow follows; you
-  never name a backend in the body.
+  implementation, reviewing, and its durable session (`agent.session(name,
+  seed)` → a `FlowSession`, then `.run(...)` on it). Switch the selector and
+  the whole flow follows; you never name a backend in the body.
 - **A specific agent + model — `claude.opus`, `codex.mini`, `opencode.openaiGpt5Mini`.**
   Use a concrete accessor when you want a particular backend or tier, or for
   interactive planning (`Plan.interactive` needs a concrete backend). The tier
@@ -197,7 +197,7 @@ Top-level, available via `import orca.*`:
 | Method | Signature | Use |
 |---|---|---|
 | `flow(args, agent, ...)(body)` | `flow(args: OrcaArgs, agent, branchNaming?, returnToStartBranch = false, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `agent` selects the leading coding agent — e.g. `_.claude` or `_.codex`. Inside the body, reference the lead via the backend-agnostic `agent` accessor instead of a concrete `claude`/`codex` (autonomous, tier-agnostic flows). Branching defaults to a slug of the prompt; pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` for issue flows. On success HEAD stays on the feature branch by default; pass `returnToStartBranch = true` (PR flows) to return to the starting branch. |
-| `agent` (in-body accessor) | `agent: Agent[?]` | The leading agent resolved from the `flow` selector — use it for autonomous, tier-agnostic work (`agent.session`, `agent.runSeeded`, `agent.cheap`, `Plan.autonomous.from(_, agent)`). See [Coding agent tools](#coding-agent-tools) for when to drop to a concrete accessor (`claude.opus`, interactive planning). |
+| `agent` (in-body accessor) | `agent: Agent[?]` | The leading agent resolved from the `flow` selector — use it for autonomous, tier-agnostic work (`agent.session`, `agent.cheap`, `Plan.autonomous.from(_, agent)`). See [Coding agent tools](#coding-agent-tools) for when to drop to a concrete accessor (`claude.opus`, interactive planning). |
 | `stage[T: JsonData](name, commitMessage?)(body)` | `(name: String, commitMessage: Option[T => String] = None)(body): T` | The committing, resumable unit of work. On success, records the result, force-adds the progress log, and commits (code changes + log delta = one commit). On re-run, a stage whose result is still recorded is skipped and the stored value is returned. `T` must have `JsonData` — `case class Foo(...) derives JsonData` is enough. Commit message defaults to an `agent.cheap` summary of the diff; override via `commitMessage`. |
 | `display(message)` | `(message: String): Unit` | Progress-only output: no stage, no commit, no log entry. Callable anywhere — outside a stage or inside a fork. |
 | `fail(message)` | `(message: String): Nothing` | Abort with a message. Triggers failure teardown: stays on the feature branch so a re-run resumes. |
@@ -258,27 +258,38 @@ log (`.orca/progress-<hash>.json`, where `<hash>` is derived from the prompt):
 
 ### Sessions
 
-`agent.session(name, seed)` is a get-or-create keyed by `name` + occurrence,
-stage-style: it reserves a `SessionId` and records it in the progress log (no
-LLM call), so the same `name` resumes the same session across re-runs. Inserting
-or reordering *other* `session(...)` calls between runs doesn't re-key this one —
-only the call order among sessions sharing this `name` matters (to disambiguate
-duplicates of the same name). On resume the recorded session is reused; if the
-recorded seed for that name differs from this call's, orca warns and reuses the
-recorded session rather than silently resuming the wrong one. Recording a session
-isn't a side effect, so this is callable outside a stage.
+Two different doors, for two different needs:
+
+- **Durable — `agent.session(name, seed)`.** A get-or-create keyed by `name` +
+  occurrence, stage-style: it reserves a `SessionId` and records `(name,
+  seed)` in the progress log (no LLM call), then returns a `FlowSession`
+  handle bundling the agent with that id, so the same `name` resumes the same
+  session — and the handle survives a flow crash/resume — across re-runs.
+  Inserting or reordering *other* `session(...)` calls between runs doesn't
+  re-key this one — only the call order among sessions sharing this `name`
+  matters (to disambiguate duplicates of the same name). On resume the
+  recorded session is reused; if the recorded seed for that name differs from
+  this call's, orca warns and reuses the recorded session rather than
+  silently resuming the wrong one. Recording a session isn't a side effect,
+  so `agent.session(...)` is callable outside a stage.
+- **Ephemeral — a bare `SessionId`.** `autonomous.run(prompt, session?)` and
+  `resultAs[O]...run(input, session?)` take an optional `SessionId` (e.g. a
+  `FlowSession`'s `.id` escape hatch) to continue a conversation *within this
+  run only* — no seeding, no wire-id persistence. Use it when a continuation
+  doesn't need to survive a crash/resume.
 
 ```scala
 val session = agent.session("implementer", seed = plan.brief)
-agent.runSeeded(task.description, session)
+session.run(task.description)
 ```
 
 The `seed` is the essential context to rebuild the agent — typically the **plan
-brief**, or the issue body when there is no brief. `runSeeded` primes a fresh
-session with the seed on first use; if the backend session is lost on resume it
-re-seeds, prepending a progress preamble naming the completed stages; if the
-session is still alive it continues it directly. For a one-off call that doesn't
-need to survive restarts, just omit the session argument (`agent.autonomous.run(prompt)`
+brief**, or the issue body when there is no brief. `FlowSession.run` (and its
+structured sibling `resultAs[O].autonomous.run`) primes a fresh session with
+the seed on first use; if the backend session is lost on resume it re-seeds,
+prepending a progress preamble naming the completed stages; if the session is
+still alive it continues it directly. For a one-off call that doesn't need to
+survive restarts, just omit the session argument (`agent.autonomous.run(prompt)`
 mints a fresh one per call).
 
 `agent.cheap` returns the backend's cheap/fast variant (claude → haiku, codex →
@@ -304,7 +315,7 @@ structural conventions you choose to follow as a flow author.
 
    ```scala
    stage("Write failing test"):
-     agent.runSeeded("Write the failing test …", session)    // commits on completion
+     session.run("Write the failing test …")    // commits on completion
 
    val pr = stage("Push + open PR"):   // LATER stage — the test commit exists now
      git.push().orThrow
@@ -343,11 +354,12 @@ splits `autonomous` / `interactive`:
 | `assessThenPlan(userPrompt, agent, instructions?)` | `Verdict[Plan]` | assess, then `Proceed(plan)` or `Rejection(kind, body)` | same, but can ask the reporter to clarify instead of rejecting |
 | `triage(report, agent, instructions?)` | `Triage` | classify a bug report (not-a-bug / untestable / testable) | same, with clarifying questions |
 
-Every cell returns `Sessioned[B, <result>]` — the result paired with the agent
-session that produced it. Continue that session into implementation
-(`agent.runSeeded(task, session)` — the planning turn's session is still resumable
-with write access), or `.value` it and get a fresh implementer session via
-`agent.session("implementer", seed = plan.brief)`. Destructure positionally when you want both:
+Every cell returns `Sessioned[B, <result>]` — the result paired with the (bare,
+ephemeral) `SessionId` of the agent session that produced it. Continue that
+session into implementation (`agent.autonomous.run(task, session)` — the
+planning turn's session is still resumable with write access), or `.value` it
+and get a fresh, durable implementer session via `agent.session("implementer",
+seed = plan.brief)`. Destructure positionally when you want both:
 `val Sessioned(session, plan) = Plan.autonomous.from(...)`.
 
 From a `Sessioned[B, Plan]`, an optional `.reviewed(agent)` step refines the plan
@@ -364,7 +376,7 @@ Review utilities, available via `import orca.review.*`:
 | Method | Use |
 |---|---|
 | `lint(command, agent, instructions?)` | Run a shell lint, write its combined output to a temp file, and have `agent` read and summarise it as a `ReviewResult` (file, not prompt, so unbounded output can't overflow the context). |
-| `reviewAndFixLoop(coder, sessionId, reviewers, task, ..., fixInstructions?)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to `coder` to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. |
+| `reviewAndFixLoop(coderSession, reviewers, task, ..., fixInstructions?)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. |
 | `allReviewers(base)` | All eight canonical reviewer agents (code-functionality, test, readability, code-structure, simplicity, performance, security, scala-fp) layered on top of `base`. |
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test). Pair with the default LLM-driven selector when the full set is overkill. |
 | `fixLoop(evaluate, fix, ...)` | Lower-level primitive `reviewAndFixLoop` is built on. |
@@ -445,10 +457,18 @@ results.
   needs.
 - **`orca.plan.BugReportMatch`** — the agent's decision on whether a CI failure
   matches the original report.
+- **`orca.FlowSession[B]`** — durable, resumable session handle returned by
+  `agent.session(name, seed)`. Bundles the agent with its `SessionId`; call
+  `.run(prompt)` or `.resultAs[O].autonomous.run(input)` on it to drive the
+  agent, with automatic seed/preamble replay (when the backend conversation
+  isn't live) and resume-wire-id persistence. `.id` exposes the underlying
+  `SessionId` as an escape hatch into the ephemeral doors.
 - **`orca.agents.SessionId[B]`** — typed session id, parameterised by backend.
-  Returned by `agent.session(name, seed)` and passed to `agent.runSeeded`. Carries the
-  backend identity at the type level, so you cannot accidentally pass a Claude
-  session to Codex.
+  Exposed via `FlowSession.id` and returned inside `Sessioned` / planning
+  results; passed to the ephemeral `agent.autonomous.run(prompt, session)` /
+  `agent.resultAs[O]...run(input, session)` doors for in-run-only
+  continuations. Carries the backend identity at the type level, so you
+  cannot accidentally pass a Claude session to Codex.
 - **`orca.Title`** — opaque `String` alias for short labels (`Task.title`,
   `ReviewIssue.title`); `Title("…")` to construct, `.value` to read.
 - **`orca.tools.PrHandle(owner, repo, number)`** — handle to an open pull

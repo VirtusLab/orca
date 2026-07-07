@@ -60,10 +60,10 @@ flow(OrcaArgs(args), _.claude, returnToStartBranch = true):
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):      // skipped on resume if already done
       // The session seed already carries the brief, so send only the task
-      // description here — runSeeded re-prepends the seed on first use / resume.
-      agent.runSeeded(task.description, session)
+      // description here — session.run re-prepends the seed on first use / resume.
+      session.run(task.description)
       reviewAndFixLoop(
-        coder = agent, sessionId = session,
+        coderSession = session,
         reviewers = allReviewers(agent),
         reviewerSelection = ReviewerSelector.agentDriven(agent.cheap),
         task = task.title.value,

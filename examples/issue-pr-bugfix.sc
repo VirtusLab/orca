@@ -102,11 +102,10 @@ flow(
     case Triage.Testable(summary, _, failingTestPath) =>
       // Write failing test: committed by the stage.
       stage("Write failing test"):
-        claude.runSeeded(
+        session.run(
           s"""Write the failing unit test at `$failingTestPath`. It MUST
              |fail on the current code — that's how we confirm the bug.
-             |Run `sbt test` locally if you can to verify.""".stripMargin,
-          session
+             |Run `sbt test` locally if you can to verify.""".stripMargin
         )
 
       // Push + open PR: a SEPARATE stage from the edit above.
@@ -224,9 +223,9 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
   * brief (no separate `.briefed` step); `taskPrompt` prepends it to each task.
   * Implementation reuses the triage `session`.
   */
-def planAndImplementFix(session: SessionId[BackendTag.ClaudeCode.type])(using
-    FlowControl
-): Unit =
+def planAndImplementFix(
+    session: FlowSession[BackendTag.ClaudeCode.type]
+)(using FlowControl): Unit =
   val fixPlan = stage("Plan the fix"):
     Plan.autonomous
       .from(
@@ -240,10 +239,9 @@ def planAndImplementFix(session: SessionId[BackendTag.ClaudeCode.type])(using
 
   for task <- fixPlan.tasks do
     stage(s"task: ${task.title}"): // skipped on resume if already done
-      claude.runSeeded(fixPlan.taskPrompt(task), session)
+      session.run(fixPlan.taskPrompt(task))
       reviewAndFixLoop(
-        coder = claude,
-        sessionId = session,
+        coderSession = session,
         reviewers = allReviewers(claude),
         reviewerSelection = ReviewerSelector.agentDriven(claude.cheap),
         task = task.title.value,
