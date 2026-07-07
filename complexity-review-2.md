@@ -400,7 +400,7 @@ sites exist today, not two. Split: 6A = 6.1+6.2+6.6 (one SessionSupport/
 registry reshape); 6B = 6.4→6.3→6.5, hard-ordered after 6A because 6.5's
 target guard sites are defined by 6.2's commitAfterDrain.)
 
-- [ ] 6.1 `Dispatch.Fresh(claim: Option[WireSessionId[B]])`: `ClientToServer`
+- [x] 6.1 (done: 7b345f0) `Dispatch.Fresh(claim: Option[WireSessionId[B]])`: `ClientToServer`
   registries pass `None` instead of laundering the client id through `onWire`
   (currently stamped as wire-safe for four backends where it never goes on the
   wire; a sixth backend forwarding it resurrects the pre-1.1 bug class with
@@ -409,7 +409,7 @@ target guard sites are defined by 6.2's commitAfterDrain.)
   Refs: `tools/src/main/scala/orca/backend/SessionRegistry.scala:16-18,96-99`,
   `tools/src/main/scala/orca/agents/BackendTag.scala:81-86`,
   `claude/.../ClaudeArgs.scala:67-68`.
-- [ ] 6.2 Hide the registry inside `SessionSupport`; add `commitAfterDrain`
+- [x] 6.2 (done: 7b345f0) Hide the registry inside `SessionSupport`; add `commitAfterDrain`
   (throwing guard) beside `register` (log-and-skip guard) so both write
   policies have one named home; `Conversations.runAutonomous`/`drainAndCommit`
   take `SessionSupport[B]`, so a backend physically can't hand the shell a
@@ -418,7 +418,7 @@ target guard sites are defined by 6.2's commitAfterDrain.)
   (`ClaudeBackend.scala:160`) goes through `register`.
   Refs: `tools/src/main/scala/orca/backend/SessionSupport.scala:26,50-71`,
   `tools/src/main/scala/orca/backend/Conversations.scala:184-224`.
-- [ ] 6.3 `session(name, seed)` reuse path checks the recorded backend tag:
+- [x] 6.3 (done: 4a37301) `session(name, seed)` reuse path checks the recorded backend tag:
   mismatch ⇒ warn + mint fresh (upsert replaces record with the new tag);
   `persistResumeWireId` self-heals the tag instead of preserving a stale one.
   Today a lead-backend swap between runs re-stamps the wire id under the old
@@ -426,7 +426,7 @@ target guard sites are defined by 6.2's commitAfterDrain.)
   write path it didn't cover.
   Refs: `flow/src/main/scala/orca/Session.scala:42-74,111-126`,
   `runner/src/main/scala/orca/runner/FlowLifecycle.scala:104-126`.
-- [ ] 6.4 Type `SessionRecord.backend` as `BackendTag` with an explicit wire
+- [x] 6.4 (done: 4a37301 — wire names frozen to pre-change toString) Type `SessionRecord.backend` as `BackendTag` with an explicit wire
   name (`enum BackendTag(val wireName: String)` + `fromWireName` + a pinning
   test, `EnforcementTableTest`-style) instead of `toString` /
   `values.find(_.toString == t)` — a case rename currently strands all
@@ -435,13 +435,13 @@ target guard sites are defined by 6.2's commitAfterDrain.)
   Refs: `tools/.../agents/BackendTag.scala:10-15`,
   `flow/.../Session.scala:71`, `flow/.../progress/ProgressLog.scala:64-71`,
   `runner/.../FlowLifecycle.scala:108-119`.
-- [ ] 6.5 Parse-don't-validate ids: make unchecked
+- [x] 6.5 (done: 4a37301 — isSafe reduced to the two 6.2 policy doors) Parse-don't-validate ids: make unchecked
   `SessionId.apply`/`WireSessionId.apply` `private[orca]`; add
   `parse(s): Option[...]` as the only door for log/wire-sourced strings; the
   scattered `isSafe` re-checks reduce to the two policy sites of 6.2.
   Refs: `tools/.../agents/BackendTag.scala:20,78`,
   `flow/.../Session.scala:60`, `runner/.../FlowLifecycle.scala:121-126`.
-- [ ] 6.6 `runSeeded` asks "will run continue?" not "is it durable?": add
+- [x] 6.6 (done: 7b345f0 — willContinue; pi re-prime fixed) `runSeeded` asks "will run continue?" not "is it durable?": add
   `SessionSupport.willContinue` (Ephemeral ⇒ in-process
   `resumeWireId.isDefined`; Durable ⇒ probe). Today pi re-injects the full
   seed + progress preamble into a live conversation on **every** task of the
