@@ -1,10 +1,12 @@
 package orca.runner.terminal
 
 import ox.channels.BufferCapacity
-import ox.supervised
+import ox.{fork, supervised}
 
 import java.io.{ByteArrayOutputStream, PrintStream}
+import java.util.concurrent.CountDownLatch
 import scala.concurrent.duration.DurationInt
+import scala.jdk.CollectionConverters.*
 
 /** Regression coverage for the spinner-during-drive bug: the animator fork must
   * keep advancing ticks even while another thread is keeping the actor busy
@@ -69,3 +71,74 @@ class TerminalOutputActorTest extends munit.FunSuite:
         matchCount >= 10,
         s"expected many ESC[2K clears (ticks + logs interleaving); got $matchCount"
       )
+
+  test(
+    "prompt() serializes two concurrent forks: the second's readUser only " +
+      "starts after the first's bracket (through resume) has closed, and " +
+      "log/setStatus issued while the first prompt is open stay buffered"
+  ):
+    val buf = new ByteArrayOutputStream()
+    val ps = new PrintStream(buf)
+    supervised:
+      given BufferCapacity = BufferCapacity(64)
+      val output = TerminalOutput.start(
+        ps,
+        useColor = false,
+        animated = true,
+        framePeriodMs = 20L
+      )
+      val events = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+      val firstStarted = new CountDownLatch(1)
+      val releaseFirst = new CountDownLatch(1)
+
+      val f1 = fork:
+        output.prompt: () =>
+          events.add("first-start")
+          firstStarted.countDown()
+          releaseFirst.await()
+          events.add("first-end")
+          "A"
+
+      firstStarted.await()
+      // The first prompt owns the terminal now. A log write and a status
+      // update arriving concurrently must not land on `out` (7B.1) — they
+      // should be deferred until resume.
+      val sizeDuringPrompt = buf.size()
+      output.log("during-first-prompt")
+      output.setStatus(Some("stage started"))
+      Thread.sleep(50) // let the actor's mailbox drain the two tells above
+      assertEquals(
+        buf.size(),
+        sizeDuringPrompt,
+        "log/setStatus issued while a prompt is open must not write to `out`"
+      )
+
+      // A second prompt from another fork must block until the first's
+      // bracket has fully closed — asserted structurally via `events`
+      // (deterministic: f2 blocks on the semaphore, not on timing).
+      val f2 = fork:
+        output.prompt: () =>
+          events.add("second-start")
+          "B"
+
+      releaseFirst.countDown()
+      assertEquals(f1.join(), "A")
+      assertEquals(f2.join(), "B")
+
+      assertEquals(
+        events.asScala.toList,
+        List("first-start", "first-end", "second-start"),
+        "second prompt's readUser must not start until the first's " +
+          "bracket (suspend..resume) has fully closed"
+      )
+
+      val drained = buf.toString
+      assert(
+        drained.contains("during-first-prompt"),
+        s"buffered log must be drained on resume; out: $drained"
+      )
+      assert(
+        drained.contains("stage started"),
+        s"status label stored during suspend must be redrawn on resume; out: $drained"
+      )
+      output.close()

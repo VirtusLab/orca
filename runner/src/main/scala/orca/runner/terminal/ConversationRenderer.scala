@@ -25,7 +25,7 @@ import org.jline.terminal.{Terminal, TerminalBuilder}
   * The renderer is constructed per conversation and lives on the caller (body)
   * thread — it's not shared. State (`textBuffer`, `currentSection`,
   * `pendingProseStyling`) doesn't escape this thread. Output writes are
-  * fire-and-forget tells; the suspend/resume pair around the approval prompt
+  * fire-and-forget tells; `output.prompt` around the approval/question prompts
   * keeps live event output from scribbling on top of `readLine`.
   *
   * Spacing is controlled by a small section state machine — consecutive tool
@@ -199,18 +199,16 @@ private[terminal] class ConversationRenderer(
     appendBlock(
       paint(ApprovalStyle, s"$ApprovalGlyph $toolName requested: $summary")
     )
-    // Suspend the status (clears the spinner row, buffers concurrent log
-    // tells from other listeners) so the readline lands cleanly and live
-    // events can't scribble on top of the prompt. Drain happens on resume,
-    // in finally so the buffer empties even if `respond` throws.
-    output.suspend()
-    try
+    // `prompt` suspends the status (clears the spinner row, buffers
+    // concurrent log tells from other listeners) so the readline lands
+    // cleanly and live events can't scribble on top of the prompt, then
+    // drains/redraws on the way out — even if `respond` throws.
+    output.prompt: () =>
       prompter.ask(
         currentIndent() + paint(ApprovalStyle, "  [y]es / [n]o ? ")
       ) match
         case PromptOutcome.Answer(reply) => respond(decisionFor(reply))
         case PromptOutcome.Interrupted   => conversation.cancel()
-    finally output.resume()
 
   private def promptUserQuestion[B <: BackendTag](
       question: String,
@@ -222,14 +220,12 @@ private[terminal] class ConversationRenderer(
       paint(ApprovalStyle, s"$ApprovalGlyph ") +
         paint(AssistantTextStyle, question)
     )
-    output.suspend()
-    try
+    output.prompt: () =>
       prompter.ask(
         currentIndent() + paint(ApprovalStyle, "  > ")
       ) match
         case PromptOutcome.Answer(reply) => respond(reply)
         case PromptOutcome.Interrupted   => conversation.cancel()
-    finally output.resume()
 
   private def decisionFor(reply: String): ApprovalDecision =
     val normalised = reply.trim.toLowerCase

@@ -147,6 +147,24 @@ class TerminalOutputStateTest extends munit.FunSuite:
         s"resume should redraw the status; drawn: '$drawnAfterResume'"
       )
 
+  test("setStatus while suspended stores the label but does not draw"):
+    withBar(animated = true): (bar, buf) =>
+      bar.setStatus(Some("running"))
+      bar.suspend()
+      val sizeAtSuspend = buf.size()
+      bar.setStatus(Some("stage started"))
+      assertEquals(
+        buf.size(),
+        sizeAtSuspend,
+        "setStatus must not draw while suspended"
+      )
+      bar.resume()
+      val drawnAfterResume = buf.toString.substring(sizeAtSuspend)
+      assert(
+        drawnAfterResume.contains("stage started"),
+        s"resume should redraw the label stored during suspend; drawn: '$drawnAfterResume'"
+      )
+
   test("close drains any pending suspended buffer"):
     withBar(animated = false): (bar, buf) =>
       bar.suspend()
