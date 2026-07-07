@@ -383,6 +383,21 @@ class OsGitHubToolTest extends munit.FunSuite:
       ),
       s"expected gh pr list --head feat --state open in calls but got: $callArgs"
     )
+    // The git rev-parse call must carry the same non-interactive env as every
+    // other git invocation (OsGitTool.nonInteractiveEnv) — otherwise a stalled
+    // credential/passphrase prompt on this one path could hang the flow.
+    val revParseCall = cli.calls
+      .find(
+        _.args.containsSlice(Seq("git", "rev-parse", "--abbrev-ref", "HEAD"))
+      )
+      .getOrElse(fail("expected a git rev-parse call"))
+    assertEquals(revParseCall.env.get("GIT_TERMINAL_PROMPT"), Some("0"))
+    assert(
+      revParseCall.env
+        .getOrElse("GIT_SSH_COMMAND", "")
+        .contains("-o BatchMode=yes"),
+      revParseCall.env.toString
+    )
     assert(
       listener.events.exists:
         case OrcaEvent.Step(msg) => msg.contains("Reusing existing PR")

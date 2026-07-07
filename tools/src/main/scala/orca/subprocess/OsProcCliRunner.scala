@@ -22,23 +22,12 @@ object OsProcCliRunner extends CliRunner:
       env: Map[String, String],
       cwd: os.Path
   ): CliResult =
-    // os-lib 0.11.x defaults `stderr = Inherit` for `call(...)`. We
-    // explicitly capture both pipes so subprocess output never
-    // bypasses the renderer's StatusBar — see [[QuietProc]] for the
-    // full rationale. `mergeErrIntoOut` would also work but losing the
-    // stdout/stderr distinction would weaken the diagnostic in
-    // OrcaFlowException messages.
+    // Delegates to QuietProc for the actual `os.proc(...).call(...)` — it's
+    // the one place in `orca.subprocess` that guarantees captured stderr, so
+    // subprocess output never bypasses the renderer's StatusBar. See
+    // [[QuietProc]] for the full rationale.
     log.debug("exec: {} (cwd={})", args.mkString(" "), cwd)
-    val result = os
-      .proc(args)
-      .call(
-        cwd = cwd,
-        env = env,
-        stdin = stdin,
-        stdout = os.Pipe,
-        stderr = os.Pipe,
-        check = false
-      )
+    val result = QuietProc.call(args, cwd = cwd, env = env, stdin = stdin)
     log.debug("exit {}: {}", result.exitCode, args.headOption.getOrElse("?"))
     CliResult(result.exitCode, result.out.text(), result.err.text())
 

@@ -1,6 +1,7 @@
 package orca.subprocess
 
-/** Subprocess invocation helpers that **guarantee captured stderr**.
+/** The single quiet-shell-out implementation: subprocess invocation that
+  * **guarantees captured stderr**.
   *
   * Why this exists: os-lib 0.11.x defaults `os.proc(...).call(...)`'s `stderr`
   * to `os.Inherit`. A flow tool that uses `os.proc` directly therefore lets the
@@ -12,10 +13,10 @@ package orca.subprocess
   * The rule, encoded as a code-level helper rather than a comment:
   *
   * *Any tool that shells out from a flow goes through `QuietProc.call` (or a
-  * `CliRunner`, which now wraps it). Direct `os.proc(...).call(...)` in
-  * production tool code is a leak — the tool's terminal output becomes
-  * invisible to the StatusBar's clear-line discipline and the user sees torn
-  * frames.*
+  * `CliRunner`, which — via [[OsProcCliRunner]] — delegates to it). Direct
+  * `os.proc(...).call(...)` in production tool code is a leak — the tool's
+  * terminal output becomes invisible to the StatusBar's clear-line discipline
+  * and the user sees torn frames.*
   *
   * Subprocess errors aren't dropped: stderr is captured into `result.err`,
   * which the caller surfaces in error messages (see [[orca.tools.OsGitTool]]'s
@@ -30,11 +31,18 @@ private[orca] object QuietProc:
     * the caller inspects `exitCode` / `err.text()` and decides how to react.
     * Mirrors the os-lib `call` shape so migration from `os.proc(...).call(...)`
     * is mechanical.
+    *
+    * `cwd` and `env` default to concrete values (the current directory / an
+    * empty map merged onto the inherited environment) rather than os-lib's own
+    * `null`-means-inherit convention, per this codebase's no-null style; the
+    * two are behaviourally identical (os-lib treats a `null` `cwd` as `os.pwd`
+    * and an empty `env` map contributes no overrides on top of the inherited
+    * environment either way).
     */
   def call(
       args: Seq[String],
-      cwd: os.Path = null,
-      env: Map[String, String] = null,
+      cwd: os.Path = os.pwd,
+      env: Map[String, String] = Map.empty,
       stdin: os.ProcessInput = os.Pipe
   ): os.CommandResult =
     log.debug("exec: {}", args.mkString(" "))

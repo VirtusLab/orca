@@ -273,11 +273,14 @@ private[orca] class OsGitHubTool(
       else fail("gh pr create", result)
 
   /** Resolve the current branch name via `git rev-parse --abbrev-ref HEAD`.
-    * Used by [[createPr]] to pass the head branch to [[findOpenPr]].
+    * Used by [[createPr]] to pass the head branch to [[findOpenPr]]. Carries
+    * [[OsGitTool.nonInteractiveEnv]] like every other git invocation in this
+    * codebase, so an ssh/credential prompt on this one path can't hang a flow.
     */
   private def currentBranchGit(): String =
     val result = cli.run(
       Seq("git", "rev-parse", "--abbrev-ref", "HEAD"),
+      env = OsGitTool.nonInteractiveEnv,
       cwd = workDir
     )
     if result.exitCode == 0 then result.stdout.trim
