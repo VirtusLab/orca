@@ -392,6 +392,13 @@ nesting + resume).
 ## Epic 6 — Session write-side and id hygiene
 
 The 1.x fixes funnelled the read side; the write side still has open doors.
+(Research 2026-07-07, epic6-research.md: all six items verified valid and
+unaddressed at 012cf35 — Epics 2/4/5 added prerequisite plumbing only. 6.6's
+pi re-priming bug reproduces identically through the new FlowSession door
+(effectivePrompt → sessionExists → Ephemeral⇒false). Three isSafe re-check
+sites exist today, not two. Split: 6A = 6.1+6.2+6.6 (one SessionSupport/
+registry reshape); 6B = 6.4→6.3→6.5, hard-ordered after 6A because 6.5's
+target guard sites are defined by 6.2's commitAfterDrain.)
 
 - [ ] 6.1 `Dispatch.Fresh(claim: Option[WireSessionId[B]])`: `ClientToServer`
   registries pass `None` instead of laundering the client id through `onWire`
