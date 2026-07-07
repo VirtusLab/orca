@@ -383,9 +383,31 @@ class OsGitHubToolTest extends munit.FunSuite:
       ),
       s"expected gh pr list --head feat --state open in calls but got: $callArgs"
     )
-    // The git rev-parse call must carry the same non-interactive env as every
-    // other git invocation (OsGitTool.nonInteractiveEnv) — otherwise a stalled
-    // credential/passphrase prompt on this one path could hang the flow.
+    assert(
+      listener.events.exists:
+        case OrcaEvent.Step(msg) => msg.contains("Reusing existing PR")
+        case _                   => false
+    )
+
+  test("currentBranchGit carries OsGitTool.nonInteractiveEnv"):
+    // The git rev-parse call made during the PR-reuse fallback must carry the
+    // same non-interactive env as every other git invocation
+    // (OsGitTool.nonInteractiveEnv) — otherwise a stalled credential/
+    // passphrase prompt on this one path could hang the flow.
+    val prListJson =
+      """[{"number":42,"url":"https://github.com/acme/widgets/pull/42"}]"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(1, "", "a pull request for branch 'feat' already exists"),
+        CliResult(0, "feat\n", ""), // git rev-parse
+        CliResult(0, prListJson, "") // gh pr list
+      )
+    )
+    val gh = new OsGitHubTool(
+      cli,
+      readRetry = Schedule.immediate
+    )
+    val _ = gh.createPr("feat: hi", "hello").orThrow
     val revParseCall = cli.calls
       .find(
         _.args.containsSlice(Seq("git", "rev-parse", "--abbrev-ref", "HEAD"))
@@ -397,11 +419,6 @@ class OsGitHubToolTest extends munit.FunSuite:
         .getOrElse("GIT_SSH_COMMAND", "")
         .contains("-o BatchMode=yes"),
       revParseCall.env.toString
-    )
-    assert(
-      listener.events.exists:
-        case OrcaEvent.Step(msg) => msg.contains("Reusing existing PR")
-        case _                   => false
     )
 
   // ── upsertComment ────────────────────────────────────────────────────────

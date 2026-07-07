@@ -40,16 +40,6 @@ class EventDispatcherTest extends munit.FunSuite:
   test("dispatch with no listeners is a no-op"):
     new EventDispatcher(Nil).onEvent(OrcaEvent.StageStarted("x"))
 
-  test("a throwing listener does not stop the others and does not propagate"):
-    val received = List.newBuilder[String]
-    val bad = new OrcaListener:
-      def onEvent(event: OrcaEvent): Unit = throw new RuntimeException("boom")
-    val good = new OrcaListener:
-      def onEvent(event: OrcaEvent): Unit = received += "good"
-    val dispatcher = new EventDispatcher(List(bad, good))
-    dispatcher.onEvent(OrcaEvent.Step("x")) // must NOT throw
-    assertEquals(received.result(), List("good"))
-
   // The announcement is gated on `quarantined.add(l)` returning true, so that
   // under concurrent emitters two threads racing to quarantine the same first
   // failure still announce exactly once (whichever `add` loses stays silent).

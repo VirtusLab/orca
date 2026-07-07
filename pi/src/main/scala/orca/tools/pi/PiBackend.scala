@@ -119,13 +119,20 @@ private[orca] class PiBackend(cli: CliRunner)
     // `deleteOnExit`, so a hard JVM kill mid-turn still reclaims them. Both
     // files are allocated up front (before `open`) so `resources` is a plain
     // immutable list.
-    val (displayPrompt, askUserExtension, extraHint) = mode match
-      case SessionMode.Autonomous =>
-        ("", None, None)
-      case SessionMode.Interactive(p) =>
-        (p, Some(PiAskUserExtension.allocate()), Some(PiAskUserExtension.Hint))
+    val (displayPrompt, extraHint) = mode match
+      case SessionMode.Autonomous     => ("", None)
+      case SessionMode.Interactive(p) => (p, Some(PiAskUserExtension.Hint))
 
+    // Write the system prompt file FIRST — before ANY resource is allocated —
+    // so a temp-write failure (e.g. disk full) can't leak the ask-user
+    // extension resource that `PiAskUserExtension.allocate()` would spin up:
+    // with nothing allocated yet, there's nothing to tear down. `Hint` is a
+    // static constant, so knowing it doesn't require the allocation.
     val systemPromptFile = writeSystemPromptIfPresent(config, extraHint)
+
+    val askUserExtension = mode match
+      case SessionMode.Autonomous     => None
+      case SessionMode.Interactive(_) => Some(PiAskUserExtension.allocate())
 
     val resources: List[AutoCloseable] =
       askUserExtension.toList ++ systemPromptFile.toList

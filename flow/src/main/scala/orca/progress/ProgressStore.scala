@@ -166,16 +166,26 @@ private class OsProgressStore(val path: os.Path) extends ProgressStore:
       suffix = ".tmp",
       deleteOnExit = false
     )
-    try os.move(tmp, path, replaceExisting = true, atomicMove = true)
+    // The whole move sequence (including the fallback) is wrapped so that ANY
+    // failure — not just the handled AtomicMoveNotSupportedException — cleans
+    // up the temp file instead of leaking it. The target itself is untouched
+    // on failure; only the orphaned `tmp` is removed here.
+    try
+      try os.move(tmp, path, replaceExisting = true, atomicMove = true)
+      catch
+        // Some filesystems (network mounts, certain container overlay/bind
+        // mounts) reject ATOMIC_MOVE even for a same-directory rename,
+        // throwing this checked exception. Torn writes are impossible on
+        // those anyway (rename semantics still apply — only the *atomicity
+        // guarantee against concurrent readers* is unavailable) so a plain
+        // move is a safe fallback, not a silent downgrade of the actual
+        // protection we need.
+        case _: java.nio.file.AtomicMoveNotSupportedException =>
+          os.move(tmp, path, replaceExisting = true)
     catch
-      // Some filesystems (network mounts, certain container overlay/bind
-      // mounts) reject ATOMIC_MOVE even for a same-directory rename, throwing
-      // this checked exception. Torn writes are impossible on those anyway
-      // (rename semantics still apply — only the *atomicity guarantee against
-      // concurrent readers* is unavailable) so a plain move is a safe
-      // fallback, not a silent downgrade of the actual protection we need.
-      case _: java.nio.file.AtomicMoveNotSupportedException =>
-        os.move(tmp, path, replaceExisting = true)
+      case NonFatal(e) =>
+        if os.exists(tmp) then os.remove(tmp): Unit
+        throw e
 
   private def parseLog(json: String): ProgressStore.LoadResult =
     try
