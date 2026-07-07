@@ -519,6 +519,13 @@ BOTH autonomous.run and resultAs construction. Split: 7A=7.1+7.4+7.5,
 
 ## Epic 8 — Backend SPI seams
 
+(Research 2026-07-07, epic8-research.md: all six valid, none touched by
+Epics 4/6/7. 8.2 is BROADER than tracked: Conversations.runAutonomous also
+finally-cancels, so successful autonomous opencode turns fire /abort too.
+8.6's enforcement default has 7 test doubles, not 6. Split: 8A=8.1 solo
+(widest mechanical surface first), 8B=8.2+8.3 (opencode lifecycle),
+8C=8.4+8.5 (driver wire/stderr layer), 8D=8.6 (scattered mechanical, last).)
+
 - [ ] 8.1 Make `workDir` per-backend (fixed at wiring), not per-call: the SPI
   parameter is a phantom degree of freedom the runtime never varies, opencode
   ignores it entirely, and claude's probe/spawn "MUST match" contract is
