@@ -126,7 +126,6 @@ class BaseAgentTest extends munit.FunSuite:
         backend,
         toolConfig,
         StubPrompts,
-        os.temp.dir(),
         OrcaListener.noop,
         StubInteraction
       ):
@@ -144,12 +143,12 @@ class BaseAgentTest extends munit.FunSuite:
     * the backend, so tests can assert on it directly.
     */
   private class RecordingConfigBackend extends AgentBackend[BackendTag.Pi.type]:
+    val workDir: os.Path = os.pwd
     var lastConfig: Option[AgentConfig] = None
     def runAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
-        workDir: os.Path,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] =
@@ -164,7 +163,6 @@ class BaseAgentTest extends munit.FunSuite:
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
         config: AgentConfig,
-        workDir: os.Path,
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
@@ -173,11 +171,11 @@ class BaseAgentTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
 
   private object StubBackend extends AgentBackend[BackendTag.Pi.type]:
+    val workDir: os.Path = os.pwd
     def runAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
-        workDir: os.Path,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] =
@@ -191,7 +189,6 @@ class BaseAgentTest extends munit.FunSuite:
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
         config: AgentConfig,
-        workDir: os.Path,
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
@@ -200,13 +197,13 @@ class BaseAgentTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
 
   private class RecordingCloseBackend extends AgentBackend[BackendTag.Pi.type]:
+    val workDir: os.Path = os.pwd
     var closeCount: Int = 0
     override def close(): Unit = closeCount += 1
     def runAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
-        workDir: os.Path,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] = ???
@@ -215,7 +212,6 @@ class BaseAgentTest extends munit.FunSuite:
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
         config: AgentConfig,
-        workDir: os.Path,
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.Pi.type] = ???
     val sessions: SessionSupport[BackendTag.Pi.type] =

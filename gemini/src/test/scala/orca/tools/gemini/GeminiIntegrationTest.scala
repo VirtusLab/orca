@@ -31,7 +31,9 @@ class GeminiIntegrationTest extends munit.FunSuite:
     3.minutes
 
   private def withBackend(body: ox.Ox ?=> GeminiBackend => Unit): Unit =
-    SupervisedBackend.using(new GeminiBackend(OsProcCliRunner))(body)
+    SupervisedBackend.using(
+      new GeminiBackend(OsProcCliRunner, workDir = os.temp.dir())
+    )(body)
 
   // A cheap, widely-available model; override via ORCA_GEMINI_MODEL.
   private val model: Model =
@@ -48,8 +50,7 @@ class GeminiIntegrationTest extends munit.FunSuite:
         prompt =
           "Reply with the single word: READY. Reply with that word and nothing else.",
         session = fresh,
-        config = unsandboxed,
-        workDir = os.temp.dir()
+        config = unsandboxed
       )
       assert(
         result.output.toUpperCase.contains("READY"),
@@ -59,20 +60,17 @@ class GeminiIntegrationTest extends munit.FunSuite:
 
   test("a resumed call carries conversational context across turns"):
     withBackend: backend =>
-      val workDir = os.temp.dir()
       val session = fresh
       val _ = backend.runAutonomous(
         prompt = "Remember the number 42. Reply with the single word: stored.",
         session = session,
-        config = unsandboxed,
-        workDir = workDir
+        config = unsandboxed
       )
       val second = backend.runAutonomous(
         prompt =
           "What number did I ask you to remember? Reply with just the number.",
         session = session,
-        config = unsandboxed,
-        workDir = workDir
+        config = unsandboxed
       )
       assert(
         second.output.contains("42"),

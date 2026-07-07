@@ -26,12 +26,12 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
 
   /** Captures the config the tool resolves for an autonomous call. */
   private class RecordingBackend extends AgentBackend[BackendTag.Opencode.type]:
+    val workDir: os.Path = os.pwd
     var lastConfig: Option[AgentConfig] = None
     def runAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
         config: AgentConfig,
-        workDir: os.Path,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Opencode.type] =
@@ -42,7 +42,6 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
         session: SessionId[BackendTag.Opencode.type],
         displayPrompt: String,
         config: AgentConfig,
-        workDir: os.Path,
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.Opencode.type] =
       throw new UnsupportedOperationException
@@ -61,7 +60,6 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
       backend,
       AgentConfig(),
       DefaultPrompts,
-      os.temp.dir(),
       OrcaListener.noop,
       noInteraction
     )

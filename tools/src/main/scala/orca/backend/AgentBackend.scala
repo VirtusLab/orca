@@ -33,7 +33,9 @@ import ox.Ox
   * renderer shows the user; autonomous has no renderer, hence no
   * `displayPrompt`.
   *
-  * `workDir` is the working directory the agent subprocess sees.
+  * `workDir` is fixed at construction (see [[workDir]]) rather than threaded
+  * per call — the runtime never varies it across a backend's lifetime, so
+  * carrying it as a per-call parameter was a phantom degree of freedom.
   */
 trait AgentBackend[B <: BackendTag](
     /** Backing store for [[isClosed]]/[[markClosed]]. Defaults to a fresh,
@@ -71,7 +73,6 @@ trait AgentBackend[B <: BackendTag](
       prompt: String,
       session: SessionId[B],
       config: AgentConfig,
-      workDir: os.Path,
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[B]
@@ -91,9 +92,15 @@ trait AgentBackend[B <: BackendTag](
       session: SessionId[B],
       displayPrompt: String,
       config: AgentConfig,
-      workDir: os.Path,
       outputSchema: Option[String]
   )(using Ox): Conversation[B]
+
+  /** The working directory the agent subprocess sees, fixed for this backend's
+    * whole lifetime — every spawn and every session-existence probe runs
+    * against this SAME path, by construction (no separate per-call value can
+    * drift from it).
+    */
+  def workDir: os.Path
 
   /** This backend's session-durability capability as one structural value: a
     * [[SessionSupport.Durable]] (registry + existence probe) or a

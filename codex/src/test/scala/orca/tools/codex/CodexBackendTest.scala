@@ -10,9 +10,14 @@ class CodexBackendTest extends munit.FunSuite:
   private def clientSid: SessionId[BackendTag.Codex.type] =
     SessionId[BackendTag.Codex.type]("00000000-0000-0000-0000-000000000000")
 
-  private def withBackend[T](runner: SpawnStubCliRunner)(
+  private def withBackend[T](
+      runner: SpawnStubCliRunner,
+      workDir: os.Path = os.pwd
+  )(
       body: ox.Ox ?=> CodexBackend => T
-  ): T = SupervisedBackend.using(new CodexBackend(runner))(body)
+  ): T = SupervisedBackend.using(new CodexBackend(runner, workDir = workDir))(
+    body
+  )
 
   private def successfulProcess(
       threadId: String = "thr-test",
@@ -43,8 +48,7 @@ class CodexBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
       // The result reports the WIRE id — the server-minted thr-42 — while the
       // client→server mapping is recorded in the registry so subsequent calls
@@ -77,8 +81,7 @@ class CodexBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
       assertEquals(result.model, Some(Model("gpt-5")))
 
@@ -93,8 +96,7 @@ class CodexBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
 
   test("runAutonomous throws with the exit code when codex exits non-zero"):
@@ -107,8 +109,7 @@ class CodexBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
       assert(
         ex.getMessage.contains("exited with code 7"),
@@ -126,8 +127,7 @@ class CodexBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
       assert(
         ex.getMessage.contains("thread/resume failed: not found"),
@@ -145,8 +145,7 @@ class CodexBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
       assert(
         !ex.getMessage.contains("Reading additional input from stdin"),
@@ -159,8 +158,7 @@ class CodexBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         "list files",
         clientSid,
-        AgentConfig().copy(systemPrompt = Some("be terse")),
-        os.temp.dir()
+        AgentConfig().copy(systemPrompt = Some("be terse"))
       )
       val args = runner.calls.head
       val finalPrompt = args.last
@@ -177,11 +175,10 @@ class CodexBackendTest extends munit.FunSuite:
       )
     )
     withBackend(runner): backend =>
-      val workDir = os.temp.dir()
       val _ =
-        backend.runAutonomous("first", clientSid, AgentConfig(), workDir)
+        backend.runAutonomous("first", clientSid, AgentConfig())
       val _ =
-        backend.runAutonomous("again", clientSid, AgentConfig(), workDir)
+        backend.runAutonomous("again", clientSid, AgentConfig())
       val firstArgs = runner.calls(0)
       val secondArgs = runner.calls(1)
       assert(!firstArgs.contains("resume"), firstArgs)
@@ -205,7 +202,6 @@ class CodexBackendTest extends munit.FunSuite:
       )
     )
     withBackend(runner): backend =>
-      val workDir = os.temp.dir()
       // Simulate the post-interactive-drain registration that DefaultAgentCall
       // performs (this test exercises the backend in isolation; the
       // integration path is wired in AgentCall.runInteractiveOnce).
@@ -214,7 +210,7 @@ class CodexBackendTest extends munit.FunSuite:
         WireSessionId[BackendTag.Codex.type]("thr-via-interactive")
       )
       val _ =
-        backend.runAutonomous("after", clientSid, AgentConfig(), workDir)
+        backend.runAutonomous("after", clientSid, AgentConfig())
       val args = runner.calls.head
       assert(args.contains("resume"), args)
       assert(args.contains("thr-via-interactive"), args)
@@ -229,13 +225,12 @@ class CodexBackendTest extends munit.FunSuite:
       )
     )
     withBackend(runner): backend =>
-      val workDir = os.temp.dir()
       val sidA =
         SessionId[BackendTag.Codex.type]("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
       val sidB =
         SessionId[BackendTag.Codex.type]("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
-      val _ = backend.runAutonomous("for A", sidA, AgentConfig(), workDir)
-      val _ = backend.runAutonomous("for B", sidB, AgentConfig(), workDir)
+      val _ = backend.runAutonomous("for A", sidA, AgentConfig())
+      val _ = backend.runAutonomous("for B", sidB, AgentConfig())
       val secondArgs = runner.calls(1)
       assert(
         !secondArgs.contains("resume"),
@@ -265,13 +260,12 @@ class CodexBackendTest extends munit.FunSuite:
     // not survive the call, or long flows would accumulate orphan schema
     // files.
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
-    withBackend(runner): backend =>
-      val workDir = os.temp.dir()
+    val workDir = os.temp.dir()
+    withBackend(runner, workDir = workDir): backend =>
       val _ = backend.runAutonomous(
         "q",
         clientSid,
         AgentConfig(),
-        workDir,
         outputSchema = Some("""{"type":"object"}""")
       )
       val schemaFile = schemaPathFrom(runner.calls.head)
@@ -303,7 +297,6 @@ class CodexBackendTest extends munit.FunSuite:
       List(successfulProcess("thr-1"), successfulProcess("thr-2"))
     )
     withBackend(runner): backend =>
-      val workDir = os.temp.dir()
       val schema = Some("""{"type":"object"}""")
       val sidA =
         SessionId[BackendTag.Codex.type]("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
@@ -313,14 +306,12 @@ class CodexBackendTest extends munit.FunSuite:
         "a",
         sidA,
         AgentConfig(),
-        workDir,
         outputSchema = schema
       )
       val _ = backend.runAutonomous(
         "b",
         sidB,
         AgentConfig(),
-        workDir,
         outputSchema = schema
       )
       val schemaFileA = schemaPathFrom(runner.calls(0))
@@ -339,8 +330,7 @@ class CodexBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
       val args = runner.calls.head
       assert(
@@ -352,14 +342,13 @@ class CodexBackendTest extends munit.FunSuite:
     "runInteractive writes the output schema to a temp file outside the workdir"
   ):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
-    withBackend(runner): backend =>
-      val workDir = os.temp.dir()
+    val workDir = os.temp.dir()
+    withBackend(runner, workDir = workDir): backend =>
       val _ = backend.runInteractive(
         "q",
         clientSid,
         displayPrompt = "q",
         AgentConfig(),
-        workDir,
         Some("""{"type":"object"}""")
       )
       // Unlike runAutonomous, runInteractive hands back a Conversation the
@@ -388,7 +377,6 @@ class CodexBackendTest extends munit.FunSuite:
         clientSid,
         displayPrompt = "q",
         AgentConfig(),
-        os.temp.dir(),
         outputSchema = None
       )
       val args = runner.calls.head
@@ -419,7 +407,6 @@ class CodexBackendTest extends munit.FunSuite:
         clientSid,
         displayPrompt = "list files",
         AgentConfig().copy(systemPrompt = Some("be terse")),
-        os.temp.dir(),
         outputSchema = None
       )
       val finalPrompt = runner.calls.head.last

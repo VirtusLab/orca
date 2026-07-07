@@ -14,7 +14,6 @@ private[orca] class DefaultPiAgent(
     backend: AgentBackend[BackendTag.Pi.type],
     config: AgentConfig,
     prompts: Prompts,
-    workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
     val name: String = "pi"
@@ -22,7 +21,6 @@ private[orca] class DefaultPiAgent(
       backend,
       config,
       prompts,
-      workDir,
       events,
       interaction
     )
@@ -36,7 +34,6 @@ private[orca] class DefaultPiAgent(
       backend,
       config,
       prompts,
-      workDir,
       events,
       interaction,
       name

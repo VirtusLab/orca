@@ -47,7 +47,12 @@ import ox.Ox
   */
 private[orca] class CodexBackend(
     cli: CliRunner,
-    private[codex] val sessionsDir: os.Path = os.home / ".codex" / "sessions"
+    private[codex] val sessionsDir: os.Path = os.home / ".codex" / "sessions",
+    /** Fixed at construction; every spawn (`openConversation`) runs in this
+      * directory. The `os.pwd` default serves bare/test construction; the
+      * runtime (`CodexAgents.default`) passes the flow's real `workDir`.
+      */
+    override val workDir: os.Path = os.pwd
 ) extends AgentBackend[BackendTag.Codex.type]:
 
   /** Codex's threads are server-side and durable, so it is
@@ -100,7 +105,6 @@ private[orca] class CodexBackend(
       prompt: String,
       session: SessionId[BackendTag.Codex.type],
       config: AgentConfig,
-      workDir: os.Path,
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Codex.type] =
@@ -113,7 +117,6 @@ private[orca] class CodexBackend(
         mode = SessionMode.Autonomous,
         session = session,
         config = config,
-        workDir = workDir,
         // Forwarded so (a) `conv.outputSchema` signals structured mode to the
         // drain (suppressing the raw JSON payload from the user log) and (b)
         // `--output-schema` enforces the contract on the codex side too.
@@ -129,7 +132,6 @@ private[orca] class CodexBackend(
       session: SessionId[BackendTag.Codex.type],
       displayPrompt: String,
       config: AgentConfig,
-      workDir: os.Path,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.Codex.type] =
     openConversation(
@@ -137,7 +139,6 @@ private[orca] class CodexBackend(
       mode = SessionMode.Interactive(displayPrompt),
       session = session,
       config = config,
-      workDir = workDir,
       outputSchema = outputSchema
     )
 
@@ -166,7 +167,6 @@ private[orca] class CodexBackend(
       mode: SessionMode,
       session: SessionId[BackendTag.Codex.type],
       config: AgentConfig,
-      workDir: os.Path,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.Codex.type] =
     // Write the schema temp file FIRST — before ANY resource is allocated — so

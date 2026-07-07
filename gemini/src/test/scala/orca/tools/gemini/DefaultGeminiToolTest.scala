@@ -38,7 +38,6 @@ class DefaultGeminiAgentTest extends munit.FunSuite:
           backend = backend,
           config = config,
           prompts = DefaultPrompts,
-          workDir = os.temp.dir(),
           events = OrcaListener.noop,
           interaction = stubInteraction
         )

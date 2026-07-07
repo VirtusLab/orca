@@ -20,7 +20,6 @@ private[orca] class DefaultClaudeAgent(
     backend: ClaudeBackend,
     config: AgentConfig,
     prompts: Prompts,
-    workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
     val name: String = "main"
@@ -28,7 +27,6 @@ private[orca] class DefaultClaudeAgent(
       backend,
       config,
       prompts,
-      workDir,
       events,
       interaction
     )
@@ -49,7 +47,6 @@ private[orca] class DefaultClaudeAgent(
       backend.withNetworkTools(tools),
       config,
       prompts,
-      workDir,
       events,
       interaction,
       name
@@ -63,7 +60,6 @@ private[orca] class DefaultClaudeAgent(
       backend,
       config,
       prompts,
-      workDir,
       events,
       interaction,
       name

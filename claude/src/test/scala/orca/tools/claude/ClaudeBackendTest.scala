@@ -69,8 +69,7 @@ class ClaudeBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "summarize",
           freshSid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
       val args = runner.calls.head
       assert(args.containsSlice(Seq("--input-format", "stream-json")))
@@ -84,8 +83,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         "x",
         freshSid,
-        AgentConfig().copy(tools = ToolSet.NetworkOnly),
-        os.temp.dir()
+        AgentConfig().copy(tools = ToolSet.NetworkOnly)
       )
       val args = runner.calls.head
       assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
@@ -101,8 +99,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         "x",
         freshSid,
-        AgentConfig().copy(tools = ToolSet.NetworkOnly),
-        os.temp.dir()
+        AgentConfig().copy(tools = ToolSet.NetworkOnly)
       )
       val args = runner.calls.head
       assert(args.containsSlice(Seq("--allowedTools", "WebFetch")), args)
@@ -124,7 +121,6 @@ class ClaudeBackendTest extends munit.FunSuite:
       backend,
       AgentConfig(),
       DefaultPrompts,
-      os.temp.dir(),
       OrcaListener.noop,
       stubInteraction
     )
@@ -146,7 +142,6 @@ class ClaudeBackendTest extends munit.FunSuite:
         "x",
         freshSid,
         AgentConfig(),
-        os.temp.dir(),
         outputSchema = Some("""{"type":"object"}""")
       )
       val args = runner.calls.head
@@ -159,7 +154,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val result =
-        backend.runAutonomous("x", freshSid, AgentConfig(), os.temp.dir())
+        backend.runAutonomous("x", freshSid, AgentConfig())
       assertEquals(WireSessionId.value(result.wireId), "sess-123")
       assertEquals(result.output, "hello world")
       assertEquals(result.usage.inputTokens, 10L)
@@ -179,7 +174,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     p.sendSigInt()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       intercept[OrcaFlowException]:
-        backend.runAutonomous("x", freshSid, AgentConfig(), os.temp.dir())
+        backend.runAutonomous("x", freshSid, AgentConfig())
 
   test("runAutonomous throws when the subprocess exits non-zero"):
     val p = new FakePipedCliProcess(initiallyAlive = false):
@@ -188,7 +183,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     p.closeStderr()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       intercept[OrcaFlowException]:
-        backend.runAutonomous("x", freshSid, AgentConfig(), os.temp.dir())
+        backend.runAutonomous("x", freshSid, AgentConfig())
 
   test(
     "runAutonomous passes a --append-system-prompt-file pointing at the config's prompt"
@@ -196,7 +191,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val config = AgentConfig(systemPrompt = Some("you are a poet"))
-      val _ = backend.runAutonomous("x", freshSid, config, os.temp.dir())
+      val _ = backend.runAutonomous("x", freshSid, config)
       val args = runner.calls.head
       val flagIdx = args.indexOf("--append-system-prompt-file")
       assert(flagIdx >= 0, s"expected the prompt-file flag in args; got: $args")
@@ -219,9 +214,9 @@ class ClaudeBackendTest extends munit.FunSuite:
     )
     withBackend(runner): backend =>
       val _ =
-        backend.runAutonomous("first", sid, AgentConfig(), os.temp.dir())
+        backend.runAutonomous("first", sid, AgentConfig())
       val _ =
-        backend.runAutonomous("again", sid, AgentConfig(), os.temp.dir())
+        backend.runAutonomous("again", sid, AgentConfig())
       val first = runner.calls(0)
       val second = runner.calls(1)
       assert(
@@ -252,8 +247,7 @@ class ClaudeBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "continue",
           sid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
       val args = runner.calls.head
       assert(args.containsSlice(Seq("--resume", SessionId.value(sid))), args)
@@ -272,7 +266,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     withBackend(runner): backend =>
       assertEquals(backend.sessions.persistableWireId(sid), None) // unclaimed
       val _ =
-        backend.runAutonomous("hi", sid, AgentConfig(), os.temp.dir())
+        backend.runAutonomous("hi", sid, AgentConfig())
       val wire: WireSessionId[BackendTag.ClaudeCode.type] = sid.onWire
       assertEquals(
         backend.sessions.persistableWireId(sid),
@@ -302,9 +296,9 @@ class ClaudeBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(failing, successfulProcess()))
     withBackend(runner): backend =>
       val _ = intercept[OrcaFlowException]:
-        backend.runAutonomous("first", sid, AgentConfig(), os.temp.dir())
+        backend.runAutonomous("first", sid, AgentConfig())
       val _ =
-        backend.runAutonomous("retry", sid, AgentConfig(), os.temp.dir())
+        backend.runAutonomous("retry", sid, AgentConfig())
       val second = runner.calls(1)
       assert(
         second.containsSlice(Seq("--session-id", SessionId.value(sid))),
@@ -323,47 +317,59 @@ class ClaudeBackendTest extends munit.FunSuite:
       new ClaudeBackend(
         new SpawnStubCliRunner(Nil),
         projectsDir = tmpProjects,
-        cwdForProbe = cwd
+        workDir = cwd
       )
     ): backend =>
       backend.sessions.register(freshSid, freshSid.onWire)
       assert(backend.sessions.exists(freshSid))
 
   test(
-    "sessionExists probes the workDir agents actually spawn with, not the process cwd (worktree flows)"
+    "workDir is shared, by construction, between the actual spawn cwd and the session-existence probe"
   ):
-    // Pins finding 7.5: `cwdForProbe` must track the flow's per-call workDir
-    // (what `DefaultFlowContext.withDefaults` now passes), not the `os.pwd`
-    // default — in a worktree flow those differ, and probing the wrong
-    // directory silently reports false, causing a pointless re-seed on every
-    // resume. Two backends share the same transcript location and differ
-    // only in `cwdForProbe`: only the one pointed at the actual spawn workDir
-    // sees it.
+    // Pins the Epic 8.1 unification: `workDir` is fixed once at construction
+    // and BOTH the probe (via `sessions.exists`) and the real subprocess spawn
+    // (via `runAutonomous` → `cli.spawnPiped(..., cwd = workDir)`) read that
+    // SAME field — no separate per-call value can drift out of sync with it,
+    // which is exactly what the old `cwdForProbe`-vs-per-call-`workDir` split
+    // allowed (7.5's bug class). A backend constructed with a worktree-style
+    // `workDir` (!= the process cwd) must probe AND spawn under that same
+    // directory.
     val tmpProjects = os.temp.dir()
-    val spawnWorkDir =
+    val flowWorkDir =
       os.temp.dir() // stands in for a worktree checkout, != os.pwd
     assert(
-      spawnWorkDir != os.pwd,
+      flowWorkDir != os.pwd,
       "test setup requires a workDir distinct from the process cwd"
     )
-    val slug = ClaudeBackend.cwdSlug(spawnWorkDir)
+    val slug = ClaudeBackend.cwdSlug(flowWorkDir)
     os.makeDir.all(tmpProjects / slug)
     os.write(tmpProjects / slug / s"${SessionId.value(freshSid)}.jsonl", "")
 
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
     SupervisedBackend.using(
       new ClaudeBackend(
-        new SpawnStubCliRunner(Nil),
+        runner,
         projectsDir = tmpProjects,
-        cwdForProbe = spawnWorkDir
+        workDir = flowWorkDir
       )
     ): backend =>
+      assertEquals(backend.workDir, flowWorkDir)
       backend.sessions.register(freshSid, freshSid.onWire)
-      assert(backend.sessions.exists(freshSid))
+      assert(
+        backend.sessions.exists(freshSid),
+        "probe must read the constructor's workDir"
+      )
+      val _ = backend.runAutonomous("x", freshSid, AgentConfig())
+      assertEquals(
+        runner.spawnCalls.head.cwd,
+        flowWorkDir,
+        "spawn must use the SAME workDir the probe just read"
+      )
 
-    // The bare-construction default (`cwdForProbe = os.pwd`) probes the
-    // WRONG directory when the process cwd differs from the flow's
-    // workDir — exactly the bug `DefaultFlowContext.withDefaults` must avoid
-    // by passing `cwdForProbe = workDir` explicitly.
+    // The bare-construction default (`workDir = os.pwd`) probes the WRONG
+    // directory when the process cwd differs from the flow's workDir —
+    // exactly the bug `ClaudeAgents.default` must avoid by passing
+    // `workDir = wiring.workDir` explicitly.
     SupervisedBackend.using(
       new ClaudeBackend(new SpawnStubCliRunner(Nil), projectsDir = tmpProjects)
     ): backend =>
@@ -386,7 +392,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       new ClaudeBackend(
         new SpawnStubCliRunner(Nil),
         projectsDir = tmpProjects,
-        cwdForProbe = cwd
+        workDir = cwd
       )
     ): backend =>
       assert(!backend.sessions.exists(freshSid))
@@ -400,7 +406,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       new ClaudeBackend(
         new SpawnStubCliRunner(Nil),
         projectsDir = tmpProjects,
-        cwdForProbe = cwd
+        workDir = cwd
       )
     ): backend =>
       backend.sessions.register(freshSid, freshSid.onWire)
@@ -413,7 +419,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       new ClaudeBackend(
         new SpawnStubCliRunner(Nil),
         projectsDir = missing,
-        cwdForProbe = cwd
+        workDir = cwd
       )
     ): backend =>
       backend.sessions.register(freshSid, freshSid.onWire)
@@ -428,7 +434,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       new ClaudeBackend(
         new SpawnStubCliRunner(Nil),
         projectsDir = tmpProjects,
-        cwdForProbe = cwd
+        workDir = cwd
       )
     ): backend =>
       val maliciousId =

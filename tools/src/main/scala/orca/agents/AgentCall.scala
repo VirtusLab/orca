@@ -102,7 +102,6 @@ class DefaultAgentCall[B <: BackendTag, O](
     backend: AgentBackend[B],
     effectiveConfig: Option[AgentConfig] => AgentConfig,
     prompts: Prompts,
-    workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
     /** Used as the `agent` axis on `OrcaEvent.TokensUsed` — typically the
@@ -213,7 +212,6 @@ class DefaultAgentCall[B <: BackendTag, O](
           promptText,
           session,
           effective,
-          workDir,
           events,
           outputSchema = Some(outputSchema)
         )
@@ -274,7 +272,6 @@ class DefaultAgentCall[B <: BackendTag, O](
         session,
         displayPrompt = serialized,
         effective,
-        workDir,
         Some(outputSchema)
       )(using summon[ox.Ox])
       try interaction.drive(conversation)

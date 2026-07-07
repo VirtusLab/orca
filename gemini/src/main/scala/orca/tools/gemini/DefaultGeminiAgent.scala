@@ -13,7 +13,6 @@ private[orca] class DefaultGeminiAgent(
     backend: AgentBackend[BackendTag.Gemini.type],
     config: AgentConfig,
     prompts: Prompts,
-    workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
     val name: String = "main"
@@ -21,7 +20,6 @@ private[orca] class DefaultGeminiAgent(
       backend,
       config,
       prompts,
-      workDir,
       events,
       interaction
     )
@@ -42,7 +40,6 @@ private[orca] class DefaultGeminiAgent(
       backend,
       config,
       prompts,
-      workDir,
       events,
       interaction,
       name

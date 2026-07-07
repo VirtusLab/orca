@@ -20,7 +20,6 @@ private[orca] class DefaultOpencodeAgent(
     backend: AgentBackend[BackendTag.Opencode.type],
     config: AgentConfig,
     prompts: Prompts,
-    workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
     val name: String = "main"
@@ -28,7 +27,6 @@ private[orca] class DefaultOpencodeAgent(
       backend,
       config,
       prompts,
-      workDir,
       events,
       interaction
     )
@@ -69,7 +67,6 @@ private[orca] class DefaultOpencodeAgent(
       backend,
       config,
       prompts,
-      workDir,
       events,
       interaction,
       name

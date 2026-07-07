@@ -51,16 +51,17 @@ private[orca] class ClaudeBackend(
     cli: CliRunner,
     networkTools: Seq[String] = ClaudeBackend.DefaultNetworkTools,
     private[claude] val projectsDir: os.Path = os.home / ".claude" / "projects",
-    /** The workDir the existence probe (see [[sessions]]) slugs to find a
-      * session's transcript. MUST be the workDir agents actually SPAWN with —
+    /** Fixed at construction and shared, by construction, between the spawn
+      * path ([[openConversation]]) and the existence probe (see [[sessions]]):
       * claude writes a session's transcript under
-      * `<projectsDir>/<cwdSlug(spawnWorkDir)>/<id>.jsonl`, so a probe against
-      * any other directory silently reports `false` and the caller re-seeds.
-      * The runtime (`DefaultFlowContext.withDefaults`) passes the flow's
-      * per-call `workDir`; the `os.pwd` default here serves only bare/test
-      * construction (`new ClaudeBackend(cli)`) where no flow workDir exists.
+      * `<projectsDir>/<cwdSlug(workDir)>/<id>.jsonl`, so both sides reading the
+      * SAME field is what keeps the probe honest — no separate value can drift
+      * out of sync with where agents actually spawn. The `os.pwd` default
+      * serves only bare/test construction (`new ClaudeBackend(cli)`) where no
+      * flow workDir exists; the runtime (`DefaultFlowContext.withDefaults`)
+      * passes the flow's real `workDir`.
       */
-    private[claude] val cwdForProbe: os.Path = os.pwd,
+    override val workDir: os.Path = os.pwd,
     /** Threaded straight into [[AgentBackend]]'s `closedFlag` parameter. Bare
       * construction gets a fresh flag; [[withNetworkTools]] passes THIS
       * instance's flag so the sibling it builds shares one latch with its
@@ -83,7 +84,7 @@ private[orca] class ClaudeBackend(
     * use-after-close guard entirely.
     */
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
-    new ClaudeBackend(cli, tools, projectsDir, cwdForProbe, closedFlag)
+    new ClaudeBackend(cli, tools, projectsDir, workDir, closedFlag)
 
   /** Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
     * outlive the process, so it is [[SessionSupport.Durable]]: the claim
@@ -124,7 +125,7 @@ private[orca] class ClaudeBackend(
       new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type],
       id =>
         os.exists(
-          projectsDir / ClaudeBackend.cwdSlug(cwdForProbe) / s"$id.jsonl"
+          projectsDir / ClaudeBackend.cwdSlug(workDir) / s"$id.jsonl"
         )
     )
 
@@ -132,7 +133,6 @@ private[orca] class ClaudeBackend(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
       config: AgentConfig,
-      workDir: os.Path,
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.ClaudeCode.type] =
@@ -148,7 +148,6 @@ private[orca] class ClaudeBackend(
         mode = SessionMode.Autonomous,
         session = session,
         config = config,
-        workDir = workDir,
         outputSchema = outputSchema
       )
 
@@ -157,7 +156,6 @@ private[orca] class ClaudeBackend(
       session: SessionId[BackendTag.ClaudeCode.type],
       displayPrompt: String,
       config: AgentConfig,
-      workDir: os.Path,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
     val conv = openConversation(
@@ -165,7 +163,6 @@ private[orca] class ClaudeBackend(
       mode = SessionMode.Interactive(displayPrompt),
       session = session,
       config = config,
-      workDir = workDir,
       outputSchema = outputSchema
     )
     // Interactive has no in-backend drain to gate on; commit once the
@@ -214,7 +211,6 @@ private[orca] class ClaudeBackend(
       mode: SessionMode,
       session: SessionId[BackendTag.ClaudeCode.type],
       config: AgentConfig,
-      workDir: os.Path,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
     // Allocate ask_user resources up front so we can close them

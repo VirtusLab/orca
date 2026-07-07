@@ -20,12 +20,11 @@ class PiIntegrationTest extends munit.FunSuite:
     SessionId.fresh[BackendTag.Pi.type]
 
   test("RPC autonomous prompt returns requested literal output"):
-    val backend = new PiBackend(OsProcCliRunner)
+    val backend = new PiBackend(OsProcCliRunner, workDir = os.temp.dir())
     val result = backend.runAutonomous(
       prompt = "Reply with the single word: READY",
       session = fresh,
-      config = AgentConfig().copy(tools = ToolSet.ReadOnly),
-      workDir = os.temp.dir()
+      config = AgentConfig().copy(tools = ToolSet.ReadOnly)
     )
     assert(
       result.output.contains("READY"),

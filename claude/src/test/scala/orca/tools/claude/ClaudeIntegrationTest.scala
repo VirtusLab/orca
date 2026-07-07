@@ -26,7 +26,9 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     2.minutes
 
   private def withBackend(body: ox.Ox ?=> ClaudeBackend => Unit): Unit =
-    SupervisedBackend.using(new ClaudeBackend(OsProcCliRunner))(body)
+    SupervisedBackend.using(
+      new ClaudeBackend(OsProcCliRunner, workDir = os.temp.dir())
+    )(body)
 
   private def fresh = SessionId.fresh[BackendTag.ClaudeCode.type]
 
@@ -35,8 +37,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       val result = backend.runAutonomous(
         prompt = "Reply with the single word: READY",
         session = fresh,
-        config = AgentConfig(),
-        workDir = os.temp.dir()
+        config = AgentConfig()
       )
       assert(
         result.output.contains("READY"),
@@ -46,19 +47,16 @@ class ClaudeIntegrationTest extends munit.FunSuite:
 
   test("a resumed call carries conversational context across turns"):
     withBackend: backend =>
-      val workDir = os.temp.dir()
       val session = fresh
       val _ = backend.runAutonomous(
         prompt = "Remember the number 42. Reply with: stored.",
         session = session,
-        config = AgentConfig(),
-        workDir = workDir
+        config = AgentConfig()
       )
       val second = backend.runAutonomous(
         prompt = "What number did I ask you to remember?",
         session = session,
-        config = AgentConfig(),
-        workDir = workDir
+        config = AgentConfig()
       )
       assert(
         second.output.contains("42"),
@@ -72,7 +70,6 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         session = fresh,
         displayPrompt = "reply with 7",
         config = AgentConfig(),
-        workDir = os.temp.dir(),
         outputSchema = None
       )
       try
@@ -95,7 +92,6 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         session = fresh,
         displayPrompt = "count 1..5",
         config = AgentConfig(),
-        workDir = os.temp.dir(),
         outputSchema = None
       )
       try
@@ -125,7 +121,6 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         session = fresh,
         displayPrompt = "read /etc/hostname",
         config = AgentConfig().copy(autoApprove = AutoApprove.Only(Set.empty)),
-        workDir = os.temp.dir(),
         outputSchema = None
       )
       try

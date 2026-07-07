@@ -15,9 +15,14 @@ class GeminiBackendTest extends munit.FunSuite:
   private def clientSid: SessionId[BackendTag.Gemini.type] =
     SessionId[BackendTag.Gemini.type]("00000000-0000-0000-0000-000000000000")
 
-  private def withBackend[T](runner: SpawnStubCliRunner)(
+  private def withBackend[T](
+      runner: SpawnStubCliRunner,
+      workDir: os.Path = os.temp.dir()
+  )(
       body: ox.Ox ?=> GeminiBackend => T
-  ): T = SupervisedBackend.using(new GeminiBackend(runner))(body)
+  ): T = SupervisedBackend.using(new GeminiBackend(runner, workDir = workDir))(
+    body
+  )
 
   private def successfulProcess(
       sessionId: String = "sess-test",
@@ -60,8 +65,7 @@ class GeminiBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
       // The result reports the WIRE id — the server-minted sess-42 — while the
       // client→server mapping is recorded in the registry so subsequent calls
@@ -84,8 +88,7 @@ class GeminiBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
       assertEquals(result.model, Some(Model("gemini-2.5-pro")))
 
@@ -100,8 +103,7 @@ class GeminiBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
 
   test("runAutonomous throws with the exit code when gemini exits non-zero"):
@@ -114,8 +116,7 @@ class GeminiBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
       assert(
         ex.getMessage.contains("exited with code 7"),
@@ -133,8 +134,7 @@ class GeminiBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "q",
           clientSid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
       assert(
         ex.getMessage.contains("resume failed: session not found"),
@@ -147,8 +147,7 @@ class GeminiBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         "list files",
         clientSid,
-        AgentConfig().copy(systemPrompt = Some("be terse")),
-        os.temp.dir()
+        AgentConfig().copy(systemPrompt = Some("be terse"))
       )
       val finalPrompt = runner.calls.head.last
       assert(finalPrompt.contains("be terse"))
@@ -162,11 +161,10 @@ class GeminiBackendTest extends munit.FunSuite:
       )
     )
     withBackend(runner): backend =>
-      val workDir = os.temp.dir()
       val _ =
-        backend.runAutonomous("first", clientSid, AgentConfig(), workDir)
+        backend.runAutonomous("first", clientSid, AgentConfig())
       val _ =
-        backend.runAutonomous("again", clientSid, AgentConfig(), workDir)
+        backend.runAutonomous("again", clientSid, AgentConfig())
       val firstArgs = runner.calls(0)
       val secondArgs = runner.calls(1)
       assert(!firstArgs.contains("--resume"), firstArgs.toString)
@@ -184,8 +182,7 @@ class GeminiBackendTest extends munit.FunSuite:
         backend.runAutonomous(
           "after",
           clientSid,
-          AgentConfig(),
-          os.temp.dir()
+          AgentConfig()
         )
       val args = runner.calls.head
       assert(args.contains("--resume"), args.toString)
@@ -196,11 +193,10 @@ class GeminiBackendTest extends munit.FunSuite:
       List(successfulProcess("sess-A"), successfulProcess("sess-B"))
     )
     withBackend(runner): backend =>
-      val workDir = os.temp.dir()
       val sidA = SessionId[BackendTag.Gemini.type]("aaaaaaaa")
       val sidB = SessionId[BackendTag.Gemini.type]("bbbbbbbb")
-      val _ = backend.runAutonomous("for A", sidA, AgentConfig(), workDir)
-      val _ = backend.runAutonomous("for B", sidB, AgentConfig(), workDir)
+      val _ = backend.runAutonomous("for A", sidA, AgentConfig())
+      val _ = backend.runAutonomous("for B", sidB, AgentConfig())
       assert(
         !runner.calls(1).contains("--resume"),
         s"second call with a new client id must NOT resume; got: ${runner.calls(1)}"
@@ -210,10 +206,10 @@ class GeminiBackendTest extends munit.FunSuite:
     "runAutonomous does NOT register an MCP server (autonomous skips bridge)"
   ):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
-    withBackend(runner): backend =>
-      val workDir = os.temp.dir()
+    val workDir = os.temp.dir()
+    withBackend(runner, workDir = workDir): backend =>
       val _ =
-        backend.runAutonomous("q", clientSid, AgentConfig(), workDir)
+        backend.runAutonomous("q", clientSid, AgentConfig())
       assert(
         !os.exists(workDir / ".gemini" / "settings.json"),
         "autonomous must not write a .gemini/settings.json"
@@ -223,14 +219,13 @@ class GeminiBackendTest extends munit.FunSuite:
     "runInteractive registers the orca MCP server and folds the ask_user hint"
   ):
     val runner = new SpawnStubCliRunner(List(pendingProcess()))
-    withBackend(runner): backend =>
-      val workDir = os.temp.dir()
+    val workDir = os.temp.dir()
+    withBackend(runner, workDir = workDir): backend =>
       val _ = backend.runInteractive(
         "q",
         clientSid,
         displayPrompt = "q",
         AgentConfig(),
-        workDir,
         outputSchema = None
       )
       val settings = workDir / ".gemini" / "settings.json"
@@ -255,7 +250,6 @@ class GeminiBackendTest extends munit.FunSuite:
         clientSid,
         displayPrompt = "list files",
         AgentConfig().copy(systemPrompt = Some("be terse")),
-        os.temp.dir(),
         outputSchema = None
       )
       val finalPrompt = runner.calls.head.last

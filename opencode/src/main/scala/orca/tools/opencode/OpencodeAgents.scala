@@ -24,7 +24,6 @@ object OpencodeAgents:
       backend = OpencodeBackend(OsProcCliRunner, wiring.workDir, launcher),
       config = AgentConfig(),
       prompts = wiring.prompts,
-      workDir = wiring.workDir,
       events = wiring.events,
       interaction = wiring.interaction
     )

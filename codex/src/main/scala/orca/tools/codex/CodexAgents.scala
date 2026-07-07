@@ -13,10 +13,9 @@ object CodexAgents:
   /** The default codex agent for a run: standard config (no pinned model). */
   def default(wiring: AgentWiring): CodexAgent =
     new DefaultCodexAgent(
-      backend = new CodexBackend(OsProcCliRunner),
+      backend = new CodexBackend(OsProcCliRunner, workDir = wiring.workDir),
       config = AgentConfig(),
       prompts = wiring.prompts,
-      workDir = wiring.workDir,
       events = wiring.events,
       interaction = wiring.interaction
     )

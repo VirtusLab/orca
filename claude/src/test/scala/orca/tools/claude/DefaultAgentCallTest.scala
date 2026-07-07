@@ -93,12 +93,12 @@ class SequencedBackend(outputs: List[String])
     )
 
   val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
+  val workDir: os.Path = os.pwd
 
   def runAutonomous(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
       config: AgentConfig,
-      workDir: os.Path,
       events: orca.events.OrcaListener,
       outputSchema: Option[String]
   ): AgentResult[BackendTag.ClaudeCode.type] =
@@ -111,7 +111,6 @@ class SequencedBackend(outputs: List[String])
       session: SessionId[BackendTag.ClaudeCode.type],
       displayPrompt: String,
       config: AgentConfig,
-      workDir: os.Path,
       outputSchema: Option[String]
   )(using ox.Ox): orca.backend.Conversation[BackendTag.ClaudeCode.type] =
     // Minimal stand-in: the conversation is not actually driven — the test's
@@ -164,7 +163,6 @@ class DefaultAgentCallTest extends munit.FunSuite:
       effectiveConfig = cfg =>
         cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
-      workDir = os.pwd,
       events = orca.events.OrcaListener.noop,
       interaction = stubInteraction,
       agentName = "claude"
@@ -240,7 +238,6 @@ class DefaultAgentCallTest extends munit.FunSuite:
       effectiveConfig =
         cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
       prompts = DefaultPrompts,
-      workDir = os.pwd,
       events = (e: orca.events.OrcaEvent) => {
         val _ = seen.updateAndGet(e :: _)
       },
@@ -290,7 +287,6 @@ class DefaultAgentCallTest extends munit.FunSuite:
         effectiveConfig =
           cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
-        workDir = os.pwd,
         events = myListener,
         interaction = stubInteraction,
         agentName = "claude"
@@ -311,7 +307,6 @@ class DefaultAgentCallTest extends munit.FunSuite:
         effectiveConfig =
           cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
-        workDir = os.pwd,
         events = (e: orca.events.OrcaEvent) => {
           val _ = seen.updateAndGet(e :: _)
         },
@@ -343,7 +338,6 @@ class DefaultAgentCallTest extends munit.FunSuite:
         effectiveConfig =
           cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
-        workDir = os.pwd,
         events = (e: orca.events.OrcaEvent) => {
           val _ = seen.updateAndGet(e :: _)
         },
@@ -376,7 +370,6 @@ class DefaultAgentCallTest extends munit.FunSuite:
           prompt: String,
           session: SessionId[BackendTag.ClaudeCode.type],
           config: AgentConfig,
-          workDir: os.Path,
           events: OrcaListener,
           outputSchema: Option[String]
       ): AgentResult[BackendTag.ClaudeCode.type] =
@@ -401,7 +394,6 @@ class DefaultAgentCallTest extends munit.FunSuite:
           prompt: String,
           session: SessionId[BackendTag.ClaudeCode.type],
           config: AgentConfig,
-          workDir: os.Path,
           events: OrcaListener,
           outputSchema: Option[String]
       ): AgentResult[BackendTag.ClaudeCode.type] =
@@ -414,7 +406,6 @@ class DefaultAgentCallTest extends munit.FunSuite:
             prompt,
             session,
             config,
-            workDir,
             events,
             outputSchema
           )
@@ -460,7 +451,6 @@ class DefaultAgentCallTest extends munit.FunSuite:
               retrySchedule = fastRetry
             ),
         prompts = recordingPrompts,
-        workDir = os.pwd,
         events = orca.events.OrcaListener.noop,
         interaction = stubInteraction,
         agentName = "claude"
@@ -500,7 +490,6 @@ class DefaultAgentCallTest extends munit.FunSuite:
         effectiveConfig =
           cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
         prompts = DefaultPrompts,
-        workDir = os.pwd,
         events = orca.events.OrcaListener.noop,
         interaction = drivingInteraction,
         agentName = "claude"

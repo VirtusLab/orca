@@ -39,8 +39,14 @@ import ox.Ox
   * turn and `--continue` resumes on later turns — rather than a long-lived
   * process.
   */
-private[orca] class PiBackend(cli: CliRunner)
-    extends AgentBackend[BackendTag.Pi.type]:
+private[orca] class PiBackend(
+    cli: CliRunner,
+    /** Fixed at construction; every spawn (`openConversation`) runs in this
+      * directory. The `os.pwd` default serves bare/test construction; the
+      * runtime (`PiAgents.default`) passes the flow's real `workDir`.
+      */
+    override val workDir: os.Path = os.pwd
+) extends AgentBackend[BackendTag.Pi.type]:
 
   // Pi persists each session in a directory; one dir per Orca session id gives
   // caller-stable continuity. The registry tracks fresh-vs-resume and is
@@ -76,7 +82,6 @@ private[orca] class PiBackend(cli: CliRunner)
       prompt: String,
       session: SessionId[BackendTag.Pi.type],
       config: AgentConfig,
-      workDir: os.Path,
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Pi.type] =
@@ -86,7 +91,6 @@ private[orca] class PiBackend(cli: CliRunner)
         mode = SessionMode.Autonomous,
         session = session,
         config = config,
-        workDir = workDir,
         outputSchema = outputSchema
       )
 
@@ -95,7 +99,6 @@ private[orca] class PiBackend(cli: CliRunner)
       session: SessionId[BackendTag.Pi.type],
       displayPrompt: String,
       config: AgentConfig,
-      workDir: os.Path,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.Pi.type] =
     openConversation(
@@ -103,7 +106,6 @@ private[orca] class PiBackend(cli: CliRunner)
       mode = SessionMode.Interactive(displayPrompt),
       session = session,
       config = config,
-      workDir = workDir,
       outputSchema = outputSchema
     )
 
@@ -112,7 +114,6 @@ private[orca] class PiBackend(cli: CliRunner)
       mode: SessionMode,
       session: SessionId[BackendTag.Pi.type],
       config: AgentConfig,
-      workDir: os.Path,
       outputSchema: Option[String]
   )(using Ox): PiConversation =
     // Temp files (ask-user extension, system prompt) Pi reads for the whole

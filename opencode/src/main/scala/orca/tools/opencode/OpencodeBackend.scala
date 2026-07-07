@@ -61,19 +61,20 @@ private[opencode] trait OpencodeServerHandle:
 private[orca] object OpencodeBackend:
   /** Build the backend with its server fixed at construction. Per-turn working
     * directories are assumed constant (orca flows run in one repo), so the
-    * server's `workDir` is pinned here; the per-call `workDir` SPI parameter on
-    * [[OpencodeBackend.runAutonomous]]/[[OpencodeBackend.runInteractive]]
-    * remains for the interface but is ignored by opencode.
+    * server's `workDir` is pinned here — and is the SAME value
+    * [[AgentBackend.workDir]] exposes, by construction.
     */
   def apply(
       cli: CliRunner,
       workDir: os.Path,
       launcher: OpencodeLauncher = OpencodeLauncher.default
   )(using Ox): OpencodeBackend =
-    new OpencodeBackend(new OpencodeServer(cli, workDir, launcher))
+    new OpencodeBackend(new OpencodeServer(cli, workDir, launcher), workDir)
 
-private[orca] class OpencodeBackend(server: OpencodeServerHandle)
-    extends AgentBackend[BackendTag.Opencode.type]:
+private[orca] class OpencodeBackend(
+    server: OpencodeServerHandle,
+    override val workDir: os.Path = os.pwd
+) extends AgentBackend[BackendTag.Opencode.type]:
 
   /** Tear down the shared `opencode serve` process and its drain forks. A no-op
     * if the server was never started (opencode wired but unused). Called by the
@@ -86,7 +87,6 @@ private[orca] class OpencodeBackend(server: OpencodeServerHandle)
       prompt: String,
       session: SessionId[BackendTag.Opencode.type],
       config: AgentConfig,
-      workDir: os.Path,
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Opencode.type] =
@@ -107,7 +107,6 @@ private[orca] class OpencodeBackend(server: OpencodeServerHandle)
       session: SessionId[BackendTag.Opencode.type],
       displayPrompt: String,
       config: AgentConfig,
-      workDir: os.Path,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.Opencode.type] =
     val http = server.http

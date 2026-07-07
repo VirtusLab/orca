@@ -14,7 +14,6 @@ private[orca] class DefaultCodexAgent(
     backend: AgentBackend[BackendTag.Codex.type],
     config: AgentConfig,
     prompts: Prompts,
-    workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction,
     val name: String = "main"
@@ -22,7 +21,6 @@ private[orca] class DefaultCodexAgent(
       backend,
       config,
       prompts,
-      workDir,
       events,
       interaction
     )
@@ -43,7 +41,6 @@ private[orca] class DefaultCodexAgent(
       backend,
       config,
       prompts,
-      workDir,
       events,
       interaction,
       name

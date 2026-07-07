@@ -81,7 +81,6 @@ class OpencodeFlowTest extends munit.FunSuite:
       new CannedBackend("""{"decision":"go","score":7}"""),
       AgentConfig(),
       DefaultPrompts,
-      os.temp.dir(),
       OrcaListener.noop,
       noInteraction
     )
@@ -97,11 +96,11 @@ class OpencodeFlowTest extends munit.FunSuite:
     */
   private class CannedBackend(json: String)
       extends AgentBackend[BackendTag.Opencode.type]:
+    val workDir: os.Path = os.pwd
     def runAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
         config: AgentConfig,
-        workDir: os.Path,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Opencode.type] =
@@ -111,7 +110,6 @@ class OpencodeFlowTest extends munit.FunSuite:
         session: SessionId[BackendTag.Opencode.type],
         displayPrompt: String,
         config: AgentConfig,
-        workDir: os.Path,
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.Opencode.type] =
       throw new UnsupportedOperationException

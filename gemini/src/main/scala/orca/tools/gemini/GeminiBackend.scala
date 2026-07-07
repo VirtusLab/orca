@@ -49,8 +49,14 @@ import ox.Ox
   * (the restore rides as an `extras` `AutoCloseable` on the
   * [[AskUserSession]]). Autonomous calls skip the bridge entirely.
   */
-private[orca] class GeminiBackend(cli: CliRunner)
-    extends AgentBackend[BackendTag.Gemini.type]:
+private[orca] class GeminiBackend(
+    cli: CliRunner,
+    /** Fixed at construction; every spawn (`openConversation`) runs in this
+      * directory. The `os.pwd` default serves bare/test construction; the
+      * runtime (`GeminiAgents.default`) passes the flow's real `workDir`.
+      */
+    override val workDir: os.Path = os.pwd
+) extends AgentBackend[BackendTag.Gemini.type]:
 
   /** Gemini's sessions are server-side and durable, so it is
     * [[SessionSupport.Durable]]: the client→server map is persisted to the
@@ -96,7 +102,6 @@ private[orca] class GeminiBackend(cli: CliRunner)
       prompt: String,
       session: SessionId[BackendTag.Gemini.type],
       config: AgentConfig,
-      workDir: os.Path,
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Gemini.type] =
@@ -109,7 +114,6 @@ private[orca] class GeminiBackend(cli: CliRunner)
         mode = SessionMode.Autonomous,
         session = session,
         config = config,
-        workDir = workDir,
         // Forwarded so `conv.outputSchema` signals structured mode to the drain
         // (suppressing the raw JSON payload from the user log). gemini has no
         // `--output-schema` flag, so enforcement is prompt-only.
@@ -121,7 +125,6 @@ private[orca] class GeminiBackend(cli: CliRunner)
       session: SessionId[BackendTag.Gemini.type],
       displayPrompt: String,
       config: AgentConfig,
-      workDir: os.Path,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.Gemini.type] =
     openConversation(
@@ -129,7 +132,6 @@ private[orca] class GeminiBackend(cli: CliRunner)
       mode = SessionMode.Interactive(displayPrompt),
       session = session,
       config = config,
-      workDir = workDir,
       outputSchema = outputSchema
     )
 
@@ -149,7 +151,6 @@ private[orca] class GeminiBackend(cli: CliRunner)
       mode: SessionMode,
       session: SessionId[BackendTag.Gemini.type],
       config: AgentConfig,
-      workDir: os.Path,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.Gemini.type] =
     val (askUser, displayPrompt): (Option[AskUserSession], String) =

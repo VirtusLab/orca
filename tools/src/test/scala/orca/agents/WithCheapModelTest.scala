@@ -46,7 +46,6 @@ class WithCheapModelTest extends munit.FunSuite:
         StubBackend,
         cfg,
         StubPrompts,
-        os.temp.dir(),
         OrcaListener.noop,
         StubInteraction
       ):
@@ -57,11 +56,11 @@ class WithCheapModelTest extends munit.FunSuite:
     ): Agent[BackendTag.Pi.type] = new StubTool(config)
 
   private object StubBackend extends AgentBackend[BackendTag.Pi.type]:
+    val workDir: os.Path = os.pwd
     def runAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],
         config: AgentConfig,
-        workDir: os.Path,
         events: OrcaListener,
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] = ???
@@ -70,7 +69,6 @@ class WithCheapModelTest extends munit.FunSuite:
         session: SessionId[BackendTag.Pi.type],
         displayPrompt: String,
         config: AgentConfig,
-        workDir: os.Path,
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.Pi.type] = ???
     val sessions: SessionSupport[BackendTag.Pi.type] =

@@ -23,7 +23,6 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     backend: AgentBackend[B],
     config: AgentConfig,
     prompts: Prompts,
-    workDir: os.Path,
     events: OrcaListener,
     interaction: Interaction
 ) extends Agent[B]:
@@ -112,7 +111,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       val effective = effectiveConfig(callConfig)
       if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
       val result =
-        backend.runAutonomous(prompt, session, effective, workDir, events)
+        backend.runAutonomous(prompt, session, effective, events)
       emitTokens(effective, result)
       // Return the caller-supplied client handle; result.wireId is the
       // wire-side truth, learned by the registry, not a caller handle.
@@ -124,7 +123,6 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       backend,
       effectiveConfig,
       prompts,
-      workDir,
       events,
       interaction,
       agentName = name
