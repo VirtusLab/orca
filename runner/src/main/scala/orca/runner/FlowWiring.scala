@@ -12,6 +12,7 @@ import orca.agents.{
 import orca.backend.AgentWiring
 import orca.tools.{FsTool, GitHubTool, GitTool}
 import orca.tools.opencode.OpencodeLauncher
+import ox.Ox
 
 /** The per-run tool/agent override bundle `flow(...)` collects from its named
   * arguments. One value tunnels through `runFlow` → `withDefaults` instead of
@@ -28,7 +29,11 @@ import orca.tools.opencode.OpencodeLauncher
 private[orca] case class FlowWiring(
     claude: Option[AgentWiring => ClaudeAgent] = None,
     codex: Option[AgentWiring => CodexAgent] = None,
-    opencode: Option[AgentWiring => OpencodeAgent] = None,
+    // `Ox ?=>` result (unlike the other, plain agent factories): the opencode
+    // backend pins a `serve` process + drain forks to the run scope at
+    // construction, so this factory is applied inside `withDefaults`' Ox scope,
+    // not at the `flow(...)` argument site. See `flow`'s param scaladoc.
+    opencode: Option[AgentWiring => Ox ?=> OpencodeAgent] = None,
     opencodeLauncher: OpencodeLauncher = OpencodeLauncher.default,
     pi: Option[AgentWiring => PiAgent] = None,
     gemini: Option[AgentWiring => GeminiAgent] = None,

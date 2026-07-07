@@ -157,7 +157,11 @@ private[orca] object DefaultFlowContext:
         .map(_(agentWiring))
         .getOrElse(CodexAgents.default(agentWiring)),
       opencode = wiring.opencode
-        .map(_(agentWiring))
+        // The factory result is `Ox ?=> OpencodeAgent`; the `: OpencodeAgent`
+        // ascription applies it against the ambient Ox in scope here (the
+        // opencode backend binds a `serve` process + drain forks to it at
+        // construction — see the `opencode` param scaladoc on `flow`).
+        .map(f => f(agentWiring): OpencodeAgent)
         .getOrElse(
           OpencodeAgents.default(agentWiring, wiring.opencodeLauncher)
         ),

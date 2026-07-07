@@ -38,3 +38,22 @@ class SessionSupportTest extends munit.FunSuite:
         .Durable(reg, _ => throw RuntimeException("boom"))
         .exists(client2)
     )
+
+  test(
+    "register: an invalid wire id records nothing (skip-don't-throw guard)"
+  ):
+    // The central guard covering the interactive + rehydration paths: an empty
+    // (or otherwise unsafe) wire id must be logged-and-dropped, never recorded,
+    // so the NEXT call can't dispatch `resume ""`. It must NOT throw — the
+    // completed session output / setup must survive a bookkeeping failure.
+    // The SessionSupport-level test suffices; `Agent.registerResumeWireId`
+    // funnels straight into this same `register`, so no separate harness is
+    // needed to exercise the rehydration path's guard.
+    val reg = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+    val client = SessionId.fresh[BackendTag.Codex.type]
+    val s = SessionSupport.Durable(reg, _ => true)
+    s.register(client, WireSessionId("")) // must not throw
+    assert(
+      s.persistableWireId(client).isEmpty,
+      "an invalid wire id must leave nothing persistable"
+    )

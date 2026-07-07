@@ -314,6 +314,12 @@ private[terminal] object ConversationRenderer:
   /** Default production prompter: JLine line reader. Lazy so the terminal is
     * only opened when an approval prompt actually fires — pure non-interactive
     * sessions never allocate a terminal.
+    *
+    * Limitation: this object is process-scoped and its lazy terminal cannot
+    * re-initialize after `close()` — a second `flow(...)` in the same JVM that
+    * fires a prompt is unsupported. Inject a custom [[Prompter]] for
+    * embedded/multi-run scenarios. (A resettable-holder fix is deferred; this
+    * note records the boundary.)
     */
   object JLinePrompter extends Prompter:
     // Guard so close() never forces the lazy terminal: pure non-interactive

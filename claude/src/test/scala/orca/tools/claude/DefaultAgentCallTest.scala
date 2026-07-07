@@ -423,6 +423,50 @@ class DefaultAgentCallTest extends munit.FunSuite:
       assertEquals(calls.get(), 2, "transient failure should be retried once")
 
   test(
+    "autonomous passes the effective (tool-resolved) config to prompts.autonomous"
+  ):
+    // Pins the prompt-resolved-config fix: the prompt builder must see the
+    // EFFECTIVE config (tool defaults folded in), not the raw/empty per-call
+    // config. Here the tool-level config carries systemPrompt =
+    // Some("tool-prompt") via effectiveConfig; the call omits config, so the
+    // old code (which handed the raw None-derived config to prompts.autonomous)
+    // would capture None here.
+    val captured = new AtomicReference[Option[AgentConfig]](None)
+    val recordingPrompts = new orca.agents.Prompts:
+      def autonomous(
+          input: String,
+          outputSchema: String,
+          config: AgentConfig
+      ): String =
+        val _ = captured.set(Some(config))
+        DefaultPrompts.autonomous(input, outputSchema, config)
+      def interactive(
+          input: String,
+          outputSchema: String,
+          config: AgentConfig
+      ): String = DefaultPrompts.interactive(input, outputSchema, config)
+      def retry(failedResponse: String, parseError: String): String =
+        DefaultPrompts.retry(failedResponse, parseError)
+    val backend = new SequencedBackend(List("""{"value":1}"""))
+    supervised:
+      val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+        backend = backend,
+        effectiveConfig = cfg =>
+          cfg
+            .getOrElse(AgentConfig())
+            .copy(
+              systemPrompt = Some("tool-prompt"),
+              retrySchedule = fastRetry
+            ),
+        prompts = recordingPrompts,
+        workDir = os.pwd,
+        events = orca.events.OrcaListener.noop,
+        interaction = stubInteraction,
+        agentName = "claude"
+      ).autonomous.run("anything")
+      assertEquals(captured.get().flatMap(_.systemPrompt), Some("tool-prompt"))
+
+  test(
     "interactive.run registers (clientSid, serverSid) and returns the client id"
   ):
     // Pins the codex-interactive bug fix end-to-end: the framework must call

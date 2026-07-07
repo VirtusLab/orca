@@ -19,6 +19,7 @@ import orca.agents.{
 }
 import orca.events.{CostTracker, OrcaEvent, OrcaListener, Usage}
 import orca.backend.AgentWiring
+import orca.tools.opencode.OpencodeAgents
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
 
@@ -142,6 +143,34 @@ class OrcaOverridesTest extends munit.FunSuite:
       ):
         observed = summon[FlowContext].opencode.autonomous.run("hi")._2
     assertEquals(observed, "opencode: hi")
+
+  test(
+    "the opencode override slot accepts its own default factory (Ox ?=> result)"
+  ):
+    // Item 2 pin: the opencode param is `AgentWiring => Ox ?=> OpencodeAgent`,
+    // so `Some(w => OpencodeAgents.default(w))` — the factory that itself needs
+    // an Ox — compiles at the `flow(...)` argument position, with the Ox
+    // resolved where `withDefaults` applies it. This is a compiles-and-runs
+    // case (not a stub-CLI run): the lead is the claude stub and the body never
+    // touches opencode, and the opencode `serve` spawn is lazy, so the flow
+    // runs to completion without a real process. Building the default opencode
+    // agent via the factory is what's under test.
+    var ran = false
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(),
+        agent = stubLead,
+        workDir = TempRepo.create(),
+        opencode = Some(w => OpencodeAgents.default(w)),
+        interaction = Some(interaction)
+      ):
+        ran = true
+    assert(ran, "flow with an opencode default-factory override must run")
 
   test("flow uses a custom PiAgent when supplied"):
     val fakePi = new PiAgent:

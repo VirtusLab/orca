@@ -35,7 +35,7 @@ import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
 import orca.util.OrcaDebug
-import ox.supervised
+import ox.{Ox, supervised}
 
 import scala.util.control.NonFatal
 
@@ -96,7 +96,14 @@ def flow[B <: BackendTag](
     progressStore: Option[ProgressStore] = None,
     claude: Option[AgentWiring => ClaudeAgent] = None,
     codex: Option[AgentWiring => CodexAgent] = None,
-    opencode: Option[AgentWiring => OpencodeAgent] = None,
+    // Unlike the other agent factories (plain `AgentWiring => Agent`), this one
+    // carries an `Ox ?=>` result: the opencode backend pins a shared `serve`
+    // process plus its drain forks to the run scope AT CONSTRUCTION, so its
+    // factory must be applied where an `Ox` is in scope — inside
+    // `withDefaults`, not at this `flow(...)` argument position (where no Ox
+    // exists). Deferring the Ox to the factory's application point is what lets
+    // `flow(opencode = Some(w => OpencodeAgents.default(w)))` compile.
+    opencode: Option[AgentWiring => Ox ?=> OpencodeAgent] = None,
     opencodeLauncher: OpencodeLauncher = OpencodeLauncher.default,
     pi: Option[AgentWiring => PiAgent] = None,
     gemini: Option[AgentWiring => GeminiAgent] = None,

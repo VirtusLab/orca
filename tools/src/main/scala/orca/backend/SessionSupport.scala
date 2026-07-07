@@ -1,6 +1,7 @@
 package orca.backend
 
 import orca.agents.{BackendTag, SessionId, WireSessionId, isSafeSessionId}
+import org.slf4j.LoggerFactory
 
 import scala.util.control.NonFatal
 
@@ -45,9 +46,29 @@ enum SessionSupport[B <: BackendTag](val registry: SessionRegistry[B]):
     * same client id resumes the right thread. On resume the flow runtime also
     * calls this to rehydrate the map from the persisted log. Uniform across
     * both shapes and both registry schemes (see [[SessionRegistry]]).
+    *
+    * The central wire-id guard: every path that records a resume mapping
+    * funnels through here — the autonomous drain (via
+    * [[Conversations.drainAndCommit]]), `AgentCall.runInteractiveOnce`, and
+    * rehydration (`Agent.registerResumeWireId`). An unsafe wire id (empty, or
+    * failing [[orca.agents.isSafeSessionId]]) would make the NEXT call dispatch
+    * `resume ""`/`resume ../etc`; a poisoned log would rehydrate it. So if the
+    * id is unsafe we LOG at ERROR and record NOTHING — we do NOT throw. On the
+    * interactive path the user's completed session output must survive a
+    * bookkeeping failure, and rehydration must not hard-abort setup over one
+    * stale field; the safe fallback is that the next call re-seeds a fresh
+    * session. (`drainAndCommit` keeps its OWN throwing guard: it runs
+    * pre-commit, autonomous, and retryable — a fresh attempt may see a healthy
+    * init event — so aborting-and-retrying there has different, better failure
+    * economics than dropping the user's finished interactive turn.)
     */
   final def register(client: SessionId[B], server: WireSessionId[B]): Unit =
-    registry.commitSuccess(client, server)
+    if !isSafeSessionId(WireSessionId.value(server)) then
+      SessionSupport.log.error(
+        "refusing to record invalid wire id ('{}') for resume; the next call re-seeds",
+        WireSessionId.value(server)
+      )
+    else registry.commitSuccess(client, server)
 
   /** The wire id to resume `client` against for the flow runtime to persist
     * into the progress log, or `None` when nothing durable is known.
@@ -79,3 +100,6 @@ enum SessionSupport[B <: BackendTag](val registry: SessionRegistry[B]):
             else
               try probe(id)
               catch case NonFatal(_) => false
+
+object SessionSupport:
+  private val log = LoggerFactory.getLogger(classOf[SessionSupport[?]])

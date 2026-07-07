@@ -144,6 +144,13 @@ private[orca] object Conversations:
       // fresh attempt may see a healthy init event from the backend, and
       // because we throw BEFORE `commitSuccess`, the registry is never
       // touched, so retrying doesn't need to unwind a bad commit.
+      //
+      // This is the AUTONOMOUS, pre-commit guard: throwing is correct here
+      // (retryable, nothing consumed yet). The sibling guard in
+      // [[SessionSupport.register]] covers the interactive + rehydration paths,
+      // where it LOGS-and-skips instead of throwing — dropping a finished
+      // interactive turn or hard-aborting setup over one stale log field would
+      // be worse than silently re-seeding on the next call.
       throw new OrcaFlowException(
         s"backend reported an invalid session id ('$wire') — refusing to record it for resume"
       )

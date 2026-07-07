@@ -168,16 +168,19 @@ private[orca] class CodexBackend(
       workDir: os.Path,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.Codex.type] =
+    // Write the schema temp file FIRST — before ANY resource is allocated — so
+    // a temp-write failure (e.g. disk full) can't leak the Netty bridge that
+    // `AskUserSession.allocate()` would spin up: with nothing allocated yet,
+    // there's nothing to tear down. It's threaded into `resources` (failure-path
+    // cleanup) and the conversation below (success-path cleanup via
+    // `onFinalize`). A unique temp file outside the tree — never `workDir` — so
+    // concurrent structured calls (the reviewer fan-out) each get their own file
+    // and `git add -A` never sees it.
+    val schemaFile = writeSchemaIfPresent(outputSchema)
     val (askUser, displayPrompt): (Option[AskUserSession], String) =
       mode match
         case SessionMode.Interactive(p) => (Some(AskUserSession.allocate()), p)
         case SessionMode.Autonomous     => (None, "")
-    // Written before the spawn (like askUser above) so it's in `resources` for
-    // failure-path cleanup, and threaded into the conversation below for
-    // success-path cleanup via `onFinalize`. A unique temp file outside the
-    // tree — never `workDir` — so concurrent structured calls (the reviewer
-    // fan-out) each get their own file and `git add -A` never sees it.
-    val schemaFile = writeSchemaIfPresent(outputSchema)
     SubprocessSpawn.open(
       "codex",
       askUser.toList ++ schemaFile.map(CodexBackend.deleteFileResource).toList

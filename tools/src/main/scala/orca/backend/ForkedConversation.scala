@@ -354,8 +354,9 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
         case Ready(event: ConversationEvent) // buffered, not yet consumed
         case Closed // stream ended; `hasNext` stays false forever
 
-      // Reader-thread-confined: only this iterator's own thread ever touches
-      // `peek`, so a plain `var` (no atomics) is correct.
+      // Consumer-thread-confined: only the single thread draining `events` ever
+      // touches `peek` (the reader fork is the producer and never reads it), so
+      // a plain `var` (no atomics) is correct.
       private var peek: Peek = Peek.Empty
 
       def hasNext: Boolean =
@@ -364,8 +365,8 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
             case _: ChannelClosed     => Peek.Closed
             case e: ConversationEvent => Peek.Ready(e)
         peek match
-          case Peek.Ready(_) => true
-          case _             => false
+          case Peek.Ready(_)            => true
+          case Peek.Closed | Peek.Empty => false
 
       def next(): ConversationEvent =
         if !hasNext then throw new NoSuchElementException("event stream closed")

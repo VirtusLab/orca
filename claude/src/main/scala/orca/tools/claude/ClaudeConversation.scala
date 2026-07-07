@@ -55,6 +55,11 @@ private[claude] class ClaudeConversation(
     * arrives AFTER any partials for the same turn — to gate its fallback that
     * re-emits Text/Thinking blocks when no partials arrived (older claude
     * builds, partials disabled).
+    *
+    * This flag and `deltasSinceLastFullTurn` below are currently written and
+    * reset together (value-identical today). The split exists so the two
+    * CONSUMERS can evolve their transitions independently — editing this flag's
+    * write/reset sites must not implicitly serve the other's semantics.
     */
   private var partialsSeenThisTurn: Boolean = false
 
@@ -63,6 +68,11 @@ private[claude] class ClaudeConversation(
     * same wire ordering as above: an `is_error` result with this flag set means
     * the error body itself already streamed as deltas this turn, so the short
     * marker suffices instead of repeating the full body.
+    *
+    * Currently written and reset in lockstep with `partialsSeenThisTurn` above
+    * (value-identical today); kept as a separate flag so this consumer
+    * (`handleResultError`) can change its transition rules without dragging
+    * `handleAssistantTurn`'s along, and vice versa.
     */
   private var deltasSinceLastFullTurn: Boolean = false
 
