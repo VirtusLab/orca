@@ -74,8 +74,10 @@ enum OrcaEvent:
   * (`AtomicReference`, `synchronized`, etc.); listeners that delegate to other
   * sinks must ensure those sinks tolerate concurrent calls too. Implementations
   * should not throw from `onEvent`, but if they do, the dispatcher logs the
-  * failure at WARN and skips the listener — a listener failure is never
-  * surfaced to the emitting flow.
+  * failure at ERROR and quarantines the listener — permanently excluded from
+  * all further dispatch for the rest of the run, since its internal state is
+  * presumed unrecoverable. A listener failure is never surfaced to the emitting
+  * flow.
   */
 trait OrcaListener:
   def onEvent(event: OrcaEvent): Unit
