@@ -485,7 +485,6 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   ): FixOutcome =
     coderSession
       .resultAs[FixOutcome]
-      .autonomous
       .run(FixRequest(fixInstructions, issues), emitPrompt = false)
 
   /** Run the evaluate/fix loop to convergence and return the accumulated

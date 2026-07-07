@@ -43,8 +43,8 @@ object FlowCanary:
         // persisted); the raw `resultAs[O]` door is exercised with ephemeral
         // (fresh / `.id`) sessions only — never a durable-session id.
         val session = claude.session("plan", seed = userPrompt)
-        val _ = session.resultAs[FlowPlan].autonomous.run(userPrompt)
-        val _ = session.resultAs[FlowPlan].autonomous.run("follow up")
+        val _ = session.resultAs[FlowPlan].run(userPrompt)
+        val _ = session.resultAs[FlowPlan].run("follow up")
         // Interactive is deliberately ephemeral-only (see FlowSession); the
         // escape hatch `.id` pins the raw interactive door's shape.
         val _ = claude.resultAs[FlowPlan].interactive.run(userPrompt)

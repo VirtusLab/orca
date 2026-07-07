@@ -18,24 +18,20 @@ import orca.progress.{ProgressLog, SessionRecord}
   * can never silently skip seeding or wire-id persistence the way a raw
   * `agent.autonomous.run(prompt, session)` door does.
   *
-  * Use [[run]] for free-form text and [[resultAs]]`.autonomous.run` for a
-  * structured `O`. Both prime the conversation with the recorded seed and a
-  * progress preamble when the backend conversation isn't live (first use or
-  * lost on resume), then persist the backend's learned resume wire id — mirror
-  * images of the same protocol on the two doors.
+  * Use [[run]] for free-form text and [[resultAs]]`.run` for a structured `O`.
+  * Both prime the conversation with the recorded seed and a progress preamble
+  * when the backend conversation isn't live (first use or lost on resume), then
+  * persist the backend's learned resume wire id — mirror images of the same
+  * protocol on the two doors.
   *
   * '''Escape hatch:''' [[id]] exposes the underlying [[SessionId]]. Passing it
-  * to a raw `agent.autonomous.run` / `agent.resultAs[O]...run` door FORFEITS
-  * seeding and wire-id persistence (those doors are for ephemeral in-run
-  * continuations only) — reach for it only when you deliberately want an
-  * unseeded continuation.
-  *
-  * '''Interactive is deliberately not offered here.''' Durable sessions replay
-  * a seed precisely because no human is present to re-explain; an interactive
-  * turn's whole premise is a live human steering it, so the two don't combine.
-  * If a genuine interactive-durable use case lands, route it through
-  * `agent.interactive.run(input, session.id)` (the escape hatch) for now, and a
-  * seeded interactive door can be added additively then.
+  * to a raw `agent.autonomous.run` / `agent.resultAs[O]...run` /
+  * `agent.interactive.run(input, session.id)` door — interactive included,
+  * since it is deliberately not offered as a durable door here — FORFEITS
+  * seeding and wire-id persistence: those doors are in-run only and never write
+  * back to the log, so on crash/resume the durable side finds nothing recorded
+  * and rehydration opens a brand-new, unseeded session rather than continuing
+  * the old one.
   *
   * The handle is a plain immutable value ([[Agent]] + [[SessionId]]): mint it
   * once (outside/before stages) and freely close over it into any later
@@ -75,29 +71,24 @@ final class FlowSession[B <: BackendTag] private[orca] (
       ws: WorkspaceWrite
   ): String =
     val (_, output) =
-      if agent.sessionExists(id) then agent.autonomous.run(prompt, id)
-      else
-        val log = fc.progressStore.load()
-        val seed = lookupSeed(log, id)
-        val preamble = progressPreamble(log)
-        val primedPrompt = composePrimedPrompt(preamble, seed, prompt)
-        agent.autonomous.run(primedPrompt, id)
+      agent.autonomous.run(effectivePrompt(agent, id, prompt), id)
     persistResumeWireId(agent, id)
     output
 
   /** Structured (`resultAs[O]`) durable door. Fixes the output type and yields
-    * a gateway whose `autonomous.run(input)` applies the same probe →
-    * seed/preamble → run → persist protocol as [[run]] to the structured call
-    * (see [[FlowSessionCall]]).
+    * a gateway whose `run(input)` applies the same probe → seed/preamble → run
+    * → persist protocol as [[run]] to the structured call (see
+    * [[FlowSessionCall]]).
     */
   def resultAs[O: JsonData: Announce]: FlowSessionCall[B, O] =
     new FlowSessionCall(agent, id)
 
 /** Structured-durable gateway for a [[FlowSession]] (obtained via
-  * [[FlowSession.resultAs]]). Mirrors the raw `agent.resultAs[O]` gateway so
-  * the mode stays visible at the call site, but exposes only `autonomous` —
-  * interactive durable sessions are deliberately not offered (see the
-  * [[FlowSession]] class scaladoc).
+  * [[FlowSession.resultAs]]). Mirrors the raw `agent.resultAs[O]` gateway's `O`
+  * fixing, but — unlike that gateway — exposes a single `run`, not an
+  * `autonomous`/`interactive` split: interactive durable sessions are
+  * deliberately not offered (see the [[FlowSession]] class scaladoc), so there
+  * is no sibling mode for `autonomous` to distinguish itself from.
   */
 final class FlowSessionCall[B <: BackendTag, O] private[orca] (
     agent: Agent[B],
@@ -108,30 +99,28 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
     * seed/probe/persist protocol as [[FlowSession.run]]: on a lost/fresh
     * session it prepends the recorded seed + progress preamble to the
     * serialized `input`, runs the structured `resultAs[O].autonomous` door,
-    * then persists the learned resume wire id. `emitPrompt = false` suppresses
-    * the `UserPrompt` event for framework-internal callers that produce
-    * near-identical prompts in quick succession (e.g. a per-task fix turn).
+    * then persists the learned resume wire id.
+    *
+    * `emitPrompt` has no default-driving asymmetry with [[FlowSession.run]]'s
+    * free-text prompt beyond its existence: a free-text prompt is the caller's
+    * own authored text, so it is always worth emitting as a `UserPrompt` event,
+    * while a structured `input` is serialized to (potentially large) JSON, so
+    * callers that produce near-identical inputs in quick succession (e.g. a
+    * per-task fix turn) can pass `false` to suppress it.
     */
-  object autonomous:
-    def run[I](input: I, emitPrompt: Boolean = true)(using
-        fc: FlowControl,
-        ai: AgentInput[I],
-        ev: InStage,
-        ws: WorkspaceWrite
-    ): O =
-      val serialized = ai.serialize(input)
-      val door = agent.resultAs[O].autonomous
-      val (_, output) =
-        if agent.sessionExists(id) then
-          door.run(serialized, id, emitPrompt = emitPrompt)
-        else
-          val log = fc.progressStore.load()
-          val seed = lookupSeed(log, id)
-          val preamble = progressPreamble(log)
-          val primed = composePrimedPrompt(preamble, seed, serialized)
-          door.run(primed, id, emitPrompt = emitPrompt)
-      persistResumeWireId(agent, id)
-      output
+  def run[I](input: I, emitPrompt: Boolean = true)(using
+      fc: FlowControl,
+      ai: AgentInput[I],
+      ev: InStage,
+      ws: WorkspaceWrite
+  ): O =
+    val serialized = ai.serialize(input)
+    val (_, output) = agent
+      .resultAs[O]
+      .autonomous
+      .run(effectivePrompt(agent, id, serialized), id, emitPrompt = emitPrompt)
+    persistResumeWireId(agent, id)
+    output
 
 /** Get-or-create session extension for `Agent`. Lives in the `flow` module so
   * it can depend on [[FlowControl]] (which is in `flow`) while [[Agent]]
@@ -208,6 +197,27 @@ extension [B <: BackendTag](agent: Agent[B])
         )
         freshId
     new FlowSession(agent, id)
+
+/** Probe → prime step shared by [[FlowSession.run]] and
+  * [[FlowSessionCall.run]]: if the backend conversation for `session` is live,
+  * `text` is returned verbatim (continues the conversation); otherwise the
+  * recorded seed and progress preamble are looked up and prepended, per the
+  * class scaladoc's probe → seed/preamble → run → persist protocol. Persisting
+  * the learned wire id afterward is each caller's own last step (see
+  * [[persistResumeWireId]]) — only the probe/prime half is common, since the
+  * two doors run different underlying calls with the primed text.
+  */
+private def effectivePrompt[B <: BackendTag](
+    agent: Agent[B],
+    session: SessionId[B],
+    text: String
+)(using fc: FlowControl): String =
+  if agent.sessionExists(session) then text
+  else
+    val log = fc.progressStore.load()
+    val seed = lookupSeed(log, session)
+    val preamble = progressPreamble(log)
+    composePrimedPrompt(preamble, seed, text)
 
 /** After a run, persist the wire id to resume against that the backend has now
   * learned (durable backends only — pi returns `None`), so a resumed run can

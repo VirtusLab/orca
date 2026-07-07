@@ -472,7 +472,7 @@ class FlowSessionTest extends FunSuite:
   // ── tests: structured resultAs durable door ─────────────────────────────────
 
   test(
-    "resultAs.autonomous.run primes seed + preamble and persists wire id on a lost session"
+    "resultAs.run primes seed + preamble and persists wire id on a lost session"
   ):
     // The structured door had NO seed/probe/persist path before FlowSession
     // (it went through the raw door); assert it now follows the same protocol.
@@ -489,7 +489,6 @@ class FlowSessionTest extends FunSuite:
     val result =
       flowSession(agent)
         .resultAs[StubResult]
-        .autonomous
         .run("do the fix")(using
           fc
         )
@@ -511,7 +510,7 @@ class FlowSessionTest extends FunSuite:
       fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, Some("server-structured-1"))
 
-  test("resultAs.autonomous.run on a live session forwards the input verbatim"):
+  test("resultAs.run on a live session forwards the input verbatim"):
     val fc = makeControl(
       sessions =
         List(SessionRecord(occurrence = 0, id = testSessionId, seed = "seed"))
@@ -520,7 +519,6 @@ class FlowSessionTest extends FunSuite:
     val _ =
       flowSession(agent)
         .resultAs[StubResult]
-        .autonomous
         .run("continue")(using
           fc
         )
