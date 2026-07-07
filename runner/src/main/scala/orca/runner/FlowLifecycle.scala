@@ -149,8 +149,9 @@ object FlowLifecycle:
     *     prompt-hash match, no protected feature branch). A
     *     parseable-but-invalid header is a HARD abort (`OrcaFlowException`),
     *     not a silent fresh start — it signals tampering or a mismatch. (An
-    *     *unparseable* log stays `store.load() == None` → fresh run; that path
-    *     is separate.)
+    *     *unparseable* log is `loadDetailed() == Corrupt(reason)` → fresh run,
+    *     but WARNED (logger + stderr) since it's distinguishable from a
+    *     genuinely absent log; that path is separate below.)
     *   - Cross-checks that the current branch is the one the header records
     *     (the in-place invariant): a log that surfaced on a branch it does not
     *     name (e.g. its feature branch was merged, carrying the log along)
@@ -170,15 +171,36 @@ object FlowLifecycle:
       store: ProgressStore
   ): FlowSetup =
     given InStage = RuntimeInStage.token()
+    val log = LoggerFactory.getLogger("orca.flow")
     val startBranch = git.currentBranch()
     // Snapshot the log file before the stash, restore it if the stash
     // removed it — so an uncommitted/untracked log is still readable below.
     val snapshot = snapshotLog(store.path)
     val _ = git.ensureClean("orca: starting flow")
     restoreLogIfMissing(store.path, snapshot)
-    store.load() match
-      case Some(log) =>
-        val header = log.header
+    store.loadDetailed() match
+      case ProgressStore.LoadResult.Corrupt(reason) =>
+        // The log file exists but didn't parse — a truncated/corrupted write,
+        // not the normal "no log yet" case. We still start fresh (there's no
+        // sane way to resume from unparseable data), but the user may have
+        // expected a resume, so this must be LOUD, not silently
+        // indistinguishable from a first run. `setup` has no event dispatcher
+        // threaded through it (it runs before `ctx` exists), so the logger +
+        // a direct `[orca]` stderr line is the channel — the same convention
+        // `EventDispatcher`/`DefaultFlowContext.close` use for
+        // dispatcher-less warnings.
+        log.warn(
+          s"progress log at ${store.path} is corrupt ($reason); starting fresh"
+        )
+        System.err.println(
+          s"[orca] progress log at ${store.path} is corrupt ($reason); " +
+            "starting fresh — the previous run's stages will re-run"
+        )
+        freshRun(args, agent, git, branchNaming, store, startBranch)
+      case ProgressStore.LoadResult.Absent =>
+        freshRun(args, agent, git, branchNaming, store, startBranch)
+      case ProgressStore.LoadResult.Loaded(progressLog) =>
+        val header = progressLog.header
         // Validate the untrusted header before any destructive action. The
         // protected set is the main/master floor plus the repo's ACTUAL default
         // branch (best-effort), so a tampered header naming e.g. `trunk` as a
@@ -208,23 +230,34 @@ object FlowLifecycle:
         // (where a PR flow / throwaway returns to) is the ORIGINAL one, not this
         // feature branch.
         FlowSetup(store, header.branch, header.startingBranch)
-      case None =>
-        // Fresh run: resolve + create the branch, then commit the header so it
-        // is the branch's first commit.
-        val strategy =
-          branchNaming.getOrElse(BranchNamingStrategy.shortenPrompt)
-        val branch = strategy.resolve(args.userPrompt, agent)
-        git.checkoutOrCreate(branch)
-        store.writeHeader(
-          ProgressHeader(
-            startingBranch = startBranch,
-            branch = branch,
-            promptHash = ProgressStore.hashPrompt(args.userPrompt)
-          )
-        )
-        git.forceAdd(store.path)
-        val _ = git.commit("orca: progress log")
-        FlowSetup(store, branch, startBranch)
+
+  /** Fresh run: resolve + create the branch, then commit the header so it is
+    * the branch's first commit. Shared by the genuinely-absent-log case and the
+    * corrupt-log case (which warns, then falls through to the same fresh start
+    * — there is no sane way to resume from unparseable data).
+    */
+  private def freshRun(
+      args: OrcaArgs,
+      agent: Agent[?],
+      git: GitTool,
+      branchNaming: Option[BranchNamingStrategy],
+      store: ProgressStore,
+      startBranch: String
+  )(using InStage): FlowSetup =
+    val strategy =
+      branchNaming.getOrElse(BranchNamingStrategy.shortenPrompt)
+    val branch = strategy.resolve(args.userPrompt, agent)
+    git.checkoutOrCreate(branch)
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = startBranch,
+        branch = branch,
+        promptHash = ProgressStore.hashPrompt(args.userPrompt)
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    FlowSetup(store, branch, startBranch)
 
   /** Read the bytes of the progress-log file if it exists. Returns `None` when
     * the file is absent — the normal fresh-run case and the case where the log

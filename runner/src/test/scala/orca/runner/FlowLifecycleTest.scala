@@ -429,6 +429,46 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
+    "setup: a corrupt (unparseable) progress log proceeds FRESH — new branch, header written"
+  ):
+    // A garbage-bytes file at the store's path (a torn/truncated write, not a
+    // "no log yet" absence). `loadDetailed()` returns `Corrupt`, and `setup`
+    // must take the same fresh-run path an absent log would — resolve +
+    // create a branch and commit a brand-new header — rather than throwing or
+    // silently doing nothing. (The WARN this path also emits, via the logger
+    // and a `[orca]` stderr line, has no cheap capture point in this test
+    // harness — verified by code review; `loadDetailed()`'s `Corrupt` branch
+    // itself is pinned at the store level in `ProgressStoreTest`.)
+    val workDir = TempRepo.create()
+    val prompt = "corrupt-log-fresh"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    val startBranch = git.currentBranch()
+
+    os.makeDir.all(store.path / os.up)
+    os.write.over(store.path, "not json {{{", createFolders = true)
+
+    val setup = FlowLifecycle.setup(
+      args = OrcaArgs(prompt),
+      agent = StubAgent.claude,
+      git = git,
+      branchNaming = None,
+      store = store
+    )
+
+    // A fresh branch was resolved and created, distinct from the start branch
+    // — not an abort, and not a no-op that leaves HEAD where it was.
+    assertEquals(git.currentBranch(), setup.featureBranch)
+    assertNotEquals(setup.featureBranch, startBranch)
+    assertEquals(setup.startBranch, startBranch)
+    // A brand-new header was written and committed — the corrupt bytes are
+    // gone, replaced by a valid fresh log with no entries.
+    val loaded = store.load()
+    assert(loaded.isDefined, "a fresh header must have been written")
+    assertEquals(loaded.get.header.branch, setup.featureBranch)
+    assertEquals(loaded.get.entries, Nil)
+
+  test(
     "rehydrateSessions replays a codex-tagged record into the codex agent, not the lead"
   ):
     val store = storeWith(

@@ -20,7 +20,22 @@ trait ProgressStore:
     */
   def path: os.Path
 
+  /** Lenient load for the runtime's frequent reads (rehydration, `appendEntry`
+    * / `upsertSession`'s read-modify-write): absent and corrupt both collapse
+    * to `None`, since those call sites don't need to tell the two apart.
+    * `loadDetailed()` is the one call site that does — the lifecycle's resume
+    * decision.
+    */
   def load(): Option[ProgressLog]
+
+  /** Detailed load for the lifecycle's resume decision: distinguishes an absent
+    * log (normal fresh run) from a present-but-unparseable one (a corrupt or
+    * truncated file — the caller starts fresh but WARNS, because the user may
+    * have expected a resume). `load()` keeps its lenient Option shape for the
+    * runtime's frequent reads.
+    */
+  def loadDetailed(): ProgressStore.LoadResult
+
   def writeHeader(header: ProgressHeader)(using InStage): Unit
 
   /** Upsert an entry by id: replaces an existing entry with the same id
@@ -48,6 +63,16 @@ trait ProgressStore:
 
 object ProgressStore:
 
+  /** Outcome of [[ProgressStore.loadDetailed]]. Nested here (rather than a
+    * top-level type) so it reads as `ProgressStore.LoadResult` at import sites
+    * — it's meaningless without the store it came from, same call as
+    * `Verdict.RejectionKind`.
+    */
+  enum LoadResult:
+    case Absent
+    case Corrupt(reason: String)
+    case Loaded(log: ProgressLog)
+
   /** Default OS-backed store: JSON at `<workDir>/.orca/progress-<hash>.json`.
     *
     * `hash` is the first 12 hex chars of SHA-256(userPrompt). Two unrelated
@@ -73,7 +98,12 @@ private class OsProgressStore(val path: os.Path) extends ProgressStore:
   private val codec = summon[JsonData[ProgressLog]].codec
 
   def load(): Option[ProgressLog] =
-    if !os.exists(path) then None
+    loadDetailed() match
+      case ProgressStore.LoadResult.Loaded(log) => Some(log)
+      case _                                    => None
+
+  def loadDetailed(): ProgressStore.LoadResult =
+    if !os.exists(path) then ProgressStore.LoadResult.Absent
     else parseLog(os.read(path))
 
   def writeHeader(header: ProgressHeader)(using InStage): Unit =
@@ -119,9 +149,45 @@ private class OsProgressStore(val path: os.Path) extends ProgressStore:
   // flat event stream — `upsertEntry`/`upsertSession` mutate existing elements,
   // which an append-only log can't express. It's also small and bounded (a
   // handful of stages + sessions per run), so a full rewrite is negligible.
+  //
+  // Written atomically: a plain `os.write.over` can tear the file if the
+  // process dies mid-write (a killed run, an OOM), leaving `loadDetailed()`
+  // reading `Corrupt` where a resume was expected. Writing to a sibling temp
+  // file (same directory, so the same filesystem) then `os.move` with
+  // `atomicMove = true` makes the visible file always either the old complete
+  // content or the new complete content, never a partial write.
   private def writeLog(log: ProgressLog): Unit =
-    os.write.over(path, writeToString(log)(using codec), createFolders = true)
+    val dir = path / os.up
+    os.makeDir.all(dir)
+    val tmp = os.temp(
+      contents = writeToString(log)(using codec),
+      dir = dir,
+      prefix = s".${path.last}.",
+      suffix = ".tmp",
+      deleteOnExit = false
+    )
+    try os.move(tmp, path, replaceExisting = true, atomicMove = true)
+    catch
+      // Some filesystems (network mounts, certain container overlay/bind
+      // mounts) reject ATOMIC_MOVE even for a same-directory rename, throwing
+      // this checked exception. Torn writes are impossible on those anyway
+      // (rename semantics still apply — only the *atomicity guarantee against
+      // concurrent readers* is unavailable) so a plain move is a safe
+      // fallback, not a silent downgrade of the actual protection we need.
+      case _: java.nio.file.AtomicMoveNotSupportedException =>
+        os.move(tmp, path, replaceExisting = true)
 
-  private def parseLog(json: String): Option[ProgressLog] =
-    try Some(readFromString[ProgressLog](json)(using codec))
-    catch case NonFatal(_) => None
+  private def parseLog(json: String): ProgressStore.LoadResult =
+    try
+      ProgressStore.LoadResult.Loaded(
+        readFromString[ProgressLog](json)(using codec)
+      )
+    catch
+      case NonFatal(e) =>
+        val firstLine =
+          Option(e.getMessage)
+            .flatMap(_.linesIterator.nextOption())
+            .getOrElse("")
+        ProgressStore.LoadResult.Corrupt(
+          s"${e.getClass.getSimpleName}: $firstLine"
+        )

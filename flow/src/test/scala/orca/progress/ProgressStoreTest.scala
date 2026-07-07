@@ -64,6 +64,40 @@ class ProgressStoreTest extends FunSuite:
     os.write.over(files.head, "not json {{{")
     assertEquals(store.load(), None: Option[ProgressLog])
 
+  test("loadDetailed is Absent when no file exists"):
+    val workDir = os.temp.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    assertEquals(store.loadDetailed(), ProgressStore.LoadResult.Absent)
+
+  test(
+    "loadDetailed is Loaded for a valid file, wrapping the same value load() returns"
+  ):
+    val workDir = os.temp.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    store.writeHeader(header)
+    assertEquals(
+      store.loadDetailed(),
+      ProgressStore.LoadResult.Loaded(ProgressLog(header, Nil))
+    )
+
+  test(
+    "loadDetailed is Corrupt with a non-empty reason for a garbage-bytes file; load() stays None"
+  ):
+    val workDir = os.temp.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    val path = workDir / ".orca"
+    os.makeDir.all(path)
+    store.writeHeader(header)
+    val files = os.list(path).filter(_.last.startsWith("progress-"))
+    assert(files.nonEmpty, "expected at least one progress file")
+    os.write.over(files.head, "not json {{{")
+    store.loadDetailed() match
+      case ProgressStore.LoadResult.Corrupt(reason) =>
+        assert(reason.nonEmpty, "corrupt reason must be non-empty")
+      case other =>
+        fail(s"expected Corrupt, got $other")
+    assertEquals(store.load(), None: Option[ProgressLog])
+
   test("default path is <workDir>/.orca/progress-<12hexchars>.json"):
     val workDir = os.temp.dir()
     val store = ProgressStore.default(workDir, "test prompt")
@@ -169,3 +203,31 @@ class ProgressStoreTest extends FunSuite:
     store.upsertSession(planner)
     val loaded = store.load()
     assertEquals(loaded.map(_.sessions), Some(List(implementer, planner)))
+
+  test(
+    "writeHeader writes atomically: no leftover .tmp files, and a fresh write-then-load round-trips"
+  ):
+    val workDir = os.temp.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    store.writeHeader(header)
+    store.appendEntry(
+      StageEntry(id = "stage-1", name = "First", resultJson = """{"v":1}""")
+    )
+    assertEquals(
+      store.load(),
+      Some(
+        ProgressLog(
+          header,
+          List(
+            StageEntry(
+              id = "stage-1",
+              name = "First",
+              resultJson = """{"v":1}"""
+            )
+          )
+        )
+      )
+    )
+    // The atomic-move temp file must not survive a successful write.
+    val leftovers = os.list(workDir / ".orca").filter(_.last.endsWith(".tmp"))
+    assert(leftovers.isEmpty, s"leftover temp files: $leftovers")
