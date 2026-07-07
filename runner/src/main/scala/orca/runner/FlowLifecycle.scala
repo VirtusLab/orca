@@ -19,6 +19,22 @@ import org.slf4j.LoggerFactory
 
 import scala.util.control.NonFatal
 
+/** Marker that a flow failure has ALREADY been reported to the user's event
+  * surface (an `OrcaEvent.Error` was emitted, the stack logged, and — under
+  * `--verbose`/debug — printed). Thrown by [[FlowLifecycle]]'s `surfaced`
+  * bracket after it reports `cause`, so `flow()` may discard it without
+  * re-reporting: the user has already seen the message.
+  *
+  * The contract is the whole point of the type: ANY other `NonFatal` exception
+  * escaping `runFlow` unwrapped means a code path that was NOT bracketed, i.e.
+  * an UNSURFACED failure — `flow()` treats that as the backstop and prints it
+  * to stderr rather than exiting silently. A `case class` so tests can
+  * pattern-match `case SurfacedFlowFailure(cause) => ...` and inspect the
+  * original directly.
+  */
+private[orca] final case class SurfacedFlowFailure(cause: Throwable)
+    extends RuntimeException(cause)
+
 /** Flow setup/teardown/recovery lifecycle (ADR 0018 §2.4/§2.5). Extracted from
   * the `flow` entry point so `flow.scala` holds only the entry point and
   * orchestration: this object owns the privileged, outside-any-user-stage git
@@ -33,10 +49,13 @@ object FlowLifecycle:
     * owner (ADR 0018 §2.4/§2.5). The context must be fully constructed (setup
     * resolves the leading agent for branch naming and reads `ctx.git`).
     *
-    * Failure path: emits the error (unless the exception already reported
-    * itself), logs, runs `teardownFailure`, rethrows. Success path runs
-    * `teardownSuccess`. The two are structurally disjoint — the catch rethrows,
-    * so success teardown is unreachable on failure.
+    * Failure path: every phase runs inside the `surfaced` bracket, which
+    * reports the error (unless the exception already reported itself), logs,
+    * and rethrows a [[SurfacedFlowFailure]] so `flow()` never exits without an
+    * explanation. The body phase additionally runs `teardownFailure` on the way
+    * out. Success path runs `teardownSuccess`. The failure and success
+    * teardowns are structurally disjoint — the body catch rethrows, so success
+    * teardown is unreachable on a body failure.
     */
   private[orca] def run[B <: BackendTag](
       args: OrcaArgs,
@@ -46,32 +65,60 @@ object FlowLifecycle:
       debug: Boolean
   )(body: FlowControl ?=> Unit): Unit =
     val log = LoggerFactory.getLogger("orca.flow")
+    // Report/log/wrap bracket applied to EVERY phase so no failure — setup's
+    // resume refusals, rehydration, the body, or success teardown — can reach
+    // `flow()` unreported and exit 1 in silence. Phase-agnostic by design: it
+    // reports once (reusing the context's reported-set so it never
+    // double-prints a failure a nested stage already surfaced), logs, prints
+    // the stack under `--verbose`/debug, then throws `SurfacedFlowFailure`.
+    // It carries NO teardown side effect — `teardownFailure` (git reset) is
+    // the body phase's job alone (below), never setup's or success teardown's.
+    def surfaced[T](op: => T): T =
+      try op
+      catch
+        case NonFatal(e) =>
+          ctx.reportOnce(e)(ctx.emit(OrcaEvent.Error(throwableMessage(e))))
+          log.debug("flow aborted", e)
+          if debug then e.printStackTrace(System.err)
+          throw SurfacedFlowFailure(e)
     val flowSetup =
-      setup(args, ctx.agent, ctx.git, branchNaming, ctx.progressStore)
-    rehydrateSessions(ctx, ctx.agent, ctx.progressStore)
+      surfaced(
+        setup(
+          args,
+          ctx.agent,
+          ctx.git,
+          branchNaming,
+          ctx.progressStore,
+          ctx.emit
+        )
+      )
+    surfaced(rehydrateSessions(ctx, ctx.agent, ctx.progressStore))
     // The whole flow body runs as a top-level stage: an otherwise
     // unhandled exception surfaces as a single Error event (the same
     // message a stage failure shows). A nested stage / `fail` marks the
-    // throwable reported on the context once it has surfaced it, so we
-    // don't re-report it here. The stack goes to the trace file only
-    // (DEBUG, below the console's WARN threshold); `--verbose` also prints
-    // it to stderr.
+    // throwable reported on the context once it has surfaced it, so
+    // `surfaced`'s `reportOnce` above doesn't re-report it. The stack goes to
+    // the trace file only (DEBUG, below the console's WARN threshold);
+    // `--verbose` also prints it to stderr.
     //
     // Teardown separation: body-failure and body-success teardowns are
     // completely disjoint — structurally, not flag-guarded: the catch below
     // rethrows, so success teardown is unreachable on failure. A
     // success-teardown error (e.g. a cosmetic cleanup-commit failure) must
     // NOT trigger the failure teardown (`resetHard`), and must NOT strand
-    // the user on the feature branch.
-    try body(using ctx)
+    // the user on the feature branch. `teardownFailure` runs OUTSIDE
+    // `surfaced` (which is side-effect-free) and only here, in the body phase.
+    try surfaced(body(using ctx))
     catch
-      case NonFatal(e) =>
-        ctx.reportOnce(e)(ctx.emit(OrcaEvent.Error(throwableMessage(e))))
-        log.debug("flow aborted", e)
-        if debug then e.printStackTrace(System.err)
-        teardownFailure(ctx.git)
-        throw e
-    teardownSuccess(ctx.git, flowSetup, returnToStartBranch)
+      case f @ SurfacedFlowFailure(e) =>
+        // `e` was already reported by `surfaced`. Discard the failed stage's
+        // partial edits; if the reset ITSELF fails, attach it as suppressed so
+        // it travels with `e` (debug shows both) rather than masking the
+        // original body failure the user needs to see.
+        try teardownFailure(ctx.git)
+        catch case NonFatal(t) => e.addSuppressed(t)
+        throw f
+    surfaced(teardownSuccess(ctx.git, flowSetup, returnToStartBranch))
 
   /** Replay the persisted resume-wire-id map (ADR 0018 §2.6) into each
     * session's OWN agent's in-memory registry, so a resumed run resumes against
@@ -170,7 +217,8 @@ object FlowLifecycle:
       agent: Agent[?],
       git: GitTool,
       branchNaming: Option[BranchNamingStrategy],
-      store: ProgressStore
+      store: ProgressStore,
+      emit: OrcaEvent => Unit
   ): FlowSetup =
     given InStage = RuntimeInStage.token()
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
@@ -187,17 +235,21 @@ object FlowLifecycle:
         // not the normal "no log yet" case. We still start fresh (there's no
         // sane way to resume from unparseable data), but the user may have
         // expected a resume, so this must be LOUD, not silently
-        // indistinguishable from a first run. `setup` has no event dispatcher
-        // threaded through it (it runs before `ctx` exists), so the logger +
-        // a direct `[orca]` stderr line is the channel — the same convention
-        // `EventDispatcher`/`DefaultFlowContext.close` use for
-        // dispatcher-less warnings.
+        // indistinguishable from a first run. `ctx` exists by the time `setup`
+        // runs, so its `emit` is threaded in: an `OrcaEvent.Step` (there's no
+        // Warning case — Step matches `GitTool`'s convention for a non-fatal
+        // note) reaches BOTH the terminal renderer and any custom Interaction's
+        // listeners (e.g. Slack), which a raw stderr line never would. The
+        // logger keeps the DEBUG trace; we emit the Step INSTEAD of a stderr
+        // line so a terminal user doesn't see it twice.
         log.warn(
           s"progress log at ${store.path} is corrupt ($reason); starting fresh"
         )
-        System.err.println(
-          s"[orca] progress log at ${store.path} is corrupt ($reason); " +
-            "starting fresh — the previous run's stages will re-run"
+        emit(
+          OrcaEvent.Step(
+            s"progress log at ${store.path} is corrupt ($reason); " +
+              "starting fresh — the previous run's stages will re-run"
+          )
         )
         freshRun(args, agent, git, branchNaming, store, startBranch)
       case ProgressStore.LoadResult.Absent =>

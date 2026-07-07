@@ -27,7 +27,8 @@ import orca.runner.{
   FlowWiring,
   LoggingListener,
   OrcaBanner,
-  OrcaLog
+  OrcaLog,
+  SurfacedFlowFailure
 }
 import orca.runner.terminal.TerminalInteraction
 import org.slf4j.LoggerFactory
@@ -159,10 +160,20 @@ def flow[B <: BackendTag](
         )
       )(body)
     catch
-      // The failure was already surfaced inside the scope (the flow body runs
-      // as a top-level stage). Only the exit code remains to decide — after
-      // the finally below has printed the summary and detached the trace.
-      case NonFatal(_) => failed = true
+      // Every phase inside `FlowLifecycle.run` is wrapped so a failure is
+      // reported to the user's event surface BEFORE it escapes, then rethrown
+      // as `SurfacedFlowFailure`. Seeing that marker means the message already
+      // reached the user — only the exit code remains to decide (after the
+      // finally below prints the summary and detaches the trace).
+      case _: SurfacedFlowFailure => failed = true
+      // Backstop: any other NonFatal escaped a code path that was never
+      // bracketed — a pre-`ctx` failure (agent factory, TerminalInteraction
+      // start, context construction) has no event surface to report to, and a
+      // future unsurfaced path would otherwise exit 1 in silence. Print it
+      // loudly to stderr so no failure is ever swallowed.
+      case NonFatal(e) =>
+        failed = true
+        System.err.println(s"[orca] ${throwableMessage(e)}")
   finally
     costTracker.printSummary()
     orcaLog.finish()
@@ -170,11 +181,14 @@ def flow[B <: BackendTag](
 
 /** Exit-free flow lifecycle: builds the interaction/context, runs setup, then
   * runs the body as a top-level stage with disjoint success/failure teardown.
-  * Unlike [[flow]], a `NonFatal` failure in `body` is **propagated** (after
-  * failure teardown), not turned into a `System.exit` — so the
-  * crash→`resetHard`→resume wiring is directly testable end-to-end. [[flow]]
-  * wraps this to keep the observable CLI behaviour (cost summary, OrcaLog,
-  * `System.exit(1)`).
+  * Unlike [[flow]], a failure in any phase is **propagated** (after any
+  * body-failure teardown), not turned into a `System.exit` — so the
+  * crash→`resetHard`→resume wiring is directly testable end-to-end. Every
+  * phase runs inside `FlowLifecycle.run`'s reporting bracket, so a `NonFatal`
+  * failure escapes here wrapped in
+  * [[orca.runner.SurfacedFlowFailure]]`(cause)` (already reported to the event
+  * surface); tests inspect its `cause`. [[flow]] wraps this to keep the
+  * observable CLI behaviour (cost summary, OrcaLog, `System.exit(1)`).
   *
   * `extraListeners` is the full listener set this run should observe beyond the
   * interaction's own (the CLI wrapper adds its [[CostTracker]] here); a

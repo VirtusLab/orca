@@ -229,14 +229,16 @@ class FlowLifecycleTest extends munit.FunSuite:
     val git = new OsGitTool(workDir)
     val startBranch = git.currentBranch()
 
-    val thrown = intercept[RuntimeException]:
+    // The body failure escapes `runFlow` wrapped in `SurfacedFlowFailure` (it
+    // was reported first); the original is its `cause`.
+    val thrown = intercept[SurfacedFlowFailure]:
       runFlowForTest(workDir, prompt, store):
         val _ = stage("stage-one"):
           os.write(workDir / "one.txt", "content")
           "one-done"
         val _ = stage[String]("stage-two"):
           throw new RuntimeException("boom in stage two")
-    assertEquals(thrown.getMessage, "boom in stage two")
+    assertEquals(thrown.cause.getMessage, "boom in stage two")
 
     // HEAD must be on the feature branch, not the start branch.
     val branch = git.currentBranch()
@@ -266,7 +268,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val stageOneRuns = new AtomicInteger(0)
 
     // First run: crashes in stage two.
-    val _ = intercept[RuntimeException]:
+    val _ = intercept[SurfacedFlowFailure]:
       runFlowForTest(workDir, prompt, store):
         val _ = stage("stage-one"):
           stageOneRuns.incrementAndGet()
@@ -312,7 +314,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val prompt = "boundary-stage-once"
     val store = ProgressStore.default(workDir, prompt)
     val listener = new RecordingListener
-    val _ = intercept[RuntimeException]:
+    val _ = intercept[SurfacedFlowFailure]:
       runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
         val _ = stage[String]("crash"):
           throw new RuntimeException("boom")
@@ -326,7 +328,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val prompt = "boundary-body-once"
     val store = ProgressStore.default(workDir, prompt)
     val listener = new RecordingListener
-    val _ = intercept[RuntimeException]:
+    val _ = intercept[SurfacedFlowFailure]:
       runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
         throw new RuntimeException("boom outside any stage")
     val errors = listener.events.collect { case e: OrcaEvent.Error => e }
@@ -386,15 +388,19 @@ class FlowLifecycleTest extends munit.FunSuite:
     val _ = git.commit("orca: progress log")
     val currentBranch = git.currentBranch()
 
-    val thrown = intercept[orca.OrcaFlowException]:
+    // The abort now surfaces first (reported to the user), then escapes wrapped
+    // in `SurfacedFlowFailure`; the original `OrcaFlowException` is its `cause`.
+    val thrown = intercept[SurfacedFlowFailure]:
       runFlowForTest(workDir, prompt, store):
         val _ = stage("never-runs"):
           "x"
+    assert(thrown.cause.isInstanceOf[orca.OrcaFlowException])
+    val message = thrown.cause.getMessage
     assert(
-      thrown.getMessage.contains("feat/merged-hazard") &&
-        thrown.getMessage.contains(currentBranch) &&
-        thrown.getMessage.contains("merged"),
-      s"abort message must name both branches and the merge hazard: ${thrown.getMessage}"
+      message.contains("feat/merged-hazard") &&
+        message.contains(currentBranch) &&
+        message.contains("merged"),
+      s"abort message must name both branches and the merge hazard: $message"
     )
 
   test(
@@ -419,13 +425,14 @@ class FlowLifecycleTest extends munit.FunSuite:
     git.forceAdd(store.path)
     val _ = git.commit("orca: progress log")
 
-    val thrown = intercept[orca.OrcaFlowException]:
+    val thrown = intercept[SurfacedFlowFailure]:
       runFlowForTest(workDir, prompt, store):
         val _ = stage("never-runs"):
           "x"
+    assert(thrown.cause.isInstanceOf[orca.OrcaFlowException])
     assert(
-      thrown.getMessage.contains("failed validation"),
-      s"abort message must mention validation failure: ${thrown.getMessage}"
+      thrown.cause.getMessage.contains("failed validation"),
+      s"abort message must mention validation failure: ${thrown.cause.getMessage}"
     )
 
   test(
@@ -435,10 +442,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     // "no log yet" absence). `loadDetailed()` returns `Corrupt`, and `setup`
     // must take the same fresh-run path an absent log would — resolve +
     // create a branch and commit a brand-new header — rather than throwing or
-    // silently doing nothing. (The WARN this path also emits, via the logger
-    // and a `[orca]` stderr line, has no cheap capture point in this test
-    // harness — verified by code review; `loadDetailed()`'s `Corrupt` branch
-    // itself is pinned at the store level in `ProgressStoreTest`.)
+    // silently doing nothing. The "starting fresh" warning is now routed
+    // through the threaded `emit` as an `OrcaEvent.Step` (so a Slack-backed
+    // Interaction sees it, not just a terminal), which this test captures.
     val workDir = TempRepo.create()
     val prompt = "corrupt-log-fresh"
     val store = ProgressStore.default(workDir, prompt)
@@ -448,12 +454,22 @@ class FlowLifecycleTest extends munit.FunSuite:
     os.makeDir.all(store.path / os.up)
     os.write.over(store.path, "not json {{{", createFolders = true)
 
+    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
     val setup = FlowLifecycle.setup(
       args = OrcaArgs(prompt),
       agent = StubAgent.claude,
       git = git,
       branchNaming = None,
-      store = store
+      store = store,
+      emit = e => { val _ = emitted.updateAndGet(e :: _) }
+    )
+
+    // The corrupt-log warning reached the event surface as a Step (a listener,
+    // e.g. Slack, can observe it) — not only a stderr line.
+    val steps = emitted.get().collect { case s: OrcaEvent.Step => s }
+    assert(
+      steps.exists(_.message.contains("corrupt")),
+      s"a Step warning about the corrupt log must be emitted: $steps"
     )
 
     // A fresh branch was resolved and created, distinct from the start branch
@@ -660,7 +676,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val prompt = "close-on-body-throw"
     var opencodeClosed = false
     val recorder = new RecordingOpencode(() => opencodeClosed = true)
-    val thrown = intercept[RuntimeException]:
+    val thrown = intercept[SurfacedFlowFailure]:
       supervised:
         val interaction = TerminalInteraction.start(
           out = new PrintStream(new ByteArrayOutputStream()),
@@ -679,7 +695,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           wiring = FlowWiring(opencode = Some(_ => recorder))
         ):
           throw new RuntimeException("boom in body")
-    assertEquals(thrown.getMessage, "boom in body")
+    assertEquals(thrown.cause.getMessage, "boom in body")
     assert(
       opencodeClosed,
       "ctx.close() must run on the failure path too, closing the opencode agent"
@@ -812,7 +828,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
     var featureBranchName = ""
-    val _ = intercept[RuntimeException]:
+    val _ = intercept[SurfacedFlowFailure]:
       runFlowForTest(workDir, prompt, store):
         // Capture the feature branch name before the crash.
         featureBranchName = summon[orca.FlowControl].git.currentBranch()
@@ -869,6 +885,142 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"default branchNaming must use shortenPrompt (slug fallback); got '$observedBranch'"
     )
 
+  test(
+    "surfaced: a setup resume-refusal reaches the user as one Error and escapes as SurfacedFlowFailure"
+  ):
+    // The silent-exit family's headline case: a tampered header makes `setup`
+    // throw the resume refusal. Before the `surfaced` bracket, that escaped
+    // `flow()` unreported — banner + exit 1 and nothing else. Now it must reach
+    // the user's event surface exactly once, and escape marked as surfaced.
+    val workDir = TempRepo.create()
+    val prompt = "surfaced-tampered"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("feat/surfaced-tampered")
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/surfaced-tampered",
+        promptHash = "deadbeefcafe"
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    val listener = new RecordingListener
+    val thrown = intercept[SurfacedFlowFailure]:
+      runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
+        val _ = stage("never-runs")("x")
+    val errors = listener.events.collect { case e: OrcaEvent.Error => e }
+    assertEquals(errors.size, 1, s"exactly one Error expected, got: $errors")
+    assert(
+      errors.head.message.contains("refusing to resume"),
+      s"the refusal message must reach the user: ${errors.head.message}"
+    )
+    assert(
+      thrown.cause.isInstanceOf[orca.OrcaFlowException],
+      s"the surfaced cause must be the original refusal: ${thrown.cause}"
+    )
+
+  test(
+    "surfaced: a rehydration failure reaches the user as one Error, not a silent exit"
+  ):
+    // rehydrateSessions runs OUTSIDE the body's try today; a throw there
+    // escaped unreported exactly like a setup failure. Force one: resume in
+    // place (valid header) with a persisted resume-wire-id, and a lead agent
+    // whose registry throws when the runtime replays it.
+    val workDir = TempRepo.create()
+    val prompt = "surfaced-rehydrate"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("feat/surfaced-rehydrate")
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/surfaced-rehydrate",
+        promptHash = ProgressStore.hashPrompt(prompt)
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    store.upsertSession(
+      SessionRecord(
+        occurrence = 0,
+        id = "client-uuid",
+        seed = "brief",
+        resumeWireId = Some("ses_server_1")
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: session record")
+
+    val thrower = new ThrowingRehydrateClaude
+    val listener = new RecordingListener
+    val thrown = intercept[SurfacedFlowFailure]:
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        runFlow(
+          args = OrcaArgs(prompt),
+          agent = _ => thrower,
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = List(listener),
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = Some(store),
+          wiring = FlowWiring(claude = Some(_ => thrower))
+        ):
+          val _ = stage("never-runs")("x")
+    val errors = listener.events.collect { case e: OrcaEvent.Error => e }
+    assertEquals(errors.size, 1, s"exactly one Error expected, got: $errors")
+    assertEquals(thrown.cause.getMessage, "rehydrate boom")
+
+  test(
+    "surfaced: a body failure whose teardownFailure ALSO throws surfaces once; the reset failure rides along suppressed"
+  ):
+    // The body reports its Error at the stage boundary (one Error, no
+    // double-report). failure teardown (`resetHard`) still runs — and if the
+    // reset itself throws, that must NOT mask the original body failure: it is
+    // attached as suppressed so the user sees the body message and debug sees
+    // both.
+    val workDir = TempRepo.create()
+    val prompt = "surfaced-suppressed"
+    val store = ProgressStore.default(workDir, prompt)
+    val listener = new RecordingListener
+    val thrown = intercept[SurfacedFlowFailure]:
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        runFlow(
+          args = OrcaArgs(prompt),
+          agent = _ => StubAgent.claude,
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = List(listener),
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = Some(store),
+          wiring = FlowWiring(git = Some(new ResetThrowingGit(workDir)))
+        ):
+          val _ = stage[String]("crash"):
+            throw new RuntimeException("boom body")
+    val errors = listener.events.collect { case e: OrcaEvent.Error => e }
+    assertEquals(errors.size, 1, s"exactly one Error expected, got: $errors")
+    assertEquals(thrown.cause.getMessage, "boom body")
+    assert(
+      thrown.cause.getSuppressed.exists(_.getMessage.contains("reset boom")),
+      s"the failing reset must be suppressed on the original: " +
+        thrown.cause.getSuppressed.mkString(", ")
+    )
+
   /** Records every `OrcaEvent` it sees, so the boundary-emission tests can
     * count how many `OrcaEvent.Error`s a failing run produced.
     */
@@ -923,6 +1075,54 @@ class FlowLifecycleTest extends munit.FunSuite:
     def resultAs[O: JsonData: Announce]
         : AgentCall[BackendTag.ClaudeCode.type, O] =
       throw new UnsupportedOperationException
+
+  /** A `ClaudeAgent` whose session registry throws when the runtime replays a
+    * persisted resume-wire-id — so a rehydration failure can be exercised
+    * end-to-end. Modelled on [[RecordingClaude]] but with a throwing registry;
+    * every LLM call throws (no test reaches one).
+    */
+  private class ThrowingRehydrateClaude extends ClaudeAgent:
+    private val registry = new SessionRegistry[BackendTag.ClaudeCode.type]:
+      def dispatchFor(
+          client: SessionId[BackendTag.ClaudeCode.type]
+      ): Dispatch[BackendTag.ClaudeCode.type] = Dispatch.Fresh(client.onWire)
+      def commitSuccess(
+          client: SessionId[BackendTag.ClaudeCode.type],
+          server: WireSessionId[BackendTag.ClaudeCode.type]
+      ): Unit = throw new RuntimeException("rehydrate boom")
+      def resumeWireId(
+          client: SessionId[BackendTag.ClaudeCode.type]
+      ): Option[WireSessionId[BackendTag.ClaudeCode.type]] = None
+
+    override private[orca] def sessionSupport
+        : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
+      Some(SessionSupport.Durable(registry, _ => false))
+
+    val name = "throwing-rehydrate-claude"
+    def haiku = this
+    def sonnet = this
+    def opus = this
+    def fable = this
+    def withModel(model: Model) = this
+    def withNetworkTools(t: Seq[String]) = this
+    def withConfig(c: AgentConfig) = this
+    def withSystemPrompt(p: String) = this
+    def withName(n: String) = this
+    def withTools(tools: ToolSet) = this
+    def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
+      throw new UnsupportedOperationException
+    def resultAs[O: JsonData: Announce]
+        : AgentCall[BackendTag.ClaudeCode.type, O] =
+      throw new UnsupportedOperationException
+
+  /** An `OsGitTool` whose `resetHard` always throws — to exercise the
+    * body-phase failure teardown throwing while it handles a body failure, so
+    * the reset error is attached as suppressed rather than masking the
+    * original.
+    */
+  private class ResetThrowingGit(workDir: os.Path) extends OsGitTool(workDir):
+    override def resetHard()(using WorkspaceWrite): Unit =
+      throw new RuntimeException("reset boom")
 
   /** Codex counterpart of [[RecordingClaude]], used to assert that a
     * codex-tagged session record rehydrates into the codex agent rather than
