@@ -25,7 +25,6 @@ import orca.subprocess.CliRunner
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.tools.claude.streamjson.OutboundMessage
 import ox.Ox
-import ox.channels.BufferCapacity
 
 /** Claude Code backend. All calls — autonomous and interactive — drive a
   * stream-json subprocess through [[ClaudeConversation]]; the only difference
@@ -60,8 +59,7 @@ private[orca] class ClaudeBackend(
       * construction (`new ClaudeBackend(cli)`) where no flow workDir exists.
       */
     private[claude] val cwdForProbe: os.Path = os.pwd
-)(using BufferCapacity)
-    extends AgentBackend[BackendTag.ClaudeCode.type]:
+) extends AgentBackend[BackendTag.ClaudeCode.type]:
 
   /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns,
     * pre-approves `tools` (claude `--allowedTools` syntax). The configuration

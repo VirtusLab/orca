@@ -134,7 +134,7 @@ private[orca] object DefaultFlowContext:
       progressStore: ProgressStore,
       agentSelector: FlowContext => Agent[B],
       wiring: FlowWiring
-  )(using ox.Ox, ox.channels.BufferCapacity): DefaultFlowContext[B] =
+  )(using ox.Ox): DefaultFlowContext[B] =
     // One wiring bundle handed to every agent factory — overrides and defaults
     // build against the SAME event sink (dispatcher), interaction, workDir and
     // prompts, so a user agent is wired into the run exactly like the default

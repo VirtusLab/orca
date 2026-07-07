@@ -25,7 +25,6 @@ import orca.backend.{
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.CliRunner
 import ox.Ox
-import ox.channels.BufferCapacity
 
 /** Gemini backend. Both autonomous and interactive paths drive `gemini -p
   * <prompt> --output-format stream-json` over stdio: stdout JSONL is parsed
@@ -50,7 +49,7 @@ import ox.channels.BufferCapacity
   * (the restore rides as an `extras` `AutoCloseable` on the
   * [[AskUserSession]]). Autonomous calls skip the bridge entirely.
   */
-private[orca] class GeminiBackend(cli: CliRunner)(using BufferCapacity)
+private[orca] class GeminiBackend(cli: CliRunner)
     extends AgentBackend[BackendTag.Gemini.type]:
 
   /** Maps the client-allocated session id to gemini's `init`-reported session

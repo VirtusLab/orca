@@ -24,7 +24,6 @@ import orca.backend.{
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.CliRunner
 import ox.Ox
-import ox.channels.BufferCapacity
 
 /** Codex backend. Both autonomous and interactive paths drive `codex exec
   * --json` over stdio: stdout JSONL is parsed into [[InboundEvent]]s, and the
@@ -49,8 +48,7 @@ import ox.channels.BufferCapacity
 private[orca] class CodexBackend(
     cli: CliRunner,
     private[codex] val sessionsDir: os.Path = os.home / ".codex" / "sessions"
-)(using BufferCapacity)
-    extends AgentBackend[BackendTag.Codex.type]:
+) extends AgentBackend[BackendTag.Codex.type]:
 
   /** Maps the client-allocated session id (the UUID the caller passes around)
     * to codex's server-allocated thread id (learned from `thread.started`).

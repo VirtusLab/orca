@@ -9,7 +9,6 @@ import orca.tools.gemini.GeminiBackend
 import orca.tools.opencode.OpencodeBackend
 import orca.tools.pi.PiBackend
 
-import ox.channels.BufferCapacity
 import ox.supervised
 
 /** Machine-checked source of truth for the per-backend enforcement matrix (the
@@ -28,7 +27,6 @@ class EnforcementTableTest extends munit.FunSuite:
 
   test("every backend maps (tools, autoApprove) to the documented enforcement"):
     supervised:
-      given BufferCapacity = BufferCapacity(8)
       val cli = new StubCliRunner()
       val backends: List[(String, AgentBackend[?])] = List(
         "claude" -> new ClaudeBackend(cli),
