@@ -272,6 +272,15 @@ Refs: `runner/src/main/scala/orca/runner/FlowLifecycle.scala:206-213,239-260,324
   the same constructor.
 - [ ] 3.2 `freshRun` maps a refusal to a deterministic fallback rename (mirror
   `slug`'s hash fallback) or aborts loudly — decide which.
+  (Research 2026-07-07, epic3-research.md: DECIDED — deterministic fallback
+  rename reusing the existing `flow-<hash>` shape + loud Step; abort would
+  make unattended runs flake on a cosmetic collision, and the LLM-failure
+  fallback idiom never aborts over naming. FeatureBranch lives in
+  `flow/.../progress/` beside RecoveryCheck, smart ctor takes
+  `(name, protectedBranches)`; FlowLifecycle computes the set once via
+  `git.defaultBranch()` and passes it to BOTH arms. Split: 3A=3.1+3.2,
+  3B=3.3+3.4 — checkoutOrCreate's only 3 callers are in FlowLifecycle;
+  `createBranch`/`checkout` primitives already exist.)
 - [ ] 3.3 `finishBranch` / lifecycle-level delete take `FeatureBranch`, making
   "delete an unvalidated name" unrepresentable (the current guard is only
   "never the current branch").
