@@ -64,19 +64,30 @@ The flow runtime is specified in [ADR 0018](adr/0018-stage-bound-flow-runtime.md
 read it before touching `stage`, the progress log, or sessions. The invariants
 most easily broken:
 
-- **Capability gating.** Three compile-time capabilities gate side effects:
+- **Capability gating.** Four compile-time capabilities gate side effects:
   `FlowContext` (reads + emit; thread-safe), `FlowControl <: FlowContext`
-  (authority to start a stage; thread-affine), and the opaque `InStage` token
-  (in `tools`, `package orca`). Every mutating tool method — git writes,
-  `fs.write`, `gh` writes, every `agent.*.run` — takes `(using InStage)`, which
-  only a `stage` body mints. Don't relax this: production mints go through
-  `orca.RuntimeInStage.token()`, the single named door (a grep for
-  `RuntimeInStage` is the whole whitelist of privileged callers); `InStage.unsafe`
-  itself is called only by `RuntimeInStage` and tests. Don't call
-  `InStage.unsafe` directly outside that door, and don't drop a
-  `(using InStage)` to "make it compile" — thread it up to the nearest stage.
-  `orcacaps.InStageNegativeTest` pins that a mutation outside a stage fails to
-  compile.
+  (authority to start a stage; thread-affine), and a SPLIT pair of opaque
+  stage-bound tokens (both in `tools`, `package orca`) — `InStage`, the SHARED
+  half: every `agent.*.run` / `runSeeded` (spend tokens, drive an agent) takes
+  `(using InStage)`, and it is safe to capture into a `fork` (the reviewer
+  fan-out's shared `InStage` capture is load-bearing); and `WorkspaceWrite`,
+  the EXCLUSIVE half: every git write, `fs.write`, `gh` write, and
+  progress-log write takes `(using WorkspaceWrite)`, and it must NOT cross a
+  `fork` boundary (two concurrent forks racing on the same git index or
+  progress log is exactly what this is meant to catch). A helper that does
+  both (e.g. `Flow`'s `recordAndCommit`, which appends the progress log and
+  commits AND may call the cheap model for a commit message) takes BOTH.
+  Only a `stage` body mints — and is handed both tokens together. Don't relax
+  this: production mints go through `orca.RuntimeInStage.token()` /
+  `orca.RuntimeInStage.workspaceToken()`, the single named door (a grep for
+  `RuntimeInStage` is the whole whitelist of privileged callers);
+  `InStage.unsafe` / `WorkspaceWrite.unsafe` themselves are called only by
+  `RuntimeInStage` and tests. Don't call either `unsafe` directly outside that
+  door, and don't drop a `(using InStage)` / `(using WorkspaceWrite)` to "make
+  it compile" — thread it up to the nearest stage. `orcacaps.InStageNegativeTest`
+  pins that a workspace mutation outside a stage fails to compile with the
+  `WorkspaceWrite` message and an LLM run outside a stage fails to compile with
+  the (distinct) `InStage` message.
 
 - **Progress log + recovery.** A run commits `.orca/progress-<hash>.json` (hash =
   prompt, so the path is branch-independent) with one entry per completed stage;

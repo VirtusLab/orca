@@ -1,6 +1,6 @@
 package orca.tools
 
-import orca.InStage
+import orca.WorkspaceWrite
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.testkit.GitRepo
 
@@ -9,9 +9,10 @@ import java.util.concurrent.atomic.AtomicReference
 
 class OsGitToolTest extends munit.FunSuite:
 
-  // Tests exercise gated git mutators directly; mint the in-stage token once for
-  // the whole suite (package `orca.tools` can reach `InStage.unsafe`).
-  private given InStage = InStage.unsafe
+  // Tests exercise gated git mutators directly; mint the workspace-write token
+  // once for the whole suite (package `orca.tools` can reach
+  // `WorkspaceWrite.unsafe`).
+  private given WorkspaceWrite = WorkspaceWrite.unsafe
 
   private def withRepo(body: (OsGitTool, os.Path) => Unit): Unit =
     val dir = GitRepo.empty()

@@ -8,6 +8,7 @@ import orca.{
   OrcaArgs,
   OrcaFlowException,
   RuntimeInStage,
+  WorkspaceWrite,
   throwableMessage
 }
 import orca.agents.{BackendTag, Agent, SessionId, WireSessionId}
@@ -138,8 +139,9 @@ object FlowLifecycle:
     * §2.4/§2.5). Records the starting branch, snapshots the log file, stashes a
     * dirty tree, then either resumes an existing log or starts fresh (resolve a
     * branch name, create it, write + commit the header). All git/store
-    * mutations run with a runtime-minted `InStage` — setup is privileged,
-    * predating any user stage.
+    * mutations run with a runtime-minted `WorkspaceWrite`, and branch-name
+    * resolution (which may call the cheap model) with a runtime-minted
+    * `InStage` — setup is privileged, predating any user stage.
     *
     * The progress header is **untrusted input** on load (the log is
     * human-visible and pushable), so a resumed run:
@@ -171,6 +173,7 @@ object FlowLifecycle:
       store: ProgressStore
   ): FlowSetup =
     given InStage = RuntimeInStage.token()
+    given WorkspaceWrite = RuntimeInStage.workspaceToken()
     val log = LoggerFactory.getLogger("orca.flow")
     val startBranch = git.currentBranch()
     // Snapshot the log file before the stash, restore it if the stash
@@ -234,7 +237,10 @@ object FlowLifecycle:
   /** Fresh run: resolve + create the branch, then commit the header so it is
     * the branch's first commit. Shared by the genuinely-absent-log case and the
     * corrupt-log case (which warns, then falls through to the same fresh start
-    * — there is no sane way to resume from unparseable data).
+    * — there is no sane way to resume from unparseable data). Needs BOTH
+    * tokens: `InStage` because branch-name resolution may call the cheap model
+    * (`BranchNamingStrategy.shortenPrompt`), `WorkspaceWrite` for the git
+    * checkout/commit and header write.
     */
   private def freshRun(
       args: OrcaArgs,
@@ -243,7 +249,7 @@ object FlowLifecycle:
       branchNaming: Option[BranchNamingStrategy],
       store: ProgressStore,
       startBranch: String
-  )(using InStage): FlowSetup =
+  )(using InStage, WorkspaceWrite): FlowSetup =
     val strategy =
       branchNaming.getOrElse(BranchNamingStrategy.shortenPrompt)
     val branch = strategy.resolve(args.userPrompt, agent)
@@ -293,9 +299,9 @@ object FlowLifecycle:
       returnToStartBranch: Boolean
   ): Unit =
     // Teardown is runtime code running outside any user stage, so it mints its
-    // own `InStage` via `RuntimeInStage` — the runtime is the privileged token
-    // constructor.
-    given InStage = RuntimeInStage.token()
+    // own `WorkspaceWrite` via `RuntimeInStage` — the runtime is the privileged
+    // token constructor. No LLM call happens here, so `InStage` isn't needed.
+    given WorkspaceWrite = RuntimeInStage.workspaceToken()
     try
       // Best-effort: a missing file (already gone) or a failing cleanup commit is
       // cosmetic on an already-successful run, so neither must escape teardown.
@@ -325,7 +331,7 @@ object FlowLifecycle:
       git: GitTool,
       setup: FlowSetup,
       returnToStartBranch: Boolean
-  )(using InStage): Unit =
+  )(using WorkspaceWrite): Unit =
     val throwaway =
       setup.featureBranch != setup.startBranch &&
         git
@@ -343,5 +349,5 @@ object FlowLifecycle:
     */
   private[orca] def teardownFailure(git: GitTool): Unit =
     // Runtime teardown mints its own token, as in `teardownSuccess`.
-    given InStage = RuntimeInStage.token()
+    given WorkspaceWrite = RuntimeInStage.workspaceToken()
     git.resetHard()

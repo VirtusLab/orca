@@ -131,7 +131,7 @@ class CommitMessageTest extends munit.FunSuite:
     val dir = GitRepo.seeded()
     val git = new OsGitTool(dir)
     val store = ProgressStore.default(dir, "p")
-    given InStage = InStage.unsafe
+    given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(
       orca.progress.ProgressHeader("main", "feat/test", "deadbeef")
     )

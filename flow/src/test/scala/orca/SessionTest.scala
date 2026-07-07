@@ -37,7 +37,7 @@ class SessionTest extends FunSuite:
   private def freshStore(prompt: String = "p"): (ProgressStore, os.Path) =
     val dir = os.temp.dir()
     val store = ProgressStore.default(dir, prompt)
-    given InStage = InStage.unsafe
+    given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(
       ProgressHeader("main", "feat/test", "deadbeef")
     )

@@ -1,12 +1,12 @@
 package orca.progress
 
 import munit.FunSuite
-import orca.InStage
+import orca.WorkspaceWrite
 
 class ProgressStoreTest extends FunSuite:
 
-  // All mutating calls require an InStage token; mint one for the test suite.
-  given InStage = InStage.unsafe
+  // All mutating calls require a WorkspaceWrite token; mint one for the suite.
+  given WorkspaceWrite = WorkspaceWrite.unsafe
 
   private val header = ProgressHeader(
     startingBranch = "main",

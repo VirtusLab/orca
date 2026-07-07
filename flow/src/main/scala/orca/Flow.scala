@@ -128,10 +128,13 @@ private def recordAndCommit[T: JsonData](
     commitMessage: Option[T => String]
 )(using fc: FlowControl): Unit =
   val resultJson = writeToString(result)(using summon[JsonData[T]].codec)
-  // Deliberately mints a fresh runtime `InStage` rather than threading the
-  // body's token: recording + committing the stage result is the runtime's own
-  // privileged step, not part of the user body.
+  // Deliberately mints fresh runtime tokens rather than threading the body's:
+  // recording + committing the stage result is the runtime's own privileged
+  // step, not part of the user body. Both are needed here: `InStage` for the
+  // cheap-model commit-message fallback (`defaultCommitMessage`), `WorkspaceWrite`
+  // for the progress-store append + git force-add/commit below.
   given InStage = RuntimeInStage.token()
+  given WorkspaceWrite = RuntimeInStage.workspaceToken()
   // Capture the code diff BEFORE force-adding the progress file so the LLM
   // sees only the body's substantive changes, not the orca bookkeeping.
   val message =

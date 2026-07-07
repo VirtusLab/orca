@@ -4,15 +4,15 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
   writeToString
 }
-import orca.{InStage}
+import orca.WorkspaceWrite
 import orca.agents.JsonData
 import scala.util.control.NonFatal
 
 /** Persistent store for a single flow run's [[ProgressLog]].
   *
-  * Mutations are gated on [[InStage]] to mark them as working-tree-mutating
-  * operations (ADR 0018 §2.2). The token is not inspected at runtime — the type
-  * is the guard.
+  * Mutations are gated on [[WorkspaceWrite]] to mark them as index-like,
+  * fork-opaque writes (ADR 0018 §6). The token is not inspected at runtime —
+  * the type is the guard.
   */
 trait ProgressStore:
   /** The on-disk path of this store's JSON file. The stage commit force-adds
@@ -36,7 +36,7 @@ trait ProgressStore:
     */
   def loadDetailed(): ProgressStore.LoadResult
 
-  def writeHeader(header: ProgressHeader)(using InStage): Unit
+  def writeHeader(header: ProgressHeader)(using WorkspaceWrite): Unit
 
   /** Upsert an entry by id: replaces an existing entry with the same id
     * in-place, or appends if no entry with that id exists. Last write wins.
@@ -44,7 +44,7 @@ trait ProgressStore:
     * Requires [[writeHeader]] to have been called first (a log must already
     * exist); otherwise it throws.
     */
-  def appendEntry(entry: StageEntry)(using InStage): Unit
+  def appendEntry(entry: StageEntry)(using WorkspaceWrite): Unit
 
   /** Upsert a session record by [[SessionRecord.name]] +
     * [[SessionRecord.occurrence]]: replaces an existing record with that key,
@@ -59,7 +59,7 @@ trait ProgressStore:
     * get-or-create contract is therefore best-effort until a stage commit has
     * carried the log.
     */
-  def upsertSession(record: SessionRecord)(using InStage): Unit
+  def upsertSession(record: SessionRecord)(using WorkspaceWrite): Unit
 
 object ProgressStore:
 
@@ -106,10 +106,10 @@ private class OsProgressStore(val path: os.Path) extends ProgressStore:
     if !os.exists(path) then ProgressStore.LoadResult.Absent
     else parseLog(os.read(path))
 
-  def writeHeader(header: ProgressHeader)(using InStage): Unit =
+  def writeHeader(header: ProgressHeader)(using WorkspaceWrite): Unit =
     writeLog(ProgressLog(header, Nil))
 
-  def appendEntry(entry: StageEntry)(using InStage): Unit =
+  def appendEntry(entry: StageEntry)(using WorkspaceWrite): Unit =
     val current = load().getOrElse(
       throw IllegalStateException(
         s"appendEntry called before writeHeader: no log at $path"
@@ -117,7 +117,7 @@ private class OsProgressStore(val path: os.Path) extends ProgressStore:
     )
     writeLog(upsertEntry(current, entry))
 
-  def upsertSession(record: SessionRecord)(using InStage): Unit =
+  def upsertSession(record: SessionRecord)(using WorkspaceWrite): Unit =
     val current = load().getOrElse(
       throw IllegalStateException(
         s"upsertSession called before writeHeader: no log at $path"

@@ -38,7 +38,10 @@ class OrcaOverridesTest extends munit.FunSuite:
   test("flow uses a custom FsTool when supplied"):
     val fake = new FsTool:
       def read(path: String): Option[String] = Some("canned content")
-      def write(path: String, content: String)(using orca.InStage): Unit = ()
+      def write(path: String, content: String)(using
+          orca.WorkspaceWrite
+      ): Unit =
+        ()
       def list(glob: String): List[String] = List("custom")
     var observed: Option[String] = None
     supervised:

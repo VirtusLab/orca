@@ -210,7 +210,7 @@ class RunSeededTest extends FunSuite:
   ): TestFlowControl =
     val dir = os.temp.dir()
     val store = ProgressStore.default(dir, "p")
-    given InStage = InStage.unsafe
+    given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(ProgressHeader("main", "feat/test", "deadbeef"))
     for record <- sessions do store.upsertSession(record)
     for stageName <- completedStages do

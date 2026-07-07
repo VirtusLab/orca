@@ -165,7 +165,7 @@ class StageRuntimeTest extends munit.FunSuite:
     val ran = new AtomicInteger(0)
     // Seed an entry under id "typed#0" whose JSON cannot decode to Int.
     locally:
-      given InStage = InStage.unsafe
+      given WorkspaceWrite = WorkspaceWrite.unsafe
       ctx.progressStore.appendEntry(
         StageEntry("typed#0", "typed", "\"not-an-int\"")
       )

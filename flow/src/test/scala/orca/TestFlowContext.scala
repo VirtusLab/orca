@@ -109,6 +109,6 @@ object TestFlowControl:
     val dir = GitRepo.seeded()
     val git = new OsGitTool(dir)
     val store = ProgressStore.default(dir, userPrompt)
-    given InStage = InStage.unsafe
+    given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(ProgressHeader("main", "feat/test", "deadbeef"))
     (new TestFlowControl(dispatcher, git, store, userPrompt), dir)

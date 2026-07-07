@@ -27,11 +27,11 @@ extension [B <: BackendTag](agent: Agent[B])
     *
     * No LLM call and no commit — so it is callable outside a stage. (The id is
     * a fresh UUID, so it is not referentially transparent.) The store write
-    * mints its token via [[RuntimeInStage]] (the same door the `stage` runtime
-    * uses for setup-phase mutations). Because that write isn't committed, a
-    * failure teardown's `git reset --hard` can erase it before the next stage
-    * commit carries the log — the retry then mints a fresh session and re-seeds
-    * (see `ProgressStore.upsertSession`).
+    * mints its [[WorkspaceWrite]] token via [[RuntimeInStage]] (the same door
+    * the `stage` runtime uses for setup-phase mutations). Because that write
+    * isn't committed, a failure teardown's `git reset --hard` can erase it
+    * before the next stage commit carries the log — the retry then mints a
+    * fresh session and re-seeds (see `ProgressStore.upsertSession`).
     */
   def session(name: String, seed: String)(using fc: FlowControl): SessionId[B] =
     // An empty name would collide with legacy (pre-naming) records that
@@ -61,7 +61,7 @@ extension [B <: BackendTag](agent: Agent[B])
       case None =>
         // First run: mint a fresh id, record it, and return it.
         val freshId = SessionId.fresh[B]
-        given InStage = RuntimeInStage.token()
+        given WorkspaceWrite = RuntimeInStage.workspaceToken()
         fc.progressStore.upsertSession(
           SessionRecord(
             name = name,
@@ -105,8 +105,8 @@ extension [B <: BackendTag](agent: Agent[B])
   * rehydrate the map and continue/probe the right session. Upserts the matching
   * [[SessionRecord]] only when the learned wire id differs from what is already
   * recorded (and a record for `session` exists), so a no-op run writes nothing.
-  * The store write mints its token via [[RuntimeInStage]], the same pattern
-  * [[session]] uses for the setup-phase write.
+  * The store write mints its [[WorkspaceWrite]] token via [[RuntimeInStage]],
+  * the same pattern [[session]] uses for the setup-phase write.
   */
 private def persistResumeWireId[B <: BackendTag](
     agent: Agent[B],
@@ -120,7 +120,7 @@ private def persistResumeWireId[B <: BackendTag](
         .flatMap(_.sessions.find(_.id == session.value))
         .foreach: record =>
           if !record.resumeWireId.contains(wireId.value) then
-            given InStage = RuntimeInStage.token()
+            given WorkspaceWrite = RuntimeInStage.workspaceToken()
             fc.progressStore.upsertSession(
               record.copy(resumeWireId = Some(wireId.value))
             )

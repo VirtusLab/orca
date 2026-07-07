@@ -3,8 +3,8 @@ package orca.runner
 import orca.{
   BranchNamingStrategy,
   FlowContext,
-  InStage,
   OrcaArgs,
+  WorkspaceWrite,
   runFlow,
   stage,
   flow
@@ -93,7 +93,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val prompt = "lifecycle-failure"
     val store = ProgressStore.default(workDir, prompt)
 
-    given InStage = InStage.unsafe
+    given WorkspaceWrite = WorkspaceWrite.unsafe
 
     // Mirror flowSetup: create feature branch, commit progress header.
     val _ = git.createBranch("feat/lifecycle-failure")
@@ -158,7 +158,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, prompt)
     val invocations = new AtomicInteger(0)
 
-    given InStage = InStage.unsafe
+    given WorkspaceWrite = WorkspaceWrite.unsafe
 
     val git = new OsGitTool(workDir)
     val _ = git.createBranch("feat/lifecycle-resume")
@@ -373,7 +373,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
 
-    given InStage = InStage.unsafe
+    given WorkspaceWrite = WorkspaceWrite.unsafe
     // Commit the log on `main` (HEAD) while it names a different feature branch.
     store.writeHeader(
       ProgressHeader(
@@ -407,7 +407,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
 
-    given InStage = InStage.unsafe
+    given WorkspaceWrite = WorkspaceWrite.unsafe
     val _ = git.createBranch("feat/tampered-feature")
     store.writeHeader(
       ProgressHeader(
@@ -526,7 +526,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   private def storeWith(sessions: SessionRecord*): ProgressStore =
     val dir = os.temp.dir()
     val store = ProgressStore.default(dir, "rehydrate-targeted")
-    given InStage = InStage.unsafe
+    given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(
       ProgressHeader(
         startingBranch = "main",
@@ -548,7 +548,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
 
-    given InStage = InStage.unsafe
+    given WorkspaceWrite = WorkspaceWrite.unsafe
     val _ = git.createBranch("feat/rehydrate-feature")
     store.writeHeader(
       ProgressHeader(
