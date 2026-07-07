@@ -1,0 +1,625 @@
+# Complexity review, second pass — findings tracker
+
+Conducted 2026-07-07 on branch `session-identity-fixes` (i.e. *after* the fixes
+from [complexity-review.md](complexity-review.md) landed). Six parallel reviews
+(session core, flow, backends, runner, tools/utilities, cross-cutting
+architecture), synthesized and deduplicated. Mark items `[x]` as they are
+resolved; add a short note (commit / decision) next to done items.
+
+Overall verdict: the first-pass fixes held — every structural change was
+verified in place and none was found to have merely moved its problem. The
+recurring **new** pattern: several fixes built a single funnel for one path
+while leaving an equally-typed sibling door open (resume-but-not-fresh,
+read-but-not-write, body-but-not-setup). Epics 1 and 2 were each flagged
+independently by two of six reviewers.
+
+Work top to bottom: High → Medium → Low — except Epic 0, which shapes the
+signatures Epics 2, 5, and 7 introduce and therefore precedes them. Epics 1,
+3, 4, 6, 8, 9 are capture-checking-neutral and can proceed in parallel with
+Epic 0.
+
+**Standing constraint (owner decision, 2026-07-07): capture checking lands in
+the near term** to enforce the concurrency and `InStage`-capture guarantees
+ADR 0018 §6 defers. Consumer compatibility is a non-issue: flows are consumed
+through scala-cli scripts whose compiler version we control (always latest),
+and CC annotations are ignored by compilers without the feature enabled.
+Scala 3.8's capture checker + separation checking
+(`caps.SharedCapability` vs exclusive capabilities) map directly onto the
+ADR's fork-crossing vs fork-opaque split. Consequences threaded through this
+tracker: Epic 0 is the enabling work; 7.1 and 7.5 are deliberate *bridges*
+(runtime backstops for what CC doesn't or can't check); 2.1 and 11.1 choose
+signatures so CC strengthens them for free. CC is evolving fast (e.g. the
+universal capability was recently respelled `cap` → `any`) — re-read the
+current reference docs at implementation time, not from memory:
+<https://docs.scala-lang.org/scala3/reference/experimental/cc.html> and
+<https://nightly.scala-lang.org/docs/reference/experimental/capture-checking/separation-checking.html>.
+
+---
+
+# HIGH priority
+
+## Epic 0 — Capability model & capture-checking readiness
+
+`InStage` today authorizes two things at once: index-like mutations (git/fs/gh
+writes, progress-store writes — must NOT cross a fork boundary) and LLM-call
+gating (MUST cross — the reviewer fan-out's `InStage` capture is load-bearing).
+ADR 0018 §6's amendment records that this split must be designed before capture
+checking lands; with CC now near-term, that design is due. One hard
+prerequisite verified in source: the token's `opaque type InStage = Unit`
+representation is untrackable by CC (a `Unit` value is pure — there is no
+reference to track). Scope decision (owner, 2026-07-07): the sharable gate
+covers **any** LLM call regardless of toolset — no toolset-aware typing. Types
+can't reach what the agent subprocess does (that enforcement is
+`AgentConfig.tools` + the `Enforcement` matrix); the exclusive token guards
+only the Scala-side index-like writes, and agent interference with `.orca`
+progress files is out of the threat model (adversarial agents are not
+considered; agents are trusted-but-fallible).
+Refs: `tools/src/main/scala/orca/InStage.scala:30`,
+`flow/src/main/scala/orca/FlowControl.scala:15-16`,
+`adr/0018-stage-bound-flow-runtime.md:780-802`,
+`flow/.../review/ReviewLoop.scala` (fan-out capture).
+
+- [ ] 0.1 Toolchain pinning (small, do first): move to the latest 3.8.x in
+  the build and the example scripts (we control both ends, so no
+  compatibility strategy is needed); enable
+  `language.experimental.captureChecking` + `separationChecking` in the
+  modules that carry the tokens; re-read the current CC/separation reference
+  docs at that point — the feature is moving (universal capability respelled
+  `any`; `consume`, `.rd` read-only capabilities, `freeze`, hidden-set
+  separation rules are all recent) and this tracker's sketches must not be
+  trusted over the live docs.
+- [ ] 0.2 Design the capability split using the 3.8 vocabulary, which matches
+  the ADR amendment 1:1: `InStage` (LLM-call gate) extends
+  `caps.SharedCapability` — freely capturable into forks, exempt from
+  separation rules; the workspace/index-mutation token carved out of it
+  (`WorkspaceWrite`: git/gh writes, `fs.write`, progress-store writes) and
+  `FlowControl` stay **exclusive** capabilities, so separation checking's
+  hidden-set rules forbid two concurrent closures capturing them. The scope
+  question the ADR amendment glossed is DECIDED (owner, 2026-07-07): the
+  sharable gate covers **any** LLM call — no toolset-aware typing. Rationale:
+  capability types can't constrain what the agent subprocess does (that lives
+  in `AgentConfig.tools` + the `Enforcement` matrix); the exclusive token
+  guards Scala-side index-like writes only; agents tampering with `.orca`
+  state is adversarial and outside the threat model; and parallel
+  Full-toolset agents sharing a worktree remains a documented user-level
+  choice, not a type error. Record this in the ADR amendment (0.7) so the
+  eventual CC design doesn't re-open it.
+- [ ] 0.3 Make the tokens trackable: re-represent `InStage` as a class
+  extending `caps.SharedCapability` instead of opaque `Unit` (a `Unit` value
+  is pure — CC has nothing to track); the mutation token and `FlowControl`
+  get the exclusive-capability marker. Keep the `RuntimeInStage` single-door
+  funnel, `private[orca]` mints, and the `@implicitNotFound` texts (update
+  them for the two-token world).
+- [ ] 0.4 Migrate mutating tool methods to the mutation token per 0.2's
+  decision (git/gh writes, `fs.write`, progress-store writes; `agent.*.run`
+  per the 0.2 answer). Most user code is unaffected (both tokens are ambient
+  in stage bodies); helper signatures change — update the AGENTS.md
+  helper-author guidance and both `implicitNotFound` messages.
+- [ ] 0.5 Fork-boundary enforcement — a bridge designed for deletion: until
+  Ox is capture-checked, orca-owned combinators (`Flow.mapParUnordered`
+  already exists) carry the annotations — thunk parameters typed with arrows
+  that admit shared capabilities but not exclusive ones (per the live docs'
+  current syntax), separation checking catching an exclusive capability
+  hidden across two concurrent arguments; raw `ox.fork` is the unchecked
+  escape hatch in the interim. **Upstream plan (owner, 2026-07-07): Ox itself
+  adopts capture checking, with the `Ox` capability tracked.** Once Ox
+  annotates `fork`/`supervised`, the fork-boundary rejection of exclusive
+  captures happens at `ox.fork` directly (shared `InStage` still passes —
+  `SharedCapability` is separation-exempt), orca's wrappers stop being
+  load-bearing for safety, and the escape-hatch caveat disappears. Keep the
+  wrappers thin and coordinate their capture signatures with the Ox
+  annotation design rather than finalizing them blind.
+- [ ] 0.6 Negative compile tests, extending the `orcacaps` suite: fork
+  capturing `FlowControl` fails; fork capturing `WorkspaceWrite` fails; fork
+  capturing `InStage` **compiles** (pins the load-bearing fan-out capture so
+  a future tightening can't silently outlaw it).
+- [ ] 0.7 Rewrite ADR 0018 §6's capture-checking bullet from deferred future
+  work into the decided design (0.1–0.5's outcomes).
+
+## Epic 1 — Total failure reporting: no silent exits
+
+`flow()`'s outer catch (`case NonFatal(_) => failed = true`, "already surfaced
+inside the scope") is only true for **body** failures — `FlowLifecycle.run`
+wraps only `body` in its reporting try/catch. Setup aborts (including the
+user-facing resume refusals R30 promises "a clear message" for), rehydration
+failures, and `teardownSuccess` failures all exit 1 with banner + cost summary
+and zero explanation. Fix 5.2 (reported-mark moved onto ctx) is what blinded
+the outer frame. Absorbs open item 7.2 from the first tracker.
+Refs: `runner/src/main/scala/orca/flow.scala:161-169`,
+`runner/src/main/scala/orca/runner/FlowLifecycle.scala:46-73,215-228,299-313`.
+
+- [ ] 1.1 Introduce `private[orca] SurfacedFlowFailure(cause)` — thrown only
+  after the failure was emitted/logged — and a `surfaced(...)` bracket in
+  `FlowLifecycle.run` applied to **every** phase (setup, rehydrate, body,
+  teardownSuccess). `flow()`'s catch matches `SurfacedFlowFailure` to discard,
+  and falls back to a stderr print for anything else, so any future unsurfaced
+  path is loud by construction.
+- [ ] 1.2 `teardownFailure` throwing inside the body catch must not mask the
+  original: `e.addSuppressed(t)`, rethrow `e`.
+  Refs: `runner/.../FlowLifecycle.scala:71`.
+- [ ] 1.3 Close first-tracker 7.2: uniform `bestEffort(what)(op)` helper (catch
+  `NonFatal` + debug-log) for all three `teardownSuccess` legs
+  (remove/commit/handoff), making the "cosmetic — swallowed" doc true. A
+  successful run can then never exit 1.
+  Refs: `runner/.../FlowLifecycle.scala:285-313`.
+- [ ] 1.4 Route setup-phase warnings through the dispatcher — the "no event
+  dispatcher threaded through setup" comment is stale (`ctx` demonstrably
+  exists at the call site); a custom `Interaction` (Slack) currently never sees
+  "starting fresh — the previous run's stages will re-run".
+  Refs: `runner/.../FlowLifecycle.scala:48-49,182-199`.
+- [ ] 1.5 Verify `--verbose` prints stacks on the newly-surfaced paths (the
+  `debug` stack-print currently lives only in the body catch).
+
+## Epic 2 — `FlowSession`: one door for durable sessions
+
+`agent.session(name, seed)` returns a bare `SessionId[B]` — the same type raw
+`run(prompt, session)` accepts and defaults. Only the `runSeeded` extension
+applies the seed, probes existence, and persists the wire id; the raw door
+compiles, silently loses context, and on claude crashes deterministically
+post-resume (no `resumeWireId` → `Fresh` dispatch → `--session-id` collides
+with the existing on-disk transcript). The `AgentCall` scaladoc invites the
+misuse; README lists the entry points as undifferentiated siblings; ADR 0018
+R22 describes persistence the code only does for named sessions.
+Refs: `flow/src/main/scala/orca/Session.scala:88-126`,
+`tools/src/main/scala/orca/agents/AgentCall.scala:31-69`,
+`flow/src/main/scala/orca/review/ReviewLoop.scala:461-470`,
+`runner/src/main/scala/orca/runner/FlowLifecycle.scala:85-95`.
+
+- [ ] 2.1 Introduce `FlowSession[B]` (agent + `SessionId[B]`, `private[orca]`
+  ctor): `session(name, seed)` returns it; its `run`/`resultAs` own the whole
+  probe → seed/preamble → run → `persistResumeWireId` protocol in one place.
+  No widening to `SessionId` — `.id` is the visible escape hatch.
+  **CC note:** write `run`/`resultAs` against Epic 0.2's token set from the
+  start — they persist to the progress store, so they take the fork-opaque
+  mutation token, making "durable-session runs are flow-thread-only" a
+  type-level fact once CC lands, while raw ephemeral `run` (2.2) stays
+  fork-sharable. The two doors map 1:1 onto the capability split; do not ship
+  2.1 with a plain `(using InStage)` signature that 0.4 would then break.
+- [ ] 2.2 `AutonomousTextCall.run(prompt, session)` keeps `SessionId[B]` for
+  ephemeral use only; scaladoc stops pointing log-backed sessions at it.
+- [ ] 2.3 `reviewAndFixLoop` / `ReviewFixLoop.fix` take the bundled handle
+  instead of a separate `coder + sessionId` pair (also fixes the fix-turn raw
+  bypass).
+  Refs: `flow/.../review/ReviewLoop.scala:461-470`.
+- [ ] 2.4 Drop or deprecate the `JsonData[SessionId[B]]` given (attractive
+  nuisance: a session persisted as a stage result gets neither map persistence
+  nor seed lookup); amend ADR 0018 R22 to match reality.
+- [ ] 2.5 Fix the AGENTS.md helper-authoring sentence: `Sessioned[B, A]` is a
+  *result* pair, not the promised agent+session bundle — point it at
+  `FlowSession[B]` once it exists.
+  Refs: `AGENTS.md:52-59`, `flow/src/main/scala/orca/plan/Sessioned.scala:24`.
+- [ ] 2.6 Update README tool tables to present the durable door and the
+  ephemeral door as different things.
+
+## Epic 3 — Protected-branch safety on the fresh path
+
+`RecoveryCheck` validates the branch name only when it comes from the progress
+log header (resume). On a fresh run the name comes from `shortenPrompt` — a
+cheap-model LLM reply — and `slug` guarantees ref-shape only:
+`slug("main") == "main"`. A fresh run can bind the whole flow to the default
+branch (stage commits + `reset --hard` teardown on it); with
+`startBranch = "develop"` and an LLM-named `master`, teardown's empty-diff path
+executes `git branch -D master`. Commit e99b361 added the check to the resume
+arm only.
+Refs: `runner/src/main/scala/orca/runner/FlowLifecycle.scala:206-213,239-260,324-338`,
+`flow/src/main/scala/orca/BranchNamingStrategy.scala:78-88`,
+`flow/src/main/scala/orca/progress/RecoveryCheck.scala:36-65`,
+`tools/src/main/scala/orca/tools/GitTool.scala:253-258,453-461`.
+
+- [ ] 3.1 Opaque `FeatureBranch` with one smart constructor owning the
+  protected-set policy (`RecoveryCheck.alwaysProtected` + detected default
+  branch), minted by **both** arms of `setup`; `validateHeader` delegates to
+  the same constructor.
+- [ ] 3.2 `freshRun` maps a refusal to a deterministic fallback rename (mirror
+  `slug`'s hash fallback) or aborts loudly — decide which.
+- [ ] 3.3 `finishBranch` / lifecycle-level delete take `FeatureBranch`, making
+  "delete an unvalidated name" unrepresentable (the current guard is only
+  "never the current branch").
+- [ ] 3.4 Split fresh-create from resume-checkout at the lifecycle layer
+  (`createFlowBranch: Either[BranchAlreadyExists, Unit]` vs `checkout`) so
+  silently adopting an unrelated pre-existing branch becomes a visible
+  decision.
+
+## Epic 4 — Turn-boundary grammar by construction
+
+Fix 2.3 pinned the grammar in prose + a per-scenario test helper, but left
+enforcement to five hand-rolled per-driver flag machines — four violate it
+today: claude's `handleResultError` settles without closing an open turn (its
+own deltas-then-error test omits `assertGrammar`) and emits empty turn ends on
+suppressed-`ask_user`-only messages; codex pairs `AssistantTurnEnd` with
+`agent_message` only, so tool-/reasoning-only turns settle open; gemini emits
+unconditional turn ends (empty-turn violation); pi's `failWith` path never
+closes. Consumers survive via `TurnBuffer`'s defensive flushes.
+Refs: `tools/src/main/scala/orca/backend/ConversationEvent.scala:26-31`,
+`claude/.../ClaudeConversation.scala:145-166,218-225`,
+`codex/.../CodexConversation.scala:184-191,231-238`,
+`gemini/.../GeminiConversation.scala:115-117`,
+`pi/.../PiConversation.scala:128-142,179-181`,
+`opencode/.../OpencodeConversation.scala:75-86,153-175`.
+
+- [ ] 4.1 Move turn accounting into `ForkedConversation`: the event queue
+  tracks `openTurn` (reader-thread-confined var, same invariant as
+  `settledOutcome`), drops empty `AssistantTurnEnd`s, and
+  `succeedWith`/`failWith` auto-close an open turn before settling.
+- [ ] 4.2 Delete the per-driver machinery it obsoletes: opencode's
+  `activitySinceTurnEnd`/`failTurn`/`emitTurnEnd`, pi's
+  `sawAssistantActivity`, gemini's unconditional pre-result turn end, claude's
+  unconditional enqueue.
+- [ ] 4.3 Delete claude's mirrored `partialsSeenThisTurn` /
+  `deltasSinceLastFullTurn` pair (7.9's fix duplicated state; base-owned
+  accounting gives one derived value) and their ~25 lines of lockstep prose.
+  Refs: `claude/.../ClaudeConversation.scala:52-77,126-128,146-148`.
+- [ ] 4.4 Test the grammar once in `tools` as a property of the base
+  (including the deltas-then-error and tool-only-turn sequences the per-driver
+  tests currently route around); demote the per-backend conformance helpers to
+  wire-shape checks.
+- [ ] 4.5 Simplify `TurnBuffer`'s defensive flushes if 4.1 makes them
+  unreachable.
+
+## Epic 5 — Hierarchical stage identity (nested stages + resume)
+
+Stage ids are `name#occurrence` from a per-run *execution* counter; a resumed
+(skipped) stage never runs its body, so its nested stages never bump the
+counter. A later same-named stage then computes the inner stage's id: same
+result type ⇒ silently skipped with the wrong stage's recorded value; different
+type ⇒ re-runs and `appendEntry` upserts over the inner record. Needs no
+script edit — only nesting + a crash. Same desync applies to
+`nextSessionOccurrence` for `session(...)` calls inside stages. Nesting is
+explicitly supported (ADR 0018 R12, §2.1).
+Refs: `flow/src/main/scala/orca/Flow.scala:45-50,56-78`,
+`runner/src/main/scala/orca/runner/DefaultFlowContext.scala:103-117`,
+`flow/src/test/scala/orca/StageRuntimeTest.scala:84-98` (nesting tested, never
+nesting + resume).
+
+- [ ] 5.1 Make stage identity a path (`outer#0/inner#0`): `FlowControl` keeps
+  a frame stack (thread-affine already), occurrence counters scoped per
+  enclosing frame; children of a skipped parent become structurally
+  unreachable. Log-format break is acceptable per the log's own per-run
+  contract (`ProgressLog.scala:34-35`).
+  **CC note:** the frame stack strengthens `FlowControl`'s thread-affinity
+  requirement — aligned with CC making `FlowControl` fork-opaque (Epic 0.2);
+  `enterStage`/`exitStage` live on `FlowControl`, nowhere else.
+- [ ] 5.2 Decide session keying under nesting: same parent-scoped keying, or
+  document + `require` that `session(...)` is called outside stages
+  (`FlowControl` knows whether a frame is open).
+- [ ] 5.3 Add the missing test: nesting + crash + resume, both the same-type
+  (silent wrong value) and different-type (record clobber) shapes.
+- [ ] 5.4 Amend ADR 0018 (§2.1/§5) — the current "occurrence shifts ⇒ harmless
+  re-run" claim doesn't cover this misattribution case.
+
+---
+
+# MEDIUM priority
+
+## Epic 6 — Session write-side and id hygiene
+
+The 1.x fixes funnelled the read side; the write side still has open doors.
+
+- [ ] 6.1 `Dispatch.Fresh(claim: Option[WireSessionId[B]])`: `ClientToServer`
+  registries pass `None` instead of laundering the client id through `onWire`
+  (currently stamped as wire-safe for four backends where it never goes on the
+  wire; a sixth backend forwarding it resurrects the pre-1.1 bug class with
+  type blessing). `onWire` then lives exclusively in `ClaimedOnce`, matching
+  its own doc.
+  Refs: `tools/src/main/scala/orca/backend/SessionRegistry.scala:16-18,96-99`,
+  `tools/src/main/scala/orca/agents/BackendTag.scala:81-86`,
+  `claude/.../ClaudeArgs.scala:67-68`.
+- [ ] 6.2 Hide the registry inside `SessionSupport`; add `commitAfterDrain`
+  (throwing guard) beside `register` (log-and-skip guard) so both write
+  policies have one named home; `Conversations.runAutonomous`/`drainAndCommit`
+  take `SessionSupport[B]`, so a backend physically can't hand the shell a
+  registry different from its declared `sessions`. Fix the self-contradicting
+  funnel doc; claude's unguarded interactive commit
+  (`ClaudeBackend.scala:160`) goes through `register`.
+  Refs: `tools/src/main/scala/orca/backend/SessionSupport.scala:26,50-71`,
+  `tools/src/main/scala/orca/backend/Conversations.scala:184-224`.
+- [ ] 6.3 `session(name, seed)` reuse path checks the recorded backend tag:
+  mismatch ⇒ warn + mint fresh (upsert replaces record with the new tag);
+  `persistResumeWireId` self-heals the tag instead of preserving a stale one.
+  Today a lead-backend swap between runs re-stamps the wire id under the old
+  tag ⇒ permanent silent re-seeding — the exact class 1.3 targeted, on the
+  write path it didn't cover.
+  Refs: `flow/src/main/scala/orca/Session.scala:42-74,111-126`,
+  `runner/src/main/scala/orca/runner/FlowLifecycle.scala:104-126`.
+- [ ] 6.4 Type `SessionRecord.backend` as `BackendTag` with an explicit wire
+  name (`enum BackendTag(val wireName: String)` + `fromWireName` + a pinning
+  test, `EnforcementTableTest`-style) instead of `toString` /
+  `values.find(_.toString == t)` — a case rename currently strands all
+  persisted sessions silently. Warn (don't just skip) on an unknown tag at
+  rehydration.
+  Refs: `tools/.../agents/BackendTag.scala:10-15`,
+  `flow/.../Session.scala:71`, `flow/.../progress/ProgressLog.scala:64-71`,
+  `runner/.../FlowLifecycle.scala:108-119`.
+- [ ] 6.5 Parse-don't-validate ids: make unchecked
+  `SessionId.apply`/`WireSessionId.apply` `private[orca]`; add
+  `parse(s): Option[...]` as the only door for log/wire-sourced strings; the
+  scattered `isSafe` re-checks reduce to the two policy sites of 6.2.
+  Refs: `tools/.../agents/BackendTag.scala:20,78`,
+  `flow/.../Session.scala:60`, `runner/.../FlowLifecycle.scala:121-126`.
+- [ ] 6.6 `runSeeded` asks "will run continue?" not "is it durable?": add
+  `SessionSupport.willContinue` (Ephemeral ⇒ in-process
+  `resumeWireId.isDefined`; Durable ⇒ probe). Today pi re-injects the full
+  seed + progress preamble into a live conversation on **every** task of the
+  canonical plan loop. Add an Ephemeral-shape test (`RunSeededTest` stubs the
+  probe directly, so this is never exercised).
+  Refs: `flow/src/main/scala/orca/Session.scala:88-99`,
+  `tools/src/main/scala/orca/backend/SessionSupport.scala`,
+  `pi/.../PiBackend.scala:54-61`.
+
+## Epic 7 — Concurrency invariants get teeth
+
+- [ ] 7.1 R12 bridge enforcement: `DefaultFlowContext` records `ownerThread`;
+  `nextOccurrence`/`nextSessionOccurrence` assert thread identity and throw
+  "stage(...)/session(...) called from a fork — forks get FlowContext only
+  (ADR 0018 R12)". Ox forks are always fresh threads, so the check is exact;
+  converts silent progress-log corruption into a first-run error.
+  **CC note:** deliberate bridge — Epic 0 makes the capture a compile error,
+  and since scripts always compile with our pinned toolchain, that covers all
+  consumers. The assert still ships and stays: CC/separation checking is
+  experimental and evolving, and the assert also catches non-capture leaks
+  (e.g. a context stored in a global) that CC can't see. Keep it one line so
+  there's nothing to unwind.
+  Refs: `runner/.../DefaultFlowContext.scala:99-118`,
+  `flow/.../Flow.scala:45-50`.
+- [ ] 7.2 Replace `TerminalOutput.suspend()`/`resume()` with one bracketed
+  `prompt[A](readUser: () => A): A` transaction (fair-semaphore-serialized,
+  suspend/resume private to the impl). Two concurrent interactive prompts —
+  a sanctioned fork composition — currently interleave the non-reentrant
+  boolean and share one process-global JLine reader.
+  Refs: `runner/.../terminal/TerminalOutput.scala:42-47,88-89,123-181`,
+  `runner/.../terminal/ConversationRenderer.scala:200-230,324-343`,
+  `runner/.../terminal/TerminalInteraction.scala:60-68`.
+- [ ] 7.3 `TerminalOutputState.setStatus` respects `suspended` (store the
+  label, skip `drawStatus()`; resume already redraws) — a `StageStarted`
+  during a prompt currently repaints over a live `readLine`.
+  Refs: `runner/.../terminal/TerminalOutput.scala:138-152`.
+- [ ] 7.4 Guard `flow()` reentrancy/concurrency: process-wide flag (+
+  workdir-keyed lock file for the two-process case) failing fast with "a flow
+  is already running in this working tree". A nested `flow` today stashes the
+  outer flow's tree, switches branches under it, and `reset --hard`s its work.
+  Refs: `runner/src/main/scala/orca/flow.scala:115-169,249-261`.
+- [ ] 7.5 Agents must not outlive their flow silently: `close()` flips a
+  `closed` flag in `BaseAgent`; run entry points throw "agent used after its
+  flow ended" (leaked agents currently emit to a closed run's dispatcher —
+  loud on opencode, invisible on claude/codex).
+  **CC note:** bridge with a concrete upgrade path — once agents are built
+  via `AgentWiring => Ox ?=> A` factories (10.2) *and* Ox's planned CC
+  adoption lands (the `Ox` capability itself tracked — see 0.5), agent values
+  capture the flow's Ox scope and the leak becomes a compile error; the flag
+  stays for temporal misuse CC can't express (use-after-close within the
+  scope is a lifetime property, not a capture one).
+  Refs: `runner/.../DefaultFlowContext.scala:62-74`,
+  `tools/.../agents/Agent.scala:206`.
+
+## Epic 8 — Backend SPI seams
+
+- [ ] 8.1 Make `workDir` per-backend (fixed at wiring), not per-call: the SPI
+  parameter is a phantom degree of freedom the runtime never varies, opencode
+  ignores it entirely, and claude's probe/spawn "MUST match" contract is
+  prose — the 7.5 bug class, still representable. Interim: `require` equality
+  in opencode + claude's spawn path.
+  Refs: `tools/.../backend/AgentBackend.scala:32`,
+  `opencode/.../OpencodeBackend.scala:62-67`,
+  `claude/.../ClaudeBackend.scala:52-61,106-113`.
+- [ ] 8.2 `ForkedConversation.onCancelRequested()` hook running inside the
+  idempotence guard and only when not finalized; opencode's abort moves there.
+  Today every **successful** opencode turn posts a real `/abort` (via the
+  happy-path `finally cancel()`) for a session that may be resumed next turn,
+  errors swallowed.
+  Refs: `opencode/.../OpencodeConversation.scala:61-65`,
+  `tools/.../backend/Conversations.scala:216-224`,
+  `tools/.../agents/AgentCall.scala:252-253`.
+- [ ] 8.3 Fix opencode's open-path SSE leak: `http.events()` opens the stream
+  in argument position before `serverSessionFor` can throw; nothing closes it.
+  Reorder (throwing step first) + bracket, or generalize
+  `SubprocessSpawn.open` over `StreamSource`.
+  Refs: `opencode/.../OpencodeBackend.scala:97-105,117-127`,
+  `opencode/.../JavaNetOpencodeHttp.scala:65-80`.
+- [ ] 8.4 Hoist the stderr pipeline (strip control sequences → trim → noise
+  filter → enqueue `Error` → `recordStderr`) into
+  `BufferedStderrDiagnostics`; backends override only the noise predicate.
+  Triplicated today with demonstrated drift (only pi strips ANSI).
+  Refs: `codex/.../CodexConversation.scala:110-114`,
+  `gemini/.../GeminiConversation.scala:89-93`,
+  `pi/.../PiConversation.scala:95-99`.
+- [ ] 8.5 Gemini wire parsing: required fields for identity-critical keys
+  (`session_id` on `init` — a missing key currently becomes `Init("")`
+  surfacing three retries later); type the role decision
+  (`enum Role { User, Assistant, Unknown }`, `Unknown` dropped — an absent
+  role currently classifies as assistant output). Codex already made the
+  fail-loud choice at the same protocol position.
+  Refs: `gemini/.../jsonl/InboundEvent.scala:16-18,56-62,104-107`,
+  `gemini/.../GeminiConversation.scala:155-158`,
+  contrast `codex/.../jsonl/InboundEvent.scala:170-173`.
+- [ ] 8.6 Small seam de-duplication: `SessionMode.displayPrompt`/`fold`
+  helpers (destructuring repeated in all five backends, twice in opencode);
+  `runAutonomous` default args declared on the trait only (per-impl
+  re-declaration diverges silently by static type); shared
+  `deleteFileResource` helper next to `SubprocessSpawn` (claude/codex mirror
+  comment); consider making `AgentBackend.enforcement` abstract (test doubles
+  pay one line each; backend #6 forgetting it currently ships `Ignored`
+  silently).
+  Refs: `claude/.../ClaudeBackend.scala:205-214,336-337`,
+  `codex/.../CodexBackend.scala:178-181,251-252`,
+  `tools/.../backend/AgentBackend.scala:112-113`.
+
+## Epic 9 — Tools-layer classification: parse wire truth at the boundary
+
+- [ ] 9.1 `PushFailure` ADT (`NonFastForward` / `RemoteDeclined(msg)` /
+  `Other`): the bare `"rejected"` matcher classifies GitHub's protected-branch
+  decline (GH006) as the recoverable `PushRejected`, whose documented
+  fetch-and-rebase recovery loops forever; the test currently pins the
+  misclassification — fix it to pin the correct class.
+  Refs: `tools/src/main/scala/orca/tools/GitTool.scala:52-58,524-530`,
+  `tools/src/test/scala/orca/tools/CliFailurePredicatesTest.scala:17-18`.
+- [ ] 9.2 Parse each `GhCheck` into a total `CheckState` enum
+  (`Pending/Success/Failure/Unknown(raw)`) at the DTO boundary: legacy
+  `EXPECTED` (required external CI not yet reporting) currently falls through
+  to instant `Failure`, defeating the empty-rollup/`noChecksGrace` machinery
+  built precisely to avoid racing CI startup; `Unknown` gets logged instead of
+  vanishing into `else Failure`. Add the missing EXPECTED test.
+  Refs: `tools/src/main/scala/orca/tools/GitHubTool.scala:588-615`,
+  `tools/src/main/scala/orca/tools/GhJson.scala:15-22`.
+- [ ] 9.3 `JsonSchemaGen` fails fast on `Map[String, _]` fields with an
+  actionable message ("model as a List of key/value case classes") instead of
+  outsourcing to codex's opaque `invalid_json_schema` after destructive stages
+  already ran; ideally hoist to `resultAs[O]` construction so it fires before
+  any stage.
+  Refs: `tools/src/main/scala/orca/util/JsonSchemaGen.scala:59-73`,
+  `tools/src/main/scala/orca/agents/AgentCall.scala:146,235`.
+- [ ] 9.4 `BuildStatus` carries `checkCount`/`hasChecks` — `waitForBuild`
+  currently derives "a check has registered" from the rendered log string
+  being non-empty (semantic fact destroyed by projection, re-derived from
+  rendering).
+  Refs: `tools/src/main/scala/orca/tools/GitHubTool.scala:77,470-499`.
+- [ ] 9.5 `FsTool.list` validates glob shape at entry (reject leading `/`,
+  handle `.`/`..`) with a self-describing error — currently an unrelated
+  `IllegalArgumentException` from os-lib, and absolute globs could only ever
+  return `Nil`.
+  Refs: `tools/src/main/scala/orca/tools/FsTool.scala:42-66`.
+
+## Epic 10 — Wiring and selector holes
+
+- [ ] 10.1 The lead-agent selector re-opens the event-blind hole 7.8 closed
+  for overrides: `flow(args, _ => myPrebuiltAgent)` compiles; the foreign
+  agent is event-blind, never closed, used privileged. Fix: `close()` also
+  closes `ctx.agent` when not one of the wired five; construction-time warning
+  when the selected agent isn't derived from this run; document the constraint
+  in the `flow` scaladoc beside the override-factory paragraph.
+  Refs: `runner/src/main/scala/orca/flow.scala:88-90`,
+  `runner/.../DefaultFlowContext.scala:62-74,85`.
+- [ ] 10.2 Delete the `opencodeLauncher` flow parameter (3.1 residue): fully
+  expressible as `opencode = Some(w => OpencodeAgents.default(w, launcher))`,
+  and passing both today silently ignores the launcher. While there, unify all
+  five factory fields to `Option[AgentWiring => Ox ?=> A]` (Scala 3
+  auto-adapts plain lambdas, so user code compiles unchanged; the `.map(f =>
+  f(agentWiring): OpencodeAgent)` ascription trick disappears). The uniform
+  `Ox ?=>` shape is also what lets CC later tie agent lifetimes to the flow
+  scope (see 7.5's note).
+  Refs: `runner/src/main/scala/orca/flow.scala:106-107`,
+  `runner/.../FlowWiring.scala:36-37`,
+  `runner/.../DefaultFlowContext.scala:159-167`.
+- [ ] 10.3 `exports.scala` gaps: add `Usage` (pattern-matched by any
+  `OrcaListener`), `IgnoredIssues`/`IgnoredIssue` (return type of exported
+  `reviewAndFixLoop`/`fixLoop`), and consider `Cost`.
+  Refs: `runner/src/main/scala/orca/exports.scala`.
+- [ ] 10.4 Collapse the triplicated five-agent enumeration in
+  `DefaultFlowContext` (`close`'s list, `targetAgent`'s match, `withDefaults`)
+  into one `agents: Map[BackendTag, Agent[?]]`.
+  Refs: `runner/.../DefaultFlowContext.scala`.
+
+## Epic 11 — Review loop: roster-bound selection
+
+`ReviewerSelector.prepare` still returns `List[ReviewBatch] => List[Agent[?]]`,
+so the loop carries four runtime defenses with one root (the type permits
+non-roster values): the name-uniqueness `require`, `resolveAgainstRoster` +
+foreign-drop warning, the surprising silent full-roster fallback, and the
+two-hop `.as[RB]` soundness prose.
+Refs: `flow/.../review/ReviewLoop.scala:254-258,302-326,416-429`,
+`flow/.../review/ReviewerSelector.scala:20-25`,
+`flow/.../review/SelectedReviewers.scala:11-12`.
+
+- [ ] 11.1 Opaque roster-bound `RosterEntry` handles (`private[review]` ctor);
+  selectors permute what they were handed; session map keyed by entry
+  identity. `resolveAgainstRoster`, its warning, the fallback, and the
+  uniqueness `require` all delete; `.as[RB]`'s justification collapses to one
+  locally-visible hop (or deletes entirely if Epic 2's handle lands —
+  `SessionId.Untyped`'s only client is this file).
+  **CC note:** the returned closure's "must not capture `InStage`" contract
+  (first-pass fix 4.3) becomes typeable as a pure arrow —
+  `List[ReviewBatch] -> List[RosterEntry]` — once Epic 0 lands; declare it
+  that way then.
+- [ ] 11.2 Keep the hallucinated-picker-output floor inside `agentDriven`,
+  matching returned names against `eligible: List[RosterEntry]`.
+- [ ] 11.3 Extract the duplicated fix-loop stop policy (max-iterations
+  counting fixes ⇒ N+1 evaluations, fold-to-ignored on cap, halt on
+  zero-fixed) into one decision function used by both `fixLoop.loop` and
+  `ReviewFixLoop.run.loop` — currently synced only by "same stop policy as"
+  comments.
+  Refs: `flow/.../review/ReviewLoop.scala:45-68,489-521`.
+- [ ] 11.4 `ReviewLoopConfig` case class for `reviewAndFixLoop`'s 12 params
+  mirrored field-for-field into `ReviewFixLoop`'s constructor (same shape 3.6
+  fixed with `FlowWiring`).
+
+---
+
+# LOW priority
+
+## Epic 12 — Diagnostics and small robustness
+
+- [ ] 12.1 `AgentTurnFailed` keeps cause chains: add
+  `cause: Throwable | Null = null` + `initCause` and thread the original at
+  both wrap sites (`awaitResult`, `runAutonomousWithRetry`) — debug stacks
+  currently lose the driver's original failure twice over.
+  Refs: `tools/.../backend/ForkedConversation.scala:167-171`,
+  `tools/.../agents/AgentCall.scala:218-222`.
+- [ ] 12.2 Make `settledOutcome`'s single-thread invariant self-enforcing:
+  record the reader thread, assert in `succeedWith`/`failWith` (plain or
+  `OrcaDebug`-gated) — currently a frozen five-backend audit comment that
+  expires silently on backend #6.
+  Refs: `tools/.../backend/ForkedConversation.scala:79-94,192-201`.
+- [ ] 12.3 `resetHard` doc/decision: `git reset --hard` does not remove
+  untracked files, so a failed stage's *new* files (the typical agent output)
+  survive teardown and get stashed into the next run's "orca: starting flow"
+  stash alongside user WIP. Fix the trait doc + ADR 0018 §2.5 note; if
+  leftovers should die, that's a scoped clean of run-touched paths, not
+  blanket `clean -fd`.
+  Refs: `tools/src/main/scala/orca/tools/GitTool.scala:132-138`,
+  `runner/.../FlowLifecycle.scala:176-180,344-347`.
+- [ ] 12.4 Route `ProgressStore` write-path reads through `loadDetailed()`:
+  a mid-run corrupted log currently throws "appendEntry called before
+  writeHeader" — a protocol violation that never happened.
+  Refs: `flow/.../progress/ProgressStore.scala:100-126`.
+- [ ] 12.5 `Pricing.lookup` prefix fallback can cross model tiers
+  (`gemini-2.5-flash-lite` billed as `flash`): gate the fallback on a
+  date-like remainder (the case the heuristic was built for), or accept and
+  note.
+  Refs: `flow/src/main/scala/orca/events/Pricing.scala:79-89`.
+- [ ] 12.6 `showThinking` is dead in production and mis-styles the whole turn
+  when enabled (shared `textBuffer`, first-delta-wins styling): delete the
+  flag, or flush on style change so "one buffer, one style" is structural.
+  Refs: `runner/.../terminal/ConversationRenderer.scala:40,67-73,94-98,118-126`.
+- [ ] 12.7 Structured cost attribution: `TokensUsed(agent, role, model,
+  usage)` with `role = "reviewer"` set at the emission edge — the `"reviewer: "`
+  prefix is the last stringly convention in the event vocabulary; today
+  "grouping" is only lexical sort adjacency, and any consumer parsing it back
+  reintroduces the strip/re-match bug class.
+  Refs: `flow/.../review/Reviewers.scala:31-39`,
+  `flow/.../events/CostTracker.scala:112-141`,
+  `tools/.../events/OrcaEvent.scala:40`.
+
+---
+
+## Re-litigated and upheld (second-pass verdicts; listed to prevent a third pass)
+
+Challenged with fresh arguments and confirmed fine: `InStage` machinery
+proportionality (it already *is* the context-function encoding; `erased` buys
+nothing; capture checking remains the endgame); `ForkedConversation`'s core
+channel/fork/outcome design; the dual `ConversationEvent`/`OrcaEvent`
+vocabulary; the enforcement matrix + `EnforcementTableTest`;
+`FlowContext`/`FlowControl` split; `EventDispatcher` quarantine semantics;
+`ProgressStore` atomic writes + corruption-as-data; `RecoveryCheck`/`slug`
+producer-validator sharing; the module graph; `FlowWiring`/`AgentWiring`
+factories; `ReviewFixLoop`'s single `@tailrec` state threading; flattened LLM
+wire DTOs (`AssessedPlan`, `BugTriage`); `CostTracker`/`Pricing` state
+handling; claude's at-spawn interactive commit timing (CLI-imposed,
+documented); `AskUserEchoes` per-backend matchers; the three renderings of
+`AskUserMcpServer.ToolTimeout`; `SystemPromptComposer`'s file-vs-fold split;
+claude `pipeStderr=false`; codex/gemini/opencode probes; pi `Ephemeral` shape;
+`OpencodeServer`'s residual atomics (each closed race documented);
+`JLinePrompter`'s process-scoped one-shot close (documented boundary);
+`e9d751d`'s two-sided structured-result contract; `TerminalOutput` actor
+design (Epic 7 is about the prompt protocol on top of it, not the actor);
+`TerminalEventListener` post-8.6; `Text`/`Ansi`/`ToolCallLine`/
+`ToolInputSummary`; `OsGitTool`'s helper layering, push credential handling,
+`nonInteractiveEnv`; `OsGitHubTool`'s `ghRead`/`ghMutate` retry split;
+`GhJson` DTO separation; `CliRunner`/`QuietProc` post-8.4; `RawJson`;
+`PromptResource`; `TerminalControl`; `TextWrap`; `OrcaDebug`; `Usage`
+normalisation; `SessionSupport`'s Durable/Ephemeral collapse (Epic 6 items are
+missing pieces, not flaws in the collapse); the 6.1 "lean-in" tag-keeping
+decision (Epic 2.5 fixes its mis-sold doc, not the decision).
+
+First-pass verdicts that did **not** survive re-litigation: the centralized
+stderr matchers (9.1 — breadth contradicts the Left type's recovery
+semantics) and the 6.1 docs-only resolution (2.5 — `Sessioned` can't do what
+AGENTS.md claims).
