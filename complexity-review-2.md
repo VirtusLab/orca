@@ -361,7 +361,7 @@ Refs: `flow/src/main/scala/orca/Flow.scala:45-50,56-78`,
 `flow/src/test/scala/orca/StageRuntimeTest.scala:84-98` (nesting tested, never
 nesting + resume).
 
-- [ ] 5.1 Make stage identity a path (`outer#0/inner#0`): `FlowControl` keeps
+- [x] 5.1 (done: 72b009c — StageFrames mixin, shared by production + all test doubles) Make stage identity a path (`outer#0/inner#0`): `FlowControl` keeps
   a frame stack (thread-affine already), occurrence counters scoped per
   enclosing frame; children of a skipped parent become structurally
   unreachable. Log-format break is acceptable per the log's own per-run
@@ -369,7 +369,7 @@ nesting + resume).
   **CC note:** the frame stack strengthens `FlowControl`'s thread-affinity
   requirement — aligned with CC making `FlowControl` fork-opaque (Epic 0.2);
   `enterStage`/`exitStage` live on `FlowControl`, nowhere else.
-- [ ] 5.2 Decide session keying under nesting: same parent-scoped keying, or
+- [x] 5.2 (done: 72b009c — require guard, fires for any open frame) Decide session keying under nesting: same parent-scoped keying, or
   document + `require` that `session(...)` is called outside stages
   (`FlowControl` knows whether a frame is open).
   (Research 2026-07-07, epic5-research.md: DECIDED — the `require` guard.
@@ -380,9 +380,9 @@ nesting + resume).
   path format is drop-in; TestFlowControl duplicates the flat-map bug and
   MUST be upgraded in the same change; Epic 7.1's future thread assert must
   cover enterStage/exitStage — note for that epic.)
-- [ ] 5.3 Add the missing test: nesting + crash + resume, both the same-type
+- [x] 5.3 (done: 72b009c — both money shapes RED-first) Add the missing test: nesting + crash + resume, both the same-type
   (silent wrong value) and different-type (record clobber) shapes.
-- [ ] 5.4 Amend ADR 0018 (§2.1/§5) — the current "occurrence shifts ⇒ harmless
+- [x] 5.4 (done: 72b009c — R10/§2.1/§5 amended, scoped retraction) Amend ADR 0018 (§2.1/§5) — the current "occurrence shifts ⇒ harmless
   re-run" claim doesn't cover this misattribution case.
 
 ---
