@@ -82,9 +82,6 @@ private[orca] class OpencodeBackend(server: OpencodeServerHandle)
     */
   override def close(): Unit = server.close()
 
-  private val registry =
-    new SessionRegistry.ClientToServer[BackendTag.Opencode.type]
-
   def runAutonomous(
       prompt: String,
       session: SessionId[BackendTag.Opencode.type],
@@ -94,7 +91,7 @@ private[orca] class OpencodeBackend(server: OpencodeServerHandle)
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Opencode.type] =
     val http = server.http
-    Conversations.runAutonomous(session, registry, events):
+    Conversations.runAutonomous(session, sessions, events):
       openConversation(
         http,
         http.events(),
@@ -157,9 +154,15 @@ private[orca] class OpencodeBackend(server: OpencodeServerHandle)
   ): Enforcement =
     OpencodeArgs.enforcement(tools, autoApprove)
 
+  /** The sole session handle. The wrapped [[SessionRegistry.ClientToServer]]
+    * maps the caller's stable id to opencode's server-minted `ses_…` id, so
+    * subsequent turns resume it. The registry is encapsulated; the spawn/commit
+    * paths go through `sessions.dispatchFor` /
+    * `Conversations.runAutonomous(session, sessions, …)`.
+    */
   val sessions: SessionSupport[BackendTag.Opencode.type] =
     SessionSupport.Durable(
-      registry,
+      new SessionRegistry.ClientToServer[BackendTag.Opencode.type],
       id => server.started && probeSession(id, server.http)
     )
 
@@ -170,7 +173,7 @@ private[orca] class OpencodeBackend(server: OpencodeServerHandle)
       http: OpencodeHttp,
       session: SessionId[BackendTag.Opencode.type]
   ): String =
-    registry.dispatchFor(session) match
+    sessions.dispatchFor(session) match
       case Dispatch.Resume(serverId) => WireSessionId.value(serverId)
       case Dispatch.Fresh(_) =>
         val resp = http.postJson("/session", writeToString(SessionCreateBody()))

@@ -37,7 +37,7 @@ import ox.Ox
   * path drains it internally via [[orca.backend.Conversations.drainAutonomous]]
   * while the interactive path returns the conversation for an `Interaction` to
   * drive. Multi-turn: subsequent calls with the same session id route through
-  * `gemini --resume <session-id>` via the [[registry]] (a
+  * `gemini --resume <session-id>` via [[sessions]] (backed by a
   * [[SessionRegistry.ClientToServer]]), where the id was learned from the
   * `init` event of the prior run.
   *
@@ -51,13 +51,6 @@ import ox.Ox
   */
 private[orca] class GeminiBackend(cli: CliRunner)
     extends AgentBackend[BackendTag.Gemini.type]:
-
-  /** Maps the client-allocated session id to gemini's `init`-reported session
-    * id. `gemini -p` mints its own id, so we keep this mapping to dispatch
-    * subsequent calls through `gemini --resume <server-id>`.
-    */
-  private val registry =
-    new SessionRegistry.ClientToServer[BackendTag.Gemini.type]
 
   /** Gemini's sessions are server-side and durable, so it is
     * [[SessionSupport.Durable]]: the client→server map is persisted to the
@@ -80,9 +73,16 @@ private[orca] class GeminiBackend(cli: CliRunner)
   ): Enforcement =
     GeminiArgs.enforcement(tools, autoApprove)
 
+  /** The sole session handle. The wrapped [[SessionRegistry.ClientToServer]]
+    * maps the client-allocated id to gemini's `init`-reported session id
+    * (`gemini -p` mints its own), so subsequent calls dispatch through `gemini
+    * --resume <server-id>`. The registry is encapsulated; the spawn/commit
+    * paths go through `sessions.dispatchFor` /
+    * `Conversations.runAutonomous(session, sessions, …)`.
+    */
   val sessions: SessionSupport[BackendTag.Gemini.type] =
     SessionSupport.Durable(
-      registry,
+      new SessionRegistry.ClientToServer[BackendTag.Gemini.type],
       id =>
         val result = listSessionsOutput()
         result.exitCode == 0 && result.stdout.linesIterator.exists(
@@ -101,7 +101,7 @@ private[orca] class GeminiBackend(cli: CliRunner)
     // drainAndCommit records the client→server mapping so a follow-up call on
     // this client id resumes the right thread; the result carries the server
     // thread id as its wireId, and the caller keeps using the client id.
-    Conversations.runAutonomous(session, registry, events):
+    Conversations.runAutonomous(session, sessions, events):
       openConversation(
         prompt = prompt,
         mode = SessionMode.Autonomous,
@@ -168,7 +168,7 @@ private[orca] class GeminiBackend(cli: CliRunner)
         prompt,
         extraHint = Option.when(askUser.isDefined)(AskUserMcpServer.Hint)
       )
-      val args = registry.dispatchFor(session) match
+      val args = sessions.dispatchFor(session) match
         case Dispatch.Resume(serverId) =>
           GeminiArgs.resume(serverId, finalPrompt, config)
         case Dispatch.Fresh(_) =>

@@ -18,7 +18,7 @@ class SessionRegistryTest extends munit.FunSuite:
   ):
     val reg = new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type]
     val client = sid("client-A")
-    assertEquals(reg.dispatchFor(client), Dispatch.Fresh(client.onWire))
+    assertEquals(reg.dispatchFor(client), Dispatch.Fresh(Some(client.onWire)))
     reg.commitSuccess(client, client.onWire)
     assertEquals(reg.dispatchFor(client), Dispatch.Resume(client.onWire))
 
@@ -30,7 +30,7 @@ class SessionRegistryTest extends munit.FunSuite:
     val b = sid("b")
     reg.commitSuccess(a, a.onWire)
     assertEquals(reg.dispatchFor(a), Dispatch.Resume(a.onWire))
-    assertEquals(reg.dispatchFor(b), Dispatch.Fresh(b.onWire))
+    assertEquals(reg.dispatchFor(b), Dispatch.Fresh(Some(b.onWire)))
 
   test(
     "ClientToServer: dispatchFor returns Resume with the recorded server id"
@@ -40,7 +40,9 @@ class SessionRegistryTest extends munit.FunSuite:
     val reg = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
     val client = clientSid("client-uuid")
     val server = wireSid("server-thread-xyz")
-    assertEquals(reg.dispatchFor(client), Dispatch.Fresh(client.onWire))
+    // ClientToServer never puts a client id on the wire: fresh dispatch is
+    // `Fresh(None)` (the server mints its own id at first use).
+    assertEquals(reg.dispatchFor(client), Dispatch.Fresh(None))
     reg.commitSuccess(client, server)
     assertEquals(reg.dispatchFor(client), Dispatch.Resume(server))
 

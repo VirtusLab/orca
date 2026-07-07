@@ -48,17 +48,21 @@ private[orca] class PiBackend(cli: CliRunner)
   // fresh rather than `--continue`-ing a dir Pi never created.
   private val sessionsBase: os.Path =
     os.temp.dir(prefix = "orca-pi-sessions-", deleteOnExit = true)
-  private val registry = new SessionRegistry.ClaimedOnce[BackendTag.Pi.type]
 
   /** Pi's sessions live in a `deleteOnExit` temp dir (gone across runs), so it
-    * is [[SessionSupport.Ephemeral]]: the registry tracks fresh-vs-resume
-    * within a live process, but there is nothing durable to persist, rehydrate,
-    * or probe — pi always re-seeds across runs (ADR 0018 §2.6). The `Ephemeral`
-    * case says this structurally, so `resumeWireId`/`sessionExists` report
-    * absence without a per-backend override.
+    * is [[SessionSupport.Ephemeral]]: the wrapped
+    * [[SessionRegistry.ClaimedOnce]] tracks fresh-vs-resume within a live
+    * process, but there is nothing durable to persist, rehydrate, or probe — pi
+    * always re-seeds across runs (ADR 0018 §2.6). The `Ephemeral` case says
+    * this structurally, so `resumeWireId`/`sessionExists` report absence
+    * without a per-backend override. The registry is encapsulated; the
+    * spawn/commit paths go through `sessions.dispatchFor` /
+    * `Conversations.runAutonomous(session, sessions, …)`.
     */
   val sessions: SessionSupport[BackendTag.Pi.type] =
-    SessionSupport.Ephemeral(registry)
+    SessionSupport.Ephemeral(
+      new SessionRegistry.ClaimedOnce[BackendTag.Pi.type]
+    )
 
   val tag: BackendTag.Pi.type = BackendTag.Pi
 
@@ -76,7 +80,7 @@ private[orca] class PiBackend(cli: CliRunner)
       events: OrcaListener = OrcaListener.noop,
       outputSchema: Option[String] = None
   ): AgentResult[BackendTag.Pi.type] =
-    Conversations.runAutonomous(session, registry, events):
+    Conversations.runAutonomous(session, sessions, events):
       openConversation(
         prompt = prompt,
         mode = SessionMode.Autonomous,
@@ -138,7 +142,7 @@ private[orca] class PiBackend(cli: CliRunner)
       askUserExtension.toList ++ systemPromptFile.toList
 
     SubprocessSpawn.open("pi RPC", resources) {
-      val resume = registry.dispatchFor(session) match
+      val resume = sessions.dispatchFor(session) match
         case Dispatch.Resume(_) => true
         case Dispatch.Fresh(_)  => false
       val args = PiArgs.rpc(

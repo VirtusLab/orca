@@ -69,13 +69,6 @@ private[orca] class ClaudeBackend(
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
     new ClaudeBackend(cli, tools, projectsDir, cwdForProbe)
 
-  /** Tracks which session ids we've already claimed via `--session-id` so
-    * subsequent calls use `--resume` (the CLI refuses to reuse `--session-id`
-    * once the session exists).
-    */
-  private val registry =
-    new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type]
-
   /** Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
     * outlive the process, so it is [[SessionSupport.Durable]]: the claim
     * survives a restart via the registry (persisted to the progress log,
@@ -103,9 +96,16 @@ private[orca] class ClaudeBackend(
   ): Enforcement =
     ClaudeArgs.enforcement(tools, autoApprove)
 
+  /** The sole session handle. The wrapped [[SessionRegistry.ClaimedOnce]]
+    * tracks which ids we've claimed via `--session-id` so subsequent calls use
+    * `--resume` (the CLI refuses to reuse `--session-id` once the session
+    * exists); the registry is encapsulated, so the spawn/commit paths go
+    * through `sessions.dispatchFor` / `sessions.register` /
+    * `Conversations.runAutonomous(session, sessions, …)`.
+    */
   val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
     SessionSupport.Durable(
-      registry,
+      new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type],
       id =>
         os.exists(
           projectsDir / ClaudeBackend.cwdSlug(cwdForProbe) / s"$id.jsonl"
@@ -126,7 +126,7 @@ private[orca] class ClaudeBackend(
     // surfaces as AgentTurnFailed and is never auto-retried — the commit
     // ordering matters for the NEXT `session(...)` call (or a resumed run),
     // which must see a registry that agrees with what claude actually did.
-    Conversations.runAutonomous(session, registry, events):
+    Conversations.runAutonomous(session, sessions, events):
       openConversation(
         prompt = prompt,
         mode = SessionMode.Autonomous,
@@ -156,8 +156,11 @@ private[orca] class ClaudeBackend(
     // conversation is up (the spawn succeeded, claude has parsed args).
     // A crash mid-conversation will still leave the mark in place, but
     // interactive sessions aren't auto-retried by the orchestrator —
-    // the user reruns with a fresh `claude.newSession`.
-    registry.commitSuccess(session, session.onWire)
+    // the user reruns with a fresh `claude.newSession`. Through `register`
+    // (log-and-skip guard, the correct policy for the interactive path) rather
+    // than a raw registry commit — claude is ClaimedOnce, so the client id IS
+    // the wire id (`onWire`), which is always safe.
+    sessions.register(session, session.onWire)
     conv
 
   /** Spawn `claude` in stream-json mode, write the opening user turn, close
@@ -235,7 +238,7 @@ private[orca] class ClaudeBackend(
       val args = ClaudeArgs.streamJson(
         effectiveConfig,
         systemPromptFile,
-        dispatch = registry.dispatchFor(session),
+        dispatch = sessions.dispatchFor(session),
         outputSchema,
         mcpConfig = askUser.map(r => mcpConfigPath(r.server, workDir)),
         networkTools = networkTools

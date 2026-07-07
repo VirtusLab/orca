@@ -8,13 +8,20 @@ import orca.agents.{BackendTag, SessionId, WireSessionId, onWire}
   * via `--session-id`; codex maps client UUIDs to server-allocated thread ids),
   * but the call site only cares about the two cases.
   *
-  * `wireId` is the id the consumer puts on the wire — the registry has already
-  * decided which one it is (claude's client UUID, codex's server thread id).
-  * Consumers shouldn't reason about where it came from; they pattern-match on
-  * `Fresh` vs `Resume` and forward the id to the CLI.
+  * `Resume` always carries the `wireId` the consumer puts on the wire — the
+  * registry has already decided which one it is (claude's client UUID, codex's
+  * server thread id). `Fresh` carries an OPTIONAL claim: `Some(id)` only for
+  * [[SessionRegistry.ClaimedOnce]], where the caller-allocated id IS the wire
+  * id and the CLI is told to create the session under it (claude's
+  * `--session-id`); `None` for [[SessionRegistry.ClientToServer]], where the
+  * server mints its own id at first use so there is nothing legitimate to put
+  * on the wire yet. Making the claim an `Option` (rather than always a real
+  * `WireSessionId`) stops a server-minting backend from naively forwarding a
+  * fabricated client id onto the wire — the pre-1.1 resume-bug class. Consumers
+  * pattern-match on `Fresh` vs `Resume` and forward the id to the CLI.
   */
 enum Dispatch[B <: BackendTag]:
-  case Fresh(wireId: WireSessionId[B])
+  case Fresh(claim: Option[WireSessionId[B]])
   case Resume(wireId: WireSessionId[B])
 
 /** Backend-internal bookkeeping for the fresh-vs-resume decision. Each backend
@@ -62,7 +69,7 @@ object SessionRegistry:
     def dispatchFor(client: SessionId[B]): Dispatch[B] =
       if claimed.contains(SessionId.value(client)) then
         Dispatch.Resume(client.onWire)
-      else Dispatch.Fresh(client.onWire)
+      else Dispatch.Fresh(Some(client.onWire))
 
     /** The `server` parameter is ignored — for backends using this registry,
       * the wire id IS the client id.
@@ -96,7 +103,9 @@ object SessionRegistry:
     def dispatchFor(client: SessionId[B]): Dispatch[B] =
       Option(map.get(SessionId.value(client))) match
         case Some(serverId) => Dispatch.Resume(WireSessionId[B](serverId))
-        case None           => Dispatch.Fresh(client.onWire)
+        // No client id goes on the wire: the server mints its own id at first
+        // use, so there is nothing legitimate to claim yet (never `onWire`).
+        case None => Dispatch.Fresh(None)
 
     def commitSuccess(client: SessionId[B], server: WireSessionId[B]): Unit =
       val _ = map.putIfAbsent(

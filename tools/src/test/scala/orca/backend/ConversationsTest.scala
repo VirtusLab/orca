@@ -88,7 +88,11 @@ class ConversationsTest extends munit.FunSuite:
       Nil,
       Right(sampleResult.copy(wireId = reportedWire))
     )
-    val result = Conversations.drainAndCommit(conv, client, registry)
+    val result = Conversations.drainAndCommit(
+      conv,
+      client,
+      SessionSupport.Durable(registry, _ => false)
+    )
     assert(result.wireId == reportedWire) // result reports the wire truth
     assert(
       registry.resumeWireId(client).contains(reportedWire)
@@ -110,7 +114,11 @@ class ConversationsTest extends munit.FunSuite:
     val failure = new OrcaFlowException("boom")
     val conv = new FailingConversation(failure)
     val thrown = intercept[OrcaFlowException]:
-      Conversations.drainAndCommit(conv, client, registry)
+      Conversations.drainAndCommit(
+        conv,
+        client,
+        SessionSupport.Durable(registry, _ => false)
+      )
     assertEquals(thrown, failure)
     assertEquals(thrown.getMessage, "boom")
     assert(registry.resumeWireId(client).isEmpty) // never committed
@@ -131,7 +139,11 @@ class ConversationsTest extends munit.FunSuite:
       )
     )
     val thrown = intercept[OrcaFlowException]:
-      Conversations.drainAndCommit(conv, client, registry)
+      Conversations.drainAndCommit(
+        conv,
+        client,
+        SessionSupport.Durable(registry, _ => false)
+      )
     assert(
       thrown.getMessage.contains("invalid session id"),
       thrown.getMessage
@@ -433,7 +445,11 @@ class ConversationsTest extends munit.FunSuite:
       Right(sampleResult.copy(wireId = reportedWire))
     )
     val result =
-      Conversations.runAutonomous(client, registry, OrcaListener.noop):
+      Conversations.runAutonomous(
+        client,
+        SessionSupport.Durable(registry, _ => false),
+        OrcaListener.noop
+      ):
         conv
     assertEquals(result.wireId, reportedWire)
     assert(registry.resumeWireId(client).contains(reportedWire))
@@ -447,7 +463,11 @@ class ConversationsTest extends munit.FunSuite:
     val failure = new AgentTurnFailed("turn blew up")
     val conv = new FailingConversation(failure)
     val thrown = intercept[AgentTurnFailed]:
-      Conversations.runAutonomous(client, registry, OrcaListener.noop):
+      Conversations.runAutonomous(
+        client,
+        SessionSupport.Durable(registry, _ => false),
+        OrcaListener.noop
+      ):
         conv
     assertEquals(thrown, failure)
     assertEquals(conv.cancelCount.get(), 1)

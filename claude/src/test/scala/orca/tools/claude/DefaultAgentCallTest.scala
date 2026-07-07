@@ -80,7 +80,8 @@ class SequencedBackend(outputs: List[String])
       new SessionRegistry[BackendTag.ClaudeCode.type]:
         def dispatchFor(
             client: SessionId[BackendTag.ClaudeCode.type]
-        ): Dispatch[BackendTag.ClaudeCode.type] = Dispatch.Fresh(client.onWire)
+        ): Dispatch[BackendTag.ClaudeCode.type] =
+          Dispatch.Fresh(Some(client.onWire))
         def commitSuccess(
             client: SessionId[BackendTag.ClaudeCode.type],
             server: WireSessionId[BackendTag.ClaudeCode.type]

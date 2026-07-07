@@ -36,8 +36,8 @@ import ox.Ox
   * path drains it internally via [[orca.backend.Conversations.drainAutonomous]]
   * while the interactive path returns the conversation for an `Interaction` to
   * drive. Multi-turn: subsequent `runAutonomous` / `runInteractive` calls with
-  * the same session id route through `codex exec resume <server-id>` via the
-  * [[registry]] (a [[SessionRegistry.ClientToServer]]).
+  * the same session id route through `codex exec resume <server-id>` via
+  * [[sessions]] (backed by a [[SessionRegistry.ClientToServer]]).
   *
   * Interactive calls additionally stand up an `ask_user` MCP host bridge
   * ([[AskUserMcpServer]]) on an ephemeral port and register it with codex via
@@ -49,14 +49,6 @@ private[orca] class CodexBackend(
     cli: CliRunner,
     private[codex] val sessionsDir: os.Path = os.home / ".codex" / "sessions"
 ) extends AgentBackend[BackendTag.Codex.type]:
-
-  /** Maps the client-allocated session id (the UUID the caller passes around)
-    * to codex's server-allocated thread id (learned from `thread.started`).
-    * `codex exec` mints its own id, so we keep this mapping so subsequent calls
-    * dispatch through `codex exec resume <server-id>`.
-    */
-  private val registry =
-    new SessionRegistry.ClientToServer[BackendTag.Codex.type]
 
   /** Codex's threads are server-side and durable, so it is
     * [[SessionSupport.Durable]]: the client→server mapping is persisted to the
@@ -83,9 +75,17 @@ private[orca] class CodexBackend(
   ): Enforcement =
     CodexArgs.enforcement(tools, autoApprove)
 
+  /** The sole session handle. The wrapped [[SessionRegistry.ClientToServer]]
+    * maps the client-allocated id (the UUID the caller passes around) to
+    * codex's server-allocated thread id (learned from `thread.started`), so
+    * subsequent calls dispatch through `codex exec resume <server-id>`. The
+    * registry is encapsulated; the spawn/commit paths go through
+    * `sessions.dispatchFor` / `Conversations.runAutonomous(session, sessions,
+    * …)`.
+    */
   val sessions: SessionSupport[BackendTag.Codex.type] =
     SessionSupport.Durable(
-      registry,
+      new SessionRegistry.ClientToServer[BackendTag.Codex.type],
       id =>
         os.exists(sessionsDir) && os.walk
           .stream(sessionsDir)
@@ -105,7 +105,7 @@ private[orca] class CodexBackend(
     // drainAndCommit records the client→server mapping so a follow-up call on
     // this client id resumes the right thread; the result carries the server
     // thread id as its wireId, and the caller keeps using the client id.
-    Conversations.runAutonomous(session, registry, events):
+    Conversations.runAutonomous(session, sessions, events):
       openConversation(
         prompt = prompt,
         mode = SessionMode.Autonomous,
@@ -143,10 +143,11 @@ private[orca] class CodexBackend(
     * (continuation), and wrap the process in a live [[CodexConversation]].
     * Stdin is closed immediately — codex consumes the prompt argv-side.
     *
-    * The fresh-vs-resume decision is driven by `registry.dispatchFor`: if we've
+    * The fresh-vs-resume decision is driven by `sessions.dispatchFor`: if we've
     * seen this client id before we resume against its mapped server thread,
-    * otherwise we start fresh and the post-drain `commitSuccess` (via
-    * `sessions.register` on the interactive path) records the mapping.
+    * otherwise we start fresh and the post-drain commit (via `commitAfterDrain`
+    * on the autonomous path, `sessions.register` on the interactive path)
+    * records the mapping.
     *
     * `Interactive` mode wires the MCP `ask_user` tool: stand up the bridge +
     * Netty server, hand the URL to `CodexArgs` for the `-c mcp_servers.orca`
@@ -192,7 +193,7 @@ private[orca] class CodexBackend(
         extraHint = Option.when(askUser.isDefined)(AskUserMcpServer.Hint)
       )
       val mcpUrl = askUser.map(_.server.url)
-      val args = registry.dispatchFor(session) match
+      val args = sessions.dispatchFor(session) match
         case Dispatch.Resume(serverId) =>
           CodexArgs.execResume(
             serverId,

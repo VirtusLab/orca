@@ -1274,7 +1274,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     private var _registered: List[(String, String)] = Nil
     def registered: List[(String, String)] = _registered
     def dispatchFor(client: SessionId[B]): Dispatch[B] =
-      Dispatch.Fresh(client.onWire)
+      Dispatch.Fresh(Some(client.onWire))
     def commitSuccess(client: SessionId[B], server: WireSessionId[B]): Unit =
       _registered = _registered :+ (client.value -> server.value)
     def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] = None
@@ -1318,7 +1318,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     private val registry = new SessionRegistry[BackendTag.ClaudeCode.type]:
       def dispatchFor(
           client: SessionId[BackendTag.ClaudeCode.type]
-      ): Dispatch[BackendTag.ClaudeCode.type] = Dispatch.Fresh(client.onWire)
+      ): Dispatch[BackendTag.ClaudeCode.type] =
+        Dispatch.Fresh(Some(client.onWire))
       def commitSuccess(
           client: SessionId[BackendTag.ClaudeCode.type],
           server: WireSessionId[BackendTag.ClaudeCode.type]

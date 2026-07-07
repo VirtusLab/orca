@@ -18,7 +18,8 @@ class ClaudeArgsTest extends munit.FunSuite:
 
   private def streamJson(
       config: AgentConfig,
-      dispatch: Dispatch[BackendTag.ClaudeCode.type] = Dispatch.Fresh(testSid),
+      dispatch: Dispatch[BackendTag.ClaudeCode.type] =
+        Dispatch.Fresh(Some(testSid)),
       networkTools: Seq[String] = Seq.empty
   ): Seq[String] =
     ClaudeArgs.streamJson(
@@ -48,7 +49,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     val args = ClaudeArgs.streamJson(
       config = AgentConfig(),
       systemPromptFile = Some(file),
-      dispatch = Dispatch.Fresh(testSid)
+      dispatch = Dispatch.Fresh(Some(testSid))
     )
     assert(
       args.containsSlice(Seq("--append-system-prompt-file", file.toString))
@@ -123,7 +124,7 @@ class ClaudeArgsTest extends munit.FunSuite:
 
   test("Dispatch.Fresh emits --session-id <uuid>"):
     val args =
-      streamJson(AgentConfig(), dispatch = Dispatch.Fresh(testSid))
+      streamJson(AgentConfig(), dispatch = Dispatch.Fresh(Some(testSid)))
     assert(
       args.containsSlice(Seq("--session-id", WireSessionId.value(testSid))),
       args
@@ -144,7 +145,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     val args = ClaudeArgs.streamJson(
       config = AgentConfig(),
       systemPromptFile = None,
-      dispatch = Dispatch.Fresh(testSid),
+      dispatch = Dispatch.Fresh(Some(testSid)),
       jsonSchema = Some(schema)
     )
     assert(args.containsSlice(Seq("--json-schema", schema)))
@@ -154,7 +155,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     val args = ClaudeArgs.streamJson(
       config = AgentConfig(),
       systemPromptFile = None,
-      dispatch = Dispatch.Fresh(testSid),
+      dispatch = Dispatch.Fresh(Some(testSid)),
       mcpConfig = Some(cfg)
     )
     assert(args.containsSlice(Seq("--mcp-config", cfg.toString)))

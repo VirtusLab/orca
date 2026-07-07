@@ -223,7 +223,7 @@ private def effectivePrompt[B <: BackendTag](
     session: SessionId[B],
     text: String
 )(using fc: FlowControl): String =
-  if agent.sessionExists(session) then text
+  if agent.willContinue(session) then text
   else
     val log = fc.progressStore.load()
     val seed = lookupSeed(log, session)

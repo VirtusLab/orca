@@ -25,7 +25,8 @@ import orca.agents.{
   SessionId,
   WireSessionId,
   ToolSet,
-  BaseAgent
+  BaseAgent,
+  onWire
 }
 import orca.progress.{ProgressHeader, ProgressStore, StageEntry, SessionRecord}
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
@@ -93,24 +94,57 @@ class FlowSessionTest extends FunSuite:
   private class StubAgentForSeeded(
       existsResult: Boolean,
       runResult: String = "ok",
-      learnedWireId: Option[String] = None
+      learnedWireId: Option[String] = None,
+      ephemeral: Boolean = false
   ) extends Agent[BackendTag.ClaudeCode.type]:
     val name: String = "stub-seeded"
 
-    private var _capturedPrompt: Option[String] = None
+    private var _capturedPrompts: List[String] = Nil
 
-    /** The prompt the stub's `run` (free-text or structured) actually received,
-      * after preamble/seed composition.
+    /** The prompt the stub's most recent `run` (free-text or structured)
+      * received, after preamble/seed composition.
       */
-    def capturedPrompt: Option[String] = _capturedPrompt
+    def capturedPrompt: Option[String] = _capturedPrompts.headOption
 
-    /** Drives both `sessionExists` (via the registry-gated probe) and
+    /** Every captured prompt in call order (oldest first) — lets a multi-run
+      * test compare the first (primed) turn against a later (continued) one.
+      */
+    def capturedPrompts: List[String] = _capturedPrompts.reverse
+
+    /** The durability capability the stub exposes. `ephemeral = true` builds a
+      * pi-shaped [[SessionSupport.Ephemeral]] over a real
+      * [[SessionRegistry.ClaimedOnce]] (a STABLE instance, so an in-process
+      * claim persists across runs); otherwise the durable probe fixture whose
+      * `exists`/`resumeWireId` are driven by `existsResult`/`learnedWireId`.
+      */
+    private val support: SessionSupport[BackendTag.ClaudeCode.type] =
+      if ephemeral then
+        SessionSupport.Ephemeral(
+          new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type]
+        )
+      else stubSupport(existsResult, learnedWireId)
+
+    /** Drives `sessionExists`/`willContinue` (via the registry-gated probe) and
       * `resumeWireId` (via the registry's `resumeWireId`) — `learnedWireId`
-      * mirrors a server-id backend's persist path, `None` mirrors pi.
+      * mirrors a server-id backend's persist path, `None`/`ephemeral` mirrors
+      * pi.
       */
     override private[orca] def sessionSupport
         : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
-      Some(stubSupport(existsResult, learnedWireId))
+      Some(support)
+
+    /** Record the prompt and, for the ephemeral shape, claim the id — a real
+      * ephemeral backend (pi) marks its `ClaimedOnce` registry after a clean
+      * turn (via `Conversations.drainAndCommit`), so `willContinue` flips true
+      * on the next in-process run. `register` is the stable log-skip door and
+      * the id is a safe UUID, so it commits.
+      */
+    private def capture(
+        prompt: String,
+        session: SessionId[BackendTag.ClaudeCode.type]
+    ): Unit =
+      _capturedPrompts = prompt :: _capturedPrompts
+      if ephemeral then support.register(session, session.onWire)
 
     val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
       new AutonomousTextCall[BackendTag.ClaudeCode.type]:
@@ -120,7 +154,7 @@ class FlowSessionTest extends FunSuite:
             config: Option[AgentConfig],
             emitPrompt: Boolean
         )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], String) =
-          _capturedPrompt = Some(prompt)
+          capture(prompt, session)
           (session, runResult)
 
     /** Structured door stub: captures the serialized input (after preamble/seed
@@ -140,7 +174,7 @@ class FlowSessionTest extends FunSuite:
             )(using
                 orca.InStage
             ): (SessionId[BackendTag.ClaudeCode.type], O) =
-              _capturedPrompt = Some(summon[AgentInput[I]].serialize(input))
+              capture(summon[AgentInput[I]].serialize(input), session)
               val parsed =
                 readFromString[O]("""{"v":"ok"}""")(using
                   summon[JsonData[O]].codec
@@ -394,6 +428,34 @@ class FlowSessionTest extends FunSuite:
     assert(
       !prompt.startsWith("---"),
       s"prompt must not start with bare separator; got: $prompt"
+    )
+
+  test(
+    "pi-shaped Ephemeral session: a second in-process run does NOT re-prime"
+  ):
+    // pi is Ephemeral over a ClaimedOnce registry: `exists` is hardcoded
+    // `false`, so an exists-based probe re-seeds every task of a loop;
+    // `willContinue` reads the in-process claim, so a live continuation runs the
+    // prompt verbatim. The stub claims the id after each run (as pi's
+    // drainAndCommit does), so the SECOND run must NOT re-inject seed/preamble.
+    val seed = "You are a planning agent."
+    val fc = makeControl(
+      sessions =
+        List(SessionRecord(occurrence = 0, id = testSessionId, seed = seed))
+    )
+    val agent = new StubAgentForSeeded(existsResult = false, ephemeral = true)
+    val fs = flowSession(agent)
+    val _ = fs.run("task one")(using fc)
+    val _ = fs.run("task two")(using fc)
+    val prompts = agent.capturedPrompts
+    assert(
+      prompts(0).contains(seed),
+      s"first run must prime with the seed; got: ${prompts(0)}"
+    )
+    assertEquals(
+      prompts(1),
+      "task two",
+      "a second in-process run must forward the prompt verbatim (no re-seed)"
     )
 
   test("run returns the output from autonomous.run; .id is the session id"):

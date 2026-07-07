@@ -1,8 +1,7 @@
 package orca.backend
 
-import orca.OrcaFlowException
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.agents.{BackendTag, SessionId, WireSessionId}
+import orca.agents.{BackendTag, SessionId}
 
 import ox.{Ox, supervised}
 
@@ -175,44 +174,31 @@ private[orca] object Conversations:
     * callers hand back the stable client handle they already hold, and the wire
     * id lives on the result only for the registry to learn the mapping.
     *
-    * `commitSuccess` runs only after a clean drain, so a subprocess that
-    * crashed before registering its session doesn't wedge the registry into
-    * resuming a session that was never created. Drain failures propagate
-    * verbatim — the retryability classification already happened in
+    * The commit runs only after a clean drain, so a subprocess that crashed
+    * before registering its session doesn't wedge the registry into resuming a
+    * session that was never created. Drain failures propagate verbatim — the
+    * retryability classification already happened in
     * [[ForkedConversation.awaitResult]], the sole place that decides whether a
     * failure is an [[orca.AgentTurnFailed]] or a plain retryable
     * [[orca.OrcaFlowException]]; relabelling here would only obscure that
     * decision.
     *
-    * `registry.commitSuccess(session, result.wireId)` is uniform across both
-    * registry shapes: [[SessionRegistry.ClientToServer]] records the learned
-    * server id, while [[SessionRegistry.ClaimedOnce]] ignores the server arg
-    * and just marks the client id claimed.
+    * `sessions.commitAfterDrain(session, result.wireId)` carries the throwing
+    * wire-id guard and is uniform across both registry shapes:
+    * [[SessionRegistry.ClientToServer]] records the learned server id, while
+    * [[SessionRegistry.ClaimedOnce]] ignores the server arg and just marks the
+    * client id claimed. Taking a [[SessionSupport]] (not a raw registry) means
+    * a backend physically can't hand this shell a registry other than the one
+    * backing its declared `sessions`.
     */
   def drainAndCommit[B <: BackendTag](
       conv: Conversation[B],
       session: SessionId[B],
-      registry: SessionRegistry[B],
+      sessions: SessionSupport[B],
       events: OrcaListener = OrcaListener.noop
   ): AgentResult[B] =
     val result = drainAutonomous(conv, events)
-    val wire = WireSessionId.value(result.wireId)
-    if !SessionId.isSafe(wire) then
-      // Plain OrcaFlowException, not AgentTurnFailed: this is retryable — a
-      // fresh attempt may see a healthy init event from the backend, and
-      // because we throw BEFORE `commitSuccess`, the registry is never
-      // touched, so retrying doesn't need to unwind a bad commit.
-      //
-      // This is the AUTONOMOUS, pre-commit guard: throwing is correct here
-      // (retryable, nothing consumed yet). The sibling guard in
-      // [[SessionSupport.register]] covers the interactive + rehydration paths,
-      // where it LOGS-and-skips instead of throwing — dropping a finished
-      // interactive turn or hard-aborting setup over one stale log field would
-      // be worse than silently re-seeding on the next call.
-      throw new OrcaFlowException(
-        s"backend reported an invalid session id ('$wire') — refusing to record it for resume"
-      )
-    registry.commitSuccess(session, result.wireId)
+    sessions.commitAfterDrain(session, result.wireId)
     result
 
   /** The complete autonomous-turn shell shared by all backends: open the
@@ -223,10 +209,10 @@ private[orca] object Conversations:
     */
   def runAutonomous[B <: BackendTag](
       session: SessionId[B],
-      registry: SessionRegistry[B],
+      sessions: SessionSupport[B],
       events: OrcaListener
   )(open: Ox ?=> Conversation[B]): AgentResult[B] =
     supervised:
       val conv = open
-      try drainAndCommit(conv, session, registry, events)
+      try drainAndCommit(conv, session, sessions, events)
       finally conv.cancel()

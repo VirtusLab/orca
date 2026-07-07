@@ -165,6 +165,18 @@ trait Agent[B <: BackendTag]:
   final def sessionExists(session: SessionId[B]): Boolean =
     sessionSupport.exists(_.exists(session))
 
+  /** Will the NEXT call on `session` continue an already-live conversation
+    * (rather than open a fresh one that needs re-seeding)? The durable-session
+    * runtime asks this before deciding whether to re-inject the seed + progress
+    * preamble. Differs from [[sessionExists]] only for ephemeral backends (pi),
+    * where a session with no durable transcript is nonetheless a live
+    * in-process continuation — see
+    * [[orca.backend.SessionSupport.willContinue]]. Returns `false` — safe
+    * re-seed — when a concrete tool can't reach a backend.
+    */
+  final def willContinue(session: SessionId[B]): Boolean =
+    sessionSupport.exists(_.willContinue(session))
+
   /** The wire id to resume `client` against, or `None` if unknown (or the
     * backend's sessions aren't durably resumable). `client` is orca's stable
     * handle ([[SessionId]]); the result is the [[WireSessionId]] the backend

@@ -64,7 +64,16 @@ private[claude] object ClaudeArgs:
   private def sessionArgs(
       dispatch: Dispatch[BackendTag.ClaudeCode.type]
   ): Seq[String] = dispatch match
-    case Dispatch.Fresh(id)  => Seq("--session-id", WireSessionId.value(id))
+    case Dispatch.Fresh(Some(id)) =>
+      Seq("--session-id", WireSessionId.value(id))
+    // Unreachable: claude's registry is `ClaimedOnce`, which always supplies the
+    // claim id on a fresh dispatch (the client id IS the wire id). A defensive
+    // error rather than a silent fallback, so a future registry-wiring mistake
+    // fails loudly instead of spawning claude with no `--session-id`.
+    case Dispatch.Fresh(None) =>
+      throw new IllegalStateException(
+        "claude's ClaimedOnce registry must supply a fresh claim id"
+      )
     case Dispatch.Resume(id) => Seq("--resume", WireSessionId.value(id))
 
   /** claude's CLI only accepts `--json-schema <inline>` — there's no
