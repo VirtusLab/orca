@@ -372,6 +372,14 @@ nesting + resume).
 - [ ] 5.2 Decide session keying under nesting: same parent-scoped keying, or
   document + `require` that `session(...)` is called outside stages
   (`FlowControl` knows whether a frame is open).
+  (Research 2026-07-07, epic5-research.md: DECIDED — the `require` guard.
+  All 6 examples and ~15+ real call sites mint sessions at flow-body top
+  level; FlowSession.run inside stages never touches the counter; 0
+  violations exist. Parent-scoped keying would build for a case that
+  doesn't occur. Also: id strings are fully opaque (exact-equality only) —
+  path format is drop-in; TestFlowControl duplicates the flat-map bug and
+  MUST be upgraded in the same change; Epic 7.1's future thread assert must
+  cover enterStage/exitStage — note for that epic.)
 - [ ] 5.3 Add the missing test: nesting + crash + resume, both the same-type
   (silent wrong value) and different-type (record clobber) shapes.
 - [ ] 5.4 Amend ADR 0018 (§2.1/§5) — the current "occurrence shifts ⇒ harmless
