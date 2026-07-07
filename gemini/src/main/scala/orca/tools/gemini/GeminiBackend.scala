@@ -60,10 +60,12 @@ private[orca] class GeminiBackend(cli: CliRunner)
     * --list-sessions` and scans the output for that server id (substring).
     *
     * Because [[SessionSupport.exists]] is registry-gated, `false` results when
-    * no server id is mapped (the map hasn't been rehydrated ⇒ no known live
-    * session), on non-zero exit, any exception, or if the server id fails the
-    * [[orca.agents.SessionId.isSafe]] guard (kept for uniformity with the other
-    * probes; the substring scan is not injection-susceptible).
+    * no server id is mapped — which includes a server id that failed the
+    * [[orca.agents.SessionId.isSafe]] guard at commit time (kept for uniformity
+    * with the other backends' probes; the substring scan itself is not
+    * injection-susceptible): `register`/`commitAfterDrain` refuse to record it,
+    * so it never reaches the registry — as well as on non-zero exit or any
+    * exception.
     */
   val tag: BackendTag.Gemini.type = BackendTag.Gemini
 

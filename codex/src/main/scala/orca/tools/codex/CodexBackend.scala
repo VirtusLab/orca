@@ -58,10 +58,12 @@ private[orca] class CodexBackend(
     * name matches `rollout-*-<server-id>.jsonl`.
     *
     * Because [[SessionSupport.exists]] is registry-gated, `false` results when
-    * no server id is mapped (map not rehydrated ⇒ no known live session), the
-    * sessions dir doesn't exist, or the server id fails the
-    * [[orca.agents.SessionId.isSafe]] guard (blocks regex injection; e.g. a
-    * server id of `.*` would otherwise match every rollout file).
+    * no server id is mapped — which includes a server id that failed the
+    * [[orca.agents.SessionId.isSafe]] guard at commit time (blocks regex
+    * injection; e.g. a server id of `.*` would otherwise match every rollout
+    * file): `register`/`commitAfterDrain` refuse to record it, so it never
+    * reaches the registry — as well as map-not-rehydrated-yet, or the sessions
+    * dir not existing.
     *
     * Note: the installed codex on some machines uses SQLite
     * (`~/.codex/state_5.sqlite`) rather than `rollout-*.jsonl` files. If no

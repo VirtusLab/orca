@@ -19,6 +19,7 @@ import orca.progress.{
   ProgressStore,
   ProtectedBranchRefused,
   RecoveryCheck,
+  SessionRecord,
   UnsafeBranchRefRefused
 }
 import orca.tools.GitTool
@@ -164,8 +165,12 @@ object FlowLifecycle:
     * registers it — via [[orca.agents.Agent.registerResumeWireId]] — into the
     * agent [[targetAgent]] resolves for the record's `backend` tag: untagged
     * (older) records go to `lead`, a tag matching one of `ctx`'s per-backend
-    * accessors goes there, and a tag matching none of them (an edited log) is
-    * skipped rather than guessed.
+    * accessors goes there, and a tag matching none of them (an edited log, or a
+    * renamed [[BackendTag]] case) is skipped rather than guessed — LOUDLY, via
+    * an `OrcaEvent.Step` (`ctx.emit`), not a silent for-comprehension drop.
+    * `record.id`/`wireId` are equally untrusted (log-sourced): a value that
+    * fails [[SessionId.parse]]/[[WireSessionId.parse]] is skipped the same loud
+    * way rather than rehydrated raw.
     */
   private[orca] def rehydrateSessions(
       ctx: FlowContext,
@@ -176,12 +181,23 @@ object FlowLifecycle:
       log <- store.load().toList
       record <- log.sessions
       wireId <- record.resumeWireId
-      agent <- targetAgent(ctx, lead, record.backend)
-    do register(agent, record.id, wireId)
+    do
+      targetAgent(ctx, lead, record.backend) match
+        case None =>
+          ctx.emit(
+            OrcaEvent.Step(
+              s"warning: session '${record.name}' #${record.occurrence} " +
+                s"recorded backend tag '${record.backend.getOrElse("")}' " +
+                "does not match any known backend — skipping rehydration"
+            )
+          )
+        case Some(agent) =>
+          register(ctx, agent, record, wireId)
 
   /** Untagged records (older logs) go to the lead — the pre-tagging behaviour.
-    * A tag that matches no accessor (edited log) is skipped, not guessed.
-    * `DefaultFlowContext` holds all five per-backend agents as eager
+    * A tag that matches no accessor (edited log, or a renamed [[BackendTag]]
+    * case whose [[BackendTag.wireName]] no longer matches) is skipped, not
+    * guessed. `DefaultFlowContext` holds all five per-backend agents as eager
     * constructor vals, so resolving an accessor here just reads the
     * already-constructed agent — touching it is safe even for backends the flow
     * body never otherwise uses.
@@ -194,8 +210,8 @@ object FlowLifecycle:
     tag match
       case None => Some(lead)
       case Some(t) =>
-        BackendTag.values
-          .find(_.toString == t)
+        BackendTag
+          .fromWireName(t)
           .map:
             case BackendTag.ClaudeCode => ctx.claude
             case BackendTag.Codex      => ctx.codex
@@ -203,12 +219,26 @@ object FlowLifecycle:
             case BackendTag.Pi         => ctx.pi
             case BackendTag.Gemini     => ctx.gemini
 
+  /** Parse `record.id`/`wire` (both log-sourced, untrusted) and register the
+    * mapping into `agent`; a value that fails to parse is skipped with a
+    * visible warning rather than rehydrated raw — mirrors `session(...)`'s
+    * reuse arm treatment of a corrupt recorded id.
+    */
   private def register[B <: BackendTag](
+      ctx: FlowContext,
       agent: Agent[B],
-      id: String,
+      record: SessionRecord,
       wire: String
   ): Unit =
-    agent.registerResumeWireId(SessionId[B](id), WireSessionId[B](wire))
+    (SessionId.parse[B](record.id), WireSessionId.parse[B](wire)) match
+      case (Some(id), Some(wireId)) => agent.registerResumeWireId(id, wireId)
+      case _ =>
+        ctx.emit(
+          OrcaEvent.Step(
+            s"warning: session '${record.name}' #${record.occurrence} has an " +
+              "invalid recorded id or wire id — skipping rehydration"
+          )
+        )
 
   /** Outcome of [[setup]]: the resolved progress store, the feature branch the
     * run is bound to, and the starting branch to restore on success.

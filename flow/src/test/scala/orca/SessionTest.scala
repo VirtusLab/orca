@@ -13,7 +13,7 @@ import orca.agents.{
   SessionId,
   ToolSet
 }
-import orca.progress.{ProgressHeader, ProgressStore}
+import orca.progress.{ProgressHeader, ProgressStore, SessionRecord}
 import orca.tools.OsGitTool
 
 /** Tests for `agent.session(name, seed)` get-or-create, keyed stage-style by
@@ -187,6 +187,83 @@ class SessionTest extends FunSuite:
         s.contains("warning") && s.contains("implementer") && s.contains("#0")
       ),
       s"expected a divergence warning; got: ${recorder.steps}"
+    )
+
+  test(
+    "session() reuse with a mismatched backend tag mints fresh and warns (6B.2)"
+  ):
+    // First run: minted by a Codex-tagged agent.
+    val (store, dir) = freshStore()
+    val codexAgent = new StubAgent:
+      override private[orca] def backendTag: Option[BackendTag] =
+        Some(BackendTag.Codex)
+    val originalId =
+      codexAgent.session("implementer", "brief")(using makeControl(store, dir))
+    assertEquals(store.load().get.sessions.head.backend, Some("Codex"))
+
+    // Second run over the SAME (name, occurrence): a differently-tagged
+    // agent — a lead-backend swap between runs. Today (pre-6B.2) this
+    // silently reuses the Codex-minted id under the new tag; the fix must
+    // mint fresh and warn instead.
+    val claudeAgent = new StubAgent:
+      override private[orca] def backendTag: Option[BackendTag] =
+        Some(BackendTag.ClaudeCode)
+    val recorder = new RecordingListener
+    val resumedId =
+      claudeAgent.session("implementer", "brief")(using
+        makeControl(store, dir, List(recorder))
+      )
+
+    assert(
+      resumedId.id.value != originalId.id.value,
+      "a backend-tag mismatch must mint a fresh id, not reuse the stale one"
+    )
+    assertEquals(
+      store.load().get.sessions.head.backend,
+      Some("ClaudeCode"),
+      "the record must be re-stamped under the NEW agent's tag"
+    )
+    assert(
+      recorder.steps.exists(s =>
+        s.contains("warning") && s.contains("implementer") &&
+          s.contains("#0") && s.contains("Codex") && s.contains("ClaudeCode")
+      ),
+      s"expected a tag-mismatch warning naming both tags; got: ${recorder.steps}"
+    )
+
+  test(
+    "session() reuse with a corrupted (unsafe) recorded id mints fresh and warns (6B.3)"
+  ):
+    // A hand-edited/corrupted log: the recorded id fails SessionId.isSafe.
+    // Resuming must not trust it verbatim — parse it, and on failure mint
+    // fresh exactly like the tag-mismatch and no-record cases.
+    val (store, dir) = freshStore()
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    store.upsertSession(
+      SessionRecord(
+        name = "implementer",
+        occurrence = 0,
+        id = "../../etc/passwd",
+        seed = "brief"
+      )
+    )
+    val agent = new StubAgent
+    val recorder = new RecordingListener
+    val resumedId =
+      agent.session("implementer", "brief")(using
+        makeControl(store, dir, List(recorder))
+      )
+    assertNotEquals(resumedId.id.value, "../../etc/passwd")
+    assert(
+      SessionId.isSafe(resumedId.id.value),
+      s"a freshly-minted id must itself be safe; got: ${resumedId.id.value}"
+    )
+    assert(
+      recorder.steps.exists(s =>
+        s.contains("warning") && s.contains("implementer") &&
+          s.contains("#0") && s.contains("invalid")
+      ),
+      s"expected an invalid-recorded-id warning; got: ${recorder.steps}"
     )
 
   test("an empty name is rejected"):

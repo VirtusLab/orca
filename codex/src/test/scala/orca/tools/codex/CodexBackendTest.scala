@@ -496,8 +496,9 @@ class CodexBackendTest extends munit.FunSuite:
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
     ): backend =>
-      // The malicious id is the resolved WIRE id; the SessionId.isSafe guard
-      // inside `exists` must reject it before the walk.
+      // The malicious id is the resolved WIRE id; `register`'s SessionId.isSafe
+      // guard must refuse to record it in the first place, so `exists` never
+      // even reaches the walk (no mapping to resolve).
       backend.sessions.register(
         clientSid,
         WireSessionId[BackendTag.Codex.type](".*")

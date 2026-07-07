@@ -528,7 +528,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     FlowLifecycle.rehydrateSessions(ctx, lead, store)
     assertEquals(lead.registered, List("old-1" -> "srv-1"))
 
-  test("rehydrateSessions skips a record with an unknown backend tag"):
+  test(
+    "rehydrateSessions skips a record with an unknown backend tag, and warns loudly (6B.1)"
+  ):
     val store = storeWith(
       SessionRecord(
         occurrence = 0,
@@ -540,9 +542,77 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     val lead = new RecordingClaude
     val codex = new RecordingCodex
-    val ctx = new StubFlowContext(codexOverride = codex)
+    val listener = new RecordingListener
+    val ctx = new StubFlowContext(
+      codexOverride = codex,
+      emitTo = listener.onEvent
+    )
     FlowLifecycle.rehydrateSessions(ctx, lead, store)
     assert(lead.registered.isEmpty && codex.registered.isEmpty)
+    // Pre-6B.1 this skip was a silent for-comprehension drop; it must now
+    // reach the event surface as a Step, not just vanish.
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s }
+    assert(
+      steps.exists(s =>
+        s.message.contains("warning") && s.message.contains("Bogus")
+      ),
+      s"expected a warning naming the unknown tag; got: $steps"
+    )
+
+  test(
+    "rehydrateSessions skips a record with a corrupted (unsafe) id or wire id, and warns loudly (6B.3)"
+  ):
+    // A hand-edited/corrupted log: the recorded id or wire id fails
+    // SessionId.isSafe. rehydrateSessions must not rehydrate it raw — parse
+    // it, and on failure skip with a warning, mirroring `session(...)`'s
+    // reuse-arm treatment of the same corruption.
+    val badIdStore = storeWith(
+      SessionRecord(
+        occurrence = 0,
+        id = "../../etc/passwd",
+        seed = "s",
+        resumeWireId = Some("srv-3")
+      )
+    )
+    val lead = new RecordingClaude
+    val listener = new RecordingListener
+    val ctx = new StubFlowContext(emitTo = listener.onEvent)
+    FlowLifecycle.rehydrateSessions(ctx, lead, badIdStore)
+    assert(lead.registered.isEmpty, "an unsafe recorded id must not rehydrate")
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s }
+    assert(
+      steps.exists(s =>
+        s.message.contains("warning") && s.message.contains("invalid")
+      ),
+      s"expected an invalid-id warning; got: $steps"
+    )
+
+  test(
+    "rehydrateSessions skips a record with a corrupted (unsafe) wire id, and warns loudly (6B.3)"
+  ):
+    val badWireStore = storeWith(
+      SessionRecord(
+        occurrence = 0,
+        id = "c-2",
+        seed = "s",
+        resumeWireId = Some(".*")
+      )
+    )
+    val lead2 = new RecordingClaude
+    val listener2 = new RecordingListener
+    val ctx2 = new StubFlowContext(emitTo = listener2.onEvent)
+    FlowLifecycle.rehydrateSessions(ctx2, lead2, badWireStore)
+    assert(
+      lead2.registered.isEmpty,
+      "an unsafe recorded wire id must not rehydrate"
+    )
+    val steps2 = listener2.events.collect { case s: OrcaEvent.Step => s }
+    assert(
+      steps2.exists(s =>
+        s.message.contains("warning") && s.message.contains("invalid")
+      ),
+      s"expected an invalid-id warning; got: $steps2"
+    )
 
   /** A fresh progress store (temp dir, header already written) carrying
     * `sessions` as its session records — the minimal fixture
@@ -1422,7 +1492,12 @@ class FlowLifecycleTest extends munit.FunSuite:
       codexOverride: => CodexAgent = notWired("codex"),
       opencodeOverride: => OpencodeAgent = notWired("opencode"),
       piOverride: => PiAgent = notWired("pi"),
-      geminiOverride: => GeminiAgent = notWired("gemini")
+      geminiOverride: => GeminiAgent = notWired("gemini"),
+      /** Records every emitted event — `Nil` (the default) keeps `emit` a true
+        * no-op for tests that don't care; the two rehydration-warning tests
+        * below pass a listener to assert on the emitted `Step`.
+        */
+      emitTo: OrcaEvent => Unit = _ => ()
   ) extends FlowContext:
     type LeadB = BackendTag.ClaudeCode.type
     def agent: Agent[LeadB] = notWired("agent")
@@ -1435,7 +1510,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     def gh: GitHubTool = notWired("gh")
     def fs: FsTool = notWired("fs")
     def userPrompt: String = ""
-    def emit(event: OrcaEvent): Unit = ()
+    def emit(event: OrcaEvent): Unit = emitTo(event)
     // Rehydration tests never fail through this stub; a no-op reported-set is fine.
     private[orca] def markErrorReported(e: Throwable): Unit = ()
     private[orca] def errorAlreadyReported(e: Throwable): Boolean = false

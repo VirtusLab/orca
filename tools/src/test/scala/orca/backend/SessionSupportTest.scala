@@ -27,17 +27,22 @@ class SessionSupportTest extends munit.FunSuite:
     s.register(client, WireSessionId("srv-1"))
     assert(s.exists(client) && probed == List("srv-1"))
 
-  test("Durable: unsafe wire id and throwing probe are both 'absent'"):
+  test("Durable: a throwing probe is 'absent'"):
+    // `exists`'s own isSafe re-check on the resolved wire id was removed as
+    // provably dead (6B.3): every id that reaches the registry does so
+    // through `register`/`commitAfterDrain` below, both of which already
+    // validate it — a second check here would guard against an id that can
+    // no longer exist. The unsafe-id defense is pinned at those two tests
+    // ("register: an invalid wire id records nothing", "commitAfterDrain:
+    // valid id commits, unsafe id throws"), not here; this test keeps only
+    // `exists`'s other absence case: a probe that throws.
     val reg = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
     val client = SessionId.fresh[BackendTag.Codex.type]
-    reg.commitSuccess(client, WireSessionId("../etc"))
-    assert(!SessionSupport.Durable(reg, _ => true).exists(client))
-    val client2 = SessionId.fresh[BackendTag.Codex.type]
-    reg.commitSuccess(client2, WireSessionId("ok-id"))
+    reg.commitSuccess(client, WireSessionId("ok-id"))
     assert(
       !SessionSupport
         .Durable(reg, _ => throw RuntimeException("boom"))
-        .exists(client2)
+        .exists(client)
     )
 
   test(

@@ -140,11 +140,13 @@ private[orca] class OpencodeBackend(server: OpencodeServerHandle)
     * caller's stable id never matches one) via `GET /session/<serverId>` → 200.
     *
     * Because [[SessionSupport.exists]] is registry-gated, `false` results when
-    * no server id is mapped (the map hasn't been rehydrated ⇒ no known live
-    * session), the opencode server has not been started yet, the request fails
-    * for any reason, or the server id fails the
-    * [[orca.agents.SessionId.isSafe]] guard (blocks URL injection such as `a/b`
-    * routing to a different endpoint).
+    * no server id is mapped — which includes a server id that failed the
+    * [[orca.agents.SessionId.isSafe]] guard at commit time (blocks URL
+    * injection such as `a/b` routing to a different endpoint): `register`/
+    * `commitAfterDrain` refuse to record it, so it never reaches the registry
+    * for `exists` to resolve — as well as the map not having been rehydrated
+    * yet (⇒ no known live session), the opencode server not having started, or
+    * the request failing for any reason.
     */
   val tag: BackendTag.Opencode.type = BackendTag.Opencode
 

@@ -59,13 +59,20 @@ case class StageEntry(id: String, name: String, resultJson: String)
   * Stored in [[ProgressLog.sessions]] so that a resumed run reuses the same
   * [[orca.agents.SessionId]] rather than minting a second one.
   *
-  * `backend` records the minting agent's [[orca.agents.BackendTag]] (via its
-  * `toString`, e.g. `"Codex"`), so a resumed run's targeted rehydration
+  * `backend` records the minting agent's [[orca.agents.BackendTag]] via its
+  * stable [[orca.agents.BackendTag.wireName]] (e.g. `"Codex"` — frozen
+  * independently of the case name, so a future case rename can't strand this
+  * field), so a resumed run's targeted rehydration
   * (`FlowLifecycle.rehydrateSessions`) knows which agent to replay this
   * record's `resumeWireId` into rather than always assuming the lead. Defaults
   * to `None` and decodes to `None` when absent in older log files (written
   * before this field existed, or before the record's agent carried a tag) — a
-  * `None` record falls back to the lead, the pre-tagging behaviour.
+  * `None` record falls back to the lead, the pre-tagging behaviour. A value
+  * that matches no known [[orca.agents.BackendTag.wireName]] (an edited log) is
+  * skipped with a warning rather than guessed — see
+  * `FlowLifecycle.targetAgent`. `agent.session(name, seed)`'s reuse arm also
+  * self-heals a stale tag (a lead-backend swap between runs) rather than
+  * silently re-seeding under the wrong tag forever.
   */
 case class SessionRecord(
     name: String = "",

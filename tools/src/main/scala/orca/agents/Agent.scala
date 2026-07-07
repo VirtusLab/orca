@@ -161,6 +161,11 @@ trait Agent[B <: BackendTag]:
   /** Best-effort, non-destructive: is a live, resumable backend conversation
     * present for `session`? Delegates to [[sessionSupport]]. Returns `false` —
     * safe re-seed — when a concrete tool can't reach a backend instance.
+    *
+    * For the should-I-re-seed decision, use [[willContinue]] instead — this
+    * probe deliberately answers cross-restart durability only, not "will the
+    * next in-process call continue" (see [[willContinue]]'s scaladoc for why
+    * the two differ for ephemeral backends).
     */
   final def sessionExists(session: SessionId[B]): Boolean =
     sessionSupport.exists(_.exists(session))

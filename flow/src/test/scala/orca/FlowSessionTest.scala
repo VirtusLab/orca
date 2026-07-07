@@ -95,9 +95,16 @@ class FlowSessionTest extends FunSuite:
       existsResult: Boolean,
       runResult: String = "ok",
       learnedWireId: Option[String] = None,
-      ephemeral: Boolean = false
+      ephemeral: Boolean = false,
+      tag: Option[BackendTag] = None
   ) extends Agent[BackendTag.ClaudeCode.type]:
     val name: String = "stub-seeded"
+
+    /** [[Agent.backendTag]] override — `None` by default (matching every
+      * pre-6B.2 test's expectation), settable so a self-heal test can drive
+      * `persistResumeWireId`'s tag-healing write with a concrete tag.
+      */
+    override private[orca] def backendTag: Option[BackendTag] = tag
 
     private var _capturedPrompts: List[String] = Nil
 
@@ -486,6 +493,39 @@ class FlowSessionTest extends FunSuite:
     val record =
       fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
     assertEquals(record.resumeWireId, Some("server-thread-xyz"))
+
+  test(
+    "run self-heals a stale recorded backend tag when it persists a wire id (6B.2)"
+  ):
+    // The record was minted under a stale tag (Codex — e.g. by an earlier
+    // agent instance before a lead-backend swap in the SAME run, or a record
+    // whose tag was never corrected). This run's agent is ClaudeCode and
+    // learns a wire id — persistResumeWireId must correct `backend` to match,
+    // not just carry the stale tag forward via `.copy`.
+    val fc = makeControl(
+      sessions = List(
+        SessionRecord(
+          occurrence = 0,
+          id = testSessionId,
+          seed = "seed",
+          backend = Some("Codex")
+        )
+      )
+    )
+    val agent = new StubAgentForSeeded(
+      existsResult = false,
+      learnedWireId = Some("server-thread-xyz"),
+      tag = Some(BackendTag.ClaudeCode)
+    )
+    val _ = flowSession(agent).run("prompt")(using fc)
+    val record =
+      fc.progressStore.load().get.sessions.find(_.id == testSessionId).get
+    assertEquals(record.resumeWireId, Some("server-thread-xyz"))
+    assertEquals(
+      record.backend,
+      Some("ClaudeCode"),
+      "a stale recorded tag must be healed to the agent's current tag"
+    )
 
   test(
     "run leaves resumeWireId None when the backend reports no wire id"

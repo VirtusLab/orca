@@ -6,18 +6,42 @@ package orca.agents
   * backend can't accidentally flow into another. Distinct from
   * [[orca.backend.AgentBackend]], which is the runtime SPI; this enum is the
   * compile-time discriminator.
+  *
+  * `wireName` is the STABLE on-disk/wire representation
+  * ([[orca.progress.SessionRecord.backend]]) — deliberately independent of the
+  * case name so a future rename can't silently strand every persisted session
+  * (the case name is free to change; `wireName` is not). Frozen at the CURRENT
+  * (pre-codec) `toString` value of each case, so logs written before this codec
+  * existed keep loading unchanged. [[BackendTag.fromWireName]] is the inverse;
+  * see the `BackendTagCodecTest` pinning suite.
   */
-enum BackendTag:
-  case ClaudeCode
-  case Codex
-  case Opencode
-  case Pi
-  case Gemini
+enum BackendTag(val wireName: String):
+  case ClaudeCode extends BackendTag("ClaudeCode")
+  case Codex extends BackendTag("Codex")
+  case Opencode extends BackendTag("Opencode")
+  case Pi extends BackendTag("Pi")
+  case Gemini extends BackendTag("Gemini")
+
+object BackendTag:
+  /** Parse a wire/log-sourced string into a [[BackendTag]], or `None` if it
+    * matches none of the five frozen [[BackendTag.wireName]]s (an edited log,
+    * or a case that no longer exists). The validated door for
+    * [[orca.progress.SessionRecord.backend]] — callers that get `None` should
+    * skip with a visible warning rather than guess (see
+    * `FlowLifecycle.targetAgent`).
+    */
+  def fromWireName(name: String): Option[BackendTag] =
+    values.find(_.wireName == name)
 
 opaque type SessionId[B <: BackendTag] = String
 
 object SessionId:
-  def apply[B <: BackendTag](value: String): SessionId[B] = value
+  /** The raw, UNCHECKED constructor — `private[orca]` because a string minted
+    * outside the library (a log-sourced or wire-sourced value) must go through
+    * [[parse]] instead. Internal trusted callers ([[fresh]], [[onWire]], and
+    * the two write-policy sites this codec backs) still reach it directly.
+    */
+  private[orca] def apply[B <: BackendTag](value: String): SessionId[B] = value
   extension [B <: BackendTag](id: SessionId[B]) def value: String = id
 
   /** Returns `true` iff `id` is a well-formed session id that is safe to embed
@@ -27,10 +51,24 @@ object SessionId:
     * `?`, `#`, `..` and every other character that could enable path traversal,
     * regex injection, or URL injection.
     *
-    * Every `sessionExists` override calls this before using the id.
+    * The predicate behind [[parse]] and the two write-policy guards
+    * ([[orca.backend.SessionSupport.register]] /
+    * [[orca.backend.SessionSupport.commitAfterDrain]]); every other re-check
+    * that used to scatter across the codebase is now provably redundant, since
+    * nothing downstream of those doors can hold an id that failed this check.
     */
   def isSafe(id: String): Boolean =
     id.nonEmpty && id.length <= 200 && id.matches("[A-Za-z0-9_-]+")
+
+  /** The validated door for a log/wire-sourced string: `Some` iff it passes
+    * [[isSafe]]. Use this — not the private raw constructor — for any
+    * `SessionId` built from a string the library didn't itself mint (a
+    * persisted [[orca.progress.SessionRecord.id]], primarily). Callers that get
+    * `None` should skip the record with a visible warning rather than guess
+    * (see `Session.session`'s reuse arm).
+    */
+  def parse[B <: BackendTag](value: String): Option[SessionId[B]] =
+    Option.when(isSafe(value))(value)
 
   /** Mint a fresh session id (random UUID). The id is client-allocated — the
     * library uses it as a pre-shared key with the backend on the first call.
@@ -64,8 +102,23 @@ object SessionId:
 opaque type WireSessionId[B <: BackendTag] = String
 
 object WireSessionId:
-  def apply[B <: BackendTag](value: String): WireSessionId[B] = value
+  /** The raw, UNCHECKED constructor — `private[orca]` for the same reason as
+    * [[SessionId.apply]]: a log/wire-sourced string must go through [[parse]].
+    * Internal trusted callers (backends constructing a wire id straight from a
+    * live protocol response, [[SessionId.onWire]], and the two write-policy
+    * sites) still reach it directly.
+    */
+  private[orca] def apply[B <: BackendTag](value: String): WireSessionId[B] =
+    value
   extension [B <: BackendTag](id: WireSessionId[B]) def value: String = id
+
+  /** The validated door for a log-sourced wire-id string (a persisted
+    * [[orca.progress.SessionRecord.resumeWireId]]): `Some` iff it passes
+    * [[SessionId.isSafe]]. See [[SessionId.parse]] for the sibling on the
+    * client-id side.
+    */
+  def parse[B <: BackendTag](value: String): Option[WireSessionId[B]] =
+    Option.when(SessionId.isSafe(value))(value)
 
 extension [B <: BackendTag](id: SessionId[B])
   /** The client id used verbatim on the wire — the one legitimate crossing

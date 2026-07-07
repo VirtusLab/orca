@@ -192,22 +192,72 @@ extension [B <: BackendTag](agent: Agent[B])
                 "this name — the seed was edited; reusing the recorded session"
             )
           )
-        SessionId[B](recorded.id)
+        val currentTag = agent.backendTag.map(_.wireName)
+        if recorded.backend.isDefined && recorded.backend != currentTag then
+          // A lead-backend swap between runs: the wire id under `recorded.id`
+          // was minted (and is meaningful) only in the OLD backend's registry.
+          // Re-stamping it under the new tag would silently re-seed against
+          // the wrong agent forever (the write-side half of the bug class
+          // FlowLifecycle's targeted rehydration closed on the read side) — so
+          // mint fresh instead, exactly like the no-record case, rather than
+          // reuse the stale id.
+          fc.emit(
+            OrcaEvent.Step(
+              s"warning: session '$name' #$occ was minted on " +
+                s"${recorded.backend.get}; this agent is " +
+                s"${currentTag.getOrElse("untagged")} — minting fresh"
+            )
+          )
+          mintSession(agent, name, occ, seed)
+        else
+          // The recorded id is untrusted (log-sourced): parse rather than
+          // trust it verbatim. A record that fails to parse (hand-edited,
+          // truncated, or otherwise corrupted) is treated the same as a
+          // backend-tag mismatch — mint fresh rather than resume against a
+          // value that could carry a path/regex/URL injection downstream.
+          SessionId.parse[B](recorded.id) match
+            case Some(validId) => validId
+            case None =>
+              fc.emit(
+                OrcaEvent.Step(
+                  s"warning: session '$name' #$occ has an invalid recorded " +
+                    "id — minting fresh"
+                )
+              )
+              mintSession(agent, name, occ, seed)
       case None =>
         // First run: mint a fresh id, record it, and return it.
-        val freshId = SessionId.fresh[B]
-        given WorkspaceWrite = RuntimeInStage.workspaceToken()
-        fc.progressStore.upsertSession(
-          SessionRecord(
-            name = name,
-            occurrence = occ,
-            id = freshId.value,
-            seed = seed,
-            backend = agent.backendTag.map(_.toString)
-          )
-        )
-        freshId
+        mintSession(agent, name, occ, seed)
     new FlowSession(agent, id)
+
+/** Mint a fresh session id, record `(name, occurrence, id, seed, backend)` in
+  * the progress log (replacing any existing record at the same key — see
+  * `ProgressStore.upsertSession`), and return the minted id. Shared by every
+  * arm of `agent.session(name, seed)`'s reuse match that must NOT trust a
+  * stale/mismatched/corrupt recorded id: the no-record case (first run), a
+  * recorded-vs-current backend-tag mismatch, and a recorded id that fails
+  * [[SessionId.parse]]. Mints its own [[WorkspaceWrite]] via [[RuntimeInStage]]
+  * — see `session`'s scaladoc for why this one call must remain
+  * outside-stage-callable.
+  */
+private def mintSession[B <: BackendTag](
+    agent: Agent[B],
+    name: String,
+    occurrence: Int,
+    seed: String
+)(using fc: FlowControl): SessionId[B] =
+  val freshId = SessionId.fresh[B]
+  given WorkspaceWrite = RuntimeInStage.workspaceToken()
+  fc.progressStore.upsertSession(
+    SessionRecord(
+      name = name,
+      occurrence = occurrence,
+      id = freshId.value,
+      seed = seed,
+      backend = agent.backendTag.map(_.wireName)
+    )
+  )
+  freshId
 
 /** Probe → prime step shared by [[FlowSession.run]] and
   * [[FlowSessionCall.run]]: if the backend conversation for `session` is live,
@@ -232,13 +282,19 @@ private def effectivePrompt[B <: BackendTag](
 
 /** After a run, persist the wire id to resume against that the backend has now
   * learned (durable backends only — pi returns `None`), so a resumed run can
-  * rehydrate the map and continue/probe the right session. Upserts the matching
-  * [[SessionRecord]] only when the learned wire id differs from what is already
-  * recorded (and a record for `session` exists), so a no-op run writes nothing.
-  * Takes the [[WorkspaceWrite]] token explicitly — its callers
-  * ([[FlowSession.run]] / [[FlowSessionCall]]) run inside a stage where the
-  * token is ambient, and requiring it keeps these persisting writes
-  * flow-thread-only (ADR 0018 §6).
+  * rehydrate the map and continue/probe the right session. Also SELF-HEALS
+  * [[SessionRecord.backend]] to `agent`'s current tag: the reuse arm in
+  * `session(...)` already refuses to reuse a mismatched-tag record (minting
+  * fresh instead), but a record minted before that tag existed (an untagged,
+  * pre-tagging log) or one whose tag otherwise drifted gets corrected here on
+  * the very run that just proved this `agent` owns it — so it doesn't have to
+  * wait for a second `session(...)` call to be re-labelled correctly. Upserts
+  * the matching [[SessionRecord]] only when the learned wire id OR the healed
+  * tag differs from what is already recorded (and a record for `session`
+  * exists), so a genuine no-op run writes nothing. Takes the [[WorkspaceWrite]]
+  * token explicitly — its callers ([[FlowSession.run]] / [[FlowSessionCall]])
+  * run inside a stage where the token is ambient, and requiring it keeps these
+  * persisting writes flow-thread-only (ADR 0018 §6).
   */
 private def persistResumeWireId[B <: BackendTag](
     agent: Agent[B],
@@ -251,9 +307,15 @@ private def persistResumeWireId[B <: BackendTag](
       log
         .flatMap(_.sessions.find(_.id == session.value))
         .foreach: record =>
-          if !record.resumeWireId.contains(wireId.value) then
+          val healedTag = agent.backendTag.map(_.wireName)
+          if !record.resumeWireId.contains(wireId.value) ||
+            record.backend != healedTag
+          then
             fc.progressStore.upsertSession(
-              record.copy(resumeWireId = Some(wireId.value))
+              record.copy(
+                resumeWireId = Some(wireId.value),
+                backend = healedTag
+              )
             )
 
 /** Look up the recorded seed for `session` from the log. Returns `None` if the

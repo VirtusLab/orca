@@ -115,11 +115,16 @@ enum SessionSupport[B <: BackendTag](registry: SessionRegistry[B]):
 
   /** Non-destructive, best-effort: does a live, resumable backend conversation
     * exist for `client`? Resolves the wire id via the registry (no mapping ⇒
-    * `false`, no probe), then runs the backend `probe` on that wire id — but
-    * only if it passes the [[orca.agents.SessionId.isSafe]] guard, treating an
-    * unsafe id and ANY non-fatal probe failure as "absent". Must NOT create,
-    * mutate, or resume the session; the caller re-seeds on `false`, which is
-    * always safe. [[Ephemeral]] always returns `false`.
+    * `false`, no probe), then runs the backend `probe` on it, treating ANY
+    * non-fatal probe failure as "absent". Must NOT create, mutate, or resume
+    * the session; the caller re-seeds on `false`, which is always safe.
+    * [[Ephemeral]] always returns `false`.
+    *
+    * Does NOT re-check [[orca.agents.SessionId.isSafe]] on the resolved wire
+    * id: every id that can reach the registry already passed that check at
+    * [[register]] or [[commitAfterDrain]] — the only two doors that ever call
+    * `registry.commitSuccess` — so a second check here would be provably dead
+    * code, not defense in depth.
     */
   final def exists(client: SessionId[B]): Boolean =
     this match
@@ -128,11 +133,8 @@ enum SessionSupport[B <: BackendTag](registry: SessionRegistry[B]):
         registry.resumeWireId(client) match
           case None => false
           case Some(wire) =>
-            val id = WireSessionId.value(wire)
-            if !SessionId.isSafe(id) then false
-            else
-              try probe(id)
-              catch case NonFatal(_) => false
+            try probe(WireSessionId.value(wire))
+            catch case NonFatal(_) => false
 
   /** Will the NEXT call on `client` continue an already-live conversation
     * (rather than start a fresh one that must be re-seeded)? This is the
