@@ -166,6 +166,12 @@ Refs: `runner/src/main/scala/orca/flow.scala:161-169`,
   teardownSuccess). `flow()`'s catch matches `SurfacedFlowFailure` to discard,
   and falls back to a stderr print for anything else, so any future unsurfaced
   path is loud by construction.
+  (Research 2026-07-07, epic1-research.md: the bracket must stay
+  phase-agnostic — report/log/wrap only; `teardownFailure` remains coupled to
+  the BODY failure path exclusively, never to setup/teardownSuccess failures.
+  Body reporting keeps `reportOnce` so `runStage`'s existing first-report is
+  not duplicated. Budget: `runFlow`'s exposed exception type changes —
+  ~7 `FlowLifecycleTest` intercepts adapt deliberately.)
 - [ ] 1.2 `teardownFailure` throwing inside the body catch must not mask the
   original: `e.addSuppressed(t)`, rethrow `e`.
   Refs: `runner/.../FlowLifecycle.scala:71`.
@@ -173,11 +179,16 @@ Refs: `runner/src/main/scala/orca/flow.scala:161-169`,
   `NonFatal` + debug-log) for all three `teardownSuccess` legs
   (remove/commit/handoff), making the "cosmetic — swallowed" doc true. A
   successful run can then never exit 1.
-  Refs: `runner/.../FlowLifecycle.scala:285-313`.
+  (Research correction 2026-07-07: commit/finishBranch legs already catch
+  `NonFatal` broadly — the real gaps are (a) the `os.remove` leg's
+  `NoSuchFileException`-only catch and (b) zero logging on all three legs.)
+  Refs: `runner/.../FlowLifecycle.scala:308-319`.
 - [ ] 1.4 Route setup-phase warnings through the dispatcher — the "no event
   dispatcher threaded through setup" comment is stale (`ctx` demonstrably
   exists at the call site); a custom `Interaction` (Slack) currently never sees
   "starting fresh — the previous run's stages will re-run".
+  (Research 2026-07-07: no `OrcaEvent.Warning` case exists — reuse
+  `OrcaEvent.Step`, matching `GitTool.resetHard`'s existing convention.)
   Refs: `runner/.../FlowLifecycle.scala:48-49,182-199`.
 - [ ] 1.5 Verify `--verbose` prints stacks on the newly-surfaced paths (the
   `debug` stack-print currently lives only in the body catch).
