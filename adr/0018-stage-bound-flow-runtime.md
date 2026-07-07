@@ -208,9 +208,11 @@ Side-effecting library helpers (`reviewAndFixLoop`, `lint`, `summarisePr`, `Plan
 generation, the reviewer fan-out) take `(using InStage)` and run under the
 caller's stage, so the compiler enforces "no mutation outside a stage" while a
 whole task still produces one commit. A helper that also writes the workspace
-takes `(using WorkspaceWrite)` too (rare — e.g. the runtime's own
-`recordAndCommit`, which appends the progress log and derives a commit message
-from the cheap model).
+takes `(using WorkspaceWrite)` too (rare — e.g. the lifecycle's `freshRun`,
+which both names the branch via the cheap model and performs the setup git
+writes). The runtime's own `recordAndCommit` is different: it is a mint site,
+not a token-receiving helper — it takes `(using FlowControl)` and mints fresh
+tokens through the `RuntimeInStage` door.
 
 Both tokens and `FlowControl` prove *lexical* enclosure. Since the Epic 0
 capture-checking work (§6), the fork half is a hard guarantee: separation
@@ -644,8 +646,9 @@ flow(OrcaArgs(args), _.claude):                          // required agent selec
       // one commit per task: code + progress entry
 ```
 
-`git.commit` requires `WorkspaceWrite`; `agent.runSeeded` and `reviewAndFixLoop`
-require `InStage` — both supplied by the enclosing `stage`. There is no plan
+`git.commit` requires `WorkspaceWrite`; `agent.runSeeded` (which also needs
+`FlowControl`) and `reviewAndFixLoop` require `InStage` — all supplied within
+a `flow`'s enclosing `stage`. There is no plan
 markdown file — the progress log subsumes it, which also removes any checkbox
 state to keep in sync (a human-readable checklist, if wanted, is cosmetic — §2.8).
 

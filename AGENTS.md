@@ -77,9 +77,10 @@ most easily broken:
   cross a `fork` boundary (two concurrent forks racing on the same git index or
   progress log is exactly what this is meant to catch, and now what capture
   checking enforces at compile time — ADR 0018 §6). A helper that does
-  both (e.g. `Flow`'s `recordAndCommit`, which appends the progress log and
-  commits AND may call the cheap model for a commit message) takes BOTH.
-  Only a `stage` body mints — and is handed both tokens together. Don't relax
+  both (e.g. the lifecycle's `freshRun`, which names the branch via the cheap
+  model AND performs the setup git writes) takes BOTH; `Flow`'s
+  `recordAndCommit` instead mints its own tokens through the `RuntimeInStage`
+  door. Only a `stage` body mints — and is handed both tokens together. Don't relax
   this: production mints go through `orca.RuntimeInStage.token()` /
   `orca.RuntimeInStage.workspaceToken()`, the single named door (a grep for
   `RuntimeInStage` is the whole whitelist of privileged callers);
