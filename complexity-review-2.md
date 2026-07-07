@@ -266,11 +266,11 @@ Refs: `runner/src/main/scala/orca/runner/FlowLifecycle.scala:206-213,239-260,324
 `flow/src/main/scala/orca/progress/RecoveryCheck.scala:36-65`,
 `tools/src/main/scala/orca/tools/GitTool.scala:253-258,453-461`.
 
-- [ ] 3.1 Opaque `FeatureBranch` with one smart constructor owning the
+- [x] 3.1 (done: c33dea0) Opaque `FeatureBranch` with one smart constructor owning the
   protected-set policy (`RecoveryCheck.alwaysProtected` + detected default
   branch), minted by **both** arms of `setup`; `validateHeader` delegates to
   the same constructor.
-- [ ] 3.2 `freshRun` maps a refusal to a deterministic fallback rename (mirror
+- [x] 3.2 (done: c33dea0, fallback-rename policy) `freshRun` maps a refusal to a deterministic fallback rename (mirror
   `slug`'s hash fallback) or aborts loudly — decide which.
   (Research 2026-07-07, epic3-research.md: DECIDED — deterministic fallback
   rename reusing the existing `flow-<hash>` shape + loud Step; abort would
@@ -281,10 +281,10 @@ Refs: `runner/src/main/scala/orca/runner/FlowLifecycle.scala:206-213,239-260,324
   `git.defaultBranch()` and passes it to BOTH arms. Split: 3A=3.1+3.2,
   3B=3.3+3.4 — checkoutOrCreate's only 3 callers are in FlowLifecycle;
   `createBranch`/`checkout` primitives already exist.)
-- [ ] 3.3 `finishBranch` / lifecycle-level delete take `FeatureBranch`, making
+- [x] 3.3 (done: c2d6bfc) `finishBranch` / lifecycle-level delete take `FeatureBranch`, making
   "delete an unvalidated name" unrepresentable (the current guard is only
   "never the current branch").
-- [ ] 3.4 Split fresh-create from resume-checkout at the lifecycle layer
+- [x] 3.4 (done: c2d6bfc, checkoutOrCreate deleted) Split fresh-create from resume-checkout at the lifecycle layer
   (`createFlowBranch: Either[BranchAlreadyExists, Unit]` vs `checkout`) so
   silently adopting an unrelated pre-existing branch becomes a visible
   decision.
