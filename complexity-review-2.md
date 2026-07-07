@@ -673,6 +673,16 @@ Refs: `flow/.../review/ReviewLoop.scala:254-258,302-326,416-429`,
 
 ## Epic 12 — Diagnostics and small robustness
 
+> Added 2026-07-07 (discovered operationally — /tmp exhaustion mid-effort):
+> the test suites leak temp git-repo fixtures at scale. `os.temp.dir(...,
+> deleteOnExit = true)` cannot remove non-empty trees (File.deleteOnExit
+> semantics), so every TempRepo/GitRepo-based test leaves its whole workdir
+> behind — ~35k dirs / one day's runs filled an 8G tmpfs. Fix shape: a
+> shared munit fixture that recursively removes the temp root on teardown
+> (os.remove.all in afterEach/afterAll), suite-wide. Treat as a 12.x task.
+
+## Epic 12 — Diagnostics and small robustness
+
 - [ ] 12.1 `AgentTurnFailed` keeps cause chains: add
   `cause: Throwable | Null = null` + `initCause` and thread the original at
   both wrap sites (`awaitResult`, `runAutonomousWithRetry`) — debug stacks
