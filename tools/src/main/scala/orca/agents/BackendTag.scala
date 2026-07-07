@@ -14,23 +14,23 @@ enum BackendTag:
   case Pi
   case Gemini
 
-/** Returns `true` iff `id` is a well-formed session id that is safe to embed in
-  * a file path, regex, or URL without further escaping. Accepted: 1–200
-  * characters from `[A-Za-z0-9_-]`, covering all legitimate ids (UUIDs for
-  * claude/codex/gemini; `ses_…` for opencode). Rejects `.`, `/`, `*`, `[`, `?`,
-  * `#`, `..` and every other character that could enable path traversal, regex
-  * injection, or URL injection.
-  *
-  * Every `sessionExists` override calls this before using the id.
-  */
-def isSafeSessionId(id: String): Boolean =
-  id.nonEmpty && id.length <= 200 && id.matches("[A-Za-z0-9_-]+")
-
 opaque type SessionId[B <: BackendTag] = String
 
 object SessionId:
   def apply[B <: BackendTag](value: String): SessionId[B] = value
   extension [B <: BackendTag](id: SessionId[B]) def value: String = id
+
+  /** Returns `true` iff `id` is a well-formed session id that is safe to embed
+    * in a file path, regex, or URL without further escaping. Accepted: 1–200
+    * characters from `[A-Za-z0-9_-]`, covering all legitimate ids (UUIDs for
+    * claude/codex/gemini; `ses_…` for opencode). Rejects `.`, `/`, `*`, `[`,
+    * `?`, `#`, `..` and every other character that could enable path traversal,
+    * regex injection, or URL injection.
+    *
+    * Every `sessionExists` override calls this before using the id.
+    */
+  def isSafe(id: String): Boolean =
+    id.nonEmpty && id.length <= 200 && id.matches("[A-Za-z0-9_-]+")
 
   /** Mint a fresh session id (random UUID). The id is client-allocated — the
     * library uses it as a pre-shared key with the backend on the first call.

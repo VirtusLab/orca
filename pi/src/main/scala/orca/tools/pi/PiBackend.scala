@@ -25,8 +25,6 @@ import orca.subprocess.CliRunner
 
 import ox.Ox
 
-import scala.collection.mutable.ListBuffer
-
 /** Pi backend driven through `pi --mode rpc` JSONL over stdio.
   *
   * Pi exposes no HTTP server and its in-process SDK is Node-only, so a
@@ -115,28 +113,24 @@ private[orca] class PiBackend(cli: CliRunner)
   )(using Ox): PiConversation =
     // Temp files (ask-user extension, system prompt) Pi reads for the whole
     // turn. Ownership passes to the conversation once it's constructed — it
-    // closes them in `onFinalize` when the turn ends; `closeResources` here is
-    // the backstop for a failure before that point. Closes are idempotent
-    // (`closeQuietly` + `os.remove.all`); the temp dirs are also `deleteOnExit`,
-    // so a hard JVM kill mid-turn still reclaims them.
-    val resources = ListBuffer.empty[AutoCloseable]
-    def register[A <: AutoCloseable](resource: A): A =
-      resources += resource
-      resource
-
+    // closes them in `onFinalize` when the turn ends; `SubprocessSpawn.open`'s
+    // failure path is the backstop for a failure before that point. Closes are
+    // idempotent (`closeQuietly` + `os.remove.all`); the temp dirs are also
+    // `deleteOnExit`, so a hard JVM kill mid-turn still reclaims them. Both
+    // files are allocated up front (before `open`) so `resources` is a plain
+    // immutable list.
     val (displayPrompt, askUserExtension, extraHint) = mode match
       case SessionMode.Autonomous =>
         ("", None, None)
       case SessionMode.Interactive(p) =>
-        val extension = register(PiAskUserExtension.allocate())
-        (p, Some(extension), Some(PiAskUserExtension.Hint))
+        (p, Some(PiAskUserExtension.allocate()), Some(PiAskUserExtension.Hint))
 
-    // `resources` is accumulated above (and as the argv is built); SubprocessSpawn
-    // reads it (by-name) only on a spawn/build failure to release it.
-    SubprocessSpawn.open("pi RPC", resources.toList) {
-      val systemPromptFile = writeSystemPromptIfPresent(config, extraHint)
-        .map(register)
+    val systemPromptFile = writeSystemPromptIfPresent(config, extraHint)
 
+    val resources: List[AutoCloseable] =
+      askUserExtension.toList ++ systemPromptFile.toList
+
+    SubprocessSpawn.open("pi RPC", resources) {
       val resume = registry.dispatchFor(session) match
         case Dispatch.Resume(_) => true
         case Dispatch.Fresh(_)  => false
@@ -155,7 +149,7 @@ private[orca] class PiBackend(cli: CliRunner)
         initialPrompt = displayPrompt,
         outputSchema = outputSchema,
         askUserEnabled = askUserExtension.isDefined,
-        resources = resources.toList
+        resources = resources
       )
       conversation.sendPrompt(prompt)
       conversation

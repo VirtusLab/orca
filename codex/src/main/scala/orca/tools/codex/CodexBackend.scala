@@ -68,7 +68,7 @@ private[orca] class CodexBackend(
     * Because [[SessionSupport.exists]] is registry-gated, `false` results when
     * no server id is mapped (map not rehydrated ⇒ no known live session), the
     * sessions dir doesn't exist, or the server id fails the
-    * [[orca.agents.isSafeSessionId]] guard (blocks regex injection; e.g. a
+    * [[orca.agents.SessionId.isSafe]] guard (blocks regex injection; e.g. a
     * server id of `.*` would otherwise match every rollout file).
     *
     * Note: the installed codex on some machines uses SQLite

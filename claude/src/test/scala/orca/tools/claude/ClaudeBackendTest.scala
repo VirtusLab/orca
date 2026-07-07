@@ -392,7 +392,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     ): backend =>
       val maliciousId =
         SessionId[BackendTag.ClaudeCode.type]("../../etc/passwd")
-      // Claim it so the probe is reached: the isSafeSessionId guard inside
+      // Claim it so the probe is reached: the SessionId.isSafe guard inside
       // `exists` must still reject the traversal wire id.
       backend.sessions.register(maliciousId, maliciousId.onWire)
       assert(!backend.sessions.exists(maliciousId))

@@ -2,7 +2,7 @@ package orca.backend
 
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.agents.{BackendTag, SessionId, WireSessionId, isSafeSessionId}
+import orca.agents.{BackendTag, SessionId, WireSessionId}
 
 import ox.{Ox, supervised}
 
@@ -189,7 +189,7 @@ private[orca] object Conversations:
   ): AgentResult[B] =
     val result = drainAutonomous(conv, events)
     val wire = WireSessionId.value(result.wireId)
-    if !isSafeSessionId(wire) then
+    if !SessionId.isSafe(wire) then
       // Plain OrcaFlowException, not AgentTurnFailed: this is retryable — a
       // fresh attempt may see a healthy init event from the backend, and
       // because we throw BEFORE `commitSuccess`, the registry is never

@@ -72,13 +72,6 @@ private[opencode] class OpencodeConversation(
     */
   private var turnState: TurnState = TurnState()
 
-  /** Flips once [[finishTurn]]/[[failTurn]] settle the outcome, so frames the
-    * SSE stream emits after the terminal event are ignored. Written and read
-    * only on the reader thread (inside [[handleLine]]), so a plain `var` is
-    * safe — see [[turnState]].
-    */
-  private var settled: Boolean = false
-
   /** Tracks whether the current turn has emitted assistant activity
     * (text/reasoning delta or a tool call) since the last `AssistantTurnEnd`,
     * so a failure settle can terminate an open turn per the ConversationEvent
@@ -97,7 +90,7 @@ private[opencode] class OpencodeConversation(
     sseData(rawLine).foreach: json =>
       val event = OpencodeEvent.parse(json)
       // Drop other sessions' frames; once the turn has settled, ignore the rest.
-      if forThisSession(event) && !settled then translate(event)
+      if forThisSession(event) && !isSettled then translate(event)
 
   /** The JSON payload of one SSE line, or `None` for blank / comment / framing
     * lines (`event:`, `id:`, heartbeat `:`).
@@ -165,7 +158,6 @@ private[opencode] class OpencodeConversation(
           failTurn("session went idle without an assistant message")
         else
           if activitySinceTurnEnd then emitTurnEnd()
-          settled = true
           succeedWith(buildResult())
 
   /** Terminate an open turn (assistant activity since the last turn end) on a
@@ -176,7 +168,6 @@ private[opencode] class OpencodeConversation(
     */
   private def failTurn(message: String): Unit =
     if activitySinceTurnEnd then emitTurnEnd()
-    settled = true
     failWith(AgentTurnFailed(message))
 
   private def emitTurnEnd(): Unit =

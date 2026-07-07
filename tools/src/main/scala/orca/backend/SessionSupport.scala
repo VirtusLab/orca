@@ -1,6 +1,6 @@
 package orca.backend
 
-import orca.agents.{BackendTag, SessionId, WireSessionId, isSafeSessionId}
+import orca.agents.{BackendTag, SessionId, WireSessionId}
 import org.slf4j.LoggerFactory
 
 import scala.util.control.NonFatal
@@ -51,19 +51,19 @@ enum SessionSupport[B <: BackendTag](val registry: SessionRegistry[B]):
     * funnels through here — the autonomous drain (via
     * [[Conversations.drainAndCommit]]), `AgentCall.runInteractiveOnce`, and
     * rehydration (`Agent.registerResumeWireId`). An unsafe wire id (empty, or
-    * failing [[orca.agents.isSafeSessionId]]) would make the NEXT call dispatch
-    * `resume ""`/`resume ../etc`; a poisoned log would rehydrate it. So if the
-    * id is unsafe we LOG at ERROR and record NOTHING — we do NOT throw. On the
-    * interactive path the user's completed session output must survive a
-    * bookkeeping failure, and rehydration must not hard-abort setup over one
-    * stale field; the safe fallback is that the next call re-seeds a fresh
-    * session. (`drainAndCommit` keeps its OWN throwing guard: it runs
+    * failing [[orca.agents.SessionId.isSafe]]) would make the NEXT call
+    * dispatch `resume ""`/`resume ../etc`; a poisoned log would rehydrate it.
+    * So if the id is unsafe we LOG at ERROR and record NOTHING — we do NOT
+    * throw. On the interactive path the user's completed session output must
+    * survive a bookkeeping failure, and rehydration must not hard-abort setup
+    * over one stale field; the safe fallback is that the next call re-seeds a
+    * fresh session. (`drainAndCommit` keeps its OWN throwing guard: it runs
     * pre-commit, autonomous, and retryable — a fresh attempt may see a healthy
     * init event — so aborting-and-retrying there has different, better failure
     * economics than dropping the user's finished interactive turn.)
     */
   final def register(client: SessionId[B], server: WireSessionId[B]): Unit =
-    if !isSafeSessionId(WireSessionId.value(server)) then
+    if !SessionId.isSafe(WireSessionId.value(server)) then
       SessionSupport.log.error(
         "refusing to record invalid wire id ('{}') for resume; the next call re-seeds",
         WireSessionId.value(server)
@@ -83,7 +83,7 @@ enum SessionSupport[B <: BackendTag](val registry: SessionRegistry[B]):
   /** Non-destructive, best-effort: does a live, resumable backend conversation
     * exist for `client`? Resolves the wire id via the registry (no mapping ⇒
     * `false`, no probe), then runs the backend `probe` on that wire id — but
-    * only if it passes the [[orca.agents.isSafeSessionId]] guard, treating an
+    * only if it passes the [[orca.agents.SessionId.isSafe]] guard, treating an
     * unsafe id and ANY non-fatal probe failure as "absent". Must NOT create,
     * mutate, or resume the session; the caller re-seeds on `false`, which is
     * always safe. [[Ephemeral]] always returns `false`.
@@ -96,7 +96,7 @@ enum SessionSupport[B <: BackendTag](val registry: SessionRegistry[B]):
           case None => false
           case Some(wire) =>
             val id = WireSessionId.value(wire)
-            if !isSafeSessionId(id) then false
+            if !SessionId.isSafe(id) then false
             else
               try probe(id)
               catch case NonFatal(_) => false

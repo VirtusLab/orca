@@ -129,7 +129,7 @@ private[orca] class OpencodeBackend(server: OpencodeServerHandle)
   /** Probe `http` for the given session id via `GET /session/<id>` → status
     * 200. Callable directly in tests without going through the lazy-init guard.
     * Returns `false` on any transport error. The
-    * [[orca.agents.isSafeSessionId]] guard must have passed before this method
+    * [[orca.agents.SessionId.isSafe]] guard must have passed before this method
     * is called — it is not re-checked here.
     */
   private[opencode] def probeSession(id: String, http: OpencodeHttp): Boolean =
@@ -145,9 +145,9 @@ private[orca] class OpencodeBackend(server: OpencodeServerHandle)
     * Because [[SessionSupport.exists]] is registry-gated, `false` results when
     * no server id is mapped (the map hasn't been rehydrated ⇒ no known live
     * session), the opencode server has not been started yet, the request fails
-    * for any reason, or the server id fails the [[orca.agents.isSafeSessionId]]
-    * guard (blocks URL injection such as `a/b` routing to a different
-    * endpoint).
+    * for any reason, or the server id fails the
+    * [[orca.agents.SessionId.isSafe]] guard (blocks URL injection such as `a/b`
+    * routing to a different endpoint).
     */
   val tag: BackendTag.Opencode.type = BackendTag.Opencode
 

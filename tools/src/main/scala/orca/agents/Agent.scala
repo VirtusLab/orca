@@ -88,6 +88,12 @@ trait Agent[B <: BackendTag]:
   /** Pin the model that [[cheap]] resolves to, overriding the backend default.
     * Lets a flow specify both a leading and a cheap model, e.g.
     * `_.opencode.anthropicSonnet.withCheapModel(Model("anthropic/claude-haiku-4-5"))`.
+    *
+    * On an `Agent` that doesn't override this, the call is a SILENT NO-OP —
+    * `this` is returned unchanged and the pin is dropped. `BaseAgent`-derived
+    * tools (every real backend) override it; a custom `Agent` implementation
+    * must override it too, or a caller's `.withCheapModel(...)` is silently
+    * ignored and [[cheap]] keeps resolving to [[defaultCheap]].
     */
   def withCheapModel(model: Model): Agent[B] = this
 
@@ -123,6 +129,12 @@ trait Agent[B <: BackendTag]:
     * Unlike [[withReadOnly]] this carries a no-op default (returns `this`), so
     * a custom `Agent` that forgets to wire it simply keeps the safe
     * runtime-owns-git behaviour rather than silently granting the escape hatch.
+    *
+    * On an `Agent` that doesn't override this, the call is a SILENT NO-OP —
+    * `this` is returned unchanged. This one is deliberate (a fail-safe, not a
+    * bug): `BaseAgent`-derived tools override it to actually flip the flag; a
+    * custom `Agent` implementation must override it too if it wants callers'
+    * `.withSelfManagedGit` to take effect.
     */
   def withSelfManagedGit: Agent[B] = this
 

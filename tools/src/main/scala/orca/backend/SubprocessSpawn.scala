@@ -22,8 +22,6 @@ import scala.util.control.NonFatal
   *     bundle, pi's temp files) the conversation takes ownership of on success
   *     — on the happy path they ride through the conversation's `onFinalize`,
   *     so this closes them (in reverse) only when spawn or build fails.
-  *     By-name, because pi accumulates them while `spawn` builds the argv; it
-  *     is evaluated only on the failure path.
   *
   * `sessionLabel` is the backend's own descriptor for the failure message
   * ("claude stream-json", "codex", "gemini", "pi RPC") — deliberately not the
@@ -33,7 +31,7 @@ private[orca] object SubprocessSpawn:
 
   def open[C](
       sessionLabel: String,
-      resources: => List[AutoCloseable]
+      resources: List[AutoCloseable]
   )(spawn: => PipedCliProcess)(build: PipedCliProcess => C): C =
     try
       val process = spawn

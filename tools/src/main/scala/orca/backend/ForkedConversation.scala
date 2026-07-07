@@ -88,6 +88,11 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     */
   private var settledOutcome: Option[Outcome[B]] = None
 
+  /** True once [[succeedWith]]/[[failWith]] has settled the outcome — for
+    * subclasses that must drop post-terminal wire frames.
+    */
+  protected def isSettled: Boolean = settledOutcome.isDefined
+
   private val cancelled: AtomicBoolean = new AtomicBoolean(false)
 
   /** Guards the one-shot finalize (subclass [[onFinalize]] + [[askUser]]
