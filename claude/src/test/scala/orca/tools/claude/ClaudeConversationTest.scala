@@ -34,7 +34,17 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
 
     val events = conv.events.toList
-    assertEquals(events, List(ConversationEvent.AssistantTextDelta("hello")))
+    // The delta opens a turn; `result:success` settles it, and the base-class
+    // auto-close injects the owed AssistantTurnEnd (before 4A this turn settled
+    // open — a grammar violation).
+    assertEquals(
+      events,
+      List(
+        ConversationEvent.AssistantTextDelta("hello"),
+        ConversationEvent.AssistantTurnEnd
+      )
+    )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val _ = conv.awaitResult()
 
   convTest("result message finishes the session and carries usage"):
@@ -76,6 +86,11 @@ class ClaudeConversationTest extends munit.FunSuite:
       !errors.head.contains("400 quota exceeded"),
       s"the error event should not duplicate the streamed body; got: ${errors.head}"
     )
+    // The delta opened a turn; the out-of-band is_error settles via `failWith`,
+    // whose base-class auto-close now injects the owed AssistantTurnEnd — so the
+    // settled-failure sequence is grammar-clean (was routed around before 4A).
+    assertEquals(events.last, ConversationEvent.AssistantTurnEnd)
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val failure = intercept[OrcaFlowException](conv.awaitResult())
     assert(
       failure.getMessage.contains("400 quota exceeded"),
@@ -265,6 +280,9 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
 
     val events = conv.events.toList
+    // The ToolResult opens a turn (a tool ran); `result:success` settles it and
+    // the base-class auto-close injects the owed AssistantTurnEnd (before 4A
+    // this turn settled open).
     assertEquals(
       events,
       List(
@@ -272,9 +290,11 @@ class ClaudeConversationTest extends munit.FunSuite:
           toolName = None,
           ok = true,
           content = "output"
-        )
+        ),
+        ConversationEvent.AssistantTurnEnd
       )
     )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val _ = conv.awaitResult()
 
   convTest(
@@ -415,8 +435,10 @@ class ClaudeConversationTest extends munit.FunSuite:
     val conv = new ClaudeConversation(process, AgentConfig())
 
     // Assistant turn carrying a tool_use block for the MCP-prefixed
-    // ask_user tool name. Our renderer-side suppression should drop the
-    // AssistantToolCall event but leave AssistantTurnEnd.
+    // ask_user tool name. Our renderer-side suppression drops the
+    // AssistantToolCall event, so this turn bears no assistant activity at all —
+    // the trailing AssistantTurnEnd is therefore an empty turn and the base
+    // funnel drops it (before 4A it leaked through as an empty-turn violation).
     process.enqueueStdout(
       s"""{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_1","name":"${ClaudeBackend.AskUserToolName}","input":{"question":"x"}}]}}"""
     )
@@ -431,7 +453,8 @@ class ClaudeConversationTest extends munit.FunSuite:
       s"ask_user ToolCall should have been suppressed; got: $events"
     )
     assert(
-      events.exists(_ == ConversationEvent.AssistantTurnEnd),
-      s"expected AssistantTurnEnd; got: $events"
+      !events.contains(ConversationEvent.AssistantTurnEnd),
+      s"a suppressed ask_user-only turn is empty; its turn end must be dropped, got: $events"
     )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val _ = conv.awaitResult()

@@ -110,7 +110,11 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStderr()
 
     val events = conv.events.toList
-    assertEquals(events.size, 2)
+    // A tool-only turn: the AssistantToolCall + ToolResult open the turn, and
+    // `turn.completed` → `succeedWith`, whose base-class auto-close now injects
+    // the owed AssistantTurnEnd (was routed around before 4A — the turn used to
+    // settle open).
+    assertEquals(events.size, 3)
     events(0) match
       case ConversationEvent.AssistantToolCall(name, rawInput) =>
         assertEquals(name, "bash")
@@ -122,6 +126,8 @@ class CodexConversationTest extends munit.FunSuite:
         assertEquals(ok, true)
         assertEquals(content, "hello.txt\n")
       case other => fail(s"expected ToolResult, got $other")
+    assertEquals(events(2), ConversationEvent.AssistantTurnEnd)
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val _ = conv.awaitResult()
 
   convTest("command_execution with non-zero exit yields ok=false"):

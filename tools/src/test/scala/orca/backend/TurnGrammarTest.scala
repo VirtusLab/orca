@@ -1,0 +1,160 @@
+package orca.backend
+
+import orca.agents.{BackendTag, WireSessionId}
+import orca.events.Usage
+import orca.OrcaFlowException
+import orca.subprocess.FakePipedCliProcess
+import ox.{Ox, supervised}
+
+/** Base-level grammar suite: drives a minimal fake [[ForkedConversation]]
+  * through raw `ConversationEvent`-level sequences (bypassing all wire parsing)
+  * and asserts the emitted stream satisfies
+  * [[ConversationEventConformance.assertGrammar]]. This is where the turn-
+  * boundary grammar is pinned ONCE, for all five backends at once — the base
+  * class guarantees it by construction, so the per-backend suites only need to
+  * check they translate protocol frames into the right payloads.
+  *
+  * It covers the exact sequences each broken driver used to route around before
+  * task 4A moved enforcement into `EventQueue.enqueue` + the settle helpers:
+  * claude's deltas-then-error, codex's tool-only turn, gemini's activity-free
+  * result end, claude's suppressed `ask_user`-only turn, and pi's
+  * failWith-after-activity — plus the abnormal-termination carve-out the
+  * grammar deliberately still allows.
+  */
+class TurnGrammarTest extends munit.FunSuite:
+
+  /** Fake driver whose `handleLine` interprets each scripted stdout line as a
+    * direct `ConversationEvent`-level command. Everything runs on the reader
+    * thread inside `handleLine`, exactly as a real driver's enqueues do — so
+    * the `openTurn` single-writer confinement is exercised faithfully.
+    */
+  private class GrammarFakeConversation(source: StreamSource)(using Ox)
+      extends ForkedConversation[BackendTag.ClaudeCode.type](
+        source = source,
+        backendName = "fake"
+      ):
+    val outputSchema: Option[String] = None
+
+    protected def handleLine(line: String): Unit =
+      line match
+        case "delta" =>
+          eventQueue.enqueue(ConversationEvent.AssistantTextDelta("t"))
+        case "thinking" =>
+          eventQueue.enqueue(ConversationEvent.AssistantThinkingDelta("t"))
+        case "toolcall" =>
+          eventQueue.enqueue(ConversationEvent.AssistantToolCall("tool", "{}"))
+        case "toolresult" =>
+          eventQueue.enqueue(
+            ConversationEvent.ToolResult(Some("tool"), true, "ok")
+          )
+        case "turnend" =>
+          eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
+        case "error" =>
+          eventQueue.enqueue(ConversationEvent.Error("boom"))
+        case "succeed" =>
+          succeedWith(AgentResult(WireSessionId("fake"), "done", Usage.empty))
+        case "fail" =>
+          failWith(new OrcaFlowException("boom"))
+        case other =>
+          throw new IllegalStateException(s"unknown script line: $other")
+
+  /** Run a scripted sequence and return the EMITTED events. `closeAtEnd`
+    * signals stdout EOF after the script; leave it on except for the abnormal-
+    * termination case, where the script settles nothing and we want the source
+    * to just end mid-turn.
+    */
+  private def runScript(lines: String*): List[ConversationEvent] =
+    supervised:
+      val process = new FakePipedCliProcess()
+      val conv = new GrammarFakeConversation(StreamSource.fromProcess(process))
+      lines.foreach(process.enqueueStdout)
+      process.closeStdout()
+      process.closeStderr()
+      conv.events.toList
+
+  test(
+    "deltas then failWith injects a closing turn end (claude's is_error bug)"
+  ):
+    val events = runScript("delta", "delta", "error", "fail")
+    assertEquals(
+      events,
+      List(
+        ConversationEvent.AssistantTextDelta("t"),
+        ConversationEvent.AssistantTextDelta("t"),
+        ConversationEvent.Error("boom"),
+        ConversationEvent.AssistantTurnEnd
+      )
+    )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+
+  test("tool-only turn then succeed injects a closing turn end (codex's bug)"):
+    val events = runScript("toolcall", "toolresult", "succeed")
+    assertEquals(
+      events,
+      List(
+        ConversationEvent.AssistantToolCall("tool", "{}"),
+        ConversationEvent.ToolResult(Some("tool"), true, "ok"),
+        ConversationEvent.AssistantTurnEnd
+      )
+    )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+
+  test("activity-free settle emits no synthetic turn end (gemini's bug)"):
+    val events = runScript("succeed")
+    assertEquals(events, Nil)
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+
+  test("a bare turn end with no activity is dropped (claude's ask_user turn)"):
+    val events = runScript("turnend", "succeed")
+    assertEquals(events, Nil)
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+
+  test("failWith after activity injects a closing turn end (pi's bug)"):
+    val events = runScript("toolresult", "fail")
+    assertEquals(
+      events,
+      List(
+        ConversationEvent.ToolResult(Some("tool"), true, "ok"),
+        ConversationEvent.AssistantTurnEnd
+      )
+    )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+
+  test("normal multi-turn happy path is unchanged (no synthetic ends added)"):
+    val events =
+      runScript(
+        "delta",
+        "turnend",
+        "toolcall",
+        "toolresult",
+        "turnend",
+        "succeed"
+      )
+    assertEquals(
+      events,
+      List(
+        ConversationEvent.AssistantTextDelta("t"),
+        ConversationEvent.AssistantTurnEnd,
+        ConversationEvent.AssistantToolCall("tool", "{}"),
+        ConversationEvent.ToolResult(Some("tool"), true, "ok"),
+        ConversationEvent.AssistantTurnEnd
+      )
+    )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+
+  test("Error is neutral: it neither opens nor closes a turn"):
+    // The Error opens nothing, so the following bare turn end is an empty turn
+    // and gets dropped; the settle then has no open turn to close either.
+    val events = runScript("error", "turnend", "succeed")
+    assertEquals(events, List(ConversationEvent.Error("boom")))
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+
+  test("abnormal mid-turn termination leaves the turn legitimately open"):
+    // No settle call: the source just ends mid-turn (cancel/crash carve-out).
+    // The base must NOT inject a synthetic turn end here.
+    val events = runScript("delta")
+    assertEquals(events, List(ConversationEvent.AssistantTextDelta("t")))
+    ConversationEventConformance.assertGrammar(
+      events,
+      completedNormally = false
+    )

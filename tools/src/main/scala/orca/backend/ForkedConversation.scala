@@ -68,10 +68,45 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * `*OrClosed` variants so a late enqueue (e.g. the ask-user drainer racing
     * the reader's close) is a no-op rather than a thrown `ChannelClosed` that
     * would tear the scope.
+    *
+    * It ALSO enforces the [[ConversationEvent]] turn grammar by construction,
+    * so backends no longer hand-roll it: activity events open the current turn,
+    * an `AssistantTurnEnd` closes an open turn (and is DROPPED as an empty turn
+    * if none is open), and the settle helpers auto-close a still-open turn (see
+    * [[succeedWith]] / [[failWith]]). The activity/neutral classification is
+    * the authoritative one from [[ConversationEvent]]'s scaladoc, mirrored
+    * here.
+    *
+    * '''Confinement contract''': `enqueue` mutates the reader-thread-confined
+    * [[turnIsOpen]] state, so any caller from a background fork (`stderrLoop`,
+    * `askUserDrain`) MUST only ever pass NEUTRAL events — verified today across
+    * all five backends (stderr enqueues only `Error`; the ask-user drainer only
+    * `UserQuestion`). A future driver that emits an activity event or an
+    * `AssistantTurnEnd` off the reader thread would race `turnIsOpen` with no
+    * compiler or test signal; see [[turnIsOpen]]'s single-writer note.
     */
   protected final class EventQueue:
     def enqueue(event: ConversationEvent): Unit =
-      channel.sendOrClosed(event).discard
+      event match
+        // Activity (turn-opening): mirrors ConversationEvent's scaladoc and the
+        // classifier in ConversationEventConformance.assertGrammar.
+        case _: ConversationEvent.AssistantTextDelta |
+            _: ConversationEvent.AssistantThinkingDelta |
+            _: ConversationEvent.AssistantToolCall |
+            _: ConversationEvent.ToolResult =>
+          openTurn = true
+          channel.sendOrClosed(event).discard
+        case ConversationEvent.AssistantTurnEnd =>
+          if openTurn then
+            openTurn = false
+            channel.sendOrClosed(event).discard
+        // else: drop — an AssistantTurnEnd with no activity since the last one
+        // is an empty turn (fixes gemini's unconditional pre-result end and
+        // claude's suppressed ask_user-only turn).
+        case _ =>
+          // Neutral (never opens/closes a turn): UserMessage, Error,
+          // ApproveTool, UserQuestion.
+          channel.sendOrClosed(event).discard
     def close(): Unit = channel.doneOrClosed().discard
 
   protected val eventQueue: EventQueue = new EventQueue
@@ -92,6 +127,31 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * subclasses that must drop post-terminal wire frames.
     */
   protected def isSettled: Boolean = settledOutcome.isDefined
+
+  /** Whether a turn is currently open — set by [[EventQueue.enqueue]] when an
+    * activity event flows and cleared by the closing `AssistantTurnEnd` (or the
+    * settle auto-close). Read by the settle helpers here and exposed to
+    * subclasses so a driver can ask "did activity stream this turn?" without
+    * its own bookkeeping.
+    *
+    * '''Single-writer invariant''' (same reasoning as [[settledOutcome]]'s):
+    * `openTurn` is written only from `enqueue` on activity/turn-end events and
+    * from the settle-time auto-close — all of which run on the reader thread,
+    * inside [[handleLine]] or the reader's end-of-stream. The other two
+    * `enqueue` producers run on different threads (`stderrLoop`,
+    * `askUserDrain`) but only ever pass NEUTRAL events, which don't touch this
+    * field (the confinement contract stated on [[EventQueue]]). So "single
+    * writer" is a plain-`var` property, not a coincidence — but an implicit
+    * one: a future driver emitting activity off the reader thread would
+    * silently break it.
+    */
+  private var openTurn: Boolean = false
+
+  /** True iff a turn is currently open (activity streamed since the last
+    * `AssistantTurnEnd`). The base reads it to decide the settle auto-close;
+    * subclasses may read it in place of their own turn-openness flags.
+    */
+  protected final def turnIsOpen: Boolean = openTurn
 
   private val cancelled: AtomicBoolean = new AtomicBoolean(false)
 
@@ -191,6 +251,7 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     */
   protected def succeedWith(result: AgentResult[B]): Unit =
     if settledOutcome.isEmpty then
+      closeOpenTurn()
       settledOutcome = Some(Outcome.Success(result))
     source.interrupt()
 
@@ -198,8 +259,20 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * [[succeedWith]] for the ordering rationale).
     */
   protected def failWith(error: Throwable): Unit =
-    if settledOutcome.isEmpty then settledOutcome = Some(Outcome.failed(error))
+    if settledOutcome.isEmpty then
+      closeOpenTurn()
+      settledOutcome = Some(Outcome.failed(error))
     source.interrupt()
+
+  /** Terminate an open turn at settle time by enqueuing the owed
+    * `AssistantTurnEnd` (which closes it via the funnel). A no-op when no turn
+    * is open, so a driver that already emitted its own protocol-driven turn end
+    * before settling never double-emits — its end closed the turn, this sees
+    * none open. Runs on the reader thread, before `settledOutcome` is set, so
+    * the closing event reaches the channel ahead of the reader's close.
+    */
+  private def closeOpenTurn(): Unit =
+    if turnIsOpen then eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
 
   // --- Hooks for backend implementations ---
 
