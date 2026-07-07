@@ -35,9 +35,12 @@ class InStageNegativeTest extends munit.FunSuite:
     // `InStage`'s `@implicitNotFound` makes the error user-facing — it tells the
     // author to move the call into a `stage(...)` rather than naming the internal
     // `InStage` type. Pin that message (and that the cryptic default is gone).
+    // NB: until Epic 0.4 migrates mutating tool methods onto `WorkspaceWrite`,
+    // `git.commit` is still gated on `InStage`, so this surfaces the InStage
+    // message; the helper clause `(using InStage)` is its stable signature.
     assert(
       errors.contains("inside a `stage(...)` body") &&
-        errors.contains("side-effecting"),
+        errors.contains("(using InStage)"),
       s"expected the friendly stage-required message, got: $errors"
     )
     assert(

@@ -1,5 +1,7 @@
 package orca
 
+import language.experimental.captureChecking
+
 import orca.progress.ProgressStore
 
 import scala.annotation.implicitNotFound
@@ -13,7 +15,13 @@ import scala.annotation.implicitNotFound
   * preventing them from starting nested stages.
   *
   * Thread-affine: one `FlowControl` exists per top-level `flow(...)` invocation
-  * and must not be shared across threads (ADR 0018 §2.2).
+  * and must not be shared across threads (ADR 0018 §2.2). Extending
+  * `caps.ExclusiveCapability` is the capture-checking encoding of that
+  * affinity: once CC is adopted, separation checking forbids two concurrent
+  * closures from both capturing this exclusive capability, so a `fork` cannot
+  * smuggle the authority to start a stage onto another thread. (That marker is
+  * `@experimental` on 3.8.4, hence this file's `captureChecking` language
+  * import; the taint stays local to this compilation unit — see ADR 0018 §6.)
   *
   * Not sealed: its implementation (`DefaultFlowContext`) lives in the `runner`
   * module, which depends on `flow`, not the reverse. This is an accepted
@@ -27,7 +35,7 @@ import scala.annotation.implicitNotFound
 @implicitNotFound(
   "`stage(...)`, `agent.session(...)`, and `agent.runSeeded(...)` can only be called inside a `flow(...)` body — and not inside a `fork` (forks can read and emit, but can't start stages). If this is a helper that starts stages, declare it `(using FlowControl)` so its caller supplies it."
 )
-trait FlowControl extends FlowContext:
+trait FlowControl extends FlowContext, caps.ExclusiveCapability:
   /** The store backing this run's progress log. */
   def progressStore: ProgressStore
 

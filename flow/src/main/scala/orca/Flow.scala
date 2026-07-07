@@ -23,7 +23,8 @@ private val log = LoggerFactory.getLogger("orca.flow")
   *     stored JSON decodes to `T`, emit StageStarted/StageCompleted and return
   *     the decoded value without running `body`. A decode failure (the stage's
   *     result type changed under this id) is fail-safe: fall through and run.
-  *   - Run: emit StageStarted, supply an `InStage` token, evaluate `body`.
+  *   - Run: emit StageStarted, supply the `InStage` (LLM-call) and
+  *     `WorkspaceWrite` (index-mutation) tokens, evaluate `body`.
   *   - Record & commit: append a `StageEntry(id, name, resultJson)` to the log,
   *     force-add the log file, then commit (the commit also `add -A`s code
   *     changes, so a stage yields one commit covering code + progress). Emit
@@ -45,7 +46,7 @@ private val log = LoggerFactory.getLogger("orca.flow")
 def stage[T: JsonData](
     name: String,
     commitMessage: Option[T => String] = None
-)(body: InStage ?=> T)(using fc: FlowControl): T =
+)(body: (InStage, WorkspaceWrite) ?=> T)(using fc: FlowControl): T =
   val id = s"$name#${fc.nextOccurrence(name)}"
   resumeFrom(id, name).getOrElse(runStage(id, name, commitMessage)(body))
 
@@ -82,11 +83,12 @@ private def runStage[T: JsonData](
     id: String,
     name: String,
     commitMessage: Option[T => String]
-)(body: InStage ?=> T)(using fc: FlowControl): T =
+)(body: (InStage, WorkspaceWrite) ?=> T)(using fc: FlowControl): T =
   fc.emit(OrcaEvent.StageStarted(name))
   try
     val result =
       given InStage = RuntimeInStage.token()
+      given WorkspaceWrite = RuntimeInStage.workspaceToken()
       body
     recordAndCommit(id, name, result, commitMessage)
     fc.emit(OrcaEvent.StageCompleted(name))
