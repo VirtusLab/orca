@@ -32,17 +32,12 @@ import scala.annotation.implicitNotFound
   * each stage a hierarchical, path-structured id (ADR 0018 §2.1). `stage`
   * requires `(using FlowControl)`; `flow` supplies it.
   *
-  * '''Stage-identity protocol (enter/lookup/exit).''' `stage` computes a
-  * stage's id once, before deciding skip-vs-run, by calling [[enterStage]]
-  * against the current (parent) frame — this both bumps the parent's occurrence
-  * counter for the name (so the slot is consumed whether or not the body runs,
-  * keeping later same-named siblings stable) and opens a child frame under
-  * which nested `stage(...)` calls scope their own counters. The returned path
-  * id drives the resume lookup; on a hit the body is skipped and [[exitStage]]
-  * pops the frame immediately, so a skipped parent's nested stages are
-  * structurally unreachable — the body never runs, so their `enterStage` never
-  * fires and no counter desyncs on resume. On a miss the body runs inside the
-  * frame and [[exitStage]] pops it in a `finally`.
+  * '''Stage-identity protocol.''' `stage` computes a stage's id via
+  * [[enterStage]]/[[exitStage]] before deciding skip-vs-run. The frame-stack
+  * mechanism and its invariants (exactly-once bump, structural unreachability,
+  * opaque paths) are the canonical [[StageFrames]] scaladoc — the mixin shared
+  * by every implementation, so it can't drift from production; see ADR 0018
+  * §2.1 for the design rationale.
   *
   * Thread-affine: `enterStage`/`exitStage` (and the occurrence counters they
   * drive) are covered by the same single-thread affinity contract as the rest
@@ -56,12 +51,9 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
   /** The store backing this run's progress log. */
   def progressStore: ProgressStore
 
-  /** Open a stage named `name`: bump the current frame's occurrence counter for
-    * the name, push a child frame, and return the stage's full path id (e.g.
-    * `outer#0/inner#0`, or `name#0` at the flow-body top level). Called once by
-    * `stage` before the resume lookup; must be balanced by [[exitStage]]. The
-    * path segment format is `name#occurrence`, separated by `/`, and is stable
-    * against inserting/removing *other* stages between runs.
+  /** Open a stage named `name` and return its full path id (e.g.
+    * `outer#0/inner#0`). Called once by `stage` before the resume lookup; must
+    * be balanced by [[exitStage]]. See [[StageFrames]] for the protocol.
     */
   def enterStage(name: String): String
 

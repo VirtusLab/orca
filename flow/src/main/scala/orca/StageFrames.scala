@@ -3,16 +3,35 @@ package orca
 /** Per-run stage-identity bookkeeping shared by every [[FlowControl]]
   * implementation (production [[orca.runner.DefaultFlowContext]] and the test
   * doubles), so a test double can never drift from production semantics and
-  * silently greenwash a nesting/resume test.
+  * silently greenwash a nesting/resume test. This is the canonical description
+  * of the frame-stack protocol — [[FlowControl]] and `stage` in Flow.scala
+  * point back here rather than repeating it; see ADR 0018 §2.1 for the design
+  * rationale.
   *
-  * A stack of frames — one per currently-open stage, plus a root frame for the
-  * flow body — scopes occurrence counters hierarchically. Each frame carries
-  * the path id of the stage that opened it and its own `name -> count` map for
-  * the stages nested directly under it, so a stage's id is the parent frame's
-  * path joined with `name#occurrence` (e.g. `outer#0/inner#0`) rather than a
-  * flat per-run counter. Flat ids let a skipped (resumed) parent's vanished
-  * nested bumps mis-key a later same-named stage; path ids keep siblings under
-  * different parents structurally distinct.
+  * '''Mechanism.''' A stack of frames — one per currently-open stage, plus a
+  * root frame (path `""`) for the flow body — scopes occurrence counters
+  * hierarchically. Each frame stores its own full path id (denormalized, rather
+  * than just a parent pointer plus a segment) and a `name -> count` map for the
+  * stages nested directly under it, so [[enterStage]] builds a child's id by
+  * string-joining `name#occurrence` onto the already-materialized parent path —
+  * no walk up the stack needed. `enterStage` pushes the child frame;
+  * [[exitStage]] pops it; the stack's head is always the current scope.
+  *
+  * '''Invariants.'''
+  *   - '''Exactly-once bump.''' `enterStage` bumps the parent frame's
+  *     occurrence counter for `name` exactly once per stage attempt, before the
+  *     resume decision is made — so the slot is consumed whether the body is
+  *     skipped, runs to completion, or throws (`stage` pops the frame in a
+  *     `finally`, covering all three outcomes). Later same-named siblings
+  *     therefore see a stable occurrence index across resumes.
+  *   - '''Structural unreachability.''' A skipped (resumed) stage's body never
+  *     runs, so its nested `stage(...)` calls never fire and never call
+  *     `enterStage` — their frames are never opened and no counter desyncs. A
+  *     flat, un-nested id scheme could not offer this: a skipped parent's
+  *     vanished nested bumps would let a later same-named stage recompute the
+  *     nested stage's id and misattribute a stale or wrong-typed record.
+  *   - '''Opaque paths.''' The `#`/`/`-joined path id is only ever compared for
+  *     exact equality, never parsed or reconstructed from its parts.
   *
   * Thread-affine: reached only through [[FlowControl]], which is
   * single-threaded per top-level `flow(...)` (R12, ADR 0018 §2.2) — stages,
@@ -40,10 +59,9 @@ private[orca] trait StageFrames:
   private var frames: List[Frame] = List(new Frame(""))
 
   /** Bump the current frame's occurrence counter for `name`, push a child frame
-    * for the new stage, and return its full path id. The bump happens against
-    * the *parent* (current) frame exactly once per call, so a skipped stage
-    * that is entered-then-immediately-exited still consumes its parent-frame
-    * slot — keeping later same-named siblings stable across resume.
+    * for the new stage, and return its full path id. See the class doc's
+    * "Exactly-once bump" and "Structural unreachability" invariants for why
+    * this must be called exactly once per stage attempt.
     */
   def enterStage(name: String): String =
     val parent = frames.head

@@ -50,11 +50,8 @@ def stage[T: JsonData](
     name: String,
     commitMessage: Option[T => String] = None
 )(body: (InStage, WorkspaceWrite) ?=> T)(using fc: FlowControl): T =
-  // `enterStage` computes the path id (bumping the parent frame's occurrence
-  // slot exactly once) and opens this stage's frame; `exitStage` closes it in
-  // `finally`, whether the body ran or was skipped. A skipped stage's body never
-  // runs, so its nested `stage(...)` calls never `enterStage` — their counters
-  // stay untouched on resume (structural unreachability, ADR 0018 §2.1).
+  // `enterStage`/`exitStage` bracket the frame; see StageFrames scaladoc for
+  // the frame-stack protocol and invariants, ADR 0018 §2.1 for rationale.
   val id = fc.enterStage(name)
   try resumeFrom(id, name).getOrElse(runStage(id, name, commitMessage)(body))
   finally fc.exitStage()
