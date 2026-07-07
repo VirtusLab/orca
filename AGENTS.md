@@ -51,6 +51,17 @@ traits), `orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`/
 `orca.runner` / `orca.runner.terminal`
 (wiring + terminal UI). The flow module adds `orca.{plan,review,pr,progress}`.
 
+The path-dependent `agent: Agent[ctx.LeadB]` accessor only works within a
+single `using FlowContext` — reach for it in a straight-line `flow(...)` body,
+not in a helper *function*, since `ctx1.LeadB` and `ctx2.LeadB` from two
+different `FlowContext` parameters don't unify even when they're the same
+backend at runtime. A helper that threads a session across a function
+boundary should instead take an explicit `[B <: BackendTag]` type parameter
+with `Agent[B]`/`SessionId[B]` parameters (`reviewAndFixLoop` does this), or
+bundle the session and its result as a `Sessioned[B]` pair (`orca.plan.Plan`'s
+helpers do this) — see the `LeadB` scaladoc
+(`flow/src/main/scala/orca/FlowContext.scala`) for the full rationale.
+
 ## The stage-bound runtime
 
 The flow runtime is specified in [ADR 0018](adr/0018-stage-bound-flow-runtime.md) —

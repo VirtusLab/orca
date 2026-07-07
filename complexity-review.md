@@ -206,7 +206,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
 
 ## 6. Capability & type-level machinery (MEDIUM)
 
-- [ ] **6.1 Resolve the `LeadB` halfway point.** Path-dependent `SessionId[ctx.LeadB]`
+- [x] **6.1 Resolve the `LeadB` halfway point.** (done: this docs commit — lean-in: helper-authoring guidance; tags kept) Path-dependent `SessionId[ctx.LeadB]`
   stops unifying at the first helper boundary (worst mistake-to-diagnostic distance
   in the DSL); the library itself bypasses it (explicit `[B]` params +
   `SessionId.Untyped` + unchecked `.as[RB]`; rehydration mints from untagged
@@ -215,7 +215,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
   Refs: `flow/.../FlowContext.scala:34-50`, `flow/.../accessors.scala:30-54`,
   `tools/.../agents/BackendTag.scala:46-54`, `flow/.../review/ReviewLoop.scala:173-186,280-299`.
 
-- [ ] **6.2 Freeze `InStage.unsafe` mint sites; fix the capture-checking plan.**
+- [x] **6.2 Freeze `InStage.unsafe` mint sites; fix the capture-checking plan.** (done: 702ae13)
   Seven mints across three modules, each self-authorising; funnel through one
   named constructor so auditing is one grep. ADR 0018 §6's capture-checking
   endgame would outlaw the reviewer fan-out's load-bearing token capture —
@@ -226,13 +226,13 @@ comments, ADRs) rather than types, several with shipped-bug history.
   `flow/.../Session.scala:52,105`, `runner/.../FlowLifecycle.scala:86,178,226`;
   `flow/.../review/ReviewLoop.scala:334-356`; `adr/0018-...md` §6.
 
-- [ ] **6.3 Kill the `AgentConfig.default` `eq` sentinel.** Merge-vs-replace decided
+- [x] **6.3 Kill the `AgentConfig.default` `eq` sentinel.** (done: 442e577) Merge-vs-replace decided
   by reference identity; `AgentConfig()` at a call site silently wipes the tool's
   model/system-prompt/toolset. Use `Option[AgentConfig]` or
   `configure: AgentConfig => AgentConfig = identity`.
   Refs: `tools/.../agents/AgentConfig.scala:62-71`, `tools/.../agents/BaseAgent.scala:126-132`.
 
-- [ ] **6.4 De-trick `ForkedConversation` internals (keep the design).** Two-phase
+- [x] **6.4 De-trick `ForkedConversation` internals (keep the design).** (done: 9abe577 + a2ef55e — settledOutcome de-atomized earlier; Peek enum; lazy-fork design kept, documented) Two-phase
   factory (`ForkedConversation.start(...)`) to remove the lazy-fork /
   subclass-initializer-race reasoning; fold `settledOutcome` into the reader's
   return path (same-thread anyway); replace `peeked: Option = null` tri-state with
@@ -240,7 +240,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
   is judged justified — don't rewrite it.
   Refs: `tools/.../backend/ForkedConversation.scala:27-35,84-94,124-136,251-290,339-355`.
 
-- [ ] **6.5 Name the `JsonData` primitive givens; scope the bridge givens.** Implicit
+- [x] **6.5 Name the `JsonData` primitive givens; scope the bridge givens.** (done: ffc656e) Implicit
   cycle currently dodged via a "don't summon" comment and a reference to the
   compiler-synthesized name `given_JsonData_String` — breaks silently if the
   anonymous given is renamed/reordered.
@@ -248,7 +248,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
 
 ## 7. Concrete latent bugs (fix independently of any restructuring)
 
-- [ ] **7.1 `JLinePrompter` lifecycle.** Per-conversation `finally closePrompter()`
+- [x] **7.1 `JLinePrompter` lifecycle.** (done: 15dac1b + bd3d15e) Per-conversation `finally closePrompter()`
   closes the process-global singleton: first conversation force-allocates the lazy
   terminal just to close it; the second interactive prompt of any run operates on
   closed I/O. Make the prompter per-renderer, or close only at `Interaction.close()`
@@ -261,27 +261,27 @@ comments, ADRs) rather than types, several with shipped-bug history.
   Flatten to one `bestEffort` helper with uniform policy + debug logging.
   Refs: `runner/.../FlowLifecycle.scala:161-193`, consequence via `runner/.../flow.scala:150-153,292-293`.
 
-- [ ] **7.3 Codex schema file.** Fixed path `workDir/.codex/orca-output-schema.json`:
+- [x] **7.3 Codex schema file.** (done: dd5015e) Fixed path `workDir/.codex/orca-output-schema.json`:
   races under the parallel reviewer fan-out (concurrent structured calls, one
   file), never cleaned up, swept into flow commits by `add -A`. Use `os.temp` or a
   session-suffixed path + delete-on-finalize (claude already does both for MCP
   config).
   Refs: `codex/.../CodexBackend.scala:214-221`, contrast `claude/.../ClaudeBackend.scala:243-250`.
 
-- [ ] **7.4 Refuse to commit empty session ids.** Defensive `getOrElse("")` parsing +
+- [x] **7.4 Refuse to commit empty session ids.** (done: dd5015e) Defensive `getOrElse("")` parsing +
   unconditional commit means a missing init event yields registry entry `""` and a
   later `codex exec resume ""`. Guard at the settle point or centrally in
   `drainAndCommit` (refuse empty/unsafe `result.sessionId`).
   Refs: `codex/.../CodexConversation.scala:54,212-219`, `gemini/.../GeminiConversation.scala:50,138-145`,
   `tools/.../backend/Conversations.scala:148`.
 
-- [ ] **7.5 Claude `sessionExists` probes the wrong directory when `workDir ≠ pwd`.**
+- [x] **7.5 Claude `sessionExists` probes the wrong directory when `workDir ≠ pwd`.** (done: dd5015e)
   Probe slugs construction-time `os.pwd`; spawns use per-call `workDir` — resume
   silently always re-seeds in worktree flows. Add `workDir` to `sessionExists`, or
   record spawn workDir per session; at minimum log the mismatch.
   Refs: `claude/.../ClaudeBackend.scala:43-69,228,287-294`.
 
-- [ ] **7.6 Structured-result rendering: code vs ADR 0008.** Renderer drops streamed
+- [x] **7.6 Structured-result rendering: code vs ADR 0008.** (done: e9d751d) Renderer drops streamed
   JSON in structured mode; listener renders only when `Announce` exists — so
   `resultAs[O]` without an `Announce` given produces no terminal output for the
   agent's answer. ADR specifies a raw-text `●` fallback. Decide the behaviour,
@@ -295,7 +295,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
   capture. Route through `QuietProc.call` / `mergeErrIntoOut = true`; fix comment.
   Refs: `flow/.../review/ReviewLoop.scala:382-385,468-471`.
 
-- [ ] **7.8 Override params are event-blind; default agents unsubstitutable.**
+- [x] **7.8 Override params are event-blind; default agents unsubstitutable.** (done: 5be491a)
   User-supplied `claude = Some(...)`/`git = Some(...)` can't reach the dispatcher
   created later inside `runFlow` — costs/steps silently vanish from tracker and
   terminal. `DefaultClaudeAgent`/`ClaudeBackend` are `private[orca]`, so the
@@ -305,7 +305,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
   Refs: `runner/.../flow.scala:82-101,207-216`, `claude/.../DefaultClaudeAgent.scala:19`,
   `runner/.../DefaultFlowContext.scala:141-201`.
 
-- [ ] **7.9 Empty-`Announce` silent turn + `deltasSinceTurnBoundary` overload.** One
+- [x] **7.9 Empty-`Announce` silent turn + `deltasSinceTurnBoundary` overload.** (done: a2ef55e) One
   claude-driver flag carries two unrelated meanings (partials-fallback gating and
   error-display heuristic), coherent only via a wire-ordering invariant documented
   elsewhere. Split into two named flags or drop heuristic (b).

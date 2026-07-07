@@ -38,6 +38,27 @@ trait FlowContext:
     * `using FlowContext` site is unaffected; the runtime captures the concrete
     * tag here at construction, with `flow` generic over it, inferred from the
     * selector.)
+    *
+    * '''Helper authoring:''' the path-dependent `agent: Agent[ctx.LeadB]`
+    * accessor is convenient in a straight-line `flow(...)` body, where every
+    * reference resolves against the same `using FlowContext` in scope — but it
+    * stops working the moment you factor code into a helper *function*.
+    * `ctx1.LeadB` and `ctx2.LeadB` from two different `using FlowContext`
+    * parameters are different types to the compiler even when they're the same
+    * backend at runtime, so a helper that takes `Agent[ctx.LeadB]` in one
+    * parameter and tries to combine it with `SessionId[ctx.LeadB]` from another
+    * can't unify them. Two ways out, both used by the library's own helpers:
+    *
+    *   - Take an explicit `[B <: BackendTag]` type parameter and type the
+    *     helper's own parameters `Agent[B]` / `SessionId[B]` against it — `B`
+    *     is then a genuine type variable the caller instantiates once, not a
+    *     path into someone else's context. See
+    *     [[orca.review.reviewAndFixLoop]]`(coder: Agent[B], sessionId:
+    *     SessionId[B], ...)`.
+    *   - Bundle the agent's session with its result as a single
+    *     [[orca.plan.Sessioned]]`[B, A]` value, so callers pass one thing
+    *     instead of two that have to agree on `B`. See `Plan.autonomous.*` /
+    *     `Plan.interactive.*`.
     */
   type LeadB <: BackendTag
 
