@@ -203,6 +203,7 @@ comments, ADRs) rather than types, several with shipped-bug history.
   public API on fork threads. Catch per-listener, log loudly, optionally
   quarantine; delete the ordering caveats.
   Refs: `flow/.../events/EventDispatcher.scala:3-18`, `tools/.../events/OrcaEvent.scala:70-77`.
+  Follow-up (owner decision): listeners are QUARANTINED after their first failure (916e1b4 + 92ff33a) — an errored observer's state is unrecoverable; the flow always survives.
 
 ## 6. Capability & type-level machinery (MEDIUM)
 
@@ -313,23 +314,23 @@ comments, ADRs) rather than types, several with shipped-bug history.
 
 ## 8. Hygiene (small, mechanical)
 
-- [ ] **8.1 Delete vestigial `(using BufferCapacity)`** on claude/codex/gemini backend
+- [x] **8.1 Delete vestigial `(using BufferCapacity)`** (done: c5d9a1a) on claude/codex/gemini backend
   constructors (used nowhere; opencode/pi already dropped it).
   Refs: `claude/.../ClaudeBackend.scala:19,45`, `codex/.../CodexBackend.scala:19,44`,
   `gemini/.../GeminiBackend.scala:20,45`.
 - [x] **8.2 Delete dead `ReviewContext`** (done: this docs commit — ReviewContext deleted) (zero usages in main, tests, exports, examples).
   Refs: `flow/.../review/ReviewContext.scala`.
-- [ ] **8.3 Remove or relocate `Task.completed`/`markComplete`/`firstIncomplete`** —
+- [x] **8.3 Remove or relocate `Task.completed`/`markComplete`/`firstIncomplete`** (done: 691e103) —
   checkbox state retired by ADR 0018; nothing in the library sets `completed`.
   Refs: `flow/.../plan/Task.scala:15-20`, `flow/.../plan/Plan.scala:50-56,264-274`.
-- [ ] **8.4 Unify the two quiet-subprocess stacks; fix the `QuietProc` doc.** Doc
+- [x] **8.4 Unify the two quiet-subprocess stacks; fix the `QuietProc` doc.** (done: ef3370e) Doc
   claims `CliRunner` wraps `QuietProc` — it doesn't; the stacks already diverged on
   `nonInteractiveEnv` (`OsGitHubTool.currentBranchGit` runs git without
   hang-protection). Delegate one to the other; route git-in-GitHubTool through the
   shared helper.
   Refs: `tools/.../subprocess/QuietProc.scala:13-15`, `tools/.../subprocess/OsProcCliRunner.scala:19-43`,
   `tools/.../tools/GitHubTool.scala:275-284`, `tools/.../tools/GitTool.scala:478-483`.
-- [ ] **8.5 Localize `Conversations.drainAutonomous`'s withheld-turn state machine.**
+- [x] **8.5 Localize `Conversations.drainAutonomous`'s withheld-turn state machine.** (done: f3ecb89)
   Flush semantics split across `closeTurn`/loop/`finally`; mid-turn crash silently
   drops a partial turn; structured mode delays every turn by one on screen
   (unstated). Emit eagerly and defer exactly one pending emission, or suppress at
@@ -343,12 +344,12 @@ comments, ADRs) rather than types, several with shipped-bug history.
   + shared `indentBlock` helper; fix the comment.
   Refs: `runner/.../terminal/TerminalEventListener.scala:8-13,31-61,109-129,170-182`,
   `runner/.../terminal/StageDepth.scala`, `runner/.../terminal/ConversationRenderer.scala:184-186`.
-- [ ] **8.7 Surface `ProgressStore.load` corruption as data.** Unparseable log ⇒
+- [x] **8.7 Surface `ProgressStore.load` corruption as data.** (done: f7f2466) Unparseable log ⇒
   silent fresh run (second branch, re-run stages); `Absent | Corrupt(reason) | Loaded`
   would make the third arm explicit and warnable. Consider caching the parsed log
   and temp-file-rename writes while there.
   Refs: `flow/.../progress/ProgressStore.scala:69-71,92-119`, `runner/.../FlowLifecycle.scala:93-141`.
-- [ ] **8.8 Misc small items.** `OpencodeConversation`'s fourth lifecycle flag
+- [x] **8.8 Misc small items.** (done: 1218d51 — GitPushAuth extraction deliberately deferred: conditional on growth) `OpencodeConversation`'s fourth lifecycle flag
   (expose `isSettled` on the base instead) — `opencode/.../OpencodeConversation.scala:73-86,143-156`;
   pi failure-path cleanup depending on a by-name param in another module
   (allocate the system-prompt file before `open`) — `pi/.../PiBackend.scala:117-131`;
