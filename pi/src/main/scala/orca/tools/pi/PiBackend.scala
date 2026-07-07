@@ -54,10 +54,10 @@ private[orca] class PiBackend(cli: CliRunner)
     * [[SessionRegistry.ClaimedOnce]] tracks fresh-vs-resume within a live
     * process, but there is nothing durable to persist, rehydrate, or probe — pi
     * always re-seeds across runs (ADR 0018 §2.6). The `Ephemeral` case says
-    * this structurally, so `resumeWireId`/`sessionExists` report absence
-    * without a per-backend override. The registry is encapsulated; the
-    * spawn/commit paths go through `sessions.dispatchFor` /
-    * `Conversations.runAutonomous(session, sessions, …)`.
+    * this structurally, so `resumeWireId`/`exists` report absence without a
+    * per-backend override. The registry is encapsulated; the spawn/commit paths
+    * go through `sessions.dispatchFor` / `Conversations.runAutonomous(session,
+    * sessions, …)`.
     */
   val sessions: SessionSupport[BackendTag.Pi.type] =
     SessionSupport.Ephemeral(

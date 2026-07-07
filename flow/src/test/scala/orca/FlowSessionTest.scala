@@ -1,15 +1,7 @@
 package orca
 
 import munit.FunSuite
-import orca.backend.{
-  Conversation,
-  Interaction,
-  AgentBackend,
-  AgentResult,
-  SessionRegistry,
-  SessionSupport
-}
-import orca.events.OrcaListener
+import orca.backend.{SessionRegistry, SessionSupport}
 import orca.agents.{
   Announce,
   AgentInput,
@@ -21,11 +13,9 @@ import orca.agents.{
   AgentCall,
   AgentConfig,
   Agent,
-  Prompts,
   SessionId,
   WireSessionId,
   ToolSet,
-  BaseAgent,
   onWire
 }
 import orca.progress.{ProgressHeader, ProgressStore, StageEntry, SessionRecord}
@@ -36,7 +26,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
   * `agent.runSeeded` extension).
   *
   * Each scenario constructs a [[FlowSession]] directly over a
-  * [[StubAgentForSeeded]] (whose `sessionExists` and `run` behaviours are
+  * [[StubAgentForSeeded]] (whose `willContinue` and `run` behaviours are
   * injected at construction time) and a fixed [[testSession]] id, and asserts
   * on `capturedPrompt` (what the prompt looked like after preamble/seed
   * composition) and on the persisted [[SessionRecord]].
@@ -51,7 +41,7 @@ class FlowSessionTest extends FunSuite:
   /** Builds the durability capability the stubs expose through
     * `sessionSupport`, seeding the production
     * [[SessionRegistry.ClientToServer]] via `commitSuccess` rather than
-    * hand-rolling a `SessionRegistry`. Both `sessionExists` and `resumeWireId`
+    * hand-rolling a `SessionRegistry`. Both `willContinue` and `resumeWireId`
     * route through it (the trio is now `final` on [[Agent]], and existence is
     * registry-gated). A safe placeholder wire id is committed when `exists` is
     * wanted so the probe (which returns `exists`) runs; otherwise the
@@ -60,7 +50,7 @@ class FlowSessionTest extends FunSuite:
     */
   private def stubSupport(
       exists: Boolean,
-      learnedWireId: Option[String] = None
+      learnedWireId: Option[String]
   ): SessionSupport[BackendTag.ClaudeCode.type] =
     val reg = new SessionRegistry.ClientToServer[BackendTag.ClaudeCode.type]
     (if exists then Some("live-session-wire") else learnedWireId)
@@ -86,8 +76,9 @@ class FlowSessionTest extends FunSuite:
   /** Controllable Agent stub for seeded-run tests.
     *
     * @param existsResult
-    *   The value `sessionExists` returns — set `true` to exercise the "live
-    *   session" branch, `false` to exercise the re-seed path.
+    *   The value the durable probe (and so `willContinue`) returns — set `true`
+    *   to exercise the "live session" branch, `false` to exercise the re-seed
+    *   path.
     * @param runResult
     *   The text `autonomous.run` echoes back.
     */
@@ -131,10 +122,9 @@ class FlowSessionTest extends FunSuite:
         )
       else stubSupport(existsResult, learnedWireId)
 
-    /** Drives `sessionExists`/`willContinue` (via the registry-gated probe) and
-      * `resumeWireId` (via the registry's `resumeWireId`) — `learnedWireId`
-      * mirrors a server-id backend's persist path, `None`/`ephemeral` mirrors
-      * pi.
+    /** Drives `willContinue` (via the registry-gated probe) and `resumeWireId`
+      * (via the registry's `resumeWireId`) — `learnedWireId` mirrors a
+      * server-id backend's persist path, `None`/`ephemeral` mirrors pi.
       */
     override private[orca] def sessionSupport
         : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
@@ -193,87 +183,6 @@ class FlowSessionTest extends FunSuite:
     def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
     def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
     def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
-
-  /** A minimal `AgentBackend` stub whose `sessionExists` returns a fixed value.
-    * All other methods throw — they must never be called in these tests.
-    */
-  private class StubBackend(existsResult: Boolean)
-      extends AgentBackend[BackendTag.ClaudeCode.type]:
-    def runAutonomous(
-        prompt: String,
-        session: SessionId[BackendTag.ClaudeCode.type],
-        config: AgentConfig,
-        workDir: os.Path,
-        events: OrcaListener,
-        outputSchema: Option[String]
-    ): AgentResult[BackendTag.ClaudeCode.type] = ???
-    def runInteractive(
-        prompt: String,
-        session: SessionId[BackendTag.ClaudeCode.type],
-        displayPrompt: String,
-        config: AgentConfig,
-        workDir: os.Path,
-        outputSchema: Option[String]
-    )(using ox.Ox): Conversation[BackendTag.ClaudeCode.type] = ???
-    val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
-      stubSupport(existsResult)
-    val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
-
-  /** A minimal `BaseAgent`-derived tool backed by [[StubBackend]]. Exercises
-    * the real `BaseAgent.sessionSupport = Some(backend.sessions)` wiring, which
-    * `Agent.sessionExists` routes through (`sessions.exists`), in production
-    * wiring.
-    */
-  private class StubBasedTool(backend: StubBackend)
-      extends BaseAgent[BackendTag.ClaudeCode.type, Agent[
-        BackendTag.ClaudeCode.type
-      ]](
-        backend,
-        AgentConfig(),
-        NoOpPrompts,
-        os.temp.dir(),
-        OrcaListener.noop,
-        NoOpInteraction
-      ):
-    val name: String = "stub-based"
-    protected def copyTool(
-        config: AgentConfig,
-        name: String
-    ): Agent[BackendTag.ClaudeCode.type] = this
-    override def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] =
-      this
-    override def withSystemPrompt(
-        p: String
-    ): Agent[BackendTag.ClaudeCode.type] = this
-    override def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-    override def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] =
-      this
-    override def resultAs[O: JsonData: Announce]
-        : AgentCall[BackendTag.ClaudeCode.type, O] =
-      ???
-
-  /** No-op [[Prompts]] for use in [[StubBasedTool]]; never called in these
-    * tests because we only exercise `sessionExists`, not the run path.
-    */
-  private object NoOpPrompts extends Prompts:
-    def autonomous(
-        input: String,
-        outputSchema: String,
-        config: AgentConfig
-    ): String = ???
-    def interactive(
-        input: String,
-        outputSchema: String,
-        config: AgentConfig
-    ): String = ???
-    def retry(failedResponse: String, parseError: String): String = ???
-
-  /** No-op [[Interaction]] for use in [[StubBasedTool]]. */
-  private object NoOpInteraction extends Interaction:
-    def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](
-        conversation: Conversation[B]
-    ): AgentResult[B] = ???
 
   // ── test helpers ──────────────────────────────────────────────────────────
 
@@ -495,20 +404,24 @@ class FlowSessionTest extends FunSuite:
     assertEquals(record.resumeWireId, Some("server-thread-xyz"))
 
   test(
-    "run self-heals a stale recorded backend tag when it persists a wire id (6B.2)"
+    "run self-heals an untagged recorded backend when it persists a wire id (6B.2)"
   ):
-    // The record was minted under a stale tag (Codex — e.g. by an earlier
-    // agent instance before a lead-backend swap in the SAME run, or a record
-    // whose tag was never corrected). This run's agent is ClaudeCode and
-    // learns a wire id — persistResumeWireId must correct `backend` to match,
-    // not just carry the stale tag forward via `.copy`.
+    // The record predates tagging (backend = None — an untagged, pre-tagging
+    // log). This is the ONLY backend value `persistResumeWireId`'s self-heal
+    // ever sees on a genuinely-reused session: `session(...)`'s reuse arm
+    // already refuses to reuse a record whose tag actively MISMATCHES the
+    // current agent (it mints fresh instead, never reaching this run), so a
+    // tagged-mismatch case can't reach `persistResumeWireId` at all. This run's
+    // agent is ClaudeCode and learns a wire id — persistResumeWireId must
+    // upgrade `backend` from `None` to `ClaudeCode`, not leave it unset via
+    // `.copy`.
     val fc = makeControl(
       sessions = List(
         SessionRecord(
           occurrence = 0,
           id = testSessionId,
           seed = "seed",
-          backend = Some("Codex")
+          backend = None
         )
       )
     )
@@ -524,7 +437,7 @@ class FlowSessionTest extends FunSuite:
     assertEquals(
       record.backend,
       Some("ClaudeCode"),
-      "a stale recorded tag must be healed to the agent's current tag"
+      "an untagged recorded backend must be healed to the agent's current tag"
     )
 
   test(
@@ -654,19 +567,3 @@ class FlowSessionTest extends FunSuite:
         errors.contains("Required") && errors.contains("orca.agents.SessionId"),
       s"expected a Found FlowSession / Required SessionId type mismatch, got: $errors"
     )
-
-  // ── tests: sessionExists delegation (unchanged) ─────────────────────────────
-
-  test(
-    "Agent.sessionExists: BaseAgent delegates to backend (returns false)"
-  ):
-    // Real delegation: StubBasedTool → BaseAgent.sessionExists → StubBackend.sessionExists
-    val tool = new StubBasedTool(new StubBackend(existsResult = false))
-    assert(!tool.sessionExists(testSession))
-
-  test(
-    "Agent.sessionExists: BaseAgent delegates to backend (returns true)"
-  ):
-    // Real delegation: StubBasedTool → BaseAgent.sessionExists → StubBackend.sessionExists
-    val tool = new StubBasedTool(new StubBackend(existsResult = true))
-    assert(tool.sessionExists(testSession))

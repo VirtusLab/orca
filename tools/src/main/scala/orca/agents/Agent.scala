@@ -142,7 +142,7 @@ trait Agent[B <: BackendTag]:
 
   /** The backend's session-durability capability, or `None` for tools without a
     * backend (lightweight stubs). The ONLY overridable session hook — the
-    * `sessionExists` / `resumeWireId` / `registerResumeWireId` trio below is
+    * `willContinue` / `resumeWireId` / `registerResumeWireId` trio below is
     * `final`, implemented uniformly through this. A concrete tool exposes its
     * backend's whole [[orca.backend.SessionSupport]] or nothing, so it cannot
     * reflect one session operation while silently defaulting the others.
@@ -158,24 +158,12 @@ trait Agent[B <: BackendTag]:
     */
   private[orca] def backendTag: Option[BackendTag] = None
 
-  /** Best-effort, non-destructive: is a live, resumable backend conversation
-    * present for `session`? Delegates to [[sessionSupport]]. Returns `false` —
-    * safe re-seed — when a concrete tool can't reach a backend instance.
-    *
-    * For the should-I-re-seed decision, use [[willContinue]] instead — this
-    * probe deliberately answers cross-restart durability only, not "will the
-    * next in-process call continue" (see [[willContinue]]'s scaladoc for why
-    * the two differ for ephemeral backends).
-    */
-  final def sessionExists(session: SessionId[B]): Boolean =
-    sessionSupport.exists(_.exists(session))
-
   /** Will the NEXT call on `session` continue an already-live conversation
     * (rather than open a fresh one that needs re-seeding)? The durable-session
     * runtime asks this before deciding whether to re-inject the seed + progress
-    * preamble. Differs from [[sessionExists]] only for ephemeral backends (pi),
-    * where a session with no durable transcript is nonetheless a live
-    * in-process continuation — see
+    * preamble. Differs from [[orca.backend.SessionSupport.exists]] only for
+    * ephemeral backends (pi), where a session with no durable transcript is
+    * nonetheless a live in-process continuation — see
     * [[orca.backend.SessionSupport.willContinue]]. Returns `false` — safe
     * re-seed — when a concrete tool can't reach a backend.
     */

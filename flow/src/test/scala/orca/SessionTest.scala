@@ -232,6 +232,48 @@ class SessionTest extends FunSuite:
     )
 
   test(
+    "session() reuse with BOTH a divergent seed AND a mismatched backend tag " +
+      "warns only about the tag (not the seed)"
+  ):
+    // The record was minted by a Codex-tagged agent with one seed; the resuming
+    // agent is ClaudeCode-tagged AND supplies a different seed. A fresh mint
+    // follows either way (the tag mismatch alone forces it), so the seed-diff
+    // warning — which claims "reusing the recorded session" — would be
+    // misleading here: nothing is reused, and the edited seed is exactly what
+    // ends up seeding the freshly-minted session. Only the tag-mismatch warning
+    // must fire.
+    val (store, dir) = freshStore()
+    val codexAgent = new StubAgent:
+      override private[orca] def backendTag: Option[BackendTag] =
+        Some(BackendTag.Codex)
+    val _ =
+      codexAgent.session("implementer", "original seed")(using
+        makeControl(store, dir)
+      )
+
+    val claudeAgent = new StubAgent:
+      override private[orca] def backendTag: Option[BackendTag] =
+        Some(BackendTag.ClaudeCode)
+    val recorder = new RecordingListener
+    val _ =
+      claudeAgent.session("implementer", "different seed")(using
+        makeControl(store, dir, List(recorder))
+      )
+
+    assert(
+      recorder.steps.exists(s =>
+        s.contains("warning") && s.contains("implementer") &&
+          s.contains("#0") && s.contains("Codex") && s.contains("ClaudeCode")
+      ),
+      s"expected a tag-mismatch warning naming both tags; got: ${recorder.steps}"
+    )
+    assert(
+      !recorder.steps.exists(_.contains("recorded seed differs")),
+      s"seed-diff warning must NOT fire when a tag mismatch already forces a " +
+        s"fresh mint; got: ${recorder.steps}"
+    )
+
+  test(
     "session() reuse with a corrupted (unsafe) recorded id mints fresh and warns (6B.3)"
   ):
     // A hand-edited/corrupted log: the recorded id fails SessionId.isSafe.

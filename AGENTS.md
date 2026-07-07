@@ -102,7 +102,7 @@ most easily broken:
   `AgentBackend.sessions: SessionSupport[B]` is either `Ephemeral(registry)`
   (pi — nothing survives a process restart) or `Durable(registry, probe)`
   (claude/codex/gemini/opencode — sessions outlive the process). `Agent`
-  derives `sessionExists` / `resumeWireId` / `registerResumeWireId` as `final`
+  derives `willContinue` / `resumeWireId` / `registerResumeWireId` as `final`
   methods over the single `sessionSupport` hook, so a concrete tool can't wire
   one session operation while silently defaulting the others — that
   half-wiring is unrepresentable now. Underneath, `SessionRegistry` still has
@@ -111,7 +111,7 @@ most easily broken:
   `ClientToServer` (codex/gemini/opencode — a server-minted id learned from the
   protocol); and `SessionId[B]` (the client-side handle) is split from
   `WireSessionId[B]` (what actually goes on the wire) — `SessionId#onWire` is
-  the only client→wire crossing. `sessionExists` stays a best-effort,
+  the only client→wire crossing. `willContinue` stays a best-effort,
   non-destructive probe; when it can't confirm a live session the flow
   re-seeds, the uniform fallback that holds on every backend.
 

@@ -180,51 +180,61 @@ extension [B <: BackendTag](agent: Agent[B])
         _.sessions.find(r => r.name == name && r.occurrence == occ)
       ) match
       case Some(recorded) =>
-        // Sessions are keyed by name + occurrence (see the scaladoc), so a
-        // recorded seed differing from this call's means the seed was edited
-        // between runs. The recorded session is reused either way (re-seed is
-        // the safe fallback, ADR 0018 §2.6) — surface the divergence rather
-        // than resume the wrong session silently.
-        if recorded.seed != seed then
-          fc.emit(
-            OrcaEvent.Step(
-              s"warning: session '$name' #$occ recorded seed differs for " +
-                "this name — the seed was edited; reusing the recorded session"
-            )
-          )
         val currentTag = agent.backendTag.map(_.wireName)
-        if recorded.backend.isDefined && recorded.backend != currentTag then
-          // A lead-backend swap between runs: the wire id under `recorded.id`
-          // was minted (and is meaningful) only in the OLD backend's registry.
-          // Re-stamping it under the new tag would silently re-seed against
-          // the wrong agent forever (the write-side half of the bug class
-          // FlowLifecycle's targeted rehydration closed on the read side) — so
-          // mint fresh instead, exactly like the no-record case, rather than
-          // reuse the stale id.
-          fc.emit(
-            OrcaEvent.Step(
-              s"warning: session '$name' #$occ was minted on " +
-                s"${recorded.backend.get}; this agent is " +
-                s"${currentTag.getOrElse("untagged")} — minting fresh"
-            )
-          )
-          mintSession(agent, name, occ, seed)
-        else
-          // The recorded id is untrusted (log-sourced): parse rather than
-          // trust it verbatim. A record that fails to parse (hand-edited,
-          // truncated, or otherwise corrupted) is treated the same as a
-          // backend-tag mismatch — mint fresh rather than resume against a
-          // value that could carry a path/regex/URL injection downstream.
-          SessionId.parse[B](recorded.id) match
-            case Some(validId) => validId
-            case None =>
-              fc.emit(
-                OrcaEvent.Step(
-                  s"warning: session '$name' #$occ has an invalid recorded " +
-                    "id — minting fresh"
-                )
+        recorded.backend match
+          case Some(recordedTag) if currentTag != Some(recordedTag) =>
+            // A lead-backend swap between runs: the wire id under `recorded.id`
+            // was minted (and is meaningful) only in the OLD backend's registry.
+            // Re-stamping it under the new tag would silently re-seed against
+            // the wrong agent forever (the write-side half of the bug class
+            // FlowLifecycle's targeted rehydration closed on the read side) — so
+            // mint fresh instead, exactly like the no-record case, rather than
+            // reuse the stale id. Checked BEFORE the seed-diff warning below —
+            // a tag mismatch always mints fresh, so it must be the ONLY warning
+            // surfaced here; a seed-diff warning in this branch would falsely
+            // claim the (never-applied) edited seed is being reused.
+            fc.emit(
+              OrcaEvent.Step(
+                s"warning: session '$name' #$occ was minted on " +
+                  s"$recordedTag; this agent is " +
+                  s"${currentTag.getOrElse("untagged")} — minting fresh"
               )
-              mintSession(agent, name, occ, seed)
+            )
+            mintSession(agent, name, occ, seed)
+          case _ =>
+            // No tag mismatch (tags match, or the record predates tagging): the
+            // recorded id is untrusted (log-sourced): parse rather than trust
+            // it verbatim. A record that fails to parse (hand-edited,
+            // truncated, or otherwise corrupted) is treated the same as a
+            // backend-tag mismatch — mint fresh rather than resume against a
+            // value that could carry a path/regex/URL injection downstream.
+            SessionId.parse[B](recorded.id) match
+              case Some(validId) =>
+                // This is the only branch that genuinely reuses the recorded
+                // session, so it's the only branch where a seed-diff warning
+                // is honest. Sessions are keyed by name + occurrence (see the
+                // scaladoc), so a recorded seed differing from this call's
+                // means the seed was edited between runs. The recorded session
+                // is reused either way (re-seed is the safe fallback, ADR 0018
+                // §2.6) — surface the divergence rather than resume the wrong
+                // session silently.
+                if recorded.seed != seed then
+                  fc.emit(
+                    OrcaEvent.Step(
+                      s"warning: session '$name' #$occ recorded seed differs " +
+                        "for this name — the seed was edited; reusing the " +
+                        "recorded session"
+                    )
+                  )
+                validId
+              case None =>
+                fc.emit(
+                  OrcaEvent.Step(
+                    s"warning: session '$name' #$occ has an invalid recorded " +
+                      "id — minting fresh"
+                  )
+                )
+                mintSession(agent, name, occ, seed)
       case None =>
         // First run: mint a fresh id, record it, and return it.
         mintSession(agent, name, occ, seed)
@@ -283,40 +293,36 @@ private def effectivePrompt[B <: BackendTag](
 /** After a run, persist the wire id to resume against that the backend has now
   * learned (durable backends only — pi returns `None`), so a resumed run can
   * rehydrate the map and continue/probe the right session. Also SELF-HEALS
-  * [[SessionRecord.backend]] to `agent`'s current tag: the reuse arm in
-  * `session(...)` already refuses to reuse a mismatched-tag record (minting
-  * fresh instead), but a record minted before that tag existed (an untagged,
-  * pre-tagging log) or one whose tag otherwise drifted gets corrected here on
-  * the very run that just proved this `agent` owns it — so it doesn't have to
-  * wait for a second `session(...)` call to be re-labelled correctly. Upserts
-  * the matching [[SessionRecord]] only when the learned wire id OR the healed
-  * tag differs from what is already recorded (and a record for `session`
-  * exists), so a genuine no-op run writes nothing. Takes the [[WorkspaceWrite]]
-  * token explicitly — its callers ([[FlowSession.run]] / [[FlowSessionCall]])
-  * run inside a stage where the token is ambient, and requiring it keeps these
+  * [[SessionRecord.backend]] from `None` to `agent`'s current tag: the reuse
+  * arm in `session(...)` already refuses to reuse a mismatched-tag record
+  * (minting fresh instead), so the only backend value that ever reaches a
+  * genuinely-reused session unhealed is `None` — a record minted before the tag
+  * field existed (an untagged, pre-tagging log). This upgrades it here on the
+  * very run that just proved this `agent` owns it — so it doesn't have to wait
+  * for a second `session(...)` call to be re-labelled correctly. Upserts the
+  * matching [[SessionRecord]] only when the learned wire id OR the healed tag
+  * differs from what is already recorded (and a record for `session` exists),
+  * so a genuine no-op run writes nothing. Takes the [[WorkspaceWrite]] token
+  * explicitly — its callers ([[FlowSession.run]] / [[FlowSessionCall]]) run
+  * inside a stage where the token is ambient, and requiring it keeps these
   * persisting writes flow-thread-only (ADR 0018 §6).
   */
 private def persistResumeWireId[B <: BackendTag](
     agent: Agent[B],
     session: SessionId[B]
 )(using fc: FlowControl, ws: WorkspaceWrite): Unit =
-  agent
-    .resumeWireId(session)
-    .foreach: wireId =>
-      val log = fc.progressStore.load()
-      log
-        .flatMap(_.sessions.find(_.id == session.value))
-        .foreach: record =>
-          val healedTag = agent.backendTag.map(_.wireName)
-          if !record.resumeWireId.contains(wireId.value) ||
-            record.backend != healedTag
-          then
-            fc.progressStore.upsertSession(
-              record.copy(
-                resumeWireId = Some(wireId.value),
-                backend = healedTag
-              )
-            )
+  val healedTag = agent.backendTag.map(_.wireName)
+  for
+    wireId <- agent.resumeWireId(session)
+    log <- fc.progressStore.load()
+    record <- log.sessions.find(_.id == session.value)
+    if !record.resumeWireId.contains(
+      wireId.value
+    ) || record.backend != healedTag
+  do
+    fc.progressStore.upsertSession(
+      record.copy(resumeWireId = Some(wireId.value), backend = healedTag)
+    )
 
 /** Look up the recorded seed for `session` from the log. Returns `None` if the
   * log is absent, no record matches `session`, or the recorded seed is empty.
