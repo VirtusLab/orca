@@ -50,7 +50,7 @@ the design.)
 
 **Cross-cutting requirements** (hold throughout):
 - **R27** — The API is type-safe: the capabilities (`FlowContext`, `FlowControl`,
-  `InStage`), stage results (`JsonData`), and session ids (`SessionId[B]`,
+  `InStage`, `WorkspaceWrite`), stage results (`JsonData`), and session ids (`SessionId[B]`,
   parameterised by backend) are checked at compile time; the runtime never relies on
   stringly-typed or untyped state where a type would do.
 - **R28** — The on-disk serialisation format is JSON throughout (the progress log,
@@ -77,9 +77,10 @@ the design.)
   run concurrently — two stages committing at once would corrupt the shared git
   index. This is structural: starting a stage needs `FlowControl` (R29), and
   concurrency combinators hand forks only the thread-safe `FlowContext`, never
-  `FlowControl`, so a fork (e.g. a parallel reviewer) cannot start a stage. It is a
-  convention today (a fork could still lexically capture an outer `FlowControl`) and
-  becomes compiler-enforced under capture checking.
+  `FlowControl`, so a fork (e.g. a parallel reviewer) cannot start a stage. Lexically
+  capturing an outer `FlowControl` into a fork was a convention violation when this
+  ADR was accepted; separation checking now makes it a compile error at the checked
+  fork funnel (§6).
 - **R13** — The commit message defaults to an `agent.cheap` summary of the diff; a
   stage may pass `commitMessage: Option[T => String]` to derive it from its result.
 - **R14** — `display(...)` gives progress-only output: no stage, id, commit, or log
@@ -89,19 +90,20 @@ the design.)
 
 ```scala
 def stage[T: JsonData](name: String, commitMessage: Option[T => String] = None)
-    (body: InStage ?=> T)(using FlowControl): T
+    (body: (InStage, WorkspaceWrite) ?=> T)(using FlowControl): T
 def display(message: String)(using FlowContext): Unit
 def fail(message: String)(using FlowContext): Nothing
 ```
 
-A `stage` runs `body` with `InStage` evidence in scope, then records and commits:
+A `stage` runs `body` with `InStage` and `WorkspaceWrite` evidence in scope, then
+records and commits:
 
 1. **Resume check.** Compute the id. If the log holds a completed entry for it,
    decode the stored JSON with `JsonData[T].codec` and return it without running
    `body`. If decoding fails (the script changed the stage's result type under this
    id), run `body` instead — fail-safe over feeding back a wrong value.
-2. **Run.** `body` executes; its mutating operations consume the supplied
-   `InStage`.
+2. **Run.** `body` executes; its LLM calls consume the supplied `InStage`, its
+   workspace writes the supplied `WorkspaceWrite`.
 3. **Record & commit.** Append a `StageEntry` (id, name, result JSON), force-add the
    log, then make one commit covering the log delta plus any code changes. The
    message is `commitMessage(result)` if the stage supplied one, otherwise an
@@ -138,16 +140,20 @@ that stage's progress entry. Why two stages can't run concurrently — the
 ### 2.2 Capability gating
 
 **Requirements.**
-- **R15** — Every side-effecting operation — file writes, git mutations, GitHub
-  mutations, and **all** LLM calls — requires `InStage` evidence, which only the
-  runtime can construct and which a stage body receives as a context parameter.
+- **R15** — Every side-effecting operation requires stage-bound evidence, which
+  only the runtime can construct and which a stage body receives as context
+  parameters: file writes, git mutations, and GitHub mutations require
+  `WorkspaceWrite`; **all** LLM calls require `InStage`. (Originally one combined
+  `InStage` token; split 2026-07-07 for capture checking — §6.)
 - **R16** — Pure reads (`fs.read`, `git.diff` / `log` / `currentBranch`,
-  `gh.readIssue` / `buildStatus` / `waitForBuild`) do not require `InStage` and are
+  `gh.readIssue` / `buildStatus` / `waitForBuild`) require neither token and are
   callable outside stages.
-- **R17** — Library helpers that perform side effects take `(using InStage)` and run
-  under the caller's stage rather than opening their own committing stages, so a
-  task still yields a single commit. A helper that itself *starts* stages instead
-  declares `using FlowControl` (R29), making that visible in its signature.
+- **R17** — Library helpers that perform side effects take the matching token
+  clause — `(using InStage)` for LLM calls, `(using WorkspaceWrite)` for workspace
+  writes, both if they do both — and run under the caller's stage rather than
+  opening their own committing stages, so a task still yields a single commit. A
+  helper that itself *starts* stages instead declares `using FlowControl` (R29),
+  making that visible in its signature.
 - **R29** — Starting a stage requires a `FlowControl` capability, where
   `FlowControl <: FlowContext`: everything a `FlowContext` is (reads, `agent`, `emit`)
   plus the authority to open a stage — but **thread-affine**, never handed to a fork.
@@ -159,11 +165,15 @@ that stage's progress entry. Why two stages can't run concurrently — the
 
 ```scala
 trait FlowContext                       // thread-safe, shareable: reads + agent + emit
-trait FlowControl extends FlowContext   // + authority to start stages; thread-affine
-opaque type InStage                     // in-stage mutation token, from `stage(...)`
+trait FlowControl extends FlowContext,  // + authority to start stages; thread-affine,
+      caps.ExclusiveCapability          //   fork-opaque under separation checking
+final class InStage                     // in-stage LLM-call token, from `stage(...)`;
+      extends caps.SharedCapability     //   fork-capturable
+final class WorkspaceWrite              // in-stage workspace-write token, from `stage(...)`;
+      extends caps.ExclusiveCapability  //   fork-opaque
 ```
 
-Three capabilities, all constructible only inside `orca`:
+Four capabilities, all constructible only inside `orca`:
 
 - **`FlowContext`** — the narrow, thread-safe context (tool reads, `agent`,
   `userPrompt`, `emit`/`display`). Safe to share into parallel forks, so concurrent
@@ -173,31 +183,43 @@ Three capabilities, all constructible only inside `orca`:
   `using FlowContext`, and the **downgrade is a one-way upcast** — concurrency
   combinators run each fork with only the `FlowContext` (`val ctx: FlowContext =
   control`), so `stage` (which needs `FlowControl`) cannot be called in a fork.
-  Pre-capture-checking this is convention (a fork could lexically capture an outer
-  `FlowControl`); capture checking later makes it a hard error (see below).
-- **`InStage`** — the in-stage mutation token (R15), handed to a stage body by
-  `stage`, in the spirit of Ox's `using Ox`.
+  This was convention pre-capture-checking (a fork could lexically capture an outer
+  `FlowControl`); separation checking now makes that capture a compile error at the
+  checked fork funnel (`FlowControl` is an exclusive capability — §6).
+- **`InStage`** — the in-stage LLM-call token (R15), handed to a stage body by
+  `stage`, in the spirit of Ox's `using Ox`. Shared (`caps.SharedCapability`):
+  safe to capture into parallel forks — the reviewer fan-out depends on it.
+- **`WorkspaceWrite`** — the in-stage workspace-write token (R15), handed to a
+  stage body alongside `InStage`. Exclusive (`caps.ExclusiveCapability`):
+  separation checking forbids capturing it into concurrent forks — two forks
+  racing on the git index or progress log is exactly the bug this catches (§6).
 
-Every side-effecting tool method gains a `(using InStage)` clause. The methods gated:
+Every side-effecting tool method gains a token clause. The methods gated:
 
 - `GitTool`: `createBranch`, `checkout*`, `commit`, `push`, `addWorktree`,
-  `removeWorktree`, `ensureClean`.
-- `FsTool`: `write`.
-- `GitHubTool`: `createPr`, `updatePr`, `writeComment`, `upsertComment` *(new)*.
-- Every `Agent` / `AgentCall` / `AutonomousTextCall` entry point (LLM calls are
-  side-effecting: cost and non-determinism).
+  `removeWorktree`, `ensureClean` — `(using WorkspaceWrite)`.
+- `FsTool`: `write` — `(using WorkspaceWrite)`.
+- `GitHubTool`: `createPr`, `updatePr`, `writeComment`, `upsertComment` *(new)* —
+  `(using WorkspaceWrite)`.
+- Every `Agent` / `AgentCall` / `AutonomousTextCall` entry point — `(using
+  InStage)` (LLM calls are side-effecting: cost and non-determinism).
 
-Side-effecting library helpers (`reviewAndFixLoop`, `fixLoop`, `lint`,
-`summarisePr`, `Plan` generation, the reviewer fan-out) take `(using InStage)` and
-run under the caller's stage, so the compiler enforces "no mutation outside a
-stage" while a whole task still produces one commit.
+Side-effecting library helpers (`reviewAndFixLoop`, `lint`, `summarisePr`, `Plan`
+generation, the reviewer fan-out) take `(using InStage)` and run under the
+caller's stage, so the compiler enforces "no mutation outside a stage" while a
+whole task still produces one commit. A helper that also writes the workspace
+takes `(using WorkspaceWrite)` too (rare — e.g. the runtime's own
+`recordAndCommit`, which appends the progress log and derives a commit message
+from the cheap model).
 
-Both `InStage` and `FlowControl` are guard-rails today — a token can be captured and
-used out of scope (an `InStage` smuggled past a stage; a `FlowControl` closed over in
-a fork). The move to a real guarantee is additive: mark each a `caps.Capability` and
-type the escaping positions (stage bodies, fork thunks) as pure, so escape becomes a
-compile error; call sites don't change. (This is the §5 "leaky pre-capture-checking"
-limitation and the §6 future-work item.)
+Both tokens and `FlowControl` prove *lexical* enclosure. Since the Epic 0
+capture-checking work (§6), the fork half is a hard guarantee: separation
+checking rejects a fork thunk capturing an exclusive token (`WorkspaceWrite`,
+`FlowControl`) at the checked fork funnel, while shared `InStage` passes. Stage
+bodies are not typed pure, so a token smuggled *past* a stage (rather than into
+a fork) remains convention — the residual §5 leak. Enforcement scope, the
+verified Scala 3.8.4 facts, and the raw-`ox.fork` escape hatch are recorded in
+§6's amendment.
 
 ### 2.3 Stage results
 
@@ -250,8 +272,8 @@ case class ProgressLog(header: ProgressHeader, entries: List[StageEntry])
 
 trait ProgressStore:
   def load(): Option[ProgressLog]
-  def writeHeader(header: ProgressHeader)(using InStage): Unit
-  def appendEntry(entry: StageEntry)(using InStage): Unit   // upsert by id, last write wins
+  def writeHeader(header: ProgressHeader)(using WorkspaceWrite): Unit
+  def appendEntry(entry: StageEntry)(using WorkspaceWrite): Unit   // upsert by id, last write wins
 
 object ProgressStore:
   def default: ProgressStore   // JSON at .orca/progress-<hash>.json (the seam for R21)
@@ -433,8 +455,9 @@ Teardown on **failure**:
    the starting branch themselves once they've dealt with the failure.
 
 Setup's own git and LLM operations (branch naming, header commit) run with
-runtime-supplied `InStage` — the runtime is the privileged constructor of the
-token, so it can mutate during setup before any user stage exists. Push and PR
+runtime-supplied tokens (`InStage` for the branch-naming LLM call,
+`WorkspaceWrite` for the git writes) — the runtime is the privileged constructor
+of both, so it can mutate during setup before any user stage exists. Push and PR
 creation remain ordinary stage actions (R6). The leading model (`agent`) and the
 resolved branch are exposed through `FlowContext` accessors. The branch-naming
 strategy and the progress store are overridable (R21).
@@ -621,10 +644,10 @@ flow(OrcaArgs(args), _.claude):                          // required agent selec
       // one commit per task: code + progress entry
 ```
 
-`git.commit`, `agent.runSeeded`, and `reviewAndFixLoop` require `InStage`,
-supplied by the enclosing `stage`. There is no plan markdown file — the progress
-log subsumes it, which also removes any checkbox state to keep in sync (a
-human-readable checklist, if wanted, is cosmetic — §2.8).
+`git.commit` requires `WorkspaceWrite`; `agent.runSeeded` and `reviewAndFixLoop`
+require `InStage` — both supplied by the enclosing `stage`. There is no plan
+markdown file — the progress log subsumes it, which also removes any checkbox
+state to keep in sync (a human-readable checklist, if wanted, is cosmetic — §2.8).
 
 `issue-pr.sc` adds only two patterns over 3.1: it picks the deterministic
 `BranchNamingStrategy.issue(issueHandle)` so the branch is named from the issue
@@ -697,7 +720,8 @@ per-task TDD steps, dependency order). Summary:
   new typeclass. Self-contained; lands first.
 - **B — Capabilities + tool gating.** `FlowControl`, `InStage`; `(using InStage)` on
   the §2.2 methods (plus `gh.upsertComment` and `createPr` reuse); thread `InStage`
-  through side-effecting helpers, `FlowControl` through stage-starting ones. The
+  through side-effecting helpers, `FlowControl` through stage-starting ones (the
+  single `InStage` was later split into `InStage`/`WorkspaceWrite` — §2.2, §6). The
   widest, compiler-guided change. Negative compile tests: `git.commit` outside a
   stage, and `stage` inside a fork, must fail to compile.
 - **C — Progress log model + store.** `ProgressHeader`/`StageEntry`/`ProgressLog`;
@@ -732,12 +756,15 @@ alongside.
   survive in reflog/forks after the cleanup commit), so a flow must not return
   secrets as stage results. A redaction hook is possible but out of scope for v1
   (§6).
-- **Capabilities are leaky pre-capture-checking.** Both `InStage` (no mutation
-  outside a stage) and `FlowControl` (no stage inside a fork) prove *lexical*
-  enclosure, not the real invariant: a token can be captured and used where it
-  shouldn't (an `InStage` smuggled out of a stage; a `FlowControl` closed over inside
-  a `parallel` fork). They are kept for the compile-time signal — guard-rails, not
-  yet guarantees — and both are future-proofable via Scala 3 capture checking (§6).
+- **Capabilities are leaky pre-capture-checking.** Both the stage tokens (no
+  side effects outside a stage) and `FlowControl` (no stage inside a fork) prove
+  *lexical* enclosure, not the real invariant: a token can be captured and used
+  where it shouldn't (a token smuggled out of a stage; a `FlowControl` closed over
+  inside a `parallel` fork). They are kept for the compile-time signal —
+  guard-rails, not yet guarantees. *The fork half of this leak is since closed
+  (§6): separation checking rejects a fork capturing `WorkspaceWrite` or
+  `FlowControl` at the checked fork funnel (raw `ox.fork` stays unchecked until Ox
+  adopts capture checking); temporal escape past a stage remains convention.*
   Gating is also the widest change in the project (four tool traits, ~8 helpers,
   every flow script); acceptable here because breaking changes are fine at this stage.
 - **Resume is decode-safe, not meaning-safe.** A stored result that no longer decodes
