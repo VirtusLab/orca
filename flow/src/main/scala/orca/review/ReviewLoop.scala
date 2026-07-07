@@ -8,7 +8,14 @@ package orca.review
 import language.experimental.captureChecking
 import language.experimental.separationChecking
 
-import orca.{CheckedPar, FlowContext, InStage}
+import orca.{
+  CheckedPar,
+  FlowContext,
+  FlowControl,
+  FlowSession,
+  InStage,
+  WorkspaceWrite
+}
 import orca.plan.Title
 
 import scala.annotation.unused
@@ -134,11 +141,18 @@ private object ReviewLoopState:
   val empty: ReviewLoopState = ReviewLoopState(Nil, Map.empty)
 
 /** Run reviewers in parallel against `task`, gather per-reviewer outcomes, hand
-  * any issues above `confidenceThreshold` to `coder` via `run(session =
-  * sessionId)`, and loop. `reviewerSelection` decides which reviewers run each
-  * iteration — typically [[ReviewerSelector.agentDriven]] wired against a cheap
-  * picker LLM; pass [[ReviewerSelector.allEveryRound]] to skip selection
-  * entirely.
+  * any issues above `confidenceThreshold` to the coder — through
+  * `coderSession`'s seeded, structured door — and loop. `reviewerSelection`
+  * decides which reviewers run each iteration — typically
+  * [[ReviewerSelector.agentDriven]] wired against a cheap picker LLM; pass
+  * [[ReviewerSelector.allEveryRound]] to skip selection entirely.
+  *
+  * `coderSession` is the coder's durable [[FlowSession]] (obtain it once with
+  * `agent.session(name, seed)` and pass the handle here). Each fix turn goes
+  * through [[FlowSession.resultAs]]`.autonomous.run`, so a coder whose backend
+  * conversation is fresh or lost-on-resume is re-primed with the recorded seed
+  * and progress preamble, and its learned wire id is persisted — the durable
+  * protocol the pre-2C raw-door fix turn silently skipped.
   *
   * The fix step instructs the agent to report a `FixOutcome`: list the titles
   * of issues actually fixed in code under `fixed`, and anything not addressed
@@ -147,8 +161,7 @@ private object ReviewLoopState:
   * there's nothing new for the reviewers to find, so the loop halts.
   */
 def reviewAndFixLoop[B <: BackendTag](
-    coder: Agent[B],
-    sessionId: SessionId[B],
+    coderSession: FlowSession[B],
     reviewers: List[Agent[?]],
     reviewerSelection: ReviewerSelector,
     task: String,
@@ -179,10 +192,20 @@ def reviewAndFixLoop[B <: BackendTag](
       * been committed and `git.diff()` would be empty).
       */
     initialDiff: Option[String] = None
-)(using ctx: FlowContext, ev: InStage): IgnoredIssues =
+)(using
+    ctx: FlowContext,
+    ev: InStage,
+    fc: FlowControl,
+    ws: WorkspaceWrite
+): IgnoredIssues =
+  // `ctx` (the pure [[FlowContext]]) is what the loop's fan-out closures may
+  // capture; `fc`/`ws` (exclusive capabilities) are handed only to `run()`, so
+  // the durable fix turn reaches the [[FlowSession]] door without those tokens
+  // ever landing in the fan-out (ADR 0018 §6). Passed explicitly rather than by
+  // implicit search: the more-specific `fc: FlowControl` would otherwise be
+  // picked for the constructor's `FlowContext` and its root capability rejected.
   new ReviewFixLoop(
-    coder = coder,
-    sessionId = sessionId,
+    coderSession = coderSession,
     reviewers = reviewers,
     reviewerSelection = reviewerSelection,
     task = task,
@@ -193,7 +216,7 @@ def reviewAndFixLoop[B <: BackendTag](
     maxIterations = maxIterations,
     fixInstructions = fixInstructions,
     initialDiff = initialDiff
-  ).run()
+  )(using ctx, ev).run()(using fc, ws)
 
 /** Implementation of [[reviewAndFixLoop]]: one instance per invocation holds
   * the loop-constant configuration as fields, so the per-iteration logic reads
@@ -221,8 +244,7 @@ def reviewAndFixLoop[B <: BackendTag](
   *   parameter docs.
   */
 private[review] class ReviewFixLoop[B <: BackendTag](
-    coder: Agent[B],
-    sessionId: SessionId[B],
+    coderSession: FlowSession[B],
     reviewers: List[Agent[?]],
     reviewerSelection: ReviewerSelector,
     task: String,
@@ -451,16 +473,20 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     )
     (result, nextState)
 
-  private def fix(issues: List[ReviewIssue]): FixOutcome =
-    coder
+  // Routed through the durable [[FlowSession]] door (not the raw structured
+  // door it used pre-2C): a coder whose backend conversation is fresh or lost
+  // gets the seed + progress preamble re-applied and its learned wire id
+  // persisted. Runs on the collecting thread (outside the reviewer fan-out), so
+  // the FlowControl/WorkspaceWrite tokens it needs stay method-scoped and are
+  // never captured into the `CheckedPar` closures (ADR 0018 §6).
+  private def fix(issues: List[ReviewIssue])(using
+      fc: FlowControl,
+      ws: WorkspaceWrite
+  ): FixOutcome =
+    coderSession
       .resultAs[FixOutcome]
       .autonomous
-      .run(
-        FixRequest(fixInstructions, issues),
-        session = sessionId,
-        emitPrompt = false
-      )
-      ._2
+      .run(FixRequest(fixInstructions, issues), emitPrompt = false)
 
   /** Run the evaluate/fix loop to convergence and return the accumulated
     * [[IgnoredIssues]]. Same stop policy as [[fixLoop]] — `maxIterations`
@@ -468,8 +494,14 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * additionally threads the immutable [[ReviewLoopState]] (reviewer history +
     * sessions) through each round so the cross-iteration data flow stays
     * explicit.
+    *
+    * Takes [[FlowControl]] + [[WorkspaceWrite]] as method parameters (not
+    * constructor fields) so the durable fix turn ([[fix]]) can reach the
+    * [[FlowSession]] door while these exclusive capabilities stay out of the
+    * instance — and therefore out of the reviewer fan-out closures, which
+    * capture `this` (ADR 0018 §6).
     */
-  def run(): IgnoredIssues =
+  def run()(using fc: FlowControl, ws: WorkspaceWrite): IgnoredIssues =
     // A progress marker, not a committing stage: the enclosing implement-task
     // stage already names the work and owns the commit (ADR 0018 §2.2).
     orca.display("Review & fix")

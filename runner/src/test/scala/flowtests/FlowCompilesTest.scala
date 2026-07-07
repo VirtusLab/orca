@@ -86,13 +86,18 @@ object FlowCanary:
     */
   def reviewLoop(): Unit =
     flow(OrcaArgs(), _.claude):
-      val (sessionId, plan) = stage("plan"):
-        claude.resultAs[FlowPlan].interactive.run(userPrompt)
+      // Named, durable, rehydratable coder session (has a SessionRecord, so a
+      // resume can rehydrate it) — NOT a session id carried as a stage result.
+      val session = claude.session("plan", seed = userPrompt)
+      // The planning turn is interactive, which FlowSession deliberately does
+      // not offer (see the FlowSession scaladoc); run it on the raw interactive
+      // door via the `.id` escape hatch. The stage persists ONLY the FlowPlan.
+      val plan: FlowPlan = stage("plan"):
+        claude.resultAs[FlowPlan].interactive.run(userPrompt, session.id)._2
       for task <- plan.tasks do
         stage(task.description):
           reviewAndFixLoop(
-            coder = claude,
-            sessionId = sessionId,
+            coderSession = session,
             reviewers = allReviewers(claude),
             reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.description,
@@ -269,8 +274,7 @@ object FlowCanary:
         stage(s"task: ${task.title}"):
           val _ = session.run(task.description)
           reviewAndFixLoop(
-            coder = claude,
-            sessionId = session.id,
+            coderSession = session,
             reviewers = allReviewers(claude),
             reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
@@ -293,8 +297,7 @@ object FlowCanary:
         stage(s"task: ${task.title}"):
           val _ = session.run(task.description)
           reviewAndFixLoop(
-            coder = claude,
-            sessionId = session.id,
+            coderSession = session,
             reviewers = allReviewers(claude),
             reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
@@ -315,8 +318,7 @@ object FlowCanary:
         stage(s"task: ${task.title}"):
           val _ = session.run(plan.taskPrompt(task))
           reviewAndFixLoop(
-            coder = claude,
-            sessionId = session.id,
+            coderSession = session,
             reviewers = allReviewers(claude),
             reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
@@ -360,8 +362,7 @@ object FlowCanary:
         stage(s"task: ${task.title}"):
           val _ = session.run(task.description)
           reviewAndFixLoop(
-            coder = claude,
-            sessionId = session.id,
+            coderSession = session,
             reviewers = reviewers,
             reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
@@ -404,8 +405,7 @@ object FlowCanary:
           stage(s"task: ${task.title}"):
             val _ = session.run(task.description)
             reviewAndFixLoop(
-              coder = claude,
-              sessionId = session.id,
+              coderSession = session,
               reviewers = allReviewers(claude),
               reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
               task = task.title.value,
@@ -484,8 +484,7 @@ object FlowCanary:
             stage(s"task: ${task.title}"):
               val _ = session.run(fixPlan.taskPrompt(task))
               reviewAndFixLoop(
-                coder = claude,
-                sessionId = session.id,
+                coderSession = session,
                 reviewers = allReviewers(claude),
                 reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
                 task = task.title.value,

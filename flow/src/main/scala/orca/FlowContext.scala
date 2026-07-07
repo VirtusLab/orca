@@ -50,11 +50,11 @@ trait FlowContext:
     * can't unify them. Two ways out, both used by the library's own helpers:
     *
     *   - Take an explicit `[B <: BackendTag]` type parameter and type the
-    *     helper's own parameters `Agent[B]` / `SessionId[B]` against it — `B`
-    *     is then a genuine type variable the caller instantiates once, not a
-    *     path into someone else's context. See
-    *     [[orca.review.reviewAndFixLoop]]`(coder: Agent[B], sessionId:
-    *     SessionId[B], ...)`.
+    *     helper's own parameters against it — `B` is then a genuine type
+    *     variable the caller instantiates once, not a path into someone else's
+    *     context. See [[orca.review.reviewAndFixLoop]]`(coderSession:
+    *     FlowSession[B], ...)`, whose single [[orca.FlowSession]] bundles the
+    *     agent and its session so `B` is pinned once at the call site.
     *   - Bundle the agent's session with its result as a single
     *     [[orca.plan.Sessioned]]`[B, A]` value, so callers pass one thing
     *     instead of two that have to agree on `B`. See `Plan.autonomous.*` /

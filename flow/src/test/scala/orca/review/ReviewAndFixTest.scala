@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.{FlowContext}
+import orca.{FlowContext, FlowControl}
 import orca.plan.Title
 import orca.agents.{
   AgentInput,
@@ -14,10 +14,12 @@ import orca.agents.{
   AgentConfig,
   Agent,
   SessionId,
-  ToolSet
+  ToolSet,
+  WireSessionId
 }
+import orca.backend.{SessionRegistry, SessionSupport}
+import orca.progress.SessionRecord
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, Usage}
-import orca.{TestFlowContext}
 
 /** Fake AgentCall whose `autonomous.run` drains a scripted sequence of outputs
   * in order — cast through `Any` because the trait is generic over output type.
@@ -102,13 +104,63 @@ private class TokenEmittingReviewer(
       def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
         ???
 
+/** A coder stub for the fix-turn seeding test: captures the prompt its
+  * structured `run` receives (after the [[orca.FlowSession]] door composes
+  * seed/preamble) and drives `sessionExists` via a real, registry-gated
+  * [[SessionSupport.Durable]] so a test can exercise both the fresh (re-seed)
+  * and live (no re-seed) branches of the fix turn. Always returns `fixOutcome`.
+  */
+private class SeedProbingCoder(
+    existsResult: Boolean,
+    fixOutcome: FixOutcome
+) extends Agent[BackendTag.ClaudeCode.type]:
+  val name: String = "coder"
+
+  @volatile var capturedFixPrompt: Option[String] = None
+
+  // A fresh registry per access, committed (only when `existsResult`) so the
+  // registry-gated probe returns `existsResult`; mirrors the durability wiring
+  // `Agent.sessionExists` / `resumeWireId` route through.
+  override private[orca] def sessionSupport
+      : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
+    val reg = new SessionRegistry.ClientToServer[BackendTag.ClaudeCode.type]
+    if existsResult then
+      reg.commitSuccess(
+        SessionId[BackendTag.ClaudeCode.type]("s"),
+        WireSessionId[BackendTag.ClaudeCode.type]("wire-s")
+      )
+    Some(SessionSupport.Durable(reg, _ => existsResult))
+
+  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
+  def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
+  def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
+  def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
+  def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
+  def resultAs[O: JsonData: Announce]
+      : AgentCall[BackendTag.ClaudeCode.type, O] =
+    new AgentCall[BackendTag.ClaudeCode.type, O]:
+      val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
+        new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
+          def run[I: AgentInput](
+              input: I,
+              session: SessionId[BackendTag.ClaudeCode.type],
+              config: Option[AgentConfig],
+              emitPrompt: Boolean
+          )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
+            capturedFixPrompt = Some(summon[AgentInput[I]].serialize(input))
+            (session, fixOutcome.asInstanceOf[O])
+      def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
+        ???
+
 class ReviewAndFixTest extends munit.FunSuite:
 
-  // `reviewAndFixLoop` is now gated on `InStage`; mint the token for the suite.
+  // `reviewAndFixLoop` is gated on `InStage` + `WorkspaceWrite` (the durable
+  // fix turn's tokens, ADR 0018 §6); mint both for the suite.
   private given orca.InStage = orca.InStage.unsafe
+  private given orca.WorkspaceWrite = orca.WorkspaceWrite.unsafe
 
-  private def ctx: FlowContext =
-    new TestFlowContext(new EventDispatcher(Nil))
+  private def control: FlowControl =
+    ReviewLoopFixture.control(new EventDispatcher(Nil))
 
   private def issue(desc: String, confidence: Double = 1.0): ReviewIssue =
     ReviewIssue(
@@ -122,15 +174,14 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("returns empty IgnoredIssues when no reviewer reports issues"):
-    given FlowContext = ctx
+    given FlowControl = control
     val silentReviewer = new FakeAgent(
       name = "quiet",
       outputs = List(ReviewResult.empty)
     )
     val coder = new FakeAgent("coder")
     val result = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(silentReviewer),
       task = "do the thing",
       reviewerSelection = ReviewerSelector.allEveryRound,
@@ -139,7 +190,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(result, IgnoredIssues(Nil))
 
   test("filters issues below the confidence threshold"):
-    given FlowContext = ctx
+    given FlowControl = control
     // Reviewer reports two issues every round; only the high-confidence one
     // survives the threshold and reaches the coder, which ignores it without
     // a fix. With `fixed` empty the loop halts after one round.
@@ -155,8 +206,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         List(FixOutcome(Nil, List(IgnoredIssue(Title("real bug"), "accepted"))))
     )
     val result = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
       task = "build the widget",
       confidenceThreshold = 0.7,
@@ -169,7 +219,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("runs multiple reviewers and merges their issues"):
-    given FlowContext = ctx
+    given FlowControl = control
     val issueA = issue("A")
     val issueB = issue("B")
     val reviewerA = new FakeAgent(
@@ -193,8 +243,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       )
     )
     val result = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewerA, reviewerB),
       task = "multi",
       reviewerSelection = ReviewerSelector.allEveryRound,
@@ -209,7 +258,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     // first call mints a session via `r.newSession`, and every subsequent
     // call resumes the SAME id. Without this the loop could lose context
     // across iterations.
-    given FlowContext = ctx
+    given FlowControl = control
     val stubborn = issue("never ends")
     val reviewer = new FakeAgent(
       name = "loud",
@@ -220,8 +269,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List.fill(3)(FixOutcome(List(Title("never ends")), Nil))
     )
     val _ = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
       task = "never ending",
       maxIterations = 2,
@@ -240,7 +288,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("initialDiff is embedded in the reviewer's first prompt"):
-    given FlowContext = ctx
+    given FlowControl = control
     var capturedFirst: Option[String] = None
     val captureReviewer = new Agent[BackendTag.ClaudeCode.type]:
       val name = "capturing"
@@ -273,8 +321,7 @@ class ReviewAndFixTest extends munit.FunSuite:
 
     val coder = new FakeAgent("coder")
     val _ = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(captureReviewer),
       task = "do thing",
       reviewerSelection = ReviewerSelector.allEveryRound,
@@ -288,7 +335,7 @@ class ReviewAndFixTest extends munit.FunSuite:
   test(
     "an agentDriven reviewerSelection narrows the active set via its picker LLM"
   ):
-    given FlowContext = ctx
+    given FlowControl = control
     val issueX = issue("only-x", confidence = 0.9)
     val reviewerX = new FakeAgent(
       name = "x",
@@ -309,8 +356,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         List(FixOutcome(Nil, List(IgnoredIssue(Title("only-x"), "accepted"))))
     )
     val result = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewerX, reviewerY),
       reviewerSelection = ReviewerSelector.agentDriven(agent = picker),
       task = "picker-routing check",
@@ -324,7 +370,7 @@ class ReviewAndFixTest extends munit.FunSuite:
   test(
     "explicit allEveryRound reviewerSelection skips the LLM picker entirely"
   ):
-    given FlowContext = ctx
+    given FlowControl = control
     val issueX = issue("only-x", confidence = 0.9)
     val reviewerX = new FakeAgent(
       name = "x",
@@ -338,8 +384,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         List(FixOutcome(Nil, List(IgnoredIssue(Title("only-x"), "accepted"))))
     )
     val result = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewerX),
       task = "no-picker check",
       reviewerSelection = ReviewerSelector.allEveryRound,
@@ -369,7 +414,8 @@ class ReviewAndFixTest extends munit.FunSuite:
           val _ = firstStepAt.compareAndSet("", "fast")
           secondStepFinishedLatch.countDown()
         case _ => ()
-    given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
+    given FlowControl =
+      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
 
     class GatedReviewer(
         label: String,
@@ -408,8 +454,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     val fast = new GatedReviewer("fast", gate2)
     val runner = new Thread(() =>
       val _ = reviewAndFixLoop(
-        coder = new FakeAgent("coder"),
-        sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+        coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
         reviewers = List(slow, fast),
         task = "ordering check",
         reviewerSelection = ReviewerSelector.allEveryRound,
@@ -434,7 +479,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     runner.join(5000)
 
   test("lint runs concurrently with reviewers (deterministic via latch)"):
-    given FlowContext = ctx
+    given FlowControl = control
     // Two-party rendezvous: each branch counts down on entry and awaits the
     // other. If the loop runs them sequentially the second branch never
     // starts (first is blocked on await) — the awaits time out and the test
@@ -484,8 +529,7 @@ class ReviewAndFixTest extends munit.FunSuite:
             ???
 
     val _ = reviewAndFixLoop(
-      coder = new FakeAgent("coder"),
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(new RendezvousReviewer("reviewer")),
       task = "concurrency check",
       // echo emits output so `lint` doesn't short-circuit on empty stdout
@@ -497,7 +541,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("formatCommand runs before every review round (impl + each fix)"):
-    given FlowContext = ctx
+    given FlowControl = control
     // The formatter appends one line per run. Two review rounds (issue → fix,
     // then clean) mean it must run twice — once before reviewing the
     // implementation, once before re-reviewing the fix.
@@ -512,8 +556,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(FixOutcome(List(Title("needs fixing")), Nil))
     )
     val _ = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
       task = "format check",
       reviewerSelection = ReviewerSelector.allEveryRound,
@@ -532,13 +575,12 @@ class ReviewAndFixTest extends munit.FunSuite:
     val listener: OrcaListener =
       case t: OrcaEvent.TokensUsed => recorded.add(t): Unit
       case _                       => ()
-    given FlowContext =
-      new TestFlowContext(new EventDispatcher(List(listener)))
+    given FlowControl =
+      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
     val reviewer = new TokenEmittingReviewer("performance", ReviewResult.empty)
     val coder = new FakeAgent("coder")
     val _ = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
       task = "cost labelling",
       reviewerSelection = ReviewerSelector.allEveryRound,
@@ -555,7 +597,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     // a different (empty-output) stub. Roster resolution must map it back to the
     // canonical instance: the roster stub runs (its scripted issue flows out),
     // and the foreign stub is never touched (its empty iterator would throw).
-    given FlowContext = ctx
+    given FlowControl = control
     val rosterX = new FakeAgent(
       name = "x",
       outputs = List(ReviewResult(List(issue("from-roster", confidence = 0.9))))
@@ -574,8 +616,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         List(FixOutcome(Nil, List(IgnoredIssue(Title("from-roster"), "ok"))))
     )
     val result = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(rosterX),
       reviewerSelection = foreignSelector,
       task = "roster resolution",
@@ -600,8 +641,8 @@ class ReviewAndFixTest extends munit.FunSuite:
     val listener: OrcaListener =
       case OrcaEvent.Step(msg) => steps.add(msg): Unit
       case _                   => ()
-    given FlowContext =
-      new TestFlowContext(new EventDispatcher(List(listener)))
+    given FlowControl =
+      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
     val stranger =
       new FakeAgent(name = "stranger") // never run: throws if it is
     val rosterA = new FakeAgent(
@@ -632,8 +673,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       )
     )
     val result = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(rosterA, rosterB),
       reviewerSelection = strangerSelector,
       task = "all-foreign floor",
@@ -667,7 +707,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     // The selector returns the same roster instance twice; `distinctBy` collapses
     // it so the reviewer runs a single time (one session, one scripted output —
     // a second run would drain its empty iterator and throw).
-    given FlowContext = ctx
+    given FlowControl = control
     val rosterX = new FakeAgent(
       name = "x",
       outputs = List(ReviewResult(List(issue("from-x", confidence = 0.9))))
@@ -684,8 +724,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       outputs = List(FixOutcome(Nil, List(IgnoredIssue(Title("from-x"), "ok"))))
     )
     val result = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(rosterX),
       reviewerSelection = dupSelector,
       task = "duplicate selection",
@@ -701,7 +740,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     // FOREIGN same-slug copy. Both resolve to the canonical instance, so the
     // reviewer RESUMES its single session on round 2 rather than minting a new
     // one. Round 1's fix keeps the loop going; round 2 stops it.
-    given FlowContext = ctx
+    given FlowControl = control
     val rosterX = new FakeAgent(
       name = "x",
       outputs = List(
@@ -725,8 +764,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       )
     )
     val result = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(rosterX),
       reviewerSelection = twoRoundSelector,
       task = "two-round resume",
@@ -748,3 +786,47 @@ class ReviewAndFixTest extends munit.FunSuite:
       "the foreign same-slug copy must never run"
     )
     assertEquals(result.issues, List(IgnoredIssue(Title("round-2"), "ok")))
+
+  test(
+    "fix turn seeds a fresh coder session but not a live one"
+  ):
+    // The fix turn now routes through the durable FlowSession door (task 2C):
+    // on a coder whose backend conversation is fresh/lost it re-applies the
+    // recorded seed; on a live one it forwards the fix request verbatim. This
+    // is the gap the pre-2C raw-door fix turn silently skipped.
+    val seed = "SEED-MARKER: you are the fixer for this repo."
+
+    def fixPromptWhen(existsResult: Boolean): String =
+      val control = ReviewLoopFixture.control(new EventDispatcher(Nil))
+      // Record the coder session's seed under its id ("s", from the fixture).
+      control.progressStore.upsertSession(
+        SessionRecord(occurrence = 0, id = "s", seed = seed)
+      )
+      given FlowControl = control
+      val coder = new SeedProbingCoder(
+        existsResult = existsResult,
+        fixOutcome = FixOutcome(Nil, List(IgnoredIssue(Title("x"), "ok")))
+      )
+      val reviewer = new FakeAgent(
+        name = "r",
+        outputs = List(ReviewResult(List(issue("x", confidence = 0.9))))
+      )
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(coder),
+        reviewers = List(reviewer),
+        task = "seed check",
+        reviewerSelection = ReviewerSelector.allEveryRound,
+        initialDiff = Some("")
+      )
+      coder.capturedFixPrompt.getOrElse(fail("the fix turn never ran"))
+
+    val freshPrompt = fixPromptWhen(existsResult = false)
+    assert(
+      freshPrompt.contains(seed),
+      s"a fresh coder session's fix turn must be re-seeded; got: $freshPrompt"
+    )
+    val livePrompt = fixPromptWhen(existsResult = true)
+    assert(
+      !livePrompt.contains(seed),
+      s"a live coder session's fix turn must NOT be re-seeded; got: $livePrompt"
+    )
