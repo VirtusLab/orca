@@ -59,24 +59,24 @@ class PlanTest extends munit.FunSuite:
       None
     )
 
-  // --- Markdown renderer (cosmetic checklist; never parsed back, ADR 0018 §2.8) ---
+  // --- Markdown renderer (cosmetic summary; never parsed back, ADR 0018 §2.8) ---
 
   private val samplePlan = Plan(
     epicId = "add-divide-method",
     description = "Extend Calculator with safe integer division.",
     tasks = List(
-      Task(Title("add-divide"), "Add a divide method.", completed = false),
-      Task(Title("add-divide-test"), "Add unit tests.", completed = true)
+      Task(Title("add-divide"), "Add a divide method."),
+      Task(Title("add-divide-test"), "Add unit tests.")
     ),
     brief = "Build on core/Calculator.scala."
   )
 
-  test("render emits the H1, description, and a checkbox per task"):
+  test("render emits the H1, description, and a section per task"):
     val md = Plan.render(samplePlan)
     assert(md.startsWith("# Plan: add-divide-method"), md)
     assert(md.contains("Extend Calculator"), md)
-    assert(md.contains("## Task: add-divide\nStatus: [ ]"), md)
-    assert(md.contains("## Task: add-divide-test\nStatus: [x]"), md)
+    assert(md.contains("## Task: add-divide\n\nAdd a divide method."), md)
+    assert(md.contains("## Task: add-divide-test\n\nAdd unit tests."), md)
 
   test("render appends the brief as a trailing ## Brief section"):
     assert(
@@ -103,19 +103,17 @@ class PlanTest extends munit.FunSuite:
       "Add a divide method."
     )
 
-  test("markComplete flips one task's checkbox without touching others"):
-    val updated = samplePlan.markComplete(Title("add-divide"))
-    assertEquals(updated.tasks.head.completed, true)
-    assertEquals(updated.tasks(1).completed, true)
-    // markComplete on a title that doesn't exist is a no-op.
-    assertEquals(samplePlan.markComplete(Title("ghost")), samplePlan)
+  // --- JSON compat: pre-ADR-0018 stage logs carry a "completed" field ---
 
-  test("firstIncomplete returns the first task with [ ] in declaration order"):
+  test(
+    "decoding a Task JSON payload with a legacy \"completed\" field skips it (JsonData's default jsoniter config, not overridden by strictCodecConfig)"
+  ):
+    given codec
+        : com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[Task] =
+      summon[JsonData[Task]].codec
+    val legacyJson =
+      """{"title":"add-divide","description":"Add a divide method.","completed":true}"""
     assertEquals(
-      samplePlan.firstIncomplete.map(_.title),
-      Some(Title("add-divide"))
-    )
-    assertEquals(
-      samplePlan.markComplete(Title("add-divide")).firstIncomplete,
-      None
+      readFromString[Task](legacyJson),
+      Task(Title("add-divide"), "Add a divide method.")
     )

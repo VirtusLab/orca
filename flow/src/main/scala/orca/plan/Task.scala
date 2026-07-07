@@ -9,12 +9,8 @@ import orca.agents.{JsonData}
   *     and used as the `## Task: …` markdown section header.
   *   - `description` is the longer instruction handed to the implementing
   *     agent.
-  *   - `completed` is a checkbox surfaced in the cosmetic rendered checklist
-  *     (ADR 0018 §2.8); resume reads the stage log, not this flag.
   */
 case class Task(
     title: Title,
-    description: String,
-    completed: Boolean = false
-) derives JsonData:
-  def markComplete: Task = copy(completed = true)
+    description: String
+) derives JsonData

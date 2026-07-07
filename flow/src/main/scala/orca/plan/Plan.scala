@@ -44,17 +44,6 @@ case class Plan(
     brief: String
 ) derives JsonData:
 
-  /** First task whose `completed` flag is false, in declaration order. `None`
-    * means the plan is fully done.
-    */
-  def firstIncomplete: Option[Task] = tasks.find(!_.completed)
-
-  /** Mark the task with the given `title` complete, leaving the others
-    * untouched. Returns the same plan if no task matches.
-    */
-  def markComplete(title: Title): Plan =
-    copy(tasks = tasks.map(t => if t.title == title then t.markComplete else t))
-
   /** Prompt for `task`: its description, with the shared brief prepended when
     * present. An empty brief yields the description verbatim — no stray
     * separator.
@@ -249,12 +238,11 @@ object Plan:
       val body = plan.tasks.map(t => s"  - ${t.title}").mkString("\n")
       s"$header\n$body"
 
-  /** Render a plan to markdown (tasks as a `[ ]`/`[x]` checklist, the brief as
-    * a trailing `## Brief` section). Used by [[Sessioned.reviewed]] to feed the
-    * plan back into the self-review prompt, and equally usable as a
-    * human-readable checklist. It is **never parsed back**: the stage log is
-    * the sole resume mechanism (ADR 0018 §2.8), so there is no inverse parser
-    * to keep in sync.
+  /** Render a plan to markdown (tasks as plain bullets, the brief as a trailing
+    * `## Brief` section). Used by [[Sessioned.reviewed]] to feed the plan back
+    * into the self-review prompt, and equally usable as a human-readable
+    * summary. It is **never parsed back**: the stage log is the sole resume
+    * mechanism (ADR 0018 §2.8), so there is no inverse parser to keep in sync.
     */
   def render(plan: Plan): String =
     val base = renderPlan(plan)
@@ -268,7 +256,6 @@ object Plan:
       else s"\n${plan.description.stripLineEnd}\n"
     val body = plan.tasks
       .map: t =>
-        val checkbox = if t.completed then "[x]" else "[ ]"
-        s"\n## Task: ${t.title}\nStatus: $checkbox\n\n${t.description.stripLineEnd}\n"
+        s"\n## Task: ${t.title}\n\n${t.description.stripLineEnd}\n"
       .mkString
     header + descriptionBlock + body
