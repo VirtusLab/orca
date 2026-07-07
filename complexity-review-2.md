@@ -317,7 +317,7 @@ Refs: `tools/src/main/scala/orca/backend/ConversationEvent.scala:26-31`,
 `pi/.../PiConversation.scala:128-142,179-181`,
 `opencode/.../OpencodeConversation.scala:75-86,153-175`.
 
-- [ ] 4.1 Move turn accounting into `ForkedConversation`: the event queue
+- [x] 4.1 (done: 64ba38d) Move turn accounting into `ForkedConversation`: the event queue
   tracks `openTurn` (reader-thread-confined var, same invariant as
   `settledOutcome`), drops empty `AssistantTurnEnd`s, and
   `succeedWith`/`failWith` auto-close an open turn before settling.
@@ -331,19 +331,19 @@ Refs: `tools/src/main/scala/orca/backend/ConversationEvent.scala:26-31`,
   Two scripted tests change observable sequences (claude deltas-then-error,
   codex tool-only asserting events.size==2) — update deliberately. Gemini's
   violation has zero current coverage — the base test must include it.)
-- [ ] 4.2 Delete the per-driver machinery it obsoletes: opencode's
+- [x] 4.2 (done: 8b63cb0 — opencode/pi/gemini machinery deleted; codex/claude emissions KEPT as genuine intermediate boundaries) Delete the per-driver machinery it obsoletes: opencode's
   `activitySinceTurnEnd`/`failTurn`/`emitTurnEnd`, pi's
   `sawAssistantActivity`, gemini's unconditional pre-result turn end, claude's
   unconditional enqueue.
-- [ ] 4.3 Delete claude's mirrored `partialsSeenThisTurn` /
+- [x] 4.3 (done: 8b63cb0 — mirrored pair collapsed to one flag; turnIsOpen deliberately NOT used (ToolResult-vs-prose semantic mismatch, documented)) Delete claude's mirrored `partialsSeenThisTurn` /
   `deltasSinceLastFullTurn` pair (7.9's fix duplicated state; base-owned
   accounting gives one derived value) and their ~25 lines of lockstep prose.
   Refs: `claude/.../ClaudeConversation.scala:52-77,126-128,146-148`.
-- [ ] 4.4 Test the grammar once in `tools` as a property of the base
+- [x] 4.4 (done: 64ba38d, TurnGrammarTest) Test the grammar once in `tools` as a property of the base
   (including the deltas-then-error and tool-only-turn sequences the per-driver
   tests currently route around); demote the per-backend conformance helpers to
   wire-shape checks.
-- [ ] 4.5 Simplify `TurnBuffer`'s defensive flushes if 4.1 makes them
+- [x] 4.5 (done: 8b63cb0 — flushes kept for abnormal termination, comments corrected) Simplify `TurnBuffer`'s defensive flushes if 4.1 makes them
   unreachable.
 
 ## Epic 5 — Hierarchical stage identity (nested stages + resume)
