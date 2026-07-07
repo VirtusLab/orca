@@ -23,11 +23,13 @@ import dotty.tools.dotc.reporting.{Diagnostic, Reporter}
   * the real `dotc` ([[dotty.tools.dotc.Main]]) on fixture sources, against this
   * module's own Test classpath, so the full checked-compilation pipeline runs.
   *
-  * Fixtures pass the capability token in as a method parameter (rather than
-  * minting it via `InStage.unsafe`, which would force the fixture into `package
-  * orca`). Passing an exclusive parameter into the parallel closures is exactly
-  * the smuggling separation checking must reject, and it keeps each fixture to
-  * one token, one wrapper call, two closures — no `.unsafe` door, no Ox scope.
+  * Fixtures declare `package orca` because [[orca.CheckedPar]] is
+  * `private[orca]` — an internal funnel, not meant on the `import orca.*` user
+  * namespace. They still pass the capability token in as a method parameter
+  * rather than minting it via `InStage.unsafe`: passing an exclusive parameter
+  * into the parallel closures is exactly the smuggling separation checking must
+  * reject, and it keeps each fixture to one token, one wrapper call, two
+  * closures — no `.unsafe` door, no Ox scope.
   */
 class CcNegativeCompileTest extends munit.FunSuite:
 
@@ -57,20 +59,32 @@ class CcNegativeCompileTest extends munit.FunSuite:
   private def compileErrorsOf(source: String): List[String] =
     val srcDir = Files.createTempDirectory("cc-src")
     val outDir = Files.createTempDirectory("cc-out")
-    val srcFile = srcDir.resolve("Fixture.scala")
-    Files.writeString(srcFile, source)
-    val reporter = new CollectingReporter
-    val args = Array(
-      "-classpath",
-      classpath,
-      "-d",
-      outDir.toString,
-      srcFile.toString
-    )
-    val _ = Main.process(args, reporter)
-    reporter.diagnostics.toList
-      .filter(_.level >= IDiagnostic.ERROR)
-      .map(_.message)
+    try
+      val srcFile = srcDir.resolve("Fixture.scala")
+      Files.writeString(srcFile, source)
+      val reporter = new CollectingReporter
+      val args = Array(
+        "-classpath",
+        classpath,
+        "-d",
+        outDir.toString,
+        srcFile.toString
+      )
+      val _ = Main.process(args, reporter)
+      reporter.diagnostics.toList
+        .filter(_.level >= IDiagnostic.ERROR)
+        .map(_.message)
+    finally
+      deleteRecursively(srcDir)
+      deleteRecursively(outDir)
+
+  /** Recursively removes a directory tree created for one fixture compile. */
+  private def deleteRecursively(dir: java.nio.file.Path): Unit =
+    if Files.exists(dir) then
+      Files
+        .walk(dir)
+        .sorted(java.util.Comparator.reverseOrder())
+        .forEach(Files.delete)
 
   /** Fan-out fixture whose closures capture a `tok` of the given token type,
     * routed through the real `orca.CheckedPar.mapParUnordered`. Identical shape
@@ -79,10 +93,9 @@ class CcNegativeCompileTest extends munit.FunSuite:
     * exclusive), which is precisely what's under test.
     */
   private def fixture(tokenType: String): String =
-    s"""package ccfixture
+    s"""package orca
        |import language.experimental.captureChecking
        |import language.experimental.separationChecking
-       |import orca.CheckedPar
        |object Fixture:
        |  def go(tok: $tokenType): List[Int] =
        |    val tasks: Seq[() => Int] =

@@ -1,5 +1,10 @@
 package orca.review
 
+// This file compiles under capture checking (the two language imports below)
+// so that the CheckedPar fan-out enforcement (ADR 0018 §6) actually fires at
+// its call site further down. Keep tapir `derives`/macro-expanding types out
+// of here — they don't type-check under CC — and put them in a sibling
+// non-CC file instead, as FixRequest.scala already does.
 import language.experimental.captureChecking
 import language.experimental.separationChecking
 
@@ -356,6 +361,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
             val labelled = agent.withName(s"${ReviewerPrompts.NamePrefix}lint")
             AgentOutcome.Lint(filterByConfidence(lint(cmd, labelled)))
 
+    // The explicit type application is CC-forced: it widens both lists'
+    // element type to the impure function type `() => AgentOutcome` so their
+    // capture sets unify into the single `C^` CheckedPar.mapParUnordered
+    // binds below. Deleting it breaks the CC compile.
     val tasks = reviewerTasks.++[() => AgentOutcome](lintTaskOpt.toList)
     if tasks.isEmpty then (Nil, None, currentState)
     else

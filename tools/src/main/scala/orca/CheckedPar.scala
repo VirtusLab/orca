@@ -31,7 +31,7 @@ import ox.flow.Flow
   * The wrappers delegate 1:1 to Ox with no behavioral additions; their value is
   * purely their compilation mode and their capture-annotated types.
   */
-object CheckedPar:
+private[orca] object CheckedPar:
   /** Capture-checked delegate for the reviewer fan-out's
     * `Flow.fromIterable(thunks).mapParUnordered(parallelism)(_.apply()).tap(onResult).runToList()`
     * pipeline. Runs `thunks` concurrently (up to `parallelism` at a time,
