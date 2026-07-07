@@ -59,7 +59,7 @@ Refs: `tools/src/main/scala/orca/InStage.scala:30`,
 `adr/0018-stage-bound-flow-runtime.md:780-802`,
 `flow/.../review/ReviewLoop.scala` (fan-out capture).
 
-- [ ] 0.1a Toolchain bump, standalone (amended 2026-07-07 after research —
+- [x] 0.1a (done: 0e361ae) Toolchain bump, standalone (amended 2026-07-07 after research —
   the build is on Scala **3.3.6 LTS**, not 3.8.x, so this is an LTS→latest
   migration, not a pin): Scala **3.8.4** (avoid 3.8.0/3.8.1 — published
   runtime regressions; 3.9.0-RC1 is RC), jsoniter **2.38.17** (3.7+-specific
@@ -71,7 +71,7 @@ Refs: `tools/src/main/scala/orca/InStage.scala:30`,
   scratchpad `epic0-research.md`): CC + separation checking both work on
   stable, no flags; a jar built from CC-importing files is consumable by
   plain non-CC consumers with zero flags — no experimental taint.
-- [ ] 0.1b Script/docs version pinning: examples pin no Scala version today
+- [x] 0.1b (done: 0800a83) Script/docs version pinning: examples pin no Scala version today
   (scala-cli 1.14.0 defaults to 3.8.3 — the origin of InStage.scala's
   "verified on 3.8.3" note); add `//> using scala 3.8.4` to examples +
   README script blocks, and teach the release tooling
@@ -80,7 +80,7 @@ Refs: `tools/src/main/scala/orca/InStage.scala:30`,
   example scripts later, with 0.5/0.6 — enforcement is per compilation
   unit, so a user script only gets fork-capture checking if the `.sc` file
   itself carries the imports (record this in 0.7).
-- [ ] 0.2 Design the capability split using the 3.8 vocabulary, which matches
+- [x] 0.2 (done: decided in tracker; shipped via 0.3/0.4) Design the capability split using the 3.8 vocabulary, which matches
   the ADR amendment 1:1: `InStage` (LLM-call gate) extends
   `caps.SharedCapability` — freely capturable into forks, exempt from
   separation rules; the workspace/index-mutation token carved out of it
@@ -96,7 +96,7 @@ Refs: `tools/src/main/scala/orca/InStage.scala:30`,
   Full-toolset agents sharing a worktree remains a documented user-level
   choice, not a type error. Record this in the ADR amendment (0.7) so the
   eventual CC design doesn't re-open it.
-- [ ] 0.3 Make the tokens trackable (amended with verified 3.8.4 stdlib
+- [x] 0.3 (done: 7437569) Make the tokens trackable (amended with verified 3.8.4 stdlib
   facts: `caps.Capability` is **sealed** — extend the sub-markers, never the
   root; `caps.SharedCapability` is **non-experimental**, so `InStage.scala`
   needs no language import; `caps.ExclusiveCapability` is `@experimental`,
@@ -109,12 +109,12 @@ Refs: `tools/src/main/scala/orca/InStage.scala:30`,
   the two-token world). Add a consumer-taint canary test (plain non-CC
   compilation unit using `FlowControl`/`WorkspaceWrite`) pinning the
   research's no-taint verdict against future compiler upgrades.
-- [ ] 0.4 Migrate mutating tool methods to the mutation token per 0.2's
+- [x] 0.4 (done: 365ea76 + f360350) Migrate mutating tool methods to the mutation token per 0.2's
   decision (git/gh writes, `fs.write`, progress-store writes; `agent.*.run`
   per the 0.2 answer). Most user code is unaffected (both tokens are ambient
   in stage bodies); helper signatures change — update the AGENTS.md
   helper-author guidance and both `implicitNotFound` messages.
-- [ ] 0.5 Fork-boundary enforcement — a bridge designed for deletion
+- [x] 0.5 (done: 4011187) Fork-boundary enforcement — a bridge designed for deletion
   (amended: the research falsified the tracker's "already exists" claim —
   ReviewLoop's fan-out at `ReviewLoop.scala:383` calls **Ox's**
   `ox.flow.Flow.mapParUnordered` directly; there is no orca-owned
@@ -132,7 +132,7 @@ Refs: `tools/src/main/scala/orca/InStage.scala:30`,
   load-bearing for safety, and the escape-hatch caveat disappears. Keep the
   wrappers thin and coordinate their capture signatures with the Ox
   annotation design rather than finalizing them blind.
-- [ ] 0.6 Negative compile tests (amended: munit
+- [x] 0.6 (done: 0e8501d) Negative compile tests (amended: munit
   `compileErrors`/`typeCheckErrors` — the existing `orcacaps` mechanism —
   verifiably returns 0 errors on snippets that fail capture checking,
   because CC runs post-typer; CC negatives need **separate compilation**,
@@ -141,7 +141,7 @@ Refs: `tools/src/main/scala/orca/InStage.scala:30`,
   `InStage` **compiles** (pins the load-bearing fan-out capture so a future
   tightening can't silently outlaw it). Missing-given negatives stay on
   munit `compileErrors`.
-- [ ] 0.7 Rewrite ADR 0018 §6's capture-checking bullet from deferred future
+- [x] 0.7 (done: a478f1b + 279441d + e1b15cf) Rewrite ADR 0018 §6's capture-checking bullet from deferred future
   work into the decided design (0.1–0.6's outcomes), including: the
   no-taint verdict (CC-importing files don't mark definitions experimental
   on 3.8.4 — consumers need nothing), the enforcement locus (per
