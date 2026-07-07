@@ -48,7 +48,8 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
     val gh: GitHubTool,
     val fs: FsTool,
     val progressStore: ProgressStore
-) extends FlowControl:
+) extends FlowControl,
+      orca.StageFrames:
 
   private val log = LoggerFactory.getLogger(getClass)
 
@@ -96,26 +97,10 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
   private[orca] def errorAlreadyReported(e: Throwable): Boolean =
     reportedErrors.get().exists(_ eq e)
 
-  // Reached only through FlowControl, which is thread-affine by R12 (ADR 0018
-  // §2.2) — stages and session(...) calls never run concurrently, so a plain
-  // var states the real invariant where a concurrent map would falsely
-  // advertise cross-thread sharing.
-  private var occurrences: Map[String, Int] = Map.empty
-
-  def nextOccurrence(stageName: String): Int =
-    val n = occurrences.getOrElse(stageName, 0)
-    occurrences = occurrences.updated(stageName, n + 1)
-    n
-
-  // Independent of the stage counter so sessions can be obtained outside stages
-  // without perturbing stage occurrence indices. Keyed per-name, mirroring
-  // `occurrences` above.
-  private var sessionOccurrences: Map[String, Int] = Map.empty
-
-  def nextSessionOccurrence(name: String): Int =
-    val n = sessionOccurrences.getOrElse(name, 0)
-    sessionOccurrences = sessionOccurrences.updated(name, n + 1)
-    n
+  // Stage-identity bookkeeping (enterStage/exitStage/inStage and
+  // nextSessionOccurrence) comes from the shared `StageFrames` mixin — the
+  // single source of truth for the hierarchical frame-stack semantics, so the
+  // test doubles cannot drift from production.
 
 private[orca] object DefaultFlowContext:
 

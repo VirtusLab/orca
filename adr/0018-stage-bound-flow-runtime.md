@@ -68,8 +68,11 @@ the design.)
   fact encouraged to gitignore `.orca/` — that keeps orca's scratch state out of `git
   status`, while the force-add still tracks the one file that must travel with the
   branch. The commit is therefore never empty and the log stays on the branch.
-- **R10** — A stage's id is its name plus an occurrence index (disambiguating
-  duplicates), never a global execution counter.
+- **R10** — A stage's id is a hierarchical path of `name#occurrenceIndex`
+  segments, one per enclosing stage, joined by `/` (e.g. `outer#0/inner#0`); the
+  occurrence index counts prior same-named stages *within the same parent frame*,
+  never a global execution counter. Nesting scopes the counter, so a nested
+  stage's id can never collide with a top-level stage of the same name.
 - **R11** — On resume, a stage whose recorded result decodes to its call-site type
   is skipped (stored value returned); a result that fails to decode (the stage's
   type changed) re-runs the stage — fail-safe over silent misattribution.
@@ -118,13 +121,29 @@ Resume is uniform across stage kinds: an interactive stage (a planning
 conversation the user drove) is skipped on resume just like any other, returning
 its stored result — the user is not re-prompted for work already done.
 
-**Id.** `id = name + "#" + occurrenceIndex`, where the index counts prior stages
-with the same name in this run. Because the key is the name rather than an
+**Id.** A stage's id is a hierarchical *path*: the `name#occurrenceIndex` segments
+of its enclosing stages joined by `/`, ending in its own (e.g. a top-level stage is
+`plan#0`; a stage named `inner` nested inside `outer#0` is `outer#0/inner#0`). The
+occurrence index counts prior same-named stages *within the same parent frame* this
+run — each open stage carries its own per-name counter, and the flow body is the
+root frame. Because the key is the name (scoped by nesting) rather than an
 execution-order counter, inserting, removing, or reordering *other* stages between
 runs does not shift a stage's id: a removed stage leaves a harmless orphan entry; a
 newly inserted stage simply has no recorded result and runs. A stage whose dynamic
 name changes between runs (e.g. a task title from a regenerated plan) re-runs —
 fail-safe.
+
+The path structure is load-bearing for resume correctness under nesting. The id is
+computed once, before the resume decision, by opening the stage's frame against its
+*parent* — this bumps the parent's occurrence slot exactly once whether the stage
+runs or is skipped (so later same-named siblings stay stable), and the frame is
+popped in a `finally`. A skipped (resumed) stage's body never runs, so its nested
+stages never open their own frames: their ids are structurally unreachable and no
+counter desyncs. A flat, un-nested id scheme could not offer this — a skipped
+parent's vanished nested bumps would let a later same-named stage recompute the
+nested stage's id and either silently replay its stale value (same result type) or
+clobber its record on re-run (different type). The `#`/`/` id is opaque: it is only
+ever compared for exact equality, never parsed.
 
 **Nesting.** Nested stages each commit, so nest only to introduce an extra
 checkpoint; wrapping a stage solely around other stages yields a commit carrying just
@@ -486,7 +505,11 @@ strategy and the progress store are overridable (R21).
   (which stages have completed). **Re-seed is the reliable, uniform path**: on resume
   orca re-mints and primes the session with preamble + seed unless a backend existence
   probe (R22) confirms the recorded session is still live, in which case it continues
-  it.
+  it. `agent.session(...)` must be called *outside* any stage (it throws otherwise):
+  minting inside a stage that later skips on resume would desync the session
+  occurrence counter the same way a nested stage's would (§5). The handle it returns
+  is a plain value — mint once at the flow-body top level, then close over it into
+  any later stage and drive it with `session.run` / `session.resultAs[...].run`.
 
 **Design.**
 
@@ -780,8 +803,23 @@ alongside.
   to the call-site type re-runs the stage; but a stage whose *meaning* changes under
   a stable name and a still-decodable type silently reuses the stale value — the more
   likely edit between a crash and a resume. Relatedly, inserting a *same-named* stage
-  before existing ones shifts later occurrence-indices (R10), so their stored entries
-  no longer match and that work re-runs — harmless but worth knowing.
+  before existing ones at the *same nesting level* shifts later occurrence-indices
+  within that frame (R10), so their stored entries no longer match and that work
+  re-runs — harmless but worth knowing.
+
+  > **Amendment (2026-07-07).** An earlier version of this note also treated a
+  > *nested* stage's occurrence shift as harmless. It was not: with the former
+  > flat, un-nested id scheme, a stage that skipped on resume dropped its nested
+  > stages' occurrence bumps, so a later same-named stage recomputed a nested
+  > stage's id and either silently replayed its stale value (same result type) or
+  > clobbered its record on re-run (different type) — a genuine misattribution,
+  > not a harmless re-run. Hierarchical path ids (R10, §2.1) fix this: a nested
+  > stage's id carries its parent's segment, so it can never collide with a
+  > top-level (or differently-nested) stage of the same name. Relatedly,
+  > `agent.session(...)` is now required to be minted *outside* any stage (it
+  > throws otherwise — see R23), which removes the same desync for session
+  > occurrence counters rather than building a second, parent-scoped keying
+  > mechanism for a case real flows never hit.
 - **Resume preserves files, not agent context.** File state is committed and
   restored; the LLM conversation is not. After a crash the re-seed blob restores
   only the seed (e.g. the plan), so a long implementer session resumes materially

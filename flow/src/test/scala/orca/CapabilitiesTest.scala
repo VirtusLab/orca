@@ -9,11 +9,10 @@ import orca.events.EventDispatcher
 class CapabilitiesTest extends munit.FunSuite:
 
   private def stubCtrl: FlowControl =
-    new TestFlowContext(new EventDispatcher(Nil)) with FlowControl:
+    new TestFlowContext(new EventDispatcher(Nil))
+      with FlowControl
+      with StageFrames:
       def progressStore: orca.progress.ProgressStore =
-        throw new NotImplementedError
-      def nextOccurrence(stageName: String): Int = throw new NotImplementedError
-      def nextSessionOccurrence(name: String): Int =
         throw new NotImplementedError
 
   test("FlowControl satisfies a using FlowContext requirement"):

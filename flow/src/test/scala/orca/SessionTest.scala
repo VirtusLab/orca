@@ -195,3 +195,15 @@ class SessionTest extends FunSuite:
     val agent = new StubAgent
     intercept[IllegalArgumentException]:
       agent.session("", "seed")(using fc)
+
+  // Minting outside a stage is exercised by every other test in this suite; this
+  // pins the complementary guard: minting inside a stage is rejected (the
+  // occurrence counter would desync if that stage were skipped on resume).
+  test("agent.session minted inside a stage is rejected"):
+    val (store, dir) = freshStore()
+    given FlowControl = makeControl(store, dir)
+    val agent = new StubAgent
+    intercept[OrcaFlowException]:
+      stage("outer"):
+        val _ = agent.session("implementer", "seed")
+        "done"

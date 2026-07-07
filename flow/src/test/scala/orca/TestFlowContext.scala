@@ -67,7 +67,8 @@ class TestFlowControl(
     val progressStore: ProgressStore,
     val userPrompt: String = ""
 ) extends FlowControl,
-      ReportedErrorsSupport:
+      ReportedErrorsSupport,
+      StageFrames:
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowControl")
 
@@ -83,19 +84,10 @@ class TestFlowControl(
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
-  // Reached only through FlowControl, which is thread-affine by R12 (ADR 0018
-  // §2.2) — a plain var mirrors the production DefaultFlowContext shape.
-  private var occurrences: Map[String, Int] = Map.empty
-  def nextOccurrence(stageName: String): Int =
-    val n = occurrences.getOrElse(stageName, 0)
-    occurrences = occurrences.updated(stageName, n + 1)
-    n
-
-  private var sessionOccurrences: Map[String, Int] = Map.empty
-  def nextSessionOccurrence(name: String): Int =
-    val n = sessionOccurrences.getOrElse(name, 0)
-    sessionOccurrences = sessionOccurrences.updated(name, n + 1)
-    n
+  // Stage-identity bookkeeping (enterStage/exitStage/inStage and
+  // nextSessionOccurrence) is inherited from the shared `StageFrames` mixin — the
+  // SAME implementation production uses, so this double cannot silently keep the
+  // old flat-counter semantics and greenwash a nesting/resume test.
 
 object TestFlowControl:
   /** Build a `TestFlowControl` over a fresh temp git repo (with one seed commit

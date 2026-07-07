@@ -34,10 +34,10 @@ import orca.progress.{ProgressLog, SessionRecord}
   * the old one.
   *
   * The handle is a plain immutable value ([[Agent]] + [[SessionId]]): mint it
-  * once (outside/before stages) and freely close over it into any later
-  * `stage(...)`. Only the capabilities its methods require ([[InStage]],
-  * [[WorkspaceWrite]]) are stage-scoped — the handle itself carries no stage
-  * affinity.
+  * once at the flow-body top level (minting inside a stage is rejected — see
+  * `agent.session`) and freely close over it into any later `stage(...)`. Only
+  * the capabilities its methods require ([[InStage]], [[WorkspaceWrite]]) are
+  * stage-scoped — the handle itself carries no stage affinity.
   */
 final class FlowSession[B <: BackendTag] private[orca] (
     agent: Agent[B],
@@ -162,6 +162,17 @@ extension [B <: BackendTag](agent: Agent[B])
     // decode to name="" — that's an authoring defect, so require rather than
     // return an Either.
     require(name.nonEmpty, "session name must be non-empty")
+    // Sessions are keyed by (name, occurrence) at the flow-body top level; a
+    // session minted inside a stage that later gets skipped on resume would
+    // never re-mint, desyncing the occurrence counter. Rather than build a
+    // second, parent-scoped keying mechanism for a case real flows never hit
+    // (every call site mints outside stages), require it (ADR 0018 §2.6).
+    if fc.inStage then
+      throw new OrcaFlowException(
+        "agent.session(...) must be called outside a stage: mint sessions at " +
+          "the flow-body top level, before stages, and run them inside stages " +
+          "via the FlowSession handle (session.run / session.resultAs[...].run)."
+      )
     val occ = fc.nextSessionOccurrence(name)
     val id = fc.progressStore
       .load()

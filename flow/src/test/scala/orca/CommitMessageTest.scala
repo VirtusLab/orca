@@ -92,7 +92,8 @@ class CommitMessageTest extends munit.FunSuite:
       val progressStore: ProgressStore,
       val userPrompt: String = "p"
   ) extends FlowControl,
-        ReportedErrorsSupport:
+        ReportedErrorsSupport,
+        StageFrames:
     import orca.agents.{
       ClaudeAgent,
       CodexAgent,
@@ -114,16 +115,7 @@ class CommitMessageTest extends munit.FunSuite:
     lazy val gh: orca.tools.GitHubTool = stub("gh")
     lazy val fs: orca.tools.FsTool = stub("fs")
     def emit(event: OrcaEvent): Unit = ()
-    private var occ: Map[String, Int] = Map.empty
-    def nextOccurrence(name: String): Int =
-      val n = occ.getOrElse(name, 0)
-      occ = occ.updated(name, n + 1)
-      n
-    private var sessOcc: Map[String, Int] = Map.empty
-    def nextSessionOccurrence(name: String): Int =
-      val n = sessOcc.getOrElse(name, 0)
-      sessOcc = sessOcc.updated(name, n + 1)
-      n
+    // Stage-identity bookkeeping inherited from the shared `StageFrames` mixin.
 
   private def withCtx(
       agentStub: Agent[BackendTag.ClaudeCode.type]

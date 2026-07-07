@@ -17,8 +17,11 @@ private val log = LoggerFactory.getLogger("orca.flow")
   *
   * Control flow:
   *
-  *   - Compute the stage id `name#occurrence`, where `occurrence` counts prior
-  *     same-named stages in this run.
+  *   - Open the stage frame ([[FlowControl.enterStage]]) to compute its path id
+  *     `parent/name#occurrence` (just `name#occurrence` at the flow-body top
+  *     level), where `occurrence` counts prior same-named stages under the same
+  *     parent frame in this run. The frame is opened before the resume decision
+  *     and closed in a `finally`.
   *   - Resume: if the progress log already holds an entry for this id whose
   *     stored JSON decodes to `T`, emit StageStarted/StageCompleted and return
   *     the decoded value without running `body`. A decode failure (the stage's
@@ -47,8 +50,14 @@ def stage[T: JsonData](
     name: String,
     commitMessage: Option[T => String] = None
 )(body: (InStage, WorkspaceWrite) ?=> T)(using fc: FlowControl): T =
-  val id = s"$name#${fc.nextOccurrence(name)}"
-  resumeFrom(id, name).getOrElse(runStage(id, name, commitMessage)(body))
+  // `enterStage` computes the path id (bumping the parent frame's occurrence
+  // slot exactly once) and opens this stage's frame; `exitStage` closes it in
+  // `finally`, whether the body ran or was skipped. A skipped stage's body never
+  // runs, so its nested `stage(...)` calls never `enterStage` — their counters
+  // stay untouched on resume (structural unreachability, ADR 0018 §2.1).
+  val id = fc.enterStage(name)
+  try resumeFrom(id, name).getOrElse(runStage(id, name, commitMessage)(body))
+  finally fc.exitStage()
 
 /** Try to skip the stage by replaying a recorded result. `Some(value)` when the
   * log holds an entry for `id` that decodes to `T`; `None` when there's no

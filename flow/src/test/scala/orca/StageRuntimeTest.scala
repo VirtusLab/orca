@@ -94,7 +94,10 @@ class StageRuntimeTest extends munit.FunSuite:
     // Two stages → two commits (one per stage, inner committing before outer).
     assertEquals(commitCount(dir), before + 2)
     val ids = ctx.progressStore.load().get.entries.map(_.id)
-    assert(ids.contains("inner#0"), s"inner must be recorded; got $ids")
+    assert(
+      ids.contains("outer#0/inner#0"),
+      s"inner must be recorded under its path id; got $ids"
+    )
     assert(ids.contains("outer#0"), s"outer must be recorded; got $ids")
 
   test(
@@ -174,6 +177,100 @@ class StageRuntimeTest extends munit.FunSuite:
       99
     assertEquals(result, 99)
     assertEquals(ran.get(), 1, "an undecodable entry must re-run the body")
+
+  test(
+    "resume: a skipped nested-parent's later same-named sibling runs its own body (same-type)"
+  ):
+    // Run 1: `outer` (with a nested `inner` recording "A") completes; a later
+    // top-level `inner` stage crashes before it records. On resume `outer` is
+    // skipped, so its nested `inner` never re-runs. Under a flat per-run counter
+    // the top-level `inner` would recompute the nested inner's id and silently
+    // replay "A"; under hierarchical ids the nested inner lives at
+    // `outer#0/inner#0`, so the top-level `inner#0` has no record and RUNS.
+    val listener = new RecordingListener
+    val (ctx, dir) = TestFlowControl.create(new EventDispatcher(List(listener)))
+
+    def runFlow(topInner: () => String)(using FlowControl): String =
+      val _ = stage("outer"):
+        val _ = stage("inner")("A")
+        "outer-done"
+      stage("inner")(topInner())
+
+    val _ = intercept[RuntimeException]:
+      runFlow(() => throw new RuntimeException("boom"))(using ctx)
+
+    val (ctx2, _) = reopen(dir, listener)
+    val result = runFlow(() => "B")(using ctx2)
+
+    assertEquals(
+      result,
+      "B",
+      "the resumed top-level `inner` must run its own body, not replay the " +
+        "nested inner's stale 'A'"
+    )
+
+  test(
+    "resume: a skipped nested-parent does not clobber the nested record via a later same-named sibling (different-type)"
+  ):
+    // Same setup as the same-type case, but the nested `inner` yields an Int and
+    // the top-level `inner` a String. Under a flat counter the top-level inner
+    // recomputes the nested inner's id, fails to decode the Int as a String,
+    // re-runs, and its `appendEntry` upserts OVER the nested Int record — losing
+    // it. Under hierarchical ids the two live at distinct paths and both survive.
+    val listener = new RecordingListener
+    val (ctx, dir) = TestFlowControl.create(new EventDispatcher(List(listener)))
+
+    def runFlow(topInner: () => String)(using FlowControl): String =
+      val _ = stage("outer"):
+        val _ = stage[Int]("inner")(42)
+        "outer-done"
+      stage[String]("inner")(topInner())
+
+    val _ = intercept[RuntimeException]:
+      runFlow(() => throw new RuntimeException("boom"))(using ctx)
+
+    val (ctx2, _) = reopen(dir, listener)
+    val result = runFlow(() => "B")(using ctx2)
+
+    assertEquals(result, "B")
+    val entries = ctx2.progressStore.load().get.entries
+    assert(
+      entries.exists(_.resultJson == "42"),
+      s"the nested inner's Int record must survive resume intact; got $entries"
+    )
+    assert(
+      entries.exists(_.resultJson == "\"B\""),
+      s"the top-level inner's String record must be recorded; got $entries"
+    )
+    assert(
+      entries.exists(_.id == "outer#0/inner#0"),
+      s"the nested inner must be recorded under its path id; got $entries"
+    )
+
+  test(
+    "resume: a skipped stage still consumes its parent-frame occurrence slot (sibling stability)"
+  ):
+    // Two same-named top-level stages. On resume the first is skipped, but it
+    // must still consume occurrence slot 0 in the (root) parent frame so the
+    // second keeps id `dup#1` and replays its own value rather than collapsing
+    // onto `dup#0`.
+    val listener = new RecordingListener
+    val (ctx, dir) = TestFlowControl.create(new EventDispatcher(List(listener)))
+
+    def runFlow(using FlowControl): (String, String) =
+      val a = stage("dup")("first")
+      val b = stage("dup")("second")
+      (a, b)
+
+    assertEquals(runFlow(using ctx), ("first", "second"))
+    val (ctx2, _) = reopen(dir, listener)
+    assertEquals(
+      runFlow(using ctx2),
+      ("first", "second"),
+      "both same-named siblings must replay their own recorded values on resume"
+    )
+    val ids = ctx2.progressStore.load().get.entries.map(_.id).toSet
+    assertEquals(ids, Set("dup#0", "dup#1"), s"sibling ids must be stable")
 
   // --- helpers ---
 

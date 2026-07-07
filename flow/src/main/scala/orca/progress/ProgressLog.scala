@@ -16,6 +16,12 @@ case class ProgressHeader(
 
 /** A single stage's outcome, stored as an already-serialised JSON string.
   *
+  * `id` is the stage's hierarchical path id — `name#occurrence` segments joined
+  * by `/` (e.g. `outer#0/inner#0`), where a nested stage carries its enclosing
+  * stages' segments as a prefix (ADR 0018 §2.1). It is opaque: only ever
+  * compared for exact equality (resume lookup, upsert), never parsed. A per-run
+  * artifact, so the format is not a cross-version contract.
+  *
   * `resultJson` is type-erased at rest — the log is heterogeneous across stage
   * types. Deserialisation back to a typed value happens at the stage call site
   * (C3), not here.
