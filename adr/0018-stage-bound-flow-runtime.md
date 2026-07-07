@@ -3,7 +3,7 @@
 Status: Accepted · Date: 2026-06-23
 Supersedes: [ADR 0013](0013-persistent-plans.md) (persistent plans)
 Related: [ADR 0002](0002-context-function-flow-dsl.md) (flow DSL / `FlowContext`),
-[ADR 0003](0003-pluggable-agent-backends.md) (backend SPI),
+[ADR 0003](0003-pluggable-llm-backends.md) (backend SPI),
 [ADR 0016](0016-toolset-capability-axis-and-planner-network.md) (capability axis)
 
 A `flow(...)` run is bound to a branch and a progress log, and is composed of
