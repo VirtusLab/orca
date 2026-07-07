@@ -27,10 +27,6 @@ import scala.annotation.implicitNotFound
   * it. Making it a real class is purely so capture checking has a reference to
   * track.
   *
-  * Note: the migration of mutating tool methods onto this token is a follow-up
-  * (Epic 0.4). In this stage the token merely exists, is minted, and is
-  * provided by stage bodies; no tool method requires it yet.
-  *
   * `@implicitNotFound` keeps the missing-capability error user-facing: a flow
   * author never needs to know what `WorkspaceWrite` is, only that these writes
   * belong inside a `stage(...)` and not inside a `fork`.
