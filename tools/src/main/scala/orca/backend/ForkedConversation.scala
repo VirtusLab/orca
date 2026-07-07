@@ -73,9 +73,10 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * so backends no longer hand-roll it: activity events open the current turn,
     * an `AssistantTurnEnd` closes an open turn (and is DROPPED as an empty turn
     * if none is open), and the settle helpers auto-close a still-open turn (see
-    * [[succeedWith]] / [[failWith]]). The activity/neutral classification is
-    * the authoritative one from [[ConversationEvent]]'s scaladoc, mirrored
-    * here.
+    * [[succeedWith]] / [[failWith]]). The activity/neutral classification
+    * routes through [[ConversationEvent.opensTurn]], the single source of truth
+    * for that split — an exhaustive match, so a future `ConversationEvent` case
+    * can't silently fall through as neutral here.
     *
     * '''Confinement contract''': `enqueue` mutates the reader-thread-confined
     * [[turnIsOpen]] state, so any caller from a background fork (`stderrLoop`,
@@ -88,24 +89,21 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
   protected final class EventQueue:
     def enqueue(event: ConversationEvent): Unit =
       event match
-        // Activity (turn-opening): mirrors ConversationEvent's scaladoc and the
-        // classifier in ConversationEventConformance.assertGrammar.
-        case _: ConversationEvent.AssistantTextDelta |
-            _: ConversationEvent.AssistantThinkingDelta |
-            _: ConversationEvent.AssistantToolCall |
-            _: ConversationEvent.ToolResult =>
-          openTurn = true
-          channel.sendOrClosed(event).discard
+        // AssistantTurnEnd has its own forward/drop arm, ahead of the
+        // activity/neutral split below: it closes an open turn, or is DROPPED
+        // as an empty turn if none is open (fixes gemini's unconditional
+        // pre-result end and claude's suppressed ask_user-only turn).
         case ConversationEvent.AssistantTurnEnd =>
           if openTurn then
             openTurn = false
             channel.sendOrClosed(event).discard
-        // else: drop — an AssistantTurnEnd with no activity since the last one
-        // is an empty turn (fixes gemini's unconditional pre-result end and
-        // claude's suppressed ask_user-only turn).
+        // Activity (turn-opening) vs. neutral (UserMessage, Error,
+        // ApproveTool, UserQuestion): ConversationEvent.opensTurn is the
+        // exhaustive, single-source-of-truth classifier — see its scaladoc.
+        case _ if event.opensTurn =>
+          openTurn = true
+          channel.sendOrClosed(event).discard
         case _ =>
-          // Neutral (never opens/closes a turn): UserMessage, Error,
-          // ApproveTool, UserQuestion.
           channel.sendOrClosed(event).discard
     def close(): Unit = channel.doneOrClosed().discard
 

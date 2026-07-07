@@ -86,7 +86,11 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
 
-    val _ = conv.events.toList
+    val events = conv.events.toList
+    // Each agent_message item closes its own turn (see CodexConversation's
+    // scaladoc); two agent_message items means two turns are KEPT, not
+    // merged — "last wins" only picks the final result text, below.
+    assertEquals(events.count(_ == ConversationEvent.AssistantTurnEnd), 2)
     val Right(result) = conv.awaitResult(): @unchecked
     assertEquals(result.output, "final answer")
 

@@ -123,6 +123,42 @@ class ClaudeConversationTest extends munit.FunSuite:
     assert(failure.getMessage.contains("rate limited"))
 
   convTest(
+    "is_error after a tool-only turn (no assistant text) surfaces the full error body"
+  ):
+    // Pins the deltasSinceLastFullTurn-vs-turnIsOpen distinction (see that
+    // field's scaladoc): the ToolResult below makes turnIsOpen true, but no
+    // text/thinking delta ever streamed, so is_error must NOT collapse into
+    // the "see message above" marker — there IS no message above.
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, AgentConfig())
+
+    process.enqueueStdout(
+      """{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"id-1","name":"Bash","input":{"cmd":"ls"}}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"id-1","content":"output","is_error":false}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","subtype":"error","session_id":"sid-tool-err","result":"API Error: 500 internal error","is_error":true}"""
+    )
+    process.closeStdout()
+
+    val events = conv.events.toList
+    val errors = events.collect { case ConversationEvent.Error(msg) => msg }
+    assertEquals(
+      errors.size,
+      1,
+      s"expected exactly one Error event; got: $errors"
+    )
+    assert(
+      errors.head.contains("500 internal error"),
+      s"expected the full error body, not the marker; got: ${errors.head}"
+    )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+    val failure = intercept[OrcaFlowException](conv.awaitResult())
+    assert(failure.getMessage.contains("500 internal error"))
+
+  convTest(
     "cancel surfaces as Left(OrcaInteractiveCancelled) from awaitResult"
   ):
     val process = new FakePipedCliProcess()

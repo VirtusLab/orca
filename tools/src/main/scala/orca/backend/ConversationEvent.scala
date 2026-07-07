@@ -36,8 +36,13 @@ package orca.backend
   * `None` when it doesn't (claude's `tool_result` blocks carry only a tool-use
   * id, so claude emits `None`). It is never `Some("")`.
   *
-  * [[orca.backend.ConversationEventConformance]] (tools test sources) asserts
-  * this grammar over a recorded sequence; backend scripted tests wire it in.
+  * [[opensTurn]] is the single source of truth for the activity/neutral split
+  * above — an exhaustive match, so a new case added to this enum without a
+  * classification fails to compile rather than silently falling into the
+  * neutral bucket. [[ForkedConversation.EventQueue.enqueue]] (the funnel) and
+  * [[orca.backend.ConversationEventConformance]] (tools test sources, the
+  * oracle that asserts this grammar over a recorded sequence) both dispatch on
+  * it; backend scripted tests wire the oracle in.
   */
 enum ConversationEvent:
   /** A user turn — either the opening prompt (emitted by the driver when the
@@ -79,6 +84,28 @@ enum ConversationEvent:
     * claude and codex (both via the shared `AskUserMcpServer`).
     */
   case UserQuestion(question: String, respond: String => Unit)
+
+  /** True for the events the "Turn grammar" scaladoc above classifies as
+    * assistant activity (open/continue a turn); false for the neutral events
+    * that never affect turn state. Deliberately exhaustive — no wildcard arm —
+    * so a future case added to this enum is a compile error here until it's
+    * explicitly classified, rather than silently defaulting to neutral in both
+    * the funnel ([[ForkedConversation.EventQueue.enqueue]]) and the oracle
+    * ([[orca.backend.ConversationEventConformance.assertGrammar]]).
+    * `AssistantTurnEnd` classifies as `false` (neutral) here — it has its own
+    * forward/drop arm in the funnel and its own assertion arm in the oracle,
+    * both ahead of the activity/neutral split this method drives.
+    */
+  def opensTurn: Boolean = this match
+    case ConversationEvent.AssistantTextDelta(_)     => true
+    case ConversationEvent.AssistantThinkingDelta(_) => true
+    case ConversationEvent.AssistantToolCall(_, _)   => true
+    case ConversationEvent.ToolResult(_, _, _)       => true
+    case ConversationEvent.UserMessage(_)            => false
+    case ConversationEvent.Error(_)                  => false
+    case ConversationEvent.ApproveTool(_, _, _)      => false
+    case ConversationEvent.UserQuestion(_, _)        => false
+    case ConversationEvent.AssistantTurnEnd          => false
 
 /** Channel's answer to a [[ConversationEvent.ApproveTool]] prompt.
   *

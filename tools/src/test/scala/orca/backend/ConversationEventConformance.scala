@@ -26,18 +26,17 @@ object ConversationEventConformance extends munit.Assertions:
     events.foreach:
       case ConversationEvent.ToolResult(Some(""), _, _) =>
         fail(s"ToolResult.toolName must be None, never Some(\"\"), in: $events")
-      case ConversationEvent.AssistantTextDelta(_) |
-          ConversationEvent.AssistantThinkingDelta(_) |
-          ConversationEvent.AssistantToolCall(_, _) |
-          ConversationEvent.ToolResult(_, _, _) =>
-        activitySinceTurnEnd = true
       case ConversationEvent.AssistantTurnEnd =>
         assert(
           activitySinceTurnEnd,
           s"AssistantTurnEnd with no assistant activity since the last turn end (empty turn) in: $events"
         )
         activitySinceTurnEnd = false
-      case _ => ()
+      // Activity vs. neutral routes through ConversationEvent.opensTurn, the
+      // exhaustive, single-source-of-truth classifier shared with the funnel
+      // (ForkedConversation.EventQueue.enqueue) — see its scaladoc.
+      case e if e.opensTurn => activitySinceTurnEnd = true
+      case _                => ()
     if completedNormally && activitySinceTurnEnd then
       fail(
         s"scenario completed normally but the final turn had activity with no AssistantTurnEnd in: $events"
