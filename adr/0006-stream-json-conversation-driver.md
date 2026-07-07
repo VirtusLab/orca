@@ -1,7 +1,7 @@
 # 0006. Drive Claude Code via stream-json instead of TTY handoff
 
 Status: Accepted · Date: 2026-04-23
-Amends: [ADR 0003](0003-pluggable-agent-backends.md) (backend surface)
+Amends: [ADR 0003](0003-pluggable-llm-backends.md) (backend surface)
 Related: [ADR 0002](0002-context-function-flow-dsl.md) (flow DSL)
 
 ## Context

@@ -40,27 +40,23 @@ swapping it for a Slack or HTTP equivalent is one substitution at the call
 site rather than rewiring modules.
 
 The user-facing surface lives in `package orca` (the `flow` entry, the tool
-accessors — including `agent`, the backend-agnostic leading-agent accessor (an
-ordinary `FlowContext` member typed `Agent[ctx.LeadB]`, where `flow[B]` captures
-the selector's backend tag into the `FlowContext { type LeadB }` member) —
-`stage`/`display`/`fail`, `JsonData`, `OrcaArgs`). Implementations
-live in focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their
-traits), `orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`/
-`SessionRegistry`, conversation driver), `orca.subprocess` (subprocess shim),
-`orca.events` (event bus), one `orca.tools.<backend>` per coding agent, and
-`orca.runner` / `orca.runner.terminal`
-(wiring + terminal UI). The flow module adds `orca.{plan,review,pr,progress}`.
+accessors — including `agent`, the backend-agnostic leading-agent accessor —
+`stage`/`display`/`fail`, `JsonData`, `OrcaArgs`). Implementations live in
+focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their traits),
+`orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`/`SessionRegistry`,
+conversation driver), `orca.subprocess` (subprocess shim), `orca.events`
+(event bus), one `orca.tools.<backend>` per coding agent, and `orca.runner` /
+`orca.runner.terminal` (wiring + terminal UI). The flow module adds
+`orca.{plan,review,pr,progress}`.
 
-The path-dependent `agent: Agent[ctx.LeadB]` accessor only works within a
-single `using FlowContext` — reach for it in a straight-line `flow(...)` body,
-not in a helper *function*, since `ctx1.LeadB` and `ctx2.LeadB` from two
-different `FlowContext` parameters don't unify even when they're the same
-backend at runtime. A helper that threads a session across a function
-boundary should instead take an explicit `[B <: BackendTag]` type parameter
-with `Agent[B]`/`SessionId[B]` parameters (`reviewAndFixLoop` does this), or
-bundle the session and its result as a `Sessioned[B]` pair (`orca.plan.Plan`'s
-helpers do this) — see the `LeadB` scaladoc
-(`flow/src/main/scala/orca/FlowContext.scala`) for the full rationale.
+`agent: Agent[ctx.LeadB]` is path-dependent, so it only works inside a
+straight-line `flow(...)` body sharing one `using FlowContext` — it doesn't
+survive being factored into a helper function, since two `FlowContext`
+parameters' `LeadB` members don't unify even when they're the same backend at
+runtime. A helper should instead take an explicit `[B <: BackendTag]` type
+parameter, or bundle the agent and its session as a `Sessioned[B, A]` pair —
+see the `LeadB` scaladoc (`flow/src/main/scala/orca/FlowContext.scala`) for
+the full rationale.
 
 ## The stage-bound runtime
 
@@ -73,8 +69,11 @@ most easily broken:
   (authority to start a stage; thread-affine), and the opaque `InStage` token
   (in `tools`, `package orca`). Every mutating tool method — git writes,
   `fs.write`, `gh` writes, every `agent.*.run` — takes `(using InStage)`, which
-  only a `stage` body mints. Don't relax this: don't mint `InStage.unsafe`
-  outside the runtime (`Flow` / `FlowLifecycle` / `Session`), and don't drop a
+  only a `stage` body mints. Don't relax this: production mints go through
+  `orca.RuntimeInStage.token()`, the single named door (a grep for
+  `RuntimeInStage` is the whole whitelist of privileged callers); `InStage.unsafe`
+  itself is called only by `RuntimeInStage` and tests. Don't call
+  `InStage.unsafe` directly outside that door, and don't drop a
   `(using InStage)` to "make it compile" — thread it up to the nearest stage.
   `orcacaps.InStageNegativeTest` pins that a mutation outside a stage fails to
   compile.
@@ -91,9 +90,9 @@ most easily broken:
   (claude/codex/gemini/opencode — sessions outlive the process). `Agent`
   derives `sessionExists` / `resumeWireId` / `registerResumeWireId` as `final`
   methods over the single `sessionSupport` hook, so a concrete tool can't wire
-  one session operation while silently defaulting the others — the
-  half-wiring that shipped resume bugs in both claude and codex is
-  unrepresentable now. Underneath, `SessionRegistry` still has two shapes:
+  one session operation while silently defaulting the others — that
+  half-wiring is unrepresentable now. Underneath, `SessionRegistry` still has
+  two shapes:
   `ClaimedOnce` (claude/pi — the client id IS the wire id) and
   `ClientToServer` (codex/gemini/opencode — a server-minted id learned from the
   protocol); and `SessionId[B]` (the client-side handle) is split from
@@ -135,6 +134,12 @@ most easily broken:
 - **Conversation events.** The event grammar (turn boundaries, `Option` tool
   names) is specified on `ConversationEvent`'s scaladoc and pinned per backend
   by `ConversationEventConformance` assertions in each module's tests.
+
+- **Listener contract.** A listener that throws is logged at ERROR (with its
+  stack) and announced once on stderr, then quarantined — permanently
+  excluded from dispatch for the rest of the run. The remaining listeners
+  still see every event and the flow itself always survives; see
+  `EventDispatcher`.
 
 ## Build and test
 

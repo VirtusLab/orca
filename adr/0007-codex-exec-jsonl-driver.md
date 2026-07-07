@@ -1,7 +1,7 @@
 # 0007. Drive Codex via `codex exec --json` stdio JSONL
 
 Status: Accepted · Date: 2026-04-24
-Amends: [ADR 0003](0003-pluggable-agent-backends.md) (backend surface)
+Amends: [ADR 0003](0003-pluggable-llm-backends.md) (backend surface)
 Related: [ADR 0006](0006-stream-json-conversation-driver.md) (Claude stream-json driver)
 
 ## Context

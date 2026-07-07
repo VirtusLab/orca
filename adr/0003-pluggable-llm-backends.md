@@ -2,6 +2,14 @@
 
 Status: Accepted · Date: 2026-04-22 (updated 2026-04-23)
 
+> **Amendment (2026-07-07).** Superseded: the four-method trait surface below
+> (`runHeadless`/`continueHeadless`/`runInteractive`/`continueInteractive`) and
+> the "Codex via WebSocket" direction never shipped. The current SPI is
+> `AgentBackend.runAutonomous`/`runInteractive` plus `sessions:
+> SessionSupport[B]` — see ADR 0018's amendments and AGENTS.md's Sessions
+> section for the shape, and ADRs 0006/0007/0014/0015 for the drivers that
+> drove the change.
+
 ## Decision
 
 `AgentBackend[B]` exposes `runHeadless`, `continueHeadless`,

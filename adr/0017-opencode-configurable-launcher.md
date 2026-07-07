@@ -1,6 +1,6 @@
 # 0017. Configurable OpenCode serve launcher
 
-Status: Proposed · Date: 2026-06-13
+Status: Accepted · Date: 2026-06-13
 Related: [ADR 0014](0014-opencode-server-driver.md) (OpenCode server driver), issue #10
 
 ## Context

@@ -1,7 +1,7 @@
 # 0015. Drive Gemini CLI via `gemini --output-format stream-json` stdio JSONL
 
 Status: Accepted · Date: 2026-06-01
-Amends: [ADR 0003](0003-pluggable-agent-backends.md) (backend surface)
+Amends: [ADR 0003](0003-pluggable-llm-backends.md) (backend surface)
 Related: [ADR 0006](0006-stream-json-conversation-driver.md) (Claude stream-json driver), [ADR 0007](0007-codex-exec-jsonl-driver.md) (Codex exec JSONL driver), [ADR 0012](0012-mcp-host-bridge.md) (ask_user MCP bridge), [ADR 0014](0014-opencode-server-driver.md) (OpenCode server driver)
 
 ## Context

@@ -100,12 +100,21 @@ Five Scala-3-specific constraints pin this shape:
   accessor already resolves against `FlowContext.codex`.
 
 - A compile-time canary at
-  `/workspaces/orca-sandbox/runner/src/test/scala/flowtests/FlowCompilesTest.scala`
+  `runner/src/test/scala/flowtests/FlowCompilesTest.scala`
   lives outside `package orca.*` and exercises every DSL accessor from
   a third-party-script perspective. Any regression in what
   `import orca.{*, given}` brings in fails this file's compilation,
   which fails `sbt test` — closing the gap that let every pre-refactor
   DSL issue reach the README untested.
+
+> **Amendment (2026-07-07).** The `flow(args, git = Some(myGit))`
+> value-override example above is superseded for agent overrides: `claude`/
+> `codex`/`opencode`/`pi`/`gemini` overrides are now `Option[AgentWiring =>
+> XAgent]` factories, not prebuilt values, so the runtime can wire a
+> user-supplied agent into the run's own event dispatcher/interaction (see
+> ADR 0018's amendments and AGENTS.md). Tool overrides (`git`/`gh`/`fs`)
+> remain plain values, so `flow(args, git = Some(myGit))` itself is still
+> accurate as written.
 
 ## Alternatives considered
 

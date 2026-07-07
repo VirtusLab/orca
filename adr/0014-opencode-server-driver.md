@@ -452,6 +452,9 @@ param, defaulting to `new DefaultOpencodeAgent(new OpencodeBackend(OsProcCliRunn
 AgentConfig.default, prompts, workDir, dispatcher, interaction)`. Expose it on
 `FlowContext` next to `claude`/`codex`.
 
+[Historical: per-call config is now `Option[AgentConfig]` and agent overrides
+are `AgentWiring => …` factories — see AGENTS.md.]
+
 ## Implementation steps
 
 1. **Spike (no orca code) — DONE.** Drove a live `opencode serve` by hand (`POST
