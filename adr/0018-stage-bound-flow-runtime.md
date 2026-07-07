@@ -241,13 +241,14 @@ new case class is enough. The persistence path uses only the codec; the `Schema`
 rides along unused — a fair price for not maintaining a second typeclass.
 
 The library adds `JsonData` givens for the handful of non-case-class results flows
-return — primitives, `Unit`, `Option`, `List`, small tuples, and the opaque
-`SessionId[B]` (`JsonData.derived` only covers `Mirror` types). A
-return type with no `JsonData` instance — a live handle, a closure — fails to
-compile, the intended boundary. Codecs must round-trip losslessly: a resumed run
-reads the value back from JSON, so a lossy codec would diverge from a fresh run. A
-human-readable summary for the log and `display` reuses the existing `Announce`
-typeclass where one is in scope.
+return — primitives, `Unit`, `Option`, `List`, small tuples (`JsonData.derived` only
+covers `Mirror` types). Deliberately absent: the opaque `SessionId[B]` (§2.6, R22) —
+a session id is a live handle, not a value to persist as a stage result, so there is
+no `JsonData[SessionId[B]]` given. A return type with no `JsonData` instance — that
+live-handle case, or a closure — fails to compile, the intended boundary. Codecs must
+round-trip losslessly: a resumed run reads the value back from JSON, so a lossy codec
+would diverge from a fresh run. A human-readable summary for the log and `display`
+reuses the existing `Announce` typeclass where one is in scope.
 
 ### 2.4 Progress log, store, and recovery
 
@@ -467,12 +468,16 @@ strategy and the progress store are overridable (R21).
 ### 2.6 Sessions
 
 **Requirements.**
-- **R22** — A stage result may carry an LLM `SessionId`, persisted in the log (with
-  the client→server map for server-id backends). On resume, whether the *live*
-  backend conversation can be continued is decided by a **non-destructive existence
-  probe** (`AgentBackend.sessionExists(id)`) rather than guessed: most backends expose
-  one (an on-disk session file, a list command, or a `GET`), pi does not. If the
-  probe is absent or says gone, resume falls back to re-seed (R23).
+- **R22** — Durable session identity lives in a named `SessionRecord`, obtained via
+  `agent.session(name, seed): FlowSession[B]` and persisted in the log (with the
+  client→server map for server-id backends) — never as a stage result: no
+  `JsonData[SessionId[B]]` given exists, so a `SessionId` can't be smuggled through
+  `stage`'s persistence path, where it would get neither the wire-map nor the
+  seed-lookup a `SessionRecord` provides. On resume, whether the *live* backend
+  conversation can be continued is decided by a **non-destructive existence probe**
+  (`AgentBackend.sessionExists(id)`) rather than guessed: most backends expose one (an
+  on-disk session file, a list command, or a `GET`), pi does not. If the probe is
+  absent or says gone, resume falls back to re-seed (R23).
 - **R23** — A session is obtained via a get-or-create (`agent.session`) whose id is
   recorded in the log, so a retry reuses it rather than minting a second. A flow
   attaches a `seed` — the essential context to rebuild the agent if its backend
@@ -719,8 +724,9 @@ Sequenced as Epics A–G in the task-level plan `plan-stage-runtime-impl.md` (fi
 per-task TDD steps, dependency order). Summary:
 
 - **A — `JsonData` for stage results.** Givens for primitives / `Unit` / `Option` /
-  `List` / small tuples / `SessionId[B]`; a sum codec for the sealed `PlanLike`. No
-  new typeclass. Self-contained; lands first.
+  `List` / small tuples; a sum codec for the sealed `PlanLike`. No new typeclass;
+  deliberately no given for `SessionId[B]` (§2.3, §2.6, R22). Self-contained; lands
+  first.
 - **B — Capabilities + tool gating.** `FlowControl`, `InStage`; `(using InStage)` on
   the §2.2 methods (plus `gh.upsertComment` and `createPr` reuse); thread `InStage`
   through side-effecting helpers, `FlowControl` through stage-starting ones (the
@@ -793,8 +799,8 @@ alongside.
   recoverable by recomputation; the prompt-shortening one (for free-form `implement`
   prompts) is why the header persists the once-computed name for read-back on resume.
 - **`JsonData` coverage.** Sealed `PlanLike` needs jsoniter sum-type config;
-  primitives/tuples/`SessionId` need hand-written `JsonData` givens; codecs must be
-  lossless (R9).
+  primitives/tuples need hand-written `JsonData` givens; codecs must be lossless (R9).
+  `SessionId[B]` deliberately has none (§2.3, §2.6, R22).
 - **Custom external effects.** Built-in idempotency covers `createPr` /
   `upsertComment` (R24); a flow's own irreversible side effect must be made
   idempotent by its author or it repeats on resume.

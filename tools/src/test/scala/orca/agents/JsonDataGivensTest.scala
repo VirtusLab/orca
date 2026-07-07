@@ -63,7 +63,3 @@ class JsonDataGivensTest extends FunSuite:
       roundTrip(Some(List(1, 2)): Option[List[Int]]),
       Some(List(1, 2))
     )
-
-  test("SessionId round-trips"):
-    val id = SessionId[BackendTag.ClaudeCode.type]("abc-123")
-    assertEquals(roundTrip(id), id)

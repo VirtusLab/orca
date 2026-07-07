@@ -547,9 +547,12 @@ class FlowSessionTest extends FunSuite:
       agent.autonomous.run("prompt", session)
       """
     )
+    // Pin the actual mismatch, not just "some error" — the raw door expects a
+    // `SessionId`, and a `FlowSession` must not satisfy that by accident.
     assert(
-      errors.nonEmpty,
-      "feeding a FlowSession into the raw autonomous door must be a type error"
+      errors.contains("Found") && errors.contains("orca.FlowSession") &&
+        errors.contains("Required") && errors.contains("orca.agents.SessionId"),
+      s"expected a Found FlowSession / Required SessionId type mismatch, got: $errors"
     )
 
   // ── tests: sessionExists delegation (unchanged) ─────────────────────────────

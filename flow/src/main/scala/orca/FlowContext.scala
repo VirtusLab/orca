@@ -65,8 +65,8 @@ trait FlowContext:
   /** The leading agent. Reference it in a body instead of a concrete accessor
     * (`claude`/`codex`) so the flow is backend-agnostic — switch the `flow`
     * selector and the whole flow follows. A session from `agent.session`
-    * threads into `agent.runSeeded` and the reviewers because [[LeadB]] pins
-    * the backend.
+    * threads into `session.run` and the reviewers because [[LeadB]] pins the
+    * backend.
     */
   def agent: Agent[LeadB]
   def claude: ClaudeAgent
