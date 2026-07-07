@@ -464,7 +464,7 @@ dead, refuse if alive). 7.5: resultAs[O] bypasses BaseAgent per call — gate
 BOTH autonomous.run and resultAs construction. Split: 7A=7.1+7.4+7.5,
 7B=7.3-then-7.2.)
 
-- [ ] 7.1 R12 bridge enforcement: `DefaultFlowContext` records `ownerThread`;
+- [x] 7.1 (done: d3f9bd9 — assert in StageFrames; only enforcement for user scripts) R12 bridge enforcement: `DefaultFlowContext` records `ownerThread`;
   `nextOccurrence`/`nextSessionOccurrence` assert thread identity and throw
   "stage(...)/session(...) called from a fork — forks get FlowContext only
   (ADR 0018 R12)". Ox forks are always fresh threads, so the check is exact;
@@ -477,7 +477,7 @@ BOTH autonomous.run and resultAs construction. Split: 7A=7.1+7.4+7.5,
   there's nothing to unwind.
   Refs: `runner/.../DefaultFlowContext.scala:99-118`,
   `flow/.../Flow.scala:45-50`.
-- [ ] 7.2 Replace `TerminalOutput.suspend()`/`resume()` with one bracketed
+- [x] 7.2 (done: 9e29067 — prompt[A] transaction, fair semaphore) Replace `TerminalOutput.suspend()`/`resume()` with one bracketed
   `prompt[A](readUser: () => A): A` transaction (fair-semaphore-serialized,
   suspend/resume private to the impl). Two concurrent interactive prompts —
   a sanctioned fork composition — currently interleave the non-reentrant
@@ -485,11 +485,11 @@ BOTH autonomous.run and resultAs construction. Split: 7A=7.1+7.4+7.5,
   Refs: `runner/.../terminal/TerminalOutput.scala:42-47,88-89,123-181`,
   `runner/.../terminal/ConversationRenderer.scala:200-230,324-343`,
   `runner/.../terminal/TerminalInteraction.scala:60-68`.
-- [ ] 7.3 `TerminalOutputState.setStatus` respects `suspended` (store the
+- [x] 7.3 (done: 9e29067) `TerminalOutputState.setStatus` respects `suspended` (store the
   label, skip `drawStatus()`; resume already redraws) — a `StageStarted`
   during a prompt currently repaints over a live `readLine`.
   Refs: `runner/.../terminal/TerminalOutput.scala:138-152`.
-- [ ] 7.4 Guard `flow()` reentrancy/concurrency: process-wide flag (+
+- [x] 7.4 (done: d3f9bd9 — AtomicBoolean + PID-liveness lock file) Guard `flow()` reentrancy/concurrency: process-wide flag (+
   workdir-keyed lock file for the two-process case) failing fast with "a flow
   is already running in this working tree". A nested `flow` today stashes the
   outer flow's tree, switches branches under it, and `reset --hard`s its work.
@@ -504,7 +504,7 @@ BOTH autonomous.run and resultAs construction. Split: 7A=7.1+7.4+7.5,
 > the git-exclude for the lock assumes workDir = repo root (true for all
 > current usage).
 
-- [ ] 7.5 Agents must not outlive their flow silently: `close()` flips a
+- [x] 7.5 (done: d3f9bd9 — latch on shared AgentBackend (copyTool-bypass-proof)) Agents must not outlive their flow silently: `close()` flips a
   `closed` flag in `BaseAgent`; run entry points throw "agent used after its
   flow ended" (leaked agents currently emit to a closed run's dispatcher —
   loud on opencode, invisible on claude/codex).
