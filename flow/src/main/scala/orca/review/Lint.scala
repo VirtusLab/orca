@@ -12,6 +12,17 @@ import orca.agents.Agent
 
 import scala.annotation.unused
 
+/** The lint gate `reviewAndFixLoop` runs alongside the reviewers each round:
+  * `command` (run via `bash -c`, e.g. `"cargo check --tests"`) and the `agent`
+  * that summarises its output into a `ReviewResult` (a cheap model —
+  * `claude.haiku`, `codex.mini` — since the summary is a small fold). Bundling
+  * the pair into one value (rather than `reviewAndFixLoop` taking a separate
+  * `lintCommand: Option[String]` / `lintAgent: Option[Agent[?]]`) makes "a
+  * command with no summariser" unrepresentable, so the loop no longer needs a
+  * runtime `require` to reject that half-set state.
+  */
+case class Lint(command: String, agent: Agent[?])
+
 /** Run `command` via `bash -c`, capture both stdout and stderr, and ask `agent`
   * to summarise it as a `ReviewResult`. An empty output short-circuits to
   * `ReviewResult.empty` so clean runs skip the round-trip to the LLM. Override
@@ -116,7 +127,13 @@ def lint(
       finally
         val _ = os.remove(outputFile)
 
-private[review] object Lint:
+// Public (not `private[review]`): it's the case class's companion, and the
+// case class is exported for its `apply` — a `private[review]` object here
+// would carry the synthesized `apply`/`unapply` down with it, making
+// `Lint(command, agent)` inaccessible from outside the package despite the
+// class itself being public. `InlineLintThreshold` stays package-private on
+// its own member, below.
+object Lint:
   /** Max lint-output length (in chars) inlined straight into the summariser
     * prompt; larger output is spilled to a file instead (see [[lint]]). Sized
     * so a typical lint/`cargo check` failure (a handful of diagnostics) inlines
@@ -124,4 +141,4 @@ private[review] object Lint:
     * agents that can't read files outside their worktree — while a full
     * build/test dump still goes to a file rather than flooding the context.
     */
-  val InlineLintThreshold: Int = 8 * 1024
+  private[review] val InlineLintThreshold: Int = 8 * 1024

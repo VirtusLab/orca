@@ -103,8 +103,7 @@ object FlowCanary:
               Some(ReviewerSelector.agentDriven(claude.haiku)),
             task = task.description,
             formatCommand = Some("mvn -q spotless:apply"),
-            lintCommand = Some("mvn -q test"),
-            lintAgent = Some(claude.haiku)
+            lint = Some(Lint("mvn -q test", claude.haiku))
           )
 
   /** A custom [[ReviewerSelector]] must be implementable from `import orca.*`
@@ -338,8 +337,7 @@ object FlowCanary:
             reviewers = allReviewers(claude),
             task = task.title.value,
             formatCommand = Some("cargo fmt"),
-            lintCommand = Some("cargo check --tests"),
-            lintAgent = Some(claude.haiku)
+            lint = Some(Lint("cargo check --tests", claude.haiku))
           )
 
   /** `implement-interactive.sc`: interactive plan → session → task loop. Only
@@ -532,8 +530,7 @@ object FlowCanary:
                 reviewers = allReviewers(claude),
                 task = task.title.value,
                 formatCommand = Some("sbt scalafmtAll"),
-                lintCommand = Some("sbt Test/compile"),
-                lintAgent = Some(claude.haiku)
+                lint = Some(Lint("sbt Test/compile", claude.haiku))
               )
 
           // Stage: push fix + finalise PR (later than the fix-task stages).

@@ -52,7 +52,6 @@ flow(OrcaArgs(args), _.claude):
         formatCommand = Some("cargo fmt"),
         // Cheap sanity gate; correctness is the reviewers' and CI's job, so
         // skip the heavier tests.
-        lintCommand = Some("cargo check --tests"),
-        lintAgent = Some(claude.cheap)
+        lint = Some(Lint("cargo check --tests", claude.cheap))
       )
       // one commit per task: code + progress entry

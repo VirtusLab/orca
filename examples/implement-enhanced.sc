@@ -68,8 +68,7 @@ flow(OrcaArgs(args), _.claude, returnToStartBranch = true):
         task = task.title.value,
         // Format after every edit (the implementation and each review fix).
         formatCommand = Some("cargo fmt"),
-        lintCommand = Some("cargo check --tests"),
-        lintAgent = Some(agent.cheap)
+        lint = Some(Lint("cargo check --tests", agent.cheap))
       )
       // one commit per task: code + progress entry
 

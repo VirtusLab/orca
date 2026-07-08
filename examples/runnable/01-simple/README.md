@@ -28,8 +28,8 @@ the variant where the planner can ask clarifying questions, see
 - JDK 21+, [scala-cli](https://scala-cli.virtuslab.org/).
 - `claude` logged in (see the repo root README).
 - `cargo` on PATH — the seed is a small Rust crate so the lint
-  command is `cargo test --quiet`. Swap the `lintCommand` line in
-  `implement.sc` if you point the flow at a non-Rust project.
+  command is `cargo test --quiet`. Swap the `lint = Some(Lint(...))` line
+  in `implement.sc` if you point the flow at a non-Rust project.
 - A target project to run against. The sibling
   [`create-test-project.sh`](create-test-project.sh) seeds a
   tiny Rust calculator crate from `test-project/` and copies the

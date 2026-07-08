@@ -245,12 +245,11 @@ def reviewAndFixLoop[B <: BackendTag](
       * scalafmtAll"`, `"cargo fmt"`, `"prettier -w ."`.
       */
     formatCommand: Option[String] = None,
-    lintCommand: Option[String] = None,
-    /** LLM that summarises lint output into a `ReviewResult`. Required when
-      * `lintCommand` is set; ignored otherwise. Use a cheap model
-      * (`claude.haiku`, `codex.mini`) — the lint summary is a small fold.
+    /** Command + summariser agent for the lint gate run alongside the reviewers
+      * each round. `None` (the default) skips linting entirely. See [[Lint]]
+      * for why the pair is bundled into one value.
       */
-    lintAgent: Option[Agent[?]] = None,
+    lint: Option[Lint] = None,
     confidenceThreshold: Double = 0.7,
     maxIterations: Int = 10,
     fixInstructions: String = ReviewLoopPrompts.Fix,
@@ -291,8 +290,7 @@ def reviewAndFixLoop[B <: BackendTag](
       reviewerSelection = selection,
       task = task,
       formatCommand = formatCommand,
-      lintCommand = lintCommand,
-      lintAgent = lintAgent,
+      lint = lint,
       confidenceThreshold = confidenceThreshold,
       maxIterations = maxIterations,
       fixInstructions = fixInstructions,
@@ -300,11 +298,11 @@ def reviewAndFixLoop[B <: BackendTag](
     )
   )(using ctx, ev).run()(using fc, ws)
 
-/** [[reviewAndFixLoop]]'s 11 parameters, bundled into one value so
+/** [[reviewAndFixLoop]]'s 10 parameters, bundled into one value so
   * [[ReviewFixLoop]]'s constructor doesn't mirror them field-for-field (the
   * `FlowWiring`/`flow(...)` shape — `runner/.../FlowWiring.scala` — collects a
   * public function's named arguments into one internal record the same way).
-  * `reviewAndFixLoop` itself keeps its own 11 named, documented parameters as
+  * `reviewAndFixLoop` itself keeps its own 10 named, documented parameters as
   * the public surface; this bundling is internal-only. See `reviewAndFixLoop`'s
   * parameter docs for the full description of each field.
   *
@@ -319,8 +317,7 @@ private[review] case class ReviewLoopConfig[B <: BackendTag](
     reviewerSelection: ReviewerSelector,
     task: String,
     formatCommand: Option[String],
-    lintCommand: Option[String],
-    lintAgent: Option[Agent[?]],
+    lint: Option[Lint],
     confidenceThreshold: Double,
     maxIterations: Int,
     fixInstructions: String,
@@ -349,11 +346,11 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     ctx: FlowContext,
     ev: InStage
 ):
-  import config.*
-  require(
-    lintCommand.isEmpty || lintAgent.isDefined,
-    "reviewAndFixLoop: lintCommand requires lintAgent"
-  )
+  // `lint` excluded from the wildcard: the config field of that name would
+  // otherwise shadow the package-level `lint(command, agent)` summariser
+  // function this class calls below — `config.lint` stays the qualified way
+  // to reach the field.
+  import config.{lint as _, *}
 
   // The roster, wrapped once as identity-keyed handles. A selector receives
   // these and may only return a subset/permutation of them (foreign agents are
@@ -487,16 +484,14 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         AgentOutcome.Reviewer(e, filterByConfidence(result), newSession)
 
     val lintTaskOpt: Option[() => AgentOutcome] =
-      lintCommand
-        .zip(lintAgent)
-        .map: (cmd, agent) =>
-          () =>
-            // Group lint tokens under the same `reviewer` cost role as the
-            // dimension reviewers, under the bare identity "lint"; the
-            // renamed/tagged copy stays local to this call.
-            val labelled =
-              agent.withName("lint").withRole(ReviewerPrompts.Role)
-            AgentOutcome.Lint(filterByConfidence(lint(cmd, labelled)))
+      config.lint.map: l =>
+        () =>
+          // Group lint tokens under the same `reviewer` cost role as the
+          // dimension reviewers, under the bare identity "lint"; the
+          // renamed/tagged copy stays local to this call.
+          val labelled =
+            l.agent.withName("lint").withRole(ReviewerPrompts.Role)
+          AgentOutcome.Lint(filterByConfidence(lint(l.command, labelled)))
 
     // The explicit type application is CC-forced: it widens both lists'
     // element type to the impure function type `() => AgentOutcome` so their
@@ -553,7 +548,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // the shared stop policy converges — the loop never silently resurrects the
     // roster behind the selector's back.
     val active = selectRound(state.history).distinct
-    val totalAgents = active.size + (if lintCommand.isDefined then 1 else 0)
+    val totalAgents = active.size + (if config.lint.isDefined then 1 else 0)
     if totalAgents > 0 then
       ctx.emit(
         OrcaEvent.Step(

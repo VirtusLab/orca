@@ -250,7 +250,6 @@ def planAndImplementFix(
         formatCommand = Some("sbt scalafmtAll"),
         // Compile (main + test) is a cheap sanity gate; the failing test
         // runs in CI and correctness is the reviewers' job.
-        lintCommand = Some("sbt Test/compile"),
-        lintAgent = Some(claude.cheap)
+        lint = Some(Lint("sbt Test/compile", claude.cheap))
       )
       // one commit per task: code + progress entry
