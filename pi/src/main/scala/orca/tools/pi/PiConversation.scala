@@ -10,7 +10,6 @@ import orca.backend.{
   StreamSource
 }
 import orca.subprocess.PipedCliProcess
-import orca.util.TerminalControl
 import orca.tools.pi.rpc.{
   AgentMessage,
   InboundEvent,
@@ -87,11 +86,8 @@ private[pi] class PiConversation(
   override protected def handleLine(line: String): Unit =
     handle(InboundEvent.parse(line))
 
-  override protected def handleStderr(line: String): Unit =
-    val trimmed = TerminalControl.stripControlSequences(line).trim
-    if trimmed.nonEmpty && !isKnownStderrNoise(trimmed) then
-      eventQueue.enqueue(ConversationEvent.Error(s"pi: $trimmed"))
-      recordStderr(trimmed)
+  override protected def isStderrNoise(line: String): Boolean =
+    isKnownStderrNoise(line)
 
   // Drain stderr (base) then close the per-turn temp resources.
   override protected def onFinalize(): Unit =

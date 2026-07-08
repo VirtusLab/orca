@@ -12,7 +12,7 @@ import orca.backend.{
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
-import orca.tools.gemini.jsonl.InboundEvent
+import orca.tools.gemini.jsonl.{InboundEvent, Role}
 import ox.Ox
 
 /** Drives a `gemini -p <prompt> --output-format stream-json` session to
@@ -80,17 +80,14 @@ private[gemini] class GeminiConversation(
   override protected def handleLine(line: String): Unit =
     handle(InboundEvent.parse(line))
 
-  /** Surface a real stderr line as an `Error` event AND record it in the
-    * bounded buffer ([[BufferedStderrDiagnostics]]) so the failure exception
-    * can include it. Known-benign chatter gemini prints on every successful run
-    * (see [[GeminiConversation.isKnownStderrNoise]]) is dropped so it doesn't
-    * render as a spurious `✖` on each call.
+  /** Known-benign chatter gemini prints on every successful run (see
+    * [[GeminiConversation.isKnownStderrNoise]]) is dropped so it doesn't render
+    * as a spurious `✖` on each call; anything else passes through
+    * [[BufferedStderrDiagnostics]]'s hoisted `handleStderr` (strip → trim →
+    * filter → Error event → recorded diagnostic).
     */
-  override protected def handleStderr(line: String): Unit =
-    val trimmed = line.trim
-    if trimmed.nonEmpty && !GeminiConversation.isKnownStderrNoise(trimmed) then
-      eventQueue.enqueue(ConversationEvent.Error(s"gemini: $trimmed"))
-      recordStderr(trimmed)
+  override protected def isStderrNoise(line: String): Boolean =
+    GeminiConversation.isKnownStderrNoise(line)
 
   override protected def cleanExitWithoutResult(): Throwable =
     new OrcaFlowException(
@@ -151,14 +148,24 @@ private[gemini] class GeminiConversation(
 
   /** A `user`-role message is the prompt echo (the base already surfaced the
     * opening prompt as a `UserMessage`), so it's dropped from both the event
-    * stream and the answer. Any other role is treated as agent output — gemini
-    * spells the assistant side `model`/`assistant` across versions, so we match
-    * on "not user" rather than a fixed string.
+    * stream and the answer. [[Role.Assistant]] (any present role other than
+    * `"user"` — gemini spells the assistant side `model`/`assistant` across
+    * versions) is agent output. [[Role.Unknown]] (a `role` key missing from the
+    * wire message) is DROPPED — never treated as assistant prose, unlike the
+    * pre-fix behavior where a missing role's `""` default failed the `!=
+    * "user"` check and silently passed through.
     */
-  private def handleMessage(role: String, content: String): Unit =
-    if role != "user" && content.nonEmpty then
-      val _ = answer.append(content)
-      eventQueue.enqueue(ConversationEvent.AssistantTextDelta(content))
+  private def handleMessage(role: Role, content: String): Unit = role match
+    case Role.User => ()
+    case Role.Assistant =>
+      if content.nonEmpty then
+        val _ = answer.append(content)
+        eventQueue.enqueue(ConversationEvent.AssistantTextDelta(content))
+    case Role.Unknown =>
+      debugLog(
+        "message",
+        s"dropped: message with missing/unrecognized role (${content.length} chars)"
+      )
 
   private def handleToolUse(name: String, id: String, params: String): Unit =
     if GeminiConversation.isAskUserTool(name) then askUserEchoes.suppress(id)

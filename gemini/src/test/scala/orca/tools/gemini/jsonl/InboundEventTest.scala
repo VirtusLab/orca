@@ -19,12 +19,35 @@ class InboundEventTest extends munit.FunSuite:
         assertEquals(model, None)
       case other => fail(s"expected Init, got $other")
 
+  test("init with a missing session_id throws rather than defaulting to \"\""):
+    // Identity-critical field (see Task 8.5): a missing session_id must not
+    // silently become Init(""); it propagates JsonReaderException so the
+    // reader's generic catch turns it into a visible Error event near the
+    // cause, instead of a session id that's wrong three retries later.
+    val line = """{"type":"init","model":"gemini-2.5-pro"}"""
+    intercept[com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException]:
+      InboundEvent.parse(line)
+
   test("parses a message event faithfully (role + content)"):
     val line = """{"type":"message","role":"user","content":"List files"}"""
     InboundEvent.parse(line) match
       case InboundEvent.Message(role, content) =>
-        assertEquals(role, "user")
+        assertEquals(role, Role.User)
         assertEquals(content, "List files")
+      case other => fail(s"expected Message, got $other")
+
+  test("a non-user role is classified Assistant"):
+    val line = """{"type":"message","role":"model","content":"hi"}"""
+    InboundEvent.parse(line) match
+      case InboundEvent.Message(role, _) => assertEquals(role, Role.Assistant)
+      case other => fail(s"expected Message, got $other")
+
+  test("a missing role is classified Unknown, not defaulted to a role string"):
+    val line = """{"type":"message","content":"stray"}"""
+    InboundEvent.parse(line) match
+      case InboundEvent.Message(role, content) =>
+        assertEquals(role, Role.Unknown)
+        assertEquals(content, "stray")
       case other => fail(s"expected Message, got $other")
 
   test("parses a tool_use event"):

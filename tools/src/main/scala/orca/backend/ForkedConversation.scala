@@ -42,8 +42,11 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     source: StreamSource,
     /** Used in fork-internal debug traces, parse-error messages, and the
       * default stderr error prefix. Should match the user-facing backend name.
+      * `protected` so [[BufferedStderrDiagnostics]]'s hoisted `handleStderr`
+      * can build the same `"$backendName: $line"` prefix each subprocess
+      * backend used to hardcode individually.
       */
-    backendName: String,
+    protected val backendName: String,
     initialPrompt: String = "",
     /** Set by backends that answer `ask_user` through their own protocol
       * (OpenCode, via a native HTTP `question` event). It only affects what

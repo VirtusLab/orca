@@ -367,6 +367,35 @@ class CodexConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
+  convTest("stderr strips terminal controls before surfacing as an Error"):
+    // Pinning Task 8.4's hoist: pre-hoist, only pi's handleStderr stripped
+    // ANSI/terminal control sequences before surfacing stderr as an Error
+    // event — codex and gemini did not. BufferedStderrDiagnostics now strips
+    // for all three uniformly.
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStderr("auth[?25l failed[2K now")
+    process.enqueueStdout(
+      """{"type":"thread.started","thread_id":"thr-ansi"}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assert(
+      events.exists {
+        case ConversationEvent.Error(msg) =>
+          msg.contains("auth failed now") && !msg.contains("?25l")
+        case _ => false
+      },
+      s"expected an ANSI-stripped Error event; got: $events"
+    )
+    val _ = conv.awaitResult()
+
   convTest("mcp_tool_call emits AssistantToolCall + ToolResult"):
     // A non-ask_user MCP tool: started and completed items round-trip
     // into matching AssistantToolCall + ToolResult events using the

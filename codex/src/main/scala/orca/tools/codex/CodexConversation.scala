@@ -102,16 +102,12 @@ private[codex] class CodexConversation(
     *     the rollout writer is already torn down. The rollout file is still
     *     written correctly to `~/.codex/sessions/`; the message is harmless.
     *
-    * Filter both, plus empty lines. Anything else passes through with the
-    * default backend-prefixed Error event AND is recorded in the bounded stderr
-    * buffer (see [[BufferedStderrDiagnostics]]) so the failure exception can
-    * include them.
+    * Filter both; anything else passes through [[BufferedStderrDiagnostics]]'s
+    * hoisted `handleStderr` (strip → trim → filter → Error event → recorded
+    * diagnostic).
     */
-  override protected def handleStderr(line: String): Unit =
-    val trimmed = line.trim
-    if trimmed.nonEmpty && !CodexConversation.isKnownStderrNoise(trimmed) then
-      eventQueue.enqueue(ConversationEvent.Error(s"codex: $trimmed"))
-      recordStderr(trimmed)
+  override protected def isStderrNoise(line: String): Boolean =
+    CodexConversation.isKnownStderrNoise(line)
 
   /** Best-effort delete the `--output-schema` temp file (if any), then defer to
     * [[BufferedStderrDiagnostics.onFinalize]] to join the stderr drain. Runs

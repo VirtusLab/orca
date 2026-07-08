@@ -246,6 +246,31 @@ class GeminiConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
+  convTest("stderr strips terminal controls before surfacing as an Error"):
+    // Pinning Task 8.4's hoist: pre-hoist, only pi's handleStderr stripped
+    // ANSI/terminal control sequences before surfacing stderr as an Error
+    // event — codex and gemini did not. BufferedStderrDiagnostics now strips
+    // for all three uniformly.
+    val process = new FakePipedCliProcess()
+    val conv = new GeminiConversation(process)
+
+    process.enqueueStderr("Error: quota[?25l exceeded[2K now")
+    process.enqueueStdout("""{"type":"init","session_id":"s"}""")
+    process.enqueueStdout(result())
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assert(
+      events.exists {
+        case ConversationEvent.Error(m) =>
+          m.contains("quota exceeded now") && !m.contains("?25l")
+        case _ => false
+      },
+      s"expected an ANSI-stripped Error; got: $events"
+    )
+    val _ = conv.awaitResult()
+
   convTest("error event surfaces as ConversationEvent.Error"):
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
@@ -304,6 +329,61 @@ class GeminiConversationTest extends munit.FunSuite:
       ex.getMessage.contains("result"),
       s"expected the missing-result message; got: ${ex.getMessage}"
     )
+
+  convTest(
+    "missing session_id on init surfaces a visible Error and the turn fails loudly"
+  ):
+    // Task 8.5: session_id is identity-critical. Pre-fix, a missing key
+    // silently became Init("") with no exception and no Error event — the
+    // wrong session id would only surface indirectly, retries later, at
+    // commitAfterDrain's guard. Post-fix, InitWire.session_id is a required
+    // wire field, so the malformed init line throws JsonReaderException;
+    // ForkedConversation's generic per-line catch turns that into a visible
+    // Error event near the cause. With no other line ever settling the turn,
+    // it still fails loudly via the existing clean-exit-without-result path.
+    val process = new FakePipedCliProcess(initiallyAlive = false)
+    val conv = new GeminiConversation(process)
+
+    process.enqueueStdout("""{"type":"init","model":"gemini-2.5-pro"}""")
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assert(
+      events.exists {
+        case ConversationEvent.Error(m) => m.contains("Failed to parse")
+        case _                          => false
+      },
+      s"expected a parse-error Error event near the cause; got: $events"
+    )
+    val ex = intercept[orca.AgentTurnFailed](conv.awaitResult())
+    assert(
+      ex.getMessage.contains("result"),
+      s"expected the missing-result message; got: ${ex.getMessage}"
+    )
+
+  convTest(
+    "a message with a missing role is dropped, never treated as assistant prose"
+  ):
+    // Task 8.5: pre-fix, a missing role's "" default failed the `!= "user"`
+    // check and silently landed in the answer as agent output. Post-fix it's
+    // typed Role.Unknown and dropped.
+    val process = new FakePipedCliProcess()
+    val conv = new GeminiConversation(process)
+
+    process.enqueueStdout("""{"type":"init","session_id":"s"}""")
+    process.enqueueStdout("""{"type":"message","content":"stray content"}""")
+    process.enqueueStdout(result())
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assert(
+      !events.contains(ConversationEvent.AssistantTextDelta("stray content")),
+      s"a message with an unknown role must not become agent output; got: $events"
+    )
+    val Right(r) = conv.awaitResult(): @unchecked
+    assertEquals(r.output, "")
 
   convTest("a result event with a non-success status fails the turn"):
     // gemini's `result` carries a status; a failed turn that still exits 0
