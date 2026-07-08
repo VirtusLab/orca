@@ -526,6 +526,14 @@ finally-cancels, so successful autonomous opencode turns fire /abort too.
 (widest mechanical surface first), 8B=8.2+8.3 (opencode lifecycle),
 8C=8.4+8.5 (driver wire/stderr layer), 8D=8.6 (scattered mechanical, last).)
 
+> Epic 8 residual (epic review, 2026-07-08, recorded not fixed;
+> pre-existing): `commitAfterDrain`'s empty/unsafe-wire-id rejection throws
+> a plain OrcaFlowException, which the retry policy treats as RETRYABLE — a
+> backend build that reproducibly omits its session id retries 3x before
+> failing. The Epic 8 gemini fail-loud change makes the cause visible near
+> the failure; making structural-id rejections non-retryable is a separate
+> owner call (touches retry classification, first-pass item 5.1's design).
+
 - [x] 8.1 (done: f4631f4 — workDir per-backend, probe/spawn unified by construction) Make `workDir` per-backend (fixed at wiring), not per-call: the SPI
   parameter is a phantom degree of freedom the runtime never varies, opencode
   ignores it entirely, and claude's probe/spawn "MUST match" contract is
