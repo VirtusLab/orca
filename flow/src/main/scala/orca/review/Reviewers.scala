@@ -10,8 +10,15 @@ import scala.util.matching.Regex
   * prompt that personalises the underlying LLM tool. `filePattern`, when set,
   * restricts the reviewer to changes that touch at least one matching file —
   * the selector drops the reviewer before the picker LLM sees it.
+  *
+  * Public so a flow can define its own reviewers alongside the shipped
+  * [[ReviewerPrompts]] set: build a `List[Reviewer]` (shipped entries, a
+  * subset, and/or your own), turn it into agents with [[buildReviewers]], and
+  * hand that to [[reviewAndFixLoop]]. To make [[ReviewerSelector.agentDriven]]
+  * purpose- aware of custom reviewers, pass matching
+  * `descriptions`/`filePatterns` maps keyed by `name`.
   */
-private[review] case class Reviewer(
+case class Reviewer(
     name: String,
     description: String,
     systemPrompt: String,
@@ -26,8 +33,14 @@ private[review] case class Reviewer(
   *     (required).
   *   - `files:` — substring-matched regex; the reviewer is only offered to the
   *     picker when at least one changed file matches (optional).
+  *
+  * Public as the customization surface: reference individual reviewers
+  * ([[CodeFunctionality]], [[Security]], …), the preset lists ([[all]],
+  * [[minimal]]), or the selector-feeding maps ([[descriptionsBySlug]],
+  * [[filePatternsBySlug]]) when composing your own reviewer list to swap or
+  * extend what [[allReviewers]] builds. Pair with [[buildReviewers]].
   */
-private[review] object ReviewerPrompts:
+object ReviewerPrompts:
 
   /** Role tag applied to a reviewer's agent ONLY at the loop's emission edge,
     * via `Agent.withRole`, right before the actual LLM run — never baked into
@@ -129,8 +142,12 @@ def minimalReviewers[B <: BackendTag](base: Agent[B]): List[Agent[B]] =
   * claude, `--sandbox read-only` on codex) stay available so the agent can
   * verify claims beyond the diff. The non-reviewer driver agent keeps its
   * default name (`main`) and write permissions.
+  *
+  * Public so a flow can build agents from a custom [[Reviewer]] list —
+  * `buildReviewers(base, ReviewerPrompts.minimal :+ myReviewer)` — rather than
+  * being limited to the [[allReviewers]] / [[minimalReviewers]] presets.
   */
-private def buildReviewers[B <: BackendTag](
+def buildReviewers[B <: BackendTag](
     base: Agent[B],
     reviewers: List[Reviewer]
 ): List[Agent[B]] =

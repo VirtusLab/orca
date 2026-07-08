@@ -196,9 +196,20 @@ private object ReviewLoopState:
 /** Run reviewers in parallel against `task`, gather per-reviewer outcomes, hand
   * any issues above `confidenceThreshold` to the coder — through
   * `coderSession`'s seeded, structured door — and loop. `reviewerSelection`
-  * decides which reviewers run each iteration — typically
-  * [[ReviewerSelector.agentDriven]] wired against a cheap picker LLM; pass
-  * [[ReviewerSelector.allEveryRound]] to skip selection entirely.
+  * decides which reviewers run each iteration. Left absent (`None`, the
+  * default) it derives [[ReviewerSelector.agentDriven]] wired against the
+  * coder's own cheap tier (`coderSession.agent.cheap`) — the common case, so a
+  * call omits it entirely; pass `Some(ReviewerSelector.allEveryRound)` to skip
+  * selection, or `Some(ReviewerSelector.agentDriven(...))` to point the picker
+  * at a different model.
+  *
+  * The derived default resolves the coder tool's cheap variant: four backends
+  * have a distinct cheap tier (claude→haiku, codex→mini,
+  * opencode→anthropicHaiku, gemini→flash); pi has no separate tier, so
+  * `pi.cheap` is `pi` itself (pi selects the model via its own CLI config) and
+  * the picker simply runs on the lead pi tool — correct, just not a cheaper
+  * model. A hypothetical backend without a cheap tier behaves the same
+  * (`.cheap` returns `this`).
   *
   * `coderSession` is the coder's durable [[FlowSession]] (obtain it once with
   * `agent.session(name, seed)` and pass the handle here). Each fix turn goes
@@ -216,8 +227,17 @@ private object ReviewLoopState:
 def reviewAndFixLoop[B <: BackendTag](
     coderSession: FlowSession[B],
     reviewers: List[Agent[?]],
-    reviewerSelection: ReviewerSelector,
     task: String,
+    /** Which reviewers run each iteration. `None` (the default) derives
+      * [[ReviewerSelector.agentDriven]] on the coder's own cheap tier
+      * (`coderSession.agent.cheap`) — the common case, hence optional. Pass
+      * `Some(ReviewerSelector.allEveryRound)` to skip selection, or
+      * `Some(ReviewerSelector.agentDriven(...))` to point the picker at a
+      * different model. A default value can't reference `coderSession` directly
+      * (Scala forbids a default referencing an earlier parameter), so absence
+      * is modelled as `None` and resolved in the body.
+      */
+    reviewerSelection: Option[ReviewerSelector] = None,
     /** Shell command run before each review round — after the implementation
       * and after every fix — so reviewers and the lint see formatted code and
       * the committed tree stays formatted. Run via `bash -c`, exit status
@@ -257,11 +277,18 @@ def reviewAndFixLoop[B <: BackendTag](
   // ever landing in the fan-out (ADR 0018 §6). Passed explicitly rather than by
   // implicit search: the more-specific `fc: FlowControl` would otherwise be
   // picked for the constructor's `FlowContext` and its root capability rejected.
+  //
+  // Resolve the absent-selection default here (a parameter default can't
+  // reference `coderSession`): derive an agentDriven picker on the coder's cheap
+  // tier.
+  val selection = reviewerSelection.getOrElse(
+    ReviewerSelector.agentDriven(coderSession.agent.cheap)
+  )
   new ReviewFixLoop(
     ReviewLoopConfig(
       coderSession = coderSession,
       reviewers = reviewers,
-      reviewerSelection = reviewerSelection,
+      reviewerSelection = selection,
       task = task,
       formatCommand = formatCommand,
       lintCommand = lintCommand,

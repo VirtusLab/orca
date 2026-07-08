@@ -41,7 +41,12 @@ import orca.progress.{ProgressLog, SessionRecord}
   * stage-scoped — the handle itself carries no stage affinity.
   */
 final class FlowSession[B <: BackendTag] private[orca] (
-    agent: Agent[B],
+    /** The bundled agent. `private[orca]` — not part of the user surface, but
+      * reachable within the library so helpers that default a parameter off the
+      * coder's own tool can find it (e.g. `reviewAndFixLoop`'s default
+      * `reviewerSelection` derives `agentDriven(coderSession.agent.cheap)`).
+      */
+    private[orca] val agent: Agent[B],
     /** The underlying reserved session id — the documented escape hatch (see
       * the class scaladoc). Prefer [[run]] / [[resultAs]]; reach for `.id` only
       * to hand the raw doors an ephemeral continuation.
