@@ -1,10 +1,6 @@
-# 14. OpenCode server driver
+# 0014. OpenCode server driver
 
-Date: 2026-06-04
-
-## Status
-
-Proposed — implementation plan.
+Status: Accepted · Date: 2026-06-04
 
 ## Context
 

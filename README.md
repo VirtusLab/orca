@@ -40,10 +40,10 @@ flow(OrcaArgs(args), _.claude):
   val plan = stage("Plan"):
     Plan.autonomous.from(userPrompt, agent).value  // .value takes the Plan, discarding the planner's session
 
-  // Get-or-create the implementer session (pure: id reserved, backend created
-  // on first use). The seed (plan.brief) primes it on first use and is
-  // replayed if the backend session is lost on resume.
-  val session = agent.session("implementer", seed = plan.brief)
+  // Get-or-create the implementer session, seeded with the plan's brief
+  // (primes it on first use, replayed if the backend session is lost on
+  // resume) — one call in place of `agent.session("implementer", seed = ...)`.
+  val session = plan.implementerSession(agent)
 
   // One stage per task: each stage commits its work + a progress-log entry as
   // one commit. Completed stages are skipped on resume — re-running the same
@@ -54,16 +54,13 @@ flow(OrcaArgs(args), _.claude):
       reviewAndFixLoop(                  // runs under this stage
         coderSession = session,
         reviewers = allReviewers(agent),
-        // agent.cheap picks the per-task reviewer subset; swap for
-        // `ReviewerSelector.allEveryRound` to run every reviewer.
-        reviewerSelection = ReviewerSelector.agentDriven(agent.cheap),
+        // reviewerSelection defaults to agentDriven(agent.cheap).
         task = task.title.value,
         // Format after every edit so commits stay formatted and reviewers
         // skip style nits.
         formatCommand = Some("cargo fmt"),
         // Cheap sanity gate; correctness is the reviewers' and CI's job.
-        lintCommand = Some("cargo check --tests"),
-        lintAgent = Some(agent.cheap)
+        lint = Some(Lint("cargo check --tests", agent.cheap))
       )
 ```
 
@@ -71,14 +68,11 @@ flow(OrcaArgs(args), _.claude):
 scala-cli run implement.sc -- "Add a rate-limiter to the /login endpoint"
 ```
 
-The feature branch is auto-created from the prompt. On success you're left **on
-the feature branch**, with the work — this flow opens no PR, so you stay where
-the code is (ready to test or open a PR by hand). A throwaway branch (nothing
-substantive landed, e.g. an early-exit flow) is deleted and HEAD returns to the
-starting branch instead. Flows that open a PR pass `returnToStartBranch = true`
-to switch back to the starting branch afterward. On failure the flow stays on
-the feature branch so a re-run resumes in place — HEAD is already on the right
-branch and the committed progress log is in the working tree.
+The feature branch name defaults to a short cheap-model-generated label
+(slugged); pass `branchNaming = ...` to override. This flow opens no PR, so on
+success you're left on the feature branch, ready to test or open a PR by hand
+— see [The flow lifecycle](#the-flow-lifecycle) for the full success/failure/
+resume behavior.
 
 There are two runnable examples under [`examples/runnable/`](examples/runnable/):
 * [01-simple](examples/runnable/01-simple/) (in-memory plan + review, autonomous
@@ -104,7 +98,7 @@ The following are available inside a `flow(...) { ... }`:
 | `opencode` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].run(input)`. Ephemeral: `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`. Tuning: `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiGpt5`/`openaiGpt5Codex`/`openaiGpt5Mini`, `cheap` (provider-matched: openai→mini, else anthropicHaiku), `withCheapModel`, `withModel(providerModel)` / `withModel(provider, modelId)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiGpt5Mini`) or `opencode.withModel("openai/gpt-4o-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
 | `pi` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].run(input)`. Ephemeral: `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`. Tuning: `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
 | `gemini` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].run(input)`. Ephemeral: `autonomous.run(prompt, session?)`, `resultAs[O].{autonomous,interactive}.run(input, session?)`. Tuning: `flash`, `cheap` (→ flash), `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
-| `git` | `createBranch`, `checkout`, `ensureClean`, `commit`, `forceAdd`, `push`, `currentBranch`, `diff`, `diffVsBase`, `defaultBase`, `log`, `resetHard`, `deleteBranch`, `addWorktree`, `removeWorktree`, `listWorktrees`, `diffBranchExcludingOrca` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushRejected`, `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `resetHard`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. |
+| `git` | `createBranch`, `checkout`, `ensureClean`, `commit`, `forceAdd`, `push`, `currentBranch`, `diff`, `diffVsBase`, `defaultBase`, `log`, `resetHard`, `deleteBranch`, `addWorktree`, `removeWorktree`, `listWorktrees`, `diffBranchExcludingOrca` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushFailure` — `NonFastForward`/`RemoteDeclined` — `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `resetHard`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. |
 | `gh` | `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (safe on re-run — use `orcaCommentMarker(userPrompt, purpose)` to embed the prompt hash as the marker). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
 
@@ -196,7 +190,7 @@ Top-level, available via `import orca.*`:
 
 | Method | Signature | Use |
 |---|---|---|
-| `flow(args, agent, ...)(body)` | `flow(args: OrcaArgs, agent, branchNaming?, returnToStartBranch = false, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `agent` selects the leading coding agent — e.g. `_.claude` or `_.codex`. Inside the body, reference the lead via the backend-agnostic `agent` accessor instead of a concrete `claude`/`codex` (autonomous, tier-agnostic flows). Branching defaults to a slug of the prompt; pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` for issue flows. On success HEAD stays on the feature branch by default; pass `returnToStartBranch = true` (PR flows) to return to the starting branch. |
+| `flow(args, agent, ...)(body)` | `flow(args: OrcaArgs, agent, branchNaming?, returnToStartBranch = false, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `agent` selects the leading coding agent — e.g. `_.claude` or `_.codex`. Inside the body, reference the lead via the backend-agnostic `agent` accessor instead of a concrete `claude`/`codex` (autonomous, tier-agnostic flows). Branch naming defaults to a short cheap-model-generated label (slugged); pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` to override (e.g. for issue flows). See [The flow lifecycle](#the-flow-lifecycle) for the full branch/teardown behavior. |
 | `agent` (in-body accessor) | `agent: Agent[?]` | The leading agent resolved from the `flow` selector — use it for autonomous, tier-agnostic work (`agent.session`, `agent.cheap`, `Plan.autonomous.from(_, agent)`). See [Coding agent tools](#coding-agent-tools) for when to drop to a concrete accessor (`claude.opus`, interactive planning). |
 | `stage[T: JsonData](name, commitMessage?)(body)` | `(name: String, commitMessage: Option[T => String] = None)(body): T` | The committing, resumable unit of work. On success, records the result, force-adds the progress log, and commits (code changes + log delta = one commit). On re-run, a stage whose result is still recorded is skipped and the stored value is returned. `T` must have `JsonData` — `case class Foo(...) derives JsonData` is enough. Commit message defaults to an `agent.cheap` summary of the diff; override via `commitMessage`. |
 | `display(message)` | `(message: String): Unit` | Progress-only output: no stage, no commit, no log entry. Callable anywhere — outside a stage or inside a fork. |
@@ -495,10 +489,13 @@ results.
 <summary>The types, in detail (click to expand)</summary>
 
 - **`orca.plan.Plan(epicId, description, tasks, brief)`** — the task list the
-  agent generates in one round-trip. `epicId` is a kebab-case id used as the
-  plan's git branch; `description` is the planner's epic summary; `brief` is a
-  concise codebase briefing always included (feed it to `agent.session("implementer",
-  seed = plan.brief)`). `taskPrompt(task)` prepends the brief to a task's description.
+  agent generates in one round-trip. `epicId` is a kebab-case identifier for
+  the plan itself (heads its markdown render) — NOT the git branch name; the
+  flow derives and announces its own branch separately (see
+  [`BranchNamingStrategy`](#the-flow-lifecycle)). `description` is the
+  planner's epic summary; `brief` is a concise codebase briefing always
+  included (feed it to `plan.implementerSession(agent)`, which threads it as
+  the seed). `taskPrompt(task)` prepends the brief to a task's description.
 - **`orca.plan.Task(title, description)`** — `title` is the
   human-readable label shown in the event log.
 - **`orca.plan.Sessioned(sessionId, value)`** — every `Plan.{autonomous,
