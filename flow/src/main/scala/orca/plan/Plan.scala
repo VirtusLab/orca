@@ -6,9 +6,14 @@ import orca.agents.{Announce, BackendTag, CanAskUser, JsonData, Agent, given}
 import scala.annotation.unused
 
 /** A development plan: an ordered list of [[Task]]s the agent will work
-  * through, all on a single branch named by `epicId` (kebab-case, used directly
-  * as the git branch name), plus a `brief` — a concise codebase briefing the
-  * implementing agents rely on so they don't have to rediscover the layout.
+  * through, all on a single branch, plus a `brief` — a concise codebase
+  * briefing the implementing agents rely on so they don't have to rediscover
+  * the layout.
+  *
+  * `epicId` is a kebab-case identifier for the plan itself (it heads the
+  * markdown render). It is NOT the git branch name: the flow derives and
+  * announces its own branch at setup via [[orca.BranchNamingStrategy]], so the
+  * two can differ.
   *
   * The brief is always present: it is produced as part of the planner's
   * structured output, not a separate turn, and feeds the implementer session
@@ -241,8 +246,10 @@ object Plan:
     if plan.tasks.isEmpty then ""
     else
       val plural = if plan.tasks.size == 1 then "" else "s"
-      val header =
-        s"Planned ${plan.tasks.size} task$plural on branch '${plan.epicId}':"
+      // No branch name here: `epicId` is the plan's own identifier, not the git
+      // branch (which the flow derives and announces separately at setup). The
+      // two can differ, so naming a branch here would be misleading on resume.
+      val header = s"Planned ${plan.tasks.size} task$plural:"
       val body = plan.tasks.map(t => s"  - ${t.title}").mkString("\n")
       s"$header\n$body"
 

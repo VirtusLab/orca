@@ -223,7 +223,8 @@ private[orca] class CodexBackend(
         initialPrompt = displayPrompt,
         outputSchema = outputSchema,
         askUser = askUser,
-        schemaFile = schemaFile
+        schemaFile = schemaFile,
+        configuredModel = config.model
       )
     }
 

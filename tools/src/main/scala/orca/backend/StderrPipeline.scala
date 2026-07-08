@@ -29,13 +29,25 @@ private[orca] trait StderrPipeline[B <: BackendTag]
 
   private val stderrBuffer = new AtomicReference[Vector[String]](Vector.empty)
 
+  /** The last stderr line surfaced (post-strip/trim/noise-filter), used to
+    * collapse a run of identical lines into one — some CLIs repeat the same
+    * warning on every invocation (claude's `ANTHROPIC_API_KEY overrides…` fired
+    * ~8×/run). Reader-thread-confined like `ForkedConversation.openTurn`:
+    * [[handleStderr]] is only ever called from the single `stderrDrainFork`
+    * (`ForkedConversation.stderrLoop` iterates `source.errorLines` on one
+    * fork), so a plain `var` needs no synchronisation — an atomic would be
+    * theatre.
+    */
+  private var lastStderrLine: Option[String] = None
+
   /** Backend-specific noise predicate: lines that match are dropped silently
     * instead of surfacing as a spurious `Error` event. Applied to the
     * already-stripped-and-trimmed line. Default: nothing is noise.
     */
   protected def isStderrNoise(line: String): Boolean = false
 
-  /** Strip terminal control sequences, trim, drop [[isStderrNoise]] lines, and
+  /** Strip terminal control sequences, trim, drop [[isStderrNoise]] lines, drop
+    * a line identical to the one just surfaced (see [[lastStderrLine]]), and
     * surface anything real as both an `Error` event (`"$backendName: $line"`)
     * and a recorded diagnostic line (see [[recordStderr]]). `final` — the
     * pipeline itself is identical across backends, so subclasses vary only
@@ -43,7 +55,10 @@ private[orca] trait StderrPipeline[B <: BackendTag]
     */
   final override protected def handleStderr(line: String): Unit =
     val trimmed = TerminalControl.stripControlSequences(line).trim
-    if trimmed.nonEmpty && !isStderrNoise(trimmed) then
+    if trimmed.nonEmpty && !isStderrNoise(trimmed) &&
+      !lastStderrLine.contains(trimmed)
+    then
+      lastStderrLine = Some(trimmed)
       eventQueue.enqueue(ConversationEvent.Error(s"$backendName: $trimmed"))
       recordStderr(trimmed)
 

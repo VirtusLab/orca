@@ -34,8 +34,9 @@ class LintTest extends munit.FunSuite:
   private class CapturingAgent(canned: ReviewResult)
       extends Agent[BackendTag.ClaudeCode.type]:
     var captured: String = ""
-    // Contents of the `*.log` file the prompt references, read inside `run`
-    // while it still exists — `lint` deletes it once `run` returns.
+    // Contents of the `*.txt` file the prompt references, if any, read inside
+    // `run` while it still exists — `lint` deletes it once `run` returns. Empty
+    // when the output was inlined (small) rather than spilled to a file.
     var capturedFileContent: String = ""
     val name = "mock"
     def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
@@ -58,7 +59,7 @@ class LintTest extends munit.FunSuite:
                 _x: orca.InStage
             ): (SessionId[BackendTag.ClaudeCode.type], O) =
               captured = a.serialize(i)
-              capturedFileContent = "`([^`]+\\.log)`".r
+              capturedFileContent = "`([^`]+\\.txt)`".r
                 .findFirstMatchIn(captured)
                 .map(m => os.read(os.Path(m.group(1))))
                 .getOrElse("")
@@ -69,38 +70,65 @@ class LintTest extends munit.FunSuite:
         def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
           ???
 
-  test("lint writes output to a file the prompt points to, returns its result"):
-    given FlowContext = ctx
-    val expected = ReviewResult(
-      issues = List(
-        ReviewIssue(
-          Severity.Warning,
-          0.8,
-          Title("Unused import"),
-          "unused import",
-          None,
-          None,
-          None
-        )
+  private val expected = ReviewResult(
+    issues = List(
+      ReviewIssue(
+        Severity.Warning,
+        0.8,
+        Title("Unused import"),
+        "unused import",
+        None,
+        None,
+        None
       )
     )
+  )
+
+  test("lint inlines small output into the prompt, references no file"):
+    given FlowContext = ctx
     val mock = new CapturingAgent(expected)
     val result = lint("echo LINT-BODY-MARKER", mock)
     assertEquals(result, expected)
-    // The output goes to a file (so unbounded lint output can't overflow the
-    // context); the prompt references that file and the exit status.
-    assertEquals(mock.capturedFileContent.trim, "LINT-BODY-MARKER")
+    // Small output is inlined directly — the sandbox-safe path (a read-only
+    // autonomous agent that can't reach files outside its worktree still sees
+    // it). So no `.txt` file is referenced, and the marker is in the prompt.
+    assert(
+      mock.captured.contains("LINT-BODY-MARKER"),
+      s"prompt should inline the lint output, got: ${mock.captured}"
+    )
+    assert(
+      !"`[^`]+\\.txt`".r.findFirstIn(mock.captured).isDefined,
+      s"small output must not spill to a file, got: ${mock.captured}"
+    )
     assert(
       mock.captured.contains("exited with status 0"),
       s"prompt should include the exit status, got: ${mock.captured}"
     )
-    // The temp file is removed once the summary returns.
-    val filePath = "`([^`]+\\.log)`".r
+
+  test("lint spills large output to a file under .orca, removed after"):
+    given FlowContext = ctx
+    val mock = new CapturingAgent(expected)
+    // Output well over the inline threshold, carrying a marker so we can check
+    // the file the agent is pointed at actually holds the command's output.
+    val big = "printf 'LINT-BIG-MARKER'; printf 'X%.0s' {1..9000}"
+    val result = lint(big, mock)
+    assertEquals(result, expected)
+    assert(
+      mock.capturedFileContent.contains("LINT-BIG-MARKER"),
+      "the referenced file should hold the lint output"
+    )
+    val filePath = "`([^`]+\\.txt)`".r
       .findFirstMatchIn(mock.captured)
       .map(_.group(1))
       .getOrElse(
-        fail(s"prompt should reference a .log file, got: ${mock.captured}")
+        fail(s"prompt should reference a .txt file, got: ${mock.captured}")
       )
+    // The file lives inside the working tree (under .orca/), not /tmp, so a
+    // sandboxed reviewer can read it; and it's removed once the summary returns.
+    assert(
+      os.Path(filePath).segments.contains(".orca"),
+      s"large-output file should live under .orca/, got: $filePath"
+    )
     assert(!os.exists(os.Path(filePath)), "lint should delete the temp file")
 
   test("lint short-circuits to ReviewResult.empty when the command is silent"):

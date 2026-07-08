@@ -44,7 +44,15 @@ private[codex] class CodexConversation(
       * conversation so it's removed exactly once the turn finalizes — see
       * [[orca.backend.SubprocessSpawn.deleteFileResource]] and [[onFinalize]].
       */
-    schemaFile: Option[os.Path] = None
+    schemaFile: Option[os.Path] = None,
+    /** The model this agent was configured with, if any. Used as the cost-
+      * attribution fallback when codex's `thread.started` omits the resolved
+      * model id (some `codex exec` invocations, notably `resume`, do) — without
+      * it those turns' tokens land under `(unknown)` and go unpriced, so the
+      * estimated total disagrees with the by-agent breakdown. Mirrors claude's
+      * `system.init` → `result` model fallback ([[ClaudeConversation]]).
+      */
+    configuredModel: Option[Model] = None
 )(using Ox)
     extends ForkedConversation[BackendTag.Codex.type](
       source = StreamSource.fromProcess(process),
@@ -231,7 +239,10 @@ private[codex] class CodexConversation(
       wireId = WireSessionId[BackendTag.Codex.type](sessionId),
       output = lastAgentMessage,
       usage = usage,
-      model = model.map(Model.apply)
+      // Fall back to the configured model when the wire omitted it (e.g.
+      // `thread.started` on a resume), so the turn's tokens are priced rather
+      // than attributed to `(unknown)`.
+      model = model.map(Model.apply).orElse(configuredModel)
     )
     succeedWith(result)
 

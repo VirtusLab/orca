@@ -49,7 +49,7 @@ class PlanTest extends munit.FunSuite:
     val msg = summon[orca.agents.Announce[Plan]]
       .message(plan)
       .getOrElse(fail("expected a non-empty announce message"))
-    assert(msg.startsWith("Planned 2 tasks on branch 'feat-pair'"))
+    assert(msg.startsWith("Planned 2 tasks:"))
     assert(msg.contains("- Add feature A"))
     assert(msg.contains("- Add feature B"))
 

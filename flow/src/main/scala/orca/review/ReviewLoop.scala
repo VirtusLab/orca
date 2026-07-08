@@ -658,6 +658,15 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     loop(IgnoredIssues(Nil), 0, ReviewLoopState.empty)
 
 private[review] object ReviewLoop:
+  /** Max lint-output length (in chars) inlined straight into the summariser
+    * prompt; larger output is spilled to a file instead (see [[lint]]). Sized
+    * so a typical lint/`cargo check` failure (a handful of diagnostics) inlines
+    * — which is what keeps the lint gate working under sandboxed autonomous
+    * agents that can't read files outside their worktree — while a full
+    * build/test dump still goes to a file rather than flooding the context.
+    */
+  val InlineLintThreshold: Int = 8 * 1024
+
   /** Parse a unified diff and return the changed file paths (the `b/` side of
     * each `+++ b/<path>` header). Filters out `/dev/null` so deletions don't
     * pollute the list. Order matches first appearance in the diff.
@@ -671,22 +680,32 @@ private[review] object ReviewLoop:
       .toList
       .distinct
 
-/** Run `command` via `bash -c`, capture both stdout and stderr, write the
-  * combined output to a temp file, and ask `agent` to read that file and
-  * summarise it as a `ReviewResult`. An empty output short-circuits to
+/** Run `command` via `bash -c`, capture both stdout and stderr, and ask `agent`
+  * to summarise it as a `ReviewResult`. An empty output short-circuits to
   * `ReviewResult.empty` so clean runs skip the round-trip to the LLM. Override
   * `instructions` when the lint produces unusual shapes the default phrasing
   * doesn't fit.
   *
-  * The output goes to a file rather than into the prompt because a lint command
-  * can emit an unbounded amount of text (a full test or build run is hundreds
-  * of KB), which would otherwise overflow the model's context window. The agent
-  * reads the file with its read-only tools — in chunks if it's large. The
-  * command's exit status is passed alongside: a zero status usually means
-  * there's nothing to report, so the agent can skip reading the file entirely.
-  * The temp file is removed once the summary returns.
+  * How the output reaches the agent depends on its size:
   *
-  * The LLM is invoked read-only: the task is file-in / JSON-out, and the agent
+  *   - **Small (≤ [[ReviewLoop.InlineLintThreshold]] chars):** inlined directly
+  *     into the prompt. This is the common case (a `cargo check` with a handful
+  *     of errors), and inlining is what makes lint work under a sandboxed
+  *     autonomous agent — opencode's autonomous mode denies file reads outside
+  *     its worktree, so a `/tmp` file reference was silently unreadable and the
+  *     lint gate became a no-op ("lint: 0 issues" every round).
+  *   - **Large (> threshold):** spilled to a file the agent reads with its
+  *     read-only tools (in chunks if needed), because an unbounded build/test
+  *     run (hundreds of KB) would overflow the model's context window. The file
+  *     lives under `<workDir>/.orca/` — NOT `/tmp` — so a sandboxed agent whose
+  *     worktree is in-sandbox can still reach it. It's removed in the `finally`
+  *     before this call returns.
+  *
+  * The command's exit status is passed alongside either way: a zero status
+  * usually means nothing to report, so the agent can return empty without
+  * reading further.
+  *
+  * The LLM is invoked read-only: the task is text-in / JSON-out, and the agent
   * may verify a lint claim against the sources it references but should never
   * edit during the summarisation step.
   */
@@ -701,30 +720,66 @@ def lint(
   val output = proc.out.text().trim
   if output.isEmpty then ReviewResult.empty
   else
-    // `finally` below removes it, so skip the JVM-exit hook (one per lint call
-    // would otherwise accumulate over a long run).
-    val outputFile =
-      os.temp(
-        output,
-        prefix = "orca-lint-",
-        suffix = ".log",
-        deleteOnExit = false
-      )
-    try
+    def summarise(prompt: String): ReviewResult =
       agent.withReadOnly
         .resultAs[ReviewResult]
         .autonomous
-        .run(
+        .run(prompt, emitPrompt = false)
+        ._2
+    val statusHint =
+      s"`$command` exited with status ${proc.exitCode}. A zero status usually " +
+        "means it succeeded with nothing to report — return an empty result"
+    if output.length <= ReviewLoop.InlineLintThreshold then
+      summarise(
+        s"""$instructions
+           |
+           |$statusHint in that case.
+           |
+           |Otherwise, its entire combined stdout+stderr is:
+           |
+           |```
+           |$output
+           |```""".stripMargin
+      )
+    else
+      // Too large to inline without risking the model's context window, so
+      // spill it to a file the agent reads with its read-only tools. The file
+      // lives under `<workDir>/.orca/` (NOT `/tmp`) so sandboxed autonomous
+      // agents — e.g. opencode, which denies reads outside its worktree — can
+      // still reach it. `os.pwd` is the working tree here: lint's own `bash -c`
+      // above (and the reviewer agents) run against it, so a file written
+      // relative to it is exactly what the agent's sandbox admits.
+      //
+      // Commit-safety: `.orca/` is the established scratch dir, which projects
+      // are encouraged to gitignore, and a stage's `git add -A` skips ignored
+      // paths. Even for a project that does NOT ignore `.orca/`, the `finally`
+      // removes the file before this call returns — well before the enclosing
+      // task stage commits — so the only window a stage `add -A` could sweep it
+      // is a crash mid-lint, which is acceptable. `deleteOnExit = false`: the
+      // `finally` owns cleanup, so we skip the JVM-exit hook (one per lint call
+      // would otherwise accumulate over a long run).
+      // `os.SubPath(...)` rather than the `pwd / ".orca"` literal-path macro:
+      // this file is capture-checked (see the language imports at the top), and
+      // the inline String→PathChunk conversion the `/` literal expands to is
+      // rejected under CC. The runtime SubPath constructor sidesteps it.
+      val orcaDir = os.pwd / os.SubPath(".orca")
+      os.makeDir.all(orcaDir)
+      val outputFile =
+        os.temp(
+          output,
+          dir = orcaDir,
+          prefix = "lint-",
+          suffix = ".txt",
+          deleteOnExit = false
+        )
+      try
+        summarise(
           s"""$instructions
              |
-             |`$command` exited with status ${proc.exitCode}. A zero status
-             |usually means it succeeded with nothing to report — return an
-             |empty result without reading the file in that case.
+             |$statusHint without reading the file in that case.
              |
              |Otherwise its entire combined stdout+stderr is in `$outputFile`
-             |(it may be large — read it in parts if needed).""".stripMargin,
-          emitPrompt = false
+             |(it may be large — read it in parts if needed).""".stripMargin
         )
-        ._2
-    finally
-      val _ = os.remove(outputFile)
+      finally
+        val _ = os.remove(outputFile)

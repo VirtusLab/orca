@@ -1,6 +1,6 @@
 package orca.tools.codex
 
-import orca.agents.{WireSessionId}
+import orca.agents.{Model, WireSessionId}
 import orca.events.{Usage}
 import orca.{OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{ConversationEvent, ConversationEventConformance}
@@ -47,6 +47,55 @@ class CodexConversationTest extends munit.FunSuite:
     assertEquals(WireSessionId.value(result.wireId), "thr-1")
     assertEquals(result.output, "hello")
     assertEquals(result.usage, Usage(10L, 3L, None))
+
+  convTest(
+    "usage attributes to the configured model when the wire omits it"
+  ):
+    // `thread.started` here carries no `model` field (as codex's `resume`
+    // exec often doesn't), so without the configured-model fallback the turn's
+    // tokens would land under `(unknown)` and go unpriced.
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(
+      process,
+      configuredModel = Some(Model("gpt-5.4-mini"))
+    )
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-cm"}""")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":3,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val _ = conv.events.toList
+    val Right(result) = conv.awaitResult(): @unchecked
+    assertEquals(result.model, Some(Model("gpt-5.4-mini")))
+
+  convTest("the wire's model wins over the configured fallback"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(
+      process,
+      configuredModel = Some(Model("configured-fallback"))
+    )
+
+    process.enqueueStdout(
+      """{"type":"thread.started","thread_id":"thr-wm","model":"gpt-5.4"}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val _ = conv.events.toList
+    val Right(result) = conv.awaitResult(): @unchecked
+    assertEquals(result.model, Some(Model("gpt-5.4")))
 
   convTest("initialPrompt becomes a UserMessage event before agent output"):
     val process = new FakePipedCliProcess()
@@ -364,6 +413,62 @@ class CodexConversationTest extends munit.FunSuite:
         case _ => false
       },
       s"expected a stderr-derived Error event; got: $events"
+    )
+    val _ = conv.awaitResult()
+
+  convTest("consecutive identical stderr lines collapse to a single Error"):
+    // Some CLIs repeat the same warning on every invocation (claude's
+    // `ANTHROPIC_API_KEY overrides…` fired ~8×/run). StderrPipeline suppresses
+    // a line identical to the one just surfaced.
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStderr("Warning: some repeated warning")
+    process.enqueueStderr("Warning: some repeated warning")
+    process.enqueueStderr("Warning: some repeated warning")
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-dup"}""")
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val errors = conv.events.toList.collect {
+      case ConversationEvent.Error(msg) if msg.contains("repeated warning") =>
+        msg
+    }
+    assertEquals(
+      errors.size,
+      1,
+      s"3 identical stderr lines should surface once; got: $errors"
+    )
+    val _ = conv.awaitResult()
+
+  convTest("interleaved different stderr lines all surface"):
+    // Dedup only collapses CONSECUTIVE identical lines; distinct lines (even an
+    // a/b/a run, where the second `a` isn't adjacent to the first) all pass.
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStderr("Error: alpha")
+    process.enqueueStderr("Error: beta")
+    process.enqueueStderr("Error: alpha")
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-mix"}""")
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val errors = conv.events.toList.collect {
+      case ConversationEvent.Error(msg)
+          if msg.contains("alpha") || msg.contains("beta") =>
+        msg
+    }
+    assertEquals(
+      errors.size,
+      3,
+      s"three distinct stderr lines should all surface; got: $errors"
     )
     val _ = conv.awaitResult()
 

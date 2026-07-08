@@ -8,7 +8,12 @@ import orca.backend.{
   ConversationEvent,
   AgentResult
 }
-import org.jline.reader.{LineReader, LineReaderBuilder, UserInterruptException}
+import org.jline.reader.{
+  EndOfFileException,
+  LineReader,
+  LineReaderBuilder,
+  UserInterruptException
+}
 import org.jline.terminal.{Terminal, TerminalBuilder}
 
 /** Renders a [[Conversation]] to the terminal. The layout aims for a
@@ -339,7 +344,17 @@ private[terminal] object ConversationRenderer:
       LineReaderBuilder.builder().terminal(terminal).build()
 
     def ask(prompt: String): PromptOutcome =
+      // Ctrl-C (UserInterrupt) and Ctrl-D / closed-stdin (EndOfFile — also hit
+      // by a headless run that reaches an ask-user prompt with no tty) both mean
+      // "the user isn't answering"; map both to the same graceful Interrupted
+      // outcome rather than letting EndOfFileException escape as an opaque,
+      // message-less stage failure. Not unit-tested: `reader` is a private lazy
+      // val bound to the real system terminal, with no seam to inject a throwing
+      // readLine — tests that need scripted outcomes stub the [[Prompter]] trait
+      // instead. The two catch arms are exercised only through the live CLI.
       try PromptOutcome.Answer(reader.readLine(prompt))
-      catch case _: UserInterruptException => PromptOutcome.Interrupted
+      catch
+        case _: (UserInterruptException | EndOfFileException) =>
+          PromptOutcome.Interrupted
 
     override def close(): Unit = if opened then terminal.close()
