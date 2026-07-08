@@ -640,7 +640,7 @@ exported GitTool.push) also missing; CheckState correctly not exportable.
 Map is a derived private field — the five typed accessors stay. Split:
 10A=10.2+10.4+10.3 (mechanical+additive), 10B=10.1 (behavioral).)
 
-- [ ] 10.1 The lead-agent selector re-opens the event-blind hole 7.8 closed
+- [x] 10.1 (done: 02ad9fe + c04fbb0 — backendIdentity via shared closedFlag; close-guard masking fixed) The lead-agent selector re-opens the event-blind hole 7.8 closed
   for overrides: `flow(args, _ => myPrebuiltAgent)` compiles; the foreign
   agent is event-blind, never closed, used privileged. Fix: `close()` also
   closes `ctx.agent` when not one of the wired five; construction-time warning
@@ -648,7 +648,7 @@ Map is a derived private field — the five typed accessors stay. Split:
   in the `flow` scaladoc beside the override-factory paragraph.
   Refs: `runner/src/main/scala/orca/flow.scala:88-90`,
   `runner/.../DefaultFlowContext.scala:62-74,85`.
-- [ ] 10.2 Delete the `opencodeLauncher` flow parameter (3.1 residue): fully
+- [x] 10.2 (done: ac4e252 — param deleted, factory shapes unified; named-val adaptation caveat documented) Delete the `opencodeLauncher` flow parameter (3.1 residue): fully
   expressible as `opencode = Some(w => OpencodeAgents.default(w, launcher))`,
   and passing both today silently ignores the launcher. While there, unify all
   five factory fields to `Option[AgentWiring => Ox ?=> A]` (Scala 3
@@ -659,11 +659,11 @@ Map is a derived private field — the five typed accessors stay. Split:
   Refs: `runner/src/main/scala/orca/flow.scala:106-107`,
   `runner/.../FlowWiring.scala:36-37`,
   `runner/.../DefaultFlowContext.scala:159-167`.
-- [ ] 10.3 `exports.scala` gaps: add `Usage` (pattern-matched by any
+- [x] 10.3 (done: ac4e252 — Usage/Cost/CostTracker/IgnoredIssue(s)/PushFailure + canary) `exports.scala` gaps: add `Usage` (pattern-matched by any
   `OrcaListener`), `IgnoredIssues`/`IgnoredIssue` (return type of exported
   `reviewAndFixLoop`/`fixLoop`), and consider `Cost`.
   Refs: `runner/src/main/scala/orca/exports.scala`.
-- [ ] 10.4 Collapse the triplicated five-agent enumeration in
+- [x] 10.4 (done: ac4e252 — derived Map + agentFor seam) Collapse the triplicated five-agent enumeration in
   `DefaultFlowContext` (`close`'s list, `targetAgent`'s match, `withDefaults`)
   into one `agents: Map[BackendTag, Agent[?]]`.
   Refs: `runner/.../DefaultFlowContext.scala`.
