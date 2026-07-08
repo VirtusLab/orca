@@ -111,15 +111,22 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
 
   /** In-stream settled outcome, written once by [[succeedWith]] / [[failWith]]
     * (on the reader thread, inside [[handleLine]]) and read by the reader at
-    * end-of-stream (`runReader`, same thread). Not read by [[awaitResult]] —
-    * the outcome flows out as the reader fork's return value. Every caller of
-    * `succeedWith`/`failWith` across the backends (claude, codex, gemini, pi,
-    * opencode) settles from inside its `handleLine` dispatch, and `cancel()`
-    * never touches this field — so "first write wins" is a single-thread
-    * property a plain `var` gets for free; the CAS was defending a race that
-    * can't happen.
+    * end-of-stream (`runReader`, same thread) — that side is still a
+    * single-WRITER property: every caller of `succeedWith`/`failWith` across
+    * the backends (claude, codex, gemini, pi, opencode) settles from inside its
+    * `handleLine` dispatch, so "first write wins" needs no CAS.
+    *
+    * But [[isSettled]] is also read from [[cancel]], which runs on the DRIVING
+    * thread (the caller's `finally`, e.g. `AgentCall`/`Conversations`, or
+    * `ConversationRenderer` on a prompt interrupt) — a genuinely cross-thread
+    * read racing the reader's write with no channel operation or other
+    * synchronization action between them. `@volatile` is what makes that read
+    * see a completed settle rather than a stale `None`; without it a cancel
+    * racing the reader's last line could observe `isSettled == false` and fire
+    * a backend's real abort-the-turn hook ([[onCancelRequested]]) on a turn
+    * that just succeeded.
     */
-  private var settledOutcome: Option[Outcome[B]] = None
+  @volatile private var settledOutcome: Option[Outcome[B]] = None
 
   /** True once [[succeedWith]]/[[failWith]] has settled the outcome — for
     * subclasses that must drop post-terminal wire frames.
@@ -132,16 +139,20 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * subclasses so a driver can ask "did activity stream this turn?" without
     * its own bookkeeping.
     *
-    * '''Single-writer invariant''' (same reasoning as [[settledOutcome]]'s):
-    * `openTurn` is written only from `enqueue` on activity/turn-end events and
-    * from the settle-time auto-close — all of which run on the reader thread,
-    * inside [[handleLine]] or the reader's end-of-stream. The other two
-    * `enqueue` producers run on different threads (`stderrLoop`,
-    * `askUserDrain`) but only ever pass NEUTRAL events, which don't touch this
-    * field (the confinement contract stated on [[EventQueue]]). So "single
-    * writer" is a plain-`var` property, not a coincidence — but an implicit
-    * one: a future driver emitting activity off the reader thread would
-    * silently break it.
+    * '''Reader-thread-confined invariant''' (distinct from [[settledOutcome]]'s
+    * — that field has a genuine cross-thread reader in [[cancel]], which is why
+    * it's `@volatile`; `openTurn` has no such reader): `openTurn` is written
+    * only from `enqueue` on activity/turn-end events and from the settle-time
+    * auto-close — all of which run on the reader thread, inside [[handleLine]]
+    * or the reader's end-of-stream — and read only via [[turnIsOpen]] from that
+    * same thread ([[closeOpenTurn]], and subclasses' reads happen from inside
+    * their own `handleLine`). The other two `enqueue` producers run on
+    * different threads (`stderrLoop`, `askUserDrain`) but only ever pass
+    * NEUTRAL events, which don't touch this field (the confinement contract
+    * stated on [[EventQueue]]). So both single-writer AND single-reader are
+    * plain-`var` properties, not a coincidence — but an implicit one: a future
+    * driver emitting activity off the reader thread, or a cross-thread read of
+    * [[turnIsOpen]], would silently break it.
     */
   private var openTurn: Boolean = false
 
