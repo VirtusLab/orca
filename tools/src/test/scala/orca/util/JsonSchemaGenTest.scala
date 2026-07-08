@@ -54,33 +54,14 @@ class JsonSchemaGenTest extends munit.FunSuite:
     )
 
   test(
-    "object schema with a Map-shaped additionalProperties fails fast with an actionable message"
-  ):
-    // Tapir emits an `additionalProperties: <itemSchema>` for `Map[String,T]`
-    // fields — a shape OpenAI's strict dialect can't express (no fixed key
-    // set). Rather than let it through and have codex/claude bounce it back
-    // as an opaque `invalid_json_schema`, JsonSchemaGen fails fast here with
-    // a message naming the actual fix.
-    val ex = intercept[orca.OrcaFlowException]:
-      strict(
-        """{
-          |  "type":"object",
-          |  "properties":{"x":{"type":"string"}},
-          |  "additionalProperties":{"type":"integer"}
-          |}""".stripMargin
-      )
-    assert(
-      ex.getMessage.contains("List of key/value case classes"),
-      s"expected actionable Map-field message, got: ${ex.getMessage}"
-    )
-
-  test(
-    "a Map field nested without its own properties (Tapir's real Map shape) also fails fast"
+    "a Map-shaped additionalProperties field (Tapir's real Map shape) fails fast with an actionable message"
   ):
     // The realistic shape Tapir emits for a Map[String,T] field: an object
-    // node with additionalProperties but no `properties` key at all (unlike
-    // the synthetic case above, which combines both to exercise the
-    // addStrictConstraints code path directly).
+    // node with additionalProperties but no `properties` key at all.
+    // `rejectMapShapedAdditionalProperties` runs before the `properties`
+    // check, so this fails fast here rather than letting the non-strict
+    // schema reach codex/claude and bounce back as an opaque
+    // `invalid_json_schema`.
     val ex = intercept[orca.OrcaFlowException]:
       strict(
         """{"type":"object","additionalProperties":{"type":"integer"}}"""

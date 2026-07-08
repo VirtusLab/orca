@@ -214,6 +214,22 @@ class OsGitHubToolTest extends munit.FunSuite:
     assertEquals(gh.buildStatus(samplePr).outcome, BuildOutcome.Pending)
 
   test(
+    "buildStatus reports Pending when a still-running check is mixed with an already-failed one"
+  ):
+    // aggregateOutcome checks `states.contains(CheckState.Pending)` before it
+    // ever asks whether any check failed, so one lagging check short-circuits
+    // the whole rollup to Pending even though a sibling check already
+    // resolved to Failure — this is what keeps waitForBuild polling past a
+    // failed check while the others are still running, instead of returning
+    // Failure the instant the first one lands.
+    val json =
+      """{"statusCheckRollup":[
+        | {"status":"IN_PROGRESS","name":"slow-check"},
+        | {"status":"COMPLETED","conclusion":"FAILURE","name":"lint"}]}""".stripMargin
+    val (_, gh) = stubGh(CliResult(0, json, ""))
+    assertEquals(gh.buildStatus(samplePr).outcome, BuildOutcome.Pending)
+
+  test(
     "buildStatus reports Pending on an empty check list (CI not registered yet)"
   ):
     // Closes the race where waitForBuild would return Success on the first
@@ -374,31 +390,36 @@ class OsGitHubToolTest extends munit.FunSuite:
     assert(result.left.exists(_.isInstanceOf[BuildTimedOut]))
 
   test(
-    "waitForBuild's sticky watermark is driven by checkCount: no-checks-then-checks doesn't fire NoChecksConfigured"
+    "waitForBuild's sticky watermark carries the ON transition forward across later polls"
   ):
     // Reverse of the transition above: the rollup starts EMPTY (checkCount
-    // 0, not yet seen), then gains a check well before noChecksGrace elapses
-    // — `seen` (now `checkCount > 0`, not `log.nonEmpty`) must flip to true
-    // and stay true, so the NoChecksConfigured fast-path never fires even
+    // 0, not yet seen), then gains a check on the very next poll. `seen`
+    // must flip to true right there and *stay* true on every later poll —
+    // including the ones after the sequenced stub runs out and repeats its
+    // last response — so the NoChecksConfigured fast-path never fires even
     // once the grace deadline passes; the loop instead falls through to
-    // BuildTimedOut at the (later) timeout.
+    // BuildTimedOut at the (later) timeout. This pins the recursive
+    // `loop(seen)` threading, not a "checkCount vs log.nonEmpty" distinction
+    // — an IN_PROGRESS check renders a non-empty log line too, so this
+    // input can't actually discriminate between the two signals.
+    //
+    // Driven by a call-count-sequenced stub rather than a wall-clock race
+    // (a background thread flipping the response after a sleep), so it
+    // can't false-fail under CI scheduling jitter.
     val pendingJson =
       """{"statusCheckRollup":[{"status":"IN_PROGRESS","name":"t"}]}"""
-    val cli =
-      new StubCliRunner(CliResult(0, """{"statusCheckRollup":[]}""", ""))
-    val gh = new OsGitHubTool(cli, pollInterval = 5.millis)
-    val watcher = new Thread(() =>
-      // Well before the 30ms grace deadline, a check registers.
-      Thread.sleep(10)
-      cli.setResponse(CliResult(0, pendingJson, ""))
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, """{"statusCheckRollup":[]}""", ""),
+        CliResult(0, pendingJson, "")
+      )
     )
-    watcher.start()
+    val gh = new OsGitHubTool(cli, pollInterval = 1.millis)
     val result = gh.waitForBuild(
       samplePr,
-      timeout = 100.millis,
-      noChecksGrace = 30.millis
+      timeout = 200.millis,
+      noChecksGrace = 100.millis
     )
-    watcher.join()
     assert(result.left.exists(_.isInstanceOf[BuildTimedOut]), result)
 
   test(
