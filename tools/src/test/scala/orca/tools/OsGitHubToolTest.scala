@@ -221,6 +221,49 @@ class OsGitHubToolTest extends munit.FunSuite:
     val (_, gh) = stubGh(CliResult(0, """{"statusCheckRollup":[]}""", ""))
     assertEquals(gh.buildStatus(samplePr).outcome, BuildOutcome.Pending)
 
+  test("stateOf maps a legacy EXPECTED status context to Pending"):
+    // GitHub's legacy commit-status/GraphQL StatusState `EXPECTED` means "a
+    // required external CI context registered but hasn't reported yet" —
+    // distinct from PENDING (running), but equally not-yet-resolved. Before
+    // this classification existed, a present-but-not-pending, present-but-
+    // not-success check fell through to an instant Failure, defeating
+    // waitForBuild's noChecksGrace machinery.
+    assertEquals(
+      OsGitHubTool.stateOf(GhCheck(state = Some("EXPECTED"))),
+      CheckState.Pending
+    )
+
+  test(
+    "buildStatus reports Pending for a legacy EXPECTED status context (not yet reporting)"
+  ):
+    val json =
+      """{"statusCheckRollup":[{"state":"EXPECTED","name":"external-ci"}]}"""
+    val (_, gh) = stubGh(CliResult(0, json, ""))
+    assertEquals(gh.buildStatus(samplePr).outcome, BuildOutcome.Pending)
+
+  test("stateOf maps an unrecognised conclusion to Unknown(raw)"):
+    // A conclusion value this code doesn't know about (e.g. one GitHub adds
+    // later) must not silently read as a confirmed CI failure.
+    OsGitHubTool.stateOf(
+      GhCheck(status = Some("COMPLETED"), conclusion = Some("SOMETHING_NEW"))
+    ) match
+      case CheckState.Unknown(raw) => assert(raw.contains("SOMETHING_NEW"), raw)
+      case other                   => fail(s"expected Unknown, got $other")
+
+  test(
+    "buildStatus logs an unrecognised check shape as unknown instead of a bare tag"
+  ):
+    val json =
+      """{"statusCheckRollup":[
+        | {"status":"COMPLETED","conclusion":"SOMETHING_NEW","name":"weird"}]}""".stripMargin
+    val (_, gh) = stubGh(CliResult(0, json, ""))
+    val status = gh.buildStatus(samplePr)
+    // Still folds to Failure at the BuildOutcome level (no fourth case there),
+    // but the log line names it as unrecognised rather than as a confirmed
+    // failure conclusion.
+    assertEquals(status.outcome, BuildOutcome.Failure)
+    assert(status.log.contains("unknown"), status.log)
+
   test("waitForBuild polls until the build finishes"):
     val pendingJson =
       """{"statusCheckRollup":[{"status":"IN_PROGRESS","name":"t"}]}"""

@@ -76,6 +76,30 @@ enum BuildOutcome:
 
 case class BuildStatus(outcome: BuildOutcome, log: String)
 
+/** Total classification of a single [[GhCheck]] entry, parsed once at the DTO
+  * boundary so the rest of the tool reasons about a closed, named shape instead
+  * of re-deriving meaning from `status`/`conclusion`/`state` everywhere it
+  * matters.
+  *
+  *   - [[CheckState.Pending]]: still running, or a required check that hasn't
+  *     reported yet (including GitHub's legacy `EXPECTED` commit status — a
+  *     required external CI context registered but not started).
+  *   - [[CheckState.Success]]: completed with a successful conclusion (or
+  *     legacy `state = SUCCESS`).
+  *   - [[CheckState.Failure]]: completed with a recognised non-successful
+  *     conclusion (or legacy failure state) — a real CI failure.
+  *   - [[CheckState.Unknown]]: a shape [[OsGitHubTool.stateOf]] doesn't
+  *     recognise (e.g. a conclusion/state value GitHub added after this code
+  *     was written). Kept distinct from [[CheckState.Failure]] so it can be
+  *     surfaced in [[BuildStatus.log]] rather than silently read as a confirmed
+  *     CI failure.
+  */
+enum CheckState:
+  case Pending
+  case Success
+  case Failure
+  case Unknown(raw: String)
+
 /** Recoverable [[GitHubTool.createPr]] failure modes. Common when re-running a
   * flow against an already-pushed branch. Other gh failures (auth, network)
   * remain thrown.
@@ -476,10 +500,14 @@ private[orca] class OsGitHubTool(
     val outcome = aggregateOutcome(rollup.statusCheckRollup)
     val log = rollup.statusCheckRollup
       .map: c =>
-        val tag = c.conclusion
-          .orElse(c.state)
-          .orElse(c.status)
-          .getOrElse("?")
+        val tag = OsGitHubTool.stateOf(c) match
+          // Unrecognised shapes are called out explicitly rather than
+          // rendered as if they were an understood status/conclusion value,
+          // so a human reading the log can tell "we don't understand this"
+          // apart from a real CI failure.
+          case CheckState.Unknown(raw) => s"unknown ($raw)"
+          case _ =>
+            c.conclusion.orElse(c.state).orElse(c.status).getOrElse("?")
         s"${c.name.getOrElse("?")}: $tag"
       .mkString("\n")
     BuildStatus(outcome, log)
@@ -593,8 +621,27 @@ private[orca] object OsGitHubTool:
 
   private val StatusCompleted = "COMPLETED"
   private val SuccessfulConclusions = Set("SUCCESS", "NEUTRAL", "SKIPPED")
+  // The CheckRun `conclusion` values GitHub documents beyond the successful
+  // ones above. Named explicitly (rather than "anything that isn't a
+  // success") so a conclusion value GitHub adds later doesn't silently read
+  // as a confirmed failure — it falls through to `CheckState.Unknown`
+  // instead, see `stateOf`.
+  private val FailureConclusions = Set(
+    "FAILURE",
+    "CANCELLED",
+    "TIMED_OUT",
+    "ACTION_REQUIRED",
+    "STALE",
+    "STARTUP_FAILURE"
+  )
   private val LegacyStateSuccess = "SUCCESS"
   private val LegacyStatePending = "PENDING"
+  // GitHub's legacy commit-status / GraphQL `StatusState` enum: a required
+  // status context that has been registered but hasn't reported yet —
+  // distinct from `PENDING` (which is actively running). Both mean "not
+  // resolved yet" from the caller's perspective.
+  private val LegacyStateExpected = "EXPECTED"
+  private val LegacyFailureStates = Set("FAILURE", "ERROR")
 
   /** Reduce a heterogeneous list of check entries to a single outcome. Empty
     * list is treated as Pending: just after a push, GitHub returns zero checks
@@ -607,15 +654,41 @@ private[orca] object OsGitHubTool:
     */
   def aggregateOutcome(checks: List[GhCheck]): BuildOutcome =
     if checks.isEmpty then BuildOutcome.Pending
-    else if checks.exists(isPending) then BuildOutcome.Pending
-    else if checks.forall(isSuccess) then BuildOutcome.Success
-    else BuildOutcome.Failure
+    else
+      val states = checks.map(stateOf)
+      if states.contains(CheckState.Pending) then BuildOutcome.Pending
+      else if states.forall(_ == CheckState.Success) then BuildOutcome.Success
+      // `CheckState.Failure` and the unrecognised `CheckState.Unknown` both
+      // collapse to `BuildOutcome.Failure` here — `BuildOutcome` has no
+      // fourth case — but `Unknown` stays distinguishable in
+      // `BuildStatus.log` (see `buildStatus`) rather than vanishing.
+      else BuildOutcome.Failure
 
-  private def isPending(c: GhCheck): Boolean =
-    c.status.exists(_ != StatusCompleted) ||
-      c.state.contains(LegacyStatePending) ||
-      (c.status.isEmpty && c.state.isEmpty && c.conclusion.isEmpty)
+  /** Classify a single check entry into a total [[CheckState]]. `GhCheck`
+    * mirrors two GitHub shapes (CheckRun's `status`/`conclusion`, and the
+    * legacy commit-status/GraphQL `state`) in one flat DTO; this is the one
+    * place that maps either shape to a state the rest of the tool reasons
+    * about.
+    */
+  private[tools] def stateOf(c: GhCheck): CheckState =
+    if c.status.exists(_ != StatusCompleted) then CheckState.Pending
+    else if c.state.contains(LegacyStatePending) ||
+      c.state.contains(LegacyStateExpected)
+    then CheckState.Pending
+    else if c.status.isEmpty && c.state.isEmpty && c.conclusion.isEmpty then
+      CheckState.Pending
+    else if c.conclusion.exists(SuccessfulConclusions.contains) then
+      CheckState.Success
+    else if c.state.contains(LegacyStateSuccess) then CheckState.Success
+    else if c.conclusion.exists(FailureConclusions.contains) then
+      CheckState.Failure
+    else if c.state.exists(LegacyFailureStates.contains) then CheckState.Failure
+    else CheckState.Unknown(rawShape(c))
 
-  private def isSuccess(c: GhCheck): Boolean =
-    c.conclusion.exists(SuccessfulConclusions.contains) ||
-      c.state.contains(LegacyStateSuccess)
+  /** Render a check's raw field values for [[CheckState.Unknown]]'s payload —
+    * enough to diagnose an unrecognised shape from the log without needing to
+    * re-fetch the rollup.
+    */
+  private def rawShape(c: GhCheck): String =
+    s"status=${c.status.getOrElse("none")} conclusion=${c.conclusion
+        .getOrElse("none")} state=${c.state.getOrElse("none")}"

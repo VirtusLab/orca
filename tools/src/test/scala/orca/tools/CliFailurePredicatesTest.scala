@@ -7,20 +7,39 @@ package orca.tools
   */
 class CliFailurePredicatesTest extends munit.FunSuite:
 
-  test("isPushRejection matches a non-fast-forward rejection"):
+  test("isNonFastForward matches a non-fast-forward rejection"):
     val stderr =
       """To github.com:owner/repo.git
         | ! [rejected]        feat -> feat (non-fast-forward)
         |error: failed to push some refs to 'github.com:owner/repo.git'""".stripMargin
-    assert(OsGitTool.isPushRejection(stderr))
+    assert(OsGitTool.isNonFastForward(stderr))
 
-  test("isPushRejection matches a hook rejection"):
-    assert(OsGitTool.isPushRejection("remote: error: GH006: rejected"))
+  test("isNonFastForward matches a fetch-first rejection"):
+    val stderr =
+      """To github.com:owner/repo.git
+        | ! [rejected]        feat -> feat (fetch first)
+        |error: failed to push some refs to 'github.com:owner/repo.git'""".stripMargin
+    assert(OsGitTool.isNonFastForward(stderr))
 
-  test("isPushRejection does not match an auth failure"):
+  test(
+    "isRemoteDeclined matches a hook rejection (GH006) — not non-fast-forward"
+  ):
+    val stderr = "remote: error: GH006: Protected branch update failed"
+    assert(OsGitTool.isRemoteDeclined(stderr))
+    assert(!OsGitTool.isNonFastForward(stderr))
+
+  test("isRemoteDeclined matches a protected-branch decline"):
+    assert(
+      OsGitTool.isRemoteDeclined(
+        "remote: error: GH013: protected branch hook declined"
+      )
+    )
+
+  test("isNonFastForward and isRemoteDeclined do not match an auth failure"):
     val stderr =
       "fatal: Authentication failed for 'https://github.com/owner/repo.git/'"
-    assert(!OsGitTool.isPushRejection(stderr))
+    assert(!OsGitTool.isNonFastForward(stderr))
+    assert(!OsGitTool.isRemoteDeclined(stderr))
 
   test("isWorktreeAlreadyPresent matches an existing path"):
     assert(

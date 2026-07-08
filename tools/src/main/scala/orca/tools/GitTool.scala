@@ -49,12 +49,29 @@ class NothingToCommit
     extends OrcaFlowException("nothing to commit; working tree is clean")
 
 /** Returned in the `Left` of [[GitTool.push]] when the remote rejected the push
-  * as non-fast-forward (the branch moved on the remote). The caller can recover
-  * by fetching and rebasing. Other push failures (auth, network) remain thrown
-  * — they aren't locally recoverable.
+  * for a reason the caller might recover from. Two shapes, with different
+  * recovery contracts:
+  *
+  *   - [[PushFailure.NonFastForward]]: the remote branch moved on since the
+  *     local history was based (`non-fast-forward` / `fetch first`). The caller
+  *     can recover by fetching and rebasing.
+  *   - [[PushFailure.RemoteDeclined]]: the remote refused the push by policy —
+  *     a server-side hook, branch protection, or a required review (e.g.
+  *     GitHub's `GH006`) — not by history divergence. Fetching and rebasing
+  *     will not help; retrying the same push will fail the same way.
+  *
+  * Other push failures (auth, network, bad refspec) aren't locally recoverable
+  * and remain thrown as `OrcaFlowException`.
   */
-class PushRejected(reason: String)
-    extends OrcaFlowException(s"push rejected: $reason")
+sealed abstract class PushFailure(message: String)
+    extends OrcaFlowException(message)
+
+object PushFailure:
+  final class NonFastForward(reason: String)
+      extends PushFailure(s"push rejected (non-fast-forward): $reason")
+
+  final class RemoteDeclined(reason: String)
+      extends PushFailure(s"push declined by remote: $reason")
 
 /** Returned in the `Left` of [[GitTool.addWorktree]] when the target `path` is
   * already a worktree, or the `branch` is checked out in another worktree.
@@ -107,10 +124,11 @@ trait GitTool:
   def forceAdd(path: os.Path)(using WorkspaceWrite): Unit
 
   /** Push the current branch, setting upstream on first push. Returns
-    * `Left(PushRejected)` when the remote rejected as non-fast-forward (caller
-    * can fetch + rebase). Other failures (auth, network) throw.
+    * `Left(PushFailure)` when the remote rejected the push for a reason the
+    * caller might recover from — see [[PushFailure]] for the two shapes and
+    * their differing recovery contracts. Other failures (auth, network) throw.
     */
-  def push()(using WorkspaceWrite): Either[PushRejected, Unit]
+  def push()(using WorkspaceWrite): Either[PushFailure, Unit]
 
   def currentBranch(): String
 
@@ -314,13 +332,14 @@ private[orca] class OsGitTool(
       fsck = tryRun("fsck", "--no-progress")
     )
 
-  def push()(using WorkspaceWrite): Either[PushRejected, Unit] =
+  def push()(using WorkspaceWrite): Either[PushFailure, Unit] =
     // `-u origin HEAD` sets upstream on first push and is a no-op afterwards.
     // We need to inspect stderr on failure to distinguish the recoverable
-    // "non-fast-forward" case from auth/network errors, so use `gitProc`
-    // (which returns the result) rather than `git` (which throws on non-zero).
-    // For a github remote `pushArgs` appends a last-resort credential helper so
-    // the push authenticates even when git has none configured (see its doc).
+    // cases (non-fast-forward, remote-declined) from auth/network errors, so
+    // use `gitProc` (which returns the result) rather than `git` (which
+    // throws on non-zero). For a github remote `pushArgs` appends a
+    // last-resort credential helper so the push authenticates even when git
+    // has none configured (see its doc).
     val originUrl = gitConfigGet("remote.origin.url")
     val envToken = sys.env
       .get("GH_TOKEN")
@@ -332,8 +351,10 @@ private[orca] class OsGitTool(
       Right(())
     else
       val stderr = result.err.text()
-      if OsGitTool.isPushRejection(stderr) then
-        Left(new PushRejected(stderr.trim))
+      if OsGitTool.isNonFastForward(stderr) then
+        Left(new PushFailure.NonFastForward(stderr.trim))
+      else if OsGitTool.isRemoteDeclined(stderr) then
+        Left(new PushFailure.RemoteDeclined(stderr.trim))
       else fail("git push", result)
 
   def currentBranch(): String =
@@ -517,13 +538,23 @@ private[orca] object OsGitTool:
   // lenient (substring, any matching phrase) so a wording tweak across git
   // versions doesn't silently reclassify a recoverable failure as fatal.
 
-  /** True when `git push` stderr indicates the push was rejected because the
-    * remote moved on or a hook refused it (`! [rejected] … (non-fast-forward)`)
-    * — the recoverable case the caller can resolve by pulling/rebasing. Any
-    * other non-zero push (auth, network, bad refspec) is a system failure.
+  /** True when `git push` stderr indicates the remote branch moved on since the
+    * local history was based (`non-fast-forward` / `fetch first`) — the caller
+    * can resolve this by fetching and rebasing. Distinguished from
+    * [[isRemoteDeclined]], where rebasing would not help.
     */
-  private[tools] def isPushRejection(stderr: String): Boolean =
-    stderr.contains("non-fast-forward") || stderr.contains("rejected")
+  private[tools] def isNonFastForward(stderr: String): Boolean =
+    stderr.contains("non-fast-forward") || stderr.contains("fetch first")
+
+  /** True when `git push` stderr indicates the remote refused the push by
+    * policy — a server-side hook, branch protection, or a required review (e.g.
+    * GitHub's `GH006`) — rather than by history divergence. Fetching and
+    * rebasing will not make this push succeed.
+    */
+  private[tools] def isRemoteDeclined(stderr: String): Boolean =
+    stderr.contains("hook declined") ||
+      stderr.contains("GH006") ||
+      stderr.contains("protected branch")
 
   /** True when `git worktree add` stderr indicates the target path or branch is
     * already a worktree (`… already exists` / `… is already checked out`) — the
