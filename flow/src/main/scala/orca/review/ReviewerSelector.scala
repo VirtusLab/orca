@@ -1,8 +1,17 @@
 package orca.review
 
+// Compiled under capture checking so `prepare`'s returned narrowing can be
+// declared as a PURE `->` arrow — the enforced form of the old informal "the
+// selector's per-round function must not capture `InStage`" contract. Keep
+// tapir `derives`/macro-expanding types out of here (they don't type-check
+// under CC); [[ReviewerInfo]]/[[ReviewerSelectionRequest]] live in a sibling
+// non-CC file, as `FixRequest.scala` does.
+import language.experimental.captureChecking
+import language.experimental.separationChecking
+
 import orca.{FlowContext, InStage}
 import orca.events.OrcaEvent
-import orca.agents.{AgentInput, JsonData, Agent, given}
+import orca.agents.Agent
 import orca.plan.Title
 
 import scala.util.matching.Regex
@@ -10,19 +19,24 @@ import scala.util.matching.Regex
 /** Picks which reviewers run on each iteration of [[reviewAndFixLoop]].
   *
   * Two-phase: [[prepare]] is called ONCE at loop start with the loop-constant
-  * context (roster, task title, changed files) and the loop's own capabilities
-  * — any gated effect (e.g. [[ReviewerSelector.agentDriven]]'s picker LLM call)
-  * happens there, inside the loop's stage. It returns the pure per-iteration
-  * narrowing: given the review history (most recent batch first), which
-  * reviewers run this round. Nothing is captured across loops, so selector
-  * values are freely reusable.
+  * context (the roster as opaque [[RosterEntry]] handles, task title, changed
+  * files) and the loop's own capabilities — any gated effect (e.g.
+  * [[ReviewerSelector.agentDriven]]'s picker LLM call) happens there, inside
+  * the loop's stage. It returns the pure per-iteration narrowing: given the
+  * review history (most recent batch first), which reviewers run this round.
+  *
+  * A selector can only ever return a subset/permutation of the [[RosterEntry]]
+  * handles it was handed — a foreign agent is unrepresentable (the ctor is
+  * `private[review]`), so the loop needs no runtime roster-membership defence.
+  * The returned narrowing is a pure arrow (`->`): it captures nothing gated, so
+  * selector values are freely reusable across loops.
   */
 trait ReviewerSelector:
   def prepare(
-      all: List[Agent[?]],
+      all: List[RosterEntry[?]],
       taskTitle: Title,
       changedFiles: List[String]
-  )(using FlowContext, InStage): List[ReviewBatch] => List[Agent[?]]
+  )(using FlowContext, InStage): List[ReviewBatch] -> List[RosterEntry[?]]
 
 object ReviewerSelector:
 
@@ -34,10 +48,10 @@ object ReviewerSelector:
     */
   val onlyPreviouslyReporting: ReviewerSelector = new ReviewerSelector:
     def prepare(
-        all: List[Agent[?]],
+        all: List[RosterEntry[?]],
         taskTitle: Title,
         changedFiles: List[String]
-    )(using FlowContext, InStage): List[ReviewBatch] => List[Agent[?]] =
+    )(using FlowContext, InStage): List[ReviewBatch] -> List[RosterEntry[?]] =
       history =>
         history.headOption match
           case None        => all
@@ -49,10 +63,10 @@ object ReviewerSelector:
     */
   val allEveryRound: ReviewerSelector = new ReviewerSelector:
     def prepare(
-        all: List[Agent[?]],
+        all: List[RosterEntry[?]],
         taskTitle: Title,
         changedFiles: List[String]
-    )(using FlowContext, InStage): List[ReviewBatch] => List[Agent[?]] =
+    )(using FlowContext, InStage): List[ReviewBatch] -> List[RosterEntry[?]] =
       _ => all
 
   /** Asks `agent` to pick which reviewers are worth running for a given task.
@@ -90,13 +104,13 @@ object ReviewerSelector:
       filePatterns: Map[String, Regex] = ReviewerPrompts.filePatternsBySlug
   ): ReviewerSelector = new ReviewerSelector:
     def prepare(
-        all: List[Agent[?]],
+        all: List[RosterEntry[?]],
         taskTitle: Title,
         changedFiles: List[String]
     )(using
         ctx: FlowContext,
         ev: InStage
-    ): List[ReviewBatch] => List[Agent[?]] =
+    ): List[ReviewBatch] -> List[RosterEntry[?]] =
       val eligible = all.filter: r =>
         filePatterns.get(r.name) match
           case None     => true
@@ -157,30 +171,3 @@ object ReviewerSelector:
           eligible
         else selected
       _ => active
-
-private case class ReviewerInfo(name: String, description: String)
-    derives JsonData
-
-private case class ReviewerSelectionRequest(
-    taskTitle: Title,
-    changedFiles: List[String],
-    availableReviewers: List[ReviewerInfo],
-    instructions: String
-) derives JsonData
-
-private object ReviewerSelectionRequest:
-  given AgentInput[ReviewerSelectionRequest] with
-    def serialize(r: ReviewerSelectionRequest): String =
-      val files = r.changedFiles.map(f => s"  - $f").mkString("\n")
-      val reviewers = r.availableReviewers
-        .map(ri => s"  - ${ri.name}: ${ri.description}")
-        .mkString("\n")
-      s"""Task: ${r.taskTitle}
-         |
-         |Changed files:
-         |$files
-         |
-         |Available reviewers:
-         |$reviewers
-         |
-         |${r.instructions}""".stripMargin

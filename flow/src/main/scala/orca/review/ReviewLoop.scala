@@ -157,31 +157,74 @@ private[review] def formatReviewerOutcome(
     val bullets = result.issues.map(formatIssue).mkString("\n")
     s"$header\n$bullets"
 
+/** An opaque handle to one reviewer in `reviewAndFixLoop`'s configured roster.
+  *
+  * A [[ReviewerSelector]] is handed the roster as `RosterEntry` values and can
+  * only return a subset/permutation of them: the constructor is
+  * `private[review]`, so a selector cannot fabricate an entry for an agent the
+  * roster never contained. This makes "a foreign reviewer" unrepresentable at
+  * the type level, which is what lets the loop drop the runtime
+  * roster-membership defences (foreign-drop warning, silent full-roster
+  * fallback) the old `List[Agent[?]]` contract required.
+  *
+  * Identity is reference identity (the default for a plain class): the loop
+  * keys its per-reviewer session map on the entry instance, and each roster
+  * agent is wrapped exactly once ([[RosterEntry.wrap]]), so `eq` on entries is
+  * the reviewer's identity.
+  */
+final class RosterEntry[B <: BackendTag] private[review] (
+    private[review] val agent: Agent[B]
+):
+  /** The reviewer's bare slug — its identity, and what the picker LLM is shown
+    * and asked to echo. The `reviewer: ` cost-attribution prefix is applied
+    * only later, at the loop's emission edge.
+    */
+  def name: String = agent.name
+
+private[review] object RosterEntry:
+  /** Wrap a roster agent, binding its existential backend tag so the entry's
+    * `agent` and any session paired with it in [[ReviewLoopState.sessions]]
+    * share one `B` by construction (no cast needed to recover it later).
+    */
+  def wrap(a: Agent[?]): RosterEntry[?] =
+    a match
+      case a: Agent[b] => new RosterEntry[b](a)
+
 /** One round of reviews, with each reviewer's individual outcome preserved. The
   * list keeps the order callers configured (so positions match
   * `allReviewers(claude)` etc.), and lets the loop decide which reviewers to
   * re-run on the next iteration based on which ones found issues this time.
   */
-case class ReviewBatch(outcomes: List[(Agent[?], ReviewResult)]):
-  def reviewersWithIssues: List[Agent[?]] =
+case class ReviewBatch(outcomes: List[(RosterEntry[?], ReviewResult)]):
+  def reviewersWithIssues: List[RosterEntry[?]] =
     outcomes.collect { case (r, rr) if rr.issues.nonEmpty => r }
   def allIssues: List[ReviewIssue] =
     outcomes.flatMap(_._2.issues)
 
+/** One reviewer's live session, paired with the entry it belongs to under a
+  * single existential backend tag `B`: a [[RosterEntry]] `RB` and the
+  * `SessionId[RB]` its first `run` minted. Because the pairing is a
+  * compile-time invariant of this wrapper — not a claim recovered by a cast —
+  * finding the entry (by `eq` identity) hands back a session typed to the SAME
+  * `B` the reviewer runs on, with no `SessionId.Untyped`/`.as[RB]` round-trip.
+  */
+private case class SessionEntry[B <: BackendTag](
+    entry: RosterEntry[B],
+    session: SessionId[B]
+)
+
 /** All cross-iteration state for `reviewAndFixLoop`, in one immutable record.
-  * `history` is consulted by [[ReviewerSelector]]; `sessions` maps a reviewer's
-  * name to the opaque `SessionId` returned by its first `run` call. The stored
-  * value is tag-erased (`SessionId.Untyped`) because different reviewers may
-  * run on different backends — recover the concrete `SessionId[RB]` with
-  * `.as[RB]` at read time, keyed by reviewer name. See [[reviewWithSession]]
-  * for the invariant that makes the recovery safe.
+  * `history` is consulted by [[ReviewerSelector]]; `sessions` holds one
+  * [[SessionEntry]] per reviewer that has run at least once, looked up by entry
+  * identity (`eq`). See [[reviewWithSession]] for how the existential pairing
+  * keeps the recovered session id typed to the reviewer's backend.
   */
 private case class ReviewLoopState(
     history: List[ReviewBatch],
-    sessions: Map[String, SessionId.Untyped]
+    sessions: List[SessionEntry[?]]
 )
 private object ReviewLoopState:
-  val empty: ReviewLoopState = ReviewLoopState(Nil, Map.empty)
+  val empty: ReviewLoopState = ReviewLoopState(Nil, Nil)
 
 /** Run reviewers in parallel against `task`, gather per-reviewer outcomes, hand
   * any issues above `confidenceThreshold` to the coder — through
@@ -317,11 +360,13 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     lintCommand.isEmpty || lintAgent.isDefined,
     "reviewAndFixLoop: lintCommand requires lintAgent"
   )
-  require(
-    reviewers.map(_.name).distinct.size == reviewers.size,
-    "reviewAndFixLoop: reviewer names must be unique — " +
-      "the per-reviewer session map is keyed by name"
-  )
+
+  // The roster, wrapped once as identity-keyed handles. A selector receives
+  // these and may only return a subset/permutation of them (foreign agents are
+  // unrepresentable), and the session map keys on these instances by `eq` — so
+  // duplicate reviewer names no longer break session threading, and the old
+  // name-uniqueness `require` is gone.
+  private val roster: List[RosterEntry[?]] = reviewers.map(RosterEntry.wrap)
 
   private def emitStep(msg: String): Unit = ctx.emit(OrcaEvent.Step(msg))
 
@@ -343,63 +388,81 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     )
 
   /** Run one reviewer iteration against an immutable sessions snapshot. Returns
-    * the review result plus, on a reviewer's first call, the new `(name,
-    * SessionId)` entry that the caller should fold into the next state. Pure
-    * with respect to its inputs — no side effects on shared state — which lets
-    * the caller run many of these in parallel.
+    * the review result plus, on a reviewer's first call, the new
+    * [[SessionEntry]] the caller should fold into the next state. Pure with
+    * respect to its inputs — no side effects on shared state — which lets the
+    * caller run many of these in parallel.
     *
-    * `currentDiff` is the working-tree diff sampled by the caller at the start
-    * of this iteration; only consumed on a reviewer's first call. Reviewers
-    * with an existing session ignore it and continue from their original
-    * framing.
+    * `stored` is the reviewer's existing [[SessionEntry]] (found by entry
+    * identity), if any; `currentDiff` is the working-tree diff the caller
+    * sampled at the start of this iteration, consumed only on the first call.
     *
-    * The `stored.as[RB]` recovery is sound because `name → backend` is fixed
-    * for the lifetime of the loop: [[resolveAgainstRoster]] maps every selected
-    * agent back to its canonical roster instance by slug (so a renamed/rebuilt
-    * copy can't deliver a wrong-backend session id), and the roster's
-    * slug-uniqueness `require` guarantees the entry retrieved with a given
-    * reviewer's `RB` was written under that same `RB`.
-    *
-    * The LLM run is labelled with the `reviewer: <slug>` cost prefix
-    * ([[ReviewerPrompts.NamePrefix]]) so the `TokensUsed` breakdown groups
-    * reviewer spend; the session map stays keyed by the BARE slug (`r.name`),
-    * which is the reviewer's identity everywhere else.
+    * No cast is involved: a resume runs `stored`'s own paired entry+session
+    * ([[resumeReview]]), whose backend tag `B` the wrapper carries by
+    * construction; a first call binds the entry's `B` ([[firstReview]]) and
+    * pairs the fresh `SessionId[B]` back with it. The two-hop `.as[RB]`
+    * soundness argument the old name-keyed map needed is gone — the pairing is
+    * a compile-time invariant, not a recovered claim.
     */
-  private def reviewWithSession[RB <: BackendTag](
-      r: Agent[RB],
-      sessions: Map[String, SessionId.Untyped],
+  private def reviewWithSession(
+      e: RosterEntry[?],
+      stored: Option[SessionEntry[?]],
       currentDiff: String
-  ): (ReviewResult, Option[(String, SessionId.Untyped)]) =
-    val labelled = r.withName(s"${ReviewerPrompts.NamePrefix}${r.name}")
-    val call = labelled.resultAs[ReviewResult].autonomous
-    sessions.get(r.name) match
-      case Some(stored) =>
-        val (_, result) =
-          call.run(
-            ReviewLoopPrompts.ReReview,
-            session = stored.as[RB],
-            emitPrompt = false
-          )
-        (result, None)
-      case None =>
-        val session = labelled.newSession
-        val (sid, result) =
-          call.run(
-            ReviewLoopPrompts.initialReview(task, currentDiff),
-            session = session,
-            emitPrompt = false
-          )
-        (result, Some(r.name -> SessionId.Untyped.from(sid)))
+  ): (ReviewResult, Option[SessionEntry[?]]) =
+    stored match
+      case Some(se) => (resumeReview(se), None)
+      case None     => firstReview(e, currentDiff)
+
+  /** Resume a reviewer's existing session. `se` pairs the entry with a session
+    * id under one `B`, so `se.session` is already typed to `se.entry.agent`'s
+    * backend — no recovery cast. The LLM run is labelled with the `reviewer:
+    * <slug>` cost prefix ([[ReviewerPrompts.NamePrefix]]) so the `TokensUsed`
+    * breakdown groups reviewer spend.
+    */
+  private def resumeReview[B <: BackendTag](se: SessionEntry[B]): ReviewResult =
+    val labelled =
+      se.entry.agent.withName(s"${ReviewerPrompts.NamePrefix}${se.entry.name}")
+    val (_, result) =
+      labelled
+        .resultAs[ReviewResult]
+        .autonomous
+        .run(
+          ReviewLoopPrompts.ReReview,
+          session = se.session,
+          emitPrompt = false
+        )
+    result
+
+  /** A reviewer's first call: bind the entry's backend tag `B`, mint a fresh
+    * `SessionId[B]`, and pair it back with the entry so a later resume recovers
+    * it typed. `currentDiff` seeds the initial framing.
+    */
+  private def firstReview[B <: BackendTag](
+      e: RosterEntry[B],
+      currentDiff: String
+  ): (ReviewResult, Option[SessionEntry[?]]) =
+    val labelled = e.agent.withName(s"${ReviewerPrompts.NamePrefix}${e.name}")
+    val session = labelled.newSession
+    val (sid, result) =
+      labelled
+        .resultAs[ReviewResult]
+        .autonomous
+        .run(
+          ReviewLoopPrompts.initialReview(task, currentDiff),
+          session = session,
+          emitPrompt = false
+        )
+    (result, Some(SessionEntry(e, sid)))
 
   /** One parallel agent's contribution. The `Reviewer` variant carries the
-    * configured tool and any new session entry that needs folding into the loop
-    * state; `Lint` carries only its filtered result (no LLM session).
+    * roster entry that ran and any new [[SessionEntry]] that needs folding into
+    * the loop state; `Lint` carries only its filtered result (no LLM session).
     */
   private enum AgentOutcome:
     case Reviewer(
-        tool: Agent[?],
+        entry: RosterEntry[?],
         result: ReviewResult,
-        entry: Option[(String, SessionId.Untyped)]
+        newSession: Option[SessionEntry[?]]
     )
     case Lint(result: ReviewResult)
 
@@ -414,21 +477,23 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * payload — pre-sampling also avoids redundant shell-outs.
     */
   private def runReviewersAndLint(
-      active: List[Agent[?]],
+      active: List[RosterEntry[?]],
       currentState: ReviewLoopState
   ): (
-      List[(Agent[?], ReviewResult)],
+      List[(RosterEntry[?], ReviewResult)],
       Option[ReviewResult],
       ReviewLoopState
   ) =
-    val needsDiff = active.exists(r => !currentState.sessions.contains(r.name))
+    def storedFor(e: RosterEntry[?]): Option[SessionEntry[?]] =
+      currentState.sessions.find(_.entry eq e)
+    val needsDiff = active.exists(e => storedFor(e).isEmpty)
     val currentDiff = if needsDiff then sampleDiff() else ""
 
-    val reviewerTasks: List[() => AgentOutcome] = active.map: r =>
+    val reviewerTasks: List[() => AgentOutcome] = active.map: e =>
+      val stored = storedFor(e)
       () =>
-        val (result, entry) =
-          reviewWithSession(r, currentState.sessions, currentDiff)
-        AgentOutcome.Reviewer(r, filterByConfidence(result), entry)
+        val (result, newSession) = reviewWithSession(e, stored, currentDiff)
+        AgentOutcome.Reviewer(e, filterByConfidence(result), newSession)
 
     val lintTaskOpt: Option[() => AgentOutcome] =
       lintCommand
@@ -457,17 +522,17 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         CheckedPar.mapParUnordered(tasks.size)(tasks):
           // Display the bare slug — the `reviewer: ` prefix is a cost-report
           // grouping detail, not part of what the user sees per reviewer.
-          case AgentOutcome.Reviewer(r, res, _) =>
-            ctx.emit(OrcaEvent.Step(formatReviewerOutcome(r.name, res)))
+          case AgentOutcome.Reviewer(e, res, _) =>
+            ctx.emit(OrcaEvent.Step(formatReviewerOutcome(e.name, res)))
           case AgentOutcome.Lint(res) =>
             ctx.emit(OrcaEvent.Step(formatReviewerOutcome("lint", res)))
 
       val reviewerOutcomes = outcomes.collect:
-        case AgentOutcome.Reviewer(r, res, _) => (r, res)
+        case AgentOutcome.Reviewer(e, res, _) => (e, res)
       val lintOutcome = outcomes.collectFirst:
         case AgentOutcome.Lint(res) => res
       val newSessions = outcomes.foldLeft(currentState.sessions):
-        case (acc, AgentOutcome.Reviewer(_, _, Some(entry))) => acc + entry
+        case (acc, AgentOutcome.Reviewer(_, _, Some(entry))) => entry :: acc
         case (acc, _)                                        => acc
       val nextState = ReviewLoopState(
         history = ReviewBatch(reviewerOutcomes) :: currentState.history,
@@ -475,34 +540,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       )
       (reviewerOutcomes, lintOutcome, nextState)
 
-  /** The selector may return arbitrary agents; only roster members run, and
-    * every selection is mapped back to its CANONICAL roster instance by slug —
-    * the per-reviewer session map is keyed by slug, so a renamed/rebuilt copy
-    * can't deliver a wrong-backend session id. Foreign names are dropped with a
-    * visible warning; duplicates collapse to one run. Safety floor: if a
-    * non-empty selection resolves to nothing (e.g. a custom selector still
-    * using pre-rename `reviewer: <slug>` names), fall back to the full roster —
-    * orca's contract is that AI-written code is never silently unreviewed. An
-    * empty selection stays empty: that is the loop's designed stop signal.
-    */
-  private def resolveAgainstRoster(selected: List[Agent[?]]): List[Agent[?]] =
-    val byName = reviewers.map(r => r.name -> r).toMap
-    val (known, foreign) = selected.partition(a => byName.contains(a.name))
-    if foreign.nonEmpty then
-      emitStep(
-        s"reviewer selection: dropped ${foreign.map(_.name).mkString(", ")} — not in the configured roster"
-      )
-    val resolved = known.flatMap(a => byName.get(a.name)).distinctBy(_.name)
-    if resolved.isEmpty && selected.nonEmpty then
-      emitStep(
-        s"reviewer selection: nothing resolved against the roster; falling back to all ${reviewers.size} reviewer(s)"
-      )
-      reviewers
-    else resolved
-
   private def evaluate(
       state: ReviewLoopState,
-      selectRound: List[ReviewBatch] => List[Agent[?]]
+      selectRound: List[ReviewBatch] -> List[RosterEntry[?]]
   ): (ReviewResult, ReviewLoopState) =
     // Format before reviewing so the implementation's (and each prior fix's)
     // edits are cleaned up before reviewers and the lint see them, and the
@@ -513,7 +553,13 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     formatCommand.foreach: cmd =>
       val _ =
         os.proc("bash", "-c", cmd).call(check = false, mergeErrIntoOut = true)
-    val active = resolveAgainstRoster(selectRound(state.history))
+    // The selector returns roster entries only, so there is no membership
+    // defence to apply — just collapse an accidental duplicate (`.distinct` on
+    // entry identity) so a reviewer runs at most once per round. An empty
+    // selection stays empty: no reviewers run, the round finds no issues, and
+    // the shared stop policy converges — the loop never silently resurrects the
+    // roster behind the selector's back.
+    val active = selectRound(state.history).distinct
     val totalAgents = active.size + (if lintCommand.isDefined then 1 else 0)
     if totalAgents > 0 then
       ctx.emit(
@@ -564,8 +610,12 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // agentDriven picker LLM call) ONCE here, at loop start, inside this stage.
     // `selectRound` is the resulting pure per-iteration narrowing — passed down
     // to `evaluate` so it stays a function of its inputs.
-    val selectRound: List[ReviewBatch] => List[Agent[?]] =
-      reviewerSelection.prepare(reviewers, taskTitle, changedFiles)
+    // Pass `ctx`/`ev` explicitly: under capture checking the more-specific
+    // `fc: FlowControl` in scope would otherwise be picked for `prepare`'s
+    // `using FlowContext` and its root capability rejected (same reason the
+    // `reviewAndFixLoop` constructor call passes them positionally).
+    val selectRound: List[ReviewBatch] -> List[RosterEntry[?]] =
+      reviewerSelection.prepare(roster, taskTitle, changedFiles)(using ctx, ev)
     @scala.annotation.tailrec
     def loop(
         accumulated: IgnoredIssues,

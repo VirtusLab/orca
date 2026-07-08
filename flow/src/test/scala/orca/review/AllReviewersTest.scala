@@ -62,7 +62,7 @@ class AllReviewersTest extends munit.FunSuite:
 
   test("SelectedReviewers.pick filters the reviewer list by name"):
     val base = new RecordingTool
-    val all = allReviewers(base)
+    val all = allReviewers(base).map(RosterEntry.wrap)
     val picked =
       SelectedReviewers(List("performance", "code-structure")).pick(all)
     assertEquals(

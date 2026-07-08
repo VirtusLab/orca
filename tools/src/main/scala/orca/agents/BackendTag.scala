@@ -79,18 +79,6 @@ object SessionId:
   def fresh[B <: BackendTag]: SessionId[B] =
     java.util.UUID.randomUUID.toString
 
-  /** Tag-erased session id for heterogeneous maps where the backend tag varies
-    * per entry (and Scala 3 can't reduce `SessionId[?]` outside this file).
-    * Convert with `Untyped.from(sid)` / `untyped.as[B]`; both are zero-cost
-    * because `Untyped` and `SessionId[B]` share `String` as the runtime
-    * representation. The `as[B]` recovery is type-level only — callers must
-    * maintain the invariant that a given entry's `B` matches what was written.
-    */
-  opaque type Untyped = String
-  object Untyped:
-    def from[B <: BackendTag](sid: SessionId[B]): Untyped = sid
-    extension (u: Untyped) def as[B <: BackendTag]: SessionId[B] = u
-
 /** The id a backend actually resumes a conversation against on the wire —
   * distinct from [[SessionId]], orca's stable client handle. For claude (and
   * pi's claimed ids) the two coincide; for codex/gemini/opencode the wire id is

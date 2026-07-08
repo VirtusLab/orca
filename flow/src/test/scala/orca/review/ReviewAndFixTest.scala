@@ -590,123 +590,81 @@ class ReviewAndFixTest extends munit.FunSuite:
       case t: OrcaEvent.TokensUsed => t.agent
     assertEquals(agents, List("reviewer: performance"))
 
-  test(
-    "a selector returning a same-named foreign agent runs the roster instance"
-  ):
-    // The selector hands back a rebuilt copy sharing a roster slug but backed by
-    // a different (empty-output) stub. Roster resolution must map it back to the
-    // canonical instance: the roster stub runs (its scripted issue flows out),
-    // and the foreign stub is never touched (its empty iterator would throw).
+  test("a selector runs exactly the roster entries it returns"):
+    // The new roster-bound contract: `prepare` is handed the roster as opaque
+    // `RosterEntry` handles and can only return a subset/permutation of them —
+    // a foreign agent is unrepresentable (the ctor is `private[review]`). Here
+    // the selector keeps only "x", so "y" (an empty-output stub that would
+    // throw if run) must never run.
     given FlowControl = control
     val rosterX = new FakeAgent(
       name = "x",
-      outputs = List(ReviewResult(List(issue("from-roster", confidence = 0.9))))
+      outputs = List(ReviewResult(List(issue("from-x", confidence = 0.9))))
     )
-    val foreignX = new FakeAgent(name = "x") // no outputs: throws if run
-    val foreignSelector = new ReviewerSelector:
+    val rosterY = new FakeAgent(name = "y") // no outputs: throws if run
+    val onlyX = new ReviewerSelector:
       def prepare(
-          all: List[Agent[?]],
+          all: List[RosterEntry[?]],
           taskTitle: Title,
           changedFiles: List[String]
-      )(using FlowContext, orca.InStage): List[ReviewBatch] => List[Agent[?]] =
-        _ => List(foreignX)
+      )(using FlowContext, orca.InStage) =
+        _ => all.filter(_.name == "x")
     val coder = new FakeAgent(
       name = "coder",
-      outputs =
-        List(FixOutcome(Nil, List(IgnoredIssue(Title("from-roster"), "ok"))))
+      outputs = List(FixOutcome(Nil, List(IgnoredIssue(Title("from-x"), "ok"))))
     )
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(rosterX),
-      reviewerSelection = foreignSelector,
-      task = "roster resolution",
+      reviewers = List(rosterX, rosterY),
+      reviewerSelection = onlyX,
+      task = "roster-bound selection",
       initialDiff = Some("")
     )
-    assertEquals(result.issues, List(IgnoredIssue(Title("from-roster"), "ok")))
+    assertEquals(result.issues, List(IgnoredIssue(Title("from-x"), "ok")))
+    assert(rosterX.seenSessions.nonEmpty, "the selected reviewer must run")
     assert(
-      rosterX.seenSessions.nonEmpty,
-      "the canonical roster instance must have been the one that ran"
+      rosterY.seenSessions.isEmpty,
+      "an unselected reviewer must not run"
     )
 
-  test(
-    "an all-foreign selection warns and falls back to the full roster, not zero"
-  ):
-    // Every selected name is outside the roster (e.g. a pre-rename custom
-    // selector still building `reviewer: <slug>` names). Rather than run zero
-    // reviewers and ship unreviewed code, the safety floor falls back to the
-    // full roster: both members run, the foreign name is dropped with a
-    // visible Step, and the foreign stub is never touched.
-    val steps =
-      new java.util.concurrent.ConcurrentLinkedQueue[String]()
-    val listener: OrcaListener =
-      case OrcaEvent.Step(msg) => steps.add(msg): Unit
-      case _                   => ()
-    given FlowControl =
-      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
-    val stranger =
-      new FakeAgent(name = "stranger") // never run: throws if it is
-    val rosterA = new FakeAgent(
-      name = "a",
-      outputs = List(ReviewResult(List(issue("from-a", confidence = 0.9))))
-    )
-    val rosterB = new FakeAgent(
-      name = "b",
-      outputs = List(ReviewResult(List(issue("from-b", confidence = 0.9))))
-    )
-    val strangerSelector = new ReviewerSelector:
+  test("an empty selection runs no reviewers and stops the round honestly"):
+    // The old silent full-roster fallback is gone. An empty selection now means
+    // exactly what it says: no reviewers run this round. With no issues found,
+    // the shared stop policy converges — the loop never resurrects the roster
+    // behind the selector's back, and the (empty-output) coder is never asked
+    // to fix anything.
+    given FlowControl = control
+    val rosterA = new FakeAgent(name = "a") // no outputs: throws if run
+    val emptySelector = new ReviewerSelector:
       def prepare(
-          all: List[Agent[?]],
+          all: List[RosterEntry[?]],
           taskTitle: Title,
           changedFiles: List[String]
-      )(using FlowContext, orca.InStage): List[ReviewBatch] => List[Agent[?]] =
-        _ => List(stranger)
-    val coder = new FakeAgent(
-      name = "coder",
-      outputs = List(
-        FixOutcome(
-          Nil,
-          List(
-            IgnoredIssue(Title("from-a"), "ok"),
-            IgnoredIssue(Title("from-b"), "ok")
-          )
-        )
-      )
-    )
+      )(using FlowContext, orca.InStage) =
+        _ => Nil
+    val coder = new FakeAgent(name = "coder") // throws if a fix turn runs
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(rosterA, rosterB),
-      reviewerSelection = strangerSelector,
-      task = "all-foreign floor",
+      reviewers = List(rosterA),
+      reviewerSelection = emptySelector,
+      task = "empty selection",
       initialDiff = Some("")
     )
-    assert(rosterA.seenSessions.nonEmpty, "roster A must run under the floor")
-    assert(rosterB.seenSessions.nonEmpty, "roster B must run under the floor")
     assert(
-      stranger.seenSessions.isEmpty,
-      "the foreign agent must not have been run"
-    )
-    assert(
-      steps.toArray.toList.exists(m =>
-        m.asInstanceOf[String].contains("stranger") &&
-          m.asInstanceOf[String].contains("not in the configured roster")
-      ),
-      s"expected a drop warning naming 'stranger'; got ${steps.toArray.toList}"
-    )
-    assert(
-      steps.toArray.toList.exists(m =>
-        m.asInstanceOf[String].contains("falling back to all")
-      ),
-      s"expected a fallback warning; got ${steps.toArray.toList}"
+      rosterA.seenSessions.isEmpty,
+      "an unselected reviewer must not run"
     )
     assertEquals(
-      result.issues.map(_.title).toSet,
-      Set(Title("from-a"), Title("from-b"))
+      result,
+      IgnoredIssues(Nil),
+      "empty selection ⇒ no issues ⇒ loop stops with nothing accumulated"
     )
 
-  test("a duplicate same-slug selection runs the reviewer once that round"):
-    // The selector returns the same roster instance twice; `distinctBy` collapses
-    // it so the reviewer runs a single time (one session, one scripted output —
-    // a second run would drain its empty iterator and throw).
+  test("a selector returning the same entry twice runs it once that round"):
+    // Entries are keyed by identity, so `active.distinct` collapses an
+    // accidental duplicate: the reviewer runs a single time (one session, one
+    // scripted output — a second concurrent run would race its session mint and
+    // drain its empty iterator).
     given FlowControl = control
     val rosterX = new FakeAgent(
       name = "x",
@@ -714,11 +672,11 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     val dupSelector = new ReviewerSelector:
       def prepare(
-          all: List[Agent[?]],
+          all: List[RosterEntry[?]],
           taskTitle: Title,
           changedFiles: List[String]
-      )(using FlowContext, orca.InStage): List[ReviewBatch] => List[Agent[?]] =
-        _ => List(rosterX, rosterX)
+      )(using FlowContext, orca.InStage) =
+        _ => all ++ all
     val coder = new FakeAgent(
       name = "coder",
       outputs = List(FixOutcome(Nil, List(IgnoredIssue(Title("from-x"), "ok"))))
@@ -732,60 +690,6 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(rosterX.seenSessions.size, 1)
     assertEquals(result.issues, List(IgnoredIssue(Title("from-x"), "ok")))
-
-  test(
-    "roster resolution resumes one session across rounds despite a foreign copy"
-  ):
-    // Round 1 the selector returns the roster instance; round 2 it returns a
-    // FOREIGN same-slug copy. Both resolve to the canonical instance, so the
-    // reviewer RESUMES its single session on round 2 rather than minting a new
-    // one. Round 1's fix keeps the loop going; round 2 stops it.
-    given FlowControl = control
-    val rosterX = new FakeAgent(
-      name = "x",
-      outputs = List(
-        ReviewResult(List(issue("round-1", confidence = 0.9))),
-        ReviewResult(List(issue("round-2", confidence = 0.9)))
-      )
-    )
-    val foreignX = new FakeAgent(name = "x") // no outputs: throws if ever run
-    val twoRoundSelector = new ReviewerSelector:
-      def prepare(
-          all: List[Agent[?]],
-          taskTitle: Title,
-          changedFiles: List[String]
-      )(using FlowContext, orca.InStage): List[ReviewBatch] => List[Agent[?]] =
-        history => if history.isEmpty then List(rosterX) else List(foreignX)
-    val coder = new FakeAgent(
-      name = "coder",
-      outputs = List(
-        FixOutcome(List(Title("round-1")), Nil),
-        FixOutcome(Nil, List(IgnoredIssue(Title("round-2"), "ok")))
-      )
-    )
-    val result = reviewAndFixLoop(
-      coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(rosterX),
-      reviewerSelection = twoRoundSelector,
-      task = "two-round resume",
-      initialDiff = Some("")
-    )
-    assertEquals(
-      rosterX.seenSessions.size,
-      2,
-      s"reviewer must run in both rounds; got ${rosterX.seenSessions}"
-    )
-    assertEquals(
-      rosterX.seenSessions.distinct.size,
-      1,
-      s"round 2 must resume the round-1 session; got ${rosterX.seenSessions
-          .map(SessionId.value)}"
-    )
-    assert(
-      foreignX.seenSessions.isEmpty,
-      "the foreign same-slug copy must never run"
-    )
-    assertEquals(result.issues, List(IgnoredIssue(Title("round-2"), "ok")))
 
   test(
     "fix turn seeds a fresh coder session but not a live one"

@@ -78,9 +78,11 @@ class ReviewerSelectorTest extends munit.FunSuite:
   // token for the suite.
   private given orca.InStage = orca.InStage.unsafe
 
-  private val scalaFp: Agent[?] = new NamedTool("scala-fp")
-  private val generic: Agent[?] = new NamedTool("generic")
-  private val all: List[Agent[?]] = List(scalaFp, generic)
+  private val scalaFp: RosterEntry[?] =
+    RosterEntry.wrap(new NamedTool("scala-fp"))
+  private val generic: RosterEntry[?] =
+    RosterEntry.wrap(new NamedTool("generic"))
+  private val all: List[RosterEntry[?]] = List(scalaFp, generic)
 
   private val filePatterns =
     Map("scala-fp" -> """\.scala$""".r)

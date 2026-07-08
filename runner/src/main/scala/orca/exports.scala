@@ -63,9 +63,11 @@ export orca.review.{
   FixOutcome,
   IgnoredIssue,
   IgnoredIssues,
+  ReviewBatch,
   ReviewerSelector,
   ReviewIssue,
-  ReviewResult
+  ReviewResult,
+  RosterEntry
 }
 // PushFailure: the Left of GitTool.push's Either — pattern-matching its
 // NonFastForward/RemoteDeclined cases needs it in scope.

@@ -106,6 +106,21 @@ object FlowCanary:
             lintAgent = Some(claude.haiku)
           )
 
+  /** A custom [[ReviewerSelector]] must be implementable from `import orca.*`
+    * alone: its `prepare` is handed the roster as opaque `RosterEntry` handles
+    * and returns a subset/permutation of them (a foreign agent is
+    * unrepresentable). Pins that `RosterEntry`, `ReviewBatch`, and the trait's
+    * roster-bound signature all resolve through the public export surface.
+    */
+  def customReviewerSelectorSurface(): Unit =
+    val _: ReviewerSelector = new ReviewerSelector:
+      def prepare(
+          all: List[RosterEntry[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using FlowContext, InStage) =
+        (_: List[ReviewBatch]) => all.reverse
+
   /** Config overrides must be reachable as unqualified names so users can write
     * `flow(args = ..., workDir = ...)` straight from `import orca.*`.
     */
