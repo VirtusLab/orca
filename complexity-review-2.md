@@ -735,7 +735,14 @@ Refs: `flow/.../review/ReviewLoop.scala:254-258,302-326,416-429`,
 > unknown bucket ships instead — owner call); (b) prompt-fence collisions:
 > inlined lint/diff output uses unescaped triple-backtick fences repo-wide
 > (pre-existing convention) — a shared fence-collision guard is a
-> follow-up.
+> follow-up; (c) (live-tested 2026-07-08) opencode cross-restart session
+> resume: orca spawns a fresh `opencode serve --port 0` per run, so a
+> committed `resumeWireId` is inert across a process restart — the probe
+> correctly reports the session absent and the flow re-seeds (not a bug;
+> the `SessionSupport.Durable` classification and graceful-fallback design
+> are correct, and docs now qualify the "sessions outlive the process"
+> claim). Genuine cross-restart resume needs the server's data dir
+> persisted/reused across runs — a feature, owner call.
 
 > Comprehensive-review F1 DECLINED (owner decision, 2026-07-08): the
 > `reviewAndFixLoop` lead/coder selector stays a REQUIRED `coderSession` — no

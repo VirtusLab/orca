@@ -147,6 +147,16 @@ private[orca] class OpencodeBackend(
     * for `exists` to resolve — as well as the map not having been rehydrated
     * yet (⇒ no known live session), the opencode server not having started, or
     * the request failing for any reason.
+    *
+    * That last case is the common one across a process restart: orca spawns a
+    * fresh `opencode serve --port 0` per run ([[OpencodeServer]]), so a
+    * `resumeWireId` committed in a prior run's progress log names a session on
+    * a server that no longer exists — the probe correctly returns `false` and
+    * the flow re-seeds. The "sessions outlive the process" Durable promise
+    * therefore holds only within a single run; across restarts it degrades to
+    * the same re-seed behavior as an Ephemeral backend (live-tested
+    * 2026-07-08). Making resume genuinely durable would need the server's data
+    * dir persisted/reused across runs — a feature, not a bug fix.
     */
   val tag: BackendTag.Opencode.type = BackendTag.Opencode
 

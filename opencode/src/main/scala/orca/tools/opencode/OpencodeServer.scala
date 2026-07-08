@@ -35,6 +35,16 @@ import scala.util.control.NonFatal
   * a single monitor: [[shutdown]] must be able to run while [[start]] is
   * blocked in a non-interruptible native read, and destroying the process is
   * precisely what unblocks that read — a shared lock would deadlock there.
+  *
+  * This server is per-run and ephemeral: each process (including a resumed run
+  * after a kill/restart) spawns its own on `--port 0`, with no session state
+  * carried over from a prior run's server. So although opencode sessions are
+  * [[SessionSupport.Durable]] on the wire (a real `ses_…` id is committed to
+  * the progress log), that id names a session on a server that no longer exists
+  * once the process restarts — [[OpencodeBackend.probeSession]] correctly
+  * reports it absent and the flow re-seeds instead of resuming (live-tested
+  * 2026-07-08). Genuine cross-restart resume would need this server's data dir
+  * persisted and reused rather than started fresh.
   */
 private[opencode] class OpencodeServer(
     cli: CliRunner,

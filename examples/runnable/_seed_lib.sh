@@ -114,20 +114,23 @@ apply_local_flag() {
   local repo_root="$1" script_path="$2"
   [[ "$USE_LOCAL" -eq 1 ]] || return 0
 
-  # `sbt --client` reuses a running sbt server when one exists, skipping the
-  # JVM cold-start. The first invocation boots the server (slow); subsequent
-  # invocations in the same checkout are near-instant.
+  # Plain `sbt`, not `sbt --client`: AGENTS.md's own "Iterating quickly" note
+  # warns `--client` can silently attach to a stale persistent server running
+  # a different Java/checkout (live-tested 2026-07-08 — a Metals-managed
+  # server pinned this script to a stale build). A fresh `sbt` JVM per
+  # invocation is slower but always builds from the current checkout.
   echo "[orca] publishLocal — first run may take a minute…" >&2
-  (cd "$repo_root" && sbt --client publishLocal)
+  (cd "$repo_root" && sbt publishLocal)
 
   # `print version` aggregates to every subproject, so the output is a
   # block of (project / version, <ver>) pairs. They're all the same dynver
   # value; take the first version line (starts with whitespace + a digit).
-  # sbt --client decorates lines with ANSI escapes — strip them first.
+  # sbt can still decorate lines with ANSI escapes even non-interactively —
+  # strip them first.
   local version
   version="$(
     cd "$repo_root" \
-      && sbt --client --error 'print version' \
+      && sbt --error 'print version' \
       | sed -E $'s/\x1b\\[[0-9;]*[A-Za-z]//g' \
       | grep -m1 -E '^[[:space:]]+[0-9]' \
       | tr -d '[:space:]'
