@@ -727,6 +727,16 @@ Refs: `flow/.../review/ReviewLoop.scala:254-258,302-326,416-429`,
 > behind — ~35k dirs / one day's runs filled an 8G tmpfs. Fix shape: a
 > shared munit fixture that recursively removes the temp root on teardown
 > (os.remove.all in afterEach/afterAll), suite-wide. Treat as a 12.x task.
+> Comprehensive-review residuals (2026-07-08, recorded not fixed): (a) a
+> DEFAULT-model codex run's resume turns attribute tokens to "(unknown)"
+> unpriced — codex's wire carries the model only on thread.started, so
+> pricing them needs session-scoped, thread-safe model memory at
+> CodexBackend across conversation instances (a real feature; the honest
+> unknown bucket ships instead — owner call); (b) prompt-fence collisions:
+> inlined lint/diff output uses unescaped triple-backtick fences repo-wide
+> (pre-existing convention) — a shared fence-collision guard is a
+> follow-up.
+
 > RESOLVED (82b6de5 + b404651): TempDirs registry + shutdown hook; 78 sites
 > migrated; 0 new leaked dirs verified operationally; interactive-session
 > caveat documented at the fixture.
