@@ -724,6 +724,9 @@ Refs: `flow/.../review/ReviewLoop.scala:254-258,302-326,416-429`,
 > behind — ~35k dirs / one day's runs filled an 8G tmpfs. Fix shape: a
 > shared munit fixture that recursively removes the temp root on teardown
 > (os.remove.all in afterEach/afterAll), suite-wide. Treat as a 12.x task.
+> RESOLVED (82b6de5 + b404651): TempDirs registry + shutdown hook; 78 sites
+> migrated; 0 new leaked dirs verified operationally; interactive-session
+> caveat documented at the fixture.
 
 ## Epic 12 — Diagnostics and small robustness
 
