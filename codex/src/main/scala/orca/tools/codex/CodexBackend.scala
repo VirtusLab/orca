@@ -180,7 +180,7 @@ private[orca] class CodexBackend(
     val schemaFile = writeSchemaIfPresent(outputSchema)
     val displayPrompt = mode.displayPrompt
     val askUser: Option[AskUserSession] =
-      mode.fold(None)(_ => Some(AskUserSession.allocate()))
+      Option.when(mode.isInteractive)(AskUserSession.allocate())
     SubprocessSpawn.open(
       "codex",
       askUser.toList ++ schemaFile

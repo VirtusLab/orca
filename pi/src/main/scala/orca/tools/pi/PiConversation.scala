@@ -4,11 +4,7 @@ import orca.events.Usage
 import orca.agents.{BackendTag, Model, SessionId, onWire}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, AgentResult}
-import orca.backend.{
-  BufferedStderrDiagnostics,
-  ForkedConversation,
-  StreamSource
-}
+import orca.backend.{StderrPipeline, ForkedConversation, StreamSource}
 import orca.subprocess.PipedCliProcess
 import orca.tools.pi.rpc.{
   AgentMessage,
@@ -44,7 +40,7 @@ private[pi] class PiConversation(
       initialPrompt = initialPrompt,
       nativeAskUser = askUserEnabled
     )
-    with BufferedStderrDiagnostics[BackendTag.Pi.type]:
+    with StderrPipeline[BackendTag.Pi.type]:
 
   import PiConversation.*
 

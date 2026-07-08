@@ -370,7 +370,7 @@ class CodexConversationTest extends munit.FunSuite:
   convTest("stderr strips terminal controls before surfacing as an Error"):
     // Pinning Task 8.4's hoist: pre-hoist, only pi's handleStderr stripped
     // ANSI/terminal control sequences before surfacing stderr as an Error
-    // event — codex and gemini did not. BufferedStderrDiagnostics now strips
+    // event — codex and gemini did not. StderrPipeline now strips
     // for all three uniformly.
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)

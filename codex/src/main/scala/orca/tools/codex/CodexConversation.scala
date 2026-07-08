@@ -5,7 +5,7 @@ import orca.events.{Usage}
 import orca.{OrcaFlowException}
 import orca.backend.{ConversationEvent, AgentResult}
 import orca.backend.{
-  BufferedStderrDiagnostics,
+  StderrPipeline,
   ForkedConversation,
   StreamSource,
   SubprocessSpawn
@@ -51,7 +51,7 @@ private[codex] class CodexConversation(
       backendName = "codex",
       initialPrompt = initialPrompt
     )
-    with BufferedStderrDiagnostics[BackendTag.Codex.type]:
+    with StderrPipeline[BackendTag.Codex.type]:
 
   import CodexConversation.*
 
@@ -103,22 +103,23 @@ private[codex] class CodexConversation(
     *     the rollout writer is already torn down. The rollout file is still
     *     written correctly to `~/.codex/sessions/`; the message is harmless.
     *
-    * Filter both; anything else passes through [[BufferedStderrDiagnostics]]'s
-    * hoisted `handleStderr` (strip → trim → filter → Error event → recorded
+    * Filter both; anything else passes through [[StderrPipeline]]'s hoisted
+    * `handleStderr` (strip → trim → filter → Error event → recorded
     * diagnostic).
     */
   override protected def isStderrNoise(line: String): Boolean =
     CodexConversation.isKnownStderrNoise(line)
 
   /** Best-effort delete the `--output-schema` temp file (if any), then defer to
-    * [[BufferedStderrDiagnostics.onFinalize]] to join the stderr drain. Runs
-    * exactly once (reader happy-path OR `cancel()` — see
-    * `ForkedConversation.runFinalize`), so the file never outlives the turn
-    * that wrote it.
+    * [[StderrPipeline.onFinalize]] to join the stderr drain. Runs exactly once
+    * (reader happy-path OR `cancel()` — see `ForkedConversation.runFinalize`),
+    * so the file never outlives the turn that wrote it. The delete runs in a
+    * `finally` so a throw from it (e.g. the file already gone) can't skip
+    * `super.onFinalize()` — and with it, the stderr-drain join it depends on.
     */
   override protected def onFinalize(): Unit =
-    schemaFile.foreach(p => SubprocessSpawn.deleteFileResource(p).close())
-    super.onFinalize()
+    try schemaFile.foreach(p => SubprocessSpawn.deleteFileResource(p).close())
+    finally super.onFinalize()
 
   override protected def cleanExitWithoutResult(): Throwable =
     // Defer the framing to the base so the diagnosticContext below gets

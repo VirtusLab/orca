@@ -218,12 +218,13 @@ private[orca] class ClaudeBackend(
     // those calls don't expose the tool. Claude's `extras` deletes the
     // workDir-local `.orca-mcp-<port>.json` when the conversation ends.
     val displayPrompt = mode.displayPrompt
-    val askUser: Option[AskUserSession] = mode.fold(None) { _ =>
-      Some(AskUserSession.allocate: server =>
-        writeMcpConfig(server, workDir)
-        List(SubprocessSpawn.deleteFileResource(mcpConfigPath(server, workDir)))
-      )
-    }
+    val askUser: Option[AskUserSession] =
+      Option.when(mode.isInteractive):
+        AskUserSession.allocate: server =>
+          writeMcpConfig(server, workDir)
+          List(
+            SubprocessSpawn.deleteFileResource(mcpConfigPath(server, workDir))
+          )
     SubprocessSpawn.open("claude stream-json", askUser.toList) {
       val systemPromptFile =
         writeSystemPromptIfPresent(

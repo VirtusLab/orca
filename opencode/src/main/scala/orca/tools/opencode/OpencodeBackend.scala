@@ -233,7 +233,7 @@ private[orca] class OpencodeBackend(
       mode: SessionMode
   )(using Ox): OpencodeConversation =
     val displayPrompt = mode.displayPrompt
-    val canAsk = mode.fold(false)(_ => true)
+    val canAsk = mode.isInteractive
     val conv = new OpencodeConversation(
       source,
       http,

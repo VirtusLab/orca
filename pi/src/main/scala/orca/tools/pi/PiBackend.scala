@@ -125,7 +125,7 @@ private[orca] class PiBackend(
     // files are allocated up front (before `open`) so `resources` is a plain
     // immutable list.
     val displayPrompt = mode.displayPrompt
-    val extraHint = mode.fold(None)(_ => Some(PiAskUserExtension.Hint))
+    val extraHint = Option.when(mode.isInteractive)(PiAskUserExtension.Hint)
 
     // Write the system prompt file FIRST — before ANY resource is allocated —
     // so a temp-write failure (e.g. disk full) can't leak the ask-user
@@ -135,7 +135,7 @@ private[orca] class PiBackend(
     val systemPromptFile = writeSystemPromptIfPresent(config, extraHint)
 
     val askUserExtension =
-      mode.fold(None)(_ => Some(PiAskUserExtension.allocate()))
+      Option.when(mode.isInteractive)(PiAskUserExtension.allocate())
 
     val resources: List[AutoCloseable] =
       askUserExtension.toList ++ systemPromptFile.toList

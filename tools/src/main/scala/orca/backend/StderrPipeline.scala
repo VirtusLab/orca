@@ -22,10 +22,10 @@ import java.util.concurrent.atomic.AtomicReference
   * driver needing extra teardown overrides `onFinalize` and calls
   * `super.onFinalize()`.
   */
-private[orca] trait BufferedStderrDiagnostics[B <: BackendTag]
+private[orca] trait StderrPipeline[B <: BackendTag]
     extends ForkedConversation[B]:
 
-  import BufferedStderrDiagnostics.*
+  import StderrPipeline.*
 
   private val stderrBuffer = new AtomicReference[Vector[String]](Vector.empty)
 
@@ -66,7 +66,7 @@ private[orca] trait BufferedStderrDiagnostics[B <: BackendTag]
     if lines.isEmpty then None
     else Some(lines.mkString("stderr:\n    ", "\n    ", ""))
 
-private[orca] object BufferedStderrDiagnostics:
+private[orca] object StderrPipeline:
 
   /** Cap on lines kept — sized for a typical stack trace plus a brief
     * explanation, bounded so a chatty subprocess can't grow memory.

@@ -11,40 +11,60 @@ import ox.channels.{Channel, ChannelClosed}
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.util.control.NonFatal
 
-/** Structured-concurrency base for stream-driven [[Conversation]] drivers — the
-  * forked successor to `StreamConversation`. Workers are Ox forks bound to the
-  * caller's per-turn scope (hence the `using Ox`), the session outcome is the
-  * reader fork's return value, and teardown is a lexical `cancel()` the caller
-  * runs in a `finally` (which subsumes the old `finalizeLoop` resource close).
+/** Structured-concurrency base for stream-driven [[Conversation]] drivers.
+  * Workers are Ox forks bound to the caller's per-turn scope (hence the `using
+  * Ox`), the session outcome is the reader fork's return value, and teardown is
+  * a lexical `cancel()` the caller runs in a `finally`.
   *
-  * Same hook surface as `StreamConversation` so subclasses port with minimal
-  * edits: [[handleLine]], [[handleStderr]], [[onFinalize]],
-  * [[cleanExitWithoutResult]], [[diagnosticContext]], [[appendContext]],
-  * [[askUser]], the `eventQueue.enqueue` shim, and [[succeedWith]] /
-  * [[failWith]]. The differences from `StreamConversation`:
+  * '''Startup''': no `start()` / `ensureStarted` step — the workers
+  * ([[stderrFork]], [[askUserFork]], [[readerFork]]) are spawned lazily on
+  * first touch of the conversation surface ([[events]] / [[awaitResult]]),
+  * never from this constructor. Spawning from the constructor would race the
+  * subclass's own field initializers (which run after this super-constructor)
+  * and let the reader fork call [[handleLine]] against half-built subclass
+  * state; by the time a consumer touches the surface, construction has
+  * finished. The forks bind to the `Ox` captured at construction — the per-turn
+  * scope the backend opened — not to whatever scope is active at first touch;
+  * every call site shares that one scope between construction and consumption.
   *
-  *   - no `start()` / `ensureStarted`: the workers are spawned lazily on first
-  *     touch of the conversation surface ([[events]] / [[awaitResult]]), never
-  *     from this constructor — spawning here would race the subclass's own
-  *     field initializers (which run after this super-constructor) and let the
-  *     reader fork call [[handleLine]] against half-built subclass state. By
-  *     the time a consumer touches the surface, construction has finished. The
-  *     forks bind to the `Ox` captured at construction (the per-turn scope the
-  *     backend opened), not to whatever scope is active at first touch — in
-  *     every call site construction and consumption share that one scope.
-  *   - no `outcomeRef` CAS read by `awaitResult`: the reader fork RETURNS the
-  *     `Outcome`; `awaitResult` is `readerFork.join()` mapped as before. The
-  *     in-stream settle ([[succeedWith]] / [[failWith]], run on the reader
-  *     thread inside [[handleLine]]) stashes its result for the reader's
-  *     end-of-stream to pick up.
+  * '''Outcome plumbing''': there's no polled outcome ref — the reader fork
+  * RETURNS the `Outcome[B]`, and [[awaitResult]] is just `readerFork.join()`
+  * mapped. An in-stream settle ([[succeedWith]] / [[failWith]], run on the
+  * reader thread from inside [[handleLine]]) stashes its result for the
+  * reader's end-of-stream to pick up.
+  *
+  * Subclasses implement a driver by supplying these hooks, grouped by role:
+  *   - '''Per-line translation''': [[handleLine]] (abstract — parse one stdout
+  *     line into enqueues and/or a settle) and [[handleStderr]] (default:
+  *     enqueue as an `Error`; the `StderrPipeline` mix-ins override it `final`
+  *     and vary only their `isStderrNoise` predicate).
+  *   - '''Settle''': [[succeedWith]] / [[failWith]] end the turn with a result
+  *     or a failure.
+  *   - '''Turn-grammar reads''': [[turnIsOpen]] / [[isSettled]] let a driver
+  *     ask "did activity stream this turn?" / "have we already settled?"
+  *     without its own bookkeeping.
+  *   - '''Lifecycle''': [[onFinalize]] (drain background streams, release
+  *     session resources — runs exactly once), [[onCancelRequested]] (genuine
+  *     mid-turn cancel only, never a routine post-success teardown), and
+  *     [[cleanExitWithoutResult]] (the exception for a zero-exit stream that
+  *     never sent a terminal message).
+  *   - '''Diagnostics''': [[diagnosticContext]] / [[appendContext]] fold
+  *     optional buffered context into failure messages.
+  *   - '''Ask-user''': [[askUser]] wires an MCP `ask_user` bundle; the base
+  *     spawns its drainer fork and closes it at finalize.
+  *   - '''Enqueue contract''': all events reach the channel through
+  *     `eventQueue.enqueue`, which enforces the [[ConversationEvent]] turn
+  *     grammar by construction. Callers from a background fork (the stderr
+  *     loop, the ask-user drainer) MUST only ever pass NEUTRAL events — see
+  *     [[EventQueue]]'s confinement contract.
   */
 private[orca] abstract class ForkedConversation[B <: BackendTag](
     source: StreamSource,
     /** Used in fork-internal debug traces, parse-error messages, and the
       * default stderr error prefix. Should match the user-facing backend name.
-      * `protected` so [[BufferedStderrDiagnostics]]'s hoisted `handleStderr`
-      * can build the same `"$backendName: $line"` prefix each subprocess
-      * backend used to hardcode individually.
+      * `protected` so [[StderrPipeline]]'s hoisted `handleStderr` can build the
+      * same `"$backendName: $line"` prefix each subprocess backend used to
+      * hardcode individually.
       */
     protected val backendName: String,
     initialPrompt: String = "",
@@ -484,9 +504,8 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
 
 private[orca] object ForkedConversation:
 
-  /** Cap on in-flight unread `ConversationEvent`s (today's `StreamConversation`
-    * value). The producer blocks on `send` once full so backpressure flows back
-    * into the subprocess pipe.
+  /** Cap on in-flight unread `ConversationEvent`s. The producer blocks on
+    * `send` once full so backpressure flows back into the subprocess pipe.
     */
   val EventQueueCapacity: Int = 1024
 

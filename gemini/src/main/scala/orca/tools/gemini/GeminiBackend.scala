@@ -154,10 +154,10 @@ private[orca] class GeminiBackend(
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.Gemini.type] =
     val displayPrompt = mode.displayPrompt
-    val askUser: Option[AskUserSession] = mode.fold(None) { _ =>
-      Some(AskUserSession.allocate: server =>
-        List(GeminiSettings.register(workDir, server.url)))
-    }
+    val askUser: Option[AskUserSession] =
+      Option.when(mode.isInteractive):
+        AskUserSession.allocate: server =>
+          List(GeminiSettings.register(workDir, server.url))
     // On a spawn/build failure the ask_user bundle is closed, which also
     // restores the settings.json via its `extras`, so nothing leaks.
     SubprocessSpawn.open("gemini", askUser.toList) {

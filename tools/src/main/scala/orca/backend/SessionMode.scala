@@ -26,9 +26,10 @@ private[orca] enum SessionMode:
     case Autonomous          => ""
     case Interactive(prompt) => prompt
 
-  /** Case analysis without repeating the `match` at each call site.
-    * `ifInteractive` receives the display prompt.
+  /** True for [[Interactive]] — every call site that branches on the mode only
+    * needs this boolean; the prompt itself is read separately via
+    * [[displayPrompt]].
     */
-  def fold[A](ifAutonomous: => A)(ifInteractive: String => A): A = this match
-    case Autonomous          => ifAutonomous
-    case Interactive(prompt) => ifInteractive(prompt)
+  def isInteractive: Boolean = this match
+    case Autonomous     => false
+    case Interactive(_) => true

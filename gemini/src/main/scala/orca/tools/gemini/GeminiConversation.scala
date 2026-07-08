@@ -4,7 +4,7 @@ import orca.agents.{BackendTag, Model, WireSessionId}
 import orca.events.Usage
 import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{
-  BufferedStderrDiagnostics,
+  StderrPipeline,
   ConversationEvent,
   AgentResult,
   ForkedConversation,
@@ -43,7 +43,7 @@ private[gemini] class GeminiConversation(
       backendName = "gemini",
       initialPrompt = initialPrompt
     )
-    with BufferedStderrDiagnostics[BackendTag.Gemini.type]:
+    with StderrPipeline[BackendTag.Gemini.type]:
 
   // Reader-thread-confined: written and read only from the JSONL reader
   // thread (`handle`/`handleResult`, called from `handleLine`); `awaitResult`'s
@@ -83,8 +83,8 @@ private[gemini] class GeminiConversation(
   /** Known-benign chatter gemini prints on every successful run (see
     * [[GeminiConversation.isKnownStderrNoise]]) is dropped so it doesn't render
     * as a spurious `✖` on each call; anything else passes through
-    * [[BufferedStderrDiagnostics]]'s hoisted `handleStderr` (strip → trim →
-    * filter → Error event → recorded diagnostic).
+    * [[StderrPipeline]]'s hoisted `handleStderr` (strip → trim → filter → Error
+    * event → recorded diagnostic).
     */
   override protected def isStderrNoise(line: String): Boolean =
     GeminiConversation.isKnownStderrNoise(line)
