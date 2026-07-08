@@ -99,7 +99,8 @@ object FlowCanary:
           reviewAndFixLoop(
             coderSession = session,
             reviewers = allReviewers(claude),
-            reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
+            reviewerSelection =
+              Some(ReviewerSelector.agentDriven(claude.haiku)),
             task = task.description,
             formatCommand = Some("mvn -q spotless:apply"),
             lintCommand = Some("mvn -q test"),
@@ -120,6 +121,25 @@ object FlowCanary:
           changedFiles: List[String]
       )(using FlowContext, InStage) =
         (_: List[ReviewBatch]) => all.reverse
+
+  /** The reviewer-customisation surface must be reachable from `import orca.*`
+    * alone: `Reviewer`, `ReviewerPrompts` (the shipped set + its preset lists),
+    * and `buildReviewers` to turn a composed `List[Reviewer]` into the agents
+    * `reviewAndFixLoop` takes. Pins that a flow can swap or extend the reviewer
+    * set without any side import.
+    */
+  def reviewerCustomisationSurface(): Unit =
+    flow(OrcaArgs(), _.claude):
+      stage("reviewers"):
+        val custom: Reviewer = Reviewer(
+          name = "my-thing",
+          description = "checks my thing",
+          systemPrompt = "…"
+        )
+        val list: List[Reviewer] = ReviewerPrompts.minimal :+ custom
+        val _: List[Agent[?]] = buildReviewers(claude, list)
+        val _: List[Agent[?]] = allReviewers(claude)
+        val _: Map[String, String] = ReviewerPrompts.descriptionsBySlug
 
   /** Config overrides must be reachable as unqualified names so users can write
     * `flow(args = ..., workDir = ...)` straight from `import orca.*`.
@@ -307,15 +327,15 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude).value
 
-      val session = claude.session("implementer", seed = plan.brief)
+      val session = plan.implementerSession(claude)
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
           val _ = session.run(task.description)
+          // reviewerSelection omitted: defaults to agentDriven(claude.cheap).
           reviewAndFixLoop(
             coderSession = session,
             reviewers = allReviewers(claude),
-            reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
             formatCommand = Some("cargo fmt"),
             lintCommand = Some("cargo check --tests"),
@@ -330,7 +350,7 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.interactive.from(userPrompt, claude).value
 
-      val session = claude.session("implementer", seed = plan.brief)
+      val session = plan.implementerSession(claude)
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
@@ -338,20 +358,19 @@ object FlowCanary:
           reviewAndFixLoop(
             coderSession = session,
             reviewers = allReviewers(claude),
-            reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
             formatCommand = Some("cargo fmt")
           )
 
-  /** `implement-enhanced.sc`: plan → `.reviewed` → session seeded from brief →
-    * task loop with `taskPrompt` → push → PR via `createPr`.
+  /** `implement-enhanced.sc`: plan → `.reviewed` → `plan.implementerSession` →
+    * task loop with `taskPrompt` → `openPrFromBranch`.
     */
   def enhancedImplementFlowShape(): Unit =
     flow(OrcaArgs(), _.claude):
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude).reviewed(claude).value
 
-      val session = claude.session("implementer", seed = plan.brief)
+      val session = plan.implementerSession(claude)
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
@@ -359,22 +378,11 @@ object FlowCanary:
           reviewAndFixLoop(
             coderSession = session,
             reviewers = allReviewers(claude),
-            reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
             formatCommand = Some("cargo fmt")
           )
 
-      stage("Push branch"):
-        git.push().orThrow
-
-      val prSum = stage("Generate PR title and description"):
-        summarisePr(
-          agent = claude.haiku,
-          diff = git.diffVsBase(git.defaultBase())
-        )
-
-      val _ = stage("Open PR"):
-        gh.createPr(title = prSum.title, body = prSum.body).orThrow
+      val _ = openPrFromBranch(summarisingAgent = claude.haiku)
 
   /** The leading-model selector resolves against the flow context (ADR 0018
     * §2.5): a positional `agent` selector is required (`_.claude`, `_.codex`,
@@ -394,7 +402,7 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude.opus).value
 
-      val session = claude.session("implementer", seed = plan.brief)
+      val session = plan.implementerSession(claude)
       val reviewers: List[Agent[?]] = allReviewers(codex)
 
       for task <- plan.tasks do
@@ -403,7 +411,6 @@ object FlowCanary:
           reviewAndFixLoop(
             coderSession = session,
             reviewers = reviewers,
-            reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.title.value,
             formatCommand = Some("mvn -q spotless:apply")
           )
@@ -438,7 +445,7 @@ object FlowCanary:
           gh.writeComment(issueHandle, rejectionBody)
 
       maybePlan.foreach: plan =>
-        val session = claude.session("implementer", seed = plan.brief)
+        val session = plan.implementerSession(claude)
 
         for task <- plan.tasks do
           stage(s"task: ${task.title}"):
@@ -446,17 +453,15 @@ object FlowCanary:
             reviewAndFixLoop(
               coderSession = session,
               reviewers = allReviewers(claude),
-              reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
               task = task.title.value,
               formatCommand = Some("npx prettier --write .")
             )
 
-        stage("Push branch"):
-          git.push().orThrow
-
-        val _ = stage("Open PR"):
-          gh.createPr(title = "fix", body = s"Closes ${issueHandle.shortRef}.")
-            .orThrow
+        val _ = openPrFromBranch(
+          summarisingAgent = claude.haiku,
+          body =
+            summary => s"${summary.body}\n\nCloses ${issueHandle.shortRef}."
+        )
 
   /** `issue-pr-bugfix.sc`: the push-after-edit authoring rule (ADR 0018).
     * "Write failing test" commits the test; a LATER "Push + open PR" stage
@@ -525,7 +530,6 @@ object FlowCanary:
               reviewAndFixLoop(
                 coderSession = session,
                 reviewers = allReviewers(claude),
-                reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
                 task = task.title.value,
                 formatCommand = Some("sbt scalafmtAll"),
                 lintCommand = Some("sbt Test/compile"),

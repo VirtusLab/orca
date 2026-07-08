@@ -285,6 +285,12 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
       askUser.foreach(r => fork(askUserDrain(r.bridge)).discard)
       val reader = forkUnsupervised(runReader())
       val started = Workers(stderr, reader)
+      // Assignment-window note: the forks are live before `workers` is set, so a
+      // `cancel`/[[onFinalize]] reading [[stderrDrainFork]] in that gap would see
+      // `None` and skip draining. Benign and practically unreachable — the
+      // consumer is single-threaded (this runs on the same thread that later
+      // finalizes), so no reader observes the window in practice; documented, not
+      // guarded.
       workers = Some(started)
       started
 

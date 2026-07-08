@@ -50,12 +50,19 @@ export orca.agents.{
   codecFromJsonData
 }
 export orca.plan.{BugReportMatch, Plan, Sessioned, Task, Title, Triage, Verdict}
-export orca.pr.{summarisePr, PrSummary}
+// openPrFromBranch bundles the push→summarise→createPr tail every PR flow
+// otherwise hand-rolls; PrSummary is its (and summarisePr's) result type.
+export orca.pr.{openPrFromBranch, summarisePr, PrSummary}
 // IgnoredIssue(s): the return type of both fixLoop and reviewAndFixLoop above
 // — a caller binding the result to a typed val, or inspecting `.issues`,
 // needs it in scope.
+// Reviewer + ReviewerPrompts + buildReviewers: the reviewer-customisation
+// surface — compose your own `List[Reviewer]` (shipped `ReviewerPrompts`
+// entries, a subset, and/or your own) and `buildReviewers` it into the agents
+// `reviewAndFixLoop` takes, to swap or extend what `allReviewers` builds.
 export orca.review.{
   allReviewers,
+  buildReviewers,
   fixLoop,
   lint,
   minimalReviewers,
@@ -63,6 +70,8 @@ export orca.review.{
   FixOutcome,
   IgnoredIssue,
   IgnoredIssues,
+  Reviewer,
+  ReviewerPrompts,
   ReviewBatch,
   ReviewerSelector,
   ReviewIssue,

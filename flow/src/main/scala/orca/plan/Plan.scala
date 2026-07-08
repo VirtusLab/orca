@@ -1,6 +1,13 @@
 package orca.plan
 
-import orca.{FlowContext, InStage, OrcaFlowException}
+import orca.{
+  FlowContext,
+  FlowControl,
+  FlowSession,
+  InStage,
+  OrcaFlowException,
+  session
+}
 import orca.agents.{Announce, BackendTag, CanAskUser, JsonData, Agent, given}
 
 import scala.annotation.unused
@@ -237,6 +244,30 @@ object Plan:
         .autonomous
         .run(s"$instructions\n\n${render(sp.value)}", session = sp.sessionId)
       Sessioned(sessionId, improved)
+
+  // == Deriving the implementer session from a plan ==
+  //
+  // Defined here so it's in the implicit scope of `Plan` — a flow writes
+  // `plan.implementerSession(agent)` with no extra import.
+
+  extension (plan: Plan)
+    /** Get-or-create the durable implementer [[FlowSession]] for this plan,
+      * seeded with the plan's [[brief]] so the cold-starting coder has codebase
+      * context from the start (and is re-primed on resume if the backend
+      * conversation is lost). One call in place of the recurring
+      * `agent.session(name, seed = plan.brief)` pairing.
+      *
+      * Threads `plan.brief` automatically; the general `agent.session(name,
+      * seed)` mechanism stays for sessions seeded from anything else (e.g. an
+      * issue body). Like `agent.session`, this reserves the id and records the
+      * seed without an LLM call or commit, so it must be called at the
+      * flow-body top level, before stages (see `agent.session`).
+      */
+    def implementerSession[B <: BackendTag](
+        agent: Agent[B],
+        name: String = "implementer"
+    )(using FlowControl): FlowSession[B] =
+      agent.session(name, seed = plan.brief)
 
   /** Empty plans render as nothing — surfacing "0 tasks planned" muddies the
     * picture; a planning failure is more useful as an explicit `fail(...)` from

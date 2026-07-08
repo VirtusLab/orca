@@ -550,6 +550,23 @@ class FlowSessionTest extends FunSuite:
     val recorded = fc.progressStore.load().get.sessions.head
     assertEquals(session.id.value, recorded.id)
 
+  test("plan.implementerSession seeds the durable session with the plan brief"):
+    // F2 bundle: `plan.implementerSession(agent)` threads `plan.brief` as the
+    // seed automatically, in place of `agent.session(name, seed = plan.brief)`.
+    val fc = makeControl(sessions = Nil)
+    val plan = orca.plan.Plan(
+      epicId = "e",
+      description = "d",
+      tasks = Nil,
+      brief = "codebase brief"
+    )
+    val agent = new StubAgentForSeeded(existsResult = false)
+    val session = plan.implementerSession(agent)(using fc)
+    val recorded = fc.progressStore.load().get.sessions.head
+    assertEquals(recorded.name, "implementer")
+    assertEquals(recorded.seed, "codebase brief")
+    assertEquals(session.id.value, recorded.id)
+
   // ── tests: the raw ephemeral door does not accept a FlowSession ──────────────
 
   test("agent.autonomous.run(prompt, flowSession) does not compile"):
