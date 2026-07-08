@@ -679,6 +679,16 @@ Refs: `flow/.../review/ReviewLoop.scala:254-258,302-326,416-429`,
 `flow/.../review/ReviewerSelector.scala:20-25`,
 `flow/.../review/SelectedReviewers.scala:11-12`.
 
+> Research 2026-07-08 (epic11-research.md): 11.2 already implemented (the
+> floor matches `eligible` — folds into 11.1's retyping); 11.4's "12
+> params" stale — 11 now (2.3 collapsed the pair); pure-arrow is genuinely
+> typeable now BUT ReviewerSelector.scala's two inline `derives` DTOs must
+> move to a sibling non-CC file first (the FixRequest precedent); the 4
+> foreign-selector tests become inexpressible under identity keying —
+> rewrite deliberately. Order: 11.3+11.4 (mechanical) FIRST, then 11.1+11.2.
+> Untyped deletion: try the existential SessionEntry pair (run-inside-the-
+> wrapper, the original epic sketch); keep Untyped only if it fights CC.
+
 - [ ] 11.1 Opaque roster-bound `RosterEntry` handles (`private[review]` ctor);
   selectors permute what they were handed; session map keyed by entry
   identity. `resolveAgainstRoster`, its warning, the fallback, and the
