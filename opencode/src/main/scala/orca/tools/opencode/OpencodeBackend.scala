@@ -33,12 +33,10 @@ import scala.util.control.NonFatal
 
 /** Lifecycle seam between the backend and the shared `opencode serve` owner —
   * lets tests substitute a fake without a real process. `http` may spawn on
-  * first force; `started` must never spawn (probes use it to answer "absent"
-  * without side effects); `close()` is idempotent.
+  * first force; `close()` is idempotent.
   */
 private[opencode] trait OpencodeServerHandle:
   def http: OpencodeHttp
-  def started: Boolean
   def close(): Unit
 
 /** OpenCode backend (ADR 0014). Drives a shared `opencode serve` over HTTP+SSE.
@@ -145,18 +143,22 @@ private[orca] class OpencodeBackend(
     * injection such as `a/b` routing to a different endpoint): `register`/
     * `commitAfterDrain` refuse to record it, so it never reaches the registry
     * for `exists` to resolve — as well as the map not having been rehydrated
-    * yet (⇒ no known live session), the opencode server not having started, or
-    * the request failing for any reason.
+    * yet (⇒ no known live session), or the request failing for any reason.
     *
-    * That last case is the common one across a process restart: orca spawns a
-    * fresh `opencode serve --port 0` per run ([[OpencodeServer]]), so a
-    * `resumeWireId` committed in a prior run's progress log names a session on
-    * a server that no longer exists — the probe correctly returns `false` and
-    * the flow re-seeds. The "sessions outlive the process" Durable promise
-    * therefore holds only within a single run; across restarts it degrades to
-    * the same re-seed behavior as an Ephemeral backend (live-tested
-    * 2026-07-08). Making resume genuinely durable would need the server's data
-    * dir persisted/reused across runs — a feature, not a bug fix.
+    * Sessions genuinely outlive the process: opencode persists them to a global
+    * on-disk store shared by every `opencode serve` on the machine
+    * (cwd-independent), so a fresh server spawned after a kill/restart resumes
+    * a prior run's `resumeWireId` — `GET /session/<id>` returns 200 with full
+    * message history (live-verified 2026-07-08). The probe therefore forces
+    * `server.http` (the lazy spawn) rather than gating on whether the server
+    * has already started: on resume the registry has a mapped id but no turn
+    * has necessarily touched the server yet, so gating on "already spawned"
+    * would answer "absent" before ever asking the (perfectly capable) fresh
+    * server — which is exactly the bug this probe used to have. This is safe
+    * because [[SessionSupport.exists]] short-circuits on no mapped id, so the
+    * forced spawn only fires when there is a wire id to resume — i.e. precisely
+    * when the server is about to be needed for a turn anyway. The per-run
+    * server process is an implementation detail, not a durability boundary.
     */
   val tag: BackendTag.Opencode.type = BackendTag.Opencode
 
@@ -175,7 +177,15 @@ private[orca] class OpencodeBackend(
   val sessions: SessionSupport[BackendTag.Opencode.type] =
     SessionSupport.Durable(
       new SessionRegistry.ClientToServer[BackendTag.Opencode.type],
-      id => server.started && probeSession(id, server.http)
+      // No `server.started &&` guard: opencode persists sessions in its
+      // global on-disk DB, and a freshly (lazily) spawned server resumes
+      // them, so the probe must be allowed to force the spawn — gating on
+      // "already started" used to short-circuit the very first resume probe
+      // of a run, before anything had forced `server.http` yet. Safe because
+      // `SessionSupport.Durable.exists` short-circuits on no mapped wire id,
+      // so the forced spawn only fires on a genuine resume, when the server
+      // is about to be needed for a turn anyway.
+      id => probeSession(id, server.http)
     )
 
   /** The server `ses_…` to drive: a fresh `POST /session`, or the one a prior

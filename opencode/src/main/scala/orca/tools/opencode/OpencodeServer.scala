@@ -36,15 +36,18 @@ import scala.util.control.NonFatal
   * blocked in a non-interruptible native read, and destroying the process is
   * precisely what unblocks that read — a shared lock would deadlock there.
   *
-  * This server is per-run and ephemeral: each process (including a resumed run
-  * after a kill/restart) spawns its own on `--port 0`, with no session state
-  * carried over from a prior run's server. So although opencode sessions are
-  * [[SessionSupport.Durable]] on the wire (a real `ses_…` id is committed to
-  * the progress log), that id names a session on a server that no longer exists
-  * once the process restarts — [[OpencodeBackend.probeSession]] correctly
-  * reports it absent and the flow re-seeds instead of resuming (live-tested
-  * 2026-07-08). Genuine cross-restart resume would need this server's data dir
-  * persisted and reused rather than started fresh.
+  * This server *process* is per-run and ephemeral: each run (including a
+  * resumed run after a kill/restart) spawns its own on `--port 0`. But the
+  * *storage* it reads from is not — opencode persists sessions to a global
+  * on-disk store shared by every `opencode serve` on the machine, independent
+  * of cwd, so a freshly spawned process resumes a session minted by a prior
+  * (now-dead) process: `GET /session/<id>` returns 200 with full message
+  * history (live-verified 2026-07-08). So although this class's process is
+  * ephemeral, opencode sessions genuinely are [[SessionSupport.Durable]] across
+  * a restart — [[OpencodeBackend.probeSession]] just needs to force a fresh
+  * spawn to see it (see that method's scaladoc). This per-run process is an
+  * implementation detail of how orca talks to opencode, not a durability
+  * boundary on the sessions themselves.
   */
 private[opencode] class OpencodeServer(
     cli: CliRunner,
@@ -71,11 +74,6 @@ private[opencode] class OpencodeServer(
     * guarantees a single *spawn* of it.
     */
   lazy val http: OpencodeHttp = start()
-
-  /** Whether the server has spawned (its client is recorded). Reading it never
-    * forces [[http]], so a probe can answer "absent" without a spawn.
-    */
-  def started: Boolean = clientRef.get() != null
 
   /** Tear down the server: tree-destroy the process (unblocking the drain
     * forks' reads so the enclosing scope can join them) and close the HTTP

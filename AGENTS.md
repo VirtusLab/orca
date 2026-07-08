@@ -101,10 +101,11 @@ most easily broken:
 - **Sessions.** Durability is ONE structural choice per backend:
   `AgentBackend.sessions: SessionSupport[B]` is either `Ephemeral(registry)`
   (pi — nothing survives a process restart) or `Durable(registry, probe)`
-  (claude/codex/gemini/opencode — sessions outlive the process *within a run*;
-  opencode is the exception — its server is spawned per-run (`opencode serve
-  --port 0`), so a committed `resumeWireId` is inert across a process restart
-  and resume degrades to the re-seed fallback, live-tested 2026-07-08). `Agent`
+  (claude/codex/gemini/opencode — sessions outlive the process, including
+  across a restart; opencode persists sessions in its own global on-disk store
+  independent of orca's per-run `opencode serve` process, so a fresh server
+  spawned after a kill/restart resumes a committed `resumeWireId` the same way
+  the file-probed backends do, live-verified 2026-07-08). `Agent`
   derives `willContinue` / `resumeWireId` / `registerResumeWireId` as `final`
   methods over the single `sessionSupport` hook, so a concrete tool can't wire
   one session operation while silently defaulting the others — that

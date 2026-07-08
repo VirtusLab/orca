@@ -735,14 +735,20 @@ Refs: `flow/.../review/ReviewLoop.scala:254-258,302-326,416-429`,
 > unknown bucket ships instead — owner call); (b) prompt-fence collisions:
 > inlined lint/diff output uses unescaped triple-backtick fences repo-wide
 > (pre-existing convention) — a shared fence-collision guard is a
-> follow-up; (c) (live-tested 2026-07-08) opencode cross-restart session
-> resume: orca spawns a fresh `opencode serve --port 0` per run, so a
-> committed `resumeWireId` is inert across a process restart — the probe
-> correctly reports the session absent and the flow re-seeds (not a bug;
-> the `SessionSupport.Durable` classification and graceful-fallback design
-> are correct, and docs now qualify the "sessions outlive the process"
-> claim). Genuine cross-restart resume needs the server's data dir
-> persisted/reused across runs — a feature, owner call.
+> follow-up; (c) RESOLVED (fix commit follows f0d8055) opencode cross-restart
+> session resume: the 2026-07-08 finding that a committed `resumeWireId` is
+> inert across a process restart was itself wrong about the cause. opencode
+> persists sessions in its own global on-disk store, cwd-independent, and a
+> freshly spawned `opencode serve` DOES resume a prior run's session
+> (live-verified). The actual bug was orca-side: the existence probe was
+> gated on `server.started`, so on the first agent call of a resumed run —
+> before anything had forced the lazy server spawn — the guard short-circuited
+> the probe before it ever contacted the (perfectly capable) fresh server,
+> producing a spurious re-seed. Fix: drop the `server.started &&` guard so the
+> probe forces the spawn (safe: `SessionSupport.Durable.exists` already
+> short-circuits on no mapped wire id, so the forced spawn only fires on a
+> genuine resume). No owner-call feature (persisted/reused data dir) was
+> needed — it was a probe-ordering bug, not a missing capability.
 
 > Comprehensive-review F1 DECLINED (owner decision, 2026-07-08): the
 > `reviewAndFixLoop` lead/coder selector stays a REQUIRED `coderSession` — no

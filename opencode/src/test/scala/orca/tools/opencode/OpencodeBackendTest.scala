@@ -26,21 +26,14 @@ class OpencodeBackendTest extends munit.FunSuite:
       def tryExitCode: Option[Int] = Some(0)
     override def getStatus(path: String): Int = statusFor(path)
 
-  /** Fake [[OpencodeServerHandle]] standing in for the eager server. Forcing
-    * `http` (as a turn does) flips `started`, mirroring the real server whose
-    * `clientRef` is set only once the process has spawned; `started` on its own
-    * never touches `http`, so the probe can answer "absent" without spawning.
+  /** Fake [[OpencodeServerHandle]] standing in for the eager server. `http`
+    * forces `httpThunk` on every access — a test wanting to assert a spawn
+    * never happens passes `fail(...)` as the thunk.
     */
-  private class FakeHandle(
-      httpThunk: => OpencodeHttp,
-      startedInit: Boolean = false
-  ) extends OpencodeServerHandle:
-    private var startedFlag: Boolean = startedInit
+  private class FakeHandle(httpThunk: => OpencodeHttp)
+      extends OpencodeServerHandle:
     var closed: Boolean = false
-    def http: OpencodeHttp =
-      startedFlag = true
-      httpThunk
-    def started: Boolean = startedFlag
+    def http: OpencodeHttp = httpThunk
     def close(): Unit = closed = true
 
   private def data(json: String): String = s"data: $json"
@@ -211,20 +204,42 @@ class OpencodeBackendTest extends munit.FunSuite:
     backend.close()
     assert(handle.closed, "backend.close() must close the server handle")
 
-  test("sessionExists is false when the server was never started (no spawn)"):
+  test(
+    "sessionExists never spawns the server when there is no client→server " +
+      "mapping (the no-spurious-spawn guarantee)"
+  ):
     supervised:
-      // The probe is `started && probeSession(...)`: with `started` false the
-      // `&&` short-circuits, so `http` (which would spawn a process) is never
-      // forced — even though a client→server mapping IS present to resolve.
+      // No `register`/turn has mapped this client id, so `exists` must
+      // short-circuit on the registry gate WITHOUT forcing `http` — the fake
+      // handle fails the test if it is ever forced.
       val backend = new OpencodeBackend(
-        new FakeHandle(fail("must not spawn"), startedInit = false)
+        new FakeHandle(fail("must not spawn"))
       )
+      val client = fresh
+      assert(!backend.sessions.exists(client))
+
+  test(
+    "a probe with a rehydrated wire id spawns the server and returns its answer"
+  ):
+    supervised:
+      // Mirrors resume: FlowLifecycle.rehydrateSessions registers the
+      // client→server mapping before any turn has touched the server, so
+      // `http` has never been forced yet when `exists` is called. The probe
+      // must still force the (lazy) spawn and contact the fresh server rather
+      // than short-circuiting on whether it was already running — that
+      // short-circuit was the cross-restart-resume bug this pins against a
+      // regression of.
+      val http = new FakeHttp(
+        Nil,
+        path => if path == "/session/ses_server1" then 200 else 404
+      )
+      val backend = new OpencodeBackend(new FakeHandle(http))
       val client = fresh
       backend.sessions.register(
         client,
         WireSessionId[BackendTag.Opencode.type]("ses_server1")
       )
-      assert(!backend.sessions.exists(client))
+      assert(backend.sessions.exists(client))
 
   test(
     "sessionExists returns false when there is no client→server mapping"
