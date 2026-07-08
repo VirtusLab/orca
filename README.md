@@ -341,6 +341,53 @@ structural conventions you choose to follow as a flow author.
    on resume. A name like `"Push + open PR"` lets a reader (and the resuming
    agent) understand the checkpoint without reading code.
 
+## Experimental: capabilities & compile-time concurrency checking
+
+Orca gates side effects behind three capability tokens. You normally never
+construct one — `stage(...)` bodies provide them, and a missing token is a
+compile error with a message telling you where the call belongs:
+
+| Capability | Kind | Gates | Provided by | Misuse caught by |
+|---|---|---|---|---|
+| `InStage` | shared (`caps.SharedCapability`) | LLM runs (`agent.*.run`, `session.run`) | `stage(...)` bodies | missing-given compile error |
+| `WorkspaceWrite` | exclusive (`caps.ExclusiveCapability`) | git/`gh` writes, `fs.write`, progress-log writes | `stage(...)` bodies | missing-given compile error; must never cross a `fork` |
+| `FlowControl` | exclusive (`caps.ExclusiveCapability`) | starting stages, minting sessions | the `flow(...)` body (not forks) | missing-given compile error + a runtime owner-thread check |
+
+(`FlowContext` — reads and event emission — is deliberately *not* a
+capability: it is thread-safe and forks receive it freely.)
+
+The shared/exclusive split is [Scala's experimental capture
+checking](https://docs.scala-lang.org/scala3/reference/experimental/cc.html)
+vocabulary, and enforcement comes in three layers:
+
+1. **Always on, no setup:** the runtime guards — a fork that calls
+   `stage(...)`/`session(...)` fails immediately with the rule it broke; a
+   second `flow(...)` in the same working tree is refused; an agent used
+   after its flow ended throws.
+2. **Always on, inside the library:** orca's own parallel code (the reviewer
+   fan-out) is compiled under capture + separation checking — a change that
+   captured a `WorkspaceWrite` into that fan-out would not compile, and a
+   compile-time test suite pins both the rejections and the deliberately
+   legal `InStage` capture.
+3. **Opt-in, in your script:** add the two language imports to a `.sc` file
+   to have the compiler check *your* code too — today that enforces, e.g.,
+   that a custom `ReviewerSelector`'s per-round function stays pure (effects
+   belong in `prepare`):
+
+   ```scala
+   import language.experimental.captureChecking
+   import language.experimental.separationChecking
+   ```
+
+   Full compile-time fork-boundary checking in scripts (rejecting a
+   `WorkspaceWrite` captured into a raw `ox.fork`) arrives when Ox itself
+   adopts capture checking; until then layer 1 covers that case at runtime.
+
+Capture checking is an evolving experimental compiler feature. The imports
+cost nothing when omitted — scripts without them compile and run identically
+— and orca tracks the feature's development (see ADR 0018 §6 for the design
+record).
+
 ## Planning utilities
 
 Available via `import orca.plan.*`:
