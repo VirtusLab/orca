@@ -10,6 +10,7 @@ import orca.agents.{
 }
 import orca.backend.SupervisedBackend
 import orca.subprocess.OsProcCliRunner
+import orca.testkit.TempDirs
 
 /** End-to-end tests against the real `gemini` CLI. Gated on the
   * `ORCA_INTEGRATION` environment variable so `sbt test` without the flag
@@ -32,7 +33,7 @@ class GeminiIntegrationTest extends munit.FunSuite:
 
   private def withBackend(body: ox.Ox ?=> GeminiBackend => Unit): Unit =
     SupervisedBackend.using(
-      new GeminiBackend(OsProcCliRunner, workDir = os.temp.dir())
+      new GeminiBackend(OsProcCliRunner, workDir = TempDirs.dir())
     )(body)
 
   // A cheap, widely-available model; override via ORCA_GEMINI_MODEL.

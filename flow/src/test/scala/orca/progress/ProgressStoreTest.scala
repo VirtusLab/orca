@@ -2,6 +2,7 @@ package orca.progress
 
 import munit.FunSuite
 import orca.WorkspaceWrite
+import orca.testkit.TempDirs
 
 class ProgressStoreTest extends FunSuite:
 
@@ -15,7 +16,7 @@ class ProgressStoreTest extends FunSuite:
   )
 
   test("writeHeader then load returns the header with empty entries"):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     store.writeHeader(header)
     val loaded = store.load()
@@ -24,7 +25,7 @@ class ProgressStoreTest extends FunSuite:
   test(
     "appendEntry with same id upserts (last write wins), different id appends"
   ):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     store.writeHeader(header)
 
@@ -43,12 +44,12 @@ class ProgressStoreTest extends FunSuite:
     assertEquals(loaded.map(_.entries), Some(List(aPrime, b)))
 
   test("load returns None when no file exists"):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     assertEquals(store.load(), None: Option[ProgressLog])
 
   test("load returns None for a corrupt file (no throw)"):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     // Manually write garbage to the expected path location
     val path = workDir / ".orca"
@@ -65,14 +66,14 @@ class ProgressStoreTest extends FunSuite:
     assertEquals(store.load(), None: Option[ProgressLog])
 
   test("loadDetailed is Absent when no file exists"):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     assertEquals(store.loadDetailed(), ProgressStore.LoadResult.Absent)
 
   test(
     "loadDetailed is Loaded for a valid file, wrapping the same value load() returns"
   ):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     store.writeHeader(header)
     assertEquals(store.load(), Some(ProgressLog(header, Nil)))
@@ -84,7 +85,7 @@ class ProgressStoreTest extends FunSuite:
   test(
     "loadDetailed is Corrupt with a non-empty reason for a garbage-bytes file; load() stays None"
   ):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     val path = workDir / ".orca"
     os.makeDir.all(path)
@@ -100,7 +101,7 @@ class ProgressStoreTest extends FunSuite:
     assertEquals(store.load(), None: Option[ProgressLog])
 
   test("appendEntry before writeHeader throws the absent-log message"):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     val ex = intercept[IllegalStateException]:
       store.appendEntry(
@@ -112,7 +113,7 @@ class ProgressStoreTest extends FunSuite:
     )
 
   test("upsertSession before writeHeader throws the absent-log message"):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     val ex = intercept[IllegalStateException]:
       store.upsertSession(
@@ -134,7 +135,7 @@ class ProgressStoreTest extends FunSuite:
     // 12.4: a log that exists but is torn/corrupted mid-run must not be
     // misreported as "appendEntry called before writeHeader" — that message
     // is a lie when writeHeader plainly did run (the file exists).
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     val path = workDir / ".orca"
     os.makeDir.all(path)
@@ -159,7 +160,7 @@ class ProgressStoreTest extends FunSuite:
   test(
     "upsertSession against a corrupted-but-present log surfaces a corruption-specific message"
   ):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     val path = workDir / ".orca"
     os.makeDir.all(path)
@@ -183,7 +184,7 @@ class ProgressStoreTest extends FunSuite:
     )
 
   test("default path is <workDir>/.orca/progress-<12hexchars>.json"):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "test prompt")
     store.writeHeader(header)
     val orcaDir = workDir / ".orca"
@@ -197,8 +198,8 @@ class ProgressStoreTest extends FunSuite:
     )
 
   test("default path is deterministic for a given prompt"):
-    val workDir1 = os.temp.dir()
-    val workDir2 = os.temp.dir()
+    val workDir1 = TempDirs.dir()
+    val workDir2 = TempDirs.dir()
     val store1 = ProgressStore.default(workDir1, "deterministic prompt")
     val store2 = ProgressStore.default(workDir2, "deterministic prompt")
     store1.writeHeader(header)
@@ -208,7 +209,7 @@ class ProgressStoreTest extends FunSuite:
     assertEquals(name1, name2)
 
   test("upsertSession writes a session record and load shows it"):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     store.writeHeader(header)
     val record = SessionRecord(
@@ -224,7 +225,7 @@ class ProgressStoreTest extends FunSuite:
   test(
     "upsertSession with same name+occurrence replaces the record (last wins)"
   ):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     store.writeHeader(header)
     val first = SessionRecord(
@@ -245,7 +246,7 @@ class ProgressStoreTest extends FunSuite:
     assertEquals(loaded.map(_.sessions), Some(List(second)))
 
   test("upsertSession with different occurrences results in two records"):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     store.writeHeader(header)
     val r0 = SessionRecord(
@@ -268,7 +269,7 @@ class ProgressStoreTest extends FunSuite:
   test(
     "upsertSession with the same occurrence but different names results in two records"
   ):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     store.writeHeader(header)
     val implementer = SessionRecord(
@@ -294,7 +295,7 @@ class ProgressStoreTest extends FunSuite:
     // The AtomicMoveNotSupportedException fallback path has no injectable
     // seam in this test harness — verified by code review, mirroring
     // FlowLifecycleTest's convention for the corrupt-log WARN.
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     store.writeHeader(header)
     store.appendEntry(

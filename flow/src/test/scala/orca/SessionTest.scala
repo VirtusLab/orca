@@ -15,6 +15,7 @@ import orca.agents.{
 }
 import orca.progress.{ProgressHeader, ProgressStore, SessionRecord}
 import orca.tools.OsGitTool
+import orca.testkit.TempDirs
 
 /** Tests for `agent.session(name, seed)` get-or-create, keyed stage-style by
   * `(name, occurrence)` (ADR 0018 §2.6).
@@ -35,7 +36,7 @@ class SessionTest extends FunSuite:
     def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
 
   private def freshStore(prompt: String = "p"): (ProgressStore, os.Path) =
-    val dir = os.temp.dir()
+    val dir = TempDirs.dir()
     val store = ProgressStore.default(dir, prompt)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(

@@ -1,4 +1,5 @@
 package orca.runner.terminal
+import orca.testkit.TempDirs
 
 /** Publishes the library to the local Ivy cache, then exercises both the
   * minimal smoke script and the real flow scripts under `examples/` via
@@ -66,7 +67,7 @@ class ScalaCliSmokeTest extends munit.FunSuite:
   test(
     "scala-cli runs a minimal script that links against the published library"
   ):
-    val scriptDir = os.temp.dir()
+    val scriptDir = TempDirs.dir()
     val script = scriptDir / "hello.sc"
     val version = publishedRepo().version
     os.write(

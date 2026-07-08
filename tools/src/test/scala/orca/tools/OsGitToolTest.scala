@@ -6,6 +6,7 @@ import orca.testkit.GitRepo
 
 import ox.either.orThrow
 import java.util.concurrent.atomic.AtomicReference
+import orca.testkit.TempDirs
 
 class OsGitToolTest extends munit.FunSuite:
 
@@ -154,7 +155,7 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "x")
       git.commit("initial").orThrow
-      val wtPath = os.temp.dir() / "feature"
+      val wtPath = TempDirs.dir() / "feature"
       val wt = git.addWorktree(wtPath, "feature/alpha").orThrow
       assertEquals(wt.branch, "feature/alpha")
       assert(os.exists(wtPath / "seed.txt"))
@@ -165,7 +166,7 @@ class OsGitToolTest extends munit.FunSuite:
       git.commit("initial").orThrow
       git.createBranch("reuse").orThrow
       git.checkout("main").orThrow
-      val wtPath = os.temp.dir() / "reused"
+      val wtPath = TempDirs.dir() / "reused"
       val wt = git.addWorktree(wtPath, "reuse").orThrow
       assertEquals(wt.branch, "reuse")
       assert(os.exists(wtPath / "seed.txt"))
@@ -174,7 +175,7 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "x")
       git.commit("initial").orThrow
-      val wtPath = os.temp.dir() / "feature"
+      val wtPath = TempDirs.dir() / "feature"
       val _ = git.addWorktree(wtPath, "feature/beta").orThrow
       val branches = git.listWorktrees().map(_.branch).toSet
       assert(branches.contains("main"))
@@ -184,7 +185,7 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "x")
       git.commit("initial").orThrow
-      val wtPath = os.temp.dir() / "gone"
+      val wtPath = TempDirs.dir() / "gone"
       val _ = git.addWorktree(wtPath, "feature/gone").orThrow
       git.removeWorktree(wtPath).orThrow
       assert(!os.exists(wtPath))
@@ -247,7 +248,7 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "x")
       git.commit("initial").orThrow
-      val wtPath = os.temp.dir() / "occupied"
+      val wtPath = TempDirs.dir() / "occupied"
       val _ = git.addWorktree(wtPath, "feature/first").orThrow
       val again = git.addWorktree(wtPath, "feature/first")
       assert(again.left.exists(_.isInstanceOf[WorktreeAddFailed]))
@@ -256,7 +257,7 @@ class OsGitToolTest extends munit.FunSuite:
     "removeWorktree returns Left(WorktreeNotFound) when the path isn't a worktree"
   ):
     withRepo: (git, _) =>
-      val ghost = os.temp.dir() / "ghost"
+      val ghost = TempDirs.dir() / "ghost"
       assert(
         git.removeWorktree(ghost).left.exists(_.isInstanceOf[WorktreeNotFound])
       )
@@ -268,7 +269,7 @@ class OsGitToolTest extends munit.FunSuite:
       // A bare local-path remote needs no credentials, so this exercises the
       // push argv — including the injected gh credential fallback, inert for a
       // non-github remote — without a network round-trip.
-      val remote = os.temp.dir() / "remote.git"
+      val remote = TempDirs.dir() / "remote.git"
       val _ = os.proc("git", "init", "--bare", remote.toString).call(cwd = dir)
       val _ = os
         .proc("git", "remote", "add", "origin", remote.toString)

@@ -9,6 +9,7 @@ import orca.subprocess.{
   SpawnStubCliRunner,
   StubCliRunner
 }
+import orca.testkit.TempDirs
 
 class GeminiBackendTest extends munit.FunSuite:
 
@@ -17,7 +18,7 @@ class GeminiBackendTest extends munit.FunSuite:
 
   private def withBackend[T](
       runner: SpawnStubCliRunner,
-      workDir: os.Path = os.temp.dir()
+      workDir: os.Path = TempDirs.dir()
   )(
       body: ox.Ox ?=> GeminiBackend => T
   ): T = SupervisedBackend.using(new GeminiBackend(runner, workDir = workDir))(
@@ -206,7 +207,7 @@ class GeminiBackendTest extends munit.FunSuite:
     "runAutonomous does NOT register an MCP server (autonomous skips bridge)"
   ):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     withBackend(runner, workDir = workDir): backend =>
       val _ =
         backend.runAutonomous("q", clientSid, AgentConfig())
@@ -219,7 +220,7 @@ class GeminiBackendTest extends munit.FunSuite:
     "runInteractive registers the orca MCP server and folds the ask_user hint"
   ):
     val runner = new SpawnStubCliRunner(List(pendingProcess()))
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     withBackend(runner, workDir = workDir): backend =>
       val _ = backend.runInteractive(
         "q",

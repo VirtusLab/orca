@@ -8,6 +8,7 @@ import orca.agents.{
   WireSessionId,
   ToolSet
 }
+import orca.testkit.TempDirs
 class CodexArgsTest extends munit.FunSuite:
 
   test("exec emits codex exec --json with the prompt as the trailing arg"):
@@ -30,7 +31,7 @@ class CodexArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--model", "gpt-5.4-mini")))
 
   test("exec passes -C <workDir>"):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val args = CodexArgs.exec(
       prompt = "x",
       config = AgentConfig(),

@@ -37,6 +37,7 @@ import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
+import orca.testkit.TempDirs
 
 /** Tests for the flow lifecycle: success teardown, failure teardown, and resume
   * across two calls. Each test uses a real temp git repo via `TempRepo` and a
@@ -382,7 +383,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // committed, so the stash can't remove it), so cover the helper directly:
     // a snapshot taken while the file exists restores its exact bytes after the
     // file is gone, and is a no-op when the file still exists.
-    val dir = os.temp.dir()
+    val dir = TempDirs.dir()
     val path = dir / ".orca" / "progress-x.json"
     os.write(path, "{\"header\":true}", createFolders = true)
     val snapshot = FlowLifecycle.snapshotLog(path)
@@ -619,7 +620,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     * `rehydrateSessions` reads from.
     */
   private def storeWith(sessions: SessionRecord*): ProgressStore =
-    val dir = os.temp.dir()
+    val dir = TempDirs.dir()
     val store = ProgressStore.default(dir, "rehydrate-targeted")
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(

@@ -2,6 +2,7 @@ package orca.tools.pi
 
 import orca.agents.{BackendTag, AgentConfig, SessionId, ToolSet}
 import orca.subprocess.OsProcCliRunner
+import orca.testkit.TempDirs
 
 /** End-to-end smoke test against the real `pi` CLI. Gated on `ORCA_INTEGRATION`
   * so normal unit test runs do not require Pi to be installed or authenticated.
@@ -20,7 +21,7 @@ class PiIntegrationTest extends munit.FunSuite:
     SessionId.fresh[BackendTag.Pi.type]
 
   test("RPC autonomous prompt returns requested literal output"):
-    val backend = new PiBackend(OsProcCliRunner, workDir = os.temp.dir())
+    val backend = new PiBackend(OsProcCliRunner, workDir = TempDirs.dir())
     val result = backend.runAutonomous(
       prompt = "Reply with the single word: READY",
       session = fresh,

@@ -9,6 +9,7 @@ import orca.agents.{
 }
 import orca.backend.{ApprovalDecision, ConversationEvent, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
+import orca.testkit.TempDirs
 
 /** End-to-end tests against the real `claude` CLI. Gated on the
   * `ORCA_INTEGRATION` environment variable so `sbt test` without the flag
@@ -27,7 +28,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
 
   private def withBackend(body: ox.Ox ?=> ClaudeBackend => Unit): Unit =
     SupervisedBackend.using(
-      new ClaudeBackend(OsProcCliRunner, workDir = os.temp.dir())
+      new ClaudeBackend(OsProcCliRunner, workDir = TempDirs.dir())
     )(body)
 
   private def fresh = SessionId.fresh[BackendTag.ClaudeCode.type]

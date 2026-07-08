@@ -10,6 +10,7 @@ import orca.tools.opencode.OpencodeBackend
 import orca.tools.pi.PiBackend
 
 import ox.supervised
+import orca.testkit.TempDirs
 
 /** Machine-checked source of truth for the per-backend enforcement matrix (the
   * `Enforcement` a `(ToolSet, AutoApprove)` combination gets on each backend).
@@ -32,7 +33,7 @@ class EnforcementTableTest extends munit.FunSuite:
         "claude" -> new ClaudeBackend(cli),
         "codex" -> new CodexBackend(cli),
         "gemini" -> new GeminiBackend(cli),
-        "opencode" -> OpencodeBackend(cli, os.temp.dir()),
+        "opencode" -> OpencodeBackend(cli, TempDirs.dir()),
         "pi" -> new PiBackend(cli)
       )
       def get(name: String): AgentBackend[?] =

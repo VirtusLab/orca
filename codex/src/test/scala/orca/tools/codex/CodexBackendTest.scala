@@ -4,6 +4,7 @@ import orca.backend.SupervisedBackend
 import orca.agents.{BackendTag, AgentConfig, Model, SessionId, WireSessionId}
 import orca.{OrcaFlowException}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
+import orca.testkit.TempDirs
 
 class CodexBackendTest extends munit.FunSuite:
 
@@ -260,7 +261,7 @@ class CodexBackendTest extends munit.FunSuite:
     // not survive the call, or long flows would accumulate orphan schema
     // files.
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     withBackend(runner, workDir = workDir): backend =>
       val _ = backend.runAutonomous(
         "q",
@@ -342,7 +343,7 @@ class CodexBackendTest extends munit.FunSuite:
     "runInteractive writes the output schema to a temp file outside the workdir"
   ):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     withBackend(runner, workDir = workDir): backend =>
       val _ = backend.runInteractive(
         "q",
@@ -427,7 +428,7 @@ class CodexBackendTest extends munit.FunSuite:
     // id, never the client id. `exists` resolves client→server via the registry
     // (rehydrated from the log on resume) and probes THAT id.
     val serverId = "test-session-id-123"
-    val tmpSessions = os.temp.dir()
+    val tmpSessions = TempDirs.dir()
     os.write(tmpSessions / s"rollout-2024-01-01-$serverId.jsonl", "")
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
@@ -442,7 +443,7 @@ class CodexBackendTest extends munit.FunSuite:
     // No registration: the client id resolves to no server id, so the probe
     // never runs — even if a rollout file happens to be named with the client
     // id (which codex never does in practice).
-    val tmpSessions = os.temp.dir()
+    val tmpSessions = TempDirs.dir()
     os.write(
       tmpSessions / s"rollout-2024-01-01-${SessionId.value(clientSid)}.jsonl",
       ""
@@ -453,7 +454,7 @@ class CodexBackendTest extends munit.FunSuite:
       assert(!backend.sessions.exists(clientSid))
 
   test("sessionExists returns false when no matching file exists"):
-    val tmpSessions = os.temp.dir()
+    val tmpSessions = TempDirs.dir()
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
     ): backend =>
@@ -464,7 +465,7 @@ class CodexBackendTest extends munit.FunSuite:
       assert(!backend.sessions.exists(clientSid))
 
   test("sessionExists returns false when the sessions dir is absent"):
-    val missing = os.temp.dir() / "no-such-sessions"
+    val missing = TempDirs.dir() / "no-such-sessions"
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), missing)
     ): backend =>
@@ -477,7 +478,7 @@ class CodexBackendTest extends munit.FunSuite:
   test(
     "sessionExists returns false for a mapped SERVER id `.*` even when rollout files exist (blocks regex injection)"
   ):
-    val tmpSessions = os.temp.dir()
+    val tmpSessions = TempDirs.dir()
     // Create a rollout file that the old regex `rollout-.*-.*\.jsonl` would match
     os.write(tmpSessions / "rollout-2024-01-01-some-real-id.jsonl", "")
     SupervisedBackend.using(

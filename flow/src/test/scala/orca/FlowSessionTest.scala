@@ -20,6 +20,7 @@ import orca.agents.{
 }
 import orca.progress.{ProgressHeader, ProgressStore, StageEntry, SessionRecord}
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
+import orca.testkit.TempDirs
 
 /** Tests for [[FlowSession]] — the durable-session handle that owns the probe →
   * seed/preamble → run → persist protocol (ADR 0018 §2.6, absorbs the former
@@ -194,7 +195,7 @@ class FlowSessionTest extends FunSuite:
       sessions: List[SessionRecord],
       completedStages: List[String] = Nil
   ): TestFlowControl =
-    val dir = os.temp.dir()
+    val dir = TempDirs.dir()
     val store = ProgressStore.default(dir, "p")
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(ProgressHeader("main", "feat/test", "deadbeef"))

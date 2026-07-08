@@ -9,6 +9,7 @@ import orca.agents.{
 }
 import orca.backend.{ConversationEvent, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
+import orca.testkit.TempDirs
 
 /** End-to-end tests against the real `codex` CLI. Gated on the
   * `ORCA_INTEGRATION` environment variable so `sbt test` without the flag
@@ -31,7 +32,7 @@ class CodexIntegrationTest extends munit.FunSuite:
     3.minutes
 
   private def withBackend(
-      workDir: os.Path = os.temp.dir()
+      workDir: os.Path = TempDirs.dir()
   )(body: ox.Ox ?=> CodexBackend => Unit): Unit =
     SupervisedBackend.using(
       new CodexBackend(OsProcCliRunner, workDir = workDir)
@@ -118,7 +119,7 @@ class CodexIntegrationTest extends munit.FunSuite:
       finally conversation.cancel()
 
   test("a tool-using prompt surfaces a ToolResult"):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     os.write(workDir / "marker.txt", "orca-codex-marker")
     withBackend(workDir): backend =>
       val conversation = backend.runInteractive(

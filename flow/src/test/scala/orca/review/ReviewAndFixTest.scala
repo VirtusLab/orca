@@ -20,6 +20,7 @@ import orca.agents.{
 import orca.backend.{SessionRegistry, SessionSupport}
 import orca.progress.SessionRecord
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, Usage}
+import orca.testkit.TempDirs
 
 /** Fake AgentCall whose `autonomous.run` drains a scripted sequence of outputs
   * in order — cast through `Any` because the trait is generic over output type.
@@ -553,7 +554,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     // The formatter appends one line per run. Two review rounds (issue → fix,
     // then clean) mean it must run twice — once before reviewing the
     // implementation, once before re-reviewing the fix.
-    val counter = os.temp.dir() / "fmt-count"
+    val counter = TempDirs.dir() / "fmt-count"
     val reviewer = new FakeAgent(
       name = "r",
       outputs =

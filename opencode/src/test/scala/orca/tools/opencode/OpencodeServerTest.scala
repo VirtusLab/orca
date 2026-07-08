@@ -11,6 +11,7 @@ import orca.subprocess.{
 import ox.supervised
 
 import java.util.concurrent.atomic.AtomicInteger
+import orca.testkit.TempDirs
 
 class OpencodeServerTest extends munit.FunSuite:
 
@@ -61,7 +62,7 @@ class OpencodeServerTest extends munit.FunSuite:
           throw new UnsupportedOperationException
       val server = new OpencodeServer(
         runner,
-        os.temp.dir(),
+        TempDirs.dir(),
         httpFor = (url, pwd) =>
           built = Some(url -> pwd)
           stub
@@ -89,7 +90,7 @@ class OpencodeServerTest extends munit.FunSuite:
           throw new UnsupportedOperationException
       val server = new OpencodeServer(
         runner,
-        os.temp.dir(),
+        TempDirs.dir(),
         launcher = OpencodeLauncher.ollama("qwen3-coder"),
         httpFor = (_, _) => stub
       )
@@ -121,7 +122,7 @@ class OpencodeServerTest extends munit.FunSuite:
       proc.closeStdout() // EOF with no "listening on" line
       val server = new OpencodeServer(
         new RecordingRunner(proc),
-        os.temp.dir(),
+        TempDirs.dir(),
         httpFor = (_, _) => fail("client must not be built on a failed start")
       )
       val ex = intercept[OrcaFlowException](server.http)
@@ -148,7 +149,7 @@ class OpencodeServerTest extends munit.FunSuite:
       val server =
         new OpencodeServer(
           new RecordingRunner(proc),
-          os.temp.dir(),
+          TempDirs.dir(),
           httpFor = (_, _) => client
         )
 
@@ -170,7 +171,7 @@ class OpencodeServerTest extends munit.FunSuite:
       val server =
         new OpencodeServer(
           runner,
-          os.temp.dir(),
+          TempDirs.dir(),
           httpFor = (_, _) => fail("unused")
         )
       server.shutdown() // never forced `http`

@@ -12,6 +12,7 @@ import orca.agents.{
   onWire
 }
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
+import orca.testkit.TempDirs
 
 class PiBackendTest extends munit.FunSuite:
 
@@ -38,7 +39,7 @@ class PiBackendTest extends munit.FunSuite:
   ):
     val process = successfulProcess("answer", 10L, 5L)
     val runner = new SpawnStubCliRunner(List(process))
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val backend = new PiBackend(runner, workDir = workDir)
 
     val result =

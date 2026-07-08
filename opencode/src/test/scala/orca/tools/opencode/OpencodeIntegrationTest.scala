@@ -10,6 +10,7 @@ import orca.agents.{
   ToolSet
 }
 import orca.subprocess.OsProcCliRunner
+import orca.testkit.TempDirs
 
 /** End-to-end tests against a real `opencode serve`. Gated on the
   * `ORCA_INTEGRATION` environment variable, so `sbt test` without it behaves as
@@ -38,7 +39,7 @@ class OpencodeIntegrationTest extends munit.FunSuite:
   private val config: AgentConfig =
     AgentConfig().copy(model = Some(model))
 
-  private def withBackend(workDir: os.Path = os.temp.dir())(
+  private def withBackend(workDir: os.Path = TempDirs.dir())(
       body: ox.Ox ?=> OpencodeBackend => Unit
   ): Unit =
     SupervisedBackend.using(OpencodeBackend(OsProcCliRunner, workDir))(body)
@@ -91,7 +92,7 @@ class OpencodeIntegrationTest extends munit.FunSuite:
       )
 
   test("read-only turn cannot write a file"):
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     withBackend(workDir): backend =>
       val _ = backend.runAutonomous(
         prompt = "Create a file named marker.txt containing the word hello.",

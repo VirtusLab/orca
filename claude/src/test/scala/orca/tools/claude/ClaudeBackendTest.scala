@@ -13,6 +13,7 @@ import orca.agents.{
 import orca.events.OrcaListener
 import orca.{OrcaFlowException}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
+import orca.testkit.TempDirs
 
 class ClaudeBackendTest extends munit.FunSuite:
 
@@ -308,8 +309,8 @@ class ClaudeBackendTest extends munit.FunSuite:
   test(
     "sessionExists returns true when the id is claimed and the transcript exists"
   ):
-    val tmpProjects = os.temp.dir()
-    val cwd = os.temp.dir()
+    val tmpProjects = TempDirs.dir()
+    val cwd = TempDirs.dir()
     val slug = ClaudeBackend.cwdSlug(cwd)
     os.makeDir.all(tmpProjects / slug)
     os.write(tmpProjects / slug / s"${SessionId.value(freshSid)}.jsonl", "")
@@ -334,9 +335,9 @@ class ClaudeBackendTest extends munit.FunSuite:
     // allowed (7.5's bug class). A backend constructed with a worktree-style
     // `workDir` (!= the process cwd) must probe AND spawn under that same
     // directory.
-    val tmpProjects = os.temp.dir()
+    val tmpProjects = TempDirs.dir()
     val flowWorkDir =
-      os.temp.dir() // stands in for a worktree checkout, != os.pwd
+      TempDirs.dir() // stands in for a worktree checkout, != os.pwd
     assert(
       flowWorkDir != os.pwd,
       "test setup requires a workDir distinct from the process cwd"
@@ -383,8 +384,8 @@ class ClaudeBackendTest extends munit.FunSuite:
     // (claimed this run or rehydrated). A stray transcript for an id we never
     // claimed reports false — outcome-preserving, since dispatch would say
     // `Fresh` and the CLI would refuse the duplicate `--session-id` anyway.
-    val tmpProjects = os.temp.dir()
-    val cwd = os.temp.dir()
+    val tmpProjects = TempDirs.dir()
+    val cwd = TempDirs.dir()
     val slug = ClaudeBackend.cwdSlug(cwd)
     os.makeDir.all(tmpProjects / slug)
     os.write(tmpProjects / slug / s"${SessionId.value(freshSid)}.jsonl", "")
@@ -400,8 +401,8 @@ class ClaudeBackendTest extends munit.FunSuite:
   test(
     "sessionExists returns false when the id is claimed but the transcript is absent"
   ):
-    val tmpProjects = os.temp.dir()
-    val cwd = os.temp.dir()
+    val tmpProjects = TempDirs.dir()
+    val cwd = TempDirs.dir()
     SupervisedBackend.using(
       new ClaudeBackend(
         new SpawnStubCliRunner(Nil),
@@ -413,8 +414,8 @@ class ClaudeBackendTest extends munit.FunSuite:
       assert(!backend.sessions.exists(freshSid))
 
   test("sessionExists returns false when the projects dir is absent"):
-    val missing = os.temp.dir() / "no-such-dir"
-    val cwd = os.temp.dir()
+    val missing = TempDirs.dir() / "no-such-dir"
+    val cwd = TempDirs.dir()
     SupervisedBackend.using(
       new ClaudeBackend(
         new SpawnStubCliRunner(Nil),
@@ -428,8 +429,8 @@ class ClaudeBackendTest extends munit.FunSuite:
   test(
     "sessionExists returns false for a malicious id with path traversal chars"
   ):
-    val tmpProjects = os.temp.dir()
-    val cwd = os.temp.dir()
+    val tmpProjects = TempDirs.dir()
+    val cwd = TempDirs.dir()
     SupervisedBackend.using(
       new ClaudeBackend(
         new SpawnStubCliRunner(Nil),

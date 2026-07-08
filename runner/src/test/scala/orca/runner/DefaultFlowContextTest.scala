@@ -20,6 +20,7 @@ import orca.events.EventDispatcher
 import orca.progress.ProgressStore
 import orca.tools.{OsFsTool, OsGitHubTool, OsGitTool}
 import orca.subprocess.OsProcCliRunner
+import orca.testkit.TempDirs
 
 /** Pins that [[DefaultFlowContext.close]] is a best-effort fan-out: one agent's
   * `close()` throwing must not stop the others from being closed (ADR 0018 — a
@@ -32,7 +33,7 @@ class DefaultFlowContextTest extends munit.FunSuite:
     "close() closes every agent even when an earlier one's close() throws"
   ):
     var codexClosed = false
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
     val ctx = new DefaultFlowContext[BackendTag.ClaudeCode.type](
       userPrompt = "test",
       dispatcher = new EventDispatcher(Nil),
