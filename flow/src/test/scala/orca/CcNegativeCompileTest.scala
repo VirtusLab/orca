@@ -153,4 +153,71 @@ class CcNegativeCompileTest extends munit.FunSuite:
       s"expected a separation-checking error rejecting the $token capture, got: $errors"
     )
 
+  /** Fixture implementing [[orca.review.ReviewerSelector]] (ADR 0011's
+    * 2026-07-08 amendment: `prepare` returns a pure `->` arrow that may only
+    * narrow over `history`). `body` is that returned lambda; the surrounding
+    * shape — imports, `prepare`'s signature, the `using ctx: FlowContext, ev:
+    * InStage` capabilities in scope — is identical for the (d)/(e) pair below,
+    * so purity of the returned lambda is the only axis under test.
+    */
+  private def selectorFixture(body: String): String =
+    s"""package orca.review
+       |import language.experimental.captureChecking
+       |import language.experimental.separationChecking
+       |import orca.{FlowContext, InStage}
+       |import orca.plan.Title
+       |object SelectorFixture:
+       |  val selector: ReviewerSelector = new ReviewerSelector:
+       |    def prepare(
+       |        all: List[RosterEntry[?]],
+       |        taskTitle: Title,
+       |        changedFiles: List[String]
+       |    )(using ctx: FlowContext, ev: InStage): List[ReviewBatch] -> List[RosterEntry[?]] =
+       |      $body
+       |""".stripMargin
+
+  test(
+    "(d) NEGATIVE: a ReviewerSelector whose returned arrow captures `ev` (InStage) fails to compile"
+  ):
+    val errors =
+      compileErrorsOf(selectorFixture("history => { val _ = ev; all }"))
+    assertCaptureEscape(errors)
+
+  test("(e) POSITIVE: a pure history-narrowing ReviewerSelector compiles"):
+    val errors = compileErrorsOf(
+      selectorFixture(
+        "history => history.headOption match { case None => all; " +
+          "case Some(batch) => batch.reviewersWithIssues }"
+      )
+    )
+    assert(
+      errors.isEmpty,
+      s"a pure history-narrowing selector (no `using` capture) must compile, got: $errors"
+    )
+
+  /** Assert `prepare`'s returned arrow was rejected for capturing a `using`
+    * capability into a pure `->` type — the compile-time form of the
+    * ReviewerSelector contract (ADR 0011, 2026-07-08 amendment; see also
+    * [[orca.review.ReviewerSelector]]'s trait doc): the returned narrowing may
+    * only close over `history`, not the loop's capabilities.
+    *
+    * This is a DIFFERENT checker pass than [[assertSeparationFailure]]: that
+    * one is separation checking rejecting an EXCLUSIVE capability at a fork
+    * boundary ("Separation failure"); this is plain capture checking rejecting
+    * ANY capability (`ev: InStage` is normally freely shareable — see test (a))
+    * from flowing into a capture-set-`{}` pure arrow. Manually compiling the
+    * capturing fixture surfaces: "Note that capability `ev` cannot flow into
+    * capture set {}." — that phrase, not "Separation failure", is the marker
+    * asserted below.
+    */
+  private def assertCaptureEscape(errors: List[String]): Unit =
+    assert(
+      errors.nonEmpty,
+      "expected a compile error for a ReviewerSelector arrow capturing `ev`"
+    )
+    assert(
+      errors.exists(_.contains("cannot flow into capture set")),
+      s"expected a capture-checking error rejecting the `ev` capture, got: $errors"
+    )
+
 end CcNegativeCompileTest

@@ -171,6 +171,15 @@ private[review] def formatReviewerOutcome(
   * keys its per-reviewer session map on the entry instance, and each roster
   * agent is wrapped exactly once ([[RosterEntry.wrap]]), so `eq` on entries is
   * the reviewer's identity.
+  *
+  * Two call sites depend on this being a plain class, not a case class:
+  * `runReviewersAndLint`'s session lookup (`currentState.sessions.find(_.entry
+  * eq e)`) and `evaluate`'s `selectRound(state.history).distinct`, which
+  * de-duplicates a selector's accidental repeats. A case class would generate
+  * structural `equals`/`hashCode`, and `List.distinct` uses `equals`, not `eq`
+  * — so `.distinct` would start collapsing by structural equality (every
+  * `RosterEntry[B]` wrapping the same `agent` looks alike) while the session
+  * lookup kept using `eq`, splitting the two "same entry" notions apart.
   */
 final class RosterEntry[B <: BackendTag] private[review] (
     private[review] val agent: Agent[B]

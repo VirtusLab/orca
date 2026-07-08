@@ -138,3 +138,41 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 > See `flow/src/main/scala/orca/review/ReviewerSelector.scala` and
 > `flow/src/main/scala/orca/review/ReviewLoop.scala` (`resolveAgainstRoster`,
 > `reviewWithSession`) for the current implementation.
+
+> **Amendment (2026-07-08).** Superseding the 2026-07-06 amendment above: the
+> `resolveAgainstRoster` foreign-drop machinery it describes was deleted and
+> replaced with a type-level fix, and `SessionId.Untyped.as[RB]` is gone.
+> The shipped contract:
+> - **Selectors traffic in `RosterEntry` handles, not `Agent[?]`.**
+>   [[RosterEntry]] (`flow/src/main/scala/orca/review/ReviewLoop.scala`) is a
+>   roster-bound handle whose constructor is `private[review]`, so a selector
+>   can only return a subset/permutation of the entries it was handed — a
+>   foreign agent is unrepresentable at the type level. This replaces the
+>   `resolveAgainstRoster` runtime defence and its visible drop-warning: there
+>   is nothing left to resolve or drop.
+> - **`prepare` is pure-arrow, not a captured closure.** `ReviewerSelector`'s
+>   signature is
+>   `prepare(all, taskTitle, changedFiles)(using FlowContext, InStage): List[ReviewBatch] -> List[RosterEntry[?]]`
+>   (note `->`, capture checking's pure-arrow type, not `=>`). `prepare` runs
+>   once per loop, inside the loop's own stage, so any gated effect (e.g.
+>   `agentDriven`'s picker LLM call) is hoisted there; the arrow it returns is
+>   checked to capture nothing — it may only narrow over the `history` argument
+>   passed to it each round.
+> - **Session recovery pairs entry and session existentially, replacing
+>   `Untyped`/`.as`.** `SessionEntry[B <: BackendTag]` (`RosterEntry[B]`,
+>   `SessionId[B]`) binds the reviewer's backend tag once, at first run; a
+>   resume looks the pair up by entry identity (`eq`) and gets back a session
+>   already typed to the same `B` — no `SessionId.Untyped`/`.as[RB]`
+>   round-trip, because the pairing is a compile-time invariant of the wrapper,
+>   not a claim recovered by a cast.
+> - **Empty selection is an honest stop, not a fallback trigger.** The loop
+>   applies `.distinct` (by entry identity) to whatever `prepare`'s arrow
+>   returns and runs exactly that set. If it's empty, the round finds no
+>   issues and the shared stop policy converges — the loop never silently
+>   resurrects the roster behind the selector's back.
+>
+> See `flow/src/main/scala/orca/review/ReviewerSelector.scala` and
+> `flow/src/main/scala/orca/review/ReviewLoop.scala` (`RosterEntry`,
+> `SessionEntry`, `reviewWithSession`, `ReviewFixLoop.evaluate`) for the
+> current implementation. The `resolveAgainstRoster` symbol referenced by the
+> 2026-07-06 amendment above no longer exists.

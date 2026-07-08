@@ -30,6 +30,11 @@ import scala.util.matching.Regex
   * `private[review]`), so the loop needs no runtime roster-membership defence.
   * The returned narrowing is a pure arrow (`->`): it captures nothing gated, so
   * selector values are freely reusable across loops.
+  *
+  * Implementers: any per-round effect (an LLM call, a shell-out, anything
+  * needing `FlowContext`/`InStage`) must be hoisted into [[prepare]] itself —
+  * the arrow it returns is capture-checked pure and may only narrow over the
+  * `history` it's given each round.
   */
 trait ReviewerSelector:
   def prepare(
