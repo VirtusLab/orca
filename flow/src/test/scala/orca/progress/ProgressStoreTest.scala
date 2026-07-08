@@ -128,6 +128,10 @@ class ProgressStoreTest extends FunSuite:
       ex.getMessage.contains("before writeHeader"),
       s"expected the absent-log wording; got: ${ex.getMessage}"
     )
+    assert(
+      ex.getMessage.contains("upsertSession"),
+      s"expected the caller name in the message; got: ${ex.getMessage}"
+    )
 
   test(
     "appendEntry against a corrupted-but-present log surfaces a corruption-specific message, not the before-writeHeader lie"
@@ -181,6 +185,10 @@ class ProgressStoreTest extends FunSuite:
       !ex.getMessage.contains("before writeHeader"),
       s"corruption must not be misreported as a never-happened protocol " +
         s"violation; got: ${ex.getMessage}"
+    )
+    assert(
+      ex.getMessage.contains("upsertSession"),
+      s"expected the caller name in the message; got: ${ex.getMessage}"
     )
 
   test("default path is <workDir>/.orca/progress-<12hexchars>.json"):

@@ -120,9 +120,6 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
     */
   def perRole: Map[Option[String], Usage] = state.get().byRole
 
-  /** Per-role cost breakdown. Same key semantics as [[perRole]]. */
-  def perRoleCost: Map[Option[String], Cost] = state.get().byRoleCost
-
   /** Two or three sections — by-agent, by-model, and (only when at least one
     * call carried a [[orca.agents.Agent.role]] tag) by-role — sorted
     * alphabetically within each. Each by-agent line is prefixed with that
