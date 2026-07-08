@@ -1,9 +1,9 @@
 package orca.tools.claude
 
-import orca.agents.{AutoApprove, BackendTag, AgentConfig, Model, WireSessionId}
+import orca.agents.{AutoApprove, BackendTag, AgentConfig}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
-import orca.backend.{ApprovalDecision, ConversationEvent, AgentResult}
+import orca.backend.{ApprovalDecision, ConversationEvent}
 import orca.backend.{ForkedConversation, StreamSource}
 import orca.subprocess.PipedCliProcess
 import orca.tools.claude.streamjson.{
@@ -86,10 +86,7 @@ private[claude] class ClaudeConversation(
   override protected def handleLine(line: String): Unit =
     handle(InboundMessage.parse(line))
 
-  override protected def cleanExitWithoutResult(): Throwable =
-    new OrcaFlowException(
-      "claude exited cleanly but never sent a result message"
-    )
+  override protected def terminalMessageNoun: String = "a result message"
 
   // --- Per-message dispatch ---
 
@@ -187,15 +184,14 @@ private[claude] class ClaudeConversation(
       usage: Usage,
       model: Option[String]
   ): Unit =
-    val result = AgentResult(
-      wireId = WireSessionId[BackendTag.ClaudeCode.type](sid),
+    settleSuccess(
+      wireId = sid,
       output = structured.orElse(output).getOrElse(""),
       usage = usage,
       // Fall back to the model claude announced in system.init when the
       // result message omits it.
-      model = model.orElse(initModel).map(Model.apply)
+      modelId = model.orElse(initModel)
     )
-    succeedWith(result)
 
   /** Claude sets `is_error: true` for out-of-band failures (API errors, rate
     * limits, auth problems) that happen at the CLI boundary rather than inside

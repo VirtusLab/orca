@@ -39,7 +39,7 @@ private[pi] object PiArgs:
       extensionArgs(askUserExtension)
 
   private def systemPromptArgs(file: Option[os.Path]): Seq[String] =
-    file.toSeq.flatMap(f => Seq("--append-system-prompt", f.toString))
+    CliArgs.flag("--append-system-prompt", file)(_.toString)
 
   /** Maps [[AgentConfig.tools]] to pi's `--tools` allowlist. `Full` omits the
     * flag (all built-in tools enabled); `ReadOnly` restricts to
@@ -65,7 +65,7 @@ private[pi] object PiArgs:
     Seq("--tools", all.mkString(","))
 
   private def extensionArgs(file: Option[os.Path]): Seq[String] =
-    file.toSeq.flatMap(f => Seq("--extension", f.toString))
+    CliArgs.flag("--extension", file)(_.toString)
 
   /** How strongly pi enforces each `(tools, autoApprove)` combination — see
     * [[toolsArgs]] for the `--tools` allowlist this classifies.

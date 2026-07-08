@@ -1,9 +1,8 @@
 package orca.tools.codex
 
-import orca.agents.{BackendTag, Model, WireSessionId}
+import orca.agents.{BackendTag, Model}
 import orca.events.{Usage}
-import orca.{OrcaFlowException}
-import orca.backend.{ConversationEvent, AgentResult}
+import orca.backend.ConversationEvent
 import orca.backend.{
   StderrPipeline,
   ForkedConversation,
@@ -127,14 +126,8 @@ private[codex] class CodexConversation(
     try schemaFile.foreach(p => SubprocessSpawn.deleteFileResource(p).close())
     finally super.onFinalize()
 
-  override protected def cleanExitWithoutResult(): Throwable =
-    // Defer the framing to the base so the diagnosticContext below gets
-    // folded in with the same shape as the non-zero-exit branch.
-    new OrcaFlowException(
-      appendContext(
-        "codex exited cleanly but never sent a turn.completed event"
-      )
-    )
+  override protected def terminalMessageNoun: String =
+    "a turn.completed event"
 
   // --- Per-event dispatch ---
 
@@ -233,16 +226,15 @@ private[codex] class CodexConversation(
     s"$server.$tool"
 
   private def handleTurnCompleted(usage: Usage): Unit =
-    val result = AgentResult(
-      wireId = WireSessionId[BackendTag.Codex.type](sessionId),
+    settleSuccess(
+      wireId = sessionId,
       output = lastAgentMessage,
       usage = usage,
       // Fall back to the configured model when the wire omitted it (e.g.
       // `thread.started` on a resume), so the turn's tokens are priced rather
       // than attributed to `(unknown)`.
-      model = model.map(Model.apply).orElse(configuredModel)
+      modelId = model.orElse(configuredModel.map(_.name))
     )
-    succeedWith(result)
 
   private def toWire(c: FileChangeDetail): FileChangeWire =
     FileChangeWire(c.path, c.kind)

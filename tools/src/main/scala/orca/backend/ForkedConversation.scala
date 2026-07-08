@@ -1,7 +1,8 @@
 package orca.backend
 
 import orca.backend.mcp.{AskUserBridge, AskUserSession}
-import orca.agents.BackendTag
+import orca.agents.{BackendTag, Model, WireSessionId}
+import orca.events.Usage
 import orca.util.OrcaDebug
 import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 
@@ -349,6 +350,28 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
       settledOutcome = Some(Outcome.Success(result))
     source.interrupt()
 
+  /** Assemble an [[AgentResult]] from a driver's synthesised turn values and
+    * settle with it via [[succeedWith]]. Wraps the reported wire-id string in
+    * [[WireSessionId]]`[B]` and the optional model-id string in [[Model]] —
+    * collapsing the byte-identical settle scaffolding every driver used to
+    * spell out (a `WireSessionId[…]` + `Model.apply` +
+    * `succeedWith(AgentResult(…))`).
+    */
+  protected def settleSuccess(
+      wireId: String,
+      output: String,
+      usage: Usage,
+      modelId: Option[String]
+  ): Unit =
+    succeedWith(
+      AgentResult(
+        WireSessionId[B](wireId),
+        output,
+        usage,
+        modelId.map(Model.apply)
+      )
+    )
+
   /** Settle the turn as a failure, then interrupt the source (see
     * [[succeedWith]] for the ordering rationale).
     */
@@ -405,14 +428,22 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     */
   protected def onCancelRequested(): Unit = ()
 
+  /** The protocol message whose absence a clean (exit-0) stream is diagnosed
+    * against, named for the message — `"a result message"`, `"a turn.completed
+    * event"`, … Backends override just this noun; the framing (backend name +
+    * folded [[diagnosticContext]]) is shared in [[cleanExitWithoutResult]].
+    */
+  protected def terminalMessageNoun: String = "a terminal message"
+
   /** The exception used when the subprocess exits with code 0 without having
-    * sent a terminal protocol message. Default folds [[diagnosticContext]] into
-    * the message; backends may override.
+    * sent its [[terminalMessageNoun]]. Folds [[diagnosticContext]] into the
+    * message (a no-op for backends that carry none); backends vary only the
+    * noun, not this assembly.
     */
   protected def cleanExitWithoutResult(): Throwable =
     new OrcaFlowException(
       appendContext(
-        s"$backendName exited cleanly but never sent a terminal message"
+        s"$backendName exited cleanly but never sent $terminalMessageNoun"
       )
     )
 

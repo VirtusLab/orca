@@ -55,7 +55,7 @@ private[claude] object ClaudeArgs:
       mcpConfigArgs(mcpConfig)
 
   private def systemPromptFileArgs(file: Option[os.Path]): Seq[String] =
-    file.toSeq.flatMap(f => Seq("--append-system-prompt-file", f.toString))
+    CliArgs.flag("--append-system-prompt-file", file)(_.toString)
 
   /** Fresh dispatch → `--session-id <uuid>` (creates the session with our
     * pre-allocated UUID). Resume → `--resume <uuid>` (claude refuses to reuse
@@ -83,10 +83,10 @@ private[claude] object ClaudeArgs:
     * will fail loudly.
     */
   private def jsonSchemaArgs(schema: Option[String]): Seq[String] =
-    schema.toSeq.flatMap(s => Seq("--json-schema", s))
+    CliArgs.flag("--json-schema", schema)(identity)
 
   private def mcpConfigArgs(file: Option[os.Path]): Seq[String] =
-    file.toSeq.flatMap(f => Seq("--mcp-config", f.toString))
+    CliArgs.flag("--mcp-config", file)(_.toString)
 
   /** Maps [[AgentConfig.tools]] to claude's permission flags. Both read-only
     * tiers use `--permission-mode plan`, which makes Edit/Write/Bash

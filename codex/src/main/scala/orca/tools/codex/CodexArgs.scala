@@ -127,7 +127,7 @@ private[codex] object CodexArgs:
     * disk first and hands us the resolved path.
     */
   private def outputSchemaArgs(file: Option[os.Path]): Seq[String] =
-    file.toSeq.flatMap(p => Seq("--output-schema", p.toString))
+    CliArgs.flag("--output-schema", file)(_.toString)
 
   /** Maps [[AgentConfig.tools]] to codex's sandbox flags (placed after the
     * `exec` subcommand). `ReadOnly` uses `--sandbox read-only` (no writes, no

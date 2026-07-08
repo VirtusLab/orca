@@ -1,12 +1,11 @@
 package orca.tools.gemini
 
-import orca.agents.{BackendTag, Model, WireSessionId}
+import orca.agents.BackendTag
 import orca.events.Usage
-import orca.{AgentTurnFailed, OrcaFlowException}
+import orca.AgentTurnFailed
 import orca.backend.{
   StderrPipeline,
   ConversationEvent,
-  AgentResult,
   ForkedConversation,
   StreamSource
 }
@@ -87,12 +86,7 @@ private[gemini] class GeminiConversation(
   override protected def isStderrNoise(line: String): Boolean =
     GeminiConversation.isKnownStderrNoise(line)
 
-  override protected def cleanExitWithoutResult(): Throwable =
-    new OrcaFlowException(
-      appendContext(
-        "gemini exited cleanly but never sent a result event"
-      )
-    )
+  override protected def terminalMessageNoun: String = "a result event"
 
   // --- Per-event dispatch ---
 
@@ -136,13 +130,12 @@ private[gemini] class GeminiConversation(
         )
       )
     else
-      val result = AgentResult(
-        wireId = WireSessionId[BackendTag.Gemini.type](sessionId),
+      settleSuccess(
+        wireId = sessionId,
         output = answer.toString,
         usage = usage,
-        model = model.map(Model.apply)
+        modelId = model
       )
-      succeedWith(result)
 
   /** A `user`-role message is the prompt echo (the base already surfaced the
     * opening prompt as a `UserMessage`), so it's dropped from both the event

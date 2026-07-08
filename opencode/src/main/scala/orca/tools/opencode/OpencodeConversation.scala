@@ -5,12 +5,11 @@ import orca.AgentTurnFailed
 import orca.backend.{
   ApprovalDecision,
   ConversationEvent,
-  AgentResult,
   ForkedConversation,
   StreamSource
 }
 import orca.events.Usage
-import orca.agents.{BackendTag, Model, WireSessionId}
+import orca.agents.BackendTag
 import orca.tools.opencode.OpencodeApi.{
   AssistantInfo,
   PermissionReply,
@@ -65,7 +64,7 @@ private[opencode] class OpencodeConversation(
     catch case NonFatal(_) => ()
 
   /** Turn state, accumulated as the reader thread processes frames.
-    * `handleLine` (and the `buildResult` it drives at `session.idle`) run only
+    * `handleLine` (and the `settleResult` it drives at `session.idle`) run only
     * on that single thread, so a plain `var` over an immutable snapshot is safe
     * and avoids cross-thread machinery; `awaitResult` reads the outcome only
     * after joining the reader, which publishes these writes.
@@ -142,22 +141,23 @@ private[opencode] class OpencodeConversation(
       case None =>
         if turnState.info.isEmpty && turnState.text.isEmpty then
           failTurn("session went idle without an assistant message")
-        else succeedWith(buildResult())
+        else settleResult()
 
   private def failTurn(message: String): Unit =
     failWith(AgentTurnFailed(message))
 
-  /** In structured mode the validated object is the result; otherwise the
-    * accrued assistant text. Usage and model come from the captured `info`.
+  /** Settle the turn with the synthesised result: in structured mode the
+    * validated object, otherwise the accrued assistant text. Usage and model
+    * come from the captured `info`.
     */
-  private def buildResult(): AgentResult[BackendTag.Opencode.type] =
+  private def settleResult(): Unit =
     val info = turnState.info
     val structured = info.flatMap(_.structured).map(_.value)
-    AgentResult(
-      wireId = WireSessionId[BackendTag.Opencode.type](session),
+    settleSuccess(
+      wireId = session,
       output = structured.getOrElse(turnState.text.mkString),
       usage = usageOf(info),
-      model = info.flatMap(_.modelID).map(Model.apply)
+      modelId = info.flatMap(_.modelID)
     )
 
   private def usageOf(info: Option[AssistantInfo]): Usage =

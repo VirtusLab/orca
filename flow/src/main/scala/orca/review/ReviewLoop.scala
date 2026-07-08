@@ -92,8 +92,6 @@ def fixLoop(
     fix: List[ReviewIssue] => FixOutcome,
     maxIterations: Int = 10
 )(using ctx: FlowContext): IgnoredIssues =
-  def emitStep(msg: String): Unit = ctx.emit(OrcaEvent.Step(msg))
-
   @scala.annotation.tailrec
   def loop(accumulated: IgnoredIssues, iteration: Int): IgnoredIssues =
     // A progress marker, not a committing stage: this runs under the caller's
@@ -102,14 +100,14 @@ def fixLoop(
     val issues = evaluate().issues
     stopPolicy(issues, iteration, maxIterations) match
       case LoopStep.Done =>
-        emitStep("No review comments")
+        orca.display("No review comments")
         accumulated
       case LoopStep.CapReached(ignored) =>
-        emitStep(s"Reached max iterations ($maxIterations); bailing out")
+        orca.display(s"Reached max iterations ($maxIterations); bailing out")
         accumulated ++ ignored
       case LoopStep.NeedsFix =>
         val outcome = fix(issues)
-        emitStep(
+        orca.display(
           s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}"
         )
         if outcome.fixed.isEmpty then
@@ -377,8 +375,6 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   // name-uniqueness `require` is gone.
   private val roster: List[RosterEntry[?]] = reviewers.map(RosterEntry.wrap)
 
-  private def emitStep(msg: String): Unit = ctx.emit(OrcaEvent.Step(msg))
-
   // Sampled per iteration in `runReviewersAndLint`. A constant override skips
   // the git call; the default thunk shells out fresh each iteration so a newly-
   // active reviewer sees the latest diff rather than the loop-start one.
@@ -637,14 +633,14 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       val issues = result.issues
       stopPolicy(issues, iteration, maxIterations) match
         case LoopStep.Done =>
-          emitStep("No review comments")
+          orca.display("No review comments")
           accumulated
         case LoopStep.CapReached(ignored) =>
-          emitStep(s"Reached max iterations ($maxIterations); bailing out")
+          orca.display(s"Reached max iterations ($maxIterations); bailing out")
           accumulated ++ ignored
         case LoopStep.NeedsFix =>
           val outcome = fix(issues)
-          emitStep(
+          orca.display(
             s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}"
           )
           if outcome.fixed.isEmpty then

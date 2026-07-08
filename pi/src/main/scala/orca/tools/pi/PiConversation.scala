@@ -1,9 +1,9 @@
 package orca.tools.pi
 
 import orca.events.Usage
-import orca.agents.{BackendTag, Model, SessionId, onWire}
+import orca.agents.{BackendTag, SessionId}
 import orca.{OrcaFlowException}
-import orca.backend.{ConversationEvent, AgentResult}
+import orca.backend.ConversationEvent
 import orca.backend.{StderrPipeline, ForkedConversation, StreamSource}
 import orca.subprocess.PipedCliProcess
 import orca.tools.pi.rpc.{
@@ -87,10 +87,7 @@ private[pi] class PiConversation(
     super.onFinalize()
     resources.foreach(closeQuietly)
 
-  override protected def cleanExitWithoutResult(): Throwable =
-    new OrcaFlowException(
-      appendContext("pi exited cleanly but never emitted agent_end")
-    )
+  override protected def terminalMessageNoun: String = "an agent_end event"
 
   private def handle(event: InboundEvent): Unit = event match
     case InboundEvent.Response(_, command, success, error) =>
@@ -158,16 +155,16 @@ private[pi] class PiConversation(
   // terminal (one turn per conversation), so the base funnel auto-closes the
   // open turn when `succeedWith` settles — no explicit `AssistantTurnEnd` here.
   private def handleAgentEnd(): Unit =
-    val result = AgentResult[BackendTag.Pi.type](
-      wireId = clientSession.onWire,
+    // Closing stdin tells Pi no more commands are coming; `settleSuccess` (via
+    // `succeedWith`) then sets the outcome and interrupts the source (SIGINTs
+    // the process), so stdin must close first.
+    closeStdin()
+    settleSuccess(
+      wireId = clientSession.value,
       output = turnState.lastAssistantMessage,
       usage = turnState.usage,
-      model = turnState.model.map(Model.apply)
+      modelId = turnState.model
     )
-    // Closing stdin tells Pi no more commands are coming; `succeedWith` sets the
-    // outcome then interrupts the source (SIGINTs the process).
-    closeStdin()
-    succeedWith(result)
 
   private def handleExtensionUiRequest(
       id: String,
