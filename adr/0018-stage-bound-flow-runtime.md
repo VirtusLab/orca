@@ -668,7 +668,7 @@ flow(OrcaArgs(args), _.claude):                          // required agent selec
   // Get-or-create the implementer session (pure: id reserved, backend created on
   // first use). The seed (plan brief) primes it on first use, and is replayed if the
   // backend session is lost on resume.
-  val session = agent.session(seed = plan.brief)
+  val session = agent.session("implement", seed = plan.brief)
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):                       // skipped on resume if already done
@@ -706,9 +706,9 @@ mid-flow — first the failing test, then the fix.
 val orcaArgs    = OrcaArgs(args)
 val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
-flow(orcaArgs, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):  // claude default
+flow(orcaArgs, _.claude, branchNaming = Some(BranchNamingStrategy.issue(issueHandle))):
   val issue   = gh.readIssue(issueHandle)                            // read
-  val session = claude.session(seed = issue.body)                    // get-or-create
+  val session = claude.session("fix", seed = issue.body)             // get-or-create
   val triage  = stage("Triage"):                                     // LLM → staged
     Plan.autonomous.triage(report(issue), claude).value
 

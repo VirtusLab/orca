@@ -125,7 +125,7 @@ A minimal Pi-backed flow looks the same; Pi reads your normal Pi configuration
 and is driven through RPC mode under the hood:
 
 ```scala
-flow(OrcaArgs(args)):
+flow(OrcaArgs(args), _.pi):
   val session = pi.session("run", seed = userPrompt)
   stage("Run"):
     session.run(userPrompt)
@@ -206,7 +206,9 @@ Top-level, available via `import orca.*`:
 
 Any tool or agent `flow(...)` builds by default can be replaced by a named
 argument. Plain tools take the value directly (`git = Some(myGit)`,
-`interaction = Some(SlackInteraction(...))`). Agents take a **factory** that
+`interaction = Some(myInteraction)` — your own `orca.backend.Interaction`
+implementation, e.g. for Slack; not exported from `orca.*`, so import it by
+its full path). Agents take a **factory** that
 receives the run's `AgentWiring` (event sink, interaction, workDir, prompts), so
 a custom agent lands on the same dispatcher as the defaults:
 

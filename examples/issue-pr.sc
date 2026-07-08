@@ -1,5 +1,5 @@
 //> using scala 3.8.4
-//> using dep "org.virtuslab::orca:0.0.14+28-eb1a8993+20260624-0842-SNAPSHOT"
+//> using dep "org.virtuslab::orca:0.0.14"
 //> using jvm 21
 
 /** GitHub-issue → PR flow, fully autonomous.

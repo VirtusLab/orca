@@ -70,10 +70,12 @@ export orca.review.{
   RosterEntry
 }
 // PushFailure: the Left of GitTool.push's Either — pattern-matching its
-// NonFastForward/RemoteDeclined cases needs it in scope.
+// NonFastForward/RemoteDeclined cases needs it in scope. BuildWaitFailed is
+// the same shape for GitHubTool.waitForBuild's Either.
 export orca.tools.{
   BuildOutcome,
   BuildStatus,
+  BuildWaitFailed,
   Comment,
   Issue,
   IssueHandle,

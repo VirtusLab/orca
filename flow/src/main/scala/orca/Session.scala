@@ -1,6 +1,7 @@
 package orca
 
 import orca.agents.{
+  AgentCall,
   BackendTag,
   Agent,
   SessionId,
@@ -95,6 +96,14 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
     id: SessionId[B]
 )(using JsonData[O], Announce[O]):
 
+  /** Held as a val (not re-derived per `run` call) so a structured session
+    * hoisted to a top-level `val` gets `resultAs[O]`'s fail-fast schema
+    * derivation (`JsonSchemaGen`) at construction time, matching the raw
+    * `agent.resultAs[O]` gateway's contract, instead of surfacing on the first
+    * `run()` after stage work has already started.
+    */
+  private val call: AgentCall[B, O] = agent.resultAs[O]
+
   /** Autonomous structured turn against the durable session. Applies the same
     * seed/probe/persist protocol as [[FlowSession.run]]: on a lost/fresh
     * session it prepends the recorded seed + progress preamble to the
@@ -115,9 +124,7 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
       ws: WorkspaceWrite
   ): O =
     val serialized = ai.serialize(input)
-    val (_, output) = agent
-      .resultAs[O]
-      .autonomous
+    val (_, output) = call.autonomous
       .run(effectivePrompt(agent, id, serialized), id, emitPrompt = emitPrompt)
     persistResumeWireId(agent, id)
     output

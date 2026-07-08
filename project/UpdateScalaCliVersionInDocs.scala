@@ -30,7 +30,7 @@ object UpdateScalaCliVersionInDocs {
       filesToUpdate: List[File]
   ): Seq[File] = {
     val orgQuoted = Pattern.quote(organization)
-    val versionRegex = s"""($orgQuoted::[\\w-]+:)([\\w\\.-]+)""".r
+    val versionRegex = s"""($orgQuoted::[\\w-]+:)([\\w.+-]+)""".r
     val scalaVersionRegex = """(//> using scala )([\w.-]+)""".r
 
     def rewrite(f: File): Option[File] = {

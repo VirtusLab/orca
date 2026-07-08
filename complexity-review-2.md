@@ -435,6 +435,8 @@ target guard sites are defined by 6.2's commitAfterDrain.)
   Refs: `tools/.../agents/BackendTag.scala:10-15`,
   `flow/.../Session.scala:71`, `flow/.../progress/ProgressLog.scala:64-71`,
   `runner/.../FlowLifecycle.scala:108-119`.
+  (SessionRecord.backend stays a wire string on disk, typed at the read
+  boundary via fromWireName — by design)
 - [x] 6.5 (done: 4a37301 — isSafe reduced to the two 6.2 policy doors) Parse-don't-validate ids: make unchecked
   `SessionId.apply`/`WireSessionId.apply` `private[orca]`; add
   `parse(s): Option[...]` as the only door for log/wire-sourced strings; the
@@ -500,9 +502,10 @@ BOTH autonomous.run and resultAs construction. Split: 7A=7.1+7.4+7.5,
 > checked out and `.orca/flow.lock` remains (self-heals: next run steals the
 > dead-PID lock with a warning). Undefined path per ADR 0018 §6, strictly
 > better than the prior silent corruption. Full fix = the outer teardown
-> surviving an inner exit — owner call whether to pursue. Also noted:
-> the git-exclude for the lock assumes workDir = repo root (true for all
-> current usage).
+> surviving an inner exit — owner call whether to pursue. Also noted (later
+> corrected): `excludeLockFromGit` resolves the git common dir via `git
+> rev-parse --git-common-dir` rather than assuming `workDir` is the repo
+> root, so it is worktree-safe.
 
 - [x] 7.5 (done: d3f9bd9 — latch on shared AgentBackend (copyTool-bypass-proof)) Agents must not outlive their flow silently: `close()` flips a
   `closed` flag in `BaseAgent`; run entry points throw "agent used after its
