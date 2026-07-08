@@ -29,6 +29,15 @@ import scala.util.control.NonFatal
   */
 private[orca] object SubprocessSpawn:
 
+  /** Returns an `AutoCloseable` that best-effort deletes the given file when
+    * closed. Shared by the backends (claude's MCP config, codex's schema temp
+    * file) that write a per-call temp file and need it removed on both the
+    * failure path (via `open`'s `resources`) and the success path (via the
+    * conversation's `onFinalize`).
+    */
+  def deleteFileResource(path: os.Path): AutoCloseable =
+    () => if os.exists(path) then os.remove(path): Unit
+
   def open[C](
       sessionLabel: String,
       resources: List[AutoCloseable]

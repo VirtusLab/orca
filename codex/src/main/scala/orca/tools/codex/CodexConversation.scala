@@ -7,7 +7,8 @@ import orca.backend.{ConversationEvent, AgentResult}
 import orca.backend.{
   BufferedStderrDiagnostics,
   ForkedConversation,
-  StreamSource
+  StreamSource,
+  SubprocessSpawn
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
@@ -41,7 +42,7 @@ private[codex] class CodexConversation(
     override val askUser: Option[AskUserSession] = None,
     /** The temp file backing `--output-schema` (if any), owned by this
       * conversation so it's removed exactly once the turn finalizes — see
-      * [[CodexBackend.deleteFileResource]] and [[onFinalize]].
+      * [[orca.backend.SubprocessSpawn.deleteFileResource]] and [[onFinalize]].
       */
     schemaFile: Option[os.Path] = None
 )(using Ox)
@@ -116,7 +117,7 @@ private[codex] class CodexConversation(
     * that wrote it.
     */
   override protected def onFinalize(): Unit =
-    schemaFile.foreach(p => CodexBackend.deleteFileResource(p).close())
+    schemaFile.foreach(p => SubprocessSpawn.deleteFileResource(p).close())
     super.onFinalize()
 
   override protected def cleanExitWithoutResult(): Throwable =

@@ -90,8 +90,8 @@ private[orca] class OpencodeBackend(
       prompt: String,
       session: SessionId[BackendTag.Opencode.type],
       config: AgentConfig,
-      events: OrcaListener = OrcaListener.noop,
-      outputSchema: Option[String] = None
+      events: OrcaListener,
+      outputSchema: Option[String]
   ): AgentResult[BackendTag.Opencode.type] =
     val http = server.http
     Conversations.runAutonomous(session, sessions, events):
@@ -232,12 +232,8 @@ private[orca] class OpencodeBackend(
       outputSchema: Option[String],
       mode: SessionMode
   )(using Ox): OpencodeConversation =
-    val displayPrompt = mode match
-      case SessionMode.Interactive(p) => p
-      case SessionMode.Autonomous     => ""
-    val canAsk = mode match
-      case _: SessionMode.Interactive => true
-      case SessionMode.Autonomous     => false
+    val displayPrompt = mode.displayPrompt
+    val canAsk = mode.fold(false)(_ => true)
     val conv = new OpencodeConversation(
       source,
       http,

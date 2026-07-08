@@ -16,4 +16,19 @@ package orca.backend
   */
 private[orca] enum SessionMode:
   case Autonomous
-  case Interactive(displayPrompt: String)
+  case Interactive(prompt: String)
+
+  /** The prompt a renderer anchors on, or `""` for autonomous — autonomous
+    * calls have no renderer to show it to. Saves the backend call sites that
+    * only need this one projection from writing out the full `match`.
+    */
+  def displayPrompt: String = this match
+    case Autonomous          => ""
+    case Interactive(prompt) => prompt
+
+  /** Case analysis without repeating the `match` at each call site.
+    * `ifInteractive` receives the display prompt.
+    */
+  def fold[A](ifAutonomous: => A)(ifInteractive: String => A): A = this match
+    case Autonomous          => ifAutonomous
+    case Interactive(prompt) => ifInteractive(prompt)

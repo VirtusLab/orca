@@ -10,9 +10,11 @@ import orca.backend.{
 }
 import orca.events.{OrcaListener, Usage}
 import orca.agents.{
+  AutoApprove,
   BackendTag,
   DefaultPrompts,
   AgentConfig,
+  Enforcement,
   OpencodeAgent,
   SessionId,
   ToolSet,
@@ -48,6 +50,8 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Opencode.type] =
       SessionSupport.Ephemeral(new SessionRegistry.ClaimedOnce)
     val tag: BackendTag.Opencode.type = BackendTag.Opencode
+    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+      Enforcement.Ignored
 
   private val noInteraction: Interaction = new Interaction:
     def listeners: List[OrcaListener] = Nil

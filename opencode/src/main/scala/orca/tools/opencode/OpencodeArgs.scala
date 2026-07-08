@@ -85,9 +85,8 @@ private[opencode] object OpencodeArgs:
             "patch" -> false
           )
         case ToolSet.Full => Map.empty[String, Boolean]
-    val question = mode match
-      case SessionMode.Autonomous     => Map("question" -> false)
-      case SessionMode.Interactive(_) => Map.empty[String, Boolean]
+    val question =
+      mode.fold(Map("question" -> false))(_ => Map.empty[String, Boolean])
     // The two key sets are disjoint, so the merge order is irrelevant.
     val flags = writeGate ++ question
     Option.when(flags.nonEmpty)(flags)

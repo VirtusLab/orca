@@ -15,8 +15,10 @@ import orca.agents.{
   Announce,
   AutonomousAgentCall,
   AutonomousTextCall,
+  AutoApprove,
   BackendTag,
   DefaultPrompts,
+  Enforcement,
   InteractiveAgentCall,
   JsonData,
   AgentCall,
@@ -116,6 +118,8 @@ class OpencodeFlowTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Opencode.type] =
       SessionSupport.Ephemeral(new SessionRegistry.ClaimedOnce)
     val tag: BackendTag.Opencode.type = BackendTag.Opencode
+    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+      Enforcement.Ignored
 
   private val noInteraction: Interaction = new Interaction:
     def listeners: List[OrcaListener] = Nil

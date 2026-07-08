@@ -74,6 +74,8 @@ class WithCheapModelTest extends munit.FunSuite:
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.Ephemeral(new SessionRegistry.ClaimedOnce)
     val tag: BackendTag.Pi.type = BackendTag.Pi
+    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+      Enforcement.Ignored
 
   private object StubPrompts extends Prompts:
     def autonomous(

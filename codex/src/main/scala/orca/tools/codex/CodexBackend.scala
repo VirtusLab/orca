@@ -105,8 +105,8 @@ private[orca] class CodexBackend(
       prompt: String,
       session: SessionId[BackendTag.Codex.type],
       config: AgentConfig,
-      events: OrcaListener = OrcaListener.noop,
-      outputSchema: Option[String] = None
+      events: OrcaListener,
+      outputSchema: Option[String]
   ): AgentResult[BackendTag.Codex.type] =
     // drainAndCommit records the client→server mapping so a follow-up call on
     // this client id resumes the right thread; the result carries the server
@@ -178,13 +178,14 @@ private[orca] class CodexBackend(
     // concurrent structured calls (the reviewer fan-out) each get their own file
     // and `git add -A` never sees it.
     val schemaFile = writeSchemaIfPresent(outputSchema)
-    val (askUser, displayPrompt): (Option[AskUserSession], String) =
-      mode match
-        case SessionMode.Interactive(p) => (Some(AskUserSession.allocate()), p)
-        case SessionMode.Autonomous     => (None, "")
+    val displayPrompt = mode.displayPrompt
+    val askUser: Option[AskUserSession] =
+      mode.fold(None)(_ => Some(AskUserSession.allocate()))
     SubprocessSpawn.open(
       "codex",
-      askUser.toList ++ schemaFile.map(CodexBackend.deleteFileResource).toList
+      askUser.toList ++ schemaFile
+        .map(SubprocessSpawn.deleteFileResource)
+        .toList
     ) {
       // codex `exec` has no `--system-prompt` flag (it picks up `AGENTS.md`
       // files for static instructions), so fold the composed system prompt into
@@ -230,7 +231,7 @@ private[orca] class CodexBackend(
     * the working tree — never `workDir` — so it can't race a concurrent
     * structured call for the same directory (the reviewer fan-out) and never
     * gets swept into a flow's `git add -A`. `deleteOnExit = false`: cleanup is
-    * explicit, via [[CodexBackend.deleteFileResource]] wired into the
+    * explicit, via [[SubprocessSpawn.deleteFileResource]] wired into the
     * conversation's finalize (success path) and `SubprocessSpawn.open`'s
     * `resources` (failure path) — not left to JVM-exit best-effort.
     */
@@ -242,14 +243,3 @@ private[orca] class CodexBackend(
         suffix = ".json",
         deleteOnExit = false
       )
-
-private[orca] object CodexBackend:
-
-  /** Returns an `AutoCloseable` that best-effort deletes the given file when
-    * closed. Mirrors `ClaudeBackend.deleteFileResource` — used so the per-call
-    * output-schema temp file is removed on both the failure path (via
-    * `SubprocessSpawn.open`'s `resources`) and the success path (via
-    * `CodexConversation.onFinalize`).
-    */
-  private[codex] def deleteFileResource(path: os.Path): AutoCloseable =
-    () => if os.exists(path) then os.remove(path): Unit

@@ -82,8 +82,8 @@ private[orca] class PiBackend(
       prompt: String,
       session: SessionId[BackendTag.Pi.type],
       config: AgentConfig,
-      events: OrcaListener = OrcaListener.noop,
-      outputSchema: Option[String] = None
+      events: OrcaListener,
+      outputSchema: Option[String]
   ): AgentResult[BackendTag.Pi.type] =
     Conversations.runAutonomous(session, sessions, events):
       openConversation(
@@ -124,9 +124,8 @@ private[orca] class PiBackend(
     // `deleteOnExit`, so a hard JVM kill mid-turn still reclaims them. Both
     // files are allocated up front (before `open`) so `resources` is a plain
     // immutable list.
-    val (displayPrompt, extraHint) = mode match
-      case SessionMode.Autonomous     => ("", None)
-      case SessionMode.Interactive(p) => (p, Some(PiAskUserExtension.Hint))
+    val displayPrompt = mode.displayPrompt
+    val extraHint = mode.fold(None)(_ => Some(PiAskUserExtension.Hint))
 
     // Write the system prompt file FIRST — before ANY resource is allocated —
     // so a temp-write failure (e.g. disk full) can't leak the ask-user
@@ -135,9 +134,8 @@ private[orca] class PiBackend(
     // static constant, so knowing it doesn't require the allocation.
     val systemPromptFile = writeSystemPromptIfPresent(config, extraHint)
 
-    val askUserExtension = mode match
-      case SessionMode.Autonomous     => None
-      case SessionMode.Interactive(_) => Some(PiAskUserExtension.allocate())
+    val askUserExtension =
+      mode.fold(None)(_ => Some(PiAskUserExtension.allocate()))
 
     val resources: List[AutoCloseable] =
       askUserExtension.toList ++ systemPromptFile.toList

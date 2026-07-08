@@ -102,8 +102,8 @@ private[orca] class GeminiBackend(
       prompt: String,
       session: SessionId[BackendTag.Gemini.type],
       config: AgentConfig,
-      events: OrcaListener = OrcaListener.noop,
-      outputSchema: Option[String] = None
+      events: OrcaListener,
+      outputSchema: Option[String]
   ): AgentResult[BackendTag.Gemini.type] =
     // drainAndCommit records the client→server mapping so a follow-up call on
     // this client id resumes the right thread; the result carries the server
@@ -153,13 +153,11 @@ private[orca] class GeminiBackend(
       config: AgentConfig,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.Gemini.type] =
-    val (askUser, displayPrompt): (Option[AskUserSession], String) =
-      mode match
-        case SessionMode.Interactive(p) =>
-          val askUserSession = AskUserSession.allocate: server =>
-            List(GeminiSettings.register(workDir, server.url))
-          (Some(askUserSession), p)
-        case SessionMode.Autonomous => (None, "")
+    val displayPrompt = mode.displayPrompt
+    val askUser: Option[AskUserSession] = mode.fold(None) { _ =>
+      Some(AskUserSession.allocate: server =>
+        List(GeminiSettings.register(workDir, server.url)))
+    }
     // On a spawn/build failure the ask_user bundle is closed, which also
     // restores the settings.json via its `extras`, so nothing leaks.
     SubprocessSpawn.open("gemini", askUser.toList) {

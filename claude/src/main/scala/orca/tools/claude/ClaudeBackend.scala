@@ -133,8 +133,8 @@ private[orca] class ClaudeBackend(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
       config: AgentConfig,
-      events: OrcaListener = OrcaListener.noop,
-      outputSchema: Option[String] = None
+      events: OrcaListener,
+      outputSchema: Option[String]
   ): AgentResult[BackendTag.ClaudeCode.type] =
     // drainAndCommit commits only after a successful drain: a subprocess that
     // crashed before claude could register the session id (e.g. exit before
@@ -217,16 +217,13 @@ private[orca] class ClaudeBackend(
     // deterministically on a downstream failure. `None` for autonomous —
     // those calls don't expose the tool. Claude's `extras` deletes the
     // workDir-local `.orca-mcp-<port>.json` when the conversation ends.
-    val (askUser, displayPrompt): (Option[AskUserSession], String) =
-      mode match
-        case SessionMode.Interactive(p) =>
-          val resources = AskUserSession.allocate: server =>
-            writeMcpConfig(server, workDir)
-            List(
-              ClaudeBackend.deleteFileResource(mcpConfigPath(server, workDir))
-            )
-          (Some(resources), p)
-        case SessionMode.Autonomous => (None, "")
+    val displayPrompt = mode.displayPrompt
+    val askUser: Option[AskUserSession] = mode.fold(None) { _ =>
+      Some(AskUserSession.allocate: server =>
+        writeMcpConfig(server, workDir)
+        List(SubprocessSpawn.deleteFileResource(mcpConfigPath(server, workDir)))
+      )
+    }
     SubprocessSpawn.open("claude stream-json", askUser.toList) {
       val systemPromptFile =
         writeSystemPromptIfPresent(
@@ -342,14 +339,6 @@ object ClaudeBackend:
     "Bash(gh repo view:*)",
     "Bash(gh api:*)"
   )
-
-  /** Returns an `AutoCloseable` that best-effort deletes the given file when
-    * closed. Used as an `AskUserSession.extras` entry so each conversation's
-    * `.orca-mcp-<port>.json` is removed when the conversation ends — without
-    * this, long flows would accumulate orphan config files in `workDir`.
-    */
-  private[claude] def deleteFileResource(path: os.Path): AutoCloseable =
-    () => if os.exists(path) then os.remove(path): Unit
 
   /** Fully-qualified tool name the agent uses, derived from the MCP server name
     * + the tool's bare slug. Always auto-approved on the interactive path — the

@@ -2,10 +2,13 @@ package orca.tools.claude
 
 import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.agents.{
+  AutoApprove,
   BackendTag,
+  Enforcement,
   JsonData,
   AgentConfig,
   SessionId,
+  ToolSet,
   WireSessionId,
   onWire
 }
@@ -94,6 +97,8 @@ class SequencedBackend(outputs: List[String])
 
   val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
   val workDir: os.Path = os.pwd
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+    Enforcement.Ignored
 
   def runAutonomous(
       prompt: String,
