@@ -5,6 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   JsonValueCodec,
   readFromString
 }
+import io.circe.parser.{parse as parseCirceJson}
 
 import scala.annotation.tailrec
 import scala.util.matching.Regex
@@ -33,9 +34,11 @@ private[orca] object ResponseParser:
     * fences (optionally with a language tag) and prose preamble/coda around the
     * JSON body. Tries candidates from the *right* first, so a final answer
     * `{...}` at the end of the response wins over an incidental `{ ... }` in
-    * prose (e.g. a Java snippet quoted in the explanation). On a total parse
-    * failure, raises a [[MalformedAgentOutputException]] carrying the raw
-    * output and a short cause — never jsoniter's hex buffer dump.
+    * prose (e.g. a Java snippet quoted in the explanation). If every direct
+    * attempt fails, also tries unwrapping a lone `{"input": <value>}` envelope
+    * (see [[unwrapInputEnvelope]]) before giving up. On a total parse failure,
+    * raises a [[MalformedAgentOutputException]] carrying the raw output and a
+    * short cause — never jsoniter's hex buffer dump.
     */
   def parse[O](raw: String)(using JsonValueCodec[O]): O =
     val trimmed = stripFences(raw)
@@ -46,18 +49,47 @@ private[orca] object ResponseParser:
     attempts.collectFirst { case Right(value) => value } match
       case Some(value) => value
       case None =>
-        val lastError = attempts.collect { case Left(e) => e }.last
-        throw new MalformedAgentOutputException(
-          rawOutput = raw,
-          shortCause = shortMessage(lastError),
-          cause = lastError
-        )
+        candidates.flatMap(unwrapInputEnvelope[O]).collectFirst {
+          case Right(value) => value
+        } match
+          case Some(value) => value
+          case None =>
+            val lastError = attempts.collect { case Left(e) => e }.last
+            throw new MalformedAgentOutputException(
+              rawOutput = raw,
+              shortCause = shortMessage(lastError),
+              cause = lastError
+            )
 
   private def tryParse[O: JsonValueCodec](
       candidate: String
   ): Either[JsonReaderException, O] =
     try Right(readFromString[O](candidate))
     catch case e: JsonReaderException => Left(e)
+
+  /** Some backends (observed: opencode routing a reviewer call through
+    * claude-haiku) echo their own structured-output tool's argument envelope
+    * back as the "response" instead of the model's raw JSON — the tool's sole
+    * parameter happens to be named `input`, so the payload arrives as
+    * `{"input": <value>}` where `<value>` is either the expected JSON
+    * string-encoded (`{"input":"{\"issues\":[]}"}`) or nested directly
+    * (`{"input":{"issues":[]}}`). Unwrap exactly that one shape — a top-level
+    * object with the single key `input` — one level, and retry the normal parse
+    * on what's inside. Anything else (extra keys, a different lone key, a
+    * non-JSON string under `input`) is left alone and falls through to the
+    * ordinary parse failure; this is not a general fuzzy unwrapper.
+    */
+  private def unwrapInputEnvelope[O: JsonValueCodec](
+      candidate: String
+  ): Option[Either[JsonReaderException, O]] =
+    for
+      json <- parseCirceJson(candidate).toOption
+      obj <- json.asObject
+      if obj.keys.toList == List("input")
+      value <- obj("input")
+    yield value.asString match
+      case Some(inner) => tryParse[O](inner)
+      case None        => tryParse[O](value.noSpaces)
 
   private def stripFences(raw: String): String =
     raw.trim match

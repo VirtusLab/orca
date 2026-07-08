@@ -10,5 +10,6 @@ Previous response:
 --- END RESPONSE ---
 
 Please produce a valid JSON value matching the schema from the original
-instructions. Rules:
+instructions, returned directly and not wrapped under any key (e.g. not
+`{"input": ...}`). Rules:
 {{rawJsonRules}}
