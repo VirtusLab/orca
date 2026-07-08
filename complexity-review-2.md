@@ -727,6 +727,14 @@ Refs: `flow/.../review/ReviewLoop.scala:254-258,302-326,416-429`,
 > behind — ~35k dirs / one day's runs filled an 8G tmpfs. Fix shape: a
 > shared munit fixture that recursively removes the temp root on teardown
 > (os.remove.all in afterEach/afterAll), suite-wide. Treat as a 12.x task.
+> Live-verified behavior note (2026-07-08, by design, recorded): resuming
+> after a SIGKILL that left mid-task uncommitted work auto-stashes that work
+> — but a CONTINUED session (claude/codex/opencode) may "remember" writing
+> it, briefly diverging from the reverted worktree; the review loop churns
+> until the agent re-materialises the code (observed: one 10-iteration
+> bailout, then completion). Warn-don't-pop is the deliberate stash policy
+> (the stash can hold user WIP); revisit only if churn proves common.
+
 > Comprehensive-review residuals (2026-07-08, recorded not fixed): (a) a
 > DEFAULT-model codex run's resume turns attribute tokens to "(unknown)"
 > unpriced — codex's wire carries the model only on thread.started, so

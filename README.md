@@ -290,7 +290,8 @@ mints a fresh one per call). Note: opencode sessions are Durable across a
 process restart too, not just within a run — opencode persists them in its own
 global on-disk store (independent of orca's per-run `opencode serve` process),
 so a fresh server spawned after a kill/restart resumes a prior run's
-`resumeWireId` the same way codex/claude resume theirs. As with every
+`resumeWireId` the same way codex/claude resume theirs (live-verified
+2026-07-08). As with every
 backend, that holds on the same machine with the backend's store intact;
 otherwise the flow re-seeds safely (the uniform fallback).
 
