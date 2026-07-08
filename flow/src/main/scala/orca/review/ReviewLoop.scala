@@ -24,24 +24,68 @@ import orca.events.OrcaEvent
 
 import orca.util.TextWrap
 
+/** The decision the fix-loop stop policy ([[stopPolicy]]) reaches for one
+  * round, given that round's evaluated issues — before `fix` is (maybe) called.
+  * Shared by [[fixLoop]]'s state-free loop and [[ReviewFixLoop.run]]'s
+  * state-threading loop, which otherwise differ only in what they thread across
+  * iterations.
+  */
+private[review] enum LoopStep:
+  /** No issues found this round — the loop is done; nothing to accumulate. */
+  case Done
+
+  /** `maxIterations` fix attempts have already run. `ignored` folds the
+    * still-open issues in with a "max iterations reached" reason.
+    */
+  case CapReached(ignored: IgnoredIssues)
+
+  /** Issues remain and the cap hasn't been hit — hand them to `fix`. */
+  case NeedsFix
+
+/** The fix-loop stop policy, shared by [[fixLoop]] and [[ReviewFixLoop.run]]:
+  * stop with nothing accumulated when `issues` is empty; stop and fold `issues`
+  * into [[IgnoredIssues]] (reason: `"max iterations (N) reached"`) once
+  * `iteration >= maxIterations`; otherwise signal that `fix` should run.
+  *
+  * `maxIterations` counts FIX attempts, not evaluations: the cap check only
+  * fires once `iteration >= maxIterations`, so a loop built on this policy
+  * performs up to `maxIterations + 1` evaluations (the extra one is the final
+  * round that discovers the cap was reached).
+  *
+  * The halt-on-zero-fixed half of the policy — stop once `fix` reports nothing
+  * fixed, since re-evaluating would just rediscover the same issues — is a
+  * single `outcome.fixed.isEmpty` check with no cap-style arithmetic to share,
+  * so both loops inline it directly after their `fix` call.
+  */
+private[review] def stopPolicy(
+    issues: List[ReviewIssue],
+    iteration: Int,
+    maxIterations: Int
+): LoopStep =
+  if issues.isEmpty then LoopStep.Done
+  else if iteration >= maxIterations then
+    LoopStep.CapReached(
+      IgnoredIssues(
+        issues.map(i =>
+          IgnoredIssue(i.title, s"max iterations ($maxIterations) reached")
+        )
+      )
+    )
+  else LoopStep.NeedsFix
+
 /** Evaluate, fix, re-evaluate until the reviewer reports no issues, the fixer
   * reports zero fixes (so re-evaluating would just rediscover the same things),
   * or `maxIterations` fix attempts have been made. Issues that remain when the
   * cap is hit are folded into the returned `IgnoredIssues` with a `max
-  * iterations reached` reason so callers can surface them.
-  *
-  * `maxIterations` counts FIX attempts, not evaluations: the loop bails only
-  * once `iteration >= maxIterations`, so it performs up to `maxIterations + 1`
-  * evaluations (the extra one is the final round that discovers the cap was
-  * reached).
+  * iterations reached` reason so callers can surface them. See [[stopPolicy]]
+  * for the shared decision.
   *
   * Each round emits an `Iteration N` progress marker (a `display`, not a
   * committing stage — it runs under the caller's task stage, ADR 0018 §2.2).
   *
   * This is the state-free entry point: it has no cross-iteration data to
-  * thread, so it recurses directly. [[reviewAndFixLoop]] carries the same stop
-  * policy in [[ReviewFixLoop.run]], where it additionally threads a
-  * [[ReviewLoopState]].
+  * thread, so it recurses directly. [[ReviewFixLoop.run]], which backs
+  * [[reviewAndFixLoop]], additionally threads a [[ReviewLoopState]].
   */
 def fixLoop(
     evaluate: () => ReviewResult,
@@ -56,22 +100,21 @@ def fixLoop(
     // task stage (ADR 0018 §2.2), so it must not open its own stage.
     orca.display(s"Iteration ${iteration + 1}")
     val issues = evaluate().issues
-    if issues.isEmpty then
-      emitStep("No review comments")
-      accumulated
-    else if iteration >= maxIterations then
-      emitStep(s"Reached max iterations ($maxIterations); bailing out")
-      accumulated ++ IgnoredIssues(
-        issues.map(i =>
-          IgnoredIssue(i.title, s"max iterations ($maxIterations) reached")
+    stopPolicy(issues, iteration, maxIterations) match
+      case LoopStep.Done =>
+        emitStep("No review comments")
+        accumulated
+      case LoopStep.CapReached(ignored) =>
+        emitStep(s"Reached max iterations ($maxIterations); bailing out")
+        accumulated ++ ignored
+      case LoopStep.NeedsFix =>
+        val outcome = fix(issues)
+        emitStep(
+          s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}"
         )
-      )
-    else
-      val outcome = fix(issues)
-      emitStep(s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}")
-      if outcome.fixed.isEmpty then
-        accumulated ++ IgnoredIssues(outcome.ignored)
-      else loop(accumulated ++ IgnoredIssues(outcome.ignored), iteration + 1)
+        if outcome.fixed.isEmpty then
+          accumulated ++ IgnoredIssues(outcome.ignored)
+        else loop(accumulated ++ IgnoredIssues(outcome.ignored), iteration + 1)
 
   loop(IgnoredIssues(Nil), 0)
 
@@ -205,45 +248,35 @@ def reviewAndFixLoop[B <: BackendTag](
   // implicit search: the more-specific `fc: FlowControl` would otherwise be
   // picked for the constructor's `FlowContext` and its root capability rejected.
   new ReviewFixLoop(
-    coderSession = coderSession,
-    reviewers = reviewers,
-    reviewerSelection = reviewerSelection,
-    task = task,
-    formatCommand = formatCommand,
-    lintCommand = lintCommand,
-    lintAgent = lintAgent,
-    confidenceThreshold = confidenceThreshold,
-    maxIterations = maxIterations,
-    fixInstructions = fixInstructions,
-    initialDiff = initialDiff
+    ReviewLoopConfig(
+      coderSession = coderSession,
+      reviewers = reviewers,
+      reviewerSelection = reviewerSelection,
+      task = task,
+      formatCommand = formatCommand,
+      lintCommand = lintCommand,
+      lintAgent = lintAgent,
+      confidenceThreshold = confidenceThreshold,
+      maxIterations = maxIterations,
+      fixInstructions = fixInstructions,
+      initialDiff = initialDiff
+    )
   )(using ctx, ev).run()(using fc, ws)
 
-/** Implementation of [[reviewAndFixLoop]]: one instance per invocation holds
-  * the loop-constant configuration as fields, so the per-iteration logic reads
-  * top-down as plain methods rather than a stack of nested closures. Construct
-  * and call [[run]].
+/** [[reviewAndFixLoop]]'s 11 parameters, bundled into one value so
+  * [[ReviewFixLoop]]'s constructor doesn't mirror them field-for-field (the
+  * `FlowWiring`/`flow(...)` shape — `runner/.../FlowWiring.scala` — collects a
+  * public function's named arguments into one internal record the same way).
+  * `reviewAndFixLoop` itself keeps its own 11 named, documented parameters as
+  * the public surface; this bundling is internal-only. See `reviewAndFixLoop`'s
+  * parameter docs for the full description of each field.
   *
-  * All cross-iteration state lives in one immutable [[ReviewLoopState]]
-  * threaded explicitly through [[run]] (no captured `var`): within an iteration
-  * the reviewers fan out via `Flow.mapParUnordered`, but each fork reads the
-  * snapshot it was handed and the next state is computed once after they all
-  * return — so no concurrent mutation, no `mutable.Map`, no
-  * `ConcurrentHashMap`.
-  *
-  * See [[reviewAndFixLoop]]'s parameter docs for the full description of each
-  * constructor parameter.
-  *
-  * @param formatCommand
-  *   Shell command run before each review round; see `reviewAndFixLoop`'s
-  *   parameter docs.
-  * @param lintAgent
-  *   Summarises lint output into a `ReviewResult`; see `reviewAndFixLoop`'s
-  *   parameter docs.
-  * @param initialDiff
-  *   Override for the reviewers' initial diff; see `reviewAndFixLoop`'s
-  *   parameter docs.
+  * `fc`/`ws` deliberately stay out: they're exclusive capabilities threaded to
+  * [[ReviewFixLoop.run]] as method parameters, not loop configuration, so they
+  * never land in the reviewer fan-out closures that capture the config-holding
+  * instance (ADR 0018 §6).
   */
-private[review] class ReviewFixLoop[B <: BackendTag](
+private[review] case class ReviewLoopConfig[B <: BackendTag](
     coderSession: FlowSession[B],
     reviewers: List[Agent[?]],
     reviewerSelection: ReviewerSelector,
@@ -255,7 +288,31 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     maxIterations: Int,
     fixInstructions: String,
     initialDiff: Option[String]
-)(using ctx: FlowContext, ev: InStage):
+)
+
+/** Implementation of [[reviewAndFixLoop]]: one instance per invocation holds
+  * the loop-constant configuration ([[ReviewLoopConfig]]) plus its individual
+  * fields (imported below) as if they were constructor params, so the
+  * per-iteration logic reads top-down as plain methods rather than a stack of
+  * nested closures. Construct and call [[run]].
+  *
+  * All cross-iteration state lives in one immutable [[ReviewLoopState]]
+  * threaded explicitly through [[run]] (no captured `var`): within an iteration
+  * the reviewers fan out via `Flow.mapParUnordered`, but each fork reads the
+  * snapshot it was handed and the next state is computed once after they all
+  * return — so no concurrent mutation, no `mutable.Map`, no
+  * `ConcurrentHashMap`.
+  *
+  * See [[reviewAndFixLoop]]'s parameter docs for the full description of each
+  * [[ReviewLoopConfig]] field.
+  */
+private[review] class ReviewFixLoop[B <: BackendTag](
+    config: ReviewLoopConfig[B]
+)(using
+    ctx: FlowContext,
+    ev: InStage
+):
+  import config.*
   require(
     lintCommand.isEmpty || lintAgent.isDefined,
     "reviewAndFixLoop: lintCommand requires lintAgent"
@@ -488,11 +545,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       .run(FixRequest(fixInstructions, issues), emitPrompt = false)
 
   /** Run the evaluate/fix loop to convergence and return the accumulated
-    * [[IgnoredIssues]]. Same stop policy as [[fixLoop]] — `maxIterations`
-    * counts FIX attempts, so up to `maxIterations + 1` evaluations run — but
-    * additionally threads the immutable [[ReviewLoopState]] (reviewer history +
-    * sessions) through each round so the cross-iteration data flow stays
-    * explicit.
+    * [[IgnoredIssues]], applying the shared [[stopPolicy]] each round — see
+    * there for what it decides — but additionally threading the immutable
+    * [[ReviewLoopState]] (reviewer history + sessions) through each round so
+    * the cross-iteration data flow stays explicit.
     *
     * Takes [[FlowControl]] + [[WorkspaceWrite]] as method parameters (not
     * constructor fields) so the durable fix turn ([[fix]]) can reach the
@@ -519,29 +575,26 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       orca.display(s"Iteration ${iteration + 1}")
       val (result, nextState) = evaluate(state, selectRound)
       val issues = result.issues
-      if issues.isEmpty then
-        emitStep("No review comments")
-        accumulated
-      else if iteration >= maxIterations then
-        emitStep(s"Reached max iterations ($maxIterations); bailing out")
-        accumulated ++ IgnoredIssues(
-          issues.map(i =>
-            IgnoredIssue(i.title, s"max iterations ($maxIterations) reached")
+      stopPolicy(issues, iteration, maxIterations) match
+        case LoopStep.Done =>
+          emitStep("No review comments")
+          accumulated
+        case LoopStep.CapReached(ignored) =>
+          emitStep(s"Reached max iterations ($maxIterations); bailing out")
+          accumulated ++ ignored
+        case LoopStep.NeedsFix =>
+          val outcome = fix(issues)
+          emitStep(
+            s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}"
           )
-        )
-      else
-        val outcome = fix(issues)
-        emitStep(
-          s"Fixed ${outcome.fixed.size}, ignored ${outcome.ignored.size}"
-        )
-        if outcome.fixed.isEmpty then
-          accumulated ++ IgnoredIssues(outcome.ignored)
-        else
-          loop(
-            accumulated ++ IgnoredIssues(outcome.ignored),
-            iteration + 1,
-            nextState
-          )
+          if outcome.fixed.isEmpty then
+            accumulated ++ IgnoredIssues(outcome.ignored)
+          else
+            loop(
+              accumulated ++ IgnoredIssues(outcome.ignored),
+              iteration + 1,
+              nextState
+            )
     loop(IgnoredIssues(Nil), 0, ReviewLoopState.empty)
 
 private[review] object ReviewLoop:
