@@ -115,7 +115,7 @@ private[orca] class PiBackend(
       session: SessionId[BackendTag.Pi.type],
       config: AgentConfig,
       outputSchema: Option[String]
-  )(using Ox): PiConversation =
+  ): PiConversation =
     // Temp files (ask-user extension, system prompt) Pi reads for the whole
     // turn. Ownership passes to the conversation once it's constructed — it
     // closes them in `onFinalize` when the turn ends; `SubprocessSpawn.open`'s

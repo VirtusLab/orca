@@ -200,7 +200,7 @@ private[orca] class OpencodeBackend(
       prompt: String,
       outputSchema: Option[String],
       mode: SessionMode
-  )(using Ox): OpencodeConversation =
+  ): OpencodeConversation =
     val serverSession = serverSessionFor(http, session)
     val source = http.events()
     try
@@ -231,7 +231,7 @@ private[orca] class OpencodeBackend(
       prompt: String,
       outputSchema: Option[String],
       mode: SessionMode
-  )(using Ox): OpencodeConversation =
+  ): OpencodeConversation =
     val displayPrompt = mode.displayPrompt
     val canAsk = mode.isInteractive
     val conv = new OpencodeConversation(
