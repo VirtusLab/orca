@@ -30,6 +30,7 @@ import orca.agents.{
 }
 import orca.plan.{Plan, Task, Title}
 import orca.tools.opencode.DefaultOpencodeAgent
+import orca.testkit.GitRepo
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
 
@@ -67,7 +68,7 @@ class OpencodeFlowTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         agent = _.opencode,
-        workDir = TempRepo.create(),
+        workDir = GitRepo.seeded(),
         opencode = Some(_ => canned),
         interaction = Some(interaction)
       ):

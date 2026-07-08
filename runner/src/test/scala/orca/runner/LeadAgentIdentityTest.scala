@@ -28,6 +28,7 @@ import orca.backend.{
 }
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.tools.pi.DefaultPiAgent
+import orca.testkit.GitRepo
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
 
@@ -80,7 +81,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         agent = (_: FlowContext) => foreignAgent,
-        workDir = TempRepo.create(),
+        workDir = GitRepo.seeded(),
         interaction = Some(interaction()),
         extraListeners = List(stepRecorder(warnings))
       ):
@@ -112,7 +113,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
         // `copyTool`-derived sibling — a DIFFERENT `Agent` instance sharing the
         // SAME backend as the wired `pi`, not the wired `pi` value itself.
         agent = (ctx: FlowContext) => ctx.pi.withName("lead-pi"),
-        workDir = TempRepo.create(),
+        workDir = GitRepo.seeded(),
         pi = Some(w =>
           new DefaultPiAgent(
             piBackend,
@@ -166,7 +167,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
         runFlow(
           args = OrcaArgs(),
           agent = selector,
-          workDir = TempRepo.create(),
+          workDir = GitRepo.seeded(),
           interaction = Some(interaction()),
           extraListeners = List(listener),
           branchNaming = None,

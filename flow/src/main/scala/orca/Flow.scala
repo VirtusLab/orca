@@ -7,6 +7,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 import orca.events.OrcaEvent
 import orca.agents.JsonData
 import orca.progress.StageEntry
+import orca.util.TextUtil
 import org.slf4j.LoggerFactory
 
 import scala.util.control.NonFatal
@@ -115,7 +116,7 @@ private def runStage[T: JsonData](
           case _ =>
             fc.emit(
               OrcaEvent.Error(
-                s"Stage '$name' failed: ${throwableMessage(e, firstLineOnly = true)}"
+                s"Stage '$name' failed: ${TextUtil.throwableMessage(e, firstLineOnly = true)}"
               )
             )
       throw e
@@ -179,20 +180,6 @@ private def defaultCommitMessage(
       fallback
     )
 
-/** A throwable's human message: its `getMessage` (or the class name when
-  * blank), optionally collapsed to its first line. Shared by `stage` (first
-  * line, for a tidy one-line `✖`) and the flow boundary (whole message, so
-  * multi-line diagnostics like opencode's start-failure stderr survive).
-  */
-private[orca] def throwableMessage(
-    e: Throwable,
-    firstLineOnly: Boolean = false
-): String =
-  val msg = Option(e.getMessage).filter(_.nonEmpty)
-  val picked =
-    if firstLineOnly then msg.flatMap(_.linesIterator.nextOption()) else msg
-  picked.getOrElse(e.getClass.getName)
-
 private def formatMalformedOutput(
     stage: String,
     e: orca.agents.MalformedAgentOutputException
@@ -219,11 +206,3 @@ def fail(message: String)(using ctx: FlowContext): Nothing =
   val e = new OrcaFlowException(message)
   ctx.markErrorReported(e)
   throw e
-
-/** Pluralize an English noun by appending "s" when `n != 1`. The same count
-  * goes into the rendered string (`"1 review comment"` / `"3 review
-  * comments"`), so this also encodes the count. Centralised here so callers
-  * across packages produce consistent wording.
-  */
-private[orca] def pluralize(n: Int, singular: String): String =
-  s"$n $singular${if n == 1 then "" else "s"}"

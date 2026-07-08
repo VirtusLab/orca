@@ -35,7 +35,7 @@ import org.slf4j.LoggerFactory
 import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
-import orca.util.OrcaDebug
+import orca.util.{OrcaDebug, TextUtil}
 import ox.{Ox, supervised}
 
 import scala.util.control.NonFatal
@@ -178,7 +178,7 @@ def flow[B <: BackendTag](
       // loudly to stderr so no failure is ever swallowed.
       case NonFatal(e) =>
         failed = true
-        System.err.println(s"[orca] ${throwableMessage(e)}")
+        System.err.println(s"[orca] ${TextUtil.throwableMessage(e)}")
   finally
     costTracker.printSummary()
     orcaLog.finish()

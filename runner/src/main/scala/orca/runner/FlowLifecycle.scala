@@ -8,11 +8,11 @@ import orca.{
   OrcaArgs,
   OrcaFlowException,
   RuntimeInStage,
-  WorkspaceWrite,
-  throwableMessage
+  WorkspaceWrite
 }
 import orca.agents.{BackendTag, Agent, SessionId, WireSessionId}
 import orca.events.OrcaEvent
+import orca.util.TextUtil
 import orca.progress.{
   FeatureBranch,
   ProgressHeader,
@@ -97,7 +97,9 @@ object FlowLifecycle:
       try op
       catch
         case NonFatal(e) =>
-          ctx.reportOnce(e)(ctx.emit(OrcaEvent.Error(throwableMessage(e))))
+          ctx.reportOnce(e)(
+            ctx.emit(OrcaEvent.Error(TextUtil.throwableMessage(e)))
+          )
           log.debug("flow aborted", e)
           if debug then e.printStackTrace(System.err)
           throw SurfacedFlowFailure(e)

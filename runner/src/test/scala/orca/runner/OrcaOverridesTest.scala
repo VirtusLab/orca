@@ -2,6 +2,7 @@ package orca.runner
 
 import orca.{FlowContext, OrcaArgs, flow, fs, pi}
 import orca.tools.{FsTool}
+import orca.testkit.GitRepo
 import orca.agents.{
   Announce,
   AutonomousTextCall,
@@ -52,7 +53,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         agent = stubLead,
-        workDir = TempRepo.create(),
+        workDir = GitRepo.seeded(),
         fs = Some(fake),
         interaction = Some(interaction)
       ):
@@ -96,7 +97,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         agent = _ => fakeClaude,
-        workDir = TempRepo.create(),
+        workDir = GitRepo.seeded(),
         claude = Some(_ => fakeClaude),
         interaction = Some(interaction)
       ):
@@ -138,7 +139,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         agent = stubLead,
-        workDir = TempRepo.create(),
+        workDir = GitRepo.seeded(),
         opencode = Some(_ => fakeOpencode),
         interaction = Some(interaction)
       ):
@@ -166,7 +167,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         agent = stubLead,
-        workDir = TempRepo.create(),
+        workDir = GitRepo.seeded(),
         opencode = Some(w => OpencodeAgents.default(w)),
         interaction = Some(interaction)
       ):
@@ -202,7 +203,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         agent = stubLead,
-        workDir = TempRepo.create(),
+        workDir = GitRepo.seeded(),
         pi = Some(_ => fakePi),
         interaction = Some(interaction)
       ):
@@ -265,7 +266,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         agent = _.claude,
-        workDir = TempRepo.create(),
+        workDir = GitRepo.seeded(),
         claude = Some(w => wiredClaude(w.events)),
         interaction = Some(interaction),
         extraListeners = List(recorder)
@@ -288,7 +289,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         agent = stubLead,
-        workDir = TempRepo.create(),
+        workDir = GitRepo.seeded(),
         interaction = Some(interaction),
         extraListeners = List(tracker)
       ):

@@ -32,7 +32,7 @@ import scala.util.control.NonFatal
   * access to the shared `readLine` reader, since `readUser` is exactly where
   * callers do that read.
   */
-trait TerminalOutput:
+private[terminal] trait TerminalOutput:
   /** Append a (possibly multi-line) chunk to the event log. Trailing newline is
     * normalised. Empty input emits a single newline separator.
     */
@@ -57,7 +57,7 @@ trait TerminalOutput:
     */
   def close(): Unit
 
-object TerminalOutput:
+private[terminal] object TerminalOutput:
 
   /** Build a production `TerminalOutput` whose state is owned by an Ox actor +
     * animator fork in the given scope. The animator is `forkDiscard`: scope-end

@@ -2,6 +2,7 @@ package orca.runner
 
 import orca.{FlowContext, OrcaArgs, flow, userPrompt}
 import orca.events.{OrcaEvent}
+import orca.testkit.GitRepo
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
 
@@ -25,7 +26,7 @@ class OrcaTest extends munit.FunSuite:
       flow(
         args = OrcaArgs("hello world"),
         agent = _ => StubAgent.claude,
-        workDir = TempRepo.create(),
+        workDir = GitRepo.seeded(),
         interaction = Some(interaction)
       ):
         seen = userPrompt
@@ -42,7 +43,7 @@ class OrcaTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         agent = _ => StubAgent.claude,
-        workDir = TempRepo.create(),
+        workDir = GitRepo.seeded(),
         interaction = Some(interaction)
       ):
         summon[FlowContext].emit(OrcaEvent.StageStarted("plan"))

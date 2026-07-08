@@ -37,11 +37,11 @@ import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
-import orca.testkit.TempDirs
+import orca.testkit.{GitRepo, TempDirs}
 
 /** Tests for the flow lifecycle: success teardown, failure teardown, and resume
-  * across two calls. Each test uses a real temp git repo via `TempRepo` and a
-  * null-sink `TerminalInteraction` so no TTY is required.
+  * across two calls. Each test uses a real temp git repo via `GitRepo.seeded()`
+  * and a null-sink `TerminalInteraction` so no TTY is required.
   *
   * The first three tests cover teardown/resume through the public `flow(...)`
   * and by hand-building state — `flow()` calls `System.exit(1)` on body
@@ -56,7 +56,7 @@ import orca.testkit.TempDirs
 class FlowLifecycleTest extends munit.FunSuite:
 
   test("success teardown: ends on start branch and removes progress-log file"):
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     supervised:
       val interaction = TerminalInteraction.start(
         out = new PrintStream(new ByteArrayOutputStream()),
@@ -89,7 +89,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // progress header + one completed stage entry, then staged (but not yet
     // committed) partial work from a second stage.
     // Then apply failure teardown (resetHard) and assert the resulting state.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
     val prompt = "lifecycle-failure"
     val store = ProgressStore.default(workDir, prompt)
@@ -154,7 +154,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // branch has a committed progress header + one completed stage entry, and
     // the progress-log file is present on disk (failure teardown stays on the
     // feature branch without deleting the log).
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "lifecycle-resume"
     val store = ProgressStore.default(workDir, prompt)
     val invocations = new AtomicInteger(0)
@@ -224,7 +224,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // End-to-end crash path: a body that completes stage 1 then THROWS in stage
     // 2. `runFlow` (exit-free) must propagate the exception; failure teardown
     // leaves us on the feature branch with stage 1's commit + log entry intact.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "crash-feature"
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
@@ -261,7 +261,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // after stage 1 runs; the second resumes — stage 1's body must NOT run again
     // (the recorded result is replayed), so the counter ends at 1, and the
     // successful second run returns to the start branch.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "resume-feature"
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
@@ -311,7 +311,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // A plain RuntimeException thrown inside a stage surfaces its Error at the
     // stage boundary; as it unwinds to the flow boundary, the reported-set (the
     // production DefaultFlowContext one) must suppress a second Error.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "boundary-stage-once"
     val store = ProgressStore.default(workDir, prompt)
     val listener = new RecordingListener
@@ -325,7 +325,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   test("runFlow reports a body failure outside any stage exactly once"):
     // A body that throws directly (never entering a stage) is reported once at
     // the flow boundary itself.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "boundary-body-once"
     val store = ProgressStore.default(workDir, prompt)
     val listener = new RecordingListener
@@ -347,7 +347,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // to and must escape this exit-free seam as a plain, unwrapped exception.
     // (In production, `flow()`'s backstop catches it — stderr line + `System.exit(1)`
     // — but that tail is untestable here by design: `runFlow` never exits.)
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "factory-boom"
     val thrown = intercept[RuntimeException]:
       supervised:
@@ -412,7 +412,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // Simulate a merged feature branch: the committed log records branch X, but
     // HEAD is on Y (as if X was merged into Y, carrying the log along). Resuming
     // must abort rather than replay against the wrong branch.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "merged-hazard"
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
@@ -455,7 +455,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // silently doing nothing. The "starting fresh" warning is now routed
     // through the threaded `emit` as an `OrcaEvent.Step` (so a Slack-backed
     // Interaction sees it, not just a terminal), which this test captures.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "corrupt-log-fresh"
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
@@ -639,7 +639,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // An aborted run left a session record carrying a learned resumeWireId. On
     // resume, flow setup must replay it into the leading model's registry via
     // registerResumeWireId BEFORE the body runs.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "rehydrate-feature"
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
@@ -728,7 +728,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // plain file) so `os.remove` throws DirectoryNotEmptyException instead —
     // a real, not-NoSuchFile IO error. The run must still complete: nothing
     // should escape teardown and turn a successful run into exit 1.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "bestEffort-teardown"
     val store = ProgressStore.default(workDir, prompt)
     runFlowForTest(workDir, prompt, store):
@@ -752,7 +752,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // ctx.close() runs in runFlow's `finally`, so it must fire on the failure
     // path too — not just on success. Wire a recording opencode agent and
     // assert its close() ran after a body that throws.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "close-on-body-throw"
     var opencodeClosed = false
     val recorder = new RecordingOpencode(() => opencodeClosed = true)
@@ -787,7 +787,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // A flow whose body does nothing besides getting staged (only the orca
     // progress header + removal commits are on the feature branch). On success,
     // the branch should be gone.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "throwaway-flow"
     val git = new OsGitTool(workDir)
     supervised:
@@ -822,7 +822,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "success teardown (default): stays on the feature branch when code landed"
   ):
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "code-flow"
     val git = new OsGitTool(workDir)
     var featureBranchName = ""
@@ -863,7 +863,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "success teardown with returnToStartBranch=true returns to start, keeps branch"
   ):
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "code-flow-return"
     val git = new OsGitTool(workDir)
     var featureBranchName = ""
@@ -903,7 +903,7 @@ class FlowLifecycleTest extends munit.FunSuite:
 
   test("R5: failure teardown keeps feature branch regardless of code changes"):
     // A flow that crashes must NOT delete the branch — it needs to stay for resume.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "failure-keeps-branch"
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
@@ -941,7 +941,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // `UnsupportedOperationException`; `shortenPrompt` catches the failure and
     // falls back to `slug(userPrompt)`. This pins that the default is
     // `shortenPrompt`, not the old `fromText`.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "default-naming"
     val expectedBranch = BranchNamingStrategy.slug(prompt)
     var observedBranch = ""
@@ -975,7 +975,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // with zero protected-branch check, so this test is RED before
     // `FeatureBranch` lands: `featureBranchName` observes "main" and no
     // protecting Step event is emitted.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "fresh-protected"
     val git = new OsGitTool(workDir)
     val listener = new RecordingListener
@@ -1030,7 +1030,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // just checks it out and proceeds silently — this test is RED before the
     // create/checkout split lands: `featureBranchName` observes
     // `"taken-name"` and the pre-existing branch's head has moved.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "adoption-hazard"
     val git = new OsGitTool(workDir)
     val listener = new RecordingListener
@@ -1103,7 +1103,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // decide, not have orca guess again. Pre-create the exact deterministic
     // fallback name as an unrelated branch, then force the protected-name
     // fallback to land on it by resolving to "main".
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "fallback-collision-hazard"
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
@@ -1146,7 +1146,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // throw the resume refusal. Before the `surfaced` bracket, that escaped
     // `flow()` unreported — banner + exit 1 and nothing else. Now it must reach
     // the user's event surface exactly once, and escape marked as surfaced.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "surfaced-tampered"
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
@@ -1189,7 +1189,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // genuinely protected branch (`master`) as the header's feature branch —
     // exercising the OTHER `validateHeader` failure mode end-to-end through
     // `FlowLifecycle.setup`, not just at the `RecoveryCheckTest` unit level.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "resume-protected-branch"
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
@@ -1226,7 +1226,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // escaped unreported exactly like a setup failure. Force one: resume in
     // place (valid header) with a persisted resume-wire-id, and a lead agent
     // whose registry throws when the runtime replays it.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "surfaced-rehydrate"
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
@@ -1285,7 +1285,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // reset itself throws, that must NOT mask the original body failure: it is
     // attached as suppressed so the user sees the body message and debug sees
     // both.
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "surfaced-suppressed"
     val store = ProgressStore.default(workDir, prompt)
     val listener = new RecordingListener
@@ -1330,7 +1330,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "R7.4: a nested runFlow in the same process is refused before any git mutation, and the outer flow is unaffected"
   ):
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val prompt = "nested-guard"
     var innerThrown: Option[Throwable] = None
     supervised:
@@ -1382,7 +1382,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(branch, "main")
 
   test("R7.4: a workdir lock held by a live PID refuses a new runFlow"):
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val livePid = ProcessHandle.current().pid()
     os.write(
       workDir / ".orca" / "flow.lock",
@@ -1423,7 +1423,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "R7.4: a stale dead-PID lock is stolen with a warning, and the flow proceeds"
   ):
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     val dead = os.proc("true").spawn()
     dead.join(): Unit
     val deadPid = dead.wrapped.pid()
@@ -1470,7 +1470,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // log only; the lock must stay out of history even though the temp repo
     // has no `.gitignore` for `.orca/` (the guard writes it to the repo-local
     // `<git-common-dir>/info/exclude` on acquisition).
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     supervised:
       val interaction = TerminalInteraction.start(
         out = new PrintStream(new ByteArrayOutputStream()),

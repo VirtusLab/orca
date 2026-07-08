@@ -2,6 +2,7 @@ package orca.runner
 
 import orca.{OrcaArgs, agent, runFlow}
 import orca.agents.Agent
+import orca.testkit.GitRepo
 import orca.runner.terminal.TerminalInteraction
 import ox.supervised
 
@@ -14,7 +15,7 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 class FlowContextAgentTest extends munit.FunSuite:
 
   test("the `agent` accessor resolves the selector passed to runFlow"):
-    val workDir = TempRepo.create()
+    val workDir = GitRepo.seeded()
     var seen: Option[Agent[?]] = None
     supervised:
       val interaction = TerminalInteraction.start(

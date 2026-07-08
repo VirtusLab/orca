@@ -18,10 +18,10 @@ import scala.util.control.NonFatal
   *
   *   - A process-wide flag ([[acquireProcess]]): catches same-JVM
   *     nesting/concurrency cheaply, no I/O, before any git mutation.
-  *   - A `workDir`-keyed lock file ([[acquireWorkdir]]): catches the two-process
-  *     case a same-JVM flag can't see. Content is the holder's PID; on
-  *     contention, a live PID hard-refuses, a dead one is stolen with a warning
-  *     (crash leftovers must not permanently wedge a working tree).
+  *   - A `workDir`-keyed lock file ([[acquireWorkdir]]): catches the
+  *     two-process case a same-JVM flag can't see. Content is the holder's PID;
+  *     on contention, a live PID hard-refuses, a dead one is stolen with a
+  *     warning (crash leftovers must not permanently wedge a working tree).
   *
   * Both guards fire before `ctx` exists, so a violation is a plain, unwrapped
   * exception out of `runFlow` — `flow()`'s stderr backstop (the `NonFatal`
