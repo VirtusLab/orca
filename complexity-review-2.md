@@ -594,14 +594,14 @@ DefaultAgentCall's ctor as an eager val (fires at resultAs[O] construction);
 tracker's cited AgentCall line refs drifted — actual call sites :173/:261.
 Split: 9A=9.1+9.2, 9B=9.3+9.4+9.5.)
 
-- [ ] 9.1 `PushFailure` ADT (`NonFastForward` / `RemoteDeclined(msg)` /
+- [x] 9.1 (done: a6dc2d0 — two-case PushFailure; Other deliberately dropped (no third recoverable shape, zero Left-branching callers)) `PushFailure` ADT (`NonFastForward` / `RemoteDeclined(msg)` /
   `Other`): the bare `"rejected"` matcher classifies GitHub's protected-branch
   decline (GH006) as the recoverable `PushRejected`, whose documented
   fetch-and-rebase recovery loops forever; the test currently pins the
   misclassification — fix it to pin the correct class.
   Refs: `tools/src/main/scala/orca/tools/GitTool.scala:52-58,524-530`,
   `tools/src/test/scala/orca/tools/CliFailurePredicatesTest.scala:17-18`.
-- [ ] 9.2 Parse each `GhCheck` into a total `CheckState` enum
+- [x] 9.2 (done: a6dc2d0 — CheckState total enum, EXPECTED->Pending, Unknown logged) Parse each `GhCheck` into a total `CheckState` enum
   (`Pending/Success/Failure/Unknown(raw)`) at the DTO boundary: legacy
   `EXPECTED` (required external CI not yet reporting) currently falls through
   to instant `Failure`, defeating the empty-rollup/`noChecksGrace` machinery
@@ -609,19 +609,19 @@ Split: 9A=9.1+9.2, 9B=9.3+9.4+9.5.)
   vanishing into `else Failure`. Add the missing EXPECTED test.
   Refs: `tools/src/main/scala/orca/tools/GitHubTool.scala:588-615`,
   `tools/src/main/scala/orca/tools/GhJson.scala:15-22`.
-- [ ] 9.3 `JsonSchemaGen` fails fast on `Map[String, _]` fields with an
+- [x] 9.3 (done: c1c2f6e — funnel detection + eager ctor derivation; note: FlowSession structured door still derives at .run() (pre-existing, final-review list)) `JsonSchemaGen` fails fast on `Map[String, _]` fields with an
   actionable message ("model as a List of key/value case classes") instead of
   outsourcing to codex's opaque `invalid_json_schema` after destructive stages
   already ran; ideally hoist to `resultAs[O]` construction so it fires before
   any stage.
   Refs: `tools/src/main/scala/orca/util/JsonSchemaGen.scala:59-73`,
   `tools/src/main/scala/orca/agents/AgentCall.scala:146,235`.
-- [ ] 9.4 `BuildStatus` carries `checkCount`/`hasChecks` — `waitForBuild`
+- [x] 9.4 (done: c1c2f6e) `BuildStatus` carries `checkCount`/`hasChecks` — `waitForBuild`
   currently derives "a check has registered" from the rendered log string
   being non-empty (semantic fact destroyed by projection, re-derived from
   rendering).
   Refs: `tools/src/main/scala/orca/tools/GitHubTool.scala:77,470-499`.
-- [ ] 9.5 `FsTool.list` validates glob shape at entry (reject leading `/`,
+- [x] 9.5 (done: c1c2f6e) `FsTool.list` validates glob shape at entry (reject leading `/`,
   handle `.`/`..`) with a self-describing error — currently an unrelated
   `IllegalArgumentException` from os-lib, and absolute globs could only ever
   return `Nil`.
