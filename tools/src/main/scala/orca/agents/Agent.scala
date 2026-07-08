@@ -158,6 +158,25 @@ trait Agent[B <: BackendTag]:
     */
   private[orca] def backendTag: Option[BackendTag] = None
 
+  /** An opaque token identifying this tool's underlying backend INSTANCE (not
+    * just its runtime tag/type), or `None` for tools without a backend
+    * (lightweight stubs). Two independently-built backends of the same kind
+    * (e.g. two `ClaudeCode` backends from separate `AgentWiring`s) get
+    * different tokens even though [[backendTag]] can't tell them apart;
+    * `copyTool`-derived siblings (`_.claude.opus`, `.withReadOnly`, …) share
+    * the SAME token because they share the SAME backend object. Used by
+    * [[orca.runner.DefaultFlowContext]] to tell a selector-derived sibling of a
+    * wired agent (safe — same backend, same events, same close latch) apart
+    * from an agent built against a genuinely different backend (foreign —
+    * event-blind, leaked past `close()`), without false-positiving on the
+    * former the way a plain `Agent eq Agent` check would (complexity-review-2
+    * 10.1). `BaseAgent` overrides this to the shared `AgentBackend.closedFlag`
+    * reference — already unique per backend instance, and deliberately shared
+    * across sibling backend instances that opt into it (e.g. claude's
+    * `withNetworkTools`), for exactly this identity purpose.
+    */
+  private[orca] def backendIdentity: Option[AnyRef] = None
+
   /** Will the NEXT call on `session` continue an already-live conversation
     * (rather than open a fresh one that needs re-seeding)? The durable-session
     * runtime asks this before deciding whether to re-inject the seed + progress

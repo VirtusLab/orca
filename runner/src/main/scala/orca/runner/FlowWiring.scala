@@ -29,7 +29,12 @@ import ox.Ox
   * applied inside `withDefaults`' Ox scope, not at the `flow(...)` argument
   * site (see `flow`'s param scaladoc) — a plain `AgentWiring => Agent` lambda
   * auto-adapts to the shape, so the other four fields are unaffected by
-  * carrying it too.
+  * carrying it too. That auto-adaptation is a property of INLINE lambda
+  * literals against an expected type, not of the function type itself: a
+  * `val`/`def` stored with the bare `AgentWiring => Agent` type (no `Ox ?=>`)
+  * does NOT widen later just by being passed where the context-function shape
+  * is expected — the `Ox ?=>` has to be in the value's own declared type from
+  * the start.
   */
 private[orca] case class FlowWiring(
     claude: Option[AgentWiring => Ox ?=> ClaudeAgent] = None,

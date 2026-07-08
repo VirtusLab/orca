@@ -79,6 +79,13 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     */
   override private[orca] def backendTag: Option[BackendTag] = Some(backend.tag)
 
+  /** Delegates to the shared backend's closed-flag reference — see
+    * [[Agent.backendIdentity]].
+    */
+  override private[orca] def backendIdentity: Option[AnyRef] = Some(
+    backend.closedFlag
+  )
+
   /** Gates [[autonomous]]`.run` and [[resultAs]]'s gateway construction on the
     * backend's closed latch (Epic 7.5). A leaked agent handle used after its
     * flow ended would otherwise silently emit to a closed run's dispatcher —

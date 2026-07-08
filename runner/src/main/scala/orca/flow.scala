@@ -75,6 +75,17 @@ import scala.util.control.NonFatal
   * non-default launcher through the factory itself: `opencode = Some(w =>
   * OpencodeAgents.default(w, OpencodeLauncher.ollama("qwen3-coder")))`.
   *
+  * The `agent` selector below is constrained the same way: it must resolve to
+  * one of the five wired agents (`ctx.claude`, …) or a `copyTool`-derived
+  * sibling of one (`_.claude.opus`, `.withReadOnly`, …) — anything sharing
+  * their backend is safe. A selector that instead returns an agent built from a
+  * SEPARATE `AgentWiring`/backend (e.g. `_ => myPrebuiltAgent`, or an agent
+  * wired against a different run entirely) compiles but is event-blind — it
+  * never reaches this run's dispatcher, so its cost/steps never reach the
+  * terminal or cost tracker — and gets a loud construction-time warning; `ctx`
+  * still closes its backend at flow end to avoid a resource leak, but nothing
+  * can retrofit it onto this run's event stream after the fact.
+  *
   * The leading agent is named by a required `agent` selector resolved against
   * the built `FlowContext`: the only way to name an agent is the accessor on
   * the context, which isn't in scope at the `flow(...)` argument position, so

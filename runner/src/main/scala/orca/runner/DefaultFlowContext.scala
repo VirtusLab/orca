@@ -69,15 +69,44 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
     BackendTag.Gemini -> gemini
   )
 
+  /** True when `a` IS one of the five wired agents, or was derived from one via
+    * a `copyTool`-style builder (`_.claude.opus`, `.withReadOnly`, …) — checked
+    * by shared [[orca.agents.Agent.backendIdentity]], not `Agent` reference
+    * equality, because a builder-derived sibling is a DIFFERENT `Agent`
+    * instance sharing the SAME backend: a naive `eq` check alone would
+    * false-positive-warn/double-close on the common `_.claude.opus` selector
+    * pattern (complexity-review-2 10.1). The direct `eq` fallback exists for
+    * agents with no backend at all (e.g. test stubs built straight on `Agent`,
+    * whose `backendIdentity` is `None`) so a selector that literally returns
+    * one of the five constructor vals unchanged still counts as wired even
+    * without a backend token to compare.
+    */
+  private def isWiredBackend(a: Agent[?]): Boolean =
+    agents.values.exists: w =>
+      (w: AnyRef).eq(a) ||
+        (w.backendIdentity.isDefined && w.backendIdentity == a.backendIdentity)
+
   /** Tear down context-owned background resources by closing every agent (each
     * delegates to its backend; all default to no-op — today only opencode holds
     * a live resource, the shared `serve` process). Runs in the flow body's
     * `finally`, before the flow scope joins its forks (see
     * [[orca.backend.AgentBackend.close]]). Per-agent best-effort: one failing
     * close must not keep the others (or the interaction) from closing.
+    *
+    * Also closes the resolved lead [[agent]] when its backend is NOT one of the
+    * five wired agents' backends (a selector like `_ => myPrebuiltAgent` built
+    * from a separate `AgentWiring`/backend — complexity-review-2 10.1): that
+    * agent is otherwise unreachable from `agents` and would leak past flow end.
+    * When the lead shares a wired backend (the common `_.claude.opus` pattern),
+    * it's already covered by the fan-out above, so it's deliberately NOT added
+    * a second time — closing a backend is idempotent, but a duplicate close
+    * call would still be observable noise.
     */
   def close(): Unit =
-    agents.values.foreach: a =>
+    val toClose =
+      if isWiredBackend(agent) then agents.values.toList
+      else agents.values.toList :+ agent
+    toClose.foreach: a =>
       try a.close()
       catch
         case NonFatal(e) =>
@@ -105,8 +134,26 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
 
   // The leading agent, resolved by the selector against this context (the only
   // way to name an agent is an accessor on it — `_.claude`, `_.codex`, …).
-  // Resolved lazily so the selector sees a fully-built context.
-  lazy val agent: Agent[B] = agentSelector(this)
+  // Resolved lazily so the selector sees a fully-built context; first forced
+  // from `FlowLifecycle.run`'s setup phase, by which point `dispatcher` is
+  // already live, so the foreign-selector warning below reaches the user the
+  // same way any other construction-time diagnostic does (an `OrcaEvent.Step`,
+  // not stderr — see the `flow` scaladoc's override-factory paragraph). A
+  // selector that escapes the five wired agents (e.g. `_ => myPrebuiltAgent`,
+  // built from a separate `AgentWiring`/backend) is event-blind — it never
+  // reaches this run's dispatcher — so this is a loud warning, not a silent
+  // fact; `close()` above still closes it to avoid a resource leak, but
+  // nothing can make it observe this run's events after the fact.
+  lazy val agent: Agent[B] =
+    val resolved = agentSelector(this)
+    if !isWiredBackend(resolved) then
+      emit(
+        OrcaEvent.Step(
+          "warning: lead agent was not built from this flow's context — " +
+            "events may not reach the terminal/cost tracker"
+        )
+      )
+    resolved
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 
