@@ -629,6 +629,17 @@ Split: 9A=9.1+9.2, 9B=9.3+9.4+9.5.)
 
 ## Epic 10 — Wiring and selector holes
 
+(Research 2026-07-08, epic10-research.md: all four valid. 10.1 nuance: the
+Epic-7 latch already covers copyTool-derived selectors (_.claude.opus) —
+the hole is genuinely-foreign backends; the wired-check must compare
+AgentBackend identity, NOT Agent eq (siblings aren't eq — naive check
+false-positives on the common pattern). 10.3 additions: CostTracker
+(invited by flow.scala's own scaladoc) and PushFailure (reachable via
+exported GitTool.push) also missing; CheckState correctly not exportable.
+10.4: targetAgent's match is in FlowLifecycle, not DefaultFlowContext; the
+Map is a derived private field — the five typed accessors stay. Split:
+10A=10.2+10.4+10.3 (mechanical+additive), 10B=10.1 (behavioral).)
+
 - [ ] 10.1 The lead-agent selector re-opens the event-blind hole 7.8 closed
   for overrides: `flow(args, _ => myPrebuiltAgent)` compiles; the foreign
   agent is event-blind, never closed, used privileged. Fix: `close()` also
