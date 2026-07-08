@@ -73,19 +73,18 @@ flow(
       )
 
   maybePlan.foreach: plan =>
-    // Get-or-create the implementer session. Seeded with the brief so the
-    // agent has codebase context; replayed on resume if the session is lost.
-    val session = claude.session("implementer", seed = plan.brief)
+    // Get-or-create the implementer session, seeded with the plan brief
+    // (replayed on resume if the session is lost).
+    val session = plan.implementerSession(claude)
 
     for task <- plan.tasks do
       stage(s"task: ${task.title}"):    // skipped on resume if already done
         session.run(task.description)
+        // reviewerSelection defaults to agentDriven(claude.cheap); pass
+        // `ReviewerSelector.allEveryRound` to run every reviewer instead.
         reviewAndFixLoop(
           coderSession = session,
           reviewers = allReviewers(claude),
-          // claude.cheap picks the per-task reviewer subset; swap for
-          // `ReviewerSelector.allEveryRound` to run every reviewer.
-          reviewerSelection = ReviewerSelector.agentDriven(claude.cheap),
           task = task.title.value,
           // Format after every edit; Prettier for a TS/JS project — swap for
           // your formatter.
@@ -93,24 +92,17 @@ flow(
         )
         // one commit per task: code + progress entry
 
-    stage("Push branch"):
-      git.push().orThrow
-
-    val summary = stage("Generate PR title and description"):
-      summarisePr(
-        agent = claude.cheap,
-        // Branch-vs-base diff — `git.diff()` (vs HEAD) would be empty, since
-        // every task is already committed.
-        diff = git.diffVsBase(git.defaultBase()),
-        context = Some(
-          s"""Originating issue: ${issueHandle.shortRef}
-             |Issue title: ${issue.title}""".stripMargin
-        )
-      )
-
-    stage("Open PR"):
-      val body =
+    // Push → summarise → create, as three resume-safe stages. The summariser
+    // sees the branch-vs-base diff (git.diff() vs HEAD would be empty here,
+    // since every task is already committed); the body appends the issue closer.
+    openPrFromBranch(
+      summarisingAgent = claude.cheap,
+      body = summary =>
         s"""${summary.body}
            |
-           |Closes ${issueHandle.shortRef}.""".stripMargin
-      gh.createPr(title = summary.title, body = body).orThrow
+           |Closes ${issueHandle.shortRef}.""".stripMargin,
+      context = Some(
+        s"""Originating issue: ${issueHandle.shortRef}
+           |Issue title: ${issue.title}""".stripMargin
+      )
+    )

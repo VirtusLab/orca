@@ -36,10 +36,9 @@ flow(OrcaArgs(args), _.claude):
     // below mints a fresh one.
     Plan.autonomous.from(userPrompt, claude.opus).value
 
-  // Stable coder session reused across every task (and the docs pass) so the
-  // agent retains context. Seeded with the plan brief; replayed on resume if
-  // the backend session is lost.
-  val session = claude.session("implementer", seed = plan.brief)
+  // Stable coder session reused across every task (and the docs pass), seeded
+  // with the plan brief; replayed on resume if the backend session is lost.
+  val session = plan.implementerSession(claude)
 
   // Reviewers on codex; fixes go back to the Claude session that implemented.
   val reviewers: List[Agent[?]] = allReviewers(codex)
@@ -47,10 +46,11 @@ flow(OrcaArgs(args), _.claude):
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):      // skipped on resume if already done
       session.run(task.description)
+      // reviewerSelection defaults to agentDriven(claude.cheap) — the coder
+      // session's cheap tier.
       reviewAndFixLoop(
         coderSession = session,
         reviewers = reviewers,
-        reviewerSelection = ReviewerSelector.agentDriven(claude.cheap),
         task = task.title.value,
         // Format after every edit; Spotless is wired into the seed pom.
         formatCommand = Some("mvn -q spotless:apply")

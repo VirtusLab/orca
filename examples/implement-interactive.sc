@@ -34,9 +34,9 @@ flow(OrcaArgs(args), _.claude):
     Plan.interactive.from(userPrompt, claude).value
 
   // Stable autonomous session shared by implementer and fixer (ask_user was
-  // only needed for planning). The seed primes it on first use and is
-  // replayed if the backend session is lost on resume.
-  val session = claude.session("implementer", seed = plan.brief)
+  // only needed for planning), seeded with the plan brief; primed on first use
+  // and replayed if the backend session is lost on resume.
+  val session = plan.implementerSession(claude)
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):      // skipped on resume if already done
@@ -44,9 +44,8 @@ flow(OrcaArgs(args), _.claude):
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(claude),
-        // claude.cheap picks the per-task reviewer subset; swap for
-        // `ReviewerSelector.allEveryRound` to run every reviewer.
-        reviewerSelection = ReviewerSelector.agentDriven(claude.cheap),
+        // reviewerSelection defaults to agentDriven(claude.cheap); pass
+        // `ReviewerSelector.allEveryRound` to run every reviewer instead.
         task = task.title.value,
         // Format after every edit so commits stay formatted and reviewers
         // skip style nits.

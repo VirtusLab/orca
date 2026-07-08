@@ -52,20 +52,19 @@ flow(OrcaArgs(args), _.claude, returnToStartBranch = true):
       .reviewed(agent)
       .value
 
-  // Get-or-create the implementer session. Seeded with the brief so the agent
-  // has codebase context from the start; replayed on resume if the backend
-  // session is lost.
-  val session = agent.session("implementer", seed = plan.brief)
+  // Get-or-create the implementer session, seeded with the plan brief so the
+  // agent has codebase context from the start (replayed on resume if lost).
+  val session = plan.implementerSession(agent)
 
   for task <- plan.tasks do
     stage(s"task: ${task.title}"):      // skipped on resume if already done
       // The session seed already carries the brief, so send only the task
       // description here — session.run re-prepends the seed on first use / resume.
       session.run(task.description)
+      // reviewerSelection defaults to agentDriven(agent.cheap).
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(agent),
-        reviewerSelection = ReviewerSelector.agentDriven(agent.cheap),
         task = task.title.value,
         // Format after every edit (the implementation and each review fix).
         formatCommand = Some("cargo fmt"),
@@ -74,14 +73,7 @@ flow(OrcaArgs(args), _.claude, returnToStartBranch = true):
       )
       // one commit per task: code + progress entry
 
-  // Push the branch and open the PR from the full branch diff.
-  stage("Push branch"):
-    git.push().orThrow
-
-  val prSum = stage("Generate PR title and description"):
-    summarisePr(agent = agent.cheap, diff = git.diffVsBase(git.defaultBase()))
-
-  stage("Open PR"):
-    // gh.createPr is idempotent by head branch (R24): if the branch already has
-    // an open PR, the existing handle is returned rather than failing.
-    gh.createPr(title = prSum.title, body = prSum.body).orThrow
+  // Push the branch and open the PR from the full branch diff. openPrFromBranch
+  // is the push → summarise → create tail as three resume-safe stages;
+  // gh.createPr is idempotent by head branch (R24), so a re-run reuses the PR.
+  openPrFromBranch(summarisingAgent = agent.cheap)

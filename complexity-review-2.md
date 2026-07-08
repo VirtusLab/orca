@@ -737,6 +737,12 @@ Refs: `flow/.../review/ReviewLoop.scala:254-258,302-326,416-429`,
 > (pre-existing convention) — a shared fence-collision guard is a
 > follow-up.
 
+> Comprehensive-review F1 DECLINED (owner decision, 2026-07-08): the
+> `reviewAndFixLoop` lead/coder selector stays a REQUIRED `coderSession` — no
+> default. (Batch B did default the sibling `reviewerSelection` to
+> `agentDriven(coderSession.agent.cheap)`; the coder session itself is not
+> defaultable — there is no principled fallback for "which agent implements".)
+
 > RESOLVED (82b6de5 + b404651): TempDirs registry + shutdown hook; 78 sites
 > migrated; 0 new leaked dirs verified operationally; interactive-session
 > caveat documented at the fixture.

@@ -240,10 +240,11 @@ def planAndImplementFix(
   for task <- fixPlan.tasks do
     stage(s"task: ${task.title}"): // skipped on resume if already done
       session.run(fixPlan.taskPrompt(task))
+      // reviewerSelection defaults to agentDriven(claude.cheap) — the coder
+      // session's cheap tier.
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(claude),
-        reviewerSelection = ReviewerSelector.agentDriven(claude.cheap),
         task = task.title.value,
         // Format after every edit (the implementation and each review fix).
         formatCommand = Some("sbt scalafmtAll"),
