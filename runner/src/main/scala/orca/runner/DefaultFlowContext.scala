@@ -101,11 +101,29 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
     * it's already covered by the fan-out above, so it's deliberately NOT added
     * a second time — closing a backend is idempotent, but a duplicate close
     * call would still be observable noise.
+    *
+    * Resolving that foreign-lead check forces the `agent` lazy val, which is
+    * itself best-effort here: if `agentSelector` threw on its FIRST force (the
+    * failure `flow()`'s caller already saw, reported as a `SurfacedFlowFailure`
+    * before this `finally` ever runs), Scala does not cache a lazy val's failed
+    * initialization — referencing `agent` again re-invokes the same throwing
+    * selector. Left unguarded, that re-thrown exception would escape `close()`
+    * from inside a `finally ctx.close()`, which replaces (masks) the original
+    * failure already propagating AND aborts the fan-out below before it closes
+    * a single wired backend. Wrapping it here keeps a throwing selector to the
+    * same "degrade, don't escalate" contract as every other step of `close()`.
     */
   def close(): Unit =
-    val toClose =
-      if isWiredBackend(agent) then agents.values.toList
-      else agents.values.toList :+ agent
+    val foreignLead =
+      try if !isWiredBackend(agent) then Some(agent) else None
+      catch
+        case NonFatal(e) =>
+          log.debug(
+            "lead selector re-threw during close; skipping its close",
+            e
+          )
+          None
+    val toClose = agents.values.toList ++ foreignLead
     toClose.foreach: a =>
       try a.close()
       catch

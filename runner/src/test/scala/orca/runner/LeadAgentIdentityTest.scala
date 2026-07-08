@@ -1,11 +1,20 @@
 package orca.runner
 
-import orca.{FlowContext, OrcaArgs, flow}
+import orca.{FlowContext, OrcaArgs, flow, runFlow}
 import orca.agents.{
   AgentConfig,
+  Announce,
   AutoApprove,
+  AutonomousTextCall,
   BackendTag,
+  ClaudeAgent,
+  CodexAgent,
   Enforcement,
+  AgentCall,
+  GeminiAgent,
+  JsonData,
+  Model,
+  OpencodeAgent,
   PiAgent,
   ToolSet
 }
@@ -23,6 +32,7 @@ import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
+import java.util.concurrent.atomic.AtomicReference
 
 /** Pins complexity-review-2 10.1: the `agent` selector can return an agent
   * built from a backend that isn't wired into this run's context — event-blind
@@ -125,6 +135,72 @@ class LeadAgentIdentityTest extends munit.FunSuite:
         "wired pi and again via the lead"
     )
 
+  test(
+    "a selector that always throws: the original failure is reported once " +
+      "(not masked by a re-throw during close), and close() still closes all " +
+      "five wired backends"
+  ):
+    // Pins the DefaultFlowContext.close() bug: `agent` is a `lazy val`, and a
+    // failed lazy-val initialization is NOT cached by Scala — a second
+    // reference re-invokes the same throwing selector. `close()`'s foreign-lead
+    // check used to read `agent` OUTSIDE any try/catch, so when the selector
+    // threw on its first force (surfaced once, as `SurfacedFlowFailure`, by
+    // `FlowLifecycle.run`'s `setup` phase), `runFlow`'s `finally ctx.close()`
+    // re-forced `agent`, re-threw, and that second exception escaped `close()`
+    // — masking the original failure and aborting the fan-out before a single
+    // wired backend closed.
+    val boom = new RuntimeException("selector always throws")
+    val selector: FlowContext => orca.agents.Agent[BackendTag.ClaudeCode.type] =
+      _ => throw boom
+    val agents = new RecordingAgents
+    val listener = new RecordingListener
+    val thrown = intercept[SurfacedFlowFailure]:
+      supervised:
+        runFlow(
+          args = OrcaArgs(),
+          agent = selector,
+          workDir = TempRepo.create(),
+          interaction = Some(interaction()),
+          extraListeners = List(listener),
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = None,
+          wiring = FlowWiring(
+            claude = Some(_ => agents.claude),
+            codex = Some(_ => agents.codex),
+            opencode = Some(_ => agents.opencode),
+            pi = Some(_ => agents.pi),
+            gemini = Some(_ => agents.gemini)
+          )
+        ):
+          ()
+    assertEquals(
+      thrown.cause,
+      boom,
+      "the flow-level failure must be the selector's original error, not a " +
+        "masking exception raised while `close()` re-forced `agent`"
+    )
+    val errors = listener.events.collect { case e: OrcaEvent.Error => e }
+    assertEquals(
+      errors.size,
+      1,
+      s"the selector's failure must be reported exactly once, saw: $errors"
+    )
+    for tag <- List(
+        BackendTag.ClaudeCode,
+        BackendTag.Codex,
+        BackendTag.Opencode,
+        BackendTag.Pi,
+        BackendTag.Gemini
+      )
+    do
+      assertEquals(
+        agents.closeCounts(tag),
+        1,
+        s"close() must still close the wired $tag backend despite the " +
+          s"selector re-throwing"
+      )
+
   private object NoopInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
@@ -161,3 +237,106 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
       Enforcement.Ignored
+
+  /** One recording stub per wired backend, each incrementing `closeCounts` for
+    * its own tag on `close()`. No test ever drives an `autonomous`/`resultAs`
+    * call through these — the selector throws before `FlowLifecycle.run`
+    * reaches anywhere the lead agent would actually be used — so those methods
+    * are unreachable stubs, same as `NoopOpencode`/`NoopPi`/`NoopGemini` in
+    * `DefaultFlowContextTest`.
+    */
+  private class RecordingAgents:
+    private val counts =
+      new AtomicReference[Map[BackendTag, Int]](Map.empty.withDefaultValue(0))
+    def closeCounts: Map[BackendTag, Int] = counts.get()
+    private def recordClose(tag: BackendTag): Unit =
+      val _ = counts.updateAndGet(m => m.updated(tag, m(tag) + 1))
+
+    val claude: ClaudeAgent = new ClaudeAgent:
+      val name = "recording-claude"
+      def haiku = this
+      def sonnet = this
+      def opus = this
+      def fable = this
+      def withModel(model: Model) = this
+      def withNetworkTools(t: Seq[String]) = this
+      def withConfig(c: AgentConfig) = this
+      def withSystemPrompt(p: String) = this
+      def withName(n: String) = this
+      def withTools(tools: ToolSet) = this
+      def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
+        throw new UnsupportedOperationException
+      def resultAs[O: JsonData: Announce]
+          : AgentCall[BackendTag.ClaudeCode.type, O] =
+        throw new UnsupportedOperationException
+      override private[orca] def close(): Unit =
+        recordClose(BackendTag.ClaudeCode)
+
+    val codex: CodexAgent = new CodexAgent:
+      val name = "recording-codex"
+      def mini = this
+      def withModel(model: Model) = this
+      def withConfig(c: AgentConfig) = this
+      def withSystemPrompt(p: String) = this
+      def withName(n: String) = this
+      def withTools(tools: ToolSet) = this
+      def autonomous: AutonomousTextCall[BackendTag.Codex.type] =
+        throw new UnsupportedOperationException
+      def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Codex.type, O] =
+        throw new UnsupportedOperationException
+      override private[orca] def close(): Unit = recordClose(BackendTag.Codex)
+
+    val opencode: OpencodeAgent = new OpencodeAgent:
+      val name = "recording-opencode"
+      def anthropicOpus = this
+      def anthropicSonnet = this
+      def anthropicHaiku = this
+      def openaiGpt5 = this
+      def openaiGpt5Codex = this
+      def openaiGpt5Mini = this
+      def withModel(providerModel: String) = this
+      def withConfig(c: AgentConfig) = this
+      def withSystemPrompt(p: String) = this
+      def withName(n: String) = this
+      def withTools(tools: ToolSet) = this
+      def autonomous: AutonomousTextCall[BackendTag.Opencode.type] =
+        throw new UnsupportedOperationException
+      def resultAs[O: JsonData: Announce]
+          : AgentCall[BackendTag.Opencode.type, O] =
+        throw new UnsupportedOperationException
+      override private[orca] def close(): Unit =
+        recordClose(BackendTag.Opencode)
+
+    val pi: PiAgent = new PiAgent:
+      val name = "recording-pi"
+      def withModel(model: Model) = this
+      def withConfig(c: AgentConfig) = this
+      def withSystemPrompt(p: String) = this
+      def withName(n: String) = this
+      def withTools(tools: ToolSet) = this
+      def autonomous: AutonomousTextCall[BackendTag.Pi.type] =
+        throw new UnsupportedOperationException
+      def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Pi.type, O] =
+        throw new UnsupportedOperationException
+      override private[orca] def close(): Unit = recordClose(BackendTag.Pi)
+
+    val gemini: GeminiAgent = new GeminiAgent:
+      val name = "recording-gemini"
+      def flash = this
+      def withModel(model: Model) = this
+      def withConfig(c: AgentConfig) = this
+      def withSystemPrompt(p: String) = this
+      def withName(n: String) = this
+      def withTools(tools: ToolSet) = this
+      def autonomous: AutonomousTextCall[BackendTag.Gemini.type] =
+        throw new UnsupportedOperationException
+      def resultAs[O: JsonData: Announce]
+          : AgentCall[BackendTag.Gemini.type, O] =
+        throw new UnsupportedOperationException
+      override private[orca] def close(): Unit = recordClose(BackendTag.Gemini)
+
+  private class RecordingListener extends OrcaListener:
+    private val seen = new AtomicReference[List[OrcaEvent]](Nil)
+    def onEvent(event: OrcaEvent): Unit =
+      val _ = seen.updateAndGet(event :: _)
+    def events: List[OrcaEvent] = seen.get().reverse
