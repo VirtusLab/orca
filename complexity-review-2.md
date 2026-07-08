@@ -689,7 +689,7 @@ Refs: `flow/.../review/ReviewLoop.scala:254-258,302-326,416-429`,
 > Untyped deletion: try the existential SessionEntry pair (run-inside-the-
 > wrapper, the original epic sketch); keep Untyped only if it fights CC.
 
-- [ ] 11.1 Opaque roster-bound `RosterEntry` handles (`private[review]` ctor);
+- [x] 11.1 (done: f3956ff — RosterEntry + pure arrow + existential SessionEntry; Untyped and .as[RB] DELETED; four defenses gone) Opaque roster-bound `RosterEntry` handles (`private[review]` ctor);
   selectors permute what they were handed; session map keyed by entry
   identity. `resolveAgainstRoster`, its warning, the fallback, and the
   uniqueness `require` all delete; `.as[RB]`'s justification collapses to one
@@ -699,15 +699,15 @@ Refs: `flow/.../review/ReviewLoop.scala:254-258,302-326,416-429`,
   (first-pass fix 4.3) becomes typeable as a pure arrow —
   `List[ReviewBatch] -> List[RosterEntry]` — once Epic 0 lands; declare it
   that way then.
-- [ ] 11.2 Keep the hallucinated-picker-output floor inside `agentDriven`,
+- [x] 11.2 (done: f3956ff — floor preserved through the retyping (was already eligible-scoped)) Keep the hallucinated-picker-output floor inside `agentDriven`,
   matching returned names against `eligible: List[RosterEntry]`.
-- [ ] 11.3 Extract the duplicated fix-loop stop policy (max-iterations
+- [x] 11.3 (done: ac83142 — stopPolicy single-sourced) Extract the duplicated fix-loop stop policy (max-iterations
   counting fixes ⇒ N+1 evaluations, fold-to-ignored on cap, halt on
   zero-fixed) into one decision function used by both `fixLoop.loop` and
   `ReviewFixLoop.run.loop` — currently synced only by "same stop policy as"
   comments.
   Refs: `flow/.../review/ReviewLoop.scala:45-68,489-521`.
-- [ ] 11.4 `ReviewLoopConfig` case class for `reviewAndFixLoop`'s 12 params
+- [x] 11.4 (done: ac83142 — ReviewLoopConfig bundles the internal mirror) `ReviewLoopConfig` case class for `reviewAndFixLoop`'s 12 params
   mirrored field-for-field into `ReviewFixLoop`'s constructor (same shape 3.6
   fixed with `FlowWiring`).
 
