@@ -586,6 +586,14 @@ finally-cancels, so successful autonomous opencode turns fire /abort too.
 
 ## Epic 9 — Tools-layer classification: parse wire truth at the boundary
 
+(Research 2026-07-08, epic9-research.md: all five valid. push() has zero
+Left-branching callers today (examples .orThrow) — 9.1 low-risk; GH006 test
+inversion needs no coordination. 9.3 placement DECIDED: detection logic in
+JsonSchemaGen's funnel, timing via hoisting the derivation into
+DefaultAgentCall's ctor as an eager val (fires at resultAs[O] construction);
+tracker's cited AgentCall line refs drifted — actual call sites :173/:261.
+Split: 9A=9.1+9.2, 9B=9.3+9.4+9.5.)
+
 - [ ] 9.1 `PushFailure` ADT (`NonFastForward` / `RemoteDeclined(msg)` /
   `Other`): the bare `"rejected"` matcher classifies GitHub's protected-branch
   decline (GH006) as the recoverable `PushRejected`, whose documented
