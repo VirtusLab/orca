@@ -15,10 +15,15 @@ import java.util.concurrent.ConcurrentLinkedQueue
   *
   * `register`/`dir` track every temp root handed out and recursively remove it
   * (`os.remove.all`, which — unlike `deleteOnExit` — handles non-empty trees)
-  * via a single JVM shutdown hook. Since `Test / fork := true` (see
-  * `build.sbt`), each `sbt test` invocation runs its own forked JVM per module,
-  * so the shutdown hook fires — and every fixture dir it created is swept — at
-  * the end of every test run.
+  * via a single JVM shutdown hook. Cleanup timing depends on how tests run:
+  * only the `runner` module forks its tests (`Test / fork := true` in
+  * `build.sbt`); the other modules run in-process in sbt's JVM. A one-shot
+  * `sbt test` from a shell — the dominant CI/agent pattern per AGENTS.md —
+  * exits that JVM when the command finishes, so the hook fires and every
+  * fixture dir is swept per invocation either way. Under a long-lived
+  * interactive session (`sbt ~test`) on an unforked module, dirs accumulate
+  * until the session exits — bounded, session-scoped growth, not the old
+  * permanent leak.
   */
 object TempDirs:
   private val roots = new ConcurrentLinkedQueue[os.Path]()
