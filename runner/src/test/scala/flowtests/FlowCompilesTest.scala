@@ -139,6 +139,30 @@ object FlowCanary:
         val _ = summary.title
         val _ = summary.body
 
+  /** 10.3: types newly added to `exports.scala` (`Usage`, `Cost`,
+    * `CostTracker`, `IgnoredIssue`/`IgnoredIssues`, `PushFailure`) must resolve
+    * from `import orca.*` alone, with no side import.
+    */
+  def exportsSurface(): Unit =
+    flow(OrcaArgs(), _.claude):
+      stage("exports"):
+        val tracker = new CostTracker()
+        val _: Option[Cost] = tracker.totalCost
+        val listener: OrcaListener =
+          case OrcaEvent.TokensUsed(_, _, usage) =>
+            val _: Usage = usage
+          case _ => ()
+        val _ = listener
+        val ignored: IgnoredIssues = fixLoop(
+          evaluate = () => ReviewResult.empty,
+          fix = _ => FixOutcome(fixed = Nil, ignored = Nil)
+        )
+        val _: List[IgnoredIssue] = ignored.issues
+        git.push() match
+          case Left(_: PushFailure.NonFastForward) => ()
+          case Left(_: PushFailure.RemoteDeclined) => ()
+          case Right(_)                            => ()
+
   /** Issue/PR-comment surface on `gh` — exercised by the issue-pr plan in
     * `examples/`. If any of these signatures move, the canary fails.
     */

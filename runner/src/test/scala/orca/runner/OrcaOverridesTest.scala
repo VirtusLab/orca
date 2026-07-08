@@ -17,7 +17,6 @@ import orca.agents.{
   ToolSet
 }
 import orca.events.{CostTracker, OrcaEvent, OrcaListener, Usage}
-import orca.backend.AgentWiring
 import orca.tools.opencode.OpencodeAgents
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
@@ -251,7 +250,6 @@ class OrcaOverridesTest extends munit.FunSuite:
             (SessionId[BackendTag.ClaudeCode.type]("wired-sid"), s"ok: $p")
       def resultAs[O: JsonData: Announce]
           : AgentCall[BackendTag.ClaudeCode.type, O] = ???
-    val factory: AgentWiring => ClaudeAgent = w => wiredClaude(w.events)
     // Records which agents' TokensUsed reach a run listener — the override
     // agent's "wired" event must be among them.
     var seen: List[String] = Nil
@@ -268,7 +266,7 @@ class OrcaOverridesTest extends munit.FunSuite:
         args = OrcaArgs(),
         agent = _.claude,
         workDir = TempRepo.create(),
-        claude = Some(factory),
+        claude = Some(w => wiredClaude(w.events)),
         interaction = Some(interaction),
         extraListeners = List(recorder)
       ):

@@ -20,7 +20,6 @@ import orca.agents.{
   Prompts
 }
 import orca.progress.ProgressStore
-import orca.tools.opencode.OpencodeLauncher
 import orca.runner.{
   DefaultFlowContext,
   FlowLifecycle,
@@ -64,12 +63,17 @@ import scala.util.control.NonFatal
   *   ...
   * ```
   *
-  * Agent overrides are `AgentWiring => Agent` factories, not prebuilt agents:
-  * the runtime hands the factory the run's wiring (event sink, interaction,
-  * workDir, prompts) so a user agent lands on the same dispatcher as the
-  * defaults — start from a per-backend factory and tune it, `claude = Some(w =>
-  * ClaudeAgents.default(w).opus)`, or wrap a prebuilt agent `claude = Some(_ =>
-  * myAgent)`.
+  * Agent overrides are `AgentWiring => Ox ?=> Agent` factories, not prebuilt
+  * agents: the runtime hands the factory the run's wiring (event sink,
+  * interaction, workDir, prompts) so a user agent lands on the same dispatcher
+  * as the defaults — start from a per-backend factory and tune it, `claude =
+  * Some(w => ClaudeAgents.default(w).opus)`, or wrap a prebuilt agent `claude =
+  * Some(_ => myAgent)`. Every field shares this one shape even though only
+  * opencode's default factory needs the `Ox` (a plain `AgentWiring => Agent`
+  * lambda auto-adapts, so the four non-opencode factories above are unaffected
+  * by it). There's no separate `opencodeLauncher` parameter — select a
+  * non-default launcher through the factory itself: `opencode = Some(w =>
+  * OpencodeAgents.default(w, OpencodeLauncher.ollama("qwen3-coder")))`.
   *
   * The leading agent is named by a required `agent` selector resolved against
   * the built `FlowContext`: the only way to name an agent is the accessor on
@@ -98,19 +102,20 @@ def flow[B <: BackendTag](
     branchNaming: Option[BranchNamingStrategy] = None,
     returnToStartBranch: Boolean = false,
     progressStore: Option[ProgressStore] = None,
-    claude: Option[AgentWiring => ClaudeAgent] = None,
-    codex: Option[AgentWiring => CodexAgent] = None,
-    // Unlike the other agent factories (plain `AgentWiring => Agent`), this one
-    // carries an `Ox ?=>` result: the opencode backend pins a shared `serve`
-    // process plus its drain forks to the run scope AT CONSTRUCTION, so its
-    // factory must be applied where an `Ox` is in scope — inside
-    // `withDefaults`, not at this `flow(...)` argument position (where no Ox
-    // exists). Deferring the Ox to the factory's application point is what lets
-    // `flow(opencode = Some(w => OpencodeAgents.default(w)))` compile.
+    // All five factory fields share one shape, `AgentWiring => Ox ?=> Agent`,
+    // even though only opencode's default factory actually needs the `Ox`
+    // (it pins a shared `serve` process plus its drain forks to the run scope
+    // AT CONSTRUCTION, so its factory must be applied where an `Ox` is in
+    // scope — inside `withDefaults`, not at this `flow(...)` argument
+    // position). Scala 3 auto-adapts a plain `AgentWiring => Agent` lambda to
+    // the context-function shape, so the other four factories are written
+    // exactly as before — `claude = Some(w => ClaudeAgents.default(w).opus)`
+    // needs no `Ox` and no ascription. Uniform shape, not uniform need.
+    claude: Option[AgentWiring => Ox ?=> ClaudeAgent] = None,
+    codex: Option[AgentWiring => Ox ?=> CodexAgent] = None,
     opencode: Option[AgentWiring => Ox ?=> OpencodeAgent] = None,
-    opencodeLauncher: OpencodeLauncher = OpencodeLauncher.default,
-    pi: Option[AgentWiring => PiAgent] = None,
-    gemini: Option[AgentWiring => GeminiAgent] = None,
+    pi: Option[AgentWiring => Ox ?=> PiAgent] = None,
+    gemini: Option[AgentWiring => Ox ?=> GeminiAgent] = None,
     git: Option[GitTool] = None,
     gh: Option[GitHubTool] = None,
     fs: Option[FsTool] = None,
@@ -153,7 +158,6 @@ def flow[B <: BackendTag](
           claude = claude,
           codex = codex,
           opencode = opencode,
-          opencodeLauncher = opencodeLauncher,
           pi = pi,
           gemini = gemini,
           git = git,

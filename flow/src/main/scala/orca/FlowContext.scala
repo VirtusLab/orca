@@ -103,3 +103,20 @@ trait FlowContext:
     if !errorAlreadyReported(e) then
       emit
       markErrorReported(e)
+
+  /** Resolve the per-backend agent named by `tag` — the single definition
+    * session rehydration (`FlowLifecycle.targetAgent`) resolves a persisted
+    * record's backend tag against, so a renamed or added [[BackendTag]] case is
+    * one match to update, not one per call site. Default implementation
+    * dispatches to the five accessors above (only the matched one is touched,
+    * so overriding is never required for laziness); a production `FlowContext`
+    * may still override it to read a precomputed structure instead — see
+    * `DefaultFlowContext.agentFor`. `private[orca]`: user code never needs it,
+    * `agent`/`claude`/`codex`/… cover every use it has.
+    */
+  private[orca] def agentFor(tag: BackendTag): Agent[?] = tag match
+    case BackendTag.ClaudeCode => claude
+    case BackendTag.Codex      => codex
+    case BackendTag.Opencode   => opencode
+    case BackendTag.Pi         => pi
+    case BackendTag.Gemini     => gemini

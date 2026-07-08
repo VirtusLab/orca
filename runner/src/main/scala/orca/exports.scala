@@ -11,7 +11,21 @@ package orca
 // top-level `orca` so its symbols sit at the heart of the user surface; no
 // re-export needed.
 
-export orca.events.{OrcaEvent, OrcaListener, Pricing, PriceList, ModelPricing}
+// Usage/Cost/CostTracker: OrcaEvent.TokensUsed carries a Usage, so any
+// listener pattern-matching it needs Usage in scope; CostTracker is the type
+// flow's own scaladoc invites callers to instantiate directly (`new
+// CostTracker(pricing)`, passed via `extraListeners`), and its accessors
+// report in Cost.
+export orca.events.{
+  OrcaEvent,
+  OrcaListener,
+  Pricing,
+  PriceList,
+  ModelPricing,
+  Usage,
+  Cost,
+  CostTracker
+}
 export orca.agents.{
   Agent,
   ClaudeAgent,
@@ -37,6 +51,9 @@ export orca.agents.{
 }
 export orca.plan.{BugReportMatch, Plan, Sessioned, Task, Title, Triage, Verdict}
 export orca.pr.{summarisePr, PrSummary}
+// IgnoredIssue(s): the return type of both fixLoop and reviewAndFixLoop above
+// — a caller binding the result to a typed val, or inspecting `.issues`,
+// needs it in scope.
 export orca.review.{
   allReviewers,
   fixLoop,
@@ -44,17 +61,22 @@ export orca.review.{
   minimalReviewers,
   reviewAndFixLoop,
   FixOutcome,
+  IgnoredIssue,
+  IgnoredIssues,
   ReviewerSelector,
   ReviewIssue,
   ReviewResult
 }
+// PushFailure: the Left of GitTool.push's Either — pattern-matching its
+// NonFastForward/RemoteDeclined cases needs it in scope.
 export orca.tools.{
   BuildOutcome,
   BuildStatus,
   Comment,
   Issue,
   IssueHandle,
-  PrHandle
+  PrHandle,
+  PushFailure
 }
 export orca.tools.opencode.OpencodeLauncher
 // Agent-override surface: the wiring an override factory receives, plus each

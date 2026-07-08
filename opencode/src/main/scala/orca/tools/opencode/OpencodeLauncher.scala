@@ -9,8 +9,9 @@ package orca.tools.opencode
   *     via `OPENCODE_CONFIG_CONTENT`) — the zero-config path for local Ollama
   *     models, instead of hand-writing that config into `opencode.json`.
   *
-  * Select it per flow: `flow(OrcaArgs(args), opencodeLauncher =
-  * OpencodeLauncher.ollama("qwen3-coder"))`.
+  * Select it per flow via the `opencode` agent-override factory: `flow(
+  * OrcaArgs(args), opencode = Some(w => OpencodeAgents.default(w,
+  * OpencodeLauncher.ollama("qwen3-coder"))))`.
   */
 opaque type OpencodeLauncher = Seq[String]
 

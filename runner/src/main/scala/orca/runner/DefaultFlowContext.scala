@@ -53,6 +53,22 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
 
   private val log = LoggerFactory.getLogger(getClass)
 
+  /** The five wired agents keyed by backend tag — derived once from the
+    * constructor vals above, not a second source of truth: adding a backend is
+    * still one new `val` plus one new entry here, but every consumer that used
+    * to enumerate all five by hand (`close()`, [[agentFor]]) now reads this
+    * instead. The five concretely-typed accessors (`claude`, `codex`, …) stay
+    * as the public, `FlowContext`-mandated surface; this map is `private`
+    * plumbing built from them.
+    */
+  private val agents: Map[BackendTag, Agent[?]] = Map(
+    BackendTag.ClaudeCode -> claude,
+    BackendTag.Codex -> codex,
+    BackendTag.Opencode -> opencode,
+    BackendTag.Pi -> pi,
+    BackendTag.Gemini -> gemini
+  )
+
   /** Tear down context-owned background resources by closing every agent (each
     * delegates to its backend; all default to no-op — today only opencode holds
     * a live resource, the shared `serve` process). Runs in the flow body's
@@ -61,7 +77,7 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
     * close must not keep the others (or the interaction) from closing.
     */
   def close(): Unit =
-    List(claude, codex, opencode, pi, gemini).foreach: a =>
+    agents.values.foreach: a =>
       try a.close()
       catch
         case NonFatal(e) =>
@@ -73,6 +89,13 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
             s"[orca] failed to close ${a.getClass.getSimpleName} (a backend " +
               s"resource may have leaked): ${e.getMessage}"
           )
+
+  /** [[FlowContext.agentFor]] backed by the derived map above instead of the
+    * trait's default per-case match — same result (the five constructor vals
+    * are already realised here, so there's no laziness to preserve), one fewer
+    * independent enumeration to keep in sync.
+    */
+  override private[orca] def agentFor(tag: BackendTag): Agent[?] = agents(tag)
 
   // The leading agent's backend tag, pinned from the type parameter `B` (which
   // `flow` inferred from the selector). Concrete here, so `agent` is concretely
@@ -131,6 +154,11 @@ private[orca] object DefaultFlowContext:
       workDir = workDir,
       prompts = wiring.prompts
     )
+    // Every factory field is now `AgentWiring => Ox ?=> Agent` (unified in
+    // 10.2), so applying it here against the constructor's expected
+    // concrete-agent type drives Scala's context-function auto-application
+    // uniformly across all five — no per-field ascription needed, unlike the
+    // old opencode-only `: OpencodeAgent` trick.
     new DefaultFlowContext[B](
       userPrompt = userPrompt,
       dispatcher = dispatcher,
@@ -142,14 +170,8 @@ private[orca] object DefaultFlowContext:
         .map(_(agentWiring))
         .getOrElse(CodexAgents.default(agentWiring)),
       opencode = wiring.opencode
-        // The factory result is `Ox ?=> OpencodeAgent`; the `: OpencodeAgent`
-        // ascription applies it against the ambient Ox in scope here (the
-        // opencode backend binds a `serve` process + drain forks to it at
-        // construction — see the `opencode` param scaladoc on `flow`).
-        .map(f => f(agentWiring): OpencodeAgent)
-        .getOrElse(
-          OpencodeAgents.default(agentWiring, wiring.opencodeLauncher)
-        ),
+        .map(_(agentWiring))
+        .getOrElse(OpencodeAgents.default(agentWiring)),
       pi =
         wiring.pi.map(_(agentWiring)).getOrElse(PiAgents.default(agentWiring)),
       gemini = wiring.gemini

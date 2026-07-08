@@ -208,16 +208,8 @@ object FlowLifecycle:
       tag: Option[String]
   ): Option[Agent[?]] =
     tag match
-      case None => Some(lead)
-      case Some(t) =>
-        BackendTag
-          .fromWireName(t)
-          .map:
-            case BackendTag.ClaudeCode => ctx.claude
-            case BackendTag.Codex      => ctx.codex
-            case BackendTag.Opencode   => ctx.opencode
-            case BackendTag.Pi         => ctx.pi
-            case BackendTag.Gemini     => ctx.gemini
+      case None    => Some(lead)
+      case Some(t) => BackendTag.fromWireName(t).map(ctx.agentFor)
 
   /** Parse `record.id`/`wire` (both log-sourced, untrusted) and register the
     * mapping into `agent`; a value that fails to parse is skipped with a
