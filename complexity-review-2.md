@@ -526,7 +526,7 @@ finally-cancels, so successful autonomous opencode turns fire /abort too.
 (widest mechanical surface first), 8B=8.2+8.3 (opencode lifecycle),
 8C=8.4+8.5 (driver wire/stderr layer), 8D=8.6 (scattered mechanical, last).)
 
-- [ ] 8.1 Make `workDir` per-backend (fixed at wiring), not per-call: the SPI
+- [x] 8.1 (done: f4631f4 — workDir per-backend, probe/spawn unified by construction) Make `workDir` per-backend (fixed at wiring), not per-call: the SPI
   parameter is a phantom degree of freedom the runtime never varies, opencode
   ignores it entirely, and claude's probe/spawn "MUST match" contract is
   prose — the 7.5 bug class, still representable. Interim: `require` equality
@@ -534,7 +534,7 @@ finally-cancels, so successful autonomous opencode turns fire /abort too.
   Refs: `tools/.../backend/AgentBackend.scala:32`,
   `opencode/.../OpencodeBackend.scala:62-67`,
   `claude/.../ClaudeBackend.scala:52-61,106-113`.
-- [ ] 8.2 `ForkedConversation.onCancelRequested()` hook running inside the
+- [x] 8.2 (done: 016d49e + c00cee5 — onCancelRequested hook, settledOutcome volatile) `ForkedConversation.onCancelRequested()` hook running inside the
   idempotence guard and only when not finalized; opencode's abort moves there.
   Today every **successful** opencode turn posts a real `/abort` (via the
   happy-path `finally cancel()`) for a session that may be resumed next turn,
@@ -542,20 +542,20 @@ finally-cancels, so successful autonomous opencode turns fire /abort too.
   Refs: `opencode/.../OpencodeConversation.scala:61-65`,
   `tools/.../backend/Conversations.scala:216-224`,
   `tools/.../agents/AgentCall.scala:252-253`.
-- [ ] 8.3 Fix opencode's open-path SSE leak: `http.events()` opens the stream
+- [x] 8.3 (done: 016d49e — SSE reorder + bracket) Fix opencode's open-path SSE leak: `http.events()` opens the stream
   in argument position before `serverSessionFor` can throw; nothing closes it.
   Reorder (throwing step first) + bracket, or generalize
   `SubprocessSpawn.open` over `StreamSource`.
   Refs: `opencode/.../OpencodeBackend.scala:97-105,117-127`,
   `opencode/.../JavaNetOpencodeHttp.scala:65-80`.
-- [ ] 8.4 Hoist the stderr pipeline (strip control sequences → trim → noise
+- [x] 8.4 (done: 98b4c94 — pipeline hoisted, ANSI stripped everywhere) Hoist the stderr pipeline (strip control sequences → trim → noise
   filter → enqueue `Error` → `recordStderr`) into
   `BufferedStderrDiagnostics`; backends override only the noise predicate.
   Triplicated today with demonstrated drift (only pi strips ANSI).
   Refs: `codex/.../CodexConversation.scala:110-114`,
   `gemini/.../GeminiConversation.scala:89-93`,
   `pi/.../PiConversation.scala:95-99`.
-- [ ] 8.5 Gemini wire parsing: required fields for identity-critical keys
+- [x] 8.5 (done: 98b4c94 — session_id required, Role enum (Unknown dropped)) Gemini wire parsing: required fields for identity-critical keys
   (`session_id` on `init` — a missing key currently becomes `Init("")`
   surfacing three retries later); type the role decision
   (`enum Role { User, Assistant, Unknown }`, `Unknown` dropped — an absent
@@ -564,7 +564,7 @@ finally-cancels, so successful autonomous opencode turns fire /abort too.
   Refs: `gemini/.../jsonl/InboundEvent.scala:16-18,56-62,104-107`,
   `gemini/.../GeminiConversation.scala:155-158`,
   contrast `codex/.../jsonl/InboundEvent.scala:170-173`.
-- [ ] 8.6 Small seam de-duplication: `SessionMode.displayPrompt`/`fold`
+- [x] 8.6 (done: ef9bce9 — SessionMode helpers, trait-only defaults, shared deleteFileResource, enforcement abstract) Small seam de-duplication: `SessionMode.displayPrompt`/`fold`
   helpers (destructuring repeated in all five backends, twice in opencode);
   `runAutonomous` default args declared on the trait only (per-impl
   re-declaration diverges silently by static type); shared
