@@ -46,7 +46,7 @@ class OpencodeConversationTest extends munit.FunSuite:
       lines: List[String],
       session: String = "ses_A",
       schema: Option[String] = None
-  )(using Ox): (OpencodeConversation, RecordingHttp) =
+  ): (OpencodeConversation, RecordingHttp) =
     val http = new RecordingHttp
     val conv = new OpencodeConversation(
       source(lines),

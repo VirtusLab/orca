@@ -13,8 +13,6 @@ import orca.tools.pi.rpc.{
   OutboundMessage
 }
 
-import ox.Ox
-
 import scala.util.control.NonFatal
 
 /** Drives one `pi --mode rpc` process for a single Orca LLM call. The backend
@@ -33,8 +31,7 @@ private[pi] class PiConversation(
     val outputSchema: Option[String] = None,
     askUserEnabled: Boolean = false,
     resources: List[AutoCloseable] = Nil
-)(using Ox)
-    extends ForkedConversation[BackendTag.Pi.type](
+) extends ForkedConversation[BackendTag.Pi.type](
       StreamSource.fromProcess(process),
       backendName = "pi",
       initialPrompt = initialPrompt,

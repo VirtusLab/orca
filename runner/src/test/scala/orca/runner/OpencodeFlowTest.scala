@@ -125,7 +125,7 @@ class OpencodeFlowTest extends munit.FunSuite:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
         conversation: Conversation[B]
-    ): AgentResult[B] = throw new UnsupportedOperationException
+    )(using ox.Ox): AgentResult[B] = throw new UnsupportedOperationException
 
   /** OpenCode-typed canned tool whose `resultAs[O]` hands back `value` directly
     * (bypassing parsing) — proves the generic Plan DSL accepts an

@@ -14,7 +14,8 @@ class DefaultGeminiAgentTest extends munit.FunSuite:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
         conversation: Conversation[B]
-    ): AgentResult[B] = throw new UnsupportedOperationException("test stub")
+    )(using ox.Ox): AgentResult[B] =
+      throw new UnsupportedOperationException("test stub")
 
   private def successfulProcess(): FakePipedCliProcess =
     val p = new FakePipedCliProcess()

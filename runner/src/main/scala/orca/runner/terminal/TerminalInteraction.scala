@@ -57,7 +57,9 @@ class TerminalInteraction private[terminal] (
     * when the conversation finishes. Backend errors surface as
     * `OrcaInteractiveCancelled` or other throwables from `awaitResult`.
     */
-  def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
+  def drive[B <: BackendTag](conversation: Conversation[B])(using
+      Ox
+  ): AgentResult[B] =
     new ConversationRenderer(
       useColor = useColor,
       output = output,

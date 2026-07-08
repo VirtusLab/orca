@@ -4,6 +4,8 @@ import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.events.{OrcaEvent, OrcaListener, Usage}
 import orca.agents.{BackendTag, SessionId, WireSessionId}
 
+import ox.{Ox, supervised}
+
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 private class ScriptedConversation(
@@ -15,12 +17,14 @@ private class ScriptedConversation(
 ) extends Conversation[BackendTag.Codex.type]:
   val drained = new AtomicInteger(0)
   val cancelCount = new AtomicInteger(0)
-  val events: Iterator[ConversationEvent] = eventList.iterator.map { e =>
-    val _ = drained.incrementAndGet()
-    e
-  }
-  def awaitResult()
-      : Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
+  def events(using Ox): Iterator[ConversationEvent] =
+    eventList.iterator.map { e =>
+      val _ = drained.incrementAndGet()
+      e
+    }
+  def awaitResult()(using
+      Ox
+  ): Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
     outcome
   def canAskUser: Boolean = false
   def cancel(): Unit =
@@ -32,10 +36,11 @@ private class ScriptedConversation(
 private class FailingConversation(failure: Throwable)
     extends Conversation[BackendTag.Codex.type]:
   val cancelCount = new AtomicInteger(0)
-  val events: Iterator[ConversationEvent] = Iterator.empty
+  def events(using Ox): Iterator[ConversationEvent] = Iterator.empty
   val outputSchema: Option[String] = None
-  def awaitResult()
-      : Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
+  def awaitResult()(using
+      Ox
+  ): Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
     throw failure
   def canAskUser: Boolean = false
   def cancel(): Unit =
@@ -52,10 +57,11 @@ private class CrashingConversation(
     override val outputSchema: Option[String] = None
 ) extends Conversation[BackendTag.Codex.type]:
   val cancelCount = new AtomicInteger(0)
-  val events: Iterator[ConversationEvent] =
+  def events(using Ox): Iterator[ConversationEvent] =
     eventList.iterator ++ Iterator.continually[ConversationEvent](throw crash)
-  def awaitResult()
-      : Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
+  def awaitResult()(using
+      Ox
+  ): Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
     throw new IllegalStateException("awaitResult should be unreachable")
   def canAskUser: Boolean = false
   def cancel(): Unit =
@@ -88,11 +94,12 @@ class ConversationsTest extends munit.FunSuite:
       Nil,
       Right(sampleResult.copy(wireId = reportedWire))
     )
-    val result = Conversations.drainAndCommit(
-      conv,
-      client,
-      SessionSupport.Durable(registry, _ => false)
-    )
+    val result = supervised:
+      Conversations.drainAndCommit(
+        conv,
+        client,
+        SessionSupport.Durable(registry, _ => false)
+      )
     assert(result.wireId == reportedWire) // result reports the wire truth
     assert(
       registry.resumeWireId(client).contains(reportedWire)
@@ -114,11 +121,12 @@ class ConversationsTest extends munit.FunSuite:
     val failure = new OrcaFlowException("boom")
     val conv = new FailingConversation(failure)
     val thrown = intercept[OrcaFlowException]:
-      Conversations.drainAndCommit(
-        conv,
-        client,
-        SessionSupport.Durable(registry, _ => false)
-      )
+      supervised:
+        Conversations.drainAndCommit(
+          conv,
+          client,
+          SessionSupport.Durable(registry, _ => false)
+        )
     assertEquals(thrown, failure)
     assertEquals(thrown.getMessage, "boom")
     assert(registry.resumeWireId(client).isEmpty) // never committed
@@ -139,11 +147,12 @@ class ConversationsTest extends munit.FunSuite:
       )
     )
     val thrown = intercept[OrcaFlowException]:
-      Conversations.drainAndCommit(
-        conv,
-        client,
-        SessionSupport.Durable(registry, _ => false)
-      )
+      supervised:
+        Conversations.drainAndCommit(
+          conv,
+          client,
+          SessionSupport.Durable(registry, _ => false)
+        )
     assert(
       thrown.getMessage.contains("invalid session id"),
       thrown.getMessage
@@ -158,14 +167,14 @@ class ConversationsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    assertEquals(Conversations.drainAutonomous(conv), sampleResult)
+    assertEquals(supervised(Conversations.drainAutonomous(conv)), sampleResult)
     assertEquals(conv.drained.get(), 2)
 
   test("drainAutonomous throws OrcaInteractiveCancelled on Left outcome"):
     val cancelled = new OrcaInteractiveCancelled()
     val conv = new ScriptedConversation(Nil, Left(cancelled))
     val thrown = intercept[OrcaInteractiveCancelled]:
-      Conversations.drainAutonomous(conv)
+      supervised(Conversations.drainAutonomous(conv))
     assertEquals(thrown, cancelled)
 
   test("AssistantToolCall emits OrcaEvent.ToolUse with the raw input"):
@@ -182,7 +191,7 @@ class ConversationsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(
       recorder.events,
       List(
@@ -202,7 +211,7 @@ class ConversationsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(
       recorder.events,
       List(OrcaEvent.AssistantMessage("hello world"))
@@ -214,7 +223,7 @@ class ConversationsTest extends munit.FunSuite:
       List(ConversationEvent.AssistantTurnEnd),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(recorder.events, Nil)
 
   test("ApproveTool auto-denies and surfaces an Error"):
@@ -233,7 +242,7 @@ class ConversationsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     decisions.get() match
       case ApprovalDecision.Deny(Some(reason)) :: Nil =>
         assert(reason.contains("Bash"), reason)
@@ -259,7 +268,7 @@ class ConversationsTest extends munit.FunSuite:
       List(ConversationEvent.UserQuestion("What now?", record)),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     answers.get() match
       case ans :: Nil => assert(ans.contains("autonomous mode"), ans)
       case other      => fail(s"expected one answer; got $other")
@@ -279,7 +288,7 @@ class ConversationsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(recorder.events, Nil)
 
   test("UserMessage echo is swallowed (UserPrompt covers it upstream)"):
@@ -288,7 +297,7 @@ class ConversationsTest extends munit.FunSuite:
       List(ConversationEvent.UserMessage("echo of the opening prompt")),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(recorder.events, Nil)
 
   test("ConversationEvent.Error re-emits as OrcaEvent.Error"):
@@ -297,7 +306,7 @@ class ConversationsTest extends munit.FunSuite:
       List(ConversationEvent.Error("boom")),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(recorder.events, List(OrcaEvent.Error("boom")))
 
   test("AssistantThinkingDelta is swallowed"):
@@ -309,7 +318,7 @@ class ConversationsTest extends munit.FunSuite:
       List(ConversationEvent.AssistantThinkingDelta("thinking...")),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(recorder.events, Nil)
 
   test(
@@ -325,7 +334,7 @@ class ConversationsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(
       recorder.events,
       List(OrcaEvent.AssistantMessage("half-finished thought"))
@@ -349,7 +358,7 @@ class ConversationsTest extends munit.FunSuite:
       Right(sampleResult),
       outputSchema = Some("""{"type":"object"}""")
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(
       recorder.events,
       List(OrcaEvent.AssistantMessage("""{"answer":1"""))
@@ -377,7 +386,7 @@ class ConversationsTest extends munit.FunSuite:
       outputSchema = Some("""{"type":"object"}""")
     )
     val thrown = intercept[OrcaFlowException]:
-      Conversations.drainAutonomous(conv, recorder)
+      supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(thrown, crash)
     assertEquals(
       recorder.events,
@@ -405,7 +414,7 @@ class ConversationsTest extends munit.FunSuite:
       Right(sampleResult),
       outputSchema = Some("""{"type":"object"}""")
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(
       recorder.events,
       List(OrcaEvent.AssistantMessage("planning..."))
@@ -424,7 +433,7 @@ class ConversationsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(
       recorder.events,
       List(

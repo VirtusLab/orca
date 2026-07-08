@@ -69,10 +69,12 @@ private[orca] trait StderrPipeline[B <: BackendTag]
   /** Wait for the stderr drain so trailing lines reach the queue before the
     * failure outcome is computed. No timeout is needed: `cancel()`'s
     * `destroyForcibly` (and a real process's exit) always EOFs the stderr
-    * stream, so the drain fork terminates.
+    * stream, so the drain fork terminates. `None` (workers never started —
+    * constructed-but-never-consumed, then cancelled) means there is no drain to
+    * wait for.
     */
   override protected def onFinalize(): Unit =
-    stderrDrainFork.join()
+    stderrDrainFork.foreach(_.join())
 
   /** Recent stderr lines as a `stderr:` block; the base owns the outer framing.
     */

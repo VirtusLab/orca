@@ -12,23 +12,26 @@ import java.util.concurrent.atomic.AtomicBoolean
 import scala.util.control.NonFatal
 
 /** Structured-concurrency base for stream-driven [[Conversation]] drivers.
-  * Workers are Ox forks bound to the caller's per-turn scope (hence the `using
-  * Ox`), the session outcome is the reader fork's return value, and teardown is
-  * a lexical `cancel()` the caller runs in a `finally`.
+  * Workers are Ox forks bound to the caller's per-turn scope, the session
+  * outcome is the reader fork's return value, and teardown is a lexical
+  * `cancel()` the caller runs in a `finally`.
   *
-  * '''Startup''': no `start()` / `ensureStarted` step — the workers
-  * ([[stderrFork]], [[askUserFork]], [[readerFork]]) are spawned lazily on
-  * first touch of the conversation surface ([[events]] / [[awaitResult]]),
-  * never from this constructor. Spawning from the constructor would race the
-  * subclass's own field initializers (which run after this super-constructor)
-  * and let the reader fork call [[handleLine]] against half-built subclass
-  * state; by the time a consumer touches the surface, construction has
-  * finished. The forks bind to the `Ox` captured at construction — the per-turn
-  * scope the backend opened — not to whatever scope is active at first touch;
-  * every call site shares that one scope between construction and consumption.
+  * '''Startup''': the workers (a stderr drain, an optional ask-user drainer,
+  * and the reader) are started once, lazily, by [[ensureStarted]] — invoked
+  * from the conversation surface ([[events]] / [[awaitResult]]), never from
+  * this constructor. Two reasons the capability lives on the surface methods
+  * rather than the constructor: (1) spawning from the constructor would race
+  * the subclass's own field initializers (which run after this
+  * super-constructor) and let the reader fork call [[handleLine]] against
+  * half-built subclass state; by the time a consumer touches the surface,
+  * construction has finished. (2) keeping constructors capability-free (the
+  * owner's Ox method-scoping rule) — the `using Ox` the workers fork into is
+  * the per-turn supervised scope the backend's drain shell already opened
+  * (`Conversations.runAutonomous` / `AgentCall.runInteractiveOnce`), which is
+  * also the scope construction happens in, so the fork lifetime is unchanged.
   *
   * '''Outcome plumbing''': there's no polled outcome ref — the reader fork
-  * RETURNS the `Outcome[B]`, and [[awaitResult]] is just `readerFork.join()`
+  * RETURNS the `Outcome[B]`, and [[awaitResult]] is just the reader fork's join
   * mapped. An in-stream settle ([[succeedWith]] / [[failWith]], run on the
   * reader thread from inside [[handleLine]]) stashes its result for the
   * reader's end-of-stream to pick up.
@@ -73,8 +76,7 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
       * [[canAskUser]] reports — the MCP drainer is gated on [[askUser]] alone.
       */
     nativeAskUser: Boolean = false
-)(using Ox)
-    extends Conversation[B]:
+) extends Conversation[B]:
 
   import ForkedConversation.*
 
@@ -248,30 +250,47 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
 
   // --- Workers (Ox forks) ---
   //
-  // Spawned lazily, never from this constructor (see the class scaladoc). The
-  // reader is `forkUnsupervised` so its (by-design impossible) stray exception
-  // surfaces via `join` rather than tearing the per-turn scope; it returns an
-  // `Outcome[B]` and never throws. The stderr-drain and ask-user forks are
-  // ordinary daemon `fork`s the scope cancels at its end.
+  // Started once, lazily, from the conversation surface ([[ensureStarted]], via
+  // [[events]] / [[awaitResult]]), never from this constructor (see the class
+  // scaladoc). The reader is `forkUnsupervised` so its (by-design impossible)
+  // stray exception surfaces via `join` rather than tearing the per-turn scope;
+  // it returns an `Outcome[B]` and never throws. The stderr-drain and ask-user
+  // forks are ordinary daemon `fork`s the scope cancels at its end.
 
-  private lazy val stderrFork: Fork[Unit] = fork(stderrLoop())
+  private case class Workers(
+      stderr: Fork[Unit],
+      reader: UnsupervisedFork[Outcome[B]]
+  )
 
-  private lazy val askUserFork: Unit =
-    askUser.foreach(r => fork(askUserDrain(r.bridge)).discard)
+  /** The started workers, written once by [[ensureStarted]]. Read by
+    * [[awaitResult]] (reader join) on the consuming thread, and by [[cancel]]'s
+    * finalize (via [[stderrDrainFork]]) on the driving thread — a genuine
+    * cross-thread read, so `@volatile`: a `cancel` racing the first `events` /
+    * `awaitResult` must see the started forks (or a definite `None`), never a
+    * torn half-initialised reference.
+    */
+  @volatile private var workers: Option[Workers] = None
 
-  private lazy val readerFork: UnsupervisedFork[Outcome[B]] =
-    // Force the auxiliary workers first so stderr/ask-user are running before
-    // the reader starts consuming stdout.
-    stderrFork.discard
-    askUserFork
-    forkUnsupervised(runReader())
-
-  private def ensureStarted(): Unit = readerFork.discard
+  /** Start the reader / stderr / ask-user forks on first touch of the surface;
+    * a no-op thereafter, returning the already-started set. The auxiliary
+    * workers are forked before the reader so stderr/ask-user are running before
+    * the reader consumes stdout. The consumer is single-threaded ([[events]]
+    * then [[awaitResult]] on the same thread), so the check-then-start needs no
+    * lock.
+    */
+  private def ensureStarted()(using Ox): Workers =
+    workers.getOrElse:
+      val stderr = fork(stderrLoop())
+      askUser.foreach(r => fork(askUserDrain(r.bridge)).discard)
+      val reader = forkUnsupervised(runReader())
+      val started = Workers(stderr, reader)
+      workers = Some(started)
+      started
 
   // --- Conversation surface ---
 
-  def events: Iterator[ConversationEvent] =
-    ensureStarted()
+  def events(using Ox): Iterator[ConversationEvent] =
+    ensureStarted().discard
     channelIterator
 
   /** THE retryability classifier: every post-spawn failure surfacing here is
@@ -284,8 +303,10 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * [[OrcaFlowException]]s and stay retryable. The retry POLICY that acts on
     * this classification lives in `DefaultAgentCall.runAutonomousWithRetry`.
     */
-  def awaitResult(): Either[OrcaInteractiveCancelled, AgentResult[B]] =
-    readerFork.join() match
+  def awaitResult()(using
+      Ox
+  ): Either[OrcaInteractiveCancelled, AgentResult[B]] =
+    ensureStarted().reader.join() match
       case Outcome.Success(r)  => Right(r)
       case Outcome.Cancelled() => Left(new OrcaInteractiveCancelled())
       case Outcome.Failed(e: AgentTurnFailed) => throw e
@@ -410,9 +431,11 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     diagnosticContext.fold(base)(ctx => s"$base\n  $ctx")
 
   /** The stderr-drain fork, for backends whose [[onFinalize]] needs to wait for
-    * stderr to flush before computing a diagnostic-bearing failure.
+    * stderr to flush before computing a diagnostic-bearing failure. `None` when
+    * the workers were never started — a conversation constructed but never
+    * consumed, then cancelled — so there is nothing to join.
     */
-  protected def stderrDrainFork: Fork[Unit] = stderrFork
+  protected def stderrDrainFork: Option[Fork[Unit]] = workers.map(_.stderr)
 
   protected def debugLog(channel: String, line: String): Unit =
     if OrcaDebug.streamTrace then
@@ -421,7 +444,7 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
   // --- Internals ---
 
   /** Sole outcome producer. Catches everything and RETURNS an `Outcome[B]` —
-    * never throws (H1), so `readerFork.join()` always yields an outcome.
+    * never throws (H1), so the reader fork's `join()` always yields an outcome.
     */
   private def runReader(): Outcome[B] =
     readerThread = Thread.currentThread()

@@ -3,6 +3,8 @@ package orca.backend
 import orca.agents.{BackendTag}
 import orca.{OrcaInteractiveCancelled}
 
+import ox.Ox
+
 /** One live interactive session with a backend. Owned by the driver, read and
   * written to by the channel via [[Interaction.drive]].
   *
@@ -31,8 +33,12 @@ trait Conversation[B <: BackendTag]:
   /** Events from the subprocess, in arrival order. Blocks on `next()` until a
     * line has been parsed or the session ends. `hasNext` returns false once the
     * terminal event has been consumed.
+    *
+    * Takes `using Ox`: a stream-driven driver starts its background workers on
+    * first touch of the surface, forking into the caller's per-turn scope (the
+    * one the drain shell already opened).
     */
-  def events: Iterator[ConversationEvent]
+  def events(using Ox): Iterator[ConversationEvent]
 
   /** Block until the session finishes, then return its outcome.
     *
@@ -45,8 +51,11 @@ trait Conversation[B <: BackendTag]:
     * Genuine subprocess failures (parse errors, the agent reporting `is_error`,
     * abnormal exit codes) keep throwing [[OrcaFlowException]] — those aren't
     * recoverable signals; they're "the backend is broken, panic" cases.
+    *
+    * Takes `using Ox` for the same reason as [[events]]: it ensures the workers
+    * are started (in the caller's per-turn scope) before it joins the reader.
     */
-  def awaitResult(): Either[OrcaInteractiveCancelled, AgentResult[B]]
+  def awaitResult()(using Ox): Either[OrcaInteractiveCancelled, AgentResult[B]]
 
   /** Whether the agent can pause to ask the host user a clarifying question
     * (and have the answer routed back into its turn). When `true`, the driver

@@ -91,7 +91,7 @@ private[orca] object Conversations:
   def drainAutonomous[B <: BackendTag](
       conv: Conversation[B],
       events: OrcaListener = OrcaListener.noop
-  ): AgentResult[B] =
+  )(using Ox): AgentResult[B] =
     val buffer = new TurnBuffer(
       conv.outputSchema.isDefined,
       text => events.onEvent(OrcaEvent.AssistantMessage(text))
@@ -196,7 +196,7 @@ private[orca] object Conversations:
       session: SessionId[B],
       sessions: SessionSupport[B],
       events: OrcaListener = OrcaListener.noop
-  ): AgentResult[B] =
+  )(using Ox): AgentResult[B] =
     val result = drainAutonomous(conv, events)
     sessions.commitAfterDrain(session, result.wireId)
     result

@@ -4,7 +4,7 @@ import orca.agents.{BackendTag, WireSessionId}
 import orca.events.Usage
 import orca.OrcaFlowException
 import orca.subprocess.FakePipedCliProcess
-import ox.{Ox, supervised}
+import ox.supervised
 
 /** Base-level grammar suite: drives a minimal fake [[ForkedConversation]]
   * through raw `ConversationEvent`-level sequences (bypassing all wire parsing)
@@ -28,7 +28,7 @@ class TurnGrammarTest extends munit.FunSuite:
     * thread inside `handleLine`, exactly as a real driver's enqueues do — so
     * the `openTurn` single-writer confinement is exercised faithfully.
     */
-  private class GrammarFakeConversation(source: StreamSource)(using Ox)
+  private class GrammarFakeConversation(source: StreamSource)
       extends ForkedConversation[BackendTag.ClaudeCode.type](
         source = source,
         backendName = "fake"
@@ -164,7 +164,7 @@ class TurnGrammarTest extends munit.FunSuite:
     * settled-gate can be pinned independently of any backend's own hook body
     * (Epic 8.2).
     */
-  private class HookFakeConversation(source: StreamSource)(using Ox)
+  private class HookFakeConversation(source: StreamSource)
       extends ForkedConversation[BackendTag.ClaudeCode.type](
         source = source,
         backendName = "fake"
@@ -213,7 +213,7 @@ class TurnGrammarTest extends munit.FunSuite:
     * `handleLine`, on the reader thread — this deliberately breaks that
     * contract to prove the check fires).
     */
-  private class ThreadInvariantFakeConversation(source: StreamSource)(using Ox)
+  private class ThreadInvariantFakeConversation(source: StreamSource)
       extends ForkedConversation[BackendTag.ClaudeCode.type](
         source = source,
         backendName = "fake"

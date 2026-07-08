@@ -11,7 +11,6 @@ import orca.backend.{
 }
 import orca.events.Usage
 import orca.agents.{BackendTag, Model, WireSessionId}
-import ox.Ox
 import orca.tools.opencode.OpencodeApi.{
   AssistantInfo,
   PermissionReply,
@@ -44,8 +43,7 @@ private[opencode] class OpencodeConversation(
     val outputSchema: Option[String],
     canAsk: Boolean,
     initialPrompt: String = ""
-)(using Ox)
-    extends ForkedConversation[BackendTag.Opencode.type](
+) extends ForkedConversation[BackendTag.Opencode.type](
       source,
       "opencode",
       initialPrompt,

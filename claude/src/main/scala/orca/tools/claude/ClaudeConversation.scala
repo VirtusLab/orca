@@ -6,7 +6,6 @@ import orca.{OrcaFlowException}
 import orca.backend.{ApprovalDecision, ConversationEvent, AgentResult}
 import orca.backend.{ForkedConversation, StreamSource}
 import orca.subprocess.PipedCliProcess
-import ox.Ox
 import orca.tools.claude.streamjson.{
   ContentBlock,
   ControlDecision,
@@ -31,8 +30,7 @@ private[claude] class ClaudeConversation(
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
     override val askUser: Option[orca.backend.mcp.AskUserSession] = None
-)(using Ox)
-    extends ForkedConversation[BackendTag.ClaudeCode.type](
+) extends ForkedConversation[BackendTag.ClaudeCode.type](
       source = StreamSource.fromProcess(process),
       backendName = "claude",
       initialPrompt = initialPrompt

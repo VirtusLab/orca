@@ -13,7 +13,6 @@ import orca.backend.{
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
 import orca.tools.gemini.jsonl.{InboundEvent, Role}
-import ox.Ox
 
 /** Drives a `gemini -p <prompt> --output-format stream-json` session to
   * completion. Boilerplate lives in [[orca.backend.ForkedConversation]]; this
@@ -37,8 +36,7 @@ private[gemini] class GeminiConversation(
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
     override val askUser: Option[AskUserSession] = None
-)(using Ox)
-    extends ForkedConversation[BackendTag.Gemini.type](
+) extends ForkedConversation[BackendTag.Gemini.type](
       source = StreamSource.fromProcess(process),
       backendName = "gemini",
       initialPrompt = initialPrompt

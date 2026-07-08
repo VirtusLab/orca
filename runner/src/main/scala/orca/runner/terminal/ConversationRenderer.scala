@@ -15,6 +15,7 @@ import org.jline.reader.{
   UserInterruptException
 }
 import org.jline.terminal.{Terminal, TerminalBuilder}
+import ox.Ox
 
 /** Renders a [[Conversation]] to the terminal. The layout aims for a
   * Claude-Code-like aesthetic: the user's opening prompt sits on its own
@@ -82,7 +83,7 @@ private[terminal] class ConversationRenderer(
     */
   def render[B <: BackendTag](
       conversation: Conversation[B]
-  ): Either[OrcaInteractiveCancelled, AgentResult[B]] =
+  )(using Ox): Either[OrcaInteractiveCancelled, AgentResult[B]] =
     conversation.events.foreach(dispatch(_, conversation))
     // The turn grammar (ForkedConversation auto-closes every completed turn)
     // guarantees each turn ends with an AssistantTurnEnd that already flushed

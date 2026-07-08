@@ -258,5 +258,7 @@ class BaseAgentTest extends munit.FunSuite:
 
   private object StubInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
-    def drive[B <: BackendTag](conversation: Conversation[B]): AgentResult[B] =
+    def drive[B <: BackendTag](conversation: Conversation[B])(using
+        ox.Ox
+    ): AgentResult[B] =
       ???

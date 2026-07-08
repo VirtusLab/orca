@@ -13,7 +13,6 @@ import orca.backend.{
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
-import ox.Ox
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
@@ -53,8 +52,7 @@ private[codex] class CodexConversation(
       * `system.init` → `result` model fallback ([[ClaudeConversation]]).
       */
     configuredModel: Option[Model] = None
-)(using Ox)
-    extends ForkedConversation[BackendTag.Codex.type](
+) extends ForkedConversation[BackendTag.Codex.type](
       source = StreamSource.fromProcess(process),
       backendName = "codex",
       initialPrompt = initialPrompt

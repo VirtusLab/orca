@@ -123,8 +123,10 @@ class SequencedBackend(outputs: List[String])
     // still need *something* to return so the interactive path compiles.
     new orca.backend.Conversation[BackendTag.ClaudeCode.type]:
       val outputSchema: Option[String] = None
-      val events: Iterator[orca.backend.ConversationEvent] = Iterator.empty
-      def awaitResult() = throw new UnsupportedOperationException("test stub")
+      def events(using ox.Ox): Iterator[orca.backend.ConversationEvent] =
+        Iterator.empty
+      def awaitResult()(using ox.Ox) =
+        throw new UnsupportedOperationException("test stub")
       def canAskUser: Boolean = false
       def cancel(): Unit = ()
 
@@ -158,7 +160,8 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
         conversation: orca.backend.Conversation[B]
-    ): AgentResult[B] = throw new UnsupportedOperationException("test stub")
+    )(using ox.Ox): AgentResult[B] =
+      throw new UnsupportedOperationException("test stub")
 
   private def makeCall(
       backend: SequencedBackend
@@ -487,7 +490,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       val listeners: List[OrcaListener] = Nil
       def drive[B <: BackendTag](
           conversation: orca.backend.Conversation[B]
-      ): AgentResult[B] =
+      )(using ox.Ox): AgentResult[B] =
         AgentResult[B](
           wireId = WireSessionId[B](WireSessionId.value(serverSid)),
           output = """{"value":3}""",
