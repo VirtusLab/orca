@@ -117,6 +117,17 @@ class DefaultAgentCall[B <: BackendTag, O](
   private given com.github.plokhotnyuk.jsoniter_scala.core.JsonValueCodec[O] =
     jd.codec
 
+  /** Derived eagerly (not inside `runAutonomousWithRetry`/`runInteractiveOnce`)
+    * so an unsupported output shape — e.g. a `Map[String, _]` field, which
+    * `JsonSchemaGen` rejects — fails at `resultAs[O]` construction, before this
+    * call's stage does anything (spawns a backend process, consumes a turn),
+    * rather than surfacing remotely as codex/claude's opaque
+    * `invalid_json_schema` after destructive stage work already ran. Also
+    * collapses what was a redundant re-derivation on every `run()` call for the
+    * same handle into a single one.
+    */
+  private val outputSchema: String = JsonSchemaGen[O]
+
   /** Epic 7.5, second gate: `resultAs[O]` refuses construction on a closed
     * agent, but a gateway built BEFORE the flow ended and stored across the
     * close boundary would still reach the backend — this per-call check (free,
@@ -170,7 +181,6 @@ class DefaultAgentCall[B <: BackendTag, O](
       emitPrompt: Boolean
   )(using ai: AgentInput[I]): (SessionId[B], O) =
     val serialized = ai.serialize(input)
-    val outputSchema = JsonSchemaGen[O]
     val effective = effectiveConfig(config)
     val initialPrompt = prompts.autonomous(serialized, outputSchema, effective)
 
@@ -258,7 +268,6 @@ class DefaultAgentCall[B <: BackendTag, O](
       session: SessionId[B]
   )(using ai: AgentInput[I]): (SessionId[B], O) =
     val serialized = ai.serialize(input)
-    val outputSchema = JsonSchemaGen[O]
     val effective = effectiveConfig(config)
     val prompt = prompts.interactive(serialized, outputSchema, effective)
     // Per-turn structured-concurrency scope: `runInteractive` forks its workers

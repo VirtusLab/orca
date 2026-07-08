@@ -1,6 +1,6 @@
 package orca.tools
 
-import orca.WorkspaceWrite
+import orca.{OrcaFlowException, WorkspaceWrite}
 
 class OsFsToolTest extends munit.FunSuite:
 
@@ -51,3 +51,25 @@ class OsFsToolTest extends munit.FunSuite:
   test("list returns empty when the glob root does not exist"):
     withFs: (fs, _) =>
       assertEquals(fs.list("does/not/exist/*.txt"), Nil)
+
+  // Epic 9.5: an absolute glob previously reached os-lib's `globRoot` fold
+  // and blew up with a context-free `IllegalArgumentException`
+  // (`InvalidSegment`) rather than a named, actionable `list`-level error.
+  test("list rejects an absolute glob with a typed, actionable error"):
+    withFs: (fs, _) =>
+      val ex = intercept[OrcaFlowException](fs.list("/etc/*.conf"))
+      assert(ex.getMessage.contains("list"), ex.getMessage)
+      assert(ex.getMessage.contains("/etc/*.conf"), ex.getMessage)
+
+  // Same underlying os-lib `InvalidSegment` crash for a `.`-prefixed glob.
+  test("list rejects a './'-prefixed glob with a typed, actionable error"):
+    withFs: (fs, _) =>
+      val ex = intercept[OrcaFlowException](fs.list("./src/*.scala"))
+      assert(ex.getMessage.contains("list"), ex.getMessage)
+      assert(ex.getMessage.contains("./src/*.scala"), ex.getMessage)
+
+  test("list rejects a glob containing a '..' segment"):
+    withFs: (fs, _) =>
+      val ex = intercept[OrcaFlowException](fs.list("../sibling/*.scala"))
+      assert(ex.getMessage.contains("list"), ex.getMessage)
+      assert(ex.getMessage.contains("../sibling/*.scala"), ex.getMessage)

@@ -74,7 +74,13 @@ enum BuildOutcome:
   case Success
   case Failure
 
-case class BuildStatus(outcome: BuildOutcome, log: String)
+/** @param checkCount
+  *   number of entries in the PR's `statusCheckRollup`, preserved from
+  *   [[buildStatus]] as a structured fact rather than re-derived downstream
+  *   from `log.nonEmpty` (a rendered-string projection fragile to changes in
+  *   how an individual check line happens to render).
+  */
+case class BuildStatus(outcome: BuildOutcome, log: String, checkCount: Int)
 
 /** Total classification of a single [[GhCheck]] entry, parsed once at the DTO
   * boundary so the rest of the tool reasons about a closed, named shape instead
@@ -510,7 +516,7 @@ private[orca] class OsGitHubTool(
             c.conclusion.orElse(c.state).orElse(c.status).getOrElse("?")
         s"${c.name.getOrElse("?")}: $tag"
       .mkString("\n")
-    BuildStatus(outcome, log)
+    BuildStatus(outcome, log, checkCount = rollup.statusCheckRollup.size)
 
   def waitForBuild(
       pr: PrHandle,
@@ -529,8 +535,11 @@ private[orca] class OsGitHubTool(
       val now = System.nanoTime()
       // Sticky watermark: once we've seen even one non-empty rollup, the
       // "no CI configured" hypothesis is disproven, so a later transient
-      // empty rollup (API blip, retry) can't fire NoChecksConfigured.
-      val seen = sawAnyCheck || status.log.nonEmpty
+      // empty rollup (API blip, retry) can't fire NoChecksConfigured. Driven
+      // by the structured `checkCount`, not `log.nonEmpty` — the rendered
+      // log is a projection that could in principle render empty for a
+      // present check, silently breaking this watermark.
+      val seen = sawAnyCheck || status.checkCount > 0
       if status.outcome != BuildOutcome.Pending then Right(status)
       else if !seen && now >= noChecksDeadline then
         Left(new NoChecksConfigured(noChecksGrace))

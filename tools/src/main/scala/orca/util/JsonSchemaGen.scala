@@ -2,6 +2,7 @@ package orca.util
 
 import _root_.io.circe.{Json, JsonObject}
 import _root_.io.circe.syntax.EncoderOps
+import orca.OrcaFlowException
 import sttp.apispec.circe.encoderSchema
 import sttp.tapir.Schema
 import sttp.tapir.docs.apispec.schema.TapirSchemaToJsonSchema
@@ -18,6 +19,11 @@ import sttp.tapir.docs.apispec.schema.TapirSchemaToJsonSchema
   * Optional fields and fields with Scala-side defaults (`List` → `Nil`, etc.)
   * are marked nullable via `markOptionsAsNullable = true`, so requiring them is
   * safe — the agent emits `null` or an empty list rather than omitting.
+  *
+  * A `Map[String, _]` field has no fixed key set, so it can't be expressed in
+  * OpenAI's strict dialect (which requires every object's exact key set up
+  * front); such a field makes this throw [[orca.OrcaFlowException]] rather than
+  * emit a schema the backend would reject anyway, later and more opaquely.
   */
 object JsonSchemaGen:
   def apply[O](using schema: Schema[O]): String =
@@ -43,8 +49,29 @@ object JsonSchemaGen:
     val recursed = JsonObject.fromIterable(
       obj.toIterable.map((k, v) => k -> toOpenAiStrict(v))
     )
+    rejectMapShapedAdditionalProperties(recursed)
     if isObjectSchemaNode(recursed) then addStrictConstraints(recursed)
     else recursed
+
+  /** Tapir renders a `Map[String, T]` field as an object node whose
+    * `additionalProperties` is `T`'s own sub-schema (there's no `properties`
+    * key — the keys are unbounded). OpenAI's strict structured-output mode
+    * requires `additionalProperties: false` on every object node, which would
+    * silently discard the value-type constraint if we overwrote it — so instead
+    * fail fast here, at schema-generation time, with a message naming the
+    * actual fix, rather than letting the non-strict schema reach codex/claude
+    * and bounce back as an opaque `invalid_json_schema` after a stage has
+    * already run.
+    */
+  private def rejectMapShapedAdditionalProperties(obj: JsonObject): Unit =
+    obj("additionalProperties").filterNot(_.isBoolean).foreach { _ =>
+      throw OrcaFlowException(
+        "resultAs[O]: output schema has a Map[String, _]-shaped field " +
+          "(an object with a value-type `additionalProperties` schema), " +
+          "which OpenAI's strict structured-output mode doesn't support. " +
+          "Model it as a List of key/value case classes instead."
+      )
+    }
 
   /** A node is an "object schema" — eligible for the strict-mode constraints —
     * when it declares `"type": "object"` AND carries a `"properties"` object.
@@ -60,10 +87,10 @@ object JsonSchemaGen:
     val props =
       obj("properties").flatMap(_.asObject).getOrElse(JsonObject.empty)
     val allKeys = props.keys.toList
-    // Don't overwrite an existing `additionalProperties` — Tapir emits a
-    // sub-schema for `Map[String, T]` fields. Letting it through means
-    // codex/claude reject the schema loudly (strict mode demands `false`)
-    // rather than silently losing the value-type constraint.
+    // A non-boolean `additionalProperties` (the Map[String, T] shape) was
+    // already rejected by `rejectMapShapedAdditionalProperties` above, so
+    // anything reaching here is either absent or already `true`/`false` —
+    // don't clobber an explicit boolean, only fill in the missing default.
     val withAdditional =
       if obj.contains("additionalProperties") then obj
       else obj.add("additionalProperties", Json.False)

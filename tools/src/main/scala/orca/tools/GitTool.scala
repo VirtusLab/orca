@@ -351,6 +351,13 @@ private[orca] class OsGitTool(
       Right(())
     else
       val stderr = result.err.text()
+      // Checked in this order — non-fast-forward before remote-declined —
+      // but the order isn't load-bearing: `push()` targets a single ref per
+      // call, so its stderr carries at most one rejection reason (history
+      // divergence vs. a policy decline are mutually exclusive causes for
+      // the same ref), making a stderr that matches both patterns an
+      // unrealistic shape in practice, not a real ambiguity this ordering
+      // resolves.
       if OsGitTool.isNonFastForward(stderr) then
         Left(new PushFailure.NonFastForward(stderr.trim))
       else if OsGitTool.isRemoteDeclined(stderr) then

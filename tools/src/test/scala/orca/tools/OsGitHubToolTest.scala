@@ -264,6 +264,19 @@ class OsGitHubToolTest extends munit.FunSuite:
     assertEquals(status.outcome, BuildOutcome.Failure)
     assert(status.log.contains("unknown"), status.log)
 
+  test("buildStatus.checkCount reflects the rollup size directly"):
+    // Epic 9.4: `checkCount` is a structured fact taken straight from
+    // `statusCheckRollup.size`, not re-derived from the rendered `log`.
+    val (_, emptyGh) = stubGh(CliResult(0, """{"statusCheckRollup":[]}""", ""))
+    assertEquals(emptyGh.buildStatus(samplePr).checkCount, 0)
+
+    val json =
+      """{"statusCheckRollup":[
+        | {"status":"COMPLETED","conclusion":"SUCCESS","name":"test"},
+        | {"status":"COMPLETED","conclusion":"SUCCESS","name":"lint"}]}""".stripMargin
+    val (_, gh) = stubGh(CliResult(0, json, ""))
+    assertEquals(gh.buildStatus(samplePr).checkCount, 2)
+
   test("waitForBuild polls until the build finishes"):
     val pendingJson =
       """{"statusCheckRollup":[{"status":"IN_PROGRESS","name":"t"}]}"""
@@ -359,6 +372,34 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
     watcher.join()
     assert(result.left.exists(_.isInstanceOf[BuildTimedOut]))
+
+  test(
+    "waitForBuild's sticky watermark is driven by checkCount: no-checks-then-checks doesn't fire NoChecksConfigured"
+  ):
+    // Reverse of the transition above: the rollup starts EMPTY (checkCount
+    // 0, not yet seen), then gains a check well before noChecksGrace elapses
+    // — `seen` (now `checkCount > 0`, not `log.nonEmpty`) must flip to true
+    // and stay true, so the NoChecksConfigured fast-path never fires even
+    // once the grace deadline passes; the loop instead falls through to
+    // BuildTimedOut at the (later) timeout.
+    val pendingJson =
+      """{"statusCheckRollup":[{"status":"IN_PROGRESS","name":"t"}]}"""
+    val cli =
+      new StubCliRunner(CliResult(0, """{"statusCheckRollup":[]}""", ""))
+    val gh = new OsGitHubTool(cli, pollInterval = 5.millis)
+    val watcher = new Thread(() =>
+      // Well before the 30ms grace deadline, a check registers.
+      Thread.sleep(10)
+      cli.setResponse(CliResult(0, pendingJson, ""))
+    )
+    watcher.start()
+    val result = gh.waitForBuild(
+      samplePr,
+      timeout = 100.millis,
+      noChecksGrace = 30.millis
+    )
+    watcher.join()
+    assert(result.left.exists(_.isInstanceOf[BuildTimedOut]), result)
 
   test(
     "waitForBuild returns Left(NoChecksConfigured) when checks never register"

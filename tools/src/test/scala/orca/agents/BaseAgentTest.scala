@@ -18,6 +18,12 @@ import orca.events.{OrcaListener, Usage}
   * refactor that swapped in `result.wireId` would not fail to compile; this
   * test exists to catch that regression.
   */
+/** Unsupported `resultAs[O]` output shape: OpenAI's strict structured-output
+  * mode can't express a Map's unbounded key set. See the "Map field throws...
+  * at construction" test below.
+  */
+case class MapCarrier(m: Map[String, Int]) derives JsonData
+
 class BaseAgentTest extends munit.FunSuite:
 
   // LLM `run` is gated on `InStage`; mint the token for the suite.
@@ -50,6 +56,18 @@ class BaseAgentTest extends munit.FunSuite:
     assertEquals(
       thrown.getMessage,
       AgentBackend.ClosedMessage
+    )
+
+  // Epic 9.3: an unsupported output shape (a Map[String, _] field, which
+  // JsonSchemaGen rejects) must fail at `resultAs[O]` construction — before
+  // any stage runs — not remotely, after `.run()` spawns a backend process.
+  test("resultAs[O] with a Map field throws OrcaFlowException at construction"):
+    val tool = new StubTool(StubBackend)
+    val thrown = intercept[orca.OrcaFlowException]:
+      tool.resultAs[MapCarrier]
+    assert(
+      thrown.getMessage.contains("List of key/value case classes"),
+      s"expected actionable Map-field message, got: ${thrown.getMessage}"
     )
 
   test("resultAs after close() throws OrcaFlowException"):
