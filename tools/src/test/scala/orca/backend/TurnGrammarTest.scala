@@ -206,3 +206,52 @@ class TurnGrammarTest extends munit.FunSuite:
       // already succeeded on its own — must be a pure teardown, no hook.
       conv.cancel()
       assertEquals(conv.cancelRequests, 0)
+
+  /** Fake driver whose only purpose is exposing `succeedWith` to a caller on an
+    * arbitrary thread, so 12.2's single-writer assertion can be exercised from
+    * outside `handleLine` (every real backend only ever calls it from inside
+    * `handleLine`, on the reader thread — this deliberately breaks that
+    * contract to prove the check fires).
+    */
+  private class ThreadInvariantFakeConversation(source: StreamSource)(using Ox)
+      extends ForkedConversation[BackendTag.ClaudeCode.type](
+        source = source,
+        backendName = "fake"
+      ):
+    val outputSchema: Option[String] = None
+    protected def handleLine(line: String): Unit =
+      line match
+        case "succeed" =>
+          succeedWith(AgentResult(WireSessionId("fake"), "done", Usage.empty))
+        case other =>
+          throw new IllegalStateException(s"unknown script line: $other")
+    def succeedFromCallerThread(): Unit =
+      succeedWith(AgentResult(WireSessionId("off-thread"), "done", Usage.empty))
+
+  test(
+    "succeedWith off the reader thread trips the write-side single-thread assertion"
+  ):
+    supervised:
+      val process = new FakePipedCliProcess()
+      val conv =
+        new ThreadInvariantFakeConversation(StreamSource.fromProcess(process))
+      process.enqueueStdout("succeed")
+      process.closeStdout()
+      process.closeStderr()
+      conv.events.foreach(_ => ())
+      // Reader thread has now settled once via a real handleLine dispatch —
+      // its identity is recorded. A second settle from a genuinely different
+      // thread (never legitimate — every backend settles from inside
+      // handleLine) must trip the assertion rather than silently no-op.
+      val _ = conv.awaitResult()
+      var caught: Throwable = null
+      val t = new Thread(() =>
+        try conv.succeedFromCallerThread()
+        catch case e: Throwable => caught = e
+      )
+      t.start()
+      t.join()
+      assert(
+        caught != null && caught.isInstanceOf[AssertionError],
+        s"expected an AssertionError from the off-thread settle; got: $caught"
+      )

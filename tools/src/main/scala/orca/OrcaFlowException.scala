@@ -35,5 +35,13 @@ class OrcaInteractiveCancelled(
   * session id makes a retry futile is owned at the decision point,
   * [[orca.backend.ForkedConversation.awaitResult]] (the classifier);
   * `DefaultAgentCall.runAutonomousWithRetry` is the policy that acts on it.
+  *
+  * `cause` is optional (both wrap sites — `awaitResult`'s generic-failure arm
+  * and `runAutonomousWithRetry`'s re-attribution rewrap — pass the throwable
+  * they're wrapping) so `getCause` still reaches the original exception (stack
+  * trace, exact type) for `--verbose`/debug inspection instead of being
+  * flattened into the message string and discarded.
   */
-class AgentTurnFailed(message: String) extends OrcaFlowException(message)
+class AgentTurnFailed(message: String, cause: Throwable | Null = null)
+    extends OrcaFlowException(message):
+  if cause != null then initCause(cause): Unit

@@ -3,6 +3,7 @@ package orca.events
 import orca.agents.Model
 
 import java.time.LocalDate
+import scala.util.matching.Regex
 
 /** Per-model token prices in USD per million tokens. `cachedInput` is the
   * cache-read rate (Claude `cache_read_input_tokens`, OpenAI `cached_input`);
@@ -50,6 +51,15 @@ case class PriceList(table: PricingTable, lastUpdated: LocalDate)
 
 object Pricing:
 
+  /** A dated-snapshot suffix, e.g. `-20251015` — the ONLY shape the prefix
+    * fallback in [[lookup]] is meant to bridge (a provider stamping a released
+    * model id with its pinned-snapshot date). Anything else after the matched
+    * prefix (`-lite`, `-mini`, `-pro`, …) is a genuinely different,
+    * differently-priced model tier, not a snapshot of the same one — see
+    * [[lookup]].
+    */
+  private val DateSuffix: Regex = """^-\d{8}$""".r
+
   /** Compute an estimated cost for one call from `usage` and the price for
     * `model`. Returns `None` when `model` is missing or absent from `table`.
     *
@@ -84,7 +94,9 @@ object Pricing:
       .get(model)
       .orElse:
         table.keys
-          .filter(k => model.name.startsWith(k.name))
+          .filter: k =>
+            model.name.startsWith(k.name) &&
+              DateSuffix.matches(model.name.stripPrefix(k.name))
           .maxByOption(_.name.length)
           .flatMap(table.get)
 

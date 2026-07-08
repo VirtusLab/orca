@@ -15,7 +15,8 @@ private[orca] class DefaultGeminiAgent(
     prompts: Prompts,
     events: OrcaListener,
     interaction: Interaction,
-    val name: String = "main"
+    val name: String = "main",
+    override val role: Option[String] = None
 ) extends BaseAgent[BackendTag.Gemini.type, GeminiAgent](
       backend,
       config,
@@ -34,7 +35,8 @@ private[orca] class DefaultGeminiAgent(
 
   protected def copyTool(
       config: AgentConfig = config,
-      name: String = name
+      name: String = name,
+      role: Option[String] = role
   ): GeminiAgent =
     new DefaultGeminiAgent(
       backend,
@@ -42,7 +44,8 @@ private[orca] class DefaultGeminiAgent(
       prompts,
       events,
       interaction,
-      name
+      name,
+      role
     )
 
 private[orca] object DefaultGeminiAgent:

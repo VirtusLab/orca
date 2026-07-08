@@ -104,12 +104,17 @@ class DefaultAgentCall[B <: BackendTag, O](
     prompts: Prompts,
     events: OrcaListener,
     interaction: Interaction,
-    /** Used as the `agent` axis on `OrcaEvent.TokensUsed` — typically the
-      * owning `Agent.name`, which carries the reviewer identity for tools
-      * renamed via `withName`. The `model` axis is read from the response (or
-      * the pinned config); this name is the always-present agent identifier.
+    /** Used as the `agent` axis on `OrcaEvent.TokensUsed` — the owning
+      * `Agent.name`, its bare identity. The `model` axis is read from the
+      * response (or the pinned config); this name is the always-present agent
+      * identifier.
       */
-    agentName: String
+    agentName: String,
+    /** Used as the `role` axis on `OrcaEvent.TokensUsed` — the owning
+      * `Agent.role`, e.g. `Some("reviewer")` for a review-loop run. `None` for
+      * an ordinary agent.
+      */
+    agentRole: Option[String] = None
 )(using jd: JsonData[O], announce: Announce[O])
     extends AgentCall[B, O]:
 
@@ -229,7 +234,8 @@ class DefaultAgentCall[B <: BackendTag, O](
           OrcaEvent.TokensUsed(
             agentName,
             result.model.orElse(effective.model),
-            result.usage
+            result.usage,
+            agentRole
           )
         )
         try
@@ -254,7 +260,8 @@ class DefaultAgentCall[B <: BackendTag, O](
       case e: AgentTurnFailed =>
         throw new AgentTurnFailed(
           s"agent '$agentName' turn failed " +
-            s"(this turn's input ≈${serialized.length} chars): ${e.getMessage}"
+            s"(this turn's input ≈${serialized.length} chars): ${e.getMessage}",
+          e
         )
 
   /** Interactive variant. No retry: the user is steering the session and a
@@ -298,7 +305,8 @@ class DefaultAgentCall[B <: BackendTag, O](
       OrcaEvent.TokensUsed(
         agentName,
         result.model.orElse(effective.model),
-        result.usage
+        result.usage,
+        agentRole
       )
     )
     val parsed = ResponseParser.parse[O](result.output)

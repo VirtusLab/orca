@@ -146,6 +146,18 @@ trait GitTool:
     * failed stage's partial edits while keeping the committed history (and the
     * committed progress log) intact, so a re-run resumes cleanly (ADR 0018
     * §2.5).
+    *
+    * '''`reset --hard` does NOT remove untracked files''' — only tracked
+    * changes (modified/staged/deleted) are discarded. A failed stage's *new*
+    * files (the typical shape of agent output: freshly created source/test
+    * files) survive this call and remain in the working tree. They aren't lost
+    * — the next `flow(...)` invocation's start-of-run `ensureClean` stashes the
+    * dirty tree (`git stash push -u`, which does sweep untracked paths), so the
+    * leftovers end up co-mingled into that stash alongside any genuine user
+    * WIP, rather than discarded outright. If leftovers should instead be
+    * deleted at teardown, that needs a scoped clean of run-touched paths (not
+    * blanket `git clean -fd`, which would also delete pre-existing untracked
+    * user files) — an intentionally separate decision, not made by this method.
     */
   def resetHard()(using WorkspaceWrite): Unit
 

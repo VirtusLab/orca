@@ -34,6 +34,14 @@ trait Agent[B <: BackendTag]:
     */
   def name: String
 
+  /** Role tag for this agent in the event stream — a second, orthogonal axis on
+    * `OrcaEvent.TokensUsed` alongside [[name]]. `None` for an ordinary agent;
+    * the review loop sets `Some("reviewer")` via [[withRole]] so `CostTracker`
+    * can subtotal reviewer spend without baking a display prefix into [[name]]
+    * itself (the identity a session/selector keys off). Defaults to `None`.
+    */
+  def role: Option[String] = None
+
   /** Free-form text autonomous calls. Use this when the agent's reply is prose
     * / code / anything that doesn't need to parse as a structured `O`. For
     * structured output (and the interactive-conversation path), use
@@ -54,6 +62,19 @@ trait Agent[B <: BackendTag]:
   def withConfig(config: AgentConfig): Agent[B]
   def withSystemPrompt(prompt: String): Agent[B]
   def withName(name: String): Agent[B]
+
+  /** Return a sibling tool tagged with `role` (see [[role]]) for the event
+    * stream — used by the review loop to tag a reviewer's run without renaming
+    * it.
+    *
+    * On an `Agent` that doesn't override this, the call is a SILENT NO-OP —
+    * `this` is returned unchanged, mirroring [[withSelfManagedGit]] /
+    * [[withCheapModel]]'s documented pattern for optional capabilities.
+    * `BaseAgent`-derived tools (every real backend) override it; a custom
+    * `Agent` implementation that wants role-tagged `TokensUsed` events must
+    * override it too.
+    */
+  def withRole(role: String): Agent[B] = this
 
   /** Return a sibling tool whose config pins [[AgentConfig.tools]] to `tools` —
     * the capability tier (see [[ToolSet]]). The primitive behind

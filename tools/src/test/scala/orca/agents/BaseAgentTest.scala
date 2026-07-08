@@ -154,7 +154,8 @@ class BaseAgentTest extends munit.FunSuite:
     // shared backend), not a trivial same-instance alias.
     protected def copyTool(
         config: AgentConfig = toolConfig,
-        name: String = name
+        name: String = name,
+        role: Option[String] = None
     ): Agent[BackendTag.Pi.type] = new StubTool(backend, config)
 
   /** Records the `AgentConfig` the framework actually resolved and passed to

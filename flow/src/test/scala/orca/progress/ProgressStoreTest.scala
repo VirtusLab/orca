@@ -99,6 +99,89 @@ class ProgressStoreTest extends FunSuite:
         fail(s"expected Corrupt, got $other")
     assertEquals(store.load(), None: Option[ProgressLog])
 
+  test("appendEntry before writeHeader throws the absent-log message"):
+    val workDir = os.temp.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    val ex = intercept[IllegalStateException]:
+      store.appendEntry(
+        StageEntry(id = "stage-1", name = "First", resultJson = "{}")
+      )
+    assert(
+      ex.getMessage.contains("before writeHeader"),
+      s"expected the absent-log wording; got: ${ex.getMessage}"
+    )
+
+  test("upsertSession before writeHeader throws the absent-log message"):
+    val workDir = os.temp.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    val ex = intercept[IllegalStateException]:
+      store.upsertSession(
+        SessionRecord(
+          name = "implementer",
+          occurrence = 0,
+          id = "uuid",
+          seed = "seed"
+        )
+      )
+    assert(
+      ex.getMessage.contains("before writeHeader"),
+      s"expected the absent-log wording; got: ${ex.getMessage}"
+    )
+
+  test(
+    "appendEntry against a corrupted-but-present log surfaces a corruption-specific message, not the before-writeHeader lie"
+  ):
+    // 12.4: a log that exists but is torn/corrupted mid-run must not be
+    // misreported as "appendEntry called before writeHeader" — that message
+    // is a lie when writeHeader plainly did run (the file exists).
+    val workDir = os.temp.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    val path = workDir / ".orca"
+    os.makeDir.all(path)
+    store.writeHeader(header)
+    val files = os.list(path).filter(_.last.startsWith("progress-"))
+    assert(files.nonEmpty, "expected at least one progress file")
+    os.write.over(files.head, "not json {{{")
+    val ex = intercept[IllegalStateException]:
+      store.appendEntry(
+        StageEntry(id = "stage-1", name = "First", resultJson = "{}")
+      )
+    assert(
+      !ex.getMessage.contains("before writeHeader"),
+      s"corruption must not be misreported as a never-happened protocol " +
+        s"violation; got: ${ex.getMessage}"
+    )
+    assert(
+      ex.getMessage.contains(path.toString) || ex.getMessage.nonEmpty,
+      s"expected a corruption-specific message; got: ${ex.getMessage}"
+    )
+
+  test(
+    "upsertSession against a corrupted-but-present log surfaces a corruption-specific message"
+  ):
+    val workDir = os.temp.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    val path = workDir / ".orca"
+    os.makeDir.all(path)
+    store.writeHeader(header)
+    val files = os.list(path).filter(_.last.startsWith("progress-"))
+    assert(files.nonEmpty, "expected at least one progress file")
+    os.write.over(files.head, "not json {{{")
+    val ex = intercept[IllegalStateException]:
+      store.upsertSession(
+        SessionRecord(
+          name = "implementer",
+          occurrence = 0,
+          id = "uuid",
+          seed = "seed"
+        )
+      )
+    assert(
+      !ex.getMessage.contains("before writeHeader"),
+      s"corruption must not be misreported as a never-happened protocol " +
+        s"violation; got: ${ex.getMessage}"
+    )
+
   test("default path is <workDir>/.orca/progress-<12hexchars>.json"):
     val workDir = os.temp.dir()
     val store = ProgressStore.default(workDir, "test prompt")

@@ -16,7 +16,8 @@ private[orca] class DefaultPiAgent(
     prompts: Prompts,
     events: OrcaListener,
     interaction: Interaction,
-    val name: String = "pi"
+    val name: String = "pi",
+    override val role: Option[String] = None
 ) extends BaseAgent[BackendTag.Pi.type, PiAgent](
       backend,
       config,
@@ -28,7 +29,8 @@ private[orca] class DefaultPiAgent(
 
   protected def copyTool(
       config: AgentConfig = config,
-      name: String = name
+      name: String = name,
+      role: Option[String] = role
   ): PiAgent =
     new DefaultPiAgent(
       backend,
@@ -36,5 +38,6 @@ private[orca] class DefaultPiAgent(
       prompts,
       events,
       interaction,
-      name
+      name,
+      role
     )

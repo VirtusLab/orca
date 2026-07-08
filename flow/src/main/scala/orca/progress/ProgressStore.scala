@@ -110,20 +110,32 @@ private class OsProgressStore(val path: os.Path) extends ProgressStore:
     writeLog(ProgressLog(header, Nil))
 
   def appendEntry(entry: StageEntry)(using WorkspaceWrite): Unit =
-    val current = load().getOrElse(
-      throw IllegalStateException(
-        s"appendEntry called before writeHeader: no log at $path"
-      )
-    )
-    writeLog(upsertEntry(current, entry))
+    writeLog(upsertEntry(currentLogOrThrow("appendEntry"), entry))
 
   def upsertSession(record: SessionRecord)(using WorkspaceWrite): Unit =
-    val current = load().getOrElse(
-      throw IllegalStateException(
-        s"upsertSession called before writeHeader: no log at $path"
-      )
-    )
-    writeLog(upsertSessionRecord(current, record))
+    writeLog(upsertSessionRecord(currentLogOrThrow("upsertSession"), record))
+
+  /** Read-modify-write precondition for [[appendEntry]] / [[upsertSession]]:
+    * both require a log to already exist (`writeHeader` must have run first).
+    * Routed through [[loadDetailed]] (not the lenient [[load]]) so the two ways
+    * "no usable log" can happen get distinct, honest messages: a log that was
+    * genuinely never written (`Absent` — the real protocol violation the
+    * original message described) vs. one that exists but is corrupted
+    * (`Corrupt` — a torn write, an external edit — mid-run, which `load()`'s
+    * collapsing to `None` used to misreport as "before writeHeader" even though
+    * writeHeader plainly *did* run).
+    */
+  private def currentLogOrThrow(callerName: String): ProgressLog =
+    loadDetailed() match
+      case ProgressStore.LoadResult.Loaded(log) => log
+      case ProgressStore.LoadResult.Absent =>
+        throw IllegalStateException(
+          s"$callerName called before writeHeader: no log at $path"
+        )
+      case ProgressStore.LoadResult.Corrupt(reason) =>
+        throw IllegalStateException(
+          s"$callerName found a corrupted log at $path: $reason"
+        )
 
   private def upsertEntry(log: ProgressLog, entry: StageEntry): ProgressLog =
     val idx = log.entries.indexWhere(_.id == entry.id)

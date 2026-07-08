@@ -71,25 +71,30 @@ class FakeAgent(
   def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
   def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
 
-/** A reviewer stub that emits a `TokensUsed` event carrying the name captured
-  * at `resultAs` time — mirroring `BaseAgent`, whose `resultAs` snapshots
-  * `name` for the cost axis. `withName` returns a renamed copy, so the copy the
-  * loop makes at its emission edge reports the prefixed name.
+/** A reviewer stub that emits a `TokensUsed` event carrying the name + role
+  * captured at `resultAs` time — mirroring `BaseAgent`, whose `resultAs`
+  * snapshots `name`/`role` for the cost axes. `withRole` returns a role-tagged
+  * copy (identity/`name` unchanged), so the copy the loop makes at its emission
+  * edge reports the tagged role without renaming.
   */
 private class TokenEmittingReviewer(
     override val name: String,
-    result: ReviewResult
+    result: ReviewResult,
+    override val role: Option[String] = None
 )(using ctx: FlowContext)
     extends Agent[BackendTag.ClaudeCode.type]:
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
   def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
   def withName(n: String): Agent[BackendTag.ClaudeCode.type] =
-    new TokenEmittingReviewer(n, result)
+    new TokenEmittingReviewer(n, result, role)
+  override def withRole(r: String): Agent[BackendTag.ClaudeCode.type] =
+    new TokenEmittingReviewer(name, result, Some(r))
   def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
   def resultAs[O: JsonData: Announce]
       : AgentCall[BackendTag.ClaudeCode.type, O] =
     val capturedName = name
+    val capturedRole = role
     new AgentCall[BackendTag.ClaudeCode.type, O]:
       val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
         new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
@@ -99,7 +104,10 @@ private class TokenEmittingReviewer(
               c: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
-            ctx.emit(OrcaEvent.TokensUsed(capturedName, None, Usage.empty))
+            ctx.emit(
+              OrcaEvent
+                .TokensUsed(capturedName, None, Usage.empty, capturedRole)
+            )
             (session, result.asInstanceOf[O])
       def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
         ???
@@ -566,10 +574,10 @@ class ReviewAndFixTest extends munit.FunSuite:
     val runs = if os.exists(counter) then os.read.lines(counter).size else 0
     assertEquals(runs, 2)
 
-  test("reviewer LLM runs are labelled with the cost prefix"):
-    // The loop keeps reviewer identity as the bare slug but runs the LLM under a
-    // `reviewer: <slug>` copy so `CostTracker` can group the spend. Assert the
-    // emitted `TokensUsed.agent` still carries the prefix.
+  test("reviewer LLM runs are tagged with the cost role (12.7)"):
+    // The loop keeps reviewer identity as the bare slug and tags the LLM run
+    // with the `reviewer` role (not a renamed copy) so `CostTracker` can
+    // group/subtotal the spend without a stringly identity convention.
     val recorded =
       new java.util.concurrent.ConcurrentLinkedQueue[OrcaEvent.TokensUsed]()
     val listener: OrcaListener =
@@ -586,9 +594,12 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
-    val agents = recorded.toArray.toList.collect:
-      case t: OrcaEvent.TokensUsed => t.agent
-    assertEquals(agents, List("reviewer: performance"))
+    val events = recorded.toArray.toList.collect {
+      case t: OrcaEvent.TokensUsed =>
+        t
+    }
+    assertEquals(events.map(_.agent), List("performance"))
+    assertEquals(events.map(_.role), List(Some("reviewer")))
 
   test("a selector runs exactly the roster entries it returns"):
     // The new roster-bound contract: `prepare` is handed the roster as opaque

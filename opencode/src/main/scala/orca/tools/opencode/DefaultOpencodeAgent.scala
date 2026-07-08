@@ -22,7 +22,8 @@ private[orca] class DefaultOpencodeAgent(
     prompts: Prompts,
     events: OrcaListener,
     interaction: Interaction,
-    val name: String = "main"
+    val name: String = "main",
+    override val role: Option[String] = None
 ) extends BaseAgent[BackendTag.Opencode.type, OpencodeAgent](
       backend,
       config,
@@ -61,7 +62,8 @@ private[orca] class DefaultOpencodeAgent(
 
   protected def copyTool(
       config: AgentConfig = config,
-      name: String = name
+      name: String = name,
+      role: Option[String] = role
   ): OpencodeAgent =
     new DefaultOpencodeAgent(
       backend,
@@ -69,5 +71,6 @@ private[orca] class DefaultOpencodeAgent(
       prompts,
       events,
       interaction,
-      name
+      name,
+      role
     )

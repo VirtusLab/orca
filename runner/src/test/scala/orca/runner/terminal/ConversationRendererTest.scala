@@ -19,7 +19,6 @@ class ConversationRendererTest extends munit.FunSuite:
 
   private def renderer(
       out: ByteArrayOutputStream,
-      showThinking: Boolean = false,
       structuredMode: Boolean = false,
       prompter: Prompter = ScriptedPrompter(Nil)
   ): ConversationRenderer =
@@ -32,7 +31,6 @@ class ConversationRendererTest extends munit.FunSuite:
       useColor = false,
       output = terminalOutput,
       currentIndent = () => "",
-      showThinking = showThinking,
       structuredMode = structuredMode,
       prompter = prompter
     )
@@ -121,26 +119,27 @@ class ConversationRendererTest extends munit.FunSuite:
       s"structured-mode renderer should not render the JSON payload; got: ${buf.toString}"
     )
 
-  test("AssistantThinkingDelta stays silent when showThinking is false"):
+  test(
+    "AssistantThinkingDelta is never rendered (12.6: showThinking deleted, dead in production)"
+  ):
     val buf = new ByteArrayOutputStream()
     val conv = new ScriptedConversation(
-      List(ConversationEvent.AssistantThinkingDelta("inner monologue")),
+      List(
+        ConversationEvent.AssistantThinkingDelta("inner monologue"),
+        ConversationEvent.AssistantTextDelta("visible answer"),
+        ConversationEvent.AssistantTurnEnd
+      ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, showThinking = false).render(conv)
+    val _ = renderer(buf).render(conv)
     assert(
       !buf.toString.contains("inner monologue"),
-      s"expected no output; got: ${buf.toString}"
+      s"expected no thinking output; got: ${buf.toString}"
     )
-
-  test("AssistantThinkingDelta renders when showThinking is true"):
-    val buf = new ByteArrayOutputStream()
-    val conv = new ScriptedConversation(
-      List(ConversationEvent.AssistantThinkingDelta("inner monologue")),
-      Right(sampleResult)
+    assert(
+      buf.toString.contains("visible answer"),
+      s"expected the assistant text to still render normally; got: ${buf.toString}"
     )
-    val _ = renderer(buf, showThinking = true).render(conv)
-    assert(buf.toString.contains("inner monologue"))
 
   test("AssistantToolCall renders the name and a summarised input"):
     val buf = new ByteArrayOutputStream()

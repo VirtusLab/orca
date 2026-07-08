@@ -254,8 +254,8 @@ class OrcaOverridesTest extends munit.FunSuite:
     // agent's "wired" event must be among them.
     var seen: List[String] = Nil
     val recorder: OrcaListener =
-      case OrcaEvent.TokensUsed(agent, _, _) => seen = agent :: seen
-      case _                                 => ()
+      case OrcaEvent.TokensUsed(agent, _, _, _) => seen = agent :: seen
+      case _                                    => ()
     supervised:
       val interaction = TerminalInteraction.start(
         out = new PrintStream(new ByteArrayOutputStream()),

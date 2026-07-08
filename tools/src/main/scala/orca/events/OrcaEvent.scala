@@ -24,20 +24,31 @@ enum OrcaEvent:
     */
   case Step(message: String)
 
-  /** Token usage for a single LLM call, attributed along two independent axes:
+  /** Token usage for a single LLM call, attributed along three independent
+    * axes:
     *
-    *   - `agent` is the [[Agent.name]] that issued the call. For reviewer
-    *     agents this carries the reviewer identity (`abstraction`,
-    *     `performance`, …); for the main coding agent it's `claude` / `codex`
-    *     (or whatever the script renamed it to via `withName`).
+    *   - `agent` is the [[Agent.name]] that issued the call — always the
+    *     agent's bare identity (`claude`, `codex`, `performance`, …), never a
+    *     display-prefixed copy: renaming a reviewer's agent for cost grouping
+    *     is what `role` (below) replaced.
     *   - `model` is the concrete model the backend reports it actually served
     *     the call with. `None` when the response didn't carry it and no model
     *     was pinned via `AgentConfig.model`.
+    *   - `role` is the [[Agent.role]] tag, set at the emission edge (e.g. the
+    *     review loop's `Some("reviewer")`, via `withRole`). `None` for an
+    *     ordinary call. Purely a grouping/display hint — never parsed back out
+    *     of `agent`.
     *
-    * `CostTracker` summarises usage along both axes — by-agent shows where the
-    * tokens were spent, by-model shows which models cost what.
+    * `CostTracker` summarises usage along all three axes — by-agent shows where
+    * the tokens were spent, by-model shows which models cost what, and by-role
+    * optionally subtotals e.g. all reviewer spend together.
     */
-  case TokensUsed(agent: String, model: Option[Model], usage: Usage)
+  case TokensUsed(
+      agent: String,
+      model: Option[Model],
+      usage: Usage,
+      role: Option[String] = None
+  )
 
   /** The agent's final structured payload, after parsing succeeded. `raw` is
     * the verbatim text the agent produced (typically JSON); `summary` is the

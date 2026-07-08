@@ -361,6 +361,14 @@ class GeminiConversationTest extends munit.FunSuite:
       ex.getMessage.contains("result"),
       s"expected the missing-result message; got: ${ex.getMessage}"
     )
+    // 12.1: ForkedConversation.awaitResult's generic Outcome.Failed(e) arm
+    // must thread `e` through as the cause, not just fold its message into
+    // text and drop it.
+    assert(
+      ex.getCause != null,
+      "AgentTurnFailed from the generic clean-exit-without-result path must " +
+        "carry the original failure as its cause"
+    )
 
   convTest(
     "a message with a missing role is dropped, never treated as assistant prose"

@@ -22,7 +22,8 @@ private[orca] class DefaultClaudeAgent(
     prompts: Prompts,
     events: OrcaListener,
     interaction: Interaction,
-    val name: String = "main"
+    val name: String = "main",
+    override val role: Option[String] = None
 ) extends BaseAgent[BackendTag.ClaudeCode.type, ClaudeAgent](
       backend,
       config,
@@ -49,12 +50,14 @@ private[orca] class DefaultClaudeAgent(
       prompts,
       events,
       interaction,
-      name
+      name,
+      role
     )
 
   protected def copyTool(
       config: AgentConfig = config,
-      name: String = name
+      name: String = name,
+      role: Option[String] = role
   ): ClaudeAgent =
     new DefaultClaudeAgent(
       backend,
@@ -62,7 +65,8 @@ private[orca] class DefaultClaudeAgent(
       prompts,
       events,
       interaction,
-      name
+      name,
+      role
     )
 
 private[orca] object DefaultClaudeAgent:

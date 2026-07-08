@@ -29,14 +29,16 @@ private[review] case class Reviewer(
   */
 private[review] object ReviewerPrompts:
 
-  /** Prefix applied to a reviewer's name ONLY at the loop's emission edge, when
-    * it labels the actual LLM run (e.g. `reviewer: performance`). Its sole job
-    * is cost attribution — the `OrcaEvent.TokensUsed` breakdown groups all
-    * `reviewer: …` agents together. It appears only in emitted events, never in
-    * a reviewer's identity: the roster, the session map, the selection picker
-    * and the on-screen outcomes all use the bare slug.
+  /** Role tag applied to a reviewer's agent ONLY at the loop's emission edge,
+    * via `Agent.withRole`, right before the actual LLM run — never baked into
+    * the agent's `name`/identity, so the roster, the session map, the selection
+    * picker, and the on-screen outcomes all keep using the bare slug. Its sole
+    * job is cost attribution: `CostTracker` groups/subtotals every `TokensUsed`
+    * event carrying this role, and derives the human-readable `"reviewer:
+    * <slug>"` display line from it — a display derivation, not a stringly
+    * identity convention (12.7).
     */
-  val NamePrefix: String = "reviewer: "
+  val Role: String = "reviewer"
 
   private def load(slug: String): Reviewer =
     val parsed = PromptResource.loadWithMetadata(
@@ -118,7 +120,7 @@ def minimalReviewers[B <: BackendTag](base: Agent[B]): List[Agent[B]] =
   buildReviewers(base, ReviewerPrompts.minimal)
 
 /** Layer each reviewer's system prompt onto the base tool, name it with the
-  * bare reviewer slug (its identity — the cost-attribution `reviewer: ` prefix
+  * bare reviewer slug (its identity — the cost-attribution `reviewer` role tag
   * is applied only later, when the loop labels the actual LLM run for the
   * `OrcaEvent.TokensUsed` breakdown), and gate every reviewer to read-only
   * access. A reviewer's job is to *report* issues, not fix them; without

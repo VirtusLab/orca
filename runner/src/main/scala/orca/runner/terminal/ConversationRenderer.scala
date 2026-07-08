@@ -37,7 +37,6 @@ private[terminal] class ConversationRenderer(
     output: TerminalOutput,
     currentIndent: () => String,
     workDir: Option[os.Path] = None,
-    showThinking: Boolean = false,
     /** When non-empty the conversation is in structured-output mode — the
       * agent's final assistant text is the JSON payload the library will
       * deserialize and surface via `OrcaEvent.StructuredResult`. We swallow the
@@ -95,9 +94,16 @@ private[terminal] class ConversationRenderer(
     case ConversationEvent.UserMessage(text) => renderUserMessage(text)
     case ConversationEvent.AssistantTextDelta(text) =>
       bufferText(text, AssistantGlyph, AssistantGlyphStyle, AssistantTextStyle)
-    case ConversationEvent.AssistantThinkingDelta(text) =>
-      if showThinking then
-        bufferText(text, ThinkingGlyph, ThinkingStyle, ThinkingStyle)
+    case ConversationEvent.AssistantThinkingDelta(_) =>
+      // Never rendered: showThinking (Task 12.6) was dead in production —
+      // zero wiring ever set it true — and buffering thinking text into the
+      // same textBuffer/pendingProseStyling assistant prose uses risked
+      // mis-styling the whole turn (whichever delta kind arrived first won
+      // the styling for the rest of the buffered block). Dropping the case
+      // body entirely removes both the dead flag and that latent bug at
+      // once, rather than adding a flush-on-style-change to keep a feature
+      // nothing ever turned on.
+      ()
     case ConversationEvent.AssistantToolCall(name, input) =>
       renderToolCall(name, input)
     case ConversationEvent.ToolResult(_, ok, content) =>
@@ -254,7 +260,6 @@ private[terminal] object ConversationRenderer:
 
   val UserGlyph: String = "▸"
   val AssistantGlyph: String = "●"
-  val ThinkingGlyph: String = "·"
   val ToolCallGlyph: String = "⏺"
   val ToolResultGlyph: String = "⎿"
   val ToolErrorGlyph: String = "✖"
@@ -266,7 +271,7 @@ private[terminal] object ConversationRenderer:
   // without the previous wash of cyan/blue. Tool calls move to
   // yellow-bold so the "the agent is doing something external"
   // signal stands out from the magenta-bold "primary content"
-  // signal. Secondary text (tool args, tool results, thinking) all
+  // signal. Secondary text (tool args, tool results) all
   // stays dark-gray. User prompts keep cyan as their distinctive
   // colour since they're rare and want to be visually anchored at
   // the top of an interactive session.
@@ -274,7 +279,6 @@ private[terminal] object ConversationRenderer:
   val UserBodyStyle: fansi.Attrs = fansi.Color.Cyan
   val AssistantGlyphStyle: fansi.Attrs = fansi.Color.Magenta ++ fansi.Bold.On
   val AssistantTextStyle: fansi.Attrs = fansi.Attrs.Empty
-  val ThinkingStyle: fansi.Attrs = fansi.Color.DarkGray
   val ToolNameStyle: fansi.Attrs = fansi.Color.Yellow ++ fansi.Bold.On
   val ToolArgsStyle: fansi.Attrs = fansi.Color.DarkGray
   val ToolResultStyle: fansi.Attrs = fansi.Color.DarkGray

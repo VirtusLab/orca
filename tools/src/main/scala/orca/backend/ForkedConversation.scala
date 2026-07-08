@@ -179,6 +179,38 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     */
   private var openTurn: Boolean = false
 
+  /** The reader thread's identity, captured once at the top of [[runReader]]
+    * (before any [[handleLine]] dispatch can run) so [[succeedWith]] /
+    * [[failWith]] can assert the single-writer invariant [[settledOutcome]]'s
+    * scaladoc documents — every backend settles from inside its own
+    * `handleLine`, on this thread — rather than let a future backend #6 that
+    * settles from a background fork silently violate it. Written once,
+    * read-after-write on the same thread that wrote it (the reader), so a plain
+    * `var` needs no `@volatile`: unlike [[settledOutcome]], nothing reads this
+    * cross-thread. `null` only before the reader fork starts, which is also
+    * before either settle method can possibly run.
+    */
+  private var readerThread: Thread | Null = null
+
+  /** Single-writer check for [[succeedWith]] / [[failWith]]: neither may run
+    * off the reader thread. A plain (unelided) `assert` rather than an
+    * `OrcaDebug`-gated one — this is a backend-authoring contract violation (a
+    * driver settling from a background fork instead of `handleLine`), always a
+    * bug and never a legitimate runtime condition a production flow should
+    * tolerate silently, so it's not worth hiding behind a debug flag a real
+    * user run would never think to set. Deliberately does NOT touch
+    * [[isSettled]]'s read from [[cancel]], which runs on the driving thread by
+    * design.
+    */
+  private def assertReaderThread(caller: String): Unit =
+    assert(
+      Thread.currentThread() eq readerThread,
+      s"$backendName: $caller invoked off the reader thread " +
+        s"(${Thread.currentThread()} != $readerThread) — settledOutcome's " +
+        "single-writer invariant requires every settle to happen from " +
+        "inside handleLine on the reader thread"
+    )
+
   /** True iff a turn is currently open (activity streamed since the last
     * `AssistantTurnEnd`). The base reads it to decide the settle auto-close;
     * subclasses may read it in place of their own turn-openness flags.
@@ -259,7 +291,8 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
       case Outcome.Failed(e: AgentTurnFailed) => throw e
       case Outcome.Failed(e) =>
         throw new AgentTurnFailed(
-          Option(e.getMessage).filter(_.nonEmpty).getOrElse(e.toString)
+          Option(e.getMessage).filter(_.nonEmpty).getOrElse(e.toString),
+          e
         )
 
   def cancel(): Unit =
@@ -289,6 +322,7 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * closes on its own and the interrupt is a harmless early teardown.
     */
   protected def succeedWith(result: AgentResult[B]): Unit =
+    assertReaderThread("succeedWith")
     if settledOutcome.isEmpty then
       closeOpenTurn()
       settledOutcome = Some(Outcome.Success(result))
@@ -298,6 +332,7 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * [[succeedWith]] for the ordering rationale).
     */
   protected def failWith(error: Throwable): Unit =
+    assertReaderThread("failWith")
     if settledOutcome.isEmpty then
       closeOpenTurn()
       settledOutcome = Some(Outcome.failed(error))
@@ -389,6 +424,7 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * never throws (H1), so `readerFork.join()` always yields an outcome.
     */
   private def runReader(): Outcome[B] =
+    readerThread = Thread.currentThread()
     try
       val readException: Option[Throwable] =
         try

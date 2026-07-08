@@ -34,13 +34,15 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     */
   protected def copyTool(
       config: AgentConfig = config,
-      name: String = name
+      name: String = name,
+      role: Option[String] = role
   ): Self
 
   def withConfig(newConfig: AgentConfig): Self = copyTool(config = newConfig)
   def withSystemPrompt(prompt: String): Self =
     copyTool(config = config.copy(systemPrompt = Some(prompt)))
   def withName(newName: String): Self = copyTool(name = newName)
+  override def withRole(newRole: String): Self = copyTool(role = Some(newRole))
   def withTools(tools: ToolSet): Self =
     copyTool(config = config.copy(tools = tools))
   override def withReadOnly: Self = withTools(ToolSet.ReadOnly)
@@ -132,16 +134,18 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       prompts,
       events,
       interaction,
-      agentName = name
+      agentName = name,
+      agentRole = role
     )
 
   /** `agent` axis is always this tool's name; `model` prefers the
     * response-reported model (most precise) and falls back to whatever the
-    * caller pinned in config. Stays None when neither is known.
+    * caller pinned in config. Stays None when neither is known. `role` is this
+    * tool's [[Agent.role]] tag, unrelated to the model resolution.
     */
   private def emitTokens(effective: AgentConfig, result: AgentResult[B]): Unit =
     val model = result.model.orElse(effective.model)
-    events.onEvent(OrcaEvent.TokensUsed(name, model, result.usage))
+    events.onEvent(OrcaEvent.TokensUsed(name, model, result.usage, role))
 
   /** `None` (the caller omitted the per-call `config` arg) falls back to the
     * tool-level config. An explicit `Some(...)` from the call site wholly

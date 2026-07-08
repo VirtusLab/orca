@@ -727,18 +727,26 @@ Refs: `flow/.../review/ReviewLoop.scala:254-258,302-326,416-429`,
 
 ## Epic 12 — Diagnostics and small robustness
 
-- [ ] 12.1 `AgentTurnFailed` keeps cause chains: add
+- [x] 12.1 (done: Task 12A — `cause: Throwable | Null = null` + `initCause`
+  added to `AgentTurnFailed`, threaded at both wrap sites) `AgentTurnFailed`
+  keeps cause chains: add
   `cause: Throwable | Null = null` + `initCause` and thread the original at
   both wrap sites (`awaitResult`, `runAutonomousWithRetry`) — debug stacks
   currently lose the driver's original failure twice over.
   Refs: `tools/.../backend/ForkedConversation.scala:167-171`,
   `tools/.../agents/AgentCall.scala:218-222`.
-- [ ] 12.2 Make `settledOutcome`'s single-thread invariant self-enforcing:
+- [x] 12.2 (done: Task 12A — reader thread captured once in `runReader`,
+  plain `assert` in `succeedWith`/`failWith` only; `cancel()`'s cross-thread
+  `isSettled` read untouched) Make `settledOutcome`'s single-thread invariant
+  self-enforcing:
   record the reader thread, assert in `succeedWith`/`failWith` (plain or
   `OrcaDebug`-gated) — currently a frozen five-backend audit comment that
   expires silently on backend #6.
   Refs: `tools/.../backend/ForkedConversation.scala:79-94,192-201`.
-- [ ] 12.3 `resetHard` doc/decision: `git reset --hard` does not remove
+- [x] 12.3 (done: Task 12A — doc-only; `resetHard` trait doc + ADR 0018 §2.5
+  R5 note both state untracked survival and the stash co-mingling; the
+  scoped-clean decision stays open, as scoped) `resetHard` doc/decision: `git
+  reset --hard` does not remove
   untracked files, so a failed stage's *new* files (the typical agent output)
   survive teardown and get stashed into the next run's "orca: starting flow"
   stash alongside user WIP. Fix the trait doc + ADR 0018 §2.5 note; if
@@ -746,20 +754,31 @@ Refs: `flow/.../review/ReviewLoop.scala:254-258,302-326,416-429`,
   blanket `clean -fd`.
   Refs: `tools/src/main/scala/orca/tools/GitTool.scala:132-138`,
   `runner/.../FlowLifecycle.scala:176-180,344-347`.
-- [ ] 12.4 Route `ProgressStore` write-path reads through `loadDetailed()`:
+- [x] 12.4 (done: Task 12A — `appendEntry`/`upsertSession` route through
+  `loadDetailed()`, branching `Absent` vs `Corrupt(reason)` into distinct
+  messages) Route `ProgressStore` write-path reads through `loadDetailed()`:
   a mid-run corrupted log currently throws "appendEntry called before
   writeHeader" — a protocol violation that never happened.
   Refs: `flow/.../progress/ProgressStore.scala:100-126`.
-- [ ] 12.5 `Pricing.lookup` prefix fallback can cross model tiers
+- [x] 12.5 (done: Task 12A — prefix fallback gated on an 8-digit dated-suffix
+  remainder; `gemini-2.5-flash-lite` no longer matches `flash`) `Pricing.lookup`
+  prefix fallback can cross model tiers
   (`gemini-2.5-flash-lite` billed as `flash`): gate the fallback on a
   date-like remainder (the case the heuristic was built for), or accept and
   note.
   Refs: `flow/src/main/scala/orca/events/Pricing.scala:79-89`.
-- [ ] 12.6 `showThinking` is dead in production and mis-styles the whole turn
+- [x] 12.6 (done: Task 12A — `showThinking` deleted; `AssistantThinkingDelta`
+  is now unconditionally a no-op, matching production's only-ever-false
+  wiring and structurally removing the shared-buffer mis-styling risk) `showThinking` is dead in production and mis-styles the whole turn
   when enabled (shared `textBuffer`, first-delta-wins styling): delete the
   flag, or flush on style change so "one buffer, one style" is structural.
   Refs: `runner/.../terminal/ConversationRenderer.scala:40,67-73,94-98,118-126`.
-- [ ] 12.7 Structured cost attribution: `TokensUsed(agent, role, model,
+- [x] 12.7 (done: Task 12A — `TokensUsed` gained `role: Option[String]`;
+  `Agent.role`/`withRole` threaded through `BaseAgent` + all 5 backends;
+  reviewer loop tags via `withRole("reviewer")` instead of renaming; the
+  `"reviewer: "` string is now purely `CostTracker.summary`'s display
+  derivation from `role`, plus a `perRole`/`perRoleCost` subtotal axis)
+  Structured cost attribution: `TokensUsed(agent, role, model,
   usage)` with `role = "reviewer"` set at the emission edge — the `"reviewer: "`
   prefix is the last stringly convention in the event vocabulary; today
   "grouping" is only lexical sort adjacency, and any consumer parsing it back

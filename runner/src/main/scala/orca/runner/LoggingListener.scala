@@ -32,10 +32,11 @@ private[orca] class LoggingListener extends OrcaListener:
       log.debug("tool use: {} {}", tool, args)
     case OrcaEvent.StructuredResult(raw, summary) =>
       log.debug("structured result: {}", summary.getOrElse(raw))
-    case OrcaEvent.TokensUsed(agent, model, usage) =>
+    case OrcaEvent.TokensUsed(agent, model, usage, role) =>
       log.debug(
-        "tokens: agent={} model={} usage={}",
+        "tokens: agent={} role={} model={} usage={}",
         agent,
+        role.getOrElse("(none)"),
         model.map(_.name).getOrElse("(unknown)"),
         usage
       )

@@ -386,6 +386,13 @@ class DefaultAgentCallTest extends munit.FunSuite:
       assertEquals(calls.get(), 1, "AgentTurnFailed must not be retried")
       assert(ex.getMessage.contains("agent 'claude'"), ex.getMessage)
       assert(ex.getMessage.contains("Prompt is too long"), ex.getMessage)
+      // 12.1: runAutonomousWithRetry's re-attribution rewrap must thread the
+      // original AgentTurnFailed through as the cause, not just splice its
+      // message into the new one and drop it.
+      assert(
+        ex.getCause != null && ex.getCause.getMessage == "Prompt is too long",
+        s"expected the original AgentTurnFailed as cause; got: ${ex.getCause}"
+      )
 
   test(
     "autonomous still retries a non-AgentTurnFailed backend failure"

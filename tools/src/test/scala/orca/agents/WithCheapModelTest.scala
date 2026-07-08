@@ -52,7 +52,8 @@ class WithCheapModelTest extends munit.FunSuite:
     val name: String = "model:" + cfg.model.map(Model.name).getOrElse("none")
     protected def copyTool(
         config: AgentConfig = cfg,
-        name: String = name
+        name: String = name,
+        role: Option[String] = None
     ): Agent[BackendTag.Pi.type] = new StubTool(config)
 
   private object StubBackend extends AgentBackend[BackendTag.Pi.type]:

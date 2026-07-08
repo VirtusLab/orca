@@ -16,7 +16,8 @@ private[orca] class DefaultCodexAgent(
     prompts: Prompts,
     events: OrcaListener,
     interaction: Interaction,
-    val name: String = "main"
+    val name: String = "main",
+    override val role: Option[String] = None
 ) extends BaseAgent[BackendTag.Codex.type, CodexAgent](
       backend,
       config,
@@ -35,7 +36,8 @@ private[orca] class DefaultCodexAgent(
 
   protected def copyTool(
       config: AgentConfig = config,
-      name: String = name
+      name: String = name,
+      role: Option[String] = role
   ): CodexAgent =
     new DefaultCodexAgent(
       backend,
@@ -43,5 +45,6 @@ private[orca] class DefaultCodexAgent(
       prompts,
       events,
       interaction,
-      name
+      name,
+      role
     )

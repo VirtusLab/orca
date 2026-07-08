@@ -185,7 +185,7 @@ final class RosterEntry[B <: BackendTag] private[review] (
     private[review] val agent: Agent[B]
 ):
   /** The reviewer's bare slug — its identity, and what the picker LLM is shown
-    * and asked to echo. The `reviewer: ` cost-attribution prefix is applied
+    * and asked to echo. The `reviewer` cost-attribution role tag is applied
     * only later, at the loop's emission edge.
     */
   def name: String = agent.name
@@ -424,13 +424,12 @@ private[review] class ReviewFixLoop[B <: BackendTag](
 
   /** Resume a reviewer's existing session. `se` pairs the entry with a session
     * id under one `B`, so `se.session` is already typed to `se.entry.agent`'s
-    * backend — no recovery cast. The LLM run is labelled with the `reviewer:
-    * <slug>` cost prefix ([[ReviewerPrompts.NamePrefix]]) so the `TokensUsed`
-    * breakdown groups reviewer spend.
+    * backend — no recovery cast. The LLM run is tagged with the `reviewer` cost
+    * role ([[ReviewerPrompts.Role]]) so the `TokensUsed` breakdown can
+    * group/subtotal reviewer spend, without renaming the entry's identity.
     */
   private def resumeReview[B <: BackendTag](se: SessionEntry[B]): ReviewResult =
-    val labelled =
-      se.entry.agent.withName(s"${ReviewerPrompts.NamePrefix}${se.entry.name}")
+    val labelled = se.entry.agent.withRole(ReviewerPrompts.Role)
     val (_, result) =
       labelled
         .resultAs[ReviewResult]
@@ -450,7 +449,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       e: RosterEntry[B],
       currentDiff: String
   ): (ReviewResult, Option[SessionEntry[?]]) =
-    val labelled = e.agent.withName(s"${ReviewerPrompts.NamePrefix}${e.name}")
+    val labelled = e.agent.withRole(ReviewerPrompts.Role)
     val session = labelled.newSession
     val (sid, result) =
       labelled
@@ -509,9 +508,11 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         .zip(lintAgent)
         .map: (cmd, agent) =>
           () =>
-            // Group lint tokens under the same `reviewer: …` cost prefix as the
-            // dimension reviewers; the renamed copy stays local to this call.
-            val labelled = agent.withName(s"${ReviewerPrompts.NamePrefix}lint")
+            // Group lint tokens under the same `reviewer` cost role as the
+            // dimension reviewers, under the bare identity "lint"; the
+            // renamed/tagged copy stays local to this call.
+            val labelled =
+              agent.withName("lint").withRole(ReviewerPrompts.Role)
             AgentOutcome.Lint(filterByConfidence(lint(cmd, labelled)))
 
     // The explicit type application is CC-forced: it widens both lists'
@@ -529,7 +530,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         // `WorkspaceWrite`/`FlowControl` capture would be a compile error here
         // (ADR 0018 §6). Enforcement needs this file's two language imports.
         CheckedPar.mapParUnordered(tasks.size)(tasks):
-          // Display the bare slug — the `reviewer: ` prefix is a cost-report
+          // Display the bare slug — the `reviewer` role tag is a cost-report
           // grouping detail, not part of what the user sees per reviewer.
           case AgentOutcome.Reviewer(e, res, _) =>
             ctx.emit(OrcaEvent.Step(formatReviewerOutcome(e.name, res)))

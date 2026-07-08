@@ -357,7 +357,16 @@ the wrong branch.
   commit, and a feature branch left with no changes other than the progress log is
   deleted (throwaway-branch cleanup). On a **failure** exit the feature branch and
   its committed log are kept intact so the next run can resume; only the failed
-  stage's uncommitted partial edits are discarded (it re-runs on resume).
+  stage's uncommitted *tracked* partial edits are discarded (it re-runs on
+  resume) — teardown is `git reset --hard`, which does not remove *untracked*
+  files, so a failed stage's newly created files (the common shape of agent
+  output) survive teardown and stay in the working tree. They aren't lost:
+  R4's stash on the *next* run's start sweeps them up (`stash push -u` does
+  cover untracked paths) alongside any genuine user WIP, rather than
+  discarding them outright. Whether teardown should instead delete
+  run-touched untracked leftovers (a scoped clean, not blanket `git clean
+  -fd`, which would also claim pre-existing untracked user files) is an open
+  decision, not made here.
 - **R6** — Push and PR creation are flow-controlled and usable at any point; the
   runtime imposes no single terminal push.
 - **R30** — On startup the runtime cross-checks the header's recorded branch against
