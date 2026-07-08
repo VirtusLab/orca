@@ -55,36 +55,41 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
 
   /** The five wired agents keyed by backend tag — derived once from the
     * constructor vals above, not a second source of truth: adding a backend is
-    * still one new `val` plus one new entry here, but every consumer that used
-    * to enumerate all five by hand (`close()`, [[agentFor]]) now reads this
-    * instead. The five concretely-typed accessors (`claude`, `codex`, …) stay
-    * as the public, `FlowContext`-mandated surface; this map is `private`
-    * plumbing built from them.
+    * still one new `val` plus one new match arm here. Written as a match over
+    * `BackendTag.values` (not a literal `Map(...)`) so the exhaustiveness
+    * checker — not a human — flags a sixth `BackendTag` case that this map
+    * hasn't been taught about yet. Used by `close()`/`isWiredBackend`; the five
+    * concretely-typed accessors (`claude`, `codex`, …) stay as the public,
+    * `FlowContext`-mandated surface, and `agentFor` is unaffected (the trait
+    * default already dispatches on the same five constructor vals — see
+    * [[orca.FlowContext.agentFor]]).
     */
-  private val agents: Map[BackendTag, Agent[?]] = Map(
-    BackendTag.ClaudeCode -> claude,
-    BackendTag.Codex -> codex,
-    BackendTag.Opencode -> opencode,
-    BackendTag.Pi -> pi,
-    BackendTag.Gemini -> gemini
-  )
+  private val agents: Map[BackendTag, Agent[?]] =
+    BackendTag.values.map {
+      case BackendTag.ClaudeCode => BackendTag.ClaudeCode -> claude
+      case BackendTag.Codex      => BackendTag.Codex -> codex
+      case BackendTag.Opencode   => BackendTag.Opencode -> opencode
+      case BackendTag.Pi         => BackendTag.Pi -> pi
+      case BackendTag.Gemini     => BackendTag.Gemini -> gemini
+    }.toMap
 
   /** True when `a` IS one of the five wired agents, or was derived from one via
     * a `copyTool`-style builder (`_.claude.opus`, `.withReadOnly`, …) — checked
-    * by shared [[orca.agents.Agent.backendIdentity]], not `Agent` reference
-    * equality, because a builder-derived sibling is a DIFFERENT `Agent`
-    * instance sharing the SAME backend: a naive `eq` check alone would
+    * by shared [[orca.agents.Agent.backendIdentity]], compared by REFERENCE
+    * (`eq`, per that method's contract), not `Agent` reference equality,
+    * because a builder-derived sibling is a DIFFERENT `Agent` instance sharing
+    * the SAME backend: a naive `eq` check on the `Agent`s alone would
     * false-positive-warn/double-close on the common `_.claude.opus` selector
-    * pattern (complexity-review-2 10.1). The direct `eq` fallback exists for
-    * agents with no backend at all (e.g. test stubs built straight on `Agent`,
-    * whose `backendIdentity` is `None`) so a selector that literally returns
-    * one of the five constructor vals unchanged still counts as wired even
-    * without a backend token to compare.
+    * pattern (complexity-review-2 10.1). The direct `eq` fallback (on the
+    * `Agent`s themselves) exists for agents with no backend at all (e.g. test
+    * stubs built straight on `Agent`, whose `backendIdentity` is `None`) so a
+    * selector that literally returns one of the five constructor vals unchanged
+    * still counts as wired even without a backend token to compare.
     */
   private def isWiredBackend(a: Agent[?]): Boolean =
     agents.values.exists: w =>
       (w: AnyRef).eq(a) ||
-        (w.backendIdentity.isDefined && w.backendIdentity == a.backendIdentity)
+        a.backendIdentity.exists(ai => w.backendIdentity.exists(_ eq ai))
 
   /** Tear down context-owned background resources by closing every agent (each
     * delegates to its backend; all default to no-op — today only opencode holds
@@ -93,29 +98,34 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
     * [[orca.backend.AgentBackend.close]]). Per-agent best-effort: one failing
     * close must not keep the others (or the interaction) from closing.
     *
-    * Also closes the resolved lead [[agent]] when its backend is NOT one of the
-    * five wired agents' backends (a selector like `_ => myPrebuiltAgent` built
-    * from a separate `AgentWiring`/backend — complexity-review-2 10.1): that
-    * agent is otherwise unreachable from `agents` and would leak past flow end.
-    * When the lead shares a wired backend (the common `_.claude.opus` pattern),
-    * it's already covered by the fan-out above, so it's deliberately NOT added
-    * a second time — closing a backend is idempotent, but a duplicate close
-    * call would still be observable noise.
+    * Also always closes the resolved lead [[agent]], UNCONDITIONALLY appended
+    * to the fan-out below rather than filtered by [[isWiredBackend]] first: a
+    * foreign lead (a selector like `_ => myPrebuiltAgent`, built from a
+    * separate `AgentWiring`/backend — complexity-review-2 10.1) is otherwise
+    * unreachable from `agents` and would leak past flow end, and a lead that
+    * DOES share a wired backend (the common `_.claude.opus` pattern) just gets
+    * `close()` called on it a second time — provably harmless, since every
+    * backend's `close()` is idempotent (the shared `closedFlag` latches via a
+    * plain `set`, opencode's teardown is CAS-guarded, and every other backend's
+    * `close()` is a no-op). Skipping the check here trades a handful of
+    * redundant `close()` calls for one less thing this method has to get right;
+    * [[isWiredBackend]] is kept only for the warning path on [[agent]] below,
+    * where a false warning (not a resource leak) is the failure mode.
     *
-    * Resolving that foreign-lead check forces the `agent` lazy val, which is
-    * itself best-effort here: if `agentSelector` threw on its FIRST force (the
-    * failure `flow()`'s caller already saw, reported as a `SurfacedFlowFailure`
-    * before this `finally` ever runs), Scala does not cache a lazy val's failed
-    * initialization — referencing `agent` again re-invokes the same throwing
-    * selector. Left unguarded, that re-thrown exception would escape `close()`
-    * from inside a `finally ctx.close()`, which replaces (masks) the original
-    * failure already propagating AND aborts the fan-out below before it closes
-    * a single wired backend. Wrapping it here keeps a throwing selector to the
-    * same "degrade, don't escalate" contract as every other step of `close()`.
+    * Resolving `agent` here forces its lazy val, which is itself best-effort:
+    * if `agentSelector` threw on its FIRST force (the failure `flow()`'s caller
+    * already saw, reported as a `SurfacedFlowFailure` before this `finally`
+    * ever runs), Scala does not cache a lazy val's failed initialization —
+    * referencing `agent` again re-invokes the same throwing selector. Left
+    * unguarded, that re-thrown exception would escape `close()` from inside a
+    * `finally ctx.close()`, which replaces (masks) the original failure already
+    * propagating AND aborts the fan-out below before it closes a single wired
+    * backend. Wrapping it here keeps a throwing selector to the same "degrade,
+    * don't escalate" contract as every other step of `close()`.
     */
   def close(): Unit =
-    val foreignLead =
-      try if !isWiredBackend(agent) then Some(agent) else None
+    val lead =
+      try Some(agent)
       catch
         case NonFatal(e) =>
           log.debug(
@@ -123,7 +133,7 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
             e
           )
           None
-    val toClose = agents.values.toList ++ foreignLead
+    val toClose = agents.values.toList ++ lead
     toClose.foreach: a =>
       try a.close()
       catch
@@ -136,13 +146,6 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
             s"[orca] failed to close ${a.getClass.getSimpleName} (a backend " +
               s"resource may have leaked): ${e.getMessage}"
           )
-
-  /** [[FlowContext.agentFor]] backed by the derived map above instead of the
-    * trait's default per-case match — same result (the five constructor vals
-    * are already realised here, so there's no laziness to preserve), one fewer
-    * independent enumeration to keep in sync.
-    */
-  override private[orca] def agentFor(tag: BackendTag): Agent[?] = agents(tag)
 
   // The leading agent's backend tag, pinned from the type parameter `B` (which
   // `flow` inferred from the selector). Concrete here, so `agent` is concretely
@@ -219,11 +222,9 @@ private[orca] object DefaultFlowContext:
       workDir = workDir,
       prompts = wiring.prompts
     )
-    // Every factory field is now `AgentWiring => Ox ?=> Agent` (unified in
-    // 10.2), so applying it here against the constructor's expected
-    // concrete-agent type drives Scala's context-function auto-application
-    // uniformly across all five — no per-field ascription needed, unlike the
-    // old opencode-only `: OpencodeAgent` trick.
+    // Applying each factory here against the constructor's expected
+    // concrete-agent type drives Scala's context-function auto-application —
+    // see [[FlowWiring]] for why every field shares the `Ox ?=>` shape.
     new DefaultFlowContext[B](
       userPrompt = userPrompt,
       dispatcher = dispatcher,

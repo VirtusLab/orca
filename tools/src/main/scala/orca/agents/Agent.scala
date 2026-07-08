@@ -174,6 +174,13 @@ trait Agent[B <: BackendTag]:
     * reference — already unique per backend instance, and deliberately shared
     * across sibling backend instances that opt into it (e.g. claude's
     * `withNetworkTools`), for exactly this identity purpose.
+    *
+    * Compared by REFERENCE (`eq`), never `==`: a token type that happened to
+    * implement structural equality (unlike today's `AtomicBoolean`, which falls
+    * back to reference equality by having none) would silently false-positive
+    * two independently-built backends into looking wired together.
+    * Implementations must mint an identity-unique token per backend instance —
+    * never a value shared across independently-built backends.
     */
   private[orca] def backendIdentity: Option[AnyRef] = None
 

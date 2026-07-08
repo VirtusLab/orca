@@ -37,13 +37,18 @@ import java.util.concurrent.atomic.AtomicReference
 /** Pins complexity-review-2 10.1: the `agent` selector can return an agent
   * built from a backend that isn't wired into this run's context — event-blind
   * (built against its own `AgentWiring`, not this run's dispatcher) and, absent
-  * this fix, never closed. [[DefaultFlowContext.close]] now also closes such a
-  * foreign lead's backend, and [[DefaultFlowContext.agent]] warns loudly the
-  * first time it's resolved. Both checks compare backend IDENTITY
+  * this fix, never closed. [[DefaultFlowContext.close]] now unconditionally
+  * closes the resolved lead alongside all five wired agents (10.5: no
+  * wired/foreign branch needed there — a backend's own `close()` is
+  * idempotent), so a foreign lead's backend is closed too.
+  * [[DefaultFlowContext.agent]] separately warns loudly the first time a
+  * foreign lead is resolved, comparing backend IDENTITY
   * ([[orca.agents.Agent.backendIdentity]]), not `Agent` reference equality —
   * the positive case below pins that a `copyTool`-derived sibling of a wired
-  * agent (the common `_.claude.opus` selector shape) does NOT trip either
-  * check, which a naive `Agent eq Agent` implementation would get wrong.
+  * agent (the common `_.claude.opus` selector shape) does NOT trip that
+  * warning, which a naive `Agent eq Agent` implementation would get wrong, and
+  * that its shared backend's teardown still runs exactly once despite now being
+  * closed via two different `Agent` instances.
   */
 class LeadAgentIdentityTest extends munit.FunSuite:
 
@@ -131,8 +136,10 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     assertEquals(
       piBackend.closeCount,
       1,
-      "the shared backend must be closed exactly once, not once via the " +
-        "wired pi and again via the lead"
+      "the shared backend's teardown must run exactly once even though " +
+        "close() now unconditionally closes both the wired pi and the lead " +
+        "sharing its backend — the backend's own idempotence guard (not a " +
+        "caller-side wired/foreign check) is what makes that safe"
     )
 
   test(
@@ -208,14 +215,27 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     ): AgentResult[B] =
       throw new UnsupportedOperationException
 
-  /** A minimal `AgentBackend` whose only job is to count `close()` calls —
+  /** A minimal `AgentBackend` that counts REALISED close teardowns —
     * `runAutonomous`/`runInteractive` are never exercised by these tests (the
     * lead agent is never actually called, only resolved and closed).
+    *
+    * `close()` itself is CAS-guarded, mirroring the idempotence every real
+    * backend already provides (the shared `closedFlag` latches via a plain
+    * `set`, opencode's process teardown is CAS-guarded, every other backend's
+    * `close()` is a no-op) — see `DefaultFlowContext.close`'s scaladoc. Since
+    * `DefaultFlowContext.close()` now appends the resolved lead UNCONDITIONALLY
+    * (complexity-review-2 10.5), a lead sharing a wired backend gets
+    * `Agent.close()` invoked on it twice; `closeCount` pins that the doubled
+    * CALL still produces a single observable teardown, which is the actual
+    * contract `close()`'s scaladoc relies on — not that `Agent.close()` is
+    * called exactly once.
     */
   private class RecordingCloseBackend extends AgentBackend[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd
+    private val closed = new java.util.concurrent.atomic.AtomicBoolean(false)
     var closeCount: Int = 0
-    override def close(): Unit = closeCount += 1
+    override def close(): Unit =
+      if closed.compareAndSet(false, true) then closeCount += 1
     def runAutonomous(
         prompt: String,
         session: orca.agents.SessionId[BackendTag.Pi.type],

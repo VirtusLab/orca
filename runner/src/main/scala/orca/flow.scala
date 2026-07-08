@@ -64,14 +64,10 @@ import scala.util.control.NonFatal
   * ```
   *
   * Agent overrides are `AgentWiring => Ox ?=> Agent` factories, not prebuilt
-  * agents: the runtime hands the factory the run's wiring (event sink,
-  * interaction, workDir, prompts) so a user agent lands on the same dispatcher
-  * as the defaults — start from a per-backend factory and tune it, `claude =
-  * Some(w => ClaudeAgents.default(w).opus)`, or wrap a prebuilt agent `claude =
-  * Some(_ => myAgent)`. Every field shares this one shape even though only
-  * opencode's default factory needs the `Ox` (a plain `AgentWiring => Agent`
-  * lambda auto-adapts, so the four non-opencode factories above are unaffected
-  * by it). There's no separate `opencodeLauncher` parameter — select a
+  * agents — see [[orca.runner.FlowWiring]] for why and for the shared `Ox ?=>`
+  * shape. Start from a per-backend factory and tune it, `claude = Some(w =>
+  * ClaudeAgents.default(w).opus)`, or wrap a prebuilt agent `claude = Some(_ =>
+  * myAgent)`. There's no separate `opencodeLauncher` parameter — select a
   * non-default launcher through the factory itself: `opencode = Some(w =>
   * OpencodeAgents.default(w, OpencodeLauncher.ollama("qwen3-coder")))`.
   *
@@ -113,15 +109,8 @@ def flow[B <: BackendTag](
     branchNaming: Option[BranchNamingStrategy] = None,
     returnToStartBranch: Boolean = false,
     progressStore: Option[ProgressStore] = None,
-    // All five factory fields share one shape, `AgentWiring => Ox ?=> Agent`,
-    // even though only opencode's default factory actually needs the `Ox`
-    // (it pins a shared `serve` process plus its drain forks to the run scope
-    // AT CONSTRUCTION, so its factory must be applied where an `Ox` is in
-    // scope — inside `withDefaults`, not at this `flow(...)` argument
-    // position). Scala 3 auto-adapts a plain `AgentWiring => Agent` lambda to
-    // the context-function shape, so the other four factories are written
-    // exactly as before — `claude = Some(w => ClaudeAgents.default(w).opus)`
-    // needs no `Ox` and no ascription. Uniform shape, not uniform need.
+    // Every field shares the `AgentWiring => Ox ?=> Agent` shape — see
+    // FlowWiring's scaladoc for why.
     claude: Option[AgentWiring => Ox ?=> ClaudeAgent] = None,
     codex: Option[AgentWiring => Ox ?=> CodexAgent] = None,
     opencode: Option[AgentWiring => Ox ?=> OpencodeAgent] = None,
