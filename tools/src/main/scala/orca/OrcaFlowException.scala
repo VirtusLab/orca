@@ -1,24 +1,33 @@
 package orca
 
 /** Exception type thrown by `fail(...)` and tool adapters. Signals that the
-  * current flow cannot continue.
+  * current flow cannot continue (unless a stage catches it and recovers).
   *
-  * Exactly-once error reporting no longer rides on this exception: the runtime
-  * tracks which throwables have already surfaced an `OrcaEvent.Error` in a
-  * context-owned identity set (`FlowContext.markErrorReported` /
-  * `errorAlreadyReported`), so a failure is reported once no matter how many
-  * stages it unwinds through — and plain `RuntimeException`s are covered too,
-  * not just this type.
+  * Error reporting is orthogonal to this type: the runtime reports each failure
+  * exactly once by tracking already-reported throwables in a context-owned
+  * identity set (`FlowContext.markErrorReported` / `errorAlreadyReported`), so
+  * a failure surfaces a single `OrcaEvent.Error` no matter how many stages it
+  * unwinds through — for plain `RuntimeException`s just as for this type.
   */
 class OrcaFlowException(message: String) extends RuntimeException(message)
 
 /** Returned in the `Left` of [[orca.backend.Conversation.awaitResult]] when the
   * user cancels the current interactive call, and rethrown by
   * [[orca.backend.Interaction.drive]] so the enclosing `stage(...)` can catch
-  * it and decide whether to fail the stage or recover. Cancellation is a local
-  * signal, not a flow-level abort. Direct callers of `Conversation`
-  * pattern-match on the Either; `drive`-using callers see the exception-shaped
-  * propagation that the stage machinery expects.
+  * it and decide whether to fail the stage or recover.
+  *
+  * Deliberately a subtype of [[OrcaFlowException]] even though cancellation is
+  * designed to be caught at the stage driving the conversation: when nobody
+  * catches it, the right default is for the cancellation to end the flow like
+  * any other flow failure (failure teardown, non-zero exit) — the user said
+  * stop and no stage volunteered a recovery. It also makes a blanket
+  * `OrcaFlowException` recovery treat a cancelled conversation as "this attempt
+  * produced no result", which is the reading such a handler wants. Callers
+  * needing cancellation-specific behaviour catch this subtype; direct callers
+  * of `Conversation` pattern-match on the Either instead. The autonomous path —
+  * the only one with a retry policy — cannot produce this (see
+  * [[orca.backend.Conversations.drainAutonomous]]), so subtyping never causes a
+  * cancellation to be retried.
   */
 class OrcaInteractiveCancelled(
     message: String = "interactive session cancelled"

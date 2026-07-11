@@ -24,6 +24,17 @@ import sttp.tapir.docs.apispec.schema.TapirSchemaToJsonSchema
   * OpenAI's strict dialect (which requires every object's exact key set up
   * front); such a field makes this throw [[orca.OrcaFlowException]] rather than
   * emit a schema the backend would reject anyway, later and more opaquely.
+  *
+  * The strict post-processing applies to EVERY backend, not just the two
+  * OpenAI-dialect ones — which is why it lives here, at the backend-agnostic
+  * `resultAs[O]` seam, rather than in a backend module. The one schema string
+  * per `O` is both passed to native schema flags (claude `--json-schema`, codex
+  * `--output-schema`) and embedded into the prompt template all backends
+  * receive (`Prompts`; pi/gemini/opencode have no native flag). Strict-mode
+  * output is still standard, valid JSON Schema — just more constrained — so the
+  * strictest dialect any backend requires is safe as the single common form,
+  * and it keeps the native flag, the prompt text, and the parse step in
+  * agreement about the expected shape.
   */
 object JsonSchemaGen:
   def apply[O](using schema: Schema[O]): String =

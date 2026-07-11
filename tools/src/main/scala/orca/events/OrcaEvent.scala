@@ -7,6 +7,15 @@ import orca.agents.Model
   * errors — anything observers like the status bar, cost tracker, or external
   * log shippers want to see across the entire flow.
   *
+  * Events exist for observability only — progress display, cost accounting,
+  * trace logging, log shipping. They are NOT a control-flow mechanism: no
+  * runtime decision reads them back (the production listeners render,
+  * accumulate, or log — nothing more), listeners return `Unit`, and the
+  * dispatcher isolates the emitter from listener failures (see
+  * [[OrcaListener]]), so an observer cannot alter the flow's outcome. Anything
+  * that must drive logic travels through return values or exceptions, never
+  * through this event stream.
+  *
   * Distinct from [[orca.backend.ConversationEvent]], which is scoped to a
   * single live LLM conversation: assistant text deltas, tool-approval prompts,
   * etc., consumed only by the [[orca.backend.Interaction]] that drives that
@@ -33,7 +42,12 @@ enum OrcaEvent:
     *     is what `role` (below) replaced.
     *   - `model` is the concrete model the backend reports it actually served
     *     the call with. `None` when the response didn't carry it and no model
-    *     was pinned via `AgentConfig.model`.
+    *     was pinned via `AgentConfig.model`. Coarser groupings (model family /
+    *     provider — claude, gpt, gemini) are deliberately NOT a fourth axis:
+    *     they are derivable from this id at display time, whereas emission
+    *     sites would have to guess them for provider-agnostic backends
+    *     (opencode routes many providers, and orca doesn't normalise model ids
+    *     — see [[orca.agents.Model]]).
     *   - `role` is the [[Agent.role]] tag, set at the emission edge (e.g. the
     *     review loop's `Some("reviewer")`, via `withRole`). `None` for an
     *     ordinary call. Purely a grouping/display hint — never parsed back out
@@ -85,10 +99,16 @@ enum OrcaEvent:
   * (`AtomicReference`, `synchronized`, etc.); listeners that delegate to other
   * sinks must ensure those sinks tolerate concurrent calls too. Implementations
   * should not throw from `onEvent`, but if they do, the dispatcher logs the
-  * failure at ERROR and quarantines the listener — permanently excluded from
-  * all further dispatch for the rest of the run, since its internal state is
-  * presumed unrecoverable. A listener failure is never surfaced to the emitting
-  * flow.
+  * failure at ERROR, announces it on stderr, and quarantines the listener —
+  * permanently excluded from all further dispatch for the rest of the run,
+  * since its internal state is presumed unrecoverable. A listener failure is
+  * never surfaced to the emitting flow, and deliberately does NOT end the run:
+  * quarantine is per-listener (every other listener still sees every event),
+  * events are observability-only (see [[OrcaEvent]] — an observer must not be
+  * able to abort the run it merely watches), and `emit` being total is
+  * load-bearing: failure-teardown paths emit from `catch` blocks where a
+  * listener throw would mask the original failure the user needs to see (see
+  * `FlowLifecycle`).
   */
 trait OrcaListener:
   def onEvent(event: OrcaEvent): Unit
