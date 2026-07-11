@@ -184,6 +184,21 @@ class CostTrackerTest extends munit.FunSuite:
     assert(out.contains("Estimated total: $1.1000"), out)
     assert(!out.contains("Estimated total: $1.1000*"), out)
 
+  test("summary lists By model lines alphabetically by model label"):
+    val tracker = new CostTracker(pricing = testTable)
+    tracker.onEvent(tokens("a", Some("opus"), Usage(1L, 1L, None)))
+    tracker.onEvent(tokens("b", Some("haiku"), Usage(1L, 1L, None)))
+    tracker.onEvent(tokens("c", None, Usage(1L, 1L, None)))
+    val out = tracker.summary
+    val labels = List("(unknown)", "haiku", "opus")
+      .map(l => l -> out.indexOf(s"  $l:"))
+    labels.foreach((l, i) => assert(i >= 0, s"missing model line $l:\n$out"))
+    assertEquals(
+      labels.map(_._1),
+      labels.sortBy(_._2).map(_._1),
+      s"model lines must be alphabetical; got:\n$out"
+    )
+
   test("summary's estimate legend cites the price-list lastUpdated date"):
     val tracker = new CostTracker(pricing = testTable)
     tracker.onEvent(

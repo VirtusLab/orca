@@ -16,8 +16,8 @@ import orca.backend.{
   Dispatch,
   AgentBackend,
   AgentResult,
-  SessionMode,
-  SessionRegistry,
+  ConversationMode,
+  IdScheme,
   SessionSupport,
   SubprocessSpawn,
   SystemPromptComposer
@@ -38,8 +38,8 @@ import ox.Ox
   * while the interactive path returns the conversation for an `Interaction` to
   * drive. Multi-turn: subsequent calls with the same session id route through
   * `gemini --resume <session-id>` via [[sessions]] (backed by a
-  * [[SessionRegistry.ClientToServer]]), where the id was learned from the
-  * `init` event of the prior run.
+  * [[IdScheme.ServerMinted]]), where the id was learned from the `init` event
+  * of the prior run.
   *
   * Interactive calls additionally stand up an `ask_user` MCP host bridge
   * ([[AskUserMcpServer]]) on an ephemeral port and register it with gemini by
@@ -58,20 +58,18 @@ private[orca] class GeminiBackend(
     override val workDir: os.Path = os.pwd
 ) extends AgentBackend[BackendTag.Gemini.type]:
 
-  /** Gemini's sessions are server-side and durable, so it is
-    * [[SessionSupport.Durable]]: the client→server map is persisted to the
-    * progress log and rehydrated on resume. Existence probes the SERVER id the
-    * registry resolves for a client (gemini mints its own id; the caller's
+  /** Gemini's sessions are server-side and durable: the client→server map is
+    * persisted to the progress log and rehydrated on resume. Existence probes
+    * the SERVER id resolved for a client (gemini mints its own id; the caller's
     * stable id never appears in `--list-sessions`): it runs `gemini
     * --list-sessions` and scans the output for that server id (substring).
     *
-    * Because [[SessionSupport.exists]] is registry-gated, `false` results when
-    * no server id is mapped — which includes a server id that failed the
-    * [[orca.agents.SessionId.isSafe]] guard at commit time (kept for uniformity
-    * with the other backends' probes; the substring scan itself is not
-    * injection-susceptible): `register`/`commitAfterDrain` refuse to record it,
-    * so it never reaches the registry — as well as on non-zero exit or any
-    * exception.
+    * Because [[SessionSupport.willContinue]] resolves the recorded mapping
+    * first, `false` results when no server id is mapped — which includes a
+    * server id that failed the [[orca.agents.SessionId.isSafe]] guard at commit
+    * time (kept for uniformity with the other backends' probes; the substring
+    * scan itself is not injection-susceptible): `register`/`commitAfterDrain`
+    * refuse to record it — as well as on non-zero exit or any exception.
     */
   val tag: BackendTag.Gemini.type = BackendTag.Gemini
 
@@ -81,16 +79,16 @@ private[orca] class GeminiBackend(
   ): Enforcement =
     GeminiArgs.enforcement(tools, autoApprove)
 
-  /** The sole session handle. The wrapped [[SessionRegistry.ClientToServer]]
-    * maps the client-allocated id to gemini's `init`-reported session id
-    * (`gemini -p` mints its own), so subsequent calls dispatch through `gemini
-    * --resume <server-id>`. The registry is encapsulated; the spawn/commit
-    * paths go through `sessions.dispatchFor` /
-    * `Conversations.runAutonomous(session, sessions, …)`.
+  /** The sole session handle. [[IdScheme.ServerMinted]]: the client-allocated
+    * id maps to gemini's `init`-reported session id (`gemini -p` mints its
+    * own), so subsequent calls dispatch through `gemini --resume <server-id>`.
+    * The bookkeeping is encapsulated; the spawn/commit paths go through
+    * `sessions.dispatchFor` / `Conversations.runAutonomous(session, sessions,
+    * …)`.
     */
   val sessions: SessionSupport[BackendTag.Gemini.type] =
-    SessionSupport.Durable(
-      new SessionRegistry.ClientToServer[BackendTag.Gemini.type],
+    SessionSupport.durable(
+      IdScheme.ServerMinted,
       id =>
         val result = listSessionsOutput()
         result.exitCode == 0 && result.stdout.linesIterator.exists(
@@ -111,7 +109,7 @@ private[orca] class GeminiBackend(
     Conversations.runAutonomous(session, sessions, events):
       openConversation(
         prompt = prompt,
-        mode = SessionMode.Autonomous,
+        mode = ConversationMode.Autonomous,
         session = session,
         config = config,
         // Forwarded so `conv.outputSchema` signals structured mode to the drain
@@ -129,7 +127,7 @@ private[orca] class GeminiBackend(
   )(using Ox): Conversation[BackendTag.Gemini.type] =
     openConversation(
       prompt,
-      mode = SessionMode.Interactive(displayPrompt),
+      mode = ConversationMode.Interactive(displayPrompt),
       session = session,
       config = config,
       outputSchema = outputSchema
@@ -148,7 +146,7 @@ private[orca] class GeminiBackend(
     */
   private def openConversation(
       prompt: String,
-      mode: SessionMode,
+      mode: ConversationMode,
       session: SessionId[BackendTag.Gemini.type],
       config: AgentConfig,
       outputSchema: Option[String]

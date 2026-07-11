@@ -15,8 +15,8 @@ import orca.backend.{
   Dispatch,
   AgentBackend,
   AgentResult,
-  SessionMode,
-  SessionRegistry,
+  ConversationMode,
+  IdScheme,
   SessionSupport,
   SubprocessSpawn,
   SystemPromptComposer
@@ -56,19 +56,17 @@ private[orca] class PiBackend(
     os.temp.dir(prefix = "orca-pi-sessions-", deleteOnExit = true)
 
   /** Pi's sessions live in a `deleteOnExit` temp dir (gone across runs), so it
-    * is [[SessionSupport.Ephemeral]]: the wrapped
-    * [[SessionRegistry.ClaimedOnce]] tracks fresh-vs-resume within a live
-    * process, but there is nothing durable to persist, rehydrate, or probe — pi
-    * always re-seeds across runs (ADR 0018 §2.6). The `Ephemeral` case says
-    * this structurally, so `resumeWireId`/`exists` report absence without a
-    * per-backend override. The registry is encapsulated; the spawn/commit paths
-    * go through `sessions.dispatchFor` / `Conversations.runAutonomous(session,
+    * is ephemeral: fresh-vs-resume is tracked within a live process
+    * ([[IdScheme.ClientClaimed]] — the CLI takes the caller's id), but there is
+    * nothing durable to persist, rehydrate, or probe — pi always re-seeds
+    * across runs (ADR 0018 §2.6). `SessionSupport.ephemeral` says this
+    * structurally, so `persistableWireId` reports absence without a per-backend
+    * override. The bookkeeping is encapsulated; the spawn/commit paths go
+    * through `sessions.dispatchFor` / `Conversations.runAutonomous(session,
     * sessions, …)`.
     */
   val sessions: SessionSupport[BackendTag.Pi.type] =
-    SessionSupport.Ephemeral(
-      new SessionRegistry.ClaimedOnce[BackendTag.Pi.type]
-    )
+    SessionSupport.ephemeral(IdScheme.ClientClaimed)
 
   val tag: BackendTag.Pi.type = BackendTag.Pi
 
@@ -88,7 +86,7 @@ private[orca] class PiBackend(
     Conversations.runAutonomous(session, sessions, events):
       openConversation(
         prompt = prompt,
-        mode = SessionMode.Autonomous,
+        mode = ConversationMode.Autonomous,
         session = session,
         config = config,
         outputSchema = outputSchema
@@ -103,7 +101,7 @@ private[orca] class PiBackend(
   )(using Ox): Conversation[BackendTag.Pi.type] =
     openConversation(
       prompt = prompt,
-      mode = SessionMode.Interactive(displayPrompt),
+      mode = ConversationMode.Interactive(displayPrompt),
       session = session,
       config = config,
       outputSchema = outputSchema
@@ -111,7 +109,7 @@ private[orca] class PiBackend(
 
   private def openConversation(
       prompt: String,
-      mode: SessionMode,
+      mode: ConversationMode,
       session: SessionId[BackendTag.Pi.type],
       config: AgentConfig,
       outputSchema: Option[String]

@@ -5,7 +5,7 @@ import orca.backend.{
   Interaction,
   AgentBackend,
   AgentResult,
-  SessionRegistry,
+  IdScheme,
   SessionSupport
 }
 import orca.events.{OrcaListener, Usage}
@@ -48,7 +48,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
     )(using ox.Ox): Conversation[BackendTag.Opencode.type] =
       throw new UnsupportedOperationException
     val sessions: SessionSupport[BackendTag.Opencode.type] =
-      SessionSupport.Ephemeral(new SessionRegistry.ClaimedOnce)
+      SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Opencode.type = BackendTag.Opencode
     def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
       Enforcement.Ignored

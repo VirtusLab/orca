@@ -17,8 +17,8 @@ import orca.backend.{
   Conversations,
   AgentBackend,
   AgentResult,
-  SessionMode,
-  SessionRegistry,
+  ConversationMode,
+  IdScheme,
   SessionSupport,
   SubprocessSpawn,
   SystemPromptComposer
@@ -30,8 +30,8 @@ import ox.Ox
 
 /** Claude Code backend. All calls — autonomous and interactive — drive a
   * stream-json subprocess through [[ClaudeConversation]]; the only difference
-  * is the [[SessionMode]] passed to `openConversation` (autonomous omits the
-  * ask_user MCP, interactive wires it). The prompt is injected as the first
+  * is the [[ConversationMode]] passed to `openConversation` (autonomous omits
+  * the ask_user MCP, interactive wires it). The prompt is injected as the first
   * user turn on stdin, the subprocess emits typed NDJSON responses, the driver
   * translates them into `ConversationEvent`s.
   *
@@ -87,23 +87,19 @@ private[orca] class ClaudeBackend(
     new ClaudeBackend(cli, tools, projectsDir, workDir, closedFlag)
 
   /** Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
-    * outlive the process, so it is [[SessionSupport.Durable]]: the claim
-    * survives a restart via the registry (persisted to the progress log,
-    * rehydrated on resume so a resumed task uses `--resume` rather than
-    * re-creating an already-existing `--session-id`), and existence is a
-    * best-effort transcript-file probe.
+    * outlive the process, so it is durable: the claim survives a restart
+    * (persisted to the progress log, rehydrated on resume so a resumed task
+    * uses `--resume` rather than re-creating an already-existing
+    * `--session-id`), and existence is a best-effort transcript-file probe.
     *
     * The probe checks `<projectsDir>/<cwdSlug>/<id>.jsonl` — the project-dir
     * slug replaces every `/` in the working directory with `-` (e.g.
-    * `/home/foo/orca` → `-home-foo-orca`). Because [[SessionSupport.exists]] is
-    * registry-gated, the probe only runs for an id the registry already knows
-    * (claimed this run, or rehydrated from the log): a stray transcript file
-    * for an id we never claimed reports `false`. That is outcome-preserving —
-    * the one divergent case (a claude session id with a transcript but no
-    * persisted claim) already re-seeded before, because the registry said
-    * `Fresh` and the CLI then refused the duplicate `--session-id`; the gate
-    * just moves the `false` earlier. The guard rejects unsafe ids (path
-    * traversal such as `../../etc/passwd`).
+    * `/home/foo/orca` → `-home-foo-orca`). Because
+    * [[SessionSupport.willContinue]] resolves the recorded mapping first, the
+    * probe only runs for an id already known (claimed this run, or rehydrated
+    * from the log): a stray transcript file for an id never claimed reports
+    * `false` — safe, since the caller re-seeds. The write-door guard rejects
+    * unsafe ids (path traversal such as `../../etc/passwd`).
     */
   val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
 
@@ -113,16 +109,16 @@ private[orca] class ClaudeBackend(
   ): Enforcement =
     ClaudeArgs.enforcement(tools, autoApprove)
 
-  /** The sole session handle. The wrapped [[SessionRegistry.ClaimedOnce]]
-    * tracks which ids we've claimed via `--session-id` so subsequent calls use
-    * `--resume` (the CLI refuses to reuse `--session-id` once the session
-    * exists); the registry is encapsulated, so the spawn/commit paths go
-    * through `sessions.dispatchFor` / `sessions.register` /
-    * `Conversations.runAutonomous(session, sessions, …)`.
+  /** The sole session handle. [[IdScheme.ClientClaimed]]: ids are claimed via
+    * `--session-id` so subsequent calls use `--resume` (the CLI refuses to
+    * reuse `--session-id` once the session exists). The bookkeeping is
+    * encapsulated, so the spawn/commit paths go through `sessions.dispatchFor`
+    * / `sessions.register` / `Conversations.runAutonomous(session, sessions,
+    * …)`.
     */
   val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
-    SessionSupport.Durable(
-      new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type],
+    SessionSupport.durable(
+      IdScheme.ClientClaimed,
       id =>
         os.exists(
           projectsDir / ClaudeBackend.cwdSlug(workDir) / s"$id.jsonl"
@@ -145,7 +141,7 @@ private[orca] class ClaudeBackend(
     Conversations.runAutonomous(session, sessions, events):
       openConversation(
         prompt = prompt,
-        mode = SessionMode.Autonomous,
+        mode = ConversationMode.Autonomous,
         session = session,
         config = config,
         outputSchema = outputSchema
@@ -160,7 +156,7 @@ private[orca] class ClaudeBackend(
   )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
     val conv = openConversation(
       prompt = prompt,
-      mode = SessionMode.Interactive(displayPrompt),
+      mode = ConversationMode.Interactive(displayPrompt),
       session = session,
       config = config,
       outputSchema = outputSchema
@@ -170,16 +166,16 @@ private[orca] class ClaudeBackend(
     // A crash mid-conversation will still leave the mark in place, but
     // interactive sessions aren't auto-retried by the orchestrator —
     // the user reruns with a fresh `claude.newSession`. Through `register`
-    // (log-and-skip guard, the correct policy for the interactive path) rather
-    // than a raw registry commit — claude is ClaimedOnce, so the client id IS
-    // the wire id (`onWire`), which is always safe.
+    // (log-and-skip guard, the correct policy for the interactive path) —
+    // claude claims its ids client-side, so the client id IS the wire id
+    // (`onWire`), which is always safe.
     sessions.register(session, session.onWire)
     conv
 
   /** Spawn `claude` in stream-json mode, write the opening user turn, close
     * stdin, and wrap the process in a live [[ClaudeConversation]]. Used by both
-    * the interactive path ([[SessionMode.Interactive]]) and the autonomous path
-    * ([[SessionMode.Autonomous]]).
+    * the interactive path ([[ConversationMode.Interactive]]) and the autonomous
+    * path ([[ConversationMode.Autonomous]]).
     *
     * The initial user turn is the only thing we feed through stdin; once it's
     * written we close the pipe so `claude --print --input-format stream-json`
@@ -208,7 +204,7 @@ private[orca] class ClaudeBackend(
     */
   private def openConversation(
       prompt: String,
-      mode: SessionMode,
+      mode: ConversationMode,
       session: SessionId[BackendTag.ClaudeCode.type],
       config: AgentConfig,
       outputSchema: Option[String]

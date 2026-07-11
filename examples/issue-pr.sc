@@ -75,7 +75,7 @@ flow(
   maybePlan.foreach: plan =>
     // Get-or-create the implementer session, seeded with the plan brief
     // (replayed on resume if the session is lost).
-    val session = plan.implementerSession(claude)
+    val session = claude.session("implementer", seed = plan.brief)
 
     for task <- plan.tasks do
       stage(s"Task: ${task.title}"):    // skipped on resume if already done

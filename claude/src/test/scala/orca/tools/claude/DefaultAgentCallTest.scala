@@ -18,8 +18,7 @@ import orca.backend.{
   Interaction,
   AgentBackend,
   AgentResult,
-  Dispatch,
-  SessionRegistry,
+  IdScheme,
   SessionSupport
 }
 import orca.agents.{DefaultAgentCall, DefaultPrompts}
@@ -43,13 +42,6 @@ class SequencedBackend(outputs: List[String])
     AtomicReference(Nil)
   private val seenSchemas: AtomicReference[List[Option[String]]] =
     AtomicReference(Nil)
-  private val registrations: AtomicReference[List[
-    (
-        SessionId[BackendTag.ClaudeCode.type],
-        WireSessionId[BackendTag.ClaudeCode.type]
-    )
-  ]] = AtomicReference(Nil)
-
   def prompts: List[String] = promptsRef.get().reverse
 
   /** Listeners the backend was called with, in invocation order. Lets tests
@@ -64,36 +56,12 @@ class SequencedBackend(outputs: List[String])
     */
   def schemas: List[Option[String]] = seenSchemas.get().reverse
 
-  /** `(clientSid, serverSid)` pairs the framework passed to
-    * `sessions.register`, in invocation order. Lets tests assert that
-    * `DefaultAgentCall` wired the post-drain hook through to the backend.
-    */
-  def registered: List[
-    (
-        SessionId[BackendTag.ClaudeCode.type],
-        WireSessionId[BackendTag.ClaudeCode.type]
-    )
-  ] = registrations.get().reverse
-
-  /** Records every `register` the framework routes through the durability
-    * capability (`AgentCall.runInteractiveOnce` → `backend.sessions.register`).
+  /** A real capability: tests observe the mapping the framework registered
+    * (`AgentCall.runInteractiveOnce` → `backend.sessions.register`) via
+    * `sessions.persistableWireId`.
     */
   val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
-    SessionSupport.Ephemeral(
-      new SessionRegistry[BackendTag.ClaudeCode.type]:
-        def dispatchFor(
-            client: SessionId[BackendTag.ClaudeCode.type]
-        ): Dispatch[BackendTag.ClaudeCode.type] =
-          Dispatch.Fresh(Some(client.onWire))
-        def commitSuccess(
-            client: SessionId[BackendTag.ClaudeCode.type],
-            server: WireSessionId[BackendTag.ClaudeCode.type]
-        ): Unit =
-          val _ = registrations.updateAndGet((client, server) :: _)
-        def resumeWireId(
-            client: SessionId[BackendTag.ClaudeCode.type]
-        ): Option[WireSessionId[BackendTag.ClaudeCode.type]] = None
-    )
+    SessionSupport.durable(IdScheme.ServerMinted, _ => false)
 
   val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
   val workDir: os.Path = os.pwd
@@ -545,7 +513,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
         "returned id must be the caller's, not the server's"
       )
       assertEquals(
-        backend.registered,
-        List((clientSid, serverSid)),
+        backend.sessions.persistableWireId(clientSid),
+        Some(serverSid),
         "framework must register the (client, server) mapping post-drain"
       )

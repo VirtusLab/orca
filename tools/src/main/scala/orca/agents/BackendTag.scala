@@ -110,7 +110,7 @@ object WireSessionId:
 
 extension [B <: BackendTag](id: SessionId[B])
   /** The client id used verbatim on the wire — the one legitimate crossing
-    * between the two id spaces, for registries where the caller-allocated id IS
-    * the wire id ([[orca.backend.SessionRegistry.ClaimedOnce]]).
+    * between the two id spaces, for backends where the caller-allocated id IS
+    * the wire id ([[orca.backend.IdScheme.ClientClaimed]]).
     */
   def onWire: WireSessionId[B] = id

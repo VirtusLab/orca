@@ -89,7 +89,8 @@ class ConversationsTest extends munit.FunSuite:
   ):
     val client = SessionId.fresh[BackendTag.Codex.type]
     val reportedWire = WireSessionId[BackendTag.Codex.type]("server-thread-42")
-    val registry = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+    val support = SessionSupport
+      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
     val conv = new ScriptedConversation(
       Nil,
       Right(sampleResult.copy(wireId = reportedWire))
@@ -98,12 +99,12 @@ class ConversationsTest extends munit.FunSuite:
       Conversations.drainAndCommit(
         conv,
         client,
-        SessionSupport.Durable(registry, _ => false)
+        support
       )
     assert(result.wireId == reportedWire) // result reports the wire truth
     assert(
-      registry.resumeWireId(client).contains(reportedWire)
-    ) // registry learned it
+      support.persistableWireId(client).contains(reportedWire)
+    ) // mapping learned
 
   test(
     "a plain OrcaFlowException propagates verbatim through drainAndCommit " +
@@ -117,7 +118,8 @@ class ConversationsTest extends munit.FunSuite:
     // plain OrcaFlowException (unlike AgentTurnFailed) matches its catch
     // clause.
     val client = SessionId.fresh[BackendTag.Codex.type]
-    val registry = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+    val support = SessionSupport
+      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
     val failure = new OrcaFlowException("boom")
     val conv = new FailingConversation(failure)
     val thrown = intercept[OrcaFlowException]:
@@ -125,11 +127,11 @@ class ConversationsTest extends munit.FunSuite:
         Conversations.drainAndCommit(
           conv,
           client,
-          SessionSupport.Durable(registry, _ => false)
+          support
         )
     assertEquals(thrown, failure)
     assertEquals(thrown.getMessage, "boom")
-    assert(registry.resumeWireId(client).isEmpty) // never committed
+    assert(support.persistableWireId(client).isEmpty) // never committed
 
   test(
     "drainAndCommit refuses an empty/unsafe reported wire id and never commits it"
@@ -137,9 +139,10 @@ class ConversationsTest extends munit.FunSuite:
     // A missing init event (e.g. a crash before `thread.started`) leaves the
     // wire id defaulted to "" upstream; committing that would let a later
     // call resume against an empty session id. The guard throws BEFORE
-    // `commitSuccess`, so the registry stays clean either way.
+    // the commit, so the bookkeeping stays clean either way.
     val client = SessionId.fresh[BackendTag.Codex.type]
-    val registry = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+    val support = SessionSupport
+      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
     val conv = new ScriptedConversation(
       Nil,
       Right(
@@ -151,13 +154,13 @@ class ConversationsTest extends munit.FunSuite:
         Conversations.drainAndCommit(
           conv,
           client,
-          SessionSupport.Durable(registry, _ => false)
+          support
         )
     assert(
       thrown.getMessage.contains("invalid session id"),
       thrown.getMessage
     )
-    assert(registry.resumeWireId(client).isEmpty) // never committed
+    assert(support.persistableWireId(client).isEmpty) // never committed
 
   test("drainAutonomous walks every event before returning the result"):
     val conv = new ScriptedConversation(
@@ -445,7 +448,8 @@ class ConversationsTest extends munit.FunSuite:
   test("runAutonomous opens, drains, commits, and cancels exactly once"):
     val client = SessionId.fresh[BackendTag.Codex.type]
     val reportedWire = WireSessionId[BackendTag.Codex.type]("server-thread-7")
-    val registry = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+    val support = SessionSupport
+      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
     val conv = new ScriptedConversation(
       List(
         ConversationEvent.AssistantTextDelta("hi"),
@@ -456,28 +460,29 @@ class ConversationsTest extends munit.FunSuite:
     val result =
       Conversations.runAutonomous(
         client,
-        SessionSupport.Durable(registry, _ => false),
+        support,
         OrcaListener.noop
       ):
         conv
     assertEquals(result.wireId, reportedWire)
-    assert(registry.resumeWireId(client).contains(reportedWire))
+    assert(support.persistableWireId(client).contains(reportedWire))
     assertEquals(conv.cancelCount.get(), 1)
 
   test(
     "runAutonomous still cancels when the drain throws AgentTurnFailed"
   ):
     val client = SessionId.fresh[BackendTag.Codex.type]
-    val registry = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+    val support = SessionSupport
+      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
     val failure = new AgentTurnFailed("turn blew up")
     val conv = new FailingConversation(failure)
     val thrown = intercept[AgentTurnFailed]:
       Conversations.runAutonomous(
         client,
-        SessionSupport.Durable(registry, _ => false),
+        support,
         OrcaListener.noop
       ):
         conv
     assertEquals(thrown, failure)
     assertEquals(conv.cancelCount.get(), 1)
-    assert(registry.resumeWireId(client).isEmpty) // never committed
+    assert(support.persistableWireId(client).isEmpty) // never committed

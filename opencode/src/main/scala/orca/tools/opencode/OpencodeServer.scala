@@ -43,11 +43,12 @@ import scala.util.control.NonFatal
   * of cwd, so a freshly spawned process resumes a session minted by a prior
   * (now-dead) process: `GET /session/<id>` returns 200 with full message
   * history (live-verified 2026-07-08). So although this class's process is
-  * ephemeral, opencode sessions genuinely are [[SessionSupport.Durable]] across
-  * a restart — [[OpencodeBackend.probeSession]] just needs to force a fresh
-  * spawn to see it (see that method's scaladoc). This per-run process is an
-  * implementation detail of how orca talks to opencode, not a durability
-  * boundary on the sessions themselves.
+  * ephemeral, opencode sessions genuinely are durable
+  * ([[orca.backend.SessionSupport.durable]]) across a restart —
+  * [[OpencodeBackend.probeSession]] just needs to force a fresh spawn to see it
+  * (see that method's scaladoc). This per-run process is an implementation
+  * detail of how orca talks to opencode, not a durability boundary on the
+  * sessions themselves.
   */
 private[opencode] class OpencodeServer(
     cli: CliRunner,

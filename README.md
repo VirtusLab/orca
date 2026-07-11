@@ -43,7 +43,7 @@ flow(OrcaArgs(args), _.claude):
   // Get-or-create the implementer session, seeded with the plan's brief
   // (primes it on first use, replayed if the backend session is lost on
   // resume) — one call in place of `agent.session("implementer", seed = ...)`.
-  val session = plan.implementerSession(agent)
+  val session = agent.session("implementer", seed = plan.brief)
 
   // One stage per task: each stage commits its work + a progress-log entry as
   // one commit. Completed stages are skipped on resume — re-running the same
@@ -501,7 +501,7 @@ results.
   flow derives and announces its own branch separately (see
   [`BranchNamingStrategy`](#the-flow-lifecycle)). `description` is the
   planner's epic summary; `brief` is a concise codebase briefing always
-  included (feed it to `plan.implementerSession(agent)`, which threads it as
+  included (feed it to `agent.session("implementer", seed = plan.brief)`, which threads it as
   the seed). `taskPrompt(task)` prepends the brief to a task's description.
 - **`orca.plan.Task(title, description)`** — `title` is the
   human-readable label shown in the event log.

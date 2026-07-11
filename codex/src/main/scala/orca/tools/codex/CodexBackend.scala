@@ -15,8 +15,8 @@ import orca.backend.{
   Dispatch,
   AgentBackend,
   AgentResult,
-  SessionMode,
-  SessionRegistry,
+  ConversationMode,
+  IdScheme,
   SessionSupport,
   SubprocessSpawn,
   SystemPromptComposer
@@ -37,7 +37,7 @@ import ox.Ox
   * while the interactive path returns the conversation for an `Interaction` to
   * drive. Multi-turn: subsequent `runAutonomous` / `runInteractive` calls with
   * the same session id route through `codex exec resume <server-id>` via
-  * [[sessions]] (backed by a [[SessionRegistry.ClientToServer]]).
+  * [[sessions]] ([[IdScheme.ServerMinted]]).
   *
   * Interactive calls additionally stand up an `ask_user` MCP host bridge
   * ([[AskUserMcpServer]]) on an ephemeral port and register it with codex via
@@ -55,20 +55,18 @@ private[orca] class CodexBackend(
     override val workDir: os.Path = os.pwd
 ) extends AgentBackend[BackendTag.Codex.type]:
 
-  /** Codex's threads are server-side and durable, so it is
-    * [[SessionSupport.Durable]]: the client→server mapping is persisted to the
-    * progress log and rehydrated on resume, and existence probes the SERVER id
-    * the registry resolves for a client (the caller's stable id never appears
-    * in a rollout filename). The probe walks [[sessionsDir]] for a file whose
-    * name matches `rollout-*-<server-id>.jsonl`.
+  /** Codex's threads are server-side and durable: the client→server mapping is
+    * persisted to the progress log and rehydrated on resume, and existence
+    * probes the SERVER id resolved for a client (the caller's stable id never
+    * appears in a rollout filename). The probe walks [[sessionsDir]] for a file
+    * whose name matches `rollout-*-<server-id>.jsonl`.
     *
-    * Because [[SessionSupport.exists]] is registry-gated, `false` results when
-    * no server id is mapped — which includes a server id that failed the
-    * [[orca.agents.SessionId.isSafe]] guard at commit time (blocks regex
-    * injection; e.g. a server id of `.*` would otherwise match every rollout
-    * file): `register`/`commitAfterDrain` refuse to record it, so it never
-    * reaches the registry — as well as map-not-rehydrated-yet, or the sessions
-    * dir not existing.
+    * Because [[SessionSupport.willContinue]] resolves the recorded mapping
+    * first, `false` results when no server id is mapped — which includes a
+    * server id that failed the [[orca.agents.SessionId.isSafe]] guard at commit
+    * time (blocks regex injection; e.g. a server id of `.*` would otherwise
+    * match every rollout file): `register`/`commitAfterDrain` refuse to record
+    * it — as well as map-not-rehydrated-yet, or the sessions dir not existing.
     *
     * Note: the installed codex on some machines uses SQLite
     * (`~/.codex/state_5.sqlite`) rather than `rollout-*.jsonl` files. If no
@@ -82,17 +80,16 @@ private[orca] class CodexBackend(
   ): Enforcement =
     CodexArgs.enforcement(tools, autoApprove)
 
-  /** The sole session handle. The wrapped [[SessionRegistry.ClientToServer]]
-    * maps the client-allocated id (the UUID the caller passes around) to
-    * codex's server-allocated thread id (learned from `thread.started`), so
-    * subsequent calls dispatch through `codex exec resume <server-id>`. The
-    * registry is encapsulated; the spawn/commit paths go through
-    * `sessions.dispatchFor` / `Conversations.runAutonomous(session, sessions,
-    * …)`.
+  /** The sole session handle. [[IdScheme.ServerMinted]]: the client-allocated
+    * id (the UUID the caller passes around) maps to codex's server-allocated
+    * thread id (learned from `thread.started`), so subsequent calls dispatch
+    * through `codex exec resume <server-id>`. The bookkeeping is encapsulated;
+    * the spawn/commit paths go through `sessions.dispatchFor` /
+    * `Conversations.runAutonomous(session, sessions, …)`.
     */
   val sessions: SessionSupport[BackendTag.Codex.type] =
-    SessionSupport.Durable(
-      new SessionRegistry.ClientToServer[BackendTag.Codex.type],
+    SessionSupport.durable(
+      IdScheme.ServerMinted,
       id =>
         os.exists(sessionsDir) && os.walk
           .stream(sessionsDir)
@@ -114,7 +111,7 @@ private[orca] class CodexBackend(
     Conversations.runAutonomous(session, sessions, events):
       openConversation(
         prompt = prompt,
-        mode = SessionMode.Autonomous,
+        mode = ConversationMode.Autonomous,
         session = session,
         config = config,
         // Forwarded so (a) `conv.outputSchema` signals structured mode to the
@@ -136,7 +133,7 @@ private[orca] class CodexBackend(
   )(using Ox): Conversation[BackendTag.Codex.type] =
     openConversation(
       prompt,
-      mode = SessionMode.Interactive(displayPrompt),
+      mode = ConversationMode.Interactive(displayPrompt),
       session = session,
       config = config,
       outputSchema = outputSchema
@@ -164,7 +161,7 @@ private[orca] class CodexBackend(
     */
   private def openConversation(
       prompt: String,
-      mode: SessionMode,
+      mode: ConversationMode,
       session: SessionId[BackendTag.Codex.type],
       config: AgentConfig,
       outputSchema: Option[String]

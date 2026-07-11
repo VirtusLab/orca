@@ -43,7 +43,7 @@ The user-facing surface lives in `package orca` (the `flow` entry, the tool
 accessors — including `agent`, the backend-agnostic leading-agent accessor —
 `stage`/`display`/`fail`, `JsonData`, `OrcaArgs`). Implementations live in
 focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their traits),
-`orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`/`SessionRegistry`,
+`orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`,
 conversation driver), `orca.subprocess` (subprocess shim), `orca.events`
 (event bus), one `orca.tools.<backend>` per coding agent, and `orca.runner` /
 `orca.runner.terminal` (wiring + terminal UI). The flow module adds
@@ -110,26 +110,26 @@ most easily broken:
   load — `orca.progress.RecoveryCheck` validates it (safe ref, prompt-hash match,
   protected-branch refusal) before any destructive git op.
 
-- **Sessions.** Durability is ONE structural choice per backend:
-  `AgentBackend.sessions: SessionSupport[B]` is either `Ephemeral(registry)`
-  (pi — nothing survives a process restart) or `Durable(registry, probe)`
-  (claude/codex/gemini/opencode — sessions outlive the process, including
-  across a restart; opencode persists sessions in its own global on-disk store
-  independent of orca's per-run `opencode serve` process, so a fresh server
-  spawned after a kill/restart resumes a committed `resumeWireId` the same way
-  the file-probed backends do, live-verified 2026-07-08). `Agent`
-  derives `willContinue` / `resumeWireId` / `registerResumeWireId` as `final`
-  methods over the single `sessionSupport` hook, so a concrete tool can't wire
-  one session operation while silently defaulting the others — that
-  half-wiring is unrepresentable now. Underneath, `SessionRegistry` still has
-  two shapes:
-  `ClaimedOnce` (claude/pi — the client id IS the wire id) and
-  `ClientToServer` (codex/gemini/opencode — a server-minted id learned from the
-  protocol); and `SessionId[B]` (the client-side handle) is split from
-  `WireSessionId[B]` (what actually goes on the wire) — `SessionId#onWire` is
-  the only client→wire crossing. `willContinue` stays a best-effort,
-  non-destructive probe; when it can't confirm a live session the flow
-  re-seeds, the uniform fallback that holds on every backend.
+- **Sessions.** `AgentBackend.sessions: SessionSupport[B]` is one final class
+  built from two per-backend choices: durability —
+  `SessionSupport.ephemeral(scheme)` (pi — nothing survives a process restart)
+  or `SessionSupport.durable(scheme, probe)` (claude/codex/gemini/opencode —
+  sessions outlive the process, including across a restart; opencode persists
+  sessions in its own global on-disk store independent of orca's per-run
+  `opencode serve` process, so a fresh server spawned after a kill/restart
+  resumes a committed `resumeWireId` the same way the file-probed backends do,
+  live-verified 2026-07-08) — and the `IdScheme`: `ClientClaimed` (claude/pi —
+  the client id IS the wire id, put on the wire at spawn) or `ServerMinted`
+  (codex/gemini/opencode — the server mints the wire id, learned from the
+  protocol and registered after the turn). `Agent` derives `willContinue` /
+  `resumeWireId` / `registerResumeWireId` as `final` methods over the single
+  `sessionSupport` hook, so a concrete tool can't wire one session operation
+  while silently defaulting the others — that half-wiring is unrepresentable.
+  `SessionId[B]` (the client-side handle) is split from `WireSessionId[B]`
+  (what actually goes on the wire) — `SessionId#onWire` is the only
+  client→wire crossing. `willContinue` stays a best-effort, non-destructive
+  probe; when it can't confirm a live session the flow re-seeds, the uniform
+  fallback that holds on every backend.
 
   Sessions have named identity: `agent.session(name, seed)` keys a
   `SessionRecord` by `(name, occurrence)` — stage-style, via

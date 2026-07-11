@@ -1,6 +1,7 @@
 package orca.progress
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
+  JsonReaderException,
   readFromString,
   writeToString
 }
@@ -50,8 +51,18 @@ class ProgressLogTest extends FunSuite:
         )
       ),
       sessions = List(
-        SessionRecord(occurrence = 0, id = "sess-uuid-1", seed = "plan brief"),
-        SessionRecord(occurrence = 1, id = "sess-uuid-2", seed = "other seed")
+        SessionRecord(
+          name = "s",
+          occurrence = 0,
+          id = "sess-uuid-1",
+          seed = "plan brief"
+        ),
+        SessionRecord(
+          name = "s",
+          occurrence = 1,
+          id = "sess-uuid-2",
+          seed = "other seed"
+        )
       )
     )
     assertEquals(roundTrip(log), log)
@@ -62,6 +73,7 @@ class ProgressLogTest extends FunSuite:
       entries = Nil,
       sessions = List(
         SessionRecord(
+          name = "s",
           occurrence = 0,
           id = "client-uuid",
           seed = "brief",
@@ -77,6 +89,7 @@ class ProgressLogTest extends FunSuite:
       entries = Nil,
       sessions = List(
         SessionRecord(
+          name = "s",
           occurrence = 0,
           id = "client-uuid",
           seed = "brief",
@@ -88,40 +101,29 @@ class ProgressLogTest extends FunSuite:
     assertEquals(roundTrip(log), log)
 
   test(
-    "SessionRecord JSON without a backend field decodes to None (back-compat)"
+    "SessionRecord JSON without resumeWireId/backend fields decodes both to None"
   ):
-    // JSON produced before the backend field existed.
-    val oldJson =
+    // A record persisted before a run learns the wire id carries neither
+    // field; both are optional in the codec and default to None.
+    val json =
       """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc"},""" +
-        """"entries":[],"sessions":[{"index":0,"id":"u","seed":"s","resumeWireId":"w"}]}"""
+        """"entries":[],"sessions":[{"name":"s","occurrence":0,"id":"u","seed":"s"}]}"""
     val codec = summon[JsonData[ProgressLog]].codec
-    val decoded = readFromString[ProgressLog](oldJson)(using codec)
+    val decoded = readFromString[ProgressLog](json)(using codec)
+    assertEquals(decoded.sessions.head.resumeWireId, None)
     assertEquals(decoded.sessions.head.backend, None)
 
-  test(
-    "SessionRecord JSON without a resumeWireId field decodes to None (back-compat)"
-  ):
-    // JSON produced before the resumeWireId field existed: the record has only
-    // index/id/seed. The lenient ProgressLog codec must default it to None.
-    val oldJson =
+  test("SessionRecord JSON without its name/occurrence key fails to decode"):
+    // name/occurrence key the record; a log without them is not usable, so
+    // decoding fails (and the run starts a fresh log) rather than silently
+    // colliding every record on a default key.
+    val json =
       """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc"},""" +
         """"entries":[],"sessions":[{"index":0,"id":"u","seed":"s"}]}"""
     val codec = summon[JsonData[ProgressLog]].codec
-    val decoded = readFromString[ProgressLog](oldJson)(using codec)
-    assertEquals(decoded.sessions.head.resumeWireId, None)
-
-  test(
-    "SessionRecord JSON without name/occurrence fields decodes to (\"\", 0) (back-compat)"
-  ):
-    // JSON produced before name/occurrence replaced the old positional index —
-    // it degrades to the default key and simply re-seeds on next use.
-    val oldJson =
-      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc"},""" +
-        """"entries":[],"sessions":[{"index":0,"id":"u","seed":"s"}]}"""
-    val codec = summon[JsonData[ProgressLog]].codec
-    val decoded = readFromString[ProgressLog](oldJson)(using codec)
-    assertEquals(decoded.sessions.head.name, "")
-    assertEquals(decoded.sessions.head.occurrence, 0)
+    val _ = intercept[JsonReaderException](
+      readFromString[ProgressLog](json)(using codec)
+    )
 
   test(
     "ProgressLog JSON without a sessions field decodes to empty sessions list (back-compat)"

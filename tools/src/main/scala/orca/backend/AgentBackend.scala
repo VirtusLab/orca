@@ -99,11 +99,12 @@ trait AgentBackend[B <: BackendTag](
     */
   def workDir: os.Path
 
-  /** This backend's session-durability capability as one structural value: a
-    * [[SessionSupport.Durable]] (registry + existence probe) or a
-    * [[SessionSupport.Ephemeral]] (registry only). The framework reaches
-    * durability exclusively through this — a backend cannot half-wire resume by
-    * providing one of persist/probe/register and forgetting the others.
+  /** This backend's whole session capability as one structural value: the id
+    * scheme plus, for durable backends, the existence probe (see
+    * [[SessionSupport.durable]] / [[SessionSupport.ephemeral]]). The framework
+    * reaches sessions exclusively through this — a backend cannot half-wire
+    * resume by providing one of persist/probe/register and forgetting the
+    * others.
     */
   def sessions: SessionSupport[B]
 

@@ -127,7 +127,7 @@ private[orca] object Conversations:
           )
         case ConversationEvent.UserQuestion(_, respond) =>
           // Defensive: in autonomous mode the ask_user MCP bridge isn't
-          // wired (see `SessionMode.Autonomous`), so this event should be
+          // wired (see `ConversationMode.Autonomous`), so this event should be
           // unreachable. If a future change ever lands one here, the
           // bridge thread is blocked on `respond` — unblock it instead of
           // leaking the thread. The synthetic answer surfaces in the
@@ -184,12 +184,11 @@ private[orca] object Conversations:
     * decision.
     *
     * `sessions.commitAfterDrain(session, result.wireId)` carries the throwing
-    * wire-id guard and is uniform across both registry shapes:
-    * [[SessionRegistry.ClientToServer]] records the learned server id, while
-    * [[SessionRegistry.ClaimedOnce]] ignores the server arg and just marks the
-    * client id claimed. Taking a [[SessionSupport]] (not a raw registry) means
-    * a backend physically can't hand this shell a registry other than the one
-    * backing its declared `sessions`.
+    * wire-id guard and is uniform across both id schemes:
+    * [[IdScheme.ServerMinted]] records the learned server id, while
+    * [[IdScheme.ClientClaimed]] records the client id itself. Taking the
+    * backend's [[SessionSupport]] means a backend physically can't hand this
+    * shell bookkeeping other than the one backing its declared `sessions`.
     */
   def drainAndCommit[B <: BackendTag](
       conv: Conversation[B],

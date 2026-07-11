@@ -1,12 +1,12 @@
 package orca.tools.opencode
 
-import orca.backend.{SessionMode, SystemPromptComposer}
+import orca.backend.{ConversationMode, SystemPromptComposer}
 import orca.agents.{AutoApprove, AgentConfig, Model, ToolSet}
 
 class OpencodeArgsTest extends munit.FunSuite:
 
-  private val autonomous = SessionMode.Autonomous
-  private val interactive = SessionMode.Interactive("display")
+  private val autonomous = ConversationMode.Autonomous
+  private val interactive = ConversationMode.Interactive("display")
 
   test("serve uses a random port, WARN logs, and no --pure"):
     val args = OpencodeArgs.serve()

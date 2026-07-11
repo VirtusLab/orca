@@ -5,45 +5,140 @@ import orca.agents.{BackendTag, SessionId, WireSessionId, onWire}
 
 class SessionSupportTest extends munit.FunSuite:
 
+  private def clientSid(s: String): SessionId[BackendTag.Codex.type] =
+    SessionId[BackendTag.Codex.type](s)
+
+  private def wireSid(s: String): WireSessionId[BackendTag.Codex.type] =
+    WireSessionId[BackendTag.Codex.type](s)
+
+  // ── dispatch per id scheme ─────────────────────────────────────────────────
+
+  test("ClientClaimed: dispatchFor flips Fresh(claim) → Resume after commit"):
+    val s = SessionSupport.durable[BackendTag.ClaudeCode.type](
+      IdScheme.ClientClaimed,
+      _ => true
+    )
+    val client = SessionId[BackendTag.ClaudeCode.type]("client-A")
+    assertEquals(s.dispatchFor(client), Dispatch.Fresh(Some(client.onWire)))
+    s.register(client, client.onWire)
+    assertEquals(s.dispatchFor(client), Dispatch.Resume(client.onWire))
+
+  test("ClientClaimed: distinct client ids are tracked independently"):
+    val s = SessionSupport.durable[BackendTag.ClaudeCode.type](
+      IdScheme.ClientClaimed,
+      _ => true
+    )
+    val a = SessionId[BackendTag.ClaudeCode.type]("a")
+    val b = SessionId[BackendTag.ClaudeCode.type]("b")
+    s.register(a, a.onWire)
+    assertEquals(s.dispatchFor(a), Dispatch.Resume(a.onWire))
+    assertEquals(s.dispatchFor(b), Dispatch.Fresh(Some(b.onWire)))
+
+  test("ServerMinted: Fresh(None) before commit, Resume(server) after"):
+    // Codex's contract: the client id is the framework's stable handle; the
+    // wire id (server thread id) is what `exec resume` consumes. A fresh
+    // dispatch puts NOTHING on the wire — the server mints its own id.
+    val s = SessionSupport.durable[BackendTag.Codex.type](
+      IdScheme.ServerMinted,
+      _ => true
+    )
+    val client = clientSid("client-uuid")
+    val server = wireSid("server-thread-xyz")
+    assertEquals(s.dispatchFor(client), Dispatch.Fresh(None))
+    s.register(client, server)
+    assertEquals(s.dispatchFor(client), Dispatch.Resume(server))
+
+  test("ServerMinted: first commit wins — a second commit doesn't overwrite"):
+    // The protocol invariant says a resumed session never changes its server
+    // id, so a second commit for the same client is either a benign re-commit
+    // or a bug. Either way, drop it — don't surprise callers with a
+    // silently-changed mapping.
+    val s = SessionSupport.durable[BackendTag.Codex.type](
+      IdScheme.ServerMinted,
+      _ => true
+    )
+    val client = clientSid("client")
+    s.register(client, wireSid("server-1"))
+    s.register(client, wireSid("server-2"))
+    assertEquals(s.dispatchFor(client), Dispatch.Resume(wireSid("server-1")))
+
+  test("ClientClaimed: the stored wire id is the claim, not the reported id"):
+    // Under ClientClaimed the client id IS the wire id by protocol; a backend
+    // reporting some other id at commit time must not displace the claim.
+    val s = SessionSupport.durable[BackendTag.ClaudeCode.type](
+      IdScheme.ClientClaimed,
+      _ => true
+    )
+    val client = SessionId[BackendTag.ClaudeCode.type]("claimed-id")
+    s.commitAfterDrain(
+      client,
+      WireSessionId[BackendTag.ClaudeCode.type]("reported-other")
+    )
+    assertEquals(s.persistableWireId(client), Some(client.onWire))
+
+  // ── durability ─────────────────────────────────────────────────────────────
+
+  test("persistableWireId: None before commit, the wire id after (durable)"):
+    val s = SessionSupport.durable[BackendTag.Codex.type](
+      IdScheme.ServerMinted,
+      _ => true
+    )
+    val client = clientSid("client-uuid")
+    val server = wireSid("server-thread-xyz")
+    assertEquals(s.persistableWireId(client), None)
+    s.register(client, server)
+    assertEquals(s.persistableWireId(client), Some(server))
+
   test(
-    "Ephemeral: never durable — exists false, nothing persistable, register still feeds in-run dispatch"
+    "ephemeral: nothing persistable — register still feeds in-run dispatch"
   ):
-    val reg = new SessionRegistry.ClaimedOnce[BackendTag.Pi.type]
-    val s = SessionSupport.Ephemeral(reg)
+    val s = SessionSupport.ephemeral[BackendTag.Pi.type](IdScheme.ClientClaimed)
     val id = SessionId.fresh[BackendTag.Pi.type]
     s.register(id, id.onWire)
-    assert(!s.exists(id) && s.persistableWireId(id).isEmpty)
-    assert(reg.dispatchFor(id).isInstanceOf[Dispatch.Resume[?]])
+    assert(s.persistableWireId(id).isEmpty)
+    assert(s.dispatchFor(id).isInstanceOf[Dispatch.Resume[?]])
 
-  test("Durable: exists = registry mapping AND guarded probe"):
-    val reg = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+  // ── willContinue ───────────────────────────────────────────────────────────
+
+  test("willContinue (durable) = recorded mapping AND guarded probe"):
     var probed = List.empty[String]
-    val s = SessionSupport.Durable(
-      reg,
+    val s = SessionSupport.durable[BackendTag.Codex.type](
+      IdScheme.ServerMinted,
       id => { probed = id :: probed; id == "srv-1" }
     )
     val client = SessionId.fresh[BackendTag.Codex.type]
-    assert(!s.exists(client)) // no mapping yet — probe not called
+    assert(!s.willContinue(client)) // no mapping yet — probe not called
     s.register(client, WireSessionId("srv-1"))
-    assert(s.exists(client) && probed == List("srv-1"))
+    assert(s.willContinue(client) && probed == List("srv-1"))
 
-  test("Durable: a throwing probe is 'absent'"):
-    // `exists`'s own isSafe re-check on the resolved wire id was removed as
-    // provably dead (6B.3): every id that reaches the registry does so
-    // through `register`/`commitAfterDrain` below, both of which already
-    // validate it — a second check here would guard against an id that can
-    // no longer exist. The unsafe-id defense is pinned at those two tests
-    // ("register: an invalid wire id records nothing", "commitAfterDrain:
-    // valid id commits, unsafe id throws"), not here; this test keeps only
-    // `exists`'s other absence case: a probe that throws.
-    val reg = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
-    val client = SessionId.fresh[BackendTag.Codex.type]
-    reg.commitSuccess(client, WireSessionId("ok-id"))
-    assert(
-      !SessionSupport
-        .Durable(reg, _ => throw RuntimeException("boom"))
-        .exists(client)
+  test("willContinue (durable): a throwing probe is 'won't continue'"):
+    // No isSafe re-check on the resolved wire id here: every id that reaches
+    // the bookkeeping does so through `register`/`commitAfterDrain`, both of
+    // which already validate it — the unsafe-id defense is pinned at those
+    // two tests below. This test covers the other absence case: a probe that
+    // throws.
+    val s = SessionSupport.durable[BackendTag.Codex.type](
+      IdScheme.ServerMinted,
+      _ => throw RuntimeException("boom")
     )
+    val client = SessionId.fresh[BackendTag.Codex.type]
+    s.register(client, WireSessionId("ok-id"))
+    assert(!s.willContinue(client))
+
+  test(
+    "willContinue (ephemeral) reads the in-process claim (false before, true after)"
+  ):
+    // An ephemeral backend (pi) keeps no durable transcript to probe — but a
+    // committed in-process claim IS a live continuation, and the CLI is
+    // genuinely told to continue. Answering from a durable probe here would
+    // re-seed every turn of a live conversation.
+    val s = SessionSupport.ephemeral[BackendTag.Pi.type](IdScheme.ClientClaimed)
+    val id = SessionId.fresh[BackendTag.Pi.type]
+    assert(!s.willContinue(id), "first call: no claim yet")
+    s.register(id, id.onWire)
+    assert(s.willContinue(id), "after commit: an in-process continuation")
+
+  // ── the two write-door guards ──────────────────────────────────────────────
 
   test(
     "register: an invalid wire id records nothing (skip-don't-throw guard)"
@@ -55,9 +150,11 @@ class SessionSupportTest extends munit.FunSuite:
     // The SessionSupport-level test suffices; `Agent.registerResumeWireId`
     // funnels straight into this same `register`, so no separate harness is
     // needed to exercise the rehydration path's guard.
-    val reg = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
+    val s = SessionSupport.durable[BackendTag.Codex.type](
+      IdScheme.ServerMinted,
+      _ => true
+    )
     val client = SessionId.fresh[BackendTag.Codex.type]
-    val s = SessionSupport.Durable(reg, _ => true)
     s.register(client, WireSessionId("")) // must not throw
     assert(
       s.persistableWireId(client).isEmpty,
@@ -65,34 +162,14 @@ class SessionSupportTest extends munit.FunSuite:
     )
 
   test(
-    "willContinue: Ephemeral reads the in-process claim (false before, true after)"
-  ):
-    // The 6.6 fix: `exists` is hardcoded false for Ephemeral, so the durable
-    // runtime must ask `willContinue` instead — which reflects the registry's
-    // in-process claim so a live pi conversation is NOT re-seeded next turn.
-    val reg = new SessionRegistry.ClaimedOnce[BackendTag.Pi.type]
-    val s = SessionSupport.Ephemeral(reg)
-    val id = SessionId.fresh[BackendTag.Pi.type]
-    assert(!s.willContinue(id), "first call: no claim yet")
-    s.register(id, id.onWire)
-    assert(s.willContinue(id), "after commit: an in-process continuation")
-    assert(!s.exists(id), "exists stays false — nothing durable to probe")
-
-  test("willContinue: Durable delegates to the probe (same as exists)"):
-    val reg = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
-    val client = SessionId.fresh[BackendTag.Codex.type]
-    val s = SessionSupport.Durable(reg, id => id == "srv-1")
-    assert(!s.willContinue(client)) // no mapping — probe not reached
-    s.register(client, WireSessionId("srv-1"))
-    assert(s.willContinue(client)) // mapping + probe true
-
-  test(
     "commitAfterDrain: valid id commits, unsafe id throws and records nothing"
   ):
     // The throwing sibling of `register`: the autonomous drain's pre-commit
     // guard, aborting (retryable) rather than logging-and-skipping.
-    val reg = new SessionRegistry.ClientToServer[BackendTag.Codex.type]
-    val s = SessionSupport.Durable(reg, _ => true)
+    val s = SessionSupport.durable[BackendTag.Codex.type](
+      IdScheme.ServerMinted,
+      _ => true
+    )
     val ok = SessionId.fresh[BackendTag.Codex.type]
     val okWire = WireSessionId[BackendTag.Codex.type]("srv-ok")
     s.commitAfterDrain(ok, okWire)

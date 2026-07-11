@@ -1,6 +1,6 @@
 package orca.tools.opencode
 
-import orca.backend.{SessionMode, SystemPromptComposer}
+import orca.backend.{ConversationMode, SystemPromptComposer}
 import orca.agents.{AgentConfig, AutoApprove, Enforcement, Model, ToolSet}
 import orca.tools.opencode.OpencodeApi.{
   MessageBody,
@@ -45,7 +45,7 @@ private[opencode] object OpencodeArgs:
       config: AgentConfig,
       prompt: String,
       outputSchema: Option[String],
-      mode: SessionMode
+      mode: ConversationMode
   ): MessageBody =
     MessageBody(
       parts = List(MessagePart("text", prompt)),
@@ -73,7 +73,7 @@ private[opencode] object OpencodeArgs:
     */
   private def toolFlags(
       config: AgentConfig,
-      mode: SessionMode
+      mode: ConversationMode
   ): Option[Map[String, Boolean]] =
     val writeGate =
       config.tools match

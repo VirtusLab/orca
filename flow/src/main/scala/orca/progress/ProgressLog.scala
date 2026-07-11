@@ -35,12 +35,8 @@ case class StageEntry(id: String, name: String, resultJson: RawJson)
 /** A persisted session: the name + occurrence that key it (stage-style — see
   * [[orca.FlowControl.nextSessionOccurrence]]), a minted UUID, the seed string
   * the author supplied, and — when the session is durably resumable — the wire
-  * id to resume against.
-  *
-  * `name` + `occurrence` default to `""` + `0` so log files written before this
-  * field existed still decode — they degrade to that key and simply re-seed on
-  * the next `session(...)` call. The progress log is a per-run artifact;
-  * cross-version resume of an in-flight run is not supported.
+  * id to resume against. Like [[StageEntry]], a per-run artifact: cross-version
+  * resume of an in-flight run is not supported.
   *
   * `id` is the stable client id the framework hands across calls;
   * [[SessionRecord.resumeWireId]] is the id to put on the wire when resuming
@@ -57,20 +53,18 @@ case class StageEntry(id: String, name: String, resultJson: RawJson)
   * It is persisted so a resumed run can rehydrate the in-memory map and (a)
   * resume against the right wire id and (b) probe it for existence.
   *
-  * `resumeWireId` defaults to `None` and decodes to `None` when absent in older
-  * log files — the lenient [[ProgressLog]] codec tolerates the missing field.
-  * Stored in [[ProgressLog.sessions]] so that a resumed run reuses the same
-  * [[orca.agents.SessionId]] rather than minting a second one.
+  * `resumeWireId` is `None` until a run learns it (see `persistResumeWireId` in
+  * `orca.Session`). Stored in [[ProgressLog.sessions]] so that a resumed run
+  * reuses the same [[orca.agents.SessionId]] rather than minting a second one.
   *
   * `backend` records the minting agent's [[orca.agents.BackendTag]] via its
   * stable [[orca.agents.BackendTag.wireName]] (e.g. `"Codex"` — frozen
   * independently of the case name, so a future case rename can't strand this
   * field), so a resumed run's targeted rehydration
   * (`FlowLifecycle.rehydrateSessions`) knows which agent to replay this
-  * record's `resumeWireId` into rather than always assuming the lead. Defaults
-  * to `None` and decodes to `None` when absent in older log files (written
-  * before this field existed, or before the record's agent carried a tag) — a
-  * `None` record falls back to the lead, the pre-tagging behaviour. A value
+  * record's `resumeWireId` into rather than always assuming the lead. `None`
+  * when the minting agent carries no backend tag (a stub agent built directly
+  * on `Agent`) — such records fall back to the lead on rehydration. A value
   * that matches no known [[orca.agents.BackendTag.wireName]] (an edited log) is
   * skipped with a warning rather than guessed — see
   * `FlowLifecycle.targetAgent`. `agent.session(name, seed)`'s reuse arm also
@@ -78,8 +72,8 @@ case class StageEntry(id: String, name: String, resultJson: RawJson)
   * silently re-seeding under the wrong tag forever.
   */
 case class SessionRecord(
-    name: String = "",
-    occurrence: Int = 0,
+    name: String,
+    occurrence: Int,
     id: String,
     seed: String,
     resumeWireId: Option[String] = None,

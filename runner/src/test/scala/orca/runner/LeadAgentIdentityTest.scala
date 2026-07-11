@@ -23,7 +23,7 @@ import orca.backend.{
   AgentResult,
   Conversation,
   Interaction,
-  SessionRegistry,
+  IdScheme,
   SessionSupport
 }
 import orca.events.{OrcaEvent, OrcaListener}
@@ -253,7 +253,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     )(using ox.Ox): Conversation[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
     val sessions: SessionSupport[BackendTag.Pi.type] =
-      SessionSupport.Ephemeral(new SessionRegistry.ClaimedOnce)
+      SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
       Enforcement.Ignored

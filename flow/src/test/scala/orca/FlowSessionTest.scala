@@ -1,7 +1,7 @@
 package orca
 
 import munit.FunSuite
-import orca.backend.{SessionRegistry, SessionSupport}
+import orca.backend.{IdScheme, SessionSupport}
 import orca.agents.{
   Announce,
   AgentInput,
@@ -41,28 +41,28 @@ class FlowSessionTest extends FunSuite:
   private given orca.WorkspaceWrite = orca.WorkspaceWrite.unsafe
 
   /** Builds the durability capability the stubs expose through
-    * `sessionSupport`, seeding the production
-    * [[SessionRegistry.ClientToServer]] via `commitSuccess` rather than
-    * hand-rolling a `SessionRegistry`. Both `willContinue` and `resumeWireId`
-    * route through it (the trio is now `final` on [[Agent]], and existence is
-    * registry-gated). A safe placeholder wire id is committed when `exists` is
-    * wanted so the probe (which returns `exists`) runs; otherwise the
-    * caller-supplied `learnedWireId`, if any, is committed, which is what
-    * `resumeWireId` surfaces for persistence.
+    * `sessionSupport`, seeding it via the public `register` door. Both
+    * `willContinue` and `resumeWireId` route through it (the trio is `final` on
+    * [[Agent]], and the probe only runs for a recorded mapping). A safe
+    * placeholder wire id is registered when `exists` is wanted so the probe
+    * (which returns `exists`) runs; otherwise the caller-supplied
+    * `learnedWireId`, if any, is registered, which is what `resumeWireId`
+    * surfaces for persistence.
     */
   private def stubSupport(
       exists: Boolean,
       learnedWireId: Option[String]
   ): SessionSupport[BackendTag.ClaudeCode.type] =
-    val reg = new SessionRegistry.ClientToServer[BackendTag.ClaudeCode.type]
+    val support = SessionSupport
+      .durable[BackendTag.ClaudeCode.type](IdScheme.ServerMinted, _ => exists)
     (if exists then Some("live-session-wire") else learnedWireId)
       .foreach(w =>
-        reg.commitSuccess(
+        support.register(
           testSession,
           WireSessionId[BackendTag.ClaudeCode.type](w)
         )
       )
-    SessionSupport.Durable(reg, _ => exists)
+    support
 
   /** A fixed session id used across all tests; avoids UUID randomness in
     * assertions and lets `makeControl` pre-populate the log without forward
@@ -112,31 +112,31 @@ class FlowSessionTest extends FunSuite:
     def capturedPrompts: List[String] = _capturedPrompts.reverse
 
     /** The durability capability the stub exposes. `ephemeral = true` builds a
-      * pi-shaped [[SessionSupport.Ephemeral]] over a real
-      * [[SessionRegistry.ClaimedOnce]] (a STABLE instance, so an in-process
-      * claim persists across runs); otherwise the durable probe fixture whose
-      * `exists`/`resumeWireId` are driven by `existsResult`/`learnedWireId`.
+      * pi-shaped `SessionSupport.ephemeral` (a STABLE instance, so an
+      * in-process claim persists across runs); otherwise the durable probe
+      * fixture whose `willContinue`/`resumeWireId` are driven by
+      * `existsResult`/`learnedWireId`.
       */
     private val support: SessionSupport[BackendTag.ClaudeCode.type] =
       if ephemeral then
-        SessionSupport.Ephemeral(
-          new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type]
+        SessionSupport.ephemeral[BackendTag.ClaudeCode.type](
+          IdScheme.ClientClaimed
         )
       else stubSupport(existsResult, learnedWireId)
 
-    /** Drives `willContinue` (via the registry-gated probe) and `resumeWireId`
-      * (via the registry's `resumeWireId`) — `learnedWireId` mirrors a
-      * server-id backend's persist path, `None`/`ephemeral` mirrors pi.
+    /** Drives `willContinue` (via the mapping-gated probe) and `resumeWireId` —
+      * `learnedWireId` mirrors a server-id backend's persist path,
+      * `None`/`ephemeral` mirrors pi.
       */
     override private[orca] def sessionSupport
         : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
       Some(support)
 
     /** Record the prompt and, for the ephemeral shape, claim the id — a real
-      * ephemeral backend (pi) marks its `ClaimedOnce` registry after a clean
-      * turn (via `Conversations.drainAndCommit`), so `willContinue` flips true
-      * on the next in-process run. `register` is the stable log-skip door and
-      * the id is a safe UUID, so it commits.
+      * ephemeral backend (pi) records the claim after a clean turn (via
+      * `Conversations.drainAndCommit`), so `willContinue` flips true on the
+      * next in-process run. `register` is the stable log-skip door and the id
+      * is a safe UUID, so it commits.
       */
     private def capture(
         prompt: String,
@@ -223,8 +223,14 @@ class FlowSessionTest extends FunSuite:
   test("live session: prompt forwarded verbatim, no preamble, no seed"):
     val seed = "You are a planning agent."
     val fc = makeControl(
-      sessions =
-        List(SessionRecord(occurrence = 0, id = testSessionId, seed = seed))
+      sessions = List(
+        SessionRecord(
+          name = "s",
+          occurrence = 0,
+          id = testSessionId,
+          seed = seed
+        )
+      )
     )
     val agent = new StubAgentForSeeded(existsResult = true)
     val originalPrompt = "implement feature X"
@@ -240,8 +246,14 @@ class FlowSessionTest extends FunSuite:
   ):
     val seed = "You are a planning agent."
     val fc = makeControl(
-      sessions =
-        List(SessionRecord(occurrence = 0, id = testSessionId, seed = seed))
+      sessions = List(
+        SessionRecord(
+          name = "s",
+          occurrence = 0,
+          id = testSessionId,
+          seed = seed
+        )
+      )
     )
     val agent = new StubAgentForSeeded(existsResult = false)
     val originalPrompt = "implement feature X"
@@ -262,8 +274,14 @@ class FlowSessionTest extends FunSuite:
   ):
     val seed = "You are a planning agent."
     val fc = makeControl(
-      sessions =
-        List(SessionRecord(occurrence = 0, id = testSessionId, seed = seed)),
+      sessions = List(
+        SessionRecord(
+          name = "s",
+          occurrence = 0,
+          id = testSessionId,
+          seed = seed
+        )
+      ),
       completedStages = List("triage", "implement")
     )
     val agent = new StubAgentForSeeded(existsResult = false)
@@ -331,8 +349,9 @@ class FlowSessionTest extends FunSuite:
     // original prompt but MUST NOT contain a seed blob (it's empty) and MUST
     // NOT start with `---` (the separator only appears between context and prompt).
     val fc = makeControl(
-      sessions =
-        List(SessionRecord(occurrence = 0, id = testSessionId, seed = "")),
+      sessions = List(
+        SessionRecord(name = "s", occurrence = 0, id = testSessionId, seed = "")
+      ),
       completedStages = List("triage")
     )
     val agent = new StubAgentForSeeded(existsResult = false)
@@ -355,15 +374,21 @@ class FlowSessionTest extends FunSuite:
   test(
     "pi-shaped Ephemeral session: a second in-process run does NOT re-prime"
   ):
-    // pi is Ephemeral over a ClaimedOnce registry: `exists` is hardcoded
-    // `false`, so an exists-based probe re-seeds every task of a loop;
+    // pi is ephemeral: it has no durable transcript to probe, so an
+    // exists-based probe would re-seed every task of a loop;
     // `willContinue` reads the in-process claim, so a live continuation runs the
     // prompt verbatim. The stub claims the id after each run (as pi's
     // drainAndCommit does), so the SECOND run must NOT re-inject seed/preamble.
     val seed = "You are a planning agent."
     val fc = makeControl(
-      sessions =
-        List(SessionRecord(occurrence = 0, id = testSessionId, seed = seed))
+      sessions = List(
+        SessionRecord(
+          name = "s",
+          occurrence = 0,
+          id = testSessionId,
+          seed = seed
+        )
+      )
     )
     val agent = new StubAgentForSeeded(existsResult = false, ephemeral = true)
     val fs = flowSession(agent)
@@ -383,8 +408,14 @@ class FlowSessionTest extends FunSuite:
   test("run returns the output from autonomous.run; .id is the session id"):
     val seed = "seed text"
     val fc = makeControl(
-      sessions =
-        List(SessionRecord(occurrence = 0, id = testSessionId, seed = seed))
+      sessions = List(
+        SessionRecord(
+          name = "s",
+          occurrence = 0,
+          id = testSessionId,
+          seed = seed
+        )
+      )
     )
     val agent =
       new StubAgentForSeeded(existsResult = false, runResult = "agent output")
@@ -397,8 +428,14 @@ class FlowSessionTest extends FunSuite:
     "run persists a newly-learned wire id into the SessionRecord"
   ):
     val fc = makeControl(
-      sessions =
-        List(SessionRecord(occurrence = 0, id = testSessionId, seed = "seed"))
+      sessions = List(
+        SessionRecord(
+          name = "s",
+          occurrence = 0,
+          id = testSessionId,
+          seed = "seed"
+        )
+      )
     )
     val agent = new StubAgentForSeeded(
       existsResult = false,
@@ -424,6 +461,7 @@ class FlowSessionTest extends FunSuite:
     val fc = makeControl(
       sessions = List(
         SessionRecord(
+          name = "s",
           occurrence = 0,
           id = testSessionId,
           seed = "seed",
@@ -451,8 +489,14 @@ class FlowSessionTest extends FunSuite:
   ):
     // pi: ephemeral sessions, resumeWireId returns None.
     val fc = makeControl(
-      sessions =
-        List(SessionRecord(occurrence = 0, id = testSessionId, seed = "seed"))
+      sessions = List(
+        SessionRecord(
+          name = "s",
+          occurrence = 0,
+          id = testSessionId,
+          seed = "seed"
+        )
+      )
     )
     val agent =
       new StubAgentForSeeded(existsResult = false, learnedWireId = None)
@@ -472,6 +516,7 @@ class FlowSessionTest extends FunSuite:
     val fc = makeControl(
       sessions = List(
         SessionRecord(
+          name = "s",
           occurrence = 0,
           id = testSessionId,
           seed = "seed",
@@ -499,8 +544,14 @@ class FlowSessionTest extends FunSuite:
     // (it went through the raw door); assert it now follows the same protocol.
     val seed = "You are a fixer."
     val fc = makeControl(
-      sessions =
-        List(SessionRecord(occurrence = 0, id = testSessionId, seed = seed)),
+      sessions = List(
+        SessionRecord(
+          name = "s",
+          occurrence = 0,
+          id = testSessionId,
+          seed = seed
+        )
+      ),
       completedStages = List("triage")
     )
     val agent = new StubAgentForSeeded(
@@ -533,8 +584,14 @@ class FlowSessionTest extends FunSuite:
 
   test("resultAs.run on a live session forwards the input verbatim"):
     val fc = makeControl(
-      sessions =
-        List(SessionRecord(occurrence = 0, id = testSessionId, seed = "seed"))
+      sessions = List(
+        SessionRecord(
+          name = "s",
+          occurrence = 0,
+          id = testSessionId,
+          seed = "seed"
+        )
+      )
     )
     val agent = new StubAgentForSeeded(existsResult = true)
     val _ =
@@ -553,23 +610,6 @@ class FlowSessionTest extends FunSuite:
     val session: FlowSession[BackendTag.ClaudeCode.type] =
       agent.session("implementer", "brief")(using fc)
     val recorded = fc.progressStore.load().get.sessions.head
-    assertEquals(session.id.value, recorded.id)
-
-  test("plan.implementerSession seeds the durable session with the plan brief"):
-    // F2 bundle: `plan.implementerSession(agent)` threads `plan.brief` as the
-    // seed automatically, in place of `agent.session(name, seed = plan.brief)`.
-    val fc = makeControl(sessions = Nil)
-    val plan = orca.plan.Plan(
-      epicId = "e",
-      description = "d",
-      tasks = Nil,
-      brief = "codebase brief"
-    )
-    val agent = new StubAgentForSeeded(existsResult = false)
-    val session = plan.implementerSession(agent)(using fc)
-    val recorded = fc.progressStore.load().get.sessions.head
-    assertEquals(recorded.name, "implementer")
-    assertEquals(recorded.seed, "codebase brief")
     assertEquals(session.id.value, recorded.id)
 
   // ── tests: the raw ephemeral door does not accept a FlowSession ──────────────

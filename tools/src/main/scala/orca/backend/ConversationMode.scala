@@ -14,7 +14,7 @@ package orca.backend
   * diverge (MCP server, mcp-config arg, ask_user hint in system prompt,
   * autoApprove entry) can pattern-match on it once.
   */
-private[orca] enum SessionMode:
+private[orca] enum ConversationMode:
   case Autonomous
   case Interactive(prompt: String)
 

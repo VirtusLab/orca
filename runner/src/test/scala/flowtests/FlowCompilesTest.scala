@@ -326,7 +326,7 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude).value
 
-      val session = plan.implementerSession(claude)
+      val session = claude.session("implementer", seed = plan.brief)
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
@@ -348,7 +348,7 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.interactive.from(userPrompt, claude).value
 
-      val session = plan.implementerSession(claude)
+      val session = claude.session("implementer", seed = plan.brief)
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
@@ -360,15 +360,15 @@ object FlowCanary:
             formatCommand = Some("cargo fmt")
           )
 
-  /** `implement-enhanced.sc`: plan → `.reviewed` → `plan.implementerSession` →
-    * task loop with `taskPrompt` → `openPrFromBranch`.
+  /** `implement-enhanced.sc`: plan → `.reviewed` → the seeded implementer
+    * session → task loop with `taskPrompt` → `openPrFromBranch`.
     */
   def enhancedImplementFlowShape(): Unit =
     flow(OrcaArgs(), _.claude):
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude).reviewed(claude).value
 
-      val session = plan.implementerSession(claude)
+      val session = claude.session("implementer", seed = plan.brief)
 
       for task <- plan.tasks do
         stage(s"task: ${task.title}"):
@@ -400,7 +400,7 @@ object FlowCanary:
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude.opus).value
 
-      val session = plan.implementerSession(claude)
+      val session = claude.session("implementer", seed = plan.brief)
       val reviewers: List[Agent[?]] = allReviewers(codex)
 
       for task <- plan.tasks do
@@ -443,7 +443,7 @@ object FlowCanary:
           gh.writeComment(issueHandle, rejectionBody)
 
       maybePlan.foreach: plan =>
-        val session = plan.implementerSession(claude)
+        val session = claude.session("implementer", seed = plan.brief)
 
         for task <- plan.tasks do
           stage(s"task: ${task.title}"):

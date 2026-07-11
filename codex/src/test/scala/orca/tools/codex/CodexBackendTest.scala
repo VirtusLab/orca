@@ -422,7 +422,7 @@ class CodexBackendTest extends munit.FunSuite:
       )
 
   test(
-    "sessionExists is registry-gated: true when the mapped SERVER id has a rollout file"
+    "willContinue is registry-gated: true when the mapped SERVER id has a rollout file"
   ):
     // Codex mints its own thread id; a rollout file is named with that SERVER
     // id, never the client id. `exists` resolves client→server via the registry
@@ -437,9 +437,9 @@ class CodexBackendTest extends munit.FunSuite:
         clientSid,
         WireSessionId[BackendTag.Codex.type](serverId)
       )
-      assert(backend.sessions.exists(clientSid))
+      assert(backend.sessions.willContinue(clientSid))
 
-  test("sessionExists returns false when there is no client→server mapping"):
+  test("willContinue returns false when there is no client→server mapping"):
     // No registration: the client id resolves to no server id, so the probe
     // never runs — even if a rollout file happens to be named with the client
     // id (which codex never does in practice).
@@ -451,9 +451,9 @@ class CodexBackendTest extends munit.FunSuite:
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
     ): backend =>
-      assert(!backend.sessions.exists(clientSid))
+      assert(!backend.sessions.willContinue(clientSid))
 
-  test("sessionExists returns false when no matching file exists"):
+  test("willContinue returns false when no matching file exists"):
     val tmpSessions = TempDirs.dir()
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
@@ -462,9 +462,9 @@ class CodexBackendTest extends munit.FunSuite:
         clientSid,
         WireSessionId[BackendTag.Codex.type]("thr-server-1")
       )
-      assert(!backend.sessions.exists(clientSid))
+      assert(!backend.sessions.willContinue(clientSid))
 
-  test("sessionExists returns false when the sessions dir is absent"):
+  test("willContinue returns false when the sessions dir is absent"):
     val missing = TempDirs.dir() / "no-such-sessions"
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), missing)
@@ -473,10 +473,10 @@ class CodexBackendTest extends munit.FunSuite:
         clientSid,
         WireSessionId[BackendTag.Codex.type]("thr-server-1")
       )
-      assert(!backend.sessions.exists(clientSid))
+      assert(!backend.sessions.willContinue(clientSid))
 
   test(
-    "sessionExists returns false for a mapped SERVER id `.*` even when rollout files exist (blocks regex injection)"
+    "willContinue returns false for a mapped SERVER id `.*` even when rollout files exist (blocks regex injection)"
   ):
     val tmpSessions = TempDirs.dir()
     // Create a rollout file that the old regex `rollout-.*-.*\.jsonl` would match
@@ -491,4 +491,4 @@ class CodexBackendTest extends munit.FunSuite:
         clientSid,
         WireSessionId[BackendTag.Codex.type](".*")
       )
-      assert(!backend.sessions.exists(clientSid))
+      assert(!backend.sessions.willContinue(clientSid))

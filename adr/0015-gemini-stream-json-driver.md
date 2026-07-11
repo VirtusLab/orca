@@ -93,7 +93,7 @@ Concretely:
   unconditional — the direct analog of codex's `--skip-git-repo-check`
   (equivalent to `GEMINI_CLI_TRUST_WORKSPACE=true`). Found via the gated
   integration run.
-- `GeminiBackend` keeps a `SessionRegistry.ClientToServer` mapping the
+- `GeminiBackend` keeps a server-minted `SessionSupport` mapping the
   caller's client id to gemini's `init`-reported session id (gemini mints
   its own), committing the mapping post-drain so a follow-up call resumes
   via `--resume`. Identical scheme to Codex.

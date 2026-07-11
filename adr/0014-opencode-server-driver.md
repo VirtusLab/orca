@@ -74,7 +74,7 @@ use our own ids: `POST /session` has no `id` field (verified — server always m
 framework's **interactive** path pins the caller's `SessionId` and reconciles via
 `backend.registerSession(client, server)` (`DefaultAgentCall` returns the caller's
 `session`, not `result.sessionId`) — so the mapping lives at the framework level
-regardless. Use `SessionRegistry.ClientToServer` + the `registerSession` override,
+regardless. Use a server-minted `SessionSupport` + the `registerSession` override,
 exactly like Codex; return `result.copy(sessionId = session)` to keep the caller's
 handle stable.
 
@@ -179,8 +179,8 @@ streams; not needed for v1.
 
 `OpencodeBackend` takes the `CliRunner` (consistent with Claude/Codex) and holds
 the lazily-initialized `OpencodeServer` (started on first use, per above).
-`sessions = SessionRegistry.ClientToServer[BackendTag.Opencode.type]` (server
-allocates ids). Unlike Codex there is **no resume endpoint** — `dispatchFor`'s
+`sessions = SessionSupport.durable[BackendTag.Opencode.type](IdScheme.ServerMinted, …)`
+(server allocates ids). Unlike Codex there is **no resume endpoint** — `dispatchFor`'s
 `Resume(serverId)` just means "POST to the same `ses_…` via the normal `/message`
 endpoint"; only `Fresh` does an extra `POST /session` first.
 

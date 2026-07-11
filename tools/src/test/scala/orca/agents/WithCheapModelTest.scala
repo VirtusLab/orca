@@ -5,7 +5,7 @@ import orca.backend.{
   Interaction,
   AgentBackend,
   AgentResult,
-  SessionRegistry,
+  IdScheme,
   SessionSupport
 }
 import orca.events.OrcaListener
@@ -73,7 +73,7 @@ class WithCheapModelTest extends munit.FunSuite:
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.Pi.type] = ???
     val sessions: SessionSupport[BackendTag.Pi.type] =
-      SessionSupport.Ephemeral(new SessionRegistry.ClaimedOnce)
+      SessionSupport.ephemeral(IdScheme.ClientClaimed)
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
       Enforcement.Ignored

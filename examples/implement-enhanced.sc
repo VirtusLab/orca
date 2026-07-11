@@ -54,7 +54,7 @@ flow(OrcaArgs(args), _.claude, returnToStartBranch = true):
 
   // Get-or-create the implementer session, seeded with the plan brief so the
   // agent has codebase context from the start (replayed on resume if lost).
-  val session = plan.implementerSession(agent)
+  val session = agent.session("implementer", seed = plan.brief)
 
   for task <- plan.tasks do
     stage(s"Task: ${task.title}"):      // skipped on resume if already done

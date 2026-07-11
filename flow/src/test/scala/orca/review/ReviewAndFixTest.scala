@@ -17,7 +17,7 @@ import orca.agents.{
   ToolSet,
   WireSessionId
 }
-import orca.backend.{SessionRegistry, SessionSupport}
+import orca.backend.{IdScheme, SessionSupport}
 import orca.progress.SessionRecord
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, Usage}
 import orca.testkit.TempDirs
@@ -115,9 +115,9 @@ private class TokenEmittingReviewer(
 
 /** A coder stub for the fix-turn seeding test: captures the prompt its
   * structured `run` receives (after the [[orca.FlowSession]] door composes
-  * seed/preamble) and drives `sessionExists` via a real, registry-gated
-  * [[SessionSupport.Durable]] so a test can exercise both the fresh (re-seed)
-  * and live (no re-seed) branches of the fix turn. Always returns `fixOutcome`.
+  * seed/preamble) and drives `willContinue` via a real durable
+  * [[SessionSupport]] so a test can exercise both the fresh (re-seed) and live
+  * (no re-seed) branches of the fix turn. Always returns `fixOutcome`.
   */
 private class SeedProbingCoder(
     existsResult: Boolean,
@@ -127,18 +127,21 @@ private class SeedProbingCoder(
 
   @volatile var capturedFixPrompt: Option[String] = None
 
-  // A fresh registry per access, committed (only when `existsResult`) so the
-  // registry-gated probe returns `existsResult`; mirrors the durability wiring
-  // `Agent.sessionExists` / `resumeWireId` route through.
+  // A fresh support per access, registered (only when `existsResult`) so the
+  // mapping-gated probe returns `existsResult`; mirrors the durability wiring
+  // `Agent.willContinue` / `resumeWireId` route through.
   override private[orca] def sessionSupport
       : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
-    val reg = new SessionRegistry.ClientToServer[BackendTag.ClaudeCode.type]
+    val support = SessionSupport.durable[BackendTag.ClaudeCode.type](
+      IdScheme.ServerMinted,
+      _ => existsResult
+    )
     if existsResult then
-      reg.commitSuccess(
+      support.register(
         SessionId[BackendTag.ClaudeCode.type]("s"),
         WireSessionId[BackendTag.ClaudeCode.type]("wire-s")
       )
-    Some(SessionSupport.Durable(reg, _ => existsResult))
+    Some(support)
 
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
   def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
@@ -754,7 +757,7 @@ class ReviewAndFixTest extends munit.FunSuite:
       val control = ReviewLoopFixture.control(new EventDispatcher(Nil))
       // Record the coder session's seed under its id ("s", from the fixture).
       control.progressStore.upsertSession(
-        SessionRecord(occurrence = 0, id = "s", seed = seed)
+        SessionRecord(name = "s", occurrence = 0, id = "s", seed = seed)
       )
       given FlowControl = control
       val coder = new SeedProbingCoder(

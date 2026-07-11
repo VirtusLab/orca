@@ -30,7 +30,7 @@ import orca.agents.{
   ToolSet,
   onWire
 }
-import orca.backend.{Dispatch, SessionRegistry, SessionSupport}
+import orca.backend.{IdScheme, SessionSupport}
 import orca.progress.{ProgressHeader, ProgressStore, SessionRecord, StageEntry}
 import orca.runner.terminal.TerminalInteraction
 import orca.tools.{FsTool, GitHubTool, GitTool, OsGitTool}
@@ -502,6 +502,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     val store = storeWith(
       SessionRecord(
+        name = "s",
         occurrence = 0,
         id = "c-1",
         seed = "s",
@@ -513,14 +514,15 @@ class FlowLifecycleTest extends munit.FunSuite:
     val codex = new RecordingCodex
     val ctx = new StubFlowContext(codexOverride = codex)
     FlowLifecycle.rehydrateSessions(ctx, lead, store)
-    assertEquals(lead.registered, Nil)
-    assertEquals(codex.registered, List("c-1" -> "srv-9"))
+    assertEquals(lead.recordedWire("c-1"), None)
+    assertEquals(codex.recordedWire("c-1"), Some("srv-9"))
 
   test(
     "rehydrateSessions falls back to the lead for an untagged (older) record"
   ):
     val store = storeWith(
       SessionRecord(
+        name = "s",
         occurrence = 0,
         id = "old-1",
         seed = "s",
@@ -530,13 +532,14 @@ class FlowLifecycleTest extends munit.FunSuite:
     val lead = new RecordingClaude
     val ctx = new StubFlowContext()
     FlowLifecycle.rehydrateSessions(ctx, lead, store)
-    assertEquals(lead.registered, List("old-1" -> "srv-1"))
+    assertEquals(lead.recordedWire("old-1"), Some("srv-1"))
 
   test(
     "rehydrateSessions skips a record with an unknown backend tag, and warns loudly (6B.1)"
   ):
     val store = storeWith(
       SessionRecord(
+        name = "s",
         occurrence = 0,
         id = "x-1",
         seed = "s",
@@ -552,7 +555,9 @@ class FlowLifecycleTest extends munit.FunSuite:
       emitTo = listener.onEvent
     )
     FlowLifecycle.rehydrateSessions(ctx, lead, store)
-    assert(lead.registered.isEmpty && codex.registered.isEmpty)
+    assert(
+      lead.recordedWire("x-1").isEmpty && codex.recordedWire("x-1").isEmpty
+    )
     // Pre-6B.1 this skip was a silent for-comprehension drop; it must now
     // reach the event surface as a Step, not just vanish.
     val steps = listener.events.collect { case s: OrcaEvent.Step => s }
@@ -572,6 +577,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // reuse-arm treatment of the same corruption.
     val badIdStore = storeWith(
       SessionRecord(
+        name = "s",
         occurrence = 0,
         id = "../../etc/passwd",
         seed = "s",
@@ -582,7 +588,10 @@ class FlowLifecycleTest extends munit.FunSuite:
     val listener = new RecordingListener
     val ctx = new StubFlowContext(emitTo = listener.onEvent)
     FlowLifecycle.rehydrateSessions(ctx, lead, badIdStore)
-    assert(lead.registered.isEmpty, "an unsafe recorded id must not rehydrate")
+    assert(
+      lead.recordedWire("../../etc/passwd").isEmpty,
+      "an unsafe recorded id must not rehydrate"
+    )
     val steps = listener.events.collect { case s: OrcaEvent.Step => s }
     assert(
       steps.exists(s =>
@@ -596,6 +605,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     val badWireStore = storeWith(
       SessionRecord(
+        name = "s",
         occurrence = 0,
         id = "c-2",
         seed = "s",
@@ -607,7 +617,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val ctx2 = new StubFlowContext(emitTo = listener2.onEvent)
     FlowLifecycle.rehydrateSessions(ctx2, lead2, badWireStore)
     assert(
-      lead2.registered.isEmpty,
+      lead2.recordedWire("c-2").isEmpty,
       "an unsafe recorded wire id must not rehydrate"
     )
     val steps2 = listener2.events.collect { case s: OrcaEvent.Step => s }
@@ -660,6 +670,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val _ = git.commit("orca: progress log")
     store.upsertSession(
       SessionRecord(
+        name = "s",
         occurrence = 0,
         id = "client-uuid",
         seed = "brief",
@@ -689,9 +700,9 @@ class FlowLifecycleTest extends munit.FunSuite:
       ):
         // The body observes the already-rehydrated mapping.
         assertEquals(
-          recorder.registered,
-          List(("client-uuid", "ses_server_1")),
-          "registerResumeWireId must be called once with the persisted mapping"
+          recorder.recordedWire("client-uuid"),
+          Some("ses_server_1"),
+          "registerResumeWireId must replay the persisted mapping"
         )
 
   /** Drive `runFlow` directly (exit-free) with a null-sink interaction so no
@@ -1246,6 +1257,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val _ = git.commit("orca: progress log")
     store.upsertSession(
       SessionRecord(
+        name = "s",
         occurrence = 0,
         id = "client-uuid",
         seed = "brief",
@@ -1518,34 +1530,24 @@ class FlowLifecycleTest extends munit.FunSuite:
       val _ = seen.updateAndGet(event :: _)
     def events: List[OrcaEvent] = seen.get().reverse
 
-  /** In-memory `SessionRegistry` that records every `commitSuccess` call as a
-    * `(client, server)` string pair, exposed via `registered`. Shared by the
-    * per-backend recording stubs below (routed through the `final`
-    * `Agent.registerResumeWireId` → [[SessionSupport.register]] →
-    * `commitSuccess`) so each stub only wires its own instance rather than
-    * repeating the bookkeeping.
-    */
-  private class RecordingRegistry[B <: BackendTag] extends SessionRegistry[B]:
-    private var _registered: List[(String, String)] = Nil
-    def registered: List[(String, String)] = _registered
-    def dispatchFor(client: SessionId[B]): Dispatch[B] =
-      Dispatch.Fresh(Some(client.onWire))
-    def commitSuccess(client: SessionId[B], server: WireSessionId[B]): Unit =
-      _registered = _registered :+ (client.value -> server.value)
-    def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] = None
-
-  /** A `ClaudeAgent` that records `registerResumeWireId` calls, to assert the
-    * lifecycle rehydrates the persisted resume-wire-id map into the RIGHT
-    * agent. All LLM methods throw — the rehydration tests never invoke the
-    * model.
+  /** A `ClaudeAgent` over a real durable capability, so a test can assert the
+    * lifecycle rehydrated the persisted resume-wire-id map into the RIGHT agent
+    * — query the registered mapping via [[recordedWire]]. All LLM methods
+    * throw; the rehydration tests never invoke the model.
     */
   private class RecordingClaude extends ClaudeAgent:
-    private val registry = new RecordingRegistry[BackendTag.ClaudeCode.type]
-    def registered: List[(String, String)] = registry.registered
+    private val support = SessionSupport
+      .durable[BackendTag.ClaudeCode.type](IdScheme.ServerMinted, _ => false)
+
+    /** The wire id rehydration registered for `client`, if any. */
+    def recordedWire(client: String): Option[String] =
+      support
+        .persistableWireId(SessionId[BackendTag.ClaudeCode.type](client))
+        .map(WireSessionId.value(_))
 
     override private[orca] def sessionSupport
         : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
-      Some(SessionSupport.Durable(registry, _ => false))
+      Some(support)
 
     val name = "recording-claude"
     def haiku = this
@@ -1564,28 +1566,14 @@ class FlowLifecycleTest extends munit.FunSuite:
         : AgentCall[BackendTag.ClaudeCode.type, O] =
       throw new UnsupportedOperationException
 
-  /** A `ClaudeAgent` whose session registry throws when the runtime replays a
-    * persisted resume-wire-id — so a rehydration failure can be exercised
-    * end-to-end. Modelled on [[RecordingClaude]] but with a throwing registry;
-    * every LLM call throws (no test reaches one).
+  /** A `ClaudeAgent` whose session-capability accessor throws when the runtime
+    * touches it during rehydration — so a rehydration-phase failure can be
+    * exercised end-to-end. Every LLM call throws (no test reaches one).
     */
   private class ThrowingRehydrateClaude extends ClaudeAgent:
-    private val registry = new SessionRegistry[BackendTag.ClaudeCode.type]:
-      def dispatchFor(
-          client: SessionId[BackendTag.ClaudeCode.type]
-      ): Dispatch[BackendTag.ClaudeCode.type] =
-        Dispatch.Fresh(Some(client.onWire))
-      def commitSuccess(
-          client: SessionId[BackendTag.ClaudeCode.type],
-          server: WireSessionId[BackendTag.ClaudeCode.type]
-      ): Unit = throw new RuntimeException("rehydrate boom")
-      def resumeWireId(
-          client: SessionId[BackendTag.ClaudeCode.type]
-      ): Option[WireSessionId[BackendTag.ClaudeCode.type]] = None
-
     override private[orca] def sessionSupport
         : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
-      Some(SessionSupport.Durable(registry, _ => false))
+      throw new RuntimeException("rehydrate boom")
 
     val name = "throwing-rehydrate-claude"
     def haiku = this
@@ -1618,12 +1606,18 @@ class FlowLifecycleTest extends munit.FunSuite:
     * the (claude) lead.
     */
   private class RecordingCodex extends CodexAgent:
-    private val registry = new RecordingRegistry[BackendTag.Codex.type]
-    def registered: List[(String, String)] = registry.registered
+    private val support = SessionSupport
+      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
+
+    /** The wire id rehydration registered for `client`, if any. */
+    def recordedWire(client: String): Option[String] =
+      support
+        .persistableWireId(SessionId[BackendTag.Codex.type](client))
+        .map(WireSessionId.value(_))
 
     override private[orca] def sessionSupport
         : Option[SessionSupport[BackendTag.Codex.type]] =
-      Some(SessionSupport.Durable(registry, _ => false))
+      Some(support)
 
     val name = "recording-codex"
     def mini = this

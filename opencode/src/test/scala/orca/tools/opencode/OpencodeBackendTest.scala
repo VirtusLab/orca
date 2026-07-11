@@ -205,7 +205,7 @@ class OpencodeBackendTest extends munit.FunSuite:
     assert(handle.closed, "backend.close() must close the server handle")
 
   test(
-    "sessionExists never spawns the server when there is no client→server " +
+    "willContinue never spawns the server when there is no client→server " +
       "mapping (the no-spurious-spawn guarantee)"
   ):
     supervised:
@@ -216,7 +216,7 @@ class OpencodeBackendTest extends munit.FunSuite:
         new FakeHandle(fail("must not spawn"))
       )
       val client = fresh
-      assert(!backend.sessions.exists(client))
+      assert(!backend.sessions.willContinue(client))
 
   test(
     "a probe with a rehydrated wire id spawns the server and returns its answer"
@@ -239,10 +239,10 @@ class OpencodeBackendTest extends munit.FunSuite:
         client,
         WireSessionId[BackendTag.Opencode.type]("ses_server1")
       )
-      assert(backend.sessions.exists(client))
+      assert(backend.sessions.willContinue(client))
 
   test(
-    "sessionExists returns false when there is no client→server mapping"
+    "willContinue returns false when there is no client→server mapping"
   ):
     supervised:
       // Server started (would answer 200), but the probed client id was never
@@ -256,7 +256,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val _ =
         backend.runAutonomous("hi", fresh, AgentConfig())
       // A different, unmapped client id resolves to no server id → false.
-      assert(!backend.sessions.exists(fresh))
+      assert(!backend.sessions.willContinue(fresh))
 
   test("probeSession returns true when getStatus is 200"):
     supervised:
@@ -274,7 +274,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       assert(!backend.probeSession("ses_missing", http))
 
   test(
-    "sessionExists probes the SERVER id: true after a turn maps client→server"
+    "willContinue probes the SERVER id: true after a turn maps client→server"
   ):
     supervised:
       val existingId = "ses_server1"
@@ -288,10 +288,10 @@ class OpencodeBackendTest extends munit.FunSuite:
       val _ =
         backend.runAutonomous("hi", client, AgentConfig())
       // Probing the CLIENT id resolves to the server id, which the server has.
-      assert(backend.sessions.exists(client))
+      assert(backend.sessions.willContinue(client))
 
   test(
-    "sessionExists returns false when the mapped server id is unknown to the server"
+    "willContinue returns false when the mapped server id is unknown to the server"
   ):
     supervised:
       val http = new FakeHttp(turn("ses_server1", "stop", Nil), _ => 404)
@@ -300,7 +300,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       val _ =
         backend.runAutonomous("hi", client, AgentConfig())
       // client → ses_server1 is mapped, but the server now 404s for it.
-      assert(!backend.sessions.exists(client))
+      assert(!backend.sessions.willContinue(client))
 
   test(
     "probeSession returns false when getStatus throws (verifies NonFatal catch)"
@@ -313,7 +313,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       assert(!backend.probeSession("ses_abc", http))
 
   test(
-    "sessionExists returns false for a malicious mapped server id (slashes)"
+    "willContinue returns false for a malicious mapped server id (slashes)"
   ):
     supervised:
       val http = new FakeHttp(Nil, _ => 200) // would return 200 if called
@@ -324,10 +324,10 @@ class OpencodeBackendTest extends munit.FunSuite:
         client,
         WireSessionId[BackendTag.Opencode.type]("a/b")
       )
-      assert(!backend.sessions.exists(client))
+      assert(!backend.sessions.willContinue(client))
 
   test(
-    "sessionExists returns false for a malicious mapped server id (query/fragment chars)"
+    "willContinue returns false for a malicious mapped server id (query/fragment chars)"
   ):
     supervised:
       val http = new FakeHttp(Nil, _ => 200)
@@ -337,7 +337,7 @@ class OpencodeBackendTest extends munit.FunSuite:
         client,
         WireSessionId[BackendTag.Opencode.type]("x?y#z")
       )
-      assert(!backend.sessions.exists(client))
+      assert(!backend.sessions.willContinue(client))
 
   test(
     "a session-creation failure never opens the SSE stream (open-path leak)"

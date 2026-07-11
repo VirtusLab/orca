@@ -10,8 +10,8 @@ import orca.backend.{
   Dispatch,
   AgentBackend,
   AgentResult,
-  SessionMode,
-  SessionRegistry,
+  ConversationMode,
+  IdScheme,
   SessionSupport,
   StreamSource
 }
@@ -47,9 +47,9 @@ private[opencode] trait OpencodeServerHandle:
   * at construction ([[OpencodeBackend.apply]]) and shared across turns; the
   * process spawn behind it stays lazy.
   *
-  * OpenCode mints `ses_…` ids, so — like Codex — a
-  * [[SessionRegistry.ClientToServer]] maps the caller's stable id to the server
-  * id; [[runAutonomous]] returns the caller's id so it stays the handle.
+  * OpenCode mints `ses_…` ids, so — like Codex — a [[IdScheme.ServerMinted]]
+  * bookkeeping maps the caller's stable id to the server id; [[runAutonomous]]
+  * returns the caller's id so it stays the handle.
   *
   * A turn relies on the server emitting a terminal
   * `session.idle`/`session.error` (or closing the SSE stream); there is no
@@ -99,7 +99,7 @@ private[orca] class OpencodeBackend(
         config,
         prompt,
         outputSchema,
-        SessionMode.Autonomous
+        ConversationMode.Autonomous
       )
 
   def runInteractive(
@@ -118,7 +118,7 @@ private[orca] class OpencodeBackend(
       config,
       prompt,
       outputSchema,
-      SessionMode.Interactive(displayPrompt)
+      ConversationMode.Interactive(displayPrompt)
     )
 
   /** Probe `http` for the given session id via `GET /session/<id>` → status
@@ -131,19 +131,19 @@ private[orca] class OpencodeBackend(
     try http.getStatus(s"/session/$id") == 200
     catch case NonFatal(_) => false
 
-  /** OpenCode's `ses_…` sessions are server-side and durable, so it is
-    * [[SessionSupport.Durable]]: the client→server map is persisted to the
-    * progress log and rehydrated on resume. Existence probes the SERVER id the
-    * registry resolves for a client (opencode mints server-side ids; the
-    * caller's stable id never matches one) via `GET /session/<serverId>` → 200.
+  /** OpenCode's `ses_…` sessions are server-side and durable: the client→server
+    * map is persisted to the progress log and rehydrated on resume. Existence
+    * probes the SERVER id resolved for a client (opencode mints server-side
+    * ids; the caller's stable id never matches one) via `GET
+    * /session/<serverId>` → 200.
     *
-    * Because [[SessionSupport.exists]] is registry-gated, `false` results when
-    * no server id is mapped — which includes a server id that failed the
-    * [[orca.agents.SessionId.isSafe]] guard at commit time (blocks URL
-    * injection such as `a/b` routing to a different endpoint): `register`/
-    * `commitAfterDrain` refuse to record it, so it never reaches the registry
-    * for `exists` to resolve — as well as the map not having been rehydrated
-    * yet (⇒ no known live session), or the request failing for any reason.
+    * Because [[SessionSupport.willContinue]] resolves the recorded mapping
+    * first, `false` results when no server id is mapped — which includes a
+    * server id that failed the [[orca.agents.SessionId.isSafe]] guard at commit
+    * time (blocks URL injection such as `a/b` routing to a different endpoint):
+    * `register`/`commitAfterDrain` refuse to record it — as well as the map not
+    * having been rehydrated yet (⇒ no known live session), or the request
+    * failing for any reason.
     *
     * Sessions genuinely outlive the process: opencode persists them to a global
     * on-disk store shared by every `opencode serve` on the machine
@@ -154,11 +154,11 @@ private[orca] class OpencodeBackend(
     * has already started: on resume the registry has a mapped id but no turn
     * has necessarily touched the server yet, so gating on "already spawned"
     * would answer "absent" before ever asking the (perfectly capable) fresh
-    * server — which is exactly the bug this probe used to have. This is safe
-    * because [[SessionSupport.exists]] short-circuits on no mapped id, so the
-    * forced spawn only fires when there is a wire id to resume — i.e. precisely
-    * when the server is about to be needed for a turn anyway. The per-run
-    * server process is an implementation detail, not a durability boundary.
+    * server. This is safe because [[SessionSupport.willContinue]]
+    * short-circuits on no mapped id, so the forced spawn only fires when there
+    * is a wire id to resume — i.e. precisely when the server is about to be
+    * needed for a turn anyway. The per-run server process is an implementation
+    * detail, not a durability boundary.
     */
   val tag: BackendTag.Opencode.type = BackendTag.Opencode
 
@@ -168,21 +168,21 @@ private[orca] class OpencodeBackend(
   ): Enforcement =
     OpencodeArgs.enforcement(tools, autoApprove)
 
-  /** The sole session handle. The wrapped [[SessionRegistry.ClientToServer]]
-    * maps the caller's stable id to opencode's server-minted `ses_…` id, so
-    * subsequent turns resume it. The registry is encapsulated; the spawn/commit
-    * paths go through `sessions.dispatchFor` /
-    * `Conversations.runAutonomous(session, sessions, …)`.
+  /** The sole session handle. [[IdScheme.ServerMinted]]: the caller's stable id
+    * maps to opencode's server-minted `ses_…` id, so subsequent turns resume
+    * it. The bookkeeping is encapsulated; the spawn/commit paths go through
+    * `sessions.dispatchFor` / `Conversations.runAutonomous(session, sessions,
+    * …)`.
     */
   val sessions: SessionSupport[BackendTag.Opencode.type] =
-    SessionSupport.Durable(
-      new SessionRegistry.ClientToServer[BackendTag.Opencode.type],
+    SessionSupport.durable(
+      IdScheme.ServerMinted,
       // No `server.started &&` guard: opencode persists sessions in its
       // global on-disk DB, and a freshly (lazily) spawned server resumes
       // them, so the probe must be allowed to force the spawn — gating on
-      // "already started" used to short-circuit the very first resume probe
+      // "already started" would short-circuit the very first resume probe
       // of a run, before anything had forced `server.http` yet. Safe because
-      // `SessionSupport.Durable.exists` short-circuits on no mapped wire id,
+      // `SessionSupport.willContinue` short-circuits on no mapped wire id,
       // so the forced spawn only fires on a genuine resume, when the server
       // is about to be needed for a turn anyway.
       id => probeSession(id, server.http)
@@ -219,7 +219,7 @@ private[orca] class OpencodeBackend(
       config: AgentConfig,
       prompt: String,
       outputSchema: Option[String],
-      mode: SessionMode
+      mode: ConversationMode
   ): OpencodeConversation =
     val serverSession = serverSessionFor(http, session)
     val source = http.events()
@@ -250,7 +250,7 @@ private[orca] class OpencodeBackend(
       config: AgentConfig,
       prompt: String,
       outputSchema: Option[String],
-      mode: SessionMode
+      mode: ConversationMode
   ): OpencodeConversation =
     val displayPrompt = mode.displayPrompt
     val canAsk = mode.isInteractive
