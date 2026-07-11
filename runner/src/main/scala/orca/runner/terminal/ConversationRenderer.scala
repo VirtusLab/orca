@@ -101,14 +101,10 @@ private[terminal] class ConversationRenderer(
     case ConversationEvent.AssistantTextDelta(text) =>
       bufferText(text, AssistantGlyph, AssistantGlyphStyle, AssistantTextStyle)
     case ConversationEvent.AssistantThinkingDelta(_) =>
-      // Never rendered: showThinking (Task 12.6) was dead in production —
-      // zero wiring ever set it true — and buffering thinking text into the
-      // same textBuffer/pendingProseStyling assistant prose uses risked
-      // mis-styling the whole turn (whichever delta kind arrived first won
-      // the styling for the rest of the buffered block). Dropping the case
-      // body entirely removes both the dead flag and that latent bug at
-      // once, rather than adding a flush-on-style-change to keep a feature
-      // nothing ever turned on.
+      // Deliberately dropped: there is no thinking-display toggle, and
+      // buffering thinking into the shared textBuffer/pendingProseStyling
+      // would mis-style the whole turn (whichever delta kind arrives first
+      // wins the styling for the rest of the buffered block).
       ()
     case ConversationEvent.AssistantToolCall(name, input) =>
       renderToolCall(name, input)
