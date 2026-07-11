@@ -31,7 +31,14 @@ private[orca] class LoggingListener extends OrcaListener:
     case OrcaEvent.ToolUse(tool, args) =>
       log.debug("tool use: {} {}", tool, args)
     case OrcaEvent.StructuredResult(raw, summary) =>
-      log.debug("structured result: {}", summary.getOrElse(raw))
+      // The trace mirror always records the payload: on a deliberately
+      // silent summary (`Some("")`) or a missing one (`None`), log the raw
+      // JSON — display-level silence must not hide the result from the
+      // trace file.
+      log.debug(
+        "structured result: {}",
+        summary.filter(_.nonEmpty).getOrElse(raw)
+      )
     case OrcaEvent.TokensUsed(agent, model, usage, role) =>
       log.debug(
         "tokens: agent={} role={} model={} usage={}",

@@ -163,12 +163,19 @@ class DefaultAgentCall[B <: BackendTag, O](
       runInteractiveOnce(input, config, session)
 
   /** Emit a `StructuredResult` event carrying the raw payload and the
-    * `Announce[O]`-derived summary (if any). The terminal listener renders
-    * `summary` when present and skips otherwise; non-terminal listeners (Slack,
-    * structured logs) can carry `raw` through unchanged.
+    * `Announce[O]`-derived summary. `summary` is tri-state (documented on
+    * [[orca.events.OrcaEvent.StructuredResult]]): text from a specific
+    * `Announce[O]`; `Some("")` when a specific instance deliberately says
+    * nothing (the call site narrates the outcome itself); `None` when no
+    * specific instance exists — renderers then fall back to the raw payload so
+    * the result stays visible. Non-terminal listeners (Slack, structured logs)
+    * can carry `raw` through unchanged either way.
     */
   private def emitStructuredResult(raw: String, value: O): Unit =
-    events.onEvent(OrcaEvent.StructuredResult(raw, announce.message(value)))
+    val summary = announce match
+      case _: Announce.NoSpecific[?] => None
+      case specific                  => specific.message(value).orElse(Some(""))
+    events.onEvent(OrcaEvent.StructuredResult(raw, summary))
 
   /** THE retry policy — the only place in the framework that decides whether an
     * autonomous-turn failure gets retried: parse failures (corrective

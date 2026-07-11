@@ -1,5 +1,6 @@
 package orca.runner
 
+import orca.util.RawJson
 import orca.{
   BranchNamingStrategy,
   FlowContext,
@@ -110,7 +111,9 @@ class FlowLifecycleTest extends munit.FunSuite:
 
     // Simulate stage-one completing: write and commit code + stage entry.
     os.write(workDir / "one.txt", "content")
-    store.appendEntry(StageEntry("stage-one#0", "stage-one", "\"done\""))
+    store.appendEntry(
+      StageEntry("stage-one#0", "stage-one", RawJson("\"done\""))
+    )
     git.forceAdd(store.path)
     val _ = git.commit("stage: stage-one")
 
@@ -173,7 +176,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     git.forceAdd(store.path)
     val _ = git.commit("orca: progress log")
     store.appendEntry(
-      StageEntry("resumable-stage#0", "resumable-stage", "\"ok\"")
+      StageEntry("resumable-stage#0", "resumable-stage", RawJson("\"ok\""))
     )
     git.forceAdd(store.path)
     val _ = git.commit("stage: resumable-stage")

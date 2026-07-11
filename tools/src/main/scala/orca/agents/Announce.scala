@@ -1,20 +1,36 @@
 package orca.agents
 
 /** A human-readable summary for a domain value. The library calls
-  * `message(parsed)` after `AgentCall.resultAs[O]` succeeds and emits a `Step`
-  * event with the result; `None` means "nothing to say" and is dropped
-  * silently. Provide a specific given in the type's companion to opt into a
-  * friendlier rendering.
+  * `message(parsed)` after `AgentCall.resultAs[O]` succeeds and surfaces the
+  * result as an `OrcaEvent.StructuredResult`. Provide a specific given in the
+  * type's companion to opt into a friendlier rendering.
+  *
+  * From a specific given, `Some(text)` is rendered as the result summary and
+  * `None` means "deliberately say nothing" — for results whose outcome the call
+  * site already narrates (e.g. the review loop's per-reviewer lines). A type
+  * with NO specific given resolves to the catch-all [[Announce.default]], which
+  * renderers treat differently: they fall back to showing the raw payload, so
+  * an unannounced result never disappears silently (ADR 0008; ADR 0009
+  * amendment 2026-07-11).
   */
 trait Announce[O]:
   def message(value: O): Option[String]
 
 object Announce:
 
+  /** The catch-all's class — named (rather than a lambda) so the emission edge
+    * (`DefaultAgentCall.emitStructuredResult`) can tell "no specific instance
+    * exists" (renderers fall back to the raw payload) apart from a specific
+    * instance that returns `None` (deliberate silence). The two are different
+    * display contracts.
+    */
+  final private[agents] class NoSpecific[O] extends Announce[O]:
+    def message(value: O): Option[String] = None
+
   /** Catch-all no-op so `Announce[O]` is always resolvable. Specific givens
     * (e.g. `given Announce[Plan]`) win via Scala 3's specificity rules.
     */
-  given default[O]: Announce[O] = _ => None
+  given default[O]: Announce[O] = NoSpecific[O]()
 
   /** Construct from a function returning the message text. Empty strings are
     * normalised to `None` so call sites can write `Announce.from(x => if cond

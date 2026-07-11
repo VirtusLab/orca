@@ -158,3 +158,31 @@ The typeclass won on three counts:
   third-party library.** No such typeclass is in the stdlib, and
   pulling in cats just for this is disproportionate. The local
   typeclass costs ~30 lines and stays in the user's flat import.
+
+## Amendment (2026-07-11): deliberate silence vs. no instance
+
+The consequence above — "`Announce.from(_ => "")` and an absent
+specific given are observationally identical" — is retired. When the
+raw-payload fallback landed (ADR 0008: a result with no `Announce[O]`
+renders the truncated raw JSON under `●` rather than disappearing),
+identity between the two cases silently converted every deliberately
+silent instance (`ReviewResult`, `IgnoredIssues`, `PrSummary` — types
+whose outcome the call site narrates itself) into a raw-JSON line on
+top of the call site's own narration.
+
+`StructuredResult.summary` is now tri-state:
+
+- `Some(text)` — a specific `Announce[O]` produced a summary; rendered
+  as `▶`;
+- `Some("")` — a specific `Announce[O]` deliberately says nothing;
+  rendered as nothing (the trace log still records the raw payload);
+- `None` — no specific `Announce[O]` exists (the catch-all
+  `Announce.default` resolved); renderers fall back to the raw payload
+  under `●` so an unannounced result stays visible.
+
+Authoring is unchanged: `Announce.from(_ => "")` still means "say
+nothing", and `Announce.from`'s empty-string normalisation plus
+`fromOption`'s `None` both land on the deliberate-silence arm. The
+distinction is drawn at the emission edge (`DefaultAgentCall`), which
+recognises the catch-all instance (`Announce.NoSpecific`) rather than
+inspecting the message.

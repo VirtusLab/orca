@@ -6,6 +6,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 }
 import munit.FunSuite
 import orca.agents.JsonData
+import orca.util.RawJson
 
 class ProgressLogTest extends FunSuite:
 
@@ -23,12 +24,12 @@ class ProgressLogTest extends FunSuite:
         StageEntry(
           id = "stage-1",
           name = "Analyse",
-          resultJson = """{"ok":true}"""
+          resultJson = RawJson("""{"ok":true}""")
         ),
         StageEntry(
           id = "stage-2",
           name = "Implement",
-          resultJson = """{"files":["a.scala"]}"""
+          resultJson = RawJson("""{"files":["a.scala"]}""")
         )
       )
     )
@@ -45,7 +46,7 @@ class ProgressLogTest extends FunSuite:
         StageEntry(
           id = "stage-1",
           name = "Plan",
-          resultJson = """{"ok":true}"""
+          resultJson = RawJson("""{"ok":true}""")
         )
       ),
       sessions = List(

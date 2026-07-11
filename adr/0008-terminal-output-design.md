@@ -56,10 +56,13 @@ caller is on a `claude.resultAs[O]` path), the renderer suppresses
 the streamed JSON at `AssistantTurnEnd` and the library emits a
 single `OrcaEvent.StructuredResult(raw, summary)`. The listener
 chooses what to render: the `Announce[O]`-derived summary as `▶`
-when present, or the raw text under `●` when not. Either way the
-user sees one canonical line per result, never the JSON twice. The
-full design rationale lives in
-[ADR 0009](0009-announce-typeclass.md).
+when present, nothing when a specific `Announce[O]` deliberately
+says nothing (`summary == Some("")` — the call site narrates the
+outcome itself), or the raw text under `●` when no `Announce[O]`
+exists at all. Either way the user sees at most one canonical line
+per result, never the JSON twice. The full design rationale lives in
+[ADR 0009](0009-announce-typeclass.md) (see its 2026-07-11
+amendment for the tri-state).
 
 **Tool-call paths under `workDir` show as relative.** Absolute paths
 outside `workDir` stay absolute, so out-of-project file access is
@@ -84,7 +87,7 @@ Used in the event log:
 | ----- | ------ | ------- |
 | `▶` | cyan | Stage start, or a `Step` (single-line note: branch switch, "discarded N issues"). No closing glyph for either. |
 | `▸` | cyan, bold | The user's prompt at the start of an interactive session. |
-| `●` | magenta, bold | An assistant prose message. In structured-output mode the JSON is suppressed during streaming and surfaced via `OrcaEvent.StructuredResult`; the listener renders the `Announce[O]` summary as `▶` if available, falling back to the raw payload under `●`. |
+| `●` | magenta, bold | An assistant prose message. In structured-output mode the JSON is suppressed during streaming and surfaced via `OrcaEvent.StructuredResult`; the listener renders the `Announce[O]` summary as `▶` if available, nothing for a deliberately-silent summary, and falls back to the raw payload under `●` only when no `Announce[O]` exists. |
 | `·` | grey | Assistant "thinking" prose. Hidden by default; `showThinking = true` reveals it. |
 | `⏺` | blue, bold | A tool call the agent is making. The headline argument follows in grey. |
 | `⎿` | grey | The result of the preceding tool call, truncated to one line. |

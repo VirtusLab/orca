@@ -5,6 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   ConfiguredJsonValueCodec
 }
 import orca.agents.{JsonData, given}
+import orca.util.RawJson
 import sttp.tapir.Schema
 
 /** Header capturing the git context in which the progress log was started. */
@@ -14,7 +15,7 @@ case class ProgressHeader(
     promptHash: String
 ) derives JsonData
 
-/** A single stage's outcome, stored as an already-serialised JSON string.
+/** A single stage's outcome, stored as an already-serialised JSON subtree.
   *
   * `id` is the stage's hierarchical path id — `name#occurrence` segments joined
   * by `/` (e.g. `outer#0/inner#0`), where a nested stage carries its enclosing
@@ -24,9 +25,11 @@ case class ProgressHeader(
   *
   * `resultJson` is type-erased at rest — the log is heterogeneous across stage
   * types. Deserialisation back to a typed value happens at the stage call site
-  * (C3), not here.
+  * (C3), not here. It is a [[orca.util.RawJson]], embedded verbatim in the log
+  * file rather than as a string-escaped blob, so the persisted file stays
+  * directly readable when debugging.
   */
-case class StageEntry(id: String, name: String, resultJson: String)
+case class StageEntry(id: String, name: String, resultJson: RawJson)
     derives JsonData
 
 /** A persisted session: the name + occurrence that key it (stage-style — see

@@ -304,9 +304,10 @@ class DefaultAgentCallTest extends munit.FunSuite:
   test(
     "autonomous emits StructuredResult with summary=None under default Announce"
   ):
-    // The library's catch-all `Announce.default` returns an empty
-    // string, which DefaultAgentCall normalises to `None` so listeners
-    // can pattern-match without an empty-string sentinel.
+    // No specific Announce[Answer] in scope, so the catch-all
+    // `Announce.default` resolves — the emission maps that to `None`, the
+    // "no instance wired" arm of the tri-state summary: renderers fall back
+    // to showing the raw payload so the result stays visible.
     val backend = new SequencedBackend(List("""{"value":1}"""))
     val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
     supervised:
@@ -326,6 +327,34 @@ class DefaultAgentCallTest extends munit.FunSuite:
           (raw, summary)
       }
       assertEquals(structured, List(("""{"value":1}""", None)))
+
+  test(
+    "autonomous emits StructuredResult with summary=Some(\"\") for a deliberately-silent Announce"
+  ):
+    // A specific Announce that returns no message (Announce.from(_ => ""),
+    // like ReviewResult's) is DELIBERATE silence — distinct from the
+    // no-instance `None` above: renderers show nothing rather than falling
+    // back to the raw payload.
+    given orca.agents.Announce[Answer] = orca.agents.Announce.from(_ => "")
+    val backend = new SequencedBackend(List("""{"value":7}"""))
+    val seen = AtomicReference[List[orca.events.OrcaEvent]](Nil)
+    supervised:
+      val _ = new DefaultAgentCall[BackendTag.ClaudeCode.type, Answer](
+        backend = backend,
+        effectiveConfig =
+          cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
+        prompts = DefaultPrompts,
+        events = (e: orca.events.OrcaEvent) => {
+          val _ = seen.updateAndGet(e :: _)
+        },
+        interaction = stubInteraction,
+        agentName = "claude"
+      ).autonomous.run("anything")
+      val structured = seen.get().collect {
+        case orca.events.OrcaEvent.StructuredResult(raw, summary) =>
+          (raw, summary)
+      }
+      assertEquals(structured, List(("""{"value":7}""", Some(""))))
 
   test(
     "autonomous emits UserPrompt(serialized) once, plus once per retry"

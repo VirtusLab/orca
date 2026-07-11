@@ -2,6 +2,7 @@ package orca
 
 import scala.annotation.implicitNotFound
 
+// TODO: let's not explain how @implicitNotFound or selaed traits work - we assume that the reader/write know how Scala 3 works. Similarly in other comments.
 /** In-stage LLM-call token. A capability the `stage` implementation (which
   * lives in package `orca`) mints and supplies to its body; user code and tool
   * wrappers receive it as a `using` parameter but can never fabricate one — the

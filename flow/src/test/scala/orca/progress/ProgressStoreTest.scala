@@ -2,6 +2,7 @@ package orca.progress
 
 import munit.FunSuite
 import orca.WorkspaceWrite
+import orca.util.RawJson
 import orca.testkit.TempDirs
 
 class ProgressStoreTest extends FunSuite:
@@ -30,11 +31,23 @@ class ProgressStoreTest extends FunSuite:
     store.writeHeader(header)
 
     val a =
-      StageEntry(id = "stage-1", name = "First", resultJson = """{"v":1}""")
+      StageEntry(
+        id = "stage-1",
+        name = "First",
+        resultJson = RawJson("""{"v":1}""")
+      )
     val aPrime =
-      StageEntry(id = "stage-1", name = "First", resultJson = """{"v":2}""")
+      StageEntry(
+        id = "stage-1",
+        name = "First",
+        resultJson = RawJson("""{"v":2}""")
+      )
     val b =
-      StageEntry(id = "stage-2", name = "Second", resultJson = """{"v":3}""")
+      StageEntry(
+        id = "stage-2",
+        name = "Second",
+        resultJson = RawJson("""{"v":3}""")
+      )
 
     store.appendEntry(a)
     store.appendEntry(aPrime) // same id — should replace a
@@ -42,6 +55,23 @@ class ProgressStoreTest extends FunSuite:
 
     val loaded = store.load()
     assertEquals(loaded.map(_.entries), Some(List(aPrime, b)))
+
+  test("the persisted file embeds resultJson verbatim, not string-escaped"):
+    // `resultJson` is a RawJson: the stage result lands in the file as a JSON
+    // subtree (`"resultJson":{…}`), not an escaped string blob — keeping the
+    // on-disk log directly readable when debugging.
+    val workDir = TempDirs.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    store.writeHeader(header)
+    store.appendEntry(
+      StageEntry(
+        id = "stage-1",
+        name = "First",
+        resultJson = RawJson("""{"v":1}""")
+      )
+    )
+    val contents = os.read(store.path)
+    assert(contents.contains(""""resultJson":{"v":1}"""), contents)
 
   test("load returns None when no file exists"):
     val workDir = TempDirs.dir()
@@ -105,7 +135,7 @@ class ProgressStoreTest extends FunSuite:
     val store = ProgressStore.default(workDir, "my prompt")
     val ex = intercept[IllegalStateException]:
       store.appendEntry(
-        StageEntry(id = "stage-1", name = "First", resultJson = "{}")
+        StageEntry(id = "stage-1", name = "First", resultJson = RawJson("{}"))
       )
     assert(
       ex.getMessage.contains("before writeHeader"),
@@ -149,7 +179,7 @@ class ProgressStoreTest extends FunSuite:
     os.write.over(files.head, "not json {{{")
     val ex = intercept[IllegalStateException]:
       store.appendEntry(
-        StageEntry(id = "stage-1", name = "First", resultJson = "{}")
+        StageEntry(id = "stage-1", name = "First", resultJson = RawJson("{}"))
       )
     assert(
       !ex.getMessage.contains("before writeHeader"),
@@ -307,7 +337,11 @@ class ProgressStoreTest extends FunSuite:
     val store = ProgressStore.default(workDir, "my prompt")
     store.writeHeader(header)
     store.appendEntry(
-      StageEntry(id = "stage-1", name = "First", resultJson = """{"v":1}""")
+      StageEntry(
+        id = "stage-1",
+        name = "First",
+        resultJson = RawJson("""{"v":1}""")
+      )
     )
     assert(store.load().isDefined)
     // The atomic-move temp file must not survive a successful write.

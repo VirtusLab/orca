@@ -69,10 +69,13 @@ private[claude] class ClaudeConversation(
     */
   private var deltasSinceLastFullTurn: Boolean = false
 
-  /** Tool-use ids of `ask_user` calls suppressed in `handleAssistantTurn`.
-    * `handleUserTurn` drops the matching `tool_result` so the user's typed
-    * answer doesn't re-render as `⎿ <answer>` right after the UserQuestion
-    * prompt already surfaced it. See [[orca.backend.AskUserEchoes]].
+  /** Tool-use ids of calls suppressed in `handleAssistantTurn` — `ask_user`
+    * invocations and (in structured mode) the CLI-injected `StructuredOutput`
+    * exit call. `handleUserTurn` drops the matching `tool_result` so the
+    * suppressed exchange doesn't re-render halfway: the user's typed answer as
+    * `⎿ <answer>` right after the UserQuestion prompt already surfaced it, or
+    * the structured payload's acknowledgement. See
+    * [[orca.backend.AskUserEchoes]].
     */
   private val askUserEchoes = new orca.backend.AskUserEchoes
 
@@ -143,6 +146,16 @@ private[claude] class ClaudeConversation(
       // `⎿ <answer>` after the prompt already surfaced it).
       case ContentBlock.ToolUse(id, name, _)
           if name == ClaudeBackend.AskUserToolName =>
+        askUserEchoes.suppress(id)
+      // The CLI-injected structured-output "exit" call (`--json-schema`): the
+      // payload reaches the caller via the result message and surfaces as
+      // `OrcaEvent.StructuredResult`, so rendering the tool call would show
+      // the same JSON twice. Gated on structured mode so a genuine user tool
+      // that happens to be named `StructuredOutput` is unaffected in plain
+      // runs.
+      case ContentBlock.ToolUse(id, name, _)
+          if outputSchema.isDefined &&
+            name == ClaudeBackend.StructuredOutputToolName =>
         askUserEchoes.suppress(id)
       case ContentBlock.ToolUse(_, name, rawInput) =>
         eventQueue.enqueue(ConversationEvent.AssistantToolCall(name, rawInput))

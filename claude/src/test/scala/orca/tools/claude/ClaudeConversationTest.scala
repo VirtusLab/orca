@@ -494,3 +494,67 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val _ = conv.awaitResult()
+
+  convTest(
+    "structured mode suppresses the CLI-injected StructuredOutput ToolUse and its tool_result echo"
+  ):
+    val process = new FakePipedCliProcess()
+    val conv =
+      new ClaudeConversation(process, AgentConfig(), outputSchema = Some("{}"))
+
+    // The final turn of a `--json-schema` run: the model "exits" by calling
+    // the CLI-injected StructuredOutput tool with the payload as input, and
+    // the SDK echoes a matching tool_result. Both are suppressed — the payload
+    // reaches the caller via the result message's structured output and
+    // surfaces as `OrcaEvent.StructuredResult`; rendering the exchange would
+    // show the same JSON twice.
+    process.enqueueStdout(
+      s"""{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_so","name":"${ClaudeBackend.StructuredOutputToolName}","input":{"issues":[]}}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_so","content":"ok"}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-so"}"""
+    )
+    process.closeStdout()
+
+    val events = conv.events.toList
+    assert(
+      !events.exists(_.isInstanceOf[ConversationEvent.AssistantToolCall]),
+      s"StructuredOutput ToolCall should have been suppressed; got: $events"
+    )
+    assert(
+      !events.exists(_.isInstanceOf[ConversationEvent.ToolResult]),
+      s"StructuredOutput's tool_result echo should have been dropped; got: $events"
+    )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+    val _ = conv.awaitResult()
+
+  convTest(
+    "a tool named StructuredOutput is NOT suppressed outside structured mode"
+  ):
+    // The suppression is gated on `outputSchema.isDefined`: in a plain run the
+    // name can only be a genuine (if unluckily named) user tool, and hiding it
+    // would silently drop real activity.
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, AgentConfig())
+
+    process.enqueueStdout(
+      s"""{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_so2","name":"${ClaudeBackend.StructuredOutputToolName}","input":{}}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-so2"}"""
+    )
+    process.closeStdout()
+
+    val events = conv.events.toList
+    assert(
+      events.exists {
+        case ConversationEvent.AssistantToolCall(name, _) =>
+          name == ClaudeBackend.StructuredOutputToolName
+        case _ => false
+      },
+      s"an unlucky user tool named StructuredOutput must stay visible in a plain run; got: $events"
+    )
+    val _ = conv.awaitResult()

@@ -175,6 +175,17 @@ class TerminalEventListenerTest extends munit.FunSuite:
     assert(!output.contains("""{"answer":42}"""), output)
 
   test(
+    "StructuredResult with a deliberately-silent summary (Some(\"\")) renders nothing"
+  ):
+    // A specific Announce[O] that says nothing (e.g. ReviewResult — the review
+    // loop narrates per-reviewer outcomes itself) must not trigger the raw
+    // fallback: that would render the JSON the summary deliberately withheld.
+    val output = renderEvents(
+      List(OrcaEvent.StructuredResult("""{"issues":[]}""", Some("")))
+    )
+    assertEquals(output, "")
+
+  test(
     "StructuredResult raw fallback truncates long payloads with an ellipsis"
   ):
     val long = "{\"x\":\"" + ("a" * 300) + "\"}"

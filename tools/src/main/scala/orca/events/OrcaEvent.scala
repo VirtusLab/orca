@@ -66,7 +66,15 @@ enum OrcaEvent:
 
   /** The agent's final structured payload, after parsing succeeded. `raw` is
     * the verbatim text the agent produced (typically JSON); `summary` is the
-    * `Announce[O]`-derived human-readable form when an instance is configured.
+    * `Announce[O]`-derived human-readable form, tri-state:
+    *
+    *   - `Some(text)` — a specific `Announce[O]` produced a summary; renderers
+    *     show it;
+    *   - `Some("")` — a specific `Announce[O]` deliberately says nothing (the
+    *     call site narrates the outcome itself, e.g. the review loop's
+    *     per-reviewer lines); renderers show nothing;
+    *   - `None` — no specific `Announce[O]` exists; renderers fall back to the
+    *     raw payload so the result stays visible.
     */
   case StructuredResult(raw: String, summary: Option[String])
 

@@ -63,16 +63,17 @@ private[runner] class TerminalEventListener(
     case OrcaEvent.StructuredResult(raw, summary) =>
       // The conversation renderer suppresses the agent's streamed JSON
       // when in structured mode; this event is what surfaces the result.
-      // ADR 0008 fallback: render the `Announce[O]` summary as a `▶`
-      // step when one is provided; otherwise fall back to the raw
-      // payload — collapsed to one line and truncated — in the `●`
-      // assistant-message style. This guarantees a visible result either
-      // way, which is what makes the renderer's structured-mode
-      // suppression (see `ConversationRenderer`'s `structuredMode` doc)
-      // safe: a call site that never wired up an `Announce[O]` still
-      // shows the agent's answer instead of silently dropping it.
+      // `summary` is tri-state (see the event's scaladoc): a summary text
+      // renders as a `▶` step; `Some("")` — a specific `Announce[O]` that
+      // deliberately says nothing because the call site narrates the
+      // outcome itself (e.g. the review loop's per-reviewer lines) —
+      // renders nothing; `None` — no `Announce[O]` wired at all — falls
+      // back to the raw payload, collapsed to one line and truncated, in
+      // the `●` assistant-message style (ADR 0008: an unannounced result
+      // must stay visible, since the streamed JSON was suppressed).
       summary match
-        case Some(s) => output.log(formatStepLine(s))
+        case Some("") => ()
+        case Some(s)  => output.log(formatStepLine(s))
         case None =>
           val collapsed = Text.oneLine(raw, MaxStructuredResultRawLength)
           val glyph = paint(AssistantGlyphStyle, s"$AssistantGlyph ")

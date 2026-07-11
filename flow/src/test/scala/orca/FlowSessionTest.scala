@@ -21,6 +21,7 @@ import orca.agents.{
 import orca.progress.{ProgressHeader, ProgressStore, StageEntry, SessionRecord}
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.testkit.TempDirs
+import orca.util.RawJson
 
 /** Tests for [[FlowSession]] — the durable-session handle that owns the probe →
   * seed/preamble → run → persist protocol (ADR 0018 §2.6, absorbs the former
@@ -202,7 +203,11 @@ class FlowSessionTest extends FunSuite:
     for record <- sessions do store.upsertSession(record)
     for stageName <- completedStages do
       store.appendEntry(
-        StageEntry(id = s"$stageName#0", name = stageName, resultJson = "null")
+        StageEntry(
+          id = s"$stageName#0",
+          name = stageName,
+          resultJson = RawJson("null")
+        )
       )
     val git = new orca.tools.OsGitTool(dir)
     new TestFlowControl(new orca.events.EventDispatcher(Nil), git, store, "p")

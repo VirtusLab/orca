@@ -1,5 +1,6 @@
 package orca
 
+import orca.util.RawJson
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.progress.StageEntry
 
@@ -31,7 +32,7 @@ class StageRuntimeTest extends munit.FunSuite:
     // And the result is recorded for resume.
     val entry =
       ctx.progressStore.load().get.entries.find(_.id == "write file#0")
-    assertEquals(entry.map(_.resultJson), Some("\"done\""))
+    assertEquals(entry.map(_.resultJson.value), Some("\"done\""))
 
   test("re-running replays the stored result without running the body again"):
     val listener = new RecordingListener
@@ -170,7 +171,7 @@ class StageRuntimeTest extends munit.FunSuite:
     locally:
       given WorkspaceWrite = WorkspaceWrite.unsafe
       ctx.progressStore.appendEntry(
-        StageEntry("typed#0", "typed", "\"not-an-int\"")
+        StageEntry("typed#0", "typed", RawJson("\"not-an-int\""))
       )
     val result = stage[Int]("typed"):
       val _ = ran.incrementAndGet()
@@ -235,11 +236,11 @@ class StageRuntimeTest extends munit.FunSuite:
     assertEquals(result, "B")
     val entries = ctx2.progressStore.load().get.entries
     assert(
-      entries.exists(_.resultJson == "42"),
+      entries.exists(_.resultJson.value == "42"),
       s"the nested inner's Int record must survive resume intact; got $entries"
     )
     assert(
-      entries.exists(_.resultJson == "\"B\""),
+      entries.exists(_.resultJson.value == "\"B\""),
       s"the top-level inner's String record must be recorded; got $entries"
     )
     assert(

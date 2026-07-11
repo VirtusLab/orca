@@ -347,3 +347,13 @@ object ClaudeBackend:
     */
   private[claude] val AskUserToolName: String =
     s"mcp__${AskUserMcpServer.ServerName}__${AskUserMcpServer.ToolSlug}"
+
+  /** Tool name the claude CLI injects for `--json-schema` structured output
+    * (observed on 2.1.207): the model "exits" the turn by calling this tool
+    * with the payload as its input, so the wire carries a visible `tool_use`
+    * for it. The conversation suppresses that echo — the payload reaches the
+    * caller via the result message and surfaces as
+    * `OrcaEvent.StructuredResult`, and rendering the tool call too would show
+    * the same JSON twice.
+    */
+  private[claude] val StructuredOutputToolName: String = "StructuredOutput"

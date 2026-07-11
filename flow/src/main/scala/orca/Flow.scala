@@ -7,7 +7,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 import orca.events.OrcaEvent
 import orca.agents.JsonData
 import orca.progress.StageEntry
-import orca.util.TextUtil
+import orca.util.{RawJson, TextUtil}
 import org.slf4j.LoggerFactory
 
 import scala.util.control.NonFatal
@@ -76,7 +76,9 @@ private def resumeFrom[T: JsonData](id: String, name: String)(using
       val decoded =
         try
           Some(
-            readFromString[T](entry.resultJson)(using summon[JsonData[T]].codec)
+            readFromString[T](entry.resultJson.value)(using
+              summon[JsonData[T]].codec
+            )
           )
         catch case NonFatal(_) => None
       decoded.map: value =>
@@ -146,7 +148,7 @@ private def recordAndCommit[T: JsonData](
   // sees only the body's substantive changes, not the orca bookkeeping.
   val message =
     commitMessage.map(_(result)).getOrElse(defaultCommitMessage(name))
-  fc.progressStore.appendEntry(StageEntry(id, name, resultJson))
+  fc.progressStore.appendEntry(StageEntry(id, name, RawJson(resultJson)))
   fc.git.forceAdd(fc.progressStore.path)
   // The log always changed, so a clean tree here is unexpected (a prior partial
   // run may already have committed this entry). Surface it at DEBUG so it's
