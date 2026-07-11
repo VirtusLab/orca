@@ -71,6 +71,20 @@ class JsonSchemaGenTest extends munit.FunSuite:
       s"expected actionable Map-field message, got: ${ex.getMessage}"
     )
 
+  test("apply emits no $schema dialect declaration"):
+    // TapirSchemaToJsonSchema stamps `$schema: .../draft/2020-12/schema` on
+    // its output. The claude CLI (observed on 2.1.207) validates the
+    // `--json-schema` value with a validator that has no 2020-12 meta-schema
+    // registered, so a schema DECLARING that dialect is rejected before the
+    // turn starts: `--json-schema is not a valid JSON Schema: no schema with
+    // key or ref "https://json-schema.org/draft/2020-12/schema"`. No consumer
+    // needs the declaration, so `apply` strips it.
+    import sttp.tapir.Schema
+    import sttp.tapir.generic.auto.given
+    case class Sample(name: String)
+    val parsed = parse(JsonSchemaGen[Sample]).toOption.get
+    assertEquals(parsed.asObject.get("$schema"), None)
+
   test("apply preserves nullability on an Option field through the transform"):
     // End-to-end check that the strict transform doesn't collapse Tapir's
     // nullable encoding — the agent must be able to emit `null` for an

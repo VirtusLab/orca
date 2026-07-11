@@ -40,7 +40,14 @@ object JsonSchemaGen:
   def apply[O](using schema: Schema[O]): String =
     val jsonSchema =
       TapirSchemaToJsonSchema(schema, markOptionsAsNullable = true)
-    toOpenAiStrict(jsonSchema.asJson).noSpaces
+    // Tapir stamps `$schema: .../draft/2020-12/schema` on its output; the
+    // claude CLI (observed on 2.1.207) validates `--json-schema` input with a
+    // validator that has no 2020-12 meta-schema registered and rejects any
+    // schema DECLARING that dialect ("no schema with key or ref ..."), before
+    // the turn starts. No consumer needs the declaration — codex/claude
+    // interpret the strict subset regardless, and prompt-embedded schemas
+    // carry their meaning in the nodes themselves — so strip it.
+    toOpenAiStrict(jsonSchema.asJson).mapObject(_.remove("$schema")).noSpaces
 
   /** Walk every object subtree and inject the two OpenAI-strict-mode
     * constraints. Exposed for tests; production code uses [[apply]] which
