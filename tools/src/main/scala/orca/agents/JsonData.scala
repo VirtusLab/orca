@@ -18,9 +18,9 @@ import scala.deriving.Mirror
   * a type. Flow scripts use `derives JsonData` on case classes that travel in
   * and out of LLM calls as structured JSON.
   *
-  * Scripts must import via `import orca.{*, given}` — Scala 3's plain wildcard
-  * imports exclude givens, and `derives JsonData` on a case class with nested
-  * case-class fields needs the forwarder givens below in scope.
+  * Scripts must import via `import orca.{*, given}` — `derives JsonData` on a
+  * case class with nested case-class fields needs the forwarder givens below in
+  * scope.
   */
 trait JsonData[A]:
   def schema: Schema[A]

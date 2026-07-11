@@ -28,7 +28,7 @@ object Announce:
     def message(value: O): Option[String] = None
 
   /** Catch-all no-op so `Announce[O]` is always resolvable. Specific givens
-    * (e.g. `given Announce[Plan]`) win via Scala 3's specificity rules.
+    * (e.g. `given Announce[Plan]`) take precedence.
     */
   given default[O]: Announce[O] = NoSpecific[O]()
 

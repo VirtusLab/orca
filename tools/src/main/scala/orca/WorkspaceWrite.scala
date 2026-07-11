@@ -20,8 +20,7 @@ import scala.annotation.implicitNotFound
   * flow-thread-only". `caps.ExclusiveCapability` is `@experimental` on 3.8.4,
   * so this file carries `import language.experimental.captureChecking`; that
   * taints only this compilation unit, not consumers (verified — see ADR 0018
-  * §6). `caps.Capability` is sealed, so we extend the sub-marker, never the
-  * root.
+  * §6).
   *
   * The value carries no state — it is evidence only; nothing reads anything off
   * it. Making it a real class is purely so capture checking has a reference to
@@ -31,10 +30,9 @@ import scala.annotation.implicitNotFound
   * author never needs to know what `WorkspaceWrite` is, only that these writes
   * belong inside a `stage(...)` and not inside a `fork`.
   *
-  * Note: `private[orca]` is the narrowest package-qualified scope available in
-  * Scala 3. Modules are not packages, so any code in the `orca` package across
-  * modules can technically call `unsafe` — an accepted guard-rail per ADR 0018
-  * §5. The convention is that only the `stage` runtime does so.
+  * `private[orca]` still lets any code in the `orca` package — across modules —
+  * call `unsafe`; an accepted guard-rail per ADR 0018 §5, with the convention
+  * that only the `stage` runtime does so.
   */
 @implicitNotFound(
   "git/file/GitHub writes and progress-log writes must be made inside a `stage(...)` body — and, unlike LLM calls, must NOT be captured into a `fork`. Move this write into a stage (not a fork within one). If this is a helper meant to run inside a stage, declare it `(using WorkspaceWrite)` so its caller's token flows through."

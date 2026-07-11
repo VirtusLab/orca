@@ -24,8 +24,7 @@ import scala.annotation.implicitNotFound
   *
   * One is built per `flow(...)` invocation — flow scripts don't normally
   * instantiate `FlowContext` directly, just call the accessors inside a
-  * `flow(args): ...` block and let Scala 3's context functions resolve the
-  * given instance.
+  * `flow(args): ...` block, which supplies the given instance.
   */
 @implicitNotFound(
   "the flow tools (`claude`/`codex`/`git`/`gh`/`fs`/…), `display`, and `fail` are only available inside a `flow(...)` body. Wrap this code in `flow(OrcaArgs(args), _.claude): ...`."
