@@ -35,11 +35,11 @@ private[orca] class DefaultOpencodeAgent(
 
   def anthropicOpus: OpencodeAgent = withModel("anthropic", "claude-opus-4-8")
   def anthropicSonnet: OpencodeAgent =
-    withModel("anthropic", "claude-sonnet-4-6")
+    withModel("anthropic", "claude-sonnet-5")
   def anthropicHaiku: OpencodeAgent = withModel("anthropic", "claude-haiku-4-5")
-  def openaiGpt5: OpencodeAgent = withModel("openai", "gpt-5.4")
-  def openaiGpt5Codex: OpencodeAgent = withModel("openai", "gpt-5.3-codex")
-  def openaiGpt5Mini: OpencodeAgent = withModel("openai", "gpt-5-mini")
+  def openaiSol: OpencodeAgent = withModel("openai", "gpt-5.6-sol")
+  def openaiTerra: OpencodeAgent = withModel("openai", "gpt-5.6-terra")
+  def openaiLuna: OpencodeAgent = withModel("openai", "gpt-5.6-luna")
 
   // Cheap is provider-matched so incidental work doesn't pull in a second
   // provider's auth: an openai-led tool's cheap is an openai model, otherwise
@@ -48,7 +48,7 @@ private[orca] class DefaultOpencodeAgent(
   // id) so resolving the cheap model can never break a flow.
   override protected def defaultCheap: OpencodeAgent =
     config.model.map(m => Model.name(m).takeWhile(_ != '/')) match
-      case Some("openai") => openaiGpt5Mini
+      case Some("openai") => openaiLuna
       case _              => anthropicHaiku
 
   // Two-arg form validates and joins via OpencodeModel (one place); the

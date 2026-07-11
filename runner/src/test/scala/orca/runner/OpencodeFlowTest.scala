@@ -137,9 +137,9 @@ class OpencodeFlowTest extends munit.FunSuite:
     def anthropicOpus: OpencodeAgent = this
     def anthropicSonnet: OpencodeAgent = this
     def anthropicHaiku: OpencodeAgent = this
-    def openaiGpt5: OpencodeAgent = this
-    def openaiGpt5Codex: OpencodeAgent = this
-    def openaiGpt5Mini: OpencodeAgent = this
+    def openaiSol: OpencodeAgent = this
+    def openaiTerra: OpencodeAgent = this
+    def openaiLuna: OpencodeAgent = this
     def withModel(providerModel: String): OpencodeAgent = this
     def withConfig(c: AgentConfig): OpencodeAgent = this
     def withSystemPrompt(p: String): OpencodeAgent = this

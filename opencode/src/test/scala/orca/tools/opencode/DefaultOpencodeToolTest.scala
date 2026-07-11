@@ -84,20 +84,20 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
     )
     assertEquals(
       modelOf(toolWith(b).anthropicSonnet, b),
-      Some("anthropic/claude-sonnet-4-6")
+      Some("anthropic/claude-sonnet-5")
     )
     assertEquals(
       modelOf(toolWith(b).anthropicHaiku, b),
       Some("anthropic/claude-haiku-4-5")
     )
-    assertEquals(modelOf(toolWith(b).openaiGpt5, b), Some("openai/gpt-5.4"))
+    assertEquals(modelOf(toolWith(b).openaiSol, b), Some("openai/gpt-5.6-sol"))
     assertEquals(
-      modelOf(toolWith(b).openaiGpt5Codex, b),
-      Some("openai/gpt-5.3-codex")
+      modelOf(toolWith(b).openaiTerra, b),
+      Some("openai/gpt-5.6-terra")
     )
     assertEquals(
-      modelOf(toolWith(b).openaiGpt5Mini, b),
-      Some("openai/gpt-5-mini")
+      modelOf(toolWith(b).openaiLuna, b),
+      Some("openai/gpt-5.6-luna")
     )
 
   test("withModel pins an arbitrary provider/model id (self-hosted)"):

@@ -145,9 +145,9 @@ class AgentCheapTest extends munit.FunSuite:
     def anthropicOpus: OpencodeAgent = namedOpencode("anthropicOpus")
     def anthropicSonnet: OpencodeAgent = namedOpencode("anthropicSonnet")
     def anthropicHaiku: OpencodeAgent = namedOpencode("anthropicHaiku")
-    def openaiGpt5: OpencodeAgent = namedOpencode("openaiGpt5")
-    def openaiGpt5Codex: OpencodeAgent = namedOpencode("openaiGpt5Codex")
-    def openaiGpt5Mini: OpencodeAgent = namedOpencode("openaiGpt5Mini")
+    def openaiSol: OpencodeAgent = namedOpencode("openaiSol")
+    def openaiTerra: OpencodeAgent = namedOpencode("openaiTerra")
+    def openaiLuna: OpencodeAgent = namedOpencode("openaiLuna")
     def withModel(providerModel: String): OpencodeAgent = this
     def autonomous: AutonomousTextCall[BackendTag.Opencode.type] = ???
     def resultAs[O: JsonData: Announce]
@@ -163,9 +163,9 @@ class AgentCheapTest extends munit.FunSuite:
         def anthropicOpus: OpencodeAgent = this
         def anthropicSonnet: OpencodeAgent = this
         def anthropicHaiku: OpencodeAgent = this
-        def openaiGpt5: OpencodeAgent = this
-        def openaiGpt5Codex: OpencodeAgent = this
-        def openaiGpt5Mini: OpencodeAgent = this
+        def openaiSol: OpencodeAgent = this
+        def openaiTerra: OpencodeAgent = this
+        def openaiLuna: OpencodeAgent = this
         def withModel(pm: String): OpencodeAgent = this
         def autonomous: AutonomousTextCall[BackendTag.Opencode.type] = ???
         def resultAs[O: JsonData: Announce]

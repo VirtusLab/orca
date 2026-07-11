@@ -34,7 +34,7 @@ private[orca] class DefaultClaudeAgent(
     with ClaudeAgent:
 
   def haiku: ClaudeAgent = withModel(Model("claude-haiku-4-5"))
-  def sonnet: ClaudeAgent = withModel(Model("claude-sonnet-4-6"))
+  def sonnet: ClaudeAgent = withModel(Model("claude-sonnet-5"))
   def opus: ClaudeAgent = withModel(DefaultClaudeAgent.Opus1M)
   def fable: ClaudeAgent = withModel(DefaultClaudeAgent.Fable)
 

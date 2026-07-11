@@ -117,7 +117,7 @@ adr/0014-opencode-server-driver.md
 - `orca.agents.Agent`: add `trait OpencodeAgent extends Agent[BackendTag.Opencode.type]`
   with provider-prefixed model accessors — Anthropic
   (`anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`) and OpenAI
-  (`openaiGpt5`/`openaiGpt5Codex`/`openaiGpt5Mini`), plus a public
+  (`openaiSol`/`openaiTerra`/`openaiLuna`), plus a public
   `withModel(providerModel: String)` for any other `provider/model` (names below).
 - `orca.agents.CanAskUser`: add `given CanAskUser[BackendTag.Opencode.type]` — the
   server supports native questions on interactive turns.
@@ -192,9 +192,9 @@ accessors set provider-qualified ids, split in `OpencodeArgs` into
 ships accessors for more than one family:
 
 - Anthropic: `anthropicOpus` → `anthropic/claude-opus-4-8`, `anthropicSonnet` →
-  `anthropic/claude-sonnet-4-6`, `anthropicHaiku` → `anthropic/claude-haiku-4-5`.
-- OpenAI: `openaiGpt5` → `openai/gpt-5.4`, `openaiGpt5Codex` →
-  `openai/gpt-5.3-codex`, `openaiGpt5Mini` → `openai/gpt-5-mini` (exact pinned ids
+  `anthropic/claude-sonnet-5`, `anthropicHaiku` → `anthropic/claude-haiku-4-5`.
+- OpenAI: `openaiSol` → `openai/gpt-5.6-sol`, `openaiTerra` →
+  `openai/gpt-5.6-terra`, `openaiLuna` → `openai/gpt-5.6-luna` (exact pinned ids
   are a detail — any id from `opencode models` is valid; update as the catalog
   moves).
 

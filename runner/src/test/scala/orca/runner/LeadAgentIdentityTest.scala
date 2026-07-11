@@ -311,9 +311,9 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       def anthropicOpus = this
       def anthropicSonnet = this
       def anthropicHaiku = this
-      def openaiGpt5 = this
-      def openaiGpt5Codex = this
-      def openaiGpt5Mini = this
+      def openaiSol = this
+      def openaiTerra = this
+      def openaiLuna = this
       def withModel(providerModel: String) = this
       def withConfig(c: AgentConfig) = this
       def withSystemPrompt(p: String) = this

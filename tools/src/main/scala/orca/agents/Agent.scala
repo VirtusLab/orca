@@ -295,23 +295,26 @@ trait CodexAgent extends Agent[BackendTag.Codex.type]:
   def mini: CodexAgent
 
   /** Pin any codex model the installed `codex-cli` offers, beyond `mini` — e.g.
-    * `codex.withModel(Model("gpt-5.4-pro"))`.
+    * `codex.withModel(Model("gpt-5.6-sol"))`.
     */
   def withModel(model: Model): CodexAgent
 
   override protected def defaultCheap: CodexAgent = mini
 
 /** OpenCode spans providers, so its model accessors are provider-prefixed (the
-  * prefix keeps the vendor explicit at the call site). [[withModel]] takes any
-  * `provider/model` id — including self-hosted ones, e.g. `ollama/llama3.1`.
+  * prefix keeps the vendor explicit at the call site). The openai accessors
+  * follow OpenAI's durable capability tiers — sol (flagship), terra (balanced),
+  * luna (efficiency) — the same way the anthropic accessors follow
+  * opus/sonnet/haiku. [[withModel]] takes any `provider/model` id — including
+  * self-hosted ones, e.g. `ollama/llama3.1`.
   */
 trait OpencodeAgent extends Agent[BackendTag.Opencode.type]:
   def anthropicOpus: OpencodeAgent
   def anthropicSonnet: OpencodeAgent
   def anthropicHaiku: OpencodeAgent
-  def openaiGpt5: OpencodeAgent
-  def openaiGpt5Codex: OpencodeAgent
-  def openaiGpt5Mini: OpencodeAgent
+  def openaiSol: OpencodeAgent
+  def openaiTerra: OpencodeAgent
+  def openaiLuna: OpencodeAgent
 
   /** Base cheap variant is anthropic haiku; [[DefaultOpencodeAgent]] overrides
     * this to match the leading provider, so incidental work on an openai-led
