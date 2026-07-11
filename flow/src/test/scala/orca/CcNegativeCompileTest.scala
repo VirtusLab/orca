@@ -9,11 +9,14 @@ import dotty.tools.dotc.core.Contexts.Context
 import dotty.tools.dotc.interfaces.Diagnostic as IDiagnostic
 import dotty.tools.dotc.reporting.{Diagnostic, Reporter}
 
-/** Capture-checking enforcement, pinned as automated negative-compile tests
-  * (Epic 0 task 0.6). Task 0.5 proved by hand that routing a fan-out through
-  * [[orca.CheckedPar]] rejects an exclusive-capability capture; this suite pins
-  * that proof so a compiler upgrade or a wrapper edit can't silently drop the
-  * enforcement.
+/** Capture-checking enforcement, pinned as automated negative-compile tests. A
+  * manual spike first proved that the checked fan-out shape — an impure-typed
+  * thunk list (`Seq[() => Int]`) routed through [[orca.CheckedPar]] — rejects
+  * an exclusive-capability capture; this suite pins that proof so a compiler
+  * upgrade or a wrapper edit can't silently drop the enforcement. Note the
+  * rejection fires at the fixture's impure `Seq[() => Int]` ascription (the
+  * widening that "hides" the exclusive token), not at the wrapper boundary
+  * itself — see [[orca.CheckedPar]]'s object doc.
   *
   * Why an in-process compiler, not munit's `compileErrors`: that macro runs
   * only the typer, but capture/separation checking runs post-typer — so a

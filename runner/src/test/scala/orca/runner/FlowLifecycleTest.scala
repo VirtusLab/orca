@@ -1325,10 +1325,10 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"a Step warning about the failed reset must be emitted: $steps"
     )
 
-  // --- Epic 7.4: flow() reentrancy/concurrency guards ----------------------
+  // --- flow() reentrancy/concurrency guards --------------------------------
 
   test(
-    "R7.4: a nested runFlow in the same process is refused before any git mutation, and the outer flow is unaffected"
+    "reentrancy guards: a nested runFlow in the same process is refused before any git mutation, and the outer flow is unaffected"
   ):
     val workDir = GitRepo.seeded()
     val prompt = "nested-guard"
@@ -1381,7 +1381,9 @@ class FlowLifecycleTest extends munit.FunSuite:
         .trim
     assertEquals(branch, "main")
 
-  test("R7.4: a workdir lock held by a live PID refuses a new runFlow"):
+  test(
+    "reentrancy guards: a workdir lock held by a live PID refuses a new runFlow"
+  ):
     val workDir = GitRepo.seeded()
     val livePid = ProcessHandle.current().pid()
     os.write(
@@ -1421,7 +1423,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
-    "R7.4: a stale dead-PID lock is stolen with a warning, and the flow proceeds"
+    "reentrancy guards: a stale dead-PID lock is stolen with a warning, and the flow proceeds"
   ):
     val workDir = GitRepo.seeded()
     val dead = os.proc("true").spawn()
@@ -1465,7 +1467,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       "lock must be released after a successful run"
     )
 
-  test("R7.4: the lock file is never swept into a stage commit"):
+  test("reentrancy guards: the lock file is never swept into a stage commit"):
     // The stage runtime's commit is `git add -A` + a force-add of the progress
     // log only; the lock must stay out of history even though the temp repo
     // has no `.gitignore` for `.orca/` (the guard writes it to the repo-local

@@ -133,11 +133,11 @@ class DefaultAgentCall[B <: BackendTag, O](
     */
   private val outputSchema: String = JsonSchemaGen[O]
 
-  /** Epic 7.5, second gate: `resultAs[O]` refuses construction on a closed
-    * agent, but a gateway built BEFORE the flow ended and stored across the
-    * close boundary would still reach the backend — this per-call check (free,
-    * since the closed latch lives on the `backend` this class already holds)
-    * closes that gap with the same user-facing message.
+  /** The use-after-close guard's second gate: `resultAs[O]` refuses
+    * construction on a closed agent, but a gateway built BEFORE the flow ended
+    * and stored across the close boundary would still reach the backend — this
+    * per-call check (free, since the closed latch lives on the `backend` this
+    * class already holds) closes that gap with the same user-facing message.
     */
   private def checkNotClosed(): Unit =
     if backend.isClosed then

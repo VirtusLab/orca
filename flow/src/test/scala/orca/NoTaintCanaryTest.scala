@@ -1,7 +1,7 @@
 package orca
 
-/** Consumer-taint canary (Epic 0.3) — pins the research's no-taint verdict
-  * against future compiler upgrades.
+/** Consumer-taint canary — pins the research's no-taint verdict against future
+  * compiler upgrades.
   *
   * [[InStage]] extends `caps.SharedCapability` (non-experimental), while
   * [[WorkspaceWrite]] and [[FlowControl]] extend `caps.ExclusiveCapability` —

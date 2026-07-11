@@ -89,10 +89,10 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
   )
 
   /** Gates [[autonomous]]`.run` and [[resultAs]]'s gateway construction on the
-    * backend's closed latch (Epic 7.5). A leaked agent handle used after its
-    * flow ended would otherwise silently emit to a closed run's dispatcher —
-    * loud on opencode (a dead `serve` process), invisible on claude/codex. The
-    * latch lives on the shared `backend`, not this instance, so every
+    * backend's closed latch. A leaked agent handle used after its flow ended
+    * would otherwise silently emit to a closed run's dispatcher — loud on
+    * opencode (a dead `serve` process), invisible on claude/codex. The latch
+    * lives on the shared `backend`, not this instance, so every
     * `copyTool`-derived sibling (`leaked.opus`, `leaked.withConfig(...)`, …) is
     * covered too — see [[orca.backend.AgentBackend.markClosed]].
     */

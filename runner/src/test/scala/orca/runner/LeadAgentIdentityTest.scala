@@ -35,15 +35,14 @@ import ox.supervised
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.AtomicReference
 
-/** Pins complexity-review-2 10.1: the `agent` selector can return an agent
+/** Pins the foreign-lead handling: the `agent` selector can return an agent
   * built from a backend that isn't wired into this run's context — event-blind
   * (built against its own `AgentWiring`, not this run's dispatcher) and, absent
   * this fix, never closed. [[DefaultFlowContext.close]] now unconditionally
-  * closes the resolved lead alongside all five wired agents (10.5: no
-  * wired/foreign branch needed there — a backend's own `close()` is
-  * idempotent), so a foreign lead's backend is closed too.
-  * [[DefaultFlowContext.agent]] separately warns loudly the first time a
-  * foreign lead is resolved, comparing backend IDENTITY
+  * closes the resolved lead alongside all five wired agents (no wired/foreign
+  * branch needed there — a backend's own `close()` is idempotent), so a foreign
+  * lead's backend is closed too. [[DefaultFlowContext.agent]] separately warns
+  * loudly the first time a foreign lead is resolved, comparing backend IDENTITY
   * ([[orca.agents.Agent.backendIdentity]]), not `Agent` reference equality —
   * the positive case below pins that a `copyTool`-derived sibling of a wired
   * agent (the common `_.claude.opus` selector shape) does NOT trip that
@@ -224,12 +223,12 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     * backend already provides (the shared `closedFlag` latches via a plain
     * `set`, opencode's process teardown is CAS-guarded, every other backend's
     * `close()` is a no-op) — see `DefaultFlowContext.close`'s scaladoc. Since
-    * `DefaultFlowContext.close()` now appends the resolved lead UNCONDITIONALLY
-    * (complexity-review-2 10.5), a lead sharing a wired backend gets
-    * `Agent.close()` invoked on it twice; `closeCount` pins that the doubled
-    * CALL still produces a single observable teardown, which is the actual
-    * contract `close()`'s scaladoc relies on — not that `Agent.close()` is
-    * called exactly once.
+    * `DefaultFlowContext.close()` now appends the resolved lead
+    * UNCONDITIONALLY, a lead sharing a wired backend gets `Agent.close()`
+    * invoked on it twice; `closeCount` pins that the doubled CALL still
+    * produces a single observable teardown, which is the actual contract
+    * `close()`'s scaladoc relies on — not that `Agent.close()` is called
+    * exactly once.
     */
   private class RecordingCloseBackend extends AgentBackend[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd

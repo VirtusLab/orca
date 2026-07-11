@@ -7,7 +7,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import scala.annotation.tailrec
 import scala.util.control.NonFatal
 
-/** Epic 7.4: reentrancy/concurrency guards for `flow(...)`.
+/** Reentrancy/concurrency guards for `flow(...)`.
   *
   * A nested or concurrent `flow(...)` today would stash the outer flow's tree,
   * switch branches under it, and `reset --hard` its work (ADR 0018 §6 flags

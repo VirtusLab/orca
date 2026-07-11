@@ -46,7 +46,7 @@ class BaseAgentTest extends munit.FunSuite:
     tool.close()
     assertEquals(backend.closeCount, 1)
 
-  // Epic 7.5: a closed agent must fail loud rather than let a leaked handle
+  // A closed agent must fail loud rather than let a leaked handle
   // silently emit to a closed run's dispatcher.
   test("autonomous.run after close() throws OrcaFlowException"):
     val tool = new StubTool(new RecordingCloseBackend)
@@ -58,7 +58,7 @@ class BaseAgentTest extends munit.FunSuite:
       AgentBackend.ClosedMessage
     )
 
-  // Epic 9.3: an unsupported output shape (a Map[String, _] field, which
+  // An unsupported output shape (a Map[String, _] field, which
   // JsonSchemaGen rejects) must fail at `resultAs[O]` construction — before
   // any stage runs — not remotely, after `.run()` spawns a backend process.
   test("resultAs[O] with a Map field throws OrcaFlowException at construction"):

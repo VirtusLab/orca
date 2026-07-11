@@ -80,7 +80,7 @@ private[orca] class ClaudeBackend(
     * sibling is a genuinely different `AgentBackend` instance (not a
     * `copyTool`-style clone reusing the same backend), so without threading the
     * SAME `AtomicBoolean` through, a handle derived here and leaked past
-    * flow-end would carry its own always-open latch and bypass the Epic 7.5
+    * flow-end would carry its own always-open latch and bypass the
     * use-after-close guard entirely.
     */
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =

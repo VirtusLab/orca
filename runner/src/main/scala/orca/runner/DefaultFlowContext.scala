@@ -80,11 +80,11 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
     * because a builder-derived sibling is a DIFFERENT `Agent` instance sharing
     * the SAME backend: a naive `eq` check on the `Agent`s alone would
     * false-positive-warn/double-close on the common `_.claude.opus` selector
-    * pattern (complexity-review-2 10.1). The direct `eq` fallback (on the
-    * `Agent`s themselves) exists for agents with no backend at all (e.g. test
-    * stubs built straight on `Agent`, whose `backendIdentity` is `None`) so a
-    * selector that literally returns one of the five constructor vals unchanged
-    * still counts as wired even without a backend token to compare.
+    * pattern. The direct `eq` fallback (on the `Agent`s themselves) exists for
+    * agents with no backend at all (e.g. test stubs built straight on `Agent`,
+    * whose `backendIdentity` is `None`) so a selector that literally returns
+    * one of the five constructor vals unchanged still counts as wired even
+    * without a backend token to compare.
     */
   private def isWiredBackend(a: Agent[?]): Boolean =
     agents.values.exists: w =>
@@ -101,16 +101,16 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
     * Also always closes the resolved lead [[agent]], UNCONDITIONALLY appended
     * to the fan-out below rather than filtered by [[isWiredBackend]] first: a
     * foreign lead (a selector like `_ => myPrebuiltAgent`, built from a
-    * separate `AgentWiring`/backend — complexity-review-2 10.1) is otherwise
-    * unreachable from `agents` and would leak past flow end, and a lead that
-    * DOES share a wired backend (the common `_.claude.opus` pattern) just gets
-    * `close()` called on it a second time — provably harmless, since every
-    * backend's `close()` is idempotent (the shared `closedFlag` latches via a
-    * plain `set`, opencode's teardown is CAS-guarded, and every other backend's
-    * `close()` is a no-op). Skipping the check here trades a handful of
-    * redundant `close()` calls for one less thing this method has to get right;
-    * [[isWiredBackend]] is kept only for the warning path on [[agent]] below,
-    * where a false warning (not a resource leak) is the failure mode.
+    * separate `AgentWiring`/backend) is otherwise unreachable from `agents` and
+    * would leak past flow end, and a lead that DOES share a wired backend (the
+    * common `_.claude.opus` pattern) just gets `close()` called on it a second
+    * time — provably harmless, since every backend's `close()` is idempotent
+    * (the shared `closedFlag` latches via a plain `set`, opencode's teardown is
+    * CAS-guarded, and every other backend's `close()` is a no-op). Skipping the
+    * check here trades a handful of redundant `close()` calls for one less
+    * thing this method has to get right; [[isWiredBackend]] is kept only for
+    * the warning path on [[agent]] below, where a false warning (not a resource
+    * leak) is the failure mode.
     *
     * Resolving `agent` here forces its lazy val, which is itself best-effort:
     * if `agentSelector` threw on its FIRST force (the failure `flow()`'s caller
@@ -213,8 +213,8 @@ private[orca] object DefaultFlowContext:
   )(using ox.Ox): DefaultFlowContext[B] =
     // One wiring bundle handed to every agent factory — overrides and defaults
     // build against the SAME event sink (dispatcher), interaction, workDir and
-    // prompts, so a user agent is wired into the run exactly like the default
-    // (complexity-review 7.8). The default configs (Opus1M/Pro pins) live in
+    // prompts, so a user agent is wired into the run exactly like the default.
+    // The default configs (Opus1M/Pro pins) live in
     // the per-backend `*Agents.default` factories, the single source of truth.
     val agentWiring = AgentWiring(
       events = dispatcher,

@@ -219,8 +219,8 @@ object FlowCanary:
     * the branch ops the runtime still exposes to flow scripts and the
     * `createPr` `Either` with its recoverable `PrAlreadyExists`. The manual
     * `Plan.recover`/`ensureClean`/`checkoutOrCreate` resume guard is gone — the
-    * flow runtime now owns branch + resume (ADR 0018 §2.5); the per-flow
-    * branching ceremony is restored in Epic F's example conversion.
+    * flow runtime now owns branch + resume (ADR 0018 §2.5); the examples'
+    * conversion restored the per-flow branching ceremony.
     */
   def branchAndPrSurface(): Unit =
     flow(OrcaArgs(), _.claude):

@@ -57,8 +57,9 @@ lazy val tools = (project in file("tools"))
       ox,
       jsonSchemaValidator,
       // The shared MCP server (orca.backend.mcp.AskUserMcpServer) is consumed
-      // by both claude and codex backends, so chimp + the netty backend live
-      // here rather than in claude.
+      // by the claude, codex and gemini backends, so chimp + the netty backend
+      // live here — tools already hosts the cross-backend orca.backend
+      // package — rather than in any single backend module.
       chimp,
       tapirNettySync
     )
@@ -123,7 +124,8 @@ lazy val flow = (project in file("flow"))
       jsonSchemaValidator,
       scala3Compiler
     ),
-    // The CC negative-compile suite invokes `dotc` in-process against this
+    // The CC negative-compile suite invokes the Scala 3 compiler
+    // (`dotty.tools.dotc.Main`) in-process against this
     // module's own test classpath (it needs orca.CheckedPar, orca.FlowControl,
     // the capability tokens, ox and the Scala library). flow's tests are not
     // forked, so `java.class.path` is only sbt's launcher classpath — unusable.
@@ -162,14 +164,15 @@ lazy val runner = (project in file("runner"))
     // per-run appender) and can `System.exit` on a NonFatal failure — a forked
     // JVM keeps that out of the shared test runner.
     Test / fork := true,
-    // `runFlow`'s Epic 7.4 reentrancy guard is a process-wide `AtomicBoolean`
-    // — correct for real usage (one `flow(...)` per process), but sbt's
-    // default `Test / parallelExecution` would let two unrelated test classes
-    // in this forked JVM both call `flow(...)`/`runFlow(...)` concurrently
-    // (different workDirs, no real conflict) and spuriously trip each other's
-    // guard. Serialize this module's tests instead of keying the guard by
-    // workDir, which would water down the exact single-process semantics the
-    // tracker calls for.
+    // `runFlow`'s reentrancy guard (`FlowLock.acquireProcess`) is a
+    // process-wide `AtomicBoolean` — correct for real usage (one `flow(...)`
+    // per process), but sbt's default `Test / parallelExecution` would let two
+    // unrelated test classes in this forked JVM both call
+    // `flow(...)`/`runFlow(...)` concurrently (different workDirs, no real
+    // conflict) and spuriously trip each other's guard. Serialize this
+    // module's tests instead of keying the guard by workDir, which would
+    // water down the exact single-process semantics the guard exists to
+    // enforce.
     Test / parallelExecution := false,
     libraryDependencies ++= Seq(ox, mainargs, jline, fansi, jsoniterMacros)
   )

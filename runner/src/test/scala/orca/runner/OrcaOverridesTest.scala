@@ -211,9 +211,9 @@ class OrcaOverridesTest extends munit.FunSuite:
     assertEquals(observed, "pi: hi")
 
   test(
-    "an agent-override factory receives the run's event sink (7.8): its TokensUsed reaches extraListeners"
+    "an agent-override factory receives the run's event sink: its TokensUsed reaches extraListeners"
   ):
-    // The pin for complexity-review 7.8: a user agent built by the override
+    // The pin: a user agent built by the override
     // factory must land on the SAME dispatcher as the defaults, so the tokens
     // it spends reach the cost tracker and terminal. The factory receives
     // `w.events`; the stub emits a TokensUsed through it on `run`. The old

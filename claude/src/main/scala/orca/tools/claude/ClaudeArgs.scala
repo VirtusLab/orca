@@ -127,9 +127,9 @@ private[claude] object ClaudeArgs:
             Seq("--permission-mode", "bypassPermissions")
           // Honest Only semantics: default permission mode — nothing is
           // pre-approved except the listed tools. Edits are NOT implicitly
-          // approved (they were, via acceptEdits, before complexity-review
-          // finding 2.1); in autonomous mode an unlisted tool's prompt is
-          // auto-denied by the drain.
+          // approved (an earlier revision pre-approved them via acceptEdits);
+          // in autonomous mode an unlisted tool's prompt is auto-denied by
+          // the drain.
           case AutoApprove.Only(tools) if tools.isEmpty => Seq.empty
           case AutoApprove.Only(tools) =>
             Seq("--allowedTools", tools.toSeq.sorted.mkString(","))

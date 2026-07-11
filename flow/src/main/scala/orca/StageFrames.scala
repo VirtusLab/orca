@@ -52,15 +52,15 @@ package orca
   * Production is unaffected: `runFlow` constructs the context inside the same
   * `supervised:` body that runs the flow, so owner and body thread coincide.
   *
-  * '''This is the only enforcement of R12 for user flow scripts.''' Epic 0's
-  * capture/separation checking catches a fork boundary violation at compile
-  * time, but only in files that opt into the `captureChecking`/
-  * `separationChecking` language imports — today that's exactly one internal
-  * call site (`orca.review.ReviewLoop`'s reviewer fan-out); no example or user
-  * `.sc` script carries them. It's also strictly stronger than CC regardless: a
-  * capture check can't see a leak via mutable storage (a fork reading a
-  * `FlowControl` out of a `var`/global a stage stashed it in), only this
-  * runtime assert can.
+  * '''This is the only enforcement of R12 for user flow scripts.''' The
+  * capture/separation checking enforcement (ADR 0018 §6) catches a fork
+  * boundary violation at compile time, but only in files that opt into the
+  * `captureChecking`/ `separationChecking` language imports — today that's
+  * exactly one internal call site (`orca.review.ReviewLoop`'s reviewer
+  * fan-out); no example or user `.sc` script carries them. It's also strictly
+  * stronger than CC regardless: a capture check can't see a leak via mutable
+  * storage (a fork reading a `FlowControl` out of a `var`/global a stage
+  * stashed it in), only this runtime assert can.
   */
 private[orca] trait StageFrames:
   private val ownerThread: Thread = Thread.currentThread()

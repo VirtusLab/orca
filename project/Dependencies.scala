@@ -37,9 +37,10 @@ object Dependencies {
   val munit = "org.scalameta" %% "munit" % V.munit % Test
 
   // The Scala 3 compiler as a library, so the CC-enforcement negative-compile
-  // suite (orca.CcNegativeCompileTest) can invoke `dotc` in-process on fixture
-  // sources. Pinned to V.scala so the checked-compilation phases match the
-  // build's own compiler. Test-only.
+  // suite (orca.CcNegativeCompileTest) can invoke the compiler's entry point
+  // (`dotty.tools.dotc.Main` — the class the `scalac`/`scala` launchers
+  // themselves run) in-process on fixture sources. Pinned to V.scala so the
+  // checked-compilation phases match the build's own compiler. Test-only.
   val scala3Compiler = "org.scala-lang" %% "scala3-compiler" % V.scala % Test
   val jsonSchemaValidator =
     "com.networknt" % "json-schema-validator" % V.jsonSchemaValidator % Test

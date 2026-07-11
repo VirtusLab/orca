@@ -10,16 +10,24 @@ import ox.flow.Flow
   * checking can enforce the [[InStage]]/[[WorkspaceWrite]] capability split at
   * the fork boundary (ADR 0018 §6).
   *
-  * Why this exists: separation checking only fires through a
-  * capture-checked-compiled combinator. Ox 1.0.x is not yet capture-checked, so
-  * a fork opened via a raw `ox.flow.Flow.mapParUnordered` — or `ox.fork` — is
-  * unchecked: a closure could capture an exclusive `WorkspaceWrite`/`FlowControl`
-  * (an index-like write racing across forks — ADR 0018 §6) and the compiler
-  * would stay silent. Routing through these thin, CC-compiled wrappers makes
-  * that capture a compile error at the call site (verified: an exclusive capture
-  * fails with "Separation failure", while the load-bearing shared `InStage`
-  * capture — reviewers must reach a gated LLM `run` from inside their fork —
-  * compiles, because `caps.SharedCapability` is separation-exempt).
+  * Why this exists: separation checking rejects an exclusive capability the
+  * moment it is widened away ("hidden") — for a fan-out, that is the thunk
+  * list's impure element type. A `tasks: Seq[() => T]` whose closures capture
+  * an exclusive `WorkspaceWrite`/`FlowControl` (an index-like write racing
+  * across forks — ADR 0018 §6) fails with "Separation failure" right at that
+  * definition, while the load-bearing shared `InStage` capture — reviewers
+  * must reach a gated LLM `run` from inside their fork — compiles, because
+  * `caps.SharedCapability` is separation-exempt. The wrapper's signature alone
+  * does NOT reject: a thunk list with a precise inferred capture set (e.g.
+  * `Seq[() ->{tok} T]` for an exclusive `tok`) passes through unflagged — the
+  * impure `() => T` element type at the call site is what arms the check, and
+  * it fires identically whether the list is then handed to this wrapper or to
+  * raw Ox (all four combinations verified by compiling fixture variants). The
+  * funnel's job is to keep fan-out call sites in the checked shape: its
+  * capture-set-polymorphic signature forces a heterogeneous thunk list to be
+  * widened to a single element type — in practice the impure `() => T` (see
+  * the CC-forced type application in `orca.review.ReviewLoop`) — and it is the
+  * pinned pattern the negative-compile suite compiles fixtures against.
   *
   * Raw Ox stays the unchecked escape hatch until Ox itself is capture-checked
   * (`Ox` on its roadmap). These wrappers are a bridge designed for deletion:
@@ -38,13 +46,19 @@ private[orca] object CheckedPar:
     * results unordered), invoking `onResult` on each result as it completes on
     * the collecting thread, and returns every result as a list.
     *
-    * The thunk capture set `C^` is abstracted into a capture-set parameter so
-    * the elements' captured capabilities are tracked at the call site rather
-    * than leaking into this method's scope: a `thunks` element that captures an
-    * exclusive `caps.ExclusiveCapability` ([[WorkspaceWrite]], [[FlowControl]])
-    * is rejected there with a separation failure, while a shared [[InStage]]
-    * capture is admitted. `onResult` is a plain impure closure (it captures the
-    * caller's `FlowContext` to emit progress), unconstrained by `C`.
+    * The capture-set parameter `C^` is not interchangeable with taking plain
+    * impure thunks (`Seq[() => T]`, i.e. `() ->{caps.cap} T`): with that
+    * signature this method does not compile — applying the elements leaks the
+    * local reach capability `thunks*` into the method's capture scope, and the
+    * compiler error suggests exactly this capset-variable abstraction. `C^`
+    * gives the elements' captures a name this method's body can be checked
+    * against, while the call site keeps the enforcement role: widening thunks
+    * that capture an exclusive `caps.ExclusiveCapability` ([[WorkspaceWrite]],
+    * [[FlowControl]]) to the impure `() => T` element type is rejected there
+    * with a separation failure, while a shared [[InStage]] capture is admitted
+    * (see the object doc for what happens without that widening). `onResult`
+    * is a plain impure closure (it captures the caller's `FlowContext` to emit
+    * progress), unconstrained by `C`.
     */
   def mapParUnordered[T, C^](
       parallelism: Int

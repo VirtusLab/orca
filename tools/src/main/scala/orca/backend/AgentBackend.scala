@@ -45,8 +45,7 @@ trait AgentBackend[B <: BackendTag](
       * parent's `closedFlag` into the sibling's constructor here, so
       * `markClosed()` on either instance is visible through both — otherwise a
       * handle derived via that builder and leaked past flow-end bypasses the
-      * Epic 7.5 use-after-close guard entirely (it latches a flag nothing else
-      * reads).
+      * use-after-close guard entirely (it latches a flag nothing else reads).
       */
     private[orca] val closedFlag: AtomicBoolean = new AtomicBoolean(false)
 ):
@@ -144,7 +143,7 @@ trait AgentBackend[B <: BackendTag](
     */
   def close(): Unit = ()
 
-  // Epic 7.5's closed latch lives HERE, on the backend, not on the Agent
+  // The use-after-close latch lives HERE, on the backend, not on the Agent
   // instance: every builder (`withConfig`, `withModel`, `opus`, `withName`, …)
   // goes through `BaseAgent.copyTool`, which constructs a NEW agent instance
   // sharing this same backend — a per-agent flag would silently reset to
@@ -167,10 +166,11 @@ trait AgentBackend[B <: BackendTag](
   private[orca] final def isClosed: Boolean = closedFlag.get()
 
 object AgentBackend:
-  /** Epic 7.5's user-facing message, thrown by every `isClosed` gate
-    * (`BaseAgent.checkNotClosed`, `DefaultAgentCall.checkNotClosed`) so a
-    * leaked-handle failure reads identically no matter which gate caught it.
-    * Single home for the string rather than one literal copy per gate.
+  /** The use-after-close guard's user-facing message, thrown by every
+    * `isClosed` gate (`BaseAgent.checkNotClosed`,
+    * `DefaultAgentCall.checkNotClosed`) so a leaked-handle failure reads
+    * identically no matter which gate caught it. Single home for the string
+    * rather than one literal copy per gate.
     */
   private[orca] val ClosedMessage: String =
     "agent used after its flow ended — agents are scoped to the flow(...) that created them"

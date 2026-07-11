@@ -190,11 +190,11 @@ trait Agent[B <: BackendTag]:
     * wired agent (safe — same backend, same events, same close latch) apart
     * from an agent built against a genuinely different backend (foreign —
     * event-blind, leaked past `close()`), without false-positiving on the
-    * former the way a plain `Agent eq Agent` check would (complexity-review-2
-    * 10.1). `BaseAgent` overrides this to the shared `AgentBackend.closedFlag`
-    * reference — already unique per backend instance, and deliberately shared
-    * across sibling backend instances that opt into it (e.g. claude's
-    * `withNetworkTools`), for exactly this identity purpose.
+    * former the way a plain `Agent eq Agent` check would. `BaseAgent` overrides
+    * this to the shared `AgentBackend.closedFlag` reference — already unique
+    * per backend instance, and deliberately shared across sibling backend
+    * instances that opt into it (e.g. claude's `withNetworkTools`), for exactly
+    * this identity purpose.
     *
     * Compared by REFERENCE (`eq`), never `==`: a token type that happened to
     * implement structural equality (unlike today's `AtomicBoolean`, which falls

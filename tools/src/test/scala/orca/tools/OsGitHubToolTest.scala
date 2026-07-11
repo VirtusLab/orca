@@ -281,7 +281,7 @@ class OsGitHubToolTest extends munit.FunSuite:
     assert(status.log.contains("unknown"), status.log)
 
   test("buildStatus.checkCount reflects the rollup size directly"):
-    // Epic 9.4: `checkCount` is a structured fact taken straight from
+    // `checkCount` is a structured fact taken straight from
     // `statusCheckRollup.size`, not re-derived from the rendered `log`.
     val (_, emptyGh) = stubGh(CliResult(0, """{"statusCheckRollup":[]}""", ""))
     assertEquals(emptyGh.buildStatus(samplePr).checkCount, 0)

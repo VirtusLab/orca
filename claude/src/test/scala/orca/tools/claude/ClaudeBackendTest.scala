@@ -106,7 +106,7 @@ class ClaudeBackendTest extends munit.FunSuite:
       assert(args.containsSlice(Seq("--allowedTools", "WebFetch")), args)
 
   test(
-    "a withNetworkTools sibling shares the parent's closed latch (Epic 7.5)"
+    "a withNetworkTools sibling shares the parent's closed latch"
   ):
     // withNetworkTools is the one builder that swaps in a genuinely NEW
     // ClaudeBackend instance rather than reusing the caller's (every other
@@ -114,7 +114,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     // BaseAgent.copyTool, which keeps the same backend). Before this fix each
     // fresh instance got its own closedFlag, so a handle derived via
     // `agent.withNetworkTools(...)` while the flow was open and used AFTER
-    // the leading agent's flow closed would silently bypass the Epic 7.5
+    // the leading agent's flow closed would silently bypass the
     // use-after-close guard. `run` never reaches the (empty) stub runner: the
     // guard must throw first.
     val backend = new ClaudeBackend(new SpawnStubCliRunner(Nil))
@@ -327,12 +327,12 @@ class ClaudeBackendTest extends munit.FunSuite:
   test(
     "workDir is shared, by construction, between the actual spawn cwd and the session-existence probe"
   ):
-    // Pins the Epic 8.1 unification: `workDir` is fixed once at construction
+    // Pins the workDir unification: `workDir` is fixed once at construction
     // and BOTH the probe (via `sessions.exists`) and the real subprocess spawn
     // (via `runAutonomous` → `cli.spawnPiped(..., cwd = workDir)`) read that
     // SAME field — no separate per-call value can drift out of sync with it,
     // which is exactly what the old `cwdForProbe`-vs-per-call-`workDir` split
-    // allowed (7.5's bug class). A backend constructed with a worktree-style
+    // allowed. A backend constructed with a worktree-style
     // `workDir` (!= the process cwd) must probe AND spawn under that same
     // directory.
     val tmpProjects = TempDirs.dir()

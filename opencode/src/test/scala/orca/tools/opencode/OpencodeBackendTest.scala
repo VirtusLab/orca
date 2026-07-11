@@ -84,7 +84,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       )
       // The turn finalizes through `conv.cancel()` (the self-scoped per-turn
       // `finally`) — but the turn already settled via `session.idle`, so
-      // `onCancelRequested`'s settled-gate (Epic 8.2) means NO `/abort` POST
+      // `onCancelRequested`'s settled-gate means NO `/abort` POST
       // fires for this just-idle session, which may be resumed next turn.
       assertEquals(
         http.posts.map(_._1),
@@ -340,7 +340,7 @@ class OpencodeBackendTest extends munit.FunSuite:
       assert(!backend.sessions.exists(client))
 
   test(
-    "a session-creation failure never opens the SSE stream (Epic 8.3 open-path leak)"
+    "a session-creation failure never opens the SSE stream (open-path leak)"
   ):
     supervised:
       var eventsOpened = false

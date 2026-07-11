@@ -322,7 +322,7 @@ class OpencodeConversationTest extends munit.FunSuite:
     assertEquals(conv.canAskUser, false)
 
   convTest(
-    "a genuine cancel before any settle POSTs /abort once; a repeat cancel() does not re-post (Epic 8.2)"
+    "a genuine cancel before any settle POSTs /abort once; a repeat cancel() does not re-post"
   ):
     val (conv, http) = conversation(
       List(

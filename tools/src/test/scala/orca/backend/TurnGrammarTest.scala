@@ -161,8 +161,7 @@ class TurnGrammarTest extends munit.FunSuite:
 
   /** Fake driver whose only purpose is counting
     * [[ForkedConversation.onCancelRequested]] invocations, so `cancel()`'s
-    * settled-gate can be pinned independently of any backend's own hook body
-    * (Epic 8.2).
+    * settled-gate can be pinned independently of any backend's own hook body.
     */
   private class HookFakeConversation(source: StreamSource)
       extends ForkedConversation[BackendTag.ClaudeCode.type](

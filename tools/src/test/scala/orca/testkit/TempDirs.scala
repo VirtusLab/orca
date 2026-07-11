@@ -9,9 +9,8 @@ import java.util.concurrent.ConcurrentLinkedQueue
   * a non-empty tree. Every git-repo fixture (`GitRepo`) and every backend
   * workDir under test gets files written into it after creation, so on the
   * default `os.temp.dir()` behavior every one of those directories leaked
-  * permanently. This is what filled an 8G tmpfs with ~35k orphaned fixture dirs
-  * in a single day of test runs (see the Epic 12 blockquote in
-  * `complexity-review-2.md`).
+  * permanently. This is what once filled an 8G tmpfs with ~35k orphaned fixture
+  * dirs in a single day of test runs.
   *
   * `register`/`dir` track every temp root handed out and recursively remove it
   * (`os.remove.all`, which — unlike `deleteOnExit` — handles non-empty trees)

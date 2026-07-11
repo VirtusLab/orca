@@ -187,8 +187,7 @@ def flow[B <: BackendTag](
   // flow's own `finally` (branch restore, workdir-lock release) ever runs —
   // the outer branch is left checked out and `.orca/flow.lock` stays behind
   // (self-heals: the next run steals the dead-PID lock with a warning).
-  // Known, not fixed — see complexity-review-2.md Epic 7 note ("Epic 7
-  // residual").
+  // Known, not fixed — an accepted residual of the exit-based CLI contract.
   if failed then System.exit(1)
 
 /** Exit-free flow lifecycle: builds the interaction/context, runs setup, then
@@ -221,7 +220,7 @@ private[orca] def runFlow[B <: BackendTag](
     wiring: FlowWiring = FlowWiring()
 )(body: FlowControl ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose.value
-  // Epic 7.4: acquire both reentrancy/concurrency guards before anything else
+  // Acquire both reentrancy/concurrency guards before anything else
   // — including before `supervised:`, since neither needs an `Ox` scope — so
   // a violation is caught before any git mutation. See [[FlowLock]] for the
   // two-layer rationale and the release-ordering symmetry.

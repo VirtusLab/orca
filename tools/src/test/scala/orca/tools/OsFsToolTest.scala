@@ -53,7 +53,7 @@ class OsFsToolTest extends munit.FunSuite:
     withFs: (fs, _) =>
       assertEquals(fs.list("does/not/exist/*.txt"), Nil)
 
-  // Epic 9.5: an absolute glob previously reached os-lib's `globRoot` fold
+  // An absolute glob previously reached os-lib's `globRoot` fold
   // and blew up with a context-free `IllegalArgumentException`
   // (`InvalidSegment`) rather than a named, actionable `list`-level error.
   test("list rejects an absolute glob with a typed, actionable error"):

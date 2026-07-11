@@ -5,7 +5,7 @@ import orca.events.EventDispatcher
 import java.util.concurrent.atomic.AtomicReference
 import ox.{fork, supervised}
 
-/** R12 thread-affinity assert (Epic 7.1, ADR 0018 §2.2): `stage(...)` /
+/** R12 thread-affinity assert (ADR 0018 §2.2): `stage(...)` /
   * `agent.session(...)` may only run on the thread that constructed the
   * `StageFrames`-backed `FlowControl`. Exercised through [[TestFlowControl]] —
   * the mixin makes every `StageFrames` implementation (production and test
