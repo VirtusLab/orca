@@ -75,8 +75,7 @@ most easily broken:
   (`caps.ExclusiveCapability`, fork-opaque): every git write, `fs.write`, `gh`
   write, and progress-log write takes `(using WorkspaceWrite)`, and it must NOT
   cross a `fork` boundary (two concurrent forks racing on the same git index or
-  progress log is exactly what this is meant to catch, and now what capture
-  checking enforces at compile time — ADR 0018 §6). A helper that does
+  progress log is exactly what this is meant to catch — ADR 0018 §6). A helper that does
   both (e.g. the lifecycle's `freshRun`, which names the branch via the cheap
   model AND performs the setup git writes) takes BOTH; `Flow`'s
   `recordAndCommit` instead mints its own tokens through the `RuntimeInStage`
@@ -91,6 +90,19 @@ most easily broken:
   pins that a workspace mutation outside a stage fails to compile with the
   `WorkspaceWrite` message and an LLM run outside a stage fails to compile with
   the (distinct) `InStage` message.
+
+  **Capture-checking status:** enforcement of the fork-boundary rule is per
+  compilation unit and currently opt-in. The separation rejection fires only
+  in files carrying the `captureChecking`/`separationChecking` language
+  imports *and* only where the fork thunks are widened to the impure
+  `() => T` element type — which `CheckedPar`'s `C^` signature forces at the
+  one production call site, `ReviewLoop`'s reviewer fan-out (pinned by
+  `CcNegativeCompileTest`; see `CheckedPar`'s scaladoc for the verified
+  mechanics). Everywhere else — user flow scripts, examples, the rest of
+  orca — the shared/exclusive split is convention, and there is no runtime
+  guard on `WorkspaceWrite` (the R12 owner-thread assert covers only the
+  `FlowControl`/`stage` surface). Ox itself is not yet capture-checked; once
+  it is, rejection moves to `ox.fork` directly and `CheckedPar` is deleted.
 
 - **Progress log + recovery.** A run commits `.orca/progress-<hash>.json` (hash =
   prompt, so the path is branch-independent) with one entry per completed stage;
@@ -201,6 +213,17 @@ Unit tests use in-memory fakes (`StubCliRunner` / `SpawnStubCliRunner`,
 the shared `orca.testkit.GitRepo` temp-repo fixture (published via `tools %
 test->test`) — no network, no real filesystem outside `os.temp.dir()`.
 
+### Debugging backend breakage
+
+The coding-agent CLIs auto-update and have broken wire behavior before
+(claude 2.1.207 rejected schemas declaring `$schema: …/2020-12` and began
+surfacing `--json-schema` output as a visible `StructuredOutput` tool call).
+When a flow breaks with no orca change, suspect the CLI first: reproduce
+with a direct probe (e.g.
+`claude -p "…" --model haiku --json-schema '…'`) before touching orca code,
+then fix at the seam (`JsonSchemaGen`, the backend's conversation driver)
+with a test pinning the observed wire shape.
+
 ### Iterating quickly
 
 - Prefer plain `sbt <cmd>` in agent/non-interactive shells. Avoid
@@ -209,6 +232,13 @@ test->test`) — no network, no real filesystem outside `os.temp.dir()`.
   stale server running a different Java and fail despite the current shell's
   `JAVA_HOME`.
 - `sbt ~test` re-runs tests on save.
+- For capture-checking experiments, skip sbt: flow's build materialises its
+  test classpath into
+  `flow/target/scala-*/resource_managed/test/cc-test-classpath.txt`; compile
+  fixtures directly with
+  `java -cp "$CP" dotty.tools.dotc.Main -classpath "$CP" -d out Fixture.scala`.
+  Verify CC enforcement claims this way — empirically, against the pinned
+  compiler — before editing docs or wrappers.
 - Metals MCP is configured (`.metals/mcp.json`), so AI-assisted tooling can
   query real type info across modules.
 
@@ -229,6 +259,16 @@ test->test`) — no network, no real filesystem outside `os.temp.dir()`.
 - Use proper packaging — related functionality lives in one package.
 - Scaladoc describes contract and intent; implementation notes go in inline
   `//` comments alongside the code.
+- Comments state present-tense facts about how the code works now — never
+  change history ("X no longer does Y").
+- Don't explain Scala 3 mechanics (`@implicitNotFound`, sealed traits, given
+  resolution, import semantics) in comments — assume the reader knows the
+  language. Naming a mechanism is fine; teaching it is noise.
+  Project-specific constraints and verified compiler-version-specific
+  behavior do belong.
+- Never cite development-plan labels (epic/finding numbers) in comments —
+  plans are deleted after execution. Cite ADRs, code, or state the fact
+  inline.
 - Tests target exactly one scenario each.
 
 ### Library
