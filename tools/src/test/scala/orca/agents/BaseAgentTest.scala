@@ -8,7 +8,7 @@ import orca.backend.{
   SessionRegistry,
   SessionSupport
 }
-import orca.events.{OrcaListener, Usage}
+import orca.events.{OrcaEvent, OrcaListener, Usage}
 
 /** Pins `BaseAgent.autonomous.run`'s returned session id to the caller's client
   * handle rather than the backend's wire id. The two intentionally diverge for
@@ -107,6 +107,37 @@ class BaseAgentTest extends munit.FunSuite:
       AgentBackend.ClosedMessage
     )
 
+  // The runtime's internal cheap turns (branch naming, commit messages)
+  // consume their reply and re-surface it as the caller's own Step event —
+  // streaming the turn too would print the same text twice (e.g. a stray
+  // `● <branch-slug>` line right before "Switched to a new branch ...").
+  test(
+    "cheapOneShot suppresses the turn's display events; TokensUsed still flows"
+  ):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(new NoisyBackend, listener = listener)
+    val reply = tool.cheapOneShot("name this branch", fallback = "fb")
+    assertEquals(reply, "short-label")
+    val events = seen.get()
+    assert(
+      !events.exists(_.isInstanceOf[OrcaEvent.AssistantMessage]),
+      s"assistant prose must be suppressed on a quiet turn: $events"
+    )
+    assert(
+      !events.exists(_.isInstanceOf[OrcaEvent.ToolUse]),
+      s"tool-use lines must be suppressed on a quiet turn: $events"
+    )
+    assert(
+      !events.exists(_.isInstanceOf[OrcaEvent.UserPrompt]),
+      s"the prompt echo must be suppressed on a quiet turn: $events"
+    )
+    assert(
+      events.exists(_.isInstanceOf[OrcaEvent.TokensUsed]),
+      s"cost accounting must still flow on a quiet turn: $events"
+    )
+
   // Pins finding 6.3's fix: `config` is `Option[AgentConfig]`, not the old
   // `AgentConfig.default` eq-sentinel. An explicit `Some(...)` wholly
   // replaces the tool-level config (no per-field merge); omission (`None`)
@@ -139,12 +170,13 @@ class BaseAgentTest extends munit.FunSuite:
 
   private class StubTool(
       backend: AgentBackend[BackendTag.Pi.type],
-      toolConfig: AgentConfig = AgentConfig()
+      toolConfig: AgentConfig = AgentConfig(),
+      listener: OrcaListener = OrcaListener.noop
   ) extends BaseAgent[BackendTag.Pi.type, Agent[BackendTag.Pi.type]](
         backend,
         toolConfig,
         StubPrompts,
-        OrcaListener.noop,
+        listener,
         StubInteraction
       ):
     val name: String = "stub"
@@ -156,7 +188,7 @@ class BaseAgentTest extends munit.FunSuite:
         config: AgentConfig = toolConfig,
         name: String = name,
         role: Option[String] = None
-    ): Agent[BackendTag.Pi.type] = new StubTool(backend, config)
+    ): Agent[BackendTag.Pi.type] = new StubTool(backend, config, listener)
 
   /** Records the `AgentConfig` the framework actually resolved and passed to
     * the backend, so tests can assert on it directly.
@@ -175,6 +207,39 @@ class BaseAgentTest extends munit.FunSuite:
       AgentResult(
         WireSessionId[BackendTag.Pi.type]("server-wire-id"),
         "out",
+        Usage.empty
+      )
+    def runInteractive(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        displayPrompt: String,
+        config: AgentConfig,
+        outputSchema: Option[String]
+    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
+      throw new UnsupportedOperationException
+    val sessions: SessionSupport[BackendTag.Pi.type] =
+      SessionSupport.Ephemeral(new SessionRegistry.ClaimedOnce)
+    val tag: BackendTag.Pi.type = BackendTag.Pi
+    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+      Enforcement.Ignored
+
+  /** Emits the streaming display events a real drain would (a tool line and the
+    * assistant's reply) so the quiet-turn test can assert they are filtered.
+    */
+  private class NoisyBackend extends AgentBackend[BackendTag.Pi.type]:
+    val workDir: os.Path = os.pwd
+    def runAutonomous(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        config: AgentConfig,
+        events: OrcaListener,
+        outputSchema: Option[String]
+    ): AgentResult[BackendTag.Pi.type] =
+      events.onEvent(OrcaEvent.ToolUse("Read", "{}"))
+      events.onEvent(OrcaEvent.AssistantMessage("short-label"))
+      AgentResult(
+        WireSessionId[BackendTag.Pi.type]("wire"),
+        "short-label",
         Usage.empty
       )
     def runInteractive(

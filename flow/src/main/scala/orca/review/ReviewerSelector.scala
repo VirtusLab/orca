@@ -1,8 +1,8 @@
 package orca.review
 
 // Compiled under capture checking so `prepare`'s returned narrowing can be
-// declared as a PURE `->` arrow — the enforced form of the old informal "the
-// selector's per-round function must not capture `InStage`" contract. Keep
+// declared as a PURE `->` arrow — enforcing at compile time that the
+// selector's per-round function does not capture `InStage`. Keep
 // tapir `derives`/macro-expanding types out of here (they don't type-check
 // under CC); [[ReviewerInfo]]/[[ReviewerSelectionRequest]] live in a sibling
 // non-CC file, as `FixRequest.scala` does.

@@ -125,12 +125,10 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
     * alphabetically within each. Each by-agent line is prefixed with that
     * agent's role when it has one (e.g. `reviewer: performance`), purely a
     * display derivation from [[State.agentRoles]] — `agent` itself is never
-    * mutated to carry it (12.7: killed the old convention of baking a
-    * `"reviewer: "` prefix into the agent's identity/name). Cache hits and
-    * reasoning tokens are shown parenthetically when non-zero, and cost (when
-    * known) is appended as `$X.XXXX`. An asterisk after the dollar amount marks
-    * an estimated figure; a trailing legend line explains it when at least one
-    * estimate is present.
+    * mutated to carry it. Cache hits and reasoning tokens are shown
+    * parenthetically when non-zero, and cost (when known) is appended as
+    * `$X.XXXX`. An asterisk after the dollar amount marks an estimated figure;
+    * a trailing legend line explains it when at least one estimate is present.
     *
     * Empty string when no `TokensUsed` events have been observed.
     */
@@ -185,9 +183,8 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
     model.map(_.name).getOrElse("(unknown)")
 
   /** Render a by-agent line's label: the bare agent name, prefixed with its
-    * role (looked up in `agentRoles`) when it has one — the sole place the old
-    * `"reviewer: "` string convention survives, now derived purely for display
-    * rather than baked into `agent` itself.
+    * role (looked up in `agentRoles`) when it has one. The `"reviewer: "`
+    * prefix is derived purely for display, never baked into `agent` itself.
     */
   private def agentLabel(
       agent: String,

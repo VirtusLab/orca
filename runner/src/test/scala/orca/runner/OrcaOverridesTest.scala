@@ -216,9 +216,7 @@ class OrcaOverridesTest extends munit.FunSuite:
     // The pin: a user agent built by the override
     // factory must land on the SAME dispatcher as the defaults, so the tokens
     // it spends reach the cost tracker and terminal. The factory receives
-    // `w.events`; the stub emits a TokensUsed through it on `run`. The old
-    // `Option[Agent]` overrides were built before the dispatcher existed and
-    // could never do this.
+    // `w.events`; the stub emits a TokensUsed through it on `run`.
     def wiredClaude(events: OrcaListener): ClaudeAgent = new ClaudeAgent:
       val name = "wired"
       def haiku = this

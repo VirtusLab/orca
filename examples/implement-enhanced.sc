@@ -57,7 +57,7 @@ flow(OrcaArgs(args), _.claude, returnToStartBranch = true):
   val session = plan.implementerSession(agent)
 
   for task <- plan.tasks do
-    stage(s"task: ${task.title}"):      // skipped on resume if already done
+    stage(s"Task: ${task.title}"):      // skipped on resume if already done
       // The session seed already carries the brief, so send only the task
       // description here — session.run re-prepends the seed on first use / resume.
       session.run(task.description)

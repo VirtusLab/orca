@@ -126,7 +126,13 @@ private[terminal] class ConversationRenderer(
   private def renderUserMessage(text: String): Unit =
     enterSection(Section.Prose)
     val header = paint(UserHeaderStyle, s"$UserGlyph you")
-    val body = paint(UserBodyStyle, bulletIndent(text))
+    // One line, truncated — matching the autonomous path's `▸` prompt render;
+    // the initial message here is usually a full templated instruction, and
+    // dumping it would dominate the log.
+    val body = paint(
+      UserBodyStyle,
+      bulletIndent(Text.oneLine(text, MaxUserMessageLength))
+    )
     appendBlock(s"$header\n$body")
 
   private def bufferText(
@@ -263,6 +269,10 @@ private[terminal] object ConversationRenderer:
   // Tool results are large file reads or command output; show just
   // enough for "something happened" without wrapping past one line.
   val MaxInlineContentLength: Int = 100
+  // The interactive session's user message is usually the full templated
+  // instruction; one truncated line identifies the turn (same budget the
+  // autonomous `▸` prompt line uses in TerminalEventListener).
+  val MaxUserMessageLength: Int = 100
 
   val UserGlyph: String = "▸"
   val AssistantGlyph: String = "●"

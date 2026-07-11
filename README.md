@@ -49,7 +49,7 @@ flow(OrcaArgs(args), _.claude):
   // one commit. Completed stages are skipped on resume — re-running the same
   // prompt picks up from the first incomplete task.
   for task <- plan.tasks do
-    stage(s"task: ${task.title}"):      // skipped on resume if already done
+    stage(s"Task: ${task.title}"):      // skipped on resume if already done
       session.run(task.description)
       reviewAndFixLoop(                  // runs under this stage
         coderSession = session,

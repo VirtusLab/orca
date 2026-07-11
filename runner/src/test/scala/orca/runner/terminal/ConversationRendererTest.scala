@@ -84,6 +84,28 @@ class ConversationRendererTest extends munit.FunSuite:
       usage = Usage(0L, 0L, None)
     )
 
+  test("UserMessage renders as one truncated line, not the full prompt"):
+    // The initial user message of an interactive session is usually the full
+    // templated instruction; the render identifies the turn like the
+    // autonomous `▸` prompt line does, instead of dumping pages of prompt.
+    val buf = new ByteArrayOutputStream()
+    val long = "Add a feature to the calculator.\n" + ("detail " * 100)
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.UserMessage(long)),
+      Right(sampleResult)
+    )
+    val _ = supervised(renderer(buf).render(conv))
+    val out = buf.toString
+    assert(out.contains("you"), out)
+    assert(out.contains("…"), s"a long user message must be truncated: $out")
+    val bodyLines = out.linesIterator.filter(_.contains("detail")).toList
+    assert(
+      bodyLines.forall(
+        _.length <= ConversationRenderer.MaxUserMessageLength + 10
+      ),
+      s"the full body must not be dumped: $bodyLines"
+    )
+
   test("non-structured mode: assistant text flushes verbatim at TurnEnd"):
     // Off the structured-output path, the renderer doesn't
     // second-guess the agent's output — JSON-shaped or not, it

@@ -44,7 +44,7 @@ flow(OrcaArgs(args), _.claude):
   val reviewers: List[Agent[?]] = allReviewers(codex)
 
   for task <- plan.tasks do
-    stage(s"task: ${task.title}"):      // skipped on resume if already done
+    stage(s"Task: ${task.title}"):      // skipped on resume if already done
       session.run(task.description)
       // reviewerSelection defaults to agentDriven(claude.cheap) — the coder
       // session's cheap tier.

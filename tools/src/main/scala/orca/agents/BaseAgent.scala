@@ -126,6 +126,25 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       // wire-side truth, learned by the registry, not a caller handle.
       (session, result.output)
 
+  /** See [[Agent.quietTextTurn]]: the turn runs against a filtered event sink
+    * that drops the streaming display events (`AssistantMessage`, `ToolUse`)
+    * while everything else the drain emits (`Error`, auto-denial notices) still
+    * reaches the real listener, as does `TokensUsed` below.
+    */
+  override private[orca] def quietTextTurn(prompt: String)(using
+      orca.InStage
+  ): String =
+    checkNotClosed()
+    val effective = effectiveConfig(None)
+    val quietEvents: OrcaListener = (e: OrcaEvent) =>
+      e match
+        case _: OrcaEvent.AssistantMessage | _: OrcaEvent.ToolUse => ()
+        case other => events.onEvent(other)
+    val result =
+      backend.runAutonomous(prompt, SessionId.fresh[B], effective, quietEvents)
+    emitTokens(effective, result)
+    result.output
+
   def resultAs[O: JsonData: Announce]: AgentCall[B, O] =
     checkNotClosed()
     new DefaultAgentCall[B, O](

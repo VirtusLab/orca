@@ -133,8 +133,7 @@ trait Agent[B <: BackendTag]:
       InStage
   ): String =
     try
-      val (_, text) =
-        cheap.withReadOnly.autonomous.run(prompt, emitPrompt = false)
+      val text = cheap.withReadOnly.quietTextTurn(prompt)
       val firstLine = text.linesIterator
         .map(_.trim)
         .filterNot(_.startsWith("```"))
@@ -142,6 +141,16 @@ trait Agent[B <: BackendTag]:
         .getOrElse("")
       if firstLine.isBlank then fallback else firstLine
     catch case NonFatal(_) => fallback
+
+  /** One autonomous text turn with the streaming display suppressed: no `▸`
+    * prompt echo and — on `BaseAgent`-derived tools, which override this — no
+    * `●` prose or `⏺` tool lines either (`TokensUsed` and `Error` events still
+    * flow). For the runtime's internal turns ([[cheapOneShot]]): their display
+    * channel is the caller's own event (the branch-switch or commit `Step`), so
+    * streaming the reply would show the same text twice.
+    */
+  private[orca] def quietTextTurn(prompt: String)(using InStage): String =
+    autonomous.run(prompt, emitPrompt = false)._2
 
   /** Return a sibling tool that manages git itself — flips
     * [[AgentConfig.selfManagedGit]] on, suppressing the standing "runtime owns

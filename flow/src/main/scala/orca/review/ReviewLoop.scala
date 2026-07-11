@@ -121,9 +121,8 @@ def fixLoop(
   * only return a subset/permutation of them: the constructor is
   * `private[review]`, so a selector cannot fabricate an entry for an agent the
   * roster never contained. This makes "a foreign reviewer" unrepresentable at
-  * the type level, which is what lets the loop drop the runtime
-  * roster-membership defences (foreign-drop warning, silent full-roster
-  * fallback) the old `List[Agent[?]]` contract required.
+  * the type level, so the loop needs no runtime roster-membership defences (no
+  * foreign-drop warning, no silent full-roster fallback).
   *
   * Identity is reference identity (the default for a plain class): the loop
   * keys its per-reviewer session map on the entry instance, and each roster
@@ -355,8 +354,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   // The roster, wrapped once as identity-keyed handles. A selector receives
   // these and may only return a subset/permutation of them (foreign agents are
   // unrepresentable), and the session map keys on these instances by `eq` — so
-  // duplicate reviewer names no longer break session threading, and the old
-  // name-uniqueness `require` is gone.
+  // duplicate reviewer names cannot break session threading and no
+  // name-uniqueness `require` is needed.
   private val roster: List[RosterEntry[?]] = reviewers.map(RosterEntry.wrap)
 
   // Sampled per iteration in `runReviewersAndLint`. A constant override skips
@@ -389,9 +388,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * No cast is involved: a resume runs `stored`'s own paired entry+session
     * ([[resumeReview]]), whose backend tag `B` the wrapper carries by
     * construction; a first call binds the entry's `B` ([[firstReview]]) and
-    * pairs the fresh `SessionId[B]` back with it. The two-hop `.as[RB]`
-    * soundness argument the old name-keyed map needed is gone — the pairing is
-    * a compile-time invariant, not a recovered claim.
+    * pairs the fresh `SessionId[B]` back with it. The pairing is a compile-time
+    * invariant, not a claim recovered at runtime.
     */
   private def reviewWithSession(
       e: RosterEntry[?],
