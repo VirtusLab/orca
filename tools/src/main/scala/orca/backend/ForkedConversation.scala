@@ -258,39 +258,37 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
   // it returns an `Outcome[B]` and never throws. The stderr-drain and ask-user
   // forks are ordinary daemon `fork`s the scope cancels at its end.
 
-  private case class Workers(
-      stderr: Fork[Unit],
-      reader: UnsupervisedFork[Outcome[B]]
-  )
+  private case class Workers(reader: UnsupervisedFork[Outcome[B]])
 
   /** The started workers, written once by [[ensureStarted]]. Read by
-    * [[awaitResult]] (reader join) on the consuming thread, and by [[cancel]]'s
-    * finalize (via [[stderrDrainFork]]) on the driving thread — a genuine
-    * cross-thread read, so `@volatile`: a `cancel` racing the first `events` /
-    * `awaitResult` must see the started forks (or a definite `None`), never a
-    * torn half-initialised reference.
+    * [[awaitResult]] (reader join) on the consuming thread — `@volatile` so a
+    * `cancel` racing the first `events` / `awaitResult` sees the started fork
+    * (or a definite `None`), never a torn half-initialised reference.
     */
   @volatile private var workers: Option[Workers] = None
 
+  /** The stderr-drain fork handle, in its own field written BEFORE the reader
+    * fork starts: the reader's happy-path finalize joins [[stderrDrainFork]]
+    * from the reader's own thread, and on an instant-EOF stream it can get
+    * there before `ensureStarted`'s later writes land — reading `None` there
+    * would silently skip the drain join and drop the stderr diagnostics from
+    * the failure message.
+    */
+  @volatile private var stderrFork: Option[Fork[Unit]] = None
+
   /** Start the reader / stderr / ask-user forks on first touch of the surface;
     * a no-op thereafter, returning the already-started set. The auxiliary
-    * workers are forked before the reader so stderr/ask-user are running before
-    * the reader consumes stdout. The consumer is single-threaded ([[events]]
-    * then [[awaitResult]] on the same thread), so the check-then-start needs no
-    * lock.
+    * workers are forked (and [[stderrFork]] published) before the reader, so
+    * stderr/ask-user are running — and the drain handle is visible to the
+    * reader's finalize — before the reader consumes stdout. The consumer is
+    * single-threaded ([[events]] then [[awaitResult]] on the same thread), so
+    * the check-then-start needs no lock.
     */
   private def ensureStarted()(using Ox): Workers =
     workers.getOrElse:
-      val stderr = fork(stderrLoop())
+      stderrFork = Some(fork(stderrLoop()))
       askUser.foreach(r => fork(askUserDrain(r.bridge)).discard)
-      val reader = forkUnsupervised(runReader())
-      val started = Workers(stderr, reader)
-      // Assignment-window note: the forks are live before `workers` is set, so a
-      // `cancel`/[[onFinalize]] reading [[stderrDrainFork]] in that gap would see
-      // `None` and skip draining. Benign and practically unreachable — the
-      // consumer is single-threaded (this runs on the same thread that later
-      // finalizes), so no reader observes the window in practice; documented, not
-      // guarded.
+      val started = Workers(forkUnsupervised(runReader()))
       workers = Some(started)
       started
 
@@ -472,7 +470,7 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * the workers were never started — a conversation constructed but never
     * consumed, then cancelled — so there is nothing to join.
     */
-  protected def stderrDrainFork: Option[Fork[Unit]] = workers.map(_.stderr)
+  protected def stderrDrainFork: Option[Fork[Unit]] = stderrFork
 
   protected def debugLog(channel: String, line: String): Unit =
     if OrcaDebug.streamTrace then
