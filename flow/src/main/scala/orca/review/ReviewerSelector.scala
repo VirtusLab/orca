@@ -170,7 +170,6 @@ object ReviewerSelector:
               ),
               emitPrompt = false
             )
-            ._2
             .names
       // Post-filter against `eligible`, not `all`, so a picker that hallucinates
       // a name pre-filtered out can't resurrect it.

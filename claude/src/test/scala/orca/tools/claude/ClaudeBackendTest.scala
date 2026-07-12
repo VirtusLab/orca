@@ -128,7 +128,7 @@ class ClaudeBackendTest extends munit.FunSuite:
     val derived = agent.withNetworkTools(Seq("WebFetch"))
     agent.close() // latches the shared backend, not just `agent`'s own handle
     val thrown = intercept[OrcaFlowException]:
-      derived.autonomous.run("prompt")
+      derived.run("prompt")
     assertEquals(thrown.getMessage, orca.backend.AgentBackend.ClosedMessage)
 
   test(

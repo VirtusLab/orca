@@ -46,10 +46,12 @@ object FlowCanary:
       stage("plan"):
         val _ = session.resultAs[FlowPlan].run(userPrompt)
         val _ = session.resultAs[FlowPlan].run("follow up")
-        // Interactive is deliberately ephemeral-only (see FlowSession); the
-        // escape hatch `.id` pins the raw interactive door's shape.
+        // Interactive is deliberately ephemeral-only (see FlowSession): a
+        // one-shot on the agent, or a continuation on a Chat — including the
+        // `agent.chat(session.id)` escape hatch over a durable session.
         val _ = claude.resultAs[FlowPlan].interactive.run(userPrompt)
-        val _ = claude.resultAs[FlowPlan].interactive.run("refine", session.id)
+        val _ =
+          claude.chat(session.id).resultAs[FlowPlan].interactive.run("refine")
 
   /** Free-form text prompts and session continuation; the shape the README
     * promises for per-task implementation.
@@ -61,8 +63,11 @@ object FlowCanary:
       stage("impl"):
         val _ = session.run("kick off")
         val _ = session.run("keep going")
-        // A bare (fresh) ephemeral session on the raw door is unchanged.
-        val _ = claude.autonomous.run("one-shot")
+        // A bare ephemeral one-shot and a multi-turn Chat sit alongside it.
+        val _ = claude.run("one-shot")
+        val chat: Chat[?] = claude.chat()
+        val _ = chat.run("kick off")
+        val _ = chat.run("keep going")
 
   /** Every top-level accessor must resolve from `import orca.*` alone.
     */
@@ -94,7 +99,7 @@ object FlowCanary:
       // not offer (see the FlowSession scaladoc); run it on the raw interactive
       // door via the `.id` escape hatch. The stage persists ONLY the FlowPlan.
       val plan: FlowPlan = stage("plan"):
-        claude.resultAs[FlowPlan].interactive.run(userPrompt, session.id)._2
+        claude.chat(session.id).resultAs[FlowPlan].interactive.run(userPrompt)
       for task <- plan.tasks do
         stage(task.description):
           reviewAndFixLoop(
@@ -105,6 +110,29 @@ object FlowCanary:
             formatCommand = Some("mvn -q spotless:apply"),
             lint = Some(Lint("mvn -q test", claude.haiku))
           )
+
+  /** User-authored parallel fan-out: `Par.mapUnordered` plus per-fork ephemeral
+    * [[Chat]]s — the sanctioned shape for a hand-rolled review loop. The
+    * durable `coder.run` stays on the flow thread; each fork mints and resumes
+    * its own chat (`InStage` crosses the fork; `WorkspaceWrite` and the
+    * FlowSession doors must not).
+    */
+  def customFanOutSurface(): Unit =
+    flow(OrcaArgs(), _.claude):
+      val coder = claude.session("implementer", seed = userPrompt)
+      stage("review"):
+        val _ = coder.run("implement the task")
+        val reviewers = List(claude.sonnet.withReadOnly, codex.withReadOnly)
+        val chats: List[Chat[?]] = Par.mapUnordered(2)(reviewers): r =>
+          val c = r.chat()
+          val _ = c.run("review the diff")
+          c
+        val _ = coder.run("fix what the reviewers found")
+        val _ = Par.mapUnordered(2)(chats): c =>
+          c.run("re-review after the fixes")
+        // The escape hatch: continue the durable conversation ephemerally
+        // (e.g. from a fork) — turns here are not persisted.
+        val _ = claude.chat(coder.id).run("one unpersisted follow-up")
 
   /** A custom [[ReviewerSelector]] must be implementable from `import orca.*`
     * alone: its `prepare` is handed the roster as opaque `RosterEntry` handles
@@ -146,7 +174,7 @@ object FlowCanary:
   def configured(): Unit =
     flow(args = OrcaArgs("hello"), agent = _.claude, workDir = os.pwd):
       stage("cfg"):
-        val _ = claude.autonomous.run(userPrompt)
+        val _ = claude.run(userPrompt)
 
   /** Typical scripted entry: parse the CLI argv and hand it straight to `flow`.
     * `args` here stands in for the scala-cli script's top-level `args:
@@ -155,7 +183,7 @@ object FlowCanary:
   def fromCliArgs(args: Array[String]): Unit =
     flow(OrcaArgs(args), _.claude):
       stage("start"):
-        val _ = claude.autonomous.run(userPrompt)
+        val _ = claude.run(userPrompt)
 
   /** `summarisePr` + `PrSummary` surface; exercised by `examples/issue-pr.sc`.
     * Pins the call shape (`agent`, `diff`, optional `context`, optional
@@ -312,7 +340,7 @@ object FlowCanary:
       for task <- plan.tasks do
         stage(s"task: ${task.title.value}"):
           // omitting the session arg gives a fresh one-shot session
-          val _ = claude.autonomous.run(plan.taskPrompt(task))
+          val _ = claude.run(plan.taskPrompt(task))
 
   // -----------------------------------------------------------------------
   // Example-shape canaries (ADR 0018 §3, Task F2)
@@ -395,7 +423,7 @@ object FlowCanary:
   def agentSelector(): Unit =
     flow(OrcaArgs(), _.codex):
       stage("lead"):
-        val _ = codex.autonomous.run(userPrompt)
+        val _ = codex.run(userPrompt)
 
   /** `epic.sc`: cross-backend review — claude implements, codex reviews.
     * Exercises the `allReviewers(codex)` shape and `claude.opus` planning.

@@ -40,7 +40,7 @@ class StageFramesTest extends munit.FunSuite:
     )
     assert(
       thrown.getMessage.contains(
-        "stage(...)/session(...) called from a fork — forks get FlowContext only (ADR 0018 R12)"
+        "stage(...) called from a fork — forks get FlowContext only (ADR 0018 R12)"
       ),
       s"unexpected message: ${thrown.getMessage}"
     )

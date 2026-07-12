@@ -195,13 +195,21 @@ object Plan:
       @unused ctx: FlowContext,
       ev: InStage
   ): Sessioned[B, A] =
-    val (sessionId, raw) = agent.withNetworkOnly
+    // The planning turn runs on the restricted (NetworkOnly) sibling, but the
+    // chat handed out is bound to the BASE agent: a continuation must get the
+    // caller's full capability back (a NetworkOnly chat couldn't edit files),
+    // so the restriction stays per-turn, never on the thread.
+    val planningChat = agent.withNetworkOnly.chat()
+    val raw = planningChat
       .resultAs[O]
       .autonomous
       .run(withInstructions(input, instructions))
-    Sessioned(sessionId, convert(raw))
+    Sessioned(agent.chat(planningChat.id), convert(raw))
 
-  /** Interactive counterpart to [[autonomousResult]]. */
+  /** Interactive counterpart to [[autonomousResult]] — no per-turn restriction
+    * (interactive planning runs with normal permissions, see [[interactive]]),
+    * so the chat is minted on `agent` directly.
+    */
   private def interactiveResult[
       B <: BackendTag: CanAskUser,
       O: JsonData: Announce,
@@ -214,9 +222,12 @@ object Plan:
       @unused ctx: FlowContext,
       ev: InStage
   ): Sessioned[B, A] =
-    val (sessionId, raw) =
-      agent.resultAs[O].interactive.run(withInstructions(input, instructions))
-    Sessioned(sessionId, convert(raw))
+    val chat = agent.chat()
+    val raw = chat
+      .resultAs[O]
+      .interactive
+      .run(withInstructions(input, instructions))
+    Sessioned(chat, convert(raw))
 
   // == Post-planning step on a produced plan ==
   //
@@ -225,18 +236,21 @@ object Plan:
   // `Sessioned[B, Plan]` — no extra import needed.
 
   extension [B <: BackendTag](sp: Sessioned[B, Plan])
-    /** Resume the planning session for a critical self-review, returning the
-      * improved plan (brief included) paired with the (same) session.
+    /** Resume the planning conversation for a critical self-review, returning
+      * the improved plan (brief included) paired with the (same) chat. The
+      * review turn runs read-only on `agent`; the handed-back chat keeps the
+      * original binding.
       */
     def reviewed(
         agent: Agent[B],
         instructions: String = PlanPrompts.Review
     )(using @unused ctx: FlowContext, ev: InStage): Sessioned[B, Plan] =
-      val (sessionId, improved) = agent.withReadOnly
+      val improved = agent.withReadOnly
+        .chat(sp.chat.id)
         .resultAs[Plan]
         .autonomous
-        .run(s"$instructions\n\n${render(sp.value)}", session = sp.sessionId)
-      Sessioned(sessionId, improved)
+        .run(s"$instructions\n\n${render(sp.value)}")
+      Sessioned(sp.chat, improved)
 
   /** Empty plans render as nothing — surfacing "0 tasks planned" muddies the
     * picture; a planning failure is more useful as an explicit `fail(...)` from

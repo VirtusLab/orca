@@ -43,14 +43,12 @@ object OutsideStage:
   * persist the backend's learned resume wire id — mirror images of the same
   * protocol on the two doors.
   *
-  * '''Escape hatch:''' [[id]] exposes the underlying [[SessionId]]. Passing it
-  * to a raw `agent.autonomous.run` / `agent.resultAs[O]...run` /
-  * `agent.interactive.run(input, session.id)` door — interactive included,
-  * since it is deliberately not offered as a durable door here — FORFEITS
-  * seeding and wire-id persistence: those doors are in-run only and never write
-  * back to the log, so on crash/resume the durable side finds nothing recorded
-  * and rehydration opens a brand-new, unseeded session rather than continuing
-  * the old one.
+  * '''Escape hatch:''' [[id]] exposes the underlying [[SessionId]];
+  * `agent.chat(session.id)` adopts it as an EPHEMERAL [[orca.agents.Chat]] —
+  * the way to continue this conversation from inside a fork (where the doors
+  * here are banned), interactive turns included. Chat turns FORFEIT seeding and
+  * wire-id persistence: they are in-run only and never write back to the log,
+  * so on crash/resume the durable side finds nothing recorded for them.
   *
   * The handle is a plain immutable value ([[Agent]] + [[SessionId]]): mint it
   * once at the flow-body top level (minting inside a stage is rejected — see
@@ -66,7 +64,7 @@ final class FlowSession[B <: BackendTag] private[orca] (
     private[orca] val agent: Agent[B],
     /** The underlying reserved session id — the documented escape hatch (see
       * the class scaladoc). Prefer [[run]] / [[resultAs]]; reach for `.id` only
-      * to hand the raw doors an ephemeral continuation.
+      * to mint an ephemeral continuation via `agent.chat(id)`.
       */
     val id: SessionId[B]
 ):
@@ -93,8 +91,9 @@ final class FlowSession[B <: BackendTag] private[orca] (
       ev: InStage,
       ws: WorkspaceWrite
   ): String =
-    val (_, output) =
-      agent.autonomous.run(effectivePrompt(agent, id, prompt), id)
+    fc.assertOwnerThread("session.run(...)")
+    val (_, output) = agent.autonomous
+      .runWithSession(effectivePrompt(agent, id, prompt), id, None, true)
     persistResumeWireId(agent, id)
     output
 
@@ -145,9 +144,15 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
       ev: InStage,
       ws: WorkspaceWrite
   ): O =
+    fc.assertOwnerThread("session.run(...)")
     val serialized = ai.serialize(input)
     val (_, output) = call.autonomous
-      .run(effectivePrompt(agent, id, serialized), id, emitPrompt = emitPrompt)
+      .runWithSession(
+        effectivePrompt(agent, id, serialized),
+        id,
+        None,
+        emitPrompt
+      )
     persistResumeWireId(agent, id)
     output
 

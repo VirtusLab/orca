@@ -39,7 +39,7 @@ class BranchNamingTest extends munit.FunSuite:
       val name: String = "stubbed"
       def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
         new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-          def run(
+          private[orca] def runWithSession(
               prompt: String,
               session: SessionId[BackendTag.ClaudeCode.type],
               config: Option[AgentConfig],
@@ -62,7 +62,7 @@ class BranchNamingTest extends munit.FunSuite:
       val name: String = "throwing-autonomous"
       def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
         new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-          def run(
+          private[orca] def runWithSession(
               prompt: String,
               session: SessionId[BackendTag.ClaudeCode.type],
               config: Option[AgentConfig],

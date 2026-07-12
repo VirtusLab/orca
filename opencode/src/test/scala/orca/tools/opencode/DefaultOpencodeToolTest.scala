@@ -73,7 +73,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
       tool: OpencodeAgent,
       backend: RecordingBackend
   ): Option[String] =
-    val _ = tool.autonomous.run("x")
+    val _ = tool.run("x")
     backend.lastConfig.flatMap(_.model).map(_.name)
 
   test("provider-prefixed accessors pin the right provider/model id"):
@@ -109,7 +109,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
 
   test("withReadOnly pins tools to ReadOnly, keeping the model pin"):
     val b = new RecordingBackend
-    val _ = toolWith(b).anthropicOpus.withReadOnly.autonomous.run("x")
+    val _ = toolWith(b).anthropicOpus.withReadOnly.run("x")
     assertEquals(b.lastConfig.map(_.tools), Some(ToolSet.ReadOnly))
     assertEquals(
       b.lastConfig.flatMap(_.model).map(_.name),

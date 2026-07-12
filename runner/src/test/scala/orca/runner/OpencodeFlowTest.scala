@@ -87,7 +87,7 @@ class OpencodeFlowTest extends munit.FunSuite:
       OrcaListener.noop,
       noInteraction
     )
-    val (_, v) = tool.resultAs[Verdict].autonomous.run("assess")
+    val v = tool.resultAs[Verdict].autonomous.run("assess")
     assertEquals(v, Verdict("go", 7))
 
   // --- doubles ---
@@ -152,7 +152,7 @@ class OpencodeFlowTest extends munit.FunSuite:
       new AgentCall[BackendTag.Opencode.type, O]:
         val autonomous: AutonomousAgentCall[BackendTag.Opencode.type, O] =
           new AutonomousAgentCall[BackendTag.Opencode.type, O]:
-            def run[I: AgentInput](
+            private[orca] def runWithSession[I: AgentInput](
                 input: I,
                 session: SessionId[BackendTag.Opencode.type],
                 config: Option[AgentConfig],

@@ -154,7 +154,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
       )
     )
     supervised:
-      val (_, answer) = makeCall(backend).autonomous.run("what is the answer?")
+      val answer = makeCall(backend).autonomous.run("what is the answer?")
       assertEquals(answer, Answer(42))
       val Seq(first, second, third) = backend.prompts: @unchecked
       assert(
@@ -173,7 +173,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
   test("autonomous succeeds on the first attempt when the response parses"):
     val backend = new SequencedBackend(List("""{"value":7}"""))
     supervised:
-      val (_, answer) = makeCall(backend).autonomous.run("a question")
+      val answer = makeCall(backend).autonomous.run("a question")
       assertEquals(answer, Answer(7))
       assertEquals(backend.prompts.size, 1)
 
@@ -186,7 +186,12 @@ class DefaultAgentCallTest extends munit.FunSuite:
     val sid = SessionId[BackendTag.ClaudeCode.type]("sess-under-test")
     supervised:
       val (_, answer) =
-        makeCall(backend).autonomous.run("next step", session = sid)
+        makeCall(backend).autonomous.runWithSession(
+          "next step",
+          sid,
+          None,
+          true
+        )
       assertEquals(answer, Answer(11))
       val Seq(first, second) = backend.prompts: @unchecked
       assert(
@@ -421,7 +426,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
             outputSchema
           )
     supervised:
-      val (_, answer) = makeCall(backend).autonomous.run("q")
+      val answer = makeCall(backend).autonomous.run("q")
       assertEquals(answer, Answer(8))
       assertEquals(calls.get(), 2, "transient failure should be retried once")
 
@@ -504,7 +509,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
         events = orca.events.OrcaListener.noop,
         interaction = drivingInteraction,
         agentName = "claude"
-      ).interactive.run("anything", session = clientSid)
+      ).interactive.runWithSession("anything", clientSid, None)
       assertEquals(answer, Answer(3))
       assertEquals(
         returned,

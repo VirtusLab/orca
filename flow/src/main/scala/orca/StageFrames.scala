@@ -66,12 +66,14 @@ private[orca] trait StageFrames:
   private val ownerThread: Thread = Thread.currentThread()
 
   /** Throws with the R12 message when called off `ownerThread` — see the trait
-    * scaladoc's "only enforcement of R12 for user flow scripts" note.
+    * scaladoc's "only enforcement of R12 for user flow scripts" note. Also
+    * called by `FlowSession`'s run doors (via [[FlowControl]]), so durable runs
+    * — not just stage/session minting — refuse from a fork at runtime.
     */
-  private def assertOwnerThread(): Unit =
+  private[orca] def assertOwnerThread(what: String): Unit =
     if Thread.currentThread() ne ownerThread then
       throw new OrcaFlowException(
-        "stage(...)/session(...) called from a fork — forks get FlowContext only (ADR 0018 R12)"
+        s"$what called from a fork — forks get FlowContext only (ADR 0018 R12)"
       )
 
   /** One open stage's scope: its own path id (the prefix children join under)
@@ -95,7 +97,7 @@ private[orca] trait StageFrames:
     * this must be called exactly once per stage attempt.
     */
   def enterStage(name: String): String =
-    assertOwnerThread()
+    assertOwnerThread("stage(...)")
     val parent = frames.head
     val segment = s"$name#${parent.next(name)}"
     val id = if parent.path.isEmpty then segment else s"${parent.path}/$segment"
@@ -106,7 +108,7 @@ private[orca] trait StageFrames:
     * try/finally; never pops the root frame in correct use.
     */
   def exitStage(): Unit =
-    assertOwnerThread()
+    assertOwnerThread("stage(...)")
     frames = frames.tail
 
   /** True when at least one stage frame is open — i.e. execution is inside a
@@ -120,7 +122,7 @@ private[orca] trait StageFrames:
   // root scope. Keyed per-name, mirroring a frame's stage counter.
   private var sessionCounts: Map[String, Int] = Map.empty
   def nextSessionOccurrence(name: String): Int =
-    assertOwnerThread()
+    assertOwnerThread("agent.session(...)")
     val n = sessionCounts.getOrElse(name, 0)
     sessionCounts = sessionCounts.updated(name, n + 1)
     n

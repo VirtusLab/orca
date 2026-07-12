@@ -50,7 +50,7 @@ class DefaultGeminiAgentTest extends munit.FunSuite:
       runner,
       AgentConfig().copy(model = Some(DefaultGeminiAgent.Pro))
     ): tool =>
-      val _ = tool.autonomous.run("q")
+      val _ = tool.run("q")
       assert(
         runner.calls.head.containsSlice(Seq("--model", "gemini-2.5-pro")),
         s"expected the pro pin; got: ${runner.calls.head}"
@@ -62,7 +62,7 @@ class DefaultGeminiAgentTest extends munit.FunSuite:
       runner,
       AgentConfig().copy(model = Some(DefaultGeminiAgent.Pro))
     ): tool =>
-      val _ = tool.flash.autonomous.run("q")
+      val _ = tool.flash.run("q")
       assert(
         runner.calls.head.containsSlice(Seq("--model", "gemini-2.5-flash")),
         s"expected the flash pin; got: ${runner.calls.head}"

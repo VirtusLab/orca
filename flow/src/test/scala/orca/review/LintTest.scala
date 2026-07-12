@@ -49,7 +49,7 @@ class LintTest extends munit.FunSuite:
       new AgentCall[BackendTag.ClaudeCode.type, O]:
         val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
           new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-            def run[I](
+            private[orca] def runWithSession[I](
                 i: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
                 c: Option[AgentConfig],

@@ -68,7 +68,6 @@ def lint(
         .resultAs[ReviewResult]
         .autonomous
         .run(prompt, emitPrompt = false)
-        ._2
     val statusHint =
       s"`$command` exited with status ${proc.exitCode}. A zero status usually " +
         "means it succeeded with nothing to report — return an empty result"

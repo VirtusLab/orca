@@ -109,22 +109,23 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     backend.markClosed()
     backend.close()
 
-  val autonomous: AutonomousTextCall[B] = new AutonomousTextCall[B]:
-    def run(
-        prompt: String,
-        session: SessionId[B] = SessionId.fresh[B],
-        callConfig: Option[AgentConfig] = None,
-        emitPrompt: Boolean = true
-    )(using orca.InStage): (SessionId[B], String) =
-      checkNotClosed()
-      val effective = effectiveConfig(callConfig)
-      if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
-      val result =
-        backend.runAutonomous(prompt, session, effective, events)
-      emitTokens(effective, result)
-      // Return the caller-supplied client handle; result.wireId is the
-      // wire-side truth, learned by the registry, not a caller handle.
-      (session, result.output)
+  private[orca] val autonomous: AutonomousTextCall[B] =
+    new AutonomousTextCall[B]:
+      private[orca] def runWithSession(
+          prompt: String,
+          session: SessionId[B],
+          callConfig: Option[AgentConfig],
+          emitPrompt: Boolean
+      )(using orca.InStage): (SessionId[B], String) =
+        checkNotClosed()
+        val effective = effectiveConfig(callConfig)
+        if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
+        val result =
+          backend.runAutonomous(prompt, session, effective, events)
+        emitTokens(effective, result)
+        // Return the caller-supplied client handle; result.wireId is the
+        // wire-side truth, learned by the bookkeeping, not a caller handle.
+        (session, result.output)
 
   /** See [[Agent.quietTextTurn]]: the turn runs against a filtered event sink
     * that drops the streaming display events (`AssistantMessage`, `ToolUse`)

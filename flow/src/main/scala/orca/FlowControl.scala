@@ -66,6 +66,12 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
     */
   def inStage: Boolean
 
+  /** Throw unless the caller is on this control's owner thread — implemented by
+    * [[StageFrames]]; called by the durable run doors so `session.run` from a
+    * fork fails immediately instead of racing the progress log.
+    */
+  private[orca] def assertOwnerThread(what: String): Unit
+
   /** Next occurrence index for a session `name` in this run: 0 for the first
     * `agent.session(name, ...)`, 1 for the second, and so on. Keyed per-name
     * and independent of the stage frames — `agent.session(...)` is required to

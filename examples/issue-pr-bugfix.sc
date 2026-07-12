@@ -183,7 +183,7 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
     FlowControl
 ): Unit =
   stage("Post focused failure comment"):
-    val (_, failureSummary) = claude.sonnet.autonomous.run(
+    val failureSummary = claude.sonnet.run(
       s"""CI went red on PR ${pr.shortRef} (${pr.url}). Inspect the
          |failed run via `gh` — start with:
          |
@@ -202,7 +202,7 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
     )
 
   stage("Verify failure matches the report"):
-    val (_, verdict) =
+    val verdict =
       claude.sonnet
         .resultAs[BugReportMatch]
         .autonomous

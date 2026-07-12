@@ -28,6 +28,11 @@ private[plan] class CannedResultAgent[T](value: T)
     * capability a helper selected (e.g. planners use `NetworkOnly`).
     */
   var lastToolSet: Option[ToolSet] = None
+
+  /** Records the session the structured run was called with, so tests can
+    * assert the returned [[orca.agents.Chat]] continues that conversation.
+    */
+  var lastSession: Option[SessionId[BackendTag.ClaudeCode.type]] = None
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
   def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
@@ -41,14 +46,12 @@ private[plan] class CannedResultAgent[T](value: T)
     new AgentCall[BackendTag.ClaudeCode.type, O]:
       val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
         new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-          def run[I: AgentInput](
+          private[orca] def runWithSession[I: AgentInput](
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
               config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
-            (
-              SessionId[BackendTag.ClaudeCode.type]("stub-sid"),
-              value.asInstanceOf[O]
-            )
+            lastSession = Some(session)
+            (session, value.asInstanceOf[O])
       def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] = ???

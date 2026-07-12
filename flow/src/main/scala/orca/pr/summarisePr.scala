@@ -44,4 +44,4 @@ def summarisePr(
        |```diff
        |$diff
        |```""".stripMargin
-  agent.resultAs[PrSummary].autonomous.run(prompt, emitPrompt = false)._2
+  agent.resultAs[PrSummary].autonomous.run(prompt, emitPrompt = false)

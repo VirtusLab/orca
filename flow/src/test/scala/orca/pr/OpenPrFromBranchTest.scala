@@ -108,7 +108,7 @@ class OpenPrFromBranchTest extends FunSuite:
       new AgentCall[BackendTag.ClaudeCode.type, O]:
         val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
           new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-            def run[I: AgentInput](
+            private[orca] def runWithSession[I: AgentInput](
                 input: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
                 config: Option[AgentConfig],

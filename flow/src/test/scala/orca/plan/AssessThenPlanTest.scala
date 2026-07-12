@@ -72,12 +72,10 @@ class AssessThenPlanTest extends munit.FunSuite:
       rejectKind = Some("rebuff"),
       rejectBody = Some("duplicate of #42")
     )
-    val result = Plan.autonomous.assessThenPlan(
-      "the report",
-      new CannedResultAgent(assessed)
-    )
-    // The verdict is carried alongside the session that produced it.
-    assertEquals(result.sessionId.value, "stub-sid")
+    val agent = new CannedResultAgent(assessed)
+    val result = Plan.autonomous.assessThenPlan("the report", agent)
+    // The verdict is carried alongside the conversation that produced it.
+    assertEquals(Some(result.chat.id), agent.lastSession)
     assertEquals(
       result.value,
       Verdict.Rejection(Verdict.RejectionKind.Rebuff, "duplicate of #42")

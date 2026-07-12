@@ -38,7 +38,7 @@ class FakeAgentCall[O](outputs: Iterator[Any])
 
   val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
     new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-      def run[I: AgentInput](
+      private[orca] def runWithSession[I: AgentInput](
           input: I,
           session: SessionId[BackendTag.ClaudeCode.type],
           config: Option[AgentConfig],
@@ -99,7 +99,7 @@ private class TokenEmittingReviewer(
     new AgentCall[BackendTag.ClaudeCode.type, O]:
       val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
         new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-          def run[I: AgentInput](
+          private[orca] def runWithSession[I: AgentInput](
               i: I,
               session: SessionId[BackendTag.ClaudeCode.type],
               c: Option[AgentConfig],
@@ -153,7 +153,7 @@ private class SeedProbingCoder(
     new AgentCall[BackendTag.ClaudeCode.type, O]:
       val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
         new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-          def run[I: AgentInput](
+          private[orca] def runWithSession[I: AgentInput](
               input: I,
               session: SessionId[BackendTag.ClaudeCode.type],
               config: Option[AgentConfig],
@@ -315,7 +315,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         new AgentCall[BackendTag.ClaudeCode.type, O]:
           val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
             new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-              def run[I: AgentInput](
+              private[orca] def runWithSession[I: AgentInput](
                   i: I,
                   session: SessionId[BackendTag.ClaudeCode.type],
                   c: Option[AgentConfig],
@@ -485,7 +485,7 @@ class ReviewAndFixTest extends munit.FunSuite:
         new AgentCall[BackendTag.ClaudeCode.type, O]:
           val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
             new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-              def run[I: AgentInput](
+              private[orca] def runWithSession[I: AgentInput](
                   i: I,
                   session: SessionId[BackendTag.ClaudeCode.type],
                   c: Option[AgentConfig],
@@ -565,7 +565,7 @@ class ReviewAndFixTest extends munit.FunSuite:
                       "they ran sequentially"
                   )
                 ReviewResult.empty.asInstanceOf[O]
-              def run[I: AgentInput](
+              private[orca] def runWithSession[I: AgentInput](
                   i: I,
                   session: SessionId[BackendTag.ClaudeCode.type],
                   c: Option[AgentConfig],

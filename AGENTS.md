@@ -131,6 +131,13 @@ most easily broken:
   probe; when it can't confirm a live session the flow re-seeds, the uniform
   fallback that holds on every backend.
 
+  The user surface is three rungs (README "Sessions"): `agent.run` (one-shot)
+  / `agent.chat()` (ephemeral `Chat`, fork-safe, `InStage`-only) /
+  `agent.session(name, seed)` (durable `FlowSession`, flow-thread-only — the
+  owner-thread assert in `FlowSession.run` enforces it at runtime, and the raw
+  session-threading doors are `private[orca] runWithSession`, so ephemeral
+  continuation is only reachable through a `Chat` handle).
+
   Sessions have named identity: `agent.session(name, seed)` keys a
   `SessionRecord` by `(name, occurrence)` — stage-style, via
   `FlowControl.nextSessionOccurrence(name)` — so reordering or conditionally

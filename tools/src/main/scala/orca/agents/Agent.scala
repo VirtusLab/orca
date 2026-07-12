@@ -5,24 +5,24 @@ import orca.InStage
 import scala.util.control.NonFatal
 
 /** An LLM adapter usable from flow scripts — the handle you call from a
-  * `flow(...)` block (`claude`, `codex`, etc.). Two paths to invoke the model:
+  * `flow(...)` block (`claude`, `codex`, etc.). Three rungs, by how long the
+  * conversation must live:
   *
-  *   - **`autonomous`** — free-form text, no structured output, no JSON schema
-  *     wrapping. The agent's reply is returned verbatim.
-  *   - **`resultAs[O]`** — fix the output type and obtain a call object that
-  *     exposes both `autonomous` and `interactive` modes.
+  *   - **`run(prompt)`** — one ephemeral free-text turn on a fresh, throwaway
+  *     conversation. `resultAs[O].{autonomous,interactive}.run(input)` is the
+  *     structured sibling.
+  *   - **`chat()`** — a fresh EPHEMERAL multi-turn conversation ([[Chat]]):
+  *     in-run only, needs only `InStage`, so it works inside a fork (parallel
+  *     fan-outs). Gone on crash/resume.
+  *   - **`agent.session(name, seed)`** (a flow extension) — a DURABLE
+  *     `orca.FlowSession` that survives a flow crash/resume: named, seeded, and
+  *     persisted.
   *
-  * Each mode has a single `run(input, session = …, config = …)` method that
-  * always returns `(SessionId[B], output)`. Pass a `SessionId[B]` across calls
-  * to keep one ephemeral conversation alive within a run, or omit it to get a
-  * fresh one-shot session per call. For a DURABLE, resumable session (one that
-  * survives a flow crash/resume, seeded and persisted), obtain an
-  * `orca.FlowSession` with `agent.session(name, seed)` and call its
-  * `run`/`resultAs` rather than feeding its `.id` into these raw doors.
-  *
-  * The API never hides the autonomous-vs-interactive choice behind a default —
-  * it's always visible at the call site as the leftmost segment after the tool
-  * / call gateway.
+  * Free text is always autonomous; `interactive` (a human steering the turn)
+  * exists only under `resultAs[O]`, where the structured payload marks the
+  * conversation's end. For structured calls the autonomous-vs-interactive
+  * choice is never hidden behind a default — it's always visible at the call
+  * site.
   *
   * Parameterized by the concrete `BackendTag` so session ids and results carry
   * the backend identity at the type level.
@@ -42,12 +42,41 @@ trait Agent[B <: BackendTag]:
     */
   def role: Option[String] = None
 
-  /** Free-form text autonomous calls. Use this when the agent's reply is prose
-    * / code / anything that doesn't need to parse as a structured `O`. For
-    * structured output (and the interactive-conversation path), use
-    * [[resultAs]].
+  /** The free-text engine behind [[run]] and [[Chat.run]] — internal; the
+    * public doors are `run` (one-shot) and `chat()` (multi-turn).
     */
-  def autonomous: AutonomousTextCall[B]
+  private[orca] def autonomous: AutonomousTextCall[B]
+
+  /** One ephemeral free-text turn — a fresh conversation, discarded after the
+    * reply. Use when the agent's reply is prose / code / anything that doesn't
+    * need to parse as a structured `O` (that's [[resultAs]]). To keep talking
+    * within the run, mint [[chat]]; to survive a crash/resume, use
+    * `agent.session(name, seed)` (a durable `orca.FlowSession`).
+    */
+  final def run(
+      prompt: String,
+      config: Option[AgentConfig] = None,
+      emitPrompt: Boolean = true
+  )(using InStage): String =
+    autonomous.runWithSession(prompt, SessionId.fresh[B], config, emitPrompt)._2
+
+  /** Start a fresh EPHEMERAL multi-turn conversation — see [[Chat]]. In-run
+    * only: nothing is persisted, so a crash/resume starts over. Runs need only
+    * `InStage`, so a chat can be minted and driven inside an `ox` fork
+    * (parallel reviewers, fan-outs). A plain immutable value — close over it
+    * freely.
+    */
+  final def chat(): Chat[B] = new Chat(this, SessionId.fresh[B])
+
+  /** Adopt an existing conversation id as an EPHEMERAL chat — the escape hatch
+    * for continuing a durable `FlowSession`'s conversation where its own doors
+    * can't go (inside a fork): `agent.chat(coder.id)`. Turns run here are NOT
+    * persisted — on crash/resume the durable side finds nothing recorded. One
+    * live continuation at a time: concurrent turns against the same backend
+    * conversation fail.
+    */
+  final def chat(continueFrom: SessionId[B]): Chat[B] =
+    new Chat(this, continueFrom)
 
   /** Fix the output type of a structured call and obtain a gateway with both
     * `autonomous` and `interactive` modes. `O` needs a `JsonData[O]` — `derives
@@ -126,8 +155,7 @@ trait Agent[B <: BackendTag]:
     * trimmed — or `fallback` if the reply is empty or the call fails for any
     * non-fatal reason (markdown fence lines are skipped). Never throws: these
     * calls must never break a flow. `private[orca]` — internal; flow scripts
-    * use `cheap.autonomous.run(...)` directly if they want a one-off cheap
-    * call.
+    * use `cheap.run(...)` directly if they want a one-off cheap call.
     */
   private[orca] def cheapOneShot(prompt: String, fallback: => String)(using
       InStage
@@ -150,7 +178,7 @@ trait Agent[B <: BackendTag]:
     * streaming the reply would show the same text twice.
     */
   private[orca] def quietTextTurn(prompt: String)(using InStage): String =
-    autonomous.run(prompt, emitPrompt = false)._2
+    run(prompt, emitPrompt = false)
 
   /** Return a sibling tool that manages git itself — flips
     * [[AgentConfig.selfManagedGit]] on, suppressing the standing "runtime owns
@@ -268,8 +296,7 @@ trait Agent[B <: BackendTag]:
 
 /** Bare `claude` runs Opus with the 1M-token context window (the long-lived
   * implementer); the accessors below pin a specific tier, e.g.
-  * `claude.haiku.autonomous.run("summarize this")._2` for a cheap fast
-  * one-shot.
+  * `claude.haiku.run("summarize this")` for a cheap fast one-shot.
   */
 trait ClaudeAgent extends Agent[BackendTag.ClaudeCode.type]:
   /** Pin the Claude model for subsequent calls, overriding `AgentConfig.model`.

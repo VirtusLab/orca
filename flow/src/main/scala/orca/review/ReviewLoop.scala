@@ -18,7 +18,7 @@ import orca.{
 }
 import orca.plan.Title
 
-import orca.agents.{BackendTag, Agent, SessionId}
+import orca.agents.{BackendTag, Agent, Chat}
 import orca.events.OrcaEvent
 
 import orca.util.TextUtil
@@ -167,16 +167,14 @@ case class ReviewBatch(outcomes: List[(RosterEntry[?], ReviewResult)]):
   def allIssues: List[ReviewIssue] =
     outcomes.flatMap(_._2.issues)
 
-/** One reviewer's live session, paired with the entry it belongs to under a
-  * single existential backend tag `B`: a [[RosterEntry]] `RB` and the
-  * `SessionId[RB]` its first `run` minted. Because the pairing is a
-  * compile-time invariant of this wrapper — not a claim recovered by a cast —
-  * finding the entry (by `eq` identity) hands back a session typed to the SAME
-  * `B` the reviewer runs on, with no `SessionId.Untyped`/`.as[RB]` round-trip.
+/** One reviewer's live [[Chat]], paired with the entry it belongs to under a
+  * single existential backend tag `B`. The chat already bundles the role-tagged
+  * agent with its conversation id, so a resume just calls the chat again — no
+  * `SessionId.Untyped`/`.as[RB]` round-trip.
   */
 private case class SessionEntry[B <: BackendTag](
     entry: RosterEntry[B],
-    session: SessionId[B]
+    chat: Chat[B]
 )
 
 /** All cross-iteration state for `reviewAndFixLoop`, in one immutable record.
@@ -375,7 +373,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * No cast is involved: a resume runs `stored`'s own paired entry+session
     * ([[resumeReview]]), whose backend tag `B` the wrapper carries by
     * construction; a first call binds the entry's `B` ([[firstReview]]) and
-    * pairs the fresh `SessionId[B]` back with it. The pairing is a compile-time
+    * pairs the fresh `Chat[B]` back with it. The pairing is a compile-time
     * invariant, not a claim recovered at runtime.
     */
   private def reviewWithSession(
@@ -394,38 +392,29 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * group/subtotal reviewer spend, without renaming the entry's identity.
     */
   private def resumeReview[B <: BackendTag](se: SessionEntry[B]): ReviewResult =
-    val labelled = se.entry.agent.withRole(ReviewerPrompts.Role)
-    val (_, result) =
-      labelled
-        .resultAs[ReviewResult]
-        .autonomous
-        .run(
-          ReviewLoopPrompts.ReReview,
-          session = se.session,
-          emitPrompt = false
-        )
-    result
+    se.chat
+      .resultAs[ReviewResult]
+      .autonomous
+      .run(ReviewLoopPrompts.ReReview, emitPrompt = false)
 
   /** A reviewer's first call: bind the entry's backend tag `B`, mint a fresh
-    * `SessionId[B]`, and pair it back with the entry so a later resume recovers
-    * it typed. `currentDiff` seeds the initial framing.
+    * [[Chat]] on the role-tagged agent, and pair it back with the entry so a
+    * later resume recovers it typed. `currentDiff` seeds the initial framing.
     */
   private def firstReview[B <: BackendTag](
       e: RosterEntry[B],
       currentDiff: String
   ): (ReviewResult, Option[SessionEntry[?]]) =
-    val labelled = e.agent.withRole(ReviewerPrompts.Role)
-    val session = labelled.newSession
-    val (sid, result) =
-      labelled
+    val chat = e.agent.withRole(ReviewerPrompts.Role).chat()
+    val result =
+      chat
         .resultAs[ReviewResult]
         .autonomous
         .run(
           ReviewLoopPrompts.initialReview(task, currentDiff),
-          session = session,
           emitPrompt = false
         )
-    (result, Some(SessionEntry(e, sid)))
+    (result, Some(SessionEntry(e, chat)))
 
   /** One parallel agent's contribution. The `Reviewer` variant carries the
     * roster entry that ran and any new [[SessionEntry]] that needs folding into

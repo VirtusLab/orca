@@ -29,10 +29,11 @@ class BaseAgentTest extends munit.FunSuite:
   // LLM `run` is gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
 
-  test("autonomous.run returns the caller's client handle, not the wire id"):
+  test("a continued turn returns the caller's client handle, not the wire id"):
     val session = SessionId[BackendTag.Pi.type]("client-session-id")
     val tool = new StubTool(StubBackend)
-    val (returned, output) = tool.autonomous.run("prompt", session)
+    val (returned, output) =
+      tool.autonomous.runWithSession("prompt", session, None, true)
     assertEquals(
       returned,
       session,
@@ -48,11 +49,11 @@ class BaseAgentTest extends munit.FunSuite:
 
   // A closed agent must fail loud rather than let a leaked handle
   // silently emit to a closed run's dispatcher.
-  test("autonomous.run after close() throws OrcaFlowException"):
+  test("run after close() throws OrcaFlowException"):
     val tool = new StubTool(new RecordingCloseBackend)
     tool.close()
     val thrown = intercept[orca.OrcaFlowException]:
-      tool.autonomous.run("prompt")
+      tool.run("prompt")
     assertEquals(
       thrown.getMessage,
       AgentBackend.ClosedMessage
@@ -90,7 +91,7 @@ class BaseAgentTest extends munit.FunSuite:
     tool.close()
     val derived = tool.withName("derived")
     val thrown = intercept[orca.OrcaFlowException]:
-      derived.autonomous.run("prompt")
+      derived.run("prompt")
     assertEquals(
       thrown.getMessage,
       AgentBackend.ClosedMessage
@@ -151,7 +152,7 @@ class BaseAgentTest extends munit.FunSuite:
       systemPrompt = Some("tool-level-prompt")
     )
     val tool = new StubTool(backend, toolConfig)
-    val _ = tool.autonomous.run("prompt", config = Some(AgentConfig()))
+    val _ = tool.run("prompt", config = Some(AgentConfig()))
     assertEquals(
       backend.lastConfig,
       Some(AgentConfig()),
@@ -165,7 +166,7 @@ class BaseAgentTest extends munit.FunSuite:
       systemPrompt = Some("tool-level-prompt")
     )
     val tool = new StubTool(backend, toolConfig)
-    val _ = tool.autonomous.run("prompt")
+    val _ = tool.run("prompt")
     assertEquals(backend.lastConfig, Some(toolConfig))
 
   private class StubTool(

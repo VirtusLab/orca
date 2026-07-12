@@ -40,7 +40,7 @@ class CommitMessageTest extends munit.FunSuite:
       override def cheap: Agent[BackendTag.ClaudeCode.type] = this
       def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
         new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-          def run(
+          private[orca] def runWithSession(
               prompt: String,
               session: SessionId[BackendTag.ClaudeCode.type],
               config: Option[AgentConfig],
@@ -64,7 +64,7 @@ class CommitMessageTest extends munit.FunSuite:
       override def cheap: Agent[BackendTag.ClaudeCode.type] = this
       def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
         new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-          def run(
+          private[orca] def runWithSession(
               prompt: String,
               session: SessionId[BackendTag.ClaudeCode.type],
               config: Option[AgentConfig],

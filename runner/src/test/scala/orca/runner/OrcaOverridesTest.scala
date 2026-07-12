@@ -75,7 +75,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       def withTools(tools: ToolSet) = this
       val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
         new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-          def run(
+          private[orca] def runWithSession(
               p: String,
               session: SessionId[BackendTag.ClaudeCode.type],
               c: Option[AgentConfig],
@@ -101,7 +101,7 @@ class OrcaOverridesTest extends munit.FunSuite:
         claude = Some(_ => fakeClaude),
         interaction = Some(interaction)
       ):
-        observed = summon[FlowContext].claude.autonomous.run("hi")._2
+        observed = summon[FlowContext].claude.run("hi")
     assertEquals(observed, "echo: hi")
 
   test("flow uses a custom OpencodeAgent when supplied"):
@@ -120,7 +120,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       def withTools(tools: ToolSet) = this
       val autonomous: AutonomousTextCall[BackendTag.Opencode.type] =
         new AutonomousTextCall[BackendTag.Opencode.type]:
-          def run(
+          private[orca] def runWithSession(
               p: String,
               session: SessionId[BackendTag.Opencode.type],
               c: Option[AgentConfig],
@@ -143,7 +143,7 @@ class OrcaOverridesTest extends munit.FunSuite:
         opencode = Some(_ => fakeOpencode),
         interaction = Some(interaction)
       ):
-        observed = summon[FlowContext].opencode.autonomous.run("hi")._2
+        observed = summon[FlowContext].opencode.run("hi")
     assertEquals(observed, "opencode: hi")
 
   test(
@@ -184,7 +184,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       def withTools(tools: ToolSet) = this
       val autonomous: AutonomousTextCall[BackendTag.Pi.type] =
         new AutonomousTextCall[BackendTag.Pi.type]:
-          def run(
+          private[orca] def runWithSession(
               p: String,
               session: SessionId[BackendTag.Pi.type],
               c: Option[AgentConfig],
@@ -207,7 +207,7 @@ class OrcaOverridesTest extends munit.FunSuite:
         pi = Some(_ => fakePi),
         interaction = Some(interaction)
       ):
-        observed = pi.autonomous.run("hi")._2
+        observed = pi.run("hi")
     assertEquals(observed, "pi: hi")
 
   test(
@@ -231,7 +231,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       def withTools(tools: ToolSet) = this
       val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
         new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-          def run(
+          private[orca] def runWithSession(
               p: String,
               session: SessionId[BackendTag.ClaudeCode.type],
               c: Option[AgentConfig],
@@ -269,7 +269,7 @@ class OrcaOverridesTest extends munit.FunSuite:
         interaction = Some(interaction),
         extraListeners = List(recorder)
       ):
-        val _ = summon[FlowContext].claude.autonomous.run("hi")
+        val _ = summon[FlowContext].claude.run("hi")
     assert(
       seen.contains("wired"),
       s"override's TokensUsed never reached the run listener; saw $seen"

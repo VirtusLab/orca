@@ -25,10 +25,14 @@ class PlanGridTest extends munit.FunSuite:
     brief = "the brief"
   )
 
-  test("autonomous.from pairs the plan with the producing session"):
-    val result =
-      Plan.autonomous.from("prompt", new CannedResultAgent(samplePlan))
-    assertEquals(result.sessionId.value, "stub-sid")
+  test("autonomous.from pairs the plan with the producing conversation"):
+    val agent = new CannedResultAgent(samplePlan)
+    val result = Plan.autonomous.from("prompt", agent)
+    assertEquals(
+      Some(result.chat.id),
+      agent.lastSession,
+      "the returned chat must continue the planning turn's conversation"
+    )
     assertEquals(result.value, samplePlan)
 
   test("autonomous.triage converts the wire BugTriage into a Triage"):
@@ -41,8 +45,9 @@ class PlanGridTest extends munit.FunSuite:
       branchName = "fix-foo",
       summary = "Foo overflows"
     )
-    val result = Plan.autonomous.triage("report", new CannedResultAgent(wire))
-    assertEquals(result.sessionId.value, "stub-sid")
+    val agent = new CannedResultAgent(wire)
+    val result = Plan.autonomous.triage("report", agent)
+    assertEquals(Some(result.chat.id), agent.lastSession)
     assertEquals(
       result.value,
       Triage.Testable(
@@ -55,7 +60,11 @@ class PlanGridTest extends munit.FunSuite:
   // --- post-planning step (reviewed) on the planning session ---
 
   private def sessioned[A](value: A): Sessioned[BackendTag.ClaudeCode.type, A] =
-    Sessioned(SessionId[BackendTag.ClaudeCode.type]("planner-sid"), value)
+    Sessioned(
+      new CannedResultAgent(value)
+        .chat(SessionId[BackendTag.ClaudeCode.type]("planner-sid")),
+      value
+    )
 
   test("reviewed returns the improved plan, brief included"):
     val improved = samplePlan.copy(description = "tighter", brief = "sharper")

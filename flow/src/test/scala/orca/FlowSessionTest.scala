@@ -147,7 +147,7 @@ class FlowSessionTest extends FunSuite:
 
     val autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
       new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-        def run(
+        private[orca] def runWithSession(
             prompt: String,
             session: SessionId[BackendTag.ClaudeCode.type],
             config: Option[AgentConfig],
@@ -165,7 +165,7 @@ class FlowSessionTest extends FunSuite:
       new AgentCall[BackendTag.ClaudeCode.type, O]:
         val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
           new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-            def run[I: AgentInput](
+            private[orca] def runWithSession[I: AgentInput](
                 input: I,
                 session: SessionId[BackendTag.ClaudeCode.type],
                 config: Option[AgentConfig],
@@ -273,6 +273,29 @@ class FlowSessionTest extends FunSuite:
     assert(
       !prompt.contains("Progress so far"),
       s"no preamble expected on first run; got: $prompt"
+    )
+
+  test("session.run from a fork is rejected at runtime (R12)"):
+    // The durable door persists to the progress log, which is single-threaded
+    // per flow — the owner-thread assert refuses it off the flow thread even
+    // in code the capture checker never sees (a plain .sc script's fork).
+    val fc = makeControl(
+      sessions = List(
+        SessionRecord(
+          name = "s",
+          occurrence = 0,
+          id = testSessionId,
+          seed = "x"
+        )
+      )
+    )
+    val agent = new StubAgentForSeeded(existsResult = true)
+    import ox.*
+    val outcome = supervised:
+      fork(scala.util.Try(flowSession(agent).run("p")(using fc))).join()
+    assert(
+      outcome.isFailure && outcome.failed.get.isInstanceOf[OrcaFlowException],
+      s"expected the R12 rejection; got: $outcome"
     )
 
   test("re-seeding a previously-live session emits a Step warning"):
@@ -662,19 +685,18 @@ class FlowSessionTest extends FunSuite:
 
   // ── tests: the raw ephemeral door does not accept a FlowSession ──────────────
 
-  test("agent.autonomous.run(prompt, flowSession) does not compile"):
+  test("agent.chat(flowSession) does not compile — the hatch takes .id"):
     val errors = compileErrors(
       """
       val agent = new StubAgentForSeeded(existsResult = true)
       val session = new FlowSession(agent, testSession)
-      given orca.InStage = orca.InStage.unsafe
-      agent.autonomous.run("prompt", session)
+      val _ = agent.chat(session)
       """
     )
-    // Pin the actual mismatch, not just "some error" — the raw door expects a
+    // Pin the actual mismatch, not just "some error" — the hatch expects a
     // `SessionId`, and a `FlowSession` must not satisfy that by accident.
     assert(
       errors.contains("Found") && errors.contains("orca.FlowSession") &&
-        errors.contains("Required") && errors.contains("orca.agents.SessionId"),
+        errors.contains("Required") && errors.contains("SessionId"),
       s"expected a Found FlowSession / Required SessionId type mismatch, got: $errors"
     )
