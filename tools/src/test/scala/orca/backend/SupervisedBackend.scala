@@ -5,8 +5,12 @@ import ox.{Ox, supervised}
 /** Test scaffold for backend constructors that require `using Ox` (opencode
   * pins a shared `serve` process to the Ox scope's lifetime at construction,
   * which forces that constraint onto every test that instantiates it). Opens a
-  * `supervised:` scope, invokes the supplied factory, and yields the resulting
-  * backend to the test body.
+  * `supervised:` scope, invokes the supplied factory, yields the backend to the
+  * test body, and `close()`s it in the body's `finally` — BEFORE the scope
+  * joins its forks, mirroring the production flow teardown. Opencode depends on
+  * that ordering: its server drain forks block on non-interruptible reads that
+  * only the close-triggered process kill unblocks, so a scope exit without the
+  * close deadlocks the join.
   *
   * Per-suite `withBackend` wrappers stay readable as one-liners around this
   * helper; the shared scope is also what interactive backends need to call
@@ -18,6 +22,8 @@ private[orca] object SupervisedBackend:
     * interactive backends need it to call `runInteractive(...)(using Ox)`.
     * Autonomous bodies simply ignore the given.
     */
-  def using[B, T](make: Ox ?=> B)(body: Ox ?=> B => T): T =
+  def using[B <: AgentBackend[?], T](make: Ox ?=> B)(body: Ox ?=> B => T): T =
     supervised:
-      body(make)
+      val backend = make
+      try body(backend)
+      finally backend.close()
