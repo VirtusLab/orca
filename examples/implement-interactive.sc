@@ -30,21 +30,23 @@ import orca.{*, given}
 flow(OrcaArgs(args), _.claude):
   val plan = stage("Plan"):
     // `.value` drops the planner's session; the implementer mints its own
-    // below (ask_user was only needed for planning).
+    // below (ask_user was only needed for planning). Interactive planning is
+    // the one spot that needs a concrete backend (`claude`, not `agent`) —
+    // the ask_user bridge is per-backend.
     Plan.interactive.from(userPrompt, claude).value
 
   // Stable autonomous session shared by implementer and fixer (ask_user was
   // only needed for planning), seeded with the plan brief; primed on first use
   // and replayed if the backend session is lost on resume.
-  val session = claude.session("implementer", seed = plan.brief)
+  val session = agent.session("implementer", seed = plan.brief)
 
   for task <- plan.tasks do
     stage(s"Task: ${task.title}"):      // skipped on resume if already done
       session.run(task.description)
       reviewAndFixLoop(
         coderSession = session,
-        reviewers = allReviewers(claude),
-        // reviewerSelection defaults to agentDriven(claude.cheap); pass
+        reviewers = allReviewers(agent),
+        // reviewerSelection defaults to agentDriven(agent.cheap); pass
         // `ReviewerSelector.allEveryRound` to run every reviewer instead.
         task = task.title.value,
         // Format after every edit so commits stay formatted and reviewers
@@ -52,6 +54,6 @@ flow(OrcaArgs(args), _.claude):
         formatCommand = Some("cargo fmt"),
         // Cheap sanity gate; correctness is the reviewers' and CI's job, so
         // skip the heavier tests.
-        lint = Some(Lint("cargo check --tests", claude.cheap))
+        lint = Some(Lint("cargo check --tests", agent.cheap))
       )
       // one commit per task: code + progress entry

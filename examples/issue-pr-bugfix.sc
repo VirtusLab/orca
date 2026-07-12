@@ -74,11 +74,11 @@ flow(
   // Get-or-create the implementer session before the triage stage (pure:
   // reserves the session id, no LLM call). The seed primes it on first use
   // and is replayed if the backend session is lost on resume.
-  val session = claude.session("fixer", seed = issue.body)
+  val session = agent.session("fixer", seed = issue.body)
 
   val triage: Triage = stage("Triage"):
     // Autonomous triage, read-only (read/grep to verify the report).
-    Plan.autonomous.triage(issuePayload, claude).value
+    Plan.autonomous.triage(issuePayload, agent).value
 
   triage match
     case Triage.NotABug(explanation) =>
@@ -166,7 +166,7 @@ def prSummary(note: String, issue: Issue)(using
     InStage
 ): PrSummary =
   summarisePr(
-    agent = claude.cheap,
+    agent = agent.cheap,
     diff = git.diffVsBase(git.defaultBase()),
     context = Some(
       s"""Originating issue: ${issueHandle.shortRef}
@@ -232,24 +232,24 @@ def planAndImplementFix(
         s"""Implement the fix for ${issueHandle.shortRef}. A failing
            |test is already on this branch — the fix must make it pass
            |without regressing other tests.""".stripMargin,
-        claude
+        agent
       )
-      .reviewed(claude)
+      .reviewed(agent)
       .value
 
   for task <- fixPlan.tasks do
     stage(s"Task: ${task.title}"): // skipped on resume if already done
       session.run(fixPlan.taskPrompt(task))
       // reviewerSelection defaults to agentDriven — a picker LLM on the
-      // lead's cheap tier (claude.cheap here).
+      // lead's cheap tier.
       reviewAndFixLoop(
         coderSession = session,
-        reviewers = allReviewers(claude),
+        reviewers = allReviewers(agent),
         task = task.title.value,
         // Format after every edit (the implementation and each review fix).
         formatCommand = Some("sbt scalafmtAll"),
         // Compile (main + test) is a cheap sanity gate; the failing test
         // runs in CI and correctness is the reviewers' job.
-        lint = Some(Lint("sbt Test/compile", claude.cheap))
+        lint = Some(Lint("sbt Test/compile", agent.cheap))
       )
       // one commit per task: code + progress entry

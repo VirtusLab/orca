@@ -34,11 +34,11 @@ flow(OrcaArgs(args), _.claude):
   val plan = stage("Plan"):
     // `.value` drops the planner's read-only session — the implementer
     // below mints a fresh one.
-    Plan.autonomous.from(userPrompt, claude.opus).value
+    Plan.autonomous.from(userPrompt, agent).value
 
   // Stable coder session reused across every task (and the docs pass), seeded
   // with the plan brief; replayed on resume if the backend session is lost.
-  val session = claude.session("implementer", seed = plan.brief)
+  val session = agent.session("implementer", seed = plan.brief)
 
   // Reviewers on codex; fixes go back to the Claude session that implemented.
   val reviewers: List[Agent[?]] = allReviewers(codex)
@@ -47,7 +47,7 @@ flow(OrcaArgs(args), _.claude):
     stage(s"Task: ${task.title}"):      // skipped on resume if already done
       session.run(task.description)
       // reviewerSelection defaults to agentDriven — a picker LLM on the
-      // lead's cheap tier (claude.cheap here).
+      // lead's cheap tier.
       reviewAndFixLoop(
         coderSession = session,
         reviewers = reviewers,
