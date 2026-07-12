@@ -1,14 +1,16 @@
 package orca.runner.terminal
 
-import orca.backend.{Conversation, Interaction, LlmResult}
+import orca.backend.{Conversation, Interaction, AgentResult}
 import orca.events.OrcaListener
-import orca.llm.BackendTag
+import orca.agents.BackendTag
+import org.slf4j.LoggerFactory
 import ox.Ox
 import ox.channels.BufferCapacity
 import ox.either.orThrow
 
 import java.io.PrintStream
 import java.nio.charset.StandardCharsets.UTF_8
+import scala.util.control.NonFatal
 
 /** Terminal-based `Interaction`. Renders stage transitions, tool uses,
   * streaming LLM output, and errors to a `PrintStream` (defaults to stderr so
@@ -43,8 +45,11 @@ class TerminalInteraction private[terminal] (
     output: TerminalOutput,
     listener: TerminalEventListener,
     useColor: Boolean,
-    workDir: Option[os.Path]
+    workDir: Option[os.Path],
+    prompter: ConversationRenderer.Prompter
 ) extends Interaction:
+
+  private val log = LoggerFactory.getLogger(getClass)
 
   val listeners: List[OrcaListener] = List(listener)
 
@@ -52,16 +57,32 @@ class TerminalInteraction private[terminal] (
     * when the conversation finishes. Backend errors surface as
     * `OrcaInteractiveCancelled` or other throwables from `awaitResult`.
     */
-  def drive[B <: BackendTag](conversation: Conversation[B]): LlmResult[B] =
+  def drive[B <: BackendTag](conversation: Conversation[B])(using
+      Ox
+  ): AgentResult[B] =
     new ConversationRenderer(
       useColor = useColor,
       output = output,
       currentIndent = () => listener.currentIndent,
       workDir = workDir,
-      structuredMode = conversation.outputSchema.isDefined
+      structuredMode = conversation.outputSchema.isDefined,
+      prompter = prompter
     ).render(conversation).orThrow
 
-  override def close(): Unit = output.close()
+  /** Close in construction-reverse order: the prompter (process-scoped, shared
+    * across every conversation this interaction drove — renderers never close
+    * it) then the output. A test-injected prompter is closed here too; there's
+    * no hardcoded singleton in this path.
+    *
+    * The prompter close is guarded: it's teardown-only degradation, and a
+    * throwing prompter must never strand the output (leaving the status row
+    * uncleared) or mask whatever error is already unwinding through the
+    * caller's `finally`.
+    */
+  override def close(): Unit =
+    try prompter.close()
+    catch case NonFatal(e) => log.error("prompter close failed", e)
+    output.close()
 
 object TerminalInteraction:
 
@@ -74,11 +95,13 @@ object TerminalInteraction:
       out: PrintStream = utf8Stderr,
       useColor: Boolean = defaultUseColor,
       animated: Boolean = defaultAnimated,
-      workDir: Option[os.Path] = None
+      workDir: Option[os.Path] = None,
+      prompter: ConversationRenderer.Prompter =
+        ConversationRenderer.JLinePrompter
   )(using Ox, BufferCapacity): TerminalInteraction =
     val output = TerminalOutput.start(out, useColor, animated)
     val listener = new TerminalEventListener(output, useColor, workDir)
-    new TerminalInteraction(output, listener, useColor, workDir)
+    new TerminalInteraction(output, listener, useColor, workDir, prompter)
 
   /** ANSI colors default off when stderr isn't attached to a terminal (no
     * controlling console), the `NO_COLOR` convention is honoured, or we detect

@@ -1,6 +1,6 @@
 package orca.tools.gemini
 
-import orca.llm.{BackendTag, CanAskUser}
+import orca.agents.{BackendTag, CanAskUser}
 
 class GeminiCanAskUserTest extends munit.FunSuite:
 

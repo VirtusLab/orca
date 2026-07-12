@@ -1,29 +1,29 @@
 package orca.tools
 
+import orca.WorkspaceWrite
 import orca.events.{OrcaEvent, OrcaListener}
+import orca.testkit.GitRepo
 
 import ox.either.orThrow
 import java.util.concurrent.atomic.AtomicReference
+import orca.testkit.TempDirs
 
 class OsGitToolTest extends munit.FunSuite:
 
+  // Tests exercise gated git mutators directly; mint the workspace-write token
+  // once for the whole suite (package `orca.tools` can reach
+  // `WorkspaceWrite.unsafe`).
+  private given WorkspaceWrite = WorkspaceWrite.unsafe
+
   private def withRepo(body: (OsGitTool, os.Path) => Unit): Unit =
-    val dir = os.temp.dir()
-    val _ = os.proc("git", "init", "-b", "main").call(cwd = dir)
-    val _ =
-      os.proc("git", "config", "user.email", "test@example.com").call(cwd = dir)
-    val _ = os.proc("git", "config", "user.name", "Test").call(cwd = dir)
+    val dir = GitRepo.empty()
     body(new OsGitTool(dir), dir)
 
   /** Variant that captures the events the tool emits. */
   private def withRepoCapturingEvents(
       body: (OsGitTool, os.Path, AtomicReference[List[OrcaEvent]]) => Unit
   ): Unit =
-    val dir = os.temp.dir()
-    val _ = os.proc("git", "init", "-b", "main").call(cwd = dir)
-    val _ =
-      os.proc("git", "config", "user.email", "test@example.com").call(cwd = dir)
-    val _ = os.proc("git", "config", "user.name", "Test").call(cwd = dir)
+    val dir = GitRepo.empty()
     val seen = new AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = (e: OrcaEvent) =>
       val _ = seen.updateAndGet(e :: _)
@@ -95,6 +95,32 @@ class OsGitToolTest extends munit.FunSuite:
       // No remote-tracking refs at all → none of the fallbacks resolve.
       val _ = intercept[orca.OrcaFlowException](git.defaultBase())
 
+  test("defaultBranch reads the remote HEAD's short name"):
+    withRepo: (git, dir) =>
+      os.write(dir / "file.txt", "x")
+      git.commit("seed").orThrow
+      // Point origin/HEAD at a non-main/master branch to prove it isn't
+      // hard-coded: create `trunk`, set origin's symbolic ref to it.
+      val _ = os
+        .proc("git", "update-ref", "refs/remotes/origin/trunk", "HEAD")
+        .call(cwd = dir)
+      val _ = os
+        .proc(
+          "git",
+          "symbolic-ref",
+          "refs/remotes/origin/HEAD",
+          "refs/remotes/origin/trunk"
+        )
+        .call(cwd = dir)
+      assertEquals(git.defaultBranch(), Some("trunk"))
+
+  test("defaultBranch returns None when origin/HEAD is unset"):
+    withRepo: (git, dir) =>
+      os.write(dir / "file.txt", "x")
+      git.commit("seed").orThrow
+      // No remote / no origin/HEAD → best-effort None.
+      assertEquals(git.defaultBranch(), None)
+
   test("diffVsBase returns the cumulative branch diff vs base"):
     withRepo: (git, dir) =>
       // base branch with one commit
@@ -129,7 +155,7 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "x")
       git.commit("initial").orThrow
-      val wtPath = os.temp.dir() / "feature"
+      val wtPath = TempDirs.dir() / "feature"
       val wt = git.addWorktree(wtPath, "feature/alpha").orThrow
       assertEquals(wt.branch, "feature/alpha")
       assert(os.exists(wtPath / "seed.txt"))
@@ -140,7 +166,7 @@ class OsGitToolTest extends munit.FunSuite:
       git.commit("initial").orThrow
       git.createBranch("reuse").orThrow
       git.checkout("main").orThrow
-      val wtPath = os.temp.dir() / "reused"
+      val wtPath = TempDirs.dir() / "reused"
       val wt = git.addWorktree(wtPath, "reuse").orThrow
       assertEquals(wt.branch, "reuse")
       assert(os.exists(wtPath / "seed.txt"))
@@ -149,7 +175,7 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "x")
       git.commit("initial").orThrow
-      val wtPath = os.temp.dir() / "feature"
+      val wtPath = TempDirs.dir() / "feature"
       val _ = git.addWorktree(wtPath, "feature/beta").orThrow
       val branches = git.listWorktrees().map(_.branch).toSet
       assert(branches.contains("main"))
@@ -159,39 +185,12 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "x")
       git.commit("initial").orThrow
-      val wtPath = os.temp.dir() / "gone"
+      val wtPath = TempDirs.dir() / "gone"
       val _ = git.addWorktree(wtPath, "feature/gone").orThrow
       git.removeWorktree(wtPath).orThrow
       assert(!os.exists(wtPath))
       val branches = git.listWorktrees().map(_.branch).toSet
       assert(!branches.contains("feature/gone"))
-
-  test("checkoutOrCreate creates a missing branch"):
-    withRepo: (git, dir) =>
-      os.write(dir / "x.txt", "x")
-      git.commit("seed").orThrow
-      git.checkoutOrCreate("feature/new")
-      assertEquals(git.currentBranch(), "feature/new")
-
-  test("checkoutOrCreate switches to an existing branch"):
-    withRepo: (git, dir) =>
-      os.write(dir / "x.txt", "x")
-      git.commit("seed").orThrow
-      git.createBranch("feature/existing").orThrow
-      git.checkout("main").orThrow
-      git.checkoutOrCreate("feature/existing")
-      assertEquals(git.currentBranch(), "feature/existing")
-
-  test(
-    "checkoutOrCreate is a no-op (no event) when already on the target branch"
-  ):
-    withRepoCapturingEvents: (git, dir, seen) =>
-      os.write(dir / "x.txt", "x")
-      git.commit("seed").orThrow
-      git.createBranch("feature/here").orThrow
-      val before = seen.get().size
-      git.checkoutOrCreate("feature/here")
-      assertEquals(seen.get().size, before, "no new events should fire")
 
   test("ensureClean returns false on a clean tree"):
     withRepo: (git, dir) =>
@@ -249,7 +248,7 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "x")
       git.commit("initial").orThrow
-      val wtPath = os.temp.dir() / "occupied"
+      val wtPath = TempDirs.dir() / "occupied"
       val _ = git.addWorktree(wtPath, "feature/first").orThrow
       val again = git.addWorktree(wtPath, "feature/first")
       assert(again.left.exists(_.isInstanceOf[WorktreeAddFailed]))
@@ -258,7 +257,7 @@ class OsGitToolTest extends munit.FunSuite:
     "removeWorktree returns Left(WorktreeNotFound) when the path isn't a worktree"
   ):
     withRepo: (git, _) =>
-      val ghost = os.temp.dir() / "ghost"
+      val ghost = TempDirs.dir() / "ghost"
       assert(
         git.removeWorktree(ghost).left.exists(_.isInstanceOf[WorktreeNotFound])
       )
@@ -270,7 +269,7 @@ class OsGitToolTest extends munit.FunSuite:
       // A bare local-path remote needs no credentials, so this exercises the
       // push argv — including the injected gh credential fallback, inert for a
       // non-github remote — without a network round-trip.
-      val remote = os.temp.dir() / "remote.git"
+      val remote = TempDirs.dir() / "remote.git"
       val _ = os.proc("git", "init", "--bare", remote.toString).call(cwd = dir)
       val _ = os
         .proc("git", "remote", "add", "origin", remote.toString)
@@ -355,6 +354,60 @@ class OsGitToolTest extends munit.FunSuite:
     assert(msg.contains("git add -A failed: boom"), msg)
     assert(msg.contains("(clean)"), msg)
     assert(msg.contains("(no issues reported)"), msg)
+
+  test("deleteBranch removes an existing branch"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "x")
+      git.commit("seed").orThrow
+      git.createBranch("to-delete").orThrow
+      git.checkout("main").orThrow
+      git.deleteBranch("to-delete")
+      // The branch should no longer be listed.
+      val result =
+        os.proc("git", "branch", "--list", "to-delete").call(cwd = dir)
+      assertEquals(result.out.text().trim, "")
+
+  test("deleteBranch is a no-op for a non-existent branch"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "x")
+      git.commit("seed").orThrow
+      // Must not throw — best-effort.
+      git.deleteBranch("ghost-branch")
+
+  test("deleteBranch does not delete the current branch"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "x")
+      git.commit("seed").orThrow
+      // Attempt to delete the currently checked-out branch: must silently skip.
+      git.deleteBranch("main")
+      assertEquals(git.currentBranch(), "main")
+
+  test("diffBranchExcludingOrca is empty when only .orca/ differs"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      val startBranch = git.currentBranch()
+      git.createBranch("feature/orca-only").orThrow
+      os.makeDir(dir / ".orca")
+      os.write(dir / ".orca" / "progress-abc.json", "{}")
+      git.commit("orca: progress log").orThrow
+      val diff = git.diffBranchExcludingOrca(startBranch, "feature/orca-only")
+      assert(diff.isBlank, s"expected empty diff, got: $diff")
+
+  test("diffBranchExcludingOrca is non-empty when code changes exist"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      val startBranch = git.currentBranch()
+      git.createBranch("feature/has-code").orThrow
+      os.write(dir / "feature.txt", "new feature")
+      git.commit("add feature").orThrow
+      val diff = git.diffBranchExcludingOrca(startBranch, "feature/has-code")
+      assert(!diff.isBlank, "expected non-empty diff for code changes")
+      assert(
+        diff.contains("feature.txt"),
+        "diff should mention the changed file"
+      )
 
   test("commit on a corrupted repo throws with status + fsck diagnostics"):
     // Integration check that the formatter is actually wired into the commit

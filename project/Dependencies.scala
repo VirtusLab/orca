@@ -2,12 +2,12 @@ import sbt.*
 
 object Dependencies {
   object V {
-    val scala = "3.3.6"
+    val scala = "3.8.4"
     val osLib = "0.11.4"
-    val jsoniter = "2.33.3"
-    val tapir = "1.13.18"
+    val jsoniter = "2.38.17"
+    val tapir = "1.13.25"
     val sttpApispec = "0.11.10"
-    val ox = "1.0.2"
+    val ox = "1.0.5"
     val mainargs = "0.7.6"
     val jline = "3.28.0"
     val fansi = "0.5.0"
@@ -35,6 +35,13 @@ object Dependencies {
   val fansi = "com.lihaoyi" %% "fansi" % V.fansi
 
   val munit = "org.scalameta" %% "munit" % V.munit % Test
+
+  // The Scala 3 compiler as a library, so the CC-enforcement negative-compile
+  // suite (orca.CcNegativeCompileTest) can invoke the compiler's entry point
+  // (`dotty.tools.dotc.Main` — the class the `scalac`/`scala` launchers
+  // themselves run) in-process on fixture sources. Pinned to V.scala so the
+  // checked-compilation phases match the build's own compiler. Test-only.
+  val scala3Compiler = "org.scala-lang" %% "scala3-compiler" % V.scala % Test
   val jsonSchemaValidator =
     "com.networknt" % "json-schema-validator" % V.jsonSchemaValidator % Test
 

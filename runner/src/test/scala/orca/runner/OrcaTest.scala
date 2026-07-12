@@ -2,6 +2,7 @@ package orca.runner
 
 import orca.{FlowContext, OrcaArgs, flow, userPrompt}
 import orca.events.{OrcaEvent}
+import orca.testkit.GitRepo
 import _root_.orca.runner.terminal.TerminalInteraction
 import ox.supervised
 
@@ -22,7 +23,12 @@ class OrcaTest extends munit.FunSuite:
         useColor = false,
         animated = false
       )
-      flow(args = OrcaArgs("hello world"), interaction = Some(interaction)):
+      flow(
+        args = OrcaArgs("hello world"),
+        agent = _ => StubAgent.claude,
+        workDir = GitRepo.seeded(),
+        interaction = Some(interaction)
+      ):
         seen = userPrompt
     assertEquals(seen, "hello world")
 
@@ -34,7 +40,12 @@ class OrcaTest extends munit.FunSuite:
         useColor = false,
         animated = false
       )
-      flow(args = OrcaArgs(), interaction = Some(interaction)):
+      flow(
+        args = OrcaArgs(),
+        agent = _ => StubAgent.claude,
+        workDir = GitRepo.seeded(),
+        interaction = Some(interaction)
+      ):
         summon[FlowContext].emit(OrcaEvent.StageStarted("plan"))
     // By the time the outer supervised exits, the interaction's worker has
     // drained — `flow`'s finally closes the channel, and the supervised

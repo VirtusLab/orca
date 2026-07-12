@@ -1,63 +1,79 @@
 package orca.tools.opencode
 
-import orca.backend.{Conversation, Interaction, LlmBackend, LlmResult}
+import orca.backend.{
+  Conversation,
+  Interaction,
+  AgentBackend,
+  AgentResult,
+  IdScheme,
+  SessionSupport
+}
 import orca.events.{OrcaListener, Usage}
-import orca.llm.{
+import orca.agents.{
+  AutoApprove,
   BackendTag,
   DefaultPrompts,
-  LlmConfig,
-  OpencodeTool,
+  AgentConfig,
+  Enforcement,
+  OpencodeAgent,
   SessionId,
-  ToolSet
+  ToolSet,
+  onWire
 }
 
-class DefaultOpencodeToolTest extends munit.FunSuite:
+class DefaultOpencodeAgentTest extends munit.FunSuite:
+
+  // LLM `run` is now gated on `InStage`; mint the token for the suite.
+  private given orca.InStage = orca.InStage.unsafe
 
   /** Captures the config the tool resolves for an autonomous call. */
-  private class RecordingBackend extends LlmBackend[BackendTag.Opencode.type]:
-    var lastConfig: Option[LlmConfig] = None
+  private class RecordingBackend extends AgentBackend[BackendTag.Opencode.type]:
+    val workDir: os.Path = os.pwd
+    var lastConfig: Option[AgentConfig] = None
     def runAutonomous(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
-        config: LlmConfig,
-        workDir: os.Path,
+        config: AgentConfig,
         events: OrcaListener,
         outputSchema: Option[String]
-    ): LlmResult[BackendTag.Opencode.type] =
+    ): AgentResult[BackendTag.Opencode.type] =
       lastConfig = Some(config)
-      LlmResult(session, "ok", Usage(0L, 0L, None))
+      AgentResult(session.onWire, "ok", Usage(0L, 0L, None))
     def runInteractive(
         prompt: String,
         session: SessionId[BackendTag.Opencode.type],
         displayPrompt: String,
-        config: LlmConfig,
-        workDir: os.Path,
+        config: AgentConfig,
         outputSchema: Option[String]
-    ): Conversation[BackendTag.Opencode.type] =
+    )(using ox.Ox): Conversation[BackendTag.Opencode.type] =
       throw new UnsupportedOperationException
+    val sessions: SessionSupport[BackendTag.Opencode.type] =
+      SessionSupport.ephemeral(IdScheme.ClientClaimed)
+    val tag: BackendTag.Opencode.type = BackendTag.Opencode
+    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+      Enforcement.Ignored
 
   private val noInteraction: Interaction = new Interaction:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](
         conversation: Conversation[B]
-    ): LlmResult[B] = throw new UnsupportedOperationException
+    )(using ox.Ox): AgentResult[B] = throw new UnsupportedOperationException
 
-  private def toolWith(backend: RecordingBackend): OpencodeTool =
-    new DefaultOpencodeTool(
+  private def toolWith(backend: RecordingBackend): OpencodeAgent =
+    new DefaultOpencodeAgent(
       backend,
-      LlmConfig.default,
+      AgentConfig(),
       DefaultPrompts,
-      os.temp.dir(),
       OrcaListener.noop,
       noInteraction
     )
 
   /** Run an autonomous call and return the model id the backend saw. */
   private def modelOf(
-      tool: OpencodeTool,
+      tool: OpencodeAgent,
       backend: RecordingBackend
   ): Option[String] =
-    val _ = tool.autonomous.run("x")
+    val _ = tool.run("x")
     backend.lastConfig.flatMap(_.model).map(_.name)
 
   test("provider-prefixed accessors pin the right provider/model id"):
@@ -68,20 +84,20 @@ class DefaultOpencodeToolTest extends munit.FunSuite:
     )
     assertEquals(
       modelOf(toolWith(b).anthropicSonnet, b),
-      Some("anthropic/claude-sonnet-4-6")
+      Some("anthropic/claude-sonnet-5")
     )
     assertEquals(
       modelOf(toolWith(b).anthropicHaiku, b),
       Some("anthropic/claude-haiku-4-5")
     )
-    assertEquals(modelOf(toolWith(b).openaiGpt5, b), Some("openai/gpt-5.4"))
+    assertEquals(modelOf(toolWith(b).openaiSol, b), Some("openai/gpt-5.6-sol"))
     assertEquals(
-      modelOf(toolWith(b).openaiGpt5Codex, b),
-      Some("openai/gpt-5.3-codex")
+      modelOf(toolWith(b).openaiTerra, b),
+      Some("openai/gpt-5.6-terra")
     )
     assertEquals(
-      modelOf(toolWith(b).openaiGpt5Mini, b),
-      Some("openai/gpt-5-mini")
+      modelOf(toolWith(b).openaiLuna, b),
+      Some("openai/gpt-5.6-luna")
     )
 
   test("withModel pins an arbitrary provider/model id (self-hosted)"):
@@ -93,7 +109,7 @@ class DefaultOpencodeToolTest extends munit.FunSuite:
 
   test("withReadOnly pins tools to ReadOnly, keeping the model pin"):
     val b = new RecordingBackend
-    val _ = toolWith(b).anthropicOpus.withReadOnly.autonomous.run("x")
+    val _ = toolWith(b).anthropicOpus.withReadOnly.run("x")
     assertEquals(b.lastConfig.map(_.tools), Some(ToolSet.ReadOnly))
     assertEquals(
       b.lastConfig.flatMap(_.model).map(_.name),

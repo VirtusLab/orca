@@ -1,6 +1,6 @@
 # 0017. Configurable OpenCode serve launcher
 
-Status: Proposed · Date: 2026-06-13
+Status: Accepted · Date: 2026-06-13
 Related: [ADR 0014](0014-opencode-server-driver.md) (OpenCode server driver), issue #10
 
 ## Context
@@ -59,3 +59,14 @@ or to avoid the `ollama` CLI dependency) remains open.
   provider and default model are present); a real agentic turn was too slow to
   complete on a 0.5B model under OpenCode's system prompt. A real-model run on
   capable hardware is recommended before relying on it.
+
+> **Amendment (2026-07-08).** The `flow(opencodeLauncher = …)` top-level
+> parameter named above no longer exists — complexity-review-2 10.2 deleted it
+> (it silently ignored the launcher whenever `opencode` was also passed) and
+> unified all five agent-override fields to one `AgentWiring => Ox ?=> Agent`
+> factory shape. A non-default launcher is now selected through the factory
+> itself: `opencode = Some(w => OpencodeAgents.default(w,
+> OpencodeLauncher.ollama("qwen3-coder")))`. `OpencodeLauncher` itself is
+> unaffected — still the public type this ADR introduces — only the
+> parameter's shape at the `flow(...)` call site changed. README and
+> `flow.scala`'s scaladoc reflect the new form.

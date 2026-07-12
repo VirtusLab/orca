@@ -1,7 +1,7 @@
 package orca.plan
 
 import orca.events.EventDispatcher
-import orca.llm.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId}
 
 /** Runtime wiring of the autonomous planning grid: each operation pairs its
   * result with the producing session, and `triage` converts the wire
@@ -15,15 +15,24 @@ class PlanGridTest extends munit.FunSuite:
   private given orca.FlowContext =
     new orca.TestFlowContext(new EventDispatcher(Nil))
 
+  // Planning helpers are now gated on `InStage`; mint the token for the suite.
+  private given orca.InStage = orca.InStage.unsafe
+
   private val samplePlan = Plan(
     epicId = "x",
     description = "d",
-    tasks = List(Task(Title("t1"), "body"))
+    tasks = List(Task(Title("t1"), "body")),
+    brief = "the brief"
   )
 
-  test("autonomous.from pairs the plan with the producing session"):
-    val result = Plan.autonomous.from("prompt", new CannedResultLlm(samplePlan))
-    assertEquals(result.sessionId.value, "stub-sid")
+  test("autonomous.from pairs the plan with the producing conversation"):
+    val agent = new CannedResultAgent(samplePlan)
+    val result = Plan.autonomous.from("prompt", agent)
+    assertEquals(
+      Some(result.chat.id),
+      agent.lastSession,
+      "the returned chat must continue the planning turn's conversation"
+    )
     assertEquals(result.value, samplePlan)
 
   test("autonomous.triage converts the wire BugTriage into a Triage"):
@@ -36,8 +45,9 @@ class PlanGridTest extends munit.FunSuite:
       branchName = "fix-foo",
       summary = "Foo overflows"
     )
-    val result = Plan.autonomous.triage("report", new CannedResultLlm(wire))
-    assertEquals(result.sessionId.value, "stub-sid")
+    val agent = new CannedResultAgent(wire)
+    val result = Plan.autonomous.triage("report", agent)
+    assertEquals(Some(result.chat.id), agent.lastSession)
     assertEquals(
       result.value,
       Triage.Testable(
@@ -47,29 +57,42 @@ class PlanGridTest extends munit.FunSuite:
       )
     )
 
-  // --- post-planning steps (reviewed / briefed) on the planning session ---
+  test(
+    "the handed-out chat is bound to the base agent, not the NetworkOnly sibling"
+  ):
+    // CannedResultAgent.withTools returns `this`, which would mask a
+    // regression to handing out the restricted planning chat — so the base
+    // here routes withTools to a DISTINCT restricted sibling.
+    val restricted = new CannedResultAgent(samplePlan)
+    val base = new CannedResultAgent(samplePlan):
+      override def withTools(
+          tools: orca.agents.ToolSet
+      ): orca.agents.Agent[BackendTag.ClaudeCode.type] = restricted
+    val result = Plan.autonomous.from("prompt", base)
+    assert(
+      result.chat.agent eq base,
+      "a continuation must regain the base agent's capability"
+    )
+    assert(
+      restricted.lastSession.isDefined,
+      "the planning turn must run on the restricted sibling"
+    )
+
+  // --- post-planning step (reviewed) on the planning session ---
 
   private def sessioned[A](value: A): Sessioned[BackendTag.ClaudeCode.type, A] =
-    Sessioned(SessionId[BackendTag.ClaudeCode.type]("planner-sid"), value)
+    Sessioned(
+      new CannedResultAgent(value)
+        .chat(SessionId[BackendTag.ClaudeCode.type]("planner-sid")),
+      value
+    )
 
-  test("reviewed on a bare plan returns the improved plan"):
-    val improved = samplePlan.copy(description = "tighter")
-    val result = sessioned(samplePlan).reviewed(new CannedResultLlm(improved))
+  test("reviewed returns the improved plan on the original chat binding"):
+    val improved = samplePlan.copy(description = "tighter", brief = "sharper")
+    val input = sessioned(samplePlan)
+    val result = input.reviewed(new CannedResultAgent(improved))
     assertEquals(result.value, improved)
-
-  test("briefed attaches the brief and threads the planning session"):
-    val result = sessioned(samplePlan).briefed(new CannedTextLlm("the brief"))
-    assertEquals(result.value, PlanWithBrief(samplePlan, "the brief"))
-    assertEquals(result.sessionId.value, "planner-sid")
-
-  test("reviewed on a PlanWithBrief reviews plan and brief together"):
-    val improved =
-      PlanWithBrief(samplePlan.copy(description = "tighter"), "sharper brief")
-    val result =
-      sessioned(PlanWithBrief(samplePlan, "brief"))
-        .reviewed(new CannedResultLlm(improved))
-    assertEquals(result.value, improved)
-
-  test("briefed fails when the brief turn produces a blank brief"):
-    val _ = intercept[orca.OrcaFlowException]:
-      sessioned(samplePlan).briefed(new CannedTextLlm("   "))
+    assert(
+      result.chat eq input.chat,
+      "reviewed must hand back the original chat, not the review sibling's"
+    )

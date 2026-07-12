@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.llm.JsonData
+import orca.agents.JsonData
 import orca.plan.Title
 
 /** A single review finding. `title` is the one-line user-facing label (rendered

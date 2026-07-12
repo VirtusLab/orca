@@ -120,8 +120,8 @@ with many sequential interactive calls doesn't accumulate bindings.
 ### Auto-approval
 
 The MCP tool name (`mcp__orca__ask_user`) is unioned into
-`LlmConfig.autoApprove` for the conversation only — via
-`LlmConfig.withAlsoAllowedTool`. The user is already typing an answer;
+`AgentConfig.autoApprove` for the conversation only — via
+`AgentConfig.withAlsoAllowedTool`. The user is already typing an answer;
 a y/n approval prompt before that would be pure noise.
 
 ### Render suppression

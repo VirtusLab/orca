@@ -5,12 +5,11 @@ import orca.AgentTurnFailed
 import orca.backend.{
   ApprovalDecision,
   ConversationEvent,
-  LlmResult,
-  StreamConversation,
+  ForkedConversation,
   StreamSource
 }
 import orca.events.Usage
-import orca.llm.{BackendTag, Model, SessionId}
+import orca.agents.BackendTag
 import orca.tools.opencode.OpencodeApi.{
   AssistantInfo,
   PermissionReply,
@@ -26,9 +25,9 @@ import scala.util.control.NonFatal
   * 0014).
   *
   * The reader-loop / event-queue / outcome lifecycle lives in
-  * [[StreamConversation]]; this class supplies the OpenCode-specific
+  * [[ForkedConversation]]; this class supplies the OpenCode-specific
   * translation: SSE frame → [[OpencodeEvent]] → `ConversationEvent`, deriving
-  * the [[LlmResult]] from the assistant `message.updated` at `session.idle`.
+  * the [[AgentResult]] from the assistant `message.updated` at `session.idle`.
   * The SSE stream stays open after a turn, so reaching the terminal interrupts
   * `source` to make the reader observe EOF.
   *
@@ -43,32 +42,29 @@ private[opencode] class OpencodeConversation(
     val outputSchema: Option[String],
     canAsk: Boolean,
     initialPrompt: String = ""
-) extends StreamConversation[BackendTag.Opencode.type](
+) extends ForkedConversation[BackendTag.Opencode.type](
       source,
       "opencode",
       initialPrompt,
       nativeAskUser = canAsk
     ):
 
-  /** Follow-up turns are issued as separate `runInteractive` calls (a fresh
-    * `prompt_async`); mid-turn injection isn't wired. A turn paused on
-    * `ask_user` resumes via the question reply, not this.
+  /** Best-effort `POST /session/{id}/abort`, so a GENUINELY cancelled turn
+    * (mid-flight, never settled) stops running (and writing) on the shared
+    * server instead of continuing headless after the user has moved on. The
+    * base [[ForkedConversation.cancel]] only calls this hook when the turn
+    * hasn't already settled via `succeedWith`/`failWith` — a turn that finished
+    * normally and is merely being torn down in a `finally` never reaches here,
+    * so a just-idle session (which may be resumed next turn) doesn't get a
+    * spurious abort.
     */
-  def sendUserMessage(text: String): Unit = ()
-
-  /** Best-effort `POST /session/{id}/abort` before closing the stream, so a
-    * cancelled turn stops running (and writing) on the shared server instead of
-    * continuing headless after the user has moved on.
-    */
-  override def cancel(): Unit =
-    if !cancelled.get() then
-      try
-        val _ = http.postJson(s"/session/$session/abort", "{}")
-      catch case NonFatal(_) => ()
-    super.cancel()
+  override protected def onCancelRequested(): Unit =
+    try
+      val _ = http.postJson(s"/session/$session/abort", "{}")
+    catch case NonFatal(_) => ()
 
   /** Turn state, accumulated as the reader thread processes frames.
-    * `handleLine` (and the `buildResult` it drives at `session.idle`) run only
+    * `handleLine` (and the `settleResult` it drives at `session.idle`) run only
     * on that single thread, so a plain `var` over an immutable snapshot is safe
     * and avoids cross-thread machinery; `awaitResult` reads the outcome only
     * after joining the reader, which publishes these writes.
@@ -85,7 +81,7 @@ private[opencode] class OpencodeConversation(
     sseData(rawLine).foreach: json =>
       val event = OpencodeEvent.parse(json)
       // Drop other sessions' frames; once the turn has settled, ignore the rest.
-      if forThisSession(event) && outcomeRef.get().isEmpty then translate(event)
+      if forThisSession(event) && !isSettled then translate(event)
 
   /** The JSON payload of one SSE line, or `None` for blank / comment / framing
     * lines (`event:`, `id:`, heartbeat `:`).
@@ -112,7 +108,7 @@ private[opencode] class OpencodeConversation(
           turnState.copy(startedTools = turnState.startedTools + partId)
         eventQueue.enqueue(ConversationEvent.AssistantToolCall(tool, input))
     case OpencodeEvent.ToolFinished(_, _, tool, ok, output) =>
-      eventQueue.enqueue(ConversationEvent.ToolResult(tool, ok, output))
+      eventQueue.enqueue(ConversationEvent.ToolResult(Some(tool), ok, output))
     case OpencodeEvent.MessageUpdated(_, info) =>
       turnState = turnState.copy(info = Some(info))
     case OpencodeEvent.QuestionAsked(req) =>
@@ -133,8 +129,11 @@ private[opencode] class OpencodeConversation(
 
   /** Terminal (`session.idle`): a turn whose assistant message carries
     * `info.error`, or that went idle without producing anything, is a failure;
-    * otherwise mark turn end and settle with the built result. Both paths close
-    * the otherwise open-ended SSE stream (via [[succeedWith]]/[[failWith]]).
+    * otherwise settle with the built result. The base funnel auto-closes any
+    * still-open turn at settle (and drops an empty one), so no turn end is
+    * emitted here — a `session.idle` is a single turn per conversation, hence
+    * always settle-adjacent. Both paths close the otherwise open-ended SSE
+    * stream (via [[succeedWith]]/[[failWith]]).
     */
   private def finishTurn(): Unit =
     turnState.info.flatMap(_.error) match
@@ -142,24 +141,23 @@ private[opencode] class OpencodeConversation(
       case None =>
         if turnState.info.isEmpty && turnState.text.isEmpty then
           failTurn("session went idle without an assistant message")
-        else
-          eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
-          succeedWith(buildResult())
+        else settleResult()
 
   private def failTurn(message: String): Unit =
     failWith(AgentTurnFailed(message))
 
-  /** In structured mode the validated object is the result; otherwise the
-    * accrued assistant text. Usage and model come from the captured `info`.
+  /** Settle the turn with the synthesised result: in structured mode the
+    * validated object, otherwise the accrued assistant text. Usage and model
+    * come from the captured `info`.
     */
-  private def buildResult(): LlmResult[BackendTag.Opencode.type] =
+  private def settleResult(): Unit =
     val info = turnState.info
     val structured = info.flatMap(_.structured).map(_.value)
-    LlmResult(
-      sessionId = SessionId[BackendTag.Opencode.type](session),
+    settleSuccess(
+      wireId = session,
       output = structured.getOrElse(turnState.text.mkString),
       usage = usageOf(info),
-      model = info.flatMap(_.modelID).map(Model.apply)
+      modelId = info.flatMap(_.modelID)
     )
 
   private def usageOf(info: Option[AssistantInfo]): Usage =
@@ -194,5 +192,3 @@ private[opencode] class OpencodeConversation(
       s"/permission/${req.id}/reply",
       writeToString(PermissionReplyBody(verdict))
     )
-
-  start()

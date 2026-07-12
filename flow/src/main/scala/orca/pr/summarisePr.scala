@@ -1,7 +1,9 @@
 package orca.pr
 
-import orca.FlowContext
-import orca.llm.{Announce, JsonData, LlmTool}
+import orca.{FlowContext, InStage}
+import orca.agents.{Announce, JsonData, Agent}
+
+import scala.annotation.unused
 
 /** What [[summarisePr]] produces: a one-line PR title and a multi-paragraph
   * body. `gh.createPr(title = …, body = …)` accepts the two fields directly, so
@@ -15,7 +17,7 @@ object PrSummary:
     */
   given Announce[PrSummary] = Announce.from(_ => "")
 
-/** Ask `llm` to fold `diff` (and optionally `context`) into a [[PrSummary]] —
+/** Ask `agent` to fold `diff` (and optionally `context`) into a [[PrSummary]] —
   * the one-line title and multi-paragraph body that `gh.createPr` consumes.
   *
   * `context` is rendered above the diff as a preamble; typical contents are the
@@ -28,11 +30,11 @@ object PrSummary:
   * diff dominates the prompt and would dwarf the event log.
   */
 def summarisePr(
-    llm: LlmTool[?],
+    agent: Agent[?],
     diff: String,
     context: Option[String] = None,
     instructions: String = PrPrompts.Summarise
-)(using FlowContext): PrSummary =
+)(using @unused ctx: FlowContext, ev: InStage): PrSummary =
   val contextBlock = context.fold("")(c => s"$c\n\n")
   val prompt =
     s"""$instructions
@@ -42,4 +44,4 @@ def summarisePr(
        |```diff
        |$diff
        |```""".stripMargin
-  llm.resultAs[PrSummary].autonomous.run(prompt, emitPrompt = false)._2
+  agent.resultAs[PrSummary].autonomous.run(prompt, emitPrompt = false)

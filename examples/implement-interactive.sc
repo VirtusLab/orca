@@ -1,15 +1,19 @@
+//> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.0.14"
 //> using jvm 21
 
-/** Interactive planning + coding flow (persistent).
+/** Interactive planning + coding flow.
   *
-  * Same shape as `implement.sc`, but the planner can drive a conversation: on an
-  * underspecified prompt it calls the `ask_user` tool to clarify before
-  * producing the plan. The plan persists to `.orca/plan-<hash>.md` so a re-run
-  * resumes from the first incomplete task.
+  * Same shape as `implement.sc`, but the planner can drive a conversation: on
+  * an underspecified prompt it calls the `ask_user` tool to clarify before
+  * producing the plan. Progress and resume work identically — the stage log
+  * (`.orca/progress-<hash>.json`) is the sole resume mechanism. An interactive
+  * planning stage that already completed is replayed from its recorded result
+  * without re-prompting on a re-run.
   *
-  * `examples/runnable/02-interactive/create-test-project.sh` seeds the calculator
-  * crate into a temp dir and copies this script alongside it; from there:
+  * `examples/runnable/02-interactive/create-test-project.sh` seeds the
+  * calculator crate into a temp dir and copies this script alongside it;
+  * from there:
   *
   * ```bash
   * scala-cli run implement-interactive.sc -- "Add a new arithmetic operation to the calculator crate. Ask the user which."
@@ -23,39 +27,33 @@
 
 import orca.{*, given}
 
-flow(OrcaArgs(args)):
-  val planFile = Plan.defaultPath(userPrompt)
-
-  // Resume `.orca/plan-<hash>.md` if it exists; otherwise plan interactively
-  // (the planner can call `ask_user` to clarify) and branch.
-  val plan = stage("Acquire plan"):
-    Plan.recoverOrCreate(planFile):
-      // `.value` drops the planner's session; the implementer mints its own
-      // (ask_user was only needed for planning).
-      Plan.interactive.from(userPrompt, claude).value
+flow(OrcaArgs(args), _.claude):
+  val plan = stage("Plan"):
+    // `.value` drops the planner's session; the implementer mints its own
+    // below (ask_user was only needed for planning). Interactive planning is
+    // the one spot that needs a concrete backend (`claude`, not `agent`) —
+    // the ask_user bridge is per-backend.
+    Plan.interactive.from(userPrompt, claude).value
 
   // Stable autonomous session shared by implementer and fixer (ask_user was
-  // only needed for planning).
-  val session = claude.newSession
+  // only needed for planning), seeded with the plan brief; primed on first use
+  // and replayed if the backend session is lost on resume.
+  val session = agent.session("implementer", seed = plan.brief)
 
-  Plan.implementTaskLoop(planFile, plan): task =>
-    stage(s"Implement task: ${task.title}"):
-      stage("Implementation"):
-        val _ = claude.autonomous.run(task.description, session)
-
+  for task <- plan.tasks do
+    stage(s"Task: ${task.title}"):      // skipped on resume if already done
+      session.run(task.description)
       reviewAndFixLoop(
-        coder = claude,
-        sessionId = session,
-        reviewers = allReviewers(claude),
-        // Haiku picks the per-task reviewer subset; swap for
-        // `ReviewerSelector.allEveryRound` to run every reviewer.
-        reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
+        coderSession = session,
+        reviewers = allReviewers(agent),
+        // reviewerSelection defaults to agentDriven(agent.cheap); pass
+        // `ReviewerSelector.allEveryRound` to run every reviewer instead.
         task = task.title.value,
         // Format after every edit so commits stay formatted and reviewers
         // skip style nits.
         formatCommand = Some("cargo fmt"),
         // Cheap sanity gate; correctness is the reviewers' and CI's job, so
         // skip the heavier tests.
-        lintCommand = Some("cargo check --tests"),
-        lintLlm = Some(claude.haiku)
+        lint = Some(Lint("cargo check --tests", agent.cheap))
       )
+      // one commit per task: code + progress entry

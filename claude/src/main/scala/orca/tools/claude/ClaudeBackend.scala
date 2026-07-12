@@ -1,33 +1,43 @@
 package orca.tools.claude
 
+import java.util.concurrent.atomic.AtomicBoolean
+
 import orca.events.OrcaListener
-import orca.llm.{BackendTag, LlmConfig, SessionId}
-import orca.{AgentTurnFailed, OrcaFlowException}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  Enforcement,
+  SessionId,
+  ToolSet,
+  onWire
+}
 import orca.backend.{
   Conversation,
   Conversations,
-  LlmBackend,
-  LlmResult,
-  SessionMode,
-  SessionRegistry,
+  AgentBackend,
+  AgentResult,
+  ConversationMode,
+  IdScheme,
+  SessionSupport,
+  SubprocessSpawn,
   SystemPromptComposer
 }
 import orca.subprocess.CliRunner
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.tools.claude.streamjson.OutboundMessage
 import ox.Ox
-import ox.channels.BufferCapacity
 
 /** Claude Code backend. All calls — autonomous and interactive — drive a
   * stream-json subprocess through [[ClaudeConversation]]; the only difference
-  * is the [[SessionMode]] passed to `openConversation` (autonomous omits the
-  * ask_user MCP, interactive wires it). The prompt is injected as the first
+  * is the [[ConversationMode]] passed to `openConversation` (autonomous omits
+  * the ask_user MCP, interactive wires it). The prompt is injected as the first
   * user turn on stdin, the subprocess emits typed NDJSON responses, the driver
   * translates them into `ConversationEvent`s.
   *
   * The autonomous path drains those events via
   * [[orca.backend.Conversations.drainAutonomous]] and returns the awaited
-  * `LlmResult`. The interactive path hands the `Conversation` back to the
+  * `AgentResult`. The interactive path hands the `Conversation` back to the
   * caller who runs `Interaction.drive`.
   *
   * Interactive calls also stand up an MCP host bridge: a tiny HTTP server (via
@@ -39,84 +49,133 @@ import ox.channels.BufferCapacity
   */
 private[orca] class ClaudeBackend(
     cli: CliRunner,
-    networkTools: Seq[String] = ClaudeBackend.DefaultNetworkTools
-)(using Ox, BufferCapacity)
-    extends LlmBackend[BackendTag.ClaudeCode.type]:
+    networkTools: Seq[String] = ClaudeBackend.DefaultNetworkTools,
+    private[claude] val projectsDir: os.Path = os.home / ".claude" / "projects",
+    /** Fixed at construction and shared, by construction, between the spawn
+      * path ([[openConversation]]) and the existence probe (see [[sessions]]):
+      * claude writes a session's transcript under
+      * `<projectsDir>/<cwdSlug(workDir)>/<id>.jsonl`, so both sides reading the
+      * SAME field is what keeps the probe honest — no separate value can drift
+      * out of sync with where agents actually spawn. The `os.pwd` default
+      * serves only bare/test construction (`new ClaudeBackend(cli)`) where no
+      * flow workDir exists; the runtime (`DefaultFlowContext.withDefaults`)
+      * passes the flow's real `workDir`.
+      */
+    override val workDir: os.Path = os.pwd,
+    /** Threaded straight into [[AgentBackend]]'s `closedFlag` parameter. Bare
+      * construction gets a fresh flag; [[withNetworkTools]] passes THIS
+      * instance's flag so the sibling it builds shares one latch with its
+      * parent — see the parameter's scaladoc on `AgentBackend` for why a
+      * backend-swapping builder must do this.
+      */
+    sharedClosedFlag: AtomicBoolean = new AtomicBoolean(false)
+) extends AgentBackend[BackendTag.ClaudeCode.type](sharedClosedFlag):
 
   /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns,
     * pre-approves `tools` (claude `--allowedTools` syntax). The configuration
-    * seam behind `ClaudeTool.withNetworkTools`; lives on the backend, not
-    * `LlmConfig`, since the strings are claude-specific.
+    * seam behind `ClaudeAgent.withNetworkTools`; lives on the backend, not
+    * `AgentConfig`, since the strings are claude-specific.
+    *
+    * Shares `closedFlag` with `this` rather than starting a fresh one: the
+    * sibling is a genuinely different `AgentBackend` instance (not a
+    * `copyTool`-style clone reusing the same backend), so without threading the
+    * SAME `AtomicBoolean` through, a handle derived here and leaked past
+    * flow-end would carry its own always-open latch and bypass the
+    * use-after-close guard entirely.
     */
   def withNetworkTools(tools: Seq[String]): ClaudeBackend =
-    new ClaudeBackend(cli, tools)
+    new ClaudeBackend(cli, tools, projectsDir, workDir, closedFlag)
 
-  /** Tracks which session ids we've already claimed via `--session-id` so
-    * subsequent calls use `--resume` (the CLI refuses to reuse `--session-id`
-    * once the session exists).
+  /** Claude's sessions live on disk (`~/.claude/projects/.../<id>.jsonl`) and
+    * outlive the process, so it is durable: the claim survives a restart
+    * (persisted to the progress log, rehydrated on resume so a resumed task
+    * uses `--resume` rather than re-creating an already-existing
+    * `--session-id`), and existence is a best-effort transcript-file probe.
+    *
+    * The probe checks `<projectsDir>/<cwdSlug>/<id>.jsonl` — the project-dir
+    * slug replaces every `/` in the working directory with `-` (e.g.
+    * `/home/foo/orca` → `-home-foo-orca`). Because
+    * [[SessionSupport.willContinue]] resolves the recorded mapping first, the
+    * probe only runs for an id already known (claimed this run, or rehydrated
+    * from the log): a stray transcript file for an id never claimed reports
+    * `false` — safe, since the caller re-seeds. The write-door guard rejects
+    * unsafe ids (path traversal such as `../../etc/passwd`).
     */
-  private val sessions =
-    new SessionRegistry.ClaimedOnce[BackendTag.ClaudeCode.type]
+  val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
+
+  override def enforcement(
+      tools: ToolSet,
+      autoApprove: AutoApprove
+  ): Enforcement =
+    ClaudeArgs.enforcement(tools, autoApprove)
+
+  /** The sole session handle. [[IdScheme.ClientClaimed]]: ids are claimed via
+    * `--session-id` so subsequent calls use `--resume` (the CLI refuses to
+    * reuse `--session-id` once the session exists). The bookkeeping is
+    * encapsulated, so the spawn/commit paths go through `sessions.dispatchFor`
+    * / `sessions.register` / `Conversations.runAutonomous(session, sessions,
+    * …)`.
+    */
+  val sessions: SessionSupport[BackendTag.ClaudeCode.type] =
+    SessionSupport.durable(
+      IdScheme.ClientClaimed,
+      id =>
+        os.exists(
+          projectsDir / ClaudeBackend.cwdSlug(workDir) / s"$id.jsonl"
+        )
+    )
 
   def runAutonomous(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
-      config: LlmConfig,
-      workDir: os.Path,
-      events: OrcaListener = OrcaListener.noop,
-      outputSchema: Option[String] = None
-  ): LlmResult[BackendTag.ClaudeCode.type] =
-    val conv = openConversation(
-      prompt = prompt,
-      mode = SessionMode.Autonomous,
-      session = session,
-      config = config,
-      workDir = workDir,
-      outputSchema = outputSchema
-    )
-    val result =
-      try Conversations.drainAutonomous(conv, events)
-      catch
-        // Preserve the non-retryable type: a turn that ran and failed must not
-        // be retried (it would reopen the now-registered session id).
-        case e: AgentTurnFailed => throw e
-        case e: OrcaFlowException =>
-          throw OrcaFlowException(s"claude CLI failed: ${e.getMessage}")
-    // Commit only after a successful drain: a subprocess that crashed before
-    // claude could register the session id (e.g. exit before `system.init`)
-    // would otherwise leave the registry wedged, forcing a retry to
-    // `--resume` a session claude never created.
-    sessions.commitSuccess(session, session)
-    result
+      config: AgentConfig,
+      events: OrcaListener,
+      outputSchema: Option[String]
+  ): AgentResult[BackendTag.ClaudeCode.type] =
+    // drainAndCommit commits only after a successful drain: a subprocess that
+    // crashed before claude could register the session id (e.g. exit before
+    // `system.init`) would otherwise leave the registry wedged. That crash
+    // surfaces as AgentTurnFailed and is never auto-retried — the commit
+    // ordering matters for the NEXT `session(...)` call (or a resumed run),
+    // which must see a registry that agrees with what claude actually did.
+    Conversations.runAutonomous(session, sessions, events):
+      openConversation(
+        prompt = prompt,
+        mode = ConversationMode.Autonomous,
+        session = session,
+        config = config,
+        outputSchema = outputSchema
+      )
 
   def runInteractive(
       prompt: String,
       session: SessionId[BackendTag.ClaudeCode.type],
       displayPrompt: String,
-      config: LlmConfig,
-      workDir: os.Path,
+      config: AgentConfig,
       outputSchema: Option[String]
-  ): Conversation[BackendTag.ClaudeCode.type] =
+  )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
     val conv = openConversation(
       prompt = prompt,
-      mode = SessionMode.Interactive(displayPrompt),
+      mode = ConversationMode.Interactive(displayPrompt),
       session = session,
       config = config,
-      workDir = workDir,
       outputSchema = outputSchema
     )
     // Interactive has no in-backend drain to gate on; commit once the
     // conversation is up (the spawn succeeded, claude has parsed args).
     // A crash mid-conversation will still leave the mark in place, but
     // interactive sessions aren't auto-retried by the orchestrator —
-    // the user reruns with a fresh `claude.newSession`.
-    sessions.commitSuccess(session, session)
+    // the user reruns with a fresh session. Through `register`
+    // (log-and-skip guard, the correct policy for the interactive path) —
+    // claude claims its ids client-side, so the client id IS the wire id
+    // (`onWire`), which is always safe.
+    sessions.register(session, session.onWire)
     conv
 
   /** Spawn `claude` in stream-json mode, write the opening user turn, close
     * stdin, and wrap the process in a live [[ClaudeConversation]]. Used by both
-    * the interactive path ([[SessionMode.Interactive]]) and the autonomous path
-    * ([[SessionMode.Autonomous]]).
+    * the interactive path ([[ConversationMode.Interactive]]) and the autonomous
+    * path ([[ConversationMode.Autonomous]]).
     *
     * The initial user turn is the only thing we feed through stdin; once it's
     * written we close the pipe so `claude --print --input-format stream-json`
@@ -145,27 +204,24 @@ private[orca] class ClaudeBackend(
     */
   private def openConversation(
       prompt: String,
-      mode: SessionMode,
+      mode: ConversationMode,
       session: SessionId[BackendTag.ClaudeCode.type],
-      config: LlmConfig,
-      workDir: os.Path,
+      config: AgentConfig,
       outputSchema: Option[String]
-  ): Conversation[BackendTag.ClaudeCode.type] =
+  )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
     // Allocate ask_user resources up front so we can close them
     // deterministically on a downstream failure. `None` for autonomous —
     // those calls don't expose the tool. Claude's `extras` deletes the
     // workDir-local `.orca-mcp-<port>.json` when the conversation ends.
-    val (askUser, displayPrompt): (Option[AskUserSession], String) =
-      mode match
-        case SessionMode.Interactive(p) =>
-          val resources = AskUserSession.allocate: server =>
-            writeMcpConfig(server, workDir)
-            List(
-              ClaudeBackend.deleteFileResource(mcpConfigPath(server, workDir))
-            )
-          (Some(resources), p)
-        case SessionMode.Autonomous => (None, "")
-    try
+    val displayPrompt = mode.displayPrompt
+    val askUser: Option[AskUserSession] =
+      Option.when(mode.isInteractive):
+        AskUserSession.allocate: server =>
+          writeMcpConfig(server, workDir)
+          List(
+            SubprocessSpawn.deleteFileResource(mcpConfigPath(server, workDir))
+          )
+    SubprocessSpawn.open("claude stream-json", askUser.toList) {
       val systemPromptFile =
         writeSystemPromptIfPresent(
           config,
@@ -178,10 +234,13 @@ private[orca] class ClaudeBackend(
       // The registry decides fresh-vs-resume; commit happens only after the
       // conversation is up (in the runAutonomous/runInteractive shells) so
       // a spawn that fails before claude registers the session doesn't
-      // leave the registry wedged — a retry will still try `--session-id`.
+      // leave the registry wedged. This is not about enabling an automatic
+      // retry (a post-spawn failure is AgentTurnFailed and is never
+      // auto-retried) — it's so the NEXT `session(...)` call, whenever it
+      // comes, still sees `--session-id` as the correct dispatch.
       // Callers must not share a session id across concurrent calls;
       // `reviewAndFixLoop`'s parallel reviewer fan-out is safe because each
-      // reviewer mints its own distinct id via `LlmTool.newSession`.
+      // reviewer mints its own distinct conversation via `agent.chat()`.
       val args = ClaudeArgs.streamJson(
         effectiveConfig,
         systemPromptFile,
@@ -190,35 +249,20 @@ private[orca] class ClaudeBackend(
         mcpConfig = askUser.map(r => mcpConfigPath(r.server, workDir)),
         networkTools = networkTools
       )
-      val process = cli.spawnPiped(args, cwd = workDir)
-      try
-        process.writeLine(
-          OutboundMessage.toJson(OutboundMessage.UserText(prompt))
-        )
-        process.closeStdin()
-        new ClaudeConversation(
-          process,
-          config,
-          initialPrompt = displayPrompt,
-          outputSchema = outputSchema,
-          askUser = askUser
-        )
-      catch
-        case e: Exception =>
-          // SIGINT the process; the outer catch closes askUser.
-          process.sendSigInt()
-          throw OrcaFlowException(
-            s"Failed to open claude stream-json session: ${e.getMessage}"
-          )
-    catch
-      case e: Throwable =>
-        // Any failure between resource allocation and a fully-constructed
-        // ClaudeConversation: tear down the MCP server (and delete the
-        // config file) so we don't leak a Netty binding or workDir
-        // artefact. Once the conversation owns the resources they ride
-        // through `onFinalize`.
-        askUser.foreach(_.close())
-        throw e
+      cli.spawnPiped(args, cwd = workDir)
+    } { process =>
+      process.writeLine(
+        OutboundMessage.toJson(OutboundMessage.UserText(prompt))
+      )
+      process.closeStdin()
+      new ClaudeConversation(
+        process,
+        config,
+        initialPrompt = displayPrompt,
+        outputSchema = outputSchema,
+        askUser = askUser
+      )
+    }
 
   /** Path of the workDir-local MCP config file advertising the host's MCP
     * server. Named with the bound port so two interactive conversations sharing
@@ -237,6 +281,9 @@ private[orca] class ClaudeBackend(
     * up on `ask_user` if the human takes more than 60s to type their answer —
     * claude then synthesises a tool failure, fires a follow-up `ask_user` with
     * a similar question, and the user ends up answering twice.
+    *
+    * One of three renderings of `AskUserMcpServer.ToolTimeout` — claude JSON ms
+    * / codex TOML sec / gemini settings.json ms; keep in sync.
     */
   private def writeMcpConfig(
       server: AskUserMcpServer,
@@ -255,8 +302,8 @@ private[orca] class ClaudeBackend(
     * once on startup via `--append-system-prompt-file`).
     */
   private def writeSystemPromptIfPresent(
-      config: LlmConfig,
-      includeAskUserHint: Boolean = false
+      config: AgentConfig,
+      includeAskUserHint: Boolean
   ): Option[os.Path] =
     val hint = Option.when(includeAskUserHint)(AskUserMcpServer.Hint)
     SystemPromptComposer
@@ -265,6 +312,13 @@ private[orca] class ClaudeBackend(
         os.temp(prefix = "orca-system-prompt-", suffix = ".md", contents = text)
 
 object ClaudeBackend:
+
+  /** Derives the project-directory slug that claude uses under
+    * `~/.claude/projects/`: replaces every `/` in the absolute path with `-`.
+    * E.g. `/home/foo/bar` → `-home-foo-bar`.
+    */
+  private[claude] def cwdSlug(cwd: os.Path): String =
+    cwd.toString.replace('/', '-')
 
   /** Read-only network tools pre-approved on [[ToolSet.NetworkOnly]] turns, so
     * an autonomous planner can read issues/PRs/web without a permission prompt
@@ -283,17 +337,19 @@ object ClaudeBackend:
     "Bash(gh api:*)"
   )
 
-  /** Returns an `AutoCloseable` that best-effort deletes the given file when
-    * closed. Used as an `AskUserSession.extras` entry so each conversation's
-    * `.orca-mcp-<port>.json` is removed when the conversation ends — without
-    * this, long flows would accumulate orphan config files in `workDir`.
-    */
-  private[claude] def deleteFileResource(path: os.Path): AutoCloseable =
-    () => if os.exists(path) then os.remove(path): Unit
-
   /** Fully-qualified tool name the agent uses, derived from the MCP server name
     * + the tool's bare slug. Always auto-approved on the interactive path — the
     * user is already typing an answer, no need for a y/n prompt first.
     */
   private[claude] val AskUserToolName: String =
     s"mcp__${AskUserMcpServer.ServerName}__${AskUserMcpServer.ToolSlug}"
+
+  /** Tool name the claude CLI injects for `--json-schema` structured output
+    * (observed on 2.1.207): the model "exits" the turn by calling this tool
+    * with the payload as its input, so the wire carries a visible `tool_use`
+    * for it. The conversation suppresses that echo — the payload reaches the
+    * caller via the result message and surfaces as
+    * `OrcaEvent.StructuredResult`, and rendering the tool call too would show
+    * the same JSON twice.
+    */
+  private[claude] val StructuredOutputToolName: String = "StructuredOutput"

@@ -36,7 +36,7 @@ text deltas instead of waiting for whole turns.
 ## Shape
 
 ```
-DefaultLlmCall.interactive
+DefaultAgentCall.interactive
    └─ backend.runInteractive(prompt, config, workDir, schema)
          └─ spawnPiped → ClaudeConversation
                 ├─ reader thread
@@ -47,11 +47,11 @@ DefaultLlmCall.interactive
                       ├─ events: Iterator[ConversationEvent]
                       ├─ sendUserMessage(text)
                       ├─ cancel()
-                      └─ awaitResult(): LlmResult[B]
+                      └─ awaitResult(): AgentResult[B]
    └─ interaction.drive(conversation)
          └─ TerminalConversationRenderer
                renders events; prompts for tool approvals
-               via JLine; returns LlmResult on success or
+               via JLine; returns AgentResult on success or
                throws OrcaInteractiveCancelled on cancel
 ```
 
@@ -61,17 +61,17 @@ Key shifts vs. the previous TTY path:
   claude carries the session id, usage, and (when `--json-schema` is
   passed) the validated `structured_output`. No transcript scraping.
 - **No stop hook files in `.claude/`.** The workspace is left
-  untouched; `prepareWorkspace` retired off the `LlmBackend` trait.
+  untouched; `prepareWorkspace` retired off the `AgentBackend` trait.
 - **The terminal is Orca's, not claude's.** Orca renders turns,
   streams text, displays tool calls, prompts for approvals, and
   decides what to show. The backend never inherits stdio.
 - **Approvals go through `ApproveTool` events**, each carrying a
   `respond: ApprovalDecision => Unit` closure the channel invokes
   exactly once. The driver auto-approves tools that match
-  `LlmConfig.autoApprove` before the event would fire; only
+  `AgentConfig.autoApprove` before the event would fire; only
   channel-level decisions surface as events.
 - **Cancellation surfaces as `Either`**: `Conversation.awaitResult`
-  returns `Either[OrcaInteractiveCancelled, LlmResult[B]]`. Genuine
+  returns `Either[OrcaInteractiveCancelled, AgentResult[B]]`. Genuine
   subprocess failures still throw, since they aren't recoverable, but
   user cancels are now in the type — direct callers can't accidentally
   ignore them. The `Interaction.drive` boundary is where the Either
@@ -111,7 +111,7 @@ Key shifts vs. the previous TTY path:
 - The default prompt for interactive calls changed — no marker, no
   "emit `<<<ORCA_DONE>>>`" sentinel. Custom `Prompts` impls that
   relied on that convention need updating.
-- `LlmBackend.runInteractive` / `continueInteractive` require an
+- `AgentBackend.runInteractive` / `continueInteractive` require an
   explicit `outputSchema: Option[String]` argument. Callers pass the
   JSON Schema they expect the final turn to match; the backend
   forwards to `--json-schema`. `None` is legal for free-form text.
@@ -131,7 +131,7 @@ Key shifts vs. the previous TTY path:
   Adopting now means writing the stream-json layer anyway and
   adding a JSON-RPC protocol layer on top. Deferred to a later
   migration: once stream-json is proven, add an ACP client and
-  switch backend dispatch at the `LlmBackend` seam.
+  switch backend dispatch at the `AgentBackend` seam.
 - **Keep TTY handoff.** The fragile part. Blocks channel
   abstraction — Slack/HTTP can't inherit a terminal. Rejected.
 

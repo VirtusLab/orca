@@ -17,7 +17,7 @@ bare `flow:` block:
    `orca.tools.git`, `orca.tools.github`. Top-level `orca` is reserved
    for the user-facing surface (traits, accessors, `flow`/`flowWith`,
    `JsonData`, `OrcaArgs`).
-3. **Rename `LlmTool.result[O]` to `resultAs[O]` and retype it to
+3. **Rename `Agent.result[O]` to `resultAs[O]` and retype it to
    `[O: JsonData]`** — the new name reads as a verb at the call site
    (`claude.resultAs[Plan].autonomous(...)`), the new bound keeps
    `JsonData` as the single typeclass users ever need to know about.
@@ -25,7 +25,7 @@ bare `flow:` block:
    Schema/codec forwarders stay top-level in `package orca` but are
    invisible from the user's side unless nested `derives JsonData`
    macro expansion needs them.
-4. **Add free-form text companions on `LlmTool`**: `ask` for one-shot
+4. **Add free-form text companions on `Agent`**: `ask` for one-shot
    prompts, `startSession(prompt) → (id, reply)` and
    `continueSession(id, prompt) → reply` for multi-turn text flows. The
    structured `resultAs[O]` path remains for when responses should parse
@@ -100,12 +100,21 @@ Five Scala-3-specific constraints pin this shape:
   accessor already resolves against `FlowContext.codex`.
 
 - A compile-time canary at
-  `/workspaces/orca-sandbox/runner/src/test/scala/flowtests/FlowCompilesTest.scala`
+  `runner/src/test/scala/flowtests/FlowCompilesTest.scala`
   lives outside `package orca.*` and exercises every DSL accessor from
   a third-party-script perspective. Any regression in what
   `import orca.{*, given}` brings in fails this file's compilation,
   which fails `sbt test` — closing the gap that let every pre-refactor
   DSL issue reach the README untested.
+
+> **Amendment (2026-07-07).** The `flow(args, git = Some(myGit))`
+> value-override example above is superseded for agent overrides: `claude`/
+> `codex`/`opencode`/`pi`/`gemini` overrides are now `Option[AgentWiring =>
+> XAgent]` factories, not prebuilt values, so the runtime can wire a
+> user-supplied agent into the run's own event dispatcher/interaction (see
+> ADR 0018's amendments and AGENTS.md). Tool overrides (`git`/`gh`/`fs`)
+> remain plain values, so `flow(args, git = Some(myGit))` itself is still
+> accurate as written.
 
 ## Alternatives considered
 

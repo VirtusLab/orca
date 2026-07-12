@@ -1,8 +1,15 @@
 package orca.tools.claude
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  SessionId,
+  WireSessionId
+}
 import orca.backend.{ApprovalDecision, ConversationEvent, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
+import orca.testkit.TempDirs
 
 /** End-to-end tests against the real `claude` CLI. Gated on the
   * `ORCA_INTEGRATION` environment variable so `sbt test` without the flag
@@ -19,8 +26,10 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     import scala.concurrent.duration.DurationInt
     2.minutes
 
-  private def withBackend(body: ClaudeBackend => Unit): Unit =
-    SupervisedBackend.using(new ClaudeBackend(OsProcCliRunner))(body)
+  private def withBackend(body: ox.Ox ?=> ClaudeBackend => Unit): Unit =
+    SupervisedBackend.using(
+      new ClaudeBackend(OsProcCliRunner, workDir = TempDirs.dir())
+    )(body)
 
   private def fresh = SessionId.fresh[BackendTag.ClaudeCode.type]
 
@@ -29,30 +38,26 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       val result = backend.runAutonomous(
         prompt = "Reply with the single word: READY",
         session = fresh,
-        config = LlmConfig.default,
-        workDir = os.temp.dir()
+        config = AgentConfig()
       )
       assert(
         result.output.contains("READY"),
         s"expected output to contain READY, got: ${result.output}"
       )
-      assert(SessionId.value(result.sessionId).nonEmpty)
+      assert(WireSessionId.value(result.wireId).nonEmpty)
 
   test("a resumed call carries conversational context across turns"):
     withBackend: backend =>
-      val workDir = os.temp.dir()
       val session = fresh
       val _ = backend.runAutonomous(
         prompt = "Remember the number 42. Reply with: stored.",
         session = session,
-        config = LlmConfig.default,
-        workDir = workDir
+        config = AgentConfig()
       )
       val second = backend.runAutonomous(
         prompt = "What number did I ask you to remember?",
         session = session,
-        config = LlmConfig.default,
-        workDir = workDir
+        config = AgentConfig()
       )
       assert(
         second.output.contains("42"),
@@ -65,8 +70,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         prompt = "Reply with just the number 7. Nothing else.",
         session = fresh,
         displayPrompt = "reply with 7",
-        config = LlmConfig.default,
-        workDir = os.temp.dir(),
+        config = AgentConfig(),
         outputSchema = None
       )
       try
@@ -78,7 +82,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
           result.output.contains("7"),
           s"expected a reply containing '7', got: ${result.output}"
         )
-        assert(SessionId.value(result.sessionId).nonEmpty)
+        assert(WireSessionId.value(result.wireId).nonEmpty)
       finally conversation.cancel()
 
   test("stream-json session emits text deltas as the agent streams"):
@@ -88,8 +92,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
           "Count from 1 to 5, one per line, then stop. Do not emit anything else.",
         session = fresh,
         displayPrompt = "count 1..5",
-        config = LlmConfig.default,
-        workDir = os.temp.dir(),
+        config = AgentConfig(),
         outputSchema = None
       )
       try
@@ -118,9 +121,7 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         prompt = "Read the file at /etc/hostname and reply with its contents.",
         session = fresh,
         displayPrompt = "read /etc/hostname",
-        config =
-          LlmConfig.default.copy(autoApprove = AutoApprove.Only(Set.empty)),
-        workDir = os.temp.dir(),
+        config = AgentConfig().copy(autoApprove = AutoApprove.Only(Set.empty)),
         outputSchema = None
       )
       try

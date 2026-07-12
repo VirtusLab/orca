@@ -1,25 +1,22 @@
 package orca.tools.gemini
 
-import orca.llm.{BackendTag, Model, SessionId}
+import orca.agents.BackendTag
 import orca.events.Usage
-import orca.{AgentTurnFailed, OrcaFlowException}
+import orca.AgentTurnFailed
 import orca.backend.{
-  BufferedStderrDiagnostics,
+  StderrPipeline,
   ConversationEvent,
-  LlmResult,
-  StreamConversation,
+  ForkedConversation,
   StreamSource
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
-import orca.tools.gemini.jsonl.InboundEvent
-
-import java.util.concurrent.atomic.AtomicReference
+import orca.tools.gemini.jsonl.{InboundEvent, Role}
 
 /** Drives a `gemini -p <prompt> --output-format stream-json` session to
-  * completion. Boilerplate lives in [[StreamConversation]]; this class supplies
-  * the gemini-specific protocol translation: JSONL → [[InboundEvent]] →
-  * `ConversationEvent`s.
+  * completion. Boilerplate lives in [[orca.backend.ForkedConversation]]; this
+  * class supplies the gemini-specific protocol translation: JSONL →
+  * [[InboundEvent]] → `ConversationEvent`s.
   *
   * Notable parity gaps vs. claude (deliberate — see ADR 0015):
   *   - gemini emits whole `message` chunks, not negotiated tool approvals;
@@ -27,7 +24,7 @@ import java.util.concurrent.atomic.AtomicReference
   *     emitted here.
   *   - gemini headless is one-shot; multi-turn happens via `--resume` on a
   *     fresh spawn, so `sendUserMessage` is a no-op.
-  *   - **`LlmResult.output` is synthesised**: gemini has no single terminal
+  *   - **`AgentResult.output` is synthesised**: gemini has no single terminal
   *     message carrying the answer, so assistant-role `message` content is
   *     accumulated as it streams and the result builder reads it at the
   *     `result` event. The prompt template makes the closing content JSON in
@@ -38,17 +35,19 @@ private[gemini] class GeminiConversation(
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
     override val askUser: Option[AskUserSession] = None
-) extends StreamConversation[BackendTag.Gemini.type](
+) extends ForkedConversation[BackendTag.Gemini.type](
       source = StreamSource.fromProcess(process),
       backendName = "gemini",
       initialPrompt = initialPrompt
     )
-    with BufferedStderrDiagnostics[BackendTag.Gemini.type]:
+    with StderrPipeline[BackendTag.Gemini.type]:
 
-  import StreamConversation.Outcome
-
-  private val sessionIdRef = new AtomicReference[String]("")
-  private val modelRef = new AtomicReference[Option[String]](None)
+  // Reader-thread-confined: written and read only from the JSONL reader
+  // thread (`handle`/`handleResult`, called from `handleLine`); `awaitResult`'s
+  // `readerFork.join()` publishes the final values to the caller. Same
+  // single-threaded-reader reasoning as `answer` and `toolNames` below.
+  private var sessionId: String = ""
+  private var model: Option[String] = None
 
   /** Accumulated assistant-role `message` content — the synthesised answer. See
     * the class scaladoc for why we build rather than receive.
@@ -64,51 +63,37 @@ private[gemini] class GeminiConversation(
 
   /** tool_use ids for `ask_user` MCP calls whose echo we drop — the host-side
     * bridge already surfaced the matching `UserQuestion`, so rendering the tool
-    * call + the answer-as-result on top would be noise.
+    * call + the answer-as-result on top would be noise. See
+    * [[orca.backend.AskUserEchoes]].
     */
-  private var suppressedToolIds: Set[String] = Set.empty
+  private val askUserEchoes = new orca.backend.AskUserEchoes
 
-  // Subclass fields above are assigned; safe to spin up the reader.
-  start()
-
-  // --- Conversation surface ---
-
-  /** gemini headless consumes its prompt argv-side and exits; injecting more
-    * user turns mid-session isn't supported (multi-turn is a fresh `--resume`
-    * spawn). The contract still requires a callable method — this is a no-op.
-    */
-  def sendUserMessage(text: String): Unit = ()
+  // No `start()`: the base spawns its reader / stderr / ask-user forks lazily
+  // on first touch of the conversation surface, after this subclass's fields
+  // are initialised.
 
   // --- Reader hooks ---
 
   override protected def handleLine(line: String): Unit =
     handle(InboundEvent.parse(line))
 
-  /** Surface a real stderr line as an `Error` event AND record it in the
-    * bounded buffer ([[BufferedStderrDiagnostics]]) so the failure exception
-    * can include it. Known-benign chatter gemini prints on every successful run
-    * (see [[GeminiConversation.isKnownStderrNoise]]) is dropped so it doesn't
-    * render as a spurious `✖` on each call.
+  /** Known-benign chatter gemini prints on every successful run (see
+    * [[GeminiConversation.isKnownStderrNoise]]) is dropped so it doesn't render
+    * as a spurious `✖` on each call; anything else passes through
+    * [[StderrPipeline]]'s hoisted `handleStderr` (strip → trim → filter → Error
+    * event → recorded diagnostic).
     */
-  override protected def handleStderr(line: String): Unit =
-    val trimmed = line.trim
-    if trimmed.nonEmpty && !GeminiConversation.isKnownStderrNoise(trimmed) then
-      eventQueue.enqueue(ConversationEvent.Error(s"gemini: $trimmed"))
-      recordStderr(trimmed)
+  override protected def isStderrNoise(line: String): Boolean =
+    GeminiConversation.isKnownStderrNoise(line)
 
-  override protected def cleanExitWithoutResult(): Throwable =
-    new OrcaFlowException(
-      appendContext(
-        "gemini exited cleanly but never sent a result event"
-      )
-    )
+  override protected def terminalMessageNoun: String = "a result event"
 
   // --- Per-event dispatch ---
 
   private def handle(event: InboundEvent): Unit = event match
     case InboundEvent.Init(sessionId, model) =>
-      sessionIdRef.set(sessionId)
-      modelRef.set(model)
+      this.sessionId = sessionId
+      this.model = model
     case InboundEvent.Message(role, content) => handleMessage(role, content)
     case InboundEvent.ToolUse(name, id, params) =>
       handleToolUse(name, id, params)
@@ -117,7 +102,10 @@ private[gemini] class GeminiConversation(
     case InboundEvent.Error(message) =>
       eventQueue.enqueue(ConversationEvent.Error(s"gemini: $message"))
     case InboundEvent.Result(usage, status) =>
-      eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
+      // `result` is terminal (one turn per conversation): the base funnel
+      // auto-closes any open turn when `handleResult` settles, and drops the
+      // turn end entirely when the turn was empty (e.g. an immediate failure
+      // with no streamed content) — so nothing is emitted here.
       handleResult(usage, status)
     case InboundEvent.Unknown(_) =>
       // Forward-compat: gemini may add new top-level event types; drop them
@@ -133,42 +121,45 @@ private[gemini] class GeminiConversation(
     */
   private def handleResult(usage: Usage, status: String): Unit =
     if status.nonEmpty && status != "success" then
-      val _ = outcomeRef.compareAndSet(
-        None,
-        Some(
-          Outcome.failed[BackendTag.Gemini.type](
-            // Fold in the buffered stderr (the real reason — quota, auth, …)
-            // so the exception carries it even for a noop listener, matching
-            // the non-zero-exit and missing-result failure paths.
-            new AgentTurnFailed(
-              appendContext(s"gemini turn ended with status '$status'")
-            )
-          )
+      // Fold in the buffered stderr (the real reason — quota, auth, …) so the
+      // exception carries it even for a noop listener, matching the
+      // non-zero-exit and missing-result failure paths.
+      failWith(
+        new AgentTurnFailed(
+          appendContext(s"gemini turn ended with status '$status'")
         )
       )
     else
-      val result = LlmResult(
-        sessionId = SessionId[BackendTag.Gemini.type](sessionIdRef.get()),
+      settleSuccess(
+        wireId = sessionId,
         output = answer.toString,
         usage = usage,
-        model = modelRef.get().map(Model.apply)
+        modelId = model
       )
-      val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
 
   /** A `user`-role message is the prompt echo (the base already surfaced the
     * opening prompt as a `UserMessage`), so it's dropped from both the event
-    * stream and the answer. Any other role is treated as agent output — gemini
-    * spells the assistant side `model`/`assistant` across versions, so we match
-    * on "not user" rather than a fixed string.
+    * stream and the answer. [[Role.Assistant]] (any present role other than
+    * `"user"` — gemini spells the assistant side `model`/`assistant` across
+    * versions) is agent output. [[Role.Unknown]] (a `role` key missing from the
+    * wire message) is DROPPED — never treated as assistant prose, unlike the
+    * pre-fix behavior where a missing role's `""` default failed the `!=
+    * "user"` check and silently passed through.
     */
-  private def handleMessage(role: String, content: String): Unit =
-    if role != "user" && content.nonEmpty then
-      val _ = answer.append(content)
-      eventQueue.enqueue(ConversationEvent.AssistantTextDelta(content))
+  private def handleMessage(role: Role, content: String): Unit = role match
+    case Role.User => ()
+    case Role.Assistant =>
+      if content.nonEmpty then
+        val _ = answer.append(content)
+        eventQueue.enqueue(ConversationEvent.AssistantTextDelta(content))
+    case Role.Unknown =>
+      debugLog(
+        "message",
+        s"dropped: message with missing/unrecognized role (${content.length} chars)"
+      )
 
   private def handleToolUse(name: String, id: String, params: String): Unit =
-    if GeminiConversation.isAskUserTool(name) then
-      suppressedToolIds = suppressedToolIds + id
+    if GeminiConversation.isAskUserTool(name) then askUserEchoes.suppress(id)
     else
       toolNames = toolNames + (id -> name)
       eventQueue.enqueue(
@@ -180,12 +171,11 @@ private[gemini] class GeminiConversation(
       status: String,
       output: String
   ): Unit =
-    if suppressedToolIds.contains(id) then
-      suppressedToolIds = suppressedToolIds - id
+    if askUserEchoes.consume(id) then ()
     else
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
-          toolName = toolNames.getOrElse(id, id),
+          toolName = Some(toolNames.getOrElse(id, id)),
           ok = status == "success",
           content = output
         )

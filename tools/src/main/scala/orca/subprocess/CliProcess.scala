@@ -5,11 +5,22 @@ trait CliProcess:
   def isAlive: Boolean
   def waitForExit(): Int
 
-  /** SIGINT this process and any descendants. Default = just this process;
-    * override where a launch wrapper (e.g. `ollama launch opencode`) may fork
-    * the real process — a single-PID SIGINT would orphan it.
+  /** Forcibly terminate this process (SIGKILL for the OS-backed process; close
+    * the pipes for fakes), the guaranteed backstop a [[StreamSource]] uses
+    * after a graceful `sendSigInt` so a reader blocked on stdout always
+    * unblocks. Must tolerate calls from any thread and more than once; on the
+    * normal path the process has already exited, making this a no-op.
     */
-  def sendSigIntTree(): Unit = sendSigInt()
+  def destroyForcibly(): Unit
+
+  /** Forcibly terminate this process AND any descendants. Default = just this
+    * process; override where a launch wrapper (e.g. `ollama launch opencode`)
+    * forks the real process, which inherits the stdout/stderr pipe fds: a
+    * single-PID kill would orphan it and leave those write-ends open, so a
+    * reader blocked on the pipe would never see EOF. Same call-anywhere /
+    * idempotent contract as [[destroyForcibly]].
+    */
+  def destroyForciblyTree(): Unit = destroyForcibly()
 
 /** A spawned process whose stdin / stdout / stderr are connected to pipes the
   * caller controls. The backend writes the opening user turn (or any further

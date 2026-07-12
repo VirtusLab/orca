@@ -1,18 +1,24 @@
 package orca.tools.codex
 
 import orca.backend.SupervisedBackend
-import orca.llm.{BackendTag, LlmConfig, Model, SessionId}
+import orca.agents.{BackendTag, AgentConfig, Model, SessionId, WireSessionId}
 import orca.{OrcaFlowException}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
+import orca.testkit.TempDirs
 
 class CodexBackendTest extends munit.FunSuite:
 
   private def clientSid: SessionId[BackendTag.Codex.type] =
     SessionId[BackendTag.Codex.type]("00000000-0000-0000-0000-000000000000")
 
-  private def withBackend[T](runner: SpawnStubCliRunner)(
-      body: CodexBackend => T
-  ): T = SupervisedBackend.using(new CodexBackend(runner))(body)
+  private def withBackend[T](
+      runner: SpawnStubCliRunner,
+      workDir: os.Path = os.pwd
+  )(
+      body: ox.Ox ?=> CodexBackend => T
+  ): T = SupervisedBackend.using(new CodexBackend(runner, workDir = workDir))(
+    body
+  )
 
   private def successfulProcess(
       threadId: String = "thr-test",
@@ -40,11 +46,18 @@ class CodexBackendTest extends munit.FunSuite:
     )
     withBackend(runner): backend =>
       val result =
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
-      // The returned session id is the client-allocated one — the server's
-      // thr-42 is mapped internally so subsequent calls can resume it without
-      // the caller having to thread a new id back in.
-      assertEquals(result.sessionId, clientSid)
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig()
+        )
+      // The result reports the WIRE id — the server-minted thr-42 — while the
+      // client→server mapping is recorded in the registry so subsequent calls
+      // resume it without the caller threading a new id back in.
+      assertEquals(
+        result.wireId,
+        WireSessionId[BackendTag.Codex.type]("thr-42")
+      )
       assertEquals(result.output, "the answer")
       assertEquals(result.usage.inputTokens, 100L)
       assertEquals(result.usage.outputTokens, 25L)
@@ -66,7 +79,11 @@ class CodexBackendTest extends munit.FunSuite:
     p.sendSigInt()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       val result =
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig()
+        )
       assertEquals(result.model, Some(Model("gpt-5")))
 
   test("runAutonomous throws when codex exits without turn.completed"):
@@ -77,7 +94,11 @@ class CodexBackendTest extends munit.FunSuite:
     p.sendSigInt()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       intercept[OrcaFlowException]:
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig()
+        )
 
   test("runAutonomous throws with the exit code when codex exits non-zero"):
     val p = new FakePipedCliProcess(initiallyAlive = false):
@@ -86,7 +107,11 @@ class CodexBackendTest extends munit.FunSuite:
     p.closeStderr()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       val ex = intercept[OrcaFlowException]:
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig()
+        )
       assert(
         ex.getMessage.contains("exited with code 7"),
         s"expected the exit code in the failure message; got: ${ex.getMessage}"
@@ -100,7 +125,11 @@ class CodexBackendTest extends munit.FunSuite:
     p.closeStderr()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       val ex = intercept[OrcaFlowException]:
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig()
+        )
       assert(
         ex.getMessage.contains("thread/resume failed: not found"),
         s"expected stderr in the exception; got: ${ex.getMessage}"
@@ -114,7 +143,11 @@ class CodexBackendTest extends munit.FunSuite:
     p.closeStderr()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       val ex = intercept[OrcaFlowException]:
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig()
+        )
       assert(
         !ex.getMessage.contains("Reading additional input from stdin"),
         s"filtered noise leaked into the exception: ${ex.getMessage}"
@@ -126,8 +159,7 @@ class CodexBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         "list files",
         clientSid,
-        LlmConfig.default.copy(systemPrompt = Some("be terse")),
-        os.temp.dir()
+        AgentConfig().copy(systemPrompt = Some("be terse"))
       )
       val args = runner.calls.head
       val finalPrompt = args.last
@@ -144,11 +176,10 @@ class CodexBackendTest extends munit.FunSuite:
       )
     )
     withBackend(runner): backend =>
-      val workDir = os.temp.dir()
       val _ =
-        backend.runAutonomous("first", clientSid, LlmConfig.default, workDir)
+        backend.runAutonomous("first", clientSid, AgentConfig())
       val _ =
-        backend.runAutonomous("again", clientSid, LlmConfig.default, workDir)
+        backend.runAutonomous("again", clientSid, AgentConfig())
       val firstArgs = runner.calls(0)
       val secondArgs = runner.calls(1)
       assert(!firstArgs.contains("resume"), firstArgs)
@@ -172,16 +203,15 @@ class CodexBackendTest extends munit.FunSuite:
       )
     )
     withBackend(runner): backend =>
-      val workDir = os.temp.dir()
-      // Simulate the post-interactive-drain registration that DefaultLlmCall
+      // Simulate the post-interactive-drain registration that DefaultAgentCall
       // performs (this test exercises the backend in isolation; the
-      // integration path is wired in LlmCall.runInteractiveOnce).
-      backend.registerSession(
+      // integration path is wired in AgentCall.runInteractiveOnce).
+      backend.sessions.register(
         clientSid,
-        SessionId[BackendTag.Codex.type]("thr-via-interactive")
+        WireSessionId[BackendTag.Codex.type]("thr-via-interactive")
       )
       val _ =
-        backend.runAutonomous("after", clientSid, LlmConfig.default, workDir)
+        backend.runAutonomous("after", clientSid, AgentConfig())
       val args = runner.calls.head
       assert(args.contains("resume"), args)
       assert(args.contains("thr-via-interactive"), args)
@@ -196,42 +226,101 @@ class CodexBackendTest extends munit.FunSuite:
       )
     )
     withBackend(runner): backend =>
-      val workDir = os.temp.dir()
       val sidA =
         SessionId[BackendTag.Codex.type]("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
       val sidB =
         SessionId[BackendTag.Codex.type]("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
-      val _ = backend.runAutonomous("for A", sidA, LlmConfig.default, workDir)
-      val _ = backend.runAutonomous("for B", sidB, LlmConfig.default, workDir)
+      val _ = backend.runAutonomous("for A", sidA, AgentConfig())
+      val _ = backend.runAutonomous("for B", sidB, AgentConfig())
       val secondArgs = runner.calls(1)
       assert(
         !secondArgs.contains("resume"),
         s"second call with a new client id must NOT resume; got: $secondArgs"
       )
 
+  /** Pulls the `--output-schema <path>` value out of a recorded argv, as an
+    * `os.Path`. Fails the test if the flag isn't present.
+    */
+  private def schemaPathFrom(args: Seq[String]): os.Path =
+    os.Path(
+      args
+        .zip(args.tail)
+        .collectFirst { case ("--output-schema", v) => v }
+        .getOrElse(fail(s"--output-schema not found in: $args"))
+    )
+
   test(
-    "runAutonomous writes the output schema and passes --output-schema"
+    "runAutonomous writes the output schema to a temp file outside workDir, and removes it once the turn finalizes"
   ):
     // Autonomous structured calls (reviewers) get codex-side schema
     // enforcement: the drain needs `conv.outputSchema` set so it suppresses
     // the raw JSON payload, and `--output-schema` adds codex-side
-    // validation on top of the prompt template. `JsonSchemaGen` produces
-    // OpenAI-strict schemas so codex accepts them.
+    // validation on top of the prompt template. The file must live OUTSIDE
+    // workDir — a fixed workDir-relative path would race the parallel
+    // reviewer fan-out and get swept into the flow's `git add -A` — and must
+    // not survive the call, or long flows would accumulate orphan schema
+    // files.
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
-    withBackend(runner): backend =>
-      val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
+    withBackend(runner, workDir = workDir): backend =>
       val _ = backend.runAutonomous(
         "q",
         clientSid,
-        LlmConfig.default,
-        workDir,
+        AgentConfig(),
         outputSchema = Some("""{"type":"object"}""")
       )
-      val schemaFile = workDir / ".codex" / "orca-output-schema.json"
-      assert(os.exists(schemaFile))
-      assertEquals(os.read(schemaFile), """{"type":"object"}""")
-      val args = runner.calls.head
-      assert(args.containsSlice(Seq("--output-schema", schemaFile.toString)))
+      val schemaFile = schemaPathFrom(runner.calls.head)
+      assert(
+        !schemaFile.startsWith(workDir),
+        s"schema file must live outside workDir; got: $schemaFile"
+      )
+      assert(
+        schemaFile.last.startsWith("orca-codex-schema-"),
+        s"expected the orca-codex-schema- temp-file prefix; got: $schemaFile"
+      )
+      assertEquals(
+        os.list(workDir).toList,
+        Nil,
+        "nothing should be written under workDir for a structured call"
+      )
+      // runAutonomous drains the conversation to completion synchronously, so
+      // by the time it returns, `onFinalize` has already run and removed the
+      // temp file.
+      assert(
+        !os.exists(schemaFile),
+        "schema temp file should be deleted once the turn finalizes"
+      )
+
+  test(
+    "two structured autonomous calls each get their own schema file (no race on a shared path)"
+  ):
+    val runner = new SpawnStubCliRunner(
+      List(successfulProcess("thr-1"), successfulProcess("thr-2"))
+    )
+    withBackend(runner): backend =>
+      val schema = Some("""{"type":"object"}""")
+      val sidA =
+        SessionId[BackendTag.Codex.type]("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+      val sidB =
+        SessionId[BackendTag.Codex.type]("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")
+      val _ = backend.runAutonomous(
+        "a",
+        sidA,
+        AgentConfig(),
+        outputSchema = schema
+      )
+      val _ = backend.runAutonomous(
+        "b",
+        sidB,
+        AgentConfig(),
+        outputSchema = schema
+      )
+      val schemaFileA = schemaPathFrom(runner.calls(0))
+      val schemaFileB = schemaPathFrom(runner.calls(1))
+      assert(
+        schemaFileA != schemaFileB,
+        s"concurrent/successive structured calls must not share a schema path; got: $schemaFileA and $schemaFileB"
+      )
 
   test(
     "runAutonomous does NOT pass -c mcp_servers (autonomous skips the bridge)"
@@ -239,30 +328,41 @@ class CodexBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val _ =
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig()
+        )
       val args = runner.calls.head
       assert(
         !args.exists(_.startsWith("mcp_servers.")),
         s"autonomous must not register an MCP server; got: $args"
       )
 
-  test("runInteractive writes the output schema to a file in the workdir"):
+  test(
+    "runInteractive writes the output schema to a temp file outside the workdir"
+  ):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
-    withBackend(runner): backend =>
-      val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
+    withBackend(runner, workDir = workDir): backend =>
       val _ = backend.runInteractive(
         "q",
         clientSid,
         displayPrompt = "q",
-        LlmConfig.default,
-        workDir,
+        AgentConfig(),
         Some("""{"type":"object"}""")
       )
-      val schemaFile = workDir / ".codex" / "orca-output-schema.json"
+      // Unlike runAutonomous, runInteractive hands back a Conversation the
+      // test never drains, so `onFinalize` hasn't fired yet — the file is
+      // still there to inspect.
+      val schemaFile = schemaPathFrom(runner.calls.head)
+      assert(
+        !schemaFile.startsWith(workDir),
+        s"schema file must live outside workDir; got: $schemaFile"
+      )
       assert(os.exists(schemaFile))
       assertEquals(os.read(schemaFile), """{"type":"object"}""")
-      val args = runner.calls.head
-      assert(args.containsSlice(Seq("--output-schema", schemaFile.toString)))
+      assertEquals(os.list(workDir).toList, Nil)
 
   test(
     "runInteractive registers an MCP server and folds the ask_user hint"
@@ -277,8 +377,7 @@ class CodexBackendTest extends munit.FunSuite:
         "q",
         clientSid,
         displayPrompt = "q",
-        LlmConfig.default,
-        os.temp.dir(),
+        AgentConfig(),
         outputSchema = None
       )
       val args = runner.calls.head
@@ -308,8 +407,7 @@ class CodexBackendTest extends munit.FunSuite:
         "list files",
         clientSid,
         displayPrompt = "list files",
-        LlmConfig.default.copy(systemPrompt = Some("be terse")),
-        os.temp.dir(),
+        AgentConfig().copy(systemPrompt = Some("be terse")),
         outputSchema = None
       )
       val finalPrompt = runner.calls.head.last
@@ -322,3 +420,75 @@ class CodexBackendTest extends munit.FunSuite:
         terseIdx < askIdx && askIdx - terseIdx > "be terse".length + 2,
         s"systemPrompt and ask_user hint should be separated; got: $finalPrompt"
       )
+
+  test(
+    "willContinue is registry-gated: true when the mapped SERVER id has a rollout file"
+  ):
+    // Codex mints its own thread id; a rollout file is named with that SERVER
+    // id, never the client id. `exists` resolves client→server via the registry
+    // (rehydrated from the log on resume) and probes THAT id.
+    val serverId = "test-session-id-123"
+    val tmpSessions = TempDirs.dir()
+    os.write(tmpSessions / s"rollout-2024-01-01-$serverId.jsonl", "")
+    SupervisedBackend.using(
+      new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
+    ): backend =>
+      backend.sessions.register(
+        clientSid,
+        WireSessionId[BackendTag.Codex.type](serverId)
+      )
+      assert(backend.sessions.willContinue(clientSid))
+
+  test("willContinue returns false when there is no client→server mapping"):
+    // No registration: the client id resolves to no server id, so the probe
+    // never runs — even if a rollout file happens to be named with the client
+    // id (which codex never does in practice).
+    val tmpSessions = TempDirs.dir()
+    os.write(
+      tmpSessions / s"rollout-2024-01-01-${SessionId.value(clientSid)}.jsonl",
+      ""
+    )
+    SupervisedBackend.using(
+      new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
+    ): backend =>
+      assert(!backend.sessions.willContinue(clientSid))
+
+  test("willContinue returns false when no matching file exists"):
+    val tmpSessions = TempDirs.dir()
+    SupervisedBackend.using(
+      new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
+    ): backend =>
+      backend.sessions.register(
+        clientSid,
+        WireSessionId[BackendTag.Codex.type]("thr-server-1")
+      )
+      assert(!backend.sessions.willContinue(clientSid))
+
+  test("willContinue returns false when the sessions dir is absent"):
+    val missing = TempDirs.dir() / "no-such-sessions"
+    SupervisedBackend.using(
+      new CodexBackend(new SpawnStubCliRunner(Nil), missing)
+    ): backend =>
+      backend.sessions.register(
+        clientSid,
+        WireSessionId[BackendTag.Codex.type]("thr-server-1")
+      )
+      assert(!backend.sessions.willContinue(clientSid))
+
+  test(
+    "willContinue returns false for a mapped SERVER id `.*` even when rollout files exist (blocks regex injection)"
+  ):
+    val tmpSessions = TempDirs.dir()
+    // Create a rollout file that the old regex `rollout-.*-.*\.jsonl` would match
+    os.write(tmpSessions / "rollout-2024-01-01-some-real-id.jsonl", "")
+    SupervisedBackend.using(
+      new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
+    ): backend =>
+      // The malicious id is the resolved WIRE id; `register`'s SessionId.isSafe
+      // guard must refuse to record it in the first place, so `exists` never
+      // even reaches the walk (no mapping to resolve).
+      backend.sessions.register(
+        clientSid,
+        WireSessionId[BackendTag.Codex.type](".*")
+      )
+      assert(!backend.sessions.willContinue(clientSid))

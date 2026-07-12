@@ -1,9 +1,9 @@
 package orca.backend
 
-import orca.llm.{LlmConfig, ToolSet}
+import orca.agents.{AgentConfig, ToolSet}
 
 /** Shared helper for assembling a backend-agnostic "system prompt body" from
-  * the configured [[LlmConfig.systemPrompt]], an optional caller-supplied
+  * the configured [[AgentConfig.systemPrompt]], an optional caller-supplied
   * `extraHint` (typically the shared `ask_user` MCP hint on interactive calls),
   * and the standing [[RuntimeOwnsGit]] rule. Concatenates non-empty pieces with
   * a blank line between them.
@@ -24,8 +24,8 @@ private[orca] object SystemPromptComposer:
     * `git.diff()` empty so `reviewAndFixLoop`'s reviewer selection sees no
     * changed files and runs no reviewers. Omitted on read-only turns (planning,
     * triage, reviewer selection — they can't write anyway) and on
-    * [[LlmConfig.selfManagedGit]] turns (the caller's explicit escape hatch via
-    * `llm.withSelfManagedGit`). Otherwise an invariant of orca's
+    * [[AgentConfig.selfManagedGit]] turns (the caller's explicit escape hatch
+    * via `agent.withSelfManagedGit`). Otherwise an invariant of orca's
     * runtime-owns-git model, applied on top of any `withSystemPrompt`.
     */
   val RuntimeOwnsGit: String =
@@ -35,7 +35,7 @@ private[orca] object SystemPromptComposer:
       "the right points."
 
   def combine(
-      config: LlmConfig,
+      config: AgentConfig,
       extraHint: Option[String] = None
   ): Option[String] =
     val gitRule =
@@ -51,7 +51,7 @@ private[orca] object SystemPromptComposer:
     * unchanged when nothing applies.
     */
   def foldIntoPrompt(
-      config: LlmConfig,
+      config: AgentConfig,
       userPrompt: String,
       extraHint: Option[String] = None
   ): String =

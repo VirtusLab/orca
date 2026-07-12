@@ -1,6 +1,6 @@
 package orca.plan
 
-import orca.llm.{Announce, JsonData, schemaFromJsonData, codecFromJsonData}
+import orca.agents.{Announce, JsonData, schemaFromJsonData, codecFromJsonData}
 
 /** Wire shape the LLM produces for an assess-before-plan turn. Flattened
   * (rather than discriminated union) so jsoniter-scala's structured-output path

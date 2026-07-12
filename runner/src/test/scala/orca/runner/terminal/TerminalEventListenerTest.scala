@@ -1,7 +1,7 @@
 package orca.runner.terminal
 
 import orca.events.{OrcaEvent, Usage}
-import orca.llm.Model
+import orca.agents.Model
 import java.io.{ByteArrayOutputStream, PrintStream}
 
 /** These tests exercise the listener's synchronous state-mutation behaviour by
@@ -150,6 +150,63 @@ class TerminalEventListenerTest extends munit.FunSuite:
     val output = renderEvents(List(OrcaEvent.UserPrompt("   \n\t  ")))
     assertEquals(output, "")
 
+  test(
+    "StructuredResult without a summary renders the collapsed raw payload as a `●` line"
+  ):
+    val output = renderEvents(
+      List(OrcaEvent.StructuredResult("""{"answer":42}""", None))
+    )
+    assert(output.contains(TerminalEventListener.AssistantGlyph), output)
+    assert(output.contains("""{"answer":42}"""), output)
+
+  test(
+    "StructuredResult with a summary renders the summary as a `▶` line, not the raw payload"
+  ):
+    val output = renderEvents(
+      List(
+        OrcaEvent.StructuredResult(
+          """{"answer":42}""",
+          Some("Answer: 42")
+        )
+      )
+    )
+    assert(output.contains(TerminalEventListener.StageStartGlyph), output)
+    assert(output.contains("Answer: 42"), output)
+    assert(!output.contains("""{"answer":42}"""), output)
+
+  test(
+    "StructuredResult with a deliberately-silent summary (Some(\"\")) renders nothing"
+  ):
+    // A specific Announce[O] that says nothing (e.g. ReviewResult — the review
+    // loop narrates per-reviewer outcomes itself) must not trigger the raw
+    // fallback: that would render the JSON the summary deliberately withheld.
+    val output = renderEvents(
+      List(OrcaEvent.StructuredResult("""{"issues":[]}""", Some("")))
+    )
+    assertEquals(output, "")
+
+  test(
+    "StructuredResult raw fallback truncates long payloads with an ellipsis"
+  ):
+    val long = "{\"x\":\"" + ("a" * 300) + "\"}"
+    val output = renderEvents(List(OrcaEvent.StructuredResult(long, None)))
+    assert(output.contains("…"), output)
+    val bodyLines = output.split('\n').filter(_.contains("a"))
+    assert(
+      bodyLines.forall(
+        _.length <= TerminalEventListener.MaxStructuredResultRawLength + 10
+      ),
+      bodyLines.toList
+    )
+
+  test(
+    "StructuredResult raw fallback collapses multi-line payloads to one line"
+  ):
+    val raw = "{\n  \"a\": 1,\n  \"b\": 2\n}"
+    val output = renderEvents(List(OrcaEvent.StructuredResult(raw, None)))
+    val rendered = output.split('\n').filter(_.contains("\"a\"")).mkString
+    assert(rendered.contains("""{ "a": 1, "b": 2 }"""), rendered)
+
   test("TokensUsed events are ignored (owned by CostTracker)"):
     val output = renderEvents(
       List(
@@ -226,4 +283,39 @@ class TerminalEventListenerTest extends munit.FunSuite:
     assert(
       !output.contains(TerminalEventListener.StageDoneGlyph),
       s"no ✔ should appear in the event log; got: $output"
+    )
+
+  test("currentIndent stays readable while stages push and pop concurrently"):
+    // A light regression guard for the single-writer / @volatile publication
+    // contract, NOT a race proof: the test thread is the sole writer (pushing
+    // then popping 500 StageStarted/StageCompleted pairs) while a reader thread
+    // polls `currentIndent` from another thread — the same lock-free access the
+    // ConversationRenderer makes mid-readLine. It asserts the reader never
+    // crashes and that the stack unwinds to empty once every pair is balanced.
+    val buf = new ByteArrayOutputStream()
+    val ps = new PrintStream(buf)
+    val output =
+      new TerminalOutputState(ps, useColor = false, animated = false)
+    val listener = new TerminalEventListener(output, useColor = false)
+
+    @volatile var readerFailure: Option[Throwable] = None
+    @volatile var stop = false
+    val reader = new Thread(() =>
+      try
+        while !stop do
+          val _ = listener.currentIndent.length
+      catch case t: Throwable => readerFailure = Some(t)
+    )
+    reader.start()
+    for _ <- 1 to 500 do
+      listener.onEvent(OrcaEvent.StageStarted("s"))
+      listener.onEvent(OrcaEvent.StageCompleted("s"))
+    stop = true
+    reader.join(5000)
+
+    assertEquals(readerFailure, None, s"reader thread failed: $readerFailure")
+    assertEquals(
+      listener.currentIndent,
+      "",
+      "balanced push/pop pairs must unwind the indent stack to empty"
     )

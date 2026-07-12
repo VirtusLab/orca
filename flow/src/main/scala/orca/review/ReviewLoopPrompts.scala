@@ -31,7 +31,7 @@ object ReviewLoopPrompts:
   val Fix: String =
     PromptResource.load("/orca/review/prompts/fix.md")
 
-  /** Used by [[ReviewerSelector.llmDriven]] to decide which reviewers to run
+  /** Used by [[ReviewerSelector.agentDriven]] to decide which reviewers to run
     * for a given task. Agents are picked from the supplied `availableReviewers`
     * list by name.
     */

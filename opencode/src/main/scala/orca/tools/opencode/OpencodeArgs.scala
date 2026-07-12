@@ -1,7 +1,7 @@
 package orca.tools.opencode
 
-import orca.backend.{SessionMode, SystemPromptComposer}
-import orca.llm.{LlmConfig, Model, ToolSet}
+import orca.backend.{ConversationMode, SystemPromptComposer}
+import orca.agents.{AgentConfig, AutoApprove, Enforcement, Model, ToolSet}
 import orca.tools.opencode.OpencodeApi.{
   MessageBody,
   MessagePart,
@@ -10,7 +10,7 @@ import orca.tools.opencode.OpencodeApi.{
 }
 import orca.util.RawJson
 
-/** Maps an [[orca.llm.LlmConfig]] onto OpenCode's wire shapes: the `serve`
+/** Maps an [[orca.agents.AgentConfig]] onto OpenCode's wire shapes: the `serve`
   * launch argv and the per-turn message body (ADR 0014).
   *
   * Unlike the subprocess backends, almost everything travels in the request
@@ -42,10 +42,10 @@ private[opencode] object OpencodeArgs:
     * answer.
     */
   def message(
-      config: LlmConfig,
+      config: AgentConfig,
       prompt: String,
       outputSchema: Option[String],
-      mode: SessionMode
+      mode: ConversationMode
   ): MessageBody =
     MessageBody(
       parts = List(MessagePart("text", prompt)),
@@ -72,8 +72,8 @@ private[opencode] object OpencodeArgs:
     * pre-fetch issue/PR context instead.
     */
   private def toolFlags(
-      config: LlmConfig,
-      mode: SessionMode
+      config: AgentConfig,
+      mode: ConversationMode
   ): Option[Map[String, Boolean]] =
     val writeGate =
       config.tools match
@@ -85,9 +85,28 @@ private[opencode] object OpencodeArgs:
             "patch" -> false
           )
         case ToolSet.Full => Map.empty[String, Boolean]
-    val question = mode match
-      case SessionMode.Autonomous     => Map("question" -> false)
-      case SessionMode.Interactive(_) => Map.empty[String, Boolean]
+    val question =
+      if mode.isInteractive then Map.empty[String, Boolean]
+      else Map("question" -> false)
     // The two key sets are disjoint, so the merge order is irrelevant.
     val flags = writeGate ++ question
     Option.when(flags.nonEmpty)(flags)
+
+  /** How strongly opencode enforces each `(tools, autoApprove)` combination —
+    * see [[toolFlags]] for the gate this classifies.
+    *
+    *   - `ReadOnly` / `NetworkOnly` → `Hard`: both tiers disable the write
+    *     tools (`write`/`edit`/`bash`/`patch`) on the message body, a
+    *     mechanical no-edit gate. (`NetworkOnly` gets no dedicated handling —
+    *     it behaves like `ReadOnly`.)
+    *   - `Full` + `AutoApprove.All` / `Only(_)` → `Ignored`: `autoApprove` is
+    *     never encoded here — the approval policy is whatever the user's
+    *     `opencode` server config says via the `permission.asked` reply, which
+    *     is outside orca's control (ADR 0014 risk).
+    */
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+    tools match
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly => Enforcement.Hard
+      case ToolSet.Full =>
+        autoApprove match
+          case AutoApprove.All | AutoApprove.Only(_) => Enforcement.Ignored

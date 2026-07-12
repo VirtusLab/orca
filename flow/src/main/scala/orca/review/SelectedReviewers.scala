@@ -1,14 +1,21 @@
 package orca.review
 
-import orca.llm.{JsonData, LlmTool}
+import orca.agents.{Announce, JsonData}
 
 case class SelectedReviewers(names: List[String]) derives JsonData:
-  /** Resolve the picker's reply to tools. Matches either the bare slug (what
-    * the picker is shown and is asked to echo) or the full `reviewer: <slug>`
-    * tool name, so a model that returns either form still resolves — the
-    * `reviewer: ` cost-attribution prefix must not gate selection.
+  /** Resolve the picker's reply to roster entries by matching the bare slug — a
+    * reviewer's identity, and exactly what the picker is shown and asked to
+    * echo. Matching against the handed [[RosterEntry]] list (not raw names) is
+    * the hallucinated-picker floor: a name the picker invents that no entry
+    * carries simply matches nothing. The `reviewer` cost-attribution role tag
+    * never reaches the picker, so it plays no part in selection.
     */
-  def pick(all: List[LlmTool[?]]): List[LlmTool[?]] =
-    all.filter: r =>
-      val slug = ReviewerPrompts.stripNamePrefix(r.name)
-      names.contains(r.name) || names.contains(slug)
+  def pick(all: List[RosterEntry[?]]): List[RosterEntry[?]] =
+    all.filter(r => names.contains(r.name))
+
+object SelectedReviewers:
+  /** Deliberately silent: the review loop narrates the selection itself
+    * ("Running N review agents"), so a summary here would render the picker's
+    * raw JSON on top of that line.
+    */
+  given Announce[SelectedReviewers] = Announce.from(_ => "")

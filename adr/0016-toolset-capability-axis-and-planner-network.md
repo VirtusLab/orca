@@ -12,7 +12,7 @@ planner needs to read an issue/PR it was pointed at: claude's
 can't answer), codex's `--sandbox read-only` blocks all network, pi's read-only
 `--tools` has no web tool, gemini's `--approval-mode plan` gates web/shell.
 
-Capability was previously encoded as a boolean `LlmConfig.readOnly` layered over
+Capability was previously encoded as a boolean `AgentConfig.readOnly` layered over
 the `AutoApprove` enum, munged together in each backend's args mapping. Two
 problems: (1) the boolean couldn't express "read-only **plus** network"; (2)
 `withReadOnly` is the shared hard no-edit gate for *seven* turn kinds (two
@@ -22,7 +22,7 @@ mid-review — so network must not be tied to "read-only" in general.
 
 ## Decision
 
-Replace `readOnly: Boolean` with a capability enum on `LlmConfig`:
+Replace `readOnly: Boolean` with a capability enum on `AgentConfig`:
 
 ```scala
 enum ToolSet: case ReadOnly, NetworkOnly, Full
@@ -59,7 +59,7 @@ disabled set, so web may work (server-dependent, unverified).
 
 The claude network allowlist (`--allowedTools` strings like `Bash(gh api:*)`) is
 claude-specific, so it lives on `ClaudeBackend` (default
-`DefaultNetworkTools`), not the shared `LlmConfig`. It is configurable per flow
+`DefaultNetworkTools`), not the shared `AgentConfig`. It is configurable per flow
 via `claude.withNetworkTools(...)`. The default includes `Bash(gh api:*)` for
 broad GitHub reads — note `gh api -X POST` can mutate GitHub (not local files);
 flows wanting a tighter set override it.

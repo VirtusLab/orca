@@ -3,7 +3,6 @@ package orca.subprocess
 import org.slf4j.LoggerFactory
 
 import scala.jdk.CollectionConverters.given
-import scala.jdk.StreamConverters.*
 
 /** Runs external commands via os-lib. `check = false` is intentional — callers
   * inspect `exitCode` and `stderr` rather than handling thrown exceptions,
@@ -23,23 +22,12 @@ object OsProcCliRunner extends CliRunner:
       env: Map[String, String],
       cwd: os.Path
   ): CliResult =
-    // os-lib 0.11.x defaults `stderr = Inherit` for `call(...)`. We
-    // explicitly capture both pipes so subprocess output never
-    // bypasses the renderer's StatusBar — see [[QuietProc]] for the
-    // full rationale. `mergeErrIntoOut` would also work but losing the
-    // stdout/stderr distinction would weaken the diagnostic in
-    // OrcaFlowException messages.
+    // Delegates to QuietProc for the actual `os.proc(...).call(...)` — it's
+    // the one place in `orca.subprocess` that guarantees captured stderr, so
+    // subprocess output never bypasses the renderer's StatusBar. See
+    // [[QuietProc]] for the full rationale.
     log.debug("exec: {} (cwd={})", args.mkString(" "), cwd)
-    val result = os
-      .proc(args)
-      .call(
-        cwd = cwd,
-        env = env,
-        stdin = stdin,
-        stdout = os.Pipe,
-        stderr = os.Pipe,
-        check = false
-      )
+    val result = QuietProc.call(args, cwd = cwd, env = env, stdin = stdin)
     log.debug("exit {}: {}", result.exitCode, args.headOption.getOrElse("?"))
     CliResult(result.exitCode, result.out.text(), result.err.text())
 
@@ -93,19 +81,23 @@ private final class OsPipedSubProcess(
   def sendSigInt(): Unit =
     val _ = QuietProc.call(Seq("kill", "-INT", sub.wrapped.pid.toString))
 
-  override def sendSigIntTree(): Unit =
-    // Descendants first, then the root: if the spawned process is a launch
-    // wrapper that forked the real `opencode serve`, SIGINT-ing only the root
-    // PID would leave the server orphaned. Snapshot is best-effort.
-    val handle = sub.wrapped.toHandle
-    val pids =
-      (handle.descendants().toScala(List) :+ handle)
-        .filter(_.isAlive)
-        .map(_.pid.toString)
-    if pids.nonEmpty then
-      val _ = QuietProc.call(Seq("kill", "-INT") ++ pids)
-
   def isAlive: Boolean = sub.isAlive()
+
+  def destroyForcibly(): Unit =
+    val _ = sub.wrapped.destroyForcibly()
+
+  override def destroyForciblyTree(): Unit =
+    // Descendants first, then the root: a launch wrapper that forked the real
+    // `serve` child leaves it holding the inherited stdout/stderr pipe
+    // write-ends, so killing only the root PID would never EOF a blocked drain.
+    // `descendants()` is a best-effort snapshot of live parent→child linkage; it
+    // catches a wrapper that stays alive as the worker's parent (the `ollama
+    // launch` case). It would NOT catch a wrapper that double-forks and exits,
+    // reparenting the worker to init — that would need a process-group kill or a
+    // recorded worker PID. No current launcher does that.
+    val handle = sub.wrapped.toHandle
+    handle.descendants().forEach(h => { val _ = h.destroyForcibly() })
+    val _ = handle.destroyForcibly()
 
   def waitForExit(): Int =
     val _ = sub.join()

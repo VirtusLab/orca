@@ -1,10 +1,8 @@
 package orca.review
 
-import orca.{FlowContext}
+import orca.FlowControl
 import orca.plan.Title
-import orca.llm.{BackendTag, SessionId}
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
-import orca.{TestFlowContext}
 
 import java.util.concurrent.atomic.AtomicReference
 
@@ -14,6 +12,11 @@ import java.util.concurrent.atomic.AtomicReference
   * network.
   */
 class ReviewFixFlowTest extends munit.FunSuite:
+
+  // `reviewAndFixLoop` is gated on `InStage` + `WorkspaceWrite` (the durable
+  // fix turn's tokens, ADR 0018 §6); mint both for the suite.
+  private given orca.InStage = orca.InStage.unsafe
+  private given orca.WorkspaceWrite = orca.WorkspaceWrite.unsafe
 
   private class RecordingListener extends OrcaListener:
     private val seen: AtomicReference[List[OrcaEvent]] = AtomicReference(Nil)
@@ -32,16 +35,17 @@ class ReviewFixFlowTest extends munit.FunSuite:
       suggestion = None
     )
 
-  test("reviewAndFixLoop wraps the loop in a `Review & fix` stage"):
+  test("reviewAndFixLoop marks the loop with a `Review & fix` progress line"):
     val listener = new RecordingListener
-    given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
+    given FlowControl =
+      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
 
     val real = issue("real problem", confidence = 0.9)
-    val reviewer = new FakeLlmTool(
+    val reviewer = new FakeAgent(
       name = "perf",
       outputs = List(ReviewResult(List(real)))
     )
-    val coder = new FakeLlmTool(
+    val coder = new FakeAgent(
       name = "coder",
       outputs = List(
         FixOutcome(Nil, List(IgnoredIssue(Title("real problem"), "trade-off")))
@@ -49,50 +53,44 @@ class ReviewFixFlowTest extends munit.FunSuite:
     )
 
     val _ = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
       task = "optimize cache",
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
 
+    // The loop now runs under the caller's task stage (ADR 0018 §2.2), so it
+    // emits a progress line rather than opening its own committing stage.
     val events = listener.events
     assert(
       events.exists {
-        case OrcaEvent.StageStarted("Review & fix") => true; case _ => false
+        case OrcaEvent.Step("Review & fix") => true; case _ => false
       },
-      s"missing StageStarted(Review & fix); got: $events"
-    )
-    assert(
-      events.exists {
-        case OrcaEvent.StageCompleted("Review & fix") => true;
-        case _                                        => false
-      },
-      s"missing StageCompleted(Review & fix); got: $events"
+      s"missing Step(Review & fix); got: $events"
     )
 
   test("max iterations path surfaces leftover issues with the cap reason"):
     val listener = new RecordingListener
-    given FlowContext = new TestFlowContext(new EventDispatcher(List(listener)))
+    given FlowControl =
+      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
 
     // Reviewer keeps reporting the same issue every round; coder claims it
     // fixed it every round (so the loop sees progress) but the next eval
     // still finds it. The cap is the only thing that can stop this.
     // Reviewer keeps reporting the same issue across all iterations.
     val stubborn = issue("never ends")
-    val reviewer = new FakeLlmTool(
+    val reviewer = new FakeAgent(
       name = "loud",
       outputs = List.fill(21)(ReviewResult(List(stubborn)))
     )
-    val coder = new FakeLlmTool(
+    val coder = new FakeAgent(
       name = "fixer",
       outputs = List.fill(20)(FixOutcome(List(Title("never ends")), Nil))
     )
 
     val result = reviewAndFixLoop(
-      coder = coder,
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("s"),
+      coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
       task = "never ending",
       maxIterations = 2,

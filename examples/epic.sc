@@ -1,3 +1,4 @@
+//> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.0.14"
 //> using jvm 21
 
@@ -5,18 +6,17 @@
   *
   * Two layers stack here:
   *
-  *   - **On-disk epic.** `.orca/plan-<hash>.md` holds the task list — generated
-  *     on a fresh run, recovered on a resume (pending edits stashed, branch
-  *     re-attached) to restart from the first incomplete task. Each task's
-  *     `Status: [x]` is committed as the task lands, so a crash loses no
-  *     progress.
-  *   - **Cross-agent review.** Claude implements; codex reviews — the
-  *     implementer is its own worst critic, so a separate model widens coverage
-  *     cheaply. Fixes go back to the same Claude session. Both CLIs must be
-  *     logged in.
+  *   - **Resumable stages.** The stage log (`.orca/progress-<hash>.json`) tracks
+  *     the plan and every completed task. A re-run with the same prompt resumes
+  *     from the first incomplete stage — the plan is not re-generated, already
+  *     finished tasks are skipped, and the implementer session is reseeded from
+  *     the recorded brief.
+  *   - **Cross-agent review.** Claude (opus) plans and implements; codex reviews
+  *     — the implementer is its own worst critic, so a separate model widens
+  *     coverage cheaply. Fixes go back to the same Claude session. Both CLIs
+  *     must be logged in.
   *
-  * On success the plan file is removed, then a docs step updates the README
-  * based on what changed.
+  * On success a docs step updates the README based on what changed.
   *
   * Run it from a git repository, with `claude` and `codex` logged in:
   *
@@ -30,44 +30,35 @@
 
 import orca.{*, given}
 
-flow(OrcaArgs(args)):
-  val planFile = Plan.defaultPath(userPrompt)
+flow(OrcaArgs(args), _.claude):
+  val plan = stage("Plan"):
+    // `.value` drops the planner's read-only session — the implementer
+    // below mints a fresh one.
+    Plan.autonomous.from(userPrompt, agent).value
 
-  // Resume `.orca/plan-<hash>.md` if it exists; otherwise plan + branch.
-  val plan = stage("Acquire epic"):
-    Plan.recoverOrCreate(planFile):
-      // `.value` drops the planner's read-only session — the implementer
-      // below mints a fresh one.
-      Plan.autonomous.from(userPrompt, claude.opus).value
-
-  // Stable coder session reused across every task (and the docs pass) so the
-  // agent retains context. Fresh — not the planner's (read-only). The runtime
-  // owns git: the default system prompt tells the agent not to commit, so a
-  // stray `git commit` can't empty the tree before `implementTaskLoop` does.
-  val session = claude.newSession
+  // Stable coder session reused across every task (and the docs pass), seeded
+  // with the plan brief; replayed on resume if the backend session is lost.
+  val session = agent.session("implementer", seed = plan.brief)
 
   // Reviewers on codex; fixes go back to the Claude session that implemented.
-  val reviewers: List[LlmTool[?]] = allReviewers(codex)
+  val reviewers: List[Agent[?]] = allReviewers(codex)
 
-  Plan.implementTaskLoop(planFile, plan): task =>
-    stage(s"Implement task: ${task.title}"):
-      stage("Implementation"):
-        val _ = claude.autonomous.run(task.description, session)
-
+  for task <- plan.tasks do
+    stage(s"Task: ${task.title}"):      // skipped on resume if already done
+      session.run(task.description)
+      // reviewerSelection defaults to agentDriven — a picker LLM on the
+      // lead's cheap tier.
       reviewAndFixLoop(
-        coder = claude,
-        sessionId = session,
+        coderSession = session,
         reviewers = reviewers,
-        reviewerSelection = ReviewerSelector.llmDriven(claude.haiku),
         task = task.title.value,
         // Format after every edit; Spotless is wired into the seed pom.
         formatCommand = Some("mvn -q spotless:apply")
       )
+      // one commit per task: code + progress entry
 
   stage("Update documentation"):
-    val _ = claude.autonomous.run(
+    session.run(
       "All tasks done. Update project docs (README, doc-comments) based " +
-        "on the changes made. Only update what's affected — no new sections.",
-      session
+        "on the changes made. Only update what's affected — no new sections."
     )
-    git.commit("docs: update for completed work").orThrow

@@ -1,17 +1,28 @@
 package orca.tools
 
-import orca.OrcaFlowException
+import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
-import orca.subprocess.{CliResult, CliRunner, PipedCliProcess, StubCliRunner}
+import orca.subprocess.{
+  CliCall,
+  CliResult,
+  CliRunner,
+  PipedCliProcess,
+  StubCliRunner
+}
 import ox.either.orThrow
 import ox.scheduling.Schedule
 
 import java.util.concurrent.ConcurrentLinkedQueue
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 import scala.concurrent.duration.DurationInt
 import scala.jdk.CollectionConverters.*
 
 class OsGitHubToolTest extends munit.FunSuite:
+
+  // Tests exercise gated gh mutators directly; mint the workspace-write token
+  // once for the whole suite (package `orca.tools` can reach
+  // `WorkspaceWrite.unsafe`).
+  private given WorkspaceWrite = WorkspaceWrite.unsafe
 
   private def stubGh(response: CliResult): (StubCliRunner, OsGitHubTool) =
     val cli = new StubCliRunner(response)
@@ -24,20 +35,28 @@ class OsGitHubToolTest extends munit.FunSuite:
 
   /** A `CliRunner` that returns each response in turn (the last repeats), for
     * tests that need consecutive `run` calls to differ — e.g. fail then
-    * succeed. Only `run` is exercised here.
+    * succeed. Records every call so tests can assert on args. Only `run` is
+    * exercised here.
     */
   private class SequencedCliRunner(responses: List[CliResult])
       extends CliRunner:
     private val next = new AtomicInteger(0)
-    private val calls = new AtomicInteger(0)
-    def callCount: Int = calls.get()
+    private val callsCount = new AtomicInteger(0)
+    private val recordedCalls: AtomicReference[List[CliCall]] =
+      AtomicReference(Nil)
+    def callCount: Int = callsCount.get()
+    def calls: List[CliCall] = recordedCalls.get().reverse
     def run(
         args: Seq[String],
         stdin: String,
         env: Map[String, String],
         cwd: os.Path
     ): CliResult =
-      val _ = calls.incrementAndGet()
+      val _ = callsCount.incrementAndGet()
+      val _ =
+        recordedCalls.updateAndGet(cs =>
+          CliCall(args.toList, stdin, env, cwd) :: cs
+        )
       responses(math.min(next.getAndIncrement(), responses.size - 1))
     def spawnPiped(
         args: Seq[String],
@@ -76,10 +95,19 @@ class OsGitHubToolTest extends munit.FunSuite:
     val (_, gh) = stubGh(CliResult(0, "no url here", ""))
     val _ = intercept[OrcaFlowException](gh.createPr("t", "b"))
 
-  test("createPr returns Left(PrAlreadyExists) when gh reports a duplicate"):
-    val (_, gh) = stubGh(
-      CliResult(1, "", "a pull request for branch 'feat' already exists")
+  test(
+    "createPr returns Left(PrAlreadyExists) when gh reports a duplicate and no open PR is found"
+  ):
+    // gh pr create reports duplicate; git rev-parse gives branch name; gh pr list
+    // returns empty → fallback Left(PrAlreadyExists).
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(1, "", "a pull request for branch 'feat' already exists"),
+        CliResult(0, "feat\n", ""), // git rev-parse
+        CliResult(0, "[]", "") // gh pr list — no open PR
+      )
     )
+    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[PrAlreadyExists]))
 
   test(
@@ -186,12 +214,84 @@ class OsGitHubToolTest extends munit.FunSuite:
     assertEquals(gh.buildStatus(samplePr).outcome, BuildOutcome.Pending)
 
   test(
+    "buildStatus reports Pending when a still-running check is mixed with an already-failed one"
+  ):
+    // aggregateOutcome checks `states.contains(CheckState.Pending)` before it
+    // ever asks whether any check failed, so one lagging check short-circuits
+    // the whole rollup to Pending even though a sibling check already
+    // resolved to Failure — this is what keeps waitForBuild polling past a
+    // failed check while the others are still running, instead of returning
+    // Failure the instant the first one lands.
+    val json =
+      """{"statusCheckRollup":[
+        | {"status":"IN_PROGRESS","name":"slow-check"},
+        | {"status":"COMPLETED","conclusion":"FAILURE","name":"lint"}]}""".stripMargin
+    val (_, gh) = stubGh(CliResult(0, json, ""))
+    assertEquals(gh.buildStatus(samplePr).outcome, BuildOutcome.Pending)
+
+  test(
     "buildStatus reports Pending on an empty check list (CI not registered yet)"
   ):
     // Closes the race where waitForBuild would return Success on the first
     // poll after a push, before GitHub had registered the workflow run.
     val (_, gh) = stubGh(CliResult(0, """{"statusCheckRollup":[]}""", ""))
     assertEquals(gh.buildStatus(samplePr).outcome, BuildOutcome.Pending)
+
+  test("stateOf maps a legacy EXPECTED status context to Pending"):
+    // GitHub's legacy commit-status/GraphQL StatusState `EXPECTED` means "a
+    // required external CI context registered but hasn't reported yet" —
+    // distinct from PENDING (running), but equally not-yet-resolved. Before
+    // this classification existed, a present-but-not-pending, present-but-
+    // not-success check fell through to an instant Failure, defeating
+    // waitForBuild's noChecksGrace machinery.
+    assertEquals(
+      OsGitHubTool.stateOf(GhCheck(state = Some("EXPECTED"))),
+      CheckState.Pending
+    )
+
+  test(
+    "buildStatus reports Pending for a legacy EXPECTED status context (not yet reporting)"
+  ):
+    val json =
+      """{"statusCheckRollup":[{"state":"EXPECTED","name":"external-ci"}]}"""
+    val (_, gh) = stubGh(CliResult(0, json, ""))
+    assertEquals(gh.buildStatus(samplePr).outcome, BuildOutcome.Pending)
+
+  test("stateOf maps an unrecognised conclusion to Unknown(raw)"):
+    // A conclusion value this code doesn't know about (e.g. one GitHub adds
+    // later) must not silently read as a confirmed CI failure.
+    OsGitHubTool.stateOf(
+      GhCheck(status = Some("COMPLETED"), conclusion = Some("SOMETHING_NEW"))
+    ) match
+      case CheckState.Unknown(raw) => assert(raw.contains("SOMETHING_NEW"), raw)
+      case other                   => fail(s"expected Unknown, got $other")
+
+  test(
+    "buildStatus logs an unrecognised check shape as unknown instead of a bare tag"
+  ):
+    val json =
+      """{"statusCheckRollup":[
+        | {"status":"COMPLETED","conclusion":"SOMETHING_NEW","name":"weird"}]}""".stripMargin
+    val (_, gh) = stubGh(CliResult(0, json, ""))
+    val status = gh.buildStatus(samplePr)
+    // Still folds to Failure at the BuildOutcome level (no fourth case there),
+    // but the log line names it as unrecognised rather than as a confirmed
+    // failure conclusion.
+    assertEquals(status.outcome, BuildOutcome.Failure)
+    assert(status.log.contains("unknown"), status.log)
+
+  test("buildStatus.checkCount reflects the rollup size directly"):
+    // `checkCount` is a structured fact taken straight from
+    // `statusCheckRollup.size`, not re-derived from the rendered `log`.
+    val (_, emptyGh) = stubGh(CliResult(0, """{"statusCheckRollup":[]}""", ""))
+    assertEquals(emptyGh.buildStatus(samplePr).checkCount, 0)
+
+    val json =
+      """{"statusCheckRollup":[
+        | {"status":"COMPLETED","conclusion":"SUCCESS","name":"test"},
+        | {"status":"COMPLETED","conclusion":"SUCCESS","name":"lint"}]}""".stripMargin
+    val (_, gh) = stubGh(CliResult(0, json, ""))
+    assertEquals(gh.buildStatus(samplePr).checkCount, 2)
 
   test("waitForBuild polls until the build finishes"):
     val pendingJson =
@@ -290,6 +390,39 @@ class OsGitHubToolTest extends munit.FunSuite:
     assert(result.left.exists(_.isInstanceOf[BuildTimedOut]))
 
   test(
+    "waitForBuild's sticky watermark carries the ON transition forward across later polls"
+  ):
+    // Reverse of the transition above: the rollup starts EMPTY (checkCount
+    // 0, not yet seen), then gains a check on the very next poll. `seen`
+    // must flip to true right there and *stay* true on every later poll —
+    // including the ones after the sequenced stub runs out and repeats its
+    // last response — so the NoChecksConfigured fast-path never fires even
+    // once the grace deadline passes; the loop instead falls through to
+    // BuildTimedOut at the (later) timeout. This pins the recursive
+    // `loop(seen)` threading, not a "checkCount vs log.nonEmpty" distinction
+    // — an IN_PROGRESS check renders a non-empty log line too, so this
+    // input can't actually discriminate between the two signals.
+    //
+    // Driven by a call-count-sequenced stub rather than a wall-clock race
+    // (a background thread flipping the response after a sleep), so it
+    // can't false-fail under CI scheduling jitter.
+    val pendingJson =
+      """{"statusCheckRollup":[{"status":"IN_PROGRESS","name":"t"}]}"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, """{"statusCheckRollup":[]}""", ""),
+        CliResult(0, pendingJson, "")
+      )
+    )
+    val gh = new OsGitHubTool(cli, pollInterval = 1.millis)
+    val result = gh.waitForBuild(
+      samplePr,
+      timeout = 200.millis,
+      noChecksGrace = 100.millis
+    )
+    assert(result.left.exists(_.isInstanceOf[BuildTimedOut]), result)
+
+  test(
     "waitForBuild returns Left(NoChecksConfigured) when checks never register"
   ):
     // No CI configured: every poll comes back with an empty rollup. With
@@ -314,3 +447,173 @@ class OsGitHubToolTest extends munit.FunSuite:
         .left
         .exists(_.isInstanceOf[BuildTimedOut])
     )
+
+  // ── createPr idempotency ──────────────────────────────────────────────────
+
+  test(
+    "createPr returns Right(existing PR) and emits 'Reusing existing PR' when gh reports 'already exists'"
+  ):
+    // Call 1: gh pr create exits 1 with "already exists"
+    // Call 2: git rev-parse to get the current branch name
+    // Call 3: gh pr list returns JSON with the existing PR
+    val prListJson =
+      """[{"number":42,"url":"https://github.com/acme/widgets/pull/42"}]"""
+    val listener = new CapturingListener
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(1, "", "a pull request for branch 'feat' already exists"),
+        CliResult(0, "feat\n", ""), // git rev-parse
+        CliResult(0, prListJson, "") // gh pr list
+      )
+    )
+    val gh = new OsGitHubTool(
+      cli,
+      events = listener,
+      readRetry = Schedule.immediate
+    )
+    val pr = gh.createPr("feat: hi", "hello").orThrow
+    assertEquals(pr, samplePr)
+    // Prove the idempotency path went through git rev-parse and gh pr list
+    val callArgs = cli.calls.map(_.args)
+    assert(
+      callArgs.exists(
+        _.containsSlice(Seq("git", "rev-parse", "--abbrev-ref", "HEAD"))
+      ),
+      s"expected git rev-parse in calls but got: $callArgs"
+    )
+    assert(
+      callArgs.exists(a =>
+        a.containsSlice(
+          Seq("gh", "pr", "list", "--head", "feat", "--state", "open")
+        )
+      ),
+      s"expected gh pr list --head feat --state open in calls but got: $callArgs"
+    )
+    assert(
+      listener.events.exists:
+        case OrcaEvent.Step(msg) => msg.contains("Reusing existing PR")
+        case _                   => false
+    )
+
+  test("currentBranchGit carries OsGitTool.nonInteractiveEnv"):
+    // The git rev-parse call made during the PR-reuse fallback must carry the
+    // same non-interactive env as every other git invocation
+    // (OsGitTool.nonInteractiveEnv) — otherwise a stalled credential/
+    // passphrase prompt on this one path could hang the flow.
+    val prListJson =
+      """[{"number":42,"url":"https://github.com/acme/widgets/pull/42"}]"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(1, "", "a pull request for branch 'feat' already exists"),
+        CliResult(0, "feat\n", ""), // git rev-parse
+        CliResult(0, prListJson, "") // gh pr list
+      )
+    )
+    val gh = new OsGitHubTool(
+      cli,
+      readRetry = Schedule.immediate
+    )
+    val _ = gh.createPr("feat: hi", "hello").orThrow
+    val revParseCall = cli.calls
+      .find(
+        _.args.containsSlice(Seq("git", "rev-parse", "--abbrev-ref", "HEAD"))
+      )
+      .getOrElse(fail("expected a git rev-parse call"))
+    assertEquals(revParseCall.env.get("GIT_TERMINAL_PROMPT"), Some("0"))
+    assert(
+      revParseCall.env
+        .getOrElse("GIT_SSH_COMMAND", "")
+        .contains("-o BatchMode=yes"),
+      revParseCall.env.toString
+    )
+
+  // ── upsertComment ────────────────────────────────────────────────────────
+
+  test(
+    "upsertComment on PrHandle creates a new comment (with marker) when no comment matches"
+  ):
+    val commentsJson =
+      """[{"id":1,"body":"unrelated","user":{"login":"alice"}}]"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, commentsJson, ""), // fetchIdentifiedComments
+        CliResult(0, "", "") // writeComment create
+      )
+    )
+    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
+    gh.upsertComment(samplePr, "<!-- orca:abc:reject -->", "Rejected.")
+    // The create call must embed the marker in the body
+    val createCall = cli.calls.last
+    assert(createCall.args.containsSlice(Seq("gh", "pr", "comment")))
+    val markedBody = "Rejected.\n\n<!-- orca:abc:reject -->"
+    assert(createCall.args.contains(markedBody))
+
+  test(
+    "upsertComment on PrHandle updates existing comment via PATCH when marker found"
+  ):
+    val commentsJson =
+      """[{"id":99,"body":"Old text\n\n<!-- orca:abc:reject -->","user":{"login":"alice"}}]"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, commentsJson, ""), // fetchIdentifiedComments
+        CliResult(0, "", "") // PATCH update
+      )
+    )
+    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
+    gh.upsertComment(samplePr, "<!-- orca:abc:reject -->", "New text.")
+    // Exactly fetch + PATCH = 2 calls; no comment-create was made
+    assertEquals(cli.callCount, 2, "expected exactly fetch + PATCH, not more")
+    assert(
+      cli.calls.forall(!_.args.containsSlice(Seq("gh", "pr", "comment"))),
+      "no comment-create call must be made on the PATCH path"
+    )
+    val patchCall = cli.calls.last
+    assert(patchCall.args.containsSlice(Seq("gh", "api", "-X", "PATCH")))
+    // The path must include the comment id 99
+    assert(patchCall.args.exists(_.contains("/comments/99")))
+    // The body must include both the new text and the marker
+    val markedBody = "body=New text.\n\n<!-- orca:abc:reject -->"
+    assert(patchCall.args.contains(markedBody))
+
+  test(
+    "upsertComment on IssueHandle creates a new comment (with marker) when no comment matches"
+  ):
+    val commentsJson =
+      """[{"id":1,"body":"unrelated","user":{"login":"alice"}}]"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, commentsJson, ""), // fetchIdentifiedComments
+        CliResult(0, "", "") // writeComment create
+      )
+    )
+    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
+    val issue = IssueHandle("acme", "widgets", 7)
+    gh.upsertComment(issue, "<!-- orca:abc:triage -->", "Not a bug.")
+    val createCall = cli.calls.last
+    assert(createCall.args.containsSlice(Seq("gh", "issue", "comment")))
+    val markedBody = "Not a bug.\n\n<!-- orca:abc:triage -->"
+    assert(createCall.args.contains(markedBody))
+
+  test(
+    "upsertComment on IssueHandle updates existing comment via PATCH when marker found"
+  ):
+    val commentsJson =
+      """[{"id":77,"body":"Old.\n\n<!-- orca:abc:triage -->","user":{"login":"alice"}}]"""
+    val cli = new SequencedCliRunner(
+      List(
+        CliResult(0, commentsJson, ""), // fetchIdentifiedComments
+        CliResult(0, "", "") // PATCH update
+      )
+    )
+    val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
+    val issue = IssueHandle("acme", "widgets", 7)
+    gh.upsertComment(issue, "<!-- orca:abc:triage -->", "Updated.")
+    // Exactly fetch + PATCH = 2 calls; no comment-create was made
+    assertEquals(cli.callCount, 2, "expected exactly fetch + PATCH, not more")
+    assert(
+      cli.calls.forall(!_.args.containsSlice(Seq("gh", "issue", "comment"))),
+      "no comment-create call must be made on the PATCH path"
+    )
+    val patchCall = cli.calls.last
+    assert(patchCall.args.containsSlice(Seq("gh", "api", "-X", "PATCH")))
+    assert(patchCall.args.exists(_.contains("/comments/77")))

@@ -56,6 +56,12 @@ private[opencode] class JavaNetOpencodeHttp(baseUrl: String, password: String)
         s"opencode POST $path failed: ${resp.statusCode()} ${resp.body()}"
       )
 
+  override def getStatus(path: String): Int =
+    try
+      val req = request(path).GET().build()
+      client.send(req, HttpResponse.BodyHandlers.discarding()).statusCode()
+    catch case NonFatal(_) => 0
+
   def events(): StreamSource =
     val req = request("/event").GET().build()
     // `ofInputStream` returns once headers arrive; we read lines off the raw body

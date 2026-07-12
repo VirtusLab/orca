@@ -54,25 +54,36 @@ class JsonSchemaGenTest extends munit.FunSuite:
     )
 
   test(
-    "object schema that already declares additionalProperties is left intact"
+    "a Map-shaped additionalProperties field (Tapir's real Map shape) fails fast with an actionable message"
   ):
-    // Tapir emits an `additionalProperties: <itemSchema>` for `Map[String,T]`
-    // fields. Overwriting it with `false` would silently lose the value
-    // constraint — instead leave it alone so codex/claude reject the schema
-    // loudly (strict mode demands `additionalProperties: false`), surfacing
-    // the unsupported shape rather than hiding it.
-    val out = strict(
-      """{
-        |  "type":"object",
-        |  "properties":{"x":{"type":"string"}},
-        |  "additionalProperties":{"type":"integer"}
-        |}""".stripMargin
+    // The realistic shape Tapir emits for a Map[String,T] field: an object
+    // node with additionalProperties but no `properties` key at all.
+    // `rejectMapShapedAdditionalProperties` runs before the `properties`
+    // check, so this fails fast here rather than letting the non-strict
+    // schema reach codex/claude and bounce back as an opaque
+    // `invalid_json_schema`.
+    val ex = intercept[orca.OrcaFlowException]:
+      strict(
+        """{"type":"object","additionalProperties":{"type":"integer"}}"""
+      )
+    assert(
+      ex.getMessage.contains("List of key/value case classes"),
+      s"expected actionable Map-field message, got: ${ex.getMessage}"
     )
-    val ap = out.asObject.get("additionalProperties").get
-    assertEquals(
-      ap.asObject.flatMap(_("type")).flatMap(_.asString),
-      Some("integer")
-    )
+
+  test("apply emits no $schema dialect declaration"):
+    // TapirSchemaToJsonSchema stamps `$schema: .../draft/2020-12/schema` on
+    // its output. The claude CLI (observed on 2.1.207) validates the
+    // `--json-schema` value with a validator that has no 2020-12 meta-schema
+    // registered, so a schema DECLARING that dialect is rejected before the
+    // turn starts: `--json-schema is not a valid JSON Schema: no schema with
+    // key or ref "https://json-schema.org/draft/2020-12/schema"`. No consumer
+    // needs the declaration, so `apply` strips it.
+    import sttp.tapir.Schema
+    import sttp.tapir.generic.auto.given
+    case class Sample(name: String)
+    val parsed = parse(JsonSchemaGen[Sample]).toOption.get
+    assertEquals(parsed.asObject.get("$schema"), None)
 
   test("apply preserves nullability on an Option field through the transform"):
     // End-to-end check that the strict transform doesn't collapse Tapir's

@@ -1,9 +1,23 @@
 package orca.tools.opencode
 
 import orca.AgentTurnFailed
-import orca.backend.{ApprovalDecision, ConversationEvent, StreamSource}
+import orca.backend.{
+  ApprovalDecision,
+  ConversationEvent,
+  ConversationEventConformance,
+  StreamSource
+}
+import ox.{Ox, supervised}
 
 class OpencodeConversationTest extends munit.FunSuite:
+
+  /** `OpencodeConversation` forks its reader into the caller's per-turn Ox, so
+    * construction needs a `using Ox`. Run each test body in a fresh supervised
+    * scope that provides it — keeping build + consume in one scope so the
+    * reader fork isn't cancelled before the events are drained.
+    */
+  private def convTest(name: String)(body: Ox ?=> Any): Unit =
+    test(name)(supervised(body))
 
   /** Records reply POSTs; never serves the event stream (the source is injected
     * directly).
@@ -43,7 +57,9 @@ class OpencodeConversationTest extends munit.FunSuite:
     )
     (conv, http)
 
-  test("free-form turn: text deltas, then result from accrued text + tokens"):
+  convTest(
+    "free-form turn: text deltas, then result from accrued text + tokens"
+  ):
     val (conv, _) = conversation(
       List(
         data(
@@ -58,14 +74,16 @@ class OpencodeConversationTest extends munit.FunSuite:
         data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
       )
     )
+    val events = conv.events.toList
     assertEquals(
-      conv.events.toList,
+      events,
       List(
         ConversationEvent.AssistantTextDelta("Hel"),
         ConversationEvent.AssistantTextDelta("lo"),
         ConversationEvent.AssistantTurnEnd
       )
     )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val result = conv.awaitResult().toOption.get
     assertEquals(result.output, "Hello")
     assertEquals(
@@ -76,7 +94,7 @@ class OpencodeConversationTest extends munit.FunSuite:
     assertEquals(result.usage.outputTokens, 2L)
     assertEquals(result.model.map(_.name), Some("gpt-4o-mini"))
 
-  test("structured turn: result is the validated object, not text"):
+  convTest("structured turn: result is the validated object, not text"):
     val (conv, _) = conversation(
       List(
         data(
@@ -89,16 +107,18 @@ class OpencodeConversationTest extends munit.FunSuite:
       ),
       schema = Some("""{"type":"object"}""")
     )
+    val events = conv.events.toList
     assertEquals(
-      conv.events.toList,
+      events,
       List(
-        ConversationEvent.ToolResult("StructuredOutput", ok = true, "ok"),
+        ConversationEvent.ToolResult(Some("StructuredOutput"), ok = true, "ok"),
         ConversationEvent.AssistantTurnEnd
       )
     )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     assertEquals(conv.awaitResult().toOption.get.output, """{"x":1}""")
 
-  test("a repeated tool part surfaces one AssistantToolCall"):
+  convTest("a repeated tool part surfaces one AssistantToolCall"):
     val running =
       data(
         """{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"bash","state":{"status":"running","input":{"command":"echo hi"}},"id":"prt_1","sessionID":"ses_A"}}}"""
@@ -121,12 +141,12 @@ class OpencodeConversationTest extends munit.FunSuite:
       List(
         ConversationEvent
           .AssistantToolCall("bash", """{"command":"echo hi"}"""),
-        ConversationEvent.ToolResult("bash", ok = true, "hi\n"),
+        ConversationEvent.ToolResult(Some("bash"), ok = true, "hi\n"),
         ConversationEvent.AssistantTurnEnd
       )
     )
 
-  test("events for other sessions are dropped"):
+  convTest("events for other sessions are dropped"):
     val (conv, _) = conversation(
       List(
         data(
@@ -149,7 +169,7 @@ class OpencodeConversationTest extends munit.FunSuite:
       )
     )
 
-  test("blank, comment, and event: framing lines are skipped"):
+  convTest("blank, comment, and event: framing lines are skipped"):
     val (conv, _) = conversation(
       List(
         ":heartbeat",
@@ -169,7 +189,7 @@ class OpencodeConversationTest extends munit.FunSuite:
       )
     )
 
-  test("free-form turn with no message.updated: text result, zero usage"):
+  convTest("free-form turn with no message.updated: text result, zero usage"):
     val (conv, _) = conversation(
       List(
         data(
@@ -185,7 +205,7 @@ class OpencodeConversationTest extends munit.FunSuite:
     assertEquals(result.usage.outputTokens, 0L)
     assertEquals(result.model, None)
 
-  test("idle with no assistant message at all fails the turn"):
+  convTest("idle with no assistant message at all fails the turn"):
     val (conv, _) = conversation(
       List(
         data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
@@ -194,7 +214,7 @@ class OpencodeConversationTest extends munit.FunSuite:
     conv.events.foreach(_ => ())
     intercept[AgentTurnFailed](conv.awaitResult())
 
-  test("message.updated carrying info.error fails the turn"):
+  convTest("message.updated carrying info.error fails the turn"):
     val (conv, _) = conversation(
       List(
         data(
@@ -206,7 +226,31 @@ class OpencodeConversationTest extends munit.FunSuite:
     conv.events.foreach(_ => ())
     intercept[AgentTurnFailed](conv.awaitResult())
 
-  test("session.error fails the turn"):
+  convTest(
+    "a failure settle after assistant activity still emits AssistantTurnEnd"
+  ):
+    val (conv, _) = conversation(
+      List(
+        data(
+          """{"type":"message.part.delta","properties":{"sessionID":"ses_A","field":"text","delta":"partial"}}"""
+        ),
+        data(
+          """{"type":"session.error","properties":{"sessionID":"ses_A","error":{"message":"boom"}}}"""
+        )
+      )
+    )
+    val events = conv.events.toList
+    assertEquals(
+      events,
+      List(
+        ConversationEvent.AssistantTextDelta("partial"),
+        ConversationEvent.AssistantTurnEnd
+      )
+    )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+    intercept[AgentTurnFailed](conv.awaitResult())
+
+  convTest("session.error fails the turn"):
     val (conv, _) = conversation(
       List(
         data(
@@ -214,10 +258,14 @@ class OpencodeConversationTest extends munit.FunSuite:
         )
       )
     )
-    conv.events.foreach(_ => ())
+    val events = conv.events.toList
+    // No activity before the error, so the failure settle emits no turn end —
+    // an empty turn is forbidden by the grammar.
+    assert(!events.contains(ConversationEvent.AssistantTurnEnd), events)
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
     intercept[AgentTurnFailed](conv.awaitResult())
 
-  test("answering a question.asked POSTs the reply"):
+  convTest("answering a question.asked POSTs the reply"):
     val (conv, http) = conversation(
       List(
         data(
@@ -238,7 +286,7 @@ class OpencodeConversationTest extends munit.FunSuite:
 
   private def permissionReplyPost(
       decision: ApprovalDecision
-  ): List[(String, String)] =
+  )(using Ox): List[(String, String)] =
     val (conv, http) = conversation(
       List(
         data(
@@ -255,20 +303,35 @@ class OpencodeConversationTest extends munit.FunSuite:
       case _ => ()
     http.posts
 
-  test("approving a permission.asked POSTs reply=once"):
+  convTest("approving a permission.asked POSTs reply=once"):
     assertEquals(
       permissionReplyPost(ApprovalDecision.Allow()),
       List("/permission/per_1/reply" -> """{"reply":"once"}""")
     )
 
-  test("denying a permission.asked POSTs reply=reject"):
+  convTest("denying a permission.asked POSTs reply=reject"):
     assertEquals(
       permissionReplyPost(ApprovalDecision.Deny()),
       List("/permission/per_1/reply" -> """{"reply":"reject"}""")
     )
 
-  test("canAskUser reflects the constructor flag"):
+  convTest("canAskUser reflects the constructor flag"):
     val http = new RecordingHttp
     val conv =
       new OpencodeConversation(empty, http, "ses_A", None, canAsk = false)
     assertEquals(conv.canAskUser, false)
+
+  convTest(
+    "a genuine cancel before any settle POSTs /abort once; a repeat cancel() does not re-post"
+  ):
+    val (conv, http) = conversation(
+      List(
+        data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
+      )
+    )
+    // Cancelled before the reader ever touches the (unconsumed) stream above —
+    // the turn genuinely never settled, mirroring how every caller's `finally
+    // cancel()` can race an interactive interrupt mid-turn.
+    conv.cancel()
+    conv.cancel()
+    assertEquals(http.posts, List("/session/ses_A/abort" -> "{}"))

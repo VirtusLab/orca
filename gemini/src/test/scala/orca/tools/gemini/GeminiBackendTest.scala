@@ -1,18 +1,29 @@
 package orca.tools.gemini
 
 import orca.backend.SupervisedBackend
-import orca.llm.{BackendTag, LlmConfig, Model, SessionId}
+import orca.agents.{BackendTag, AgentConfig, Model, SessionId, WireSessionId}
 import orca.OrcaFlowException
-import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
+import orca.subprocess.{
+  CliResult,
+  FakePipedCliProcess,
+  SpawnStubCliRunner,
+  StubCliRunner
+}
+import orca.testkit.TempDirs
 
 class GeminiBackendTest extends munit.FunSuite:
 
   private def clientSid: SessionId[BackendTag.Gemini.type] =
     SessionId[BackendTag.Gemini.type]("00000000-0000-0000-0000-000000000000")
 
-  private def withBackend[T](runner: SpawnStubCliRunner)(
-      body: GeminiBackend => T
-  ): T = SupervisedBackend.using(new GeminiBackend(runner))(body)
+  private def withBackend[T](
+      runner: SpawnStubCliRunner,
+      workDir: os.Path = TempDirs.dir()
+  )(
+      body: ox.Ox ?=> GeminiBackend => T
+  ): T = SupervisedBackend.using(new GeminiBackend(runner, workDir = workDir))(
+    body
+  )
 
   private def successfulProcess(
       sessionId: String = "sess-test",
@@ -52,10 +63,18 @@ class GeminiBackendTest extends munit.FunSuite:
     )
     withBackend(runner): backend =>
       val result =
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
-      // The returned session id is the client id — the server's sess-42 is
-      // mapped internally so subsequent calls resume it.
-      assertEquals(result.sessionId, clientSid)
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig()
+        )
+      // The result reports the WIRE id — the server-minted sess-42 — while the
+      // client→server mapping is recorded in the registry so subsequent calls
+      // resume it.
+      assertEquals(
+        result.wireId,
+        WireSessionId[BackendTag.Gemini.type]("sess-42")
+      )
       assertEquals(result.output, "the answer")
       assertEquals(result.usage.inputTokens, 100L)
       assertEquals(result.usage.outputTokens, 25L)
@@ -67,7 +86,11 @@ class GeminiBackendTest extends munit.FunSuite:
       )
     withBackend(runner): backend =>
       val result =
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig()
+        )
       assertEquals(result.model, Some(Model("gemini-2.5-pro")))
 
   test("runAutonomous throws when gemini exits without a result event"):
@@ -78,7 +101,11 @@ class GeminiBackendTest extends munit.FunSuite:
     p.sendSigInt()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       intercept[OrcaFlowException]:
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig()
+        )
 
   test("runAutonomous throws with the exit code when gemini exits non-zero"):
     val p = new FakePipedCliProcess(initiallyAlive = false):
@@ -87,7 +114,11 @@ class GeminiBackendTest extends munit.FunSuite:
     p.closeStderr()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       val ex = intercept[OrcaFlowException]:
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig()
+        )
       assert(
         ex.getMessage.contains("exited with code 7"),
         s"expected the exit code in the message; got: ${ex.getMessage}"
@@ -101,7 +132,11 @@ class GeminiBackendTest extends munit.FunSuite:
     p.closeStderr()
     withBackend(new SpawnStubCliRunner(List(p))): backend =>
       val ex = intercept[OrcaFlowException]:
-        backend.runAutonomous("q", clientSid, LlmConfig.default, os.temp.dir())
+        backend.runAutonomous(
+          "q",
+          clientSid,
+          AgentConfig()
+        )
       assert(
         ex.getMessage.contains("resume failed: session not found"),
         s"expected stderr in the exception; got: ${ex.getMessage}"
@@ -113,8 +148,7 @@ class GeminiBackendTest extends munit.FunSuite:
       val _ = backend.runAutonomous(
         "list files",
         clientSid,
-        LlmConfig.default.copy(systemPrompt = Some("be terse")),
-        os.temp.dir()
+        AgentConfig().copy(systemPrompt = Some("be terse"))
       )
       val finalPrompt = runner.calls.head.last
       assert(finalPrompt.contains("be terse"))
@@ -128,11 +162,10 @@ class GeminiBackendTest extends munit.FunSuite:
       )
     )
     withBackend(runner): backend =>
-      val workDir = os.temp.dir()
       val _ =
-        backend.runAutonomous("first", clientSid, LlmConfig.default, workDir)
+        backend.runAutonomous("first", clientSid, AgentConfig())
       val _ =
-        backend.runAutonomous("again", clientSid, LlmConfig.default, workDir)
+        backend.runAutonomous("again", clientSid, AgentConfig())
       val firstArgs = runner.calls(0)
       val secondArgs = runner.calls(1)
       assert(!firstArgs.contains("--resume"), firstArgs.toString)
@@ -142,16 +175,15 @@ class GeminiBackendTest extends munit.FunSuite:
   test("registerSession lets a follow-up autonomous call resume"):
     val runner = new SpawnStubCliRunner(List(successfulProcess("sess-via-int")))
     withBackend(runner): backend =>
-      backend.registerSession(
+      backend.sessions.register(
         clientSid,
-        SessionId[BackendTag.Gemini.type]("sess-via-int")
+        WireSessionId[BackendTag.Gemini.type]("sess-via-int")
       )
       val _ =
         backend.runAutonomous(
           "after",
           clientSid,
-          LlmConfig.default,
-          os.temp.dir()
+          AgentConfig()
         )
       val args = runner.calls.head
       assert(args.contains("--resume"), args.toString)
@@ -162,11 +194,10 @@ class GeminiBackendTest extends munit.FunSuite:
       List(successfulProcess("sess-A"), successfulProcess("sess-B"))
     )
     withBackend(runner): backend =>
-      val workDir = os.temp.dir()
       val sidA = SessionId[BackendTag.Gemini.type]("aaaaaaaa")
       val sidB = SessionId[BackendTag.Gemini.type]("bbbbbbbb")
-      val _ = backend.runAutonomous("for A", sidA, LlmConfig.default, workDir)
-      val _ = backend.runAutonomous("for B", sidB, LlmConfig.default, workDir)
+      val _ = backend.runAutonomous("for A", sidA, AgentConfig())
+      val _ = backend.runAutonomous("for B", sidB, AgentConfig())
       assert(
         !runner.calls(1).contains("--resume"),
         s"second call with a new client id must NOT resume; got: ${runner.calls(1)}"
@@ -176,9 +207,10 @@ class GeminiBackendTest extends munit.FunSuite:
     "runAutonomous does NOT register an MCP server (autonomous skips bridge)"
   ):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
-    withBackend(runner): backend =>
-      val workDir = os.temp.dir()
-      val _ = backend.runAutonomous("q", clientSid, LlmConfig.default, workDir)
+    val workDir = TempDirs.dir()
+    withBackend(runner, workDir = workDir): backend =>
+      val _ =
+        backend.runAutonomous("q", clientSid, AgentConfig())
       assert(
         !os.exists(workDir / ".gemini" / "settings.json"),
         "autonomous must not write a .gemini/settings.json"
@@ -188,14 +220,13 @@ class GeminiBackendTest extends munit.FunSuite:
     "runInteractive registers the orca MCP server and folds the ask_user hint"
   ):
     val runner = new SpawnStubCliRunner(List(pendingProcess()))
-    withBackend(runner): backend =>
-      val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
+    withBackend(runner, workDir = workDir): backend =>
       val _ = backend.runInteractive(
         "q",
         clientSid,
         displayPrompt = "q",
-        LlmConfig.default,
-        workDir,
+        AgentConfig(),
         outputSchema = None
       )
       val settings = workDir / ".gemini" / "settings.json"
@@ -219,11 +250,95 @@ class GeminiBackendTest extends munit.FunSuite:
         "list files",
         clientSid,
         displayPrompt = "list files",
-        LlmConfig.default.copy(systemPrompt = Some("be terse")),
-        os.temp.dir(),
+        AgentConfig().copy(systemPrompt = Some("be terse")),
         outputSchema = None
       )
       val finalPrompt = runner.calls.head.last
       assert(finalPrompt.contains("be terse"))
       assert(finalPrompt.contains("ask_user"))
       assert(finalPrompt.contains("list files"))
+
+  // willContinue probes the SERVER id, not the client id: it resolves the
+  // client→server mapping first (gemini mints its own id), then scans
+  // `--list-sessions` for that server id. A `registerSession` seeds the map.
+
+  private val clientForProbe = SessionId[BackendTag.Gemini.type]("client-uuid")
+  private val serverForProbe =
+    WireSessionId[BackendTag.Gemini.type]("sess-abc-123")
+
+  test(
+    "willContinue probes the SERVER id: true when it appears in --list-sessions"
+  ):
+    // clientForProbe ("client-uuid") and serverForProbe ("sess-abc-123") are
+    // distinct. The stub stdout contains the server id but NOT the client id, so
+    // the returned `true` can only be explained by the code scanning for the
+    // server id. A bug that scanned for the client id would return `false`
+    // (client id absent from stdout) and the `assert` below would fail.
+    val listOutput = "sess-abc-123  2024-01-01T00:00:00"
+    // Sanity: ensure client and server ids are truly distinct in the output.
+    assert(
+      !listOutput.contains(clientForProbe.value),
+      "test invariant: --list-sessions stdout must NOT contain the client id"
+    )
+    val stub = new StubCliRunner(CliResult(0, listOutput, ""))
+    SupervisedBackend.using(new GeminiBackend(stub)): backend =>
+      backend.sessions.register(clientForProbe, serverForProbe)
+      assert(backend.sessions.willContinue(clientForProbe))
+      // Verify the probe used the correct command.
+      val probeArgs = stub.calls.head.args
+      assertEquals(
+        probeArgs,
+        List("gemini", "--list-sessions"),
+        s"willContinue must invoke exactly `gemini --list-sessions`; got: $probeArgs"
+      )
+
+  test(
+    "willContinue returns false when there is no client→server mapping"
+  ):
+    // No registerSession: the client id maps to nothing, so the probe must not
+    // run (and must not pass the client id to --list-sessions).
+    val stub =
+      new StubCliRunner(CliResult(0, "client-uuid  2024-01-01T00:00:00", ""))
+    SupervisedBackend.using(new GeminiBackend(stub)): backend =>
+      assert(!backend.sessions.willContinue(clientForProbe))
+
+  test(
+    "willContinue returns false when the server id is not in the output"
+  ):
+    val stub =
+      new StubCliRunner(CliResult(0, "sess-other  2024-01-01T00:00:00", ""))
+    SupervisedBackend.using(new GeminiBackend(stub)): backend =>
+      backend.sessions.register(clientForProbe, serverForProbe)
+      assert(!backend.sessions.willContinue(clientForProbe))
+
+  test(
+    "willContinue returns false when gemini --list-sessions exits non-zero"
+  ):
+    val stub = new StubCliRunner(CliResult(1, "sess-abc-123", ""))
+    SupervisedBackend.using(new GeminiBackend(stub)): backend =>
+      backend.sessions.register(clientForProbe, serverForProbe)
+      assert(!backend.sessions.willContinue(clientForProbe))
+
+  test(
+    "willContinue returns false when the cli runner throws (verifies NonFatal catch)"
+  ):
+    val stub = new StubCliRunner():
+      override def run(
+          args: Seq[String],
+          stdin: String,
+          env: Map[String, String],
+          cwd: os.Path
+      ): CliResult = throw new RuntimeException("binary not found")
+    SupervisedBackend.using(new GeminiBackend(stub)): backend =>
+      backend.sessions.register(clientForProbe, serverForProbe)
+      assert(!backend.sessions.willContinue(clientForProbe))
+
+  test(
+    "willContinue returns false for a malicious server id containing path chars"
+  ):
+    val maliciousServer =
+      WireSessionId[BackendTag.Gemini.type]("../../etc/passwd")
+    val stub = new StubCliRunner(CliResult(0, "../../etc/passwd", ""))
+    SupervisedBackend.using(new GeminiBackend(stub)): backend =>
+      backend.sessions.register(clientForProbe, maliciousServer)
+      assert(!backend.sessions.willContinue(clientForProbe))

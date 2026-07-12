@@ -1,8 +1,15 @@
 package orca.tools.codex
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  SessionId,
+  WireSessionId
+}
 import orca.backend.{ConversationEvent, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
+import orca.testkit.TempDirs
 
 /** End-to-end tests against the real `codex` CLI. Gated on the
   * `ORCA_INTEGRATION` environment variable so `sbt test` without the flag
@@ -24,45 +31,45 @@ class CodexIntegrationTest extends munit.FunSuite:
     import scala.concurrent.duration.DurationInt
     3.minutes
 
-  private def withBackend(body: CodexBackend => Unit): Unit =
-    SupervisedBackend.using(new CodexBackend(OsProcCliRunner))(body)
+  private def withBackend(
+      workDir: os.Path = TempDirs.dir()
+  )(body: ox.Ox ?=> CodexBackend => Unit): Unit =
+    SupervisedBackend.using(
+      new CodexBackend(OsProcCliRunner, workDir = workDir)
+    )(body)
 
-  private val unsandboxed: LlmConfig =
-    LlmConfig.default.copy(autoApprove = AutoApprove.All)
+  private val unsandboxed: AgentConfig =
+    AgentConfig().copy(autoApprove = AutoApprove.All)
 
   private def fresh = SessionId.fresh[BackendTag.Codex.type]
 
   test("headless prompt returns the requested literal output"):
-    withBackend: backend =>
+    withBackend(): backend =>
       val result = backend.runAutonomous(
         prompt =
           "Reply with the single word: READY. Reply with that word and nothing else.",
         session = fresh,
-        config = unsandboxed,
-        workDir = os.temp.dir()
+        config = unsandboxed
       )
       assert(
         result.output.toUpperCase.contains("READY"),
         s"expected output to contain READY, got: ${result.output}"
       )
-      assert(SessionId.value(result.sessionId).nonEmpty)
+      assert(WireSessionId.value(result.wireId).nonEmpty)
 
   test("a resumed call carries conversational context across turns"):
-    withBackend: backend =>
-      val workDir = os.temp.dir()
+    withBackend(): backend =>
       val session = fresh
       val _ = backend.runAutonomous(
         prompt = "Remember the number 42. Reply with the single word: stored.",
         session = session,
-        config = unsandboxed,
-        workDir = workDir
+        config = unsandboxed
       )
       val second = backend.runAutonomous(
         prompt =
           "What number did I ask you to remember? Reply with just the number.",
         session = session,
-        config = unsandboxed,
-        workDir = workDir
+        config = unsandboxed
       )
       assert(
         second.output.contains("42"),
@@ -70,13 +77,12 @@ class CodexIntegrationTest extends munit.FunSuite:
       )
 
   test("interactive session reaches a result with a session id"):
-    withBackend: backend =>
+    withBackend(): backend =>
       val conversation = backend.runInteractive(
         prompt = "Reply with just the number 7. Nothing else.",
         session = fresh,
         displayPrompt = "reply with 7",
         config = unsandboxed,
-        workDir = os.temp.dir(),
         outputSchema = None
       )
       try
@@ -86,18 +92,17 @@ class CodexIntegrationTest extends munit.FunSuite:
           result.output.contains("7"),
           s"expected a reply containing '7', got: ${result.output}"
         )
-        assert(SessionId.value(result.sessionId).nonEmpty)
+        assert(WireSessionId.value(result.wireId).nonEmpty)
       finally conversation.cancel()
 
   test("interactive session emits AssistantTextDelta + AssistantTurnEnd"):
-    withBackend: backend =>
+    withBackend(): backend =>
       val conversation = backend.runInteractive(
         prompt =
           "Reply with: 1, 2, 3. Just those three numbers separated by commas, nothing else.",
         session = fresh,
         displayPrompt = "list 1..3",
         config = unsandboxed,
-        workDir = os.temp.dir(),
         outputSchema = None
       )
       try
@@ -114,16 +119,15 @@ class CodexIntegrationTest extends munit.FunSuite:
       finally conversation.cancel()
 
   test("a tool-using prompt surfaces a ToolResult"):
-    withBackend: backend =>
-      val workDir = os.temp.dir()
-      os.write(workDir / "marker.txt", "orca-codex-marker")
+    val workDir = TempDirs.dir()
+    os.write(workDir / "marker.txt", "orca-codex-marker")
+    withBackend(workDir): backend =>
       val conversation = backend.runInteractive(
         prompt =
           "You MUST run the shell command `cat marker.txt` first to read the file. Then tell me what it contained. Reply briefly.",
         session = fresh,
         displayPrompt = "read marker.txt",
         config = unsandboxed,
-        workDir = workDir,
         outputSchema = None
       )
       try

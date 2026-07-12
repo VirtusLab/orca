@@ -1,10 +1,14 @@
 package orca.tools.codex
 
-import orca.llm.{BackendTag, Model, SessionId}
+import orca.agents.{BackendTag, Model}
 import orca.events.{Usage}
-import orca.{OrcaFlowException}
-import orca.backend.{ConversationEvent, LlmResult}
-import orca.backend.{BufferedStderrDiagnostics, StreamConversation, StreamSource}
+import orca.backend.ConversationEvent
+import orca.backend.{
+  StderrPipeline,
+  ForkedConversation,
+  StreamSource,
+  SubprocessSpawn
+}
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
 import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
@@ -12,11 +16,9 @@ import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
-import java.util.concurrent.atomic.AtomicReference
-
 /** Drives a `codex exec --json` session to completion. Boilerplate lives in
-  * [[StreamConversation]]; this class supplies the codex-specific protocol
-  * translation: JSONL → [[InboundEvent]] → `ConversationEvent`s.
+  * [[orca.backend.ForkedConversation]]; this class supplies the codex-specific
+  * protocol translation: JSONL → [[InboundEvent]] → `ConversationEvent`s.
   *
   * Notable parity gaps vs. claude (deliberate, driven by codex's JSONL protocol
   * — see ADR 0007):
@@ -26,7 +28,7 @@ import java.util.concurrent.atomic.AtomicReference
   *     pre-baked into spawn args. `ApproveTool` is never emitted here.
   *   - `codex exec` is one-shot; multi-turn happens via `codex exec resume` on
   *     a fresh spawn, so `sendUserMessage` is a no-op.
-  *   - **`LlmResult.output` is synthesised**: codex has no terminal message
+  *   - **`AgentResult.output` is synthesised**: codex has no terminal message
   *     carrying the structured payload, so [[lastAgentMessage]] snapshots each
   *     agent message and the result builder reads the last one at
   *     `turn.completed`. The prompt template makes the last message JSON.
@@ -35,48 +37,57 @@ private[codex] class CodexConversation(
     process: PipedCliProcess,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
-    override val askUser: Option[AskUserSession] = None
-) extends StreamConversation[BackendTag.Codex.type](
+    override val askUser: Option[AskUserSession] = None,
+    /** The temp file backing `--output-schema` (if any), owned by this
+      * conversation so it's removed exactly once the turn finalizes — see
+      * [[orca.backend.SubprocessSpawn.deleteFileResource]] and [[onFinalize]].
+      */
+    schemaFile: Option[os.Path] = None,
+    /** The model this agent was configured with, if any. Used as the cost-
+      * attribution fallback when codex's `thread.started` omits the resolved
+      * model id (some `codex exec` invocations, notably `resume`, do) — without
+      * it those turns' tokens land under `(unknown)` and go unpriced, so the
+      * estimated total disagrees with the by-agent breakdown. Mirrors claude's
+      * `system.init` → `result` model fallback ([[ClaudeConversation]]).
+      */
+    configuredModel: Option[Model] = None
+) extends ForkedConversation[BackendTag.Codex.type](
       source = StreamSource.fromProcess(process),
       backendName = "codex",
       initialPrompt = initialPrompt
     )
-    with BufferedStderrDiagnostics[BackendTag.Codex.type]:
+    with StderrPipeline[BackendTag.Codex.type]:
 
   import CodexConversation.*
-  import StreamConversation.Outcome
 
-  private val sessionIdRef = new AtomicReference[String]("")
-  private val modelRef = new AtomicReference[Option[String]](None)
+  // Reader-thread-confined: `sessionId`, `model` and `lastAgentMessage` below
+  // are written only from `handle` (called from `handleLine`, on the reader
+  // fork) and read only from `handleTurnCompleted` on that same fork.
+  // `awaitResult`'s `readerFork.join()` publishes the final values to the
+  // caller.
+  private var sessionId: String = ""
+  private var model: Option[String] = None
 
-  /** The most recent agent_message text the model produced. See the class
-    * scaladoc for why we synthesise rather than receive.
+  /** The most recent agent_message text the model produced (reader-thread-
+    * confined; see the group comment above). See the class scaladoc for why we
+    * synthesise rather than receive.
     */
-  private val lastAgentMessage = new AtomicReference[String]("")
+  private var lastAgentMessage: String = ""
 
   /** MCP item ids whose `AssistantToolCall` echo we drop — the host-side bridge
     * has already surfaced the corresponding `UserQuestion` event, so rendering
     * the tool call on top would be noise. The matching `item.completed` is also
     * suppressed: the user's typed answer would otherwise re-render as `⎿
-    * <answer>` after the prompt surfaced it.
-    *
-    * Single-threaded reader (the JSONL reader thread is the sole writer), so a
-    * plain `var` Set is enough.
+    * <answer>` after the prompt surfaced it. See
+    * [[orca.backend.AskUserEchoes]].
     */
-  private var suppressedMcpItemIds: Set[String] = Set.empty
+  private val askUserEchoes = new orca.backend.AskUserEchoes
 
-  // Subclass fields above are assigned now; safe to spin up the reader +
-  // stderr workers. See [[StreamConversation.start]] — the base also
-  // spawns the ask_user drainer if one was wired.
-  start()
+  // No `start()`: the base spawns its reader / stderr / ask-user forks lazily
+  // on first touch of the conversation surface, after this subclass's fields
+  // are initialised.
 
   // --- Conversation surface ---
-
-  /** Codex exec consumes its prompt argv-side and ignores stdin thereafter;
-    * injecting more user turns mid-session isn't supported. The contract still
-    * requires a callable method — this is a no-op.
-    */
-  def sendUserMessage(text: String): Unit = ()
 
   // `canAskUser` is owned by the base — true when this conversation was
   // constructed with `askUser = Some(...)`. Codex exec has no in-session
@@ -97,32 +108,33 @@ private[codex] class CodexConversation(
     *     the rollout writer is already torn down. The rollout file is still
     *     written correctly to `~/.codex/sessions/`; the message is harmless.
     *
-    * Filter both, plus empty lines. Anything else passes through with the
-    * default backend-prefixed Error event AND is recorded in the bounded
-    * stderr buffer (see [[BufferedStderrDiagnostics]]) so the failure exception
-    * can include them.
+    * Filter both; anything else passes through [[StderrPipeline]]'s hoisted
+    * `handleStderr` (strip → trim → filter → Error event → recorded
+    * diagnostic).
     */
-  override protected def handleStderr(line: String): Unit =
-    val trimmed = line.trim
-    if trimmed.nonEmpty && !CodexConversation.isKnownStderrNoise(trimmed) then
-      eventQueue.enqueue(ConversationEvent.Error(s"codex: $trimmed"))
-      recordStderr(trimmed)
+  override protected def isStderrNoise(line: String): Boolean =
+    CodexConversation.isKnownStderrNoise(line)
 
-  override protected def cleanExitWithoutResult(): Throwable =
-    // Defer the framing to the base so the diagnosticContext below gets
-    // folded in with the same shape as the non-zero-exit branch.
-    new OrcaFlowException(
-      appendContext(
-        "codex exited cleanly but never sent a turn.completed event"
-      )
-    )
+  /** Best-effort delete the `--output-schema` temp file (if any), then defer to
+    * [[StderrPipeline.onFinalize]] to join the stderr drain. Runs exactly once
+    * (reader happy-path OR `cancel()` — see `ForkedConversation.runFinalize`),
+    * so the file never outlives the turn that wrote it. The delete runs in a
+    * `finally` so a throw from it (e.g. the file already gone) can't skip
+    * `super.onFinalize()` — and with it, the stderr-drain join it depends on.
+    */
+  override protected def onFinalize(): Unit =
+    try schemaFile.foreach(p => SubprocessSpawn.deleteFileResource(p).close())
+    finally super.onFinalize()
+
+  override protected def terminalMessageNoun: String =
+    "a turn.completed event"
 
   // --- Per-event dispatch ---
 
   private def handle(event: InboundEvent): Unit = event match
     case InboundEvent.ThreadStarted(threadId, model) =>
-      sessionIdRef.set(threadId)
-      modelRef.set(model)
+      sessionId = threadId
+      this.model = model
     case InboundEvent.TurnStarted          => ()
     case InboundEvent.TurnCompleted(usage) => handleTurnCompleted(usage)
     case InboundEvent.ItemStarted(item)    => handleItemStarted(item)
@@ -153,7 +165,7 @@ private[codex] class CodexConversation(
       // ask_user is surfaced through the host-side bridge as a
       // UserQuestion event; the matching item.completed echo is dropped
       // too — the user has already seen their typed answer at the prompt.
-      suppressedMcpItemIds = suppressedMcpItemIds + id
+      askUserEchoes.suppress(id)
     case Item.McpToolCall(_, server, tool, args, _, _) =>
       eventQueue.enqueue(
         ConversationEvent.AssistantToolCall(
@@ -168,7 +180,7 @@ private[codex] class CodexConversation(
 
   private def handleItemCompleted(item: Item): Unit = item match
     case Item.AgentMessage(_, text) =>
-      lastAgentMessage.set(text)
+      lastAgentMessage = text
       eventQueue.enqueue(ConversationEvent.AssistantTextDelta(text))
       eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
     case Item.Reasoning(_, text) if text.nonEmpty =>
@@ -177,7 +189,7 @@ private[codex] class CodexConversation(
     case Item.CommandExecution(_, _, output, exitCode, status) =>
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
-          toolName = "bash",
+          toolName = Some("bash"),
           ok = exitCode.contains(0) && status == "completed",
           content = output
         )
@@ -185,20 +197,19 @@ private[codex] class CodexConversation(
     case Item.FileChange(_, changes, status) =>
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
-          toolName = "file_change",
+          toolName = Some("file_change"),
           ok = status == "completed",
           content = changes.map(c => s"${c.kind} ${c.path}").mkString("\n")
         )
       )
-    case Item.McpToolCall(id, _, _, _, _, _)
-        if suppressedMcpItemIds.contains(id) =>
-      // Matched a suppressed ask_user call started above; drop the
-      // mirrored completion and clear the id.
-      suppressedMcpItemIds = suppressedMcpItemIds - id
+    case Item.McpToolCall(id, _, _, _, _, _) if askUserEchoes.consume(id) =>
+      // Matched a suppressed ask_user call started above; drop the mirrored
+      // completion. `consume` clears the id as it matches.
+      ()
     case Item.McpToolCall(_, server, tool, _, result, status) =>
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
-          toolName = mcpToolName(server, tool),
+          toolName = Some(mcpToolName(server, tool)),
           ok = status == "completed",
           content = result.getOrElse("")
         )
@@ -215,13 +226,15 @@ private[codex] class CodexConversation(
     s"$server.$tool"
 
   private def handleTurnCompleted(usage: Usage): Unit =
-    val result = LlmResult(
-      sessionId = SessionId[BackendTag.Codex.type](sessionIdRef.get()),
-      output = lastAgentMessage.get(),
+    settleSuccess(
+      wireId = sessionId,
+      output = lastAgentMessage,
       usage = usage,
-      model = modelRef.get().map(Model.apply)
+      // Fall back to the configured model when the wire omitted it (e.g.
+      // `thread.started` on a resume), so the turn's tokens are priced rather
+      // than attributed to `(unknown)`.
+      modelId = model.orElse(configuredModel.map(_.name))
     )
-    val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
 
   private def toWire(c: FileChangeDetail): FileChangeWire =
     FileChangeWire(c.path, c.kind)

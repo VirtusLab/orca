@@ -2,9 +2,16 @@ package orca.tools.codex
 
 import orca.backend.CliArgs
 import orca.backend.mcp.AskUserMcpServer
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, SessionId, ToolSet}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  Enforcement,
+  WireSessionId,
+  ToolSet
+}
 
-/** Maps `LlmConfig` fields to `codex exec` CLI flags. `systemPrompt` is not
+/** Maps `AgentConfig` fields to `codex exec` CLI flags. `systemPrompt` is not
   * handled here — codex doesn't accept an `--append-system-prompt` equivalent
   * on `exec`, so the backend folds it into the user prompt before this method
   * runs. `onUnapproved` and `retrySchedule` have no CLI shape and live at the
@@ -19,7 +26,7 @@ private[codex] object CodexArgs:
   /** Single-turn `codex exec --json [<prompt>]` invocation. */
   def exec(
       prompt: String,
-      config: LlmConfig,
+      config: AgentConfig,
       outputSchemaFile: Option[os.Path],
       workDir: os.Path,
       mcpServerUrl: Option[String] = None
@@ -40,32 +47,54 @@ private[codex] object CodexArgs:
 
   /** Multi-turn continuation: `codex exec resume <id> <prompt>`.
     *
-    * Two limitations vs. [[exec]]:
+    * Three limitations vs. [[exec]]:
     *   - `exec resume` doesn't accept `--cd / -C`, so cwd is set on the OS
     *     process spawn rather than the argv.
     *   - `exec resume` doesn't accept `--output-schema`, so the resumed turn's
     *     structured-output validation falls to the prompt template + the
     *     post-hoc parser. The retry-with- corrective-prompt loop in
-    *     `DefaultLlmCall` handles parse failures.
+    *     `DefaultAgentCall` handles parse failures.
+    *   - `exec resume` rejects `--sandbox <mode>` and `--full-auto` (it errors
+    *     with "unexpected argument"): a resumed session inherits the sandbox it
+    *     was created with. Only `--dangerously-bypass-approvals-and-sandbox` is
+    *     still accepted, so [[resumeSandboxArgs]] keeps that one and drops the
+    *     rest. Without this, every resumed turn (a fix iteration, a follow-up
+    *     task on the same session, or a cross-process resume) fails.
     *
     * codex also enforces that the resumed session was not started with
     * `--ephemeral`; the backend never passes `--ephemeral` on `exec`, so resume
     * always finds a rollout.
     */
   def execResume(
-      sessionId: SessionId[BackendTag.Codex.type],
+      sessionId: WireSessionId[BackendTag.Codex.type],
       prompt: String,
-      config: LlmConfig,
+      config: AgentConfig,
       mcpServerUrl: Option[String] = None
   ): Seq[String] =
     Seq("codex") ++
       mcpServerArgs(mcpServerUrl) ++
       networkConfigArgs(config) ++
-      Seq("exec", "resume", "--json", SessionId.value(sessionId)) ++
-      sandboxArgs(config) ++
+      Seq("exec", "resume", "--json", WireSessionId.value(sessionId)) ++
+      resumeSandboxArgs(config) ++
       CliArgs.modelArgs(config) ++
       Seq("--skip-git-repo-check") ++
       Seq(prompt)
+
+  /** Sandbox flags accepted by `exec resume` (a subset of [[sandboxArgs]]). The
+    * resumed session inherits its sandbox from creation, and `exec resume`
+    * rejects `--sandbox <mode>` / `--full-auto` outright, so those map to no
+    * flag here. Only `--dangerously-bypass-approvals-and-sandbox` (Full +
+    * [[AutoApprove.All]]) is accepted and is re-asserted each turn to keep
+    * approvals off.
+    */
+  private def resumeSandboxArgs(config: AgentConfig): Seq[String] =
+    config.tools match
+      case ToolSet.Full =>
+        config.autoApprove match
+          case AutoApprove.All =>
+            Seq("--dangerously-bypass-approvals-and-sandbox")
+          case AutoApprove.Only(_) => Seq.empty
+      case ToolSet.ReadOnly | ToolSet.NetworkOnly => Seq.empty
 
   /** Top-level `-c mcp_servers.<name>.{url,tool_timeout_sec}` overrides. Placed
     * BEFORE the subcommand so they land in codex's global-config slot (the
@@ -76,6 +105,9 @@ private[codex] object CodexArgs:
     * 60s default to [[AskUserMcpServer.ToolTimeout]]. Without it, codex gives
     * up on `ask_user` after 60s and fires a follow-up — the user ends up
     * answering twice.
+    *
+    * One of three renderings of `AskUserMcpServer.ToolTimeout` — claude JSON ms
+    * / codex TOML sec / gemini settings.json ms; keep in sync.
     */
   private def mcpServerArgs(url: Option[String]): Seq[String] =
     url.toSeq.flatMap: u =>
@@ -95,13 +127,13 @@ private[codex] object CodexArgs:
     * disk first and hands us the resolved path.
     */
   private def outputSchemaArgs(file: Option[os.Path]): Seq[String] =
-    file.toSeq.flatMap(p => Seq("--output-schema", p.toString))
+    CliArgs.flag("--output-schema", file)(_.toString)
 
-  /** Maps [[LlmConfig.tools]] to codex's sandbox flags (placed after the `exec`
-    * subcommand). `ReadOnly` uses `--sandbox read-only` (no writes, no shell
-    * side-effects), matching claude's `--permission-mode plan`. `Full` follows
-    * [[LlmConfig.autoApprove]]; codex has no per-tool CLI allowlist, so
-    * [[AutoApprove.Only]] is approximated with `--full-auto`.
+  /** Maps [[AgentConfig.tools]] to codex's sandbox flags (placed after the
+    * `exec` subcommand). `ReadOnly` uses `--sandbox read-only` (no writes, no
+    * shell side-effects), matching claude's `--permission-mode plan`. `Full`
+    * follows [[AgentConfig.autoApprove]]; codex has no per-tool CLI allowlist,
+    * so [[AutoApprove.Only]] is approximated with `--full-auto`.
     *
     *   - `ReadOnly` → `--sandbox read-only`
     *   - `NetworkOnly` → `--full-auto` (workspace-write + non-interactive
@@ -115,7 +147,7 @@ private[codex] object CodexArgs:
     * no-edit guarantee there is prompt-only (the planning prompts forbid
     * edits).
     */
-  private def sandboxArgs(config: LlmConfig): Seq[String] =
+  private def sandboxArgs(config: AgentConfig): Seq[String] =
     config.tools match
       case ToolSet.ReadOnly    => Seq("--sandbox", "read-only")
       case ToolSet.NetworkOnly => Seq("--full-auto")
@@ -132,8 +164,34 @@ private[codex] object CodexArgs:
     * this the planner's `gh`/`curl` calls would be blocked. Empty for the other
     * tiers.
     */
-  private def networkConfigArgs(config: LlmConfig): Seq[String] =
+  private def networkConfigArgs(config: AgentConfig): Seq[String] =
     config.tools match
       case ToolSet.NetworkOnly =>
         Seq("-c", "sandbox_workspace_write.network_access=true")
       case ToolSet.ReadOnly | ToolSet.Full => Nil
+
+  /** How strongly codex enforces each `(tools, autoApprove)` combination — see
+    * [[sandboxArgs]] / [[networkConfigArgs]] for the flags this classifies.
+    *
+    *   - `ReadOnly` → `Hard`: `--sandbox read-only` mechanically blocks writes
+    *     and shell side-effects.
+    *   - `NetworkOnly` → `PromptOnly`: codex has no read-only-with-network
+    *     sandbox — network needs `--full-auto`'s workspace-write, which also
+    *     permits edits, so the no-edit guarantee rests only on the planner
+    *     prompt.
+    *   - `Full` + `AutoApprove.All` → `Hard`:
+    *     `--dangerously-bypass-approvals-and-sandbox` is exactly "approve
+    *     everything".
+    *   - `Full` + `AutoApprove.Only(_)` → `SandboxApprox`: codex has no
+    *     per-tool CLI allowlist, so an `Only` set is approximated by the
+    *     coarser `--full-auto` sandbox (workspace-write, no prompts) — wider
+    *     than the requested subset.
+    */
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+    tools match
+      case ToolSet.ReadOnly    => Enforcement.Hard
+      case ToolSet.NetworkOnly => Enforcement.PromptOnly
+      case ToolSet.Full =>
+        autoApprove match
+          case AutoApprove.All     => Enforcement.Hard
+          case AutoApprove.Only(_) => Enforcement.SandboxApprox

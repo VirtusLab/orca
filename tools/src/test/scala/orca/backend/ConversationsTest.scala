@@ -1,27 +1,71 @@
 package orca.backend
 
-import orca.OrcaInteractiveCancelled
+import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.events.{OrcaEvent, OrcaListener, Usage}
-import orca.llm.{BackendTag, SessionId}
+import orca.agents.{BackendTag, SessionId, WireSessionId}
+
+import ox.{Ox, supervised}
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 private class ScriptedConversation(
     eventList: List[ConversationEvent],
-    outcome: Either[OrcaInteractiveCancelled, LlmResult[BackendTag.Codex.type]],
+    outcome: Either[OrcaInteractiveCancelled, AgentResult[
+      BackendTag.Codex.type
+    ]],
     val outputSchema: Option[String] = None
 ) extends Conversation[BackendTag.Codex.type]:
   val drained = new AtomicInteger(0)
-  val events: Iterator[ConversationEvent] = eventList.iterator.map { e =>
-    val _ = drained.incrementAndGet()
-    e
-  }
-  def awaitResult()
-      : Either[OrcaInteractiveCancelled, LlmResult[BackendTag.Codex.type]] =
+  val cancelCount = new AtomicInteger(0)
+  def events(using Ox): Iterator[ConversationEvent] =
+    eventList.iterator.map { e =>
+      val _ = drained.incrementAndGet()
+      e
+    }
+  def awaitResult()(using
+      Ox
+  ): Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
     outcome
-  def sendUserMessage(text: String): Unit = ()
   def canAskUser: Boolean = false
-  def cancel(): Unit = ()
+  def cancel(): Unit =
+    val _ = cancelCount.incrementAndGet()
+
+/** A conversation whose `awaitResult()` throws instead of returning, standing
+  * in for a drain that fails mid-turn (e.g. `AgentTurnFailed`).
+  */
+private class FailingConversation(failure: Throwable)
+    extends Conversation[BackendTag.Codex.type]:
+  val cancelCount = new AtomicInteger(0)
+  def events(using Ox): Iterator[ConversationEvent] = Iterator.empty
+  val outputSchema: Option[String] = None
+  def awaitResult()(using
+      Ox
+  ): Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
+    throw failure
+  def canAskUser: Boolean = false
+  def cancel(): Unit =
+    val _ = cancelCount.incrementAndGet()
+
+/** A conversation whose event stream throws partway through iteration, standing
+  * in for a subprocess that dies mid-turn: the scripted events are yielded
+  * first, then the next `foreach` step raises `crash`. `awaitResult()` is never
+  * reached because the drain's event loop throws before it.
+  */
+private class CrashingConversation(
+    eventList: List[ConversationEvent],
+    crash: Throwable,
+    override val outputSchema: Option[String] = None
+) extends Conversation[BackendTag.Codex.type]:
+  val cancelCount = new AtomicInteger(0)
+  def events(using Ox): Iterator[ConversationEvent] =
+    eventList.iterator ++ Iterator.continually[ConversationEvent](throw crash)
+  def awaitResult()(using
+      Ox
+  ): Either[OrcaInteractiveCancelled, AgentResult[BackendTag.Codex.type]] =
+    throw new IllegalStateException("awaitResult should be unreachable")
+  def canAskUser: Boolean = false
+  def cancel(): Unit =
+    val _ = cancelCount.incrementAndGet()
 
 /** Records every `OrcaEvent` it sees so tests can assert on the emission order
   * without scaffolding a full listener.
@@ -34,11 +78,89 @@ private class RecordingListener extends OrcaListener:
 
 class ConversationsTest extends munit.FunSuite:
 
-  private val sampleResult = LlmResult[BackendTag.Codex.type](
-    sessionId = SessionId[BackendTag.Codex.type]("sid"),
+  private val sampleResult = AgentResult[BackendTag.Codex.type](
+    wireId = WireSessionId[BackendTag.Codex.type]("sid"),
     output = "out",
     usage = Usage(0L, 0L, None)
   )
+
+  test(
+    "drainAndCommit commits the reported wire id against the caller's client id"
+  ):
+    val client = SessionId.fresh[BackendTag.Codex.type]
+    val reportedWire = WireSessionId[BackendTag.Codex.type]("server-thread-42")
+    val support = SessionSupport
+      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
+    val conv = new ScriptedConversation(
+      Nil,
+      Right(sampleResult.copy(wireId = reportedWire))
+    )
+    val result = supervised:
+      Conversations.drainAndCommit(
+        conv,
+        client,
+        support
+      )
+    assert(result.wireId == reportedWire) // result reports the wire truth
+    assert(
+      support.persistableWireId(client).contains(reportedWire)
+    ) // mapping learned
+
+  test(
+    "a plain OrcaFlowException propagates verbatim through drainAndCommit " +
+      "(no relabelling)"
+  ):
+    // Same shape as the AgentTurnFailed test above, but with a plain
+    // OrcaFlowException — the exact type the deleted branch used to catch
+    // and rewrap as "$backendName CLI failed: ...". Both tests throw through
+    // the identical drainAndCommit code path; this one is the one that would
+    // actually fail if the relabelling branch were reintroduced, since a
+    // plain OrcaFlowException (unlike AgentTurnFailed) matches its catch
+    // clause.
+    val client = SessionId.fresh[BackendTag.Codex.type]
+    val support = SessionSupport
+      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
+    val failure = new OrcaFlowException("boom")
+    val conv = new FailingConversation(failure)
+    val thrown = intercept[OrcaFlowException]:
+      supervised:
+        Conversations.drainAndCommit(
+          conv,
+          client,
+          support
+        )
+    assertEquals(thrown, failure)
+    assertEquals(thrown.getMessage, "boom")
+    assert(support.persistableWireId(client).isEmpty) // never committed
+
+  test(
+    "drainAndCommit refuses an empty/unsafe reported wire id and never commits it"
+  ):
+    // A missing init event (e.g. a crash before `thread.started`) leaves the
+    // wire id defaulted to "" upstream; committing that would let a later
+    // call resume against an empty session id. The guard throws BEFORE
+    // the commit, so the bookkeeping stays clean either way.
+    val client = SessionId.fresh[BackendTag.Codex.type]
+    val support = SessionSupport
+      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
+    val conv = new ScriptedConversation(
+      Nil,
+      Right(
+        sampleResult.copy(wireId = WireSessionId[BackendTag.Codex.type](""))
+      )
+    )
+    val thrown = intercept[OrcaFlowException]:
+      supervised:
+        Conversations.drainAndCommit(
+          conv,
+          client,
+          support
+        )
+    assert(
+      thrown.getMessage.contains("invalid session id"),
+      thrown.getMessage
+    )
+    assert(support.persistableWireId(client).isEmpty) // never committed
 
   test("drainAutonomous walks every event before returning the result"):
     val conv = new ScriptedConversation(
@@ -48,14 +170,14 @@ class ConversationsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    assertEquals(Conversations.drainAutonomous(conv), sampleResult)
+    assertEquals(supervised(Conversations.drainAutonomous(conv)), sampleResult)
     assertEquals(conv.drained.get(), 2)
 
   test("drainAutonomous throws OrcaInteractiveCancelled on Left outcome"):
     val cancelled = new OrcaInteractiveCancelled()
     val conv = new ScriptedConversation(Nil, Left(cancelled))
     val thrown = intercept[OrcaInteractiveCancelled]:
-      Conversations.drainAutonomous(conv)
+      supervised(Conversations.drainAutonomous(conv))
     assertEquals(thrown, cancelled)
 
   test("AssistantToolCall emits OrcaEvent.ToolUse with the raw input"):
@@ -72,7 +194,7 @@ class ConversationsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(
       recorder.events,
       List(
@@ -92,7 +214,7 @@ class ConversationsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(
       recorder.events,
       List(OrcaEvent.AssistantMessage("hello world"))
@@ -104,7 +226,7 @@ class ConversationsTest extends munit.FunSuite:
       List(ConversationEvent.AssistantTurnEnd),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(recorder.events, Nil)
 
   test("ApproveTool auto-denies and surfaces an Error"):
@@ -123,7 +245,7 @@ class ConversationsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     decisions.get() match
       case ApprovalDecision.Deny(Some(reason)) :: Nil =>
         assert(reason.contains("Bash"), reason)
@@ -149,7 +271,7 @@ class ConversationsTest extends munit.FunSuite:
       List(ConversationEvent.UserQuestion("What now?", record)),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     answers.get() match
       case ans :: Nil => assert(ans.contains("autonomous mode"), ans)
       case other      => fail(s"expected one answer; got $other")
@@ -164,10 +286,12 @@ class ConversationsTest extends munit.FunSuite:
   test("ToolResult is swallowed (already surfaced via the preceding ToolUse)"):
     val recorder = new RecordingListener
     val conv = new ScriptedConversation(
-      List(ConversationEvent.ToolResult("Bash", ok = true, "stdout text")),
+      List(
+        ConversationEvent.ToolResult(Some("Bash"), ok = true, "stdout text")
+      ),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(recorder.events, Nil)
 
   test("UserMessage echo is swallowed (UserPrompt covers it upstream)"):
@@ -176,7 +300,7 @@ class ConversationsTest extends munit.FunSuite:
       List(ConversationEvent.UserMessage("echo of the opening prompt")),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(recorder.events, Nil)
 
   test("ConversationEvent.Error re-emits as OrcaEvent.Error"):
@@ -185,7 +309,7 @@ class ConversationsTest extends munit.FunSuite:
       List(ConversationEvent.Error("boom")),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(recorder.events, List(OrcaEvent.Error("boom")))
 
   test("AssistantThinkingDelta is swallowed"):
@@ -197,7 +321,7 @@ class ConversationsTest extends munit.FunSuite:
       List(ConversationEvent.AssistantThinkingDelta("thinking...")),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(recorder.events, Nil)
 
   test(
@@ -213,20 +337,21 @@ class ConversationsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(
       recorder.events,
       List(OrcaEvent.AssistantMessage("half-finished thought"))
     )
 
   test(
-    "structured mode drops a mid-turn-crash partial (no closing TurnEnd)"
+    "structured mode flushes an unfinished trailing buffer on a clean close"
   ):
-    // Mid-turn subprocess crash in structured mode: deltas arrive, then EOF
-    // before TurnEnd. Outside structured mode we flush the partial so the
-    // user can see what the agent had built up. Inside structured mode it
-    // would only ever be a half-formed JSON payload — drop it; the thrown
-    // exception (not modelled here) carries the real diagnostic.
+    // Structured mode, clean drain, but the stream ended with deltas and no
+    // closing TurnEnd. The payload is always a COMPLETED turn (the withheld
+    // one, dropped by finishNormally); an unfinished trailing buffer never
+    // became the payload, so finishNormally flushes it rather than dropping
+    // prose. Here there is no completed turn at all, so only the partial
+    // surfaces.
     val recorder = new RecordingListener
     val conv = new ScriptedConversation(
       List(
@@ -236,8 +361,43 @@ class ConversationsTest extends munit.FunSuite:
       Right(sampleResult),
       outputSchema = Some("""{"type":"object"}""")
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
-    assertEquals(recorder.events, Nil)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
+    assertEquals(
+      recorder.events,
+      List(OrcaEvent.AssistantMessage("""{"answer":1"""))
+    )
+
+  test(
+    "structured mode: an abnormal mid-stream end flushes withheld + partial"
+  ):
+    // Turn 1 completes (and is withheld, awaiting the next turn to decide if
+    // it's the payload); turn 2 streams deltas, then the stream crashes before
+    // its TurnEnd. On an abnormal end nothing is reliably the payload, so both
+    // the withheld completed turn AND the partial are flushed — the old drain
+    // dropped the partial (and only surfaced turn 1 via a finally-side
+    // closeTurn). The crash is rethrown verbatim.
+    val recorder = new RecordingListener
+    val crash = new OrcaFlowException("stream died mid-turn")
+    val conv = new CrashingConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("turn one"),
+        ConversationEvent.AssistantTurnEnd,
+        ConversationEvent.AssistantTextDelta("partial "),
+        ConversationEvent.AssistantTextDelta("two")
+      ),
+      crash,
+      outputSchema = Some("""{"type":"object"}""")
+    )
+    val thrown = intercept[OrcaFlowException]:
+      supervised(Conversations.drainAutonomous(conv, recorder))
+    assertEquals(thrown, crash)
+    assertEquals(
+      recorder.events,
+      List(
+        OrcaEvent.AssistantMessage("turn one"),
+        OrcaEvent.AssistantMessage("partial two")
+      )
+    )
 
   test(
     "structured mode drops the final turn's text (the JSON payload)"
@@ -257,7 +417,7 @@ class ConversationsTest extends munit.FunSuite:
       Right(sampleResult),
       outputSchema = Some("""{"type":"object"}""")
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(
       recorder.events,
       List(OrcaEvent.AssistantMessage("planning..."))
@@ -276,7 +436,7 @@ class ConversationsTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = Conversations.drainAutonomous(conv, recorder)
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
     assertEquals(
       recorder.events,
       List(
@@ -284,3 +444,45 @@ class ConversationsTest extends munit.FunSuite:
         OrcaEvent.AssistantMessage("turn two")
       )
     )
+
+  test("runAutonomous opens, drains, commits, and cancels exactly once"):
+    val client = SessionId.fresh[BackendTag.Codex.type]
+    val reportedWire = WireSessionId[BackendTag.Codex.type]("server-thread-7")
+    val support = SessionSupport
+      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantTextDelta("hi"),
+        ConversationEvent.AssistantTurnEnd
+      ),
+      Right(sampleResult.copy(wireId = reportedWire))
+    )
+    val result =
+      Conversations.runAutonomous(
+        client,
+        support,
+        OrcaListener.noop
+      ):
+        conv
+    assertEquals(result.wireId, reportedWire)
+    assert(support.persistableWireId(client).contains(reportedWire))
+    assertEquals(conv.cancelCount.get(), 1)
+
+  test(
+    "runAutonomous still cancels when the drain throws AgentTurnFailed"
+  ):
+    val client = SessionId.fresh[BackendTag.Codex.type]
+    val support = SessionSupport
+      .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
+    val failure = new AgentTurnFailed("turn blew up")
+    val conv = new FailingConversation(failure)
+    val thrown = intercept[AgentTurnFailed]:
+      Conversations.runAutonomous(
+        client,
+        support,
+        OrcaListener.noop
+      ):
+        conv
+    assertEquals(thrown, failure)
+    assertEquals(conv.cancelCount.get(), 1)
+    assert(support.persistableWireId(client).isEmpty) // never committed

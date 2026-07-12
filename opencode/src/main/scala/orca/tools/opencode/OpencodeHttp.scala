@@ -24,6 +24,12 @@ private[opencode] trait OpencodeHttp:
     */
   def events(): StreamSource
 
+  /** GET `path` (relative to the server base) and return the HTTP status code.
+    * Returns 0 when the server is unreachable or the request fails for any
+    * reason — callers treat any non-200 as "session not found".
+    */
+  def getStatus(path: String): Int = 0
+
   /** Release transport resources (the HTTP client). Default no-op for stubs;
     * the real client shuts down its connection pool and selector thread. Called
     * once at scope teardown.

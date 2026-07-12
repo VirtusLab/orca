@@ -1,17 +1,19 @@
 package orca.runner.terminal
 
-import orca.llm.{BackendTag, SessionId}
+import orca.agents.{BackendTag, WireSessionId}
 import orca.events.{Usage}
 import orca.{OrcaInteractiveCancelled}
 import orca.backend.{
   ApprovalDecision,
   Conversation,
   ConversationEvent,
-  LlmResult
+  AgentResult
 }
 
+import ox.{Ox, supervised}
+
 import java.io.{ByteArrayOutputStream, PrintStream}
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 class ConversationRendererTest extends munit.FunSuite:
 
@@ -19,7 +21,6 @@ class ConversationRendererTest extends munit.FunSuite:
 
   private def renderer(
       out: ByteArrayOutputStream,
-      showThinking: Boolean = false,
       structuredMode: Boolean = false,
       prompter: Prompter = ScriptedPrompter(Nil)
   ): ConversationRenderer =
@@ -28,12 +29,10 @@ class ConversationRendererTest extends munit.FunSuite:
     // leak into the captured buffer.
     val terminalOutput =
       new TerminalOutputState(ps, useColor = false, animated = false)
-    val depth = new StageDepth
     new ConversationRenderer(
       useColor = false,
       output = terminalOutput,
-      currentIndent = () => depth.contentIndent,
-      showThinking = showThinking,
+      currentIndent = () => "",
       structuredMode = structuredMode,
       prompter = prompter
     )
@@ -48,17 +47,18 @@ class ConversationRendererTest extends munit.FunSuite:
     */
   private class ScriptedConversation[B <: BackendTag](
       scripted: List[ConversationEvent],
-      outcome: Either[Throwable, LlmResult[B]],
+      outcome: Either[Throwable, AgentResult[B]],
       val outputSchema: Option[String] = None
   ) extends Conversation[B]:
     val cancelled = new AtomicReference[Boolean](false)
-    def events: Iterator[ConversationEvent] = scripted.iterator
-    def awaitResult(): Either[OrcaInteractiveCancelled, LlmResult[B]] =
+    def events(using Ox): Iterator[ConversationEvent] = scripted.iterator
+    def awaitResult()(using
+        Ox
+    ): Either[OrcaInteractiveCancelled, AgentResult[B]] =
       outcome match
         case Right(r)                          => Right(r)
         case Left(c: OrcaInteractiveCancelled) => Left(c)
         case Left(t)                           => throw t
-    def sendUserMessage(text: String): Unit = ()
     def canAskUser: Boolean = false
     def cancel(): Unit = cancelled.set(true)
 
@@ -69,17 +69,41 @@ class ConversationRendererTest extends munit.FunSuite:
       extends Prompter:
     private val remaining = new AtomicReference[List[PromptOutcome]](outcomes)
     val asked = new AtomicReference[List[String]](Nil)
+    val closes = new AtomicInteger(0)
     def ask(prompt: String): PromptOutcome =
       val _ = asked.updateAndGet(prompt :: _)
       val next = remaining.getAndUpdate(_.drop(1)).headOption
       next.getOrElse(throw new IllegalStateException("prompter exhausted"))
-    def close(): Unit = ()
+    override def close(): Unit =
+      val _ = closes.incrementAndGet()
 
-  private def sampleResult: LlmResult[BackendTag.ClaudeCode.type] =
-    LlmResult(
-      sessionId = SessionId[BackendTag.ClaudeCode.type]("sid"),
+  private def sampleResult: AgentResult[BackendTag.ClaudeCode.type] =
+    AgentResult(
+      wireId = WireSessionId[BackendTag.ClaudeCode.type]("sid"),
       output = """{"ok":true}""",
       usage = Usage(0L, 0L, None)
+    )
+
+  test("UserMessage renders as one truncated line, not the full prompt"):
+    // The initial user message of an interactive session is usually the full
+    // templated instruction; the render identifies the turn like the
+    // autonomous `▸` prompt line does, instead of dumping pages of prompt.
+    val buf = new ByteArrayOutputStream()
+    val long = "Add a feature to the calculator.\n" + ("detail " * 100)
+    val conv = new ScriptedConversation(
+      List(ConversationEvent.UserMessage(long)),
+      Right(sampleResult)
+    )
+    val _ = supervised(renderer(buf).render(conv))
+    val out = buf.toString
+    assert(out.contains("you"), out)
+    assert(out.contains("…"), s"a long user message must be truncated: $out")
+    val bodyLines = out.linesIterator.filter(_.contains("detail")).toList
+    assert(
+      bodyLines.forall(
+        _.length <= ConversationRenderer.MaxUserMessageLength + 10
+      ),
+      s"the full body must not be dumped: $bodyLines"
     )
 
   test("non-structured mode: assistant text flushes verbatim at TurnEnd"):
@@ -94,7 +118,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf).render(conv)
+    val _ = supervised(renderer(buf).render(conv))
     assert(
       buf.toString.contains("tasks"),
       s"JSON payload should be rendered verbatim; got: ${buf.toString}"
@@ -115,32 +139,33 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, structuredMode = true).render(conv)
+    val _ = supervised(renderer(buf, structuredMode = true).render(conv))
     assert(
       !buf.toString.contains("tasks"),
       s"structured-mode renderer should not render the JSON payload; got: ${buf.toString}"
     )
 
-  test("AssistantThinkingDelta stays silent when showThinking is false"):
+  test(
+    "AssistantThinkingDelta is never rendered (12.6: showThinking deleted, dead in production)"
+  ):
     val buf = new ByteArrayOutputStream()
     val conv = new ScriptedConversation(
-      List(ConversationEvent.AssistantThinkingDelta("inner monologue")),
+      List(
+        ConversationEvent.AssistantThinkingDelta("inner monologue"),
+        ConversationEvent.AssistantTextDelta("visible answer"),
+        ConversationEvent.AssistantTurnEnd
+      ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, showThinking = false).render(conv)
+    val _ = supervised(renderer(buf).render(conv))
     assert(
       !buf.toString.contains("inner monologue"),
-      s"expected no output; got: ${buf.toString}"
+      s"expected no thinking output; got: ${buf.toString}"
     )
-
-  test("AssistantThinkingDelta renders when showThinking is true"):
-    val buf = new ByteArrayOutputStream()
-    val conv = new ScriptedConversation(
-      List(ConversationEvent.AssistantThinkingDelta("inner monologue")),
-      Right(sampleResult)
+    assert(
+      buf.toString.contains("visible answer"),
+      s"expected the assistant text to still render normally; got: ${buf.toString}"
     )
-    val _ = renderer(buf, showThinking = true).render(conv)
-    assert(buf.toString.contains("inner monologue"))
 
   test("AssistantToolCall renders the name and a summarised input"):
     val buf = new ByteArrayOutputStream()
@@ -148,7 +173,7 @@ class ConversationRendererTest extends munit.FunSuite:
       List(ConversationEvent.AssistantToolCall("Bash", """{"cmd":"ls"}""")),
       Right(sampleResult)
     )
-    val _ = renderer(buf).render(conv)
+    val _ = supervised(renderer(buf).render(conv))
     val out = buf.toString
     assert(out.contains("Bash"))
     assert(out.contains("{\"cmd\":\"ls\"}"))
@@ -157,12 +182,12 @@ class ConversationRendererTest extends munit.FunSuite:
     val buf = new ByteArrayOutputStream()
     val conv = new ScriptedConversation(
       List(
-        ConversationEvent.ToolResult("Bash", ok = true, "ok-output"),
-        ConversationEvent.ToolResult("Bash", ok = false, "failed")
+        ConversationEvent.ToolResult(Some("Bash"), ok = true, "ok-output"),
+        ConversationEvent.ToolResult(Some("Bash"), ok = false, "failed")
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf).render(conv)
+    val _ = supervised(renderer(buf).render(conv))
     val out = buf.toString
     assert(out.contains("ok-output"))
     assert(out.contains("failed"))
@@ -173,7 +198,7 @@ class ConversationRendererTest extends munit.FunSuite:
       List(ConversationEvent.Error("boom")),
       Right(sampleResult)
     )
-    val _ = renderer(buf).render(conv)
+    val _ = supervised(renderer(buf).render(conv))
     assert(buf.toString.contains("boom"))
     assert(buf.toString.contains("✖"))
 
@@ -181,7 +206,7 @@ class ConversationRendererTest extends munit.FunSuite:
     val buf = new ByteArrayOutputStream()
     val cancelled = new OrcaInteractiveCancelled()
     val conv = new ScriptedConversation(Nil, Left(cancelled))
-    assertEquals(renderer(buf).render(conv), Left(cancelled))
+    assertEquals(supervised(renderer(buf).render(conv)), Left(cancelled))
 
   test("summarise truncates long inputs with an ellipsis"):
     val buf = new ByteArrayOutputStream()
@@ -190,7 +215,7 @@ class ConversationRendererTest extends munit.FunSuite:
       List(ConversationEvent.AssistantToolCall("Bash", long)),
       Right(sampleResult)
     )
-    val _ = renderer(buf).render(conv)
+    val _ = supervised(renderer(buf).render(conv))
     val out = buf.toString
     assert(out.contains("…"), s"expected ellipsis; got: $out")
     assert(out.length < long.length + 100)
@@ -209,7 +234,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(conv)
+    val _ = supervised(renderer(buf, prompter = prompter).render(conv))
     assertEquals(answered.get(), Some(ApprovalDecision.Allow(None)))
     assert(prompter.asked.get().exists(_.contains("[y]es")))
 
@@ -227,7 +252,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(conv)
+    val _ = supervised(renderer(buf, prompter = prompter).render(conv))
     answered.get() match
       case Some(ApprovalDecision.Deny(Some(reason))) =>
         assert(reason.contains("user denied"))
@@ -242,8 +267,34 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(conv)
+    val _ = supervised(renderer(buf, prompter = prompter).render(conv))
     assert(conv.cancelled.get(), "expected conversation.cancel() to fire")
+
+  test("render does not close its prompter (prompter is process-scoped)"):
+    // The prompter is shared across every conversation in a run; a
+    // per-conversation renderer must never close it, or the next
+    // interactive prompt would operate on closed I/O.
+    val buf = new ByteArrayOutputStream()
+    val prompter = new ScriptedPrompter(Nil)
+    val conv = new ScriptedConversation(Nil, Right(sampleResult))
+    val _ = supervised(renderer(buf, prompter = prompter).render(conv))
+    assertEquals(prompter.closes.get(), 0)
+
+  test("two sequential render+prompt cycles against one prompter both ask"):
+    // Pins the second-prompt-usable property: a single shared prompter
+    // survives across conversations, so a second render still reaches
+    // `ask` rather than a closed reader.
+    val buf = new ByteArrayOutputStream()
+    val prompter = new ScriptedPrompter(
+      List(PromptOutcome.Answer("yes"), PromptOutcome.Answer("no"))
+    )
+    def approveConv() = new ScriptedConversation(
+      List(ConversationEvent.ApproveTool("Bash", "{}", _ => ())),
+      Right(sampleResult)
+    )
+    val _ = supervised(renderer(buf, prompter = prompter).render(approveConv()))
+    val _ = supervised(renderer(buf, prompter = prompter).render(approveConv()))
+    assertEquals(prompter.asked.get().size, 2)
 
   test("UserQuestion: question rendered, typed reply passed to respond"):
     val buf = new ByteArrayOutputStream()
@@ -258,7 +309,7 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(conv)
+    val _ = supervised(renderer(buf, prompter = prompter).render(conv))
     assertEquals(answered.get(), Some("Paris"))
     assert(
       buf.toString.contains("target deployment region"),
@@ -274,5 +325,5 @@ class ConversationRendererTest extends munit.FunSuite:
       ),
       Right(sampleResult)
     )
-    val _ = renderer(buf, prompter = prompter).render(conv)
+    val _ = supervised(renderer(buf, prompter = prompter).render(conv))
     assert(conv.cancelled.get(), "expected conversation.cancel() to fire")

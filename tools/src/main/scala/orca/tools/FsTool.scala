@@ -1,16 +1,22 @@
 package orca.tools
 
+import orca.{OrcaFlowException, WorkspaceWrite}
+
 import java.nio.file.FileSystems
 
 /** Filesystem adapter usable from flow scripts — the handle behind the `fs`
   * accessor. Reads, writes, and globs files against the flow's working
   * directory.
   *
-  * All paths passed to `read`, `write`, and `list` are resolved relative to the
-  * flow's working directory unless they are absolute. `list` accepts a glob
-  * pattern (e.g. `src/**/*.scala`) following the JVM's default glob syntax and
-  * returns matching file paths as strings relative to the same working
-  * directory.
+  * Paths passed to `read` and `write` are resolved relative to the flow's
+  * working directory unless they are absolute (an absolute path is used as-is).
+  * `list` does not support this: it only accepts a glob *relative* to the
+  * working directory. A leading `/`, or a `.`/`..` path segment, is rejected
+  * with [[orca.OrcaFlowException]] at call time rather than resolved — an
+  * absolute glob could otherwise only ever silently match nothing (see
+  * [[OsFsTool.list]]). `list` accepts a glob pattern (e.g. `src/**/*.scala`)
+  * following the JVM's default glob syntax and returns matching file paths as
+  * strings relative to the same working directory.
   */
 trait FsTool:
 
@@ -20,7 +26,7 @@ trait FsTool:
     */
   def read(path: String): Option[String]
 
-  def write(path: String, content: String): Unit
+  def write(path: String, content: String)(using WorkspaceWrite): Unit
   def list(glob: String): List[String]
 
 /** `FsTool` implementation backed by os-lib. Path resolution and glob semantics
@@ -34,10 +40,11 @@ private[orca] class OsFsTool(base: os.Path = os.pwd) extends FsTool:
     val p = resolve(path)
     if os.isFile(p) then Some(os.read(p)) else None
 
-  def write(path: String, content: String): Unit =
+  def write(path: String, content: String)(using WorkspaceWrite): Unit =
     os.write.over(resolve(path), content, createFolders = true)
 
   def list(glob: String): List[String] =
+    validateGlob(glob)
     val matcher =
       FileSystems.getDefault.getPathMatcher(s"glob:$glob")
     val root = globRoot(glob)
@@ -52,6 +59,26 @@ private[orca] class OsFsTool(base: os.Path = os.pwd) extends FsTool:
 
   private def resolve(path: String): os.Path =
     os.Path(path, base)
+
+  /** Reject glob shapes `globRoot`'s segment fold can't handle cleanly: a
+    * leading `/` (os-lib throws `InvalidSegment` walking an empty first
+    * segment, or — if that were papered over — the glob would only ever match
+    * nothing, since found paths are always relative to `base`) and any `.`/`..`
+    * segment (os-lib rejects both outright; `..` in particular has no defined
+    * meaning for a glob rooted at `base`). Fails fast with a message naming
+    * `list` and the offending glob, rather than letting os-lib's generic
+    * `IllegalArgumentException` (no `list`-level context) surface instead.
+    */
+  private def validateGlob(glob: String): Unit =
+    if glob.startsWith("/") then
+      throw OrcaFlowException(
+        s"fs.list: glob must be relative to the flow's working directory, " +
+          s"not absolute: '$glob'"
+      )
+    if glob.split('/').exists(s => s == "." || s == "..") then
+      throw OrcaFlowException(
+        s"fs.list: glob must not contain '.' or '..' segments: '$glob'"
+      )
 
   /** Walk only the deepest directory that contains no wildcards — e.g. for
     * `src/main/**/*.scala` start at `src/main`. Cuts traversal cost for

@@ -57,8 +57,9 @@ lazy val tools = (project in file("tools"))
       ox,
       jsonSchemaValidator,
       // The shared MCP server (orca.backend.mcp.AskUserMcpServer) is consumed
-      // by both claude and codex backends, so chimp + the netty backend live
-      // here rather than in claude.
+      // by the claude, codex and gemini backends, so chimp + the netty backend
+      // live here — tools already hosts the cross-backend orca.backend
+      // package — rather than in any single backend module.
       chimp,
       tapirNettySync
     )
@@ -113,15 +114,48 @@ lazy val gemini = (project in file("gemini"))
   )
 
 lazy val flow = (project in file("flow"))
-  .dependsOn(tools)
+  .dependsOn(tools, tools % "test->test")
   .settings(commonSettings)
   .settings(
     name := "orca-flow",
-    libraryDependencies ++= Seq(ox, jsoniterMacros, jsonSchemaValidator)
+    libraryDependencies ++= Seq(
+      ox,
+      jsoniterMacros,
+      jsonSchemaValidator,
+      scala3Compiler
+    ),
+    // The CC negative-compile suite invokes the Scala 3 compiler
+    // (`dotty.tools.dotc.Main`) in-process against this
+    // module's own test classpath (it needs orca.CheckedPar, orca.FlowControl,
+    // the capability tokens, ox and the Scala library). flow's tests are not
+    // forked, so `java.class.path` is only sbt's launcher classpath — unusable.
+    // Materialise the classpath into a resource the suite reads. It must be
+    // `dependencyClasspath`, NOT `fullClasspath`: the latter includes this
+    // module's own Test products, whose task graph depends back on Test
+    // resources — a cycle that deadlocks sbt's task engine (observed, not
+    // hypothetical). dependencyClasspath still carries everything the fixtures
+    // reference (tools/flow Compile classes plus external deps).
+    Test / resourceGenerators += Def.task {
+      val cp = (Test / dependencyClasspath).value
+        .map(_.data.getAbsolutePath)
+        .mkString(java.io.File.pathSeparator)
+      val f = (Test / resourceManaged).value / "cc-test-classpath.txt"
+      IO.write(f, cp)
+      Seq(f)
+    }.taskValue
   )
 
 lazy val runner = (project in file("runner"))
-  .dependsOn(tools, flow, claude, codex, opencode, pi, gemini)
+  .dependsOn(
+    tools,
+    tools % "test->test",
+    flow,
+    claude,
+    codex,
+    opencode,
+    pi,
+    gemini
+  )
   .settings(commonSettings)
   .settings(
     // Published as just "orca" so flow-script coordinates stay short.
@@ -130,6 +164,16 @@ lazy val runner = (project in file("runner"))
     // per-run appender) and can `System.exit` on a NonFatal failure — a forked
     // JVM keeps that out of the shared test runner.
     Test / fork := true,
+    // `runFlow`'s reentrancy guard (`FlowLock.acquireProcess`) is a
+    // process-wide `AtomicBoolean` — correct for real usage (one `flow(...)`
+    // per process), but sbt's default `Test / parallelExecution` would let two
+    // unrelated test classes in this forked JVM both call
+    // `flow(...)`/`runFlow(...)` concurrently (different workDirs, no real
+    // conflict) and spuriously trip each other's guard. Serialize this
+    // module's tests instead of keying the guard by workDir, which would
+    // water down the exact single-process semantics the guard exists to
+    // enforce.
+    Test / parallelExecution := false,
     libraryDependencies ++= Seq(ox, mainargs, jline, fansi, jsoniterMacros)
   )
 
@@ -141,7 +185,9 @@ lazy val orcaRoot = (project in file("."))
     // Chain two passes so both coord forms get bumped: sbt-style
     // `"org" %% "name" % "ver"` (the stock `UpdateVersionInDocs`) and scala-cli
     // `using dep "org::name:ver"` (the form Orca's flow scripts and READMEs
-    // actually use today).
+    // actually use today). The scala-cli pass also keeps `//> using scala`
+    // pins in sync with `V.scala` — the build's own Scala version and the
+    // floor consumers must be on.
     updateDocs := {
       val log = sLog.value
       val org = organization.value
@@ -152,6 +198,7 @@ lazy val orcaRoot = (project in file("."))
         log,
         org,
         ver,
+        V.scala,
         List(
           file("README.md"),
           file("AGENTS.md"),

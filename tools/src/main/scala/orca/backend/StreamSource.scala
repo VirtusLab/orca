@@ -2,7 +2,7 @@ package orca.backend
 
 import orca.subprocess.PipedCliProcess
 
-/** The line-oriented source a [[StreamConversation]] drives.
+/** The line-oriented source a [[orca.backend.ForkedConversation]] drives.
   *
   * Abstracts the four things the driver needs from its producer — a primary
   * line stream, an optional secondary diagnostic stream, a way to stop it, and
@@ -33,6 +33,14 @@ private[orca] trait StreamSource:
     */
   def interrupt(): Unit
 
+  /** Guaranteed backstop after [[interrupt]]: SIGKILL the subprocess / close
+    * the connection so [[lines]] always terminates even if the graceful
+    * interrupt didn't take. Default delegates to [[interrupt]] (sufficient for
+    * sources whose interrupt already hard-closes); the subprocess source
+    * overrides it. Must tolerate calls from any thread and more than once.
+    */
+  def destroyForcibly(): Unit = interrupt()
+
   /** Terminal status once [[lines]] has ended: `Some(0)` clean, `Some(n)`
     * non-zero failure, `None` unknown/aborted. A subprocess reports its exit
     * code; a stream that merely closed reports `Some(0)` (a clean end with no
@@ -47,4 +55,5 @@ private[orca] object StreamSource:
       def lines: Iterator[String] = process.stdoutLines
       def errorLines: Iterator[String] = process.stderrLines
       def interrupt(): Unit = process.sendSigInt()
+      override def destroyForcibly(): Unit = process.destroyForcibly()
       def tryExitCode: Option[Int] = process.tryExitCode

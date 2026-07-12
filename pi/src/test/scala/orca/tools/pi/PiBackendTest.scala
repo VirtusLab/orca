@@ -2,8 +2,17 @@ package orca.tools.pi
 
 import orca.backend.SystemPromptComposer
 import orca.events.Usage
-import orca.llm.{BackendTag, LlmConfig, Model, SessionId, ToolSet}
+import orca.agents.{
+  BackendTag,
+  AgentConfig,
+  Model,
+  SessionId,
+  WireSessionId,
+  ToolSet,
+  onWire
+}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
+import orca.testkit.TempDirs
 
 class PiBackendTest extends munit.FunSuite:
 
@@ -30,12 +39,14 @@ class PiBackendTest extends munit.FunSuite:
   ):
     val process = successfulProcess("answer", 10L, 5L)
     val runner = new SpawnStubCliRunner(List(process))
-    val backend = new PiBackend(runner)
-    val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
+    val backend = new PiBackend(runner, workDir = workDir)
 
-    val result = backend.runAutonomous("do it", sid, LlmConfig.default, workDir)
+    val result =
+      backend.runAutonomous("do it", sid, AgentConfig())
 
-    assertEquals(result.sessionId, sid)
+    val wire: WireSessionId[BackendTag.Pi.type] = sid.onWire
+    assertEquals(result.wireId, wire)
     assertEquals(result.output, "answer")
     assertEquals(result.usage, Usage(10L, 5L, None))
     assertEquals(result.model.map(_.name), Some("pi-model"))
@@ -55,10 +66,9 @@ class PiBackendTest extends munit.FunSuite:
     val runner =
       new SpawnStubCliRunner(List(successfulProcess(), successfulProcess()))
     val backend = new PiBackend(runner)
-    val workDir = os.temp.dir()
 
-    val _ = backend.runAutonomous("one", sid, LlmConfig.default, workDir)
-    val _ = backend.runAutonomous("two", sid, LlmConfig.default, workDir)
+    val _ = backend.runAutonomous("one", sid, AgentConfig())
+    val _ = backend.runAutonomous("two", sid, AgentConfig())
 
     val Seq(first, second) = runner.spawnCalls.take(2): @unchecked
     assert(!first.args.contains("--continue"), first.args)
@@ -73,12 +83,11 @@ class PiBackendTest extends munit.FunSuite:
     failing.closeStderr()
     val runner = new SpawnStubCliRunner(List(failing, successfulProcess()))
     val backend = new PiBackend(runner)
-    val workDir = os.temp.dir()
 
     val _ = intercept[Exception](
-      backend.runAutonomous("one", sid, LlmConfig.default, workDir)
+      backend.runAutonomous("one", sid, AgentConfig())
     )
-    val _ = backend.runAutonomous("two", sid, LlmConfig.default, workDir)
+    val _ = backend.runAutonomous("two", sid, AgentConfig())
 
     val Seq(first, second) = runner.spawnCalls.take(2): @unchecked
     assert(!first.args.contains("--continue"), first.args)
@@ -93,11 +102,10 @@ class PiBackendTest extends munit.FunSuite:
     val _ = backend.runAutonomous(
       "q",
       sid,
-      LlmConfig.default.copy(
+      AgentConfig().copy(
         model = Some(Model("anthropic/claude-sonnet")),
         tools = ToolSet.ReadOnly
-      ),
-      os.temp.dir()
+      )
     )
 
     val args = runner.calls.head
@@ -110,26 +118,28 @@ class PiBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(process))
     val backend = new PiBackend(runner)
 
-    val conv = backend.runInteractive(
-      "q",
-      sid,
-      displayPrompt = "q",
-      LlmConfig.default.copy(tools = ToolSet.ReadOnly),
-      os.temp.dir(),
-      outputSchema = Some("{}")
-    )
-    assert(conv.canAskUser)
-    assertEquals(conv.outputSchema, Some("{}"))
+    // The conversation forks its workers into the surrounding Ox scope, so it
+    // must be created AND consumed within the same `supervised` block.
+    ox.supervised:
+      val conv = backend.runInteractive(
+        "q",
+        sid,
+        displayPrompt = "q",
+        AgentConfig().copy(tools = ToolSet.ReadOnly),
+        outputSchema = Some("{}")
+      )
+      assert(conv.canAskUser)
+      assertEquals(conv.outputSchema, Some("{}"))
 
-    val args = runner.calls.head
-    assert(
-      args.containsSlice(Seq("--tools", "read,grep,find,ls,ask_user")),
-      args
-    )
-    assert(args.contains("--extension"), args)
+      val args = runner.calls.head
+      assert(
+        args.containsSlice(Seq("--tools", "read,grep,find,ls,ask_user")),
+        args
+      )
+      assert(args.contains("--extension"), args)
 
-    val _ = conv.events.toList
-    val _ = conv.awaitResult()
+      val _ = conv.events.toList
+      val _ = conv.awaitResult()
 
   test(
     "interactive system prompt file contains configured prompt, hint, and git rule"
@@ -138,33 +148,38 @@ class PiBackendTest extends munit.FunSuite:
     val runner = new SpawnStubCliRunner(List(process))
     val backend = new PiBackend(runner)
 
-    val conv = backend.runInteractive(
-      "q",
-      sid,
-      displayPrompt = "q",
-      LlmConfig.default.copy(systemPrompt = Some("be terse")),
-      os.temp.dir(),
-      outputSchema = None
-    )
+    // The conversation forks its workers into the surrounding Ox scope, so it
+    // must be created AND consumed within the same `supervised` block.
+    ox.supervised:
+      val conv = backend.runInteractive(
+        "q",
+        sid,
+        displayPrompt = "q",
+        AgentConfig().copy(systemPrompt = Some("be terse")),
+        outputSchema = None
+      )
 
-    val args = runner.calls.head
-    val promptFile = args(args.indexOf("--append-system-prompt") + 1)
-    val promptText = os.read(os.Path(promptFile))
-    assert(promptText.contains("be terse"), promptText)
-    assert(promptText.contains(PiAskUserExtension.Hint), promptText)
-    assert(promptText.contains(SystemPromptComposer.RuntimeOwnsGit), promptText)
+      val args = runner.calls.head
+      val promptFile = args(args.indexOf("--append-system-prompt") + 1)
+      val promptText = os.read(os.Path(promptFile))
+      assert(promptText.contains("be terse"), promptText)
+      assert(promptText.contains(PiAskUserExtension.Hint), promptText)
+      assert(
+        promptText.contains(SystemPromptComposer.RuntimeOwnsGit),
+        promptText
+      )
 
-    val extensionFile = os.Path(args(args.indexOf("--extension") + 1))
-    assert(os.exists(extensionFile))
+      val extensionFile = os.Path(args(args.indexOf("--extension") + 1))
+      assert(os.exists(extensionFile))
 
-    process.enqueueStdout(
-      """{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}"""
-    )
-    process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
-    val _ = conv.events.toList
-    val _ = conv.awaitResult()
-    assert(!os.exists(os.Path(promptFile)))
-    assert(!os.exists(extensionFile))
+      process.enqueueStdout(
+        """{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}"""
+      )
+      process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
+      val _ = conv.events.toList
+      val _ = conv.awaitResult()
+      assert(!os.exists(os.Path(promptFile)))
+      assert(!os.exists(extensionFile))
 
   test("self-managed git suppresses the runtime git rule"):
     val process = successfulProcess()
@@ -174,9 +189,12 @@ class PiBackendTest extends munit.FunSuite:
     val _ = backend.runAutonomous(
       "q",
       sid,
-      LlmConfig.default.copy(selfManagedGit = true),
-      os.temp.dir()
+      AgentConfig().copy(selfManagedGit = true)
     )
 
     val args = runner.calls.head
     assert(!args.contains("--append-system-prompt"), args)
+
+  test("willContinue always returns false (Pi has no server-side probe)"):
+    val backend = new PiBackend(new SpawnStubCliRunner(Nil))
+    assert(!backend.sessions.willContinue(sid))

@@ -5,11 +5,13 @@ import orca.events.{OrcaEvent, OrcaListener}
 /** Renders `OrcaEvent`s — stage transitions, steps, tool uses, errors — via a
   * [[TerminalOutput]] and tracks the active stage stack + indent depth.
   *
-  * Listeners must be thread-safe (the `EventDispatcher` fans out concurrently).
-  * The stage stack and depth are serialised under `lock`, but the lock is
-  * released BEFORE the `output.log` tell so a slow actor mailbox can't block
-  * lock-free [[currentIndent]] readers (the conversation renderer running on
-  * another thread).
+  * Dispatcher calls arrive sequentially per event but can come from concurrent
+  * emitter threads for non-stage events. `StageStarted` / `StageCompleted` are
+  * the exception: they're emitted only from `stage`'s bookkeeping
+  * (`orca.Flow`), which is thread-affine by R12 (ADR 0018 §2.2) — so [[stack]]
+  * has a single writer. The [[ConversationRenderer]] reads [[currentIndent]]
+  * lock-free from its own thread, mid-`readLine`; the `@volatile` is the whole
+  * publication story for that cross-thread read.
   */
 private[runner] class TerminalEventListener(
     output: TerminalOutput,
@@ -22,111 +24,97 @@ private[runner] class TerminalEventListener(
     AssistantGlyphStyle,
     ErrorGlyph,
     MaxAssistantMessageLength,
+    MaxStructuredResultRawLength,
     StageStartGlyph,
     StepGlyphStyle,
     UserPromptGlyph,
     UserPromptStyle
   }
 
-  private val lock = new Object
-  private val depth = new StageDepth
-  private val stages = new StageStack
-  // Indent string updated whenever `depth` changes — published via the
-  // @volatile so [[currentIndent]] readers (the ConversationRenderer on
-  // another thread) can snapshot a coherent indent without acquiring the
-  // lock. Writes happen inside the lock; the volatile ensures the new
-  // value is visible to lock-free readers.
-  @volatile private var indentSnapshot: String = depth.contentIndent
+  // Single-writer (stage events arrive on the one stage thread, R12),
+  // multi-reader (ConversationRenderer polls the indent from its own thread
+  // mid-prompt): a @volatile immutable list is the whole synchronization
+  // story. Head = most-recently-started stage.
+  @volatile private var stack: List[String] = Nil
 
   def onEvent(event: OrcaEvent): Unit = event match
     case OrcaEvent.StageStarted(name) =>
-      val (line, status) = lock.synchronized:
-        // Format the step line at the *current* depth (so the StageStarted
-        // marker aligns with the enclosing stage's content), then push.
-        val l = formatStepLine(name)
-        depth.push()
-        stages.push(name)
-        indentSnapshot = depth.contentIndent
-        (l, stages.innermost)
+      // Format the step line at the *current* depth (so the StageStarted
+      // marker aligns with the enclosing stage's content), then push.
+      val line = formatStepLine(name)
+      stack = name :: stack
       output.log(line)
-      output.setStatus(status)
+      output.setStatus(stack.headOption)
     case OrcaEvent.StageCompleted(_) =>
       // Stage completions don't print to the event log — starting the next
       // event implicitly tells the user the previous one finished.
-      val status = lock.synchronized:
-        depth.pop()
-        stages.pop()
-        indentSnapshot = depth.contentIndent
-        stages.innermost
-      output.setStatus(status)
+      stack = stack.drop(1)
+      output.setStatus(stack.headOption)
     case OrcaEvent.ToolUse(tool, args) =>
-      val line = lock.synchronized:
-        formatIndented(ToolCallLine.format(tool, args, paint, workDir))
+      val line = formatIndented(ToolCallLine.format(tool, args, paint, workDir))
       output.log(line)
-    case OrcaEvent.TokensUsed(_, _, _) =>
+    case OrcaEvent.TokensUsed(_, _, _, _) =>
       () // Token accounting is owned by CostTracker.
     case OrcaEvent.Step(message) =>
       // Multi-line `message` (e.g. a wrapped review comment with
       // hanging-indented continuation lines) re-indents on each newline so
       // the body stays aligned under the glyph.
-      val line = lock.synchronized(formatStepLine(message))
-      output.log(line)
-    case OrcaEvent.StructuredResult(_, summary) =>
+      output.log(formatStepLine(message))
+    case OrcaEvent.StructuredResult(raw, summary) =>
       // The conversation renderer suppresses the agent's streamed JSON
       // when in structured mode; this event is what surfaces the result.
-      // We render only when an `Announce[O]` summary is provided —
-      // falling back to raw JSON would just reverse the suppression we
-      // did upstream. Types that want to stay visible without a
-      // typeclass-driven summary should define an `Announce[O]` that
-      // returns the desired text.
-      summary.foreach: s =>
-        val line = lock.synchronized(formatStepLine(s))
-        output.log(line)
+      // `summary` is tri-state (see the event's scaladoc): a summary text
+      // renders as a `▶` step; `Some("")` — a specific `Announce[O]` that
+      // deliberately says nothing because the call site narrates the
+      // outcome itself (e.g. the review loop's per-reviewer lines) —
+      // renders nothing; `None` — no `Announce[O]` wired at all — falls
+      // back to the raw payload, collapsed to one line and truncated, in
+      // the `●` assistant-message style (ADR 0008: an unannounced result
+      // must stay visible, since the streamed JSON was suppressed).
+      summary match
+        case Some("") => ()
+        case Some(s)  => output.log(formatStepLine(s))
+        case None =>
+          val collapsed = Text.oneLine(raw, MaxStructuredResultRawLength)
+          val glyph = paint(AssistantGlyphStyle, s"$AssistantGlyph ")
+          output.log(formatIndented(glyph + collapsed))
     case OrcaEvent.UserPrompt(text) =>
       // Same one-line treatment as AssistantMessage so a long task
       // description doesn't dominate the log. Empty payloads are dropped.
       val collapsed = Text.oneLine(text, MaxAssistantMessageLength)
       if collapsed.nonEmpty then
-        val line = lock.synchronized:
-          val glyph = paint(UserPromptStyle, s"$UserPromptGlyph ")
-          formatIndented(glyph + collapsed)
-        output.log(line)
+        val glyph = paint(UserPromptStyle, s"$UserPromptGlyph ")
+        output.log(formatIndented(glyph + collapsed))
     case OrcaEvent.AssistantMessage(text) =>
       // Truncate to one line — the autonomous drain emits these for every
       // agent prose turn, and full text would dominate the log. Empty
       // payloads (turn-without-prose) are dropped silently.
       val collapsed = Text.oneLine(text, MaxAssistantMessageLength)
       if collapsed.nonEmpty then
-        val line = lock.synchronized:
-          val glyph = paint(AssistantGlyphStyle, s"$AssistantGlyph ")
-          formatIndented(glyph + collapsed)
-        output.log(line)
+        val glyph = paint(AssistantGlyphStyle, s"$AssistantGlyph ")
+        output.log(formatIndented(glyph + collapsed))
     case OrcaEvent.Error(message) =>
-      val line = lock.synchronized:
+      output.log(
         formatIndented(paint(fansi.Color.Red, s"$ErrorGlyph $message"))
-      output.log(line)
+      )
 
-  /** The current indent string. Lock-free read — see [[indentSnapshot]] for the
-    * publication mechanism.
-    */
-  def currentIndent: String = indentSnapshot
+  /** The current indent string. Lock-free read of the `@volatile` [[stack]]. */
+  def currentIndent: String = "  " * stack.length
 
   /** A `▶` step line: magenta-bold glyph, neutral body. Matches the
     * assistant-prose styling (magenta `●` + neutral text) so the dominant
     * accent across the event log is consistent — stages, steps, and prose are
-    * all "primary content". **Caller holds [[lock]].**
+    * all "primary content".
     */
   private def formatStepLine(message: String): String =
     val glyph = paint(StepGlyphStyle, s"$StageStartGlyph ")
     formatIndented(glyph + message)
 
   /** Re-indent a (possibly multi-line) block under the current stage indent —
-    * first line and every embedded `\n` get the prefix. **Caller holds
-    * [[lock]]** (reads `depth`).
+    * first line and every embedded `\n` get the prefix.
     */
   private def formatIndented(text: String): String =
-    val indent = depth.contentIndent
-    indent + text.replace("\n", "\n" + indent)
+    Text.indentBlock(currentIndent, text)
 
   private def paint(attr: fansi.Attrs, text: String): String =
     Ansi.paint(useColor, attr, text)
@@ -167,15 +155,9 @@ private[runner] object TerminalEventListener:
     */
   val MaxAssistantMessageLength: Int = 100
 
-/** Stack of active stage names, head = most-recently-started. `innermost`
-  * returns the deepest stage (most recently pushed); `None` means no stage is
-  * active.
-  *
-  * Not thread-safe on its own — accessed exclusively through
-  * [[TerminalEventListener]], which serialises with its own lock.
-  */
-private class StageStack:
-  private var stack: List[String] = Nil
-  def push(name: String): Unit = stack = name :: stack
-  def pop(): Unit = stack = stack.drop(1)
-  def innermost: Option[String] = stack.headOption
+  /** Cap for the raw-payload fallback in [[OrcaEvent.StructuredResult]] when no
+    * `Announce[O]` summary was provided (ADR 0008). Matches the 200-char budget
+    * `Flow`'s malformed-output snippet uses for the same kind of "show a
+    * bounded slice of raw agent output" fallback.
+    */
+  val MaxStructuredResultRawLength: Int = 200

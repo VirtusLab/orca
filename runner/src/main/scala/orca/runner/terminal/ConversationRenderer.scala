@@ -1,17 +1,21 @@
 package orca.runner.terminal
 
 import orca.OrcaInteractiveCancelled
-import orca.llm.BackendTag
+import orca.agents.BackendTag
 import orca.backend.{
   ApprovalDecision,
   Conversation,
   ConversationEvent,
-  LlmResult
+  AgentResult
 }
-import org.jline.reader.{LineReader, LineReaderBuilder, UserInterruptException}
-import org.jline.terminal.TerminalBuilder
-
-import scala.util.control.NonFatal
+import org.jline.reader.{
+  EndOfFileException,
+  LineReader,
+  LineReaderBuilder,
+  UserInterruptException
+}
+import org.jline.terminal.{Terminal, TerminalBuilder}
+import ox.Ox
 
 /** Renders a [[Conversation]] to the terminal. The layout aims for a
   * Claude-Code-like aesthetic: the user's opening prompt sits on its own
@@ -27,7 +31,7 @@ import scala.util.control.NonFatal
   * The renderer is constructed per conversation and lives on the caller (body)
   * thread — it's not shared. State (`textBuffer`, `currentSection`,
   * `pendingProseStyling`) doesn't escape this thread. Output writes are
-  * fire-and-forget tells; the suspend/resume pair around the approval prompt
+  * fire-and-forget tells; `output.prompt` around the approval/question prompts
   * keeps live event output from scribbling on top of `readLine`.
   *
   * Spacing is controlled by a small section state machine — consecutive tool
@@ -39,13 +43,15 @@ private[terminal] class ConversationRenderer(
     output: TerminalOutput,
     currentIndent: () => String,
     workDir: Option[os.Path] = None,
-    showThinking: Boolean = false,
     /** When non-empty the conversation is in structured-output mode — the
       * agent's final assistant text is the JSON payload the library will
       * deserialize and surface via `OrcaEvent.StructuredResult`. We swallow the
       * streamed text to avoid showing the raw JSON twice (once mid-stream as
-      * `●`, once via the structured-result event); the listener decides what to
-      * render based on whether an `Announce[O]` summary is available.
+      * `●`, once via the structured-result event). This drop is safe only
+      * because `TerminalEventListener`'s `StructuredResult` case (ADR 0008)
+      * guarantees a visible result either way: the `Announce[O]` summary as `▶`
+      * when available, otherwise the truncated raw payload as `●` — never
+      * silence.
       */
     structuredMode: Boolean = false,
     prompter: ConversationRenderer.Prompter = ConversationRenderer.JLinePrompter
@@ -77,15 +83,15 @@ private[terminal] class ConversationRenderer(
     */
   def render[B <: BackendTag](
       conversation: Conversation[B]
-  ): Either[OrcaInteractiveCancelled, LlmResult[B]] =
-    try
-      conversation.events.foreach(dispatch(_, conversation))
-      // A well-behaved backend ends each turn with AssistantTurnEnd,
-      // which already flushes; this is a safety net for sessions that
-      // close without one (e.g. cancellation mid-turn).
-      flushBufferedText()
-      conversation.awaitResult()
-    finally closePrompter()
+  )(using Ox): Either[OrcaInteractiveCancelled, AgentResult[B]] =
+    conversation.events.foreach(dispatch(_, conversation))
+    // The turn grammar (ForkedConversation auto-closes every completed turn)
+    // guarantees each turn ends with an AssistantTurnEnd that already flushed
+    // the buffer, so on the normal path this is a no-op. It only flushes for a
+    // turn the stream left open — abnormal termination (cancellation/crash
+    // mid-turn) the grammar permits; a safety net, not driver-slop compensation.
+    flushBufferedText()
+    conversation.awaitResult()
 
   private def dispatch[B <: BackendTag](
       event: ConversationEvent,
@@ -94,9 +100,12 @@ private[terminal] class ConversationRenderer(
     case ConversationEvent.UserMessage(text) => renderUserMessage(text)
     case ConversationEvent.AssistantTextDelta(text) =>
       bufferText(text, AssistantGlyph, AssistantGlyphStyle, AssistantTextStyle)
-    case ConversationEvent.AssistantThinkingDelta(text) =>
-      if showThinking then
-        bufferText(text, ThinkingGlyph, ThinkingStyle, ThinkingStyle)
+    case ConversationEvent.AssistantThinkingDelta(_) =>
+      // Deliberately dropped: there is no thinking-display toggle, and
+      // buffering thinking into the shared textBuffer/pendingProseStyling
+      // would mis-style the whole turn (whichever delta kind arrives first
+      // wins the styling for the rest of the buffered block).
+      ()
     case ConversationEvent.AssistantToolCall(name, input) =>
       renderToolCall(name, input)
     case ConversationEvent.ToolResult(_, ok, content) =>
@@ -113,7 +122,13 @@ private[terminal] class ConversationRenderer(
   private def renderUserMessage(text: String): Unit =
     enterSection(Section.Prose)
     val header = paint(UserHeaderStyle, s"$UserGlyph you")
-    val body = paint(UserBodyStyle, bulletIndent(text))
+    // One line, truncated — matching the autonomous path's `▸` prompt render;
+    // the initial message here is usually a full templated instruction, and
+    // dumping it would dominate the log.
+    val body = paint(
+      UserBodyStyle,
+      bulletIndent(Text.oneLine(text, MaxUserMessageLength))
+    )
     appendBlock(s"$header\n$body")
 
   private def bufferText(
@@ -182,8 +197,7 @@ private[terminal] class ConversationRenderer(
     * content stays aligned with the leading glyph.
     */
   private def appendBlock(s: String): Unit =
-    val indent = currentIndent()
-    output.log(indent + s.replace("\n", "\n" + indent))
+    output.log(Text.indentBlock(currentIndent(), s))
 
   // --- Prompts ---
 
@@ -199,18 +213,16 @@ private[terminal] class ConversationRenderer(
     appendBlock(
       paint(ApprovalStyle, s"$ApprovalGlyph $toolName requested: $summary")
     )
-    // Suspend the status (clears the spinner row, buffers concurrent log
-    // tells from other listeners) so the readline lands cleanly and live
-    // events can't scribble on top of the prompt. Drain happens on resume,
-    // in finally so the buffer empties even if `respond` throws.
-    output.suspend()
-    try
+    // `prompt` suspends the status (clears the spinner row, buffers
+    // concurrent log tells from other listeners) so the readline lands
+    // cleanly and live events can't scribble on top of the prompt, then
+    // drains/redraws on the way out — even if `respond` throws.
+    output.prompt: () =>
       prompter.ask(
         currentIndent() + paint(ApprovalStyle, "  [y]es / [n]o ? ")
       ) match
         case PromptOutcome.Answer(reply) => respond(decisionFor(reply))
         case PromptOutcome.Interrupted   => conversation.cancel()
-    finally output.resume()
 
   private def promptUserQuestion[B <: BackendTag](
       question: String,
@@ -222,14 +234,12 @@ private[terminal] class ConversationRenderer(
       paint(ApprovalStyle, s"$ApprovalGlyph ") +
         paint(AssistantTextStyle, question)
     )
-    output.suspend()
-    try
+    output.prompt: () =>
       prompter.ask(
         currentIndent() + paint(ApprovalStyle, "  > ")
       ) match
         case PromptOutcome.Answer(reply) => respond(reply)
         case PromptOutcome.Interrupted   => conversation.cancel()
-    finally output.resume()
 
   private def decisionFor(reply: String): ApprovalDecision =
     val normalised = reply.trim.toLowerCase
@@ -240,10 +250,6 @@ private[terminal] class ConversationRenderer(
       )
 
   // --- Helpers ---
-
-  private def closePrompter(): Unit =
-    try prompter.close()
-    catch case NonFatal(_) => ()
 
   /** Inset prose under a header glyph by 2 spaces. Operates on the raw text —
     * the outer stage-depth indent is added later by [[appendBlock]].
@@ -259,10 +265,13 @@ private[terminal] object ConversationRenderer:
   // Tool results are large file reads or command output; show just
   // enough for "something happened" without wrapping past one line.
   val MaxInlineContentLength: Int = 100
+  // The interactive session's user message is usually the full templated
+  // instruction; one truncated line identifies the turn (same budget the
+  // autonomous `▸` prompt line uses in TerminalEventListener).
+  val MaxUserMessageLength: Int = 100
 
   val UserGlyph: String = "▸"
   val AssistantGlyph: String = "●"
-  val ThinkingGlyph: String = "·"
   val ToolCallGlyph: String = "⏺"
   val ToolResultGlyph: String = "⎿"
   val ToolErrorGlyph: String = "✖"
@@ -274,7 +283,7 @@ private[terminal] object ConversationRenderer:
   // without the previous wash of cyan/blue. Tool calls move to
   // yellow-bold so the "the agent is doing something external"
   // signal stands out from the magenta-bold "primary content"
-  // signal. Secondary text (tool args, tool results, thinking) all
+  // signal. Secondary text (tool args, tool results) all
   // stays dark-gray. User prompts keep cyan as their distinctive
   // colour since they're rare and want to be visually anchored at
   // the top of an interactive session.
@@ -282,7 +291,6 @@ private[terminal] object ConversationRenderer:
   val UserBodyStyle: fansi.Attrs = fansi.Color.Cyan
   val AssistantGlyphStyle: fansi.Attrs = fansi.Color.Magenta ++ fansi.Bold.On
   val AssistantTextStyle: fansi.Attrs = fansi.Attrs.Empty
-  val ThinkingStyle: fansi.Attrs = fansi.Color.DarkGray
   val ToolNameStyle: fansi.Attrs = fansi.Color.Yellow ++ fansi.Bold.On
   val ToolArgsStyle: fansi.Attrs = fansi.Color.DarkGray
   val ToolResultStyle: fansi.Attrs = fansi.Color.DarkGray
@@ -310,20 +318,50 @@ private[terminal] object ConversationRenderer:
     */
   trait Prompter:
     def ask(prompt: String): PromptOutcome
-    def close(): Unit
+
+    /** Release any I/O resources the prompter acquired. Process-scoped: called
+      * once at interaction teardown, never per conversation. The default is a
+      * no-op — a prompter that never opens anything has nothing to release.
+      */
+    def close(): Unit = ()
 
   /** Default production prompter: JLine line reader. Lazy so the terminal is
     * only opened when an approval prompt actually fires — pure non-interactive
     * sessions never allocate a terminal.
+    *
+    * Limitation: this object is process-scoped and its lazy terminal cannot
+    * re-initialize after `close()` — a second `flow(...)` in the same JVM that
+    * fires a prompt is unsupported. Inject a custom [[Prompter]] for
+    * embedded/multi-run scenarios. (A resettable-holder fix is deferred; this
+    * note records the boundary.)
     */
   object JLinePrompter extends Prompter:
-    private lazy val terminal =
-      TerminalBuilder.builder().system(true).dumb(true).build()
+    // Guard so close() never forces the lazy terminal: pure non-interactive
+    // runs must never allocate one (that laziness is the object's whole
+    // point). `opened` records a SUCCESSFUL build — set only after `build()`
+    // returns, inside the lazy-init lock — so a failed build leaves nothing
+    // to close and a later close() won't re-run the failed initializer. Read
+    // from whatever thread calls close(); @volatile keeps that read correct.
+    @volatile private var opened = false
+    private lazy val terminal: Terminal =
+      val t = TerminalBuilder.builder().system(true).dumb(true).build()
+      opened = true
+      t
     private lazy val reader: LineReader =
       LineReaderBuilder.builder().terminal(terminal).build()
 
     def ask(prompt: String): PromptOutcome =
+      // Ctrl-C (UserInterrupt) and Ctrl-D / closed-stdin (EndOfFile — also hit
+      // by a headless run that reaches an ask-user prompt with no tty) both mean
+      // "the user isn't answering"; map both to the same graceful Interrupted
+      // outcome rather than letting EndOfFileException escape as an opaque,
+      // message-less stage failure. Not unit-tested: `reader` is a private lazy
+      // val bound to the real system terminal, with no seam to inject a throwing
+      // readLine — tests that need scripted outcomes stub the [[Prompter]] trait
+      // instead. The two catch arms are exercised only through the live CLI.
       try PromptOutcome.Answer(reader.readLine(prompt))
-      catch case _: UserInterruptException => PromptOutcome.Interrupted
+      catch
+        case _: (UserInterruptException | EndOfFileException) =>
+          PromptOutcome.Interrupted
 
-    def close(): Unit = terminal.close()
+    override def close(): Unit = if opened then terminal.close()

@@ -1,8 +1,16 @@
 package orca.tools.gemini
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
+import orca.agents.{
+  AutoApprove,
+  BackendTag,
+  AgentConfig,
+  Model,
+  SessionId,
+  WireSessionId
+}
 import orca.backend.SupervisedBackend
 import orca.subprocess.OsProcCliRunner
+import orca.testkit.TempDirs
 
 /** End-to-end tests against the real `gemini` CLI. Gated on the
   * `ORCA_INTEGRATION` environment variable so `sbt test` without the flag
@@ -23,15 +31,17 @@ class GeminiIntegrationTest extends munit.FunSuite:
     import scala.concurrent.duration.DurationInt
     3.minutes
 
-  private def withBackend(body: GeminiBackend => Unit): Unit =
-    SupervisedBackend.using(new GeminiBackend(OsProcCliRunner))(body)
+  private def withBackend(body: ox.Ox ?=> GeminiBackend => Unit): Unit =
+    SupervisedBackend.using(
+      new GeminiBackend(OsProcCliRunner, workDir = TempDirs.dir())
+    )(body)
 
   // A cheap, widely-available model; override via ORCA_GEMINI_MODEL.
   private val model: Model =
     Model(sys.env.getOrElse("ORCA_GEMINI_MODEL", "gemini-2.5-flash"))
 
-  private val unsandboxed: LlmConfig =
-    LlmConfig.default.copy(autoApprove = AutoApprove.All, model = Some(model))
+  private val unsandboxed: AgentConfig =
+    AgentConfig().copy(autoApprove = AutoApprove.All, model = Some(model))
 
   private def fresh = SessionId.fresh[BackendTag.Gemini.type]
 
@@ -41,31 +51,27 @@ class GeminiIntegrationTest extends munit.FunSuite:
         prompt =
           "Reply with the single word: READY. Reply with that word and nothing else.",
         session = fresh,
-        config = unsandboxed,
-        workDir = os.temp.dir()
+        config = unsandboxed
       )
       assert(
         result.output.toUpperCase.contains("READY"),
         s"expected output to contain READY, got: ${result.output}"
       )
-      assert(SessionId.value(result.sessionId).nonEmpty)
+      assert(WireSessionId.value(result.wireId).nonEmpty)
 
   test("a resumed call carries conversational context across turns"):
     withBackend: backend =>
-      val workDir = os.temp.dir()
       val session = fresh
       val _ = backend.runAutonomous(
         prompt = "Remember the number 42. Reply with the single word: stored.",
         session = session,
-        config = unsandboxed,
-        workDir = workDir
+        config = unsandboxed
       )
       val second = backend.runAutonomous(
         prompt =
           "What number did I ask you to remember? Reply with just the number.",
         session = session,
-        config = unsandboxed,
-        workDir = workDir
+        config = unsandboxed
       )
       assert(
         second.output.contains("42"),

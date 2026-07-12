@@ -9,9 +9,12 @@ import sttp.tapir.server.netty.sync.NettySyncServer
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
 /** Input shape of the `ask_user` MCP tool. The agent fills in `question`; we
-  * hand the typed answer back as the tool result.
+  * hand the typed answer back as the tool result. `private[mcp]` — only the
+  * handler in this file references it (the server's `ServerName`/`ToolSlug`/
+  * `ToolTimeout`/`Hint` stay `private[orca]` because the backends consult
+  * them).
   */
-private[orca] case class AskUserInput(question: String) derives Codec, Schema
+private[mcp] case class AskUserInput(question: String) derives Codec, Schema
 
 /** Boots a tiny MCP HTTP server exposing the `ask_user` tool. The handler
   * closes over an [[AskUserBridge]] — each tool invocation enqueues the
@@ -63,6 +66,9 @@ private[orca] object AskUserMcpServer:
     * `ask_user` fires while the user is still typing. Each consumer converts to
     * its native unit (claude wants ms, codex wants seconds, Netty wants
     * `FiniteDuration`).
+    *
+    * One of three renderings of this value across backends — claude JSON ms /
+    * codex TOML sec / gemini settings.json ms; keep in sync.
     */
   private[orca] val ToolTimeout: FiniteDuration = 1.hour
 

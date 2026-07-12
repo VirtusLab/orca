@@ -1,14 +1,18 @@
 package orca.plan
 
 import orca.events.EventDispatcher
-import orca.llm.ToolSet
+import orca.agents.ToolSet
 
 class AssessThenPlanTest extends munit.FunSuite:
+
+  // Planning helpers are now gated on `InStage`; mint the token for the suite.
+  private given orca.InStage = orca.InStage.unsafe
 
   private val samplePlan = Plan(
     epicId = "x",
     description = "d",
-    tasks = List(Task(Title("t1"), "body"))
+    tasks = List(Task(Title("t1"), "body")),
+    brief = "the brief"
   )
 
   test("toVerdict maps verdict=proceed + plan to Verdict.Proceed"):
@@ -68,12 +72,10 @@ class AssessThenPlanTest extends munit.FunSuite:
       rejectKind = Some("rebuff"),
       rejectBody = Some("duplicate of #42")
     )
-    val result = Plan.autonomous.assessThenPlan(
-      "the report",
-      new CannedResultLlm(assessed)
-    )
-    // The verdict is carried alongside the session that produced it.
-    assertEquals(result.sessionId.value, "stub-sid")
+    val agent = new CannedResultAgent(assessed)
+    val result = Plan.autonomous.assessThenPlan("the report", agent)
+    // The verdict is carried alongside the conversation that produced it.
+    assertEquals(Some(result.chat.id), agent.lastSession)
     assertEquals(
       result.value,
       Verdict.Rejection(Verdict.RejectionKind.Rebuff, "duplicate of #42")
@@ -81,7 +83,7 @@ class AssessThenPlanTest extends munit.FunSuite:
 
   test("Plan.autonomous planner runs NetworkOnly (reads + read-only network)"):
     given orca.FlowContext = new orca.TestFlowContext(new EventDispatcher(Nil))
-    val stub = new CannedResultLlm(
+    val stub = new CannedResultAgent(
       AssessedPlan("proceed", Some(samplePlan), None, None)
     )
     val _ = Plan.autonomous.assessThenPlan("the report", stub)
@@ -95,6 +97,6 @@ class AssessThenPlanTest extends munit.FunSuite:
     val ex = intercept[orca.OrcaFlowException]:
       Plan.autonomous.assessThenPlan(
         "the report",
-        new CannedResultLlm(malformed)
+        new CannedResultAgent(malformed)
       )
     assert(ex.getMessage.contains("no plan"), ex.getMessage)

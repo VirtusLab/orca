@@ -2,7 +2,7 @@ package orca
 
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
 class EventDispatcherTest extends munit.FunSuite:
 
@@ -40,10 +40,28 @@ class EventDispatcherTest extends munit.FunSuite:
   test("dispatch with no listeners is a no-op"):
     new EventDispatcher(Nil).onEvent(OrcaEvent.StageStarted("x"))
 
-  test("a throwing listener propagates and stops later listeners from running"):
-    val after = new RecordingListener
-    val throwing: OrcaListener = _ => throw new RuntimeException("boom")
-    val dispatcher = new EventDispatcher(List(throwing, after))
-    val _ = intercept[RuntimeException]:
-      dispatcher.onEvent(OrcaEvent.StageStarted("x"))
-    assertEquals(after.events, Nil)
+  // The announcement is gated on `quarantined.add(l)` returning true, so that
+  // under concurrent emitters two threads racing to quarantine the same first
+  // failure still announce exactly once (whichever `add` loses stays silent).
+  // That race is inherently non-deterministic under the JMM and isn't given a
+  // dedicated test here; this sequential test instead pins the property the
+  // gate preserves — a single failure quarantines and announces exactly once.
+  test(
+    "a throwing listener is quarantined: announced once, skipped afterwards"
+  ):
+    val badCalls = new AtomicInteger(0)
+    val bad = new OrcaListener:
+      def onEvent(event: OrcaEvent): Unit =
+        badCalls.incrementAndGet(); throw new RuntimeException("boom")
+    val received = List.newBuilder[String]
+    val good = new OrcaListener:
+      def onEvent(event: OrcaEvent): Unit = received += "good"
+    val dispatcher = new EventDispatcher(List(bad, good))
+    dispatcher.onEvent(OrcaEvent.Step("1"))
+    dispatcher.onEvent(OrcaEvent.Step("2"))
+    assertEquals(badCalls.get(), 1, "quarantined after the first failure")
+    assertEquals(
+      received.result(),
+      List("good", "good"),
+      "healthy listeners unaffected"
+    )

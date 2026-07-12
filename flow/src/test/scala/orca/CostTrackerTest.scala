@@ -8,7 +8,7 @@ import orca.events.{
   PriceList,
   Usage
 }
-import orca.llm.Model
+import orca.agents.Model
 
 import java.time.LocalDate
 
@@ -17,9 +17,10 @@ class CostTrackerTest extends munit.FunSuite:
   private def tokens(
       agent: String,
       model: Option[String],
-      u: Usage
+      u: Usage,
+      role: Option[String] = None
   ): OrcaEvent.TokensUsed =
-    OrcaEvent.TokensUsed(agent, model.map(Model.apply), u)
+    OrcaEvent.TokensUsed(agent, model.map(Model.apply), u, role)
 
   // Tiny price list so token math gives round dollar figures: a model at
   // $1/M input means 1,000,000 input tokens = $1. `cachedInputUsdPerMillion`
@@ -46,7 +47,7 @@ class CostTrackerTest extends munit.FunSuite:
     tracker.onEvent(tokens("performance", Some("haiku"), Usage(30L, 20L, None)))
     assertEquals(tracker.total, Usage(130L, 70L, None))
 
-  test("perAgent groups by LlmTool name"):
+  test("perAgent groups by Agent name"):
     val tracker = new CostTracker
     tracker.onEvent(tokens("claude", Some("opus"), Usage(10L, 5L, None)))
     tracker.onEvent(tokens("performance", Some("opus"), Usage(20L, 15L, None)))
@@ -136,6 +137,23 @@ class CostTrackerTest extends munit.FunSuite:
     assertEquals(c.estimated, true)
     assertEquals(c.amount, BigDecimal("1.0"))
 
+  test(
+    "price-table lookup does NOT fall back across a non-date model-tier suffix"
+  ):
+    // 12.5: "opus-mini" is a different (and differently-priced) model tier
+    // from "opus", not a dated snapshot of it — unlike "opus-20251015" above,
+    // the prefix fallback must not cross tiers just because one name prefixes
+    // the other. Mirrors the real-world gemini-2.5-flash / -flash-lite risk.
+    val tracker = new CostTracker(pricing = testTable)
+    tracker.onEvent(
+      tokens("claude", Some("opus-mini"), Usage(1_000_000L, 0L, None))
+    )
+    assert(
+      tracker.perAgentCost.get("claude").isEmpty,
+      s"expected no cost estimate for an unrelated tier; got: ${tracker.perAgentCost
+          .get("claude")}"
+    )
+
   test("mixed reported + estimated rolls up to an estimated aggregate"):
     val tracker = new CostTracker(pricing = testTable)
     tracker.onEvent(
@@ -166,6 +184,48 @@ class CostTrackerTest extends munit.FunSuite:
     assert(out.contains("Estimated total: $1.1000"), out)
     assert(!out.contains("Estimated total: $1.1000*"), out)
 
+  test("summary lists By agent lines alphabetically by their rendered label"):
+    // Sorting on the raw agent name would slot an unprefixed agent between
+    // role-prefixed ones (`reviewer: lint` < main < `reviewer: readability`
+    // by name); the reader sees labels, so labels drive the order.
+    val tracker = new CostTracker(pricing = testTable)
+    tracker.onEvent(
+      tokens("lint", Some("opus"), Usage(1L, 1L, None), role = Some("reviewer"))
+    )
+    tracker.onEvent(tokens("main", Some("opus"), Usage(1L, 1L, None)))
+    tracker.onEvent(
+      tokens(
+        "readability",
+        Some("opus"),
+        Usage(1L, 1L, None),
+        role = Some("reviewer")
+      )
+    )
+    val out = tracker.summary
+    val labels = List("main", "reviewer: lint", "reviewer: readability")
+      .map(l => l -> out.indexOf(s"  $l:"))
+    labels.foreach((l, i) => assert(i >= 0, s"missing agent line $l:\n$out"))
+    assertEquals(
+      labels.map(_._1),
+      labels.sortBy(_._2).map(_._1),
+      s"agent lines must be alphabetical by label; got:\n$out"
+    )
+
+  test("summary lists By model lines alphabetically by model label"):
+    val tracker = new CostTracker(pricing = testTable)
+    tracker.onEvent(tokens("a", Some("opus"), Usage(1L, 1L, None)))
+    tracker.onEvent(tokens("b", Some("haiku"), Usage(1L, 1L, None)))
+    tracker.onEvent(tokens("c", None, Usage(1L, 1L, None)))
+    val out = tracker.summary
+    val labels = List("(unknown)", "haiku", "opus")
+      .map(l => l -> out.indexOf(s"  $l:"))
+    labels.foreach((l, i) => assert(i >= 0, s"missing model line $l:\n$out"))
+    assertEquals(
+      labels.map(_._1),
+      labels.sortBy(_._2).map(_._1),
+      s"model lines must be alphabetical; got:\n$out"
+    )
+
   test("summary's estimate legend cites the price-list lastUpdated date"):
     val tracker = new CostTracker(pricing = testTable)
     tracker.onEvent(
@@ -182,6 +242,64 @@ class CostTrackerTest extends munit.FunSuite:
     assert(!out.contains("*"), out)
     assert(!out.contains("estimated"), out)
     assert(out.contains("Total: $0.1000"), out)
+
+  test("perRole subtotals usage by role, with None as the untagged bucket"):
+    val tracker = new CostTracker(pricing = testTable)
+    tracker.onEvent(
+      tokens(
+        "performance",
+        Some("opus"),
+        Usage(10L, 5L, None),
+        role = Some("reviewer")
+      )
+    )
+    tracker.onEvent(
+      tokens(
+        "security",
+        Some("opus"),
+        Usage(20L, 5L, None),
+        role = Some("reviewer")
+      )
+    )
+    tracker.onEvent(tokens("claude", Some("opus"), Usage(100L, 50L, None)))
+    assertEquals(
+      tracker.perRole(Some("reviewer")),
+      Usage(30L, 10L, None)
+    )
+    assertEquals(tracker.perRole(None), Usage(100L, 50L, None))
+
+  test(
+    "summary derives a display-only role prefix per agent and adds a By role subtotal section"
+  ):
+    // 12.7: the old "reviewer: <slug>" string was baked into the agent's
+    // identity/name; now `agent` stays bare and the summary derives the same
+    // display text purely from `role`, plus a "By role:" subtotal section.
+    val tracker = new CostTracker(pricing = testTable)
+    tracker.onEvent(
+      tokens(
+        "performance",
+        Some("opus"),
+        Usage(10L, 5L, None),
+        role = Some("reviewer")
+      )
+    )
+    tracker.onEvent(tokens("claude", Some("opus"), Usage(100L, 50L, None)))
+    val out = tracker.summary
+    assert(
+      out.contains("reviewer: performance:"),
+      s"expected a role-derived display prefix; got: $out"
+    )
+    assert(
+      out.contains("  claude:"),
+      s"claude's line must stay bare; got: $out"
+    )
+    assert(out.contains("By role:"), out)
+    assert(out.contains("  reviewer:"), out)
+
+  test("summary omits the By role section when no event carried a role"):
+    val tracker = new CostTracker(pricing = testTable)
+    tracker.onEvent(tokens("claude", Some("opus"), Usage(10L, 5L, None)))
+    assert(!tracker.summary.contains("By role:"), tracker.summary)
 
   test("summary is empty when nothing has been recorded"):
     assertEquals(new CostTracker().summary, "")

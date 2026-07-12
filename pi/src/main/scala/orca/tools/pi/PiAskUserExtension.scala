@@ -30,41 +30,14 @@ private[pi] object PiAskUserExtension:
   def allocate(): PiAskUserExtension =
     val dir = os.temp.dir(prefix = "orca-pi-ask-user-", deleteOnExit = true)
     val file = dir / "ask-user.ts"
-    os.write(file, Source)
+    os.write(file, loadSource().replace("__TOOL_NAME__", ToolName))
     new PiAskUserExtension(dir, file)
 
-  private val Source: String =
-    s"""
-       |export default function(pi) {
-       |  pi.registerTool({
-       |    name: "$ToolName",
-       |    label: "Ask User",
-       |    description: "Ask the human user one concise clarifying question and wait for their answer.",
-       |    promptSnippet: "Ask the user a clarifying question when necessary",
-       |    promptGuidelines: [
-       |      "Use $ToolName only when a human answer is required to proceed.",
-       |      "Ask exactly one concise, actionable question.",
-       |      "Do not use $ToolName for information you can infer or inspect yourself."
-       |    ],
-       |    parameters: {
-       |      type: "object",
-       |      properties: {
-       |        question: {
-       |          type: "string",
-       |          description: "The concise question to ask the human user."
-       |        }
-       |      },
-       |      required: ["question"],
-       |      additionalProperties: false
-       |    },
-       |    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-       |      const answer = await ctx.ui.input(params.question);
-       |      const text = answer ?? "";
-       |      return {
-       |        content: [{ type: "text", text }],
-       |        details: { answer: text }
-       |      };
-       |    }
-       |  });
-       |}
-       |""".stripMargin
+  private def loadSource(): String =
+    val stream = getClass.getResourceAsStream("/orca/tools/pi/ask-user.ts")
+    require(
+      stream != null,
+      "ask-user.ts resource missing from the pi module jar"
+    )
+    try String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
+    finally stream.close()

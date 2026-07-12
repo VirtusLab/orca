@@ -21,7 +21,7 @@ private[orca] case class AskUserSession(
     bridge: AskUserBridge,
     server: AskUserMcpServer,
     extras: List[AutoCloseable]
-):
+) extends AutoCloseable:
   import AskUserSession.swallow
 
   def close(): Unit =

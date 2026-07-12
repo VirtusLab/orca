@@ -1,9 +1,8 @@
 package orca.tools
 
-import orca.OrcaFlowException
+import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.subprocess.QuietProc
-import ox.either.orThrow
 
 import scala.util.control.NonFatal
 
@@ -50,12 +49,29 @@ class NothingToCommit
     extends OrcaFlowException("nothing to commit; working tree is clean")
 
 /** Returned in the `Left` of [[GitTool.push]] when the remote rejected the push
-  * as non-fast-forward (the branch moved on the remote). The caller can recover
-  * by fetching and rebasing. Other push failures (auth, network) remain thrown
-  * — they aren't locally recoverable.
+  * for a reason the caller might recover from. Two shapes, with different
+  * recovery contracts:
+  *
+  *   - [[PushFailure.NonFastForward]]: the remote branch moved on since the
+  *     local history was based (`non-fast-forward` / `fetch first`). The caller
+  *     can recover by fetching and rebasing.
+  *   - [[PushFailure.RemoteDeclined]]: the remote refused the push by policy —
+  *     a server-side hook, branch protection, or a required review (e.g.
+  *     GitHub's `GH006`) — not by history divergence. Fetching and rebasing
+  *     will not help; retrying the same push will fail the same way.
+  *
+  * Other push failures (auth, network, bad refspec) aren't locally recoverable
+  * and remain thrown as `OrcaFlowException`.
   */
-class PushRejected(reason: String)
-    extends OrcaFlowException(s"push rejected: $reason")
+sealed abstract class PushFailure(message: String)
+    extends OrcaFlowException(message)
+
+object PushFailure:
+  final class NonFastForward(reason: String)
+      extends PushFailure(s"push rejected (non-fast-forward): $reason")
+
+  final class RemoteDeclined(reason: String)
+      extends PushFailure(s"push declined by remote: $reason")
 
 /** Returned in the `Left` of [[GitTool.addWorktree]] when the target `path` is
   * already a worktree, or the `branch` is checked out in another worktree.
@@ -80,35 +96,70 @@ trait GitTool:
     * the working tree is unchanged in that case. Throws `OrcaFlowException` for
     * system-level failures (git binary, IO).
     */
-  def createBranch(name: String): Either[BranchAlreadyExists, Unit]
+  def createBranch(name: String)(using
+      WorkspaceWrite
+  ): Either[BranchAlreadyExists, Unit]
 
   /** Switch to an existing branch `name` (`git checkout`). Returns
     * `Left(BranchNotFound)` when no such branch exists — the working tree is
     * unchanged. Throws `OrcaFlowException` for system-level failures.
     */
-  def checkout(name: String): Either[BranchNotFound, Unit]
-
-  /** Switch to `name`, creating it from `HEAD` if it doesn't exist yet.
-    * Idempotent: calling on the current branch is a no-op (no `Step` event
-    * emitted in that case). Useful for resumable flows that may run against a
-    * repo where the branch was already created on a previous attempt.
-    */
-  def checkoutOrCreate(name: String): Unit
+  def checkout(name: String)(using WorkspaceWrite): Either[BranchNotFound, Unit]
 
   /** Stage all tracked + untracked changes, then commit them with `message`.
     * Flow scripts rarely want to manage the index separately, so staging is
     * part of the commit contract. Returns `Left(NothingToCommit)` when the tree
     * is already clean.
     */
-  def commit(message: String): Either[NothingToCommit, Unit]
+  def commit(message: String)(using
+      WorkspaceWrite
+  ): Either[NothingToCommit, Unit]
+
+  /** Force-stage `path` (`git add -f`), bypassing `.gitignore`. The stage
+    * runtime uses this to stage its progress-log file even when the project
+    * gitignores `.orca/`, so the log travels with the branch (ADR 0018 §2.1).
+    * Always a single explicit path — never a glob or directory — so nothing
+    * else gitignored is swept in.
+    */
+  def forceAdd(path: os.Path)(using WorkspaceWrite): Unit
 
   /** Push the current branch, setting upstream on first push. Returns
-    * `Left(PushRejected)` when the remote rejected as non-fast-forward (caller
-    * can fetch + rebase). Other failures (auth, network) throw.
+    * `Left(PushFailure)` when the remote rejected the push for a reason the
+    * caller might recover from — see [[PushFailure]] for the two shapes and
+    * their differing recovery contracts. Other failures (auth, network) throw.
     */
-  def push(): Either[PushRejected, Unit]
+  def push()(using WorkspaceWrite): Either[PushFailure, Unit]
 
   def currentBranch(): String
+
+  /** Best-effort name of the repository's default branch, read from the
+    * remote's recorded `origin/HEAD` (`refs/remotes/origin/HEAD` →
+    * `origin/<name>` → `<name>`). READ-ONLY; no [[WorkspaceWrite]] needed.
+    * Returns `None` when there is no remote, `origin/HEAD` is unset, or any
+    * error occurs — callers treat that as "no extra protected branch beyond
+    * main/master" (ADR 0018).
+    */
+  def defaultBranch(): Option[String]
+
+  /** Discard all uncommitted changes, resetting the working tree and index to
+    * `HEAD` (`git reset --hard`). Used by the flow failure teardown to drop a
+    * failed stage's partial edits while keeping the committed history (and the
+    * committed progress log) intact, so a re-run resumes cleanly (ADR 0018
+    * §2.5).
+    *
+    * '''`reset --hard` does NOT remove untracked files''' — only tracked
+    * changes (modified/staged/deleted) are discarded. A failed stage's *new*
+    * files (the typical shape of agent output: freshly created source/test
+    * files) survive this call and remain in the working tree. They aren't lost
+    * — the next `flow(...)` invocation's start-of-run `ensureClean` stashes the
+    * dirty tree (`git stash push -u`, which does sweep untracked paths), so the
+    * leftovers end up co-mingled into that stash alongside any genuine user
+    * WIP, rather than discarded outright. If leftovers should instead be
+    * deleted at teardown, that needs a scoped clean of run-touched paths (not
+    * blanket `git clean -fd`, which would also delete pre-existing untracked
+    * user files) — an intentionally separate decision, not made by this method.
+    */
+  def resetHard()(using WorkspaceWrite): Unit
 
   /** All changes since the last commit (staged and unstaged). */
   def diff(): String
@@ -146,10 +197,15 @@ trait GitTool:
     * known-clean starting state without silently destroying the user's
     * work-in-progress.
     *
+    * The stash-recovery hint rides on the `Step` reaching the run's dispatcher
+    * — a custom `GitTool` (e.g. via [[orca.flow]]'s `git` override) built
+    * without wiring in the run's listener loses this hint, and the user never
+    * learns to `git stash pop`.
+    *
     * Returns `true` if a stash was created, `false` if the tree was already
     * clean.
     */
-  def ensureClean(stashMessage: String): Boolean
+  def ensureClean(stashMessage: String)(using WorkspaceWrite): Boolean
 
   /** Create a linked worktree at `path` on `branch`. If the branch already
     * exists it is checked out in the new worktree; otherwise it is created from
@@ -161,18 +217,36 @@ trait GitTool:
   def addWorktree(
       path: os.Path,
       branch: String
-  ): Either[WorktreeAddFailed, Worktree]
+  )(using WorkspaceWrite): Either[WorktreeAddFailed, Worktree]
 
   /** Remove the linked worktree rooted at `path`, also deleting the working
     * directory. Returns `Left(WorktreeNotFound)` when no worktree is registered
     * at that path.
     */
-  def removeWorktree(path: os.Path): Either[WorktreeNotFound, Unit]
+  def removeWorktree(path: os.Path)(using
+      WorkspaceWrite
+  ): Either[WorktreeNotFound, Unit]
 
   /** All linked worktrees attached to the repository, including the main one.
     * Detached-HEAD worktrees (no branch) are skipped.
     */
   def listWorktrees(): List[Worktree]
+
+  /** Force-delete a local branch (`git branch -D <name>`). Best-effort — does
+    * not throw; failures are silently swallowed so callers can use this in
+    * teardown without risking an error cascade. Never deletes the current
+    * branch.
+    */
+  def deleteBranch(name: String)(using WorkspaceWrite): Unit
+
+  /** Diff of `featureBranch` vs `startBranch`, excluding the `.orca/`
+    * directory. Used by the throwaway-branch check: an empty result means the
+    * feature branch has no substantive changes beyond orca bookkeeping.
+    */
+  def diffBranchExcludingOrca(
+      startBranch: String,
+      featureBranch: String
+  ): String
 
 /** `GitTool` implementation that shells out to the `git` CLI via os-lib.
   * Contract semantics (commit auto-staging, push upstream setup, diff vs HEAD,
@@ -189,31 +263,28 @@ private[orca] class OsGitTool(
     events: OrcaListener = OrcaListener.noop
 ) extends GitTool:
 
-  def createBranch(name: String): Either[BranchAlreadyExists, Unit] =
+  def createBranch(name: String)(using
+      WorkspaceWrite
+  ): Either[BranchAlreadyExists, Unit] =
     if branchExists(name) then Left(new BranchAlreadyExists(name))
     else
       val _ = git("checkout", "-b", name)
       events.onEvent(OrcaEvent.Step(s"Switched to a new branch '$name'"))
       Right(())
 
-  def checkout(name: String): Either[BranchNotFound, Unit] =
+  def checkout(
+      name: String
+  )(using WorkspaceWrite): Either[BranchNotFound, Unit] =
     if !branchExists(name) then Left(new BranchNotFound(name))
     else
       val _ = git("checkout", name)
       events.onEvent(OrcaEvent.Step(s"Switched to branch '$name'"))
       Right(())
 
-  def checkoutOrCreate(name: String): Unit =
-    if currentBranch() == name then
-      // Already on the target — no work to do, no event to emit.
-      ()
-    else if branchExists(name) then checkout(name).orThrow
-    else createBranch(name).orThrow
-
   private def branchExists(name: String): Boolean =
     git("branch", "--list", name).trim.nonEmpty
 
-  def ensureClean(stashMessage: String): Boolean =
+  def ensureClean(stashMessage: String)(using WorkspaceWrite): Boolean =
     val dirty = git("status", "--porcelain").trim.nonEmpty
     if dirty then
       val _ = git("stash", "push", "-u", "-m", stashMessage)
@@ -225,7 +296,9 @@ private[orca] class OsGitTool(
       true
     else false
 
-  def commit(message: String): Either[NothingToCommit, Unit] =
+  def commit(message: String)(using
+      WorkspaceWrite
+  ): Either[NothingToCommit, Unit] =
     val _ = gitWithDiagnostics("add", "-A")
     // `git status --porcelain` after staging is the cheapest "are there
     // changes?" check that doesn't depend on parsing localised git output.
@@ -234,6 +307,9 @@ private[orca] class OsGitTool(
       val _ = gitWithDiagnostics("commit", "-m", message)
       events.onEvent(OrcaEvent.Step(s"Committed: $message"))
       Right(())
+
+  def forceAdd(path: os.Path)(using WorkspaceWrite): Unit =
+    val _ = git("add", "-f", path.toString)
 
   /** Like [[git]] but on non-zero exit throws an `OrcaFlowException` enriched
     * with a `git status --porcelain` + `git fsck --no-progress` snapshot. Used
@@ -268,13 +344,14 @@ private[orca] class OsGitTool(
       fsck = tryRun("fsck", "--no-progress")
     )
 
-  def push(): Either[PushRejected, Unit] =
+  def push()(using WorkspaceWrite): Either[PushFailure, Unit] =
     // `-u origin HEAD` sets upstream on first push and is a no-op afterwards.
     // We need to inspect stderr on failure to distinguish the recoverable
-    // "non-fast-forward" case from auth/network errors, so use `gitProc`
-    // (which returns the result) rather than `git` (which throws on non-zero).
-    // For a github remote `pushArgs` appends a last-resort credential helper so
-    // the push authenticates even when git has none configured (see its doc).
+    // cases (non-fast-forward, remote-declined) from auth/network errors, so
+    // use `gitProc` (which returns the result) rather than `git` (which
+    // throws on non-zero). For a github remote `pushArgs` appends a
+    // last-resort credential helper so the push authenticates even when git
+    // has none configured (see its doc).
     val originUrl = gitConfigGet("remote.origin.url")
     val envToken = sys.env
       .get("GH_TOKEN")
@@ -286,15 +363,39 @@ private[orca] class OsGitTool(
       Right(())
     else
       val stderr = result.err.text()
-      if stderr.contains("non-fast-forward") || stderr.contains("rejected") then
-        Left(new PushRejected(stderr.trim))
-      else
-        throw OrcaFlowException(
-          s"git push failed (exit ${result.exitCode}): $stderr"
-        )
+      // Checked in this order — non-fast-forward before remote-declined —
+      // but the order isn't load-bearing: `push()` targets a single ref per
+      // call, so its stderr carries at most one rejection reason (history
+      // divergence vs. a policy decline are mutually exclusive causes for
+      // the same ref), making a stderr that matches both patterns an
+      // unrealistic shape in practice, not a real ambiguity this ordering
+      // resolves.
+      if OsGitTool.isNonFastForward(stderr) then
+        Left(new PushFailure.NonFastForward(stderr.trim))
+      else if OsGitTool.isRemoteDeclined(stderr) then
+        Left(new PushFailure.RemoteDeclined(stderr.trim))
+      else fail("git push", result)
 
   def currentBranch(): String =
     git("rev-parse", "--abbrev-ref", "HEAD").trim
+
+  def defaultBranch(): Option[String] =
+    try
+      val result = gitProc(
+        Seq("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+      )
+      if result.exitCode == 0 then
+        // Output is the short ref, e.g. "origin/main"; strip the remote prefix
+        // to get the bare branch name callers compare against.
+        Some(result.out.text().trim.stripPrefix("origin/")).filter(_.nonEmpty)
+      else None
+    catch case NonFatal(_) => None
+
+  def resetHard()(using WorkspaceWrite): Unit =
+    val _ = git("reset", "--hard")
+    events.onEvent(
+      OrcaEvent.Step("Discarded uncommitted changes (reset --hard)")
+    )
 
   def diff(): String =
     // vs HEAD: show both staged and unstaged changes since the last commit.
@@ -353,7 +454,7 @@ private[orca] class OsGitTool(
   def addWorktree(
       path: os.Path,
       branch: String
-  ): Either[WorktreeAddFailed, Worktree] =
+  )(using WorkspaceWrite): Either[WorktreeAddFailed, Worktree] =
     // Check out existing branch if it already exists; otherwise branch off
     // HEAD. `git branch --list <name>` prints the branch when it exists,
     // empty when not.
@@ -368,17 +469,13 @@ private[orca] class OsGitTool(
       Right(Worktree(path, branch))
     else
       val stderr = result.err.text().trim
-      // git surfaces both expected cases ("already exists", "is already
-      // checked out") via stderr. Anything else is a system-level failure.
-      if stderr.contains("already exists") ||
-        stderr.contains("already checked out")
-      then Left(new WorktreeAddFailed(path, stderr))
-      else
-        throw OrcaFlowException(
-          s"git worktree add failed (exit ${result.exitCode}): $stderr"
-        )
+      if OsGitTool.isWorktreeAlreadyPresent(stderr) then
+        Left(new WorktreeAddFailed(path, stderr))
+      else fail("git worktree add", result)
 
-  def removeWorktree(path: os.Path): Either[WorktreeNotFound, Unit] =
+  def removeWorktree(
+      path: os.Path
+  )(using WorkspaceWrite): Either[WorktreeNotFound, Unit] =
     if !listWorktrees().exists(w => samePath(w.path, path)) then
       Left(new WorktreeNotFound(path))
     else
@@ -388,6 +485,25 @@ private[orca] class OsGitTool(
 
   def listWorktrees(): List[Worktree] =
     OsGitTool.parseWorktreeList(git("worktree", "list", "--porcelain"))
+
+  def deleteBranch(name: String)(using WorkspaceWrite): Unit =
+    // Best-effort: swallow all failures so teardown is never blocked by a
+    // cosmetic cleanup step. Never attempt to delete the current branch.
+    try
+      if currentBranch() != name then
+        val result = gitProc(Seq("git", "branch", "-D", name))
+        if result.exitCode == 0 then
+          events.onEvent(OrcaEvent.Step(s"Deleted branch '$name'"))
+    catch case NonFatal(_) => ()
+
+  def diffBranchExcludingOrca(
+      startBranch: String,
+      featureBranch: String
+  ): String =
+    // Two-dot diff (direct) to see all changes the feature branch has vs the
+    // start branch. Pathspec `:(exclude).orca/*` strips the orca bookkeeping
+    // directory so only substantive code changes appear in the result.
+    git("diff", s"$startBranch..$featureBranch", "--", ".", ":(exclude).orca/*")
 
   private def samePath(left: os.Path, right: os.Path): Boolean =
     def normalised(path: os.Path): java.nio.file.Path =
@@ -401,6 +517,15 @@ private[orca] class OsGitTool(
     */
   private def gitProc(args: Seq[String]): os.CommandResult =
     QuietProc.call(args, cwd = workDir, env = OsGitTool.nonInteractiveEnv)
+
+  /** Abort with a uniform `"<label> failed (exit N): <stderr>"` message for an
+    * unrecoverable git failure. Callers handle the EXPECTED non-zero exits
+    * (rejected push, "already exists") as `Left`s before reaching here.
+    */
+  private def fail(label: String, result: os.CommandResult): Nothing =
+    throw OrcaFlowException(
+      s"$label failed (exit ${result.exitCode}): ${result.err.text().trim}"
+    )
 
   /** Read a single git config value (`git config --get`), `None` when unset. */
   private def gitConfigGet(key: String): Option[String] =
@@ -416,13 +541,46 @@ private[orca] class OsGitTool(
     // the event log via the OrcaEvent.Step calls in the public methods
     // above; we don't need git's verbose stderr for that.
     val result = gitProc("git" +: args)
-    if result.exitCode != 0 then
-      throw OrcaFlowException(
-        s"git ${args.mkString(" ")} failed (exit ${result.exitCode}): ${result.err.text()}"
-      )
+    if result.exitCode != 0 then fail(s"git ${args.mkString(" ")}", result)
     result.out.text()
 
 private[orca] object OsGitTool:
+
+  // --- Recoverable-failure stderr predicates ---
+  //
+  // git exits non-zero with a uniform code for many distinct failures, so the
+  // ONLY way to split a recoverable case (caller gets a `Left`) from a system
+  // failure (we throw) is to match git's human-readable stderr. These strings
+  // are git porcelain, not a stable contract, so the matchers are centralised
+  // here — named, documented, and unit-tested — rather than inlined at the call
+  // sites, so the fragile coupling lives in one place. Each is intentionally
+  // lenient (substring, any matching phrase) so a wording tweak across git
+  // versions doesn't silently reclassify a recoverable failure as fatal.
+
+  /** True when `git push` stderr indicates the remote branch moved on since the
+    * local history was based (`non-fast-forward` / `fetch first`) — the caller
+    * can resolve this by fetching and rebasing. Distinguished from
+    * [[isRemoteDeclined]], where rebasing would not help.
+    */
+  private[tools] def isNonFastForward(stderr: String): Boolean =
+    stderr.contains("non-fast-forward") || stderr.contains("fetch first")
+
+  /** True when `git push` stderr indicates the remote refused the push by
+    * policy — a server-side hook, branch protection, or a required review (e.g.
+    * GitHub's `GH006`) — rather than by history divergence. Fetching and
+    * rebasing will not make this push succeed.
+    */
+  private[tools] def isRemoteDeclined(stderr: String): Boolean =
+    stderr.contains("hook declined") ||
+      stderr.contains("GH006") ||
+      stderr.contains("protected branch")
+
+  /** True when `git worktree add` stderr indicates the target path or branch is
+    * already a worktree (`… already exists` / `… is already checked out`) — the
+    * recoverable case. Anything else is a system failure.
+    */
+  private[tools] def isWorktreeAlreadyPresent(stderr: String): Boolean =
+    stderr.contains("already exists") || stderr.contains("already checked out")
 
   /** Environment that forces git — and any ssh it spawns — to run
     * non-interactively. A flow subprocess has no usable TTY, so an HTTPS

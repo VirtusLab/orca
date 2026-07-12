@@ -19,6 +19,8 @@ object PlanPrompts:
   /** Used by `Plan.interactive.*` and `Plan.autonomous.*` to brief the planner
     * agent. Without the opening clause agents tend to start editing files
     * during the planning turn — the implementation is the implementer's job.
+    * Also asks the planner to fill the `brief` field of its structured output
+    * with a codebase briefing for the implementing agents.
     */
   val Planning: String =
     PromptResource.load("/orca/plan/prompts/planning.md")
@@ -38,15 +40,8 @@ object PlanPrompts:
   val Triage: String =
     PromptResource.load("/orca/plan/prompts/triage.md")
 
-  /** Used by `Sessioned[B, Plan].reviewed` / `Sessioned[B, PlanWithBrief]
-    * .reviewed`. The current plan is appended after this block; the agent
-    * returns an improved plan (and refines the brief when one is present).
+  /** Used by `Sessioned[B, Plan].reviewed`. The current plan is appended after
+    * this block; the agent returns an improved plan, brief included.
     */
   val Review: String =
     PromptResource.load("/orca/plan/prompts/review.md")
-
-  /** Used by `Sessioned[B, Plan].briefed`. Asks the planner to write a codebase
-    * briefing for the implementing agents, without restating the plan.
-    */
-  val Brief: String =
-    PromptResource.load("/orca/plan/prompts/brief.md")

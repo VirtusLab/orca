@@ -4,6 +4,7 @@ import ox.{Ox, forever, forkDiscard, sleep}
 import ox.channels.{Actor, ActorRef, BufferCapacity}
 
 import java.io.PrintStream
+import java.util.concurrent.Semaphore
 import scala.collection.immutable.Queue
 import scala.concurrent.duration.DurationLong
 import scala.util.control.NonFatal
@@ -21,12 +22,17 @@ import scala.util.control.NonFatal
   * Tests can instantiate [[TerminalOutputState]] directly — it implements the
   * same interface synchronously without an actor or animator fork.
   *
-  * **Suspend protocol.** `suspend()` clears the status row and starts buffering
-  * subsequent `log` calls; `resume()` drains the buffer and unpauses the
-  * animator. Used by the approval prompt so live event output doesn't scribble
-  * on top of `readLine`.
+  * **Prompt transaction.** [[prompt]] is the only way to read from the
+  * terminal: it clears the status row, starts buffering concurrent `log` calls,
+  * runs the given `readUser` thunk, then drains the buffer and redraws the
+  * status row — all as one bracketed unit. A fair semaphore serialises
+  * transactions, so two concurrent interactive prompts (a legal fork
+  * composition) queue up instead of interleaving; the second's `readUser` only
+  * starts once the first's transaction has fully closed. That also serialises
+  * access to the shared `readLine` reader, since `readUser` is exactly where
+  * callers do that read.
   */
-trait TerminalOutput:
+private[terminal] trait TerminalOutput:
   /** Append a (possibly multi-line) chunk to the event log. Trailing newline is
     * normalised. Empty input emits a single newline separator.
     */
@@ -35,16 +41,14 @@ trait TerminalOutput:
   /** Show / relabel / hide the status row. `None` hides it. */
   def setStatus(label: Option[String]): Unit
 
-  /** Block until pending writes have drained, clear the status row, and route
-    * subsequent `log` calls into a buffer. The animator stops drawing until
-    * [[resume]] is called. Use around a `readLine` prompt.
+  /** Run `readUser` as the only writer of the terminal: clears the status row
+    * and buffers concurrent `log`/`setStatus` calls for the duration, then
+    * drains and redraws on the way out — even if `readUser` throws. A fair
+    * semaphore serialises concurrent callers, so a second `prompt` blocks until
+    * the first's transaction (including its drain/redraw) has closed; this also
+    * protects a shared `readLine` reader from concurrent use.
     */
-  def suspend(): Unit
-
-  /** Drain the buffered log lines to `out` and re-enable the animator. Pair
-    * with [[suspend]] in `try/finally`.
-    */
-  def resume(): Unit
+  def prompt[A](readUser: () => A): A
 
   /** Flush pending writes, clear the status row, and release the renderer.
     * Tells arriving after close (listener events between this call's return and
@@ -53,7 +57,7 @@ trait TerminalOutput:
     */
   def close(): Unit
 
-object TerminalOutput:
+private[terminal] object TerminalOutput:
 
   /** Build a production `TerminalOutput` whose state is owned by an Ox actor +
     * animator fork in the given scope. The animator is `forkDiscard`: scope-end
@@ -76,17 +80,31 @@ object TerminalOutput:
     new ActorTerminalOutput(actor)
 
 /** Actor-backed [[TerminalOutput]]. `log`/`setStatus` are tells
-  * (fire-and-forget); `suspend`/`resume`/`close` are asks where the caller
-  * needs the operation to have completed before returning. Close-time throws
-  * are swallowed so they don't mask whatever already failed upstream.
+  * (fire-and-forget); `suspend`/`resume` (private, only reachable through
+  * [[prompt]]) and `close` are asks where the caller needs the operation to
+  * have completed before returning. Close-time throws are swallowed so they
+  * don't mask whatever already failed upstream.
+  *
+  * `promptGate` serialises the whole suspend/readUser/resume transaction across
+  * concurrent callers: it's acquired before the suspend-ask and released only
+  * after the resume-ask, so a second `prompt` call blocks until the first's
+  * transaction — drain and redraw included — has fully closed. Fair so waiting
+  * forks are served in arrival order rather than risking starvation.
   */
 private class ActorTerminalOutput(actor: ActorRef[TerminalOutputState])
     extends TerminalOutput:
+  private val promptGate = new Semaphore(1, true)
+
   def log(text: String): Unit = actor.tell(_.log(text))
   def setStatus(label: Option[String]): Unit =
     actor.tell(_.setStatus(label))
-  def suspend(): Unit = actor.ask(_.suspend())
-  def resume(): Unit = actor.ask(_.resume())
+  def prompt[A](readUser: () => A): A =
+    promptGate.acquire()
+    try
+      actor.ask(_.suspend())
+      try readUser()
+      finally actor.ask(_.resume())
+    finally promptGate.release()
   def close(): Unit =
     try actor.ask(_.close())
     catch case NonFatal(_) => ()
@@ -146,6 +164,11 @@ private[terminal] class TerminalOutputState(
             out.print(ClearLine)
             out.flush()
         case Some(_) if closed => () // don't re-pin a status row after close
+        case some @ Some(_) if suspended =>
+          // A prompt owns the terminal; store the label so resume's redraw
+          // picks it up, but don't touch `out` — drawing here would repaint
+          // over live readLine input.
+          currentLabel = some
         case some @ Some(_) =>
           currentLabel = some
           drawStatus()
@@ -160,6 +183,29 @@ private[terminal] class TerminalOutputState(
       drawStatus()
       out.flush()
 
+  /** Synchronous implementation of the [[TerminalOutput.prompt]] transaction:
+    * this class has no actor and no concurrent callers of its own (production
+    * concurrency is serialised one level up, by [[ActorTerminalOutput]]'s
+    * semaphore — see its scaladoc), so a plain `suspend`/`finally resume`
+    * bracket is enough here.
+    */
+  def prompt[A](readUser: () => A): A =
+    suspend()
+    try readUser()
+    finally resume()
+
+  /** Clear the status row and start buffering `log` calls; kept as its own
+    * method (rather than folded into [[prompt]]) so tests can drive
+    * suspend/resume/tick interaction directly without a `readUser` thunk. Not
+    * part of the [[TerminalOutput]] trait — [[prompt]] is the only public way
+    * to open this window in production.
+    *
+    * CAUTION: calling `suspend`/`resume` directly (rather than through
+    * [[prompt]]) bypasses the `promptGate` semaphore transaction that
+    * serializes concurrent prompts (see [[ActorTerminalOutput]]) — production
+    * code MUST go through `prompt`; this pair is exposed at package level for
+    * tests only.
+    */
   def suspend(): Unit =
     if !suspended then
       suspended = true
@@ -170,6 +216,9 @@ private[terminal] class TerminalOutputState(
         out.print(ClearLine)
         out.flush()
 
+  /** Drain the buffered log lines and redraw the status row. Pairs with
+    * [[suspend]]; see its scaladoc for why both stay as separate methods here.
+    */
   def resume(): Unit =
     if suspended then
       val toDrain = suspendedBuffer

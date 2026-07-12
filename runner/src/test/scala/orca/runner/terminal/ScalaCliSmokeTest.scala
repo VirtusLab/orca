@@ -1,4 +1,5 @@
 package orca.runner.terminal
+import orca.testkit.TempDirs
 
 /** Publishes the library to the local Ivy cache, then exercises both the
   * minimal smoke script and the real flow scripts under `examples/` via
@@ -63,15 +64,21 @@ class ScalaCliSmokeTest extends munit.FunSuite:
 
   override def munitFixtures: Seq[munit.AnyFixture[?]] = Seq(publishedRepo)
 
+  // Keep in sync with V.scala (project/Dependencies.scala) — not reachable
+  // from test code (build-definition sources aren't on the runtime/test
+  // classpath), so pinned here as a literal. A stale value here fails loudly:
+  // the published library's TASTy won't parse under an older scala-cli pin.
+  private val scalaVersion = "3.8.4"
+
   test(
     "scala-cli runs a minimal script that links against the published library"
   ):
-    val scriptDir = os.temp.dir()
+    val scriptDir = TempDirs.dir()
     val script = scriptDir / "hello.sc"
     val version = publishedRepo().version
     os.write(
       script,
-      s"""//> using scala 3.3.6
+      s"""//> using scala $scalaVersion
          |//> using repository ivy2Local
          |//> using dep org.virtuslab::orca:$version
          |//> using jvm 21
@@ -100,7 +107,9 @@ class ScalaCliSmokeTest extends munit.FunSuite:
   private val flowScripts: Seq[String] = Seq(
     "implement.sc",
     "implement-interactive.sc",
+    "implement-enhanced.sc",
     "issue-pr-bugfix.sc",
+    "issue-pr.sc",
     "epic.sc"
   )
 

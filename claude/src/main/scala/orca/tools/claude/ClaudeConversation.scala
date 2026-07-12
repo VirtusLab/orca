@@ -1,10 +1,10 @@
 package orca.tools.claude
 
-import orca.llm.{AutoApprove, BackendTag, LlmConfig, Model, SessionId}
+import orca.agents.{AutoApprove, BackendTag, AgentConfig}
 import orca.events.{Usage}
 import orca.{OrcaFlowException}
-import orca.backend.{ApprovalDecision, ConversationEvent, LlmResult}
-import orca.backend.{StreamConversation, StreamSource}
+import orca.backend.{ApprovalDecision, ConversationEvent}
+import orca.backend.{ForkedConversation, StreamSource}
 import orca.subprocess.PipedCliProcess
 import orca.tools.claude.streamjson.{
   ContentBlock,
@@ -17,8 +17,8 @@ import orca.tools.claude.streamjson.{
 
 /** Drives a stream-json conversation with claude to completion.
   *
-  * Boilerplate (reader thread, event queue, outcome lifecycle, stderr drain)
-  * lives in [[StreamConversation]]; this class supplies the claude-specific
+  * Boilerplate (reader fork, event queue, outcome lifecycle, stderr drain)
+  * lives in [[ForkedConversation]]; this class supplies the claude-specific
   * protocol translation: NDJSON → [[InboundMessage]] → `ConversationEvent`s,
   * plus auto-approve policy for tools listed in `config.autoApprove`. Outbound
   * writes (user turns, tool-approval responses) happen on the channel's thread
@@ -26,19 +26,17 @@ import orca.tools.claude.streamjson.{
   */
 private[claude] class ClaudeConversation(
     process: PipedCliProcess,
-    config: LlmConfig,
+    config: AgentConfig,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
     override val askUser: Option[orca.backend.mcp.AskUserSession] = None
-) extends StreamConversation[BackendTag.ClaudeCode.type](
+) extends ForkedConversation[BackendTag.ClaudeCode.type](
       source = StreamSource.fromProcess(process),
       backendName = "claude",
       initialPrompt = initialPrompt
     ):
 
-  import StreamConversation.Outcome
-
-  // The reader thread is the sole writer for all three fields below.
+  // The reader thread is the sole writer for all four fields below.
   // No cross-thread visibility concerns: reads happen on the same thread
   // immediately after writes, within `handle(...)` dispatch. Plain `var`s
   // suffice — atomics would be theatre.
@@ -49,43 +47,49 @@ private[claude] class ClaudeConversation(
     */
   private var initModel: Option[String] = None
 
-  /** Set when a text or thinking delta streams during the current turn, cleared
-    * when the full turn message lands. Gates the fallback in
-    * `handleAssistantTurn` that re-emits Text/Thinking blocks when no partials
-    * arrived (older claude builds, partials disabled).
+  /** Set when a text or thinking delta streams, cleared when the next full-turn
+    * `assistant` message lands (reset at the top of `handleAssistantTurn`).
+    * Both consumers rely on claude's wire ordering — the full `assistant`
+    * message arrives AFTER any partials for the same turn — and ask the same
+    * question: "did the model's prose already stream as deltas since the last
+    * full-turn boundary?"
+    *   - `handleAssistantTurn` gates its fallback that re-emits Text/Thinking
+    *     blocks when no partials arrived (older claude builds, partials
+    *     disabled);
+    *   - `handleResultError` shows a short marker instead of repeating the full
+    *     body when an `is_error`'s body already streamed as deltas this turn.
+    *
+    * NOTE: this is deliberately NOT the base's `turnIsOpen`. `turnIsOpen`
+    * counts a `ToolResult` as turn-opening activity (correct for the grammar),
+    * but a tool result is not streamed prose. After `tool_use → tool_result →
+    * is_error` with no assistant text, `turnIsOpen` is `true` while this flag
+    * is `false`; wiring `handleResultError` to `turnIsOpen` would then show
+    * "session failed (see message above)" pointing at a tool result instead of
+    * surfacing the actual error body. So the flag stays delta-specific.
     */
-  private var deltasSinceTurnBoundary: Boolean = false
+  private var deltasSinceLastFullTurn: Boolean = false
 
-  /** Tool-use ids of `ask_user` calls suppressed in `handleAssistantTurn`.
-    * `handleUserTurn` drops the matching `tool_result` so the user's typed
-    * answer doesn't re-render as `⎿ <answer>` right after the UserQuestion
-    * prompt already surfaced it.
+  /** Tool-use ids of calls suppressed in `handleAssistantTurn` — `ask_user`
+    * invocations and (in structured mode) the CLI-injected `StructuredOutput`
+    * exit call. `handleUserTurn` drops the matching `tool_result` so the
+    * suppressed exchange doesn't re-render halfway: the user's typed answer as
+    * `⎿ <answer>` right after the UserQuestion prompt already surfaced it, or
+    * the structured payload's acknowledgement. See
+    * [[orca.backend.AskUserEchoes]].
     */
-  private var suppressedToolUseIds: Set[String] = Set.empty
-
-  // --- Conversation surface (only the bit not covered by the base) ---
-
-  def sendUserMessage(text: String): Unit =
-    writeOutbound(OutboundMessage.UserText(text))
+  private val askUserEchoes = new orca.backend.AskUserEchoes
 
   // `canAskUser` + ask_user bridge drainer + onFinalize close are owned by
   // the base; this subclass just declares `askUser` on the ctor param
   // above. Stdin-as-user-channel is closed right after the initial prompt,
   // so mid-session input flows through the MCP tool result either way.
 
-  // Subclass fields above are assigned now; safe to spin up the reader +
-  // stderr workers. See [[StreamConversation.start]].
-  start()
-
   // --- Reader hook ---
 
   override protected def handleLine(line: String): Unit =
     handle(InboundMessage.parse(line))
 
-  override protected def cleanExitWithoutResult(): Throwable =
-    new OrcaFlowException(
-      "claude exited cleanly but never sent a result message"
-    )
+  override protected def terminalMessageNoun: String = "a result message"
 
   // --- Per-message dispatch ---
 
@@ -112,7 +116,7 @@ private[claude] class ClaudeConversation(
         evt match
           case _: ConversationEvent.AssistantTextDelta |
               _: ConversationEvent.AssistantThinkingDelta =>
-            deltasSinceTurnBoundary = true
+            deltasSinceLastFullTurn = true
           case _ => ()
         eventQueue.enqueue(evt)
       }
@@ -131,8 +135,8 @@ private[claude] class ClaudeConversation(
     * delta.
     */
   private def handleAssistantTurn(content: List[ContentBlock]): Unit =
-    val sawDeltasThisTurn = deltasSinceTurnBoundary
-    deltasSinceTurnBoundary = false
+    val sawDeltasThisTurn = deltasSinceLastFullTurn
+    deltasSinceLastFullTurn = false
     content.foreach:
       // Suppress the agent's own ToolCall block for `ask_user` — the
       // host-side bridge emits a UserQuestion event for the same exchange
@@ -142,7 +146,17 @@ private[claude] class ClaudeConversation(
       // `⎿ <answer>` after the prompt already surfaced it).
       case ContentBlock.ToolUse(id, name, _)
           if name == ClaudeBackend.AskUserToolName =>
-        suppressedToolUseIds = suppressedToolUseIds + id
+        askUserEchoes.suppress(id)
+      // The CLI-injected structured-output "exit" call (`--json-schema`): the
+      // payload reaches the caller via the result message and surfaces as
+      // `OrcaEvent.StructuredResult`, so rendering the tool call would show
+      // the same JSON twice. Gated on structured mode so a genuine user tool
+      // that happens to be named `StructuredOutput` is unaffected in plain
+      // runs.
+      case ContentBlock.ToolUse(id, name, _)
+          if outputSchema.isDefined &&
+            name == ClaudeBackend.StructuredOutputToolName =>
+        askUserEchoes.suppress(id)
       case ContentBlock.ToolUse(_, name, rawInput) =>
         eventQueue.enqueue(ConversationEvent.AssistantToolCall(name, rawInput))
       case ContentBlock.Text(text) if !sawDeltasThisTurn =>
@@ -159,14 +173,17 @@ private[claude] class ClaudeConversation(
   private def handleUserTurn(content: List[ContentBlock]): Unit =
     content.foreach:
       case ContentBlock.ToolResult(toolUseId, _, _)
-          if suppressedToolUseIds.contains(toolUseId) =>
+          if askUserEchoes.consume(toolUseId) =>
         // Paired with a suppressed `ask_user` ToolUse; the user has already
         // seen their own typed answer at the prompt, so don't echo it back.
-        suppressedToolUseIds = suppressedToolUseIds - toolUseId
+        // `consume` removes the id as it matches.
+        ()
       case ContentBlock.ToolResult(_, body, isError) =>
         eventQueue.enqueue(
           ConversationEvent.ToolResult(
-            toolName = "",
+            // claude's tool_result block carries only a tool_use_id, not the
+            // name — the grammar legalizes None here (see ConversationEvent).
+            toolName = None,
             ok = !isError,
             content = body
           )
@@ -180,40 +197,32 @@ private[claude] class ClaudeConversation(
       usage: Usage,
       model: Option[String]
   ): Unit =
-    val result = LlmResult(
-      sessionId = SessionId[BackendTag.ClaudeCode.type](sid),
+    settleSuccess(
+      wireId = sid,
       output = structured.orElse(output).getOrElse(""),
       usage = usage,
       // Fall back to the model claude announced in system.init when the
       // result message omits it.
-      model = model.orElse(initModel).map(Model.apply)
+      modelId = model.orElse(initModel)
     )
-    val _ = outcomeRef.compareAndSet(None, Some(Outcome.Success(result)))
 
   /** Claude sets `is_error: true` for out-of-band failures (API errors, rate
     * limits, auth problems) that happen at the CLI boundary rather than inside
     * a turn. Treat these as session-ending failures rather than feeding the
     * error body into the downstream response parser, which might otherwise
     * accept a `{"type":"error",...}` payload as a structurally valid agent
-    * output. `Outcome.Failed` carries the full message for `awaitResult` to
-    * surface; the in-stream `Error` event is short if the user already saw the
-    * body as part of a streamed turn.
+    * output. `failWith` carries the full message for `awaitResult` to surface;
+    * the in-stream `Error` event is short if the user already saw the body as
+    * part of a streamed turn.
     */
   private def handleResultError(output: Option[String]): Unit =
     val message =
       output.filter(_.nonEmpty).getOrElse("claude reported is_error")
     val displayed =
-      if deltasSinceTurnBoundary then "session failed (see message above)"
+      if deltasSinceLastFullTurn then "session failed (see message above)"
       else message
     eventQueue.enqueue(ConversationEvent.Error(displayed))
-    val _ = outcomeRef.compareAndSet(
-      None,
-      Some(
-        Outcome.Failed(
-          new OrcaFlowException(s"claude session failed: $message")
-        )
-      )
-    )
+    failWith(new OrcaFlowException(s"claude session failed: $message"))
 
   private def handleControlRequest(
       requestId: String,

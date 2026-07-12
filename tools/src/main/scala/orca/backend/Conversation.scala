@@ -1,7 +1,9 @@
 package orca.backend
 
-import orca.llm.{BackendTag}
+import orca.agents.{BackendTag}
 import orca.{OrcaInteractiveCancelled}
+
+import ox.Ox
 
 /** One live interactive session with a backend. Owned by the driver, read and
   * written to by the channel via [[Interaction.drive]].
@@ -13,8 +15,7 @@ import orca.{OrcaInteractiveCancelled}
   *
   * Tool-approval decisions are delivered via the closure carried on
   * [[ConversationEvent.ApproveTool]] — the channel does not track request-ids.
-  * `sendUserMessage` injects an unsolicited user turn; it and `cancel` are safe
-  * to call from any thread.
+  * `cancel` is safe to call from any thread.
   */
 trait Conversation[B <: BackendTag]:
 
@@ -32,12 +33,16 @@ trait Conversation[B <: BackendTag]:
   /** Events from the subprocess, in arrival order. Blocks on `next()` until a
     * line has been parsed or the session ends. `hasNext` returns false once the
     * terminal event has been consumed.
+    *
+    * Takes `using Ox`: a stream-driven driver starts its background workers on
+    * first touch of the surface, forking into the caller's per-turn scope (the
+    * one the drain shell already opened).
     */
-  def events: Iterator[ConversationEvent]
+  def events(using Ox): Iterator[ConversationEvent]
 
   /** Block until the session finishes, then return its outcome.
     *
-    *   - `Right(result)` — the session produced an [[LlmResult]] cleanly.
+    *   - `Right(result)` — the session produced an [[AgentResult]] cleanly.
     *   - `Left(cancelled)` — the user (or some peer) called [[cancel]], or the
     *     subprocess died in a way the driver classified as a cancellation.
     *     Recoverable: the caller can render a "cancelled" message, fail the
@@ -46,16 +51,11 @@ trait Conversation[B <: BackendTag]:
     * Genuine subprocess failures (parse errors, the agent reporting `is_error`,
     * abnormal exit codes) keep throwing [[OrcaFlowException]] — those aren't
     * recoverable signals; they're "the backend is broken, panic" cases.
+    *
+    * Takes `using Ox` for the same reason as [[events]]: it ensures the workers
+    * are started (in the caller's per-turn scope) before it joins the reader.
     */
-  def awaitResult(): Either[OrcaInteractiveCancelled, LlmResult[B]]
-
-  /** Inject a user turn mid-conversation by writing to the subprocess's stdin.
-    * Only meaningful when the backend keeps stdin open for the life of the
-    * conversation — claude's stream-json does, codex's `exec` does not (it
-    * consumes stdin once at startup; ADR 0007). Implementations whose stdin
-    * channel isn't writable mid-session treat this as a no-op.
-    */
-  def sendUserMessage(text: String): Unit
+  def awaitResult()(using Ox): Either[OrcaInteractiveCancelled, AgentResult[B]]
 
   /** Whether the agent can pause to ask the host user a clarifying question
     * (and have the answer routed back into its turn). When `true`, the driver
@@ -65,11 +65,6 @@ trait Conversation[B <: BackendTag]:
     * `AskUserMcpServer` registered with `-c mcp_servers.orca.url=…`) return
     * `true` on interactive sessions; autonomous sessions and backends that
     * don't wire the bridge return `false`.
-    *
-    * Independent of [[sendUserMessage]] — codex satisfies `canAskUser` while
-    * still having a no-op `sendUserMessage`. Flows that depend on being able to
-    * push a turn into stdin must check that channel separately rather than
-    * treating `canAskUser` as a proxy.
     */
   def canAskUser: Boolean
 

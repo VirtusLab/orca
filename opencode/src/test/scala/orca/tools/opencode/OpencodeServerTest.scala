@@ -11,6 +11,7 @@ import orca.subprocess.{
 import ox.supervised
 
 import java.util.concurrent.atomic.AtomicInteger
+import orca.testkit.TempDirs
 
 class OpencodeServerTest extends munit.FunSuite:
 
@@ -61,7 +62,7 @@ class OpencodeServerTest extends munit.FunSuite:
           throw new UnsupportedOperationException
       val server = new OpencodeServer(
         runner,
-        os.temp.dir(),
+        TempDirs.dir(),
         httpFor = (url, pwd) =>
           built = Some(url -> pwd)
           stub
@@ -89,15 +90,26 @@ class OpencodeServerTest extends munit.FunSuite:
           throw new UnsupportedOperationException
       val server = new OpencodeServer(
         runner,
-        os.temp.dir(),
+        TempDirs.dir(),
         launcher = OpencodeLauncher.ollama("qwen3-coder"),
         httpFor = (_, _) => stub
       )
       val _ = server.http.postJson("/x", "{}") // force the spawn
       assertEquals(
         runner.lastArgs,
-        Seq("ollama", "launch", "opencode", "--model", "qwen3-coder", "--",
-          "serve", "--port", "0", "--log-level", "WARN")
+        Seq(
+          "ollama",
+          "launch",
+          "opencode",
+          "--model",
+          "qwen3-coder",
+          "--",
+          "serve",
+          "--port",
+          "0",
+          "--log-level",
+          "WARN"
+        )
       )
 
   test("a server that exits without binding surfaces its stderr"):
@@ -110,7 +122,7 @@ class OpencodeServerTest extends munit.FunSuite:
       proc.closeStdout() // EOF with no "listening on" line
       val server = new OpencodeServer(
         new RecordingRunner(proc),
-        os.temp.dir(),
+        TempDirs.dir(),
         httpFor = (_, _) => fail("client must not be built on a failed start")
       )
       val ex = intercept[OrcaFlowException](server.http)
@@ -118,3 +130,49 @@ class OpencodeServerTest extends munit.FunSuite:
         ex.getMessage.contains("model \"gemma4\" not found"),
         ex.getMessage
       )
+
+  test("shutdown destroys the process + closes the client; drains unblock"):
+    // The drain forks block on a non-interruptible read for the server's life;
+    // `shutdown`'s `destroyForcibly` is what EOFs them so the scope can join.
+    // This process leaves stdout/stderr OPEN after the bind line (unlike the
+    // others), so the drains are genuinely blocked until shutdown runs.
+    supervised:
+      val proc = new FakePipedCliProcess()
+      proc.enqueueStdout("opencode server listening on http://127.0.0.1:4096")
+      // deliberately NOT closing stdout/stderr — the drains stay blocked
+      class TrackingHttp extends OpencodeHttp:
+        @volatile var closed: Boolean = false
+        def postJson(path: String, body: String): String = "ok"
+        def events(): StreamSource = throw new UnsupportedOperationException
+        override def close(): Unit = closed = true
+      val client = new TrackingHttp
+      val server =
+        new OpencodeServer(
+          new RecordingRunner(proc),
+          TempDirs.dir(),
+          httpFor = (_, _) => client
+        )
+
+      val _ = server.http // force start: spawns, reads bind line, forks drains
+      assert(proc.isAlive)
+      server.shutdown()
+      assert(!proc.isAlive, "shutdown must destroy the serve process")
+      assert(client.closed, "shutdown must close the http client")
+      server.shutdown() // idempotent: no exception, no double effect
+    // The scope then joins the drain forks. (The fake's queue read is
+    // interruptible, unlike a real native readLine, so this can't reproduce the
+    // production hang — the destroy/close assertions above are the real teeth;
+    // OpencodeServerTest's value is shutdown's effects + idempotency.)
+
+  test("shutdown is a no-op when the server was never started"):
+    supervised:
+      val proc = new FakePipedCliProcess()
+      val runner = new RecordingRunner(proc)
+      val server =
+        new OpencodeServer(
+          runner,
+          TempDirs.dir(),
+          httpFor = (_, _) => fail("unused")
+        )
+      server.shutdown() // never forced `http`
+      assertEquals(runner.spawns.get(), 0)

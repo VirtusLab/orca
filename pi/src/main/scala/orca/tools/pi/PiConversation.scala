@@ -1,12 +1,11 @@
 package orca.tools.pi
 
 import orca.events.Usage
-import orca.llm.{BackendTag, Model, SessionId}
+import orca.agents.{BackendTag, SessionId}
 import orca.{OrcaFlowException}
-import orca.backend.{ConversationEvent, LlmResult}
-import orca.backend.{BufferedStderrDiagnostics, StreamConversation, StreamSource}
+import orca.backend.ConversationEvent
+import orca.backend.{StderrPipeline, ForkedConversation, StreamSource}
 import orca.subprocess.PipedCliProcess
-import orca.util.TerminalControl
 import orca.tools.pi.rpc.{
   AgentMessage,
   InboundEvent,
@@ -19,11 +18,11 @@ import scala.util.control.NonFatal
 /** Drives one `pi --mode rpc` process for a single Orca LLM call. The backend
   * sends one `prompt` command, this conversation translates Pi RPC events into
   * Orca conversation events, and `agent_end` becomes the terminal
-  * [[LlmResult]].
+  * [[AgentResult]].
   *
   * Pi has no native structured-output / JSON-schema flag, so `outputSchema` is
   * carried only for the framework's parsing: the schema is enforced through the
-  * prompt (`DefaultLlmCall` injects the rules), not the Pi CLI.
+  * prompt (`DefaultAgentCall` injects the rules), not the Pi CLI.
   */
 private[pi] class PiConversation(
     process: PipedCliProcess,
@@ -32,42 +31,41 @@ private[pi] class PiConversation(
     val outputSchema: Option[String] = None,
     askUserEnabled: Boolean = false,
     resources: List[AutoCloseable] = Nil
-) extends StreamConversation[BackendTag.Pi.type](
+) extends ForkedConversation[BackendTag.Pi.type](
       StreamSource.fromProcess(process),
       backendName = "pi",
       initialPrompt = initialPrompt,
       nativeAskUser = askUserEnabled
     )
-    with BufferedStderrDiagnostics[BackendTag.Pi.type]:
+    with StderrPipeline[BackendTag.Pi.type]:
 
   import PiConversation.*
 
   /** Turn state, accrued by the single reader thread — `handleLine` and the
     * handlers it drives all run there, so a plain `var` over an immutable
-    * snapshot is safe and avoids cross-thread machinery; `awaitResult` reads the
-    * outcome only after joining the reader, which publishes these writes.
+    * snapshot is safe and avoids cross-thread machinery; `awaitResult` reads
+    * the outcome only after joining the reader, which publishes these writes.
     *
     * `textStreamedThisMessage` lets `message_end` emit the completed text as a
-    * fallback only when no `text_delta` already streamed it; `sawAssistantMessage`
-    * gates the single `AssistantTurnEnd` at `agent_end`.
+    * fallback only when no `text_delta` already streamed it.
     */
   private case class TurnState(
       lastAssistantMessage: String = "",
       usage: Usage = Usage.empty,
       model: Option[String] = None,
-      textStreamedThisMessage: Boolean = false,
-      sawAssistantMessage: Boolean = false
+      textStreamedThisMessage: Boolean = false
   )
   private var turnState: TurnState = TurnState()
 
   // All stdin writes funnel through this lock: `sendPrompt` runs on the caller's
-  // thread, the ask-user reply on the event consumer's, and the reader thread
-  // may write an extension cancel. `writeLine` is an unsynchronised write+flush,
-  // so concurrent callers would otherwise interleave JSONL frames. Declared
-  // before `start()` so the reader thread never observes a null lock.
+  // thread, the ask-user reply on the event consumer's, and the reader fork may
+  // write an extension cancel. `writeLine` is an unsynchronised write+flush, so
+  // concurrent callers would otherwise interleave JSONL frames.
   private val stdinLock = new AnyRef
 
-  start()
+  // No `start()`: the base spawns its reader / stderr forks lazily on first
+  // touch of the conversation surface, after this subclass's fields (incl.
+  // `stdinLock`) are initialised.
 
   def sendPrompt(prompt: String): Unit =
     sendLine(OutboundMessage.prompt(prompt))
@@ -78,30 +76,18 @@ private[pi] class PiConversation(
   private def closeStdin(): Unit =
     stdinLock.synchronized(process.closeStdin())
 
-  /** Pi RPC prompts are command messages rather than a writable chat stdin.
-    * Orca's interactive Pi support currently routes human input through the
-    * ask_user extension UI bridge, so unsolicited user turns are a no-op.
-    */
-  def sendUserMessage(text: String): Unit = ()
-
   override protected def handleLine(line: String): Unit =
     handle(InboundEvent.parse(line))
 
-  override protected def handleStderr(line: String): Unit =
-    val trimmed = TerminalControl.stripControlSequences(line).trim
-    if trimmed.nonEmpty && !isKnownStderrNoise(trimmed) then
-      eventQueue.enqueue(ConversationEvent.Error(s"pi: $trimmed"))
-      recordStderr(trimmed)
+  override protected def isStderrNoise(line: String): Boolean =
+    isKnownStderrNoise(line)
 
   // Drain stderr (base) then close the per-turn temp resources.
   override protected def onFinalize(): Unit =
     super.onFinalize()
     resources.foreach(closeQuietly)
 
-  override protected def cleanExitWithoutResult(): Throwable =
-    new OrcaFlowException(
-      appendContext("pi exited cleanly but never emitted agent_end")
-    )
+  override protected def terminalMessageNoun: String = "an agent_end event"
 
   private def handle(event: InboundEvent): Unit = event match
     case InboundEvent.Response(_, command, success, error) =>
@@ -112,7 +98,9 @@ private[pi] class PiConversation(
     case InboundEvent.ToolExecutionStart(toolName, rawArgs) =>
       eventQueue.enqueue(ConversationEvent.AssistantToolCall(toolName, rawArgs))
     case InboundEvent.ToolExecutionEnd(toolName, ok, content) =>
-      eventQueue.enqueue(ConversationEvent.ToolResult(toolName, ok, content))
+      eventQueue.enqueue(
+        ConversationEvent.ToolResult(Some(toolName), ok, content)
+      )
     case InboundEvent.ExtensionUiRequest(id, method, question) =>
       handleExtensionUiRequest(id, method, question)
     case InboundEvent.Unknown(_) => ()
@@ -135,8 +123,10 @@ private[pi] class PiConversation(
 
   private def handleDelta(delta: MessageDelta): Unit = delta match
     case MessageDelta.Text(text) =>
-      if text.nonEmpty then
-        turnState = turnState.copy(textStreamedThisMessage = true)
+      turnState = turnState.copy(
+        textStreamedThisMessage =
+          turnState.textStreamedThisMessage || text.nonEmpty
+      )
       eventQueue.enqueue(ConversationEvent.AssistantTextDelta(text))
     case MessageDelta.Thinking(text) =>
       eventQueue.enqueue(ConversationEvent.AssistantThinkingDelta(text))
@@ -148,31 +138,33 @@ private[pi] class PiConversation(
         if error.nonEmpty then
           eventQueue.enqueue(ConversationEvent.Error(error))
       val streamed = turnState.textStreamedThisMessage
+      // Fallback: surface the message_end's own text only when no delta already
+      // streamed it. An error-only message (empty text) emits nothing.
+      val fallbackText = message.text.nonEmpty && !streamed
       turnState = turnState.copy(
         lastAssistantMessage = message.text,
         usage = message.usage.fold(turnState.usage)(turnState.usage + _),
         model = message.model.orElse(turnState.model),
-        sawAssistantMessage = true,
         textStreamedThisMessage = false // reset for the next message
       )
-      if message.text.nonEmpty && !streamed then
+      if fallbackText then
         eventQueue.enqueue(ConversationEvent.AssistantTextDelta(message.text))
 
   // A turn can span several assistant messages (each ends with `message_end`),
-  // so the single turn boundary is `agent_end`, not per-message.
+  // so the single turn boundary is `agent_end`, not per-message. `agent_end` is
+  // terminal (one turn per conversation), so the base funnel auto-closes the
+  // open turn when `succeedWith` settles — no explicit `AssistantTurnEnd` here.
   private def handleAgentEnd(): Unit =
-    if turnState.sawAssistantMessage then
-      eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
-    val result = LlmResult(
-      sessionId = clientSession,
+    // Closing stdin tells Pi no more commands are coming; `settleSuccess` (via
+    // `succeedWith`) then sets the outcome and interrupts the source (SIGINTs
+    // the process), so stdin must close first.
+    closeStdin()
+    settleSuccess(
+      wireId = clientSession.value,
       output = turnState.lastAssistantMessage,
       usage = turnState.usage,
-      model = turnState.model.map(Model.apply)
+      modelId = turnState.model
     )
-    // Closing stdin tells Pi no more commands are coming; `succeedWith` sets the
-    // outcome then interrupts the source (SIGINTs the process).
-    closeStdin()
-    succeedWith(result)
 
   private def handleExtensionUiRequest(
       id: String,

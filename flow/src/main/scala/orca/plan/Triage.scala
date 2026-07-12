@@ -1,6 +1,6 @@
 package orca.plan
 
-import orca.llm.Announce
+import orca.agents.{Announce, JsonData}
 
 /** Outcome of triaging a bug report against a codebase. Three variants:
   *
@@ -18,12 +18,23 @@ import orca.llm.Announce
   * with runtime `Option#get` / empty-string checks.
   *
   * Produced by [[Plan.autonomous.triage]] / [[Plan.interactive.triage]], both
-  * wrapped in a [[Sessioned]] so the triage agent's session can carry into the
-  * fix.
+  * wrapped in a [[Sessioned]] that carries the triage session id. Flows
+  * typically discard the triage session (calling `.value`) and start a FRESH
+  * implementer session seeded with the issue body
+  * (`agent.session("implementer", seed = issue.body)`) rather than continuing
+  * the triage session — so the `Sessioned` wrapper is available but no
+  * carry-over is guaranteed.
+  *
+  * `derives JsonData` so a `stage` can record and replay a `Triage` result —
+  * the triage stage is a checkpoint before the failing-test / fix pipeline (ADR
+  * 0018 §3.2).
   */
-enum Triage:
+enum Triage derives JsonData:
   case NotABug(explanation: String)
   case Untestable(summary: String, reproductionSteps: String)
+  // `branchName` is the LLM-suggested name from the wire format. The actual
+  // feature branch is created by the flow runtime (via BranchNamingStrategy),
+  // not from this field — flows should wildcard it in pattern matches.
   case Testable(summary: String, branchName: String, failingTestPath: String)
 
 object Triage:

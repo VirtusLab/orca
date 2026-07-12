@@ -33,11 +33,6 @@ class FixLoopTest extends munit.FunSuite:
       .reverse
       .collect:
         case OrcaEvent.Step(msg) => msg
-    def stageNames: List[String] = seen
-      .get()
-      .reverse
-      .collect:
-        case OrcaEvent.StageStarted(name) => name
 
   /** Evaluator that returns a scripted sequence; throws when exhausted. */
   private def scripted(results: List[ReviewResult]): () => ReviewResult =
@@ -87,8 +82,11 @@ class FixLoopTest extends munit.FunSuite:
       result.issues,
       List(IgnoredIssue(Title("b"), "out of scope"))
     )
+    // Iterations are progress markers (`display`) now, not committing stages —
+    // they run under the caller's task stage (ADR 0018 §2.2), so they surface
+    // as Step events rather than StageStarted.
     assertEquals(
-      rec.stageNames.filter(_.startsWith("Iteration ")),
+      rec.steps.filter(_.startsWith("Iteration ")),
       List("Iteration 1", "Iteration 2", "Iteration 3")
     )
 

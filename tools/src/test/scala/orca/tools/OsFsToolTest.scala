@@ -1,9 +1,17 @@
 package orca.tools
 
+import orca.{OrcaFlowException, WorkspaceWrite}
+import orca.testkit.TempDirs
+
 class OsFsToolTest extends munit.FunSuite:
 
+  // Tests exercise gated mutators directly; mint the workspace-write token once
+  // for the whole suite (tests are package `orca.tools`, so
+  // `WorkspaceWrite.unsafe` is in reach).
+  private given WorkspaceWrite = WorkspaceWrite.unsafe
+
   private def withFs(body: (OsFsTool, os.Path) => Unit): Unit =
-    val tmp = os.temp.dir()
+    val tmp = TempDirs.dir()
     body(new OsFsTool(base = tmp), tmp)
 
   test("write creates missing parent directories and read round-trips content"):
@@ -44,3 +52,25 @@ class OsFsToolTest extends munit.FunSuite:
   test("list returns empty when the glob root does not exist"):
     withFs: (fs, _) =>
       assertEquals(fs.list("does/not/exist/*.txt"), Nil)
+
+  // An absolute glob previously reached os-lib's `globRoot` fold
+  // and blew up with a context-free `IllegalArgumentException`
+  // (`InvalidSegment`) rather than a named, actionable `list`-level error.
+  test("list rejects an absolute glob with a typed, actionable error"):
+    withFs: (fs, _) =>
+      val ex = intercept[OrcaFlowException](fs.list("/etc/*.conf"))
+      assert(ex.getMessage.contains("list"), ex.getMessage)
+      assert(ex.getMessage.contains("/etc/*.conf"), ex.getMessage)
+
+  // Same underlying os-lib `InvalidSegment` crash for a `.`-prefixed glob.
+  test("list rejects a './'-prefixed glob with a typed, actionable error"):
+    withFs: (fs, _) =>
+      val ex = intercept[OrcaFlowException](fs.list("./src/*.scala"))
+      assert(ex.getMessage.contains("list"), ex.getMessage)
+      assert(ex.getMessage.contains("./src/*.scala"), ex.getMessage)
+
+  test("list rejects a glob containing a '..' segment"):
+    withFs: (fs, _) =>
+      val ex = intercept[OrcaFlowException](fs.list("../sibling/*.scala"))
+      assert(ex.getMessage.contains("list"), ex.getMessage)
+      assert(ex.getMessage.contains("../sibling/*.scala"), ex.getMessage)

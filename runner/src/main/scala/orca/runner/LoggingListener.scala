@@ -9,9 +9,9 @@ import org.slf4j.LoggerFactory
   * uses, steps (git / gh / recovery / …), structured results, token usage, and
   * errors. Wired into the flow's `EventDispatcher` alongside the cost tracker.
   *
-  * This is a trace mirror, not a console channel: the whole `orca.*` logger tree
-  * is routed to the trace file only (`OrcaLog` makes it non-additive), so even
-  * the `Error` line — logged at ERROR for greppability — never reaches the
+  * This is a trace mirror, not a console channel: the whole `orca.*` logger
+  * tree is routed to the trace file only (`OrcaLog` makes it non-additive), so
+  * even the `Error` line — logged at ERROR for greppability — never reaches the
   * console. The terminal renderer owns the console (it shows the `✖`).
   *
   * Messages are plain ASCII on purpose — the trace file is read back and dumped
@@ -31,11 +31,19 @@ private[orca] class LoggingListener extends OrcaListener:
     case OrcaEvent.ToolUse(tool, args) =>
       log.debug("tool use: {} {}", tool, args)
     case OrcaEvent.StructuredResult(raw, summary) =>
-      log.debug("structured result: {}", summary.getOrElse(raw))
-    case OrcaEvent.TokensUsed(agent, model, usage) =>
+      // The trace mirror always records the payload: on a deliberately
+      // silent summary (`Some("")`) or a missing one (`None`), log the raw
+      // JSON — display-level silence must not hide the result from the
+      // trace file.
       log.debug(
-        "tokens: agent={} model={} usage={}",
+        "structured result: {}",
+        summary.filter(_.nonEmpty).getOrElse(raw)
+      )
+    case OrcaEvent.TokensUsed(agent, model, usage, role) =>
+      log.debug(
+        "tokens: agent={} role={} model={} usage={}",
         agent,
+        role.getOrElse("(none)"),
         model.map(_.name).getOrElse("(unknown)"),
         usage
       )

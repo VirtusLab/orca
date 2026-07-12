@@ -1,13 +1,21 @@
-# 0003. LLM backends are pluggable behind an `LlmBackend[B <: Backend]` trait
+# 0003. LLM backends are pluggable behind an `AgentBackend[B <: Backend]` trait
 
 Status: Accepted · Date: 2026-04-22 (updated 2026-04-23)
 
+> **Amendment (2026-07-07).** Superseded: the four-method trait surface below
+> (`runHeadless`/`continueHeadless`/`runInteractive`/`continueInteractive`) and
+> the "Codex via WebSocket" direction never shipped. The current SPI is
+> `AgentBackend.runAutonomous`/`runInteractive` plus `sessions:
+> SessionSupport[B]` — see ADR 0018's amendments and AGENTS.md's Sessions
+> section for the shape, and ADRs 0006/0007/0014/0015 for the drivers that
+> drove the change.
+
 ## Decision
 
-`LlmBackend[B]` exposes `runHeadless`, `continueHeadless`,
+`AgentBackend[B]` exposes `runHeadless`, `continueHeadless`,
 `runInteractive`, and `continueInteractive`. The type parameter
 `B <: Backend` (e.g. `Backend.ClaudeCode.type`) makes `SessionId[B]`,
-`LlmResult[B]`, and `Conversation[B]` phantom-typed so a Claude session
+`AgentResult[B]`, and `Conversation[B]` phantom-typed so a Claude session
 id can't accidentally resume a Codex session.
 
 The Claude backend shells out to the `claude` CLI via a `CliRunner`
@@ -42,5 +50,5 @@ Codex will run via WebSocket (sttp) on the same trait.
   `structured_output`. No filesystem sentinels; no platform
   assumptions.
 - Adding a non-CLI backend (e.g. a raw API client) stays possible
-  because `LlmBackend` isn't tied to `CliRunner` — only the Claude
+  because `AgentBackend` isn't tied to `CliRunner` — only the Claude
   backend is.

@@ -1,7 +1,7 @@
 package orca.tools.pi
 
 import orca.backend.CliArgs
-import orca.llm.{LlmConfig, ToolSet}
+import orca.agents.{AgentConfig, AutoApprove, Enforcement, ToolSet}
 
 /** Maps Orca backend configuration to Pi CLI arguments. The backend drives Pi
   * through RPC mode and sends prompts over stdin, so the argv carries only
@@ -27,7 +27,7 @@ private[pi] object PiArgs:
   def rpc(
       sessionDir: os.Path,
       resume: Boolean,
-      config: LlmConfig,
+      config: AgentConfig,
       systemPromptFile: Option[os.Path],
       askUserExtension: Option[os.Path] = None
   ): Seq[String] =
@@ -39,15 +39,15 @@ private[pi] object PiArgs:
       extensionArgs(askUserExtension)
 
   private def systemPromptArgs(file: Option[os.Path]): Seq[String] =
-    file.toSeq.flatMap(f => Seq("--append-system-prompt", f.toString))
+    CliArgs.flag("--append-system-prompt", file)(_.toString)
 
-  /** Maps [[LlmConfig.tools]] to pi's `--tools` allowlist. `Full` omits the
+  /** Maps [[AgentConfig.tools]] to pi's `--tools` allowlist. `Full` omits the
     * flag (all built-in tools enabled); `ReadOnly` restricts to
     * [[ReadOnlyTools]]; `NetworkOnly` adds [[NetworkTool]] (`bash`) for network
     * access. The ask-user extension tool is appended when present.
     */
   private def toolsArgs(
-      config: LlmConfig,
+      config: AgentConfig,
       includeAskUser: Boolean
   ): Seq[String] =
     config.tools match
@@ -65,4 +65,24 @@ private[pi] object PiArgs:
     Seq("--tools", all.mkString(","))
 
   private def extensionArgs(file: Option[os.Path]): Seq[String] =
-    file.toSeq.flatMap(f => Seq("--extension", f.toString))
+    CliArgs.flag("--extension", file)(_.toString)
+
+  /** How strongly pi enforces each `(tools, autoApprove)` combination — see
+    * [[toolsArgs]] for the `--tools` allowlist this classifies.
+    *
+    *   - `ReadOnly` → `Hard`: `--tools read,grep,find,ls` mechanically excludes
+    *     every writable tool.
+    *   - `NetworkOnly` → `PromptOnly`: pi has no web tool, so network arrives
+    *     only via the general `bash` tool, which also permits writes — the
+    *     no-edit guarantee then rests only on the planner prompt.
+    *   - `Full` + `AutoApprove.All` / `Only(_)` → `Ignored`: pi RPC never
+    *     prompts and the argv encodes no approval policy, so `autoApprove` is
+    *     not represented at all.
+    */
+  def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+    tools match
+      case ToolSet.ReadOnly    => Enforcement.Hard
+      case ToolSet.NetworkOnly => Enforcement.PromptOnly
+      case ToolSet.Full =>
+        autoApprove match
+          case AutoApprove.All | AutoApprove.Only(_) => Enforcement.Ignored

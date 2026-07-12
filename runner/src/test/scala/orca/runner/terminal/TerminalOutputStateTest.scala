@@ -11,7 +11,7 @@ class TerminalOutputStateTest extends munit.FunSuite:
   private val ClearSuffix = "[2K"
   private val Esc: Char = '\u001b'
 
-  private def withBar(animated: Boolean = true)(
+  private def withBar(animated: Boolean)(
       body: (TerminalOutputState, ByteArrayOutputStream) => Unit
   ): Unit =
     val buf = new ByteArrayOutputStream()
@@ -145,6 +145,24 @@ class TerminalOutputStateTest extends munit.FunSuite:
       assert(
         drawnAfterResume.contains("running"),
         s"resume should redraw the status; drawn: '$drawnAfterResume'"
+      )
+
+  test("setStatus while suspended stores the label but does not draw"):
+    withBar(animated = true): (bar, buf) =>
+      bar.setStatus(Some("running"))
+      bar.suspend()
+      val sizeAtSuspend = buf.size()
+      bar.setStatus(Some("stage started"))
+      assertEquals(
+        buf.size(),
+        sizeAtSuspend,
+        "setStatus must not draw while suspended"
+      )
+      bar.resume()
+      val drawnAfterResume = buf.toString.substring(sizeAtSuspend)
+      assert(
+        drawnAfterResume.contains("stage started"),
+        s"resume should redraw the label stored during suspend; drawn: '$drawnAfterResume'"
       )
 
   test("close drains any pending suspended buffer"):

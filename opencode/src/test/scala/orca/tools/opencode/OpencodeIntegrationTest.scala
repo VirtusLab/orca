@@ -1,8 +1,16 @@
 package orca.tools.opencode
 
 import orca.backend.SupervisedBackend
-import orca.llm.{BackendTag, LlmConfig, Model, SessionId, ToolSet}
+import orca.agents.{
+  BackendTag,
+  AgentConfig,
+  Model,
+  SessionId,
+  WireSessionId,
+  ToolSet
+}
 import orca.subprocess.OsProcCliRunner
+import orca.testkit.TempDirs
 
 /** End-to-end tests against a real `opencode serve`. Gated on the
   * `ORCA_INTEGRATION` environment variable, so `sbt test` without it behaves as
@@ -28,34 +36,35 @@ class OpencodeIntegrationTest extends munit.FunSuite:
   private val model: Model =
     Model(sys.env.getOrElse("ORCA_OPENCODE_MODEL", "openai/gpt-4o-mini"))
 
-  private val config: LlmConfig = LlmConfig.default.copy(model = Some(model))
+  private val config: AgentConfig =
+    AgentConfig().copy(model = Some(model))
 
-  private def withBackend(body: OpencodeBackend => Unit): Unit =
-    SupervisedBackend.using(OpencodeBackend(OsProcCliRunner))(body)
+  private def withBackend(workDir: os.Path = TempDirs.dir())(
+      body: ox.Ox ?=> OpencodeBackend => Unit
+  ): Unit =
+    SupervisedBackend.using(OpencodeBackend(OsProcCliRunner, workDir))(body)
 
   private def fresh = SessionId.fresh[BackendTag.Opencode.type]
 
   test("headless prompt returns the requested literal output"):
-    withBackend: backend =>
+    withBackend(): backend =>
       val result = backend.runAutonomous(
         prompt = "Reply with the single word: READY. Nothing else.",
         session = fresh,
-        config = config,
-        workDir = os.temp.dir()
+        config = config
       )
       assert(
         result.output.toUpperCase.contains("READY"),
         s"expected READY, got: ${result.output}"
       )
-      assert(SessionId.value(result.sessionId).nonEmpty)
+      assert(WireSessionId.value(result.wireId).nonEmpty)
 
   test("structured output returns the validated object"):
-    withBackend: backend =>
+    withBackend(): backend =>
       val result = backend.runAutonomous(
         prompt = "Extract: Anthropic was founded in 2021.",
         session = fresh,
         config = config,
-        workDir = os.temp.dir(),
         outputSchema = Some(
           """{"type":"object","properties":{"company":{"type":"string"},"founded":{"type":"number"}},"required":["company","founded"],"additionalProperties":false}"""
         )
@@ -64,21 +73,18 @@ class OpencodeIntegrationTest extends munit.FunSuite:
       assert(result.output.contains("2021"), result.output)
 
   test("a resumed session recalls earlier context"):
-    withBackend: backend =>
-      val workDir = os.temp.dir()
+    withBackend(): backend =>
       val session = fresh
       val _ = backend.runAutonomous(
         prompt = "Remember the number 42. Reply with: stored.",
         session = session,
-        config = config,
-        workDir = workDir
+        config = config
       )
       val second = backend.runAutonomous(
         prompt =
           "What number did I ask you to remember? Reply with just the number.",
         session = session,
-        config = config,
-        workDir = workDir
+        config = config
       )
       assert(
         second.output.contains("42"),
@@ -86,13 +92,12 @@ class OpencodeIntegrationTest extends munit.FunSuite:
       )
 
   test("read-only turn cannot write a file"):
-    withBackend: backend =>
-      val workDir = os.temp.dir()
+    val workDir = TempDirs.dir()
+    withBackend(workDir): backend =>
       val _ = backend.runAutonomous(
         prompt = "Create a file named marker.txt containing the word hello.",
         session = fresh,
-        config = config.copy(tools = ToolSet.ReadOnly),
-        workDir = workDir
+        config = config.copy(tools = ToolSet.ReadOnly)
       )
       assert(
         !os.exists(workDir / "marker.txt"),

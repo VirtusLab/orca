@@ -118,9 +118,9 @@ private[pi] object InboundEvent:
       .getOrElse(method)
     ExtensionUiRequest(wire.id, method, question)
 
-  /** Pi's `message.content` is polymorphic: either a JSON string, or an array of
-    * content blocks (of which we keep the `text` ones). Decode by shape; fall
-    * back to the raw trimmed value if it's neither, or fails to parse.
+  /** Pi's `message.content` is polymorphic: either a JSON string, or an array
+    * of content blocks (of which we keep the `text` ones). Decode by shape;
+    * fall back to the raw trimmed value if it's neither, or fails to parse.
     */
   private def renderContent(raw: RawJson): String =
     val trimmed = raw.value.trim
@@ -144,7 +144,9 @@ private[pi] object InboundEvent:
     * dropped.
     */
   private def renderTextBlocks(blocks: List[ContentBlockWire]): String =
-    blocks.flatMap(b => Option.when(b.`type` == "text")(b.text).flatten).mkString
+    blocks
+      .flatMap(b => Option.when(b.`type` == "text")(b.text).flatten)
+      .mkString
 
   private def renderJsonString(raw: RawJson): Option[String] =
     val trimmed = raw.value.trim
