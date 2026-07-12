@@ -52,7 +52,8 @@ export orca.agents.{
 export orca.plan.{BugReportMatch, Plan, Sessioned, Task, Title, Triage, Verdict}
 // openPrFromBranch bundles the push→summarise→createPr tail every PR flow
 // otherwise hand-rolls; PrSummary is its (and summarisePr's) result type.
-export orca.pr.{openPrFromBranch, summarisePr, PrSummary}
+// orcaCommentMarker builds the idempotency marker gh.upsertComment keys on.
+export orca.pr.{openPrFromBranch, orcaCommentMarker, summarisePr, PrSummary}
 // IgnoredIssue(s): the return type of both fixLoop and reviewAndFixLoop above
 // — a caller binding the result to a typed val, or inspecting `.issues`,
 // needs it in scope.

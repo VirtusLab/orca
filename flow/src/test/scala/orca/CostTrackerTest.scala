@@ -184,6 +184,33 @@ class CostTrackerTest extends munit.FunSuite:
     assert(out.contains("Estimated total: $1.1000"), out)
     assert(!out.contains("Estimated total: $1.1000*"), out)
 
+  test("summary lists By agent lines alphabetically by their rendered label"):
+    // Sorting on the raw agent name would slot an unprefixed agent between
+    // role-prefixed ones (`reviewer: lint` < main < `reviewer: readability`
+    // by name); the reader sees labels, so labels drive the order.
+    val tracker = new CostTracker(pricing = testTable)
+    tracker.onEvent(
+      tokens("lint", Some("opus"), Usage(1L, 1L, None), role = Some("reviewer"))
+    )
+    tracker.onEvent(tokens("main", Some("opus"), Usage(1L, 1L, None)))
+    tracker.onEvent(
+      tokens(
+        "readability",
+        Some("opus"),
+        Usage(1L, 1L, None),
+        role = Some("reviewer")
+      )
+    )
+    val out = tracker.summary
+    val labels = List("main", "reviewer: lint", "reviewer: readability")
+      .map(l => l -> out.indexOf(s"  $l:"))
+    labels.foreach((l, i) => assert(i >= 0, s"missing agent line $l:\n$out"))
+    assertEquals(
+      labels.map(_._1),
+      labels.sortBy(_._2).map(_._1),
+      s"agent lines must be alphabetical by label; got:\n$out"
+    )
+
   test("summary lists By model lines alphabetically by model label"):
     val tracker = new CostTracker(pricing = testTable)
     tracker.onEvent(tokens("a", Some("opus"), Usage(1L, 1L, None)))

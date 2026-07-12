@@ -121,14 +121,15 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
   def perRole: Map[Option[String], Usage] = state.get().byRole
 
   /** Two or three sections — by-agent, by-model, and (only when at least one
-    * call carried a [[orca.agents.Agent.role]] tag) by-role — sorted
-    * alphabetically within each. Each by-agent line is prefixed with that
-    * agent's role when it has one (e.g. `reviewer: performance`), purely a
-    * display derivation from [[State.agentRoles]] — `agent` itself is never
-    * mutated to carry it. Cache hits and reasoning tokens are shown
-    * parenthetically when non-zero, and cost (when known) is appended as
-    * `$X.XXXX`. An asterisk after the dollar amount marks an estimated figure;
-    * a trailing legend line explains it when at least one estimate is present.
+    * call carried a [[orca.agents.Agent.role]] tag) by-role — each sorted
+    * alphabetically by its RENDERED label, so the ordering the reader sees is
+    * the ordering applied. Each by-agent line is prefixed with that agent's
+    * role when it has one (e.g. `reviewer: performance`), purely a display
+    * derivation from [[State.agentRoles]] — `agent` itself is never mutated to
+    * carry it. Cache hits and reasoning tokens are shown parenthetically when
+    * non-zero, and cost (when known) is appended as `$X.XXXX`. An asterisk
+    * after the dollar amount marks an estimated figure; a trailing legend line
+    * explains it when at least one estimate is present.
     *
     * Empty string when no `TokensUsed` events have been observed.
     */
@@ -137,7 +138,7 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
     if s.byAgent.isEmpty then ""
     else
       val agentLines = s.byAgent.toList
-        .sortBy(_._1)
+        .sortBy((agent, _) => agentLabel(agent, s.agentRoles))
         .map: (agent, u) =>
           s"  ${agentLabel(agent, s.agentRoles)}: ${formatLine(u, s.byAgentCost.get(agent))}"
       val modelLines = s.byModel.toList

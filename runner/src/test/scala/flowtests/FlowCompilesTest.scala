@@ -210,6 +210,11 @@ object FlowCanary:
         val _ = issue.body
         val _ = gh.readIssueComments(issueHandle)
         gh.writeComment(issueHandle, "follow-up question")
+        gh.upsertComment(
+          issueHandle,
+          orcaCommentMarker(userPrompt, "reject"),
+          "updated verdict"
+        )
         val pr = PrHandle("acme", "widgets", 7)
         val _ = gh.readPrComments(pr)
         gh.writeComment(pr, "pr comment")
