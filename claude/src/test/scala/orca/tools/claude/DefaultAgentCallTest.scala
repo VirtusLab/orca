@@ -9,8 +9,7 @@ import orca.agents.{
   AgentConfig,
   SessionId,
   ToolSet,
-  WireSessionId,
-  onWire
+  WireSessionId
 }
 import orca.events.{OrcaListener, Usage}
 

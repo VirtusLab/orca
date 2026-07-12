@@ -65,7 +65,8 @@ class TestFlowControl(
     dispatcher: EventDispatcher,
     val git: GitTool,
     val progressStore: ProgressStore,
-    val userPrompt: String = ""
+    val userPrompt: String = "",
+    lead: Option[Agent[BackendTag.ClaudeCode.type]] = None
 ) extends FlowControl,
       ReportedErrorsSupport,
       StageFrames:
@@ -73,7 +74,7 @@ class TestFlowControl(
     throw new NotImplementedError(s"$name is not wired in TestFlowControl")
 
   type LeadB = BackendTag.ClaudeCode.type
-  lazy val agent: Agent[LeadB] = stub("agent")
+  lazy val agent: Agent[LeadB] = lead.getOrElse(stub("agent"))
   lazy val claude: ClaudeAgent = stub("claude")
   lazy val codex: CodexAgent = stub("codex")
   lazy val opencode: OpencodeAgent = stub("opencode")
@@ -96,11 +97,12 @@ object TestFlowControl:
     */
   def create(
       dispatcher: EventDispatcher,
-      userPrompt: String = "p"
+      userPrompt: String = "p",
+      lead: Option[Agent[BackendTag.ClaudeCode.type]] = None
   ): (TestFlowControl, os.Path) =
     val dir = GitRepo.seeded()
     val git = new OsGitTool(dir)
     val store = ProgressStore.default(dir, userPrompt)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(ProgressHeader("main", "feat/test", "deadbeef"))
-    (new TestFlowControl(dispatcher, git, store, userPrompt), dir)
+    (new TestFlowControl(dispatcher, git, store, userPrompt, lead), dir)

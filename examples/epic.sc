@@ -46,8 +46,8 @@ flow(OrcaArgs(args), _.claude):
   for task <- plan.tasks do
     stage(s"Task: ${task.title}"):      // skipped on resume if already done
       session.run(task.description)
-      // reviewerSelection defaults to agentDriven(claude.cheap) — the coder
-      // session's cheap tier.
+      // reviewerSelection defaults to agentDriven — a picker LLM on the
+      // lead's cheap tier (claude.cheap here).
       reviewAndFixLoop(
         coderSession = session,
         reviewers = reviewers,

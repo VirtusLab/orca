@@ -240,8 +240,8 @@ def planAndImplementFix(
   for task <- fixPlan.tasks do
     stage(s"Task: ${task.title}"): // skipped on resume if already done
       session.run(fixPlan.taskPrompt(task))
-      // reviewerSelection defaults to agentDriven(claude.cheap) — the coder
-      // session's cheap tier.
+      // reviewerSelection defaults to agentDriven — a picker LLM on the
+      // lead's cheap tier (claude.cheap here).
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(claude),

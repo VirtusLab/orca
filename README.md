@@ -431,15 +431,14 @@ Review utilities, available via `import orca.review.*`:
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test). Pair with the default LLM-driven selector when the full set is overkill. |
 | `fixLoop(evaluate, fix, ...)` | Lower-level primitive `reviewAndFixLoop` is built on. |
 
-`reviewAndFixLoop`'s `reviewerSelection` is optional (`Option[ReviewerSelector]`,
-default `None`): left absent it derives
-`ReviewerSelector.agentDriven(coderSession.agent.cheap)` — a picker LLM on the
-coder's own cheap tier sees each reviewer's description plus the changed file
-paths and narrows the supplied list per task. Override it to point the picker at
-a different model (`Some(ReviewerSelector.agentDriven(claude.cheap))`), pass
-`Some(ReviewerSelector.allEveryRound)` to run every reviewer every iteration, or
-`Some(ReviewerSelector.onlyPreviouslyReporting)` to re-run only the reviewers
-that found something last round.
+`reviewAndFixLoop`'s `reviewerSelection` defaults to
+`ReviewerSelector.agentDriven` — a picker LLM on the lead agent's cheap tier
+sees each reviewer's description plus the changed file paths and narrows the
+supplied list per task. Point the picker at a specific model
+(`ReviewerSelector.agentDriven(claude.haiku)`), pass
+`ReviewerSelector.allEveryRound` to run every reviewer every iteration, or
+`ReviewerSelector.onlyPreviouslyReporting` to re-run only the reviewers that
+found something last round.
 
 To swap or extend the reviewer set, compose your own `List[Reviewer]` from
 `ReviewerPrompts` (the shipped entries, `ReviewerPrompts.all`/`.minimal`, and/or

@@ -27,8 +27,7 @@ import orca.agents.{
   PiAgent,
   SessionId,
   WireSessionId,
-  ToolSet,
-  onWire
+  ToolSet
 }
 import orca.backend.{IdScheme, SessionSupport}
 import orca.progress.{ProgressHeader, ProgressStore, SessionRecord, StageEntry}

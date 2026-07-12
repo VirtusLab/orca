@@ -1,13 +1,6 @@
 package orca.plan
 
-import orca.{
-  FlowContext,
-  FlowControl,
-  FlowSession,
-  InStage,
-  OrcaFlowException,
-  session
-}
+import orca.{FlowContext, InStage, OrcaFlowException}
 import orca.agents.{Announce, BackendTag, CanAskUser, JsonData, Agent, given}
 
 import scala.annotation.unused

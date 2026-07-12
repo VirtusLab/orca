@@ -28,7 +28,12 @@ object ReviewLoopFixture:
   /** A [[TestFlowControl]] (a real temp git repo + progress store) wired to
     * `dispatcher`, so the loop's `emit`s reach the suite's listeners and the
     * fix turn's `progressStore.load()` works. Serves as the `given FlowControl`
-    * for a `reviewAndFixLoop` call.
+    * for a `reviewAndFixLoop` call. `lead` wires the context's lead agent —
+    * needed by the default `ReviewerSelector.agentDriven`, which resolves its
+    * picker as `ctx.agent.cheap`.
     */
-  def control(dispatcher: EventDispatcher): TestFlowControl =
-    TestFlowControl.create(dispatcher)._1
+  def control(
+      dispatcher: EventDispatcher,
+      lead: Option[Agent[BackendTag.ClaudeCode.type]] = None
+  ): TestFlowControl =
+    TestFlowControl.create(dispatcher, lead = lead)._1

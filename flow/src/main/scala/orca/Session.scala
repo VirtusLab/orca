@@ -42,9 +42,8 @@ import orca.progress.{ProgressLog, SessionRecord}
   */
 final class FlowSession[B <: BackendTag] private[orca] (
     /** The bundled agent. `private[orca]` — not part of the user surface, but
-      * reachable within the library so helpers that default a parameter off the
-      * coder's own tool can find it (e.g. `reviewAndFixLoop`'s default
-      * `reviewerSelection` derives `agentDriven(coderSession.agent.cheap)`).
+      * reachable within the library so helpers taking a session handle can
+      * reach the coder's own tool.
       */
     private[orca] val agent: Agent[B],
     /** The underlying reserved session id — the documented escape hatch (see

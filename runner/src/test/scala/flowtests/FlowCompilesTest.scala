@@ -99,8 +99,7 @@ object FlowCanary:
           reviewAndFixLoop(
             coderSession = session,
             reviewers = allReviewers(claude),
-            reviewerSelection =
-              Some(ReviewerSelector.agentDriven(claude.haiku)),
+            reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.description,
             formatCommand = Some("mvn -q spotless:apply"),
             lint = Some(Lint("mvn -q test", claude.haiku))
