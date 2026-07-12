@@ -28,7 +28,7 @@ Save this as `implement.sc` and run it with your task:
 
 ```scala
 //> using scala 3.8.4
-//> using dep "org.virtuslab::orca:0.0.14"
+//> using dep "org.virtuslab::orca:0.0.15"
 //> using jvm 21
 
 import orca.{*, given}
