@@ -67,19 +67,19 @@ class InStageNegativeTest extends munit.FunSuite:
     )
 
   test("a gated LLM run does NOT compile without an InStage in scope"):
-    // The InStage half of the same enforcement: with an `Agent` in scope but NO
-    // `InStage`, `agent.autonomous.run(...)` must fail to compile. Proves the
+    // The InStage half of the same enforcement: with an `Agent` in scope but
+    // NO `InStage`, `agent.run(...)` must fail to compile. Proves the
     // LLM-call gate still works after the split — only a `stage(...)` body can
     // spend tokens.
     val errors = compileErrors(
       """
       val agent: orca.agents.Agent[orca.agents.BackendTag.ClaudeCode.type] = ???
-      agent.autonomous.run("hi")
+      agent.run("hi")
       """
     )
     assert(
       errors.nonEmpty,
-      "expected a compile error for agent.autonomous.run without an InStage"
+      "expected a compile error for agent.run without an InStage"
     )
     // Pin the InStage message distinctly from WorkspaceWrite's: it talks about
     // LLM runs and a stage, but says nothing about forks (LLM calls MAY cross
