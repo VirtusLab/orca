@@ -34,8 +34,8 @@ object OutsideStage:
   * must survive a flow crash and resume. Obtain one with `agent.session(name,
   * seed)`; it bundles the [[Agent]] with the reserved [[SessionId]] and owns
   * the entire probe → seed/preamble → run → persist protocol, so a durable run
-  * can never silently skip seeding or wire-id persistence the way a raw
-  * `agent.autonomous.run(prompt, session)` door does.
+  * can never silently skip seeding or wire-id persistence the way a bare
+  * `agent.run` / `chat.run` turn does.
   *
   * Use [[run]] for free-form text and [[resultAs]]`.run` for a structured `O`.
   * Both prime the conversation with the recorded seed and a progress preamble
@@ -92,7 +92,7 @@ final class FlowSession[B <: BackendTag] private[orca] (
       ws: WorkspaceWrite
   ): String =
     fc.assertOwnerThread("session.run(...)")
-    val (_, output) = agent.autonomous
+    val output = agent.autonomous
       .runWithSession(effectivePrompt(agent, id, prompt), id, None, true)
     persistResumeWireId(agent, id)
     output
@@ -146,7 +146,7 @@ final class FlowSessionCall[B <: BackendTag, O] private[orca] (
   ): O =
     fc.assertOwnerThread("session.run(...)")
     val serialized = ai.serialize(input)
-    val (_, output) = call.autonomous
+    val output = call.autonomous
       .runWithSession(
         effectivePrompt(agent, id, serialized),
         id,

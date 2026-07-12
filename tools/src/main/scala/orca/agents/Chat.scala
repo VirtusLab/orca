@@ -21,10 +21,12 @@ import orca.InStage
   */
 final class Chat[B <: BackendTag] private[orca] (
     private[orca] val agent: Agent[B],
-    /** The underlying conversation id — exposed for parity with
-      * `FlowSession.id`; scripts rarely need it.
+    /** The underlying conversation id. `private[orca]` — the library's own
+      * continuations (the planning grid) reach it; scripts hold the chat
+      * itself, and the only public id-adoption door is `agent.chat(id)` over a
+      * `FlowSession.id`.
       */
-    val id: SessionId[B]
+    private[orca] val id: SessionId[B]
 ):
   /** One free-text turn continuing this conversation. */
   def run(
@@ -32,7 +34,7 @@ final class Chat[B <: BackendTag] private[orca] (
       config: Option[AgentConfig] = None,
       emitPrompt: Boolean = true
   )(using InStage): String =
-    agent.autonomous.runWithSession(prompt, id, config, emitPrompt)._2
+    agent.autonomous.runWithSession(prompt, id, config, emitPrompt)
 
   /** Fix the output type for structured turns continuing this conversation —
     * both `autonomous` and `interactive` modes, mirroring `agent.resultAs[O]`.
@@ -54,11 +56,11 @@ final class ChatCall[B <: BackendTag, O] private[orca] (
         config: Option[AgentConfig] = None,
         emitPrompt: Boolean = true
     )(using InStage): O =
-      call.autonomous.runWithSession(input, id, config, emitPrompt)._2
+      call.autonomous.runWithSession(input, id, config, emitPrompt)
 
   object interactive:
     def run[I: AgentInput](
         input: I,
         config: Option[AgentConfig] = None
     )(using InStage): O =
-      call.interactive.runWithSession(input, id, config)._2
+      call.interactive.runWithSession(input, id, config)

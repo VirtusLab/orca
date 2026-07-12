@@ -82,8 +82,8 @@ class OrcaOverridesTest extends munit.FunSuite:
               emitPrompt: Boolean
           )(using
               orca.InStage
-          ): (SessionId[BackendTag.ClaudeCode.type], String) =
-            (SessionId[BackendTag.ClaudeCode.type]("fake-sid"), s"echo: $p")
+          ): String =
+            s"echo: $p"
       def resultAs[O: JsonData: Announce]
           : AgentCall[BackendTag.ClaudeCode.type, O] =
         ???
@@ -125,8 +125,8 @@ class OrcaOverridesTest extends munit.FunSuite:
               session: SessionId[BackendTag.Opencode.type],
               c: Option[AgentConfig],
               emitPrompt: Boolean
-          )(using orca.InStage): (SessionId[BackendTag.Opencode.type], String) =
-            (SessionId[BackendTag.Opencode.type]("fake-sid"), s"opencode: $p")
+          )(using orca.InStage): String =
+            s"opencode: $p"
       def resultAs[O: JsonData: Announce]
           : AgentCall[BackendTag.Opencode.type, O] = ???
     var observed: String = ""
@@ -189,8 +189,8 @@ class OrcaOverridesTest extends munit.FunSuite:
               session: SessionId[BackendTag.Pi.type],
               c: Option[AgentConfig],
               emitPrompt: Boolean
-          )(using orca.InStage): (SessionId[BackendTag.Pi.type], String) =
-            (SessionId[BackendTag.Pi.type]("fake-pi-sid"), s"pi: $p")
+          )(using orca.InStage): String =
+            s"pi: $p"
       def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Pi.type, O] =
         ???
     var observed: String = ""
@@ -238,7 +238,7 @@ class OrcaOverridesTest extends munit.FunSuite:
               emitPrompt: Boolean
           )(using
               orca.InStage
-          ): (SessionId[BackendTag.ClaudeCode.type], String) =
+          ): String =
             events.onEvent(
               OrcaEvent.TokensUsed(
                 "wired",
@@ -246,7 +246,7 @@ class OrcaOverridesTest extends munit.FunSuite:
                 Usage(7L, 3L, None)
               )
             )
-            (SessionId[BackendTag.ClaudeCode.type]("wired-sid"), s"ok: $p")
+            s"ok: $p"
       def resultAs[O: JsonData: Announce]
           : AgentCall[BackendTag.ClaudeCode.type, O] = ???
     // Records which agents' TokensUsed reach a run listener — the override

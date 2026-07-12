@@ -185,7 +185,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
     )
     val sid = SessionId[BackendTag.ClaudeCode.type]("sess-under-test")
     supervised:
-      val (_, answer) =
+      val answer =
         makeCall(backend).autonomous.runWithSession(
           "next step",
           sid,
@@ -473,15 +473,12 @@ class DefaultAgentCallTest extends munit.FunSuite:
       ).autonomous.run("anything")
       assertEquals(captured.get().flatMap(_.systemPrompt), Some("tool-prompt"))
 
-  test(
-    "interactive.run registers (clientSid, serverSid) and returns the client id"
-  ):
+  test("interactive.runWithSession registers the (clientSid, serverSid) map"):
     // Pins the codex-interactive bug fix end-to-end: the framework must call
     // `backend.sessions.register(session, result.wireId)` after
-    // `interaction.drive` returns, and return the caller-supplied `session`
-    // so a follow-up `.run(prompt, sid)` resumes the right thread. Removing
-    // the `backend.sessions.register` call in
-    // `DefaultAgentCall.runInteractiveOnce` would fail this test.
+    // `interaction.drive` returns, so a follow-up turn on the same session
+    // resumes the right thread. Removing the `backend.sessions.register` call
+    // in `DefaultAgentCall.runInteractiveOnce` would fail this test.
     val clientSid =
       SessionId[BackendTag.ClaudeCode.type]("client-uuid-aaaa")
     val serverSid =
@@ -498,7 +495,7 @@ class DefaultAgentCallTest extends munit.FunSuite:
           usage = Usage.empty
         )
     supervised:
-      val (returned, answer) = new DefaultAgentCall[
+      val answer = new DefaultAgentCall[
         BackendTag.ClaudeCode.type,
         Answer
       ](
@@ -511,11 +508,6 @@ class DefaultAgentCallTest extends munit.FunSuite:
         agentName = "claude"
       ).interactive.runWithSession("anything", clientSid, None)
       assertEquals(answer, Answer(3))
-      assertEquals(
-        returned,
-        clientSid,
-        "returned id must be the caller's, not the server's"
-      )
       assertEquals(
         backend.sessions.persistableWireId(clientSid),
         Some(serverSid),

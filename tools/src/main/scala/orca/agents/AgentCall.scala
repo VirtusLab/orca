@@ -33,19 +33,18 @@ trait AutonomousAgentCall[B <: BackendTag, O]:
       config: Option[AgentConfig] = None,
       emitPrompt: Boolean = true
   )(using orca.InStage): O =
-    runWithSession(input, SessionId.fresh[B], config, emitPrompt)._2
+    runWithSession(input, SessionId.fresh[B], config, emitPrompt)
 
   /** The session-threading door behind [[run]] and [[Chat]]: runs `input`
-    * against `session` (continuing it if the backend already has it this run)
-    * and returns the caller's session handle back with the output. Ephemeral —
-    * no seeding, no wire-id persistence.
+    * against `session`, continuing it if the backend already has it this run.
+    * Ephemeral — no seeding, no wire-id persistence.
     */
   private[orca] def runWithSession[I: AgentInput](
       input: I,
       session: SessionId[B],
       config: Option[AgentConfig],
       emitPrompt: Boolean
-  )(using orca.InStage): (SessionId[B], O)
+  )(using orca.InStage): O
 
 /** Interactive structured calls — open a conversation the user can drive
   * (clarifying questions, refinements) before the agent produces the final
@@ -60,33 +59,32 @@ trait InteractiveAgentCall[B <: BackendTag, O]:
       input: I,
       config: Option[AgentConfig] = None
   )(using orca.InStage): O =
-    runWithSession(input, SessionId.fresh[B], config)._2
+    runWithSession(input, SessionId.fresh[B], config)
 
   /** The session-threading door behind [[run]] and [[Chat]]. */
   private[orca] def runWithSession[I: AgentInput](
       input: I,
       session: SessionId[B],
       config: Option[AgentConfig]
-  )(using orca.InStage): (SessionId[B], O)
+  )(using orca.InStage): O
 
 /** Free-form text turns — the internal engine behind `Agent.run` and
   * [[Chat.run]] (the non-structured sibling of [[AutonomousAgentCall]]).
   * Ephemeral: no seeding, no wire-id persistence; `orca.FlowSession` layers the
   * durable protocol on top of this same door.
   */
-trait AutonomousTextCall[B <: BackendTag]:
-  /** Run the agent on `prompt` against `session` (continuing it if the backend
-    * already has it this run); returns the caller's session handle back with
-    * the output. `emitPrompt = false` suppresses the `OrcaEvent.UserPrompt`
-    * (used by internal callers producing near-identical prompts in quick
-    * succession); other events fire regardless.
+private[orca] trait AutonomousTextCall[B <: BackendTag]:
+  /** Run the agent on `prompt` against `session`, continuing it if the backend
+    * already has it this run. `emitPrompt = false` suppresses the
+    * `OrcaEvent.UserPrompt` (used by internal callers producing near-identical
+    * prompts in quick succession); other events fire regardless.
     */
   private[orca] def runWithSession(
       prompt: String,
       session: SessionId[B],
       config: Option[AgentConfig],
       emitPrompt: Boolean
-  )(using orca.InStage): (SessionId[B], String)
+  )(using orca.InStage): String
 
 /** Default implementation of [[AgentCall]] for any backend.
   *
@@ -153,7 +151,7 @@ class DefaultAgentCall[B <: BackendTag, O](
         session: SessionId[B],
         config: Option[AgentConfig],
         emitPrompt: Boolean
-    )(using orca.InStage): (SessionId[B], O) =
+    )(using orca.InStage): O =
       checkNotClosed()
       runAutonomousWithRetry(input, config, session, emitPrompt)
 
@@ -162,7 +160,7 @@ class DefaultAgentCall[B <: BackendTag, O](
         input: I,
         session: SessionId[B],
         config: Option[AgentConfig]
-    )(using orca.InStage): (SessionId[B], O) =
+    )(using orca.InStage): O =
       checkNotClosed()
       runInteractiveOnce(input, config, session)
 
@@ -187,15 +185,14 @@ class DefaultAgentCall[B <: BackendTag, O](
     * spawn) are retried; [[AgentTurnFailed]] never is. Why reopening a locked
     * session id makes an `AgentTurnFailed` retry futile is owned by the
     * classifier, [[orca.backend.ForkedConversation.awaitResult]]. On a parse
-    * failure the next attempt swaps the original prompt for a corrective one;
-    * the returned session id is whichever attempt succeeded.
+    * failure the next attempt swaps the original prompt for a corrective one.
     */
   private def runAutonomousWithRetry[I](
       input: I,
       config: Option[AgentConfig],
       session: SessionId[B],
       emitPrompt: Boolean
-  )(using ai: AgentInput[I]): (SessionId[B], O) =
+  )(using ai: AgentInput[I]): O =
     val serialized = ai.serialize(input)
     val effective = effectiveConfig(config)
     val initialPrompt = prompts.autonomous(serialized, outputSchema, effective)
@@ -221,7 +218,7 @@ class DefaultAgentCall[B <: BackendTag, O](
     // failures alike — is retryable.
     val retryConfig = RetryConfig(
       effective.retrySchedule,
-      ResultPolicy.retryWhen[Throwable, (SessionId[B], O)](e =>
+      ResultPolicy.retryWhen[Throwable, O](e =>
         !e.isInstanceOf[AgentTurnFailed]
       )
     )
@@ -252,8 +249,7 @@ class DefaultAgentCall[B <: BackendTag, O](
         try
           val parsed = ResponseParser.parse[O](result.output)
           emitStructuredResult(result.output, parsed)
-          // The stable client handle; result.wireId is the wire-side truth.
-          (session, parsed)
+          parsed
         catch
           case e: MalformedAgentOutputException =>
             lastFailure = Some(
@@ -284,7 +280,7 @@ class DefaultAgentCall[B <: BackendTag, O](
       input: I,
       config: Option[AgentConfig],
       session: SessionId[B]
-  )(using ai: AgentInput[I]): (SessionId[B], O) =
+  )(using ai: AgentInput[I]): O =
     val serialized = ai.serialize(input)
     val effective = effectiveConfig(config)
     val prompt = prompts.interactive(serialized, outputSchema, effective)
@@ -322,7 +318,6 @@ class DefaultAgentCall[B <: BackendTag, O](
     )
     val parsed = ResponseParser.parse[O](result.output)
     emitStructuredResult(result.output, parsed)
-    // The stable client handle; result.wireId is the wire-side truth.
-    (session, parsed)
+    parsed
 
 private case class FailedAttempt(response: String, parserError: String)

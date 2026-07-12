@@ -57,16 +57,13 @@ class LintTest extends munit.FunSuite:
             )(using
                 a: AgentInput[I],
                 _x: orca.InStage
-            ): (SessionId[BackendTag.ClaudeCode.type], O) =
+            ): O =
               captured = a.serialize(i)
               capturedFileContent = "`([^`]+\\.txt)`".r
                 .findFirstMatchIn(captured)
                 .map(m => os.read(os.Path(m.group(1))))
                 .getOrElse("")
-              (
-                SessionId[BackendTag.ClaudeCode.type]("lint-test"),
-                canned.asInstanceOf[O]
-              )
+              canned.asInstanceOf[O]
         def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
           ???
 

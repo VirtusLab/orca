@@ -46,8 +46,8 @@ class BranchNamingTest extends munit.FunSuite:
               emitPrompt: Boolean
           )(using
               orca.InStage
-          ): (SessionId[BackendTag.ClaudeCode.type], String) =
-            (session, reply)
+          ): String =
+            reply
       def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
       def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
         this
@@ -69,7 +69,7 @@ class BranchNamingTest extends munit.FunSuite:
               emitPrompt: Boolean
           )(using
               orca.InStage
-          ): (SessionId[BackendTag.ClaudeCode.type], String) =
+          ): String =
             throw new RuntimeException("LLM unavailable")
       def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
       def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =

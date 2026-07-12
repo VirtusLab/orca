@@ -57,8 +57,8 @@ enum IdScheme:
   *
   * The `dispatchFor` → spawn → `register`/`commitAfterDrain` sequence is NOT
   * atomic, so callers must not share a session id across concurrent calls —
-  * each reviewer mints its own via `Agent.newSession`. The internal map is
-  * concurrent because flows fan reviewers out via `mapParUnordered`.
+  * each reviewer mints its own conversation via `agent.chat()`. The internal
+  * map is concurrent because flows fan reviewers out via `mapParUnordered`.
   */
 final class SessionSupport[B <: BackendTag] private (
     scheme: IdScheme,

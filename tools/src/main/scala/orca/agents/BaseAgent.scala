@@ -116,16 +116,14 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
           session: SessionId[B],
           callConfig: Option[AgentConfig],
           emitPrompt: Boolean
-      )(using orca.InStage): (SessionId[B], String) =
+      )(using orca.InStage): String =
         checkNotClosed()
         val effective = effectiveConfig(callConfig)
         if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
         val result =
           backend.runAutonomous(prompt, session, effective, events)
         emitTokens(effective, result)
-        // Return the caller-supplied client handle; result.wireId is the
-        // wire-side truth, learned by the bookkeeping, not a caller handle.
-        (session, result.output)
+        result.output
 
   /** See [[Agent.quietTextTurn]]: the turn runs against a filtered event sink
     * that drops the streaming display events (`AssistantMessage`, `ToolUse`)

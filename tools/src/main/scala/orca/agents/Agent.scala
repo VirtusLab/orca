@@ -58,7 +58,7 @@ trait Agent[B <: BackendTag]:
       config: Option[AgentConfig] = None,
       emitPrompt: Boolean = true
   )(using InStage): String =
-    autonomous.runWithSession(prompt, SessionId.fresh[B], config, emitPrompt)._2
+    autonomous.runWithSession(prompt, SessionId.fresh[B], config, emitPrompt)
 
   /** Start a fresh EPHEMERAL multi-turn conversation — see [[Chat]]. In-run
     * only: nothing is persisted, so a crash/resume starts over. Runs need only
@@ -273,18 +273,6 @@ trait Agent[B <: BackendTag]:
       wireId: WireSessionId[B]
   ): Unit =
     sessionSupport.foreach(_.register(client, wireId))
-
-  /** Mint a fresh, unrecorded session id — used by the runtime for ephemeral
-    * one-off conversations (e.g. each reviewer's own turn). NOT resume-aware:
-    * it isn't recorded in the progress log, so a re-run mints a different id.
-    * Flow scripts that need a session to survive restarts use
-    * `agent.session(name, seed)` instead, which keys off the log.
-    * `private[orca]` — internal.
-    *
-    * Default implementation generates a UUID via [[SessionId.fresh]]; backends
-    * that need a different format (or eager server-side allocation) override.
-    */
-  private[orca] def newSession: SessionId[B] = SessionId.fresh[B]
 
   /** Release background resources this agent's backend owns. Delegates to
     * [[orca.backend.AgentBackend.close]]; a lightweight stub built directly on

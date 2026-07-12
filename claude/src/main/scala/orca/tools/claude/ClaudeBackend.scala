@@ -165,7 +165,7 @@ private[orca] class ClaudeBackend(
     // conversation is up (the spawn succeeded, claude has parsed args).
     // A crash mid-conversation will still leave the mark in place, but
     // interactive sessions aren't auto-retried by the orchestrator —
-    // the user reruns with a fresh `claude.newSession`. Through `register`
+    // the user reruns with a fresh session. Through `register`
     // (log-and-skip guard, the correct policy for the interactive path) —
     // claude claims its ids client-side, so the client id IS the wire id
     // (`onWire`), which is always safe.
@@ -240,7 +240,7 @@ private[orca] class ClaudeBackend(
       // comes, still sees `--session-id` as the correct dispatch.
       // Callers must not share a session id across concurrent calls;
       // `reviewAndFixLoop`'s parallel reviewer fan-out is safe because each
-      // reviewer mints its own distinct id via `Agent.newSession`.
+      // reviewer mints its own distinct conversation via `agent.chat()`.
       val args = ClaudeArgs.streamJson(
         effectiveConfig,
         systemPromptFile,

@@ -152,9 +152,9 @@ class FlowSessionTest extends FunSuite:
             session: SessionId[BackendTag.ClaudeCode.type],
             config: Option[AgentConfig],
             emitPrompt: Boolean
-        )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], String) =
+        )(using orca.InStage): String =
           capture(prompt, session)
-          (session, runResult)
+          runResult
 
     /** Structured door stub: captures the serialized input (after preamble/seed
       * composition) and decodes a fixed `{"v":"ok"}` payload as `O` (tests
@@ -172,13 +172,13 @@ class FlowSessionTest extends FunSuite:
                 emitPrompt: Boolean
             )(using
                 orca.InStage
-            ): (SessionId[BackendTag.ClaudeCode.type], O) =
+            ): O =
               capture(summon[AgentInput[I]].serialize(input), session)
               val parsed =
                 readFromString[O]("""{"v":"ok"}""")(using
                   summon[JsonData[O]].codec
                 )
-              (session, parsed)
+              parsed
         def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
           ???
     def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
@@ -293,9 +293,14 @@ class FlowSessionTest extends FunSuite:
     import ox.*
     val outcome = supervised:
       fork(scala.util.Try(flowSession(agent).run("p")(using fc))).join()
+    val thrown = outcome.failed.toOption
     assert(
-      outcome.isFailure && outcome.failed.get.isInstanceOf[OrcaFlowException],
-      s"expected the R12 rejection; got: $outcome"
+      thrown.exists(e =>
+        e.isInstanceOf[OrcaFlowException] &&
+          e.getMessage.contains("session.run(...)") &&
+          e.getMessage.contains("R12")
+      ),
+      s"expected THIS door's R12 rejection; got: $outcome"
     )
 
   test("re-seeding a previously-live session emits a Step warning"):
@@ -683,7 +688,7 @@ class FlowSessionTest extends FunSuite:
         )
     assertEquals(agent.capturedPrompt, Some("continue"))
 
-  // ── tests: the raw ephemeral door does not accept a FlowSession ──────────────
+  // ── tests: the chat(...) hatch rejects a FlowSession (takes .id) ────────────
 
   test("agent.chat(flowSession) does not compile — the hatch takes .id"):
     val errors = compileErrors(

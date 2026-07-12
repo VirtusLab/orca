@@ -51,7 +51,7 @@ private[plan] class CannedResultAgent[T](value: T)
               session: SessionId[BackendTag.ClaudeCode.type],
               config: Option[AgentConfig],
               emitPrompt: Boolean
-          )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
+          )(using orca.InStage): O =
             lastSession = Some(session)
-            (session, value.asInstanceOf[O])
+            value.asInstanceOf[O]
       def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] = ???

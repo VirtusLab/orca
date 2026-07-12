@@ -44,16 +44,13 @@ private class RecordingPicker(
               session: SessionId[BackendTag.ClaudeCode.type],
               config: Option[AgentConfig],
               emitPrompt: Boolean
-          )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
+          )(using orca.InStage): O =
             val _ = calls.incrementAndGet()
             input match
               case r: ReviewerSelectionRequest =>
                 captured.set(Some(r))
               case _ => ()
-            (
-              SessionId[BackendTag.ClaudeCode.type]("picker-sid"),
-              response.asInstanceOf[O]
-            )
+            response.asInstanceOf[O]
       def interactive
           : orca.agents.InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
         ???

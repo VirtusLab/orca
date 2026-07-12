@@ -292,8 +292,8 @@ construction.
   `Par.mapUnordered` fork: parallel reviewers each holding a multi-turn
   conversation is the canonical use. `agent.chat(session.id)` adopts a durable
   session's conversation as an ephemeral chat — the escape hatch for
-  read-only follow-ups from a fork (turns are not persisted; one live
-  continuation at a time).
+  follow-ups from a fork (turns are not persisted; one live continuation at a
+  time).
 
 ```scala
 val session = agent.session("implementer", seed = plan.brief)
@@ -552,8 +552,8 @@ results.
   ("chat" names its lifetime, not its powers), in-run only, fork-safe. Also
   carried by `Sessioned` for planning-conversation continuations.
 - **`orca.agents.SessionId[B]`** — typed session id, parameterised by backend,
-  exposed via `FlowSession.id` / `Chat.id`. Carries the backend identity at
-  the type level, so you cannot accidentally pass a Claude session to Codex.
+  exposed via `FlowSession.id`. Carries the backend identity at the type
+  level, so you cannot accidentally pass a Claude session to Codex.
 - **`orca.Title`** — opaque `String` alias for short labels (`Task.title`,
   `ReviewIssue.title`); `Title("…")` to construct, `.value` to read.
 - **`orca.tools.PrHandle(owner, repo, number)`** — handle to an open pull

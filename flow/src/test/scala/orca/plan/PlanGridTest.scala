@@ -57,6 +57,27 @@ class PlanGridTest extends munit.FunSuite:
       )
     )
 
+  test(
+    "the handed-out chat is bound to the base agent, not the NetworkOnly sibling"
+  ):
+    // CannedResultAgent.withTools returns `this`, which would mask a
+    // regression to handing out the restricted planning chat — so the base
+    // here routes withTools to a DISTINCT restricted sibling.
+    val restricted = new CannedResultAgent(samplePlan)
+    val base = new CannedResultAgent(samplePlan):
+      override def withTools(
+          tools: orca.agents.ToolSet
+      ): orca.agents.Agent[BackendTag.ClaudeCode.type] = restricted
+    val result = Plan.autonomous.from("prompt", base)
+    assert(
+      result.chat.agent eq base,
+      "a continuation must regain the base agent's capability"
+    )
+    assert(
+      restricted.lastSession.isDefined,
+      "the planning turn must run on the restricted sibling"
+    )
+
   // --- post-planning step (reviewed) on the planning session ---
 
   private def sessioned[A](value: A): Sessioned[BackendTag.ClaudeCode.type, A] =
@@ -66,7 +87,12 @@ class PlanGridTest extends munit.FunSuite:
       value
     )
 
-  test("reviewed returns the improved plan, brief included"):
+  test("reviewed returns the improved plan on the original chat binding"):
     val improved = samplePlan.copy(description = "tighter", brief = "sharper")
-    val result = sessioned(samplePlan).reviewed(new CannedResultAgent(improved))
+    val input = sessioned(samplePlan)
+    val result = input.reviewed(new CannedResultAgent(improved))
     assertEquals(result.value, improved)
+    assert(
+      result.chat eq input.chat,
+      "reviewed must hand back the original chat, not the review sibling's"
+    )

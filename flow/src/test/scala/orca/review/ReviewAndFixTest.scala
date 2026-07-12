@@ -43,9 +43,9 @@ class FakeAgentCall[O](outputs: Iterator[Any])
           session: SessionId[BackendTag.ClaudeCode.type],
           config: Option[AgentConfig],
           emitPrompt: Boolean
-      )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
+      )(using orca.InStage): O =
         val _ = seenSessions.updateAndGet(session :: _)
-        (session, outputs.next().asInstanceOf[O])
+        outputs.next().asInstanceOf[O]
   def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] = ???
 
 class FakeAgent(
@@ -104,12 +104,12 @@ private class TokenEmittingReviewer(
               session: SessionId[BackendTag.ClaudeCode.type],
               c: Option[AgentConfig],
               emitPrompt: Boolean
-          )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
+          )(using orca.InStage): O =
             ctx.emit(
               OrcaEvent
                 .TokensUsed(capturedName, None, Usage.empty, capturedRole)
             )
-            (session, result.asInstanceOf[O])
+            result.asInstanceOf[O]
       def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
         ???
 
@@ -158,9 +158,9 @@ private class SeedProbingCoder(
               session: SessionId[BackendTag.ClaudeCode.type],
               config: Option[AgentConfig],
               emitPrompt: Boolean
-          )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
+          )(using orca.InStage): O =
             capturedFixPrompt = Some(summon[AgentInput[I]].serialize(input))
-            (session, fixOutcome.asInstanceOf[O])
+            fixOutcome.asInstanceOf[O]
       def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
         ???
 
@@ -267,9 +267,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     "reviewer is called with the same session id on every iteration"
   ):
     // Pins the cross-iteration session-threading contract: a reviewer's
-    // first call mints a session via `r.newSession`, and every subsequent
-    // call resumes the SAME id. Without this the loop could lose context
-    // across iterations.
+    // first call mints its own chat (`agent.chat()`), and every subsequent
+    // call resumes the SAME conversation. Without this the loop could lose
+    // context across iterations.
     given FlowControl = control
     val stubborn = issue("never ends")
     val reviewer = new FakeAgent(
@@ -322,12 +322,9 @@ class ReviewAndFixTest extends munit.FunSuite:
                   emitPrompt: Boolean
               )(using
                   orca.InStage
-              ): (SessionId[BackendTag.ClaudeCode.type], O) =
+              ): O =
                 capturedFirst = Some(i.toString)
-                (
-                  SessionId[BackendTag.ClaudeCode.type]("s"),
-                  ReviewResult.empty.asInstanceOf[O]
-                )
+                ReviewResult.empty.asInstanceOf[O]
           def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
             ???
 
@@ -492,13 +489,10 @@ class ReviewAndFixTest extends munit.FunSuite:
                   emitPrompt: Boolean
               )(using
                   orca.InStage
-              ): (SessionId[BackendTag.ClaudeCode.type], O) =
+              ): O =
                 val ok = gate.await(2, java.util.concurrent.TimeUnit.SECONDS)
                 assert(ok, s"$label gate never opened")
-                (
-                  SessionId[BackendTag.ClaudeCode.type](s"sid-$label"),
-                  ReviewResult.empty.asInstanceOf[O]
-                )
+                ReviewResult.empty.asInstanceOf[O]
           def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
             ???
 
@@ -572,11 +566,8 @@ class ReviewAndFixTest extends munit.FunSuite:
                   emitPrompt: Boolean
               )(using
                   orca.InStage
-              ): (SessionId[BackendTag.ClaudeCode.type], O) =
-                (
-                  SessionId[BackendTag.ClaudeCode.type](s"sid-$label"),
-                  rendezvousThen()
-                )
+              ): O =
+                rendezvousThen()
           def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
             ???
 

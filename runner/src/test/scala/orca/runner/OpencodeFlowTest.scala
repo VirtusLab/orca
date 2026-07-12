@@ -157,10 +157,7 @@ class OpencodeFlowTest extends munit.FunSuite:
                 session: SessionId[BackendTag.Opencode.type],
                 config: Option[AgentConfig],
                 emitPrompt: Boolean
-            )(using orca.InStage): (SessionId[BackendTag.Opencode.type], O) =
-              (
-                SessionId[BackendTag.Opencode.type]("stub-sid"),
-                value.asInstanceOf[O]
-              )
+            )(using orca.InStage): O =
+              value.asInstanceOf[O]
         def interactive: InteractiveAgentCall[BackendTag.Opencode.type, O] =
           throw new UnsupportedOperationException

@@ -96,8 +96,9 @@ object FlowCanary:
       // resume can rehydrate it) — NOT a session id carried as a stage result.
       val session = claude.session("plan", seed = userPrompt)
       // The planning turn is interactive, which FlowSession deliberately does
-      // not offer (see the FlowSession scaladoc); run it on the raw interactive
-      // door via the `.id` escape hatch. The stage persists ONLY the FlowPlan.
+      // not offer (see the FlowSession scaladoc); run it on a Chat adopting
+      // the session id (`agent.chat(session.id)`). The stage persists ONLY
+      // the FlowPlan.
       val plan: FlowPlan = stage("plan"):
         claude.chat(session.id).resultAs[FlowPlan].interactive.run(userPrompt)
       for task <- plan.tasks do

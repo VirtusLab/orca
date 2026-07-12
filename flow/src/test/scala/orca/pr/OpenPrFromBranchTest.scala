@@ -113,11 +113,9 @@ class OpenPrFromBranchTest extends FunSuite:
                 session: SessionId[BackendTag.ClaudeCode.type],
                 config: Option[AgentConfig],
                 emitPrompt: Boolean
-            )(using orca.InStage): (SessionId[BackendTag.ClaudeCode.type], O) =
-              (
-                session,
-                PrSummary("Generated title", "Generated body").asInstanceOf[O]
-              )
+            )(using orca.InStage): O =
+              PrSummary("Generated title", "Generated body")
+                .asInstanceOf[O]
         def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
           nyi("interactive")
 

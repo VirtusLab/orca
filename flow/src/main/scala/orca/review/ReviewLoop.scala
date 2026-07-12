@@ -370,7 +370,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * identity), if any; `currentDiff` is the working-tree diff the caller
     * sampled at the start of this iteration, consumed only on the first call.
     *
-    * No cast is involved: a resume runs `stored`'s own paired entry+session
+    * No cast is involved: a resume runs `stored`'s own paired entry+chat
     * ([[resumeReview]]), whose backend tag `B` the wrapper carries by
     * construction; a first call binds the entry's `B` ([[firstReview]]) and
     * pairs the fresh `Chat[B]` back with it. The pairing is a compile-time

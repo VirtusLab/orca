@@ -10,14 +10,6 @@ import orca.backend.{
 }
 import orca.events.{OrcaEvent, OrcaListener, Usage}
 
-/** Pins `BaseAgent.autonomous.run`'s returned session id to the caller's client
-  * handle rather than the backend's wire id. The two intentionally diverge for
-  * backends whose wire id is server-minted (codex, gemini, opencode) —
-  * `AgentResult.wireId` exists so the registry can learn that mapping, not for
-  * callers to receive as their handle. Both ids are string-shaped, so a future
-  * refactor that swapped in `result.wireId` would not fail to compile; this
-  * test exists to catch that regression.
-  */
 /** Unsupported `resultAs[O]` output shape: OpenAI's strict structured-output
   * mode can't express a Map's unbounded key set. See the "Map field throws...
   * at construction" test below.
@@ -28,18 +20,6 @@ class BaseAgentTest extends munit.FunSuite:
 
   // LLM `run` is gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
-
-  test("a continued turn returns the caller's client handle, not the wire id"):
-    val session = SessionId[BackendTag.Pi.type]("client-session-id")
-    val tool = new StubTool(StubBackend)
-    val (returned, output) =
-      tool.autonomous.runWithSession("prompt", session, None, true)
-    assertEquals(
-      returned,
-      session,
-      "returned id must be the caller's handle, not the wire id"
-    )
-    assertEquals(output, "out")
 
   test("close() delegates to the backend"):
     val backend = new RecordingCloseBackend
