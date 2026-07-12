@@ -14,6 +14,9 @@ to be installed - everything is automatically bootstrapped. Scala 3 looks like
 Python, but with types - so you get quick feedback if your flow script has any
 problems.
 
+Orca's development flows are resumable, so that if work is interrupted mid-flow
+for any reason, it can be continued from the last commit. 
+
 You can use Orca to orchestrate development in any language and ecosystem.
 
 Orca assumes that it has configured, logged-in access to Claude, Codex,
@@ -68,11 +71,22 @@ flow(OrcaArgs(args), _.claude):
 scala-cli run implement.sc -- "Add a rate-limiter to the /login endpoint"
 ```
 
+Each flow always starts by creating a branch, named basing on the user's prompt.
 The feature branch name defaults to a short cheap-model-generated label
 (slugged); pass `branchNaming = ...` to override. This flow opens no PR, so on
-success you're left on the feature branch, ready to test or open a PR by hand
-— see [The flow lifecycle](#the-flow-lifecycle) for the full success/failure/
+success you're left on the feature branch, ready to test or open a PR by hand —
+see [The flow lifecycle](#the-flow-lifecycle) for the full success/failure/
 resume behavior.
+
+If the flow is interrupted in the middle, either because of user intervention or
+an intermittent error, it can be resumed, starting from the last commited set of
+changes (so only a small amount of work might have to be repeated); just run the
+same command again. Orca borrows ideas from durable computing, and tracks which
+development stages have completed, and with what results in a progress file. The
+progress file is committed alongside the modified code, using commits as the
+unit of atomicity. This ensures consistency between the progress log and the
+changes in the repository. When the flow is done, the progress log is removed
+from the branch in one last commit.
 
 There are two runnable examples under [`examples/runnable/`](examples/runnable/):
 * [01-simple](examples/runnable/01-simple/) (in-memory plan + review, autonomous
