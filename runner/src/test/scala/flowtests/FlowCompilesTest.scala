@@ -38,11 +38,12 @@ object FlowCanary:
     */
   def structuredResult(): Unit =
     flow(OrcaArgs(), _.claude):
+      // Durable structured turns go through the FlowSession door (seeded,
+      // persisted); the raw `resultAs[O]` door is exercised with ephemeral
+      // (fresh / `.id`) sessions only — never a durable-session id. Minting
+      // must sit outside the stage (OutsideStage rejects it inside).
+      val session = claude.session("plan", seed = userPrompt)
       stage("plan"):
-        // Durable structured turns go through the FlowSession door (seeded,
-        // persisted); the raw `resultAs[O]` door is exercised with ephemeral
-        // (fresh / `.id`) sessions only — never a durable-session id.
-        val session = claude.session("plan", seed = userPrompt)
         val _ = session.resultAs[FlowPlan].run(userPrompt)
         val _ = session.resultAs[FlowPlan].run("follow up")
         // Interactive is deliberately ephemeral-only (see FlowSession); the
@@ -55,9 +56,9 @@ object FlowCanary:
     */
   def continuedSession(): Unit =
     flow(OrcaArgs(), _.claude):
+      // Durable free-text continuation goes through the FlowSession door.
+      val session = claude.session("impl", seed = userPrompt)
       stage("impl"):
-        // Durable free-text continuation goes through the FlowSession door.
-        val session = claude.session("impl", seed = userPrompt)
         val _ = session.run("kick off")
         val _ = session.run("keep going")
         // A bare (fresh) ephemeral session on the raw door is unchanged.

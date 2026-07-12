@@ -194,7 +194,8 @@ class FlowSessionTest extends FunSuite:
     */
   private def makeControl(
       sessions: List[SessionRecord],
-      completedStages: List[String] = Nil
+      completedStages: List[String] = Nil,
+      listeners: List[orca.events.OrcaListener] = Nil
   ): TestFlowControl =
     val dir = TempDirs.dir()
     val store = ProgressStore.default(dir, "p")
@@ -210,7 +211,12 @@ class FlowSessionTest extends FunSuite:
         )
       )
     val git = new orca.tools.OsGitTool(dir)
-    new TestFlowControl(new orca.events.EventDispatcher(Nil), git, store, "p")
+    new TestFlowControl(
+      new orca.events.EventDispatcher(listeners),
+      git,
+      store,
+      "p"
+    )
 
   /** A [[FlowSession]] over [[testSession]] and the given stub agent. */
   private def flowSession(
@@ -267,6 +273,58 @@ class FlowSessionTest extends FunSuite:
     assert(
       !prompt.contains("Progress so far"),
       s"no preamble expected on first run; got: $prompt"
+    )
+
+  test("re-seeding a previously-live session emits a Step warning"):
+    // A recorded resumeWireId proves a backend conversation once existed;
+    // rebuilding it replays only seed + preamble, not the prior turns — that
+    // context loss must be visible in the flow's output.
+    val steps = scala.collection.mutable.ListBuffer.empty[String]
+    val listener = new orca.events.OrcaListener:
+      def onEvent(event: orca.events.OrcaEvent): Unit = event match
+        case orca.events.OrcaEvent.Step(msg) => steps += msg
+        case _                               => ()
+    val fc = makeControl(
+      sessions = List(
+        SessionRecord(
+          name = "s",
+          occurrence = 0,
+          id = testSessionId,
+          seed = "seed",
+          resumeWireId = Some("wire-1")
+        )
+      ),
+      listeners = List(listener)
+    )
+    val agent = new StubAgentForSeeded(existsResult = false)
+    val _ = flowSession(agent).run("continue")(using fc)
+    assert(
+      steps.exists(s => s.contains("re-seeding") && s.contains("'s'")),
+      s"expected a re-seed warning naming the session; got: $steps"
+    )
+
+  test("a plain first use (no recorded wire id) re-seeds without a warning"):
+    val steps = scala.collection.mutable.ListBuffer.empty[String]
+    val listener = new orca.events.OrcaListener:
+      def onEvent(event: orca.events.OrcaEvent): Unit = event match
+        case orca.events.OrcaEvent.Step(msg) => steps += msg
+        case _                               => ()
+    val fc = makeControl(
+      sessions = List(
+        SessionRecord(
+          name = "s",
+          occurrence = 0,
+          id = testSessionId,
+          seed = "x"
+        )
+      ),
+      listeners = List(listener)
+    )
+    val agent = new StubAgentForSeeded(existsResult = false)
+    val _ = flowSession(agent).run("kick off")(using fc)
+    assert(
+      !steps.exists(_.contains("re-seeding")),
+      s"first use must not warn; got: $steps"
     )
 
   test(
@@ -601,16 +659,6 @@ class FlowSessionTest extends FunSuite:
           fc
         )
     assertEquals(agent.capturedPrompt, Some("continue"))
-
-  // ── tests: session() returns a FlowSession handle ───────────────────────────
-
-  test("agent.session returns a FlowSession whose .id is the recorded id"):
-    val fc = makeControl(sessions = Nil)
-    val agent = new StubAgentForSeeded(existsResult = false)
-    val session: FlowSession[BackendTag.ClaudeCode.type] =
-      agent.session("implementer", "brief")(using fc)
-    val recorded = fc.progressStore.load().get.sessions.head
-    assertEquals(session.id.value, recorded.id)
 
   // ── tests: the raw ephemeral door does not accept a FlowSession ──────────────
 

@@ -12,6 +12,24 @@ import orca.agents.{
 import orca.events.OrcaEvent
 import orca.progress.{ProgressLog, SessionRecord}
 
+import scala.annotation.implicitNotFound
+import scala.util.NotGiven
+
+/** Compile-time evidence that no [[InStage]] capability is in scope — i.e. the
+  * call site is lexically outside a `stage(...)` body. Derived automatically
+  * wherever `InStage` is absent; never constructed by hand. Lexical only: a
+  * helper that takes just `(using FlowControl)` and mints inside it still
+  * compiles, so `agent.session`'s runtime in-stage check remains the backstop.
+  */
+@implicitNotFound(
+  "agent.session(...) must be called outside a stage: mint sessions at the " +
+    "flow-body top level, before stages, and run them inside stages via the " +
+    "FlowSession handle (session.run / session.resultAs[...].run)."
+)
+final class OutsideStage private ()
+object OutsideStage:
+  given (using NotGiven[InStage]): OutsideStage = new OutsideStage
+
 /** A durable, resumable LLM-session handle — the single door for sessions that
   * must survive a flow crash and resume. Obtain one with `agent.session(name,
   * seed)`; it bundles the [[Agent]] with the reserved [[SessionId]] and owns
@@ -167,7 +185,8 @@ extension [B <: BackendTag](agent: Agent[B])
     * `ProgressStore.upsertSession`).
     */
   def session(name: String, seed: String)(using
-      fc: FlowControl
+      fc: FlowControl,
+      outside: OutsideStage
   ): FlowSession[B] =
     // An empty name would collide with legacy (pre-naming) records that
     // decode to name="" — that's an authoring defect, so require rather than
@@ -178,6 +197,9 @@ extension [B <: BackendTag](agent: Agent[B])
     // never re-mint, desyncing the occurrence counter. Rather than build a
     // second, parent-scoped keying mechanism for a case real flows never hit
     // (every call site mints outside stages), require it (ADR 0018 §2.6).
+    // [[OutsideStage]] already rejects the direct in-stage call at compile
+    // time; this runtime check catches the indirect path it can't see (a
+    // FlowControl-only helper invoked from within a stage).
     if fc.inStage then
       throw new OrcaFlowException(
         "agent.session(...) must be called outside a stage: mint sessions at " +
@@ -297,7 +319,21 @@ private def effectivePrompt[B <: BackendTag](
   if agent.willContinue(session) then text
   else
     val log = fc.progressStore.load()
-    val seed = lookupSeed(log, session)
+    val record = log.flatMap(_.sessions.find(_.id == session.value))
+    // A recorded wire id proves a backend conversation once existed, so a
+    // failed probe here means it was LOST (pruned store, another machine) —
+    // the rebuilt conversation gets only seed + preamble, not the prior
+    // turns. Surface that: silently degraded context is hard to debug. A
+    // record without a wire id is a plain first use — no warning.
+    if record.exists(_.resumeWireId.isDefined) then
+      fc.emit(
+        OrcaEvent.Step(
+          s"warning: session '${record.fold("?")(_.name)}' — backend " +
+            "conversation not found; re-seeding (prior conversation history " +
+            "is lost)"
+        )
+      )
+    val seed = record.map(_.seed).filter(_.nonEmpty)
     val preamble = progressPreamble(log)
     composePrimedPrompt(preamble, seed, text)
 
@@ -334,17 +370,6 @@ private def persistResumeWireId[B <: BackendTag](
     fc.progressStore.upsertSession(
       record.copy(resumeWireId = Some(wireId.value), backend = healedTag)
     )
-
-/** Look up the recorded seed for `session` from the log. Returns `None` if the
-  * log is absent, no record matches `session`, or the recorded seed is empty.
-  */
-private def lookupSeed[B <: BackendTag](
-    log: Option[ProgressLog],
-    session: SessionId[B]
-): Option[String] =
-  log.flatMap(
-    _.sessions.find(_.id == session.value).map(_.seed).filter(_.nonEmpty)
-  )
 
 /** Compose the progress preamble from completed stage names in the log. Returns
   * `None` if there are no completed entries (first run).

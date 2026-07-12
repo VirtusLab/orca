@@ -316,14 +316,43 @@ class SessionTest extends FunSuite:
     intercept[IllegalArgumentException]:
       agent.session("", "seed")(using fc)
 
-  // Minting outside a stage is exercised by every other test in this suite; this
-  // pins the complementary guard: minting inside a stage is rejected (the
-  // occurrence counter would desync if that stage were skipped on resume).
-  test("agent.session minted inside a stage is rejected"):
+  test("agent.session returns a FlowSession whose .id is the recorded id"):
+    val (store, dir) = freshStore()
+    val fc = makeControl(store, dir)
+    val agent = new StubAgent
+    val session: FlowSession[BackendTag.ClaudeCode.type] =
+      agent.session("implementer", "brief")(using fc)
+    val recorded = store.load().get.sessions.head
+    assertEquals(session.id.value, recorded.id)
+
+  // Minting outside a stage is exercised by every other test in this suite;
+  // the two tests below pin the complementary guard's two layers: minting
+  // inside a stage is rejected (the occurrence counter would desync if that
+  // stage were skipped on resume) — at compile time for the direct call, at
+  // runtime for the indirect one OutsideStage can't see.
+  test("agent.session directly inside a stage body does not compile"):
+    val errors = compileErrors(
+      """
+      given FlowControl = ???
+      given orca.InStage = orca.InStage.unsafe
+      val agent = new StubAgent
+      val _ = agent.session("implementer", "seed")
+      """
+    )
+    assert(
+      errors.contains("must be called outside a stage"),
+      s"expected the OutsideStage implicitNotFound message, got: $errors"
+    )
+
+  test(
+    "agent.session minted inside a stage via a FlowControl-only helper is rejected at runtime"
+  ):
     val (store, dir) = freshStore()
     given FlowControl = makeControl(store, dir)
     val agent = new StubAgent
+    def mintInHelper()(using FlowControl): Unit =
+      val _ = agent.session("implementer", "seed")
     intercept[OrcaFlowException]:
       stage("outer"):
-        val _ = agent.session("implementer", "seed")
+        mintInHelper()
         "done"
