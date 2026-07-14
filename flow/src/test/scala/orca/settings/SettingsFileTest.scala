@@ -69,5 +69,61 @@ class SettingsFileTest extends FunSuite:
         assert(problem.contains("Format"), s"should name the key: $problem")
       case Right(settings) => fail(s"expected a parse error, got: $settings")
 
-  test("render output parses back to the entries' commands".ignore):
-    fail("pending: implemented with the writer")
+  test("parse keeps a bare # inside the value (mid-line # is command text)"):
+    assertEquals(
+      SettingsFile.parse("format = echo '#1'\n"),
+      Right(StackSettings(format = List("echo '#1'")))
+    )
+
+  test("render pins the file format: header, four-space # separator, unset"):
+    val entries = List(
+      SettingsEntry.Command(
+        "format",
+        "cargo fmt",
+        Some("Cargo.toml (rustfmt ships with the toolchain)")
+      ),
+      SettingsEntry.Command(
+        "lint",
+        "cargo check --tests",
+        Some("compiles main+test code, runs nothing")
+      ),
+      SettingsEntry.Unset("test", "no test evidence found")
+    )
+    assertEquals(
+      SettingsFile.render(entries),
+      """# orca stack settings — edit freely, commit with the project.
+        |# Delete this file to re-run auto-discovery.
+        |format = cargo fmt    # Cargo.toml (rustfmt ships with the toolchain)
+        |lint = cargo check --tests    # compiles main+test code, runs nothing
+        |# test =   (no test evidence found)
+        |""".stripMargin
+    )
+
+  test("render drops the comment when the command itself contains #"):
+    assertEquals(
+      SettingsFile.render(
+        List(SettingsEntry.Command("format", "echo '#1'", Some("evidence")))
+      ),
+      SettingsFile.Header + "\nformat = echo '#1'\n"
+    )
+
+  test("render output parses back to the entries' commands"):
+    val entries = List(
+      SettingsEntry.Command(
+        "format",
+        "cargo fmt",
+        Some("Cargo.toml (rustfmt ships with the toolchain)")
+      ),
+      SettingsEntry.Command("lint", "cargo check --tests", None),
+      SettingsEntry.Command("lint", "pnpm run lint", Some("package.json")),
+      SettingsEntry.Unset("test", "no test evidence found")
+    )
+    assertEquals(
+      SettingsFile.parse(SettingsFile.render(entries)),
+      Right(
+        StackSettings(
+          format = List("cargo fmt"),
+          lint = List("cargo check --tests", "pnpm run lint")
+        )
+      )
+    )
