@@ -57,13 +57,11 @@ flow(OrcaArgs(args), _.claude):
       reviewAndFixLoop(                  // runs under this stage
         coderSession = session,
         reviewers = allReviewers(agent),
-        // reviewerSelection defaults to agentDriven(agent.cheap).
-        task = task.title.value,
-        // Format after every edit so commits stay formatted and reviewers
-        // skip style nits.
-        formatCommand = Some("cargo fmt"),
-        // Cheap sanity gate; correctness is the reviewers' and CI's job.
-        lint = Some(Lint("cargo check --tests", agent.cheap))
+        // reviewerSelection defaults to agentDriven(agent.cheap). Format and
+        // lint default to the project's stack settings
+        // (`.orca/settings.properties`, auto-discovered on first run) — see
+        // "Stack settings" below.
+        task = task.title.value
       )
 ```
 
@@ -205,7 +203,7 @@ Top-level, available via `import orca.*`:
 
 | Method | Signature | Use |
 |---|---|---|
-| `flow(args, agent, ...)(body)` | `flow(args: OrcaArgs, agent, branchNaming?, returnToStartBranch = false, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `agent` selects the leading coding agent — e.g. `_.claude` or `_.codex`. Branch naming defaults to a short cheap-model-generated label (slugged); pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` to override (e.g. for issue flows). See [The flow lifecycle](#the-flow-lifecycle) for the full branch/teardown behavior. |
+| `flow(args, agent, ...)(body)` | `flow(args: OrcaArgs, agent, branchNaming?, returnToStartBranch = false, stackSettings?, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `agent` selects the leading coding agent — e.g. `_.claude` or `_.codex`. Branch naming defaults to a short cheap-model-generated label (slugged); pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` to override (e.g. for issue flows). `stackSettings = Some(StackSettings(...))` pins the run's [stack settings](#stack-settings) — the settings file is then neither read nor written (the escape hatch for a language-specific flow). See [The flow lifecycle](#the-flow-lifecycle) for the full branch/teardown behavior. |
 | `agent` (in-body accessor) | `agent: Agent[?]` | The leading agent resolved from the `flow` selector — see [Coding agent tools](#coding-agent-tools). |
 | `stage[T: JsonData](name, commitMessage?)(body)` | `(name: String, commitMessage: Option[T => String] = None)(body): T` | The committing, resumable unit of work. On success, records the result, force-adds the progress log, and commits (code changes + log delta = one commit). On re-run, a stage whose result is still recorded is skipped and the stored value is returned. `T` must have `JsonData` — `case class Foo(...) derives JsonData` is enough. Commit message defaults to an `agent.cheap` summary of the diff; override via `commitMessage`. |
 | `display(message)` | `(message: String): Unit` | Progress-only output: no stage, no commit, no log entry. Callable anywhere — outside a stage or inside a fork. |
@@ -267,6 +265,74 @@ log (`.orca/progress-<hash>.json`, where `<hash>` is derived from the prompt):
   starting branch instead.
 - **Failure teardown:** discard the failed stage's uncommitted partial edits with
   `git reset --hard`; stay on the feature branch so a re-run resumes in place.
+
+### Stack settings
+
+Flow scripts stay stack-agnostic: the per-project tooling commands (format,
+lint, test) live in **`.orca/settings.properties`** in the target repo, not in
+the script. `reviewAndFixLoop` reads them by default (see [Planning
+utilities](#planning-utilities)), and `flow` setup resolves them once per run
+with this precedence: `reviewAndFixLoop(formatCommands = Use(...)/Off)` >
+`flow(stackSettings = Some(...))` > `.orca/settings.properties` >
+auto-discovery (which writes the file).
+
+**The settings file.** Plain `key = value` lines; the keys are `format`,
+`lint`, and `test`. Each value is one shell command, run via `bash -c` in the
+flow's working directory; everything after the first `=` is command text
+(`lint = FOO=bar cargo check` works). Repeating a key appends — the task's
+commands run in file order, so a multi-stack repo lists one line per stack
+half. A `#` line is a comment; discovery places each command's evidence as its
+own `#` line directly above the `key = command` line. A missing or
+commented-out key means the task is disabled (its gate is skipped). Edit the
+file freely and commit it with the project; delete it to re-run
+auto-discovery. A typical discovered file:
+
+```properties
+# orca stack settings — edit freely, commit with the project.
+# Delete this file to re-run auto-discovery.
+# Cargo.toml; via rustfmt
+format = cargo fmt
+# Cargo.toml
+lint = cargo check --tests
+# test =   (no test config found)
+```
+
+**Auto-discovery.** When no settings file exists (and no `flow(stackSettings =
+...)` override is passed), the first run spends one cheap-model, read-only
+agent call inspecting the repo, then writes the file and announces every
+guess in the event log:
+
+```text
+no .orca/settings.properties — running stack discovery
+  format = cargo fmt   # Cargo.toml; via rustfmt
+  lint = cargo check --tests   # Cargo.toml
+warning: stack settings: no test command — gate disabled
+written to .orca/settings.properties — review and edit as needed.
+```
+
+Every discovered command must cite the file that evidences it; two mechanical
+checks run before anything is written — the command's executable must be on
+`PATH`, and the cited evidence file must exist — and a command failing either
+check is demoted to a commented line with its reason (e.g. `# lint = just
+check   (just: not found on PATH)`), never run silently. A discovery failure
+(backend unavailable, invalid output) aborts the run — it is never degraded
+into a written "gates off" file. Runs with an existing file — the steady
+state, including CI — make no model call.
+
+**The `.orca/` directory** is committed by default: settings and the
+progress log ride the branch, while scratch files live under `.orca/cache/`,
+which writes its own `.gitignore` so it can never land in a commit. A repo
+that still gitignores all of `.orca/` (the previous convention) keeps the
+settings file out of version control, so every run warns: `stack settings at
+.orca/settings.properties are gitignored — remove the '.orca/' line from
+.gitignore so they can be committed (scratch self-ignores under
+.orca/cache/)`.
+
+Within a flow body the resolved values are available as
+`summon[FlowContext].stackSettings` — a `StackSettings(format, lint, test:
+List[String])`. The `test` commands are not consumed by `reviewAndFixLoop`
+(the lint gate stays deliberately cheap); they're there for a flow's own
+verification stages.
 
 ### Sessions
 
@@ -464,11 +530,33 @@ Review utilities, available via `import orca.review.*`:
 
 | Method | Use |
 |---|---|
-| `lint(command, agent, instructions?)` | Run a shell lint and have `agent` summarise its output as a `ReviewResult`. Short output is inlined into the prompt; anything larger is written to a file under `.orca/` for the agent to read, so unbounded output can't overflow the context. |
-| `reviewAndFixLoop(coderSession, reviewers, task, ..., fixInstructions?)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. |
+| `lint(commands, agent, instructions?)` | Run shell lint commands (in order, each via `bash -c`; every one runs even if an earlier one fails) and have `agent` summarise their labelled, concatenated output as a `ReviewResult`. Short output is inlined into the prompt; anything larger is written to a file under `.orca/cache/` for the agent to read, so unbounded output can't overflow the context. |
+| `reviewAndFixLoop(coderSession, reviewers, task, ..., formatCommands?, lint?, fixInstructions?)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#stack-settings), see below. |
 | `allReviewers(base)` | All eight canonical reviewer agents (code-functionality, test, readability, code-structure, simplicity, performance, security, scala-fp) layered on top of `base`. |
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test). Pair with the default LLM-driven selector when the full set is overkill. |
 | `fixLoop(evaluate, fix, ...)` | Lower-level primitive `reviewAndFixLoop` is built on. |
+
+`reviewAndFixLoop`'s stack-dependent parameters are three-state
+(`orca.Configured`), so omission means "from the project's [stack
+settings](#stack-settings)" while "explicitly off" stays expressible:
+
+```scala
+enum Configured[+A]:
+  case FromSettings   // resolve from the run's stack settings (the default)
+  case Off            // explicitly disabled for this call
+  case Use(value: A)  // explicit value; settings ignored
+```
+
+`FromSettings` resolves `formatCommands` to `stackSettings.format` and builds
+the lint gate as `Lint(stackSettings.lint, agent.cheap)` — commands plus the
+summariser agent bundled in one value (`Lint(commands: List[String], agent)`).
+An empty list resolves to no gate at all: `FromSettings` over empty settings
+behaves exactly like `Off`. Migration from the pre-`Configured` signature:
+`formatCommand = Some("cargo fmt")` → `formatCommands = Configured.Use(List("cargo fmt"))`,
+`lint = Some(Lint(cmd, a))` → `lint = Configured.Use(Lint(List(cmd), a))`.
+**Behavior change:** a script that omits `lint` now gets a lint gate the
+moment the target project's settings define one; scripts that want
+format-only pass `lint = Configured.Off`.
 
 `reviewAndFixLoop`'s `reviewerSelection` defaults to
 `ReviewerSelector.agentDriven` — a picker LLM on the lead agent's cheap tier
@@ -584,6 +672,19 @@ results.
   re-evaluates iff `fixed` is non-empty.
 - **`orca.review.IgnoredIssues`** — accumulated `IgnoredIssue(title, reason)`
   entries surfaced by `reviewAndFixLoop` once it halts.
+- **`orca.StackSettings(format, lint, test)`** — the resolved per-project
+  tooling commands (each field a `List[String]`, run via `bash -c`; empty =
+  task disabled). Resolved once per run — see [Stack
+  settings](#stack-settings) — and read back via
+  `summon[FlowContext].stackSettings`; pass `flow(stackSettings = Some(...))`
+  to pin it.
+- **`orca.Configured[A]`** — three-state default for `reviewAndFixLoop`'s
+  stack-dependent parameters: `FromSettings` (the default — resolve from the
+  run's stack settings), `Off` (explicitly disabled for this call), or
+  `Use(value)` (explicit value; settings ignored).
+- **`orca.review.Lint(commands, agent)`** — the lint gate bundle
+  `reviewAndFixLoop` runs alongside the reviewers: the shell commands plus the
+  (cheap) agent that summarises their output into a `ReviewResult`.
 
 </details>
 
