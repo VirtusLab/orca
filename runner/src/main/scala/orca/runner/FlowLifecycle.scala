@@ -24,6 +24,7 @@ import orca.progress.{
   SessionRecord,
   UnsafeBranchRefRefused
 }
+import orca.settings.SettingsFile
 import orca.tools.GitTool
 import org.slf4j.LoggerFactory
 import ox.either.orThrow
@@ -112,11 +113,16 @@ object FlowLifecycle:
           args,
           ctx.agent,
           ctx.git,
+          ctx.workDir,
           branchNaming,
+          stackSettings,
           ctx.progressStore,
           ctx.emit
         )
       )
+    // Freeze the resolved settings on the context before anything can read
+    // them — the body (and the loops it calls) sees one immutable value.
+    ctx.populateStackSettings(flowSetup.stackSettings)
     surfaced(rehydrateSessions(ctx, ctx.agent, ctx.progressStore))
     // The whole flow body runs as a top-level stage: an otherwise
     // unhandled exception surfaces as a single Error event (the same
@@ -257,7 +263,8 @@ object FlowLifecycle:
       )
 
   /** Outcome of [[setup]]: the resolved progress store, the feature branch the
-    * run is bound to, and the starting branch to restore on success.
+    * run is bound to, the starting branch to restore on success, and the
+    * resolved stack settings (ADR 0019).
     *
     * `featureBranch` is a [[FeatureBranch]], not a bare `String`: both arms of
     * `setup` only ever construct one via [[FeatureBranch.resolve]] (the fresh
@@ -266,11 +273,18 @@ object FlowLifecycle:
     * protected name can never reach this field, not just "doesn't today because
     * nothing upstream produces one." `finishBranch` unwraps `.value` only at
     * the actual `GitTool` call sites.
+    *
+    * `settingsFileExisted` records the pre-`ensureClean` existence check, which
+    * is authoritative: an uncommitted settings file the stash later sweeps away
+    * must NOT look absent to a downstream decision (auto-discovery keys off
+    * this field).
     */
   private[orca] case class FlowSetup(
       store: ProgressStore,
       featureBranch: FeatureBranch,
-      startBranch: String
+      startBranch: String,
+      stackSettings: StackSettings,
+      settingsFileExisted: Boolean
   )
 
   /** Bind the run to a branch + progress log before the body runs (ADR 0018
@@ -307,7 +321,9 @@ object FlowLifecycle:
       args: OrcaArgs,
       agent: Agent[?],
       git: GitTool,
+      workDir: os.Path,
       branchNaming: Option[BranchNamingStrategy],
+      settingsOverride: Option[StackSettings],
       store: ProgressStore,
       emit: OrcaEvent => Unit
   ): FlowSetup =
@@ -315,6 +331,12 @@ object FlowLifecycle:
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
     val log = LoggerFactory.getLogger("orca.flow")
     warnIfSettingsIgnored(git, emit)
+    // Settings resolve BEFORE the `ensureClean` stash below (ADR 0019): a
+    // malformed file must abort with no stash and no branch mutation, and an
+    // uncommitted file's contents (and its existence) must be captured before
+    // the stash can sweep the file away.
+    val (stackSettings, settingsFileExisted) =
+      resolveStackSettings(workDir, settingsOverride)
     val startBranch = git.currentBranch()
     // Snapshot the log file before the stash, restore it if the stash
     // removed it — so an uncommitted/untracked log is still readable below.
@@ -335,7 +357,7 @@ object FlowLifecycle:
       RecoveryCheck.alwaysProtected ++ git
         .defaultBranch()
         .map(_.toLowerCase(java.util.Locale.ROOT))
-    store.loadDetailed() match
+    val (featureBranch, effectiveStartBranch) = store.loadDetailed() match
       case ProgressStore.LoadResult.Corrupt(reason) =>
         // The log file exists but didn't parse — a truncated/corrupted write,
         // not the normal "no log yet" case. We still start fresh (there's no
@@ -357,7 +379,7 @@ object FlowLifecycle:
               "starting fresh — the previous run's stages will re-run"
           )
         )
-        freshRun(
+        val branch = freshRun(
           args,
           agent,
           git,
@@ -367,8 +389,9 @@ object FlowLifecycle:
           protectedBranches,
           emit
         )
+        (branch, startBranch)
       case ProgressStore.LoadResult.Absent =>
-        freshRun(
+        val branch = freshRun(
           args,
           agent,
           git,
@@ -378,6 +401,7 @@ object FlowLifecycle:
           protectedBranches,
           emit
         )
+        (branch, startBranch)
       case ProgressStore.LoadResult.Loaded(progressLog) =>
         val header = progressLog.header
         // Validate the untrusted header before any destructive action. The
@@ -407,13 +431,48 @@ object FlowLifecycle:
         // Resume in place: already on header.branch. The recorded start branch
         // (where a PR flow / throwaway returns to) is the ORIGINAL one, not this
         // feature branch.
-        FlowSetup(store, featureBranch, header.startingBranch)
+        (featureBranch, header.startingBranch)
+    FlowSetup(
+      store,
+      featureBranch,
+      effectiveStartBranch,
+      stackSettings,
+      settingsFileExisted
+    )
 
-  /** Fresh run: resolve + create the branch, then commit the header so it is
-    * the branch's first commit. Shared by the genuinely-absent-log case and the
-    * corrupt-log case (which warns, then falls through to the same fresh start
-    * — there is no sane way to resume from unparseable data). Needs BOTH
-    * tokens: `InStage` because branch-name resolution may call the cheap model
+  /** Resolve the run's stack settings (ADR 0019): an explicit override wins
+    * outright — the file is neither read nor written; otherwise a present
+    * settings file is parsed, and a malformed one is a hard abort (the caller
+    * sequences this ahead of any tree mutation); an absent file resolves to
+    * [[StackSettings.empty]] (auto-discovery per ADR 0019 is not implemented
+    * yet). Also returns whether the file existed at this pre-stash read — the
+    * authoritative existence fact, see [[FlowSetup.settingsFileExisted]].
+    */
+  private def resolveStackSettings(
+      workDir: os.Path,
+      settingsOverride: Option[StackSettings]
+  ): (StackSettings, Boolean) =
+    val settingsPath = OrcaDir.settingsPath(workDir)
+    // Recorded even under an override: the exists check is cheap and keeps the
+    // field's meaning uniform across both resolution arms.
+    val settingsFileExisted = os.exists(settingsPath)
+    val stackSettings = settingsOverride.getOrElse:
+      if settingsFileExisted then
+        SettingsFile.parse(os.read(settingsPath)) match
+          case Right(s) => s
+          case Left(err) =>
+            throw new OrcaFlowException(
+              s"invalid stack settings at $settingsPath: ${err.message}"
+            )
+      else StackSettings.empty
+    (stackSettings, settingsFileExisted)
+
+  /** Fresh run: resolve + create the branch (returned to the caller), then
+    * commit the header so it is the branch's first commit. Shared by the
+    * genuinely-absent-log case and the corrupt-log case (which warns, then
+    * falls through to the same fresh start — there is no sane way to resume
+    * from unparseable data). Needs BOTH tokens: `InStage` because branch-name
+    * resolution may call the cheap model
     * (`BranchNamingStrategy.shortenPrompt`), `WorkspaceWrite` for the git
     * checkout/commit and header write.
     *
@@ -444,7 +503,7 @@ object FlowLifecycle:
       startBranch: String,
       protectedBranches: Set[String],
       emit: OrcaEvent => Unit
-  )(using InStage, WorkspaceWrite): FlowSetup =
+  )(using InStage, WorkspaceWrite): FeatureBranch =
     val strategy =
       branchNaming.getOrElse(BranchNamingStrategy.shortenPrompt)
     val resolvedName = strategy.resolve(args.userPrompt, agent)
@@ -481,7 +540,7 @@ object FlowLifecycle:
     )
     git.forceAdd(store.path)
     val _ = git.commit("orca: progress log")
-    FlowSetup(store, branch, startBranch)
+    branch
 
   /** The deterministic `flow-<hash>` fallback name for `userPrompt`
     * (`BranchNamingStrategy.flowFallbackName`), minted into a

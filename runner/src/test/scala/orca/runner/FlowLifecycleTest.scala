@@ -5,6 +5,8 @@ import orca.{
   BranchNamingStrategy,
   FlowContext,
   OrcaArgs,
+  OrcaDir,
+  StackSettings,
   WorkspaceWrite,
   runFlow,
   stage,
@@ -471,7 +473,9 @@ class FlowLifecycleTest extends munit.FunSuite:
       args = OrcaArgs(prompt),
       agent = StubAgent.claude,
       git = git,
+      workDir = workDir,
       branchNaming = None,
+      settingsOverride = None,
       store = store,
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
@@ -522,7 +526,9 @@ class FlowLifecycleTest extends munit.FunSuite:
       args = OrcaArgs(prompt),
       agent = StubAgent.claude,
       git = git,
+      workDir = workDir,
       branchNaming = None,
+      settingsOverride = None,
       store = store,
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
@@ -546,6 +552,116 @@ class FlowLifecycleTest extends munit.FunSuite:
       !steps.exists(_.contains("gitignored")),
       s"no gitignored-settings warning expected, got: $steps"
     )
+
+  // --- stack-settings resolution during setup (ADR 0019) --------------------
+
+  /** Drives `setup` directly against `workDir` with a throwaway store and a
+    * null event sink — the fixture for the stack-settings resolution tests.
+    */
+  private def setupForSettings(
+      workDir: os.Path,
+      settingsOverride: Option[StackSettings] = None,
+      prompt: String = "settings-resolution"
+  ): FlowLifecycle.FlowSetup =
+    FlowLifecycle.setup(
+      args = OrcaArgs(prompt),
+      agent = StubAgent.claude,
+      git = new OsGitTool(workDir),
+      workDir = workDir,
+      branchNaming = None,
+      settingsOverride = settingsOverride,
+      store = ProgressStore.default(workDir, prompt),
+      emit = _ => ()
+    )
+
+  test("setup: a committed settings file resolves into FlowSetup"):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    os.write(
+      OrcaDir.settingsPath(workDir),
+      "format = cargo fmt\nlint = cargo check\ntest = cargo test\n",
+      createFolders = true
+    )
+    assert(git.commit("add stack settings").isRight)
+    val setup = setupForSettings(workDir)
+    assertEquals(
+      setup.stackSettings,
+      StackSettings(
+        format = List("cargo fmt"),
+        lint = List("cargo check"),
+        test = List("cargo test")
+      )
+    )
+    assert(setup.settingsFileExisted)
+
+  test(
+    "setup: an UNTRACKED settings file in a dirty tree is read before the stash sweeps it"
+  ):
+    // The read happens pre-`ensureClean`: after setup the stash may have swept
+    // the untracked file away, but the values (and the existence fact) are
+    // already held in FlowSetup.
+    val workDir = GitRepo.seeded()
+    os.write(
+      OrcaDir.settingsPath(workDir),
+      "lint = npm run lint\n",
+      createFolders = true
+    )
+    os.write(workDir / "dirty.txt", "uncommitted work")
+    val setup = setupForSettings(workDir)
+    assertEquals(
+      setup.stackSettings,
+      StackSettings(lint = List("npm run lint"))
+    )
+    assert(setup.settingsFileExisted)
+
+  test(
+    "setup: a malformed settings file aborts BEFORE ensureClean — no stash, branch unchanged"
+  ):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    os.write(
+      OrcaDir.settingsPath(workDir),
+      "not-a-key = cargo fmt\n",
+      createFolders = true
+    )
+    val startBranch = git.currentBranch()
+    val thrown = intercept[orca.OrcaFlowException]:
+      setupForSettings(workDir)
+    assert(
+      thrown.getMessage.contains("invalid stack settings") &&
+        thrown.getMessage.contains(OrcaDir.settingsPath(workDir).toString) &&
+        thrown.getMessage.contains("not-a-key"),
+      s"abort message must name the path and the parser's error: ${thrown.getMessage}"
+    )
+    val stashes =
+      os.proc("git", "stash", "list").call(cwd = workDir).out.text().trim
+    assertEquals(stashes, "", "the abort must precede the ensureClean stash")
+    assertEquals(
+      git.currentBranch(),
+      startBranch,
+      "the abort must precede any branch mutation"
+    )
+
+  test("setup: an explicit override wins over a present file, file untouched"):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val fileContent = "format = cargo fmt\n"
+    os.write(OrcaDir.settingsPath(workDir), fileContent, createFolders = true)
+    assert(git.commit("add stack settings").isRight)
+    val override_ = StackSettings(format = List("scalafmt"))
+    val setup = setupForSettings(workDir, settingsOverride = Some(override_))
+    assertEquals(setup.stackSettings, override_)
+    // The exists check is still recorded, keeping the field's meaning uniform.
+    assert(setup.settingsFileExisted)
+    assertEquals(os.read(OrcaDir.settingsPath(workDir)), fileContent)
+
+  test("setup: no file, no override resolves to StackSettings.empty"):
+    val workDir = GitRepo.seeded()
+    val setup = setupForSettings(workDir)
+    assertEquals(setup.stackSettings, StackSettings.empty)
+    assert(!setup.settingsFileExisted)
 
   test(
     "rehydrateSessions replays a codex-tagged record into the codex agent, not the lead"
