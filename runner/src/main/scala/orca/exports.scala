@@ -7,10 +7,11 @@ package orca
 // stay self-documenting at the call site rather than fading into the
 // wildcard.
 
-// flow DSL (flow, stage, fail, accessors, OrcaArgs, FlowContext) and
-// StackSettings live at top-level `orca` so their symbols sit at the heart of
-// the user surface; no re-export needed (re-exporting a top-level `orca`
-// symbol from this `package orca` file would be self-referential).
+// flow DSL (flow, stage, fail, accessors, OrcaArgs, FlowContext),
+// StackSettings, and Configured live at top-level `orca` so their symbols sit
+// at the heart of the user surface; no re-export needed (re-exporting a
+// top-level `orca` symbol from this `package orca` file would be
+// self-referential).
 
 // Usage/Cost/CostTracker: OrcaEvent.TokensUsed carries a Usage, so any
 // listener pattern-matching it needs Usage in scope; CostTracker is the type
