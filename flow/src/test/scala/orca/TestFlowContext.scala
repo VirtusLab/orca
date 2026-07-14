@@ -38,7 +38,8 @@ private[orca] trait ReportedErrorsSupport:
 class TestFlowContext(
     dispatcher: EventDispatcher,
     val userPrompt: String = "",
-    val workDir: os.Path = orca.testkit.TempDirs.dir()
+    val workDir: os.Path = orca.testkit.TempDirs.dir(),
+    val stackSettings: StackSettings = StackSettings.empty
 ) extends FlowContext,
       ReportedErrorsSupport:
   private def stub(name: String) =
@@ -68,7 +69,8 @@ class TestFlowControl(
     val progressStore: ProgressStore,
     val userPrompt: String = "",
     lead: Option[Agent[BackendTag.ClaudeCode.type]] = None,
-    val workDir: os.Path = orca.testkit.TempDirs.dir()
+    val workDir: os.Path = orca.testkit.TempDirs.dir(),
+    val stackSettings: StackSettings = StackSettings.empty
 ) extends FlowControl,
       ReportedErrorsSupport,
       StageFrames:

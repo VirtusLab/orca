@@ -80,6 +80,11 @@ trait FlowContext:
   /** The working tree the flow runs against. */
   def workDir: os.Path
 
+  /** Resolved stack settings (ADR 0019): resolved once during lifecycle setup —
+    * override > `.orca/settings.properties` > empty — and frozen for the run.
+    */
+  def stackSettings: StackSettings
+
   def userPrompt: String
   def emit(event: OrcaEvent): Unit
 

@@ -91,7 +91,8 @@ class CommitMessageTest extends munit.FunSuite:
       val git: GitTool,
       val progressStore: ProgressStore,
       val workDir: os.Path,
-      val userPrompt: String = "p"
+      val userPrompt: String = "p",
+      val stackSettings: StackSettings = StackSettings.empty
   ) extends FlowControl,
         ReportedErrorsSupport,
         StageFrames:
