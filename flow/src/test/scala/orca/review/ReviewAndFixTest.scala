@@ -577,7 +577,8 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = "concurrency check",
       // echo emits output so `lint` doesn't short-circuit on empty stdout
       // and actually calls the (rendezvousing) LLM summariser.
-      lint = Some(Lint("echo lint-output", new RendezvousReviewer("lint"))),
+      lint =
+        Some(Lint(List("echo lint-output"), new RendezvousReviewer("lint"))),
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )

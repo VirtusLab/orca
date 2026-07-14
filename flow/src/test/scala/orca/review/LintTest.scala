@@ -84,22 +84,51 @@ class LintTest extends munit.FunSuite:
   test("lint inlines small output into the prompt, references no file"):
     given FlowContext = ctx
     val mock = new CapturingAgent(expected)
-    val result = lint("echo LINT-BODY-MARKER", mock)
+    val result = lint(List("echo LINT-BODY-MARKER"), mock)
     assertEquals(result, expected)
     // Small output is inlined directly — the sandbox-safe path (a read-only
     // autonomous agent that can't reach files outside its worktree still sees
-    // it). So no `.txt` file is referenced, and the marker is in the prompt.
+    // it). So no `.txt` file is referenced, and the labeled block — the
+    // command with its exit status, then the trimmed output — is in the
+    // prompt.
     assert(
-      mock.captured.contains("LINT-BODY-MARKER"),
-      s"prompt should inline the lint output, got: ${mock.captured}"
+      mock.captured.contains(
+        "$ echo LINT-BODY-MARKER   (exit 0)\nLINT-BODY-MARKER"
+      ),
+      s"prompt should inline the labeled lint output, got: ${mock.captured}"
     )
     assert(
       !"`[^`]+\\.txt`".r.findFirstIn(mock.captured).isDefined,
       s"small output must not spill to a file, got: ${mock.captured}"
     )
+
+  test("lint labels each command's block, blank line between blocks"):
+    given FlowContext = ctx
+    val mock = new CapturingAgent(expected)
+    val result = lint(List("echo ONE-OUT", "echo TWO-OUT; exit 2"), mock)
+    assertEquals(result, expected)
+    // Both commands run (a failing first linter doesn't hide the second's
+    // diagnostics) and the summariser sees one concatenation, in command
+    // order, each block labeled with its own command and exit status.
     assert(
-      mock.captured.contains("exited with status 0"),
-      s"prompt should include the exit status, got: ${mock.captured}"
+      mock.captured.contains(
+        "$ echo ONE-OUT   (exit 0)\nONE-OUT\n\n" +
+          "$ echo TWO-OUT; exit 2   (exit 2)\nTWO-OUT"
+      ),
+      s"prompt should hold both labeled blocks, got: ${mock.captured}"
+    )
+
+  test("lint reaches the summariser when a silent command exits nonzero"):
+    given FlowContext = ctx
+    val mock = new CapturingAgent(expected)
+    val result = lint(List("exit 3"), mock)
+    assertEquals(result, expected)
+    // A linter can fail with no stdout — the nonzero exit must not be
+    // swallowed by the empty-output short-circuit. The block is the label
+    // line alone, telling the summariser "ran, empty output, exit 3".
+    assert(
+      mock.captured.contains("```\n$ exit 3   (exit 3)\n```"),
+      s"prompt should hold the label-only block, got: ${mock.captured}"
     )
 
   test(
@@ -115,11 +144,15 @@ class LintTest extends munit.FunSuite:
     // Output well over the inline threshold, carrying a marker so we can check
     // the file the agent is pointed at actually holds the command's output.
     val big = "printf 'LINT-BIG-MARKER'; printf 'X%.0s' {1..9000}"
-    val result = lint(big, mock)
+    val result = lint(List(big), mock)
     assertEquals(result, expected)
+    // The spilled file holds the same labeled text the inline path would
+    // embed, so the summariser sees per-command exit statuses either way.
     assert(
-      mock.capturedFileContent.contains("LINT-BIG-MARKER"),
-      "the referenced file should hold the lint output"
+      mock.capturedFileContent.startsWith(
+        s"$$ $big   (exit 0)\nLINT-BIG-MARKER"
+      ),
+      "the referenced file should hold the labeled lint output"
     )
     val filePath = "`([^`]+\\.txt)`".r
       .findFirstMatchIn(mock.captured)
@@ -136,13 +169,24 @@ class LintTest extends munit.FunSuite:
     )
     assert(!os.exists(os.Path(filePath)), "lint should delete the temp file")
 
-  test("lint short-circuits to ReviewResult.empty when the command is silent"):
+  test("lint short-circuits when every command is silent and exits zero"):
     given FlowContext = ctx
     val mock = new CapturingAgent(ReviewResult.empty)
-    val result = lint("true", mock)
+    val result = lint(List("true", "true"), mock)
     assertEquals(result, ReviewResult.empty)
     assertEquals(
       mock.captured,
       "",
-      "LLM should not be called when there's no lint output"
+      "LLM should not be called when no command produced output or failed"
+    )
+
+  test("lint with no commands is a no-op: empty result, no LLM call"):
+    given FlowContext = ctx
+    val mock = new CapturingAgent(ReviewResult.empty)
+    val result = lint(Nil, mock)
+    assertEquals(result, ReviewResult.empty)
+    assertEquals(
+      mock.captured,
+      "",
+      "LLM should not be called when the command list is empty"
     )

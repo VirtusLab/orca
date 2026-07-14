@@ -109,7 +109,7 @@ object FlowCanary:
             reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.description,
             formatCommand = Some("mvn -q spotless:apply"),
-            lint = Some(Lint("mvn -q test", claude.haiku))
+            lint = Some(Lint(List("mvn -q test"), claude.haiku))
           )
 
   /** User-authored parallel fan-out: `Par.mapUnordered` plus per-fork ephemeral
@@ -371,7 +371,7 @@ object FlowCanary:
             reviewers = allReviewers(claude),
             task = task.title.value,
             formatCommand = Some("cargo fmt"),
-            lint = Some(Lint("cargo check --tests", claude.haiku))
+            lint = Some(Lint(List("cargo check --tests"), claude.haiku))
           )
 
   /** `implement-interactive.sc`: interactive plan → session → task loop. Only
@@ -564,7 +564,7 @@ object FlowCanary:
                 reviewers = allReviewers(claude),
                 task = task.title.value,
                 formatCommand = Some("sbt scalafmtAll"),
-                lint = Some(Lint("sbt Test/compile", claude.haiku))
+                lint = Some(Lint(List("sbt Test/compile"), claude.haiku))
               )
 
           // Stage: push fix + finalise PR (later than the fix-task stages).

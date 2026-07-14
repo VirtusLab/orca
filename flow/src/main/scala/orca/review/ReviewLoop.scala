@@ -465,7 +465,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           // renamed/tagged copy stays local to this call.
           val labelled =
             l.agent.withName("lint").withRole(ReviewerPrompts.Role)
-          AgentOutcome.Lint(filterByConfidence(lint(l.command, labelled)))
+          AgentOutcome.Lint(filterByConfidence(lint(l.commands, labelled)))
 
     // The explicit type application is CC-forced: it widens both lists'
     // element type to the impure function type `() => AgentOutcome` so their
