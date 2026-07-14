@@ -582,3 +582,16 @@ object StackSettingsCanary:
     * lives at top-level `orca`, so no `exports.scala` entry carries it.
     */
   val settings: StackSettings = StackSettings.empty
+
+  /** The `flow(stackSettings = ...)` override (ADR 0019) — the
+    * language-specific-flow escape hatch — must be reachable as a named
+    * argument from `import orca.*` alone.
+    */
+  def overrideParameter(): Unit =
+    flow(
+      OrcaArgs(),
+      _.claude,
+      stackSettings = Some(StackSettings(format = List("cargo fmt")))
+    ):
+      stage("fmt"):
+        val _ = claude.run(userPrompt)

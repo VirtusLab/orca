@@ -105,6 +105,10 @@ def flow[B <: BackendTag](
     interaction: Option[Interaction] = None,
     extraListeners: List[OrcaListener] = Nil,
     branchNaming: Option[BranchNamingStrategy] = None,
+    // Explicit stack settings win outright (ADR 0019): when passed, the
+    // settings file is neither read nor written — the escape hatch for
+    // language-specific flows that own their tooling commands.
+    stackSettings: Option[StackSettings] = None,
     returnToStartBranch: Boolean = false,
     progressStore: Option[ProgressStore] = None,
     // Every field shares the `AgentWiring => Ox ?=> Agent` shape — see
@@ -150,6 +154,7 @@ def flow[B <: BackendTag](
         interaction,
         extraListeners ++ List(costTracker),
         branchNaming,
+        stackSettings,
         returnToStartBranch,
         progressStore,
         FlowWiring(
@@ -215,6 +220,7 @@ private[orca] def runFlow[B <: BackendTag](
     interaction: Option[Interaction],
     extraListeners: List[OrcaListener],
     branchNaming: Option[BranchNamingStrategy],
+    stackSettings: Option[StackSettings] = None,
     returnToStartBranch: Boolean,
     progressStore: Option[ProgressStore],
     wiring: FlowWiring = FlowWiring()
@@ -274,6 +280,7 @@ private[orca] def runFlow[B <: BackendTag](
               args,
               ctx,
               branchNaming,
+              stackSettings,
               returnToStartBranch,
               debug
             )(

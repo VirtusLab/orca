@@ -9,6 +9,7 @@ import orca.{
   OrcaDir,
   OrcaFlowException,
   RuntimeInStage,
+  StackSettings,
   WorkspaceWrite
 }
 import orca.agents.{BackendTag, Agent, SessionId, WireSessionId}
@@ -81,6 +82,7 @@ object FlowLifecycle:
       args: OrcaArgs,
       ctx: DefaultFlowContext[B],
       branchNaming: Option[BranchNamingStrategy],
+      stackSettings: Option[StackSettings],
       returnToStartBranch: Boolean,
       debug: Boolean
   )(body: FlowControl ?=> Unit): Unit =
