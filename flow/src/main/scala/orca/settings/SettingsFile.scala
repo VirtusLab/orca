@@ -1,6 +1,7 @@
 package orca.settings
 
 import orca.StackSettings
+import orca.util.TextUtil
 
 /** A problem found in `.orca/settings.properties` — the `Left` of
   * [[SettingsFile.parse]]. Line numbers are 1-based.
@@ -105,7 +106,9 @@ private[orca] object SettingsFile:
         // one physical line (an LLM-sourced multi-line string would otherwise
         // wedge the next parse).
         val commandLine = s"$key = ${collapseNewlines(command)}"
-        comment match
+        // A blank comment renders as absent — a lone `# ` line above the
+        // command would carry no information.
+        comment.filter(!_.isBlank) match
           case Some(text) =>
             text.linesIterator
               .map("# " + _)
@@ -125,7 +128,7 @@ private[orca] object SettingsFile:
     s.replaceAll("""\s*\R\s*""", " ")
 
   private def collapseWhitespace(s: String): String =
-    s.replaceAll("""\s+""", " ")
+    TextUtil.collapseWhitespace(s)
 
   private def append(
       acc: StackSettings,

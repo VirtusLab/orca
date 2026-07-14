@@ -24,3 +24,9 @@ private[orca] object TextUtil:
     */
   def pluralize(n: Int, singular: String): String =
     s"$n $singular${if n == 1 then "" else "s"}"
+
+  /** Collapse every whitespace run (including newlines) to a single space — the
+    * one-physical-line guard shared by the settings-file renderer and the
+    * discovery narration.
+    */
+  def collapseWhitespace(s: String): String = s.replaceAll("""\s+""", " ")

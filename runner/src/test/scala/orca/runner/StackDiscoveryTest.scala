@@ -70,15 +70,19 @@ class StackDiscoveryTest extends munit.FunSuite:
     )
     val (entries, settings) = StackDiscovery.toEntries(
       result,
-      commandUnresolvable = c =>
+      unresolvedReason = c =>
         if c.startsWith("just") then Some("just: not found on PATH") else None,
       evidenceExists = allEvidenceExists
     )
-    assert(
-      entries.contains(
-        SettingsEntry.Demoted("lint", "just check", "just: not found on PATH")
-      ),
-      s"expected a demoted lint entry, got: $entries"
+    // Exact list: the all-demoted lint task contributes only its demoted line
+    // — no contradictory Unset line alongside it.
+    assertEquals(
+      entries,
+      List(
+        SettingsEntry.Unset("format", "no evidence found"),
+        SettingsEntry.Demoted("lint", "just check", "just: not found on PATH"),
+        SettingsEntry.Unset("test", "no evidence found")
+      )
     )
     assertEquals(settings.lint, Nil, "a demoted command must not join settings")
 
@@ -92,18 +96,39 @@ class StackDiscoveryTest extends munit.FunSuite:
     )
     val (entries, settings) = StackDiscovery.toEntries(
       result,
-      commandUnresolvable = allResolvable,
+      unresolvedReason = allResolvable,
       evidenceExists = _ => false
     )
-    assert(
-      entries.contains(
+    // Exact list: the all-demoted format task contributes only its demoted
+    // line — no contradictory Unset line alongside it.
+    assertEquals(
+      entries,
+      List(
         SettingsEntry.Demoted(
           "format",
           "cargo fmt",
           "evidence file Cargo.toml not found"
-        )
-      ),
-      s"expected a demoted format entry naming the evidence file, got: $entries"
+        ),
+        SettingsEntry.Unset("lint", "no evidence found"),
+        SettingsEntry.Unset("test", "no evidence found")
+      )
+    )
+    assertEquals(settings.format, Nil)
+
+  test("toEntries: a blank evidence citation demotes"):
+    val result = StackDiscoveryResult(
+      format =
+        DiscoveredTask(commands = List(DiscoveredCommand("cargo fmt", "  "))),
+      lint = DiscoveredTask(),
+      test = DiscoveredTask()
+    )
+    // `allEvidenceExists` would accept the citation, so only the blank guard
+    // can demote here.
+    val (entries, settings) =
+      StackDiscovery.toEntries(result, allResolvable, allEvidenceExists)
+    assertEquals(
+      entries.head,
+      SettingsEntry.Demoted("format", "cargo fmt", "no evidence file cited")
     )
     assertEquals(settings.format, Nil)
 
@@ -140,64 +165,64 @@ class StackDiscoveryTest extends munit.FunSuite:
 
   // --- mechanical checks -----------------------------------------------------
 
-  test("commandUnresolvable: a plain word on PATH resolves"):
+  test("unresolvedReason: a plain word on PATH resolves"):
     assertEquals(
-      StackDiscovery.commandUnresolvable("echo hello", TempDirs.dir()),
+      StackDiscovery.unresolvedReason("echo hello", TempDirs.dir()),
       None
     )
 
-  test("commandUnresolvable: an unknown word demotes, naming it"):
+  test("unresolvedReason: an unknown word demotes, naming it"):
     assertEquals(
       StackDiscovery
-        .commandUnresolvable("definitely-not-a-cmd-xyz --flag", TempDirs.dir()),
+        .unresolvedReason("definitely-not-a-cmd-xyz --flag", TempDirs.dir()),
       Some("definitely-not-a-cmd-xyz: not found on PATH")
     )
 
-  test("commandUnresolvable: a leading VAR= assignment token is stripped"):
+  test("unresolvedReason: a leading VAR= assignment token is stripped"):
     assertEquals(
-      StackDiscovery.commandUnresolvable("FOO=bar echo hi", TempDirs.dir()),
+      StackDiscovery.unresolvedReason("FOO=bar echo hi", TempDirs.dir()),
       None
     )
 
-  test("commandUnresolvable: two leading VAR= assignment tokens are stripped"):
+  test("unresolvedReason: two leading VAR= assignment tokens are stripped"):
     assertEquals(
       StackDiscovery
-        .commandUnresolvable("FOO=bar B_2=x echo hi", TempDirs.dir()),
+        .unresolvedReason("FOO=bar B_2=x echo hi", TempDirs.dir()),
       None
     )
 
-  test("commandUnresolvable: an all-assignments (empty) command demotes"):
+  test("unresolvedReason: an all-assignments (empty) command demotes"):
     assertEquals(
-      StackDiscovery.commandUnresolvable("FOO=bar", TempDirs.dir()),
+      StackDiscovery.unresolvedReason("FOO=bar", TempDirs.dir()),
       Some("empty command")
     )
 
   test(
-    "commandUnresolvable: shell metacharacters are never interpreted — no side effects"
+    "unresolvedReason: shell metacharacters are never interpreted — no side effects"
   ):
     // The word goes to `command -v -- "$1"` as an ARGUMENT, never spliced into
     // the script text: `echo; touch marker` must not create `marker`, whatever
     // the resolution verdict on the (unresolvable) word `echo;` is.
     val dir = TempDirs.dir()
-    val result = StackDiscovery.commandUnresolvable("echo; touch marker", dir)
+    val result = StackDiscovery.unresolvedReason("echo; touch marker", dir)
     assert(
       !os.exists(dir / "marker"),
       "the probe must not execute any part of the command"
     )
     assertEquals(result, Some("echo;: not found on PATH"))
 
-  test("commandUnresolvable: an executable ./script.sh in the repo resolves"):
+  test("unresolvedReason: an executable ./script.sh in the repo resolves"):
     val dir = TempDirs.dir()
     os.write(dir / "script.sh", "#!/bin/sh\n")
     os.perms.set(dir / "script.sh", "rwxr-xr-x")
     assertEquals(
-      StackDiscovery.commandUnresolvable("./script.sh --check", dir),
+      StackDiscovery.unresolvedReason("./script.sh --check", dir),
       None
     )
 
-  test("commandUnresolvable: an absent ./script.sh demotes"):
+  test("unresolvedReason: an absent ./script.sh demotes"):
     assertEquals(
-      StackDiscovery.commandUnresolvable("./missing.sh", TempDirs.dir()),
+      StackDiscovery.unresolvedReason("./missing.sh", TempDirs.dir()),
       Some("./missing.sh: not found on PATH")
     )
 

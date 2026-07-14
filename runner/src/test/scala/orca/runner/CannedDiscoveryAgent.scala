@@ -6,14 +6,10 @@ import orca.agents.{
   AgentInput,
   Announce,
   AutonomousAgentCall,
-  AutonomousTextCall,
   BackendTag,
-  ClaudeAgent,
   InteractiveAgentCall,
   JsonData,
-  Model,
-  SessionId,
-  ToolSet
+  SessionId
 }
 
 /** The discovery test seam: a `ClaudeAgent` whose `resultAs[O].autonomous.run`
@@ -23,21 +19,8 @@ import orca.agents.{
   * naming falls back to the deterministic slug), so no test reaches a model.
   */
 private[runner] class CannedDiscoveryAgent(produce: () => StackDiscoveryResult)
-    extends ClaudeAgent:
-  val name = "canned-discovery"
-  def haiku = this
-  def sonnet = this
-  def opus = this
-  def fable = this
-  def withModel(model: Model) = this
-  def withNetworkTools(t: Seq[String]) = this
-  def withConfig(c: AgentConfig) = this
-  def withSystemPrompt(p: String) = this
-  def withName(n: String) = this
-  def withTools(tools: ToolSet) = this
-  def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-    throw new UnsupportedOperationException
-  def resultAs[O: JsonData: Announce]
+    extends StubClaudeAgent("canned-discovery"):
+  override def resultAs[O: JsonData: Announce]
       : AgentCall[BackendTag.ClaudeCode.type, O] =
     new AgentCall[BackendTag.ClaudeCode.type, O]:
       val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =

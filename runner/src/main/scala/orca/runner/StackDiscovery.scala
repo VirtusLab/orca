@@ -4,7 +4,7 @@ import orca.{InStage, StackSettings}
 import orca.agents.{Agent, Announce, JsonData, given}
 import orca.events.OrcaEvent
 import orca.settings.{SettingKey, SettingsEntry}
-import orca.util.PromptResource
+import orca.util.{PromptResource, TextUtil}
 
 /** One command the discovery agent proposes for a task, with the repo-relative
   * file that justifies it and an optional free-text note (key/line/why) — the
@@ -17,7 +17,9 @@ private[runner] case class DiscoveredCommand(
 ) derives JsonData
 
 /** A task's proposed commands, or a one-line reason it was left unset. The
-  * defaults let the agent omit whichever side doesn't apply.
+  * defaults let the agent omit whichever side doesn't apply — and deliberately
+  * opt these fields out of strict jsoniter's collection-required check;
+  * required-field protection lives on the no-default fields.
   */
 private[runner] case class DiscoveredTask(
     commands: List[DiscoveredCommand] = Nil,
@@ -82,9 +84,20 @@ private[runner] object StackDiscovery:
       .run(Prompt, emitPrompt = false)
     val (entries, settings) = toEntries(
       result,
-      commandUnresolvable(_, workDir),
+      unresolvedReason(_, workDir),
       evidenceExists(_, workDir)
     )
+    narrateEntries(entries, emit)
+    warnDisabledGates(settings, emit)
+    (settings, entries)
+
+  /** Narrate every command/demotion entry as its own `Step` event. Unset tasks
+    * surface through [[warnDisabledGates]] instead.
+    */
+  private def narrateEntries(
+      entries: List[SettingsEntry],
+      emit: OrcaEvent => Unit
+  ): Unit =
     entries.foreach:
       case SettingsEntry.Command(key, command, comment) =>
         emit(
@@ -99,8 +112,15 @@ private[runner] object StackDiscovery:
             s"  # $key = ${collapse(command)}   (${collapse(reason)})"
           )
         )
-      // Unset tasks surface through the gate-disabled warnings below.
       case SettingsEntry.Unset(_, _) => ()
+
+  /** Emit a warning `Step` for each task that ended up with no commands — its
+    * gate is disabled until the settings file gains a live line.
+    */
+  private def warnDisabledGates(
+      settings: StackSettings,
+      emit: OrcaEvent => Unit
+  ): Unit =
     List(
       SettingKey.Format -> settings.format,
       SettingKey.Lint -> settings.lint,
@@ -112,12 +132,11 @@ private[runner] object StackDiscovery:
             s"warning: stack settings: no ${key.raw} command — gate disabled"
           )
         )
-    (settings, entries)
 
   /** One-physical-line guard for `Step` messages, mirroring the render-side
     * sanitization.
     */
-  private def collapse(s: String): String = s.replaceAll("""\s+""", " ")
+  private def collapse(s: String): String = TextUtil.collapseWhitespace(s)
 
   /** Matches a leading `NAME=value` environment-assignment token, so `FOO=bar
     * cargo check` resolves `cargo`, not `FOO=bar`.
@@ -134,10 +153,14 @@ private[runner] object StackDiscovery:
     * `command -v` rejects still resolves if it names an executable file inside
     * the repo; a path outside the repo just demotes.
     */
-  private[runner] def commandUnresolvable(
+  private[runner] def unresolvedReason(
       command: String,
       workDir: os.Path
   ): Option[String] =
+    // Naive whitespace tokenization: a quoted token containing spaces (e.g.
+    // `FOO="a b" cargo check`) splits mid-quote, so the probed word is wrong
+    // and the command demotes. The failure direction is safe — a visible
+    // demoted line in the settings file, hand-fixable.
     val words = command.trim.split("\\s+").toList.filter(_.nonEmpty)
     words.dropWhile(w => AssignmentToken.findPrefixOf(w).isDefined) match
       case Nil => Some("empty command")
@@ -154,9 +177,12 @@ private[runner] object StackDiscovery:
         else if word.contains("/") && executableInside(word, workDir) then None
         else Some(s"$word: not found on PATH")
 
-  /** Does `word` name an executable file inside `workDir`? `false` for an
-    * absolute path (`os.RelPath` refuses it) and for a relative path whose `..`
-    * segments escape the repo.
+  /** Does `word` name an executable file inside `workDir`? The escape/absolute
+    * rejection here (`os.RelPath` refuses an absolute path; `..` segments that
+    * leave the repo fail the `startsWith` check) applies only to words `command
+    * -v` did not already resolve: `command -v` runs with cwd=`workDir`, so an
+    * existing `../tool.sh` resolves there before this fallback — correctly,
+    * since the command runs at stage time with the same cwd.
     */
   private def executableInside(word: String, workDir: os.Path): Boolean =
     try
@@ -177,9 +203,9 @@ private[runner] object StackDiscovery:
   /** Assemble the agent's `result` into settings-file entries plus the
     * [[StackSettings]] the run uses, applying the two mechanical checks —
     * injected as functions so this stays pure and process-free:
-    * `commandUnresolvable` returns the demotion reason for a command whose
-    * first word doesn't resolve, `evidenceExists` answers whether a cited
-    * evidence file is present.
+    * `unresolvedReason` returns the demotion reason for a command whose first
+    * word doesn't resolve, `evidenceExists` answers whether a cited evidence
+    * file is present.
     *
     * Per command: passing both checks → a [[SettingsEntry.Command]] carrying
     * its evidence as the comment, and the command joins the returned settings;
@@ -191,11 +217,19 @@ private[runner] object StackDiscovery:
     */
   def toEntries(
       result: StackDiscoveryResult,
-      commandUnresolvable: String => Option[String],
+      // Some = the demotion reason — deliberately a bare String: it is
+      // human-facing text for the demoted line, never branched on.
+      unresolvedReason: String => Option[String],
       evidenceExists: String => Boolean
   ): (List[SettingsEntry], StackSettings) =
     def checkedEntry(key: String, cmd: DiscoveredCommand): SettingsEntry =
-      commandUnresolvable(cmd.command)
+      unresolvedReason(cmd.command)
+        .orElse(
+          // A blank citation is checked before existence: `os.SubPath("")`
+          // resolves to the repo root, which exists, so the existence check
+          // would pass vacuously.
+          Option.when(cmd.evidencePath.isBlank)("no evidence file cited")
+        )
         .orElse(
           Option.when(!evidenceExists(cmd.evidencePath))(
             s"evidence file ${cmd.evidencePath} not found"
