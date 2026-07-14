@@ -123,6 +123,32 @@ class SettingsFileTest extends FunSuite:
         |""".stripMargin
     )
 
+  test("render pins the Demoted shape, collapsing whitespace runs"):
+    val rendered = SettingsFile.render(
+      List(
+        SettingsEntry.Demoted(
+          "lint",
+          "just \ncheck",
+          "just: not\n  found on PATH"
+        )
+      )
+    )
+    assert(
+      rendered.endsWith("\n# lint = just check   (just: not found on PATH)\n"),
+      s"a demoted entry must render as a commented-out command with its " +
+        s"reason, whitespace runs collapsed, got: $rendered"
+    )
+
+  test("render leaves a Demoted entry invisible to parse"):
+    val entries = List(
+      SettingsEntry.Command("format", "cargo fmt", None),
+      SettingsEntry.Demoted("lint", "just check", "just: not found on PATH")
+    )
+    assertEquals(
+      SettingsFile.parse(SettingsFile.render(entries)),
+      Right(StackSettings(format = List("cargo fmt")))
+    )
+
   test("render turns a multi-line comment into # lines that parse ignores"):
     val rendered = SettingsFile.render(
       List(

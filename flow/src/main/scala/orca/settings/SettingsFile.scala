@@ -115,6 +115,11 @@ private[orca] object SettingsFile:
         // Whitespace runs in the reason collapse to single spaces — the same
         // one-physical-line guarantee as the command above.
         s"# $key =   (${collapseWhitespace(reason)})"
+      case SettingsEntry.Demoted(key, command, reason) =>
+        // Both parts collapse like Unset's reason: the whole entry must stay
+        // one physical `#` line or the tail would parse as live commands.
+        s"# $key = ${collapseWhitespace(command)}   " +
+          s"(${collapseWhitespace(reason)})"
 
   private def collapseNewlines(s: String): String =
     s.replaceAll("""\s*\R\s*""", " ")
