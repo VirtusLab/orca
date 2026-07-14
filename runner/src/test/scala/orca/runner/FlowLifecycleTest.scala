@@ -656,10 +656,59 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(setup.stackSettings, override_)
     assertEquals(os.read(OrcaDir.settingsPath(workDir)), fileContent)
 
-  test("setup: no file, no override resolves to StackSettings.empty"):
+  test(
+    "setup: fresh arm, no file, no override — discovery runs, writes the file, and the header commit carries it"
+  ):
     val workDir = GitRepo.seeded()
-    val setup = setupForSettings(workDir)
-    assertEquals(setup.stackSettings, StackSettings.empty)
+    val git = new OsGitTool(workDir)
+    val canned = StackDiscoveryResult(
+      format = DiscoveredTask(commands =
+        List(DiscoveredCommand("echo fmt", "seed.txt", Some("seeded fixture")))
+      ),
+      lint = DiscoveredTask(unsetReason = Some("no lint config found")),
+      test = DiscoveredTask()
+    )
+    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
+    val setup = FlowLifecycle.setup(
+      args = OrcaArgs("discover-fresh"),
+      agent = CannedDiscoveryAgent(canned),
+      git = git,
+      workDir = workDir,
+      branchNaming = None,
+      settingsOverride = None,
+      store = ProgressStore.default(workDir, "discover-fresh"),
+      emit = e => { val _ = emitted.updateAndGet(e :: _) }
+    )
+    // The discovered settings are the run's settings…
+    assertEquals(setup.stackSettings, StackSettings(format = List("echo fmt")))
+    // …and the file was written with the checked entries.
+    val settingsPath = OrcaDir.settingsPath(workDir)
+    assert(os.exists(settingsPath), "discovery must write the settings file")
+    // The fresh arm's header commit (`add -A`) must carry the file.
+    val headFiles = os
+      .proc("git", "show", "--name-only", "--pretty=format:", "HEAD")
+      .call(cwd = workDir)
+      .out
+      .text()
+    assert(
+      headFiles.contains(".orca/settings.properties"),
+      s"the header commit must include the settings file, got: $headFiles"
+    )
+    // The bracketing discovery events reached the event surface.
+    val steps =
+      emitted.get().reverse.collect { case s: OrcaEvent.Step => s.message }
+    assert(
+      steps.contains(
+        "no .orca/settings.properties — running stack discovery"
+      ),
+      s"expected the running-discovery Step, got: $steps"
+    )
+    assert(
+      steps.contains(
+        "written to .orca/settings.properties — review and edit as needed."
+      ),
+      s"expected the written Step, got: $steps"
+    )
 
   test(
     "rehydrateSessions replays a codex-tagged record into the codex agent, not the lead"

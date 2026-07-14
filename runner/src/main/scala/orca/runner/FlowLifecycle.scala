@@ -328,14 +328,40 @@ object FlowLifecycle:
     // Settings resolve BEFORE the `ensureClean` stash below (ADR 0019): a
     // malformed file must abort with no stash and no branch mutation, and an
     // uncommitted file's contents must be captured before the stash can sweep
-    // the file away.
-    val stackSettings = resolveStackSettings(workDir, settingsOverride)
+    // the file away. This pre-stash read is also the single authority on
+    // whether discovery runs (the NeedsDiscovery marker below): a hand-written
+    // file the stash sweeps out of a dirty tree must not look absent.
+    val resolution = resolveStackSettings(workDir, settingsOverride)
     val startBranch = git.currentBranch()
     // Snapshot the log file before the stash, restore it if the stash
     // removed it — so an uncommitted/untracked log is still readable below.
     val snapshot = snapshotLog(store.path)
     val _ = git.ensureClean("orca: starting flow")
     restoreLogIfMissing(store.path, snapshot)
+    // Discovery (ADR 0019) is sequenced between the two lifecycle steps that
+    // would otherwise sweep the written file: after `ensureClean` (whose
+    // `stash -u` would stash a just-written untracked file straight back out
+    // of the tree) and before the fresh arm's header commit below (whose
+    // `add -A` then includes it — deliberately). On the resume arm there is
+    // no commit in this window, so the file stays untracked until the next
+    // stage commit. Catch-free: a discovery failure aborts setup as a
+    // surfaced failure — see [[StackDiscovery.discover]] for the ADR
+    // rationale (no degrade-to-empty-file).
+    val stackSettings = resolution match
+      case SettingsResolution.Resolved(settings) => settings
+      case SettingsResolution.NeedsDiscovery =>
+        val (settings, entries) = StackDiscovery.discover(agent, workDir, emit)
+        os.write(
+          OrcaDir.settingsPath(workDir),
+          SettingsFile.render(entries),
+          createFolders = true
+        )
+        emit(
+          OrcaEvent.Step(
+            "written to .orca/settings.properties — review and edit as needed."
+          )
+        )
+        settings
     // The protected set BOTH arms enforce: the always-protected floor
     // (`main`/`master`) plus the repo's ACTUAL detected default branch
     // (best-effort — `git.defaultBranch()` is read-only/cheap and already
@@ -427,34 +453,45 @@ object FlowLifecycle:
         (featureBranch, header.startingBranch)
     FlowSetup(store, featureBranch, effectiveStartBranch, stackSettings)
 
+  /** Outcome of the pre-`ensureClean` settings read: either the resolved
+    * values, or the marker that auto-discovery must run. The marker inherently
+    * encodes "no override AND no file at the pre-stash read" — the only gate
+    * discovery has (ADR 0019).
+    */
+  private enum SettingsResolution:
+    case Resolved(settings: StackSettings)
+    case NeedsDiscovery
+
   /** Resolve the run's stack settings (ADR 0019): an explicit override wins
     * outright — the file is neither read nor written; otherwise a present
     * settings file is parsed, and an unreadable or malformed one is a hard
     * abort (the caller sequences this ahead of any tree mutation); an absent
-    * file resolves to [[StackSettings.empty]] (auto-discovery per ADR 0019 is
-    * not implemented yet).
+    * file returns [[SettingsResolution.NeedsDiscovery]] — the caller runs
+    * auto-discovery in its post-`ensureClean` slot.
     */
   private def resolveStackSettings(
       workDir: os.Path,
       settingsOverride: Option[StackSettings]
-  ): StackSettings =
+  ): SettingsResolution =
     val settingsPath = OrcaDir.settingsPath(workDir)
-    settingsOverride.getOrElse:
-      if os.exists(settingsPath) then
-        val content =
-          try os.read(settingsPath)
-          catch
-            case NonFatal(e) =>
+    settingsOverride match
+      case Some(settings) => SettingsResolution.Resolved(settings)
+      case None =>
+        if os.exists(settingsPath) then
+          val content =
+            try os.read(settingsPath)
+            catch
+              case NonFatal(e) =>
+                throw new OrcaFlowException(
+                  s"cannot read stack settings at $settingsPath: ${e.getMessage}"
+                )
+          SettingsFile.parse(content) match
+            case Right(s) => SettingsResolution.Resolved(s)
+            case Left(err) =>
               throw new OrcaFlowException(
-                s"cannot read stack settings at $settingsPath: ${e.getMessage}"
+                s"invalid stack settings at $settingsPath: ${err.message}"
               )
-        SettingsFile.parse(content) match
-          case Right(s) => s
-          case Left(err) =>
-            throw new OrcaFlowException(
-              s"invalid stack settings at $settingsPath: ${err.message}"
-            )
-      else StackSettings.empty
+        else SettingsResolution.NeedsDiscovery
 
   /** Fresh run: resolve + create the branch (returned to the caller), then
     * commit the header so it is the branch's first commit. Shared by the

@@ -1,7 +1,8 @@
 package orca.runner
 
-import orca.StackSettings
-import orca.agents.{Announce, JsonData, given}
+import orca.{InStage, StackSettings}
+import orca.agents.{Agent, Announce, JsonData, given}
+import orca.events.OrcaEvent
 import orca.settings.{SettingKey, SettingsEntry}
 import orca.util.PromptResource
 
@@ -50,6 +51,73 @@ private[runner] object StackDiscovery:
     */
   private[runner] val Prompt: String =
     PromptResource.load("/orca/runner/prompts/stack-discovery.md")
+
+  /** Run discovery end to end: announce it, ask `agent`'s cheap tier (read-only
+    * — the agent inspects the repo with its own tools; nothing is inlined into
+    * the prompt) for a [[StackDiscoveryResult]], apply the two mechanical
+    * checks against `workDir`, and narrate every resulting command/demotion
+    * line — plus a warning per task left with no commands — as `Step` events.
+    * Returns the surviving settings and the full entry list for the caller to
+    * render and write.
+    *
+    * Deliberately catch-free (ADR 0019): a discovery failure — backend
+    * unavailable, spawn failure, structured output still invalid after the
+    * retry policy — propagates and aborts the run as an ordinary surfaced setup
+    * failure. It is never degraded to writing an all-commented file: under the
+    * frozen-file semantics that would turn a transient outage into a
+    * permanently recorded "gates off", and the run needs the same backend
+    * minutes later anyway.
+    */
+  def discover(
+      agent: Agent[?],
+      workDir: os.Path,
+      emit: OrcaEvent => Unit
+  )(using InStage): (StackSettings, List[SettingsEntry]) =
+    emit(
+      OrcaEvent.Step("no .orca/settings.properties — running stack discovery")
+    )
+    val result = agent.cheap.withReadOnly
+      .resultAs[StackDiscoveryResult]
+      .autonomous
+      .run(Prompt, emitPrompt = false)
+    val (entries, settings) = toEntries(
+      result,
+      commandUnresolvable(_, workDir),
+      evidenceExists(_, workDir)
+    )
+    entries.foreach:
+      case SettingsEntry.Command(key, command, comment) =>
+        emit(
+          OrcaEvent.Step(
+            s"  $key = ${collapse(command)}" +
+              comment.fold("")(c => s"   # ${collapse(c)}")
+          )
+        )
+      case SettingsEntry.Demoted(key, command, reason) =>
+        emit(
+          OrcaEvent.Step(
+            s"  # $key = ${collapse(command)}   (${collapse(reason)})"
+          )
+        )
+      // Unset tasks surface through the gate-disabled warnings below.
+      case SettingsEntry.Unset(_, _) => ()
+    List(
+      SettingKey.Format -> settings.format,
+      SettingKey.Lint -> settings.lint,
+      SettingKey.Test -> settings.test
+    ).foreach: (key, commands) =>
+      if commands.isEmpty then
+        emit(
+          OrcaEvent.Step(
+            s"warning: stack settings: no ${key.raw} command — gate disabled"
+          )
+        )
+    (settings, entries)
+
+  /** One-physical-line guard for `Step` messages, mirroring the render-side
+    * sanitization.
+    */
+  private def collapse(s: String): String = s.replaceAll("""\s+""", " ")
 
   /** Matches a leading `NAME=value` environment-assignment token, so `FOO=bar
     * cargo check` resolves `cargo`, not `FOO=bar`.
