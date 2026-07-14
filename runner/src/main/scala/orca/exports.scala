@@ -64,9 +64,9 @@ export orca.pr.{openPrFromBranch, orcaCommentMarker, summarisePr, PrSummary}
 // surface — compose your own `List[Reviewer]` (shipped `ReviewerPrompts`
 // entries, a subset, and/or your own) and `buildReviewers` it into the agents
 // `reviewAndFixLoop` takes, to swap or extend what `allReviewers` builds.
-// Lint: `reviewAndFixLoop`'s `lint: Option[Lint]` parameter is a public type —
-// a caller constructs `Lint(command, agent)` at the call site, so it must
-// resolve through the same wildcard import as the loop itself.
+// Lint: `reviewAndFixLoop`'s `lint: Configured[Lint]` parameter is a public
+// type — a caller constructs `Lint(command, agent)` at the call site, so it
+// must resolve through the same wildcard import as the loop itself.
 export orca.review.{
   allReviewers,
   buildReviewers,

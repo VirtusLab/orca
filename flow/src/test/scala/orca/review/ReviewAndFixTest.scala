@@ -610,6 +610,23 @@ class ReviewAndFixTest extends munit.FunSuite:
     val runs = if os.exists(counter) then os.read.lines(counter).size else 0
     assertEquals(runs, 2)
 
+  test("a failing format command doesn't stop the ones after it"):
+    given FlowControl = control
+    // `false` exits nonzero; the loop is fail-open on format commands, so the
+    // second command must still run.
+    val log = TempDirs.dir() / "fmt-log"
+    val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
+    val coder = new FakeAgent("coder")
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "fail-open format",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      formatCommands = Configured.Use(List("false", s"echo ran >> '$log'")),
+      initialDiff = Some("")
+    )
+    assertEquals(os.read.lines(log).toList, List("ran"))
+
   test(
     "FromSettings + non-empty settings: format commands run in order, lint " +
       "gate built on the lead's cheap tier"
