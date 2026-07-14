@@ -1401,7 +1401,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     val livePid = ProcessHandle.current().pid()
     os.write(
-      workDir / ".orca" / "flow.lock",
+      workDir / ".orca" / "cache" / "flow.lock",
       livePid.toString,
       createFolders = true
     )
@@ -1432,7 +1432,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     // The refusal must not steal or clear a lock still held by a live PID.
     assertEquals(
-      os.read(workDir / ".orca" / "flow.lock").trim,
+      os.read(workDir / ".orca" / "cache" / "flow.lock").trim,
       livePid.toString
     )
 
@@ -1444,7 +1444,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     dead.join(): Unit
     val deadPid = dead.wrapped.pid()
     os.write(
-      workDir / ".orca" / "flow.lock",
+      workDir / ".orca" / "cache" / "flow.lock",
       deadPid.toString,
       createFolders = true
     )
@@ -1477,15 +1477,15 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     // The guard released cleanly after a successful run — no lock left behind.
     assert(
-      !os.exists(workDir / ".orca" / "flow.lock"),
+      !os.exists(workDir / ".orca" / "cache" / "flow.lock"),
       "lock must be released after a successful run"
     )
 
   test("reentrancy guards: the lock file is never swept into a stage commit"):
     // The stage runtime's commit is `git add -A` + a force-add of the progress
     // log only; the lock must stay out of history even though the temp repo
-    // has no `.gitignore` for `.orca/` (the guard writes it to the repo-local
-    // `<git-common-dir>/info/exclude` on acquisition).
+    // has no `.gitignore` for `.orca/` (the lock lives under `.orca/cache/`,
+    // whose own `.gitignore` self-ignores everything in it).
     val workDir = GitRepo.seeded()
     supervised:
       val interaction = TerminalInteraction.start(
@@ -1516,9 +1516,25 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"the stage's code change must be committed; history files: $everTracked"
     )
     assert(
-      !everTracked.contains(".orca/flow.lock"),
+      !everTracked.contains("flow.lock"),
       "the flow lock must never appear in any commit"
     )
+
+  test(
+    "reentrancy guards: acquireWorkdir places the lock under .orca/cache and leaves info/exclude alone"
+  ):
+    val workDir = GitRepo.seeded()
+    val lockPath = FlowLock.acquireWorkdir(workDir)
+    try
+      assertEquals(lockPath, workDir / ".orca" / "cache" / "flow.lock")
+      assert(os.exists(lockPath))
+      val excludePath = workDir / ".git" / "info" / "exclude"
+      assert(
+        !os.exists(excludePath) ||
+          !os.read.lines(excludePath).contains(".orca/flow.lock"),
+        "acquisition must not write the lock exclusion into info/exclude"
+      )
+    finally FlowLock.releaseWorkdir(lockPath)
 
   /** Records every `OrcaEvent` it sees, so the boundary-emission tests can
     * count how many `OrcaEvent.Error`s a failing run produced.

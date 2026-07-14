@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.OrcaFlowException
+import orca.{OrcaDir, OrcaFlowException}
 
 import java.nio.file.{FileAlreadyExistsException, NoSuchFileException}
 import java.util.concurrent.atomic.AtomicBoolean
@@ -39,45 +39,6 @@ private[orca] object FlowLock:
 
   def releaseProcess(): Unit = processFlowLock.set(false)
 
-  private def flowLockPath(workDir: os.Path): os.Path =
-    workDir / ".orca" / "flow.lock"
-
-  /** Best-effort: keep `git add -A` (the stage runtime's commit,
-    * `GitTool.commit`) from ever sweeping the lock file into a commit. ADR 0018
-    * only *encourages* projects to gitignore `.orca/`, it doesn't enforce it,
-    * so — unlike the progress log, which the stage runtime deliberately
-    * force-adds — the lock file needs its own guarantee. Appends to the
-    * repo-local, never-committed `<git-common-dir>/info/exclude` rather than a
-    * tracked `.gitignore`, so the legal-path commit history is unchanged. The
-    * common dir is resolved via `git rev-parse` (not a hand-rolled `.git`
-    * check) so a `workDir` that is itself a linked worktree — where `.git` is a
-    * pointer file, and `info/` lives in the shared common dir — is covered too.
-    * Silently skipped when `workDir` isn't a git repo at all (or git is
-    * unavailable): this is belt-and-suspenders, never worth failing the guard
-    * over.
-    */
-  private def excludeLockFromGit(workDir: os.Path): Unit =
-    try
-      val commonDir = os.Path(
-        os.proc(
-          "git",
-          "rev-parse",
-          "--path-format=absolute",
-          "--git-common-dir"
-        ).call(cwd = workDir)
-          .out
-          .text()
-          .trim
-      )
-      val excludePath = commonDir / "info" / "exclude"
-      val line = ".orca/flow.lock"
-      val existing =
-        if os.exists(excludePath) then os.read.lines(excludePath)
-        else IndexedSeq.empty
-      if !existing.contains(line) then
-        os.write.append(excludePath, s"$line\n", createFolders = true)
-    catch case NonFatal(_) => ()
-
   /** Bound on [[acquireWorkdir]]'s total `CREATE_NEW` races (the initial try
     * plus every re-race after a losing steal or a holder that released
     * mid-check) — pathological churn must end in a refusal, not a spin.
@@ -87,6 +48,12 @@ private[orca] object FlowLock:
   /** Acquire the `workDir`-keyed lock file, returning its path (release it with
     * [[releaseWorkdir]]). Refuses with the tracker's message when the holder
     * PID is still alive; steals (after a stderr warning) when it isn't.
+    *
+    * The lock lives under the self-ignoring `.orca/cache/`, so `git add -A`
+    * (the stage runtime's commit, `GitTool.commit`) can never sweep it into a
+    * commit: [[orca.OrcaDir.ensureCache]] writes the cache's `.gitignore`
+    * before the lock file exists. Linked worktrees are covered too — each
+    * worktree gets its own `.orca/cache/` with its own `.gitignore`.
     *
     * The only atomic primitive here is `os.write`'s `CREATE_NEW`, so everything
     * else must funnel back through it: a stale lock is stolen by DELETING it
@@ -98,9 +65,7 @@ private[orca] object FlowLock:
     * including the one about to run).
     */
   def acquireWorkdir(workDir: os.Path): os.Path =
-    os.makeDir.all(workDir / ".orca")
-    excludeLockFromGit(workDir)
-    val lockPath = flowLockPath(workDir)
+    val lockPath = OrcaDir.ensureCache(workDir) / "flow.lock"
     val pid = ProcessHandle.current().pid()
 
     @tailrec def attempt(attemptsLeft: Int): Unit =
