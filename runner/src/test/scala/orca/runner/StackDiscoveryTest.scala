@@ -2,6 +2,7 @@ package orca.runner
 
 import orca.StackSettings
 import orca.settings.SettingsEntry
+import orca.testkit.TempDirs
 
 class StackDiscoveryTest extends munit.FunSuite:
 
@@ -136,5 +137,82 @@ class StackDiscoveryTest extends munit.FunSuite:
       )
     )
     assertEquals(settings, StackSettings.empty)
+
+  // --- mechanical checks -----------------------------------------------------
+
+  test("commandUnresolvable: a plain word on PATH resolves"):
+    assertEquals(
+      StackDiscovery.commandUnresolvable("echo hello", TempDirs.dir()),
+      None
+    )
+
+  test("commandUnresolvable: an unknown word demotes, naming it"):
+    assertEquals(
+      StackDiscovery
+        .commandUnresolvable("definitely-not-a-cmd-xyz --flag", TempDirs.dir()),
+      Some("definitely-not-a-cmd-xyz: not found on PATH")
+    )
+
+  test("commandUnresolvable: a leading VAR= assignment token is stripped"):
+    assertEquals(
+      StackDiscovery.commandUnresolvable("FOO=bar echo hi", TempDirs.dir()),
+      None
+    )
+
+  test("commandUnresolvable: two leading VAR= assignment tokens are stripped"):
+    assertEquals(
+      StackDiscovery
+        .commandUnresolvable("FOO=bar B_2=x echo hi", TempDirs.dir()),
+      None
+    )
+
+  test("commandUnresolvable: an all-assignments (empty) command demotes"):
+    assertEquals(
+      StackDiscovery.commandUnresolvable("FOO=bar", TempDirs.dir()),
+      Some("empty command")
+    )
+
+  test(
+    "commandUnresolvable: shell metacharacters are never interpreted — no side effects"
+  ):
+    // The word goes to `command -v -- "$1"` as an ARGUMENT, never spliced into
+    // the script text: `echo; touch marker` must not create `marker`, whatever
+    // the resolution verdict on the (unresolvable) word `echo;` is.
+    val dir = TempDirs.dir()
+    val result = StackDiscovery.commandUnresolvable("echo; touch marker", dir)
+    assert(
+      !os.exists(dir / "marker"),
+      "the probe must not execute any part of the command"
+    )
+    assertEquals(result, Some("echo;: not found on PATH"))
+
+  test("commandUnresolvable: an executable ./script.sh in the repo resolves"):
+    val dir = TempDirs.dir()
+    os.write(dir / "script.sh", "#!/bin/sh\n")
+    os.perms.set(dir / "script.sh", "rwxr-xr-x")
+    assertEquals(
+      StackDiscovery.commandUnresolvable("./script.sh --check", dir),
+      None
+    )
+
+  test("commandUnresolvable: an absent ./script.sh demotes"):
+    assertEquals(
+      StackDiscovery.commandUnresolvable("./missing.sh", TempDirs.dir()),
+      Some("./missing.sh: not found on PATH")
+    )
+
+  test("evidenceExists: a present repo-relative file is accepted"):
+    val dir = TempDirs.dir()
+    os.write(dir / "Cargo.toml", "[package]\n")
+    assert(StackDiscovery.evidenceExists("Cargo.toml", dir))
+
+  test("evidenceExists: a missing repo-relative file is rejected"):
+    assert(!StackDiscovery.evidenceExists("Cargo.toml", TempDirs.dir()))
+
+  test("evidenceExists: ../ traversal and absolute paths are rejected"):
+    val dir = TempDirs.dir()
+    os.write(dir / "real.txt", "x")
+    assert(!StackDiscovery.evidenceExists("../escape.txt", dir))
+    assert(!StackDiscovery.evidenceExists("/etc/passwd", dir))
 
 end StackDiscoveryTest

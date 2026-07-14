@@ -51,6 +51,61 @@ private[runner] object StackDiscovery:
   private[runner] val Prompt: String =
     PromptResource.load("/orca/runner/prompts/stack-discovery.md")
 
+  /** Matches a leading `NAME=value` environment-assignment token, so `FOO=bar
+    * cargo check` resolves `cargo`, not `FOO=bar`.
+    */
+  private val AssignmentToken = "^[A-Za-z_][A-Za-z0-9_]*=".r
+
+  /** First mechanical check (ADR 0019): `None` = resolvable, `Some(reason)` =
+    * demote. Strips leading `VAR=` assignment tokens, then resolves the first
+    * remaining word through the execution environment's own lookup — `bash -c
+    * 'command -v'`, builtins included, the same environment stage-time `bash
+    * -c` inherits. The word is passed as an ARGUMENT (`"$1"`) — never
+    * interpolated into the bash script text, so shell metacharacters in an
+    * agent-proposed command cannot execute here. A word containing `/` that
+    * `command -v` rejects still resolves if it names an executable file inside
+    * the repo; a path outside the repo just demotes.
+    */
+  private[runner] def commandUnresolvable(
+      command: String,
+      workDir: os.Path
+  ): Option[String] =
+    val words = command.trim.split("\\s+").toList.filter(_.nonEmpty)
+    words.dropWhile(w => AssignmentToken.findPrefixOf(w).isDefined) match
+      case Nil => Some("empty command")
+      case word :: _ =>
+        val probe = os
+          .proc("bash", "-c", """command -v -- "$1"""", "bash", word)
+          .call(
+            cwd = workDir,
+            check = false,
+            stdout = os.Pipe,
+            stderr = os.Pipe
+          )
+        if probe.exitCode == 0 then None
+        else if word.contains("/") && executableInside(word, workDir) then None
+        else Some(s"$word: not found on PATH")
+
+  /** Does `word` name an executable file inside `workDir`? `false` for an
+    * absolute path (`os.RelPath` refuses it) and for a relative path whose `..`
+    * segments escape the repo.
+    */
+  private def executableInside(word: String, workDir: os.Path): Boolean =
+    try
+      val resolved = workDir / os.RelPath(word)
+      resolved.startsWith(workDir) && os.exists(resolved) &&
+      resolved.toIO.canExecute
+    catch case _: IllegalArgumentException => false
+
+  /** Second mechanical check (ADR 0019): the cited evidence file must exist
+    * inside the repo. Absolute paths and `..` traversal are rejected outright
+    * (`os.SubPath` refuses both), so an agent-proposed citation can only ever
+    * probe inside `workDir`.
+    */
+  private[runner] def evidenceExists(path: String, workDir: os.Path): Boolean =
+    try os.exists(workDir / os.SubPath(path))
+    catch case _: IllegalArgumentException => false
+
   /** Assemble the agent's `result` into settings-file entries plus the
     * [[StackSettings]] the run uses, applying the two mechanical checks —
     * injected as functions so this stays pure and process-free:
