@@ -659,11 +659,36 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(setup.stackSettings, override_)
     assertEquals(os.read(OrcaDir.settingsPath(workDir)), fileContent)
 
+  /** Drives `setup` with no settings file and no override, so discovery runs
+    * against `agent`; returns the setup outcome and the collected Step
+    * messages. The store is resolved exactly as production does, so a pre-built
+    * progress log in `workDir` makes this the resume arm.
+    */
+  private def setupDiscovering(
+      workDir: os.Path,
+      agent: Agent[?],
+      prompt: String
+  ): (FlowLifecycle.FlowSetup, List[String]) =
+    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
+    val setup = FlowLifecycle.setup(
+      args = OrcaArgs(prompt),
+      agent = agent,
+      git = new OsGitTool(workDir),
+      workDir = workDir,
+      branchNaming = None,
+      settingsOverride = None,
+      store = ProgressStore.default(workDir, prompt),
+      emit = e => { val _ = emitted.updateAndGet(e :: _) }
+    )
+    (
+      setup,
+      emitted.get().reverse.collect { case s: OrcaEvent.Step => s.message }
+    )
+
   test(
     "setup: fresh arm, no file, no override — discovery runs, writes the file, and the header commit carries it"
   ):
     val workDir = GitRepo.seeded()
-    val git = new OsGitTool(workDir)
     val canned = StackDiscoveryResult(
       format = DiscoveredTask(commands =
         List(DiscoveredCommand("echo fmt", "seed.txt", Some("seeded fixture")))
@@ -671,23 +696,23 @@ class FlowLifecycleTest extends munit.FunSuite:
       lint = DiscoveredTask(unsetReason = Some("no lint config found")),
       test = DiscoveredTask()
     )
-    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
-    val setup = FlowLifecycle.setup(
-      args = OrcaArgs("discover-fresh"),
-      agent = CannedDiscoveryAgent(canned),
-      git = git,
-      workDir = workDir,
-      branchNaming = None,
-      settingsOverride = None,
-      store = ProgressStore.default(workDir, "discover-fresh"),
-      emit = e => { val _ = emitted.updateAndGet(e :: _) }
-    )
+    val (setup, steps) =
+      setupDiscovering(workDir, CannedDiscoveryAgent(canned), "discover-fresh")
     // The discovered settings are the run's settings…
     assertEquals(setup.stackSettings, StackSettings(format = List("echo fmt")))
-    // …and the file was written with the checked entries.
-    val settingsPath = OrcaDir.settingsPath(workDir)
-    assert(os.exists(settingsPath), "discovery must write the settings file")
-    // The fresh arm's header commit (`add -A`) must carry the file.
+    // …and the written file is the byte-exact render of the checked entries.
+    assertEquals(
+      os.read(OrcaDir.settingsPath(workDir)),
+      """# orca stack settings — edit freely, commit with the project.
+        |# Delete this file to re-run auto-discovery.
+        |# seed.txt; seeded fixture
+        |format = echo fmt
+        |# lint =   (no lint config found)
+        |# test =   (no evidence found)
+        |""".stripMargin
+    )
+    // The fresh arm's header commit (`add -A`) — the branch's first commit —
+    // must carry the file.
     val headFiles = os
       .proc("git", "show", "--name-only", "--pretty=format:", "HEAD")
       .call(cwd = workDir)
@@ -698,8 +723,6 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"the header commit must include the settings file, got: $headFiles"
     )
     // The bracketing discovery events reached the event surface.
-    val steps =
-      emitted.get().reverse.collect { case s: OrcaEvent.Step => s.message }
     assert(
       steps.contains(
         "no .orca/settings.properties — running stack discovery"
@@ -711,6 +734,211 @@ class FlowLifecycleTest extends munit.FunSuite:
         "written to .orca/settings.properties — review and edit as needed."
       ),
       s"expected the written Step, got: $steps"
+    )
+
+  test(
+    "discovery: an unresolvable command is demoted in the file, with a gate-disabled warning"
+  ):
+    val workDir = GitRepo.seeded()
+    val canned = StackDiscoveryResult(
+      format = DiscoveredTask(commands =
+        List(DiscoveredCommand("echo fmt", "seed.txt"))
+      ),
+      lint = DiscoveredTask(commands =
+        List(DiscoveredCommand("definitely-not-a-cmd-xyz check", "seed.txt"))
+      ),
+      test = DiscoveredTask(commands =
+        List(DiscoveredCommand("echo test", "seed.txt"))
+      )
+    )
+    val (setup, steps) =
+      setupDiscovering(workDir, CannedDiscoveryAgent(canned), "discover-demote")
+    val content = os.read(OrcaDir.settingsPath(workDir))
+    assert(
+      content.contains(
+        "# lint = definitely-not-a-cmd-xyz check   " +
+          "(definitely-not-a-cmd-xyz: not found on PATH)"
+      ),
+      s"the demoted command must be a commented-out line with its reason: $content"
+    )
+    // Parsing the written file yields only the surviving commands…
+    assertEquals(
+      orca.settings.SettingsFile.parse(content),
+      Right(StackSettings(format = List("echo fmt"), test = List("echo test")))
+    )
+    // …which are also what the run got.
+    assertEquals(setup.stackSettings.lint, Nil)
+    assert(
+      steps.contains(
+        "warning: stack settings: no lint command — gate disabled"
+      ),
+      s"expected the gate-disabled warning for lint, got: $steps"
+    )
+
+  test(
+    "discovery: resume arm (log present, file deleted) rediscovers and leaves the file untracked"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "discover-resume"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    // The delete-to-rediscover fixture: feature branch, committed header — and
+    // NO settings file when the run resumes.
+    val _ = git.createBranch("feat/discover-resume")
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/discover-resume",
+        promptHash = ProgressStore.hashPrompt(prompt)
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    val headBefore =
+      os.proc("git", "rev-parse", "HEAD").call(cwd = workDir).out.text().trim
+    val canned = StackDiscoveryResult(
+      format = DiscoveredTask(commands =
+        List(DiscoveredCommand("echo fmt", "seed.txt"))
+      ),
+      lint = DiscoveredTask(),
+      test = DiscoveredTask()
+    )
+    val (setup, _) =
+      setupDiscovering(workDir, CannedDiscoveryAgent(canned), prompt)
+    assertEquals(setup.stackSettings, StackSettings(format = List("echo fmt")))
+    assert(
+      os.exists(OrcaDir.settingsPath(workDir)),
+      "discovery must run on the resume arm too"
+    )
+    // No header commit on the resume arm: HEAD is unchanged and the file
+    // stays untracked (it rides the next stage commit's `add -A`).
+    assertEquals(
+      os.proc("git", "rev-parse", "HEAD").call(cwd = workDir).out.text().trim,
+      headBefore,
+      "the resume arm must not commit"
+    )
+    val status = os
+      .proc("git", "status", "--porcelain", "--", ".orca/settings.properties")
+      .call(cwd = workDir)
+      .out
+      .text()
+      .trim
+    assertEquals(
+      status,
+      "?? .orca/settings.properties",
+      "the settings file must be untracked after a resume-arm discovery"
+    )
+
+  test(
+    "discovery: legacy-ignored repo — file written, stays untracked, ignored-warning fires"
+  ):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    locally:
+      given WorkspaceWrite = WorkspaceWrite.unsafe
+      os.write(workDir / ".gitignore", ".orca/\n")
+      assert(git.commit("add .gitignore").isRight)
+    val canned = StackDiscoveryResult(
+      format = DiscoveredTask(commands =
+        List(DiscoveredCommand("echo fmt", "seed.txt"))
+      ),
+      lint = DiscoveredTask(),
+      test = DiscoveredTask()
+    )
+    val (_, steps) =
+      setupDiscovering(workDir, CannedDiscoveryAgent(canned), "discover-legacy")
+    assert(
+      os.exists(OrcaDir.settingsPath(workDir)),
+      "the file must be written even in a legacy-ignored repo"
+    )
+    // The header commit's `add -A` skips ignored paths, so the file stays
+    // out of history for the user to commit after fixing the ignore.
+    val headFiles = os
+      .proc("git", "show", "--name-only", "--pretty=format:", "HEAD")
+      .call(cwd = workDir)
+      .out
+      .text()
+    assert(
+      !headFiles.contains(".orca/settings.properties"),
+      s"an ignored settings file must not ride the header commit: $headFiles"
+    )
+    assert(
+      steps.contains(settingsIgnoredWarning),
+      s"the ADR-0019 ignored-settings warning must fire, got: $steps"
+    )
+
+  test(
+    "discovery: a failing agent aborts setup as a surfaced failure — no file written, no stage ran"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "discover-failure"
+    val store = ProgressStore.default(workDir, prompt)
+    var stageRan = false
+    val throwing = new CannedDiscoveryAgent(() =>
+      throw new RuntimeException("discovery boom")
+    )
+    val thrown = intercept[SurfacedFlowFailure]:
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        runFlow(
+          args = OrcaArgs(prompt),
+          agent = _ => throwing,
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = Nil,
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = Some(store)
+        ):
+          val _ = stage("never-runs"):
+            stageRan = true
+            "x"
+    assertEquals(thrown.cause.getMessage, "discovery boom")
+    // NEVER degraded to writing an empty/all-commented file (ADR 0019): the
+    // frozen-file semantics would make a transient outage permanent.
+    assert(
+      !os.exists(OrcaDir.settingsPath(workDir)),
+      "a discovery failure must not write a settings file"
+    )
+    assert(!stageRan, "setup aborts before any stage can run")
+
+  test(
+    "discovery: an all-unset result writes an all-commented file, warns per gate, and yields empty settings"
+  ):
+    val workDir = GitRepo.seeded()
+    val canned = StackDiscoveryResult(
+      format = DiscoveredTask(unsetReason = Some("no formatter config found")),
+      lint = DiscoveredTask(),
+      test = DiscoveredTask(unsetReason = Some("no test directory found"))
+    )
+    val (setup, steps) = setupDiscovering(
+      workDir,
+      CannedDiscoveryAgent(canned),
+      "discover-all-unset"
+    )
+    assertEquals(setup.stackSettings, StackSettings.empty)
+    assertEquals(
+      os.read(OrcaDir.settingsPath(workDir)),
+      """# orca stack settings — edit freely, commit with the project.
+        |# Delete this file to re-run auto-discovery.
+        |# format =   (no formatter config found)
+        |# lint =   (no evidence found)
+        |# test =   (no test directory found)
+        |""".stripMargin
+    )
+    val warnings = steps.filter(_.contains("gate disabled"))
+    assertEquals(
+      warnings,
+      List(
+        "warning: stack settings: no format command — gate disabled",
+        "warning: stack settings: no lint command — gate disabled",
+        "warning: stack settings: no test command — gate disabled"
+      )
     )
 
   test(
