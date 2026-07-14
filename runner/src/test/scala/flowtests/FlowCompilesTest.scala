@@ -575,3 +575,10 @@ object FlowCanary:
               title = "fix: " + summary,
               body = "Failing test + fix."
             )
+
+object StackSettingsCanary:
+  /** `StackSettings` (ADR 0019) is part of the script surface: it must resolve
+    * through the same `import orca.{*, given}` wildcard as the flow DSL — it
+    * lives at top-level `orca`, so no `exports.scala` entry carries it.
+    */
+  val settings: StackSettings = StackSettings.empty
