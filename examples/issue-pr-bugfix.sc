@@ -40,6 +40,10 @@
   * scala-cli run issue-pr-bugfix.sc -- "acme/widgets#42"
   * ```
   *
+  * The review loop's format commands come from `.orca/settings.properties`,
+  * auto-discovered on first run; the lint gate is pinned explicitly below to
+  * demonstrate the per-call override.
+  *
   * Requires `claude` and `gh` authenticated; target repo must have a CI
   * workflow that runs `sbt test`.
   */
@@ -241,15 +245,15 @@ def planAndImplementFix(
     stage(s"Task: ${task.title}"): // skipped on resume if already done
       session.run(fixPlan.taskPrompt(task))
       // reviewerSelection defaults to agentDriven — a picker LLM on the
-      // lead's cheap tier.
+      // lead's cheap tier. Format defaults to the project's stack settings
+      // (`.orca/settings.properties`).
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(agent),
         task = task.title.value,
-        // Format after every edit (the implementation and each review fix).
-        formatCommand = Some("sbt scalafmtAll"),
-        // Compile (main + test) is a cheap sanity gate; the failing test
+        // An explicit override beats the settings file: pin the lint gate to
+        // a compile (main + test) — a cheap sanity check; the failing test
         // runs in CI and correctness is the reviewers' job.
-        lint = Some(Lint("sbt Test/compile", agent.cheap))
+        lint = Configured.Use(Lint(List("sbt Test/compile"), agent.cheap))
       )
       // one commit per task: code + progress entry

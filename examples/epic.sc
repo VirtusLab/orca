@@ -18,6 +18,10 @@
   *
   * On success a docs step updates the README based on what changed.
   *
+  * The review loop's format and lint commands come from
+  * `.orca/settings.properties`, auto-discovered on first run — the script
+  * itself stays stack-agnostic.
+  *
   * Run it from a git repository, with `claude` and `codex` logged in:
   *
   * ```bash
@@ -47,13 +51,12 @@ flow(OrcaArgs(args), _.claude):
     stage(s"Task: ${task.title}"):      // skipped on resume if already done
       session.run(task.description)
       // reviewerSelection defaults to agentDriven — a picker LLM on the
-      // lead's cheap tier.
+      // lead's cheap tier. Format and lint default to the project's stack
+      // settings (`.orca/settings.properties`).
       reviewAndFixLoop(
         coderSession = session,
         reviewers = reviewers,
-        task = task.title.value,
-        // Format after every edit; Spotless is wired into the seed pom.
-        formatCommand = Some("mvn -q spotless:apply")
+        task = task.title.value
       )
       // one commit per task: code + progress entry
 

@@ -27,6 +27,10 @@
   * scala-cli run issue-pr.sc -- "acme/widgets#42"
   * ```
   *
+  * The review loop's format and lint commands come from
+  * `.orca/settings.properties`, auto-discovered on first run — the script
+  * itself stays stack-agnostic.
+  *
   * Requires `claude` and `gh` both authenticated.
   */
 
@@ -82,13 +86,12 @@ flow(
         session.run(task.description)
         // reviewerSelection defaults to agentDriven(agent.cheap); pass
         // `ReviewerSelector.allEveryRound` to run every reviewer instead.
+        // Format and lint default to the project's stack settings
+        // (`.orca/settings.properties`).
         reviewAndFixLoop(
           coderSession = session,
           reviewers = allReviewers(agent),
-          task = task.title.value,
-          // Format after every edit; Prettier for a TS/JS project — swap for
-          // your formatter.
-          formatCommand = Some("npx prettier --write .")
+          task = task.title.value
         )
         // one commit per task: code + progress entry
 

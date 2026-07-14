@@ -33,6 +33,10 @@
   * scala-cli run implement-enhanced.sc -- "Add a multiply function to the calculator crate"
   * ```
   *
+  * The review loop's format and lint commands come from
+  * `.orca/settings.properties`, auto-discovered on first run — the script
+  * itself stays stack-agnostic.
+  *
   * Requires `claude` logged in, `cargo` on PATH, and `gh` authenticated.
   */
 
@@ -61,14 +65,13 @@ flow(OrcaArgs(args), _.claude, returnToStartBranch = true):
       // The session seed already carries the brief, so send only the task
       // description here — session.run re-prepends the seed on first use / resume.
       session.run(task.description)
-      // reviewerSelection defaults to agentDriven(agent.cheap).
+      // reviewerSelection defaults to agentDriven(agent.cheap); format and
+      // lint default to the project's stack settings
+      // (`.orca/settings.properties`).
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(agent),
-        task = task.title.value,
-        // Format after every edit (the implementation and each review fix).
-        formatCommand = Some("cargo fmt"),
-        lint = Some(Lint("cargo check --tests", agent.cheap))
+        task = task.title.value
       )
       // one commit per task: code + progress entry
 

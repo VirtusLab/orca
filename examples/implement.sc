@@ -21,6 +21,10 @@
   * scala-cli run implement.sc -- "Add a multiply function to the calculator crate"
   * ```
   *
+  * The review loop's format and lint commands come from
+  * `.orca/settings.properties`, auto-discovered on first run — the script
+  * itself stays stack-agnostic.
+  *
   * Requires `claude` logged in and `cargo` on PATH.
   *
   * For the variant where the planner can ask clarifying questions, see
@@ -49,12 +53,9 @@ flow(OrcaArgs(args), _.claude):
         reviewers = allReviewers(agent),
         // reviewerSelection defaults to agentDriven(agent.cheap); pass
         // `ReviewerSelector.allEveryRound` to run every reviewer instead.
-        task = task.title.value,
-        // Format after every edit so commits stay formatted and reviewers
-        // skip style nits.
-        formatCommand = Some("cargo fmt"),
-        // Cheap sanity gate; correctness is the reviewers' and CI's job, so
-        // skip the heavier tests.
-        lint = Some(Lint("cargo check --tests", agent.cheap))
+        // Format and lint default to the project's stack settings
+        // (`.orca/settings.properties`); pass `Configured.Off`/`.Use(...)`
+        // to opt out or override per call.
+        task = task.title.value
       )
       // one commit per task: code + progress entry
