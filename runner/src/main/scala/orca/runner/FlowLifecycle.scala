@@ -6,6 +6,7 @@ import orca.{
   FlowControl,
   InStage,
   OrcaArgs,
+  OrcaDir,
   OrcaFlowException,
   RuntimeInStage,
   WorkspaceWrite
@@ -236,7 +237,7 @@ object FlowLifecycle:
 
   /** ADR 0019 migration warning: a repo that gitignores `.orca/` keeps the
     * committed stack settings at `.orca/settings.properties` out of version
-    * control, so every run names the exact gitignore line to remove. The probe
+    * control, so every run names the likely `.orca/` line to remove. The probe
     * is best-effort ([[GitTool.isIgnored]] answers `false` when it cannot tell)
     * and never fails the flow.
     */
@@ -244,12 +245,12 @@ object FlowLifecycle:
       git: GitTool,
       emit: OrcaEvent => Unit
   ): Unit =
-    if git.isIgnored(os.sub / ".orca" / "settings.properties") then
+    if git.isIgnored(OrcaDir.settingsSubPath) then
       emit(
         OrcaEvent.Step(
           "stack settings at .orca/settings.properties are gitignored — " +
             "remove the '.orca/' line from .gitignore so they can be " +
-            "committed (scratch now self-ignores under .orca/cache/)"
+            "committed (scratch self-ignores under .orca/cache/)"
         )
       )
 

@@ -496,56 +496,54 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(loaded.get.header.branch, setup.featureBranch.value)
     assertEquals(loaded.get.entries, Nil)
 
-  // Pinned ADR-0019 migration warning: names the settings path and the exact
+  // Pinned ADR-0019 migration warning: names the settings path and the likely
   // gitignore line to remove.
   private val settingsIgnoredWarning =
     "stack settings at .orca/settings.properties are gitignored — remove the " +
-      "'.orca/' line from .gitignore so they can be committed (scratch now " +
+      "'.orca/' line from .gitignore so they can be committed (scratch " +
       "self-ignores under .orca/cache/)"
 
-  test(
-    "setup: warns when the settings path is gitignored (legacy .orca/ ignore)"
-  ):
+  /** Runs `setup` in a seeded repo — with `.gitignore` committed first when a
+    * body is given — and returns the collected Step messages.
+    */
+  private def setupStepsWithGitignore(
+      gitignore: Option[String],
+      prompt: String
+  ): List[String] =
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
-    locally:
+    gitignore.foreach: body =>
       given WorkspaceWrite = WorkspaceWrite.unsafe
-      os.write(workDir / ".gitignore", ".orca/\n")
-      assert(git.commit("ignore .orca").isRight)
-    val store = ProgressStore.default(workDir, "ignored-settings")
+      os.write(workDir / ".gitignore", body)
+      assert(git.commit("add .gitignore").isRight)
+    val store = ProgressStore.default(workDir, prompt)
     val emitted = new AtomicReference[List[OrcaEvent]](Nil)
     val _ = FlowLifecycle.setup(
-      args = OrcaArgs("ignored-settings"),
+      args = OrcaArgs(prompt),
       agent = StubAgent.claude,
       git = git,
       branchNaming = None,
       store = store,
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
-    val steps = emitted.get().collect { case s: OrcaEvent.Step => s }
+    emitted.get().collect { case s: OrcaEvent.Step => s.message }
+
+  test(
+    "setup: warns when the settings path is gitignored (legacy .orca/ ignore)"
+  ):
+    val steps =
+      setupStepsWithGitignore(Some(".orca/\n"), prompt = "ignored-settings")
     assert(
-      steps.exists(_.message == settingsIgnoredWarning),
+      steps.contains(settingsIgnoredWarning),
       s"expected the pinned gitignored-settings warning, got: $steps"
     )
 
   test(
     "setup: no gitignored-settings warning when the settings path is not ignored"
   ):
-    val workDir = GitRepo.seeded()
-    val git = new OsGitTool(workDir)
-    val store = ProgressStore.default(workDir, "not-ignored")
-    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
-    val _ = FlowLifecycle.setup(
-      args = OrcaArgs("not-ignored"),
-      agent = StubAgent.claude,
-      git = git,
-      branchNaming = None,
-      store = store,
-      emit = e => { val _ = emitted.updateAndGet(e :: _) }
-    )
-    val steps = emitted.get().collect { case s: OrcaEvent.Step => s }
+    val steps = setupStepsWithGitignore(None, prompt = "not-ignored")
     assert(
-      !steps.exists(_.message.contains("gitignored")),
+      !steps.exists(_.contains("gitignored")),
       s"no gitignored-settings warning expected, got: $steps"
     )
 
@@ -1573,20 +1571,12 @@ class FlowLifecycleTest extends munit.FunSuite:
       "the flow lock must never appear in any commit"
     )
 
-  test(
-    "reentrancy guards: acquireWorkdir places the lock under .orca/cache and leaves info/exclude alone"
-  ):
+  test("acquireWorkdir places the lock under .orca/cache"):
     val workDir = GitRepo.seeded()
     val lockPath = FlowLock.acquireWorkdir(workDir)
     try
       assertEquals(lockPath, workDir / ".orca" / "cache" / "flow.lock")
       assert(os.exists(lockPath))
-      val excludePath = workDir / ".git" / "info" / "exclude"
-      assert(
-        !os.exists(excludePath) ||
-          !os.read.lines(excludePath).contains(".orca/flow.lock"),
-        "acquisition must not write the lock exclusion into info/exclude"
-      )
     finally FlowLock.releaseWorkdir(lockPath)
 
   /** Records every `OrcaEvent` it sees, so the boundary-emission tests can

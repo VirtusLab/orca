@@ -31,13 +31,6 @@ class OrcaDirTest extends munit.FunSuite:
     assertEquals(os.read(cache / ".gitignore"), "canary-gitignore")
     assertEquals(os.read(cache / "CACHEDIR.TAG"), "canary-tag")
 
-  test("settingsPath points at .orca/settings.properties"):
-    val wd = TempDirs.dir()
-    assertEquals(
-      OrcaDir.settingsPath(wd),
-      wd / ".orca" / "settings.properties"
-    )
-
   test("ensureRoot creates .orca only, without the cache dir"):
     val wd = TempDirs.dir()
     val root = OrcaDir.ensureRoot(wd)

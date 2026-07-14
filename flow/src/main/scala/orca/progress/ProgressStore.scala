@@ -81,7 +81,8 @@ object ProgressStore:
     */
   def default(workDir: os.Path, userPrompt: String): ProgressStore =
     OsProgressStore(
-      workDir / os.sub / ".orca" / s"progress-${hashPrompt(userPrompt)}.json"
+      workDir,
+      OrcaDir.progressPath(workDir, hashPrompt(userPrompt))
     )
 
   /** First 6 bytes of SHA-256(userPrompt) rendered as 12 hex chars.
@@ -93,7 +94,8 @@ object ProgressStore:
     val digest = md.digest(userPrompt.getBytes("UTF-8"))
     digest.iterator.take(6).map(b => f"${b & 0xff}%02x").mkString
 
-private class OsProgressStore(val path: os.Path) extends ProgressStore:
+private class OsProgressStore(workDir: os.Path, val path: os.Path)
+    extends ProgressStore:
 
   private val codec = summon[JsonData[ProgressLog]].codec
 
@@ -169,10 +171,8 @@ private class OsProgressStore(val path: os.Path) extends ProgressStore:
   // `atomicMove = true` makes the visible file always either the old complete
   // content or the new complete content, never a partial write.
   private def writeLog(log: ProgressLog): Unit =
-    // The log lives at `<workDir>/.orca/progress-<hash>.json`, so the
-    // grandparent of `path` is the workDir; `.orca` creation routes through
-    // OrcaDir like every other writer's.
-    val dir = OrcaDir.ensureRoot(path / os.up / os.up)
+    // `.orca` creation routes through OrcaDir like every other writer's.
+    val dir = OrcaDir.ensureRoot(workDir)
     val tmp = os.temp(
       contents = writeToString(log)(using codec),
       dir = dir,

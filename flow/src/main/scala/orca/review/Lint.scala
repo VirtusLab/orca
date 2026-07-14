@@ -20,11 +20,11 @@ import orca.agents.Agent
   */
 case class Lint(command: String, agent: Agent[?])
 
-/** Run `command` via `bash -c`, capture both stdout and stderr, and ask `agent`
-  * to summarise it as a `ReviewResult`. An empty output short-circuits to
-  * `ReviewResult.empty` so clean runs skip the round-trip to the LLM. Override
-  * `instructions` when the lint produces unusual shapes the default phrasing
-  * doesn't fit.
+/** Run `command` via `bash -c` in the flow's working tree (`ctx.workDir`),
+  * capture both stdout and stderr, and ask `agent` to summarise it as a
+  * `ReviewResult`. An empty output short-circuits to `ReviewResult.empty` so
+  * clean runs skip the round-trip to the LLM. Override `instructions` when the
+  * lint produces unusual shapes the default phrasing doesn't fit.
   *
   * How the output reaches the agent depends on its size:
   *
@@ -56,7 +56,7 @@ def lint(
 )(using ctx: FlowContext, ev: InStage): ReviewResult =
   val proc = os
     .proc("bash", "-c", command)
-    .call(check = false, mergeErrIntoOut = true)
+    .call(cwd = ctx.workDir, check = false, mergeErrIntoOut = true)
   val output = proc.out.text().trim
   if output.isEmpty then ReviewResult.empty
   else
@@ -94,11 +94,11 @@ def lint(
       // returns. `deleteOnExit = false`: the `finally` owns cleanup, so we
       // skip the JVM-exit hook (one per lint call would otherwise accumulate
       // over a long run).
-      val orcaDir = OrcaDir.ensureCache(ctx.workDir)
+      val cacheDir = OrcaDir.ensureCache(ctx.workDir)
       val outputFile =
         os.temp(
           output,
-          dir = orcaDir,
+          dir = cacheDir,
           prefix = "lint-",
           suffix = ".txt",
           deleteOnExit = false

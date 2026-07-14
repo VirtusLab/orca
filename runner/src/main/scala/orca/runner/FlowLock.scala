@@ -92,6 +92,8 @@ private[orca] object FlowLock:
             val holderPid = content.toLongOption
             // `isPresent` alone can report a zombie (terminated, unreaped)
             // process as a holder; `isAlive` is the authoritative test.
+            // PID reuse can make a stale lock look held — that fails safe
+            // (refusal; the user deletes the lock).
             val holderAlive = holderPid.exists(p =>
               ProcessHandle.of(p).map(_.isAlive).orElse(false)
             )

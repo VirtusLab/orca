@@ -18,11 +18,20 @@ object OrcaDir:
       "# This file marks .orca/cache as a cache directory, so backup tools skip it.\n"
 
   /** `<workDir>/.orca` — committed project metadata lives at this root. */
-  def root(workDir: os.Path): os.Path = workDir / ".orca"
+  private def root(workDir: os.Path): os.Path = workDir / ".orca"
+
+  /** Repo-relative form of the settings path, for git probes that take a path
+    * relative to the repository root.
+    */
+  val settingsSubPath: os.SubPath = os.sub / ".orca" / "settings.properties"
 
   /** `<workDir>/.orca/settings.properties` (ADR 0019). */
-  def settingsPath(workDir: os.Path): os.Path =
-    root(workDir) / "settings.properties"
+  def settingsPath(workDir: os.Path): os.Path = workDir / settingsSubPath
+
+  /** `<workDir>/.orca/progress-<promptHash>.json` — a flow run's progress log.
+    */
+  def progressPath(workDir: os.Path, promptHash: String): os.Path =
+    root(workDir) / s"progress-$promptHash.json"
 
   /** Idempotently ensure `.orca/` exists and return it. */
   def ensureRoot(workDir: os.Path): os.Path =
@@ -40,5 +49,13 @@ object OrcaDir:
     writeIfAbsent(cache / "CACHEDIR.TAG", cachedirTagContents)
     cache
 
+  // Check-then-write races on the first-ever cache creation: two processes can
+  // both see the file absent before the flow lock exists to serialize them, so
+  // the loser's `os.write` (CREATE_NEW) throws. Both writers carry identical
+  // contents, so losing the create race is harmless.
   private def writeIfAbsent(path: os.Path, contents: String): Unit =
-    if !os.exists(path) then os.write(path, contents)
+    if !os.exists(path) then
+      try os.write(path, contents)
+      catch
+        case _: java.nio.file.FileAlreadyExistsException =>
+          () // lost the create race; content is identical
