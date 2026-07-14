@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.{FlowContext, OrcaArgs, flow, fs, pi}
+import orca.{FlowContext, OrcaArgs, StackSettings, flow, fs, pi}
 import orca.tools.{FsTool}
 import orca.testkit.GitRepo
 import orca.agents.{
@@ -52,6 +52,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = stubLead,
         workDir = GitRepo.seeded(),
         fs = Some(fake),
@@ -96,6 +97,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => fakeClaude,
         workDir = GitRepo.seeded(),
         claude = Some(_ => fakeClaude),
@@ -138,6 +140,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = stubLead,
         workDir = GitRepo.seeded(),
         opencode = Some(_ => fakeOpencode),
@@ -166,6 +169,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = stubLead,
         workDir = GitRepo.seeded(),
         opencode = Some(w => OpencodeAgents.default(w)),
@@ -202,6 +206,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = stubLead,
         workDir = GitRepo.seeded(),
         pi = Some(_ => fakePi),
@@ -263,6 +268,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = _.claude,
         workDir = GitRepo.seeded(),
         claude = Some(w => wiredClaude(w.events)),
@@ -286,6 +292,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = stubLead,
         workDir = GitRepo.seeded(),
         interaction = Some(interaction),

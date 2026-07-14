@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.{FlowContext, OrcaArgs, flow}
+import orca.{FlowContext, OrcaArgs, StackSettings, flow}
 import orca.backend.{
   Conversation,
   Interaction,
@@ -67,6 +67,7 @@ class OpencodeFlowTest extends munit.FunSuite:
       val canned = new CannedOpencode(samplePlan)
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = _.opencode,
         workDir = GitRepo.seeded(),
         opencode = Some(_ => canned),

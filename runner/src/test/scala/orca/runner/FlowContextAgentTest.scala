@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.{OrcaArgs, agent, runFlow}
+import orca.{OrcaArgs, StackSettings, agent, runFlow}
 import orca.agents.Agent
 import orca.testkit.GitRepo
 import orca.runner.terminal.TerminalInteraction
@@ -25,6 +25,7 @@ class FlowContextAgentTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs("test-agent"),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),

@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.{FlowContext, OrcaArgs, flow, userPrompt}
+import orca.{FlowContext, OrcaArgs, StackSettings, flow, userPrompt}
 import orca.events.{OrcaEvent}
 import orca.testkit.GitRepo
 import _root_.orca.runner.terminal.TerminalInteraction
@@ -25,6 +25,7 @@ class OrcaTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs("hello world"),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = GitRepo.seeded(),
         interaction = Some(interaction)
@@ -42,6 +43,7 @@ class OrcaTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = GitRepo.seeded(),
         interaction = Some(interaction)

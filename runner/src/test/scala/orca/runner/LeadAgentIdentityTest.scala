@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.{FlowContext, OrcaArgs, flow, runFlow}
+import orca.{FlowContext, OrcaArgs, StackSettings, flow, runFlow}
 import orca.agents.{
   AgentConfig,
   Announce,
@@ -79,6 +79,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     supervised:
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         agent = (_: FlowContext) => foreignAgent,
         workDir = GitRepo.seeded(),
         interaction = Some(interaction()),
@@ -108,6 +109,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     supervised:
       flow(
         args = OrcaArgs(),
+        stackSettings = Some(StackSettings.empty),
         // Mirrors the common `_.claude.opus` selector shape: `.withName` is a
         // `copyTool`-derived sibling — a DIFFERENT `Agent` instance sharing the
         // SAME backend as the wired `pi`, not the wired `pi` value itself.
@@ -165,6 +167,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       supervised:
         runFlow(
           args = OrcaArgs(),
+          stackSettings = Some(StackSettings.empty),
           agent = selector,
           workDir = GitRepo.seeded(),
           interaction = Some(interaction()),

@@ -67,6 +67,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs("lifecycle-success"),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction)
@@ -194,6 +195,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         progressStore = Some(store),
@@ -362,6 +364,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs(prompt),
+          stackSettings = Some(StackSettings.empty),
           agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
@@ -475,7 +478,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       git = git,
       workDir = workDir,
       branchNaming = None,
-      settingsOverride = None,
+      settingsOverride = Some(StackSettings.empty),
       store = store,
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
@@ -528,7 +531,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       git = git,
       workDir = workDir,
       branchNaming = None,
-      settingsOverride = None,
+      settingsOverride = Some(StackSettings.empty),
       store = store,
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
@@ -902,6 +905,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => recorder,
         workDir = workDir,
         interaction = Some(interaction),
@@ -936,6 +940,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
@@ -992,6 +997,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs(prompt),
+          stackSettings = Some(StackSettings.empty),
           agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
@@ -1025,6 +1031,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction)
@@ -1061,6 +1068,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction)
@@ -1102,6 +1110,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
@@ -1181,6 +1190,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       // branchNaming defaults to None — do not pass it.
       flow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction)
@@ -1215,6 +1225,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
@@ -1281,6 +1292,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       flow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
@@ -1348,6 +1360,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs(prompt),
+          stackSettings = Some(StackSettings.empty),
           agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
@@ -1491,6 +1504,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs(prompt),
+          stackSettings = Some(StackSettings.empty),
           agent = _ => thrower,
           workDir = workDir,
           interaction = Some(interaction),
@@ -1526,6 +1540,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs(prompt),
+          stackSettings = Some(StackSettings.empty),
           agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
@@ -1569,6 +1584,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
@@ -1581,6 +1597,7 @@ class FlowLifecycleTest extends munit.FunSuite:
           try
             runFlow(
               args = OrcaArgs("inner"),
+              stackSettings = Some(StackSettings.empty),
               agent = _ => StubAgent.claude,
               workDir = workDir,
               interaction = Some(interaction),
@@ -1628,6 +1645,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs("live-pid"),
+          stackSettings = Some(StackSettings.empty),
           agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
@@ -1674,6 +1692,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs("steal"),
+          stackSettings = Some(StackSettings.empty),
           agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
@@ -1709,6 +1728,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       )
       runFlow(
         args = OrcaArgs("lock-not-committed"),
+        stackSettings = Some(StackSettings.empty),
         agent = _ => StubAgent.claude,
         workDir = workDir,
         interaction = Some(interaction),
