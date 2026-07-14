@@ -61,6 +61,16 @@ class OsGitToolTest extends munit.FunSuite:
     withRepo: (git, _) =>
       assert(git.checkout("ghost").left.exists(_.isInstanceOf[BranchNotFound]))
 
+  test("isIgnored is true for a gitignored path and false otherwise"):
+    withRepo: (git, dir) =>
+      os.write(dir / ".gitignore", ".orca/\n")
+      assert(git.isIgnored(os.sub / ".orca" / "settings.properties"))
+      assert(!git.isIgnored(os.sub / "src" / "Main.scala"))
+
+  test("isIgnored is false (not a failure) outside a git repository"):
+    val dir = TempDirs.dir()
+    assert(!new OsGitTool(dir).isIgnored(os.sub / "whatever.txt"))
+
   test("commit stages all changes and records the message"):
     withRepo: (git, dir) =>
       os.write(dir / "file.txt", "content")

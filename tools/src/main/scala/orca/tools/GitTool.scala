@@ -132,6 +132,13 @@ trait GitTool:
 
   def currentBranch(): String
 
+  /** True when git ignores `relPath` relative to the working directory (`git
+    * check-ignore`). READ-ONLY; no [[WorkspaceWrite]] needed. Best-effort:
+    * `false` whenever the probe cannot answer (not a git repo, git unavailable)
+    * — callers use this for warnings, never for decisions that must be right.
+    */
+  def isIgnored(relPath: os.SubPath): Boolean
+
   /** Best-effort name of the repository's default branch, read from the
     * remote's recorded `origin/HEAD` (`refs/remotes/origin/HEAD` →
     * `origin/<name>` → `<name>`). READ-ONLY; no [[WorkspaceWrite]] needed.
@@ -378,6 +385,16 @@ private[orca] class OsGitTool(
 
   def currentBranch(): String =
     git("rev-parse", "--abbrev-ref", "HEAD").trim
+
+  def isIgnored(relPath: os.SubPath): Boolean =
+    // check-ignore exits 0 when the path is ignored, 1 when it isn't, and 128
+    // on error (e.g. not a git repo) — only 0 means ignored, so the error
+    // cases collapse to false without special-casing.
+    try
+      gitProc(
+        Seq("git", "check-ignore", "-q", "--", relPath.toString)
+      ).exitCode == 0
+    catch case NonFatal(_) => false
 
   def defaultBranch(): Option[String] =
     try

@@ -496,6 +496,59 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(loaded.get.header.branch, setup.featureBranch.value)
     assertEquals(loaded.get.entries, Nil)
 
+  // Pinned ADR-0019 migration warning: names the settings path and the exact
+  // gitignore line to remove.
+  private val settingsIgnoredWarning =
+    "stack settings at .orca/settings.properties are gitignored — remove the " +
+      "'.orca/' line from .gitignore so they can be committed (scratch now " +
+      "self-ignores under .orca/cache/)"
+
+  test(
+    "setup: warns when the settings path is gitignored (legacy .orca/ ignore)"
+  ):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    locally:
+      given WorkspaceWrite = WorkspaceWrite.unsafe
+      os.write(workDir / ".gitignore", ".orca/\n")
+      assert(git.commit("ignore .orca").isRight)
+    val store = ProgressStore.default(workDir, "ignored-settings")
+    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
+    val _ = FlowLifecycle.setup(
+      args = OrcaArgs("ignored-settings"),
+      agent = StubAgent.claude,
+      git = git,
+      branchNaming = None,
+      store = store,
+      emit = e => { val _ = emitted.updateAndGet(e :: _) }
+    )
+    val steps = emitted.get().collect { case s: OrcaEvent.Step => s }
+    assert(
+      steps.exists(_.message == settingsIgnoredWarning),
+      s"expected the pinned gitignored-settings warning, got: $steps"
+    )
+
+  test(
+    "setup: no gitignored-settings warning when the settings path is not ignored"
+  ):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    val store = ProgressStore.default(workDir, "not-ignored")
+    val emitted = new AtomicReference[List[OrcaEvent]](Nil)
+    val _ = FlowLifecycle.setup(
+      args = OrcaArgs("not-ignored"),
+      agent = StubAgent.claude,
+      git = git,
+      branchNaming = None,
+      store = store,
+      emit = e => { val _ = emitted.updateAndGet(e :: _) }
+    )
+    val steps = emitted.get().collect { case s: OrcaEvent.Step => s }
+    assert(
+      !steps.exists(_.message.contains("gitignored")),
+      s"no gitignored-settings warning expected, got: $steps"
+    )
+
   test(
     "rehydrateSessions replays a codex-tagged record into the codex agent, not the lead"
   ):

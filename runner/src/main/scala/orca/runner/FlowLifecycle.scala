@@ -234,6 +234,25 @@ object FlowLifecycle:
           )
         )
 
+  /** ADR 0019 migration warning: a repo that gitignores `.orca/` keeps the
+    * committed stack settings at `.orca/settings.properties` out of version
+    * control, so every run names the exact gitignore line to remove. The probe
+    * is best-effort ([[GitTool.isIgnored]] answers `false` when it cannot tell)
+    * and never fails the flow.
+    */
+  private def warnIfSettingsIgnored(
+      git: GitTool,
+      emit: OrcaEvent => Unit
+  ): Unit =
+    if git.isIgnored(os.sub / ".orca" / "settings.properties") then
+      emit(
+        OrcaEvent.Step(
+          "stack settings at .orca/settings.properties are gitignored — " +
+            "remove the '.orca/' line from .gitignore so they can be " +
+            "committed (scratch now self-ignores under .orca/cache/)"
+        )
+      )
+
   /** Outcome of [[setup]]: the resolved progress store, the feature branch the
     * run is bound to, and the starting branch to restore on success.
     *
@@ -292,6 +311,7 @@ object FlowLifecycle:
     given InStage = RuntimeInStage.token()
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
     val log = LoggerFactory.getLogger("orca.flow")
+    warnIfSettingsIgnored(git, emit)
     val startBranch = git.currentBranch()
     // Snapshot the log file before the stash, restore it if the stash
     // removed it — so an uncommitted/untracked log is still readable below.
