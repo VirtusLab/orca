@@ -162,9 +162,9 @@ so repo size is bounded by the agent's own selective reading. The result
 type is a private sibling of `StackSettings` that carries, per command, the
 **evidence** that justifies it (the file — plus key, task, or line — that
 shows the tool is set up here), and a one-line reason for each task left
-unset. Evidence and reasons are written into the settings file as the
-comments shown above — they are what makes the post-hoc "review and edit"
-step actually reviewable.
+unset. Evidence and reasons are written into the settings file as `#`
+comment lines preceding each command line — they are what makes the post-hoc
+"review and edit" step actually reviewable.
 
 The prompt is **principle-based, with no catalog of real stack→command
 examples**. Its elements:

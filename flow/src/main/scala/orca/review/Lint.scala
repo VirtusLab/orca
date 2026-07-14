@@ -12,7 +12,7 @@ import orca.agents.Agent
 /** The lint gate `reviewAndFixLoop` runs alongside the reviewers each round:
   * `commands` (each run via `bash -c`, in file/declaration order — e.g. one per
   * stack half of a multi-stack repo, per ADR 0019's `lint` list) and the
-  * `agent` that summarises their labeled, concatenated output into a
+  * `agent` that summarises their labelled, concatenated output into a
   * `ReviewResult` (a cheap model — `claude.haiku`, `codex.mini` — since the
   * summary is a small fold). Bundling the pair into one value (rather than
   * `reviewAndFixLoop` taking a separate command-list and agent parameter) makes
@@ -21,10 +21,14 @@ import orca.agents.Agent
   */
 case class Lint(commands: List[String], agent: Agent[?])
 
-/** One executed lint command, rendered for the summariser as a labeled block:
-  * `$ <command> (exit <status>)`, then the trimmed output on the following
-  * lines. An empty output keeps the label line alone, so the summariser still
-  * sees "ran, produced nothing, exited N".
+/** One executed lint command, rendered for the summariser as a labelled block
+  * headed
+  * {{{
+  * $ <command>   (exit <status>)
+  * }}}
+  * with the trimmed output on the following lines. An empty output keeps the
+  * label line alone, so the summariser still sees "ran, produced nothing,
+  * exited N".
   */
 private case class LintRun(command: String, exitCode: Int, output: String):
   def labelled: String =
@@ -54,7 +58,7 @@ private case class LintRun(command: String, exitCode: Int, output: String):
   *   - **Large (> threshold):** spilled to a file the agent reads with its
   *     read-only tools (in chunks if needed), because an unbounded build/test
   *     run (hundreds of KB) would overflow the model's context window. The file
-  *     holds the same labeled blocks the inline path embeds, and lives under
+  *     holds the same labelled blocks the inline path embeds, and lives under
   *     `<workDir>/.orca/cache/` — NOT `/tmp` — so a sandboxed agent whose
   *     worktree is in-sandbox can still reach it. It's removed in the `finally`
   *     before this call returns.

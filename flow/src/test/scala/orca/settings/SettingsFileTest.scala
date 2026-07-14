@@ -21,22 +21,41 @@ class SettingsFileTest extends FunSuite:
   test("parse rejects a non-comment line without =, naming line and shape"):
     SettingsFile.parse("format = cargo fmt\ncargo test\n") match
       case Left(problem) =>
-        assert(problem.contains("line 2"), s"should name the line: $problem")
         assert(
-          problem.contains("key = value"),
-          s"should name the expected shape: $problem"
+          problem.message.contains("line 2"),
+          s"should name the line: ${problem.message}"
+        )
+        assert(
+          problem.message.contains("key = value"),
+          s"should name the expected shape: ${problem.message}"
         )
       case Right(settings) => fail(s"expected a parse error, got: $settings")
 
   test("parse rejects an unknown key, naming it and the valid keys"):
     SettingsFile.parse("fromat = cargo fmt\n") match
       case Left(problem) =>
-        assert(problem.contains("fromat"), s"should name the key: $problem")
-        SettingsFile.ValidKeys.foreach: valid =>
+        assert(
+          problem.message.contains("fromat"),
+          s"should name the key: ${problem.message}"
+        )
+        SettingKey.values.foreach: valid =>
           assert(
-            problem.contains(valid),
-            s"should list valid key `$valid`: $problem"
+            problem.message.contains(valid.raw),
+            s"should list valid key `${valid.raw}`: ${problem.message}"
           )
+      case Right(settings) => fail(s"expected a parse error, got: $settings")
+
+  test("parse rejects a value whose first non-space char is #"):
+    SettingsFile.parse("lint = # disabled\n") match
+      case Left(problem) =>
+        assert(
+          problem.message.contains("line 1"),
+          s"should name the line: ${problem.message}"
+        )
+        assert(
+          problem.message.contains("comment out the whole line"),
+          s"should tell the user to comment out the line: ${problem.message}"
+        )
       case Right(settings) => fail(s"expected a parse error, got: $settings")
 
   test("parse takes the value verbatim after the first =, keeping embedded ="):
@@ -66,7 +85,10 @@ class SettingsFileTest extends FunSuite:
   test("parse treats keys as case-sensitive, rejecting a capitalised key"):
     SettingsFile.parse("Format = cargo fmt\n") match
       case Left(problem) =>
-        assert(problem.contains("Format"), s"should name the key: $problem")
+        assert(
+          problem.message.contains("Format"),
+          s"should name the key: ${problem.message}"
+        )
       case Right(settings) => fail(s"expected a parse error, got: $settings")
 
   test("parse keeps a bare # inside the value (mid-line # is command text)"):
@@ -75,7 +97,7 @@ class SettingsFileTest extends FunSuite:
       Right(StackSettings(format = List("echo '#1'")))
     )
 
-  test("render pins the file format: header, four-space # separator, unset"):
+  test("render pins the file format: header, own-line comments, unset"):
     val entries = List(
       SettingsEntry.Command(
         "format",
@@ -93,18 +115,33 @@ class SettingsFileTest extends FunSuite:
       SettingsFile.render(entries),
       """# orca stack settings — edit freely, commit with the project.
         |# Delete this file to re-run auto-discovery.
-        |format = cargo fmt    # Cargo.toml (rustfmt ships with the toolchain)
-        |lint = cargo check --tests    # compiles main+test code, runs nothing
+        |# Cargo.toml (rustfmt ships with the toolchain)
+        |format = cargo fmt
+        |# compiles main+test code, runs nothing
+        |lint = cargo check --tests
         |# test =   (no test evidence found)
         |""".stripMargin
     )
 
-  test("render drops the comment when the command itself contains #"):
-    assertEquals(
-      SettingsFile.render(
-        List(SettingsEntry.Command("format", "echo '#1'", Some("evidence")))
+  test("render turns a multi-line comment into # lines that parse ignores"):
+    val rendered = SettingsFile.render(
+      List(
+        SettingsEntry.Command(
+          "format",
+          "cargo fmt",
+          Some("Cargo.toml\nCI runs it in ci.yml")
+        )
+      )
+    )
+    assert(
+      rendered.contains(
+        "# Cargo.toml\n# CI runs it in ci.yml\nformat = cargo fmt"
       ),
-      SettingsFile.Header + "\nformat = echo '#1'\n"
+      s"each comment line should render as its own # line, got: $rendered"
+    )
+    assertEquals(
+      SettingsFile.parse(rendered),
+      Right(StackSettings(format = List("cargo fmt")))
     )
 
   test("render output parses back to the entries' commands"):

@@ -88,14 +88,11 @@ class LintTest extends munit.FunSuite:
     assertEquals(result, expected)
     // Small output is inlined directly — the sandbox-safe path (a read-only
     // autonomous agent that can't reach files outside its worktree still sees
-    // it). So no `.txt` file is referenced, and the labeled block — the
-    // command with its exit status, then the trimmed output — is in the
-    // prompt.
+    // it). So no `.txt` file is referenced and the output is in the prompt;
+    // the exact block format is pinned by the block-labelling test below.
     assert(
-      mock.captured.contains(
-        "$ echo LINT-BODY-MARKER   (exit 0)\nLINT-BODY-MARKER"
-      ),
-      s"prompt should inline the labeled lint output, got: ${mock.captured}"
+      mock.captured.contains("LINT-BODY-MARKER"),
+      s"prompt should inline the lint output, got: ${mock.captured}"
     )
     assert(
       !"`[^`]+\\.txt`".r.findFirstIn(mock.captured).isDefined,
@@ -105,17 +102,18 @@ class LintTest extends munit.FunSuite:
   test("lint labels each command's block, blank line between blocks"):
     given FlowContext = ctx
     val mock = new CapturingAgent(expected)
-    val result = lint(List("echo ONE-OUT", "echo TWO-OUT; exit 2"), mock)
+    val result = lint(List("echo ONE-OUT; exit 2", "echo TWO-OUT"), mock)
     assertEquals(result, expected)
-    // Both commands run (a failing first linter doesn't hide the second's
-    // diagnostics) and the summariser sees one concatenation, in command
-    // order, each block labeled with its own command and exit status.
+    // The FIRST command fails, and the second's block still follows — an
+    // earlier failure never hides later diagnostics. The summariser sees one
+    // concatenation, in command order, each block labelled with its own
+    // command and exit status.
     assert(
       mock.captured.contains(
-        "$ echo ONE-OUT   (exit 0)\nONE-OUT\n\n" +
-          "$ echo TWO-OUT; exit 2   (exit 2)\nTWO-OUT"
+        "$ echo ONE-OUT; exit 2   (exit 2)\nONE-OUT\n\n" +
+          "$ echo TWO-OUT   (exit 0)\nTWO-OUT"
       ),
-      s"prompt should hold both labeled blocks, got: ${mock.captured}"
+      s"prompt should hold both labelled blocks, got: ${mock.captured}"
     )
 
   test("lint reaches the summariser when a silent command exits nonzero"):
