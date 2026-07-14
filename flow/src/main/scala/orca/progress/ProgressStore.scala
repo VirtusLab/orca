@@ -4,7 +4,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
   writeToString
 }
-import orca.WorkspaceWrite
+import orca.{OrcaDir, WorkspaceWrite}
 import orca.agents.JsonData
 import scala.util.control.NonFatal
 
@@ -169,8 +169,10 @@ private class OsProgressStore(val path: os.Path) extends ProgressStore:
   // `atomicMove = true` makes the visible file always either the old complete
   // content or the new complete content, never a partial write.
   private def writeLog(log: ProgressLog): Unit =
-    val dir = path / os.up
-    os.makeDir.all(dir)
+    // The log lives at `<workDir>/.orca/progress-<hash>.json`, so the
+    // grandparent of `path` is the workDir; `.orca` creation routes through
+    // OrcaDir like every other writer's.
+    val dir = OrcaDir.ensureRoot(path / os.up / os.up)
     val tmp = os.temp(
       contents = writeToString(log)(using codec),
       dir = dir,
