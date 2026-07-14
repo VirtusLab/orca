@@ -103,13 +103,16 @@ object FlowCanary:
         claude.chat(session.id).resultAs[FlowPlan].interactive.run(userPrompt)
       for task <- plan.tasks do
         stage(task.description):
+          // The ADR 0019 migration shapes: `formatCommand = Some(x)` became
+          // `formatCommands = Configured.Use(List(x))`, `lint = Some(l)`
+          // became `lint = Configured.Use(l)`.
           reviewAndFixLoop(
             coderSession = session,
             reviewers = allReviewers(claude),
             reviewerSelection = ReviewerSelector.agentDriven(claude.haiku),
             task = task.description,
-            formatCommand = Some("mvn -q spotless:apply"),
-            lint = Some(Lint(List("mvn -q test"), claude.haiku))
+            formatCommands = Configured.Use(List("mvn -q spotless:apply")),
+            lint = Configured.Use(Lint(List("mvn -q test"), claude.haiku))
           )
 
   /** User-authored parallel fan-out: `Par.mapUnordered` plus per-fork ephemeral
@@ -366,12 +369,12 @@ object FlowCanary:
         stage(s"task: ${task.title}"):
           val _ = session.run(task.description)
           // reviewerSelection omitted: defaults to agentDriven(claude.cheap).
+          // format/lint omitted: both default to Configured.FromSettings,
+          // resolving from the project's `.orca/settings.properties`.
           reviewAndFixLoop(
             coderSession = session,
             reviewers = allReviewers(claude),
-            task = task.title.value,
-            formatCommand = Some("cargo fmt"),
-            lint = Some(Lint(List("cargo check --tests"), claude.haiku))
+            task = task.title.value
           )
 
   /** `implement-interactive.sc`: interactive plan → session → task loop. Only
@@ -390,8 +393,7 @@ object FlowCanary:
           reviewAndFixLoop(
             coderSession = session,
             reviewers = allReviewers(claude),
-            task = task.title.value,
-            formatCommand = Some("cargo fmt")
+            task = task.title.value
           )
 
   /** `implement-enhanced.sc`: plan → `.reviewed` → the seeded implementer
@@ -410,8 +412,7 @@ object FlowCanary:
           reviewAndFixLoop(
             coderSession = session,
             reviewers = allReviewers(claude),
-            task = task.title.value,
-            formatCommand = Some("cargo fmt")
+            task = task.title.value
           )
 
       val _ = openPrFromBranch(summarisingAgent = claude.haiku)
@@ -443,8 +444,7 @@ object FlowCanary:
           reviewAndFixLoop(
             coderSession = session,
             reviewers = reviewers,
-            task = task.title.value,
-            formatCommand = Some("mvn -q spotless:apply")
+            task = task.title.value
           )
 
       stage("Update documentation"):
@@ -485,8 +485,7 @@ object FlowCanary:
             reviewAndFixLoop(
               coderSession = session,
               reviewers = allReviewers(claude),
-              task = task.title.value,
-              formatCommand = Some("npx prettier --write .")
+              task = task.title.value
             )
 
         val _ = openPrFromBranch(
@@ -559,12 +558,15 @@ object FlowCanary:
           for task <- fixPlan.tasks do
             stage(s"task: ${task.title}"):
               val _ = session.run(fixPlan.taskPrompt(task))
+              // An explicit override beats the settings file; the summariser
+              // rides on the lead's cheap tier via the `agent` accessor.
               reviewAndFixLoop(
                 coderSession = session,
                 reviewers = allReviewers(claude),
                 task = task.title.value,
-                formatCommand = Some("sbt scalafmtAll"),
-                lint = Some(Lint(List("sbt Test/compile"), claude.haiku))
+                lint = Configured.Use(
+                  Lint(List("sbt Test/compile"), agent.cheap)
+                )
               )
 
           // Stage: push fix + finalise PR (later than the fix-task stages).
@@ -595,3 +597,22 @@ object StackSettingsCanary:
     ):
       stage("fmt"):
         val _ = claude.run(userPrompt)
+
+  /** `Configured` (ADR 0019) lives at top-level `orca` like `StackSettings`, so
+    * all three states must resolve through `import orca.{*, given}` alone.
+    * `Configured.Off` is the per-call opt-out — here a format-only loop that
+    * suppresses a settings-defined lint gate.
+    */
+  def configuredStates(): Unit =
+    val _: Configured[List[String]] = Configured.FromSettings
+    val _: Configured[List[String]] = Configured.Use(List("cargo fmt"))
+    flow(OrcaArgs(), _.claude):
+      val session = claude.session("implementer", seed = userPrompt)
+      val _ = stage("task"):
+        reviewAndFixLoop(
+          coderSession = session,
+          reviewers = allReviewers(claude),
+          task = "format-only review",
+          formatCommands = Configured.Use(List("cargo fmt")),
+          lint = Configured.Off
+        )
