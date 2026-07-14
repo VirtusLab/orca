@@ -1703,6 +1703,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     def git: GitTool = notWired("git")
     def gh: GitHubTool = notWired("gh")
     def fs: FsTool = notWired("fs")
+    def workDir: os.Path = notWired("workDir")
     def userPrompt: String = ""
     def emit(event: OrcaEvent): Unit = emitTo(event)
     // Rehydration tests never fail through this stub; a no-op reported-set is fine.

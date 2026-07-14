@@ -102,8 +102,15 @@ class LintTest extends munit.FunSuite:
       s"prompt should include the exit status, got: ${mock.captured}"
     )
 
-  test("lint spills large output to a file under .orca, removed after"):
-    given FlowContext = ctx
+  test(
+    "lint spills large output to a file under workDir/.orca/cache, removed after"
+  ):
+    // An explicit workDir different from os.pwd pins that the spill follows
+    // the flow's working tree, not the JVM's current directory.
+    val workDir = orca.testkit.TempDirs.dir()
+    assertNotEquals(workDir, os.pwd)
+    given FlowContext =
+      new TestFlowContext(new EventDispatcher(Nil), workDir = workDir)
     val mock = new CapturingAgent(expected)
     // Output well over the inline threshold, carrying a marker so we can check
     // the file the agent is pointed at actually holds the command's output.
@@ -120,11 +127,12 @@ class LintTest extends munit.FunSuite:
       .getOrElse(
         fail(s"prompt should reference a .txt file, got: ${mock.captured}")
       )
-    // The file lives inside the working tree (under .orca/), not /tmp, so a
-    // sandboxed reviewer can read it; and it's removed once the summary returns.
+    // The file lives inside the flow's working tree (under the self-ignoring
+    // .orca/cache/), not /tmp, so a sandboxed reviewer can read it; and it's
+    // removed once the summary returns.
     assert(
-      os.Path(filePath).segments.contains(".orca"),
-      s"large-output file should live under .orca/, got: $filePath"
+      os.Path(filePath).startsWith(workDir / ".orca" / "cache"),
+      s"large-output file should live under <workDir>/.orca/cache/, got: $filePath"
     )
     assert(!os.exists(os.Path(filePath)), "lint should delete the temp file")
 

@@ -36,6 +36,7 @@ class DefaultFlowContextTest extends munit.FunSuite:
     val workDir = TempDirs.dir()
     val ctx = new DefaultFlowContext[BackendTag.ClaudeCode.type](
       userPrompt = "test",
+      workDir = workDir,
       dispatcher = new EventDispatcher(Nil),
       agentSelector = (_: FlowContext) => ThrowingClaude,
       claude = ThrowingClaude,

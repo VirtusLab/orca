@@ -37,6 +37,7 @@ import scala.util.control.NonFatal
   */
 private[orca] class DefaultFlowContext[B <: BackendTag](
     val userPrompt: String,
+    val workDir: os.Path,
     dispatcher: EventDispatcher,
     agentSelector: FlowContext => Agent[B],
     val claude: ClaudeAgent,
@@ -227,6 +228,7 @@ private[orca] object DefaultFlowContext:
     // see [[FlowWiring]] for why every field shares the `Ox ?=>` shape.
     new DefaultFlowContext[B](
       userPrompt = userPrompt,
+      workDir = workDir,
       dispatcher = dispatcher,
       agentSelector = agentSelector,
       claude = wiring.claude

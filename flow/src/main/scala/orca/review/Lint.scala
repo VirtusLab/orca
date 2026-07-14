@@ -2,15 +2,12 @@ package orca.review
 
 // Compiled under capture checking (the two language imports below) to match
 // `ReviewLoop.scala`, where `lint` is fanned out alongside the reviewers
-// through the CheckedPar funnel (ADR 0018 §6) — and so the `os.SubPath`
-// workaround the spill path needs (see the comment there) stays justified.
+// through the CheckedPar funnel (ADR 0018 §6).
 import language.experimental.captureChecking
 import language.experimental.separationChecking
 
-import orca.{FlowContext, InStage}
+import orca.{FlowContext, InStage, OrcaDir}
 import orca.agents.Agent
-
-import scala.annotation.unused
 
 /** The lint gate `reviewAndFixLoop` runs alongside the reviewers each round:
   * `command` (run via `bash -c`, e.g. `"cargo check --tests"`) and the `agent`
@@ -40,9 +37,9 @@ case class Lint(command: String, agent: Agent[?])
   *   - **Large (> threshold):** spilled to a file the agent reads with its
   *     read-only tools (in chunks if needed), because an unbounded build/test
   *     run (hundreds of KB) would overflow the model's context window. The file
-  *     lives under `<workDir>/.orca/` — NOT `/tmp` — so a sandboxed agent whose
-  *     worktree is in-sandbox can still reach it. It's removed in the `finally`
-  *     before this call returns.
+  *     lives under `<workDir>/.orca/cache/` — NOT `/tmp` — so a sandboxed agent
+  *     whose worktree is in-sandbox can still reach it. It's removed in the
+  *     `finally` before this call returns.
   *
   * The command's exit status is passed alongside either way: a zero status
   * usually means nothing to report, so the agent can return empty without
@@ -56,7 +53,7 @@ def lint(
     command: String,
     agent: Agent[?],
     instructions: String = ReviewLoopPrompts.SummariseLint
-)(using @unused ctx: FlowContext, ev: InStage): ReviewResult =
+)(using ctx: FlowContext, ev: InStage): ReviewResult =
   val proc = os
     .proc("bash", "-c", command)
     .call(check = false, mergeErrIntoOut = true)
@@ -86,26 +83,18 @@ def lint(
     else
       // Too large to inline without risking the model's context window, so
       // spill it to a file the agent reads with its read-only tools. The file
-      // lives under `<workDir>/.orca/` (NOT `/tmp`) so sandboxed autonomous
-      // agents — e.g. opencode, which denies reads outside its worktree — can
-      // still reach it. `os.pwd` is the working tree here: lint's own `bash -c`
-      // above (and the reviewer agents) run against it, so a file written
-      // relative to it is exactly what the agent's sandbox admits.
+      // lives under the flow's working tree (NOT `/tmp`) so sandboxed
+      // autonomous agents — e.g. opencode, which denies reads outside its
+      // worktree — can still reach it.
       //
-      // Commit-safety: `.orca/` is the established scratch dir, which projects
-      // are encouraged to gitignore, and a stage's `git add -A` skips ignored
-      // paths. Even for a project that does NOT ignore `.orca/`, the `finally`
-      // removes the file before this call returns — well before the enclosing
-      // task stage commits — so the only window a stage `add -A` could sweep it
-      // is a crash mid-lint, which is acceptable. `deleteOnExit = false`: the
-      // `finally` owns cleanup, so we skip the JVM-exit hook (one per lint call
-      // would otherwise accumulate over a long run).
-      // `os.SubPath(...)` rather than the `pwd / ".orca"` literal-path macro:
-      // this file is capture-checked (see the language imports at the top), and
-      // the inline String→PathChunk conversion the `/` literal expands to is
-      // rejected under CC. The runtime SubPath constructor sidesteps it.
-      val orcaDir = os.pwd / os.SubPath(".orca")
-      os.makeDir.all(orcaDir)
+      // Commit-safety: `.orca/cache/` self-ignores via the `.gitignore` that
+      // `ensureCache` writes before anything else can land in the dir, so a
+      // stage's `git add -A` can never sweep the spill file — even after a
+      // crash mid-lint. The `finally` still removes the file before this call
+      // returns. `deleteOnExit = false`: the `finally` owns cleanup, so we
+      // skip the JVM-exit hook (one per lint call would otherwise accumulate
+      // over a long run).
+      val orcaDir = OrcaDir.ensureCache(ctx.workDir)
       val outputFile =
         os.temp(
           output,

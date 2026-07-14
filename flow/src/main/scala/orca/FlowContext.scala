@@ -76,6 +76,10 @@ trait FlowContext:
   def git: GitTool
   def gh: GitHubTool
   def fs: FsTool
+
+  /** The working tree the flow runs against. */
+  def workDir: os.Path
+
   def userPrompt: String
   def emit(event: OrcaEvent): Unit
 

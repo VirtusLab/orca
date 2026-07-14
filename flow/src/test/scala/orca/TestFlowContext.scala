@@ -37,7 +37,8 @@ private[orca] trait ReportedErrorsSupport:
   */
 class TestFlowContext(
     dispatcher: EventDispatcher,
-    val userPrompt: String = ""
+    val userPrompt: String = "",
+    val workDir: os.Path = orca.testkit.TempDirs.dir()
 ) extends FlowContext,
       ReportedErrorsSupport:
   private def stub(name: String) =
@@ -66,7 +67,8 @@ class TestFlowControl(
     val git: GitTool,
     val progressStore: ProgressStore,
     val userPrompt: String = "",
-    lead: Option[Agent[BackendTag.ClaudeCode.type]] = None
+    lead: Option[Agent[BackendTag.ClaudeCode.type]] = None,
+    val workDir: os.Path = orca.testkit.TempDirs.dir()
 ) extends FlowControl,
       ReportedErrorsSupport,
       StageFrames:
@@ -105,4 +107,4 @@ object TestFlowControl:
     val store = ProgressStore.default(dir, userPrompt)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(ProgressHeader("main", "feat/test", "deadbeef"))
-    (new TestFlowControl(dispatcher, git, store, userPrompt, lead), dir)
+    (new TestFlowControl(dispatcher, git, store, userPrompt, lead, dir), dir)
