@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.{FlowSession, TestFlowControl}
+import orca.{FlowSession, StackSettings, TestFlowControl}
 import orca.agents.{Agent, BackendTag, SessionId}
 import orca.events.EventDispatcher
 
@@ -30,10 +30,15 @@ object ReviewLoopFixture:
     * fix turn's `progressStore.load()` works. Serves as the `given FlowControl`
     * for a `reviewAndFixLoop` call. `lead` wires the context's lead agent —
     * needed by the default `ReviewerSelector.agentDriven`, which resolves its
-    * picker as `ctx.agent.cheap`.
+    * picker as `ctx.agent.cheap`, and by `Configured.FromSettings` lint
+    * resolution (`Lint(stackSettings.lint, ctx.agent.cheap)`). `stackSettings`
+    * seeds the context's resolved settings for the `FromSettings` tests.
     */
   def control(
       dispatcher: EventDispatcher,
-      lead: Option[Agent[BackendTag.ClaudeCode.type]] = None
+      lead: Option[Agent[BackendTag.ClaudeCode.type]] = None,
+      stackSettings: StackSettings = StackSettings.empty
   ): TestFlowControl =
-    TestFlowControl.create(dispatcher, lead = lead)._1
+    TestFlowControl
+      .create(dispatcher, lead = lead, stackSettings = stackSettings)
+      ._1

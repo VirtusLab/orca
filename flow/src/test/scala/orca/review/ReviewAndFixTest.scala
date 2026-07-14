@@ -1,6 +1,6 @@
 package orca.review
 
-import orca.{FlowContext, FlowControl}
+import orca.{Configured, FlowContext, FlowControl, StackSettings}
 import orca.plan.Title
 import orca.agents.{
   AgentInput,
@@ -577,13 +577,14 @@ class ReviewAndFixTest extends munit.FunSuite:
       task = "concurrency check",
       // echo emits output so `lint` doesn't short-circuit on empty stdout
       // and actually calls the (rendezvousing) LLM summariser.
-      lint =
-        Some(Lint(List("echo lint-output"), new RendezvousReviewer("lint"))),
+      lint = Configured.Use(
+        Lint(List("echo lint-output"), new RendezvousReviewer("lint"))
+      ),
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
 
-  test("formatCommand runs before every review round (impl + each fix)"):
+  test("formatCommands run before every review round (impl + each fix)"):
     given FlowControl = control
     // The formatter appends one line per run. Two review rounds (issue → fix,
     // then clean) mean it must run twice — once before reviewing the
@@ -603,11 +604,123 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewers = List(reviewer),
       task = "format check",
       reviewerSelection = ReviewerSelector.allEveryRound,
-      formatCommand = Some(s"echo x >> '$counter'"),
+      formatCommands = Configured.Use(List(s"echo x >> '$counter'")),
       initialDiff = Some("")
     )
     val runs = if os.exists(counter) then os.read.lines(counter).size else 0
     assertEquals(runs, 2)
+
+  test(
+    "FromSettings + non-empty settings: format commands run in order, lint " +
+      "gate built on the lead's cheap tier"
+  ):
+    // Both parameters omitted (FromSettings). The format commands come from
+    // `stackSettings.format` and must run sequentially; the lint gate must be
+    // `Lint(stackSettings.lint, ctx.agent.cheap)` — the lead FakeAgent's
+    // `cheap` is itself, so the lint summary drains the LEAD's scripted
+    // output, proving the summariser wiring.
+    val fmtLog = TempDirs.dir() / "fmt-log"
+    val lead = new FakeAgent(
+      name = "lead",
+      outputs = List(ReviewResult(List(issue("lint-found", confidence = 0.9))))
+    )
+    given FlowControl = ReviewLoopFixture.control(
+      new EventDispatcher(Nil),
+      lead = Some(lead),
+      stackSettings = StackSettings(
+        format = List(s"echo first >> '$fmtLog'", s"echo second >> '$fmtLog'"),
+        lint = List("echo lint-output")
+      )
+    )
+    val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(Nil, List(IgnoredIssue(Title("lint-found"), "accepted")))
+      )
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "settings-driven gates",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    assertEquals(os.read.lines(fmtLog).toList, List("first", "second"))
+    assertEquals(
+      result.issues,
+      List(IgnoredIssue(Title("lint-found"), "accepted"))
+    )
+
+  test("FromSettings + empty settings: no format, no lint (≡ omission)"):
+    // Empty settings ≡ no gate: no `Lint` is built, so the context's lead —
+    // a throwing stub here (`lead = None`) — must never be touched, and the
+    // loop behaves exactly like today's omission.
+    given FlowControl = control
+    val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
+    val coder = new FakeAgent("coder")
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "empty settings",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    assertEquals(result, IgnoredIssues(Nil))
+
+  test("Configured.Off keeps both gates off despite non-empty settings"):
+    // Settings define format + lint, but the call opts out. The format
+    // command would create `fmtLog` if it ran; resolving lint from settings
+    // would touch the throwing stub lead (`lead = None`).
+    val fmtLog = TempDirs.dir() / "fmt-log"
+    given FlowControl = ReviewLoopFixture.control(
+      new EventDispatcher(Nil),
+      stackSettings = StackSettings(
+        format = List(s"echo x >> '$fmtLog'"),
+        lint = List("echo lint-output")
+      )
+    )
+    val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
+    val coder = new FakeAgent("coder")
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "explicitly off",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      formatCommands = Configured.Off,
+      lint = Configured.Off,
+      initialDiff = Some("")
+    )
+    assertEquals(result, IgnoredIssues(Nil))
+    assert(!os.exists(fmtLog), "format must not run under Configured.Off")
+
+  test("Configured.Use beats non-empty settings"):
+    // Settings define their own format + lint, but explicit `Use` values win:
+    // only the explicit format command runs, and the explicit summariser (not
+    // the throwing stub lead that FromSettings would resolve) handles lint.
+    val fmtLog = TempDirs.dir() / "fmt-log"
+    given FlowControl = ReviewLoopFixture.control(
+      new EventDispatcher(Nil),
+      stackSettings = StackSettings(
+        format = List(s"echo settings >> '$fmtLog'"),
+        lint = List("echo from-settings")
+      )
+    )
+    val summariser =
+      new FakeAgent("summariser", outputs = List(ReviewResult.empty))
+    val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
+    val coder = new FakeAgent("coder")
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "explicit override",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      formatCommands = Configured.Use(List(s"echo explicit >> '$fmtLog'")),
+      lint = Configured.Use(Lint(List("echo overridden"), summariser)),
+      initialDiff = Some("")
+    )
+    assertEquals(result, IgnoredIssues(Nil))
+    assertEquals(os.read.lines(fmtLog).toList, List("explicit"))
 
   test("reviewer LLM runs are tagged with the cost role (12.7)"):
     // The loop keeps reviewer identity as the bare slug and tags the LLM run

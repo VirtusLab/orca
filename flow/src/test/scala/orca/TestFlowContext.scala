@@ -102,11 +102,23 @@ object TestFlowControl:
   def create(
       dispatcher: EventDispatcher,
       userPrompt: String = "p",
-      lead: Option[Agent[BackendTag.ClaudeCode.type]] = None
+      lead: Option[Agent[BackendTag.ClaudeCode.type]] = None,
+      stackSettings: StackSettings = StackSettings.empty
   ): (TestFlowControl, os.Path) =
     val dir = GitRepo.seeded()
     val git = new OsGitTool(dir)
     val store = ProgressStore.default(dir, userPrompt)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(ProgressHeader("main", "feat/test", "deadbeef"))
-    (new TestFlowControl(dispatcher, git, store, userPrompt, lead, dir), dir)
+    (
+      new TestFlowControl(
+        dispatcher,
+        git,
+        store,
+        userPrompt,
+        lead,
+        dir,
+        stackSettings
+      ),
+      dir
+    )

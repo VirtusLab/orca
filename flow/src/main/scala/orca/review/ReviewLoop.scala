@@ -10,6 +10,7 @@ import language.experimental.separationChecking
 
 import orca.{
   CheckedPar,
+  Configured,
   FlowContext,
   FlowControl,
   FlowSession,
@@ -229,18 +230,25 @@ def reviewAndFixLoop[B <: BackendTag](
       * picker at a specific model.
       */
     reviewerSelection: ReviewerSelector = ReviewerSelector.agentDriven,
-    /** Shell command run before each review round — after the implementation
-      * and after every fix — so reviewers and the lint see formatted code and
-      * the committed tree stays formatted. Run via `bash -c`, exit status
-      * ignored (a formatter that fails shouldn't abort the review). E.g. `"sbt
-      * scalafmtAll"`, `"cargo fmt"`, `"prettier -w ."`.
+    /** Shell commands run in order before each review round — after the
+      * implementation and after every fix — so reviewers and the lint see
+      * formatted code and the committed tree stays formatted. Each runs via
+      * `bash -c` in `ctx.workDir`, exit status ignored (a formatter that fails
+      * shouldn't abort the review). E.g. `"sbt scalafmtAll"`, `"cargo fmt"`,
+      * `"prettier -w ."`. The default resolves the project's
+      * `ctx.stackSettings.format` (ADR 0019); pass `Configured.Off` to skip
+      * formatting, or `Configured.Use(...)` to override the settings.
       */
-    formatCommand: Option[String] = None,
-    /** Command + summariser agent for the lint gate run alongside the reviewers
-      * each round. `None` (the default) skips linting entirely. See [[Lint]]
-      * for why the pair is bundled into one value.
+    formatCommands: Configured[List[String]] = Configured.FromSettings,
+    /** Commands + summariser agent for the lint gate run alongside the
+      * reviewers each round (see [[Lint]] for why the pair is bundled into one
+      * value). The default builds the gate from the project's
+      * `ctx.stackSettings.lint` with the lead agent's cheap tier as the
+      * summariser; empty settings build no gate. Pass `Configured.Off` to skip
+      * linting entirely, or `Configured.Use(Lint(...))` to override the
+      * settings.
       */
-    lint: Option[Lint] = None,
+    lint: Configured[Lint] = Configured.FromSettings,
     confidenceThreshold: Double = 0.7,
     maxIterations: Int = 10,
     fixInstructions: String = ReviewLoopPrompts.Fix,
@@ -261,6 +269,23 @@ def reviewAndFixLoop[B <: BackendTag](
     fc: FlowControl,
     ws: WorkspaceWrite
 ): IgnoredIssues =
+  // `Configured` resolution happens here, on the collecting thread at loop
+  // entry (ADR 0019): the config then carries plain data, so the
+  // capture-checked fan-out below never reads `ctx.stackSettings` (or touches
+  // `ctx.agent`) from a fork.
+  val resolvedFormat: List[String] = formatCommands match
+    case Configured.FromSettings => ctx.stackSettings.format
+    case Configured.Off          => Nil
+    case Configured.Use(cs)      => cs
+  // Empty settings ≡ no gate: no `Lint` value is built (and `ctx.agent` is
+  // not resolved), exactly like `Off`.
+  val resolvedLint: Option[Lint] = lint match
+    case Configured.FromSettings =>
+      Option.when(ctx.stackSettings.lint.nonEmpty)(
+        Lint(ctx.stackSettings.lint, ctx.agent.cheap)
+      )
+    case Configured.Off    => None
+    case Configured.Use(l) => Some(l)
   // `ctx` (the pure [[FlowContext]]) is what the loop's fan-out closures may
   // capture; `fc`/`ws` (exclusive capabilities) are handed only to `run()`, so
   // the durable fix turn reaches the [[FlowSession]] door without those tokens
@@ -273,8 +298,8 @@ def reviewAndFixLoop[B <: BackendTag](
       reviewers = reviewers,
       reviewerSelection = reviewerSelection,
       task = task,
-      formatCommand = formatCommand,
-      lint = lint,
+      formatCommands = resolvedFormat,
+      lint = resolvedLint,
       confidenceThreshold = confidenceThreshold,
       maxIterations = maxIterations,
       fixInstructions = fixInstructions,
@@ -294,13 +319,17 @@ def reviewAndFixLoop[B <: BackendTag](
   * [[ReviewFixLoop.run]] as method parameters, not loop configuration, so they
   * never land in the reviewer fan-out closures that capture the config-holding
   * instance (ADR 0018 §6).
+  *
+  * `formatCommands`/`lint` hold the RESOLVED values — `Configured` resolution
+  * against `ctx.stackSettings` happens once at loop entry (in
+  * [[reviewAndFixLoop]]), so the fan-out only ever sees plain data.
   */
 private[review] case class ReviewLoopConfig[B <: BackendTag](
     coderSession: FlowSession[B],
     reviewers: List[Agent[?]],
     reviewerSelection: ReviewerSelector,
     task: String,
-    formatCommand: Option[String],
+    formatCommands: List[String],
     lint: Option[Lint],
     confidenceThreshold: Double,
     maxIterations: Int,
@@ -508,13 +537,16 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   ): (ReviewResult, ReviewLoopState) =
     // Format before reviewing so the implementation's (and each prior fix's)
     // edits are cleaned up before reviewers and the lint see them, and the
-    // committed tree stays formatted. Exit status ignored — a formatter failure
-    // shouldn't abort the review. `mergeErrIntoOut` folds stderr into the
-    // captured stdout so neither stream reaches the terminal and tears the
-    // status row (previously stdout was captured but stderr leaked through).
-    formatCommand.foreach: cmd =>
-      val _ =
-        os.proc("bash", "-c", cmd).call(check = false, mergeErrIntoOut = true)
+    // committed tree stays formatted. Commands run sequentially in the flow's
+    // working tree, mirroring [[lint]]'s execution contract. Exit status
+    // ignored — a formatter failure shouldn't abort the review.
+    // `mergeErrIntoOut` folds stderr into the captured stdout so neither
+    // stream reaches the terminal and tears the status row (previously stdout
+    // was captured but stderr leaked through).
+    formatCommands.foreach: cmd =>
+      val _ = os
+        .proc("bash", "-c", cmd)
+        .call(cwd = ctx.workDir, check = false, mergeErrIntoOut = true)
     // The selector returns roster entries only, so there is no membership
     // defence to apply — just collapse an accidental duplicate (`.distinct` on
     // entry identity) so a reviewer runs at most once per round. An empty
