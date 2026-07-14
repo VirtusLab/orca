@@ -593,27 +593,28 @@ class FlowLifecycleTest extends munit.FunSuite:
         test = List("cargo test")
       )
     )
-    assert(setup.settingsFileExisted)
 
   test(
     "setup: an UNTRACKED settings file in a dirty tree is read before the stash sweeps it"
   ):
-    // The read happens pre-`ensureClean`: after setup the stash may have swept
-    // the untracked file away, but the values (and the existence fact) are
-    // already held in FlowSetup.
+    // The read happens pre-`ensureClean`: the stash sweeps the untracked file
+    // away (asserted below), so the values held in FlowSetup can only come
+    // from the pre-stash read.
     val workDir = GitRepo.seeded()
     os.write(
       OrcaDir.settingsPath(workDir),
       "lint = npm run lint\n",
       createFolders = true
     )
-    os.write(workDir / "dirty.txt", "uncommitted work")
     val setup = setupForSettings(workDir)
+    assert(
+      !os.exists(OrcaDir.settingsPath(workDir)),
+      "stash must have swept the untracked settings file"
+    )
     assertEquals(
       setup.stackSettings,
       StackSettings(lint = List("npm run lint"))
     )
-    assert(setup.settingsFileExisted)
 
   test(
     "setup: a malformed settings file aborts BEFORE ensureClean — no stash, branch unchanged"
@@ -653,15 +654,12 @@ class FlowLifecycleTest extends munit.FunSuite:
     val override_ = StackSettings(format = List("scalafmt"))
     val setup = setupForSettings(workDir, settingsOverride = Some(override_))
     assertEquals(setup.stackSettings, override_)
-    // The exists check is still recorded, keeping the field's meaning uniform.
-    assert(setup.settingsFileExisted)
     assertEquals(os.read(OrcaDir.settingsPath(workDir)), fileContent)
 
   test("setup: no file, no override resolves to StackSettings.empty"):
     val workDir = GitRepo.seeded()
     val setup = setupForSettings(workDir)
     assertEquals(setup.stackSettings, StackSettings.empty)
-    assert(!setup.settingsFileExisted)
 
   test(
     "rehydrateSessions replays a codex-tagged record into the codex agent, not the lead"

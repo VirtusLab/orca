@@ -273,18 +273,12 @@ object FlowLifecycle:
     * protected name can never reach this field, not just "doesn't today because
     * nothing upstream produces one." `finishBranch` unwraps `.value` only at
     * the actual `GitTool` call sites.
-    *
-    * `settingsFileExisted` records the pre-`ensureClean` existence check, which
-    * is authoritative: an uncommitted settings file the stash later sweeps away
-    * must NOT look absent to a downstream decision (auto-discovery keys off
-    * this field).
     */
   private[orca] case class FlowSetup(
       store: ProgressStore,
       featureBranch: FeatureBranch,
       startBranch: String,
-      stackSettings: StackSettings,
-      settingsFileExisted: Boolean
+      stackSettings: StackSettings
   )
 
   /** Bind the run to a branch + progress log before the body runs (ADR 0018
@@ -333,10 +327,9 @@ object FlowLifecycle:
     warnIfSettingsIgnored(git, emit)
     // Settings resolve BEFORE the `ensureClean` stash below (ADR 0019): a
     // malformed file must abort with no stash and no branch mutation, and an
-    // uncommitted file's contents (and its existence) must be captured before
-    // the stash can sweep the file away.
-    val (stackSettings, settingsFileExisted) =
-      resolveStackSettings(workDir, settingsOverride)
+    // uncommitted file's contents must be captured before the stash can sweep
+    // the file away.
+    val stackSettings = resolveStackSettings(workDir, settingsOverride)
     val startBranch = git.currentBranch()
     // Snapshot the log file before the stash, restore it if the stash
     // removed it — so an uncommitted/untracked log is still readable below.
@@ -432,40 +425,36 @@ object FlowLifecycle:
         // (where a PR flow / throwaway returns to) is the ORIGINAL one, not this
         // feature branch.
         (featureBranch, header.startingBranch)
-    FlowSetup(
-      store,
-      featureBranch,
-      effectiveStartBranch,
-      stackSettings,
-      settingsFileExisted
-    )
+    FlowSetup(store, featureBranch, effectiveStartBranch, stackSettings)
 
   /** Resolve the run's stack settings (ADR 0019): an explicit override wins
     * outright — the file is neither read nor written; otherwise a present
-    * settings file is parsed, and a malformed one is a hard abort (the caller
-    * sequences this ahead of any tree mutation); an absent file resolves to
-    * [[StackSettings.empty]] (auto-discovery per ADR 0019 is not implemented
-    * yet). Also returns whether the file existed at this pre-stash read — the
-    * authoritative existence fact, see [[FlowSetup.settingsFileExisted]].
+    * settings file is parsed, and an unreadable or malformed one is a hard
+    * abort (the caller sequences this ahead of any tree mutation); an absent
+    * file resolves to [[StackSettings.empty]] (auto-discovery per ADR 0019 is
+    * not implemented yet).
     */
   private def resolveStackSettings(
       workDir: os.Path,
       settingsOverride: Option[StackSettings]
-  ): (StackSettings, Boolean) =
+  ): StackSettings =
     val settingsPath = OrcaDir.settingsPath(workDir)
-    // Recorded even under an override: the exists check is cheap and keeps the
-    // field's meaning uniform across both resolution arms.
-    val settingsFileExisted = os.exists(settingsPath)
-    val stackSettings = settingsOverride.getOrElse:
-      if settingsFileExisted then
-        SettingsFile.parse(os.read(settingsPath)) match
+    settingsOverride.getOrElse:
+      if os.exists(settingsPath) then
+        val content =
+          try os.read(settingsPath)
+          catch
+            case NonFatal(e) =>
+              throw new OrcaFlowException(
+                s"cannot read stack settings at $settingsPath: ${e.getMessage}"
+              )
+        SettingsFile.parse(content) match
           case Right(s) => s
           case Left(err) =>
             throw new OrcaFlowException(
               s"invalid stack settings at $settingsPath: ${err.message}"
             )
       else StackSettings.empty
-    (stackSettings, settingsFileExisted)
 
   /** Fresh run: resolve + create the branch (returned to the caller), then
     * commit the header so it is the branch's first commit. Shared by the
