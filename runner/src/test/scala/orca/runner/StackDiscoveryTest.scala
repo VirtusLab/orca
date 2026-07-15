@@ -2,7 +2,7 @@ package orca.runner
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.StackSettings
-import orca.agents.{JsonData, given}
+import orca.agents.JsonData
 import orca.settings.{SettingsEntry, SettingsFile}
 import orca.testkit.TempDirs
 
@@ -13,23 +13,25 @@ class StackDiscoveryTest extends munit.FunSuite:
   ):
     // The strict output schema requires both keys on every task, so agents
     // emit "commands": [] and "unsetReason": null where a side doesn't apply
-    // — this pins that the strict jsoniter codec accepts exactly that shape
-    // (the example in prompts/stack-discovery.md).
+    // — this pins that the strict jsoniter codec accepts exactly that shape,
+    // including the single-property "result" envelope (the example in
+    // prompts/stack-discovery.md).
     val json =
-      """{"format": {"commands": [{"command": "acme style --write",
-        |    "evidencePath": "acme.build",
-        |    "evidenceNote": "style ships with the acme toolchain, zero-config; CI also runs it in .ci/check.yml line 12"}],
-        |  "unsetReason": null},
-        | "lint":   {"commands": [{"command": "acme compile --include-tests",
-        |    "evidencePath": "acme.build",
-        |    "evidenceNote": null}],
-        |  "unsetReason": null},
-        | "test":   {"commands": [], "unsetReason": "no test directory or CI test step found"}}""".stripMargin
-    val decoded = readFromString[StackDiscoveryResult](json)(using
-      summon[JsonData[StackDiscoveryResult]].codec
+      """{"result":
+        | {"format": {"commands": [{"command": "acme style --write",
+        |     "evidencePath": "acme.build",
+        |     "evidenceNote": "style ships with the acme toolchain, zero-config; CI also runs it in .ci/check.yml line 12"}],
+        |   "unsetReason": null},
+        |  "lint":   {"commands": [{"command": "acme compile --include-tests",
+        |     "evidencePath": "acme.build",
+        |     "evidenceNote": null}],
+        |   "unsetReason": null},
+        |  "test":   {"commands": [], "unsetReason": "no test directory or CI test step found"}}}""".stripMargin
+    val decoded = readFromString[StackDiscoveryReply](json)(using
+      summon[JsonData[StackDiscoveryReply]].codec
     )
     assertEquals(
-      decoded,
+      decoded.result,
       StackDiscoveryResult(
         format = DiscoveredTask(
           commands = List(

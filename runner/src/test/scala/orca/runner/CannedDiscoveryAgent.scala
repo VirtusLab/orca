@@ -13,10 +13,11 @@ import orca.agents.{
 }
 
 /** The discovery test seam: a `ClaudeAgent` whose `resultAs[O].autonomous.run`
-  * returns `produce()` (cast to `O`) — tests exercising stack discovery hand
-  * the lifecycle a canned [[StackDiscoveryResult]], or a thunk that throws to
-  * drive the failure arm. Free-text calls throw like [[StubAgent]]'s (branch
-  * naming falls back to the deterministic slug), so no test reaches a model.
+  * returns `produce()` wrapped in the [[StackDiscoveryReply]] envelope (cast to
+  * `O`) — tests exercising stack discovery hand the lifecycle a canned
+  * [[StackDiscoveryResult]], or a thunk that throws to drive the failure arm.
+  * Free-text calls throw like [[StubAgent]]'s (branch naming falls back to the
+  * deterministic slug), so no test reaches a model.
   */
 private[runner] class CannedDiscoveryAgent(produce: () => StackDiscoveryResult)
     extends StubClaudeAgent("canned-discovery"):
@@ -31,7 +32,7 @@ private[runner] class CannedDiscoveryAgent(produce: () => StackDiscoveryResult)
               config: Option[AgentConfig],
               emitPrompt: Boolean
           )(using orca.InStage): O =
-            produce().asInstanceOf[O]
+            StackDiscoveryReply(produce()).asInstanceOf[O]
       def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
         throw new UnsupportedOperationException
 

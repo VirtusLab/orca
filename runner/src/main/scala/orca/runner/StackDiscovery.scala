@@ -30,8 +30,9 @@ private[runner] case class DiscoveredTask(
     unsetReason: Option[String] = None
 ) derives JsonData
 
-/** The discovery agent's structured reply — the private evidence-carrying
-  * sibling of [[orca.StackSettings]] (ADR 0019).
+/** The discovery result proper — the private evidence-carrying sibling of
+  * [[orca.StackSettings]] (ADR 0019). Sent over the wire inside
+  * [[StackDiscoveryReply]].
   */
 private[runner] case class StackDiscoveryResult(
     format: DiscoveredTask,
@@ -39,11 +40,25 @@ private[runner] case class StackDiscoveryResult(
     test: DiscoveredTask
 ) derives JsonData
 
-private[runner] object StackDiscoveryResult:
+/** Single-property envelope around [[StackDiscoveryResult]] — the actual
+  * `resultAs` payload. Claude's `--json-schema` mode surfaces the schema's
+  * top-level properties as the StructuredOutput tool's parameters, and the
+  * cheap tier (haiku) reliably stuffs the whole result under the FIRST
+  * parameter when there are several (observed deterministically: `{"format":
+  * {"format": ..., "lint": ..., "test": ...}}`, failing CLI-side validation
+  * until the retry budget ran out). Every other payload the cheap tier produces
+  * in production has a single-property root (`SelectedReviewers.names`,
+  * `ReviewResult.issues`) — this envelope gives the discovery reply that same
+  * proven shape.
+  */
+private[runner] case class StackDiscoveryReply(result: StackDiscoveryResult)
+    derives JsonData
+
+private[runner] object StackDiscoveryReply:
   /** Silent — discovery narrates each written line as its own `Step`, so an
     * auto-announced payload would compete.
     */
-  given Announce[StackDiscoveryResult] = Announce.from(_ => "")
+  given Announce[StackDiscoveryReply] = Announce.from(_ => "")
 
 /** Agent-based stack discovery (ADR 0019 § Auto-discovery): one read-only
   * cheap-tier agent run proposes per-task commands with evidence; two orca-side
@@ -83,9 +98,10 @@ private[runner] object StackDiscovery:
       OrcaEvent.Step("no .orca/settings.properties — running stack discovery")
     )
     val result = agent.cheap.withReadOnly
-      .resultAs[StackDiscoveryResult]
+      .resultAs[StackDiscoveryReply]
       .autonomous
       .run(Prompt, emitPrompt = false)
+      .result
     val (entries, settings) = toEntries(
       result,
       unresolvedReason(_, workDir),
