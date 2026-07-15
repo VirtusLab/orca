@@ -52,7 +52,7 @@ class DefaultFlowContextTest extends munit.FunSuite:
       workDir = workDir,
       dispatcher = new EventDispatcher(Nil),
       agent = ThrowingClaude,
-      wired = WiredAgents(
+      wired = new WiredAgents(
         claude = ThrowingClaude,
         codex = codex,
         opencode = NoopOpencode,

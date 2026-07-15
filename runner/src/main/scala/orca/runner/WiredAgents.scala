@@ -25,12 +25,12 @@ import scala.util.control.NonFatal
   * `FlowContext` exists; the context then takes ownership of the bundle at
   * construction and forwards its accessors here.
   */
-private[orca] final case class WiredAgents(
-    claude: ClaudeAgent,
-    codex: CodexAgent,
-    opencode: OpencodeAgent,
-    pi: PiAgent,
-    gemini: GeminiAgent
+private[orca] final class WiredAgents(
+    val claude: ClaudeAgent,
+    val codex: CodexAgent,
+    val opencode: OpencodeAgent,
+    val pi: PiAgent,
+    val gemini: GeminiAgent
 ) extends AgentSet:
 
   /** The five wired agents keyed by backend tag — derived once from the
@@ -52,7 +52,8 @@ private[orca] final case class WiredAgents(
       case BackendTag.Gemini     => BackendTag.Gemini -> gemini
     }.toMap
 
-  /** Every wired agent, in the order the close fan-outs use. */
+  /** Every wired agent (unordered — both close fan-outs are order-independent).
+    */
   def all: List[Agent[?]] = byTag.values.toList
 
   /** True when `a` IS one of the five wired agents, or was derived from one via
@@ -92,7 +93,7 @@ private[orca] object WiredAgents:
   def build(wiring: FlowWiring, agentWiring: AgentWiring)(using
       ox.Ox
   ): WiredAgents =
-    WiredAgents(
+    new WiredAgents(
       claude = wiring.claude
         .map(_(agentWiring))
         .getOrElse(ClaudeAgents.default(agentWiring)),

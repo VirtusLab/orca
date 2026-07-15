@@ -309,6 +309,8 @@ private[orca] def runFlow[B <: BackendTag](
                   throw SurfacedFlowFailure(e)
             val resolvedLead = surfaced:
               val l = agent(agents)
+              // The guard must know about the lead before anything else can fail.
+              lead = Some(l)
               // A selector that escapes the five wired agents (e.g. `_ =>
               // myPrebuiltAgent`, built from a separate `AgentWiring`/backend)
               // is event-blind — it never reaches this run's dispatcher — so
@@ -323,7 +325,6 @@ private[orca] def runFlow[B <: BackendTag](
                   )
                 )
               l
-            lead = Some(resolvedLead)
             // Setup (branch + log binding, stack-settings resolution) runs
             // BEFORE the context is constructed, so its outcome is a
             // constructor input rather than late-bound state.

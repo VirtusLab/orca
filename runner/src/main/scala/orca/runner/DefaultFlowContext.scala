@@ -3,15 +3,7 @@ package orca.runner
 import orca.{FlowControl, StackSettings}
 import orca.progress.ProgressStore
 import orca.tools.{FsTool, GitHubTool, GitTool}
-import orca.agents.{
-  Agent,
-  BackendTag,
-  ClaudeAgent,
-  CodexAgent,
-  GeminiAgent,
-  OpencodeAgent,
-  PiAgent
-}
+import orca.agents.{Agent, BackendTag}
 import orca.events.{EventDispatcher, OrcaEvent}
 
 import ox.discard
@@ -51,11 +43,7 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
   // path-dependent `ctx.LeadB` is still stable.
   type LeadB = B
 
-  def claude: ClaudeAgent = wired.claude
-  def codex: CodexAgent = wired.codex
-  def opencode: OpencodeAgent = wired.opencode
-  def pi: PiAgent = wired.pi
-  def gemini: GeminiAgent = wired.gemini
+  export wired.{claude, codex, opencode, pi, gemini}
 
   /** Tear down context-owned background resources by closing every wired agent
     * plus the resolved lead. Runs in the flow body's `finally`, before the flow
