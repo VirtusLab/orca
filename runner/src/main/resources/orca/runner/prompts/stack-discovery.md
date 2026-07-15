@@ -7,8 +7,9 @@ Definitions:
 - format: rewrites source files to the project's canonical style.
 - lint: a cheap sanity gate that a change is well-formed — typically a
   compile or typecheck that covers test sources WITHOUT executing any
-  tests. It must be substantially faster than the test suite. Never
-  propose the test runner (or a command that runs tests) as lint.
+  tests. It must be substantially faster than the test suite. When
+  several commands qualify, prefer the cheapest one. Never propose the
+  test runner (or a command that runs tests) as lint.
 - test: runs the project's test suite.
 
 Procedure:
@@ -21,34 +22,37 @@ Procedure:
    not the commands it happens to run; with a wrapper present, never emit
    the bare tool.
 3. Before proposing any tool, verify it is set up HERE: its config file,
-   plugin/dependency declaration, or script entry must be present. A tool
-   being conventional for this ecosystem is NOT evidence. One exception:
-   a command that is distributed as part of the toolchain the build file
-   already selects AND is designed to run with zero project configuration
-   (typically the toolchain's own formatter or built-in checks) is
-   evidenced by that build file itself — cite it, and state in the note
-   that the tool ships with the toolchain. This exception never covers
-   anything installed or enabled per project (a dependency, a build-tool
-   plugin, a separate binary): those still need their own declaration or
-   config in this repo.
-4. For every command, cite the repo-relative file that justifies it
-   (evidencePath) and optionally the key/task/line (evidenceNote). If you
-   cannot cite a file, do not propose the command — leave the task unset
-   with a one-line reason. An unset task with an accurate reason is a
-   correct, complete answer; never guess to fill a slot.
-5. A repo with several stacks (e.g. a Rust core and a JS frontend)
-   contributes each stack's commands to each task.
-6. Ignore orca flow scripts (.sc files depending on the `orca` library) —
+   plugin/dependency declaration, or script entry must be present (with
+   the single exception in rule 4). A tool being conventional for this
+   ecosystem is NOT evidence.
+4. Exception — toolchain-bundled commands: a command distributed as part
+   of the toolchain the build file already selects, AND designed to run
+   with zero project configuration (typically the toolchain's own
+   formatter or built-in compile/typecheck), is evidenced by that build
+   file itself — cite it as evidencePath, and state in the note that the
+   tool ships with the toolchain (claim this only when it is true of the
+   toolchain, not of a dependency). This never covers anything installed
+   or enabled per project (a dependency, a build-tool plugin, a separate
+   binary): those still need their own declaration or config in this repo.
+5. For every command, cite the repo-relative file that justifies it
+   (evidencePath) and optionally the key/task/line (evidenceNote)
+   (required when rule 4's exception applies). If you cannot cite a
+   file, do not propose the command — leave the task unset with a
+   one-line reason. An unset task with an accurate reason is a correct,
+   complete answer; never guess to fill a slot.
+6. A repo with several stacks (e.g. a Rust core and a JS frontend)
+   contributes its commands to the relevant tasks.
+7. Ignore orca flow scripts (.sc files depending on the `orca` library) —
    they drive this automation and are not part of the project's stack.
 
-Never propose a separately-installed tool merely because it is usual for
-this ecosystem. Every command must be traceable to this repository's
-files — for a toolchain-bundled command, the build file that selects the
-toolchain is that trace.
+Never propose a tool installed or enabled per project merely because it
+is usual for this ecosystem. Every command must be traceable to this
+repository's files — for a toolchain-bundled, zero-config command, the
+build file that selects the toolchain is that trace.
 
 The example below uses a FICTIONAL build tool, only to show the output
 shape and the lint-vs-test distinction — derive real values from the
-repository:
+repository. Per task, emit either commands or unsetReason, never both:
 
 {"format": {"commands": [{"command": "acme style --write",
     "evidencePath": "acme.build",

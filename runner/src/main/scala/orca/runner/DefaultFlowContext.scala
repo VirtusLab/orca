@@ -182,31 +182,30 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
   // One-shot slot for the resolved stack settings (ADR 0019): the context is
   // constructed BEFORE lifecycle setup resolves them (construction stays
   // pure), so the value arrives via `populateStackSettings` rather than the
-  // constructor. Atomic — pure one-shot state, per the concurrency
-  // conventions; the CAS makes the exactly-once contract checkable.
-  private val stackSettingsSlot =
-    new java.util.concurrent.atomic.AtomicReference[Option[StackSettings]](None)
+  // constructor. Every access is on the flow owner thread — the lifecycle
+  // populates during setup, and reads happen from the collecting thread
+  // before any fan-out — so no CAS is needed; @volatile is cheap defense.
+  @volatile private var settingsSlot: Option[StackSettings] = None
 
   /** Install the settings `FlowLifecycle.setup` resolved. The lifecycle
     * populates exactly once per run; a second call is a runtime bug.
     */
   private[orca] def populateStackSettings(s: StackSettings): Unit =
-    if !stackSettingsSlot.compareAndSet(None, Some(s)) then
+    if settingsSlot.isDefined then
       throw new IllegalStateException(
         "stackSettings already populated — the lifecycle populates exactly once"
       )
+    settingsSlot = Some(s)
 
   // Unreachable in production before population (setup runs before the body);
   // the throw is a loud pointer for test doubles driving this context without
   // the lifecycle.
   def stackSettings: StackSettings =
-    stackSettingsSlot
-      .get()
-      .getOrElse(
-        throw new IllegalStateException(
-          "stackSettings read before lifecycle setup populated it"
-        )
+    settingsSlot.getOrElse(
+      throw new IllegalStateException(
+        "stackSettings read before lifecycle setup populated it"
       )
+    )
 
   // Written possibly from fork threads (`fail` inside a parallel block), read on
   // the stage thread during unwind — pure atomic state, per the concurrency
