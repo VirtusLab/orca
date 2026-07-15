@@ -8,6 +8,7 @@ import orca.agents.{
   JsonData,
   AgentConfig,
   SessionId,
+  StructuredOutputMode,
   ToolSet,
   WireSessionId
 }
@@ -29,10 +30,13 @@ case class Answer(value: Int) derives JsonData
 
 /** Fake backend that returns a pre-scripted sequence of outputs and records the
   * prompts it was asked to run. The session id is fixed — sessions aren't under
-  * test here.
+  * test here. `mode` is the declared [[StructuredOutputMode]]; defaults to the
+  * text contract, overridden by the test pinning the Tool-mode instruction.
   */
-class SequencedBackend(outputs: List[String])
-    extends AgentBackend[BackendTag.ClaudeCode.type]:
+class SequencedBackend(
+    outputs: List[String],
+    mode: StructuredOutputMode = StructuredOutputMode.RawText
+) extends AgentBackend[BackendTag.ClaudeCode.type]:
   private val remaining: AtomicReference[List[String]] =
     AtomicReference(outputs)
   private val promptsRef: AtomicReference[List[String]] =
@@ -66,6 +70,7 @@ class SequencedBackend(outputs: List[String])
   val workDir: os.Path = os.pwd
   def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
     Enforcement.Ignored
+  def structuredOutputMode: StructuredOutputMode = mode
 
   def runAutonomous(
       prompt: String,
@@ -231,6 +236,31 @@ class DefaultAgentCallTest extends munit.FunSuite:
           (raw, summary)
       }
       assertEquals(structured, List(("""{"value":99}""", Some("answer is 99"))))
+
+  test(
+    "autonomous instruction follows the backend's declared structured-output mode"
+  ):
+    // The prompt that actually reaches the backend must match its wire: a
+    // Tool-mode backend gets the StructuredOutput-tool instruction, a RawText
+    // backend the raw-JSON contract. Pins the AgentCall-side branch on
+    // `backend.structuredOutputMode` (capability, not backend identity).
+    val toolBackend = new SequencedBackend(
+      List("""{"value":3}"""),
+      mode = StructuredOutputMode.Tool
+    )
+    val rawBackend = new SequencedBackend(List("""{"value":4}"""))
+    supervised:
+      val _ = makeCall(toolBackend).autonomous.run("anything")
+      val _ = makeCall(rawBackend).autonomous.run("anything")
+      val toolPrompt = toolBackend.prompts.head
+      val rawPrompt = rawBackend.prompts.head
+      assert(
+        toolPrompt.contains("calling the StructuredOutput tool"),
+        s"Tool-mode prompt must name the tool; got: $toolPrompt"
+      )
+      assert(!toolPrompt.contains("raw JSON only"))
+      assert(rawPrompt.contains("raw JSON only"))
+      assert(!rawPrompt.contains("StructuredOutput"))
 
   test(
     "autonomous forwards a Some(schema) to backend.runAutonomous"
@@ -444,10 +474,11 @@ class DefaultAgentCallTest extends munit.FunSuite:
       def autonomous(
           input: String,
           outputSchema: String,
-          config: AgentConfig
+          config: AgentConfig,
+          mode: StructuredOutputMode
       ): String =
         val _ = captured.set(Some(config))
-        DefaultPrompts.autonomous(input, outputSchema, config)
+        DefaultPrompts.autonomous(input, outputSchema, config, mode)
       def interactive(
           input: String,
           outputSchema: String,

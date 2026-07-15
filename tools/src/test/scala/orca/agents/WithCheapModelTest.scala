@@ -77,12 +77,15 @@ class WithCheapModelTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
       Enforcement.Ignored
+    def structuredOutputMode: StructuredOutputMode =
+      StructuredOutputMode.RawText
 
   private object StubPrompts extends Prompts:
     def autonomous(
         input: String,
         outputSchema: String,
-        config: AgentConfig
+        config: AgentConfig,
+        mode: StructuredOutputMode
     ): String = ???
     def interactive(
         input: String,

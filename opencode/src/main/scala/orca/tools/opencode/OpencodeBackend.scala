@@ -22,6 +22,7 @@ import orca.agents.{
   AgentConfig,
   Enforcement,
   SessionId,
+  StructuredOutputMode,
   ToolSet,
   WireSessionId
 }
@@ -167,6 +168,13 @@ private[orca] class OpencodeBackend(
       autoApprove: AutoApprove
   ): Enforcement =
     OpencodeArgs.enforcement(tools, autoApprove)
+
+  /** The `format: json_schema` message field is a response-format constraint —
+    * the model still emits the JSON as its reply text (the server parses it
+    * into `structured`); there is no structured-output tool.
+    */
+  override def structuredOutputMode: StructuredOutputMode =
+    StructuredOutputMode.RawText
 
   /** The sole session handle. [[IdScheme.ServerMinted]]: the caller's stable id
     * maps to opencode's server-minted `ses_…` id, so subsequent turns resume

@@ -131,6 +131,16 @@ class ClaudeBackendTest extends munit.FunSuite:
       derived.run("prompt")
     assertEquals(thrown.getMessage, orca.backend.AgentBackend.ClosedMessage)
 
+  test("claude declares Tool structured-output mode"):
+    // The declaration behind the prompt's delivery instruction: --json-schema
+    // (asserted below) makes the CLI inject a StructuredOutput tool, so the
+    // instruction must ask for that tool call, not raw reply text.
+    val backend = new ClaudeBackend(new SpawnStubCliRunner(Nil))
+    assertEquals(
+      backend.structuredOutputMode,
+      orca.agents.StructuredOutputMode.Tool
+    )
+
   test(
     "runAutonomous passes --json-schema when an output schema is supplied"
   ):

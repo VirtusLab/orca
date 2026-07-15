@@ -254,6 +254,8 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
       Enforcement.Ignored
+    def structuredOutputMode: orca.agents.StructuredOutputMode =
+      orca.agents.StructuredOutputMode.RawText
 
   /** One recording stub per wired backend, each incrementing `closeCounts` for
     * its own tag on `close()`. No test ever drives an `autonomous`/`resultAs`

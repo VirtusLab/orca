@@ -9,6 +9,7 @@ import orca.agents.{
   AgentConfig,
   Enforcement,
   SessionId,
+  StructuredOutputMode,
   ToolSet
 }
 
@@ -135,6 +136,21 @@ trait AgentBackend[B <: BackendTag](
     * `Enforcement.Ignored` — same as they'd have gotten from the old default.
     */
   def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement
+
+  /** How THIS backend's wire delivers a structured (`resultAs[O]`) payload — as
+    * a CLI-injected StructuredOutput tool call, or as the reply text
+    * ([[orca.agents.StructuredOutputMode]]). Prompt assembly
+    * ([[orca.agents.Prompts.autonomous]]) branches on this declaration, so a
+    * backend that misdeclares gets an instruction that contradicts its wire and
+    * steers weak models into malformed replies.
+    *
+    * Abstract, not defaulted, for the same reason as [[enforcement]]: a silent
+    * fallback would let a new backend ship without ever answering this. REAL
+    * backends declare what their CLI actually does (see each override's
+    * evidence comment); test doubles that never assemble prompts add a one-line
+    * `RawText` override.
+    */
+  def structuredOutputMode: StructuredOutputMode
 
   /** Release background resources this backend owns (processes, servers, drain
     * forks). Called by the runtime in the flow body's `finally`, BEFORE the

@@ -7,6 +7,7 @@ import orca.agents.{
   AgentConfig,
   Enforcement,
   SessionId,
+  StructuredOutputMode,
   ToolSet
 }
 import orca.subprocess.CliResult
@@ -78,6 +79,12 @@ private[orca] class GeminiBackend(
       autoApprove: AutoApprove
   ): Enforcement =
     GeminiArgs.enforcement(tools, autoApprove)
+
+  /** The gemini CLI has no output-schema flag (see [[runAutonomous]]) —
+    * enforcement is prompt-only and the reply text is the JSON value.
+    */
+  override def structuredOutputMode: StructuredOutputMode =
+    StructuredOutputMode.RawText
 
   /** The sole session handle. [[IdScheme.ServerMinted]]: the client-allocated
     * id maps to gemini's `init`-reported session id (`gemini -p` mints its

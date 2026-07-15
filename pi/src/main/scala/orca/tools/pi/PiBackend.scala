@@ -7,6 +7,7 @@ import orca.agents.{
   AgentConfig,
   Enforcement,
   SessionId,
+  StructuredOutputMode,
   ToolSet
 }
 import orca.backend.{
@@ -75,6 +76,12 @@ private[orca] class PiBackend(
       autoApprove: AutoApprove
   ): Enforcement =
     PiArgs.enforcement(tools, autoApprove)
+
+  /** Pi has no native structured-output / JSON-schema flag (see
+    * [[PiConversation]]) — the reply text is the JSON value.
+    */
+  override def structuredOutputMode: StructuredOutputMode =
+    StructuredOutputMode.RawText
 
   def runAutonomous(
       prompt: String,

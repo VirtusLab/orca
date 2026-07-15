@@ -7,6 +7,7 @@ import orca.agents.{
   AgentConfig,
   Enforcement,
   SessionId,
+  StructuredOutputMode,
   ToolSet
 }
 import orca.backend.{
@@ -79,6 +80,12 @@ private[orca] class CodexBackend(
       autoApprove: AutoApprove
   ): Enforcement =
     CodexArgs.enforcement(tools, autoApprove)
+
+  /** `--output-schema` constrains the FINAL MESSAGE text — the reply text is
+    * still the JSON value orca parses; there is no structured-output tool.
+    */
+  override def structuredOutputMode: StructuredOutputMode =
+    StructuredOutputMode.RawText
 
   /** The sole session handle. [[IdScheme.ServerMinted]]: the client-allocated
     * id (the UUID the caller passes around) maps to codex's server-allocated

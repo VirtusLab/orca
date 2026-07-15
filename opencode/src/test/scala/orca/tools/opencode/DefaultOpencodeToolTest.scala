@@ -52,6 +52,8 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
     val tag: BackendTag.Opencode.type = BackendTag.Opencode
     def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
       Enforcement.Ignored
+    def structuredOutputMode: orca.agents.StructuredOutputMode =
+      orca.agents.StructuredOutputMode.RawText
 
   private val noInteraction: Interaction = new Interaction:
     def listeners: List[OrcaListener] = Nil

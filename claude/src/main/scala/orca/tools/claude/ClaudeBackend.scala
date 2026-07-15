@@ -9,6 +9,7 @@ import orca.agents.{
   AgentConfig,
   Enforcement,
   SessionId,
+  StructuredOutputMode,
   ToolSet,
   onWire
 }
@@ -108,6 +109,14 @@ private[orca] class ClaudeBackend(
       autoApprove: AutoApprove
   ): Enforcement =
     ClaudeArgs.enforcement(tools, autoApprove)
+
+  /** `--json-schema` (passed whenever a structured call supplies a schema — see
+    * [[runAutonomous]]) makes the CLI inject a StructuredOutput tool whose
+    * parameters are the schema's top-level properties; the payload arrives as
+    * that tool call, never as reply text.
+    */
+  override def structuredOutputMode: StructuredOutputMode =
+    StructuredOutputMode.Tool
 
   /** The sole session handle. [[IdScheme.ClientClaimed]]: ids are claimed via
     * `--session-id` so subsequent calls use `--resume` (the CLI refuses to

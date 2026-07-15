@@ -195,7 +195,12 @@ class DefaultAgentCall[B <: BackendTag, O](
   )(using ai: AgentInput[I]): O =
     val serialized = ai.serialize(input)
     val effective = effectiveConfig(config)
-    val initialPrompt = prompts.autonomous(serialized, outputSchema, effective)
+    val initialPrompt = prompts.autonomous(
+      serialized,
+      outputSchema,
+      effective,
+      backend.structuredOutputMode
+    )
 
     // Surface `serialized` (the human-readable input) rather than
     // `initialPrompt` (the schema-wrapped form the agent sees). Listeners
