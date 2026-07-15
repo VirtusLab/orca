@@ -52,7 +52,7 @@ flow(OrcaArgs(args), _.claude):
   // one commit. Completed stages are skipped on resume — re-running the same
   // prompt picks up from the first incomplete task.
   for task <- plan.tasks do
-    stage(s"Task: ${task.title}"):      // skipped on resume if already done
+    stage(s"Task: ${task.title}"):
       session.run(task.description)
       reviewAndFixLoop(                  // runs under this stage
         coderSession = session,
@@ -69,22 +69,20 @@ flow(OrcaArgs(args), _.claude):
 scala-cli run implement.sc -- "Add a rate-limiter to the /login endpoint"
 ```
 
-Each flow always starts by creating a branch, named basing on the user's prompt.
-The feature branch name defaults to a short cheap-model-generated label
-(slugged); pass `branchNaming = ...` to override. This flow opens no PR, so on
-success you're left on the feature branch, ready to test or open a PR by hand —
-see [The flow lifecycle](#the-flow-lifecycle) for the full success/failure/
-resume behavior.
+Each flow starts by creating a feature branch, named by a short
+cheap-model-generated label derived from the prompt (slugged; pass
+`branchNaming = ...` to override). This flow opens no PR, so on success you're
+left on the feature branch, ready to test or open a PR by hand — see [The flow
+lifecycle](#the-flow-lifecycle) for the full success/failure/resume behavior.
 
-If the flow is interrupted in the middle, either because of user intervention or
-an intermittent error, it can be resumed, starting from the last commited set of
-changes (so only a small amount of work might have to be repeated); just run the
-same command again. Orca borrows ideas from durable computing, and tracks which
-development stages have completed, and with what results in a progress file. The
-progress file is committed alongside the modified code, using commits as the
-unit of atomicity. This ensures consistency between the progress log and the
-changes in the repository. When the flow is done, the progress log is removed
-from the branch in one last commit.
+If the flow is interrupted — user intervention or an intermittent error — just
+run the same command again: it resumes from the last committed set of changes,
+so only a small amount of work is repeated. Orca borrows ideas from durable
+computing: which stages have completed, and with what results, is tracked in a
+progress file committed alongside the modified code, making commits the unit
+of atomicity — the progress log can't drift from the changes in the
+repository. When the flow is done, the progress log is removed from the branch
+in one last commit.
 
 There are two runnable examples under [`examples/runnable/`](examples/runnable/):
 * [01-simple](examples/runnable/01-simple/) (in-memory plan + review, autonomous
@@ -101,17 +99,26 @@ the [Metals](https://scalameta.org/metals/) VSCode extension.
 
 ## Built-in tools
 
-The following are available inside a `flow(...) { ... }`:
+The following are available inside a `flow(...) { ... }`.
 
-| Tool | Methods | Purpose |
+The five coding agents — `claude`, `codex`, `opencode`, `pi`, `gemini` —
+share one call surface. Durable: `session(name, seed): FlowSession` →
+`.run(prompt)` / `.resultAs[O].run(input)`. One-shot: `run(prompt)`,
+`resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn:
+`chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Common tuning:
+`withModel`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`,
+`withReadOnly`, `withNetworkOnly`, `withSelfManagedGit`. The table lists each
+backend's model accessors and backend-specific extras:
+
+| Tool | Backend-specific methods | Purpose |
 |---|---|---|
-| `claude` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].run(input)`. One-shot: `run(prompt)`, `resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn: `chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Tuning: `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withNetworkTools`, `withSelfManagedGit` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer; reviewers share it); use `claude.sonnet`/`claude.haiku` for cheap one-shot calls, or `claude.fable` for the hardest ones. `interactive` mode lives only on `resultAs[O]`. See [Sessions](#sessions) for durable (`session`) vs ephemeral (`run`/`chat`). |
-| `codex` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].run(input)`. One-shot: `run(prompt)`, `resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn: `chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Tuning: `mini`, `cheap` (→ mini), `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | OpenAI Codex coding/reviewing agent. |
-| `opencode` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].run(input)`. One-shot: `run(prompt)`, `resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn: `chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Tuning: `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiSol`/`openaiTerra`/`openaiLuna`, `cheap` (provider-matched: openai→luna, else anthropicHaiku), `withCheapModel`, `withModel(providerModel)` / `withModel(provider, modelId)`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run; sessions survive it — see [Sessions](#sessions)). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiLuna`) or `opencode.withModel("openai/gpt-5-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
-| `pi` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].run(input)`. One-shot: `run(prompt)`, `resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn: `chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Tuning: `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
-| `gemini` | Durable: `session(name, seed): FlowSession` → `.run(prompt)` / `.resultAs[O].run(input)`. One-shot: `run(prompt)`, `resultAs[O].{autonomous,interactive}.run(input)`. Ephemeral multi-turn: `chat(): Chat` → `.run(prompt)` / `.resultAs[O]...run(input)`. Tuning: `flash`, `cheap` (→ flash), `withModel(Model)`, `withCheapModel`, `withConfig`, `withSystemPrompt`, `withName`, `withReadOnly`, `withNetworkOnly`, `withSelfManagedGit` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
+| `claude` | `haiku`/`sonnet`/`opus`/`fable`, `cheap` (→ haiku), `withModel(Model)`, `withNetworkTools` | Claude Code coding/reviewing agent. Bare `claude` is **Opus with the 1M-token context window** (the long-lived implementer; reviewers share it); use `claude.sonnet`/`claude.haiku` for cheap one-shot calls, or `claude.fable` for the hardest ones. `interactive` mode lives only on `resultAs[O]`. See [Sessions](#sessions) for durable (`session`) vs ephemeral (`run`/`chat`). |
+| `codex` | `mini`, `cheap` (→ mini), `withModel(Model)` | OpenAI Codex coding/reviewing agent. |
+| `opencode` | `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiSol`/`openaiTerra`/`openaiLuna`, `cheap` (provider-matched: openai→luna, else anthropicHaiku), `withModel(providerModel)` / `withModel(provider, modelId)` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run; sessions survive it — see [Sessions](#sessions)). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiLuna`) or `opencode.withModel("openai/gpt-5-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
+| `pi` | `withModel(Model)` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
+| `gemini` | `flash`, `cheap` (→ flash), `withModel(Model)` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
 | `git` | `createBranch`, `checkout`, `ensureClean`, `commit`, `forceAdd`, `push`, `currentBranch`, `diff`, `diffVsBase`, `defaultBase`, `log`, `resetHard`, `deleteBranch`, `addWorktree`, `removeWorktree`, `listWorktrees`, `diffBranchExcludingOrca` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushFailure` — `NonFastForward`/`RemoteDeclined` — `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `resetHard`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. |
-| `gh` | `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (safe on re-run — use `orcaCommentMarker(userPrompt, purpose)` to embed the prompt hash as the marker). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
+| `gh` | `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (see [Authoring rules](#authoring-rules) for the re-run pattern). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
 
 The runtime owns git: every write-capable agent turn is told not to commit,
@@ -143,8 +150,7 @@ There are two ways to drive a model in a flow:
 
 - **The leading agent — `agent`.** Backend-agnostic: it's whatever the `flow`
   selector picked (`_.claude`, `_.codex`, …). Use it for the flow's planning,
-  implementation, reviewing, and its durable session (`agent.session(name,
-  seed)` → a `FlowSession`, then `.run(...)` on it). Switch the selector and
+  implementation, reviewing, and its durable session. Switch the selector and
   the whole flow follows; you never name a backend in the body.
 - **A specific agent + model — `claude.opus`, `codex.mini`, `opencode.openaiLuna`.**
   Use a concrete accessor when you want a particular backend or tier, or for
@@ -321,12 +327,12 @@ state, including CI — make no model call.
 
 **The `.orca/` directory** is committed by default: settings and the
 progress log ride the branch, while scratch files live under `.orca/cache/`,
-which writes its own `.gitignore` so it can never land in a commit. A repo
-that still gitignores all of `.orca/` (the previous convention) keeps the
-settings file out of version control, so every run warns: `stack settings at
+which writes its own `.gitignore` so it can never land in a commit. If your
+`.gitignore` covers all of `.orca/`, every run warns: `stack settings at
 .orca/settings.properties are gitignored — remove the '.orca/' line from
 .gitignore so they can be committed (scratch self-ignores under
-.orca/cache/)`.
+.orca/cache/)`. Do what the warning says — the cache stays ignored on its
+own.
 
 Within a flow body the resolved values are available as
 `summon[FlowContext].stackSettings` — a `StackSettings(format, lint, test:
@@ -392,12 +398,11 @@ the seed on first use; if the backend session is lost on resume it re-seeds
 (with a console warning — the prior conversation history is gone, only seed +
 progress preamble are rebuilt), prepending a progress preamble naming the
 completed stages; if the session is still alive it continues it directly with
-its full history. Note: opencode sessions are durable across a
-process restart too — opencode persists them in its own global on-disk store,
-independent of orca's per-run `opencode serve` process, so a freshly spawned
-server resumes a prior run's session the same way codex/claude resume theirs.
-As with every backend, that holds on the same machine with the backend's store
-intact; otherwise the flow re-seeds safely (the uniform fallback).
+its full history. Note: opencode sessions survive a process restart too —
+opencode persists them in its own global on-disk store, independent of orca's
+per-run `opencode serve` process. As with every backend, that holds on the
+same machine with the backend's store intact; otherwise the flow re-seeds
+safely (the uniform fallback).
 
 `agent.cheap` returns the backend's cheap/fast variant (claude → haiku, codex →
 mini, gemini → flash, opencode → anthropicHaiku, others → self) — used by the
@@ -412,8 +417,8 @@ structural conventions you choose to follow as a flow author.
 1. **Reads outside, mutations inside.** Only side-effecting work goes in a
    stage. Pure reads (`git.diff`, `gh.readIssue`, `fs.read`, `gh.waitForBuild`)
    run outside stages — staging them wastes commits and checkpoints.
-   `agent.session(name, seed)` also runs outside stages, but it isn't a pure read
-   — it records a session in the progress log.
+   `agent.session(name, seed)` also belongs outside stages (see
+   [Sessions](#sessions)).
 
 2. **Push lives in a later stage than the edit that produced it.** A stage
    commits only on completion: a `git.push()` in the same stage as the edit would
@@ -551,12 +556,9 @@ enum Configured[+A]:
 the lint gate as `Lint(stackSettings.lint, agent.cheap)` — commands plus the
 summariser agent bundled in one value (`Lint(commands: List[String], agent)`).
 An empty list resolves to no gate at all: `FromSettings` over empty settings
-behaves exactly like `Off`. Migration from the pre-`Configured` signature:
-`formatCommand = Some("cargo fmt")` → `formatCommands = Configured.Use(List("cargo fmt"))`,
-`lint = Some(Lint(cmd, a))` → `lint = Configured.Use(Lint(List(cmd), a))`.
-**Behavior change:** a script that omits `lint` now gets a lint gate the
-moment the target project's settings define one; scripts that want
-format-only pass `lint = Configured.Off`.
+behaves exactly like `Off`. A script that omits `lint` gets a lint gate
+whenever the target project's settings define one; for format-only, pass
+`lint = Configured.Off`.
 
 `reviewAndFixLoop`'s `reviewerSelection` defaults to
 `ReviewerSelector.agentDriven` — a picker LLM on the lead agent's cheap tier
