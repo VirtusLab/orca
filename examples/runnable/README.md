@@ -44,6 +44,19 @@ the printed `scala-cli run ...` with the example's suggested prompt:
 ./examples/runnable/01-simple/create-test-project.sh --run
 ```
 
+### Seeding stack settings (`--settings`)
+
+Pass `--settings` to include a ready `.orca/settings.properties` (the starter's
+`format`/`lint`/`test` commands) in the seed commit:
+
+```bash
+./examples/runnable/01-simple/create-test-project.sh --settings
+```
+
+The flow then skips the stack auto-discovery model call — useful for offline or
+deterministic runs. Delete the file in the seeded project to get auto-discovery
+back.
+
 ### Running against a local Orca build (`--local`)
 
 If you're hacking on Orca itself and want the example to pick up your in-tree

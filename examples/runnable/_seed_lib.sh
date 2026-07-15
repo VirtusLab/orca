@@ -2,9 +2,10 @@
 #
 # Shared helpers for `examples/runnable/*/create-test-project.sh`.
 #
-# Each example sources this file and drives four helpers:
-#   parse_args "$@"           # honours --local / -h
+# Each example sources this file and drives these helpers:
+#   parse_args "$@"           # honours --local / --run / --settings / -h
 #   resolve_dest "<prefix>"   # mktemp unless caller passed a path
+#   write_settings_file "<content>"   # honours --settings; call before init
 #   init_destination $SEED_DIR $FLOWS_DIR <flow-script> "<commit msg>"
 #   apply_local_flag $REPO_ROOT "$DEST/<flow-script>"
 #
@@ -13,10 +14,12 @@
 # copied flow script gets its `using dep` pinned to the freshly-published
 # dynver version plus an extra `using repository ivy2Local` line.
 
-# Sets USE_LOCAL (0/1), RUN (0/1) and DEST (may be empty -> resolve_dest fills it).
+# Sets USE_LOCAL (0/1), RUN (0/1), USE_SETTINGS (0/1) and DEST (may be
+# empty -> resolve_dest fills it).
 parse_args() {
   USE_LOCAL=0
   RUN=0
+  USE_SETTINGS=0
   local dest=""
   for arg in "$@"; do
     case "$arg" in
@@ -26,19 +29,26 @@ parse_args() {
       --run)
         RUN=1
         ;;
+      --settings)
+        USE_SETTINGS=1
+        ;;
       -h|--help)
         cat <<USAGE
-Usage: $(basename "$0") [--local] [--run] [<dest>]
+Usage: $(basename "$0") [--local] [--run] [--settings] [<dest>]
 
-  --local   Resolve org.virtuslab::orca from a local 'sbt publishLocal'
-            instead of Maven Central. Runs publishLocal in the orca repo
-            root, then patches the generated flow script with the current
-            dynver-derived version and 'using repository ivy2Local'.
-  --run     After seeding, cd into the project and run the example's
-            'scala-cli run ...' command with the suggested prompt (instead
-            of just printing it). Not supported for examples that need a
-            GitHub repo + issue set up first.
-  <dest>    Destination directory (defaults to a fresh mktemp).
+  --local     Resolve org.virtuslab::orca from a local 'sbt publishLocal'
+              instead of Maven Central. Runs publishLocal in the orca repo
+              root, then patches the generated flow script with the current
+              dynver-derived version and 'using repository ivy2Local'.
+  --run       After seeding, cd into the project and run the example's
+              'scala-cli run ...' command with the suggested prompt (instead
+              of just printing it). Not supported for examples that need a
+              GitHub repo + issue set up first.
+  --settings  Seed a ready '.orca/settings.properties' with the starter's
+              format/lint/test commands, committed with the project, so a
+              run skips the stack auto-discovery model call. Useful for
+              offline or deterministic runs.
+  <dest>      Destination directory (defaults to a fresh mktemp).
 USAGE
         exit 0
         ;;
@@ -86,6 +96,19 @@ resolve_dest() {
   else
     mkdir -p "$DEST"
   fi
+}
+
+# write_settings_file <content>
+# If `--settings` was given, writes <content> to $DEST/.orca/settings.properties
+# so the seeded project ships committed stack settings and a run makes no
+# auto-discovery model call. Call after resolve_dest and before
+# init_destination — the file then lands in the seed commit. No-op when
+# --settings was not passed.
+write_settings_file() {
+  [[ "${USE_SETTINGS:-0}" -eq 1 ]] || return 0
+  mkdir -p "$DEST/.orca"
+  printf '%s\n' "$1" > "$DEST/.orca/settings.properties"
+  echo "[orca] --settings: seeded .orca/settings.properties (discovery skipped)" >&2
 }
 
 # Copies the seed files + flow script into $DEST, then `git init` and

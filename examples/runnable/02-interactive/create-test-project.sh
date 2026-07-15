@@ -15,6 +15,7 @@
 #   examples/runnable/02-interactive/create-test-project.sh /path/to/dir       # explicit dest
 #   examples/runnable/02-interactive/create-test-project.sh --local            # publishLocal + pin
 #   examples/runnable/02-interactive/create-test-project.sh --run              # seed, then run it
+#   examples/runnable/02-interactive/create-test-project.sh --settings         # seed stack settings too
 #   examples/runnable/02-interactive/create-test-project.sh --local /path/...  # combinable
 
 set -euo pipefail
@@ -32,6 +33,15 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 parse_args "$@"
 resolve_dest "orca-02-interactive"
+# Stack settings for the Rust calculator starter; header must match
+# SettingsFile.Header so the runtime treats the file as its own output.
+write_settings_file '# orca stack settings — edit freely, commit with the project.
+# Delete this file to re-run auto-discovery.
+# rustfmt ships with the Rust toolchain
+format = cargo fmt
+# compiles main and test code, runs nothing
+lint = cargo check --tests
+test = cargo test'
 init_destination "$SEED_DIR" "$FLOWS_DIR" "implement-interactive.sc" "Initial calculator crate"
 apply_local_flag "$REPO_ROOT" "$DEST/implement-interactive.sc"
 
