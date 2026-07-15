@@ -183,7 +183,12 @@ examples**. Its elements:
   `just fmt`, not the commands `just fmt` happens to run;
 - configured-before-proposed: a tool being conventional for the ecosystem is
   NOT evidence; its config, plugin declaration, or script entry must be
-  present in this repo;
+  present in this repo — with one principled exception: a command bundled
+  with the toolchain the build file already selects and designed to run
+  with zero configuration is evidenced by that build file (in ecosystems
+  whose formatter ships in the toolchain, config-absence carries no
+  signal). The exception is stated in the prompt as a principle, with no
+  real tool names, preserving the no-catalog stance;
 - every command carries its evidence citation; no citable evidence → the
   task stays unset with a one-line reason, stated as a correct and complete
   answer (cheap models otherwise fill slots);
