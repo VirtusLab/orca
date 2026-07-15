@@ -58,8 +58,8 @@ private[orca] class ClaudeBackend(
       * SAME field is what keeps the probe honest — no separate value can drift
       * out of sync with where agents actually spawn. The `os.pwd` default
       * serves only bare/test construction (`new ClaudeBackend(cli)`) where no
-      * flow workDir exists; the runtime (`DefaultFlowContext.withDefaults`)
-      * passes the flow's real `workDir`.
+      * flow workDir exists; the runtime (`WiredAgents.build`) passes the flow's
+      * real `workDir`.
       */
     override val workDir: os.Path = os.pwd,
     /** Threaded straight into [[AgentBackend]]'s `closedFlag` parameter. Bare

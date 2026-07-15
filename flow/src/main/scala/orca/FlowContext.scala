@@ -4,15 +4,7 @@ import orca.events.OrcaEvent
 import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
-import orca.agents.{
-  Agent,
-  BackendTag,
-  ClaudeAgent,
-  CodexAgent,
-  GeminiAgent,
-  OpencodeAgent,
-  PiAgent
-}
+import orca.agents.{Agent, BackendTag}
 
 import scala.annotation.implicitNotFound
 
@@ -25,11 +17,15 @@ import scala.annotation.implicitNotFound
   * One is built per `flow(...)` invocation — flow scripts don't normally
   * instantiate `FlowContext` directly, just call the accessors inside a
   * `flow(args): ...` block, which supplies the given instance.
+  *
+  * The five per-backend accessors (`claude`, `codex`, …) come from
+  * [[AgentSet]], which the `flow(...)` lead selector resolves against before
+  * the context exists.
   */
 @implicitNotFound(
   "the flow tools (`claude`/`codex`/`git`/`gh`/`fs`/…), `display`, and `fail` are only available inside a `flow(...)` body. Wrap this code in `flow(OrcaArgs(args), _.claude): ...`."
 )
-trait FlowContext:
+trait FlowContext extends AgentSet:
   /** Backend tag of the leading agent. You never write this — it's the backend
     * of the agent your `flow(...)` selector picked, and it's why `agent` is
     * precisely typed (`Agent[LeadB]`) so sessions thread. (A type *member*
@@ -68,11 +64,6 @@ trait FlowContext:
     * backend.
     */
   def agent: Agent[LeadB]
-  def claude: ClaudeAgent
-  def codex: CodexAgent
-  def opencode: OpencodeAgent
-  def pi: PiAgent
-  def gemini: GeminiAgent
   def git: GitTool
   def gh: GitHubTool
   def fs: FsTool
@@ -112,19 +103,3 @@ trait FlowContext:
     if !errorAlreadyReported(e) then
       emit
       markErrorReported(e)
-
-  /** Resolve the per-backend agent named by `tag` — the single definition
-    * session rehydration (`FlowLifecycle.targetAgent`) resolves a persisted
-    * record's backend tag against, so a renamed or added [[BackendTag]] case is
-    * one match to update, not one per call site. This default dispatches to the
-    * five accessors above (only the matched one is touched, so it's used as-is
-    * by every `FlowContext`, including `DefaultFlowContext` — nothing to
-    * override). `private[orca]`: user code never needs it, `agent`/`claude`/
-    * `codex`/… cover every use it has.
-    */
-  private[orca] def agentFor(tag: BackendTag): Agent[?] = tag match
-    case BackendTag.ClaudeCode => claude
-    case BackendTag.Codex      => codex
-    case BackendTag.Opencode   => opencode
-    case BackendTag.Pi         => pi
-    case BackendTag.Gemini     => gemini

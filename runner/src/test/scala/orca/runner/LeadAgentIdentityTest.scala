@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.{FlowContext, OrcaArgs, StackSettings, flow, runFlow}
+import orca.{AgentSet, OrcaArgs, StackSettings, flow, runFlow}
 import orca.agents.{
   AgentConfig,
   Announce,
@@ -36,18 +36,18 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.AtomicReference
 
 /** Pins the foreign-lead handling: the `agent` selector can return an agent
-  * built from a backend that isn't wired into this run's context — event-blind
-  * (built against its own `AgentWiring`, not this run's dispatcher) and, absent
-  * this fix, never closed. [[DefaultFlowContext.close]] now unconditionally
-  * closes the resolved lead alongside all five wired agents (no wired/foreign
-  * branch needed there — a backend's own `close()` is idempotent), so a foreign
-  * lead's backend is closed too. [[DefaultFlowContext.agent]] separately warns
-  * loudly the first time a foreign lead is resolved, comparing backend IDENTITY
+  * built from a backend that isn't wired into this run — event-blind (built
+  * against its own `AgentWiring`, not this run's dispatcher) and, absent this
+  * fix, never closed. [[DefaultFlowContext.close]] unconditionally closes the
+  * resolved lead alongside all five wired agents (no wired/foreign branch
+  * needed there — a backend's own `close()` is idempotent), so a foreign lead's
+  * backend is closed too. `runFlow` separately warns loudly when it resolves a
+  * foreign lead against the wired agent set, comparing backend IDENTITY
   * ([[orca.agents.Agent.backendIdentity]]), not `Agent` reference equality —
   * the positive case below pins that a `copyTool`-derived sibling of a wired
   * agent (the common `_.claude.opus` selector shape) does NOT trip that
   * warning, which a naive `Agent eq Agent` implementation would get wrong, and
-  * that its shared backend's teardown still runs exactly once despite now being
+  * that its shared backend's teardown still runs exactly once despite being
   * closed via two different `Agent` instances.
   */
 class LeadAgentIdentityTest extends munit.FunSuite:
@@ -65,7 +65,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     case _                   => ()
 
   test(
-    "a foreign-agent selector warns at construction and is closed at flow end"
+    "a foreign-agent selector warns at lead resolution and is closed at flow end"
   ):
     val foreignBackend = new RecordingCloseBackend
     val foreignAgent: PiAgent = new DefaultPiAgent(
@@ -80,7 +80,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         stackSettings = Some(StackSettings.empty),
-        agent = (_: FlowContext) => foreignAgent,
+        agent = (_: AgentSet) => foreignAgent,
         workDir = GitRepo.seeded(),
         interaction = Some(interaction()),
         extraListeners = List(stepRecorder(warnings))
@@ -92,7 +92,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
           "lead agent was not built from this flow's context"
         )
       ),
-      s"expected a foreign-lead construction warning Step, saw: $warnings"
+      s"expected a foreign-lead resolution warning Step, saw: $warnings"
     )
     assertEquals(
       foreignBackend.closeCount,
@@ -113,7 +113,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
         // Mirrors the common `_.claude.opus` selector shape: `.withName` is a
         // `copyTool`-derived sibling — a DIFFERENT `Agent` instance sharing the
         // SAME backend as the wired `pi`, not the wired `pi` value itself.
-        agent = (ctx: FlowContext) => ctx.pi.withName("lead-pi"),
+        agent = (agents: AgentSet) => agents.pi.withName("lead-pi"),
         workDir = GitRepo.seeded(),
         pi = Some(w =>
           new DefaultPiAgent(
@@ -145,21 +145,16 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     )
 
   test(
-    "a selector that always throws: the original failure is reported once " +
-      "(not masked by a re-throw during close), and close() still closes all " +
-      "five wired backends"
+    "a selector that always throws: the original failure is reported once, " +
+      "and all five wired backends are still closed"
   ):
-    // Pins the DefaultFlowContext.close() bug: `agent` is a `lazy val`, and a
-    // failed lazy-val initialization is NOT cached by Scala — a second
-    // reference re-invokes the same throwing selector. `close()`'s foreign-lead
-    // check used to read `agent` OUTSIDE any try/catch, so when the selector
-    // threw on its first force (surfaced once, as `SurfacedFlowFailure`, by
-    // `FlowLifecycle.run`'s `setup` phase), `runFlow`'s `finally ctx.close()`
-    // re-forced `agent`, re-threw, and that second exception escaped `close()`
-    // — masking the original failure and aborting the fan-out before a single
-    // wired backend closed.
+    // The selector resolves pre-context, against the wired agent set, inside
+    // `runFlow`'s pre-context `surfaced` bracket: its failure is reported as
+    // exactly one Error and escapes as `SurfacedFlowFailure(boom)`. Since the
+    // context is never constructed, no `ctx.close()` runs — the ownership
+    // guard in `runFlow` is what must close the five wired agents.
     val boom = new RuntimeException("selector always throws")
-    val selector: FlowContext => orca.agents.Agent[BackendTag.ClaudeCode.type] =
+    val selector: AgentSet => orca.agents.Agent[BackendTag.ClaudeCode.type] =
       _ => throw boom
     val agents = new RecordingAgents
     val listener = new RecordingListener
@@ -187,8 +182,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     assertEquals(
       thrown.cause,
       boom,
-      "the flow-level failure must be the selector's original error, not a " +
-        "masking exception raised while `close()` re-forced `agent`"
+      "the flow-level failure must be the selector's original error"
     )
     val errors = listener.events.collect { case e: OrcaEvent.Error => e }
     assertEquals(
@@ -207,8 +201,8 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       assertEquals(
         agents.closeCounts(tag),
         1,
-        s"close() must still close the wired $tag backend despite the " +
-          s"selector re-throwing"
+        s"the ownership guard must still close the wired $tag backend " +
+          s"despite the selector throwing"
       )
 
   private object NoopInteraction extends Interaction:
@@ -263,10 +257,9 @@ class LeadAgentIdentityTest extends munit.FunSuite:
 
   /** One recording stub per wired backend, each incrementing `closeCounts` for
     * its own tag on `close()`. No test ever drives an `autonomous`/`resultAs`
-    * call through these — the selector throws before `FlowLifecycle.run`
-    * reaches anywhere the lead agent would actually be used — so those methods
-    * are unreachable stubs, same as `NoopOpencode`/`NoopPi`/`NoopGemini` in
-    * `DefaultFlowContextTest`.
+    * call through these — the selector throws before setup or the body could
+    * ever use the lead agent — so those methods are unreachable stubs, same as
+    * `NoopOpencode`/`NoopPi`/`NoopGemini` in `DefaultFlowContextTest`.
     */
   private class RecordingAgents:
     private val counts =

@@ -4,6 +4,7 @@ import orca.backend.{AgentWiring, Interaction}
 import orca.events.{
   CostTracker,
   EventDispatcher,
+  OrcaEvent,
   OrcaListener,
   PriceList,
   Pricing
@@ -28,13 +29,16 @@ import orca.runner.{
   LoggingListener,
   OrcaBanner,
   OrcaLog,
-  SurfacedFlowFailure
+  SurfacedFlowFailure,
+  WiredAgents
 }
 import orca.runner.terminal.TerminalInteraction
+import orca.subprocess.OsProcCliRunner
 import org.slf4j.LoggerFactory
 import orca.tools.FsTool
 import orca.tools.GitTool
 import orca.tools.GitHubTool
+import orca.tools.{OsFsTool, OsGitHubTool, OsGitTool}
 import orca.util.{OrcaDebug, TextUtil}
 import ox.{Ox, supervised}
 
@@ -70,24 +74,27 @@ import scala.util.control.NonFatal
   * OpencodeAgents.default(w, OpencodeLauncher.ollama("qwen3-coder")))`.
   *
   * The `agent` selector below is constrained the same way: it must resolve to
-  * one of the five wired agents (`ctx.claude`, …) or a `copyTool`-derived
-  * sibling of one (`_.claude.opus`, `.withReadOnly`, …) — anything sharing
-  * their backend is safe. A selector that instead returns an agent built from a
+  * one of the five wired agents (`_.claude`, …) or a `copyTool`-derived sibling
+  * of one (`_.claude.opus`, `.withReadOnly`, …) — anything sharing their
+  * backend is safe. A selector that instead returns an agent built from a
   * SEPARATE `AgentWiring`/backend (e.g. `_ => myPrebuiltAgent`, or an agent
   * wired against a different run entirely) compiles but is event-blind — it
   * never reaches this run's dispatcher, so its cost/steps never reach the
-  * terminal or cost tracker — and gets a loud construction-time warning; `ctx`
-  * still closes its backend at flow end to avoid a resource leak, but nothing
-  * can retrofit it onto this run's event stream after the fact.
+  * terminal or cost tracker — and gets a loud resolution-time warning; the
+  * runtime still closes its backend at flow end to avoid a resource leak, but
+  * nothing can retrofit it onto this run's event stream after the fact.
   *
   * The leading agent is named by a required `agent` selector resolved against
-  * the built `FlowContext`: the only way to name an agent is the accessor on
-  * the context, which isn't in scope at the `flow(...)` argument position, so
-  * the selector defers resolution until the context exists.
-  * `flow(OrcaArgs(args), _.claude)` runs against claude; `flow(OrcaArgs(args),
-  * _.codex)` against codex, etc. Inside the body, reference the resolved lead
-  * via the backend-agnostic [[agent]] accessor (not a concrete
-  * `claude`/`codex`) so switching the selector switches the whole flow.
+  * the run's wired [[AgentSet]]: the only way to name an agent is an accessor
+  * on that set, which isn't in scope at the `flow(...)` argument position, so
+  * the selector defers resolution until the agents are wired. The runtime
+  * resolves it BEFORE the `FlowContext` is constructed (the context receives
+  * the resolved lead as a constructor val); `FlowContext` extends `AgentSet`,
+  * so the same accessors keep working inside the body. `flow(OrcaArgs(args),
+  * _.claude)` runs against claude; `flow(OrcaArgs(args), _.codex)` against
+  * codex, etc. Inside the body, reference the resolved lead via the
+  * backend-agnostic [[agent]] accessor (not a concrete `claude`/`codex`) so
+  * switching the selector switches the whole flow.
   *
   * `B` is the leading agent's backend tag, inferred from the selector
   * (`_.claude` ⇒ `ClaudeCode`) and never written by callers; the runtime pins
@@ -100,7 +107,7 @@ import scala.util.control.NonFatal
   */
 def flow[B <: BackendTag](
     args: OrcaArgs,
-    agent: FlowContext => Agent[B],
+    agent: AgentSet => Agent[B],
     workDir: os.Path = os.pwd,
     interaction: Option[Interaction] = None,
     extraListeners: List[OrcaListener] = Nil,
@@ -170,15 +177,17 @@ def flow[B <: BackendTag](
         )
       )(body)
     catch
-      // Every phase inside `FlowLifecycle.run` is wrapped so a failure is
-      // reported to the user's event surface BEFORE it escapes, then rethrown
-      // as `SurfacedFlowFailure`. Seeing that marker means the message already
+      // Every phase that can fail — lead resolution and setup (bracketed in
+      // `runFlow`), rehydration and the body (bracketed in
+      // `FlowLifecycle.run`) — is wrapped so a failure is reported to the
+      // user's event surface BEFORE it escapes, then rethrown as
+      // `SurfacedFlowFailure`. Seeing that marker means the message already
       // reached the user — only the exit code remains to decide (after the
       // finally below prints the summary and detaches the trace).
       case _: SurfacedFlowFailure => failed = true
       // Backstop: any other NonFatal escaped a code path that was never
-      // bracketed — a pre-`ctx` failure (agent factory, TerminalInteraction
-      // start, context construction) has no event surface to report to, and a
+      // bracketed — a pre-dispatcher failure (agent factory,
+      // TerminalInteraction start) has no event surface to report to, and a
       // future unsurfaced path would otherwise exit 1 in silence. Print it
       // loudly to stderr so no failure is ever swallowed.
       case NonFatal(e) =>
@@ -195,19 +204,20 @@ def flow[B <: BackendTag](
   // Known, not fixed — an accepted residual of the exit-based CLI contract.
   if failed then System.exit(1)
 
-/** Exit-free flow lifecycle: builds the interaction/context, runs setup, then
-  * runs the body as a top-level stage with disjoint success/failure teardown.
-  * Unlike [[flow]], a failure in any phase is **propagated** (after any
-  * body-failure teardown), not turned into a `System.exit` — so the
-  * crash→`resetHard`→resume wiring is directly testable end-to-end. Every phase
-  * that can fail — setup, rehydration, and the body — runs inside
-  * `FlowLifecycle.run`'s reporting bracket, so a `NonFatal` failure from one of
-  * those escapes here wrapped in [[orca.runner.SurfacedFlowFailure]]`(cause)`
-  * (already reported to the event surface); tests inspect its `cause`. A
-  * failure from BEFORE `ctx` exists (e.g. an agent-override factory, built just
-  * above) has no bracket to run inside and so escapes unwrapped instead — see
-  * [[orca.runner.FlowLifecycle.run]]'s scaladoc. [[flow]] wraps this to keep
-  * the observable CLI behaviour (cost summary, OrcaLog, `System.exit(1)`).
+/** Exit-free flow lifecycle: builds the interaction and the wired agents,
+  * resolves the lead, runs setup, constructs the context, then runs the body as
+  * a top-level stage with disjoint success/failure teardown. Unlike [[flow]], a
+  * failure in any phase is **propagated** (after any body-failure teardown),
+  * not turned into a `System.exit` — so the crash→`resetHard`→resume wiring is
+  * directly testable end-to-end. Every phase that can fail — lead resolution
+  * and setup (pre-context, bracketed below), then rehydration and the body
+  * (bracketed inside `FlowLifecycle.run`) — reports to the event surface first,
+  * so a `NonFatal` failure from one of those escapes here wrapped in
+  * [[orca.runner.SurfacedFlowFailure]]`(cause)`; tests inspect its `cause`. A
+  * failure from BEFORE the dispatcher and agents exist (e.g. an agent-override
+  * factory, applied just after the dispatcher is built) has no event surface to
+  * report to and so escapes unwrapped instead. [[flow]] wraps this to keep the
+  * observable CLI behaviour (cost summary, OrcaLog, `System.exit(1)`).
   *
   * `extraListeners` is the full listener set this run should observe beyond the
   * interaction's own (the CLI wrapper adds its [[CostTracker]] here); a
@@ -215,7 +225,7 @@ def flow[B <: BackendTag](
   */
 private[orca] def runFlow[B <: BackendTag](
     args: OrcaArgs,
-    agent: FlowContext => Agent[B],
+    agent: AgentSet => Agent[B],
     workDir: os.Path,
     interaction: Option[Interaction],
     extraListeners: List[OrcaListener],
@@ -247,46 +257,112 @@ private[orca] def runFlow[B <: BackendTag](
               new LoggingListener
             ) ++ extraListeners
           )
-          // Construction order matters: `FlowLifecycle.run`'s setup phase resolves
-          // the leading agent (for branch naming) and reads `ctx.git`, so the
-          // store and the context must both exist BEFORE it runs.
-          //   1. Resolve the progress store (pure — no git effect, no agent).
-          //   2. Build the context (pure construction — backends are created but
-          //      no subprocess spawns until the first gated `run`).
-          // `FlowLifecycle.run` (below) then resolves the leading agent and drives
-          // the rest of the phase protocol (setup → rehydrate → body → teardown).
           val store =
             progressStore.getOrElse(
               ProgressStore.default(workDir, args.userPrompt)
             )
-          val ctx = DefaultFlowContext.withDefaults(
-            userPrompt = args.userPrompt,
-            dispatcher = dispatcher,
-            workDir = workDir,
+          // One wiring bundle handed to every agent factory — overrides and
+          // defaults build against the SAME event sink (dispatcher),
+          // interaction, workDir and prompts, so a user agent is wired into the
+          // run exactly like the default ones. Agent construction is pure —
+          // backends are created but no subprocess spawns until the first gated
+          // `run` — and runs BEFORE the reporting bracket below, so a factory
+          // failure escapes unwrapped (there are no agents to close yet).
+          val agentWiring = AgentWiring(
+            events = dispatcher,
             interaction = effectiveInteraction,
-            progressStore = store,
-            agentSelector = agent,
-            wiring = wiring
+            workDir = workDir,
+            prompts = wiring.prompts
           )
-          // Construction is pure (backends spawn nothing until the first gated
-          // `run`), so a failure before this point has nothing to close — `ctx`
-          // doesn't exist yet, and the outer `finally` below only closes the
-          // interaction. From here on, `ctx.close()` runs in this `finally`,
-          // BEFORE the `supervised` scope joins its forks: it destroys the
-          // opencode `serve` process so its drain forks' reads EOF and the join
-          // can't hang (Ox runs `releaseAfterScope` only after the join).
+          val agents = WiredAgents.build(wiring, agentWiring)
+          val gitTool = wiring.git.getOrElse(new OsGitTool(workDir, dispatcher))
+          val ghTool = wiring.gh.getOrElse(
+            new OsGitHubTool(OsProcCliRunner, workDir, events = dispatcher)
+          )
+          val fsTool = wiring.fs.getOrElse(new OsFsTool(workDir))
+          val log = LoggerFactory.getLogger("orca.flow")
+          // Ownership-transfer guard: between here and the context taking
+          // ownership at construction, the wired agents (and a resolved lead)
+          // have no owner whose close() runs on failure. If an exception
+          // escapes before the transfer, close them best-effort in the same
+          // order `ctx.close()` uses — the five wired agents, then the lead.
+          // git/gh/fs hold no closeable resources, so the agents are all the
+          // guard needs to cover.
+          var lead: Option[Agent[B]] = None
+          var transferred = false
           try
-            FlowLifecycle.run(
-              args,
-              ctx,
-              branchNaming,
-              stackSettings,
-              returnToStartBranch,
-              debug
-            )(
-              body
+            // Pre-context equivalent of `FlowLifecycle.run`'s `surfaced`
+            // bracket: report the failure to the event surface, log, print the
+            // stack under `--verbose`/debug, and rethrow as
+            // `SurfacedFlowFailure` so `flow()` exits without re-printing. No
+            // `reportOnce` here — pre-context there is no second reporter that
+            // could double-report the same throwable.
+            def surfaced[T](op: => T): T =
+              try op
+              catch
+                case NonFatal(e) =>
+                  dispatcher.onEvent(
+                    OrcaEvent.Error(TextUtil.throwableMessage(e))
+                  )
+                  log.debug("flow aborted", e)
+                  if debug then e.printStackTrace(System.err)
+                  throw SurfacedFlowFailure(e)
+            val resolvedLead = surfaced:
+              val l = agent(agents)
+              // A selector that escapes the five wired agents (e.g. `_ =>
+              // myPrebuiltAgent`, built from a separate `AgentWiring`/backend)
+              // is event-blind — it never reaches this run's dispatcher — so
+              // this is a loud warning, not a silent fact; the close fan-outs
+              // still close it to avoid a resource leak, but nothing can make
+              // it observe this run's events after the fact.
+              if !agents.isWiredBackend(l) then
+                dispatcher.onEvent(
+                  OrcaEvent.Step(
+                    "warning: lead agent was not built from this flow's context — " +
+                      "events may not reach the terminal/cost tracker"
+                  )
+                )
+              l
+            lead = Some(resolvedLead)
+            // Setup (branch + log binding, stack-settings resolution) runs
+            // BEFORE the context is constructed, so its outcome is a
+            // constructor input rather than late-bound state.
+            val flowSetup = surfaced(
+              FlowLifecycle.setup(
+                args,
+                resolvedLead,
+                gitTool,
+                workDir,
+                branchNaming,
+                stackSettings,
+                store,
+                dispatcher.onEvent
+              )
             )
-          finally ctx.close()
+            val ctx = new DefaultFlowContext[B](
+              userPrompt = args.userPrompt,
+              workDir = workDir,
+              dispatcher = dispatcher,
+              agent = resolvedLead,
+              wired = agents,
+              git = gitTool,
+              gh = ghTool,
+              fs = fsTool,
+              progressStore = store,
+              stackSettings = flowSetup.stackSettings
+            )
+            transferred = true
+            // From here on, `ctx.close()` runs in this `finally`, BEFORE the
+            // `supervised` scope joins its forks: it destroys the opencode
+            // `serve` process so its drain forks' reads EOF and the join can't
+            // hang (Ox runs `releaseAfterScope` only after the join).
+            try
+              FlowLifecycle.run(ctx, flowSetup, returnToStartBranch, debug)(
+                body
+              )
+            finally ctx.close()
+          finally
+            if !transferred then WiredAgents.closeBestEffort(agents.all ++ lead)
         finally effectiveInteraction.close()
     finally FlowLock.releaseWorkdir(lockPath)
   finally FlowLock.releaseProcess()

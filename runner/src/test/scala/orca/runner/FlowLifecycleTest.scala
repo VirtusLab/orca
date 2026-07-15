@@ -344,15 +344,14 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "runFlow: a pre-ctx agent-factory failure escapes UNWRAPPED, not as SurfacedFlowFailure"
   ):
-    // The `SurfacedFlowFailure` discriminator's other half: `FlowLifecycle.run`'s
-    // `surfaced` bracket only wraps phases that run once `ctx` exists (setup,
-    // rehydration, body, success teardown). A per-backend agent factory
-    // (`wiring.claude`, etc.) runs eagerly inside `DefaultFlowContext.withDefaults`
-    // — called from `runFlow` at flow.scala:234-242, BEFORE `ctx` (and hence
-    // before any bracket) exists — so its failure has no event surface to report
-    // to and must escape this exit-free seam as a plain, unwrapped exception.
-    // (In production, `flow()`'s backstop catches it — stderr line + `System.exit(1)`
-    // — but that tail is untestable here by design: `runFlow` never exits.)
+    // The `SurfacedFlowFailure` discriminator's other half: the `surfaced`
+    // brackets only wrap lead resolution, setup, rehydration and the body. A
+    // per-backend agent factory (`wiring.claude`, etc.) runs eagerly inside
+    // `WiredAgents.build` — called from `runFlow` BEFORE any bracket exists —
+    // so its failure has no event surface to report to and must escape this
+    // exit-free seam as a plain, unwrapped exception. (In production,
+    // `flow()`'s backstop catches it — stderr line + `System.exit(1)` — but
+    // that tail is untestable here by design: `runFlow` never exits.)
     val workDir = GitRepo.seeded()
     val prompt = "factory-boom"
     val thrown = intercept[RuntimeException]:

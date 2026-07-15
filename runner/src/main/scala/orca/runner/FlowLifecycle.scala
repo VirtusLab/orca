@@ -33,9 +33,11 @@ import scala.util.control.NonFatal
 
 /** Marker that a flow failure has ALREADY been reported to the user's event
   * surface (an `OrcaEvent.Error` was emitted, the stack logged, and — under
-  * `--verbose`/debug — printed). Thrown by [[FlowLifecycle]]'s `surfaced`
-  * bracket after it reports `cause`, so `flow()` may discard it without
-  * re-reporting: the user has already seen the message.
+  * `--verbose`/debug — printed). Thrown by the `surfaced` brackets —
+  * `runFlow`'s pre-context one (lead resolution + setup) and
+  * [[FlowLifecycle.run]]'s (rehydration + body) — after they report `cause`, so
+  * `flow()` may discard it without re-reporting: the user has already seen the
+  * message.
   *
   * The contract is the whole point of the type: ANY other `NonFatal` exception
   * escaping `runFlow` unwrapped means a code path that was NOT bracketed, i.e.
@@ -54,18 +56,19 @@ private[orca] final case class SurfacedFlowFailure(cause: Throwable)
   */
 object FlowLifecycle:
 
-  /** The complete phase protocol for one run, in its mandated order: setup
-    * (branch + log binding) → session rehydration → body → disjoint
-    * success/failure teardown. Extracted here so the ordering invariants that
-    * used to live as comments in the runner's entry point have one executable
-    * owner (ADR 0018 §2.4/§2.5). The context must be fully constructed (setup
-    * resolves the leading agent for branch naming and reads `ctx.git`).
+  /** The context-bound phases of one run, in their mandated order: session
+    * rehydration → body → disjoint success/failure teardown. Extracted here so
+    * the ordering invariants that used to live as comments in the runner's
+    * entry point have one executable owner (ADR 0018 §2.4/§2.5). [[setup]]
+    * (branch + log binding) is NOT a phase here — `runFlow` runs it BEFORE
+    * constructing the context, so `flowSetup`'s outcome (the resolved stack
+    * settings) arrives as a constructor input.
     *
-    * Failure path: three phases — setup, rehydration, and the body — run inside
-    * the `surfaced` bracket, which reports the error (unless the exception
-    * already reported itself), logs, and rethrows a [[SurfacedFlowFailure]] so
-    * `flow()` never exits without an explanation. The body phase additionally
-    * runs `teardownFailure` on the way out.
+    * Failure path: the two phases — rehydration and the body — run inside the
+    * `surfaced` bracket, which reports the error (unless the exception already
+    * reported itself), logs, and rethrows a [[SurfacedFlowFailure]] so `flow()`
+    * never exits without an explanation. The body phase additionally runs
+    * `teardownFailure` on the way out.
     *
     * Success path runs `teardownSuccess` OUTSIDE `surfaced`, deliberately: it
     * is already internally best-effort (every leg is wrapped in `bestEffort`,
@@ -73,30 +76,28 @@ object FlowLifecycle:
     * with a bracket meant for reporting failures would be directionally wrong —
     * it would convert a future non-`bestEffort` leg into a *reported, failed*
     * successful run instead of the silent cosmetic failure `teardownSuccess`'s
-    * own contract promises. So the phase protocol is three bracketed phases
-    * plus one best-effort phase, not four bracketed ones.
+    * own contract promises. So the phase protocol is two bracketed phases plus
+    * one best-effort phase, not three bracketed ones.
     *
     * The failure and success teardowns are structurally disjoint — the body
     * catch rethrows, so success teardown is unreachable on a body failure.
     */
   private[orca] def run[B <: BackendTag](
-      args: OrcaArgs,
       ctx: DefaultFlowContext[B],
-      branchNaming: Option[BranchNamingStrategy],
-      stackSettings: Option[StackSettings],
+      flowSetup: FlowSetup,
       returnToStartBranch: Boolean,
       debug: Boolean
   )(body: FlowControl ?=> Unit): Unit =
     val log = LoggerFactory.getLogger("orca.flow")
-    // Report/log/wrap bracket applied to every phase that CAN fail — setup's
-    // resume refusals, rehydration, and the body — so none of them can reach
-    // `flow()` unreported and exit 1 in silence. Phase-agnostic by design: it
-    // reports once (reusing the context's reported-set so it never
-    // double-prints a failure a nested stage already surfaced), logs, prints
-    // the stack under `--verbose`/debug, then throws `SurfacedFlowFailure`.
-    // It carries NO teardown side effect — `teardownFailure` (git reset) is
-    // the body phase's job alone (below), never setup's. Success teardown is
-    // NOT wrapped here — see its own scaladoc for why.
+    // Report/log/wrap bracket applied to every phase that CAN fail —
+    // rehydration and the body — so none of them can reach `flow()` unreported
+    // and exit 1 in silence. Phase-agnostic by design: it reports once
+    // (reusing the context's reported-set so it never double-prints a failure
+    // a nested stage already surfaced), logs, prints the stack under
+    // `--verbose`/debug, then throws `SurfacedFlowFailure`. It carries NO
+    // teardown side effect — `teardownFailure` (git reset) is the body phase's
+    // job alone (below). Success teardown is NOT wrapped here — see its own
+    // scaladoc for why.
     def surfaced[T](op: => T): T =
       try op
       catch
@@ -107,22 +108,6 @@ object FlowLifecycle:
           log.debug("flow aborted", e)
           if debug then e.printStackTrace(System.err)
           throw SurfacedFlowFailure(e)
-    val flowSetup =
-      surfaced(
-        setup(
-          args,
-          ctx.agent,
-          ctx.git,
-          ctx.workDir,
-          branchNaming,
-          stackSettings,
-          ctx.progressStore,
-          ctx.emit
-        )
-      )
-    // Freeze the resolved settings on the context before anything can read
-    // them — the body (and the loops it calls) sees one immutable value.
-    ctx.populateStackSettings(flowSetup.stackSettings)
     surfaced(rehydrateSessions(ctx, ctx.agent, ctx.progressStore))
     // The whole flow body runs as a top-level stage: an otherwise
     // unhandled exception surfaces as a single Error event (the same
@@ -385,13 +370,13 @@ object FlowLifecycle:
         // not the normal "no log yet" case. We still start fresh (there's no
         // sane way to resume from unparseable data), but the user may have
         // expected a resume, so this must be LOUD, not silently
-        // indistinguishable from a first run. `ctx` exists by the time `setup`
-        // runs, so its `emit` is threaded in: an `OrcaEvent.Step` (there's no
-        // Warning case — Step matches `GitTool`'s convention for a non-fatal
-        // note) reaches BOTH the terminal renderer and any custom Interaction's
-        // listeners (e.g. Slack), which a raw stderr line never would. The
-        // logger keeps the DEBUG trace; we emit the Step INSTEAD of a stderr
-        // line so a terminal user doesn't see it twice.
+        // indistinguishable from a first run. The dispatcher is live by the
+        // time `setup` runs, so its `emit` is threaded in: an `OrcaEvent.Step`
+        // (there's no Warning case — Step matches `GitTool`'s convention for a
+        // non-fatal note) reaches BOTH the terminal renderer and any custom
+        // Interaction's listeners (e.g. Slack), which a raw stderr line never
+        // would. The logger keeps the DEBUG trace; we emit the Step INSTEAD of
+        // a stderr line so a terminal user doesn't see it twice.
         log.warn(
           s"progress log at ${store.path} is corrupt ($reason); starting fresh"
         )

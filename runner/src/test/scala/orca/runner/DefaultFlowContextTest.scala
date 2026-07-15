@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.{FlowContext, StackSettings}
+import orca.StackSettings
 import orca.agents.{
   Announce,
   AutonomousTextCall,
@@ -25,8 +25,7 @@ import orca.testkit.TempDirs
 /** Pins that [[DefaultFlowContext.close]] is a best-effort fan-out: one agent's
   * `close()` throwing must not stop the others from being closed (ADR 0018 — a
   * leaked backend resource, e.g. opencode's `serve` process, must never be
-  * masked by an earlier agent's failure). Also pins the one-shot
-  * `stackSettings` slot the lifecycle populates during setup (ADR 0019).
+  * masked by an earlier agent's failure).
   */
 class DefaultFlowContextTest extends munit.FunSuite:
 
@@ -41,47 +40,30 @@ class DefaultFlowContextTest extends munit.FunSuite:
       "codex.close() must run despite claude.close() throwing"
     )
 
-  test(
-    "stackSettings slot: read-before-populate throws, populate-then-read returns the value, double-populate throws"
-  ):
-    val ctx = newContext()
-    val unpopulated = intercept[IllegalStateException](ctx.stackSettings)
-    assert(
-      unpopulated.getMessage.contains("before lifecycle setup"),
-      s"unpopulated read must point at the lifecycle: ${unpopulated.getMessage}"
-    )
-    val settings = StackSettings(format = List("cargo fmt"))
-    ctx.populateStackSettings(settings)
-    assertEquals(ctx.stackSettings, settings)
-    val doublePopulate = intercept[IllegalStateException](
-      ctx.populateStackSettings(StackSettings.empty)
-    )
-    assert(
-      doublePopulate.getMessage.contains("already populated"),
-      s"double populate must name the violation: ${doublePopulate.getMessage}"
-    )
-
   /** A context over throwaway tools and the throwing/noop agent stubs below;
-    * `codex` is the only agent a test swaps (to record its close).
+    * `codex` is the only agent the test swaps (to record its close).
     */
   private def newContext(
-      codex: CodexAgent = new RecordingCodex(() => ())
+      codex: CodexAgent
   ): DefaultFlowContext[BackendTag.ClaudeCode.type] =
     val workDir = TempDirs.dir()
     new DefaultFlowContext[BackendTag.ClaudeCode.type](
       userPrompt = "test",
       workDir = workDir,
       dispatcher = new EventDispatcher(Nil),
-      agentSelector = (_: FlowContext) => ThrowingClaude,
-      claude = ThrowingClaude,
-      codex = codex,
-      opencode = NoopOpencode,
-      pi = NoopPi,
-      gemini = NoopGemini,
+      agent = ThrowingClaude,
+      wired = WiredAgents(
+        claude = ThrowingClaude,
+        codex = codex,
+        opencode = NoopOpencode,
+        pi = NoopPi,
+        gemini = NoopGemini
+      ),
       git = new OsGitTool(workDir),
       gh = new OsGitHubTool(OsProcCliRunner, workDir),
       fs = new OsFsTool(workDir),
-      progressStore = ProgressStore.default(workDir, "test")
+      progressStore = ProgressStore.default(workDir, "test"),
+      stackSettings = StackSettings.empty
     )
 
   /** Throws from every LLM call and from `close()` — pins that a throwing

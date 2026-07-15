@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.{FlowContext, OrcaArgs, StackSettings, flow, fs, pi}
+import orca.{AgentSet, FlowContext, OrcaArgs, StackSettings, flow, fs, pi}
 import orca.tools.{FsTool}
 import orca.testkit.GitRepo
 import orca.agents.{
@@ -33,7 +33,7 @@ class OrcaOverridesTest extends munit.FunSuite:
   // The leading-model selector defaults to `_.claude` (ADR 0018 §2.5); these
   // tests assert tool-override wiring, not LLM behaviour, so they resolve a stub
   // via a `_ => StubAgent.claude` selector.
-  private val stubLead: FlowContext => ClaudeAgent = _ => StubAgent.claude
+  private val stubLead: AgentSet => ClaudeAgent = _ => StubAgent.claude
 
   test("flow uses a custom FsTool when supplied"):
     val fake = new FsTool:
@@ -155,7 +155,7 @@ class OrcaOverridesTest extends munit.FunSuite:
     // Item 2 pin: the opencode param is `AgentWiring => Ox ?=> OpencodeAgent`,
     // so `Some(w => OpencodeAgents.default(w))` — the factory that itself needs
     // an Ox — compiles at the `flow(...)` argument position, with the Ox
-    // resolved where `withDefaults` applies it. This is a compiles-and-runs
+    // resolved where `WiredAgents.build` applies it. This is a compiles-and-runs
     // case (not a stub-CLI run): the lead is the claude stub and the body never
     // touches opencode, and the opencode `serve` spawn is lazy, so the flow
     // runs to completion without a real process. Building the default opencode
