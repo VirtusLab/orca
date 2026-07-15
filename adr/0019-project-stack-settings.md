@@ -286,7 +286,13 @@ Residual: a run failing in the narrow window between the write and the
 header commit leaves the file untracked, and the next run's `ensureClean`
 stashes it with the usual dirty-tree warning before discovery re-runs —
 spending a second model call and possibly guessing slightly differently.
-Accepted: the window is a few git commands wide.
+Accepted: the window is a few git commands wide. A fresh run whose only
+content turns out to be `.orca/` (no code landed) is torn down as a
+throwaway branch, discarding the discovered settings with it — re-discovery
+on the next run is the accepted cost. On the resume arm the next stage
+commit or the success-teardown commit sweeps the untracked settings file in
+with its `add -A`, which is desired, though the commit message doesn't name
+it.
 
 ### API
 
@@ -294,9 +300,9 @@ Accepted: the window is a few git commands wide.
 /** Resolved per-project tooling commands (each run via `bash -c`).
   * An empty list means the task is disabled/unknown. */
 case class StackSettings(
-    format: List[String],
-    lint: List[String],
-    test: List[String]
+    format: List[String] = Nil,
+    lint: List[String] = Nil,
+    test: List[String] = Nil
 )
 ```
 

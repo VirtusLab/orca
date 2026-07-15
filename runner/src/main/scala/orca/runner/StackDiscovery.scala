@@ -149,9 +149,10 @@ private[runner] object StackDiscovery:
     * 'command -v'`, builtins included, the same environment stage-time `bash
     * -c` inherits. The word is passed as an ARGUMENT (`"$1"`) — never
     * interpolated into the bash script text, so shell metacharacters in an
-    * agent-proposed command cannot execute here. A word containing `/` that
-    * `command -v` rejects still resolves if it names an executable file inside
-    * the repo; a path outside the repo just demotes.
+    * agent-proposed command cannot execute here. The probe runs with
+    * cwd=`workDir`, so a repo-relative path like `./script.sh` resolves here
+    * too — exactly as the command itself later does at stage time with the same
+    * cwd.
     */
   private[runner] def unresolvedReason(
       command: String,
@@ -174,22 +175,7 @@ private[runner] object StackDiscovery:
             stderr = os.Pipe
           )
         if probe.exitCode == 0 then None
-        else if word.contains("/") && executableInside(word, workDir) then None
         else Some(s"$word: not found on PATH")
-
-  /** Does `word` name an executable file inside `workDir`? The escape/absolute
-    * rejection here (`os.RelPath` refuses an absolute path; `..` segments that
-    * leave the repo fail the `startsWith` check) applies only to words `command
-    * -v` did not already resolve: `command -v` runs with cwd=`workDir`, so an
-    * existing `../tool.sh` resolves there before this fallback — correctly,
-    * since the command runs at stage time with the same cwd.
-    */
-  private def executableInside(word: String, workDir: os.Path): Boolean =
-    try
-      val resolved = workDir / os.RelPath(word)
-      resolved.startsWith(workDir) && os.exists(resolved) &&
-      resolved.toIO.canExecute
-    catch case _: IllegalArgumentException => false
 
   /** Second mechanical check (ADR 0019): the cited evidence file must exist
     * inside the repo. Absolute paths and `..` traversal are rejected outright
@@ -239,7 +225,11 @@ private[runner] object StackDiscovery:
         case None =>
           SettingsEntry.Command(
             key,
-            cmd.command,
+            // Sanitized with the SAME collapse the renderer applies to every
+            // command line (TextUtil.collapseNewlines), so the command the
+            // first run executes is identical to the line the written file
+            // carries.
+            TextUtil.collapseNewlines(cmd.command),
             Some(cmd.evidencePath + cmd.evidenceNote.fold("")("; " + _))
           )
 

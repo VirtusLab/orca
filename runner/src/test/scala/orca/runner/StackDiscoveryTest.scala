@@ -1,7 +1,7 @@
 package orca.runner
 
 import orca.StackSettings
-import orca.settings.SettingsEntry
+import orca.settings.{SettingsEntry, SettingsFile}
 import orca.testkit.TempDirs
 
 class StackDiscoveryTest extends munit.FunSuite:
@@ -143,6 +143,26 @@ class StackDiscoveryTest extends munit.FunSuite:
     assert(
       entries.contains(SettingsEntry.Unset("test", "no test directory found")),
       s"expected the agent's unset reason to carry through, got: $entries"
+    )
+
+  test(
+    "toEntries: a command containing a newline is sanitized at assembly — settings and rendered file agree"
+  ):
+    val result = StackDiscoveryResult(
+      format = DiscoveredTask(commands =
+        List(DiscoveredCommand("cargo fmt --all\n  --check", "Cargo.toml"))
+      ),
+      lint = DiscoveredTask(),
+      test = DiscoveredTask()
+    )
+    val (entries, settings) =
+      StackDiscovery.toEntries(result, allResolvable, allEvidenceExists)
+    assertEquals(settings.format, List("cargo fmt --all --check"))
+    // Parsing the rendered file back yields the exact settings the run got —
+    // the first run executes what the written file carries.
+    assertEquals(
+      SettingsFile.parse(SettingsFile.render(entries)),
+      Right(settings)
     )
 
   test("toEntries: a task with neither commands nor a reason gets a stock one"):

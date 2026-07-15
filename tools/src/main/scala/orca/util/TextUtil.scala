@@ -30,3 +30,11 @@ private[orca] object TextUtil:
     * discovery narration.
     */
   def collapseWhitespace(s: String): String = s.replaceAll("""\s+""", " ")
+
+  /** Collapse each newline run (with adjacent whitespace) to a single space,
+    * leaving other whitespace intact — the settings-file one-physical-line
+    * contract for command lines. Shared by the renderer (writing `key =
+    * command` lines) and discovery assembly (the commands the first run
+    * executes), so the executed command and the written line are identical.
+    */
+  def collapseNewlines(s: String): String = s.replaceAll("""\s*\R\s*""", " ")

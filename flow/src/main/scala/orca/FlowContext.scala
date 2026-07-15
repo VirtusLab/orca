@@ -81,7 +81,8 @@ trait FlowContext:
   def workDir: os.Path
 
   /** Resolved stack settings (ADR 0019): resolved once during lifecycle setup —
-    * override > `.orca/settings.properties` > empty — and frozen for the run.
+    * override > `.orca/settings.properties` > auto-discovery — and frozen for
+    * the run.
     */
   def stackSettings: StackSettings
 

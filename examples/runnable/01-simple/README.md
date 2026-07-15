@@ -27,9 +27,11 @@ the variant where the planner can ask clarifying questions, see
 
 - JDK 21+, [scala-cli](https://scala-cli.virtuslab.org/).
 - `claude` logged in (see the repo root README).
-- `cargo` on PATH — the seed is a small Rust crate so the lint
-  command is `cargo test --quiet`. Swap the `lint = Some(Lint(...))` line
-  in `implement.sc` if you point the flow at a non-Rust project.
+- `cargo` on PATH — the seed is a small Rust crate, so first-run
+  auto-discovery resolves cargo commands into
+  `.orca/settings.properties`, which the review loop reads by
+  default. To override the lint gate per call in `implement.sc`, pass
+  `lint = Configured.Use(Lint(List("..."), agent.cheap))`.
 - A target project to run against. The sibling
   [`create-test-project.sh`](create-test-project.sh) seeds a
   tiny Rust calculator crate from `test-project/` and copies the

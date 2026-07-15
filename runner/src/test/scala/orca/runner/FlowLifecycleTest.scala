@@ -511,10 +511,13 @@ class FlowLifecycleTest extends munit.FunSuite:
       "self-ignores under .orca/cache/)"
 
   /** Runs `setup` in a seeded repo — with `.gitignore` committed first when a
-    * body is given — and returns the collected Step messages.
+    * body is given — and returns the collected Step messages. The no-override
+    * arms pre-write a settings file so discovery (which the stub agent cannot
+    * serve) never runs.
     */
   private def setupStepsWithGitignore(
       gitignore: Option[String],
+      settingsOverride: Option[StackSettings],
       prompt: String
   ): List[String] =
     val workDir = GitRepo.seeded()
@@ -523,6 +526,12 @@ class FlowLifecycleTest extends munit.FunSuite:
       given WorkspaceWrite = WorkspaceWrite.unsafe
       os.write(workDir / ".gitignore", body)
       assert(git.commit("add .gitignore").isRight)
+    if settingsOverride.isEmpty then
+      os.write(
+        OrcaDir.settingsPath(workDir),
+        "format = echo fmt\n",
+        createFolders = true
+      )
     val store = ProgressStore.default(workDir, prompt)
     val emitted = new AtomicReference[List[OrcaEvent]](Nil)
     val _ = FlowLifecycle.setup(
@@ -531,7 +540,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       git = git,
       workDir = workDir,
       branchNaming = None,
-      settingsOverride = Some(StackSettings.empty),
+      settingsOverride = settingsOverride,
       store = store,
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
@@ -540,8 +549,11 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "setup: warns when the settings path is gitignored (legacy .orca/ ignore)"
   ):
-    val steps =
-      setupStepsWithGitignore(Some(".orca/\n"), prompt = "ignored-settings")
+    val steps = setupStepsWithGitignore(
+      Some(".orca/\n"),
+      settingsOverride = None,
+      prompt = "ignored-settings"
+    )
     assert(
       steps.contains(settingsIgnoredWarning),
       s"expected the pinned gitignored-settings warning, got: $steps"
@@ -550,10 +562,29 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "setup: no gitignored-settings warning when the settings path is not ignored"
   ):
-    val steps = setupStepsWithGitignore(None, prompt = "not-ignored")
+    val steps = setupStepsWithGitignore(
+      None,
+      settingsOverride = None,
+      prompt = "not-ignored"
+    )
     assert(
       !steps.exists(_.contains("gitignored")),
       s"no gitignored-settings warning expected, got: $steps"
+    )
+
+  test(
+    "setup: no gitignored-settings warning under a programmatic override, even with the ignored path"
+  ):
+    // An override means the run neither reads nor writes the file — the
+    // migration warning would be noise.
+    val steps = setupStepsWithGitignore(
+      Some(".orca/\n"),
+      settingsOverride = Some(StackSettings.empty),
+      prompt = "override-ignored"
+    )
+    assert(
+      !steps.exists(_.contains("gitignored")),
+      s"no gitignored-settings warning expected under an override, got: $steps"
     )
 
   // --- stack-settings resolution during setup (ADR 0019) --------------------

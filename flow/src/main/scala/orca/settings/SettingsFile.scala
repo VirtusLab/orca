@@ -125,7 +125,7 @@ private[orca] object SettingsFile:
           s"(${collapseWhitespace(reason)})"
 
   private def collapseNewlines(s: String): String =
-    s.replaceAll("""\s*\R\s*""", " ")
+    TextUtil.collapseNewlines(s)
 
   private def collapseWhitespace(s: String): String =
     TextUtil.collapseWhitespace(s)

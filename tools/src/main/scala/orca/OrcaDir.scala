@@ -8,7 +8,7 @@ import ox.tap
   * it. All `.orca` creation routes through this object, so the exclusion
   * markers are always in place before anything is written into the cache.
   */
-object OrcaDir:
+private[orca] object OrcaDir:
   private val gitignoreContents = "# Automatically created by orca.\n*\n"
 
   // The Signature line is fixed by the CACHEDIR.TAG spec (bradfitz.com/cachedir);

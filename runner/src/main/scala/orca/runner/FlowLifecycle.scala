@@ -245,15 +245,18 @@ object FlowLifecycle:
 
   /** ADR 0019 migration warning: a repo that gitignores `.orca/` keeps the
     * committed stack settings at `.orca/settings.properties` out of version
-    * control, so every run names the likely `.orca/` line to remove. The probe
-    * is best-effort ([[GitTool.isIgnored]] answers `false` when it cannot tell)
-    * and never fails the flow.
+    * control, so every run names the likely `.orca/` line to remove. Skipped
+    * when a programmatic override is in force — such a run neither reads nor
+    * writes the file, so the warning would be noise. The probe is best-effort
+    * ([[GitTool.isIgnored]] answers `false` when it cannot tell) and never
+    * fails the flow.
     */
   private def warnIfSettingsIgnored(
       git: GitTool,
+      settingsOverride: Option[StackSettings],
       emit: OrcaEvent => Unit
   ): Unit =
-    if git.isIgnored(OrcaDir.settingsSubPath) then
+    if settingsOverride.isEmpty && git.isIgnored(OrcaDir.settingsSubPath) then
       emit(
         OrcaEvent.Step(
           "stack settings at .orca/settings.properties are gitignored — " +
@@ -324,7 +327,7 @@ object FlowLifecycle:
     given InStage = RuntimeInStage.token()
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
     val log = LoggerFactory.getLogger("orca.flow")
-    warnIfSettingsIgnored(git, emit)
+    warnIfSettingsIgnored(git, settingsOverride, emit)
     // Settings resolve BEFORE the `ensureClean` stash below (ADR 0019): a
     // malformed file must abort with no stash and no branch mutation, and an
     // uncommitted file's contents must be captured before the stash can sweep
