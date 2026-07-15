@@ -122,7 +122,8 @@ lazy val flow = (project in file("flow"))
       ox,
       jsoniterMacros,
       jsonSchemaValidator,
-      scala3Compiler
+      scala3Compiler,
+      munitScalacheck
     ),
     // The CC negative-compile suite invokes the Scala 3 compiler
     // (`dotty.tools.dotc.Main`) in-process against this

@@ -6,6 +6,12 @@ package orca.settings
 private[orca] enum SettingsEntry:
   /** `key = command`, with an optional comment carrying the discovery evidence,
     * rendered as `# ` line(s) directly above the command line.
+    *
+    * `command` is non-blank and does not start with `#` (even after render's
+    * newline collapse): discovery's mechanical checks demote blank and
+    * unresolvable commands to [[Demoted]] before render sees them, so render
+    * does not re-validate. A violating command would render as a line the
+    * parser drops (blank value) or rejects (`#`-leading `CommentedValue`).
     */
   case Command(key: String, command: String, comment: Option[String])
 

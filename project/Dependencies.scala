@@ -12,6 +12,7 @@ object Dependencies {
     val jline = "3.28.0"
     val fansi = "0.5.0"
     val munit = "1.1.1"
+    val munitScalacheck = "1.3.0"
     val jsonSchemaValidator = "1.5.4"
     val chimp = "0.1.8"
     val logback = "1.5.18"
@@ -35,6 +36,11 @@ object Dependencies {
   val fansi = "com.lihaoyi" %% "fansi" % V.fansi
 
   val munit = "org.scalameta" %% "munit" % V.munit % Test
+  // Versioned independently of munit since 1.1.0 (own repo); 1.3.0 pulls munit
+  // 1.3.0 onto flow's test classpath, evicting the pinned 1.1.1 there —
+  // binary-compatible within munit 1.x.
+  val munitScalacheck =
+    "org.scalameta" %% "munit-scalacheck" % V.munitScalacheck % Test
 
   // The Scala 3 compiler as a library, so the CC-enforcement negative-compile
   // suite (orca.CcNegativeCompileTest) can invoke the compiler's entry point
