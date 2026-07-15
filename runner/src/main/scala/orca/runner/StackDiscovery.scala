@@ -17,9 +17,13 @@ private[runner] case class DiscoveredCommand(
 ) derives JsonData
 
 /** A task's proposed commands, or a one-line reason it was left unset. The
-  * defaults let the agent omit whichever side doesn't apply — and deliberately
-  * opt these fields out of strict jsoniter's collection-required check;
-  * required-field protection lives on the no-default fields.
+  * strict output schema requires BOTH keys on every task (every field is
+  * required, Options nullable — see [[orca.util.JsonSchemaGen]]), so the agent
+  * emits `"commands": []` / `"unsetReason": null` for whichever side doesn't
+  * apply. The Scala-side defaults additionally keep the jsoniter parse lenient
+  * about a genuinely omitted field (opting out of strict jsoniter's
+  * collection-required check); required-field protection lives on the
+  * no-default fields.
   */
 private[runner] case class DiscoveredTask(
     commands: List[DiscoveredCommand] = Nil,

@@ -52,12 +52,17 @@ build file that selects the toolchain is that trace.
 
 The example below uses a FICTIONAL build tool, only to show the output
 shape and the lint-vs-test distinction — derive real values from the
-repository. Per task, emit either commands or unsetReason, never both:
+repository. Per task, always emit both fields: a task with commands has
+"unsetReason": null; an unset task has "commands": [] and a one-line
+reason. Likewise every command carries "evidenceNote" — null when you
+have nothing to add beyond the evidence file itself:
 
 {"format": {"commands": [{"command": "acme style --write",
     "evidencePath": "acme.build",
-    "evidenceNote": "style ships with the acme toolchain, zero-config; CI also runs it in .ci/check.yml line 12"}]},
+    "evidenceNote": "style ships with the acme toolchain, zero-config; CI also runs it in .ci/check.yml line 12"}],
+  "unsetReason": null},
  "lint":   {"commands": [{"command": "acme compile --include-tests",
     "evidencePath": "acme.build",
-    "evidenceNote": "compiles main and test sources, executes nothing"}]},
- "test":   {"unsetReason": "no test directory or CI test step found"}}
+    "evidenceNote": "compiles main and test sources, executes nothing"}],
+  "unsetReason": null},
+ "test":   {"commands": [], "unsetReason": "no test directory or CI test step found"}}

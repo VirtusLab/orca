@@ -1,10 +1,60 @@
 package orca.runner
 
+import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.StackSettings
+import orca.agents.{JsonData, given}
 import orca.settings.{SettingsEntry, SettingsFile}
 import orca.testkit.TempDirs
 
 class StackDiscoveryTest extends munit.FunSuite:
+
+  test(
+    "the prompt's always-both example shape decodes under the strict codec"
+  ):
+    // The strict output schema requires both keys on every task, so agents
+    // emit "commands": [] and "unsetReason": null where a side doesn't apply
+    // — this pins that the strict jsoniter codec accepts exactly that shape
+    // (the example in prompts/stack-discovery.md).
+    val json =
+      """{"format": {"commands": [{"command": "acme style --write",
+        |    "evidencePath": "acme.build",
+        |    "evidenceNote": "style ships with the acme toolchain, zero-config; CI also runs it in .ci/check.yml line 12"}],
+        |  "unsetReason": null},
+        | "lint":   {"commands": [{"command": "acme compile --include-tests",
+        |    "evidencePath": "acme.build",
+        |    "evidenceNote": null}],
+        |  "unsetReason": null},
+        | "test":   {"commands": [], "unsetReason": "no test directory or CI test step found"}}""".stripMargin
+    val decoded = readFromString[StackDiscoveryResult](json)(using
+      summon[JsonData[StackDiscoveryResult]].codec
+    )
+    assertEquals(
+      decoded,
+      StackDiscoveryResult(
+        format = DiscoveredTask(
+          commands = List(
+            DiscoveredCommand(
+              "acme style --write",
+              "acme.build",
+              Some(
+                "style ships with the acme toolchain, zero-config; CI also runs it in .ci/check.yml line 12"
+              )
+            )
+          ),
+          unsetReason = None
+        ),
+        lint = DiscoveredTask(
+          commands = List(
+            DiscoveredCommand("acme compile --include-tests", "acme.build")
+          ),
+          unsetReason = None
+        ),
+        test = DiscoveredTask(
+          commands = Nil,
+          unsetReason = Some("no test directory or CI test step found")
+        )
+      )
+    )
 
   /** Checks that pass everything — the assembly tests inject failures
     * explicitly where a scenario needs them.
