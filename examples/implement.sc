@@ -1,5 +1,5 @@
 //> using scala 3.8.4
-//> using dep "org.virtuslab::orca:0.0.15"
+//> using dep "org.virtuslab::orca:0.0.16"
 //> using jvm 21
 
 /** Autonomous planning + coding flow.
