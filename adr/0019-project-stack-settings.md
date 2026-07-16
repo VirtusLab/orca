@@ -274,30 +274,31 @@ Reading and validating an *existing* file happens before `ensureClean` — a
 malformed file aborts before any tree mutation, and that pre-`ensureClean`
 read also decides whether discovery runs (so a hand-written file that
 `stash -u` sweeps out of a dirty tree is not mistaken for absent). Only the
-discovery **write** is sequenced against the two lifecycle steps that would
-otherwise sweep it: it runs **after `ensureClean`** (whose `stash -u` would
-stash a just-written untracked file straight back out of the tree) and
-**immediately before the header commit**, whose `add -A` then includes the
-new file — deliberately. On a resumed run with no file (delete-to-rediscover,
-then resume), discovery runs in the same post-`ensureClean` slot; there is
-no header commit on that arm, so the file stays untracked until the next
-stage commit's `add -A` — the same ride the legacy-ignored-repo case takes.
-In a committed-`.orca` repo the flow itself commits the discovered guesses as
-part of the branch's first commit; the log's "review and edit" is post-hoc —
-an edit-and-recommit, not a review gate. In a legacy repo that still ignores
-`.orca/`, both mechanisms skip the file (`add -A` and `stash -u` leave
-ignored paths alone) and it simply stays untracked for the user to commit.
-Residual: a run failing in the narrow window between the write and the
-header commit leaves the file untracked, and the next run's `ensureClean`
+discovery **write** is sequenced against `ensureClean`: it runs **after
+`ensureClean`** (whose `stash -u` would stash a just-written untracked file
+straight back out of the tree). The written file then gets its **own
+dedicated commit** — `orca: stack settings (discovered)`, carrying exactly
+that one path — on both lifecycle arms, so no later `add -A` sweep silently
+carries it under an unrelated message. On the fresh arm the commit lands
+**after the feature branch is created and immediately before the header
+commit**, which therefore carries only the progress log its message names.
+On a resumed run with no file (delete-to-rediscover, then resume), discovery
+runs in the same post-`ensureClean` slot and the dedicated commit lands right
+after the write — the branch already exists, so no header commit is involved.
+The staging uses a **plain single-path `git add`** (not the log's force-add):
+an ignored `.orca/` must stay ignored, so in a legacy repo that still ignores
+`.orca/` the dedicated commit is **skipped outright** (`isIgnored` gate) and
+the file simply stays untracked for the user to commit after fixing the
+ignore — the per-run migration warning already covers it. The log's "review
+and edit" is post-hoc — an edit-and-recommit, not a review gate.
+Residual: a run failing in the narrow window between the write and its
+dedicated commit leaves the file untracked, and the next run's `ensureClean`
 stashes it with the usual dirty-tree warning before discovery re-runs —
 spending a second model call and possibly guessing slightly differently.
 Accepted: the window is a few git commands wide. A fresh run whose only
 content turns out to be `.orca/` (no code landed) is torn down as a
 throwaway branch, discarding the discovered settings with it — re-discovery
-on the next run is the accepted cost. On the resume arm the next stage
-commit or the success-teardown commit sweeps the untracked settings file in
-with its `add -A`, which is desired, though the commit message doesn't name
-it.
+on the next run is the accepted cost.
 
 ### API
 

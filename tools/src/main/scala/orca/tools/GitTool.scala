@@ -123,6 +123,13 @@ trait GitTool:
     */
   def forceAdd(path: os.Path)(using WorkspaceWrite): Unit
 
+  /** Stage `path` (`git add`), respecting `.gitignore`. Unlike [[forceAdd]]
+    * this does NOT bypass the ignore: an ignored path is left unstaged, so the
+    * settings-file commit (ADR 0019) never punches a `.orca/`-ignored file into
+    * history. Always a single explicit path — never a glob or directory.
+    */
+  def add(path: os.Path)(using WorkspaceWrite): Unit
+
   /** Push the current branch, setting upstream on first push. Returns
     * `Left(PushFailure)` when the remote rejected the push for a reason the
     * caller might recover from — see [[PushFailure]] for the two shapes and
@@ -317,6 +324,9 @@ private[orca] class OsGitTool(
 
   def forceAdd(path: os.Path)(using WorkspaceWrite): Unit =
     val _ = git("add", "-f", path.toString)
+
+  def add(path: os.Path)(using WorkspaceWrite): Unit =
+    val _ = git("add", "--", path.toString)
 
   /** Like [[git]] but on non-zero exit throws an `OrcaFlowException` enriched
     * with a `git status --porcelain` + `git fsck --no-progress` snapshot. Used

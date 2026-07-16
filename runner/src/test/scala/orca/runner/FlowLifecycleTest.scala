@@ -715,8 +715,30 @@ class FlowLifecycleTest extends munit.FunSuite:
       emitted.get().reverse.collect { case s: OrcaEvent.Step => s.message }
     )
 
+  /** The paths a single commit touched (`git show --name-only`), sorted, so an
+    * assertion can pin a commit to EXACTLY its files.
+    */
+  private def commitFiles(workDir: os.Path, rev: String): List[String] =
+    os.proc("git", "show", "--name-only", "--pretty=format:", rev)
+      .call(cwd = workDir)
+      .out
+      .text()
+      .linesIterator
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .toList
+      .sorted
+
+  /** A single commit's subject line (`git log -1 --pretty=format:%s`). */
+  private def commitMessage(workDir: os.Path, rev: String): String =
+    os.proc("git", "log", "-1", "--pretty=format:%s", rev)
+      .call(cwd = workDir)
+      .out
+      .text()
+      .trim
+
   test(
-    "setup: fresh arm, no file, no override — discovery runs, writes the file, and the header commit carries it"
+    "setup: fresh arm, no file, no override — discovery gives the settings file its own commit, before the header commit"
   ):
     val workDir = GitRepo.seeded()
     val canned = StackDiscoveryResult(
@@ -741,16 +763,22 @@ class FlowLifecycleTest extends munit.FunSuite:
         |# test =   (no evidence found)
         |""".stripMargin
     )
-    // The fresh arm's header commit (`add -A`) — the branch's first commit —
-    // must carry the file.
-    val headFiles = os
-      .proc("git", "show", "--name-only", "--pretty=format:", "HEAD")
-      .call(cwd = workDir)
-      .out
-      .text()
+    // The dedicated settings commit sits immediately before the header commit
+    // (HEAD~1), carries EXACTLY the settings file, and bears the pinned message.
+    assertEquals(
+      commitFiles(workDir, "HEAD~1"),
+      List(".orca/settings.properties")
+    )
+    assertEquals(
+      commitMessage(workDir, "HEAD~1"),
+      "orca: stack settings (discovered)"
+    )
+    // The header commit (HEAD) carries only the progress log its message names —
+    // NOT the settings file.
+    assertEquals(commitMessage(workDir, "HEAD"), "orca: progress log")
     assert(
-      headFiles.contains(".orca/settings.properties"),
-      s"the header commit must include the settings file, got: $headFiles"
+      !commitFiles(workDir, "HEAD").contains(".orca/settings.properties"),
+      s"the header commit must NOT include the settings file, got: ${commitFiles(workDir, "HEAD")}"
     )
     // The bracketing discovery events reached the event surface.
     assert(
@@ -806,7 +834,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
-    "discovery: resume arm (log present, file deleted) rediscovers and leaves the file untracked"
+    "discovery: resume arm (log present, file deleted) rediscovers and gives the file its own commit"
   ):
     val workDir = GitRepo.seeded()
     val prompt = "discover-resume"
@@ -837,31 +865,26 @@ class FlowLifecycleTest extends munit.FunSuite:
     val (setup, _) =
       setupDiscovering(workDir, CannedDiscoveryAgent(canned), prompt)
     assertEquals(setup.stackSettings, StackSettings(format = List("echo fmt")))
-    assert(
-      os.exists(OrcaDir.settingsPath(workDir)),
-      "discovery must run on the resume arm too"
-    )
-    // No header commit on the resume arm: HEAD is unchanged and the file
-    // stays untracked (it rides the next stage commit's `add -A`).
+    // The resume arm gives the rediscovered file its own dedicated commit
+    // (the branch already existed): HEAD advances by exactly that commit,
+    // which carries EXACTLY the settings file under the pinned message — the
+    // file is no longer left untracked.
     assertEquals(
-      os.proc("git", "rev-parse", "HEAD").call(cwd = workDir).out.text().trim,
+      os.proc("git", "rev-parse", "HEAD~1").call(cwd = workDir).out.text().trim,
       headBefore,
-      "the resume arm must not commit"
+      "the dedicated settings commit is the only new commit on the resume arm"
     )
-    val status = os
-      .proc("git", "status", "--porcelain", "--", ".orca/settings.properties")
-      .call(cwd = workDir)
-      .out
-      .text()
-      .trim
     assertEquals(
-      status,
-      "?? .orca/settings.properties",
-      "the settings file must be untracked after a resume-arm discovery"
+      commitMessage(workDir, "HEAD"),
+      "orca: stack settings (discovered)"
+    )
+    assertEquals(
+      commitFiles(workDir, "HEAD"),
+      List(".orca/settings.properties")
     )
 
   test(
-    "discovery: legacy-ignored repo — file written, stays untracked, ignored-warning fires"
+    "discovery: legacy-ignored repo — file written, no dedicated commit, stays untracked, ignored-warning fires"
   ):
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
@@ -882,16 +905,28 @@ class FlowLifecycleTest extends munit.FunSuite:
       os.exists(OrcaDir.settingsPath(workDir)),
       "the file must be written even in a legacy-ignored repo"
     )
-    // The header commit's `add -A` skips ignored paths, so the file stays
-    // out of history for the user to commit after fixing the ignore.
-    val headFiles = os
-      .proc("git", "show", "--name-only", "--pretty=format:", "HEAD")
+    // The dedicated commit is SKIPPED when the path is ignored: neither the
+    // header commit nor any settings commit carries the file, and it stays
+    // ignored on disk for the user to commit after fixing the ignore.
+    assert(
+      !commitFiles(workDir, "HEAD").contains(".orca/settings.properties"),
+      s"an ignored settings file must not ride the header commit: ${commitFiles(workDir, "HEAD")}"
+    )
+    assertNotEquals(
+      commitMessage(workDir, "HEAD"),
+      "orca: stack settings (discovered)",
+      "no dedicated settings commit may exist in a legacy-ignored repo"
+    )
+    val tracked = os
+      .proc("git", "ls-files", "--", ".orca/settings.properties")
       .call(cwd = workDir)
       .out
       .text()
-    assert(
-      !headFiles.contains(".orca/settings.properties"),
-      s"an ignored settings file must not ride the header commit: $headFiles"
+      .trim
+    assertEquals(
+      tracked,
+      "",
+      "an ignored settings file stays untracked after discovery"
     )
     assert(
       steps.contains(settingsIgnoredWarning),

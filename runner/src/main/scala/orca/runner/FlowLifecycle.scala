@@ -326,17 +326,19 @@ object FlowLifecycle:
     val snapshot = snapshotLog(store.path)
     val _ = git.ensureClean("orca: starting flow")
     restoreLogIfMissing(store.path, snapshot)
-    // Discovery (ADR 0019) is sequenced between the two lifecycle steps that
-    // would otherwise sweep the written file: after `ensureClean` (whose
-    // `stash -u` would stash a just-written untracked file straight back out
-    // of the tree) and before the fresh arm's header commit below (whose
-    // `add -A` then includes it — deliberately). On the resume arm there is
-    // no commit in this window, so the file stays untracked until the next
-    // stage commit. Catch-free: a discovery failure aborts setup as a
-    // surfaced failure — see [[StackDiscovery.discover]] for the ADR
-    // rationale (no degrade-to-empty-file).
-    val stackSettings = resolution match
-      case SettingsResolution.Resolved(settings) => settings
+    // Discovery (ADR 0019) is sequenced after `ensureClean` (whose `stash -u`
+    // would stash a just-written untracked file straight back out of the
+    // tree). When it runs, the written file gets its OWN commit
+    // (`commitDiscoveredSettings`, below) on both arms — after branch creation
+    // on the fresh arm, right after this write on the resume arm — so no later
+    // `add -A` sweep silently carries it under an unrelated message.
+    // `discovered` flags that the write happened, gating those commits; the
+    // override/file-present paths leave it `false` and are untouched.
+    // Catch-free: a discovery failure aborts setup as a surfaced failure — see
+    // [[StackDiscovery.discover]] for the ADR rationale (no
+    // degrade-to-empty-file).
+    val (stackSettings, discovered) = resolution match
+      case SettingsResolution.Resolved(settings) => (settings, false)
       case SettingsResolution.NeedsDiscovery =>
         val (settings, entries) = StackDiscovery.discover(agent, workDir, emit)
         os.write(
@@ -349,7 +351,7 @@ object FlowLifecycle:
             "written to .orca/settings.properties — review and edit as needed."
           )
         )
-        settings
+        (settings, true)
     // The protected set BOTH arms enforce: the always-protected floor
     // (`main`/`master`) plus the repo's ACTUAL detected default branch
     // (best-effort — `git.defaultBranch()` is read-only/cheap and already
@@ -390,10 +392,12 @@ object FlowLifecycle:
           args,
           agent,
           git,
+          workDir,
           branchNaming,
           store,
           startBranch,
           protectedBranches,
+          discovered,
           emit
         )
         (branch, startBranch)
@@ -402,10 +406,12 @@ object FlowLifecycle:
           args,
           agent,
           git,
+          workDir,
           branchNaming,
           store,
           startBranch,
           protectedBranches,
+          discovered,
           emit
         )
         (branch, startBranch)
@@ -437,7 +443,10 @@ object FlowLifecycle:
           )
         // Resume in place: already on header.branch. The recorded start branch
         // (where a PR flow / throwaway returns to) is the ORIGINAL one, not this
-        // feature branch.
+        // feature branch. The branch already exists, so a just-discovered
+        // settings file gets its dedicated commit right here (ADR 0019) — this
+        // arm has no header commit that would otherwise sweep it in.
+        if discovered then commitDiscoveredSettings(git, workDir)
         (featureBranch, header.startingBranch)
     FlowSetup(store, featureBranch, effectiveStartBranch, stackSettings)
 
@@ -512,10 +521,12 @@ object FlowLifecycle:
       args: OrcaArgs,
       agent: Agent[?],
       git: GitTool,
+      workDir: os.Path,
       branchNaming: Option[BranchNamingStrategy],
       store: ProgressStore,
       startBranch: String,
       protectedBranches: Set[String],
+      discovered: Boolean,
       emit: OrcaEvent => Unit
   )(using InStage, WorkspaceWrite): FeatureBranch =
     val strategy =
@@ -545,6 +556,11 @@ object FlowLifecycle:
               "a safe ref"
           )
     val branch = createFreshBranch(git, protectionChecked, fallback, emit)
+    // A just-discovered settings file gets its own commit here — after the
+    // branch exists, before the header commit below — so the header commit
+    // carries only the progress log its message names (ADR 0019), not the
+    // settings file that the old `add -A` sweep pulled in silently.
+    if discovered then commitDiscoveredSettings(git, workDir)
     store.writeHeader(
       ProgressHeader(
         startingBranch = startBranch,
@@ -555,6 +571,29 @@ object FlowLifecycle:
     git.forceAdd(store.path)
     val _ = git.commit("orca: progress log")
     branch
+
+  /** Give the just-discovered settings file its own commit (ADR 0019), so the
+    * header/stage commit that follows carries only what its message names.
+    * Called on both lifecycle arms whenever discovery actually wrote the file:
+    * the fresh arm after branch creation and before the header commit, the
+    * resume arm right after the write (the branch already exists).
+    *
+    * Staged with a PLAIN single-path [[GitTool.add]] — NOT `forceAdd`: a repo
+    * that still ignores `.orca/` must keep the file ignored (the startup
+    * migration warning already covers it), so the commit is SKIPPED outright
+    * when [[GitTool.isIgnored]] reports the path excluded, leaving the file
+    * untracked for the user to commit after fixing the ignore. Only the
+    * progress log punches through the ignore, for resume correctness. Write →
+    * add → commit stay adjacent so the file is never left staged but
+    * uncommitted; `commit`'s `add -A` finds nothing else to sweep, since the
+    * post-`ensureClean` tree holds only this file.
+    */
+  private def commitDiscoveredSettings(git: GitTool, workDir: os.Path)(using
+      WorkspaceWrite
+  ): Unit =
+    if !git.isIgnored(OrcaDir.settingsSubPath) then
+      git.add(OrcaDir.settingsPath(workDir))
+      val _ = git.commit("orca: stack settings (discovered)")
 
   /** The deterministic `flow-<hash>` fallback name for `userPrompt`
     * (`BranchNamingStrategy.flowFallbackName`), minted into a
