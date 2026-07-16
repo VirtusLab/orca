@@ -71,6 +71,43 @@ class OsGitToolTest extends munit.FunSuite:
     val dir = TempDirs.dir()
     assert(!new OsGitTool(dir).isIgnored(os.sub / "whatever.txt"))
 
+  test("add stages a normal path and leaves a gitignored path unstaged"):
+    withRepo: (git, dir) =>
+      os.write(dir / ".gitignore", ".orca/\n")
+      git.commit("seed").orThrow
+      os.write(dir / "notes.txt", "x")
+      os.makeDir(dir / ".orca")
+      os.write(dir / ".orca" / "settings.properties", "format = cargo fmt\n")
+      git.add(dir / "notes.txt")
+      git.add(dir / ".orca" / "settings.properties")
+      val staged = os
+        .proc("git", "diff", "--cached", "--name-only")
+        .call(cwd = dir)
+        .out
+        .text()
+      assert(staged.contains("notes.txt"), staged)
+      assert(!staged.contains("settings.properties"), staged)
+
+  test("commitOnly commits exactly the given path, leaving other files out"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      os.write(dir / "settings.properties", "format = cargo fmt\n")
+      // A second untracked file alongside the target: it must stay out of the
+      // commit and remain untracked in the working tree.
+      os.write(dir / "progress.json", "{}")
+      git.commitOnly(dir / "settings.properties", "only settings")
+      val committed = os
+        .proc("git", "show", "--name-only", "--pretty=format:", "HEAD")
+        .call(cwd = dir)
+        .out
+        .text()
+        .trim
+      assertEquals(committed, "settings.properties")
+      val status =
+        os.proc("git", "status", "--porcelain").call(cwd = dir).out.text()
+      assert(status.contains("?? progress.json"), status)
+
   test("commit stages all changes and records the message"):
     withRepo: (git, dir) =>
       os.write(dir / "file.txt", "content")

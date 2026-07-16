@@ -66,15 +66,17 @@ object DefaultPrompts extends Prompts:
   // for the dynamic `{{input}}` / `{{outputSchema}}` / `{{failedResponse}}` /
   // `{{parseError}}` replacements. The autonomous template exists in one
   // variant per StructuredOutputMode: same task framing, delivery rules
-  // matching what the backend's wire actually expects.
-  private val AutonomousTemplates: Map[StructuredOutputMode, String] =
-    val base = PromptResource.load("/orca/agents/prompts/autonomous.md")
-    Map(
-      StructuredOutputMode.RawText ->
-        base.replace("{{resultRules}}", RawJsonRules),
-      StructuredOutputMode.Tool ->
-        base.replace("{{resultRules}}", ToolCallRules)
-    )
+  // matching what the backend's wire actually expects. Selection happens via
+  // an exhaustive match in [[autonomous]], so a new mode is a compile error
+  // here rather than a lookup failure at call time.
+  private val AutonomousBase: String =
+    PromptResource.load("/orca/agents/prompts/autonomous.md")
+
+  private val AutonomousRawTextTemplate: String =
+    AutonomousBase.replace("{{resultRules}}", RawJsonRules)
+
+  private val AutonomousToolTemplate: String =
+    AutonomousBase.replace("{{resultRules}}", ToolCallRules)
 
   private val InteractiveTemplate: String =
     PromptResource
@@ -92,8 +94,11 @@ object DefaultPrompts extends Prompts:
       config: AgentConfig,
       mode: StructuredOutputMode
   ): String =
+    val template = mode match
+      case StructuredOutputMode.RawText => AutonomousRawTextTemplate
+      case StructuredOutputMode.Tool    => AutonomousToolTemplate
     PromptResource.render(
-      AutonomousTemplates(mode),
+      template,
       "input" -> input,
       "outputSchema" -> outputSchema
     )

@@ -40,8 +40,8 @@ Two further findings shaped the design:
 - **A force-staged file is *less* durable than an untracked one.** `git reset
   --hard` (the failure-teardown step) deletes a staged-but-uncommitted file
   but leaves an untracked file alone. Anything orca writes for the user must
-  therefore be written untracked, never pre-staged; it rides a later stage
-  commit's `git add -A` or the user's own commit.
+  therefore be written untracked, never pre-staged; it is written untracked
+  and committed separately (or by the user).
 
 Named presets (`preset = rust-cargo`) were considered and rejected: real
 projects differ in subtle ways (extra cargo features, a nonstandard sbt

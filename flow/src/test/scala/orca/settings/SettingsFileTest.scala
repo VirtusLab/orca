@@ -139,16 +139,6 @@ class SettingsFileTest extends FunSuite:
         s"reason, whitespace runs collapsed, got: $rendered"
     )
 
-  test("render leaves a Demoted entry invisible to parse"):
-    val entries = List(
-      SettingsEntry.Command("format", "cargo fmt", None),
-      SettingsEntry.Demoted("lint", "just check", "just: not found on PATH")
-    )
-    assertEquals(
-      SettingsFile.parse(SettingsFile.render(entries)),
-      Right(StackSettings(format = List("cargo fmt")))
-    )
-
   test("render turns a multi-line comment into # lines that parse ignores"):
     val rendered = SettingsFile.render(
       List(
@@ -168,25 +158,4 @@ class SettingsFileTest extends FunSuite:
     assertEquals(
       SettingsFile.parse(rendered),
       Right(StackSettings(format = List("cargo fmt")))
-    )
-
-  test("render output parses back to the entries' commands"):
-    val entries = List(
-      SettingsEntry.Command(
-        "format",
-        "cargo fmt",
-        Some("Cargo.toml (rustfmt ships with the toolchain)")
-      ),
-      SettingsEntry.Command("lint", "cargo check --tests", None),
-      SettingsEntry.Command("lint", "pnpm run lint", Some("package.json")),
-      SettingsEntry.Unset("test", "no test evidence found")
-    )
-    assertEquals(
-      SettingsFile.parse(SettingsFile.render(entries)),
-      Right(
-        StackSettings(
-          format = List("cargo fmt"),
-          lint = List("cargo check --tests", "pnpm run lint")
-        )
-      )
     )

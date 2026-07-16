@@ -13,18 +13,13 @@ import org.scalacheck.Prop.forAll
   */
 class SettingsFilePropertyTest extends ScalaCheckSuite:
 
-  property("parse of render round-trips commands over the documented domain"):
-    forAll(entriesGen(tameText)): entries =>
-      assertEquals(
-        SettingsFile.parse(SettingsFile.render(entries)),
-        Right(expectedSettings(entries))
-      )
-
-  property("hostile free text never breaks the file or leaks into settings"):
-    // Comments, Unset reasons and Demoted commands/reasons are arbitrary
-    // unicode (newlines, `#`, `=`, whitespace runs) — render's sanitization
-    // must keep every free-text character on `#` lines, so the parse result
-    // is still exactly the Command entries' commands.
+  property(
+    "parse of render round-trips commands over the full free-text domain"
+  ):
+    // The round-trip law: comments, Unset reasons and Demoted commands/reasons
+    // are arbitrary unicode (newlines, `#`, `=`, whitespace runs, hostile text
+    // included) — render's sanitization must keep every free-text character on
+    // `#` lines, so the parse result is exactly the Command entries' commands.
     forAll(entriesGen(arbitrary[String])): entries =>
       assertEquals(
         SettingsFile.parse(SettingsFile.render(entries)),
@@ -79,14 +74,6 @@ class SettingsFilePropertyTest extends ScalaCheckSuite:
       head <- printable.suchThat(_ != '#')
       tail <- Gen.listOf(commandChar)
     yield (head :: tail).mkString
-
-  /** Free text with no line breaks or `#`/`=`, for the property where the
-    * commands — not the free-text fields — are the law under test.
-    */
-  private val tameText: Gen[String] =
-    Gen
-      .listOf(Gen.frequency(9 -> Gen.alphaNumChar, 2 -> Gen.const(' ')))
-      .map(_.mkString)
 
   private def entriesGen(freeText: Gen[String]): Gen[List[SettingsEntry]] =
     val entry = Gen.oneOf(

@@ -115,6 +115,15 @@ trait GitTool:
       WorkspaceWrite
   ): Either[NothingToCommit, Unit]
 
+  /** Commit exactly the given path: stage it, then `git commit -m <message> --
+    * <path>`. The commit pathspec makes the single-path scope a property of the
+    * command itself — anything else dirty or untracked in the working tree
+    * stays out of the commit, in contrast to [[commit]], whose `add -A` sweeps
+    * the whole tree into the commit. Throws `OrcaFlowException` when the path
+    * has no changes to commit or on system-level failures.
+    */
+  def commitOnly(path: os.Path, message: String)(using WorkspaceWrite): Unit
+
   /** Force-stage `path` (`git add -f`), bypassing `.gitignore`. The stage
     * runtime uses this to stage its progress-log file even when the project
     * gitignores `.orca/`, so the log travels with the branch (ADR 0018 §2.1).
@@ -322,11 +331,20 @@ private[orca] class OsGitTool(
       events.onEvent(OrcaEvent.Step(s"Committed: $message"))
       Right(())
 
+  def commitOnly(path: os.Path, message: String)(using WorkspaceWrite): Unit =
+    val _ = git("add", "--", path.toString)
+    val _ = git("commit", "-m", message, "--", path.toString)
+    events.onEvent(OrcaEvent.Step(s"Committed: $message"))
+
   def forceAdd(path: os.Path)(using WorkspaceWrite): Unit =
     val _ = git("add", "-f", path.toString)
 
   def add(path: os.Path)(using WorkspaceWrite): Unit =
-    val _ = git("add", "--", path.toString)
+    // `git add` exits non-zero when an explicitly named pathspec is
+    // gitignored; the contract is to leave such a path unstaged, so the
+    // ignored case skips the add instead of failing.
+    if !isIgnored(path.subRelativeTo(workDir)) then
+      val _ = git("add", "--", path.toString)
 
   /** Like [[git]] but on non-zero exit throws an `OrcaFlowException` enriched
     * with a `git status --porcelain` + `git fsck --no-progress` snapshot. Used

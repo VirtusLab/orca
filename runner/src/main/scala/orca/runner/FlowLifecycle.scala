@@ -578,22 +578,24 @@ object FlowLifecycle:
     * the fresh arm after branch creation and before the header commit, the
     * resume arm right after the write (the branch already exists).
     *
-    * Staged with a PLAIN single-path [[GitTool.add]] — NOT `forceAdd`: a repo
-    * that still ignores `.orca/` must keep the file ignored (the startup
-    * migration warning already covers it), so the commit is SKIPPED outright
-    * when [[GitTool.isIgnored]] reports the path excluded, leaving the file
+    * Committed with [[GitTool.commitOnly]], whose commit pathspec guarantees
+    * the commit carries exactly this one path — anything else dirty or
+    * untracked in the tree (e.g. a progress log restored untracked by
+    * [[restoreLogIfMissing]]) stays out. NOT `forceAdd`: a repo that still
+    * ignores `.orca/` must keep the file ignored (the startup migration warning
+    * already covers it), so the commit is SKIPPED outright when
+    * [[GitTool.isIgnored]] reports the path excluded, leaving the file
     * untracked for the user to commit after fixing the ignore. Only the
-    * progress log punches through the ignore, for resume correctness. Write →
-    * add → commit stay adjacent so the file is never left staged but
-    * uncommitted; `commit`'s `add -A` finds nothing else to sweep, since the
-    * post-`ensureClean` tree holds only this file.
+    * progress log punches through the ignore, for resume correctness.
     */
   private def commitDiscoveredSettings(git: GitTool, workDir: os.Path)(using
       WorkspaceWrite
   ): Unit =
     if !git.isIgnored(OrcaDir.settingsSubPath) then
-      git.add(OrcaDir.settingsPath(workDir))
-      val _ = git.commit("orca: stack settings (discovered)")
+      git.commitOnly(
+        OrcaDir.settingsPath(workDir),
+        "orca: stack settings (discovered)"
+      )
 
   /** The deterministic `flow-<hash>` fallback name for `userPrompt`
     * (`BranchNamingStrategy.flowFallbackName`), minted into a

@@ -9,13 +9,12 @@ import orca.testkit.TempDirs
 class StackDiscoveryTest extends munit.FunSuite:
 
   test(
-    "the prompt's always-both example shape decodes under the strict codec"
+    "a representative always-both envelope shape decodes under the strict codec"
   ):
     // The strict output schema requires both keys on every task, so agents
     // emit "commands": [] and "unsetReason": null where a side doesn't apply
     // — this pins that the strict jsoniter codec accepts exactly that shape,
-    // including the single-property "result" envelope (the example in
-    // prompts/stack-discovery.md).
+    // including the single-property "result" envelope.
     val json =
       """{"result":
         | {"format": {"commands": [{"command": "acme style --write",
