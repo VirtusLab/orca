@@ -21,6 +21,12 @@ private[orca] object AgentSpec:
     "gemini" -> BackendTag.Gemini
   )
 
+  /** The settings-file harness name for a backend tag — the reverse of
+    * [[harnessNames]]. Used by the role-announcement `Step` to render a
+    * resolved role's harness (`claude`, `codex`, …).
+    */
+  val harnessNameFor: Map[BackendTag, String] = harnessNames.map(_.swap)
+
   /** Left = human-readable problem for the settings-error message. Split at the
     * FIRST `:` so a model id containing `:` survives; an empty model part means
     * no pin.

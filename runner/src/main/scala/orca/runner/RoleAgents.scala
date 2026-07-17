@@ -5,16 +5,16 @@ import orca.settings.{AgentSettings, AgentSpec}
 
 /** The three role agents resolved for one run — every field an existentially
   * typed [[Agent]] since planning/coding/review can each land on a different
-  * backend. Opening the existential (dispatching on the concrete tag to call
-  * `run`/`resultAs`) is the wiring task's job, not this one's.
+  * backend. `runFlow` opens the existentials with type-variable patterns to
+  * construct the concretely-typed [[orca.runner.DefaultFlowContext]].
   */
-private[runner] case class ResolvedRoles(
+private[orca] case class ResolvedRoles(
     planning: Agent[?],
     coding: Agent[?],
     review: Agent[?]
 )
 
-private[runner] object RoleAgents:
+private[orca] object RoleAgents:
   /** Resolve the three role agents against the run's wired set — every role
     * shares a wired backend, so events and close() behave exactly as for the
     * wired five. An unset role defaults to claude with no model pin.

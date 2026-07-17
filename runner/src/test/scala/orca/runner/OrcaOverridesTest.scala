@@ -1,6 +1,6 @@
 package orca.runner
 
-import orca.{AgentSet, FlowContext, OrcaArgs, StackSettings, flow, fs, pi}
+import orca.{FlowContext, OrcaArgs, StackSettings, flow, fs, pi}
 import orca.tools.{FsTool}
 import orca.testkit.GitRepo
 import orca.agents.{
@@ -30,11 +30,6 @@ class OrcaOverridesTest extends munit.FunSuite:
   // `stage`), so mint the in-stage token for the suite (package `orca.runner`).
   private given orca.InStage = orca.InStage.unsafe
 
-  // The leading-model selector defaults to `_.claude` (ADR 0018 §2.5); these
-  // tests assert tool-override wiring, not LLM behaviour, so they resolve a stub
-  // via a `_ => StubAgent.claude` selector.
-  private val stubLead: AgentSet => ClaudeAgent = _ => StubAgent.claude
-
   test("flow uses a custom FsTool when supplied"):
     val fake = new FsTool:
       def read(path: String): Option[String] = Some("canned content")
@@ -53,7 +48,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         stackSettings = Some(StackSettings.empty),
-        agent = stubLead,
+        claude = Some(_ => StubAgent.claude),
         workDir = GitRepo.seeded(),
         fs = Some(fake),
         interaction = Some(interaction)
@@ -98,7 +93,6 @@ class OrcaOverridesTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => fakeClaude,
         workDir = GitRepo.seeded(),
         claude = Some(_ => fakeClaude),
         interaction = Some(interaction)
@@ -141,7 +135,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         stackSettings = Some(StackSettings.empty),
-        agent = stubLead,
+        claude = Some(_ => StubAgent.claude),
         workDir = GitRepo.seeded(),
         opencode = Some(_ => fakeOpencode),
         interaction = Some(interaction)
@@ -170,7 +164,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         stackSettings = Some(StackSettings.empty),
-        agent = stubLead,
+        claude = Some(_ => StubAgent.claude),
         workDir = GitRepo.seeded(),
         opencode = Some(w => OpencodeAgents.default(w)),
         interaction = Some(interaction)
@@ -207,7 +201,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         stackSettings = Some(StackSettings.empty),
-        agent = stubLead,
+        claude = Some(_ => StubAgent.claude),
         workDir = GitRepo.seeded(),
         pi = Some(_ => fakePi),
         interaction = Some(interaction)
@@ -269,7 +263,6 @@ class OrcaOverridesTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         stackSettings = Some(StackSettings.empty),
-        agent = _.claude,
         workDir = GitRepo.seeded(),
         claude = Some(w => wiredClaude(w.events)),
         interaction = Some(interaction),
@@ -293,7 +286,7 @@ class OrcaOverridesTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         stackSettings = Some(StackSettings.empty),
-        agent = stubLead,
+        claude = Some(_ => StubAgent.claude),
         workDir = GitRepo.seeded(),
         interaction = Some(interaction),
         extraListeners = List(tracker)

@@ -28,16 +28,17 @@ case class BranchSlug(name: String) derives JsonData
 
 object FlowCanary:
 
-  // The leading model is named by a `flow(...)` selector resolved against the
-  // flow context (ADR 0018 §2.5). A positional `agent` selector is
-  // required: `_.claude`, `_.codex`, etc. These canaries use the real shapes
-  // the `examples/*.sc` files use — no hand-built stub.
+  // Role agents (ADR 0020) resolve from settings, not a script selector: a
+  // flow names no agent at the call site and reads `planningAgent`/
+  // `codingAgent`/`reviewAgent` (or a concrete accessor) inside the body. These
+  // canaries use the real shapes the `examples/*.sc` files use — no hand-built
+  // stub.
 
   /** Structured output via `derives JsonData` must be reachable through the
     * `resultAs[O]` path without any extra imports.
     */
   def structuredResult(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       // Durable structured turns go through the FlowSession door (seeded,
       // persisted); the raw `resultAs[O]` door is exercised with ephemeral
       // (fresh / `.id`) sessions only — never a durable-session id. Minting
@@ -57,7 +58,7 @@ object FlowCanary:
     * promises for per-task implementation.
     */
   def continuedSession(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       // Durable free-text continuation goes through the FlowSession door.
       val session = claude.session("impl", seed = userPrompt)
       stage("impl"):
@@ -72,7 +73,7 @@ object FlowCanary:
   /** Every top-level accessor must resolve from `import orca.*` alone.
     */
   def accessors(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       stage("tools"):
         val _ = git.createBranch("x")
         val _ = git.commit("msg")
@@ -91,7 +92,7 @@ object FlowCanary:
     * fork machinery (which now runs under the caller's stage).
     */
   def reviewLoop(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       // Named, durable, rehydratable coder session (has a SessionRecord, so a
       // resume can rehydrate it) — NOT a session id carried as a stage result.
       val session = claude.session("plan", seed = userPrompt)
@@ -122,7 +123,7 @@ object FlowCanary:
     * FlowSession doors must not).
     */
   def customFanOutSurface(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       val coder = claude.session("implementer", seed = userPrompt)
       stage("review"):
         val _ = coder.run("implement the task")
@@ -160,7 +161,7 @@ object FlowCanary:
     * set without any side import.
     */
   def reviewerCustomisationSurface(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       stage("reviewers"):
         val custom: Reviewer = Reviewer(
           name = "my-thing",
@@ -176,7 +177,7 @@ object FlowCanary:
     * `flow(args = ..., workDir = ...)` straight from `import orca.*`.
     */
   def configured(): Unit =
-    flow(args = OrcaArgs("hello"), agent = _.claude, workDir = os.pwd):
+    flow(args = OrcaArgs("hello"), workDir = os.pwd):
       stage("cfg"):
         val _ = claude.run(userPrompt)
 
@@ -185,7 +186,7 @@ object FlowCanary:
     * Array[String]`.
     */
   def fromCliArgs(args: Array[String]): Unit =
-    flow(OrcaArgs(args), _.claude):
+    flow(OrcaArgs(args)):
       stage("start"):
         val _ = claude.run(userPrompt)
 
@@ -195,7 +196,7 @@ object FlowCanary:
     * surfaces in this test instead of at the next live run.
     */
   def summarisePrSurface(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       stage("pr"):
         val summary: PrSummary = summarisePr(
           agent = claude.haiku,
@@ -210,7 +211,7 @@ object FlowCanary:
     * from `import orca.*` alone, with no side import.
     */
   def exportsSurface(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       stage("exports"):
         val tracker = new CostTracker()
         val _: Option[Cost] = tracker.totalCost
@@ -233,7 +234,7 @@ object FlowCanary:
     * `examples/`. If any of these signatures move, the canary fails.
     */
   def issueAndPrSurface(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       stage("gh"):
         val issueHandle = IssueHandle.parseOrThrow("acme/widgets#7")
         val _: Either[String, IssueHandle] = IssueHandle.parse("acme/widgets#7")
@@ -260,7 +261,7 @@ object FlowCanary:
     * conversion restored the per-flow branching ceremony.
     */
   def branchAndPrSurface(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       stage("pr"):
         git.push().orThrow
         val summary = summarisePr(
@@ -279,7 +280,7 @@ object FlowCanary:
     * rename/case removal surfaces here instead of at the next live run.
     */
   def planningGridSurface(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       stage("grid"):
         // --- from → Sessioned[B, Plan], both modes ---
         val autoFrom: Sessioned[?, Plan] =
@@ -342,7 +343,7 @@ object FlowCanary:
     * and the task loop is a plain per-task `stage(...)`.
     */
   def planReviewAndBriefSurface(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       val plan: Plan =
         stage("plan"):
           Plan.autonomous
@@ -368,7 +369,7 @@ object FlowCanary:
     * new-API additions.
     */
   def implementFlowShape(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude).value
 
@@ -390,7 +391,7 @@ object FlowCanary:
     * the planning call differs from `implementFlowShape`.
     */
   def interactivePlanFlowShape(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       val plan: Plan = stage("Plan"):
         Plan.interactive.from(userPrompt, claude).value
 
@@ -409,7 +410,7 @@ object FlowCanary:
     * session → task loop with `taskPrompt` → `openPrFromBranch`.
     */
   def enhancedImplementFlowShape(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude).reviewed(claude).value
 
@@ -426,21 +427,34 @@ object FlowCanary:
 
       val _ = openPrFromBranch(summarisingAgent = claude.haiku)
 
-  /** The leading-model selector resolves against the flow context (ADR 0018
-    * §2.5): a positional `agent` selector is required (`_.claude`, `_.codex`,
-    * …). Pins the `_.codex` positional shape so a selector regression surfaces
-    * here.
+  /** Role agents (ADR 0020): the three role accessors hand out backend-pinned
+    * agents (so their sessions thread), and the per-role programmatic overrides
+    * on `flow(...)` are selector-shaped (`Some(_.claude.opus)`). Pins both the
+    * accessor surface and the override-parameter shape so a regression in
+    * either surfaces here.
     */
-  def agentSelector(): Unit =
-    flow(OrcaArgs(), _.codex):
-      stage("lead"):
-        val _ = codex.run(userPrompt)
+  def roleAgentsSurface(): Unit =
+    flow(
+      OrcaArgs(),
+      planningAgent = Some(_.claude.opus),
+      codingAgent = Some(_.codex),
+      reviewAgent = Some(_.claude.sonnet)
+    ):
+      // Sessions are minted at the flow-body top level (outside any stage) and
+      // thread because each role accessor is backend-pinned.
+      val planSession = planningAgent.session("plan", seed = userPrompt)
+      val implSession = codingAgent.session("impl", seed = userPrompt)
+      stage("roles"):
+        val _ = planSession.run(userPrompt)
+        val _ = implSession.run(userPrompt)
+        val _ = codingAgent.run(userPrompt)
+        val _: Agent[?] = reviewAgent
 
   /** `epic.sc`: cross-backend review — claude implements, codex reviews.
     * Exercises the `allReviewers(codex)` shape and `claude.opus` planning.
     */
   def epicFlowShape(): Unit =
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude.opus).value
 
@@ -470,7 +484,6 @@ object FlowCanary:
     val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
     flow(
       orcaArgs,
-      _.claude,
       branchNaming = Some(BranchNamingStrategy.issue(issueHandle))
     ):
       // Read outside stage (no InStage needed).
@@ -514,7 +527,6 @@ object FlowCanary:
     val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
     flow(
       orcaArgs,
-      _.claude,
       branchNaming = Some(BranchNamingStrategy.issue(issueHandle))
     ):
       // Pure read outside any stage.
@@ -568,13 +580,13 @@ object FlowCanary:
             stage(s"task: ${task.title}"):
               val _ = session.run(fixPlan.taskPrompt(task))
               // An explicit override beats the settings file; the summariser
-              // rides on the lead's cheap tier via the `agent` accessor.
+              // rides on the coding role's cheap tier via `codingAgent`.
               reviewAndFixLoop(
                 coderSession = session,
                 reviewers = allReviewers(claude),
                 task = task.title.value,
                 lint = Configured.Use(
-                  Lint(List("sbt Test/compile"), agent.cheap)
+                  Lint(List("sbt Test/compile"), codingAgent.cheap)
                 )
               )
 
@@ -601,7 +613,6 @@ object StackSettingsCanary:
   def overrideParameter(): Unit =
     flow(
       OrcaArgs(),
-      _.claude,
       stackSettings = Some(StackSettings(format = List("cargo fmt")))
     ):
       stage("fmt"):
@@ -615,7 +626,7 @@ object StackSettingsCanary:
   def configuredStates(): Unit =
     val _: Configured[List[String]] = Configured.FromSettings
     val _: Configured[List[String]] = Configured.Use(List("cargo fmt"))
-    flow(OrcaArgs(), _.claude):
+    flow(OrcaArgs()):
       val session = claude.session("implementer", seed = userPrompt)
       val _ = stage("task"):
         reviewAndFixLoop(

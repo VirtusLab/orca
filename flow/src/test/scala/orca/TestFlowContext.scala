@@ -45,14 +45,12 @@ class TestFlowContext(
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowContext")
 
-  type LeadB = BackendTag.ClaudeCode.type
-  lazy val agent: Agent[LeadB] = stub("agent")
-  type PlanB = LeadB
-  type CodeB = LeadB
-  type ReviewB = LeadB
-  lazy val planningAgent: Agent[PlanB] = agent
-  lazy val codingAgent: Agent[CodeB] = agent
-  lazy val reviewAgent: Agent[ReviewB] = agent
+  type PlanB = BackendTag.ClaudeCode.type
+  type CodeB = BackendTag.ClaudeCode.type
+  type ReviewB = BackendTag.ClaudeCode.type
+  lazy val planningAgent: Agent[PlanB] = stub("planningAgent")
+  lazy val codingAgent: Agent[CodeB] = stub("codingAgent")
+  lazy val reviewAgent: Agent[ReviewB] = stub("reviewAgent")
   lazy val claude: ClaudeAgent = stub("claude")
   lazy val codex: CodexAgent = stub("codex")
   lazy val opencode: OpencodeAgent = stub("opencode")
@@ -83,14 +81,16 @@ class TestFlowControl(
   private def stub(name: String) =
     throw new NotImplementedError(s"$name is not wired in TestFlowControl")
 
-  type LeadB = BackendTag.ClaudeCode.type
-  lazy val agent: Agent[LeadB] = lead.getOrElse(stub("agent"))
-  type PlanB = LeadB
-  type CodeB = LeadB
-  type ReviewB = LeadB
-  lazy val planningAgent: Agent[PlanB] = agent
-  lazy val codingAgent: Agent[CodeB] = agent
-  lazy val reviewAgent: Agent[ReviewB] = agent
+  // The three roles are backed by the same `lead` agent the test supplies —
+  // the coding role drives commit messages, the review role the review
+  // machinery, so a test that wires `lead` sees it through whichever role it
+  // exercises.
+  type PlanB = BackendTag.ClaudeCode.type
+  type CodeB = BackendTag.ClaudeCode.type
+  type ReviewB = BackendTag.ClaudeCode.type
+  lazy val planningAgent: Agent[PlanB] = lead.getOrElse(stub("planningAgent"))
+  lazy val codingAgent: Agent[CodeB] = lead.getOrElse(stub("codingAgent"))
+  lazy val reviewAgent: Agent[ReviewB] = lead.getOrElse(stub("reviewAgent"))
   lazy val claude: ClaudeAgent = stub("claude")
   lazy val codex: CodexAgent = stub("codex")
   lazy val opencode: OpencodeAgent = stub("opencode")

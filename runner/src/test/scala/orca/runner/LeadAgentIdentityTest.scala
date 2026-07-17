@@ -35,20 +35,21 @@ import ox.supervised
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.AtomicReference
 
-/** Pins the foreign-lead handling: the `agent` selector can return an agent
-  * built from a backend that isn't wired into this run — event-blind (built
-  * against its own `AgentWiring`, not this run's dispatcher) and, absent this
-  * fix, never closed. [[DefaultFlowContext.close]] unconditionally closes the
-  * resolved lead alongside all five wired agents (no wired/foreign branch
-  * needed there — a backend's own `close()` is idempotent), so a foreign lead's
-  * backend is closed too. `runFlow` separately warns loudly when it resolves a
-  * foreign lead against the wired agent set, comparing backend IDENTITY
+/** Pins the foreign-agent handling: a per-role override (`codingAgent =
+  * Some(...)`) can return an agent built from a backend that isn't wired into
+  * this run — event-blind (built against its own `AgentWiring`, not this run's
+  * dispatcher) and, absent this fix, never closed. [[DefaultFlowContext.close]]
+  * unconditionally closes the three resolved role agents alongside all five
+  * wired agents (no wired/foreign branch needed there — a backend's own
+  * `close()` is idempotent), so a foreign role agent's backend is closed too.
+  * `runFlow` separately warns loudly per role when it resolves a foreign agent
+  * against the wired agent set, comparing backend IDENTITY
   * ([[orca.agents.Agent.backendIdentity]]), not `Agent` reference equality —
   * the positive case below pins that a `copyTool`-derived sibling of a wired
-  * agent (the common `_.claude.opus` selector shape) does NOT trip that
-  * warning, which a naive `Agent eq Agent` implementation would get wrong, and
-  * that its shared backend's teardown still runs exactly once despite being
-  * closed via two different `Agent` instances.
+  * agent (the common `_.claude.opus` shape) does NOT trip that warning, which a
+  * naive `Agent eq Agent` implementation would get wrong, and that its shared
+  * backend's teardown still runs exactly once despite being closed via two
+  * different `Agent` instances.
   */
 class LeadAgentIdentityTest extends munit.FunSuite:
 
@@ -80,7 +81,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         stackSettings = Some(StackSettings.empty),
-        agent = (_: AgentSet) => foreignAgent,
+        codingAgent = Some((_: AgentSet) => foreignAgent),
         workDir = GitRepo.seeded(),
         interaction = Some(interaction()),
         extraListeners = List(stepRecorder(warnings))
@@ -89,7 +90,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
     assert(
       warnings.exists(
         _.contains(
-          "lead agent was not built from this flow's context"
+          "coding agent was not built from this flow's context"
         )
       ),
       s"expected a foreign-lead resolution warning Step, saw: $warnings"
@@ -113,7 +114,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
         // Mirrors the common `_.claude.opus` selector shape: `.withName` is a
         // `copyTool`-derived sibling — a DIFFERENT `Agent` instance sharing the
         // SAME backend as the wired `pi`, not the wired `pi` value itself.
-        agent = (agents: AgentSet) => agents.pi.withName("lead-pi"),
+        codingAgent = Some((agents: AgentSet) => agents.pi.withName("lead-pi")),
         workDir = GitRepo.seeded(),
         pi = Some(w =>
           new DefaultPiAgent(
@@ -130,7 +131,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
         ()
     assert(
       !warnings.exists(
-        _.contains("lead agent was not built from this flow's context")
+        _.contains("coding agent was not built from this flow's context")
       ),
       s"a copyTool-derived sibling of a wired agent must not trigger the " +
         s"foreign-lead warning, saw: $warnings"
@@ -163,7 +164,7 @@ class LeadAgentIdentityTest extends munit.FunSuite:
         runFlow(
           args = OrcaArgs(),
           stackSettings = Some(StackSettings.empty),
-          agent = selector,
+          codingAgent = Some(selector),
           workDir = GitRepo.seeded(),
           interaction = Some(interaction()),
           extraListeners = List(listener),

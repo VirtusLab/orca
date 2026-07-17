@@ -26,7 +26,7 @@ class OrcaTest extends munit.FunSuite:
       flow(
         args = OrcaArgs("hello world"),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => StubAgent.claude,
+        claude = Some(_ => StubAgent.claude),
         workDir = GitRepo.seeded(),
         interaction = Some(interaction)
       ):
@@ -44,7 +44,7 @@ class OrcaTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => StubAgent.claude,
+        claude = Some(_ => StubAgent.claude),
         workDir = GitRepo.seeded(),
         interaction = Some(interaction)
       ):

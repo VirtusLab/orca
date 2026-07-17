@@ -57,6 +57,11 @@ import orca.testkit.{GitRepo, TempDirs}
   */
 class FlowLifecycleTest extends munit.FunSuite:
 
+  // An absent user-global settings path: these tests drive `readSettings`
+  // directly and must never read the developer's real `~/.config`.
+  private val noGlobalSettings: os.Path =
+    orca.testkit.TempDirs.dir() / "no-global.properties"
+
   test("success teardown: ends on start branch and removes progress-log file"):
     val workDir = GitRepo.seeded()
     supervised:
@@ -68,7 +73,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       flow(
         args = OrcaArgs("lifecycle-success"),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => StubAgent.claude,
+        claude = Some(_ => StubAgent.claude),
         workDir = workDir,
         interaction = Some(interaction)
       ):
@@ -196,7 +201,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(prompt),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => StubAgent.claude,
+        claude = Some(_ => StubAgent.claude),
         workDir = workDir,
         progressStore = Some(store),
         interaction = Some(interaction)
@@ -364,7 +369,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         runFlow(
           args = OrcaArgs(prompt),
           stackSettings = Some(StackSettings.empty),
-          agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = Nil,
@@ -477,7 +481,10 @@ class FlowLifecycleTest extends munit.FunSuite:
       git = git,
       workDir = workDir,
       branchNaming = None,
-      settingsOverride = Some(StackSettings.empty),
+      resolution = FlowLifecycle
+        .readSettings(workDir, noGlobalSettings, Some(StackSettings.empty))
+        .stack,
+      stackOverridden = true,
       store = store,
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
@@ -539,7 +546,10 @@ class FlowLifecycleTest extends munit.FunSuite:
       git = git,
       workDir = workDir,
       branchNaming = None,
-      settingsOverride = settingsOverride,
+      resolution = FlowLifecycle
+        .readSettings(workDir, noGlobalSettings, settingsOverride)
+        .stack,
+      stackOverridden = settingsOverride.isDefined,
       store = store,
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
@@ -602,7 +612,10 @@ class FlowLifecycleTest extends munit.FunSuite:
       git = new OsGitTool(workDir),
       workDir = workDir,
       branchNaming = None,
-      settingsOverride = settingsOverride,
+      resolution = FlowLifecycle
+        .readSettings(workDir, noGlobalSettings, settingsOverride)
+        .stack,
+      stackOverridden = settingsOverride.isDefined,
       store = ProgressStore.default(workDir, prompt),
       emit = _ => ()
     )
@@ -663,7 +676,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     val thrown = intercept[orca.OrcaFlowException]:
       setupForSettings(workDir)
     assert(
-      thrown.getMessage.contains("invalid stack settings") &&
+      thrown.getMessage.contains("invalid settings") &&
         thrown.getMessage.contains(OrcaDir.settingsPath(workDir).toString) &&
         thrown.getMessage.contains("not-a-key"),
       s"abort message must name the path and the parser's error: ${thrown.getMessage}"
@@ -706,7 +719,10 @@ class FlowLifecycleTest extends munit.FunSuite:
       git = new OsGitTool(workDir),
       workDir = workDir,
       branchNaming = None,
-      settingsOverride = None,
+      resolution = FlowLifecycle
+        .readSettings(workDir, noGlobalSettings, None)
+        .stack,
+      stackOverridden = false,
       store = ProgressStore.default(workDir, prompt),
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
@@ -954,7 +970,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         )
         runFlow(
           args = OrcaArgs(prompt),
-          agent = _ => throwing,
+          wiring = FlowWiring(claude = Some(_ => throwing)),
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = Nil,
@@ -1201,7 +1217,6 @@ class FlowLifecycleTest extends munit.FunSuite:
       runFlow(
         args = OrcaArgs(prompt),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => recorder,
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = Nil,
@@ -1236,7 +1251,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       runFlow(
         args = OrcaArgs(prompt),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => StubAgent.claude,
+        wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = extraListeners,
@@ -1293,14 +1308,16 @@ class FlowLifecycleTest extends munit.FunSuite:
         runFlow(
           args = OrcaArgs(prompt),
           stackSettings = Some(StackSettings.empty),
-          agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = Nil,
           branchNaming = None,
           returnToStartBranch = false,
           progressStore = None,
-          wiring = FlowWiring(opencode = Some(_ => recorder))
+          wiring = FlowWiring(
+            claude = Some(_ => StubAgent.claude),
+            opencode = Some(_ => recorder)
+          )
         ):
           throw new RuntimeException("boom in body")
     assertEquals(thrown.cause.getMessage, "boom in body")
@@ -1327,7 +1344,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(prompt),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => StubAgent.claude,
+        claude = Some(_ => StubAgent.claude),
         workDir = workDir,
         interaction = Some(interaction)
       ):
@@ -1364,7 +1381,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(prompt),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => StubAgent.claude,
+        claude = Some(_ => StubAgent.claude),
         workDir = workDir,
         interaction = Some(interaction)
       ):
@@ -1406,7 +1423,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(prompt),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => StubAgent.claude,
+        claude = Some(_ => StubAgent.claude),
         workDir = workDir,
         interaction = Some(interaction),
         returnToStartBranch = true
@@ -1486,7 +1503,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(prompt),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => StubAgent.claude,
+        claude = Some(_ => StubAgent.claude),
         workDir = workDir,
         interaction = Some(interaction)
       ):
@@ -1521,7 +1538,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(prompt),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => StubAgent.claude,
+        claude = Some(_ => StubAgent.claude),
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = List(listener),
@@ -1588,7 +1605,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(prompt),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => StubAgent.claude,
+        claude = Some(_ => StubAgent.claude),
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = List(listener),
@@ -1656,7 +1673,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         runFlow(
           args = OrcaArgs(prompt),
           stackSettings = Some(StackSettings.empty),
-          agent = _ => StubAgent.claude,
+          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = List(listener),
@@ -1800,7 +1817,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         runFlow(
           args = OrcaArgs(prompt),
           stackSettings = Some(StackSettings.empty),
-          agent = _ => thrower,
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = List(listener),
@@ -1836,14 +1852,16 @@ class FlowLifecycleTest extends munit.FunSuite:
         runFlow(
           args = OrcaArgs(prompt),
           stackSettings = Some(StackSettings.empty),
-          agent = _ => StubAgent.claude,
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = List(listener),
           branchNaming = None,
           returnToStartBranch = false,
           progressStore = Some(store),
-          wiring = FlowWiring(git = Some(new ResetThrowingGit(workDir)))
+          wiring = FlowWiring(
+            claude = Some(_ => StubAgent.claude),
+            git = Some(new ResetThrowingGit(workDir))
+          )
         ):
           val _ = stage[String]("crash"):
             throw new RuntimeException("boom body")
@@ -1880,7 +1898,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       runFlow(
         args = OrcaArgs(prompt),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => StubAgent.claude,
+        wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = Nil,
@@ -1893,7 +1911,7 @@ class FlowLifecycleTest extends munit.FunSuite:
             runFlow(
               args = OrcaArgs("inner"),
               stackSettings = Some(StackSettings.empty),
-              agent = _ => StubAgent.claude,
+              wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
               workDir = workDir,
               interaction = Some(interaction),
               extraListeners = Nil,
@@ -1941,7 +1959,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         runFlow(
           args = OrcaArgs("live-pid"),
           stackSettings = Some(StackSettings.empty),
-          agent = _ => StubAgent.claude,
+          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = Nil,
@@ -1988,7 +2006,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         runFlow(
           args = OrcaArgs("steal"),
           stackSettings = Some(StackSettings.empty),
-          agent = _ => StubAgent.claude,
+          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
           workDir = workDir,
           interaction = Some(interaction),
           extraListeners = Nil,
@@ -2024,7 +2042,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       runFlow(
         args = OrcaArgs("lock-not-committed"),
         stackSettings = Some(StackSettings.empty),
-        agent = _ => StubAgent.claude,
+        wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
         workDir = workDir,
         interaction = Some(interaction),
         extraListeners = Nil,
@@ -2214,14 +2232,12 @@ class FlowLifecycleTest extends munit.FunSuite:
         */
       emitTo: OrcaEvent => Unit = _ => ()
   ) extends FlowContext:
-    type LeadB = BackendTag.ClaudeCode.type
-    def agent: Agent[LeadB] = notWired("agent")
-    type PlanB = LeadB
-    type CodeB = LeadB
-    type ReviewB = LeadB
-    def planningAgent: Agent[PlanB] = agent
-    def codingAgent: Agent[CodeB] = agent
-    def reviewAgent: Agent[ReviewB] = agent
+    type PlanB = BackendTag.ClaudeCode.type
+    type CodeB = BackendTag.ClaudeCode.type
+    type ReviewB = BackendTag.ClaudeCode.type
+    def planningAgent: Agent[PlanB] = notWired("planningAgent")
+    def codingAgent: Agent[CodeB] = notWired("codingAgent")
+    def reviewAgent: Agent[ReviewB] = notWired("reviewAgent")
     def claude: ClaudeAgent = claudeOverride
     def codex: CodexAgent = codexOverride
     def opencode: OpencodeAgent = opencodeOverride

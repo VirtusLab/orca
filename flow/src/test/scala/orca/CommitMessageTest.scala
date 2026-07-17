@@ -105,13 +105,11 @@ class CommitMessageTest extends munit.FunSuite:
     }
     private def stub(n: String) =
       throw new NotImplementedError(s"$n not wired")
-    type LeadB = BackendTag.ClaudeCode.type
-    // The leading agent IS the test's stub; the commit path's
+    // The coding role IS the test's stub; the commit path's
     // `fc.codingAgent.cheapOneShot` runs the stub's canned reply.
-    def agent: Agent[LeadB] = agentStub
-    type PlanB = LeadB
-    type CodeB = LeadB
-    type ReviewB = LeadB
+    type PlanB = BackendTag.ClaudeCode.type
+    type CodeB = BackendTag.ClaudeCode.type
+    type ReviewB = BackendTag.ClaudeCode.type
     def planningAgent: Agent[PlanB] = agentStub
     def codingAgent: Agent[CodeB] = agentStub
     def reviewAgent: Agent[ReviewB] = agentStub

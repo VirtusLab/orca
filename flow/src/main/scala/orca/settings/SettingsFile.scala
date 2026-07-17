@@ -183,6 +183,16 @@ private[orca] object SettingsFile:
   def render(entries: List[SettingsEntry]): String =
     (Header :: entries.map(renderEntry)).mkString("", "\n", "\n")
 
+  /** The rendered entry block for `entries` WITHOUT [[Header]],
+    * newline-terminated. The append shape for a file that already exists but
+    * carries no stack lines (an agents-only hand-written file): discovery
+    * appends its stack entries below the user's untouched agent lines instead
+    * of overwriting the whole file. Shares [[renderEntry]] with [[render]] so
+    * the entry formatting lives in one place.
+    */
+  def renderAppend(entries: List[SettingsEntry]): String =
+    entries.map(renderEntry).mkString("", "\n", "\n")
+
   private def renderEntry(entry: SettingsEntry): String =
     entry match
       case SettingsEntry.Command(key, command, comment) =>

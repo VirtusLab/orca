@@ -45,13 +45,23 @@ class DefaultFlowContextTest extends munit.FunSuite:
     */
   private def newContext(
       codex: CodexAgent
-  ): DefaultFlowContext[BackendTag.ClaudeCode.type] =
+  ): DefaultFlowContext[
+    BackendTag.ClaudeCode.type,
+    BackendTag.ClaudeCode.type,
+    BackendTag.ClaudeCode.type
+  ] =
     val workDir = TempDirs.dir()
-    new DefaultFlowContext[BackendTag.ClaudeCode.type](
+    new DefaultFlowContext[
+      BackendTag.ClaudeCode.type,
+      BackendTag.ClaudeCode.type,
+      BackendTag.ClaudeCode.type
+    ](
       userPrompt = "test",
       workDir = workDir,
       dispatcher = new EventDispatcher(Nil),
-      agent = ThrowingClaude,
+      planningAgent = ThrowingClaude,
+      codingAgent = ThrowingClaude,
+      reviewAgent = ThrowingClaude,
       wired = new WiredAgents(
         claude = ThrowingClaude,
         codex = codex,

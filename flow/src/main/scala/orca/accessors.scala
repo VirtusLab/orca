@@ -26,33 +26,6 @@ def gh(using ctx: FlowContext): GitHubTool = ctx.gh
 def fs(using ctx: FlowContext): FsTool = ctx.fs
 def userPrompt(using ctx: FlowContext): String = ctx.userPrompt
 
-/** The leading coding agent — the harness chosen by `flow`'s selector
-  * (`_.claude`, `_.codex`, …). Just another accessor over the ambient
-  * `FlowContext`, like `claude`/`git`.
-  *
-  * Two ways to drive a model in a flow:
-  *   - **`agent`** — the leading agent, backend-agnostic. Use it for the flow's
-  *     planning / implementing / reviewing and its session
-  *     (`agent.session(name, seed)` → `FlowSession[ctx.LeadB]`, driven with
-  *     `session.run(...)`): switch the selector and the whole flow follows. A
-  *     session threads because `agent` is `Agent[ctx.LeadB]` (pinned to the
-  *     backend), not an erased `Agent[?]`.
-  *   - **a concrete accessor + model** — `claude.opus`, `claude.sonnet`,
-  *     `codex.mini`, `opencode.openaiLuna`. Use these for a specific backend or
-  *     tier, or for interactive planning (`Plan.interactive` needs a concrete
-  *     backend). The tier accessors (`.opus`/`.sonnet`/…) live on the concrete
-  *     types, NOT on the agnostic `agent`, so `agent.opus` won't compile —
-  *     that's the cue to name the backend. Name the model/tier **first**, then
-  *     any constraints — `claude.opus.withReadOnly`, not
-  *     `claude.withReadOnly.opus` — since only the tier accessors return the
-  *     concrete agent that `.opus`/`.sonnet` hang off.
-  *
-  * Don't mix the two for one session: a `SessionId` is backend-typed, so a
-  * session minted from `claude` won't thread through `agent` once the selector
-  * is something else.
-  */
-def agent(using ctx: FlowContext): Agent[ctx.LeadB] = ctx.agent
-
 /** The planning-role agent (ADR 0020): resolved from settings (`planningAgent =
   * <harness>[:<model>]`), default claude. Reference it in `Plan.*` calls
   * instead of a concrete accessor so planning follows whichever backend the
@@ -68,6 +41,18 @@ def planningAgent(using ctx: FlowContext): Agent[ctx.PlanB] = ctx.planningAgent
   * follows whichever backend `codingAgent = <harness>[:<model>]` in settings
   * names. A session from `codingAgent.session` threads into `session.run` and
   * the reviewers because [[FlowContext.CodeB]] pins the backend.
+  *
+  * Two ways to drive a model in a flow: a role accessor
+  * (`codingAgent`/`planningAgent`/`reviewAgent`) is backend-agnostic — settings
+  * choose the harness, and its session threads because the role type pins the
+  * backend. A concrete accessor + tier (`claude.opus`, `codex.mini`,
+  * `opencode.openaiLuna`) names a specific backend/tier — for interactive
+  * planning or a one-off cheap call. The tier accessors (`.opus`/`.sonnet`/…)
+  * live on the concrete types, not on the agnostic role accessors, so name the
+  * model/tier **first**, then any constraints (`claude.opus.withReadOnly`, not
+  * `claude.withReadOnly.opus`). Don't mix the two for one session: a
+  * `SessionId` is backend-typed, so a session minted from `claude` won't thread
+  * through `codingAgent` when settings name a different backend.
   *
   * '''Helper authoring:''' the path-dependent `Agent[ctx.CodeB]` (the same
   * holds for `ctx.PlanB` / `ctx.ReviewB`) is convenient in a straight-line

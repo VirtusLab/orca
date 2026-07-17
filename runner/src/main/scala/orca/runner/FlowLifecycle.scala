@@ -24,7 +24,7 @@ import orca.progress.{
   SessionRecord,
   UnsafeBranchRefRefused
 }
-import orca.settings.{SettingsFile, SettingsScope}
+import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
 import orca.tools.GitTool
 import org.slf4j.LoggerFactory
 import ox.either.orThrow
@@ -82,8 +82,8 @@ object FlowLifecycle:
     * The failure and success teardowns are structurally disjoint — the body
     * catch rethrows, so success teardown is unreachable on a body failure.
     */
-  private[orca] def run[B <: BackendTag](
-      ctx: DefaultFlowContext[B],
+  private[orca] def run(
+      ctx: DefaultFlowContext[?, ?, ?],
       flowSetup: FlowSetup,
       returnToStartBranch: Boolean,
       debug: Boolean
@@ -238,10 +238,10 @@ object FlowLifecycle:
     */
   private def warnIfSettingsIgnored(
       git: GitTool,
-      settingsOverride: Option[StackSettings],
+      stackOverridden: Boolean,
       emit: OrcaEvent => Unit
   ): Unit =
-    if settingsOverride.isEmpty && git.isIgnored(OrcaDir.settingsSubPath) then
+    if !stackOverridden && git.isIgnored(OrcaDir.settingsSubPath) then
       emit(
         OrcaEvent.Step(
           "stack settings at .orca/settings.properties are gitignored — " +
@@ -301,25 +301,27 @@ object FlowLifecycle:
     */
   private[orca] def setup(
       args: OrcaArgs,
+      // The resolved CODING-role agent (ADR 0020): branch-name resolution and
+      // stack discovery — the run's privileged pre-body model calls — run here.
       agent: Agent[?],
       git: GitTool,
       workDir: os.Path,
       branchNaming: Option[BranchNamingStrategy],
-      settingsOverride: Option[StackSettings],
+      // The stack resolution `runFlow` parsed before this call (design decision
+      // 6): the file is no longer re-read here, so a malformed file has already
+      // aborted upstream, before the dispatcher-surfaced bracket.
+      resolution: SettingsResolution,
+      // True when `flow(stackSettings = Some(...))` governs the stack commands,
+      // gating the gitignored-settings migration warning (the run neither reads
+      // nor writes the file's stack portion, so the warning would be noise).
+      stackOverridden: Boolean,
       store: ProgressStore,
       emit: OrcaEvent => Unit
   ): FlowSetup =
     given InStage = RuntimeInStage.token()
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
     val log = LoggerFactory.getLogger("orca.flow")
-    warnIfSettingsIgnored(git, settingsOverride, emit)
-    // Settings resolve BEFORE the `ensureClean` stash below (ADR 0019): a
-    // malformed file must abort with no stash and no branch mutation, and an
-    // uncommitted file's contents must be captured before the stash can sweep
-    // the file away. This pre-stash read is also the single authority on
-    // whether discovery runs (the NeedsDiscovery marker below): a hand-written
-    // file the stash sweeps out of a dirty tree must not look absent.
-    val resolution = resolveStackSettings(workDir, settingsOverride)
+    warnIfSettingsIgnored(git, stackOverridden, emit)
     val startBranch = git.currentBranch()
     // Snapshot the log file before the stash, restore it if the stash
     // removed it — so an uncommitted/untracked log is still readable below.
@@ -339,11 +341,21 @@ object FlowLifecycle:
     // degrade-to-empty-file).
     val (stackSettings, discovered) = resolution match
       case SettingsResolution.Resolved(settings) => (settings, false)
-      case SettingsResolution.NeedsDiscovery =>
+      case SettingsResolution.NeedsDiscovery(existingContent) =>
         val (settings, entries) = StackDiscovery.discover(agent, workDir, emit)
-        os.write(
+        // Absent file → write the whole rendered file (header + entries). A
+        // present-but-stack-silent file (an agents-only hand-written file, its
+        // content captured pre-stash) → APPEND the rendered stack entries below
+        // the user's untouched agent lines, so discovery never clobbers agent
+        // keys (design decision 7). `os.write.over` because the stash may have
+        // already swept an untracked file out of the tree.
+        val fileText = existingContent match
+          case None => SettingsFile.render(entries)
+          case Some(content) =>
+            content + "\n" + SettingsFile.renderAppend(entries)
+        os.write.over(
           OrcaDir.settingsPath(workDir),
-          SettingsFile.render(entries),
+          fileText,
           createFolders = true
         )
         emit(
@@ -450,45 +462,102 @@ object FlowLifecycle:
         (featureBranch, header.startingBranch)
     FlowSetup(store, featureBranch, effectiveStartBranch, stackSettings)
 
-  /** Outcome of the pre-`ensureClean` settings read: either the resolved
-    * values, or the marker that auto-discovery must run. The marker inherently
-    * encodes "no override AND no file at the pre-stash read" — the only gate
-    * discovery has (ADR 0019).
+  /** Outcome of the pre-`ensureClean` stack read: either the resolved values,
+    * or the marker that auto-discovery must run. `NeedsDiscovery` carries the
+    * existing file content (design decision 7): `None` when the file is absent
+    * (write the whole file), `Some(content)` when the file exists but names no
+    * stack line (an agents-only hand-written file — append the stack entries,
+    * leaving the agent lines untouched). Its content is captured pre-stash so a
+    * hand-written file the stash sweeps out of a dirty tree is not lost.
     */
-  private enum SettingsResolution:
+  private[orca] enum SettingsResolution:
     case Resolved(settings: StackSettings)
-    case NeedsDiscovery
+    case NeedsDiscovery(existingContent: Option[String])
 
-  /** Resolve the run's stack settings (ADR 0019): an explicit override wins
-    * outright — the file is neither read nor written; otherwise a present
-    * settings file is parsed, and an unreadable or malformed one is a hard
-    * abort (the caller sequences this ahead of any tree mutation); an absent
-    * file returns [[SettingsResolution.NeedsDiscovery]] — the caller runs
-    * auto-discovery in its post-`ensureClean` slot.
+  /** The parsed outcome of both settings files (design decision 6): the stack
+    * resolution, plus the project- and user-global agent keys kept separate so
+    * `runFlow` can track each role's source (project/global/default) for the
+    * announcement `Step`.
     */
-  private def resolveStackSettings(
+  private[orca] case class SettingsRead(
+      stack: SettingsResolution,
+      projectAgents: AgentSettings,
+      globalAgents: AgentSettings
+  )
+
+  /** Read + parse both settings files once, before any tree mutation (design
+    * decision 6). The project file (`{workDir}/.orca/settings.properties`)
+    * carries both families; the user-global file (`globalSettingsPath`) carries
+    * agent keys only. An unreadable or malformed file — project OR global — is
+    * a hard abort ([[OrcaFlowException]]); the caller sequences this ahead of
+    * `ensureClean`, so a malformed file aborts with no stash and no branch
+    * mutation, and its content is captured before the stash can sweep it away.
+    * An absent global file yields no agent keys.
+    *
+    * A stack override (`flow(stackSettings = Some(...))`) fixes the stack
+    * resolution to [[SettingsResolution.Resolved]] and skips discovery, but the
+    * project file is STILL read and parsed — its agent keys are honoured and a
+    * malformed file still aborts (stricter than ADR 0019's stack-only override;
+    * design decision 6). Absent that override, the stack resolution follows the
+    * stack-aware discovery trigger (design decision 7): a present file whose
+    * content names a stack line (live or commented, per
+    * [[SettingsFile.hasStackLines]]) resolves; an absent file, or a present
+    * file with no stack line, needs discovery.
+    */
+  private[orca] def readSettings(
       workDir: os.Path,
-      settingsOverride: Option[StackSettings]
-  ): SettingsResolution =
-    val settingsPath = OrcaDir.settingsPath(workDir)
-    settingsOverride match
-      case Some(settings) => SettingsResolution.Resolved(settings)
-      case None =>
-        if os.exists(settingsPath) then
-          val content =
-            try os.read(settingsPath)
-            catch
-              case NonFatal(e) =>
-                throw new OrcaFlowException(
-                  s"cannot read stack settings at $settingsPath: ${e.getMessage}"
-                )
-          SettingsFile.parse(content, SettingsScope.Project) match
-            case Right(s) => SettingsResolution.Resolved(s.stack)
-            case Left(err) =>
-              throw new OrcaFlowException(
-                s"invalid stack settings at $settingsPath: ${err.message}"
-              )
-        else SettingsResolution.NeedsDiscovery
+      globalSettingsPath: os.Path,
+      stackOverride: Option[StackSettings]
+  ): SettingsRead =
+    val projectPath = OrcaDir.settingsPath(workDir)
+    val projectContent: Option[String] =
+      if os.exists(projectPath) then Some(readOrAbort(projectPath))
+      else None
+    val projectParsed =
+      projectContent.map(c =>
+        parseOrAbort(c, SettingsScope.Project, projectPath)
+      )
+    val globalAgents: AgentSettings =
+      if os.exists(globalSettingsPath) then
+        parseOrAbort(
+          readOrAbort(globalSettingsPath),
+          SettingsScope.UserGlobal,
+          globalSettingsPath
+        ).agents
+      else AgentSettings.empty
+    val projectAgents =
+      projectParsed.map(_.agents).getOrElse(AgentSettings.empty)
+    val stack: SettingsResolution =
+      stackOverride match
+        case Some(settings) => SettingsResolution.Resolved(settings)
+        case None =>
+          projectContent match
+            case None => SettingsResolution.NeedsDiscovery(None)
+            case Some(content) =>
+              if SettingsFile.hasStackLines(content) then
+                SettingsResolution.Resolved(projectParsed.get.stack)
+              else SettingsResolution.NeedsDiscovery(Some(content))
+    SettingsRead(stack, projectAgents, globalAgents)
+
+  private def readOrAbort(path: os.Path): String =
+    try os.read(path)
+    catch
+      case NonFatal(e) =>
+        throw new OrcaFlowException(
+          s"cannot read settings at $path: ${e.getMessage}"
+        )
+
+  private def parseOrAbort(
+      content: String,
+      scope: SettingsScope,
+      path: os.Path
+  ): orca.settings.ParsedSettings =
+    SettingsFile.parse(content, scope) match
+      case Right(s) => s
+      case Left(err) =>
+        throw new OrcaFlowException(
+          s"invalid settings at $path: ${err.message}"
+        )
 
   /** Fresh run: resolve + create the branch (returned to the caller), then
     * commit the header so it is the branch's first commit. Shared by the
