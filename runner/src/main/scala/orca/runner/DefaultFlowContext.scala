@@ -43,9 +43,9 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
   // path-dependent `ctx.LeadB` is still stable.
   type LeadB = B
 
-  // Every role is temporarily backed by the same lead (ADR 0020 lands
-  // per-role resolution later): all three pin to `B`, and the accessors just
-  // forward to `agent`.
+  // Every role is backed by the same lead agent; ADR 0020 specifies per-role
+  // resolution. All three pin to `B`, and the accessors just forward to
+  // `agent`.
   type PlanB = B
   type CodeB = B
   type ReviewB = B

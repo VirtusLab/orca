@@ -111,8 +111,8 @@ trait FlowContext extends AgentSet:
     */
   type ReviewB <: BackendTag
 
-  /** The planning-role agent (ADR 0020): resolved from settings (`planningAgent
-    * \= <harness>[:<model>]`), default claude. Scripts hand it to `Plan.*`.
+  /** The planning-role agent (ADR 0020): resolved from settings, default
+    * claude. Scripts hand it to `Plan.*`.
     */
   def planningAgent: Agent[PlanB]
 
