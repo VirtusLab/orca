@@ -3,7 +3,7 @@ package orca.settings
 import orca.agents.BackendTag
 
 /** One configured role agent: a harness plus an optional model pin, the parsed
-  * form of a `<harness>[:<model>]` settings value. The model string is passed
+  * form of a `harness[:model]` settings value. The model string is passed
   * verbatim to the harness's `withModel` — orca does not normalise or validate
   * model ids.
   */

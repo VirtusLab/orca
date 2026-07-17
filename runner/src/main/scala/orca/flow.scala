@@ -82,11 +82,11 @@ import scala.util.control.NonFatal
   * the programmatic override below > the project file
   * `{workDir}/.orca/settings.properties` > the user-global file
   * `$XDG_CONFIG_HOME/orca/settings.properties` > the built-in default (claude,
-  * default model). Each file carries `<role>Agent = <harness>[:<model>]` lines
-  * (`codingAgent = codex`, `planningAgent = claude:opus`, …); a malformed value
-  * in either file — or an unreadable one — aborts the run before any tree
-  * mutation. Both files are read once, before setup; setup then emits one
-  * `Step` naming each resolved role and its source
+  * default model). Each file carries `planningAgent`/`codingAgent`/
+  * `reviewAgent = harness[:model]` lines (`codingAgent = codex`, `planningAgent
+  * \= claude:opus`, …); a malformed value in either file — or an unreadable one
+  * — aborts the run before any tree mutation. Both files are read once, before
+  * setup; setup then emits one `Step` naming each resolved role and its source
   * (default/project/global/override), the debugging handle for "why did codex
   * run here?".
   *

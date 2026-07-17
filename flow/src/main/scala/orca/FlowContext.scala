@@ -24,11 +24,11 @@ import scala.annotation.implicitNotFound
   * before the context exists, each landing on its own backend.
   */
 @implicitNotFound(
-  "the flow tools (`claude`/`codex`/`git`/`gh`/`fs`/…), `display`, and `fail` are only available inside a `flow(...)` body. Wrap this code in `flow(OrcaArgs(args), _.claude): ...`."
+  "the flow tools (`claude`/`codex`/`git`/`gh`/`fs`/…), `display`, and `fail` are only available inside a `flow(...)` body. Wrap this code in `flow(OrcaArgs(args)): ...`."
 )
 trait FlowContext extends AgentSet:
   /** Backend tag of the planning-role agent (ADR 0020): resolved from
-    * `planningAgent = <harness>[:<model>]` in stack settings, default claude. A
+    * `planningAgent = harness[:model]` in stack settings, default claude. A
     * type *member*, not a parameter, so `FlowContext` stays unparametrised;
     * pins [[planningAgent]]'s backend so sessions minted from it thread. See
     * [[CodeB]] for the helper-authoring caveat shared by all three role types.
@@ -36,10 +36,10 @@ trait FlowContext extends AgentSet:
   type PlanB <: BackendTag
 
   /** Backend tag of the coding-role agent (ADR 0020): resolved from
-    * `codingAgent = <harness>[:<model>]` in stack settings, default claude —
-    * the run's primary backend. A type *member*, not a parameter, so
-    * `FlowContext` stays unparametrised; pins [[codingAgent]]'s backend so
-    * sessions minted from it thread.
+    * `codingAgent = harness[:model]` in stack settings, default claude — the
+    * run's primary backend. A type *member*, not a parameter, so `FlowContext`
+    * stays unparametrised; pins [[codingAgent]]'s backend so sessions minted
+    * from it thread.
     *
     * '''Helper authoring:''' the path-dependent `Agent[ctx.CodeB]` (the same
     * holds for `ctx.PlanB` / `ctx.ReviewB`) is convenient in a straight-line
@@ -66,10 +66,10 @@ trait FlowContext extends AgentSet:
   type CodeB <: BackendTag
 
   /** Backend tag of the review-role agent (ADR 0020): resolved from
-    * `reviewAgent = <harness>[:<model>]` in stack settings, default claude. A
-    * type *member*, not a parameter, so `FlowContext` stays unparametrised;
-    * pins [[reviewAgent]]'s backend so sessions minted from it thread. See
-    * [[CodeB]] for the helper-authoring caveat shared by all three role types.
+    * `reviewAgent = harness[:model]` in stack settings, default claude. A type
+    * *member*, not a parameter, so `FlowContext` stays unparametrised; pins
+    * [[reviewAgent]]'s backend so sessions minted from it thread. See [[CodeB]]
+    * for the helper-authoring caveat shared by all three role types.
     */
   type ReviewB <: BackendTag
 

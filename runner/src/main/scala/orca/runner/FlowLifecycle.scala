@@ -307,8 +307,8 @@ object FlowLifecycle:
       git: GitTool,
       workDir: os.Path,
       branchNaming: Option[BranchNamingStrategy],
-      // The stack resolution `runFlow` parsed before this call (design decision
-      // 6): the file is no longer re-read here, so a malformed file has already
+      // The stack resolution `runFlow` parsed before this call (ADR 0020 §6):
+      // the file is no longer re-read here, so a malformed file has already
       // aborted upstream, before the dispatcher-surfaced bracket.
       resolution: SettingsResolution,
       // True when `flow(stackSettings = Some(...))` governs the stack commands,
@@ -347,7 +347,7 @@ object FlowLifecycle:
         // present-but-stack-silent file (an agents-only hand-written file, its
         // content captured pre-stash) → APPEND the rendered stack entries below
         // the user's untouched agent lines, so discovery never clobbers agent
-        // keys (design decision 7). `os.write.over` because the stash may have
+        // keys (ADR 0020 §7). `os.write.over` because the stash may have
         // already swept an untracked file out of the tree.
         val fileText = existingContent match
           case None => SettingsFile.render(entries)
@@ -464,17 +464,17 @@ object FlowLifecycle:
 
   /** Outcome of the pre-`ensureClean` stack read: either the resolved values,
     * or the marker that auto-discovery must run. `NeedsDiscovery` carries the
-    * existing file content (design decision 7): `None` when the file is absent
-    * (write the whole file), `Some(content)` when the file exists but names no
-    * stack line (an agents-only hand-written file — append the stack entries,
-    * leaving the agent lines untouched). Its content is captured pre-stash so a
+    * existing file content (ADR 0020 §7): `None` when the file is absent (write
+    * the whole file), `Some(content)` when the file exists but names no stack
+    * line (an agents-only hand-written file — append the stack entries, leaving
+    * the agent lines untouched). Its content is captured pre-stash so a
     * hand-written file the stash sweeps out of a dirty tree is not lost.
     */
   private[orca] enum SettingsResolution:
     case Resolved(settings: StackSettings)
     case NeedsDiscovery(existingContent: Option[String])
 
-  /** The parsed outcome of both settings files (design decision 6): the stack
+  /** The parsed outcome of both settings files (ADR 0020 §6): the stack
     * resolution, plus the project- and user-global agent keys kept separate so
     * `runFlow` can track each role's source (project/global/default) for the
     * announcement `Step`.
@@ -498,11 +498,11 @@ object FlowLifecycle:
     * resolution to [[SettingsResolution.Resolved]] and skips discovery, but the
     * project file is STILL read and parsed — its agent keys are honoured and a
     * malformed file still aborts (stricter than ADR 0019's stack-only override;
-    * design decision 6). Absent that override, the stack resolution follows the
-    * stack-aware discovery trigger (design decision 7): a present file whose
-    * content names a stack line (live or commented, per
-    * [[SettingsFile.hasStackLines]]) resolves; an absent file, or a present
-    * file with no stack line, needs discovery.
+    * ADR 0020 §6). Absent that override, the stack resolution follows the
+    * stack-aware discovery trigger (ADR 0020 §7): a present file whose content
+    * names a stack line (live or commented, per [[SettingsFile.hasStackLines]])
+    * resolves; an absent file, or a present file with no stack line, needs
+    * discovery.
     */
   private[orca] def readSettings(
       workDir: os.Path,

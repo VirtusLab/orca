@@ -27,9 +27,9 @@ def fs(using ctx: FlowContext): FsTool = ctx.fs
 def userPrompt(using ctx: FlowContext): String = ctx.userPrompt
 
 /** The planning-role agent (ADR 0020): resolved from settings (`planningAgent =
-  * <harness>[:<model>]`), default claude. Reference it in `Plan.*` calls
-  * instead of a concrete accessor so planning follows whichever backend the
-  * settings name. A session minted from `planningAgent.session` threads because
+  * harness[:model]`), default claude. Reference it in `Plan.*` calls instead of
+  * a concrete accessor so planning follows whichever backend the settings name.
+  * A session minted from `planningAgent.session` threads because
   * [[FlowContext.PlanB]] pins the backend; see [[codingAgent]] for the
   * helper-authoring caveat shared by all three role accessors.
   */
@@ -38,9 +38,9 @@ def planningAgent(using ctx: FlowContext): Agent[ctx.PlanB] = ctx.planningAgent
 /** The coding-role agent — the run's primary: implementer sessions, branch
   * naming, stack discovery, and default commit messages run here. Reference it
   * in a body instead of a concrete accessor (`claude`/`codex`) so the flow
-  * follows whichever backend `codingAgent = <harness>[:<model>]` in settings
-  * names. A session from `codingAgent.session` threads into `session.run` and
-  * the reviewers because [[FlowContext.CodeB]] pins the backend.
+  * follows whichever backend `codingAgent = harness[:model]` in settings names.
+  * A session from `codingAgent.session` threads into `session.run` and the
+  * reviewers because [[FlowContext.CodeB]] pins the backend.
   *
   * Two ways to drive a model in a flow: a role accessor
   * (`codingAgent`/`planningAgent`/`reviewAgent`) is backend-agnostic — settings
