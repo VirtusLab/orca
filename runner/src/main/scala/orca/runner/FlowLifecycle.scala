@@ -512,13 +512,23 @@ object FlowLifecycle:
       stackOverride: Option[StackSettings]
   ): SettingsRead =
     val projectPath = OrcaDir.settingsPath(workDir)
-    // A repo can commit `.orca/settings.properties` as a symlink (git mode
-    // 120000) pointing outside the tree. `os.exists`/`os.read` follow it, and
-    // the discovery write is `os.write.over` (CREATE + TRUNCATE_EXISTING), which
-    // also follows the link — so discovery output would land at the link's
+    // A repo can commit `.orca/settings.properties` — or `.orca` ITSELF — as a
+    // symlink (git mode 120000) pointing outside the tree. `os.exists`/`os.read`
+    // follow it, and the discovery write is `os.write.over(..., createFolders =
+    // true)` (CREATE + TRUNCATE_EXISTING, plus a `makeDir.all` for the parent),
+    // which also follows the link — so discovery output would land at the link's
     // target, outside the working tree, for BOTH the fresh-write and the append
-    // sub-cases. Refuse here, before `ensureClean` and any tree mutation, rather
+    // sub-cases. `os.isLink` (lstat) inspects only the FINAL path component, so
+    // the leaf check alone misses a symlinked `.orca` DIRECTORY: the leaf then
+    // resolves to a plain absent name inside the target and slips through. Guard
+    // BOTH components here, before `ensureClean` and any tree mutation, rather
     // than at the write site (which runs after the stash).
+    //
+    // `OrcaDir.ensureCache` (via `FlowLock.acquireWorkdir`) already refuses a
+    // symlinked `.orca` earlier in the run; the `.orca` check here is
+    // defense-in-depth on the discovery-write path, which reaches the directory
+    // through `createFolders` rather than through `ensureRoot`.
+    abortIfSymlink(OrcaDir.rootPath(workDir))
     abortIfSymlink(projectPath)
     val projectContent: Option[String] =
       if os.exists(projectPath) then Some(readOrAbort(projectPath))
@@ -556,13 +566,20 @@ object FlowLifecycle:
     * and leaves the current branch untouched. `os.isLink` does not follow the
     * final link, so a dangling link (target absent) is caught too, not just one
     * whose target happens to exist.
+    *
+    * Accepted residual (TOCTOU): the check runs at read time and the discovery
+    * write happens later, in setup — a purely LOCAL race could swap a plain
+    * `.orca`/leaf for a symlink in that window. That is out of scope under the
+    * committed-repo-symlink threat model (the attacker controls repo content, a
+    * clone runs flows against it; they do not also race the local filesystem
+    * mid-run), so the local-race variant is left open deliberately.
     */
   private def abortIfSymlink(path: os.Path): Unit =
     if os.isLink(path) then
       throw new OrcaFlowException(
-        s"settings at $path is a symlink — refusing to read or write " +
-          "through it (a committed symlink could redirect discovery output " +
-          "outside the working tree)"
+        s"$path is a symlink — refusing to read or write through it (a " +
+          "committed symlink could redirect discovery output outside the " +
+          "working tree)"
       )
 
   private def readOrAbort(path: os.Path): String =

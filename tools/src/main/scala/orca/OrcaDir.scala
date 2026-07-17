@@ -20,6 +20,12 @@ private[orca] object OrcaDir:
   /** `<workDir>/.orca` — committed project metadata lives at this root. */
   private def root(workDir: os.Path): os.Path = workDir / ".orca"
 
+  /** `<workDir>/.orca` as an absolute path — the committed-metadata root, for
+    * callers that guard it (e.g. the symlink check in
+    * `FlowLifecycle.readSettings`) before writing through it.
+    */
+  def rootPath(workDir: os.Path): os.Path = root(workDir)
+
   /** Repo-relative form of the settings path, for git probes that take a path
     * relative to the repository root.
     */
@@ -35,6 +41,7 @@ private[orca] object OrcaDir:
 
   /** Idempotently ensure `.orca/` exists and return it. */
   def ensureRoot(workDir: os.Path): os.Path =
+    abortIfRootSymlink(workDir)
     root(workDir).tap(os.makeDir.all(_))
 
   /** Idempotently ensure `.orca/cache/` exists — writing its self-ignoring
@@ -43,11 +50,30 @@ private[orca] object OrcaDir:
     * are written only when absent, so repeated calls do not churn mtimes.
     */
   def ensureCache(workDir: os.Path): os.Path =
+    abortIfRootSymlink(workDir)
     val cache = root(workDir) / "cache"
     os.makeDir.all(cache)
     writeIfAbsent(cache / ".gitignore", gitignoreContents)
     writeIfAbsent(cache / "CACHEDIR.TAG", cachedirTagContents)
     cache
+
+  /** Refuse a `.orca` that is ITSELF a symlink (git mode 120000) before any
+    * `os.makeDir.all` through it. A committed symlinked `.orca` redirects every
+    * write orca makes — the cache, the flow lock, the progress log, the
+    * discovered settings — to the link's target, outside the working tree. This
+    * runs at the earliest `.orca` touch of a run (`FlowLock.acquireWorkdir` →
+    * [[ensureCache]]), ahead of the settings-file guard in
+    * `FlowLifecycle.readSettings`. `os.isLink` uses lstat and does not follow
+    * the final link, so a dangling `.orca` (absent target) is caught too.
+    */
+  private def abortIfRootSymlink(workDir: os.Path): Unit =
+    val r = root(workDir)
+    if os.isLink(r) then
+      throw new OrcaFlowException(
+        s"$r is a symlink — refusing to create or write through it (a " +
+          "committed symlinked .orca could redirect orca's writes outside " +
+          "the working tree)"
+      )
 
   // Check-then-write races on the first-ever cache creation: two processes can
   // both see the file absent before the flow lock exists to serialize them, so

@@ -1,6 +1,13 @@
 package orca.runner
 
-import orca.{FlowContext, OrcaArgs, OrcaDir, StackSettings, runFlow}
+import orca.{
+  FlowContext,
+  OrcaArgs,
+  OrcaDir,
+  OrcaFlowException,
+  StackSettings,
+  runFlow
+}
 import orca.agents.{
   Agent,
   AgentCall,
@@ -303,6 +310,43 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       new OsGitTool(workDir).currentBranch(),
       startBranch,
       "the symlink abort must precede any branch mutation"
+    )
+
+  test(
+    "a symlinked `.orca` directory aborts before any write or branch mutation"
+  ):
+    val workDir = GitRepo.seeded()
+    // A committed `.orca` DIRECTORY symlink (git mode 120000) pointing at an
+    // existing directory outside the tree. The leaf `os.isLink` check misses
+    // this — it inspects only the final path component — so without the
+    // `.orca`-root guard every write (cache, lock, discovery output) would land
+    // inside `outside`, off-tree. `outside` starts empty, so any file appearing
+    // in it is a write that went through the link.
+    val outside = TempDirs.dir() / "outside-orca"
+    os.makeDir.all(outside)
+    os.symlink(OrcaDir.rootPath(workDir), outside)
+    val startBranch = new OsGitTool(workDir).currentBranch()
+    // A canned discovery agent that WOULD succeed and write, so the abort — not
+    // a discovery failure — is what keeps the target from being written.
+    val canned = CannedDiscoveryAgent(
+      StackDiscoveryResult(
+        format = DiscoveredTask(commands =
+          List(DiscoveredCommand("echo fmt", "seed.txt"))
+        ),
+        lint = DiscoveredTask(),
+        test = DiscoveredTask()
+      )
+    )
+    val _ = intercept[OrcaFlowException]:
+      driveFlow(workDir, wiring = wiringWith(claude = canned))(())
+    assert(
+      os.list(outside).isEmpty,
+      "no write must go through the symlinked `.orca` directory"
+    )
+    assertEquals(
+      new OsGitTool(workDir).currentBranch(),
+      startBranch,
+      "the symlinked-`.orca` abort must precede any branch mutation"
     )
 
   // --- fixtures -------------------------------------------------------------
