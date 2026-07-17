@@ -29,3 +29,14 @@ class GlobalSettingsTest extends FunSuite:
       GlobalSettings.path(Map("XDG_CONFIG_HOME" -> "").get, home),
       home / ".config" / "orca" / "settings.properties"
     )
+
+  test(
+    "path falls back to ~/.config when XDG_CONFIG_HOME climbs past the root"
+  ):
+    assertEquals(
+      GlobalSettings.path(
+        Map("XDG_CONFIG_HOME" -> "/a/b/../../../../../../c").get,
+        home
+      ),
+      home / ".config" / "orca" / "settings.properties"
+    )
