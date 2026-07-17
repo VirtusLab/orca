@@ -349,6 +349,45 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       "the symlinked-`.orca` abort must precede any branch mutation"
     )
 
+  test(
+    "a symlinked `.orca/cache` directory aborts before any write or branch mutation"
+  ):
+    val workDir = GitRepo.seeded()
+    // A committed `.orca` real DIRECTORY holding a `.orca/cache` symlink (git
+    // mode 120000) pointing off-tree. The `.orca`-root guard passes (it's a real
+    // dir), so a leaf-only or root-only check would let `ensureCache`'s
+    // `os.makeDir.all(.orca/cache)` and the flow lock write follow the link into
+    // `outside`. Guarding every component from `.orca` down catches the
+    // symlinked cache dir. `outside` starts empty, so any file appearing in it
+    // is a write that escaped the tree.
+    val outside = TempDirs.dir() / "outside-cache"
+    os.makeDir.all(outside)
+    os.makeDir.all(OrcaDir.rootPath(workDir))
+    os.symlink(OrcaDir.rootPath(workDir) / "cache", outside)
+    val startBranch = new OsGitTool(workDir).currentBranch()
+    // A canned discovery agent that WOULD succeed and write, so the abort — not
+    // a discovery failure — is what keeps the target from being written.
+    val canned = CannedDiscoveryAgent(
+      StackDiscoveryResult(
+        format = DiscoveredTask(commands =
+          List(DiscoveredCommand("echo fmt", "seed.txt"))
+        ),
+        lint = DiscoveredTask(),
+        test = DiscoveredTask()
+      )
+    )
+    val _ = intercept[OrcaFlowException]:
+      driveFlow(workDir, wiring = wiringWith(claude = canned))(())
+    assert(
+      os.list(outside).isEmpty,
+      "no write must go through the symlinked `.orca/cache` directory"
+    )
+    assertEquals(
+      new OsGitTool(workDir).currentBranch(),
+      startBranch,
+      "the symlinked-`.orca/cache` abort must precede any branch mutation"
+    )
+
   // --- fixtures -------------------------------------------------------------
 
   private def writeProject(workDir: os.Path, content: String): Unit =
