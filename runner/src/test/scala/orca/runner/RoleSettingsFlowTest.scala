@@ -19,6 +19,7 @@ import orca.agents.{
   ToolSet
 }
 import orca.events.{OrcaEvent, OrcaListener}
+import orca.settings.SettingsFile
 import orca.testkit.{GitRepo, TempDirs}
 import orca.tools.OsGitTool
 import orca.runner.terminal.TerminalInteraction
@@ -179,6 +180,36 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     assert(
       content.contains("format = echo fmt"),
       s"the discovered stack entry must be appended: $content"
+    )
+
+  test(
+    "a whitespace-only project file triggers discovery and writes the full file"
+  ):
+    val workDir = GitRepo.seeded()
+    writeProject(workDir, "   \n\t \n")
+    val canned = CannedDiscoveryAgent(
+      StackDiscoveryResult(
+        format = DiscoveredTask(commands =
+          List(DiscoveredCommand("echo fmt", "seed.txt"))
+        ),
+        lint = DiscoveredTask(),
+        test = DiscoveredTask()
+      )
+    )
+    driveFlow(
+      workDir,
+      wiring = wiringWith(claude = canned)
+    ):
+      // Real committed work keeps the feature branch (a throwaway branch is
+      // deleted on teardown, taking the just-written settings file with it),
+      // so the written file is still present to inspect.
+      val _ = orca.stage("work"):
+        os.write(workDir / "work.txt", "real code")
+        "done"
+    val content = os.read(OrcaDir.settingsPath(workDir))
+    assert(
+      content.startsWith(SettingsFile.Header),
+      s"a blank existing file must get the full render, header included: $content"
     )
 
   test(

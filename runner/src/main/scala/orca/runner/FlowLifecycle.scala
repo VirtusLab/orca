@@ -464,11 +464,13 @@ object FlowLifecycle:
 
   /** Outcome of the pre-`ensureClean` stack read: either the resolved values,
     * or the marker that auto-discovery must run. `NeedsDiscovery` carries the
-    * existing file content (ADR 0020 §7): `None` when the file is absent (write
-    * the whole file), `Some(content)` when the file exists but names no stack
-    * line (an agents-only hand-written file — append the stack entries, leaving
-    * the agent lines untouched). Its content is captured pre-stash so a
-    * hand-written file the stash sweeps out of a dirty tree is not lost.
+    * existing file content (ADR 0020 §7): `None` when the file is absent OR
+    * present-but-blank (write the whole file — a blank file has no agent lines
+    * to preserve), `Some(content)` when the file exists, is non-blank, and
+    * names no stack line (an agents-only hand-written file — append the stack
+    * entries, leaving the agent lines untouched). Its content is captured
+    * pre-stash so a hand-written file the stash sweeps out of a dirty tree is
+    * not lost.
     */
   private[orca] enum SettingsResolution:
     case Resolved(settings: StackSettings)
@@ -501,8 +503,8 @@ object FlowLifecycle:
     * ADR 0020 §6). Absent that override, the stack resolution follows the
     * stack-aware discovery trigger (ADR 0020 §7): a present file whose content
     * names a stack line (live or commented, per [[SettingsFile.hasStackLines]])
-    * resolves; an absent file, or a present file with no stack line, needs
-    * discovery.
+    * resolves; an absent file, a blank file, or a present non-blank file with
+    * no stack line, needs discovery.
     */
   private[orca] def readSettings(
       workDir: os.Path,
@@ -536,6 +538,8 @@ object FlowLifecycle:
             case Some(content) =>
               if SettingsFile.hasStackLines(content) then
                 SettingsResolution.Resolved(projectParsed.get.stack)
+              else if content.isBlank then
+                SettingsResolution.NeedsDiscovery(None)
               else SettingsResolution.NeedsDiscovery(Some(content))
     SettingsRead(stack, projectAgents, globalAgents)
 
