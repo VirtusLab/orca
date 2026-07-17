@@ -173,13 +173,20 @@ class RoleSettingsFlowTest extends munit.FunSuite:
         os.write(workDir / "work.txt", "real code")
         "done"
     val content = os.read(OrcaDir.settingsPath(workDir))
+    val agentAt = content.indexOf("codingAgent = codex")
+    val stackAt = content.indexOf("format = echo fmt")
     assert(
-      content.contains("codingAgent = codex"),
+      agentAt >= 0,
       s"the user's agent line must survive discovery: $content"
     )
     assert(
-      content.contains("format = echo fmt"),
+      stackAt >= 0,
       s"the discovered stack entry must be appended: $content"
+    )
+    assert(
+      agentAt < stackAt,
+      s"the discovered stack entry must be APPENDED below the user's agent " +
+        s"line, not prepended or interleaved: $content"
     )
 
   test(
@@ -259,6 +266,43 @@ class RoleSettingsFlowTest extends munit.FunSuite:
           "review=gemini (global)"
       ),
       s"expected exactly one per-role announcement, saw: ${steps.get()}"
+    )
+
+  test(
+    "a symlinked project settings file aborts before any write or branch mutation"
+  ):
+    val workDir = GitRepo.seeded()
+    // A committed `.orca/settings.properties` symlink pointing outside the tree:
+    // `os.write.over` follows the link, so discovery would write its output at
+    // `outside`. The link is dangling (target absent), which is exactly the
+    // shape whose `os.exists` reads false and would otherwise drive a
+    // fresh-write discovery straight through the link.
+    val outside = TempDirs.dir() / "outside.properties"
+    val linkPath = OrcaDir.settingsPath(workDir)
+    os.makeDir.all(linkPath / os.up)
+    os.symlink(linkPath, outside)
+    val startBranch = new OsGitTool(workDir).currentBranch()
+    // A canned discovery agent that WOULD succeed and write, so the abort — not
+    // a discovery failure — is what keeps the target file from being created.
+    val canned = CannedDiscoveryAgent(
+      StackDiscoveryResult(
+        format = DiscoveredTask(commands =
+          List(DiscoveredCommand("echo fmt", "seed.txt"))
+        ),
+        lint = DiscoveredTask(),
+        test = DiscoveredTask()
+      )
+    )
+    val _ = intercept[SurfacedFlowFailure]:
+      driveFlow(workDir, wiring = wiringWith(claude = canned))(())
+    assert(
+      !os.exists(outside),
+      "no discovery write must go through the symlink"
+    )
+    assertEquals(
+      new OsGitTool(workDir).currentBranch(),
+      startBranch,
+      "the symlink abort must precede any branch mutation"
     )
 
   // --- fixtures -------------------------------------------------------------

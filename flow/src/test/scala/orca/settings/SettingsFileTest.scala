@@ -258,6 +258,24 @@ class SettingsFileTest extends FunSuite:
   test("hasStackLines is false for the empty string"):
     assert(!SettingsFile.hasStackLines(""))
 
+  test(
+    "hasStackLines and the parser agree on a key with a trailing control byte"
+  ):
+    // `\u001f` is stripped by String.trim (the parser's key trim) but is not
+    // matched by a regex `\s`: the old regex-based gate reported "no stack
+    // line" for this line while the parser read a live `format` key, so the
+    // line survived the discovery append and self-activated on a later run.
+    val line = "format\u001f= cargo fmt"
+    assert(
+      SettingsFile.hasStackLines(line),
+      "the discovery gate must see a live stack key"
+    )
+    assertEquals(
+      SettingsFile.parse(line, SettingsScope.Project).map(_.stack.format),
+      Right(List("cargo fmt")),
+      "the parser reads the same line as a live format key"
+    )
+
   test("render pins the file format: header, own-line comments, unset"):
     val entries = List(
       SettingsEntry.Command(

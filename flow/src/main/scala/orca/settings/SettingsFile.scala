@@ -114,13 +114,9 @@ private[orca] object SettingsFile:
     val trimmed = line.trim
     if trimmed.isEmpty || trimmed.startsWith("#") then Right(acc)
     else
-      trimmed.indexOf('=') match
-        case -1 => Left(SettingsError.NoAssignment(number, trimmed))
-        case eq =>
-          val rawKey = trimmed.take(eq).trim
-          // Everything after the FIRST `=` belongs to the value, so commands
-          // containing `=` (e.g. `FOO=bar cargo check`) survive intact.
-          val value = trimmed.drop(eq + 1).trim
+      splitAssignment(trimmed) match
+        case None => Left(SettingsError.NoAssignment(number, trimmed))
+        case Some((rawKey, value)) =>
           SettingKey.fromRaw(rawKey) match
             case None      => Left(SettingsError.UnknownKey(number, rawKey))
             case Some(key) =>
@@ -234,11 +230,41 @@ private[orca] object SettingsFile:
       case StackKey.Lint   => acc.copy(lint = acc.lint :+ command)
       case StackKey.Test   => acc.copy(test = acc.test :+ command)
 
+  /** Split a `key = value` line at the FIRST `=`: the trimmed key and the
+    * verbatim-but-trimmed value (everything after the first `=` belongs to the
+    * value, so commands containing `=` — e.g. `FOO=bar cargo check` — survive
+    * intact). `None` when the line has no `=`. The single definition of "which
+    * key does this line name", shared by [[parseLine]] and [[hasStackLines]] so
+    * a control byte `String.trim` strips (but a `\s` regex would not match) can
+    * never make the discovery gate and the parser disagree about whether a line
+    * is a live stack key.
+    */
+  private def splitAssignment(line: String): Option[(String, String)] =
+    line.indexOf('=') match
+      case -1 => None
+      case eq => Some((line.take(eq).trim, line.drop(eq + 1).trim))
+
   /** True when any line of `content` names a stack key — live or commented. The
     * discovery trigger (ADR 0020): a discovery-written file always carries at
     * least commented stack lines, so only a hand-written file with no stack
     * content at all re-triggers discovery.
+    *
+    * Uses the parser's own [[splitAssignment]] key extraction (after stripping
+    * a leading `#` comment marker so a commented stack line still counts),
+    * rather than a second regex: the two must agree on what a stack key is, and
+    * `String.trim`'s control-byte stripping is a strict superset of a regex
+    * `\s`, so a divergent second definition could report "no stack line" for a
+    * line the parser reads as a live stack key.
     */
   def hasStackLines(content: String): Boolean =
-    val stackLine = "^[#\\s]*(format|lint|test)\\s*=".r
-    content.linesIterator.exists(l => stackLine.findPrefixOf(l.trim).isDefined)
+    content.linesIterator.exists(namesStackKey)
+
+  private def namesStackKey(line: String): Boolean =
+    val uncommented = line.trim.stripPrefix("#")
+    splitAssignment(uncommented) match
+      case Some((rawKey, _)) =>
+        SettingKey.fromRaw(rawKey) match
+          case Some(_: StackKey) => true
+          case Some(_: AgentKey) => false
+          case None              => false
+      case None => false
