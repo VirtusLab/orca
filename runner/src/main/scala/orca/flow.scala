@@ -352,16 +352,19 @@ private[orca] def runFlow(
                 globalSettingsPath,
                 stackSettings
               )
+              // Cover each resolved role in the pre-transfer close guard AS it
+              // resolves — the wired backends are already covered via
+              // `agents.all`, so only a foreign override adds anything (filtered
+              // below). Appended incrementally (not from the returned
+              // `RoleResolution`) so an earlier foreign role is still closed when
+              // a LATER override throws and `resolveAll` never returns.
               val resolution = RoleAgents.resolveAll(
                 read.projectAgents,
                 read.globalAgents,
                 RoleOverrides(planningAgent, codingAgent, reviewAgent),
-                agents
+                agents,
+                onRoleResolved = agent => roles = roles :+ agent
               )
-              // Cover the resolved roles in the pre-transfer close guard — the
-              // wired backends are already covered via `agents.all`, so only a
-              // foreign override adds anything (filtered below).
-              roles = resolution.roles.all
               resolution.foreignWarnings.foreach: warning =>
                 dispatcher.onEvent(OrcaEvent.Step(warning))
               dispatcher.onEvent(OrcaEvent.Step(resolution.announcement))

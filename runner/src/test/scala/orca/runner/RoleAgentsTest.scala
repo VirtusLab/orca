@@ -109,7 +109,8 @@ class RoleAgentsTest extends munit.FunSuite:
       project = AgentSettings(coding = Some(AgentSpec(BackendTag.Codex, None))),
       global = AgentSettings(review = Some(AgentSpec(BackendTag.Gemini, None))),
       overrides = RoleOverrides(None, None, None),
-      agents = wired
+      agents = wired,
+      onRoleResolved = _ => ()
     )
     assertEquals(
       resolution.announcement,
@@ -125,7 +126,8 @@ class RoleAgentsTest extends munit.FunSuite:
       ),
       global = AgentSettings.empty,
       overrides = RoleOverrides(None, None, None),
-      agents = wiredAgents()
+      agents = wiredAgents(),
+      onRoleResolved = _ => ()
     )
     assert(
       resolution.announcement.contains("coding=codex:gpt-5-mini (project)"),
@@ -142,7 +144,8 @@ class RoleAgentsTest extends munit.FunSuite:
       global = AgentSettings.empty,
       overrides =
         RoleOverrides(None, Some((a: orca.AgentSet) => a.codex), None),
-      agents = wired
+      agents = wired,
+      onRoleResolved = _ => ()
     )
     assert(
       resolution.announcement.contains("coding=codex (override)"),
@@ -161,7 +164,8 @@ class RoleAgentsTest extends munit.FunSuite:
       global = AgentSettings.empty,
       overrides =
         RoleOverrides(None, Some((_: orca.AgentSet) => foreign), None),
-      agents = wiredAgents()
+      agents = wiredAgents(),
+      onRoleResolved = _ => ()
     )
     assert(
       resolution.foreignWarnings.exists(

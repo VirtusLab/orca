@@ -206,6 +206,59 @@ class LeadAgentIdentityTest extends munit.FunSuite:
           s"despite the selector throwing"
       )
 
+  test(
+    "a foreign planning override resolves but a later coding override throws: " +
+      "the earlier foreign planning backend is still closed"
+  ):
+    // Planning resolves to a FOREIGN agent (a separate backend, not one of the
+    // five wired); coding's override then throws, so `resolveAll` never returns
+    // a `RoleResolution`. The pre-transfer close guard must nonetheless have
+    // recorded the foreign planning agent — appended incrementally as each role
+    // resolved — and close its backend so it does not leak.
+    val boom = new RuntimeException("coding selector always throws")
+    val foreignBackend = new RecordingCloseBackend
+    val foreignPlanning: PiAgent = new DefaultPiAgent(
+      foreignBackend,
+      AgentConfig(),
+      orca.agents.DefaultPrompts,
+      OrcaListener.noop,
+      NoopInteraction
+    )
+    val agents = new RecordingAgents
+    val thrown = intercept[SurfacedFlowFailure]:
+      supervised:
+        runFlow(
+          args = OrcaArgs(),
+          stackSettings = Some(StackSettings.empty),
+          planningAgent = Some((_: AgentSet) => foreignPlanning),
+          codingAgent = Some((_: AgentSet) => throw boom),
+          workDir = GitRepo.seeded(),
+          interaction = Some(interaction()),
+          extraListeners = Nil,
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = None,
+          wiring = FlowWiring(
+            claude = Some(_ => agents.claude),
+            codex = Some(_ => agents.codex),
+            opencode = Some(_ => agents.opencode),
+            pi = Some(_ => agents.pi),
+            gemini = Some(_ => agents.gemini)
+          )
+        ):
+          ()
+    assertEquals(
+      thrown.cause,
+      boom,
+      "the flow-level failure must be the coding selector's original error"
+    )
+    assertEquals(
+      foreignBackend.closeCount,
+      1,
+      "an earlier role's foreign backend must still be closed when a LATER " +
+        "override throws before `resolveAll` returns"
+    )
+
   private object NoopInteraction extends Interaction:
     def listeners: List[OrcaListener] = Nil
     def drive[B <: BackendTag](

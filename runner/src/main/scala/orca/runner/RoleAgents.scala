@@ -13,11 +13,7 @@ private[orca] case class ResolvedRoles(
     planning: Agent[?],
     coding: Agent[?],
     review: Agent[?]
-):
-  /** The three roles as a list — the pre-transfer close guard's foreign-role
-    * cover (`runFlow` filters out the wired backends).
-    */
-  def all: List[Agent[?]] = List(planning, coding, review)
+)
 
 /** Where a resolved role's agent came from, in precedence order (design
   * decision 10). Drives the role-announcement `Step`'s `(source)` suffix; the
@@ -74,12 +70,20 @@ private[orca] object RoleAgents:
     * built from a separate `AgentWiring`), so a foreign-agent warning only ever
     * fires for an override — event-blind, it never reaches this run's
     * dispatcher.
+    *
+    * `onRoleResolved` is invoked with each role's agent AS IT resolves, before
+    * the next role's override runs. `runFlow` uses it to append to the
+    * pre-transfer close guard incrementally, so an EARLIER role that resolved
+    * to a foreign agent is still covered when a LATER override throws and this
+    * method never returns — resolution is atomic in its RESULT (a throw yields
+    * no `RoleResolution`), but the guard must see every agent already built.
     */
   def resolveAll(
       project: AgentSettings,
       global: AgentSettings,
       overrides: RoleOverrides,
-      agents: WiredAgents
+      agents: WiredAgents,
+      onRoleResolved: Agent[?] => Unit
   ): RoleResolution =
     val planning =
       resolveOne(
@@ -89,6 +93,7 @@ private[orca] object RoleAgents:
         overrides.planning,
         agents
       )
+    onRoleResolved(planning.agent)
     val coding =
       resolveOne(
         "coding",
@@ -97,6 +102,7 @@ private[orca] object RoleAgents:
         overrides.coding,
         agents
       )
+    onRoleResolved(coding.agent)
     val review =
       resolveOne(
         "review",
@@ -105,6 +111,7 @@ private[orca] object RoleAgents:
         overrides.review,
         agents
       )
+    onRoleResolved(review.agent)
     val all = List(planning, coding, review)
     RoleResolution(
       roles = ResolvedRoles(planning.agent, coding.agent, review.agent),
