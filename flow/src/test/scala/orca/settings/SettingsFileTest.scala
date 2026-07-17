@@ -246,8 +246,14 @@ class SettingsFileTest extends FunSuite:
         |""".stripMargin
     assert(!SettingsFile.hasStackLines(content))
 
-  test("hasStackLines is false for a stack word inside prose without ="):
-    assert(!SettingsFile.hasStackLines("# orca settings — edit freely"))
+  test(
+    "hasStackLines is false for the rendered Header (stack words appear " +
+      "only in prose, never at key position)"
+  ):
+    // The Header's second line names format/lint/test in prose with no
+    // `=` — a discovery-written header alone must never suppress a
+    // re-discovery trigger.
+    assert(!SettingsFile.hasStackLines(SettingsFile.Header))
 
   test("hasStackLines is false for the empty string"):
     assert(!SettingsFile.hasStackLines(""))

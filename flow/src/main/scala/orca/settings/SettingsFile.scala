@@ -38,17 +38,29 @@ private[orca] enum SettingsError:
         "here: planningAgent, codingAgent, reviewAgent"
 
 /** The closed set of settings-file keys; `raw` is the exact on-disk spelling
-  * (keys are case-sensitive).
+  * (keys are case-sensitive). Split into [[StackKey]] and [[AgentKey]] so
+  * `append` and the agent-key handling each match only their own cases —
+  * exhaustively, with no wildcard arm over the full six-case set — a key added
+  * to either enum without matching code added everywhere fails to compile
+  * instead of silently falling through.
   */
-private[orca] enum SettingKey(val raw: String):
-  case Format extends SettingKey("format")
-  case Lint extends SettingKey("lint")
-  case Test extends SettingKey("test")
-  case PlanningAgent extends SettingKey("planningAgent")
-  case CodingAgent extends SettingKey("codingAgent")
-  case ReviewAgent extends SettingKey("reviewAgent")
+private[orca] sealed trait SettingKey:
+  def raw: String
+
+/** The stack-command keys: project-only, values append in file order. */
+private[orca] enum StackKey(val raw: String) extends SettingKey:
+  case Format extends StackKey("format")
+  case Lint extends StackKey("lint")
+  case Test extends StackKey("test")
+
+/** The agent role keys: valid in both scopes, single-valued. */
+private[orca] enum AgentKey(val raw: String) extends SettingKey:
+  case PlanningAgent extends AgentKey("planningAgent")
+  case CodingAgent extends AgentKey("codingAgent")
+  case ReviewAgent extends AgentKey("reviewAgent")
 
 private[orca] object SettingKey:
+  val values: Array[SettingKey] = StackKey.values ++ AgentKey.values
   def fromRaw(s: String): Option[SettingKey] = values.find(_.raw == s)
 
 /** Which settings file is being parsed: the per-project file accepts every key;
@@ -121,26 +133,27 @@ private[orca] object SettingsFile:
               else if value.isEmpty then Right(acc)
               else
                 key match
-                  case SettingKey.Format | SettingKey.Lint | SettingKey.Test =>
+                  case stackKey: StackKey =>
                     if scope == SettingsScope.UserGlobal then
                       Left(SettingsError.NotAllowedInGlobal(number, rawKey))
-                    else Right(acc.copy(stack = append(acc.stack, key, value)))
-                  case SettingKey.PlanningAgent | SettingKey.CodingAgent |
-                      SettingKey.ReviewAgent =>
-                    parseAgentKey(acc, key, rawKey, value, number)
+                    else
+                      Right(
+                        acc.copy(stack = append(acc.stack, stackKey, value))
+                      )
+                  case agentKey: AgentKey =>
+                    parseAgentKey(acc, agentKey, rawKey, value, number)
 
   private def parseAgentKey(
       acc: ParsedSettings,
-      key: SettingKey,
+      key: AgentKey,
       rawKey: String,
       value: String,
       number: Int
   ): Either[SettingsError, ParsedSettings] =
     val alreadySet = key match
-      case SettingKey.PlanningAgent => acc.agents.planning.isDefined
-      case SettingKey.CodingAgent   => acc.agents.coding.isDefined
-      case SettingKey.ReviewAgent   => acc.agents.review.isDefined
-      case _                        => false
+      case AgentKey.PlanningAgent => acc.agents.planning.isDefined
+      case AgentKey.CodingAgent   => acc.agents.coding.isDefined
+      case AgentKey.ReviewAgent   => acc.agents.review.isDefined
     if alreadySet then Left(SettingsError.DuplicateKey(number, rawKey))
     else
       AgentSpec.parse(value) match
@@ -148,11 +161,10 @@ private[orca] object SettingsFile:
           Left(SettingsError.InvalidAgentSpec(number, rawKey, problem))
         case Right(spec) =>
           val agents = key match
-            case SettingKey.PlanningAgent =>
+            case AgentKey.PlanningAgent =>
               acc.agents.copy(planning = Some(spec))
-            case SettingKey.CodingAgent => acc.agents.copy(coding = Some(spec))
-            case SettingKey.ReviewAgent => acc.agents.copy(review = Some(spec))
-            case _                      => acc.agents
+            case AgentKey.CodingAgent => acc.agents.copy(coding = Some(spec))
+            case AgentKey.ReviewAgent => acc.agents.copy(review = Some(spec))
           Right(acc.copy(agents = agents))
 
   /** The header comment lines [[render]] places at the top of every settings
@@ -204,14 +216,13 @@ private[orca] object SettingsFile:
 
   private def append(
       acc: StackSettings,
-      key: SettingKey,
+      key: StackKey,
       command: String
   ): StackSettings =
     key match
-      case SettingKey.Format => acc.copy(format = acc.format :+ command)
-      case SettingKey.Lint   => acc.copy(lint = acc.lint :+ command)
-      case SettingKey.Test   => acc.copy(test = acc.test :+ command)
-      case _                 => acc
+      case StackKey.Format => acc.copy(format = acc.format :+ command)
+      case StackKey.Lint   => acc.copy(lint = acc.lint :+ command)
+      case StackKey.Test   => acc.copy(test = acc.test :+ command)
 
   /** True when any line of `content` names a stack key — live or commented. The
     * discovery trigger (ADR 0020): a discovery-written file always carries at
