@@ -755,8 +755,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     // …and the written file is the byte-exact render of the checked entries.
     assertEquals(
       os.read(OrcaDir.settingsPath(workDir)),
-      """# orca stack settings — edit freely, commit with the project.
-        |# Delete this file to re-run auto-discovery.
+      """# orca settings — edit freely, commit with the project.
+        |# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.
         |# seed.txt; seeded fixture
         |format = echo fmt
         |# lint =   (no lint config found)
@@ -821,7 +821,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     // Parsing the written file yields only the surviving commands…
     assertEquals(
-      orca.settings.SettingsFile.parse(content),
+      orca.settings.SettingsFile
+        .parse(content, orca.settings.SettingsScope.Project)
+        .map(_.stack),
       Right(StackSettings(format = List("echo fmt"), test = List("echo test")))
     )
     // …which are also what the run got.
@@ -989,8 +991,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(setup.stackSettings, StackSettings.empty)
     assertEquals(
       os.read(OrcaDir.settingsPath(workDir)),
-      """# orca stack settings — edit freely, commit with the project.
-        |# Delete this file to re-run auto-discovery.
+      """# orca settings — edit freely, commit with the project.
+        |# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.
         |# format =   (no formatter config found)
         |# lint =   (no evidence found)
         |# test =   (no test directory found)

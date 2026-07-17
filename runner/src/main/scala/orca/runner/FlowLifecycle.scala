@@ -24,7 +24,7 @@ import orca.progress.{
   SessionRecord,
   UnsafeBranchRefRefused
 }
-import orca.settings.SettingsFile
+import orca.settings.{SettingsFile, SettingsScope}
 import orca.tools.GitTool
 import org.slf4j.LoggerFactory
 import ox.either.orThrow
@@ -482,8 +482,8 @@ object FlowLifecycle:
                 throw new OrcaFlowException(
                   s"cannot read stack settings at $settingsPath: ${e.getMessage}"
                 )
-          SettingsFile.parse(content) match
-            case Right(s) => SettingsResolution.Resolved(s)
+          SettingsFile.parse(content, SettingsScope.Project) match
+            case Right(s) => SettingsResolution.Resolved(s.stack)
             case Left(err) =>
               throw new OrcaFlowException(
                 s"invalid stack settings at $settingsPath: ${err.message}"

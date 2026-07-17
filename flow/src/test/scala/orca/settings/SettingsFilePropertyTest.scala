@@ -22,13 +22,15 @@ class SettingsFilePropertyTest extends ScalaCheckSuite:
     // `#` lines, so the parse result is exactly the Command entries' commands.
     forAll(entriesGen(arbitrary[String])): entries =>
       assertEquals(
-        SettingsFile.parse(SettingsFile.render(entries)),
+        SettingsFile
+          .parse(SettingsFile.render(entries), SettingsScope.Project)
+          .map(_.stack),
         Right(expectedSettings(entries))
       )
 
   property("parse is total: any input yields Left or Right, never a throw"):
     forAll(parseInput): content =>
-      val result = SettingsFile.parse(content)
+      val result = SettingsFile.parse(content, SettingsScope.Project)
       assert(result.isLeft || result.isRight)
 
   /** render's newline collapse followed by parse's value trim — the normal form
@@ -52,11 +54,11 @@ class SettingsFilePropertyTest extends ScalaCheckSuite:
               acc.copy(lint = acc.lint :+ sanitize(command))
             case Some(SettingKey.Test) =>
               acc.copy(test = acc.test :+ sanitize(command))
-            case None => fail(s"generator produced unknown key: $key")
+            case _ => fail(s"generator produced unknown key: $key")
         case SettingsEntry.Unset(_, _) | SettingsEntry.Demoted(_, _, _) => acc
 
   private val keyGen: Gen[String] =
-    Gen.oneOf(SettingKey.values.toSeq).map(_.raw)
+    Gen.oneOf(SettingKey.Format, SettingKey.Lint, SettingKey.Test).map(_.raw)
 
   /** A command within the domain [[SettingsEntry.Command]] documents (non-blank
     * after render's collapse, not `#`-leading): a non-`#` printable first char,
