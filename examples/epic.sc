@@ -34,15 +34,18 @@
 
 import orca.{*, given}
 
-flow(OrcaArgs(args), _.claude):
+// This flow deliberately pins both harnesses rather than following settings
+// (`planningAgent`/`codingAgent`/`reviewAgent`) — the point of the example is
+// the cross-agent split itself, not a settings-driven default.
+flow(OrcaArgs(args)):
   val plan = stage("Plan"):
     // `.value` drops the planner's read-only session — the implementer
     // below mints a fresh one.
-    Plan.autonomous.from(userPrompt, agent).value
+    Plan.autonomous.from(userPrompt, claude.opus).value
 
   // Stable coder session reused across every task (and the docs pass), seeded
   // with the plan brief; replayed on resume if the backend session is lost.
-  val session = agent.session("implementer", seed = plan.brief)
+  val session = claude.session("implementer", seed = plan.brief)
 
   // Reviewers on codex; fixes go back to the Claude session that implemented.
   val reviewers: List[Agent[?]] = allReviewers(codex)
@@ -50,9 +53,9 @@ flow(OrcaArgs(args), _.claude):
   for task <- plan.tasks do
     stage(s"Task: ${task.title}"):      // skipped on resume if already done
       session.run(task.description)
-      // reviewerSelection defaults to agentDriven — a picker LLM on the
-      // lead's cheap tier. Format and lint default to the project's stack
-      // settings (`.orca/settings.properties`).
+      // reviewerSelection defaults to agentDriven — a picker LLM on
+      // reviewAgent's cheap tier. Format and lint default to the project's
+      // stack settings (`.orca/settings.properties`).
       reviewAndFixLoop(
         coderSession = session,
         reviewers = reviewers,

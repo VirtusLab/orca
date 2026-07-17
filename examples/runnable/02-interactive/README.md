@@ -10,8 +10,8 @@ otherwise guess wrong.
 One line in the flow:
 
 ```scala
-// 01-simple: Plan.autonomous.from(userPrompt, claude).value
-Plan.interactive.from(userPrompt, claude).value
+// 01-simple: Plan.autonomous.from(userPrompt, planningAgent).value
+Plan.interactive.from(userPrompt, planningAgent).value
 ```
 
 `Plan.interactive.from` wires an `ask_user` MCP tool into the planner's

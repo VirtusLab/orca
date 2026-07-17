@@ -33,20 +33,22 @@ Save this as `implement.sc` and run it with your task:
 
 import orca.{*, given}
 
-// `_.claude` selects the leading agent; in the body reference it as `agent`,
-// not `claude` — backend-agnostic, so switching the selector switches the whole
-// flow (details under "Coding agent tools").
-flow(OrcaArgs(args), _.claude):
+// Roles (planning / coding / review) come from settings.properties —
+// per-project `.orca/settings.properties`, else ~/.config/orca/settings.properties,
+// else claude for everything. Bodies can still name a concrete harness
+// (`claude`, `codex.mini`, …) where a flow wants one — details under "Coding
+// agent tools".
+flow(OrcaArgs(args)):
   // `stage` is the committing, resumable unit of work. The plan is produced in
   // one agentic turn and recorded in the stage log; a re-run with the same
   // prompt skips this stage and reads the stored Plan back.
   val plan = stage("Plan"):
-    Plan.autonomous.from(userPrompt, agent).value  // .value takes the Plan, discarding the planner's session
+    Plan.autonomous.from(userPrompt, planningAgent).value  // .value takes the Plan, discarding the planner's session
 
-  // Get-or-create the implementer session, seeded with the plan's brief
-  // (primes it on first use, replayed if the backend session is lost on
-  // resume) — one call in place of `agent.session("implementer", seed = ...)`.
-  val session = agent.session("implementer", seed = plan.brief)
+  // Get-or-create the implementer session on the coding role, seeded with the
+  // plan's brief (primes it on first use, replayed if the backend session is
+  // lost on resume).
+  val session = codingAgent.session("implementer", seed = plan.brief)
 
   // One stage per task: each stage commits its work + a progress-log entry as
   // one commit. Completed stages are skipped on resume — re-running the same
@@ -56,11 +58,11 @@ flow(OrcaArgs(args), _.claude):
       session.run(task.description)
       reviewAndFixLoop(                  // runs under this stage
         coderSession = session,
-        reviewers = allReviewers(agent),
-        // reviewerSelection defaults to agentDriven(agent.cheap). Format and
-        // lint default to the project's stack settings
+        reviewers = allReviewers(reviewAgent),
+        // reviewerSelection defaults to agentDriven(reviewAgent.cheap). Format
+        // and lint default to the project's stack settings
         // (`.orca/settings.properties`, auto-discovered on first run) — see
-        // "Stack settings" below.
+        // "Settings" below.
         task = task.title.value
       )
 ```
@@ -138,7 +140,7 @@ A minimal Pi-backed flow looks the same; Pi reads your normal Pi configuration
 and is driven through RPC mode under the hood:
 
 ```scala
-flow(OrcaArgs(args), _.pi):
+flow(OrcaArgs(args)):
   val session = pi.session("run", seed = userPrompt)
   stage("Run"):
     session.run(userPrompt)
@@ -148,17 +150,21 @@ flow(OrcaArgs(args), _.pi):
 
 There are two ways to drive a model in a flow:
 
-- **The leading agent — `agent`.** Backend-agnostic: it's whatever the `flow`
-  selector picked (`_.claude`, `_.codex`, …). Use it for the flow's planning,
-  implementation, reviewing, and its durable session. Switch the selector and
-  the whole flow follows; you never name a backend in the body.
+- **The role agents — `planningAgent`/`codingAgent`/`reviewAgent`.**
+  Backend-agnostic: each is resolved from settings (see
+  [Settings](#settings)), defaulting to claude. Use `planningAgent` for
+  `Plan.*` calls, `codingAgent` for the implementer's durable session, and
+  `reviewAgent` for `allReviewers(...)` and the review machinery's defaults.
+  Edit settings and the whole flow follows; you never name a backend in the
+  body.
 - **A specific agent + model — `claude.opus`, `codex.mini`, `opencode.openaiLuna`.**
-  Use a concrete accessor when you want a particular backend or tier, or for
-  interactive planning (`Plan.interactive` needs a concrete backend). The tier
-  accessors (`.opus`/`.sonnet`/…) live on the concrete agents, not on `agent` —
-  so `agent.opus` won't compile; that's the cue to name the backend. Pin any
-  other model with `withModel(Model("…"))`. Don't mix the two for one session
-  (a `SessionId` is backend-typed).
+  Use a concrete accessor when you want a particular backend or tier
+  regardless of settings — `epic.sc` pins claude to implement and codex to
+  review, for instance. The tier accessors (`.opus`/`.sonnet`/…) live on the
+  concrete agents, not on the role accessors — so `codingAgent.opus` won't
+  compile; that's the cue to name the backend. Pin any other model with
+  `withModel(Model("…"))`. Don't mix the two for one session (a `SessionId`
+  is backend-typed).
 
 > [!WARNING]
 > **Coding agent tool usage is auto-approved by default** (`tools =
@@ -209,11 +215,13 @@ Top-level, available via `import orca.*`:
 
 | Method | Signature | Use |
 |---|---|---|
-| `flow(args, agent, ...)(body)` | `flow(args: OrcaArgs, agent, branchNaming?, stackSettings?, returnToStartBranch = false, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. `agent` selects the leading coding agent — e.g. `_.claude` or `_.codex`. Branch naming defaults to a short cheap-model-generated label (slugged); pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` to override (e.g. for issue flows). `stackSettings = Some(StackSettings(...))` pins the run's [stack settings](#stack-settings) — the settings file is then neither read nor written (the escape hatch for a language-specific flow). See [The flow lifecycle](#the-flow-lifecycle) for the full branch/teardown behavior. |
-| `agent` (in-body accessor) | `agent: Agent[?]` | The leading agent resolved from the `flow` selector — see [Coding agent tools](#coding-agent-tools). |
-| `stage[T: JsonData](name, commitMessage?)(body)` | `(name: String, commitMessage: Option[T => String] = None)(body): T` | The committing, resumable unit of work. On success, records the result, force-adds the progress log, and commits (code changes + log delta = one commit). On re-run, a stage whose result is still recorded is skipped and the stored value is returned. `T` must have `JsonData` — `case class Foo(...) derives JsonData` is enough. Commit message defaults to an `agent.cheap` summary of the diff; override via `commitMessage`. |
+| `flow(args, ...)(body)` | `flow(args: OrcaArgs, branchNaming?, stackSettings?, planningAgent?, codingAgent?, reviewAgent?, returnToStartBranch = false, progressStore?)(body)` | Entry point. Creates one feature branch + one progress log for the run. The three role agents (below) resolve from settings — see [Settings](#settings) — defaulting to claude; `planningAgent`/`codingAgent`/`reviewAgent` here are per-role programmatic overrides (`Some(_.claude.opus)`) that win over both settings files. Branch naming defaults to a short cheap-model-generated label (slugged); pass `branchNaming = Some(BranchNamingStrategy.issue(handle))` to override (e.g. for issue flows). `stackSettings = Some(StackSettings(...))` pins the run's [stack settings](#settings) — the settings file's stack portion is then neither read nor written (the escape hatch for a language-specific flow; its agent keys are still honoured). See [The flow lifecycle](#the-flow-lifecycle) for the full branch/teardown behavior. |
+| `planningAgent` (in-body accessor) | `planningAgent: Agent[ctx.PlanB]` | The planning-role agent, resolved from settings — see [Coding agent tools](#coding-agent-tools). Hand it to `Plan.*`. |
+| `codingAgent` (in-body accessor) | `codingAgent: Agent[ctx.CodeB]` | The coding-role agent — the run's primary: implementer sessions, branch naming, stack discovery, default commit messages. |
+| `reviewAgent` (in-body accessor) | `reviewAgent: Agent[ctx.ReviewB]` | The review-role agent: `allReviewers(reviewAgent)`, the reviewer-picker and the lint summariser default to its tiers. |
+| `stage[T: JsonData](name, commitMessage?)(body)` | `(name: String, commitMessage: Option[T => String] = None)(body): T` | The committing, resumable unit of work. On success, records the result, force-adds the progress log, and commits (code changes + log delta = one commit). On re-run, a stage whose result is still recorded is skipped and the stored value is returned. `T` must have `JsonData` — `case class Foo(...) derives JsonData` is enough. Commit message defaults to a `codingAgent.cheap` summary of the diff; override via `commitMessage`. |
 | `display(message)` | `(message: String): Unit` | Progress-only output: no stage, no commit, no log entry. Callable anywhere — outside a stage or inside a fork. |
-| `Par.mapUnordered(n)(items)(f)` | `(parallelism: Int)(items: Seq[A])(f: A => R): List[R]` | The sanctioned script fan-out (no Ox import needed). Ephemeral agent turns (`agent.run`, `chat.run`) work inside `f`; the durable, flow-thread-only operations (`stage`, `agent.session`, `session.run`) throw if called from a fork. Results arrive in completion order. |
+| `Par.mapUnordered(n)(items)(f)` | `(parallelism: Int)(items: Seq[A])(f: A => R): List[R]` | The sanctioned script fan-out (no Ox import needed). Ephemeral agent turns (`codingAgent.run`, `chat.run`) work inside `f`; the durable, flow-thread-only operations (`stage`, `codingAgent.session`, `session.run`) throw if called from a fork. Results arrive in completion order. |
 | `fail(message)` | `(message: String): Nothing` | Abort with a message. Triggers failure teardown: stays on the feature branch so a re-run resumes. |
 
 ### Overriding tools and agents
@@ -228,9 +236,9 @@ a custom agent lands on the same dispatcher as the defaults:
 
 ```scala
 // Start from a per-backend factory and tune it:
-flow(OrcaArgs(args), _.claude, claude = Some(w => ClaudeAgents.default(w).opus))
+flow(OrcaArgs(args), claude = Some(w => ClaudeAgents.default(w).opus))
 // …or wrap a prebuilt agent:
-flow(OrcaArgs(args), _.claude, claude = Some(_ => myAgent))
+flow(OrcaArgs(args), claude = Some(_ => myAgent))
 ```
 
 Factories exist for all five backends: `ClaudeAgents.default(w)`,
@@ -272,30 +280,41 @@ log (`.orca/progress-<hash>.json`, where `<hash>` is derived from the prompt):
 - **Failure teardown:** discard the failed stage's uncommitted partial edits with
   `git reset --hard`; stay on the feature branch so a re-run resumes in place.
 
-### Stack settings
+### Settings
 
-Flow scripts stay stack-agnostic: the per-project tooling commands (format,
-lint, test) live in **`.orca/settings.properties`** in the target repo, not in
-the script. `reviewAndFixLoop` reads them by default (see [Planning
-utilities](#planning-utilities)), and `flow` setup resolves them once per run
-with this precedence: `reviewAndFixLoop(formatCommands = Use(...)/Off)` >
-`flow(stackSettings = Some(...))` > `.orca/settings.properties` >
-auto-discovery (which writes the file).
+Two files, both plain `key = value` lines, parsed once per run before setup:
 
-**The settings file.** Plain `key = value` lines; the keys are `format`,
-`lint`, and `test`. Each value is one shell command, run via `bash -c` in the
-flow's working directory; everything after the first `=` is command text
-(`lint = FOO=bar cargo check` works). Repeating a key appends — the task's
-commands run in file order, so a multi-stack repo lists one line per stack
-half. A `#` line is a comment; discovery places each command's evidence as its
-own `#` line directly above the `key = command` line. A missing or
-commented-out key means the task is disabled (its gate is skipped). Edit the
-file freely and commit it with the project; delete it to re-run
-auto-discovery. A typical discovered file:
+- **`{workDir}/.orca/settings.properties`** — committed, hand-editable
+  project settings: the stack commands (`format`/`lint`/`test`) and, per role,
+  which agent to use.
+- **`$XDG_CONFIG_HOME/orca/settings.properties`**, defaulting to
+  `~/.config/orca/settings.properties` (the XDG Base Directory spec — the
+  `gh`/`git` CLI convention, followed on macOS too) — a per-user default,
+  agent keys only. A relative or unset `XDG_CONFIG_HOME` falls back to
+  `~/.config`; an absent global file is simply skipped.
+
+Per role key, precedence is: the `flow(planningAgent = ..., codingAgent =
+..., reviewAgent = ...)` programmatic override > the project file > the
+global file > the built-in default (claude, no model pin). Stack commands
+follow a separate chain (unchanged from ADR 0019):
+`reviewAndFixLoop(formatCommands = Use(...)/Off)` > `flow(stackSettings =
+Some(...))` > the project file > auto-discovery (which writes the file). An
+unreadable or malformed file — project or global — aborts the run before any
+tree mutation; the global file may contain ONLY agent keys, so a stack key
+there is also an error.
+
+**Stack commands.** Keys `format`, `lint`, and `test`. Each value is one shell
+command, run via `bash -c` in the flow's working directory; everything after
+the first `=` is command text (`lint = FOO=bar cargo check` works). Repeating
+a key appends — the task's commands run in file order, so a multi-stack repo
+lists one line per stack half. A `#` line is a comment; discovery places each
+command's evidence as its own `#` line directly above the `key = command`
+line. A missing or commented-out key means the task is disabled (its gate is
+skipped). A typical discovered project file:
 
 ```properties
-# orca stack settings — edit freely, commit with the project.
-# Delete this file to re-run auto-discovery.
+# orca settings — edit freely, commit with the project.
+# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.
 # Cargo.toml; via rustfmt
 format = cargo fmt
 # Cargo.toml
@@ -303,10 +322,38 @@ lint = cargo check --tests
 # test =   (no test config found)
 ```
 
-**Auto-discovery.** When no settings file exists (and no `flow(stackSettings =
-...)` override is passed), the first run spends one cheap-model, read-only
-agent call inspecting the repo, then writes the file and announces every
-guess in the event log:
+**Agent keys.** `planningAgent`, `codingAgent`, and `reviewAgent`, valid in
+both files, single-valued (a repeated agent key is an error). Value grammar:
+`harness[:model]`, split at the first `:` so a model id containing `:`
+survives; `harness` is one of `claude`, `codex`, `opencode`, `pi`, `gemini`
+(an unrecognised name is an error naming the valid set). The model part is
+passed **verbatim** to the harness's `withModel` — orca does not normalise or
+validate model ids — for example:
+
+```properties
+planningAgent = claude:opus
+codingAgent = codex:gpt-5-mini
+reviewAgent = opencode:anthropic/claude-haiku-4-5
+```
+
+Agent keys are read even when `flow(stackSettings = Some(...))` overrides the
+stack commands — that override governs the stack portion only, and a
+malformed project or global file still aborts the run either way. `setup`
+announces the resolved roles and where each came from:
+
+```text
+agents: planning=claude (default), coding=codex:gpt-5-mini (project), review=claude (global)
+```
+
+**Auto-discovery.** Discovery runs when the project file is absent, or when
+it exists but names no stack line (live or commented) — a hand-written file
+containing only agent keys still triggers it, appending the discovered stack
+entries below the existing content rather than overwriting it, so agent lines
+are never touched. Delete the stack lines (or the whole file) to re-run
+discovery. When it runs (and no `flow(stackSettings = ...)` override is
+passed), the first run spends one cheap-model, read-only agent call
+inspecting the repo, then writes the file and announces every guess in the
+event log:
 
 ```text
 no .orca/settings.properties — running stack discovery
@@ -322,8 +369,8 @@ checks run before anything is written — the command's executable must be on
 check is demoted to a commented line with its reason (e.g. `# lint = just
 check   (just: not found on PATH)`), never run silently. A discovery failure
 (backend unavailable, invalid output) aborts the run — it is never degraded
-into a written "gates off" file. Runs with an existing file — the steady
-state, including CI — make no model call.
+into a written "gates off" file. Runs with an existing, stack-complete file —
+the steady state, including CI — make no model call.
 
 **The `.orca/` directory** is committed by default: settings and the
 progress log ride the branch, while scratch files live under `.orca/cache/`,
@@ -334,7 +381,7 @@ which writes its own `.gitignore` so it can never land in a commit. If your
 .orca/cache/)`. Do what the warning says — the cache stays ignored on its
 own.
 
-Within a flow body the resolved values are available as
+Within a flow body the resolved stack settings are available as
 `summon[FlowContext].stackSettings` — a `StackSettings(format, lint, test:
 List[String])`. The `test` commands are not consumed by `reviewAndFixLoop`
 (the lint gate stays deliberately cheap); they're there for a flow's own
@@ -407,6 +454,15 @@ safely (the uniform fallback).
 `agent.cheap` returns the backend's cheap/fast variant (claude → haiku, codex →
 mini, gemini → flash, opencode → anthropicHaiku, others → self) — used by the
 runtime for branch naming and default commit messages.
+
+**Backend swaps across runs.** A recorded session is tagged with the backend
+that minted it. If a settings edit changes a role's agent between runs (e.g.
+`codingAgent = codex` becomes `codingAgent = claude`), the next run finds a
+session recorded under the old backend: rather than resume it against the
+new, unrelated backend, orca mints a fresh session and warns
+(`warning: session '<name>' #<n> was minted on <old>; this agent is <new> —
+minting fresh`) — the same re-seed fallback that already covers a lost
+backend conversation.
 
 ## Authoring rules
 
@@ -536,14 +592,14 @@ Review utilities, available via `import orca.review.*`:
 | Method | Use |
 |---|---|
 | `lint(commands, agent, instructions?)` | Run shell lint commands (in order, each via `bash -c`; every one runs even if an earlier one fails) and have `agent` summarise their labelled, concatenated output as a `ReviewResult`. Short output is inlined into the prompt; anything larger is written to a file under `.orca/cache/` for the agent to read, so unbounded output can't overflow the context. |
-| `reviewAndFixLoop(coderSession, reviewers, task, ..., formatCommands?, lint?, fixInstructions?)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#stack-settings), see below. |
+| `reviewAndFixLoop(coderSession, reviewers, task, ..., formatCommands?, lint?, fixInstructions?)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#settings), see below. |
 | `allReviewers(base)` | All eight canonical reviewer agents (code-functionality, test, readability, code-structure, simplicity, performance, security, scala-fp) layered on top of `base`. |
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test). Pair with the default LLM-driven selector when the full set is overkill. |
 | `fixLoop(evaluate, fix, ...)` | Lower-level primitive `reviewAndFixLoop` is built on. |
 
 `reviewAndFixLoop`'s stack-dependent parameters are three-state
 (`orca.Configured`), so omission means "from the project's [stack
-settings](#stack-settings)" while "explicitly off" stays expressible:
+settings](#settings)" while "explicitly off" stays expressible:
 
 ```scala
 enum Configured[+A]:
@@ -553,15 +609,15 @@ enum Configured[+A]:
 ```
 
 `FromSettings` resolves `formatCommands` to `stackSettings.format` and builds
-the lint gate as `Lint(stackSettings.lint, agent.cheap)` — commands plus the
-summariser agent bundled in one value (`Lint(commands: List[String], agent)`).
+the lint gate as `Lint(stackSettings.lint, reviewAgent.cheap)` — commands plus
+the summariser agent bundled in one value (`Lint(commands: List[String], agent)`).
 An empty list resolves to no gate at all: `FromSettings` over empty settings
 behaves exactly like `Off`. A script that omits `lint` gets a lint gate
 whenever the target project's settings define one; for format-only, pass
 `lint = Configured.Off`.
 
 `reviewAndFixLoop`'s `reviewerSelection` defaults to
-`ReviewerSelector.agentDriven` — a picker LLM on the lead agent's cheap tier
+`ReviewerSelector.agentDriven` — a picker LLM on `reviewAgent`'s cheap tier
 sees each reviewer's description plus the changed file paths and narrows the
 supplied list per task. Point the picker at a specific model
 (`ReviewerSelector.agentDriven(claude.haiku)`), pass
@@ -578,7 +634,7 @@ PR utilities, available via `import orca.pr.*`:
 
 | Method | Use |
 |---|---|
-| `summarisePr(agent, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. Use a cheap model (`claude.cheap`, `<lead>.cheap`). |
+| `summarisePr(agent, diff, context?, instructions?)` | Fold a branch diff into a `PrSummary(title, body)` for `gh.createPr`. `context` is an optional preamble (originating issue link, user prompt, etc.) the model anchors the description to. Use a cheap model (`claude.cheap`, `codingAgent.cheap`). |
 
 ### Customising prompts
 
@@ -676,8 +732,8 @@ results.
   entries surfaced by `reviewAndFixLoop` once it halts.
 - **`orca.StackSettings(format, lint, test)`** — the resolved per-project
   tooling commands (each field a `List[String]`, run via `bash -c`; empty =
-  task disabled). Resolved once per run — see [Stack
-  settings](#stack-settings) — and read back via
+  task disabled). Resolved once per run — see [Settings](#settings) — and
+  read back via
   `summon[FlowContext].stackSettings`; pass `flow(stackSettings = Some(...))`
   to pin it.
 - **`orca.Configured[A]`** — three-state default for `reviewAndFixLoop`'s
@@ -725,7 +781,7 @@ log in to the backend you use — `claude`, `codex`, `opencode`, or `pi` — and
 <details>
 <summary>OpenCode with a local Ollama model</summary>
 
-- **Launcher (zero config):** `flow(OrcaArgs(args), _.opencode, opencode =
+- **Launcher (zero config):** `flow(OrcaArgs(args), opencode =
   Some(w => OpencodeAgents.default(w, OpencodeLauncher.ollama("qwen3-coder"))))`.
   Orca starts the server via `ollama launch opencode`, which injects Ollama's
   provider config and pins that one model — use bare `opencode`, no

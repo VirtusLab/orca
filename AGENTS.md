@@ -40,8 +40,9 @@ swapping it for a Slack or HTTP equivalent is one substitution at the call
 site rather than rewiring modules.
 
 The user-facing surface lives in `package orca` (the `flow` entry, the tool
-accessors — including `agent`, the backend-agnostic leading-agent accessor —
-`stage`/`display`/`fail`, `JsonData`, `OrcaArgs`). Implementations live in
+accessors — including `planningAgent`/`codingAgent`/`reviewAgent`, the
+backend-agnostic role accessors (ADR 0020) — `stage`/`display`/`fail`,
+`JsonData`, `OrcaArgs`). Implementations live in
 focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their traits),
 `orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`,
 conversation driver), `orca.subprocess` (subprocess shim), `orca.events`
@@ -49,14 +50,16 @@ conversation driver), `orca.subprocess` (subprocess shim), `orca.events`
 `orca.runner.terminal` (wiring + terminal UI). The flow module adds
 `orca.{plan,review,pr,progress}`.
 
-`agent: Agent[ctx.LeadB]` is path-dependent, so it only works inside a
-straight-line `flow(...)` body sharing one `using FlowContext` — it doesn't
-survive being factored into a helper function, since two `FlowContext`
-parameters' `LeadB` members don't unify even when they're the same backend at
-runtime. A helper should instead take an explicit `[B <: BackendTag]` type
-parameter, or bundle the agent and its durable session as a `FlowSession[B]`
-handle (`agent.session(name, seed)`) — see the `LeadB` scaladoc
-(`flow/src/main/scala/orca/FlowContext.scala`) for the full rationale.
+`codingAgent: Agent[ctx.CodeB]` (the same holds for `planningAgent`/
+`ctx.PlanB` and `reviewAgent`/`ctx.ReviewB`) is path-dependent, so it only
+works inside a straight-line `flow(...)` body sharing one `using
+FlowContext` — it doesn't survive being factored into a helper function,
+since two `FlowContext` parameters' `CodeB` members don't unify even when
+they're the same backend at runtime. A helper should instead take an
+explicit `[B <: BackendTag]` type parameter, or bundle the agent and its
+durable session as a `FlowSession[B]` handle (`codingAgent.session(name,
+seed)`) — see the `CodeB` scaladoc (`flow/src/main/scala/orca/FlowContext.scala`)
+for the full rationale.
 
 ## The stage-bound runtime
 
