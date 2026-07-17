@@ -101,6 +101,75 @@ class RoleAgentsTest extends munit.FunSuite:
       case other =>
         fail(s"expected a RecordingOpencode sibling, got $other")
 
+  test(
+    "resolveAll announces the default, project, and global sources per role"
+  ):
+    val wired = wiredAgents()
+    val resolution = RoleAgents.resolveAll(
+      project = AgentSettings(coding = Some(AgentSpec(BackendTag.Codex, None))),
+      global = AgentSettings(review = Some(AgentSpec(BackendTag.Gemini, None))),
+      overrides = RoleOverrides(None, None, None),
+      agents = wired
+    )
+    assertEquals(
+      resolution.announcement,
+      "agents: planning=claude (default), coding=codex (project), " +
+        "review=gemini (global)"
+    )
+    assertEquals(resolution.foreignWarnings, Nil)
+
+  test("resolveAll renders a project model pin as harness:model"):
+    val resolution = RoleAgents.resolveAll(
+      project = AgentSettings(coding =
+        Some(AgentSpec(BackendTag.Codex, Some("gpt-5-mini")))
+      ),
+      global = AgentSettings.empty,
+      overrides = RoleOverrides(None, None, None),
+      agents = wiredAgents()
+    )
+    assert(
+      resolution.announcement.contains("coding=codex:gpt-5-mini (project)"),
+      s"expected the pinned model in the segment: ${resolution.announcement}"
+    )
+
+  test(
+    "resolveAll marks an override's source as (override) with its backend harness"
+  ):
+    val wired = wiredAgents()
+    val resolution = RoleAgents.resolveAll(
+      project =
+        AgentSettings(coding = Some(AgentSpec(BackendTag.Gemini, None))),
+      global = AgentSettings.empty,
+      overrides =
+        RoleOverrides(None, Some((a: orca.AgentSet) => a.codex), None),
+      agents = wired
+    )
+    assert(
+      resolution.announcement.contains("coding=codex (override)"),
+      s"an override must beat the project file and label (override): " +
+        resolution.announcement
+    )
+    assert(
+      resolution.foreignWarnings.isEmpty,
+      "a wired override is not foreign"
+    )
+
+  test("resolveAll warns for an override that escapes the wired set"):
+    val foreign = new RecordingModelClaude(new AnyRef)
+    val resolution = RoleAgents.resolveAll(
+      project = AgentSettings.empty,
+      global = AgentSettings.empty,
+      overrides =
+        RoleOverrides(None, Some((_: orca.AgentSet) => foreign), None),
+      agents = wiredAgents()
+    )
+    assert(
+      resolution.foreignWarnings.exists(
+        _.contains("coding agent was not built from this flow's context")
+      ),
+      s"expected a foreign-agent warning: ${resolution.foreignWarnings}"
+    )
+
   private def wiredAgents(
       claude: ClaudeAgent = StubAgent.claude,
       codex: CodexAgent = NoopCodex,
@@ -155,6 +224,10 @@ class RoleAgentsTest extends munit.FunSuite:
 
   private object NoopCodex extends CodexAgent:
     val name = "noop-codex"
+    // A real backend tag so the override-announcement test can read the
+    // resolved backend's harness (`codex`) off the agent, as production does.
+    override private[orca] def backendTag: Option[BackendTag] =
+      Some(BackendTag.Codex)
     def mini: CodexAgent = this
     def withModel(model: Model): CodexAgent = this
     def withConfig(config: AgentConfig): CodexAgent = this

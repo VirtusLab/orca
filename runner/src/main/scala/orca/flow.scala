@@ -11,7 +11,6 @@ import orca.events.{
 }
 import orca.agents.{
   Agent,
-  BackendTag,
   ClaudeAgent,
   CodexAgent,
   DefaultPrompts,
@@ -29,12 +28,12 @@ import orca.runner.{
   LoggingListener,
   OrcaBanner,
   OrcaLog,
-  ResolvedRoles,
   RoleAgents,
+  RoleOverrides,
   SurfacedFlowFailure,
   WiredAgents
 }
-import orca.settings.{AgentSpec, GlobalSettings}
+import orca.settings.GlobalSettings
 import orca.runner.terminal.TerminalInteraction
 import orca.subprocess.OsProcCliRunner
 import org.slf4j.LoggerFactory
@@ -340,80 +339,33 @@ private[orca] def runFlow(
                   log.debug("flow aborted", e)
                   if debug then e.printStackTrace(System.err)
                   throw SurfacedFlowFailure(e)
-            // Read both settings files, resolve the three roles against the
-            // wired set, apply the programmatic overrides, then announce.
-            // Inside `surfaced` (ADR 0020) so a malformed file or a bad model
-            // pin reaches the event surface before aborting — and BEFORE any
-            // tree mutation, since setup (and its `ensureClean`) runs after.
+            // Read both settings files, then resolve the three roles (override
+            // > project > global > default) and everything derived from that
+            // resolution — the announcement text and any foreign-agent warnings
+            // — in one place (`RoleAgents.resolveAll`, ADR 0020 §10). Inside
+            // `surfaced` so a malformed file, a bad model pin, or a throwing
+            // override reaches the event surface before aborting — and BEFORE
+            // any tree mutation, since setup (and its `ensureClean`) runs after.
             val (resolvedRoles, settingsRead) = surfaced:
               val read = FlowLifecycle.readSettings(
                 workDir,
                 globalSettingsPath,
                 stackSettings
               )
-              val merged = read.projectAgents.orElse(read.globalAgents)
-              val resolved = RoleAgents.resolve(merged, agents)
-              // Resolve each role, appending to the guard as we go so a later
-              // override that throws still leaves the earlier ones covered.
-              val planning =
-                planningAgent.map(_(agents)).getOrElse(resolved.planning)
-              roles = List(planning)
-              val coding =
-                codingAgent.map(_(agents)).getOrElse(resolved.coding)
-              roles = List(planning, coding)
-              val review =
-                reviewAgent.map(_(agents)).getOrElse(resolved.review)
-              roles = List(planning, coding, review)
-              // An override that escapes the five wired agents (e.g. `_ =>
-              // myPrebuiltAgent`, built from a separate `AgentWiring`/backend)
-              // is event-blind — it never reaches this run's dispatcher — so
-              // each foreign role is a loud warning, not a silent fact; the
-              // close fan-outs still close it to avoid a resource leak, but
-              // nothing can make it observe this run's events after the fact. A
-              // settings-resolved role is always a wired agent, so this only
-              // ever fires for a programmatic override.
-              List(
-                ("planning", planning),
-                ("coding", coding),
-                ("review", review)
+              val resolution = RoleAgents.resolveAll(
+                read.projectAgents,
+                read.globalAgents,
+                RoleOverrides(planningAgent, codingAgent, reviewAgent),
+                agents
               )
-                .foreach: (label, a) =>
-                  if !agents.isWiredBackend(a) then
-                    dispatcher.onEvent(
-                      OrcaEvent.Step(
-                        s"warning: $label agent was not built from this " +
-                          "flow's context — events may not reach the " +
-                          "terminal/cost tracker"
-                      )
-                    )
-              dispatcher.onEvent(
-                OrcaEvent.Step(
-                  "agents: " + List(
-                    roleAnnouncement(
-                      "planning",
-                      planningAgent.isDefined,
-                      read.projectAgents.planning,
-                      read.globalAgents.planning,
-                      planning
-                    ),
-                    roleAnnouncement(
-                      "coding",
-                      codingAgent.isDefined,
-                      read.projectAgents.coding,
-                      read.globalAgents.coding,
-                      coding
-                    ),
-                    roleAnnouncement(
-                      "review",
-                      reviewAgent.isDefined,
-                      read.projectAgents.review,
-                      read.globalAgents.review,
-                      review
-                    )
-                  ).mkString(", ")
-                )
-              )
-              (ResolvedRoles(planning, coding, review), read)
+              // Cover the resolved roles in the pre-transfer close guard — the
+              // wired backends are already covered via `agents.all`, so only a
+              // foreign override adds anything (filtered below).
+              roles = resolution.roles.all
+              resolution.foreignWarnings.foreach: warning =>
+                dispatcher.onEvent(OrcaEvent.Step(warning))
+              dispatcher.onEvent(OrcaEvent.Step(resolution.announcement))
+              (resolution.roles, read)
             // Setup (branch + log binding, stack discovery) runs BEFORE the
             // context is constructed, so its outcome is a constructor input
             // rather than late-bound state; it drives the CODING role.
@@ -473,38 +425,6 @@ private[orca] def runFlow(
         finally effectiveInteraction.close()
     finally FlowLock.releaseWorkdir(lockPath)
   finally FlowLock.releaseProcess()
-
-/** One role's segment of the settings-resolution announcement `Step` (design
-  * decision 10), e.g. `coding=codex:gpt-5-mini (project)`. The harness+model is
-  * taken from the winning [[AgentSpec]] (project or global); a programmatic
-  * override shows its resolved backend's harness (no model — the override's pin
-  * isn't a spec), and the built-in default shows `claude`. The model suffix
-  * appears only when a pin is set.
-  */
-private def roleAnnouncement(
-    label: String,
-    overridden: Boolean,
-    projectSpec: Option[AgentSpec],
-    globalSpec: Option[AgentSpec],
-    resolved: Agent[?]
-): String =
-  val (source, harness, model) =
-    if overridden then
-      (
-        "override",
-        resolved.backendTag
-          .flatMap(AgentSpec.harnessNameFor.get)
-          .getOrElse("claude"),
-        None
-      )
-    else
-      projectSpec
-        .map(("project", _))
-        .orElse(globalSpec.map(("global", _))) match
-        case Some((source, spec)) =>
-          (source, AgentSpec.harnessNameFor(spec.backend), spec.model)
-        case None => ("default", "claude", None)
-  s"$label=$harness${model.map(":" + _).getOrElse("")} ($source)"
 
 private def installUncaughtExceptionHandler(): Unit =
   // Idempotent across nested or repeated `flow(...)` calls — we only install

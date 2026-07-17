@@ -10,7 +10,8 @@ package orca.settings
 private[orca] object GlobalSettings:
   def path(env: String => Option[String], home: os.Path): os.Path =
     val configHome = env("XDG_CONFIG_HOME")
-      .filter(v => v.nonEmpty && v.startsWith("/"))
+      // `os.Path` accepts only absolute paths, so a relative, empty, or
+      // root-climbing value throws and falls back — no separate pre-filter.
       .flatMap(v => scala.util.Try(os.Path(v)).toOption)
       .getOrElse(home / ".config")
     configHome / "orca" / "settings.properties"
