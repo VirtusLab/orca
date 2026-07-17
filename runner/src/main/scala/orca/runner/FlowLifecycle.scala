@@ -108,7 +108,7 @@ object FlowLifecycle:
           log.debug("flow aborted", e)
           if debug then e.printStackTrace(System.err)
           throw SurfacedFlowFailure(e)
-    surfaced(rehydrateSessions(ctx, ctx.agent, ctx.progressStore))
+    surfaced(rehydrateSessions(ctx, ctx.codingAgent, ctx.progressStore))
     // The whole flow body runs as a top-level stage: an otherwise
     // unhandled exception surfaces as a single Error event (the same
     // message a stage failure shows). A nested stage / `fail` marks the

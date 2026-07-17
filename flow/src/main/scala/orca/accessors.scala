@@ -52,3 +52,49 @@ def userPrompt(using ctx: FlowContext): String = ctx.userPrompt
   * is something else.
   */
 def agent(using ctx: FlowContext): Agent[ctx.LeadB] = ctx.agent
+
+/** The planning-role agent (ADR 0020): resolved from settings (`planningAgent =
+  * <harness>[:<model>]`), default claude. Reference it in `Plan.*` calls
+  * instead of a concrete accessor so planning follows whichever backend the
+  * settings name. A session minted from `planningAgent.session` threads because
+  * [[FlowContext.PlanB]] pins the backend; see [[codingAgent]] for the
+  * helper-authoring caveat shared by all three role accessors.
+  */
+def planningAgent(using ctx: FlowContext): Agent[ctx.PlanB] = ctx.planningAgent
+
+/** The coding-role agent — the run's primary: implementer sessions, branch
+  * naming, stack discovery, and default commit messages run here. Reference it
+  * in a body instead of a concrete accessor (`claude`/`codex`) so the flow
+  * follows whichever backend `codingAgent = <harness>[:<model>]` in settings
+  * names. A session from `codingAgent.session` threads into `session.run` and
+  * the reviewers because [[FlowContext.CodeB]] pins the backend.
+  *
+  * '''Helper authoring:''' the path-dependent `Agent[ctx.CodeB]` (the same
+  * holds for `ctx.PlanB` / `ctx.ReviewB`) is convenient in a straight-line
+  * `flow(...)` body, where every reference resolves against the same `using
+  * FlowContext` in scope — but it stops working the moment you factor code into
+  * a helper *function*. `ctx1.CodeB` and `ctx2.CodeB` from two different `using
+  * FlowContext` parameters are different types to the compiler even when
+  * they're the same backend at runtime, so a helper that takes
+  * `Agent[ctx.CodeB]` in one parameter and tries to combine it with
+  * `SessionId[ctx.CodeB]` from another can't unify them. Two ways out, both
+  * used by the library's own helpers:
+  *
+  *   - Take an explicit `[B <: BackendTag]` type parameter and type the
+  *     helper's own parameters against it — `B` is then a genuine type variable
+  *     the caller instantiates once, not a path into someone else's context.
+  *     See [[orca.review.reviewAndFixLoop]]`(coderSession: FlowSession[B],
+  *     ...)`, whose single [[orca.FlowSession]] bundles the agent and its
+  *     session so `B` is pinned once at the call site.
+  *   - Bundle the agent's session with its result as a single
+  *     [[orca.plan.Sessioned]]`[B, A]` value, so callers pass one thing instead
+  *     of two that have to agree on `B`. See `Plan.autonomous.*` /
+  *     `Plan.interactive.*`.
+  */
+def codingAgent(using ctx: FlowContext): Agent[ctx.CodeB] = ctx.codingAgent
+
+/** The review-role agent: `allReviewers(reviewAgent)`, the reviewer-picker and
+  * the lint summariser default to its tiers. See [[codingAgent]] for the
+  * helper-authoring caveat shared by all three role accessors.
+  */
+def reviewAgent(using ctx: FlowContext): Agent[ctx.ReviewB] = ctx.reviewAgent

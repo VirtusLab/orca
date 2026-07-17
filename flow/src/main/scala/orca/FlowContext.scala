@@ -64,6 +64,68 @@ trait FlowContext extends AgentSet:
     * backend.
     */
   def agent: Agent[LeadB]
+
+  /** Backend tag of the planning-role agent (ADR 0020): resolved from
+    * `planningAgent = <harness>[:<model>]` in stack settings, default claude. A
+    * type *member*, not a parameter, so `FlowContext` stays unparametrised;
+    * pins [[planningAgent]]'s backend so sessions minted from it thread. See
+    * [[CodeB]] for the helper-authoring caveat shared by all three role types.
+    */
+  type PlanB <: BackendTag
+
+  /** Backend tag of the coding-role agent (ADR 0020): resolved from
+    * `codingAgent = <harness>[:<model>]` in stack settings, default claude —
+    * the run's primary backend. A type *member*, not a parameter, so
+    * `FlowContext` stays unparametrised; pins [[codingAgent]]'s backend so
+    * sessions minted from it thread.
+    *
+    * '''Helper authoring:''' the path-dependent `Agent[ctx.CodeB]` (the same
+    * holds for `ctx.PlanB` / `ctx.ReviewB`) is convenient in a straight-line
+    * `flow(...)` body, where every reference resolves against the same `using
+    * FlowContext` in scope — but it stops working the moment you factor code
+    * into a helper *function*. `ctx1.CodeB` and `ctx2.CodeB` from two different
+    * `using FlowContext` parameters are different types to the compiler even
+    * when they're the same backend at runtime, so a helper that takes
+    * `Agent[ctx.CodeB]` in one parameter and tries to combine it with
+    * `SessionId[ctx.CodeB]` from another can't unify them. Two ways out, both
+    * used by the library's own helpers:
+    *
+    *   - Take an explicit `[B <: BackendTag]` type parameter and type the
+    *     helper's own parameters against it — `B` is then a genuine type
+    *     variable the caller instantiates once, not a path into someone else's
+    *     context. See [[orca.review.reviewAndFixLoop]]`(coderSession:
+    *     FlowSession[B], ...)`, whose single [[orca.FlowSession]] bundles the
+    *     agent and its session so `B` is pinned once at the call site.
+    *   - Bundle the agent's session with its result as a single
+    *     [[orca.plan.Sessioned]]`[B, A]` value, so callers pass one thing
+    *     instead of two that have to agree on `B`. See `Plan.autonomous.*` /
+    *     `Plan.interactive.*`.
+    */
+  type CodeB <: BackendTag
+
+  /** Backend tag of the review-role agent (ADR 0020): resolved from
+    * `reviewAgent = <harness>[:<model>]` in stack settings, default claude. A
+    * type *member*, not a parameter, so `FlowContext` stays unparametrised;
+    * pins [[reviewAgent]]'s backend so sessions minted from it thread. See
+    * [[CodeB]] for the helper-authoring caveat shared by all three role types.
+    */
+  type ReviewB <: BackendTag
+
+  /** The planning-role agent (ADR 0020): resolved from settings (`planningAgent
+    * \= <harness>[:<model>]`), default claude. Scripts hand it to `Plan.*`.
+    */
+  def planningAgent: Agent[PlanB]
+
+  /** The coding-role agent — the run's primary: implementer sessions, branch
+    * naming, stack discovery, and default commit messages run here.
+    */
+  def codingAgent: Agent[CodeB]
+
+  /** The review-role agent: `allReviewers(reviewAgent)`, the reviewer-picker
+    * and the lint summariser default to its tiers.
+    */
+  def reviewAgent: Agent[ReviewB]
+
   def git: GitTool
   def gh: GitHubTool
   def fs: FsTool

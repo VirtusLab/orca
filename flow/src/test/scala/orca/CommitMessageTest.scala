@@ -107,8 +107,14 @@ class CommitMessageTest extends munit.FunSuite:
       throw new NotImplementedError(s"$n not wired")
     type LeadB = BackendTag.ClaudeCode.type
     // The leading agent IS the test's stub; the commit path's
-    // `fc.agent.cheapOneShot` runs the stub's canned reply.
+    // `fc.codingAgent.cheapOneShot` runs the stub's canned reply.
     def agent: Agent[LeadB] = agentStub
+    type PlanB = LeadB
+    type CodeB = LeadB
+    type ReviewB = LeadB
+    def planningAgent: Agent[PlanB] = agentStub
+    def codingAgent: Agent[CodeB] = agentStub
+    def reviewAgent: Agent[ReviewB] = agentStub
     lazy val claude: ClaudeAgent = stub("claude")
     lazy val codex: CodexAgent = stub("codex")
     lazy val opencode: OpencodeAgent = stub("opencode")

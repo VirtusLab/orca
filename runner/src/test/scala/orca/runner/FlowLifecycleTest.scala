@@ -2216,6 +2216,12 @@ class FlowLifecycleTest extends munit.FunSuite:
   ) extends FlowContext:
     type LeadB = BackendTag.ClaudeCode.type
     def agent: Agent[LeadB] = notWired("agent")
+    type PlanB = LeadB
+    type CodeB = LeadB
+    type ReviewB = LeadB
+    def planningAgent: Agent[PlanB] = agent
+    def codingAgent: Agent[CodeB] = agent
+    def reviewAgent: Agent[ReviewB] = agent
     def claude: ClaudeAgent = claudeOverride
     def codex: CodexAgent = codexOverride
     def opencode: OpencodeAgent = opencodeOverride

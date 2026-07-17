@@ -43,6 +43,16 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
   // path-dependent `ctx.LeadB` is still stable.
   type LeadB = B
 
+  // Every role is temporarily backed by the same lead (ADR 0020 lands
+  // per-role resolution later): all three pin to `B`, and the accessors just
+  // forward to `agent`.
+  type PlanB = B
+  type CodeB = B
+  type ReviewB = B
+  val planningAgent: Agent[B] = agent
+  val codingAgent: Agent[B] = agent
+  val reviewAgent: Agent[B] = agent
+
   export wired.{claude, codex, opencode, pi, gemini}
 
   /** Tear down context-owned background resources by closing every wired agent

@@ -76,12 +76,12 @@ object ReviewerSelector:
 
   /** Asks a picker LLM which reviewers are worth running for a given task. The
     * parameterless form — `reviewAndFixLoop`'s default — resolves the picker at
-    * loop start as the flow's lead agent's cheap tier
-    * ([[orca.FlowContext.agent]]`.cheap`); the overload below takes the picker
-    * (and optionally retuned prompts/descriptions) explicitly. The selection is
-    * computed once, in [[ReviewerSelector.prepare]] at loop start — task
-    * context doesn't change mid-loop, so a single query answers every round;
-    * the returned per-round function is pure (it just replays the pick,
+    * loop start as the flow's review-role agent's cheap tier
+    * ([[orca.FlowContext.reviewAgent]]`.cheap`); the overload below takes the
+    * picker (and optionally retuned prompts/descriptions) explicitly. The
+    * selection is computed once, in [[ReviewerSelector.prepare]] at loop start
+    * — task context doesn't change mid-loop, so a single query answers every
+    * round; the returned per-round function is pure (it just replays the pick,
     * ignoring history).
     *
     * `taskTitle` and `changedFiles` arrive at `prepare` from
@@ -114,7 +114,7 @@ object ReviewerSelector:
         ctx: FlowContext,
         ev: InStage
     ): List[ReviewBatch] -> List[RosterEntry[?]] =
-      agentDriven(ctx.agent.cheap).prepare(all, taskTitle, changedFiles)
+      agentDriven(ctx.reviewAgent.cheap).prepare(all, taskTitle, changedFiles)
 
   /** See the parameterless [[agentDriven]] above for the full description. */
   def agentDriven(

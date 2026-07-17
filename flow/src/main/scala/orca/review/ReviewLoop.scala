@@ -272,17 +272,17 @@ def reviewAndFixLoop[B <: BackendTag](
   // `Configured` resolution happens here, on the collecting thread at loop
   // entry (ADR 0019): the config then carries plain data, so the
   // capture-checked fan-out below never reads `ctx.stackSettings` (or touches
-  // `ctx.agent`) from a fork.
+  // `ctx.reviewAgent`) from a fork.
   val resolvedFormat: List[String] = formatCommands match
     case Configured.FromSettings => ctx.stackSettings.format
     case Configured.Off          => Nil
     case Configured.Use(cs)      => cs
-  // Empty settings ≡ no gate: no `Lint` value is built (and `ctx.agent` is
-  // not resolved), exactly like `Off`.
+  // Empty settings ≡ no gate: no `Lint` value is built (and `ctx.reviewAgent`
+  // is not resolved), exactly like `Off`.
   val resolvedLint: Option[Lint] = lint match
     case Configured.FromSettings =>
       Option.when(ctx.stackSettings.lint.nonEmpty)(
-        Lint(ctx.stackSettings.lint, ctx.agent.cheap)
+        Lint(ctx.stackSettings.lint, ctx.reviewAgent.cheap)
       )
     case Configured.Off    => None
     case Configured.Use(l) => Some(l)

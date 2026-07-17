@@ -20,3 +20,24 @@ class AccessorsTest extends munit.FunSuite:
     val _ = intercept[NotImplementedError](git)
     val _ = intercept[NotImplementedError](gh)
     val _ = intercept[NotImplementedError](fs)
+
+  test("the three role accessors resolve against the ambient FlowContext"):
+    given FlowContext = ctxWith("")
+    // TestFlowContext backs all three roles with the (stubbed) lead, so each
+    // accessor must throw the same way `agent` does rather than return some
+    // default.
+    val _ = intercept[NotImplementedError](planningAgent)
+    val _ = intercept[NotImplementedError](codingAgent)
+    val _ = intercept[NotImplementedError](reviewAgent)
+
+  /** Compile-only: a session minted from `codingAgent` must type as
+    * `FlowSession[ctx.CodeB]`, matching the coding role's pinned backend — a
+    * regression here would silently erase the type and stop sessions from
+    * threading through `session.run`. Never invoked; typechecking alone is the
+    * assertion (see `flowtests.FlowCompilesTest` for the sibling canary style).
+    */
+  def codingAgentSessionThreads(using
+      ctx: FlowContext,
+      fc: FlowControl
+  ): FlowSession[ctx.CodeB] =
+    codingAgent.session("impl", seed = "seed")

@@ -47,6 +47,12 @@ class TestFlowContext(
 
   type LeadB = BackendTag.ClaudeCode.type
   lazy val agent: Agent[LeadB] = stub("agent")
+  type PlanB = LeadB
+  type CodeB = LeadB
+  type ReviewB = LeadB
+  lazy val planningAgent: Agent[PlanB] = agent
+  lazy val codingAgent: Agent[CodeB] = agent
+  lazy val reviewAgent: Agent[ReviewB] = agent
   lazy val claude: ClaudeAgent = stub("claude")
   lazy val codex: CodexAgent = stub("codex")
   lazy val opencode: OpencodeAgent = stub("opencode")
@@ -79,6 +85,12 @@ class TestFlowControl(
 
   type LeadB = BackendTag.ClaudeCode.type
   lazy val agent: Agent[LeadB] = lead.getOrElse(stub("agent"))
+  type PlanB = LeadB
+  type CodeB = LeadB
+  type ReviewB = LeadB
+  lazy val planningAgent: Agent[PlanB] = agent
+  lazy val codingAgent: Agent[CodeB] = agent
+  lazy val reviewAgent: Agent[ReviewB] = agent
   lazy val claude: ClaudeAgent = stub("claude")
   lazy val codex: CodexAgent = stub("codex")
   lazy val opencode: OpencodeAgent = stub("opencode")
