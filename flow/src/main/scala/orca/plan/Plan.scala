@@ -1,7 +1,7 @@
 package orca.plan
 
 import orca.{FlowContext, InStage, OrcaFlowException}
-import orca.agents.{Announce, BackendTag, CanAskUser, JsonData, Agent, given}
+import orca.agents.{Announce, BackendTag, JsonData, Agent, given}
 
 import scala.annotation.unused
 
@@ -73,8 +73,7 @@ object Plan:
     * session is still resumable by a later writable call, so the caller can
     * continue it into implementation or discard it for a fresh session.
     *
-    * No `CanAskUser` bound (unlike [[interactive]]): an autonomous turn never
-    * calls `ask_user`, so it works with any backend.
+    * An autonomous turn never calls `ask_user`, so no backend is excluded.
     */
   object autonomous:
     /** Produce a [[Plan]] directly from `userPrompt`. */
@@ -118,18 +117,17 @@ object Plan:
     * tool, so the agent runs with normal permissions; the prompt asks it not to
     * edit, and the user sees any violation.
     *
-    * The `B: CanAskUser` constraint means these compile only with backends that
-    * can host an `ask_user` tool — claude and codex (both via the shared
-    * `AskUserMcpServer`) and pi (via Orca's temporary ask-user extension). A
-    * future stdin-only backend would fail this at compile time. Use
-    * [[autonomous]] when no mid-session questions are needed.
+    * Every backend exposes `ask_user`: claude, codex, and gemini via the shared
+    * `AskUserMcpServer`, opencode natively via its `question` tool, and pi via
+    * Orca's temporary ask-user extension. Use [[autonomous]] when no
+    * mid-session questions are needed.
     *
     * Each operation returns a [[Sessioned]] so the conversation can carry into
     * implementation (e.g. a triage agent's exploration informs the fix).
     */
   object interactive:
     /** Produce a [[Plan]] directly from `userPrompt`. */
-    def from[B <: BackendTag: CanAskUser](
+    def from[B <: BackendTag](
         userPrompt: String,
         agent: Agent[B],
         instructions: String = PlanPrompts.Planning
@@ -142,7 +140,7 @@ object Plan:
       * questions mid-turn rather than only rejecting with a
       * [[Verdict.RejectionKind.Question]].
       */
-    def assessThenPlan[B <: BackendTag: CanAskUser](
+    def assessThenPlan[B <: BackendTag](
         userPrompt: String,
         agent: Agent[B],
         instructions: String = PlanPrompts.AssessThenPlan
@@ -156,7 +154,7 @@ object Plan:
     /** Classify a bug report into a [[Triage]] verdict, able to ask the
       * reporter clarifying questions before deciding.
       */
-    def triage[B <: BackendTag: CanAskUser](
+    def triage[B <: BackendTag](
         report: String,
         agent: Agent[B],
         instructions: String = PlanPrompts.Triage
@@ -211,7 +209,7 @@ object Plan:
     * so the chat is minted on `agent` directly.
     */
   private def interactiveResult[
-      B <: BackendTag: CanAskUser,
+      B <: BackendTag,
       O: JsonData: Announce,
       A
   ](

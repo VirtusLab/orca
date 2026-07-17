@@ -286,7 +286,7 @@ object FlowCanary:
           Plan.autonomous.from(userPrompt, claude.opus)
         val intFrom: Sessioned[?, Plan] =
           Plan.interactive.from(userPrompt, claude)
-        // Codex and Pi also satisfy `CanAskUser`, so the interactive cells
+        // Codex and Pi also expose ask_user, so the interactive cells
         // compile against them too.
         val intFromCodex: Sessioned[?, Plan] =
           Plan.interactive.from(userPrompt, codex)
@@ -322,6 +322,15 @@ object FlowCanary:
           case Triage.NotABug(_)        => ()
           case Triage.Untestable(_, _)  => ()
           case Triage.Testable(_, _, _) => ()
+
+  /** `Plan.interactive.from` must compile against a type-abstract `Agent[B]`,
+    * not just the concrete backends `planningGridSurface` exercises above — the
+    * role-agent accessors a later stage adds hand out agents typed this way.
+    */
+  def interactivePlanAgnostic[B <: BackendTag](
+      a: Agent[B]
+  )(using FlowContext, InStage): Unit =
+    val _ = Plan.interactive.from("prompt", a)
 
   /** Post-planning step (`reviewed`) plus the per-task stage loop — exercised
     * by `examples/implement-enhanced.sc`. Pins that the `Sessioned[B, Plan]`
