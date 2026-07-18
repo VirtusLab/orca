@@ -67,6 +67,12 @@ private[orca] object OrcaDir:
     os.makeDir.all(runs)
     runs
 
+  /** `<workDir>/.orca/cache/runs`, passively — the read-side counterpart to
+    * [[cacheRunsPath]] for the shell's manifest listing (ADR 0021 §8), which
+    * must not create `.orca` as a side effect of reading it.
+    */
+  def runsPath(workDir: os.Path): os.Path = root(workDir) / "cache" / "runs"
+
   /** `<workDir>/.orca/flows` — project-tier flow scripts (ADR 0021 §5),
     * committed like the rest of `.orca`'s root.
     */

@@ -88,3 +88,8 @@ class OrcaDirTest extends munit.FunSuite:
     assertEquals(runs, wd / ".orca" / "cache" / "runs")
     assert(os.isDir(runs))
     assert(os.isDir(wd / ".orca" / "cache"))
+
+  test("runsPath points at .orca/cache/runs without creating anything"):
+    val wd = TempDirs.dir()
+    assertEquals(OrcaDir.runsPath(wd), wd / ".orca" / "cache" / "runs")
+    assert(!os.exists(wd / ".orca"))
