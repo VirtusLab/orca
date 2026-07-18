@@ -184,7 +184,25 @@ lazy val shell = (project in file("shell"))
   .settings(
     name := "orca-shell",
     Compile / mainClass := Some("orca.shell.Main"),
-    libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros, ox, jline, jlineConsoleUi, fansi)
+    libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros, ox, jline, jlineConsoleUi, fansi),
+    // Bundles the top-level flows/*.sc scripts as jar resources under
+    // orca/shell/flows/ (ADR 0021 §7), so `BuiltInFlows` can extract them to a
+    // real path at runtime. Jar resources aren't listable, hence the
+    // generated `index` sidecar (newline-separated filenames).
+    Compile / resourceGenerators += Def.task {
+      val srcDir = (ThisBuild / baseDirectory).value / "flows"
+      val outDir = (Compile / resourceManaged).value / "orca" / "shell" / "flows"
+      IO.createDirectory(outDir)
+      val flowFiles = IO.listFiles(srcDir).filter(_.getName.endsWith(".sc")).sortBy(_.getName)
+      val copied = flowFiles.map { f =>
+        val target = outDir / f.getName
+        IO.copyFile(f, target)
+        target
+      }
+      val indexFile = outDir / "index"
+      IO.write(indexFile, flowFiles.map(_.getName).mkString("\n"))
+      copied.toSeq :+ indexFile
+    }.taskValue
   )
 
 lazy val orcaRoot = (project in file("."))
