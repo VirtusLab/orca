@@ -11,7 +11,10 @@ import orca.shell.ShellVersion
 object BuiltInFlows:
   private val resourcePrefix = "/orca/shell/flows/"
 
-  private val depPin = """^//> using dep "org\.virtuslab::orca:[^"]+"$""".r
+  private val orcaDepModule = "org.virtuslab::orca"
+
+  private val depPin =
+    s"""^//> using dep "${scala.util.matching.Regex.quote(orcaDepModule)}:[^"]+"$$""".r
 
   /** The bundled flows' filenames, from the generated index resource. */
   private def names: List[String] =
@@ -29,7 +32,8 @@ object BuiltInFlows:
     * that directory.
     *
     * A release-looking `version` (`ShellVersion.isRelease`) extracts once,
-    * keyed by the directory's existence — a second call is a no-op, since a
+    * keyed by the directory being *complete* — present with every indexed
+    * flow file — not merely existing; a second call is then a no-op, since a
     * release's flows are immutable for that version. Any other version (a
     * dev snapshot or `"dev"` itself) always re-extracts and rewrites each
     * flow's `//> using dep "org.virtuslab::orca:X"` line to the running
@@ -37,6 +41,15 @@ object BuiltInFlows:
     * the same treatment `_seed_lib.sh --local` applies, so built-ins resolve
     * against a locally published build instead of a not-yet-released Maven
     * Central artifact.
+    *
+    * Both paths write through [[materialize]], which stages every file in a
+    * temp sibling directory and swaps it into place with an atomic move —
+    * `ProgressStore.writeLog`'s temp-file-then-`os.move` idiom, applied to a
+    * directory. A process killed mid-extraction (OOM, `kill -9`, disk full)
+    * can therefore only ever leave the temp directory (never looked at again)
+    * half-written, never `dir` itself; combined with the completeness check,
+    * a legacy half-populated `dir` left by the old existence-keyed logic is
+    * treated as absent and self-heals on the next call.
     */
   def extracted(env: String => Option[String], home: os.Path, version: String): os.Path =
     val cacheHome = env("XDG_CACHE_HOME")
@@ -45,16 +58,62 @@ object BuiltInFlows:
       .flatMap(v => scala.util.Try(os.Path(v)).toOption)
       .getOrElse(home / ".cache")
     val dir = cacheHome / "orca" / "shell" / version / "flows"
+    val expectedNames = names
 
     if ShellVersion.isRelease(version) then
-      if !os.isDir(dir) then
-        os.makeDir.all(dir)
-        names.foreach(name => os.write(dir / name, resourceText(name)))
+      if !isComplete(dir, expectedNames) then
+        materialize(dir, expectedNames, resourceText, skipIfRaceCompleted = true)
     else
-      os.makeDir.all(dir)
-      names.foreach(name => os.write.over(dir / name, pinToRunningVersion(resourceText(name), version)))
+      materialize(
+        dir,
+        expectedNames,
+        name => pinToRunningVersion(resourceText(name), version),
+        skipIfRaceCompleted = false
+      )
 
     dir
+
+  /** `dir` holds every one of `expectedNames` — the idempotency key for the
+    * release path. Anything short of that (absent, or missing a file because
+    * a prior extraction died mid-way) is treated the same as "not yet
+    * extracted".
+    */
+  private def isComplete(dir: os.Path, expectedNames: List[String]): Boolean =
+    os.isDir(dir) && expectedNames.forall(name => os.isFile(dir / name))
+
+  /** Writes `expectedNames` (via `content`) into a fresh temp directory next
+    * to `dir`, then swaps it into place. The swap removes any existing `dir`
+    * first: a plain `os.move(replaceExisting = true)` only replaces an
+    * *empty* directory, and a half-populated leftover isn't empty. The
+    * removal isn't itself atomic with the move, but the window it opens is
+    * harmless — at worst a crash there leaves `dir` absent, which is exactly
+    * the "not yet extracted" state `extracted` already re-extracts from, so
+    * a half-populated `dir` can never result.
+    *
+    * `skipIfRaceCompleted` is true only for the release path, whose content
+    * is a pure function of `version`: if another call (this process racing
+    * itself, or a concurrent process) already completed `dir` by the time
+    * this one finishes staging, that existing content is equally valid, so
+    * the freshly staged temp directory is discarded instead of swapped in.
+    * The dev path always swaps in fresh content, since it can differ between
+    * calls even for the same `version` (e.g. after a recompile).
+    */
+  private def materialize(
+      dir: os.Path,
+      expectedNames: List[String],
+      content: String => String,
+      skipIfRaceCompleted: Boolean
+  ): Unit =
+    val parent = dir / os.up
+    os.makeDir.all(parent)
+    val tmp = os.temp.dir(dir = parent, prefix = s".${dir.last}.", deleteOnExit = false)
+    try
+      expectedNames.foreach(name => os.write(tmp / name, content(name)))
+      if !(skipIfRaceCompleted && isComplete(dir, expectedNames)) then
+        if os.exists(dir) then os.remove.all(dir)
+        try os.move(tmp, dir, atomicMove = true)
+        catch case _: java.nio.file.AtomicMoveNotSupportedException => os.move(tmp, dir)
+    finally if os.exists(tmp) then os.remove.all(tmp)
 
   /** Rewrites the `using dep` pin line to `version` and inserts the
     * ivy2Local repository line right after it — `_seed_lib.sh --local`'s sed
@@ -66,7 +125,7 @@ object BuiltInFlows:
       .toList
       .flatMap { line =>
         if depPin.matches(line) then
-          List(s"""//> using dep "org.virtuslab::orca:$version"""", "//> using repository ivy2Local")
+          List(s"""//> using dep "$orcaDepModule:$version"""", "//> using repository ivy2Local")
         else List(line)
       }
       .mkString("\n")

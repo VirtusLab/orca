@@ -63,6 +63,22 @@ class BuiltInFlowsTest extends munit.FunSuite:
       assertEquals(lines(depLineIdx), s"""//> using dep "org.virtuslab::orca:$runningVersion"""")
       assertEquals(lines(depLineIdx + 1), "//> using repository ivy2Local")
 
+  test("extracted (release version) self-heals a half-populated leftover dir"):
+    withTempHome: home =>
+      // Simulates a process killed mid-extraction under the old
+      // existence-keyed logic: the dir exists but only has 2 of 6 files.
+      val dir = home / ".cache" / "orca" / "shell" / "0.0.18" / "flows"
+      os.makeDir.all(dir)
+      val expectedNames = indexNames.sorted
+      expectedNames.take(2).foreach(name => os.write(dir / name, "stale-partial-content"))
+      assertEquals(os.list(dir).map(_.last).toList.sorted, expectedNames.take(2))
+
+      val result = BuiltInFlows.extracted(Map.empty.get, home, "0.0.18")
+
+      assertEquals(result, dir)
+      assertEquals(os.list(dir).map(_.last).toList.sorted, expectedNames)
+      expectedNames.foreach(name => assert(os.read(dir / name).trim.nonEmpty, name))
+
   test("extracted (\"dev\") also rewrites the dep pin to the running version"):
     withTempHome: home =>
       val dir = BuiltInFlows.extracted(Map.empty.get, home, "dev")
