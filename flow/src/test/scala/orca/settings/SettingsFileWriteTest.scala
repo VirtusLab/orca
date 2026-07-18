@@ -11,10 +11,22 @@ import org.scalacheck.Prop.forAll
   */
 class SettingsFileWriteTest extends ScalaCheckSuite:
 
+  // A colon-bearing model (e.g. a versioned id like `sonnet:4.5`) exercises
+  // AgentSpec.parse's "split at the FIRST colon" rule, distinct from the
+  // harness:model colon.
+  private val modelGen: Gen[String] =
+    Gen.oneOf(
+      Gen.alphaNumStr.suchThat(_.nonEmpty),
+      for
+        head <- Gen.alphaNumStr.suchThat(_.nonEmpty)
+        tail <- Gen.alphaNumStr.suchThat(_.nonEmpty)
+      yield s"$head:$tail"
+    )
+
   private val specGen: Gen[AgentSpec] =
     for
       backend <- Gen.oneOf(BackendTag.values.toList)
-      model <- Gen.option(Gen.alphaNumStr.suchThat(_.nonEmpty))
+      model <- Gen.option(modelGen)
     yield AgentSpec(backend, model)
 
   private val agentsGen: Gen[AgentSettings] =

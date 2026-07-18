@@ -11,6 +11,14 @@ enum UiOutcome[+A]:
   case Selected(value: A)
   case Cancelled
 
+  def map[B](f: A => B): UiOutcome[B] = this match
+    case Selected(value) => Selected(f(value))
+    case Cancelled       => Cancelled
+
+  def flatMap[B](f: A => UiOutcome[B]): UiOutcome[B] = this match
+    case Selected(value) => f(value)
+    case Cancelled       => Cancelled
+
 /** The shell's prompt surface (ADR 0021 §3): select menus, confirmations and
   * free-text input. Two implementations share this contract: [[ConsoleUiShell]]
   * (arrow-key menus, tty only) and [[NumberedUi]] (`readLine` fallback,

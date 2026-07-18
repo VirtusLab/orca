@@ -3,6 +3,7 @@ package orca.shell.wizard
 import orca.agents.BackendTag
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile, SettingsScope}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
+import ox.discard
 
 /** The welcome wizard (ADR 0021 §4): detects installed harnesses, asks the
   * user to pick one per role, and writes the user-global settings file.
@@ -20,30 +21,44 @@ class Wizard(ui: ShellUi, probe: String => Boolean, globalSettingsPath: os.Path)
     * anything as soon as any prompt is [[UiOutcome.Cancelled]].
     */
   def run(reconfigure: Boolean): Boolean =
-    val exists = os.exists(globalSettingsPath)
-    val currentContent = if exists then os.read(globalSettingsPath) else ""
-    // A malformed existing file (only reachable if the caller re-configures
-    // past a parse error without offering the repair-rewrite) still lets the
-    // wizard run: fall back to no pre-selection rather than fail the wizard.
+    val existingContent = Option.when(os.exists(globalSettingsPath))(os.read(globalSettingsPath))
     val current =
       if reconfigure then
-        SettingsFile.parse(currentContent, SettingsScope.UserGlobal).map(_.agents).getOrElse(AgentSettings.empty)
+        existingContent
+          .flatMap(content => SettingsFile.parse(content, SettingsScope.UserGlobal).toOption)
+          .map(_.agents)
+          .getOrElse(AgentSettings.empty)
       else AgentSettings.empty
 
     val detected = BackendTag.values.filter(tag => probe(AgentSpec.harnessNameFor(tag))).toSet
     val fallback = BackendTag.values.find(detected.contains).getOrElse(BackendTag.ClaudeCode)
 
-    selectRole("Planning", current.planning, detected, fallback) match
+    val chosen =
+      for
+        planning <- selectRole("Planning", current.planning, detected, fallback)
+        coding <- selectRole("Coding", current.coding, detected, fallback)
+        review <- selectRole("Review", current.review, detected, fallback)
+      yield AgentSettings(Some(planning), Some(coding), Some(review))
+
+    chosen match
       case UiOutcome.Cancelled => false
-      case UiOutcome.Selected(planning) =>
-        selectRole("Coding", current.coding, detected, fallback) match
-          case UiOutcome.Cancelled => false
-          case UiOutcome.Selected(coding) =>
-            selectRole("Review", current.review, detected, fallback) match
-              case UiOutcome.Cancelled => false
-              case UiOutcome.Selected(review) =>
-                write(exists, currentContent, AgentSettings(Some(planning), Some(coding), Some(review)))
-                true
+      case UiOutcome.Selected(agents) =>
+        write(existingContent, agents)
+        true
+
+  /** Offers to discard a malformed global settings file and re-run the
+    * wizard from scratch (ADR 0021 §4). Declining leaves the file untouched
+    * and skips the wizard, so every flow run keeps failing loudly on it
+    * until it's fixed by hand or via Re-configure. The caller (`Main`) is
+    * responsible for surfacing the parse error itself; this only handles the
+    * confirm-and-rewrite action.
+    */
+  private[shell] def repairMalformed(): Unit =
+    ui.confirm("Rewrite it from scratch with the wizard?", default = false) match
+      case UiOutcome.Selected(true) =>
+        os.remove(globalSettingsPath).discard
+        run(reconfigure = false).discard
+      case _ => ()
 
   private def selectRole(
       roleLabel: String,
@@ -53,14 +68,8 @@ class Wizard(ui: ShellUi, probe: String => Boolean, globalSettingsPath: os.Path)
   ): UiOutcome[AgentSpec] =
     val currentTag = current.map(_.backend)
     val choices = BackendTag.values.toList.map(tag => choiceFor(tag, currentTag, detected))
-    ui.select(s"$roleLabel agent", choices, preselect = currentTag.orElse(Some(fallback))) match
-      case UiOutcome.Cancelled => UiOutcome.Cancelled
-      case UiOutcome.Selected(tag) =>
-        // A model pin only means something for the harness it was pinned
-        // under (ADR 0021 §4): keep it when the user re-picks that harness,
-        // drop it the moment they switch.
-        val model = if currentTag.contains(tag) then current.flatMap(_.model) else None
-        UiOutcome.Selected(AgentSpec(tag, model))
+    ui.select(s"$roleLabel agent", choices, preselect = currentTag.orElse(Some(fallback)))
+      .map(tag => Wizard.resolvedSpec(tag, currentTag, current))
 
   private def choiceFor(tag: BackendTag, current: Option[BackendTag], detected: Set[BackendTag]): Choice[BackendTag] =
     val name = AgentSpec.harnessNameFor(tag)
@@ -68,9 +77,20 @@ class Wizard(ui: ShellUi, probe: String => Boolean, globalSettingsPath: os.Path)
     val status = if detected(tag) then "✓ found" else "not found on PATH"
     Choice(tag, s"$marked — $status")
 
-  private def write(exists: Boolean, currentContent: String, agents: AgentSettings): Unit =
-    val content =
-      if exists then SettingsFile.updateGlobal(currentContent, agents) else SettingsFile.renderGlobal(agents)
+  /** Writes the wizard's result to the global settings file. `existingContent`
+    * is `Some` iff the file existed before this call; the rewrite strategy
+    * gates on whether that content parses cleanly under
+    * [[SettingsScope.UserGlobal]] — not merely on whether the file existed —
+    * so a malformed file is rewritten from scratch exactly like an absent
+    * one, instead of having [[SettingsFile.updateGlobal]] pass its unparseable
+    * lines through unchanged: clean-parse → `updateGlobal` (preserves
+    * comments), absent or malformed → [[SettingsFile.renderGlobal]] (full
+    * rewrite).
+    */
+  private def write(existingContent: Option[String], agents: AgentSettings): Unit =
+    val content = existingContent
+      .filter(text => SettingsFile.parse(text, SettingsScope.UserGlobal).isRight)
+      .fold(SettingsFile.renderGlobal(agents))(SettingsFile.updateGlobal(_, agents))
     os.write.over(globalSettingsPath, content, createFolders = true)
     println(
       s"Settings written to $globalSettingsPath — hand-editable any time " +
@@ -80,3 +100,17 @@ class Wizard(ui: ShellUi, probe: String => Boolean, globalSettingsPath: os.Path)
       "Note: changing a role's harness makes previously recorded sessions for " +
         "that role mint fresh, with a warning, the next time they'd resume (ADR 0020 §8)."
     )
+
+object Wizard:
+
+  /** The model-pin retention rule (ADR 0021 §4): a pin only means something
+    * for the harness it was pinned under, so keep it when `tag` matches the
+    * role's current harness and drop it the moment the user picks any other.
+    */
+  private[wizard] def resolvedSpec(
+      tag: BackendTag,
+      currentTag: Option[BackendTag],
+      current: Option[AgentSpec]
+  ): AgentSpec =
+    val model = if currentTag.contains(tag) then current.flatMap(_.model) else None
+    AgentSpec(tag, model)

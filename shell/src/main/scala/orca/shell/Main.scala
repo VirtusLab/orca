@@ -3,7 +3,7 @@ package orca.shell
 import org.jline.terminal.TerminalBuilder
 import orca.settings.GlobalSettings
 import orca.shell.ui.{ShellUi, UiOutcome}
-import orca.shell.wizard.{FirstRun, Wizard}
+import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
 import orca.subprocess.PathProbe
 import ox.discard
 
@@ -19,27 +19,22 @@ object Main:
       val ui = ShellUi.make(terminal)
       val globalSettingsPath = GlobalSettings.default
       val wizard = Wizard(ui, PathProbe.resolves(_, os.pwd), globalSettingsPath)
-      runWizardIfFirstRun(ui, wizard, globalSettingsPath)
+      runWizardIfFirstRun(wizard, globalSettingsPath)
       loop(ui, wizard)
     finally terminal.close()
 
   /** Runs the welcome wizard before the first menu when [[FirstRun.check]]
-    * says this is a first run (ADR 0021 §4). A malformed global file is NOT
-    * first-run: it's surfaced with a repair offer instead — declining leaves
-    * the file untouched and skips the wizard, so every flow run keeps
-    * failing loudly on it until it's fixed by hand or via Re-configure.
+    * reports [[FirstRunStatus.FirstRun]] (ADR 0021 §4). A malformed global
+    * file is NOT first-run: its parse error is surfaced here, and the
+    * confirm-and-rewrite offer itself is [[Wizard.repairMalformed]].
     */
-  private def runWizardIfFirstRun(ui: ShellUi, wizard: Wizard, globalSettingsPath: os.Path): Unit =
+  private def runWizardIfFirstRun(wizard: Wizard, globalSettingsPath: os.Path): Unit =
     FirstRun.check(globalSettingsPath) match
-      case Right(true)  => wizard.run(reconfigure = false).discard
-      case Right(false) => ()
+      case Right(FirstRunStatus.FirstRun)          => wizard.run(reconfigure = false).discard
+      case Right(FirstRunStatus.AlreadyConfigured) => ()
       case Left(error) =>
-        println(s"orca: the global settings file is malformed — $error")
-        ui.confirm("Rewrite it from scratch with the wizard?", default = false) match
-          case UiOutcome.Selected(true) =>
-            os.remove(globalSettingsPath).discard
-            wizard.run(reconfigure = false).discard
-          case _ => ()
+        println(s"orca: the global settings file is malformed — ${error.message}")
+        wizard.repairMalformed()
 
   /** Runs the main menu until Exit is chosen or the top-level prompt is
     * cancelled (Ctrl-C / EOF); every non-Exit, non-Reconfigure item is a stub
