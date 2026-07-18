@@ -211,9 +211,11 @@ name showing the winner's description and origin label, with a
 `shadows <tier>` annotation so shadowing is visible; no UI to run a shadowed
 tier in v1.
 
-Description rule: the first non-empty line, within the file's leading block
-of blank lines / `//` comments / `//>` directives, that is a `//` comment but
-not a `//>` directive. Convention (taught to authors and used by §9's
+Description rule: the first line, within the file's leading block of blank
+lines / `//` comments / `//>` directives, that is a `//` comment (not a
+`//>` directive) whose text after the marker strips to something non-empty —
+a bare or whitespace-only `//` line is skipped, never returned as an empty
+description. Convention (taught to authors and used by §9's
 prompt): the description is line 1. Verified against scala-cli 1.14.0 that
 comments before or between directives leave the directives honoured. Each
 built-in flow gains such a line (drafted in research 05 §4). A flow in any
