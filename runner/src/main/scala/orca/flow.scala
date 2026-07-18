@@ -30,6 +30,7 @@ import orca.runner.{
   OrcaLog,
   RoleAgents,
   RoleOverrides,
+  RunManifestWriter,
   SurfacedFlowFailure,
   WiredAgents
 }
@@ -142,6 +143,16 @@ def flow(
   installUncaughtExceptionHandler()
   // Tally token usage and print the summary on exit (success or failure).
   val costTracker = new CostTracker(pricing)
+  // Per-run session manifest (ADR 0021 §8): always attached, like
+  // LoggingListener. `flow` comes from `ORCA_FLOW_NAME` — the flow script's
+  // own path is unknown inside the library, so the shell sets this env var
+  // before exec'ing the flow subprocess (epic 6/7); until then it's `None`.
+  val manifestWriter = new RunManifestWriter(
+    workDir,
+    OrcaBanner.version,
+    sys.env.get("ORCA_FLOW_NAME"),
+    () => java.time.Instant.now()
+  )
   // `try/finally` so the cost summary always lands — even when a fatal
   // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
   var failed = false
@@ -151,7 +162,7 @@ def flow(
         args = args,
         workDir = workDir,
         interaction = interaction,
-        extraListeners = extraListeners ++ List(costTracker),
+        extraListeners = extraListeners ++ List(costTracker, manifestWriter),
         branchNaming = branchNaming,
         stackSettings = stackSettings,
         planningAgent = planningAgent,
@@ -182,6 +193,7 @@ def flow(
         failed = true
         System.err.println(s"[orca] ${TextUtil.throwableMessage(e)}")
   finally
+    manifestWriter.finish(if failed then "failed" else "succeeded")
     costTracker.printSummary()
     orcaLog.finish()
   // Known residual: in a NESTED `flow()` call this `System.exit` tears down the

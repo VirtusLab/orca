@@ -59,8 +59,9 @@ private[orca] object OrcaDir:
     cache
 
   /** `<workDir>/.orca/cache/runs/`, idempotently ensured. Holds per-run
-    * ephemera (a later epic); a trivial sibling of [[ensureCache]] since it
-    * lives inside the already-guarded cache dir.
+    * session manifests written by `RunManifestWriter` (ADR 0021 §8); a
+    * trivial sibling of [[ensureCache]] since it lives inside the
+    * already-guarded cache dir.
     */
   def cacheRunsPath(workDir: os.Path): os.Path =
     val runs = ensureCache(workDir) / "runs"
