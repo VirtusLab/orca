@@ -219,59 +219,60 @@ class DefaultAgentCall[B <: BackendTag, O](
       )
     )
 
-    val parsed =
-      try
-        retry(retryConfig):
-          val promptText = lastFailure match
-            case Some(f) =>
-              val corrective = prompts.retry(f.response, f.parserError)
-              if emitPrompt then
-                events.onEvent(OrcaEvent.UserPrompt(corrective))
-              corrective
-            case None => initialPrompt
-          val result = backend.runAutonomous(
-            promptText,
-            session,
-            effective,
-            events,
-            outputSchema = Some(outputSchema)
+    try
+      retry(retryConfig):
+        val promptText = lastFailure match
+          case Some(f) =>
+            val corrective = prompts.retry(f.response, f.parserError)
+            if emitPrompt then
+              events.onEvent(OrcaEvent.UserPrompt(corrective))
+            corrective
+          case None => initialPrompt
+        val result = backend.runAutonomous(
+          promptText,
+          session,
+          effective,
+          events,
+          outputSchema = Some(outputSchema)
+        )
+        // Fire as soon as the backend drain commits — before the fallible
+        // parse below — so a session that later exhausts its retries (parse
+        // keeps failing) or throws on a subsequent attempt still gets
+        // announced as durably resumable (ADR 0021 §8). Every attempt on this
+        // session re-fires with the same payload; listeners dedup on
+        // (backend, clientId, wireId) per the event's scaladoc.
+        emitSessionCommitted(session)
+        events.onEvent(
+          OrcaEvent.TokensUsed(
+            agentName,
+            result.model.orElse(effective.model),
+            result.usage,
+            agentRole
           )
-          events.onEvent(
-            OrcaEvent.TokensUsed(
-              agentName,
-              result.model.orElse(effective.model),
-              result.usage,
-              agentRole
-            )
-          )
-          try
-            val parsed = ResponseParser.parse[O](result.output)
-            emitStructuredResult(result.output, parsed)
-            parsed
-          catch
-            case e: MalformedAgentOutputException =>
-              lastFailure = Some(
-                FailedAttempt(
-                  response = e.rawOutput,
-                  parserError = e.shortCause
-                )
+        )
+        try
+          val parsed = ResponseParser.parse[O](result.output)
+          emitStructuredResult(result.output, parsed)
+          parsed
+        catch
+          case e: MalformedAgentOutputException =>
+            lastFailure = Some(
+              FailedAttempt(
+                response = e.rawOutput,
+                parserError = e.shortCause
               )
-              throw e
-      catch
-        // Attribute the failure: name the agent and this turn's input size, so
-        // "Prompt is too long" becomes actionable. The session's accumulated
-        // context is larger than this turn's input.
-        case e: AgentTurnFailed =>
-          throw new AgentTurnFailed(
-            s"agent '$agentName' turn failed " +
-              s"(this turn's input ≈${serialized.length} chars): ${e.getMessage}",
-            e
-          )
-    // The session commits on the FIRST successful turn; retries reuse the same
-    // session, so one emission after the whole retry loop returns is correct
-    // even when it took several backend turns to parse.
-    emitSessionCommitted(session)
-    parsed
+            )
+            throw e
+    catch
+      // Attribute the failure: name the agent and this turn's input size, so
+      // "Prompt is too long" becomes actionable. The session's accumulated
+      // context is larger than this turn's input.
+      case e: AgentTurnFailed =>
+        throw new AgentTurnFailed(
+          s"agent '$agentName' turn failed " +
+            s"(this turn's input ≈${serialized.length} chars): ${e.getMessage}",
+          e
+        )
 
   /** Interactive variant. No retry: the user is steering the session and a
     * parse failure here means the session's final payload didn't match the
