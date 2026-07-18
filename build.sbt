@@ -185,6 +185,13 @@ lazy val shell = (project in file("shell"))
     name := "orca-shell",
     Compile / mainClass := Some("orca.shell.Main"),
     libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros, ox, jline, jlineConsoleUi, fansi),
+    // ChildTerminal's SIGINT test mutates process-global JVM signal state
+    // (`sun.misc.Signal.handle` on INT). Fork so that state never lives in
+    // the sbt/Bloop daemon's own JVM, and serialize so no concurrently
+    // running suite observes the temporarily-ignored handler — the same
+    // isolation runner uses for its process-global lock and logger state.
+    Test / fork := true,
+    Test / parallelExecution := false,
     // Bundles the top-level flows/*.sc scripts as jar resources under
     // orca/shell/flows/ (ADR 0021 §7), so `BuiltInFlows` can extract them to a
     // real path at runtime. Jar resources aren't listable, hence the
