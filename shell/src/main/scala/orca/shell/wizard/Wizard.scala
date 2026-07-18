@@ -88,8 +88,17 @@ class Wizard(ui: ShellUi, probe: String => Boolean, globalSettingsPath: os.Path)
     * rewrite).
     */
   private def write(existingContent: Option[String], agents: AgentSettings): Unit =
-    val content = existingContent
+    val parseable = existingContent
       .filter(text => SettingsFile.parse(text, SettingsScope.UserGlobal).isRight)
+    // A malformed file is replaced wholesale, discarding any hand-written
+    // comments alongside the bad lines — say so, since the Reconfigure path
+    // reaches here without the repair flow's explicit confirm.
+    if existingContent.nonEmpty && parseable.isEmpty then
+      println(
+        s"The existing file at $globalSettingsPath did not parse; rewriting it " +
+          "from scratch (previous contents, including comments, are replaced)."
+      )
+    val content = parseable
       .fold(SettingsFile.renderGlobal(agents))(SettingsFile.updateGlobal(_, agents))
     os.write.over(globalSettingsPath, content, createFolders = true)
     println(
