@@ -29,8 +29,8 @@ object FlowEditor:
 
   /** Spawns the editor inheriting the tty (stdin/stdout/stderr), so the
     * child can drive the terminal directly. The §2 subprocess obligations
-    * (attribute restore, SIGINT handling) already cover a child spawned this
-    * way. Returns the exit code.
+    * (attribute restore) are the caller's responsibility — `Main` wraps this
+    * call in `ChildTerminal.withChild`. Returns the exit code.
     */
   def edit(editor: String, path: os.Path): Int =
     os.proc(editArgv(editor, path))

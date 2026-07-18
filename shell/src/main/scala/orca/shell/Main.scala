@@ -1,9 +1,10 @@
 package orca.shell
 
-import org.jline.terminal.TerminalBuilder
+import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.OrcaDir
 import orca.settings.GlobalSettings
 import orca.shell.flows.{BuiltInFlows, CustomizeTier, DiscoveredFlow, FlowCatalog, FlowEditor, FlowOrigin, FlowViewer}
+import orca.shell.run.{ChildTerminal, FlowLauncher, LaunchResult}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
 import orca.subprocess.PathProbe
@@ -23,7 +24,7 @@ object Main:
       val globalSettingsPath = GlobalSettings.default
       val wizard = Wizard(ui, PathProbe.resolves(_, os.pwd), globalSettingsPath)
       runWizardIfFirstRun(wizard, globalSettingsPath)
-      loop(ui, wizard, ShellUi.isInteractive(terminal))
+      loop(ui, wizard, terminal, ShellUi.isInteractive(terminal))
     finally terminal.close()
 
   /** Runs the welcome wizard before the first menu when [[FirstRun.check]]
@@ -45,23 +46,26 @@ object Main:
     * until session tracking (ADR 0021 §8) lands and can report whether any
     * session actually exists.
     */
-  @tailrec private def loop(ui: ShellUi, wizard: Wizard, tty: Boolean): Unit =
+  @tailrec private def loop(ui: ShellUi, wizard: Wizard, terminal: Terminal, tty: Boolean): Unit =
     val continueDisabledReason = Some("no sessions recorded yet")
     ui.select("orca shell", MainMenu.choices(continueDisabledReason)) match
       case UiOutcome.Cancelled                      => ()
       case UiOutcome.Selected(MenuItem.Exit)        => ()
       case UiOutcome.Selected(MenuItem.Reconfigure) =>
         wizard.run(reconfigure = true).discard
-        loop(ui, wizard, tty)
+        loop(ui, wizard, terminal, tty)
       case UiOutcome.Selected(MenuItem.ViewFlow) =>
         viewFlow(ui, tty)
-        loop(ui, wizard, tty)
+        loop(ui, wizard, terminal, tty)
       case UiOutcome.Selected(MenuItem.EditFlow) =>
-        editFlow(ui)
-        loop(ui, wizard, tty)
+        editFlow(ui, terminal)
+        loop(ui, wizard, terminal, tty)
+      case UiOutcome.Selected(MenuItem.RunFlow) =>
+        runFlow(ui, terminal)
+        loop(ui, wizard, terminal, tty)
       case UiOutcome.Selected(item) =>
         println(s"$item: not implemented yet")
-        loop(ui, wizard, tty)
+        loop(ui, wizard, terminal, tty)
 
   /** Prints the chosen flow's source (highlighted when `tty`) and returns —
     * the menu redraws on the next loop iteration, so no pager is needed
@@ -74,13 +78,45 @@ object Main:
   /** Opens the chosen flow in `$VISUAL`/`$EDITOR`/`vi`. Project and global
     * flows are edited in place; a built-in is never edited in its cache
     * copy, so [[customizeThenEditPath]] offers to copy it into a tier first.
+    * The editor is a tty child like the flow runner, so it runs under the
+    * same [[ChildTerminal.withChild]] bracket (ADR 0021 §2).
     */
-  private def editFlow(ui: ShellUi): Unit =
+  private def editFlow(ui: ShellUi, terminal: Terminal): Unit =
     selectFlow(ui, "Edit which flow?").foreach: flow =>
       val path =
         if flow.origin != FlowOrigin.BuiltIn then Some(flow.path)
         else customizeThenEditPath(ui, flow)
-      path.foreach(p => FlowEditor.edit(FlowEditor.resolveEditor(sys.env.get), p).discard)
+      path.foreach: p =>
+        ChildTerminal.withChild(terminal)(FlowEditor.edit(FlowEditor.resolveEditor(sys.env.get), p)).discard
+
+  /** Selects a flow, prompts for the task text, then runs it as a
+    * tty-inherited child under [[ChildTerminal.withChild]] (ADR 0021 §2).
+    * Verbose is not exposed here in v1 — task text only; a later task can add
+    * a verbose confirm alongside session tracking.
+    */
+  private def runFlow(ui: ShellUi, terminal: Terminal): Unit =
+    selectFlow(ui, "Run which flow?").foreach: flow =>
+      promptTask(ui).foreach: task =>
+        val result = ChildTerminal.withChild(terminal)(FlowLauncher.run(ui, flow.path, task, os.pwd))
+        println(outcomeLine(result))
+
+  /** Prompts for the flow's task text, re-prompting on blank input — an
+    * empty `userPrompt` reaches the flow's agent directly (branch naming,
+    * the coding session's instructions), so it's rejected here rather than
+    * passed through as a degenerate run.
+    */
+  @tailrec private def promptTask(ui: ShellUi): Option[String] =
+    ui.input("Task for the flow") match
+      case UiOutcome.Cancelled => None
+      case UiOutcome.Selected(text) if text.trim.isEmpty =>
+        println("orca: task text can't be empty")
+        promptTask(ui)
+      case UiOutcome.Selected(text) => Some(text)
+
+  private def outcomeLine(result: LaunchResult): String = result match
+    case LaunchResult.Ok           => "orca: flow finished"
+    case LaunchResult.Failed(exit) => s"orca: flow failed (exit code $exit)"
+    case LaunchResult.Cancelled    => "orca: run cancelled"
 
   /** Prompts for Project or Global, copies the built-in there via
     * [[FlowEditor.customizeTarget]], and returns the copy's path — `None` on
