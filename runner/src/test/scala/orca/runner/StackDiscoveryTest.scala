@@ -3,7 +3,7 @@ package orca.runner
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.StackSettings
 import orca.agents.JsonData
-import orca.settings.{SettingsEntry, SettingsFile}
+import orca.settings.{SettingsEntry, SettingsFile, SettingsScope}
 import orca.testkit.TempDirs
 
 class StackDiscoveryTest extends munit.FunSuite:
@@ -212,7 +212,9 @@ class StackDiscoveryTest extends munit.FunSuite:
     // Parsing the rendered file back yields the exact settings the run got —
     // the first run executes what the written file carries.
     assertEquals(
-      SettingsFile.parse(SettingsFile.render(entries)),
+      SettingsFile
+        .parse(SettingsFile.render(entries), SettingsScope.Project)
+        .map(_.stack),
       Right(settings)
     )
 

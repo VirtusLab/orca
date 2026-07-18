@@ -3,7 +3,7 @@ package orca.runner
 import orca.{InStage, StackSettings}
 import orca.agents.{Agent, Announce, JsonData, given}
 import orca.events.OrcaEvent
-import orca.settings.{SettingKey, SettingsEntry}
+import orca.settings.{SettingsEntry, StackKey}
 import orca.util.{PromptResource, TextUtil}
 
 /** One command the discovery agent proposes for a task, with the repo-relative
@@ -142,9 +142,9 @@ private[runner] object StackDiscovery:
       emit: OrcaEvent => Unit
   ): Unit =
     List(
-      SettingKey.Format -> settings.format,
-      SettingKey.Lint -> settings.lint,
-      SettingKey.Test -> settings.test
+      StackKey.Format -> settings.format,
+      StackKey.Lint -> settings.lint,
+      StackKey.Test -> settings.test
     ).foreach: (key, commands) =>
       if commands.isEmpty then
         emit(
@@ -262,17 +262,17 @@ private[runner] object StackDiscovery:
       else task.commands.map(checkedEntry(key, _))
 
     val entries =
-      taskEntries(SettingKey.Format.raw, result.format) ++
-        taskEntries(SettingKey.Lint.raw, result.lint) ++
-        taskEntries(SettingKey.Test.raw, result.test)
+      taskEntries(StackKey.Format.raw, result.format) ++
+        taskEntries(StackKey.Lint.raw, result.lint) ++
+        taskEntries(StackKey.Test.raw, result.test)
 
-    def surviving(key: SettingKey): List[String] =
+    def surviving(key: StackKey): List[String] =
       entries.collect:
         case SettingsEntry.Command(k, command, _) if k == key.raw => command
 
     val settings = StackSettings(
-      format = surviving(SettingKey.Format),
-      lint = surviving(SettingKey.Lint),
-      test = surviving(SettingKey.Test)
+      format = surviving(StackKey.Format),
+      lint = surviving(StackKey.Lint),
+      test = surviving(StackKey.Test)
     )
     (entries, settings)

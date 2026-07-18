@@ -4,8 +4,8 @@
 
 /** Autonomous planning + coding flow.
   *
-  * Mirrors the README example. The agent breaks the prompt into tasks; the task
-  * list and implementation progress are tracked in the stage log
+  * Mirrors the README example. The planner breaks the prompt into tasks; the
+  * task list and implementation progress are tracked in the stage log
   * (`.orca/progress-<hash>.json`), committed on the branch after every stage. A
   * re-run with the same prompt resumes from the first incomplete stage — no
   * plan file, no checkbox state to keep in sync.
@@ -33,25 +33,26 @@
 
 import orca.{*, given}
 
-// `_.claude` selects the leading agent (the coding harness — claude, codex, pi,
-// …). Inside the body, reference it as `agent`, not `claude`, so the flow is
-// backend-agnostic: switch the selector to `_.codex` / `_.opencode` / … and the
-// whole body follows. `agent.cheap` is the lead's own cheap tier.
-flow(OrcaArgs(args), _.claude):
+// Roles (planning / coding / review) come from settings.properties —
+// per-project `.orca/settings.properties`, else ~/.config/orca/settings.properties,
+// else claude for everything. Bodies can still name a concrete harness
+// (`claude`, `codex.mini`, …) where a flow wants one.
+flow(OrcaArgs(args)):
   val plan = stage("Plan"):
-    Plan.autonomous.from(userPrompt, agent).value
+    Plan.autonomous.from(userPrompt, planningAgent).value
 
-  // Get-or-create the implementer session, seeded with the plan brief (primed
-  // on first use, replayed if the backend session is lost on resume).
-  val session = agent.session("implementer", seed = plan.brief)
+  // Get-or-create the implementer session on the coding role, seeded with the
+  // plan brief (primed on first use, replayed if the backend session is lost
+  // on resume).
+  val session = codingAgent.session("implementer", seed = plan.brief)
 
   for task <- plan.tasks do
     stage(s"Task: ${task.title}"): // skipped on resume if already done
       session.run(task.description)
       reviewAndFixLoop( // runs under this stage
         coderSession = session,
-        reviewers = allReviewers(agent),
-        // reviewerSelection defaults to agentDriven(agent.cheap); pass
+        reviewers = allReviewers(reviewAgent),
+        // reviewerSelection defaults to agentDriven(reviewAgent.cheap); pass
         // `ReviewerSelector.allEveryRound` to run every reviewer instead.
         // Format and lint default to the project's stack settings
         // (`.orca/settings.properties`); pass `Configured.Off`/`.Use(...)`

@@ -68,7 +68,7 @@ class OpencodeFlowTest extends munit.FunSuite:
       flow(
         args = OrcaArgs(),
         stackSettings = Some(StackSettings.empty),
-        agent = _.opencode,
+        codingAgent = Some(_.opencode),
         workDir = GitRepo.seeded(),
         opencode = Some(_ => canned),
         interaction = Some(interaction)

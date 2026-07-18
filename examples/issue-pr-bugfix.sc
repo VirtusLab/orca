@@ -62,7 +62,6 @@ val CiTimeout = 30.minutes
 // stay on the feature branch, for no-PR flows).
 flow(
   orcaArgs,
-  _.claude,
   branchNaming = Some(BranchNamingStrategy.issue(issueHandle)),
   returnToStartBranch = true
 ):
@@ -75,14 +74,15 @@ flow(
        |
        |${issue.body}""".stripMargin
 
-  // Get-or-create the implementer session before the triage stage (pure:
-  // reserves the session id, no LLM call). The seed primes it on first use
-  // and is replayed if the backend session is lost on resume.
-  val session = agent.session("fixer", seed = issue.body)
+  // Get-or-create the implementer session on the coding role before the
+  // triage stage (pure: reserves the session id, no LLM call). The seed
+  // primes it on first use and is replayed if the backend session is lost on
+  // resume.
+  val session = codingAgent.session("fixer", seed = issue.body)
 
   val triage: Triage = stage("Triage"):
     // Autonomous triage, read-only (read/grep to verify the report).
-    Plan.autonomous.triage(issuePayload, agent).value
+    Plan.autonomous.triage(issuePayload, planningAgent).value
 
   triage match
     case Triage.NotABug(explanation) =>
@@ -170,7 +170,7 @@ def prSummary(note: String, issue: Issue)(using
     InStage
 ): PrSummary =
   summarisePr(
-    agent = agent.cheap,
+    agent = codingAgent.cheap,
     diff = git.diffVsBase(git.defaultBase()),
     context = Some(
       s"""Originating issue: ${issueHandle.shortRef}
@@ -226,9 +226,14 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
 /** Plan + implement the fix on the same branch. The plan always carries a
   * brief (no separate `.briefed` step); `taskPrompt` prepends it to each task.
   * Implementation reuses the triage `session`.
+  *
+  * `[B <: BackendTag]` carries the coding agent's backend so the `session`
+  * threads through the reviewers and `session.run`; it's read off the
+  * `session` argument, letting the helper accept a session for whichever
+  * backend the settings named.
   */
-def planAndImplementFix(
-    session: FlowSession[BackendTag.ClaudeCode.type]
+def planAndImplementFix[B <: BackendTag](
+    session: FlowSession[B]
 )(using FlowControl): Unit =
   val fixPlan = stage("Plan the fix"):
     Plan.autonomous
@@ -236,24 +241,24 @@ def planAndImplementFix(
         s"""Implement the fix for ${issueHandle.shortRef}. A failing
            |test is already on this branch — the fix must make it pass
            |without regressing other tests.""".stripMargin,
-        agent
+        planningAgent
       )
-      .reviewed(agent)
+      .reviewed(planningAgent)
       .value
 
   for task <- fixPlan.tasks do
     stage(s"Task: ${task.title}"): // skipped on resume if already done
       session.run(fixPlan.taskPrompt(task))
-      // reviewerSelection defaults to agentDriven — a picker LLM on the
-      // lead's cheap tier. Format defaults to the project's stack settings
-      // (`.orca/settings.properties`).
+      // reviewerSelection defaults to agentDriven — a picker LLM on
+      // reviewAgent's cheap tier. Format defaults to the project's stack
+      // settings (`.orca/settings.properties`).
       reviewAndFixLoop(
         coderSession = session,
-        reviewers = allReviewers(agent),
+        reviewers = allReviewers(reviewAgent),
         task = task.title.value,
         // An explicit override beats the settings file: pin the lint gate to
         // a compile (main + test) — a cheap sanity check; the failing test
         // runs in CI and correctness is the reviewers' job.
-        lint = Configured.Use(Lint(List("sbt Test/compile"), agent.cheap))
+        lint = Configured.Use(Lint(List("sbt Test/compile"), codingAgent.cheap))
       )
       // one commit per task: code + progress entry

@@ -20,6 +20,12 @@ private[orca] object OrcaDir:
   /** `<workDir>/.orca` — committed project metadata lives at this root. */
   private def root(workDir: os.Path): os.Path = workDir / ".orca"
 
+  /** `<workDir>/.orca` as an absolute path — the committed-metadata root, for
+    * callers that guard it (e.g. the symlink check in
+    * `FlowLifecycle.readSettings`) before writing through it.
+    */
+  def rootPath(workDir: os.Path): os.Path = root(workDir)
+
   /** Repo-relative form of the settings path, for git probes that take a path
     * relative to the repository root.
     */
@@ -35,7 +41,9 @@ private[orca] object OrcaDir:
 
   /** Idempotently ensure `.orca/` exists and return it. */
   def ensureRoot(workDir: os.Path): os.Path =
-    root(workDir).tap(os.makeDir.all(_))
+    val r = root(workDir)
+    abortIfOrcaComponentSymlink(workDir, r)
+    r.tap(os.makeDir.all(_))
 
   /** Idempotently ensure `.orca/cache/` exists — writing its self-ignoring
     * `.gitignore` and `CACHEDIR.TAG` before returning, so nothing can land in
@@ -44,10 +52,54 @@ private[orca] object OrcaDir:
     */
   def ensureCache(workDir: os.Path): os.Path =
     val cache = root(workDir) / "cache"
+    abortIfOrcaComponentSymlink(workDir, cache)
     os.makeDir.all(cache)
     writeIfAbsent(cache / ".gitignore", gitignoreContents)
     writeIfAbsent(cache / "CACHEDIR.TAG", cachedirTagContents)
     cache
+
+  /** Refuse if `.orca` — or any orca-created directory from it down to `dir`
+    * (inclusive) — is a symlink, before any `os.makeDir.all`/write through it.
+    * A committed symlink at ANY of these components (git mode 120000) would
+    * redirect orca's writes — cache markers, flow lock, progress log,
+    * discovered settings — to the link's target, outside the working tree.
+    * `.orca` is the only repo-committable subtree, so it and each directory
+    * orca itself makes beneath it (currently just `cache/`) are checked, one
+    * segment at a time: `os.isLink` is lstat/no-follow and inspects only the
+    * FINAL component, so a symlinked ANCESTOR (e.g. a `.orca` DIRECTORY link)
+    * is invisible to a leaf-only check and must be tested on its own. lstat
+    * also does not follow the final link, so a dangling component (target
+    * absent) is caught too.
+    *
+    * Runs at the earliest touch of each directory — `.orca` on [[ensureRoot]],
+    * `.orca` and `.orca/cache` on [[ensureCache]] (via
+    * `FlowLock.acquireWorkdir`, a run's first `.orca` write) — ahead of the
+    * settings-file guard in `FlowLifecycle.readSettings`.
+    *
+    * Accepted residual (TOCTOU): the check precedes each `makeDir`/write, so a
+    * purely LOCAL race could swap a plain component for a symlink in that
+    * window. That is out of scope under the committed-repo-symlink threat model
+    * (the attacker controls repo content, not the victim's live filesystem
+    * mid-run), so it is left open deliberately.
+    */
+  private def abortIfOrcaComponentSymlink(
+      workDir: os.Path,
+      dir: os.Path
+  ): Unit =
+    val r = root(workDir)
+    // Every path segment from `.orca` down to `dir`, inclusive, walking up from
+    // `dir` so the check order is root-first.
+    @scala.annotation.tailrec
+    def componentsUpTo(p: os.Path, acc: List[os.Path]): List[os.Path] =
+      if p == r then r :: acc
+      else componentsUpTo(p / os.up, p :: acc)
+    componentsUpTo(dir, Nil).foreach: component =>
+      if os.isLink(component) then
+        throw new OrcaFlowException(
+          s"$component is a symlink — refusing to create or write through it " +
+            "(a committed symlink at or below .orca could redirect orca's " +
+            "writes outside the working tree)"
+        )
 
   // Check-then-write races on the first-ever cache creation: two processes can
   // both see the file absent before the flow lock exists to serialize them, so

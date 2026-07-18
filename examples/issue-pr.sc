@@ -46,7 +46,6 @@ val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 // branch — which is the default for no-PR flows like implement.sc.
 flow(
   orcaArgs,
-  _.claude,
   branchNaming = Some(BranchNamingStrategy.issue(issueHandle)),
   returnToStartBranch = true
 ):
@@ -64,7 +63,7 @@ flow(
   // (None, body). Splitting the verdict and the comment into two stages means
   // a crash between them doesn't double-post the comment on resume.
   val (maybePlan, rejectionBody) = stage("Assess and plan"):
-    Plan.autonomous.assessThenPlan(issuePayload, agent).value match
+    Plan.autonomous.assessThenPlan(issuePayload, planningAgent).value match
       case Verdict.Rejection(_, body) => (None: Option[Plan], body)
       case Verdict.Proceed(plan)      => (Some(plan), "")
 
@@ -77,20 +76,20 @@ flow(
       )
 
   maybePlan.foreach: plan =>
-    // Get-or-create the implementer session, seeded with the plan brief
-    // (replayed on resume if the session is lost).
-    val session = agent.session("implementer", seed = plan.brief)
+    // Get-or-create the implementer session on the coding role, seeded with
+    // the plan brief (replayed on resume if the session is lost).
+    val session = codingAgent.session("implementer", seed = plan.brief)
 
     for task <- plan.tasks do
       stage(s"Task: ${task.title}"):    // skipped on resume if already done
         session.run(task.description)
-        // reviewerSelection defaults to agentDriven(agent.cheap); pass
+        // reviewerSelection defaults to agentDriven(reviewAgent.cheap); pass
         // `ReviewerSelector.allEveryRound` to run every reviewer instead.
         // Format and lint default to the project's stack settings
         // (`.orca/settings.properties`).
         reviewAndFixLoop(
           coderSession = session,
-          reviewers = allReviewers(agent),
+          reviewers = allReviewers(reviewAgent),
           task = task.title.value
         )
         // one commit per task: code + progress entry
@@ -99,7 +98,7 @@ flow(
     // sees the branch-vs-base diff (git.diff() vs HEAD would be empty here,
     // since every task is already committed); the body appends the issue closer.
     openPrFromBranch(
-      summarisingAgent = agent.cheap,
+      summarisingAgent = codingAgent.cheap,
       body = summary =>
         s"""${summary.body}
            |

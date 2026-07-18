@@ -19,51 +19,75 @@ import scala.annotation.implicitNotFound
   * `flow(args): ...` block, which supplies the given instance.
   *
   * The five per-backend accessors (`claude`, `codex`, …) come from
-  * [[AgentSet]], which the `flow(...)` lead selector resolves against before
-  * the context exists.
+  * [[AgentSet]]. The three role accessors ([[planningAgent]] / [[codingAgent]]
+  * / [[reviewAgent]], ADR 0020) are resolved from settings against that set
+  * before the context exists, each landing on its own backend.
   */
 @implicitNotFound(
-  "the flow tools (`claude`/`codex`/`git`/`gh`/`fs`/…), `display`, and `fail` are only available inside a `flow(...)` body. Wrap this code in `flow(OrcaArgs(args), _.claude): ...`."
+  "the flow tools (`claude`/`codex`/`git`/`gh`/`fs`/…), `display`, and `fail` are only available inside a `flow(...)` body. Wrap this code in `flow(OrcaArgs(args)): ...`."
 )
 trait FlowContext extends AgentSet:
-  /** Backend tag of the leading agent. You never write this — it's the backend
-    * of the agent your `flow(...)` selector picked, and it's why `agent` is
-    * precisely typed (`Agent[LeadB]`) so sessions thread. (A type *member*
-    * rather than a parameter, so `FlowContext` stays unparametrised — every
-    * `using FlowContext` site is unaffected; the runtime captures the concrete
-    * tag here at construction, with `flow` generic over it, inferred from the
-    * selector.)
+  /** Backend tag of the planning-role agent (ADR 0020): resolved from
+    * `planningAgent = harness[:model]` in settings, default claude. A type
+    * *member*, not a parameter, so `FlowContext` stays unparametrised; pins
+    * [[planningAgent]]'s backend so sessions minted from it thread. See
+    * [[CodeB]] for the helper-authoring caveat shared by all three role types.
+    */
+  type PlanB <: BackendTag
+
+  /** Backend tag of the coding-role agent (ADR 0020): resolved from
+    * `codingAgent = harness[:model]` in settings, default claude — the run's
+    * primary backend. A type *member*, not a parameter, so `FlowContext` stays
+    * unparametrised; pins [[codingAgent]]'s backend so sessions minted from it
+    * thread.
     *
-    * '''Helper authoring:''' the path-dependent `agent: Agent[ctx.LeadB]`
-    * accessor is convenient in a straight-line `flow(...)` body, where every
-    * reference resolves against the same `using FlowContext` in scope — but it
-    * stops working the moment you factor code into a helper *function*.
-    * `ctx1.LeadB` and `ctx2.LeadB` from two different `using FlowContext`
-    * parameters are different types to the compiler even when they're the same
-    * backend at runtime, so a helper that takes `Agent[ctx.LeadB]` in one
-    * parameter and tries to combine it with `SessionId[ctx.LeadB]` from another
-    * can't unify them. Two ways out, both used by the library's own helpers:
+    * '''Helper authoring:''' the path-dependent `Agent[ctx.CodeB]` (the same
+    * holds for `ctx.PlanB` / `ctx.ReviewB`) is convenient in a straight-line
+    * `flow(...)` body. When you factor flow logic into a helper *function*,
+    * prefer an explicit `[B <: BackendTag]` type parameter instead: an
+    * `Agent[B]` / `FlowSession[B]` carries its backend in its own type, so the
+    * helper works for whichever backend the settings named, stays callable
+    * wherever the session is held (a `FlowSession` is a value passed around
+    * freely, not only used where the originating context is in scope), and
+    * composes with the library's other session-carrying APIs. Two ways the
+    * library does this:
     *
-    *   - Take an explicit `[B <: BackendTag]` type parameter and type the
-    *     helper's own parameters against it — `B` is then a genuine type
-    *     variable the caller instantiates once, not a path into someone else's
-    *     context. See [[orca.review.reviewAndFixLoop]]`(coderSession:
-    *     FlowSession[B], ...)`, whose single [[orca.FlowSession]] bundles the
-    *     agent and its session so `B` is pinned once at the call site.
+    *   - Type the helper's own parameters against the `[B <: BackendTag]`
+    *     parameter — `B` is a genuine type variable the caller instantiates
+    *     once, not a path into someone else's context. See
+    *     [[orca.review.reviewAndFixLoop]]`(coderSession: FlowSession[B], ...)`,
+    *     whose single [[orca.FlowSession]] bundles the agent and its session so
+    *     `B` is pinned once at the call site.
     *   - Bundle the agent's session with its result as a single
     *     [[orca.plan.Sessioned]]`[B, A]` value, so callers pass one thing
     *     instead of two that have to agree on `B`. See `Plan.autonomous.*` /
     *     `Plan.interactive.*`.
     */
-  type LeadB <: BackendTag
+  type CodeB <: BackendTag
 
-  /** The leading agent. Reference it in a body instead of a concrete accessor
-    * (`claude`/`codex`) so the flow is backend-agnostic — switch the `flow`
-    * selector and the whole flow follows. A session from `agent.session`
-    * threads into `session.run` and the reviewers because [[LeadB]] pins the
-    * backend.
+  /** Backend tag of the review-role agent (ADR 0020): resolved from
+    * `reviewAgent = harness[:model]` in settings, default claude. A type
+    * *member*, not a parameter, so `FlowContext` stays unparametrised; pins
+    * [[reviewAgent]]'s backend so sessions minted from it thread. See [[CodeB]]
+    * for the helper-authoring caveat shared by all three role types.
     */
-  def agent: Agent[LeadB]
+  type ReviewB <: BackendTag
+
+  /** The planning-role agent (ADR 0020): resolved from settings, default
+    * claude. Scripts hand it to `Plan.*`.
+    */
+  def planningAgent: Agent[PlanB]
+
+  /** The coding-role agent — the run's primary: implementer sessions, branch
+    * naming, stack discovery, and default commit messages run here.
+    */
+  def codingAgent: Agent[CodeB]
+
+  /** The review-role agent: `allReviewers(reviewAgent)`, the reviewer-picker
+    * and the lint summariser default to its tiers.
+    */
+  def reviewAgent: Agent[ReviewB]
+
   def git: GitTool
   def gh: GitHubTool
   def fs: FsTool

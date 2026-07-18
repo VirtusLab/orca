@@ -21,7 +21,7 @@ the variant where the planner can ask clarifying questions, see
    - Hand the task's prompt to the agent (continuing the planning
      session).
    - Commit.
-   - Run `reviewAndFixLoop` with `allReviewers(claude)`.
+   - Run `reviewAndFixLoop` with `allReviewers(reviewAgent)`.
 
 ## Prerequisites
 
@@ -31,7 +31,7 @@ the variant where the planner can ask clarifying questions, see
   auto-discovery resolves cargo commands into
   `.orca/settings.properties`, which the review loop reads by
   default. To override the lint gate per call in `implement.sc`, pass
-  `lint = Configured.Use(Lint(List("..."), agent.cheap))`.
+  `lint = Configured.Use(Lint(List("..."), reviewAgent.cheap))`.
 - A target project to run against. The sibling
   [`create-test-project.sh`](create-test-project.sh) seeds a
   tiny Rust calculator crate from `test-project/` and copies the

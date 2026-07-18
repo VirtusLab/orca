@@ -8,22 +8,28 @@ import orca.events.{EventDispatcher, OrcaEvent}
 
 import ox.discard
 
-/** Production FlowContext wiring. Constructed by `runFlow` AFTER the lead agent
-  * is resolved and lifecycle setup has run, so `agent` and `stackSettings` are
-  * plain constructor facts. Ownership of the wired agents transfers here at
-  * construction: from that point `close()` is the sole disposal path (before
-  * it, `runFlow`'s ownership guard covers them).
+/** Production FlowContext wiring. Constructed by `runFlow` AFTER the three role
+  * agents are resolved and lifecycle setup has run, so the role agents and
+  * `stackSettings` are plain constructor facts. Ownership of the wired agents
+  * transfers here at construction: from that point `close()` is the sole
+  * disposal path (before it, `runFlow`'s ownership guard covers them).
   */
-private[orca] class DefaultFlowContext[B <: BackendTag](
+private[orca] class DefaultFlowContext[
+    PB <: BackendTag,
+    CB <: BackendTag,
+    RB <: BackendTag
+](
     val userPrompt: String,
     val workDir: os.Path,
     dispatcher: EventDispatcher,
-    // The leading agent, resolved by `runFlow` against the wired agent set
-    // (the only way to name an agent in a selector is an accessor on
-    // `AgentSet` — `_.claude`, `_.codex`, …). Concretely typed via `B` (which
-    // `flow` inferred from the selector) so `LeadB` pins it and sessions
-    // thread.
-    val agent: Agent[B],
+    // The three role agents (ADR 0020), resolved by `runFlow` from settings
+    // against the wired agent set (with per-role programmatic overrides on
+    // top). Each is concretely typed via its own tag parameter — opened from
+    // the runtime `Agent[?]` values with type-variable patterns — so the role
+    // type members pin them and sessions thread.
+    val planningAgent: Agent[PB],
+    val codingAgent: Agent[CB],
+    val reviewAgent: Agent[RB],
     wired: WiredAgents,
     val git: GitTool,
     val gh: GitHubTool,
@@ -37,31 +43,37 @@ private[orca] class DefaultFlowContext[B <: BackendTag](
 ) extends FlowControl,
       orca.StageFrames:
 
-  // The leading agent's backend tag, pinned from the type parameter `B`.
-  // Concrete here, so `agent` is concretely typed and sessions thread;
-  // abstract when the context is seen as `FlowContext` in a body, where the
-  // path-dependent `ctx.LeadB` is still stable.
-  type LeadB = B
+  // Each role's backend tag, pinned from its type parameter. Concrete here, so
+  // the role accessors are concretely typed and sessions thread; abstract when
+  // the context is seen as `FlowContext` in a body, where the path-dependent
+  // `ctx.PlanB` / `ctx.CodeB` / `ctx.ReviewB` are still stable.
+  type PlanB = PB
+  type CodeB = CB
+  type ReviewB = RB
 
   export wired.{claude, codex, opencode, pi, gemini}
 
   /** Tear down context-owned background resources by closing every wired agent
-    * plus the resolved lead. Runs in the flow body's `finally`, before the flow
-    * scope joins its forks (see [[orca.backend.AgentBackend.close]]).
+    * plus the three resolved role agents. Runs in the flow body's `finally`,
+    * before the flow scope joins its forks (see
+    * [[orca.backend.AgentBackend.close]]).
     *
-    * The lead is UNCONDITIONALLY appended to the fan-out rather than filtered
-    * by [[WiredAgents.isWiredBackend]] first: a foreign lead (a selector like
-    * `_ => myPrebuiltAgent`, built from a separate `AgentWiring`/backend) is
-    * otherwise unreachable from the wired set and would leak past flow end, and
-    * a lead that DOES share a wired backend (the common `_.claude.opus`
-    * pattern) just gets `close()` called on it a second time — provably
-    * harmless, since every backend's `close()` is idempotent (the shared
-    * `closedFlag` latches via a plain `set`, opencode's teardown is
-    * CAS-guarded, and every other backend's `close()` is a no-op). Skipping the
-    * check here trades a handful of redundant `close()` calls for one less
-    * thing this method has to get right.
+    * The role agents are UNCONDITIONALLY appended to the fan-out rather than
+    * filtered by [[WiredAgents.isWiredBackend]] first: a foreign role agent (a
+    * programmatic override like `_ => myPrebuiltAgent`, built from a separate
+    * `AgentWiring`/backend) is otherwise unreachable from the wired set and
+    * would leak past flow end, and a role that DOES share a wired backend (the
+    * common settings-resolved and `_.claude.opus` cases) just gets `close()`
+    * called on it a second time — provably harmless, since every backend's
+    * `close()` is idempotent (the shared `closedFlag` latches via a plain
+    * `set`, opencode's teardown is CAS-guarded, and every other backend's
+    * `close()` is a no-op). Skipping the check here trades a handful of
+    * redundant `close()` calls for one less thing this method has to get right.
     */
-  def close(): Unit = WiredAgents.closeBestEffort(wired.all :+ agent)
+  def close(): Unit =
+    WiredAgents.closeBestEffort(
+      wired.all ++ List(planningAgent, codingAgent, reviewAgent)
+    )
 
   def emit(event: OrcaEvent): Unit = dispatcher.onEvent(event)
 

@@ -380,7 +380,7 @@ class ReviewAndFixTest extends munit.FunSuite:
     "omitting reviewerSelection defaults to an agentDriven picker on the lead's cheap tier"
   ):
     // With no reviewerSelection the default `ReviewerSelector.agentDriven`
-    // resolves its picker as the flow's lead cheap tier (`ctx.agent.cheap`).
+    // resolves its picker as the review role's cheap tier (`ctx.reviewAgent.cheap`).
     // The control wires the coder as the lead, and FakeAgent.cheap == this, so
     // the default picker draws the reviewer pick from the coder's outputs
     // (then the fix) — proving selection routed through the context's lead.
@@ -633,7 +633,7 @@ class ReviewAndFixTest extends munit.FunSuite:
   ):
     // Both parameters omitted (FromSettings). The format commands come from
     // `stackSettings.format` and must run sequentially; the lint gate must be
-    // `Lint(stackSettings.lint, ctx.agent.cheap)` — the lead FakeAgent's
+    // `Lint(stackSettings.lint, ctx.reviewAgent.cheap)` — the review-role FakeAgent's
     // `cheap` is itself, so the lint summary drains the LEAD's scripted
     // output, proving the summariser wiring.
     val fmtLog = TempDirs.dir() / "fmt-log"

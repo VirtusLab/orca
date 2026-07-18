@@ -195,16 +195,17 @@ private object ReviewLoopState:
   * any issues above `confidenceThreshold` to the coder — through
   * `coderSession`'s seeded, structured door — and loop. `reviewerSelection`
   * decides which reviewers run each iteration; the default
-  * ([[ReviewerSelector.agentDriven]]) runs a picker LLM on the flow's lead
-  * cheap tier. Pass `ReviewerSelector.allEveryRound` to skip selection, or
-  * `ReviewerSelector.agentDriven(...)` to point the picker at a specific model.
+  * ([[ReviewerSelector.agentDriven]]) runs a picker LLM on the review-role
+  * agent's cheap tier. Pass `ReviewerSelector.allEveryRound` to skip selection,
+  * or `ReviewerSelector.agentDriven(...)` to point the picker at a specific
+  * model.
   *
-  * The default picker resolves the lead tool's cheap variant: four backends
+  * The default picker resolves `reviewAgent`'s cheap variant: four backends
   * have a distinct cheap tier (claude→haiku, codex→mini,
   * opencode→anthropicHaiku, gemini→flash); pi has no separate tier, so
   * `pi.cheap` is `pi` itself (pi selects the model via its own CLI config) and
-  * the picker simply runs on the lead pi tool — correct, just not a cheaper
-  * model. A hypothetical backend without a cheap tier behaves the same
+  * the picker simply runs on the review-role pi agent — correct, just not a
+  * cheaper model. A hypothetical backend without a cheap tier behaves the same
   * (`.cheap` returns `this`).
   *
   * `coderSession` is the coder's durable [[FlowSession]] (obtain it once with
@@ -225,9 +226,9 @@ def reviewAndFixLoop[B <: BackendTag](
     reviewers: List[Agent[?]],
     task: String,
     /** Which reviewers run each iteration. The default runs a picker LLM on the
-      * flow's lead cheap tier; pass [[ReviewerSelector.allEveryRound]] to skip
-      * selection, or [[ReviewerSelector.agentDriven]]`(...)` to point the
-      * picker at a specific model.
+      * review-role agent's cheap tier; pass [[ReviewerSelector.allEveryRound]]
+      * to skip selection, or [[ReviewerSelector.agentDriven]]`(...)` to point
+      * the picker at a specific model.
       */
     reviewerSelection: ReviewerSelector = ReviewerSelector.agentDriven,
     /** Shell commands run in order before each review round — after the
@@ -243,10 +244,10 @@ def reviewAndFixLoop[B <: BackendTag](
     /** Commands + summariser agent for the lint gate run alongside the
       * reviewers each round (see [[Lint]] for why the pair is bundled into one
       * value). The default builds the gate from the project's
-      * `ctx.stackSettings.lint` with the lead agent's cheap tier as the
-      * summariser; empty settings build no gate. Pass `Configured.Off` to skip
-      * linting entirely, or `Configured.Use(Lint(...))` to override the
-      * settings.
+      * `ctx.stackSettings.lint` with the review-role agent's cheap tier
+      * (`reviewAgent.cheap`) as the summariser; empty settings build no gate.
+      * Pass `Configured.Off` to skip linting entirely, or
+      * `Configured.Use(Lint(...))` to override the settings.
       */
     lint: Configured[Lint] = Configured.FromSettings,
     confidenceThreshold: Double = 0.7,
@@ -272,17 +273,17 @@ def reviewAndFixLoop[B <: BackendTag](
   // `Configured` resolution happens here, on the collecting thread at loop
   // entry (ADR 0019): the config then carries plain data, so the
   // capture-checked fan-out below never reads `ctx.stackSettings` (or touches
-  // `ctx.agent`) from a fork.
+  // `ctx.reviewAgent`) from a fork.
   val resolvedFormat: List[String] = formatCommands match
     case Configured.FromSettings => ctx.stackSettings.format
     case Configured.Off          => Nil
     case Configured.Use(cs)      => cs
-  // Empty settings ≡ no gate: no `Lint` value is built (and `ctx.agent` is
-  // not resolved), exactly like `Off`.
+  // Empty settings ≡ no gate: no `Lint` value is built (and `ctx.reviewAgent`
+  // is not resolved), exactly like `Off`.
   val resolvedLint: Option[Lint] = lint match
     case Configured.FromSettings =>
       Option.when(ctx.stackSettings.lint.nonEmpty)(
-        Lint(ctx.stackSettings.lint, ctx.agent.cheap)
+        Lint(ctx.stackSettings.lint, ctx.reviewAgent.cheap)
       )
     case Configured.Off    => None
     case Configured.Use(l) => Some(l)

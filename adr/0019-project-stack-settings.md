@@ -390,3 +390,9 @@ Precedence, end to end: `reviewAndFixLoop(formatCommands = Use(...)/Off)` >
   (`~/.config/orca`) settings layer (no machine-scoped read site exists yet),
   per-flow-type profiles, upward/monorepo settings search, and Windows
   support beyond the pre-existing `bash -c` contract.
+
+> **Amendment (2026-07-17).** [ADR 0020](0020-configurable-role-agents.md)
+> adds the user-level settings layer named as a non-goal above, and replaces
+> the "file exists ⇒ discovery already ran" invariant with "stack lines exist
+> ⇒ discovery already ran" — the settings file can now also carry agent-only
+> content that names no stack command.

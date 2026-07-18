@@ -31,26 +31,27 @@
 
 import orca.{*, given}
 
-flow(OrcaArgs(args), _.claude):
+flow(OrcaArgs(args)):
   val plan = stage("Plan"):
     // `.value` drops the planner's session; the implementer mints its own
-    // below (ask_user was only needed for planning). Interactive planning is
-    // the one spot that needs a concrete backend (`claude`, not `agent`) —
-    // the ask_user bridge is per-backend.
-    Plan.interactive.from(userPrompt, claude).value
+    // below. Interactive planning follows the configured planning role too —
+    // `ask_user` works on every backend, so no concrete accessor is needed
+    // here.
+    Plan.interactive.from(userPrompt, planningAgent).value
 
-  // Stable autonomous session shared by implementer and fixer (ask_user was
-  // only needed for planning), seeded with the plan brief; primed on first use
-  // and replayed if the backend session is lost on resume.
-  val session = agent.session("implementer", seed = plan.brief)
+  // Stable autonomous session on the coding role, shared by implementer and
+  // fixer (ask_user was only needed for planning), seeded with the plan
+  // brief; primed on first use and replayed if the backend session is lost
+  // on resume.
+  val session = codingAgent.session("implementer", seed = plan.brief)
 
   for task <- plan.tasks do
     stage(s"Task: ${task.title}"):      // skipped on resume if already done
       session.run(task.description)
       reviewAndFixLoop(
         coderSession = session,
-        reviewers = allReviewers(agent),
-        // reviewerSelection defaults to agentDriven(agent.cheap); pass
+        reviewers = allReviewers(reviewAgent),
+        // reviewerSelection defaults to agentDriven(reviewAgent.cheap); pass
         // `ReviewerSelector.allEveryRound` to run every reviewer instead.
         // Format and lint default to the project's stack settings
         // (`.orca/settings.properties`).

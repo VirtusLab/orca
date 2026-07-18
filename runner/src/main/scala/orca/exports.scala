@@ -44,7 +44,6 @@ export orca.agents.{
   AutoApprove,
   ToolSet,
   BackendTag,
-  CanAskUser,
   Model,
   SessionId,
   JsonData,

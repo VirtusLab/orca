@@ -158,12 +158,13 @@ private def recordAndCommit[T: JsonData](
     case Left(_) =>
       log.debug("stage {} commit was empty (already recorded?)", name)
 
-/** Generate a commit message from the current working-tree diff via the leading
-  * agent's cheap model (`fc.agent.cheapOneShot`). The diff is captured before
-  * the progress file is force-added, so it reflects only code changes the stage
-  * body produced. Falls back to `"stage: <name>"` when the diff is empty, the
-  * agent returns blank, or any `NonFatal` is thrown — committing must never
-  * break. Only called when the caller supplied no explicit `commitMessage`.
+/** Generate a commit message from the current working-tree diff via the
+  * coding-role agent's cheap model (`fc.codingAgent.cheapOneShot`). The diff is
+  * captured before the progress file is force-added, so it reflects only code
+  * changes the stage body produced. Falls back to `"stage: <name>"` when the
+  * diff is empty, the agent returns blank, or any `NonFatal` is thrown —
+  * committing must never break. Only called when the caller supplied no
+  * explicit `commitMessage`.
   */
 private def defaultCommitMessage(
     name: String
@@ -177,7 +178,7 @@ private def defaultCommitMessage(
     catch case NonFatal(_) => ""
   if diff.isBlank then fallback
   else
-    fc.agent.cheapOneShot(
+    fc.codingAgent.cheapOneShot(
       s"Write a concise one-line git commit message (imperative mood, ≤72 chars) for this diff:\n\n$diff",
       fallback
     )

@@ -10,12 +10,13 @@ import orca.agents.{
   PiAgent
 }
 
-/** The five per-backend agents a run wires. This is the type the `flow(...)`
-  * lead selector (`_.claude`, `_.codex.mini`, …) resolves against: the runtime
-  * resolves the selector against the wired agent set BEFORE the [[FlowContext]]
-  * exists, so the resolved lead can be a plain constructor fact of the context
-  * rather than late-bound state. [[FlowContext]] extends this trait, so inside
-  * a flow body the same accessors resolve through the context as before.
+/** The five per-backend agents a run wires. The runtime resolves the three role
+  * agents (ADR 0020) from settings against this set BEFORE the [[FlowContext]]
+  * exists, so each resolved role is a plain constructor fact of the context
+  * rather than late-bound state; the per-role programmatic overrides on
+  * `flow(...)` (`planningAgent = Some(_.claude.opus)`, …) are also selectors
+  * resolved against it. [[FlowContext]] extends this trait, so inside a flow
+  * body the same accessors resolve through the context.
   */
 trait AgentSet:
   def claude: ClaudeAgent
