@@ -31,9 +31,16 @@ trait ShellUi:
 
 object ShellUi:
 
+  /** Whether stdin+stdout are both a real tty — the gate [[make]] uses to pick
+    * a backend, also reused by callers that need to know before they print
+    * (e.g. `FlowViewer`'s highlight-or-plain choice).
+    */
+  def isInteractive(terminal: Terminal): Boolean =
+    terminal.getType != Terminal.TYPE_DUMB && System.console() != null
+
   /** ConsoleUI when stdin+stdout are a tty, [[NumberedUi]] otherwise (ConsoleUI
     * NPEs on non-tty stdin — research 03 skeptic).
     */
   def make(terminal: Terminal): ShellUi =
-    if terminal.getType != Terminal.TYPE_DUMB && System.console() != null then ConsoleUiShell(terminal)
+    if isInteractive(terminal) then ConsoleUiShell(terminal)
     else NumberedUi(java.io.BufferedReader(java.io.InputStreamReader(System.in)), System.out)
