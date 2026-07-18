@@ -6,7 +6,7 @@ import orca.util.TextUtil
 /** A problem found in `.orca/settings.properties` — the `Left` of
   * [[SettingsFile.parse]]. Line numbers are 1-based.
   */
-private[orca] enum SettingsError:
+private[settings] enum SettingsError:
   case NoAssignment(line: Int, text: String)
   case UnknownKey(line: Int, key: String)
   case CommentedValue(line: Int, key: String)
@@ -44,7 +44,7 @@ private[orca] enum SettingsError:
   * to either enum without matching code added everywhere fails to compile
   * instead of silently falling through.
   */
-private[orca] sealed trait SettingKey:
+private[settings] sealed trait SettingKey:
   def raw: String
 
 /** The stack-command keys: project-only, values append in file order. */
@@ -54,12 +54,12 @@ private[orca] enum StackKey(val raw: String) extends SettingKey:
   case Test extends StackKey("test")
 
 /** The agent role keys: valid in both scopes, single-valued. */
-private[orca] enum AgentKey(val raw: String) extends SettingKey:
+private[settings] enum AgentKey(val raw: String) extends SettingKey:
   case PlanningAgent extends AgentKey("planningAgent")
   case CodingAgent extends AgentKey("codingAgent")
   case ReviewAgent extends AgentKey("reviewAgent")
 
-private[orca] object SettingKey:
+private[settings] object SettingKey:
   val values: Array[SettingKey] = StackKey.values ++ AgentKey.values
   def fromRaw(s: String): Option[SettingKey] = values.find(_.raw == s)
 
