@@ -43,8 +43,10 @@ private[orca] enum RunOutcome:
   * [[orca.events.CostTracker]]'s lock-free `AtomicReference.updateAndGet`, it
   * can't be a pure retryable CAS. Production ([[RunManifestWriter.start]])
   * serialises every event on an Ox actor that owns a single
-  * [[RunManifestWriterState]]: `onEvent` is a `tell` (fire-and-forget, so the
-  * dispatcher never blocks on file I/O and the mailbox preserves the order of
+  * [[RunManifestWriterState]]: `onEvent` is a `tell` (fire-and-forget — the
+  * dispatcher blocks on file I/O only if the mailbox fills, bounded by
+  * `BufferCapacity`; manifest events fire per stage/session, not per token,
+  * so in practice it never does — and the mailbox preserves the order of
   * events from a single emitting thread) and `finish` is an `ask` (the final
   * write must land before `flow()` moves on to the cost summary). Every write
   * inside the actor is guarded, so a transient failure can't quarantine the
