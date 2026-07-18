@@ -31,6 +31,13 @@ import scala.util.control.NonFatal
   * a file write — so a CAS retry could write the file twice for one logical
   * event. `synchronized` around the whole read-modify-write-file sequence
   * keeps each event's effect atomic instead.
+  *
+  * The manifest file only comes into existence on the first `SessionCommitted`
+  * — stage events before that update the in-memory stage stack (so the stage
+  * a first session lands in is stamped correctly) but write nothing, and
+  * `finish()` no-ops if no session ever committed: a run that never commits a
+  * session leaves no manifest — a session-less run offers nothing to continue
+  * (ADR 0021 §8).
   */
 private[orca] class RunManifestWriter(
     workDir: os.Path,
@@ -77,11 +84,11 @@ private[orca] class RunManifestWriter(
     case OrcaEvent.StageStarted(name) =>
       synchronized:
         state = state.copy(stageStack = name :: state.stageStack)
-        write()
+        if hasCommittedSession then write()
     case OrcaEvent.StageCompleted(_) =>
       synchronized:
         state = state.copy(stageStack = state.stageStack.drop(1))
-        write()
+        if hasCommittedSession then write()
     case OrcaEvent.SessionCommitted(backend, clientId, wireId, agent, role) =>
       synchronized:
         state = state.copy(entries =
@@ -90,12 +97,22 @@ private[orca] class RunManifestWriter(
         write()
     case _ => ()
 
+  /** Whether a `SessionCommitted` has ever landed — the manifest file's
+    * existence gate. `state.entries` only ever grows or upserts in place
+    * (never shrinks), so this is equivalent to "at least one session was
+    * committed so far" without a separate flag.
+    */
+  private def hasCommittedSession: Boolean = state.entries.nonEmpty
+
   /** Finalizes the manifest: `outcome` (`"succeeded"` or `"failed"`) and
     * `finishedAt`, then a last write. Called once from `flow()`'s `finally` —
     * OUTSIDE the `EventDispatcher`'s per-listener isolation (unlike
     * `onEvent`, nothing quarantines a throw from here), so a write failure is
     * logged and swallowed rather than escaping into run teardown: the
     * manifest is observability, not something a flow should fail over.
+    *
+    * No-ops (writes and creates nothing) if no `SessionCommitted` was ever
+    * seen — see the class scaladoc.
     */
   def finish(outcome: String): Unit =
     val parsed = outcome match
@@ -107,10 +124,11 @@ private[orca] class RunManifestWriter(
         )
     synchronized:
       state = state.copy(outcome = parsed, finishedAt = Some(clock()))
-      try write()
-      catch
-        case NonFatal(e) =>
-          log.warn("run manifest final write failed (best-effort)", e)
+      if hasCommittedSession then
+        try write()
+        catch
+          case NonFatal(e) =>
+            log.warn("run manifest final write failed (best-effort)", e)
 
   /** Upsert-by-dedup-key (mirrors `ProgressStore`'s upsert idiom): the same
     * session re-firing `SessionCommitted` on a later turn (retries, resumed

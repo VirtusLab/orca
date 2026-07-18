@@ -211,6 +211,32 @@ class RunManifestWriterTest extends munit.FunSuite:
     assertEquals(manifest.outcome, "succeeded")
     assertEquals(manifest.sessions.size, 100, "every distinct session must be recorded")
 
+  test("session-less run: finish writes and creates nothing"):
+    val workDir = TempDirs.dir()
+    val writer = newWriter(
+      workDir,
+      fixedClock(
+        Instant.parse("2026-07-18T10:00:00Z"),
+        Instant.parse("2026-07-18T10:05:00Z")
+      )
+    )
+    writer.onEvent(OrcaEvent.StageStarted("plan"))
+    writer.onEvent(OrcaEvent.StageCompleted("plan"))
+    writer.finish("failed")
+    assertEquals(manifestFiles(workDir), Nil, "no manifest for a run with no committed session")
+
+  test("stage events before the first SessionCommitted are not lost"):
+    val workDir = TempDirs.dir()
+    val writer = newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    writer.onEvent(OrcaEvent.StageStarted("plan"))
+    writer.onEvent(OrcaEvent.StageCompleted("plan"))
+    writer.onEvent(OrcaEvent.StageStarted("code"))
+    writer.onEvent(
+      OrcaEvent.SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+    )
+    val manifest = soleManifest(workDir)
+    assertEquals(manifest.sessions.head.stage, Some("code"))
+
   test("constructor fields (flowName, workDir) flow through into the manifest"):
     val workDir = TempDirs.dir()
     val writer = newWriter(
