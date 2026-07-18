@@ -1,5 +1,5 @@
 //> using scala 3.8.4
-//> using dep "org.virtuslab::orca:0.0.16"
+//> using dep "org.virtuslab::orca:0.0.17"
 //> using jvm 21
 
 /** Interactive planning + coding flow.
