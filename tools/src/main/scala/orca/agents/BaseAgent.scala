@@ -107,6 +107,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         val result =
           backend.runAutonomous(prompt, session, effective, events)
         emitTokens(effective, result)
+        emitSessionCommitted(session)
         result.output
 
   /** See [[Agent.quietTextTurn]]: the turn runs against a filtered event sink
@@ -146,6 +147,21 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
   private def emitTokens(effective: AgentConfig, result: AgentResult[B]): Unit =
     val model = result.model.orElse(effective.model)
     events.onEvent(OrcaEvent.TokensUsed(name, model, result.usage, role))
+
+  /** Fires once a session's first turn commits (ADR 0021 §8): reads
+    * `resumeWireId` after `backend.runAutonomous` returns, so `wireId`
+    * reflects whatever this call just committed.
+    */
+  private def emitSessionCommitted(session: SessionId[B]): Unit =
+    events.onEvent(
+      OrcaEvent.SessionCommitted(
+        backend.tag.wireName,
+        session.value,
+        resumeWireId(session).map(_.value),
+        name,
+        role
+      )
+    )
 
   /** `None` (the caller omitted the per-call `config` arg) falls back to the
     * tool-level config. An explicit `Some(...)` from the call site wholly

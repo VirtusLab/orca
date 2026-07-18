@@ -117,6 +117,38 @@ class BaseAgentTest extends munit.FunSuite:
       s"cost accounting must still flow on a quiet turn: $events"
     )
 
+  // The manifest writer (ADR 0021 §8) needs the wire id known after the
+  // backend call returns, so `SessionCommitted` fires post-`runAutonomous`
+  // with whatever that call just committed.
+  test("autonomous run emits exactly one SessionCommitted with the stub's wire id"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(new CommittingBackend("wire-committed"), listener = listener)
+    val _ = tool.run("prompt")
+    val committed = seen.get().collect { case e: OrcaEvent.SessionCommitted =>
+      e
+    }
+    assertEquals(committed.size, 1, committed)
+    assertEquals(committed.head.backend, BackendTag.Pi.wireName)
+    assertEquals(committed.head.wireId, Some("wire-committed"))
+    assertEquals(committed.head.agent, "stub")
+    assertEquals(committed.head.role, None)
+
+  // `quietTextTurn` runs `backend.runAutonomous` directly on a fresh session,
+  // bypassing `runWithSession` entirely — it must never surface a session to
+  // the manifest writer.
+  test("quietTextTurn emits no SessionCommitted"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(new CommittingBackend("wire-quiet"), listener = listener)
+    val _ = tool.quietTextTurn("internal prompt")
+    assert(
+      !seen.get().exists(_.isInstanceOf[OrcaEvent.SessionCommitted]),
+      s"quietTextTurn must not emit SessionCommitted: ${seen.get()}"
+    )
+
   // An explicit `Some(...)` config wholly replaces the tool-level config (no
   // per-field merge); omission (`None`) inherits it — see
   // `BaseAgent.effectiveConfig`.
@@ -231,6 +263,43 @@ class BaseAgentTest extends munit.FunSuite:
       throw new UnsupportedOperationException
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
+    val tag: BackendTag.Pi.type = BackendTag.Pi
+    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+      Enforcement.Ignored
+    def structuredOutputMode: StructuredOutputMode =
+      StructuredOutputMode.RawText
+
+  /** Mimics a real subprocess backend's `drainAndCommit`: returns a canned
+    * result and immediately commits the session as resumable, so
+    * `Agent.resumeWireId` reports `wireId` once `runAutonomous` returns.
+    */
+  private class CommittingBackend(wireId: String)
+      extends AgentBackend[BackendTag.Pi.type]:
+    val workDir: os.Path = os.pwd
+    val sessions: SessionSupport[BackendTag.Pi.type] =
+      SessionSupport.durable(IdScheme.ServerMinted, _ => true)
+    def runAutonomous(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        config: AgentConfig,
+        events: OrcaListener,
+        outputSchema: Option[String]
+    ): AgentResult[BackendTag.Pi.type] =
+      val result = AgentResult(
+        WireSessionId[BackendTag.Pi.type](wireId),
+        "out",
+        Usage.empty
+      )
+      sessions.commitAfterDrain(session, result.wireId)
+      result
+    def runInteractive(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        displayPrompt: String,
+        config: AgentConfig,
+        outputSchema: Option[String]
+    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
+      throw new UnsupportedOperationException
     val tag: BackendTag.Pi.type = BackendTag.Pi
     def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
       Enforcement.Ignored
