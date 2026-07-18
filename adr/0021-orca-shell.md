@@ -290,9 +290,15 @@ log by `clientId`, and writes the manifest.
 `.orca/cache/runs/<startedAt>-<pid>.json` (self-gitignored cache; at most
 one writer per workdir thanks to `FlowLock`), schema v1 per research 08 §4:
 `manifestVersion` (hard gate — newer than the shell understands ⇒ skip with
-a message), `orcaVersion`, `flow`, `workDir`, `pid`, timestamps,
-`outcome`, and per session: harness, wireId, `resumable` + reason, agent,
-role, stage, sessionName, kind (oneShot/durable/interactive), first/last-seen. Written
+a message), `orcaVersion`, `flow` (populated from the `ORCA_FLOW_NAME` env
+var the shell sets before exec'ing the child — the flow's filename is
+unknowable in-library; `None` for direct `scala-cli run` invocations),
+`workDir`, `pid`, timestamps, `outcome`, and per session: harness, wireId,
+`resumable` + reason, agent, role, stage, sessionName, kind, first/last-seen.
+`kind` is derived at the listener: `durable` when the `clientId` joins a
+progress-log `SessionRecord`, else `oneShot` — the event layer cannot
+distinguish interactive calls today, so those land as `oneShot` (recorded
+limitation; the `interactive` value is reserved). Written
 atomically (the `ProgressStore` temp+move pattern) on every session event
 and stage transition, `outcome: "running"` until `flow()`'s `finally`
 finalizes it — so a crashed or killed flow still offers its sessions
