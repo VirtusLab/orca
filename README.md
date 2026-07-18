@@ -203,11 +203,9 @@ val limited = claude.withConfig(
 `AutoApprove.Only` fits interactive flows, where a human answers anything outside
 the set; an autonomous turn has no one to approve, so an out-of-set call blocks.
 Only claude enforces the set per tool — codex and gemini have no per-tool
-granularity, so there `Only` widens to full auto-approve.
-So for an unattended run the practical safety boundary is process isolation: run
-the flow in a sandbox. We recommend [Sandcat](https://github.com/VirtusLab/sandcat),
-[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/), or any other sandboxing
-solution.
+granularity, so there `Only` widens to full auto-approve. For an unattended run
+the practical boundary is a sandbox: [Sandcat](https://github.com/VirtusLab/sandcat),
+[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/), or any other.
 
 ## Flow methods
 
@@ -363,23 +361,26 @@ warning: stack settings: no test command — gate disabled
 written to .orca/settings.properties — review and edit as needed.
 ```
 
-Every discovered command must cite the file that evidences it; two mechanical
-checks run before anything is written — the command's executable must be on
-`PATH`, and the cited evidence file must exist — and a command failing either
-check is demoted to a commented line with its reason (e.g. `# lint = just
-check   (just: not found on PATH)`), never run silently. A discovery failure
-(backend unavailable, invalid output) aborts the run — it is never degraded
-into a written "gates off" file. Runs with an existing, stack-complete file —
-the steady state, including CI — make no model call.
+Runs with an existing, stack-complete file — the steady state, including CI —
+make no model call.
 
-**The `.orca/` directory** is committed by default: settings and the
-progress log ride the branch, while scratch files live under `.orca/cache/`,
-which writes its own `.gitignore` so it can never land in a commit. If your
-`.gitignore` covers all of `.orca/`, every run warns: `stack settings at
-.orca/settings.properties are gitignored — remove the '.orca/' line from
-.gitignore so they can be committed (scratch self-ignores under
-.orca/cache/)`. Do what the warning says — the cache stays ignored on its
+<details>
+<summary>Discovery internals and the <code>.orca/</code> directory</summary>
+
+Every discovered command cites the file that evidences it, and two checks run
+before the file is written: the command's executable must be on `PATH`, and the
+cited evidence file must exist. A command failing either is demoted to a
+commented line with its reason (`# lint = just check   (just: not found on
+PATH)`), never run silently. A discovery failure (backend unavailable, invalid
+output) aborts the run rather than writing a "gates off" file.
+
+`.orca/` is committed by default: settings and the progress log ride the
+branch, while scratch lives under `.orca/cache/`, which writes its own
+`.gitignore`. If your `.gitignore` covers all of `.orca/`, every run warns to
+remove that line so settings can be committed — the cache stays ignored on its
 own.
+
+</details>
 
 Within a flow body the resolved stack settings are available as
 `summon[FlowContext].stackSettings` — a `StackSettings(format, lint, test:
@@ -405,20 +406,15 @@ exists only on the ephemeral rungs — a live human steering a turn can't be
 replayed from a seed, so durable interactive sessions don't exist by
 construction.
 
-- **Durable — `agent.session(name, seed)`.** A get-or-create keyed by `name` +
-  occurrence, stage-style: it reserves a `SessionId` and records `(name,
-  seed)` in the progress log (no LLM call), then returns a `FlowSession`
-  handle bundling the agent with that id, so the same `name` resumes the same
-  session — and the handle survives a flow crash/resume — across re-runs.
-  Inserting or reordering *other* `session(...)` calls between runs doesn't
-  re-key this one — only the call order among sessions sharing this `name`
-  matters (to disambiguate duplicates of the same name). On resume the
-  recorded session is reused; if the recorded seed for that name differs from
-  this call's, orca warns and reuses the recorded session rather than
-  silently resuming the wrong one. Recording a session isn't a side effect,
-  so `agent.session(...)` is callable outside a stage — and it MUST be (the
-  compiler rejects an in-stage mint); its runs happen inside stages, on the
-  flow thread only.
+- **Durable — `agent.session(name, seed)`.** A get-or-create keyed by `name`
+  (plus occurrence, to disambiguate duplicates of the same name), recorded in
+  the progress log with no LLM call, returning a `FlowSession` handle that
+  survives crash/resume. The same `name` resumes the same session; reordering
+  *other* `session(...)` calls between runs doesn't re-key it. On resume the
+  recorded session is reused — with a warning if this call's seed differs,
+  rather than silently resuming the wrong one. Callable only outside a stage
+  (the compiler rejects an in-stage mint); its runs happen inside stages, on
+  the flow thread.
 - **Ephemeral — `agent.chat()`.** A `Chat` handle continuing one conversation
   across `.run` calls *within this run only* — no seeding, no persistence.
   Runs need only the shared `InStage` capability, so chats work inside a
@@ -439,17 +435,13 @@ val chats = Par.mapUnordered(4)(reviewers): r =>
 ```
 
 The `seed` is the essential context to rebuild the agent — typically the **plan
-brief**, or the issue body when there is no brief. `FlowSession.run` (and its
-structured sibling `resultAs[O].run`) primes a fresh session with
-the seed on first use; if the backend session is lost on resume it re-seeds
-(with a console warning — the prior conversation history is gone, only seed +
-progress preamble are rebuilt), prepending a progress preamble naming the
-completed stages; if the session is still alive it continues it directly with
-its full history. Note: opencode sessions survive a process restart too —
-opencode persists them in its own global on-disk store, independent of orca's
-per-run `opencode serve` process. As with every backend, that holds on the
-same machine with the backend's store intact; otherwise the flow re-seeds
-safely (the uniform fallback).
+brief**, or the issue body when there is no brief. `FlowSession.run` (and
+`resultAs[O].run`) primes a fresh session with it on first use, and re-seeds if
+the backend lost the conversation on resume (with a warning: history is gone,
+only the seed plus a progress preamble naming completed stages are rebuilt); a
+live session just continues with its full history. Opencode sessions survive a
+process restart — opencode keeps them in its own on-disk store — but the
+uniform fallback (re-seed) covers any backend whose store isn't reachable.
 
 `agent.cheap` returns the backend's cheap/fast variant (claude → haiku, codex →
 mini, gemini → flash, opencode → anthropicHaiku, others → self) — used by the
@@ -522,37 +514,39 @@ compile error with a message telling you where the call belongs:
 (`FlowContext` — reads and event emission — is deliberately *not* a
 capability: it is thread-safe and forks receive it freely.)
 
-The shared/exclusive split is [Scala's experimental capture
+The runtime always guards this at run time — a fork that calls
+`stage(...)`/`session(...)` fails immediately, a second `flow(...)` in the same
+working tree is refused, an agent used after its flow ended throws — so you get
+the safety without any setup.
+
+<details>
+<summary>Compile-time checking (Scala's experimental capture checking)</summary>
+
+The shared/exclusive split is [capture
 checking](https://docs.scala-lang.org/scala3/reference/experimental/cc.html)
-vocabulary, and enforcement comes in three layers:
+vocabulary. Beyond the always-on runtime guards, enforcement moves to compile
+time in two more places:
 
-1. **Always on, no setup:** the runtime guards — a fork that calls
-   `stage(...)`/`session(...)` fails immediately with the rule it broke; a
-   second `flow(...)` in the same working tree is refused; an agent used
-   after its flow ended throws.
-2. **Always on, inside the library:** orca's own parallel code (the reviewer
-   fan-out) is compiled under capture + separation checking — a change that
-   captured a `WorkspaceWrite` into that fan-out would not compile, and a
-   compile-time test suite pins both the rejections and the deliberately
-   legal `InStage` capture.
-3. **Opt-in, in your script:** add the two language imports to a `.sc` file
-   to have the compiler check *your* code too — today that enforces, e.g.,
-   that a custom `ReviewerSelector`'s per-round function stays pure (effects
-   belong in `prepare`):
+- **Inside the library:** orca's own parallel code (the reviewer fan-out) is
+  compiled under capture + separation checking, so a change that captured a
+  `WorkspaceWrite` into that fan-out would not compile (pinned by a
+  compile-time test suite).
+- **Opt-in, in your script:** add the two language imports to have the compiler
+  check *your* code too — today that enforces, e.g., that a custom
+  `ReviewerSelector`'s per-round function stays pure:
 
-   ```scala
-   import language.experimental.captureChecking
-   import language.experimental.separationChecking
-   ```
+  ```scala
+  import language.experimental.captureChecking
+  import language.experimental.separationChecking
+  ```
 
-   Full compile-time fork-boundary checking in scripts (rejecting a
-   `WorkspaceWrite` captured into a raw `ox.fork`) arrives when Ox itself
-   adopts capture checking; until then layer 1 covers that case at runtime.
+  Full fork-boundary checking in scripts arrives when Ox itself adopts capture
+  checking; until then the runtime guard covers that case.
 
-Capture checking is an evolving experimental compiler feature. The imports
-cost nothing when omitted — scripts without them compile and run identically
-— and orca tracks the feature's development (see ADR 0018 §6 for the design
-record).
+The imports cost nothing when omitted — scripts without them compile and run
+identically (see ADR 0018 §6).
+
+</details>
 
 ## Planning utilities
 
