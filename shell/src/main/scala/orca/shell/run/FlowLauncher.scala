@@ -31,8 +31,13 @@ object FlowLauncher:
     * is a flow-script argument (parsed by the flow's own `OrcaArgs`, whose
     * flag is spelled `--verbose`), so it lands after `--` alongside the
     * task text, not before it.
+    *
+    * Requires `task` to be non-blank — `Main.promptTask` re-prompts on blank
+    * input before this is ever called, so an empty task here means a caller
+    * bug, not a user error to report.
     */
   def argv(flow: os.Path, orcaVersion: Option[String], task: String, verbose: Boolean): Seq[String] =
+    require(task.trim.nonEmpty, "task text must be non-blank — Main.promptTask re-prompts before calling")
     val verboseArgs = if verbose then Seq("--verbose") else Seq.empty
     Seq("scala-cli", "run", flow.toString) ++ depArgs(orcaVersion) ++ Seq("--", task) ++ verboseArgs
 
@@ -47,11 +52,14 @@ object FlowLauncher:
     case Succeed
     case ReportFailure(exit: Int)
     case OfferFallback
+    case CancelledBySignal
 
   /** Pure decision at the core of the fallback dance (ADR 0021 §2): a
-    * nonzero forced exit is only a genuine flow failure if `scala-cli
-    * compile` (run with the same forced `--dep`) also fails — otherwise the
-    * flow itself is broken, not the version override.
+    * nonzero forced exit is a genuine flow failure only when `scala-cli
+    * compile` (run with the same forced `--dep`) also succeeds — that proves
+    * the forced version compiles fine, so the flow itself is what's broken.
+    * When the compile probe also fails, the forced version is to blame
+    * instead, and a pin-honouring fallback is offered.
     */
   def decideNextAction(forcedExit: Int, compileExit: Option[Int]): NextAction =
     if forcedExit == 0 then NextAction.Succeed
@@ -60,6 +68,31 @@ object FlowLauncher:
         case Some(0) => NextAction.ReportFailure(forcedExit)
         case Some(_) => NextAction.OfferFallback
         case None    => NextAction.ReportFailure(forcedExit)
+
+  /** A forced run killed by a signal (128 + signal number, e.g. 130 for
+    * SIGINT, 143 for SIGTERM — `man 7 signal`'s exit-status convention).
+    * There's nothing here to blame on the version override, so no compile
+    * probe is warranted.
+    */
+  private def isSignalExit(exit: Int): Boolean = exit >= 128
+
+  /** Decides the next action for a forced run, calling `compileProbe` only
+    * when a probe is actually warranted (a nonzero, non-signal exit, with a
+    * forced version to blame) — split out of [[run]] so the
+    * no-probe-on-signal-exit behaviour is unit-testable with a
+    * recording thunk instead of a real `scala-cli compile` subprocess.
+    */
+  private[run] def resolveNextAction(
+      forcedExit: Int,
+      forcedVersionDefined: Boolean,
+      compileProbe: () => Int
+  ): NextAction =
+    if isSignalExit(forcedExit) then NextAction.CancelledBySignal
+    else
+      val compileExit = if forcedExit != 0 && forcedVersionDefined then Some(compileProbe()) else None
+      decideNextAction(forcedExit, compileExit)
+
+  private def toLaunchResult(exit: Int): LaunchResult = if exit == 0 then LaunchResult.Ok else LaunchResult.Failed(exit)
 
   private def spawnInherited(argv: Seq[String], workDir: os.Path): Int =
     os.proc(argv)
@@ -75,23 +108,23 @@ object FlowLauncher:
     * dev build, never an unpublishable version to force). On a forced
     * failure that a compile probe also reproduces, offers a pin-honouring
     * re-run via `ui.confirm`, with the notice that its sessions won't be
-    * continuable. The verbose toggle is wired by task 4.2 alongside the
+    * continuable. A forced run killed by a signal (Ctrl-C's SIGINT, or a
+    * SIGTERM) is reported as [[LaunchResult.Cancelled]] directly, without a
+    * compile probe or fallback offer — there's nothing to blame on the
+    * version override. The verbose toggle is wired by task 4.2 alongside the
     * menu item; runs here are never verbose.
     */
   def run(ui: ShellUi, flow: os.Path, task: String, workDir: os.Path): LaunchResult =
     val shellVersion = ShellVersion.value
     val forcedVersion = if ShellVersion.isRelease(shellVersion) then Some(shellVersion) else None
     val forcedExit = spawnInherited(argv(flow, forcedVersion, task, verbose = false), workDir)
-    val compileExit =
-      if forcedExit != 0 && forcedVersion.isDefined then
-        Some(QuietProc.call(compileArgv(flow, forcedVersion), cwd = workDir).exitCode)
-      else None
-    decideNextAction(forcedExit, compileExit) match
+    val compileProbe = () => QuietProc.call(compileArgv(flow, forcedVersion), cwd = workDir).exitCode
+    resolveNextAction(forcedExit, forcedVersion.isDefined, compileProbe) match
       case NextAction.Succeed             => LaunchResult.Ok
       case NextAction.ReportFailure(exit) => LaunchResult.Failed(exit)
+      case NextAction.CancelledBySignal   => LaunchResult.Cancelled
       case NextAction.OfferFallback =>
         ui.confirm(fallbackQuestion(shellVersion), default = true) match
           case UiOutcome.Selected(true) =>
-            val fallbackExit = spawnInherited(argv(flow, None, task, verbose = false), workDir)
-            if fallbackExit == 0 then LaunchResult.Ok else LaunchResult.Failed(fallbackExit)
+            toLaunchResult(spawnInherited(argv(flow, None, task, verbose = false), workDir))
           case UiOutcome.Selected(false) | UiOutcome.Cancelled => LaunchResult.Cancelled

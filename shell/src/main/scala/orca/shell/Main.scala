@@ -95,10 +95,12 @@ object Main:
     * a verbose confirm alongside session tracking.
     */
   private def runFlow(ui: ShellUi, terminal: Terminal): Unit =
-    selectFlow(ui, "Run which flow?").foreach: flow =>
-      promptTask(ui).foreach: task =>
-        val result = ChildTerminal.withChild(terminal)(FlowLauncher.run(ui, flow.path, task, os.pwd))
-        println(outcomeLine(result))
+    for
+      flow <- selectFlow(ui, "Run which flow?")
+      task <- promptTask(ui)
+    do
+      val result = ChildTerminal.withChild(terminal)(FlowLauncher.run(ui, flow.path, task, os.pwd))
+      println(outcomeLine(result))
 
   /** Prompts for the flow's task text, re-prompting on blank input — an
     * empty `userPrompt` reaches the flow's agent directly (branch naming,

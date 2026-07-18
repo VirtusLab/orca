@@ -8,16 +8,16 @@ import sun.misc.{Signal, SignalHandler}
   * saved before `body` and restored in `finally` — a child that crashes
   * mid-`readLine` in raw mode must not leave the shell's next prompt wedged.
   *
-  * `pause()`/`resume()` are bracketed too, for terminals that own a
-  * background pump thread reading the raw input (`ExternalTerminal`,
-  * `PosixPtyTerminal`, and the Windows console terminal) — such a thread
-  * would otherwise race an inherited-stdio child for the same input source.
-  * Verified against the jline 3.30.15 jar: the production terminal
-  * (`PosixSysTerminal`, from `TerminalBuilder.builder().system(true)`) has no
-  * such thread and doesn't override these methods, so `canPauseResume()` is
-  * `false` there and `pause()`/`resume()` are inherited no-ops — the calls
-  * are cheap insurance for the pty/Windows terminals, not load-bearing on the
-  * shell's actual startup path.
+  * Deliberately does NOT call `pause()`/`resume()`. Verified against the
+  * jline 3.30.15 jar: the production terminal (`PosixSysTerminal`, from
+  * `TerminalBuilder.builder().system(true)`) doesn't override them, so they'd
+  * be no-ops on the shell's actual startup path. On terminals that do
+  * override them (`ExternalTerminal`, `PosixPtyTerminal`, the Windows console
+  * terminal) — which own a background pump thread reading raw input —
+  * pausing for the whole bracket would also suspend that thread across the
+  * mid-bracket `ui.confirm` fallback prompt (ADR 0021 §2), which reads
+  * through this same [[Terminal]] and would starve waiting for input that
+  * the paused pump never delivers.
   *
   * SIGINT is also ignored in the shell's own JVM for the duration of `body`.
   * The child shares the shell's foreground process group (no `setsid`
@@ -38,10 +38,7 @@ object ChildTerminal:
   def withChild[A](terminal: Terminal)(body: => A): A =
     val attributes = terminal.getAttributes
     val previousIntHandler = Signal.handle(sigint, (_: Signal) => ())
-    try
-      terminal.pause()
-      body
+    try body
     finally
       Signal.handle(sigint, previousIntHandler)
       terminal.setAttributes(attributes)
-      terminal.resume()

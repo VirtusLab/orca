@@ -47,6 +47,31 @@ class FlowLauncherTest extends munit.FunSuite:
     assertEquals(result(2), spacedFlow.toString)
     assertEquals(result.length, 5)
 
+  test("argv rejects a blank task — Main.promptTask should have re-prompted before this is ever called"):
+    intercept[IllegalArgumentException](FlowLauncher.argv(flow, None, "   ", verbose = false))
+
+  test("resolveNextAction: a SIGINT exit (130) is CancelledBySignal, without invoking the compile probe"):
+    val probeCalls = new java.util.concurrent.atomic.AtomicInteger(0)
+    val result = FlowLauncher.resolveNextAction(130, forcedVersionDefined = true, () => probeCalls.incrementAndGet())
+    assertEquals(result, FlowLauncher.NextAction.CancelledBySignal)
+    assertEquals(probeCalls.get(), 0)
+
+  test("resolveNextAction: a SIGTERM exit (143) is CancelledBySignal, without invoking the compile probe"):
+    val probeCalls = new java.util.concurrent.atomic.AtomicInteger(0)
+    val result = FlowLauncher.resolveNextAction(143, forcedVersionDefined = true, () => probeCalls.incrementAndGet())
+    assertEquals(result, FlowLauncher.NextAction.CancelledBySignal)
+    assertEquals(probeCalls.get(), 0)
+
+  test("resolveNextAction: a non-signal failure (1) still invokes the compile probe"):
+    val probeCalls = new java.util.concurrent.atomic.AtomicInteger(0)
+    val result = FlowLauncher.resolveNextAction(
+      1,
+      forcedVersionDefined = true,
+      () => { probeCalls.incrementAndGet(); 0 }
+    )
+    assertEquals(result, FlowLauncher.NextAction.ReportFailure(1))
+    assertEquals(probeCalls.get(), 1)
+
   test("decideNextAction: forced run succeeding is Succeed regardless of any compile probe"):
     assertEquals(FlowLauncher.decideNextAction(0, None), FlowLauncher.NextAction.Succeed)
     assertEquals(FlowLauncher.decideNextAction(0, Some(1)), FlowLauncher.NextAction.Succeed)
