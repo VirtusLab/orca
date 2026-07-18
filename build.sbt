@@ -212,7 +212,8 @@ lazy val orcaRoot = (project in file("."))
         List(
           file("README.md"),
           file("AGENTS.md"),
-          file("examples")
+          file("examples"),
+          file("flows")
         )
       )
       (sbtCoords ++ scalaCliCoords).distinct

@@ -13,7 +13,7 @@ package flowtests
 
 import orca.{*, given}
 // Deliberately NOT in the `orca.*` export wildcard: a recoverable `createPr`
-// failure, referenced by name in `examples/implement-enhanced.sc`. Pinning it
+// failure, referenced by name in `flows/implement-enhanced.sc`. Pinning it
 // here keeps the "import it explicitly" requirement honest.
 import orca.tools.PrAlreadyExists
 import orca.agents.AgentConfig
@@ -27,7 +27,7 @@ object FlowCanary:
   // Role agents (ADR 0020) resolve from settings, not a script selector: a
   // flow names no agent at the call site and reads `planningAgent`/
   // `codingAgent`/`reviewAgent` (or a concrete accessor) inside the body. These
-  // canaries use the real shapes the `examples/*.sc` files use — no hand-built
+  // canaries use the real shapes the `flows/*.sc` files use — no hand-built
   // stub.
 
   /** Structured output via `derives JsonData` must be reachable through the
@@ -183,7 +183,7 @@ object FlowCanary:
       stage("start"):
         val _ = claude.run(userPrompt)
 
-  /** `summarisePr` + `PrSummary` surface; exercised by `examples/issue-pr.sc`.
+  /** `summarisePr` + `PrSummary` surface; exercised by `flows/issue-pr.sc`.
     * Pins the call shape (`agent`, `diff`, optional `context`, optional
     * `instructions`) and the result type.
     */
@@ -223,7 +223,7 @@ object FlowCanary:
           case Right(_)                            => ()
 
   /** Issue/PR-comment surface on `gh` — exercised by the issue-pr plan in
-    * `examples/`.
+    * `flows/`.
     */
   def issueAndPrSurface(): Unit =
     flow(OrcaArgs()):
@@ -245,7 +245,7 @@ object FlowCanary:
         gh.writeComment(pr, "pr comment")
         gh.updatePr(pr, "new title", "new body")
 
-  /** Branch + PR surface — exercised by `examples/implement-enhanced.sc`. Pins
+  /** Branch + PR surface — exercised by `flows/implement-enhanced.sc`. Pins
     * the branch ops the runtime exposes to flow scripts and the `createPr`
     * `Either` with its recoverable `PrAlreadyExists`. The flow runtime owns
     * branch + resume (ADR 0018 §2.5).
@@ -263,7 +263,7 @@ object FlowCanary:
           case Left(e)                  => throw e
           case Right(_)                 => ()
 
-  /** Planning grid surface; exercised across `examples/`. Pins the full `mode ×
+  /** Planning grid surface; exercised across `flows/`. Pins the full `mode ×
     * operation` grid: every cell returns `Sessioned[B, <result>]` where the
     * result is `Plan` (`from`), `Verdict[Plan]` (`assessThenPlan`), or `Triage`
     * (`triage`).
@@ -323,7 +323,7 @@ object FlowCanary:
     val _ = Plan.interactive.from("prompt", a)
 
   /** Post-planning step (`reviewed`) plus the per-task stage loop — exercised
-    * by `examples/implement-enhanced.sc`. Pins that the `Sessioned[B, Plan]`
+    * by `flows/implement-enhanced.sc`. Pins that the `Sessioned[B, Plan]`
     * extension resolves through `import orca.*` alone. Plans are always
     * briefed: the `brief` rides in the structured output, so `plan.brief` /
     * `plan.taskPrompt` are always available. Resume is the stage log (ADR 0018
@@ -345,7 +345,7 @@ object FlowCanary:
 
   // -----------------------------------------------------------------------
   // Example-shape canaries (ADR 0018 §3)
-  // Each def mirrors the distinct pattern in one of the `examples/*.sc` files
+  // Each def mirrors the distinct pattern in one of the `flows/*.sc` files
   // so a signature drift or missing API surfaces here. Nothing runs at runtime.
   // -----------------------------------------------------------------------
 
