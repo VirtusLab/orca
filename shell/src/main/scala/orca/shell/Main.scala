@@ -3,6 +3,8 @@ package orca.shell
 import org.jline.terminal.TerminalBuilder
 import orca.shell.ui.{ShellUi, UiOutcome}
 
+import scala.annotation.tailrec
+
 /** Entry point for the `orca` shell executable (ADR 0021). */
 object Main:
 
@@ -19,7 +21,7 @@ object Main:
     * lands. Continue a session is hardcoded disabled until session tracking
     * (ADR 0021 §8) lands and can report whether any session actually exists.
     */
-  private def loop(ui: ShellUi): Unit =
+  @tailrec private def loop(ui: ShellUi): Unit =
     val continueDisabledReason = Some("no sessions recorded yet")
     ui.select("orca shell", MainMenu.choices(continueDisabledReason)) match
       case UiOutcome.Cancelled           => ()

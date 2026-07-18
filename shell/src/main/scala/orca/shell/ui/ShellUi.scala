@@ -2,22 +2,10 @@ package orca.shell.ui
 
 import org.jline.terminal.Terminal
 
-/** One selectable row in a [[ShellUi.select]] menu. `disabledReason`, when
-  * set, renders the row with its reason but excludes it from selection —
-  * ConsoleUI's single-choice list prompt has no non-selectable-item support
-  * in its public API (only the checkbox prompt's items do), so both UI
-  * backends implement disabling the same way: label-only, re-prompt on pick.
-  */
-case class Choice[A](
-    value: A,
-    label: String,
-    description: Option[String] = None,
-    disabledReason: Option[String] = None
-)
-
 /** Result of a single prompt: either a value, or [[UiOutcome.Cancelled]] for
-  * ESC / Ctrl-C / EOF — the caller's convention is "back to the previous
-  * menu", never a program exit.
+  * ESC / Ctrl-C / EOF — the caller's convention is "back out of the current
+  * prompt"; at the top-level menu, [[orca.shell.Main]] treats that as the
+  * signal to end the shell.
   */
 enum UiOutcome[+A]:
   case Selected(value: A)

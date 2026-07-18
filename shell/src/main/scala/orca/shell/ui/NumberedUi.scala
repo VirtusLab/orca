@@ -8,14 +8,13 @@ import scala.annotation.tailrec
   * testable without a real terminal; `ShellUi.make` wires them to
   * `System.in`/`System.out` when the tty gate fails.
   */
-final class NumberedUi(in: BufferedReader, out: PrintStream) extends ShellUi:
+private[ui] final class NumberedUi(in: BufferedReader, out: PrintStream) extends ShellUi:
 
   def select[A](title: String, choices: List[Choice[A]], preselect: Option[A] = None): UiOutcome[A] =
     out.println(title)
     choices.zipWithIndex.foreach { case (choice, index) =>
       val marker = if preselect.contains(choice.value) then "*" else " "
-      val reason = choice.disabledReason.fold("")(r => s" (unavailable: $r)")
-      out.println(s"$marker${index + 1}. ${choice.label}$reason")
+      out.println(s"$marker${index + 1}. ${choice.renderedLabel}")
     }
 
     @tailrec def loop(): UiOutcome[A] =
@@ -25,7 +24,7 @@ final class NumberedUi(in: BufferedReader, out: PrintStream) extends ShellUi:
         case null => UiOutcome.Cancelled
         case line =>
           line.trim.toIntOption.flatMap(n => choices.lift(n - 1)) match
-            case Some(choice) if choice.disabledReason.isEmpty => UiOutcome.Selected(choice.value)
+            case Some(choice) if choice.isEnabled => UiOutcome.Selected(choice.value)
             case _ =>
               out.println("Not a valid choice, try again.")
               loop()
@@ -57,4 +56,4 @@ final class NumberedUi(in: BufferedReader, out: PrintStream) extends ShellUi:
     out.flush()
     in.readLine() match
       case null => UiOutcome.Cancelled
-      case line => UiOutcome.Selected(if line.isEmpty then default.getOrElse(line) else line)
+      case line => UiOutcome.Selected(if line.isEmpty then default.getOrElse("") else line)

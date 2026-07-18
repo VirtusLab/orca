@@ -3,10 +3,11 @@ package orca.shell.ui
 import org.jline.consoleui.elements.ConfirmChoice
 import org.jline.consoleui.elements.PromptableElementIF
 import org.jline.consoleui.prompt.{ConfirmResult, ConsolePrompt, InputResult, ListResult, PromptResultItemIF}
-import org.jline.reader.UserInterruptException
+import org.jline.reader.{EndOfFileException, UserInterruptException}
 import org.jline.terminal.Terminal
 import ox.discard
 
+import java.io.IOError
 import scala.annotation.tailrec
 
 /** ConsoleUI-backed [[ShellUi]]: arrow-key prompts over
@@ -25,17 +26,23 @@ import scala.annotation.tailrec
   * The same absence rules out honoring `preselect`'s starting cursor
   * position; it is a no-op here.
   */
-final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
+private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
 
-  private val consolePrompt = ConsolePrompt(terminal)
+  // Every call below is a single-element prompt batch, so making the first
+  // (only) prompt cancellable makes ESC cancel every call; ConsolePrompt
+  // otherwise defaults cancellableFirstPrompt to false and ESC just
+  // re-renders the same prompt forever.
+  private val consolePrompt =
+    val config = ConsolePrompt.UiConfig()
+    config.setCancellableFirstPrompt(true)
+    ConsolePrompt(terminal, config)
 
   def select[A](title: String, choices: List[Choice[A]], preselect: Option[A] = None): UiOutcome[A] =
     @tailrec def loop(): UiOutcome[A] =
       val builder = consolePrompt.getPromptBuilder
       val list = builder.createListPrompt().name("select").message(title)
       choices.zipWithIndex.foreach { case (choice, index) =>
-        val label = choice.disabledReason.fold(choice.label)(reason => s"${choice.label} (unavailable: $reason)")
-        list.newItem(index.toString).text(label).add().discard
+        list.newItem(index.toString).text(choice.renderedLabel).add().discard
       }
       list.addPrompt().discard
       runOrCancelled(builder.build()) match
@@ -43,7 +50,7 @@ final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
         case UiOutcome.Selected(results) =>
           val selectedId = results.get("select").asInstanceOf[ListResult].getSelectedId
           val chosen = choices(selectedId.toInt)
-          if chosen.disabledReason.isEmpty then UiOutcome.Selected(chosen.value) else loop()
+          if chosen.isEnabled then UiOutcome.Selected(chosen.value) else loop()
 
     loop()
 
@@ -60,7 +67,11 @@ final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
   def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
     val builder = consolePrompt.getPromptBuilder
     val inputBuilder = builder.createInputPrompt().name("input").message(prompt)
-    default.foreach(d => inputBuilder.defaultValue(d).discard)
+    // InputValuePrompt appends its defaultValue verbatim (even null) when the
+    // user submits empty input, so an absent default must still be passed
+    // explicitly as "" — otherwise an empty submit returns the literal string
+    // "null".
+    inputBuilder.defaultValue(default.getOrElse("")).discard
     inputBuilder.addPrompt().discard
     runOrCancelled(builder.build()) match
       case UiOutcome.Cancelled => UiOutcome.Cancelled
@@ -68,8 +79,10 @@ final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
         UiOutcome.Selected(results.get("input").asInstanceOf[InputResult].getResult)
 
   /** Runs one prompt batch. ESC (an empty result map — ConsoleUI's own
-    * cancel-to-empty-map behavior) and `UserInterruptException` (Ctrl-C)
-    * both surface as [[UiOutcome.Cancelled]] (ADR 0021 §3).
+    * cancel-to-empty-map behavior, enabled by `cancellableFirstPrompt`),
+    * `UserInterruptException` (Ctrl-C), `EndOfFileException` and `IOError`
+    * (both raised by jline's `BindingReader` on a severed tty) all surface as
+    * [[UiOutcome.Cancelled]] (ADR 0021 §3).
     */
   private def runOrCancelled(
       elements: java.util.List[PromptableElementIF]
@@ -77,4 +90,4 @@ final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     try
       val results = consolePrompt.prompt(elements)
       if results.isEmpty then UiOutcome.Cancelled else UiOutcome.Selected(results)
-    catch case _: UserInterruptException => UiOutcome.Cancelled
+    catch case _: UserInterruptException | _: EndOfFileException | _: IOError => UiOutcome.Cancelled
