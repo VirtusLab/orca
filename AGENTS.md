@@ -292,6 +292,16 @@ with a test pinning the observed wire shape.
   or a `CliRunner`. os-lib defaults `os.proc(...).call(...)`'s `stderr` to
   `Inherit`, which lets subprocess output bypass the renderer's StatusBar
   and tear the spinner row.
+- Any filesystem write under `.orca/` **must** go through
+  `OrcaDir.ensureRoot`/`ensureCache`, which refuse a symlinked `.orca` or
+  `.orca/cache` component (`OrcaDir.abortIfOrcaComponentSymlink`) before
+  creating or writing through it — a committed symlink (git mode 120000)
+  would otherwise redirect orca's writes outside the working tree, since orca
+  runs flows against arbitrary cloned repos. Prefer `os.write` (`CREATE_NEW`,
+  refuses an existing symlink at the leaf) over `os.write.over` (follows a
+  leaf symlink); if `.over` is unavoidable, guard the path with `os.isLink`
+  first. The check is lstat/no-follow and runs at the earliest `.orca` touch
+  (`FlowLock.acquireWorkdir` → `ensureCache`), ahead of any mutation.
 
 The `direct-style-scala` plugin codifies the Scala-style bullets; re-reading
 its chapters before a non-trivial change is recommended.
