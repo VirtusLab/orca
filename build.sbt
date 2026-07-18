@@ -178,6 +178,15 @@ lazy val runner = (project in file("runner"))
     libraryDependencies ++= Seq(ox, mainargs, jline, fansi, jsoniterMacros)
   )
 
+lazy val shell = (project in file("shell"))
+  .dependsOn(runner, tools % "test->test")
+  .settings(commonSettings)
+  .settings(
+    name := "orca-shell",
+    Compile / mainClass := Some("orca.shell.Main"),
+    libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros, ox, jline, jlineConsoleUi, fansi)
+  )
+
 lazy val orcaRoot = (project in file("."))
   .settings(commonSettings)
   .settings(
@@ -213,4 +222,4 @@ lazy val orcaRoot = (project in file("."))
     // invoke each of them (they'd noisily warn about missing `doc`/`docs`).
     updateDocs / aggregate := false
   )
-  .aggregate(tools, flow, claude, codex, opencode, pi, gemini, runner)
+  .aggregate(tools, flow, claude, codex, opencode, pi, gemini, runner, shell)
