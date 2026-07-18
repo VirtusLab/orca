@@ -45,12 +45,12 @@ private[orca] enum RunOutcome:
   * serialises every event on an Ox actor that owns a single
   * [[RunManifestWriterState]]: `onEvent` is a `tell` (fire-and-forget — the
   * dispatcher blocks on file I/O only if the mailbox fills, bounded by
-  * `BufferCapacity`; manifest events fire per stage/session, not per token,
-  * so in practice it never does — and the mailbox preserves the order of
-  * events from a single emitting thread) and `finish` is an `ask` (the final
-  * write must land before `flow()` moves on to the cost summary). Every write
-  * inside the actor is guarded, so a transient failure can't quarantine the
-  * writer for the rest of the run.
+  * `BufferCapacity`; manifest events fire per stage/session, not per token, so
+  * in practice it never does — and the mailbox preserves the order of events
+  * from a single emitting thread) and `finish` is an `ask` (the final write
+  * must land before `flow()` moves on to the cost summary). Every write inside
+  * the actor is guarded, so a transient failure can't quarantine the writer for
+  * the rest of the run.
   *
   * The manifest file only comes into existence on the first `SessionCommitted`
   * — stage events before that update the in-memory stage stack (so the stage a
