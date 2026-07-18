@@ -1,5 +1,6 @@
 package orca
 
+import ox.discard
 import orca.testkit.TempDirs
 
 class OrcaDirTest extends munit.FunSuite:
@@ -54,17 +55,20 @@ class OrcaDirTest extends munit.FunSuite:
     os.makeDir.all(outside)
     os.makeDir.all(OrcaDir.rootPath(wd))
     os.symlink(OrcaDir.rootPath(wd) / "flows", outside)
-    intercept[OrcaFlowException](OrcaDir.ensureFlows(wd))
+    intercept[OrcaFlowException](OrcaDir.ensureFlows(wd)).discard
     assert(os.list(outside).isEmpty, "no write must go through the symlink")
 
   test("assertNoOrcaSymlinks is a no-op when .orca doesn't exist"):
     val wd = TempDirs.dir()
     OrcaDir.assertNoOrcaSymlinks(wd, OrcaDir.flowsPath(wd))
-    assert(!os.exists(OrcaDir.rootPath(wd)), "must not create .orca as a side effect")
+    assert(
+      !os.exists(OrcaDir.rootPath(wd)),
+      "must not create .orca as a side effect"
+    )
 
   test("assertNoOrcaSymlinks passes silently for a real .orca/flows dir"):
     val wd = TempDirs.dir()
-    OrcaDir.ensureFlows(wd)
+    OrcaDir.ensureFlows(wd).discard
     OrcaDir.assertNoOrcaSymlinks(wd, OrcaDir.flowsPath(wd))
 
   test("assertNoOrcaSymlinks aborts on a symlinked .orca/flows"):
@@ -73,7 +77,9 @@ class OrcaDirTest extends munit.FunSuite:
     os.makeDir.all(outside)
     os.makeDir.all(OrcaDir.rootPath(wd))
     os.symlink(OrcaDir.rootPath(wd) / "flows", outside)
-    val ex = intercept[OrcaFlowException](OrcaDir.assertNoOrcaSymlinks(wd, OrcaDir.flowsPath(wd)))
+    val ex = intercept[OrcaFlowException](
+      OrcaDir.assertNoOrcaSymlinks(wd, OrcaDir.flowsPath(wd))
+    )
     assert(ex.getMessage.contains("symlink"), ex.getMessage)
 
   test("cacheRunsPath creates .orca/cache/runs, including the cache dir"):

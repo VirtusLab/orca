@@ -25,7 +25,11 @@ enum UiOutcome[+A]:
   * required because ConsoleUI NPEs on non-tty stdin).
   */
 trait ShellUi:
-  def select[A](title: String, choices: List[Choice[A]], preselect: Option[A] = None): UiOutcome[A]
+  def select[A](
+      title: String,
+      choices: List[Choice[A]],
+      preselect: Option[A] = None
+  ): UiOutcome[A]
   def confirm(question: String, default: Boolean): UiOutcome[Boolean]
   def input(prompt: String, default: Option[String] = None): UiOutcome[String]
 
@@ -43,4 +47,8 @@ object ShellUi:
     */
   def make(terminal: Terminal): ShellUi =
     if isInteractive(terminal) then ConsoleUiShell(terminal)
-    else NumberedUi(java.io.BufferedReader(java.io.InputStreamReader(System.in)), System.out)
+    else
+      NumberedUi(
+        java.io.BufferedReader(java.io.InputStreamReader(System.in)),
+        System.out
+      )

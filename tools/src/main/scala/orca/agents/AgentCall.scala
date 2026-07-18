@@ -224,8 +224,7 @@ class DefaultAgentCall[B <: BackendTag, O](
         val promptText = lastFailure match
           case Some(f) =>
             val corrective = prompts.retry(f.response, f.parserError)
-            if emitPrompt then
-              events.onEvent(OrcaEvent.UserPrompt(corrective))
+            if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(corrective))
             corrective
           case None => initialPrompt
         val result = backend.runAutonomous(

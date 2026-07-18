@@ -1,6 +1,11 @@
 package orca.shell.ui
 
-import java.io.{BufferedReader, ByteArrayOutputStream, PrintStream, StringReader}
+import java.io.{
+  BufferedReader,
+  ByteArrayOutputStream,
+  PrintStream,
+  StringReader
+}
 
 class NumberedUiTest extends munit.FunSuite:
 
@@ -48,15 +53,24 @@ class NumberedUiTest extends munit.FunSuite:
 
   test("confirm accepts an empty line as the default"):
     val (ui, _) = uiOf("\n")
-    assertEquals(ui.confirm("Continue?", default = true), UiOutcome.Selected(true))
+    assertEquals(
+      ui.confirm("Continue?", default = true),
+      UiOutcome.Selected(true)
+    )
 
   test("confirm accepts an empty line as the default (false)"):
     val (ui, _) = uiOf("\n")
-    assertEquals(ui.confirm("Continue?", default = false), UiOutcome.Selected(false))
+    assertEquals(
+      ui.confirm("Continue?", default = false),
+      UiOutcome.Selected(false)
+    )
 
   test("confirm accepts y/n and re-prompts on garbage"):
     val (ui, _) = uiOf("what\nn\n")
-    assertEquals(ui.confirm("Continue?", default = true), UiOutcome.Selected(false))
+    assertEquals(
+      ui.confirm("Continue?", default = true),
+      UiOutcome.Selected(false)
+    )
 
   test("confirm returns Cancelled on EOF"):
     val (ui, _) = uiOf("")
@@ -64,11 +78,17 @@ class NumberedUiTest extends munit.FunSuite:
 
   test("input returns the default on an empty line when a default is set"):
     val (ui, _) = uiOf("\n")
-    assertEquals(ui.input("Name", default = Some("orca")), UiOutcome.Selected("orca"))
+    assertEquals(
+      ui.input("Name", default = Some("orca")),
+      UiOutcome.Selected("orca")
+    )
 
   test("input returns the typed line when non-empty"):
     val (ui, _) = uiOf("hello\n")
-    assertEquals(ui.input("Name", default = Some("orca")), UiOutcome.Selected("hello"))
+    assertEquals(
+      ui.input("Name", default = Some("orca")),
+      UiOutcome.Selected("hello")
+    )
 
   test("input returns Cancelled on EOF"):
     val (ui, _) = uiOf("")

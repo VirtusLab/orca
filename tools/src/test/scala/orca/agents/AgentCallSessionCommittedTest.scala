@@ -44,7 +44,10 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     supervised:
-      val call = new DefaultAgentCall[BackendTag.ClaudeCode.type, SessionCommittedAnswer](
+      val call = new DefaultAgentCall[
+        BackendTag.ClaudeCode.type,
+        SessionCommittedAnswer
+      ](
         backend = backend,
         effectiveConfig =
           cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
@@ -81,7 +84,10 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     supervised:
-      val call = new DefaultAgentCall[BackendTag.ClaudeCode.type, SessionCommittedAnswer](
+      val call = new DefaultAgentCall[
+        BackendTag.ClaudeCode.type,
+        SessionCommittedAnswer
+      ](
         backend = backend,
         effectiveConfig =
           cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
@@ -92,7 +98,9 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
         agentRole = Some("reviewer")
       )
       val _ =
-        intercept[MalformedAgentOutputException](call.autonomous.run("question"))
+        intercept[MalformedAgentOutputException](
+          call.autonomous.run("question")
+        )
       val committed = seen.get().reverse.collect {
         case e: OrcaEvent.SessionCommitted => e
       }
@@ -108,7 +116,8 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
 
   test("interactive path emits SessionCommitted after register"):
     val clientSid = SessionId[BackendTag.ClaudeCode.type]("client-uuid-cccc")
-    val serverSid = WireSessionId[BackendTag.ClaudeCode.type]("server-wire-dddd")
+    val serverSid =
+      WireSessionId[BackendTag.ClaudeCode.type]("server-wire-dddd")
     val backend = new SequencedBackend(Nil)
     val drivingInteraction: Interaction = new Interaction:
       val listeners: List[OrcaListener] = Nil
@@ -123,7 +132,10 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
     val seen = AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     supervised:
-      val call = new DefaultAgentCall[BackendTag.ClaudeCode.type, SessionCommittedAnswer](
+      val call = new DefaultAgentCall[
+        BackendTag.ClaudeCode.type,
+        SessionCommittedAnswer
+      ](
         backend = backend,
         effectiveConfig =
           cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
@@ -144,8 +156,8 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
       assertEquals(committed.head.role, None)
 
   /** Returns pre-scripted outputs and commits the session on each drain (as a
-    * real subprocess backend's `drainAndCommit` does), so the wire id is
-    * known via `sessions.persistableWireId` once `runAutonomous` returns.
+    * real subprocess backend's `drainAndCommit` does), so the wire id is known
+    * via `sessions.persistableWireId` once `runAutonomous` returns.
     */
   private class SequencedBackend(outputs: List[String])
       extends AgentBackend[BackendTag.ClaudeCode.type]:
@@ -157,7 +169,8 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
     val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
     def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
       Enforcement.Ignored
-    def structuredOutputMode: StructuredOutputMode = StructuredOutputMode.RawText
+    def structuredOutputMode: StructuredOutputMode =
+      StructuredOutputMode.RawText
     def runAutonomous(
         prompt: String,
         session: SessionId[BackendTag.ClaudeCode.type],

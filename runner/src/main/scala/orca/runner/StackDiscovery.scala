@@ -158,9 +158,9 @@ private[runner] object StackDiscovery:
 
   /** First mechanical check (ADR 0019): `None` = resolvable, `Some(reason)` =
     * demote. Strips leading `VAR=` assignment tokens, then resolves the first
-    * remaining word via [[PathProbe]] (builtins included, the same
-    * environment stage-time `bash -c` inherits). cwd is `workDir`, so a
-    * repo-relative path like `./script.sh` resolves as it will at stage time.
+    * remaining word via [[PathProbe]] (builtins included, the same environment
+    * stage-time `bash -c` inherits). cwd is `workDir`, so a repo-relative path
+    * like `./script.sh` resolves as it will at stage time.
     */
   private[runner] def unresolvedReason(
       command: String,

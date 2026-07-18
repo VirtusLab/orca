@@ -16,7 +16,11 @@ class MainMenuTest extends munit.FunSuite:
         MenuItem.Exit
       )
     )
-    assert(MainMenu.choices(continueDisabledReason = None).forall(_.disabledReason.isEmpty))
+    assert(
+      MainMenu
+        .choices(continueDisabledReason = None)
+        .forall(_.disabledReason.isEmpty)
+    )
 
   test("choices(Some(reason)) disables only ContinueSession, with that reason"):
     val reason = "no sessions recorded yet"

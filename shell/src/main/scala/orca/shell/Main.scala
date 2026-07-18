@@ -3,7 +3,15 @@ package orca.shell
 import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.OrcaDir
 import orca.settings.GlobalSettings
-import orca.shell.flows.{BuiltInFlows, CustomizeTier, DiscoveredFlow, FlowCatalog, FlowEditor, FlowOrigin, FlowViewer}
+import orca.shell.flows.{
+  BuiltInFlows,
+  CustomizeTier,
+  DiscoveredFlow,
+  FlowCatalog,
+  FlowEditor,
+  FlowOrigin,
+  FlowViewer
+}
 import orca.shell.run.{ChildTerminal, FlowLauncher, LaunchResult}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
@@ -28,16 +36,22 @@ object Main:
     finally terminal.close()
 
   /** Runs the welcome wizard before the first menu when [[FirstRun.check]]
-    * reports [[FirstRunStatus.FirstRun]] (ADR 0021 §4). A malformed global
-    * file is NOT first-run: its parse error is surfaced here, and the
+    * reports [[FirstRunStatus.FirstRun]] (ADR 0021 §4). A malformed global file
+    * is NOT first-run: its parse error is surfaced here, and the
     * confirm-and-rewrite offer itself is [[Wizard.repairMalformed]].
     */
-  private def runWizardIfFirstRun(wizard: Wizard, globalSettingsPath: os.Path): Unit =
+  private def runWizardIfFirstRun(
+      wizard: Wizard,
+      globalSettingsPath: os.Path
+  ): Unit =
     FirstRun.check(globalSettingsPath) match
-      case Right(FirstRunStatus.FirstRun)          => wizard.run(reconfigure = false).discard
+      case Right(FirstRunStatus.FirstRun) =>
+        wizard.run(reconfigure = false).discard
       case Right(FirstRunStatus.AlreadyConfigured) => ()
       case Left(error) =>
-        println(s"orca: the global settings file is malformed — ${error.message}")
+        println(
+          s"orca: the global settings file is malformed — ${error.message}"
+        )
         wizard.repairMalformed()
 
   /** Runs the main menu until Exit is chosen or the top-level prompt is
@@ -46,11 +60,16 @@ object Main:
     * until session tracking (ADR 0021 §8) lands and can report whether any
     * session actually exists.
     */
-  @tailrec private def loop(ui: ShellUi, wizard: Wizard, terminal: Terminal, tty: Boolean): Unit =
+  @tailrec private def loop(
+      ui: ShellUi,
+      wizard: Wizard,
+      terminal: Terminal,
+      tty: Boolean
+  ): Unit =
     val continueDisabledReason = Some("no sessions recorded yet")
     ui.select("orca shell", MainMenu.choices(continueDisabledReason)) match
-      case UiOutcome.Cancelled                      => ()
-      case UiOutcome.Selected(MenuItem.Exit)        => ()
+      case UiOutcome.Cancelled               => ()
+      case UiOutcome.Selected(MenuItem.Exit) => ()
       case UiOutcome.Selected(MenuItem.Reconfigure) =>
         wizard.run(reconfigure = true).discard
         loop(ui, wizard, terminal, tty)
@@ -67,19 +86,19 @@ object Main:
         println(s"$item: not implemented yet")
         loop(ui, wizard, terminal, tty)
 
-  /** Prints the chosen flow's source (highlighted when `tty`) and returns —
-    * the menu redraws on the next loop iteration, so no pager is needed
-    * (ADR 0021 §6).
+  /** Prints the chosen flow's source (highlighted when `tty`) and returns — the
+    * menu redraws on the next loop iteration, so no pager is needed (ADR 0021
+    * §6).
     */
   private def viewFlow(ui: ShellUi, tty: Boolean): Unit =
     selectFlow(ui, "View which flow?").foreach: flow =>
       println(FlowViewer.render(os.read(flow.path), tty))
 
   /** Opens the chosen flow in `$VISUAL`/`$EDITOR`/`vi`. Project and global
-    * flows are edited in place; a built-in is never edited in its cache
-    * copy, so [[customizeThenEditPath]] offers to copy it into a tier first.
-    * The editor is a tty child like the flow runner, so it runs under the
-    * same [[ChildTerminal.withChild]] bracket (ADR 0021 §2).
+    * flows are edited in place; a built-in is never edited in its cache copy,
+    * so [[customizeThenEditPath]] offers to copy it into a tier first. The
+    * editor is a tty child like the flow runner, so it runs under the same
+    * [[ChildTerminal.withChild]] bracket (ADR 0021 §2).
     */
   private def editFlow(ui: ShellUi, terminal: Terminal): Unit =
     selectFlow(ui, "Edit which flow?").foreach: flow =>
@@ -87,25 +106,31 @@ object Main:
         if flow.origin != FlowOrigin.BuiltIn then Some(flow.path)
         else customizeThenEditPath(ui, flow)
       path.foreach: p =>
-        ChildTerminal.withChild(terminal)(FlowEditor.edit(FlowEditor.resolveEditor(sys.env.get), p)).discard
+        ChildTerminal
+          .withChild(terminal)(
+            FlowEditor.edit(FlowEditor.resolveEditor(sys.env.get), p)
+          )
+          .discard
 
-  /** Selects a flow, prompts for the task text, then runs it as a
-    * tty-inherited child under [[ChildTerminal.withChild]] (ADR 0021 §2).
-    * Verbose is not exposed here in v1 — task text only; a later task can add
-    * a verbose confirm alongside session tracking.
+  /** Selects a flow, prompts for the task text, then runs it as a tty-inherited
+    * child under [[ChildTerminal.withChild]] (ADR 0021 §2). Verbose is not
+    * exposed here in v1 — task text only; a later task can add a verbose
+    * confirm alongside session tracking.
     */
   private def runFlow(ui: ShellUi, terminal: Terminal): Unit =
     for
       flow <- selectFlow(ui, "Run which flow?")
       task <- promptTask(ui)
     do
-      val result = ChildTerminal.withChild(terminal)(FlowLauncher.run(ui, flow.path, task, os.pwd))
+      val result = ChildTerminal.withChild(terminal)(
+        FlowLauncher.run(ui, flow.path, task, os.pwd)
+      )
       println(outcomeLine(result))
 
-  /** Prompts for the flow's task text, re-prompting on blank input — an
-    * empty `userPrompt` reaches the flow's agent directly (branch naming,
-    * the coding session's instructions), so it's rejected here rather than
-    * passed through as a degenerate run.
+  /** Prompts for the flow's task text, re-prompting on blank input — an empty
+    * `userPrompt` reaches the flow's agent directly (branch naming, the coding
+    * session's instructions), so it's rejected here rather than passed through
+    * as a degenerate run.
     */
   @tailrec private def promptTask(ui: ShellUi): Option[String] =
     ui.input("Task for the flow") match
@@ -124,13 +149,19 @@ object Main:
     * [[FlowEditor.customizeTarget]], and returns the copy's path — `None` on
     * Cancelled or on a name collision (reported and left unedited).
     */
-  private def customizeThenEditPath(ui: ShellUi, flow: DiscoveredFlow): Option[os.Path] =
+  private def customizeThenEditPath(
+      ui: ShellUi,
+      flow: DiscoveredFlow
+  ): Option[os.Path] =
     val globalFlows = GlobalSettings.defaultFlows
     val tierChoices = List(
       Choice(CustomizeTier.Project, "Project (.orca/flows/)"),
       Choice(CustomizeTier.Global, s"Global ($globalFlows)")
     )
-    ui.select(s"'${flow.name}' is built-in — customize it into", tierChoices) match
+    ui.select(
+      s"'${flow.name}' is built-in — customize it into",
+      tierChoices
+    ) match
       case UiOutcome.Cancelled => None
       case UiOutcome.Selected(tier) =>
         FlowEditor.customizeTarget(flow, tier, os.pwd, globalFlows) match
@@ -139,14 +170,14 @@ object Main:
             None
           case Right(path) => Some(path)
 
-  /** Lists flows across the three tiers, guarding the project tier's
-    * component chain against a committed symlink first (`.orca` or
-    * `.orca/flows` redirecting reads/writes outside the tree) — a read-only
-    * check ([[OrcaDir.assertNoOrcaSymlinks]]), so listing never creates
-    * `.orca`. Both that guard and the listing itself (built-in extraction can
-    * hit a full-disk or permission error) are wrapped here: any failure is
-    * reported and the caller gets `None`, same as Cancelled, so the menu
-    * redraws instead of the shell crashing.
+  /** Lists flows across the three tiers, guarding the project tier's component
+    * chain against a committed symlink first (`.orca` or `.orca/flows`
+    * redirecting reads/writes outside the tree) — a read-only check
+    * ([[OrcaDir.assertNoOrcaSymlinks]]), so listing never creates `.orca`. Both
+    * that guard and the listing itself (built-in extraction can hit a full-disk
+    * or permission error) are wrapped here: any failure is reported and the
+    * caller gets `None`, same as Cancelled, so the menu redraws instead of the
+    * shell crashing.
     */
   private def selectFlow(ui: ShellUi, title: String): Option[DiscoveredFlow] =
     val workDir = os.pwd
@@ -177,7 +208,8 @@ object Main:
       if flow.shadows.isEmpty then ""
       else s" [shadows ${flow.shadows.map(originLabel).mkString(", ")}]"
     val description = flow.description.getOrElse("(no description)")
-    val label = s"${flow.name} — $description [${originLabel(flow.origin)}]$shadows"
+    val label =
+      s"${flow.name} — $description [${originLabel(flow.origin)}]$shadows"
     Choice(flow, label)
 
   private def originLabel(origin: FlowOrigin): String = origin match

@@ -2,7 +2,13 @@ package orca.shell.ui
 
 import org.jline.consoleui.elements.ConfirmChoice
 import org.jline.consoleui.elements.PromptableElementIF
-import org.jline.consoleui.prompt.{ConfirmResult, ConsolePrompt, InputResult, ListResult, PromptResultItemIF}
+import org.jline.consoleui.prompt.{
+  ConfirmResult,
+  ConsolePrompt,
+  InputResult,
+  ListResult,
+  PromptResultItemIF
+}
 import org.jline.reader.{EndOfFileException, UserInterruptException}
 import org.jline.terminal.Terminal
 import ox.discard
@@ -12,19 +18,19 @@ import scala.annotation.tailrec
 
 /** ConsoleUI-backed [[ShellUi]]: arrow-key prompts over
   * `org.jline.consoleui.prompt.ConsolePrompt` (ADR 0021 §3). Requires a real
-  * tty — construct only via `ShellUi.make`, which gates on it; ConsoleUI
-  * NPEs on non-tty stdin otherwise (research 03 skeptic).
+  * tty — construct only via `ShellUi.make`, which gates on it; ConsoleUI NPEs
+  * on non-tty stdin otherwise (research 03 skeptic).
   *
-  * ConsoleUI's single-choice list prompt has no non-selectable-item support
-  * in its public API — `ListItem.isSelectable()` is hardcoded `true`, and
-  * `ListPromptBuilder` exposes no way to add a `Separator`; only the
-  * checkbox prompt's items carry a disabled flag (jar-verified against
-  * `jline-console-ui` 3.30.15, correcting research 03's blanket "disabled
-  * items with reason" claim). Disabled choices are therefore rendered with
-  * their reason folded into the label and, if picked anyway, the prompt
-  * simply re-runs — same "not a valid answer" re-prompt `NumberedUi` uses.
-  * The same absence rules out honoring `preselect`'s starting cursor
-  * position; it is a no-op here.
+  * ConsoleUI's single-choice list prompt has no non-selectable-item support in
+  * its public API — `ListItem.isSelectable()` is hardcoded `true`, and
+  * `ListPromptBuilder` exposes no way to add a `Separator`; only the checkbox
+  * prompt's items carry a disabled flag (jar-verified against
+  * `jline-console-ui` 3.30.15, correcting research 03's blanket "disabled items
+  * with reason" claim). Disabled choices are therefore rendered with their
+  * reason folded into the label and, if picked anyway, the prompt simply
+  * re-runs — same "not a valid answer" re-prompt `NumberedUi` uses. The same
+  * absence rules out honoring `preselect`'s starting cursor position; it is a
+  * no-op here.
   */
 private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
 
@@ -37,7 +43,11 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     config.setCancellableFirstPrompt(true)
     ConsolePrompt(terminal, config)
 
-  def select[A](title: String, choices: List[Choice[A]], preselect: Option[A] = None): UiOutcome[A] =
+  def select[A](
+      title: String,
+      choices: List[Choice[A]],
+      preselect: Option[A] = None
+  ): UiOutcome[A] =
     @tailrec def loop(): UiOutcome[A] =
       val builder = consolePrompt.getPromptBuilder
       val list = builder.createListPrompt().name("select").message(title)
@@ -48,20 +58,30 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
       runOrCancelled(builder.build()) match
         case UiOutcome.Cancelled => UiOutcome.Cancelled
         case UiOutcome.Selected(results) =>
-          val selectedId = results.get("select").asInstanceOf[ListResult].getSelectedId
+          val selectedId =
+            results.get("select").asInstanceOf[ListResult].getSelectedId
           val chosen = choices(selectedId.toInt)
           if chosen.isEnabled then UiOutcome.Selected(chosen.value) else loop()
 
     loop()
 
   def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
-    val defaultValue = if default then ConfirmChoice.ConfirmationValue.YES else ConfirmChoice.ConfirmationValue.NO
+    val defaultValue =
+      if default then ConfirmChoice.ConfirmationValue.YES
+      else ConfirmChoice.ConfirmationValue.NO
     val builder = consolePrompt.getPromptBuilder
-    builder.createConfirmPromp().name("confirm").message(question).defaultValue(defaultValue).addPrompt().discard
+    builder
+      .createConfirmPromp()
+      .name("confirm")
+      .message(question)
+      .defaultValue(defaultValue)
+      .addPrompt()
+      .discard
     runOrCancelled(builder.build()) match
       case UiOutcome.Cancelled => UiOutcome.Cancelled
       case UiOutcome.Selected(results) =>
-        val confirmed = results.get("confirm").asInstanceOf[ConfirmResult].getConfirmed
+        val confirmed =
+          results.get("confirm").asInstanceOf[ConfirmResult].getConfirmed
         UiOutcome.Selected(confirmed == ConfirmChoice.ConfirmationValue.YES)
 
   def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
@@ -76,7 +96,9 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     runOrCancelled(builder.build()) match
       case UiOutcome.Cancelled => UiOutcome.Cancelled
       case UiOutcome.Selected(results) =>
-        UiOutcome.Selected(results.get("input").asInstanceOf[InputResult].getResult)
+        UiOutcome.Selected(
+          results.get("input").asInstanceOf[InputResult].getResult
+        )
 
   /** Runs one prompt batch. ESC (an empty result map — ConsoleUI's own
     * cancel-to-empty-map behavior, enabled by `cancellableFirstPrompt`),
@@ -89,5 +111,8 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
   ): UiOutcome[java.util.Map[String, PromptResultItemIF]] =
     try
       val results = consolePrompt.prompt(elements)
-      if results.isEmpty then UiOutcome.Cancelled else UiOutcome.Selected(results)
-    catch case _: UserInterruptException | _: EndOfFileException | _: IOError => UiOutcome.Cancelled
+      if results.isEmpty then UiOutcome.Cancelled
+      else UiOutcome.Selected(results)
+    catch
+      case _: UserInterruptException | _: EndOfFileException | _: IOError =>
+        UiOutcome.Cancelled

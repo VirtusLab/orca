@@ -12,7 +12,8 @@ class ChildTerminalTest extends munit.FunSuite:
     val terminal = TerminalBuilder.builder().dumb(true).build()
     try
       val before = terminal.getAttributes.toString
-      val flippedEcho = !terminal.getAttributes.getLocalFlag(Attributes.LocalFlag.ECHO)
+      val flippedEcho =
+        !terminal.getAttributes.getLocalFlag(Attributes.LocalFlag.ECHO)
       val _ = intercept[RuntimeException]:
         ChildTerminal.withChild(terminal):
           val mutated = terminal.getAttributes
@@ -32,11 +33,14 @@ class ChildTerminalTest extends munit.FunSuite:
   // `Signal.raise` only requests delivery — the JVM's signal-dispatcher
   // thread invokes the registered `SignalHandler` asynchronously, so
   // `awaitCount` polls instead of asserting immediately after `raise`.
-  test("withChild ignores SIGINT while body runs, restoring the previous handler after"):
+  test(
+    "withChild ignores SIGINT while body runs, restoring the previous handler after"
+  ):
     val terminal = TerminalBuilder.builder().dumb(true).build()
     val signal = new Signal("INT")
     val handlerCalls = new AtomicInteger(0)
-    val countingHandler: SignalHandler = _ => handlerCalls.incrementAndGet(): Unit
+    val countingHandler: SignalHandler =
+      _ => handlerCalls.incrementAndGet(): Unit
     val original = Signal.handle(signal, countingHandler)
     try
       ChildTerminal.withChild(terminal):
@@ -44,14 +48,27 @@ class ChildTerminalTest extends munit.FunSuite:
         // Grace period: if the ignore handler weren't installed, the
         // dispatcher thread would have run countingHandler well within this.
         Thread.sleep(200)
-      assertEquals(handlerCalls.get(), 0, "SIGINT must be ignored for the duration of the child bracket")
+      assertEquals(
+        handlerCalls.get(),
+        0,
+        "SIGINT must be ignored for the duration of the child bracket"
+      )
       Signal.raise(signal)
-      awaitCount(handlerCalls, 1, "the pre-existing handler must be reinstalled once the child exits")
+      awaitCount(
+        handlerCalls,
+        1,
+        "the pre-existing handler must be reinstalled once the child exits"
+      )
     finally
       Signal.handle(signal, original)
       terminal.close()
 
-  private def awaitCount(counter: AtomicInteger, expected: Int, clue: String): Unit =
+  private def awaitCount(
+      counter: AtomicInteger,
+      expected: Int,
+      clue: String
+  ): Unit =
     val deadlineNanos = System.nanoTime() + 2_000_000_000L
-    while counter.get() != expected && System.nanoTime() < deadlineNanos do Thread.sleep(5)
+    while counter.get() != expected && System.nanoTime() < deadlineNanos do
+      Thread.sleep(5)
     assertEquals(counter.get(), expected, clue)

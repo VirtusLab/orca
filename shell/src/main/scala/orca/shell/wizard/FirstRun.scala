@@ -13,14 +13,19 @@ object FirstRun:
     * all three role keys unset (comments-only / empty-values file).
     * `Right(AlreadyConfigured)` — the file already names at least one role.
     * `Left(error)` — the file exists but is malformed; that is NOT first-run,
-    * it's surfaced to the caller so it can offer a rewrite instead of
-    * silently clobbering a typo'd hand edit.
+    * it's surfaced to the caller so it can offer a rewrite instead of silently
+    * clobbering a typo'd hand edit.
     */
-  def check(globalSettingsPath: os.Path): Either[SettingsError, FirstRunStatus] =
+  def check(
+      globalSettingsPath: os.Path
+  ): Either[SettingsError, FirstRunStatus] =
     if !os.exists(globalSettingsPath) then Right(FirstRunStatus.FirstRun)
     else
       val content = os.read(globalSettingsPath)
-      SettingsFile.parse(content, SettingsScope.UserGlobal).map: parsed =>
-        val agents = parsed.agents
-        if agents.planning.isEmpty && agents.coding.isEmpty && agents.review.isEmpty then FirstRunStatus.FirstRun
-        else FirstRunStatus.AlreadyConfigured
+      SettingsFile
+        .parse(content, SettingsScope.UserGlobal)
+        .map: parsed =>
+          val agents = parsed.agents
+          if agents.planning.isEmpty && agents.coding.isEmpty && agents.review.isEmpty
+          then FirstRunStatus.FirstRun
+          else FirstRunStatus.AlreadyConfigured

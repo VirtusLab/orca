@@ -9,8 +9,8 @@ private[orca] object PathProbe:
   /** Resolves `word` via `bash -c 'command -v -- "$1"' bash <word>`, run with
     * `cwd`. The word travels as an ARGUMENT (`"$1"`), never interpolated into
     * the script text, so shell metacharacters in `word` cannot execute here.
-    * Exit 0 ⇒ resolvable (builtins included, same environment stage-time
-    * `bash -c` inherits).
+    * Exit 0 ⇒ resolvable (builtins included, same environment stage-time `bash
+    * -c` inherits).
     */
   def resolves(word: String, cwd: os.Path): Boolean =
     os.proc("bash", "-c", """command -v -- "$1"""", "bash", word)

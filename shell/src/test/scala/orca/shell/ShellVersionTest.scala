@@ -2,7 +2,9 @@ package orca.shell
 
 class ShellVersionTest extends munit.FunSuite:
 
-  test("value falls back to \"dev\" when run from class directories (no jar manifest)"):
+  test(
+    "value falls back to \"dev\" when run from class directories (no jar manifest)"
+  ):
     assertEquals(ShellVersion.value, "dev")
 
   test("isRelease is false for the running (class-dir) build"):

@@ -245,10 +245,10 @@ object FlowCanary:
         gh.writeComment(pr, "pr comment")
         gh.updatePr(pr, "new title", "new body")
 
-  /** Branch + PR surface — exercised by `flows/implement-enhanced.sc`. Pins
-    * the branch ops the runtime exposes to flow scripts and the `createPr`
-    * `Either` with its recoverable `PrAlreadyExists`. The flow runtime owns
-    * branch + resume (ADR 0018 §2.5).
+  /** Branch + PR surface — exercised by `flows/implement-enhanced.sc`. Pins the
+    * branch ops the runtime exposes to flow scripts and the `createPr` `Either`
+    * with its recoverable `PrAlreadyExists`. The flow runtime owns branch +
+    * resume (ADR 0018 §2.5).
     */
   def branchAndPrSurface(): Unit =
     flow(OrcaArgs()):

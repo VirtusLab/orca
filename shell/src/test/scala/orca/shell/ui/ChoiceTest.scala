@@ -11,7 +11,9 @@ class ChoiceTest extends munit.FunSuite:
   test("renderedLabel is the plain label when enabled"):
     assertEquals(Choice(1, "First").renderedLabel, "First")
 
-  test("renderedLabel folds the reason into an unavailable suffix when disabled"):
+  test(
+    "renderedLabel folds the reason into an unavailable suffix when disabled"
+  ):
     assertEquals(
       Choice(1, "First", disabledReason = Some("no manifests")).renderedLabel,
       "First (unavailable: no manifests)"

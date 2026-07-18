@@ -120,11 +120,14 @@ class BaseAgentTest extends munit.FunSuite:
   // The manifest writer (ADR 0021 §8) needs the wire id known after the
   // backend call returns, so `SessionCommitted` fires post-`runAutonomous`
   // with whatever that call just committed.
-  test("autonomous run emits exactly one SessionCommitted with the stub's wire id"):
+  test(
+    "autonomous run emits exactly one SessionCommitted with the stub's wire id"
+  ):
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val tool = new StubTool(new CommittingBackend("wire-committed"), listener = listener)
+    val tool =
+      new StubTool(new CommittingBackend("wire-committed"), listener = listener)
     val _ = tool.run("prompt")
     val committed = seen.get().collect { case e: OrcaEvent.SessionCommitted =>
       e
@@ -142,7 +145,8 @@ class BaseAgentTest extends munit.FunSuite:
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    val tool = new StubTool(new CommittingBackend("wire-quiet"), listener = listener)
+    val tool =
+      new StubTool(new CommittingBackend("wire-quiet"), listener = listener)
     val _ = tool.quietTextTurn("internal prompt")
     assert(
       !seen.get().exists(_.isInstanceOf[OrcaEvent.SessionCommitted]),

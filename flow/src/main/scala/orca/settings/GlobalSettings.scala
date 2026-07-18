@@ -1,12 +1,15 @@
 package orca.settings
 
 /** The user-global config home: `$XDG_CONFIG_HOME/orca/`, defaulting to
-  * `~/.config/orca/` (XDG Base Directory spec). A relative `XDG_CONFIG_HOME`
-  * is ignored, as the spec mandates. A value `os.Path` rejects (e.g. `..`
-  * segments that climb past the root) falls back like a relative one.
+  * `~/.config/orca/` (XDG Base Directory spec). A relative `XDG_CONFIG_HOME` is
+  * ignored, as the spec mandates. A value `os.Path` rejects (e.g. `..` segments
+  * that climb past the root) falls back like a relative one.
   */
 private[orca] object GlobalSettings:
-  private def configHome(env: String => Option[String], home: os.Path): os.Path =
+  private def configHome(
+      env: String => Option[String],
+      home: os.Path
+  ): os.Path =
     env("XDG_CONFIG_HOME")
       // `os.Path` accepts only absolute paths, so a relative, empty, or
       // root-climbing value throws and falls back — no separate pre-filter.

@@ -84,8 +84,8 @@ enum OrcaEvent:
     * by then (ADR 0021 §8). Once per (backend, clientId, wireId) commit;
     * listeners dedup on a resumed session's later turns. `wireId` is the
     * persistable id ([[orca.agents.Agent.resumeWireId]]) — `None` for backends
-    * whose sessions don't survive the run (pi), so a non-resumable commit
-    * still fires accurately.
+    * whose sessions don't survive the run (pi), so a non-resumable commit still
+    * fires accurately.
     */
   case SessionCommitted(
       backend: String,

@@ -61,9 +61,9 @@ object FlowCatalog:
 
   /** `*.sc` files directly in `dir`, keyed by filename; empty if `dir` doesn't
     * exist. Symlinked entries are excluded (`os.isLink`, lstat/no-follow): a
-    * committed symlink `x.sc` (or a symlinked tier dir, guarded upstream at
-    * the project tier by `OrcaDir.assertNoOrcaSymlinks`) would otherwise let
-    * View disclose, and Edit write through to, a target outside the tree.
+    * committed symlink `x.sc` (or a symlinked tier dir, guarded upstream at the
+    * project tier by `OrcaDir.assertNoOrcaSymlinks`) would otherwise let View
+    * disclose, and Edit write through to, a target outside the tree.
     */
   private def scriptsByName(dir: os.Path): Map[String, os.Path] =
     if !os.isDir(dir) then Map.empty

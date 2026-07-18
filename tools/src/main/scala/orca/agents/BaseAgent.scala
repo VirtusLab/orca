@@ -149,8 +149,8 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     events.onEvent(OrcaEvent.TokensUsed(name, model, result.usage, role))
 
   /** Fires once a session's first turn commits (ADR 0021 §8): reads
-    * `resumeWireId` after `backend.runAutonomous` returns, so `wireId`
-    * reflects whatever this call just committed.
+    * `resumeWireId` after `backend.runAutonomous` returns, so `wireId` reflects
+    * whatever this call just committed.
     */
   private def emitSessionCommitted(session: SessionId[B]): Unit =
     events.onEvent(

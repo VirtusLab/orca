@@ -4,8 +4,8 @@ import orca.testkit.TempDirs
 /** Publishes the library to the local Ivy cache, then exercises both the
   * minimal smoke script and the real flow scripts under `flows/` via
   * `scala-cli`. Gated on `ORCA_INTEGRATION` because it shells out to a real sbt
-  * + scala-cli and the fan-out across flows can take several minutes cold.
-  * CI sets the env var; local devs opt in when they want the check.
+  * + scala-cli and the fan-out across flows can take several minutes cold. CI
+  * sets the env var; local devs opt in when they want the check.
   */
 class ScalaCliSmokeTest extends munit.FunSuite:
 
@@ -113,8 +113,8 @@ class ScalaCliSmokeTest extends munit.FunSuite:
 
   /** Each flow script is a real-world consumer of the public API, so a rename
     * or signature change breaks them first. Compile-checking here closes the
-    * gap between sbt's internal compile (which doesn't see `flows/`) and
-    * what a fresh user runs.
+    * gap between sbt's internal compile (which doesn't see `flows/`) and what a
+    * fresh user runs.
     */
   for relPath <- flowScripts do
     test(s"flows/$relPath compiles via scala-cli"):

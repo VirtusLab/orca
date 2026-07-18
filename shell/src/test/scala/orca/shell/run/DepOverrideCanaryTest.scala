@@ -25,9 +25,10 @@ class DepOverrideCanaryTest extends munit.FunSuite:
 
   /** Writes a script pinning `com.lihaoyi::os-lib:0.9.1`, runs it via
     * `scala-cli run --command` with an overriding `--dep`, and returns the
-    * classpath line. Per the research (docs/research/shell/02-in-process-execution.md
-    * §S2), `--command` prints one argument per line with `-D` lines before
-    * `-cp`, so the classpath is the line immediately after the literal `-cp`.
+    * classpath line. Per the research
+    * (docs/research/shell/02-in-process-execution.md §S2), `--command` prints
+    * one argument per line with `-D` lines before `-cp`, so the classpath is
+    * the line immediately after the literal `-cp`.
     */
   private def classpathAfterOverride(overrideVersion: String): String =
     val scriptDir = TempDirs.dir()
@@ -56,12 +57,28 @@ class DepOverrideCanaryTest extends munit.FunSuite:
     )
     lines(cpIndex + 1)
 
-  test("--dep overriding upward (0.9.1 -> 0.11.3) replaces the directive's pin on the classpath"):
+  test(
+    "--dep overriding upward (0.9.1 -> 0.11.3) replaces the directive's pin on the classpath"
+  ):
     val classpath = classpathAfterOverride("0.11.3")
-    assert(classpath.contains("os-lib_3-0.11.3"), s"expected 0.11.3 on the classpath, got: $classpath")
-    assert(!classpath.contains("os-lib_3-0.9.1"), s"expected no 0.9.1 on the classpath, got: $classpath")
+    assert(
+      classpath.contains("os-lib_3-0.11.3"),
+      s"expected 0.11.3 on the classpath, got: $classpath"
+    )
+    assert(
+      !classpath.contains("os-lib_3-0.9.1"),
+      s"expected no 0.9.1 on the classpath, got: $classpath"
+    )
 
-  test("--dep overriding downward (0.9.1 -> 0.8.1) replaces the directive's pin on the classpath"):
+  test(
+    "--dep overriding downward (0.9.1 -> 0.8.1) replaces the directive's pin on the classpath"
+  ):
     val classpath = classpathAfterOverride("0.8.1")
-    assert(classpath.contains("os-lib_3-0.8.1"), s"expected 0.8.1 on the classpath, got: $classpath")
-    assert(!classpath.contains("os-lib_3-0.9.1"), s"expected no 0.9.1 on the classpath, got: $classpath")
+    assert(
+      classpath.contains("os-lib_3-0.8.1"),
+      s"expected 0.8.1 on the classpath, got: $classpath"
+    )
+    assert(
+      !classpath.contains("os-lib_3-0.9.1"),
+      s"expected no 0.9.1 on the classpath, got: $classpath"
+    )

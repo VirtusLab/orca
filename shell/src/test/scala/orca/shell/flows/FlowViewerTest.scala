@@ -15,5 +15,11 @@ class FlowViewerTest extends munit.FunSuite:
 
   test("tty render contains ANSI escapes and strips back to the input"):
     val rendered = FlowViewer.render(source, tty = true)
-    assert(rendered.contains("["), "expected an ANSI escape sequence in tty output")
-    assertEquals(fansi.Str(rendered, fansi.ErrorMode.Sanitize).plainText, source)
+    assert(
+      rendered.contains("["),
+      "expected an ANSI escape sequence in tty output"
+    )
+    assertEquals(
+      fansi.Str(rendered, fansi.ErrorMode.Sanitize).plainText,
+      source
+    )
