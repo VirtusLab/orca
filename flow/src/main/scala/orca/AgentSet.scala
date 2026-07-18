@@ -16,7 +16,7 @@ import orca.agents.{
   * rather than late-bound state; the per-role programmatic overrides on
   * `flow(...)` (`planningAgent = Some(_.claude.opus)`, …) are also selectors
   * resolved against it. [[FlowContext]] extends this trait, so inside a flow
-  * body the same accessors resolve through the context as before.
+  * body the same accessors resolve through the context.
   */
 trait AgentSet:
   def claude: ClaudeAgent

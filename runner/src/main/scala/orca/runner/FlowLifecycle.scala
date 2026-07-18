@@ -307,9 +307,10 @@ object FlowLifecycle:
       git: GitTool,
       workDir: os.Path,
       branchNaming: Option[BranchNamingStrategy],
-      // The stack resolution `runFlow` parsed before this call (ADR 0020 §6):
-      // the file is no longer re-read here, so a malformed file has already
-      // aborted upstream, before the dispatcher-surfaced bracket.
+      // The stack resolution, parsed by `runFlow` upstream inside the
+      // dispatcher-surfaced bracket (ADR 0020 §6). Setup does not touch the
+      // settings file itself, so a malformed file has already aborted before
+      // this point.
       resolution: SettingsResolution,
       // True when `flow(stackSettings = Some(...))` governs the stack commands,
       // gating the gitignored-settings migration warning (the run neither reads

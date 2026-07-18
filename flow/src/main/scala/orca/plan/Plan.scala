@@ -72,8 +72,6 @@ object Plan:
     * Each operation returns a [[Sessioned]]: the read-only planning turn's
     * session is still resumable by a later writable call, so the caller can
     * continue it into implementation or discard it for a fresh session.
-    *
-    * An autonomous turn never calls `ask_user`, so no backend is excluded.
     */
   object autonomous:
     /** Produce a [[Plan]] directly from `userPrompt`. */
@@ -115,11 +113,7 @@ object Plan:
     * drive (clarifying questions, refinements) before the agent produces the
     * result. Not read-only: claude's plan mode would disable the `ask_user` MCP
     * tool, so the agent runs with normal permissions; the prompt asks it not to
-    * edit, and the user sees any violation.
-    *
-    * Every backend exposes `ask_user`: claude, codex, and gemini via the shared
-    * `AskUserMcpServer`, opencode natively via its `question` tool, and pi via
-    * Orca's temporary ask-user extension. Use [[autonomous]] when no
+    * edit, and the user sees any violation. Use [[autonomous]] when no
     * mid-session questions are needed.
     *
     * Each operation returns a [[Sessioned]] so the conversation can carry into
