@@ -7,13 +7,13 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 
 /** One tracked session inside a [[RunManifest]] (ADR 0021 §8). `wireId` is the
   * persistable id ([[orca.agents.Agent.resumeWireId]]) — `None` for backends
-  * whose sessions don't survive the run (pi), which is exactly when
-  * `resumable` is `false` and `reason` explains why. `kind` is `"durable"`
-  * when the writer joins `clientId` to a `SessionRecord` in the progress log
-  * (an `agent.session(...)` call), `"oneShot"` otherwise — a plain
+  * whose sessions don't survive the run (pi), which is exactly when `resumable`
+  * is `false` and `reason` explains why. `kind` is `"durable"` when the writer
+  * joins `clientId` to a `SessionRecord` in the progress log (an
+  * `agent.session(...)` call), `"oneShot"` otherwise — a plain
   * `agent.run`/`resultAs` one-shot AND an interactive call both land as
-  * `"oneShot"` today, since `SessionCommitted` carries nothing that tells
-  * them apart (see [[RunManifestWriter.durableSessionName]]).
+  * `"oneShot"` today, since `SessionCommitted` carries nothing that tells them
+  * apart (see [[RunManifestWriterState.durableSessionName]]).
   */
 private[orca] case class ManifestSession(
     harness: String,
@@ -50,6 +50,9 @@ private[orca] case class RunManifest(
 )
 
 private[orca] object RunManifest:
+  // Only a jsoniter codec — no `JsonData`/`Schema` half, deliberately: the
+  // manifest crosses the process/disk boundary to the shell, never an HTTP or
+  // LLM boundary, so it needs on-disk (de)serialisation but no tool schema.
   // Tolerant like ProgressLog's codec (ProgressLog.scala): missing collection
   // fields default to empty rather than failing, so a manifest written by an
   // older or newer orca still parses.
