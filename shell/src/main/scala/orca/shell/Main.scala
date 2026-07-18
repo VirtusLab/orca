@@ -2,7 +2,9 @@ package orca.shell
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.OrcaDir
-import orca.settings.GlobalSettings
+import orca.agents.BackendTag
+import orca.runner.{ManifestSession, RunManifest}
+import orca.settings.{AgentSpec, GlobalSettings}
 import orca.shell.flows.{
   BuiltInFlows,
   CustomizeTier,
@@ -13,9 +15,10 @@ import orca.shell.flows.{
   FlowViewer
 }
 import orca.shell.run.{ChildTerminal, FlowLauncher, LaunchResult}
+import orca.shell.sessions.{ManifestReader, ReadRun, ResumeCommand}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
-import orca.subprocess.PathProbe
+import orca.subprocess.{PathProbe, QuietProc}
 import ox.discard
 
 import scala.annotation.tailrec
@@ -55,10 +58,11 @@ object Main:
         wizard.repairMalformed()
 
   /** Runs the main menu until Exit is chosen or the top-level prompt is
-    * cancelled (Ctrl-C / EOF); every non-Exit, non-Reconfigure, non-flow item
-    * is a stub until its epic lands. Continue a session is hardcoded disabled
-    * until session tracking (ADR 0021 §8) lands and can report whether any
-    * session actually exists.
+    * cancelled (Ctrl-C / EOF); every non-Exit, non-Reconfigure, non-flow,
+    * non-ContinueSession item is a stub until its epic lands. Continue a
+    * session re-reads `.orca/cache/runs/` on every redraw (ADR 0021 §8) — a
+    * flow run started from this same menu can only have just finished, so the
+    * freshest listing is worth the re-read.
     */
   @tailrec private def loop(
       ui: ShellUi,
@@ -66,7 +70,10 @@ object Main:
       terminal: Terminal,
       tty: Boolean
   ): Unit =
-    val continueDisabledReason = Some("no sessions recorded yet")
+    val (runs, warnings) = ManifestReader.list(os.pwd, pidAlive)
+    warnings.foreach(w => println(s"orca: $w"))
+    val continueDisabledReason =
+      if runs.nonEmpty then None else Some("no sessions recorded yet")
     ui.select("orca shell", MainMenu.choices(continueDisabledReason)) match
       case UiOutcome.Cancelled               => ()
       case UiOutcome.Selected(MenuItem.Exit) => ()
@@ -82,9 +89,18 @@ object Main:
       case UiOutcome.Selected(MenuItem.RunFlow) =>
         runFlow(ui, terminal)
         loop(ui, wizard, terminal, tty)
+      case UiOutcome.Selected(MenuItem.ContinueSession) =>
+        continueSession(ui, terminal, runs)
+        loop(ui, wizard, terminal, tty)
       case UiOutcome.Selected(item) =>
         println(s"$item: not implemented yet")
         loop(ui, wizard, terminal, tty)
+
+  /** `ProcessHandle.of` finds nothing for a pid that's been reaped — treated as
+    * not alive, same as a live handle reporting `isAlive == false`.
+    */
+  private def pidAlive(pid: Long): Boolean =
+    ProcessHandle.of(pid).map[Boolean](_.isAlive).orElse(false)
 
   /** Prints the chosen flow's source (highlighted when `tty`) and returns — the
     * menu redraws on the next loop iteration, so no pager is needed (ADR 0021
@@ -144,6 +160,118 @@ object Main:
     case LaunchResult.Ok           => "orca: flow finished"
     case LaunchResult.Failed(exit) => s"orca: flow failed (exit code $exit)"
     case LaunchResult.Cancelled    => "orca: run cancelled"
+
+  /** One prior run's manifest paired with the session the user picked to resume
+    * — everything [[resumeSession]] needs (the harness command comes from the
+    * session; the working directory comes from the manifest, which may differ
+    * from `os.pwd`).
+    */
+  private[shell] case class SessionSelection(
+      manifest: RunManifest,
+      session: ManifestSession
+  )
+
+  /** Prompts among every session across `runs` (already newest-run-first from
+    * [[ManifestReader.list]]) and resumes the chosen one. A cancelled prompt,
+    * or `runs` being empty (unreachable via the menu today, since the item is
+    * disabled then, but harmless), is a silent no-op.
+    */
+  private def continueSession(
+      ui: ShellUi,
+      terminal: Terminal,
+      runs: List[ReadRun]
+  ): Unit =
+    ui.select("Continue which session?", sessionRows(runs)) match
+      case UiOutcome.Cancelled           => ()
+      case UiOutcome.Selected(selection) => resumeSession(terminal, selection)
+
+  /** One row per session across every run, in `runs`' order (newest-run-first;
+    * a run's own sessions keep the manifest's order). Disabling here previews
+    * only what's known without a live harness call: a wireId-less session (pi
+    * always) or an unrecognised harness. Gemini's real resumability needs
+    * `gemini --list-sessions` (deferred to selection, in [[resumeSession]]), so
+    * its preview passes a placeholder index — any `Some` bypasses just the
+    * "index not yet known" branch of [[ResumeCommand.build]], leaving gemini
+    * rows enabled pending that later check, per the ADR's example UX (research
+    * 08 §C — only pi is greyed out up front).
+    */
+  private[shell] def sessionRows(
+      runs: List[ReadRun]
+  ): List[Choice[SessionSelection]] =
+    runs.flatMap: run =>
+      run.manifest.sessions.map: session =>
+        val label = sessionLabel(session, run.crashed)
+        val disabledReason =
+          ResumeCommand.build(session, geminiIndex = Some(0)).left.toOption
+        Choice(
+          SessionSelection(run.manifest, session),
+          label,
+          disabledReason = disabledReason
+        )
+
+  /** `<agent> (<role>) — stage <stage> [<harness>]` (ADR 0021 §8), omitting the
+    * role/stage segments when absent; a crashed run's sessions get a trailing
+    * `(crashed)` marker on every row (simpler than a separate per-run heading,
+    * and just as visible in a flat session list).
+    */
+  private def sessionLabel(session: ManifestSession, crashed: Boolean): String =
+    val role = session.role.fold("")(r => s" ($r)")
+    val stage = session.stage.fold("")(s => s" — stage $s")
+    val harness = harnessSettingsName(session.harness)
+    val crashedSuffix = if crashed then " (crashed)" else ""
+    s"${session.agent}$role$stage [$harness]$crashedSuffix"
+
+  /** The settings-file harness name (`claude`, `codex`, …) for a manifest's
+    * [[BackendTag.wireName]] string, falling back to the raw string for an
+    * unrecognised one (the row itself is disabled in that case, so this is
+    * display-only).
+    */
+  private def harnessSettingsName(wireName: String): String =
+    BackendTag
+      .fromWireName(wireName)
+      .flatMap(AgentSpec.harnessNameFor.get)
+      .getOrElse(wireName)
+
+  /** Resolves gemini's index (a live `gemini --list-sessions` from the
+    * manifest's `workDir`, matching the session's stored wireId) if needed,
+    * then execs the resume command as a tty-inherited child under
+    * [[ChildTerminal.withChild]] (ADR 0021 §2) from that same `workDir` — which
+    * may differ from `os.pwd` (claude/gemini/opencode scope session lookup by
+    * cwd). A failed or missing `gemini` binary is treated the same as "index
+    * not found": [[ResumeCommand.build]] reports it as not resumable.
+    */
+  private def resumeSession(
+      terminal: Terminal,
+      selection: SessionSelection
+  ): Unit =
+    val workDir = os.Path(selection.manifest.workDir)
+    val isGemini =
+      BackendTag
+        .fromWireName(selection.session.harness)
+        .contains(BackendTag.Gemini)
+    val geminiIndex =
+      if !isGemini then None
+      else
+        selection.session.wireId.flatMap: uuid =>
+          try
+            val listing =
+              QuietProc.call(Seq("gemini", "--list-sessions"), cwd = workDir)
+            ResumeCommand.geminiIndexOf(listing.out.text(), uuid)
+          catch case NonFatal(_) => None
+    ResumeCommand.build(selection.session, geminiIndex) match
+      case Left(reason) => println(s"orca: can't resume — $reason")
+      case Right(argv) =>
+        val exitCode = ChildTerminal.withChild(terminal):
+          os.proc(argv)
+            .call(
+              cwd = workDir,
+              stdin = os.Inherit,
+              stdout = os.Inherit,
+              stderr = os.Inherit,
+              check = false
+            )
+            .exitCode
+        println(s"orca: session ended (exit code $exitCode)")
 
   /** Prompts for Project or Global, copies the built-in there via
     * [[FlowEditor.customizeTarget]], and returns the copy's path — `None` on
