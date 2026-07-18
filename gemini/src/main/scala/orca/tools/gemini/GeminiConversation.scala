@@ -15,20 +15,17 @@ import orca.tools.gemini.jsonl.{InboundEvent, Role}
 
 /** Drives a `gemini -p <prompt> --output-format stream-json` session to
   * completion. Boilerplate lives in [[orca.backend.ForkedConversation]]; this
-  * class supplies the gemini-specific protocol translation: JSONL →
-  * [[InboundEvent]] → `ConversationEvent`s.
+  * class supplies the gemini-specific translation: JSONL → [[InboundEvent]] →
+  * `ConversationEvent`s.
   *
-  * Notable parity gaps vs. claude (deliberate — see ADR 0015):
-  *   - gemini emits whole `message` chunks, not negotiated tool approvals;
-  *     `approval-mode` is pre-baked into spawn args, so `ApproveTool` is never
-  *     emitted here.
-  *   - gemini headless is one-shot; multi-turn happens via `--resume` on a
-  *     fresh spawn, so `sendUserMessage` is a no-op.
-  *   - **`AgentResult.output` is synthesised**: gemini has no single terminal
+  * Gemini specifics (see ADR 0015):
+  *   - `approval-mode` is pre-baked into spawn args, so `ApproveTool` is never
+  *     emitted.
+  *   - headless is one-shot; multi-turn happens via `--resume` on a fresh
+  *     spawn, so `sendUserMessage` is a no-op.
+  *   - `AgentResult.output` is synthesised: gemini has no single terminal
   *     message carrying the answer, so assistant-role `message` content is
-  *     accumulated as it streams and the result builder reads it at the
-  *     `result` event. The prompt template makes the closing content JSON in
-  *     structured mode.
+  *     accumulated as it streams and read at the `result` event.
   */
 private[gemini] class GeminiConversation(
     process: PipedCliProcess,
@@ -42,10 +39,8 @@ private[gemini] class GeminiConversation(
     )
     with StderrPipeline[BackendTag.Gemini.type]:
 
-  // Reader-thread-confined: written and read only from the JSONL reader
-  // thread (`handle`/`handleResult`, called from `handleLine`); `awaitResult`'s
-  // `readerFork.join()` publishes the final values to the caller. Same
-  // single-threaded-reader reasoning as `answer` and `toolNames` below.
+  // Reader-thread-confined: written and read only from the JSONL reader thread;
+  // `awaitResult`'s `readerFork.join()` publishes the final values to the caller.
   private var sessionId: String = ""
   private var model: Option[String] = None
 
@@ -56,8 +51,7 @@ private[gemini] class GeminiConversation(
 
   /** Maps a tool_use `tool_id` to the `tool_name` it announced, so the matching
     * `tool_result` (which only carries the id) can be keyed by name in the
-    * emitted [[ConversationEvent.ToolResult]]. Single-threaded reader (the
-    * JSONL reader thread is the sole writer), so a plain `var` is enough.
+    * emitted [[ConversationEvent.ToolResult]].
     */
   private var toolNames: Map[String, String] = Map.empty
 
@@ -79,9 +73,7 @@ private[gemini] class GeminiConversation(
 
   /** Known-benign chatter gemini prints on every successful run (see
     * [[GeminiConversation.isKnownStderrNoise]]) is dropped so it doesn't render
-    * as a spurious `✖` on each call; anything else passes through
-    * [[StderrPipeline]]'s hoisted `handleStderr` (strip → trim → filter → Error
-    * event → recorded diagnostic).
+    * as a spurious `✖`; anything else passes through [[StderrPipeline]].
     */
   override protected def isStderrNoise(line: String): Boolean =
     GeminiConversation.isKnownStderrNoise(line)
@@ -102,10 +94,9 @@ private[gemini] class GeminiConversation(
     case InboundEvent.Error(message) =>
       eventQueue.enqueue(ConversationEvent.Error(s"gemini: $message"))
     case InboundEvent.Result(usage, status) =>
-      // `result` is terminal (one turn per conversation): the base funnel
-      // auto-closes any open turn when `handleResult` settles, and drops the
-      // turn end entirely when the turn was empty (e.g. an immediate failure
-      // with no streamed content) — so nothing is emitted here.
+      // `result` is terminal: the base funnel auto-closes any open turn when
+      // `handleResult` settles (and drops the turn end when the turn was empty),
+      // so nothing is emitted here.
       handleResult(usage, status)
     case InboundEvent.Unknown(_) =>
       // Forward-compat: gemini may add new top-level event types; drop them
@@ -113,17 +104,15 @@ private[gemini] class GeminiConversation(
       ()
 
   /** Settle the conversation outcome at the terminal `result` event.
-    * `"success"` is the documented good status (headless stream-json); an
-    * empty/absent status is also treated as success for robustness. Any other
-    * non-empty status is a failed turn that must NOT be reported as success
-    * even though gemini exited 0 — tagged `AgentTurnFailed` so the autonomous
-    * retry loop doesn't reopen the now-registered session id.
+    * `"success"` (and an empty/absent status) is success; any other non-empty
+    * status is a failed turn that must NOT be reported as success even though
+    * gemini exited 0 — tagged `AgentTurnFailed` so the autonomous retry loop
+    * doesn't reopen the now-registered session id.
     */
   private def handleResult(usage: Usage, status: String): Unit =
     if status.nonEmpty && status != "success" then
       // Fold in the buffered stderr (the real reason — quota, auth, …) so the
-      // exception carries it even for a noop listener, matching the
-      // non-zero-exit and missing-result failure paths.
+      // exception carries it even for a noop listener.
       failWith(
         new AgentTurnFailed(
           appendContext(s"gemini turn ended with status '$status'")
@@ -137,14 +126,10 @@ private[gemini] class GeminiConversation(
         modelId = model
       )
 
-  /** A `user`-role message is the prompt echo (the base already surfaced the
-    * opening prompt as a `UserMessage`), so it's dropped from both the event
-    * stream and the answer. [[Role.Assistant]] (any present role other than
-    * `"user"` — gemini spells the assistant side `model`/`assistant` across
-    * versions) is agent output. [[Role.Unknown]] (a `role` key missing from the
-    * wire message) is DROPPED — never treated as assistant prose, unlike the
-    * pre-fix behavior where a missing role's `""` default failed the `!=
-    * "user"` check and silently passed through.
+  /** A `user`-role message is the prompt echo, so it's dropped.
+    * [[Role.Assistant]] (any present role other than `"user"`) is agent output.
+    * [[Role.Unknown]] (a missing `role` key) is dropped — never treated as
+    * assistant prose.
     */
   private def handleMessage(role: Role, content: String): Unit = role match
     case Role.User => ()
@@ -183,26 +168,23 @@ private[gemini] class GeminiConversation(
 
 private[gemini] object GeminiConversation:
 
-  /** The `ask_user` MCP tool as gemini names it in `tool_use` events: gemini
-    * qualifies an MCP tool as `<server>__<tool>` (e.g. `orca__ask_user`). Match
+  /** The `ask_user` MCP tool as gemini names it in `tool_use` events. gemini
+    * qualifies an MCP tool as `<server>__<tool>` (e.g. `orca__ask_user`); match
     * that exact name (or the bare slug) rather than any name *containing*
-    * `ask_user`, so an unrelated tool whose name merely includes the slug isn't
-    * suppressed.
+    * `ask_user`, so an unrelated tool isn't suppressed.
     */
   private def isAskUserTool(name: String): Boolean =
     name == AskUserMcpServer.ToolSlug ||
       name == s"${AskUserMcpServer.ServerName}__${AskUserMcpServer.ToolSlug}"
 
-  /** Stderr lines gemini prints on every (successful) headless run that carry
-    * no diagnostic value — filtered before they reach the event queue so they
-    * don't render as spurious `✖` errors. Observed on gemini 0.45.2:
+  /** Stderr lines gemini prints on every successful headless run that carry no
+    * diagnostic value — filtered so they don't render as spurious `✖` errors.
+    * Observed on gemini 0.45.2:
     *
     *   - a 256-color terminal-capability warning,
-    *   - `YOLO mode is enabled. …` notices (we always pass `--approval-mode
-    *     yolo` for non-read-only turns),
+    *   - `YOLO mode is enabled. …` notices,
     *   - `Shell cwd was reset to …` after a tool run,
-    *   - `[IDEClient]` companion-extension chatter (gemini probes for a VS Code
-    *     companion that an orca-driven subprocess never has).
+    *   - `[IDEClient]` companion-extension probe chatter.
     */
   private[gemini] def isKnownStderrNoise(line: String): Boolean =
     line.contains("256-color support not detected") ||

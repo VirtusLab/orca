@@ -22,9 +22,7 @@ class OrcaDirTest extends munit.FunSuite:
   test("second ensureCache call leaves existing marker files untouched"):
     val wd = TempDirs.dir()
     val cache = OrcaDir.ensureCache(wd)
-    // Canary edits: a rewrite on the second call would restore the pinned
-    // contents, so surviving canaries prove the files are written only when
-    // absent.
+    // Surviving canaries prove the files are written only when absent.
     os.write.over(cache / ".gitignore", "canary-gitignore")
     os.write.over(cache / "CACHEDIR.TAG", "canary-tag")
     assertEquals(OrcaDir.ensureCache(wd), cache)

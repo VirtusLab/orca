@@ -6,18 +6,14 @@ import orca.events.EventDispatcher
 
 /** Shared fixture construction for the `reviewAndFixLoop` tests.
   *
-  * The loop now takes ONE [[FlowSession]] (coder + session bundle) and drives
-  * its fix turn through the durable [[FlowSession]] door, which needs a
+  * The loop takes one [[FlowSession]] (coder + session bundle) and drives its
+  * fix turn through the durable [[FlowSession]] door, which needs a
   * [[orca.FlowControl]] (progress store) and [[orca.WorkspaceWrite]] in scope.
-  * Rather than have every call site hand-build a [[FlowSession]] via its
-  * `private[orca]` constructor and a [[TestFlowControl]], both suites route
-  * through here.
   */
 object ReviewLoopFixture:
 
-  /** A coder [[FlowSession]] over `agent` and a fixed session id. Constructed
-    * via the `private[orca]` [[FlowSession]] ctor — legal because the tests
-    * live under `orca.*` — so no production factory is widened for tests.
+  /** A coder [[FlowSession]] over `agent` and a fixed session id, built via the
+    * `private[orca]` ctor so no production factory is widened for tests.
     */
   def coderSession(
       agent: Agent[BackendTag.ClaudeCode.type],

@@ -6,8 +6,7 @@ import orca.testkit.TempDirs
 class OsFsToolTest extends munit.FunSuite:
 
   // Tests exercise gated mutators directly; mint the workspace-write token once
-  // for the whole suite (tests are package `orca.tools`, so
-  // `WorkspaceWrite.unsafe` is in reach).
+  // for the whole suite (package `orca.tools` can reach `WorkspaceWrite.unsafe`).
   private given WorkspaceWrite = WorkspaceWrite.unsafe
 
   private def withFs(body: (OsFsTool, os.Path) => Unit): Unit =
@@ -53,9 +52,9 @@ class OsFsToolTest extends munit.FunSuite:
     withFs: (fs, _) =>
       assertEquals(fs.list("does/not/exist/*.txt"), Nil)
 
-  // An absolute glob previously reached os-lib's `globRoot` fold
-  // and blew up with a context-free `IllegalArgumentException`
-  // (`InvalidSegment`) rather than a named, actionable `list`-level error.
+  // An absolute glob otherwise reaches os-lib's `globRoot` fold and blows up
+  // with a context-free `IllegalArgumentException` (`InvalidSegment`) rather
+  // than a named, actionable `list`-level error.
   test("list rejects an absolute glob with a typed, actionable error"):
     withFs: (fs, _) =>
       val ex = intercept[OrcaFlowException](fs.list("/etc/*.conf"))

@@ -4,10 +4,9 @@ import orca.events.{OrcaEvent, Usage}
 import orca.agents.Model
 import java.io.{ByteArrayOutputStream, PrintStream}
 
-/** These tests exercise the listener's synchronous state-mutation behaviour by
-  * driving it directly with a synchronous `TerminalOutputState` — bypassing the
-  * actor so the test reads output immediately rather than racing a worker
-  * thread.
+/** Drives the listener directly against a synchronous `TerminalOutputState`,
+  * bypassing the actor so output is readable immediately rather than racing a
+  * worker thread.
   */
 class TerminalEventListenerTest extends munit.FunSuite:
 
@@ -286,12 +285,11 @@ class TerminalEventListenerTest extends munit.FunSuite:
     )
 
   test("currentIndent stays readable while stages push and pop concurrently"):
-    // A light regression guard for the single-writer / @volatile publication
-    // contract, NOT a race proof: the test thread is the sole writer (pushing
-    // then popping 500 StageStarted/StageCompleted pairs) while a reader thread
-    // polls `currentIndent` from another thread — the same lock-free access the
-    // ConversationRenderer makes mid-readLine. It asserts the reader never
-    // crashes and that the stack unwinds to empty once every pair is balanced.
+    // A regression guard for the single-writer / @volatile publication contract,
+    // NOT a race proof: the sole writer pushes/pops 500 pairs while a reader
+    // polls `currentIndent` (the same lock-free access ConversationRenderer makes
+    // mid-readLine). Asserts the reader never crashes and the stack unwinds to
+    // empty once every pair is balanced.
     val buf = new ByteArrayOutputStream()
     val ps = new PrintStream(buf)
     val output =

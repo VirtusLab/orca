@@ -51,9 +51,9 @@ class CodexBackendTest extends munit.FunSuite:
           clientSid,
           AgentConfig()
         )
-      // The result reports the WIRE id — the server-minted thr-42 — while the
-      // client→server mapping is recorded in the registry so subsequent calls
-      // resume it without the caller threading a new id back in.
+      // The result reports the WIRE (server-minted) id; the client→server
+      // mapping lives in the registry so later calls resume without the caller
+      // threading a new id back in.
       assertEquals(
         result.wireId,
         WireSessionId[BackendTag.Codex.type]("thr-42")
@@ -183,19 +183,18 @@ class CodexBackendTest extends munit.FunSuite:
       val firstArgs = runner.calls(0)
       val secondArgs = runner.calls(1)
       assert(!firstArgs.contains("resume"), firstArgs)
-      // Second call routes through `codex exec resume … <server-id>` — the
-      // server id was learned from the first call's thread.started.
+      // Second call resumes the server id learned from the first call's
+      // thread.started.
       assert(secondArgs.contains("resume"), secondArgs)
       assert(secondArgs.contains("thr-server-1"), secondArgs)
 
   test(
     "registerSession after an interactive call lets a follow-up autonomous call resume"
   ):
-    // Codex's server thread id is learned inside the conversation drain
-    // (not at spawn time), so the framework calls `registerSession`
-    // post-drain to record the client→server mapping. Pin that mechanism:
-    // once registered, a subsequent autonomous call with the same client id
-    // routes through `codex exec resume <server-id>`, not a fresh `exec`.
+    // Codex's server thread id is learned inside the conversation drain, so the
+    // framework registers the client→server mapping post-drain. Once
+    // registered, a follow-up autonomous call resumes rather than starting a
+    // fresh `exec`.
     val runner = new SpawnStubCliRunner(
       List(
         successfulProcess("thr-via-interactive"),
@@ -203,9 +202,8 @@ class CodexBackendTest extends munit.FunSuite:
       )
     )
     withBackend(runner): backend =>
-      // Simulate the post-interactive-drain registration that DefaultAgentCall
-      // performs (this test exercises the backend in isolation; the
-      // integration path is wired in AgentCall.runInteractiveOnce).
+      // Simulate the post-interactive-drain registration; the integration path
+      // is wired in AgentCall.runInteractiveOnce.
       backend.sessions.register(
         clientSid,
         WireSessionId[BackendTag.Codex.type]("thr-via-interactive")
@@ -217,8 +215,6 @@ class CodexBackendTest extends munit.FunSuite:
       assert(args.contains("thr-via-interactive"), args)
 
   test("distinct client ids both start fresh — no cross-client mapping"):
-    // Pins the per-client isolation of the session registry: a different
-    // client id must NOT resume the prior call's server thread.
     val runner = new SpawnStubCliRunner(
       List(
         successfulProcess("thr-server-A"),
@@ -252,14 +248,10 @@ class CodexBackendTest extends munit.FunSuite:
   test(
     "runAutonomous writes the output schema to a temp file outside workDir, and removes it once the turn finalizes"
   ):
-    // Autonomous structured calls (reviewers) get codex-side schema
-    // enforcement: the drain needs `conv.outputSchema` set so it suppresses
-    // the raw JSON payload, and `--output-schema` adds codex-side
-    // validation on top of the prompt template. The file must live OUTSIDE
-    // workDir — a fixed workDir-relative path would race the parallel
-    // reviewer fan-out and get swept into the flow's `git add -A` — and must
-    // not survive the call, or long flows would accumulate orphan schema
-    // files.
+    // The schema file must live OUTSIDE workDir — a workDir-relative path would
+    // race the parallel reviewer fan-out and get swept into the flow's
+    // `git add -A` — and must not survive the call, or long flows would
+    // accumulate orphan schema files.
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     val workDir = TempDirs.dir()
     withBackend(runner, workDir = workDir): backend =>
@@ -283,9 +275,8 @@ class CodexBackendTest extends munit.FunSuite:
         Nil,
         "nothing should be written under workDir for a structured call"
       )
-      // runAutonomous drains the conversation to completion synchronously, so
-      // by the time it returns, `onFinalize` has already run and removed the
-      // temp file.
+      // runAutonomous drains synchronously, so `onFinalize` has already removed
+      // the temp file by the time it returns.
       assert(
         !os.exists(schemaFile),
         "schema temp file should be deleted once the turn finalizes"
@@ -352,9 +343,8 @@ class CodexBackendTest extends munit.FunSuite:
         AgentConfig(),
         Some("""{"type":"object"}""")
       )
-      // Unlike runAutonomous, runInteractive hands back a Conversation the
-      // test never drains, so `onFinalize` hasn't fired yet — the file is
-      // still there to inspect.
+      // runInteractive hands back an undrained Conversation, so `onFinalize`
+      // hasn't fired — the file is still there to inspect.
       val schemaFile = schemaPathFrom(runner.calls.head)
       assert(
         !schemaFile.startsWith(workDir),
@@ -367,10 +357,9 @@ class CodexBackendTest extends munit.FunSuite:
   test(
     "runInteractive registers an MCP server and folds the ask_user hint"
   ):
-    // Interactive mode stands up the ask_user bridge: codex sees the MCP
-    // server via `-c mcp_servers.orca.url=…`, and the agent sees a short
-    // hint about the tool in the system-prompt preamble (codex has no
-    // --append-system-prompt, so it's folded into the user prompt).
+    // Interactive mode stands up the ask_user bridge: codex sees the MCP server
+    // via `-c mcp_servers.orca.url=…`, and the tool hint is folded into the
+    // user prompt (codex has no --append-system-prompt).
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val _ = backend.runInteractive(
@@ -397,10 +386,8 @@ class CodexBackendTest extends munit.FunSuite:
   test(
     "runInteractive with a systemPrompt folds BOTH it and the ask_user hint"
   ):
-    // The 4-way combination of (systemPrompt, askUserHint) is concat-prone;
-    // pin the both-present case explicitly (the other three are exercised
-    // by adjacent tests: (None,false) via runAutonomous, (Some,false) via
-    // "systemPrompt is folded", (None,true) via the test above).
+    // The (systemPrompt, askUserHint) combination is concat-prone; pin the
+    // both-present case (the other three are covered by adjacent tests).
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
     withBackend(runner): backend =>
       val _ = backend.runInteractive(
@@ -424,9 +411,8 @@ class CodexBackendTest extends munit.FunSuite:
   test(
     "willContinue is registry-gated: true when the mapped SERVER id has a rollout file"
   ):
-    // Codex mints its own thread id; a rollout file is named with that SERVER
-    // id, never the client id. `exists` resolves client→server via the registry
-    // (rehydrated from the log on resume) and probes THAT id.
+    // A rollout file is named with codex's SERVER id, never the client id.
+    // willContinue resolves client→server via the registry and probes THAT id.
     val serverId = "test-session-id-123"
     val tmpSessions = TempDirs.dir()
     os.write(tmpSessions / s"rollout-2024-01-01-$serverId.jsonl", "")
@@ -441,8 +427,7 @@ class CodexBackendTest extends munit.FunSuite:
 
   test("willContinue returns false when there is no client→server mapping"):
     // No registration: the client id resolves to no server id, so the probe
-    // never runs — even if a rollout file happens to be named with the client
-    // id (which codex never does in practice).
+    // never runs even if a rollout file is named with the client id.
     val tmpSessions = TempDirs.dir()
     os.write(
       tmpSessions / s"rollout-2024-01-01-${SessionId.value(clientSid)}.jsonl",
@@ -479,14 +464,12 @@ class CodexBackendTest extends munit.FunSuite:
     "willContinue returns false for a mapped SERVER id `.*` even when rollout files exist (blocks regex injection)"
   ):
     val tmpSessions = TempDirs.dir()
-    // Create a rollout file that the old regex `rollout-.*-.*\.jsonl` would match
     os.write(tmpSessions / "rollout-2024-01-01-some-real-id.jsonl", "")
     SupervisedBackend.using(
       new CodexBackend(new SpawnStubCliRunner(Nil), tmpSessions)
     ): backend =>
-      // The malicious id is the resolved WIRE id; `register`'s SessionId.isSafe
-      // guard must refuse to record it in the first place, so `exists` never
-      // even reaches the walk (no mapping to resolve).
+      // `register`'s SessionId.isSafe guard must refuse to record the `.*` wire
+      // id, so willContinue has no mapping to resolve and never walks the dir.
       backend.sessions.register(
         clientSid,
         WireSessionId[BackendTag.Codex.type](".*")

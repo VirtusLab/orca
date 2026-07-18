@@ -18,9 +18,8 @@ private[opencode] trait OpencodeHttp:
   def postJson(path: String, body: String): String
 
   /** Open `GET /event` as a source of raw SSE lines. This is the whole server's
-    * firehose; the conversation filters it to its own session id. (OpenCode's
-    * `?directory=` scoping is the only narrowing the endpoint offers and isn't
-    * session-precise, so it's not used.)
+    * firehose; the conversation filters it to its own session id (the endpoint
+    * offers no session-precise narrowing).
     */
   def events(): StreamSource
 

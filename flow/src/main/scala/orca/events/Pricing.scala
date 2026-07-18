@@ -28,11 +28,9 @@ case class Cost(amount: BigDecimal, estimated: Boolean):
 /** Model id → per-million-token rates. */
 type PricingTable = Map[Model, ModelPricing]
 
-/** A pricing table paired with the date its numbers were last sanity-checked
-  * against provider pricing pages. The date is surfaced in the cost-summary
-  * legend so users can judge how stale an estimated figure might be — provider
-  * pricing changes silently, so an old snapshot can drift even though the
-  * estimate looks authoritative.
+/** A pricing table paired with the date its numbers were last checked against
+  * provider pricing pages. The date is surfaced in the cost-summary legend so
+  * users can judge how stale an estimate might be.
   *
   * Override by passing your own `PriceList` to `flow(pricing = …)`:
   *
@@ -51,12 +49,10 @@ case class PriceList(table: PricingTable, lastUpdated: LocalDate)
 
 object Pricing:
 
-  /** A dated-snapshot suffix, e.g. `-20251015` — the ONLY shape the prefix
-    * fallback in [[lookup]] is meant to bridge (a provider stamping a released
-    * model id with its pinned-snapshot date). Anything else after the matched
-    * prefix (`-lite`, `-mini`, `-pro`, …) is a genuinely different,
-    * differently-priced model tier, not a snapshot of the same one — see
-    * [[lookup]].
+  /** A dated-snapshot suffix, e.g. `-20251015` — the only shape [[lookup]]'s
+    * prefix fallback bridges. Other suffixes (`-lite`, `-mini`, `-pro`, …) are
+    * genuinely different, differently-priced tiers, not snapshots of the same
+    * model.
     */
   private val DateSuffix: Regex = """^-\d{8}$""".r
 
@@ -101,12 +97,9 @@ object Pricing:
           .flatMap(table.get)
 
   /** Default community-maintained pricing snapshot, in USD per million tokens.
-    * Override by passing your own [[PriceList]] (or one derived from this one)
-    * to `flow(pricing = …)`. Re-check against the provider's pricing pages
-    * before relying on the estimate — these numbers go stale whenever a
-    * provider repacks their tiers. [[PriceList.lastUpdated]] is the date the
-    * baked-in numbers were last verified, and is surfaced in the cost-summary
-    * legend so the user can tell at a glance whether the snapshot is fresh.
+    * Override by passing your own [[PriceList]] to `flow(pricing = …)`. These
+    * numbers go stale whenever a provider repacks its tiers, so re-check
+    * against the provider's pages before relying on the estimate.
     */
   val default: PriceList = PriceList(
     table = Map(
@@ -114,10 +107,9 @@ object Pricing:
       // Claude reports `total_cost_usd` from the CLI, so these are mostly
       // safety nets for sessions that didn't surface the field.
       Model("claude-fable-5") -> ModelPricing(10, 1.00, 50),
-      // The `[1m]` id is the claude CLI's 1M-context spelling of the same
-      // model (orca's default lead); Opus 4.8's 1M window carries no
-      // long-context premium, and the suffix isn't a date so the prefix
-      // fallback in `lookup` won't bridge it — hence its own row.
+      // `[1m]` is the CLI's 1M-context spelling of the same model at the same
+      // price; the suffix isn't a date, so `lookup` won't bridge it — hence its
+      // own row.
       Model("claude-opus-4-8") -> ModelPricing(5, 0.50, 25),
       Model("claude-opus-4-8[1m]") -> ModelPricing(5, 0.50, 25),
       Model("claude-opus-4-7") -> ModelPricing(5, 0.50, 25),

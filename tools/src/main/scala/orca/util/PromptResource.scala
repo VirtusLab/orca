@@ -8,24 +8,15 @@ private[util] case class ParsedPrompt(
     body: String
 )
 
-/** Loads prompt templates from classpath resources. The convention is one `.md`
-  * file per template, placed under `src/main/resources/<pkg>/prompts/<name>.md`
-  * — keeping the prose out of `.scala` files makes the text easier to edit (no
-  * `.stripMargin` margins, no double-escaped quotes) and treats prompts as the
-  * user-facing artifacts they are.
+/** Loads prompt templates from classpath resources, one `.md` file per template
+  * under `src/main/resources/<pkg>/prompts/<name>.md`.
   *
-  * Templates use `{{name}}` placeholders. Dynamic values supplied at call time
-  * go through [[render]]; static fragments shared between templates (e.g. a
-  * common rules block) should be substituted once at object initialization to
-  * keep per-call cost minimal.
+  * Templates use `{{name}}` placeholders. Dynamic values go through [[render]];
+  * static fragments shared between templates should be substituted once at
+  * object initialization. Templates needing richer metadata carry a YAML-ish
+  * frontmatter block between two `---` markers; use [[loadWithMetadata]].
   *
-  * Templates that need richer metadata (e.g. a reviewer agent with a
-  * machine-readable description for an LLM-driven selector) carry a YAML-ish
-  * frontmatter block between two `---` markers; use [[loadWithMetadata]] to
-  * parse it.
-  *
-  * Missing-resource failures surface as `RuntimeException` at object-init time
-  * — desirable fail-fast behaviour for what is effectively a packaging mistake.
+  * Missing resources fail fast as `RuntimeException` at object-init time.
   */
 private[orca] object PromptResource:
 
@@ -111,14 +102,13 @@ private[orca] object PromptResource:
       if c == '\\' && i + 1 < s.length then
         val next = s.charAt(i + 1)
         val toAppend = next match
-          case 'n'   => "\n"
-          case 't'   => "\t"
-          case 'r'   => "\r"
-          case '"'   => "\""
-          case '\\'  => "\\"
+          case 'n'  => "\n"
+          case 't'  => "\t"
+          case 'r'  => "\r"
+          case '"'  => "\""
+          case '\\' => "\\"
           case other =>
-            // Preserve unknown sequences verbatim — caller can deal with them.
-            "\\" + other
+            "\\" + other // preserve unknown sequences verbatim
         val _ = sb.append(toAppend)
         i += 2
       else

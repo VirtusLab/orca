@@ -2,14 +2,9 @@ package orca.runner.terminal
 
 import orca.util.TerminalControl
 
-/** Single source of truth for the "ANSI optional" decision in the renderer
-  * layer. Each renderer carries a `useColor` boolean it chose at construction
-  * time (or auto-detected); this helper strips inbound terminal controls (via
-  * the shared [[orca.util.TerminalControl]]) and applies the fansi attrs only
-  * when colour is on.
-  *
-  * Package-private — callers outside `orca.runner.terminal` have no reason to
-  * reach into our colour decision.
+/** Applies fansi attrs to renderer text: strips inbound terminal controls (via
+  * [[orca.util.TerminalControl]]), then paints only when the renderer's
+  * `useColor` is on.
   */
 private[terminal] object Ansi:
 

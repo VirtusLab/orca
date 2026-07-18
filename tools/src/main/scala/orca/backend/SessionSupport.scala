@@ -6,59 +6,50 @@ import org.slf4j.LoggerFactory
 
 import scala.util.control.NonFatal
 
-/** Whether a backend call against a given caller-supplied session id should
-  * start a fresh session or resume an existing one. Each backend has its own id
-  * scheme (see [[IdScheme]]), but the call site only cares about the two cases.
+/** Whether a backend call against a caller-supplied session id starts a fresh
+  * session or resumes an existing one.
   *
-  * `Resume` always carries the `wireId` the consumer puts on the wire —
-  * [[SessionSupport]] has already decided which one it is (claude's client
-  * UUID, codex's server thread id). `Fresh` carries an OPTIONAL claim:
-  * `Some(id)` only under [[IdScheme.ClientClaimed]], where the caller-allocated
-  * id IS the wire id and the CLI is told to create the session under it
-  * (claude's `--session-id`); `None` under [[IdScheme.ServerMinted]], where the
-  * server mints its own id at first use so there is nothing legitimate to put
-  * on the wire yet. Making the claim an `Option` (rather than always a real
-  * `WireSessionId`) stops a server-minting backend from naively forwarding a
-  * fabricated client id onto the wire. Consumers pattern-match on `Fresh` vs
-  * `Resume` and forward the id to the CLI.
+  * `Resume` carries the `wireId` to put on the wire (already resolved by
+  * [[SessionSupport]]). `Fresh`'s claim is `Some(id)` only under
+  * [[IdScheme.ClientClaimed]], where the caller-allocated id IS the wire id and
+  * the CLI creates the session under it; `None` under
+  * [[IdScheme.ServerMinted]], where the server mints its own id at first use.
+  * The `Option` stops a server-minting backend from forwarding a fabricated
+  * client id onto the wire.
   */
 enum Dispatch[B <: BackendTag]:
   case Fresh(claim: Option[WireSessionId[B]])
   case Resume(wireId: WireSessionId[B])
 
-/** How a backend's wire-level session ids come to be — the axis that decides
-  * what a `Fresh` dispatch may put on the wire and which id a commit records.
+/** How a backend's wire-level session ids come to be — decides what a `Fresh`
+  * dispatch may put on the wire and which id a commit records.
   */
 enum IdScheme:
-  /** The caller-allocated client id IS the wire id: the CLI is told to create
-    * the session under it and resumes against it (claude's `--session-id
-    * <uuid>` → `--resume <uuid>`; pi's `--session <id>`).
+  /** The caller-allocated client id IS the wire id: the CLI creates the session
+    * under it and resumes against it (claude's `--session-id <uuid>` →
+    * `--resume <uuid>`; pi's `--session <id>`).
     */
   case ClientClaimed
 
-  /** The server mints the wire id at first use; it is learned from the protocol
+  /** The server mints the wire id at first use, learned from the protocol
     * response and mapped to the stable client id (codex/gemini thread ids,
     * opencode's `ses_…`). A fresh session puts nothing on the wire.
     */
   case ServerMinted
 
-/** A backend's whole session capability as ONE value: [[IdScheme]] says how
+/** A backend's whole session capability as one value: [[IdScheme]] says how
   * wire ids come to be, and the presence of a `probe` says whether sessions
-  * survive a process restart. Construct via [[SessionSupport.durable]]
-  * (sessions outlive the process: claude's on-disk transcripts,
-  * codex/gemini/opencode's server-side threads) or [[SessionSupport.ephemeral]]
-  * (nothing survives the process: pi's `deleteOnExit` session dirs).
+  * survive a process restart. Construct via [[SessionSupport.durable]] or
+  * [[SessionSupport.ephemeral]].
   *
-  * Bundling the client→wire bookkeeping, the id scheme, and the durability
-  * probe into a single value keeps the capability whole-or-nothing: there is no
-  * way to wire the resume read without the commit hook, or the probe without
-  * either — the half-wiring that ships resume bugs. The bookkeeping is
-  * internal; every consumer goes through the methods below.
+  * Bundling the client→wire bookkeeping, id scheme, and durability probe into
+  * one value keeps the capability whole-or-nothing: no way to wire the resume
+  * read without the commit hook, the half-wiring that ships resume bugs.
   *
   * The `dispatchFor` → spawn → `register`/`commitAfterDrain` sequence is NOT
-  * atomic, so callers must not share a session id across concurrent calls —
-  * each reviewer mints its own conversation via `agent.chat()`. The internal
-  * map is concurrent because flows fan reviewers out via `mapParUnordered`.
+  * atomic, so callers must not share a session id across concurrent calls. The
+  * internal map is concurrent because flows fan reviewers out via
+  * `mapParUnordered`.
   */
 final class SessionSupport[B <: BackendTag] private (
     scheme: IdScheme,
@@ -67,9 +58,7 @@ final class SessionSupport[B <: BackendTag] private (
 
   /** client id → wire id, learned at commit. Under [[IdScheme.ClientClaimed]]
     * the stored wire id is the client id itself. Backends commit at whatever
-    * protocol point makes the id durable (autonomous turns commit after a clean
-    * drain via `Conversations.drainAndCommit`; claude's interactive path
-    * commits at spawn; other interactive paths commit after the drive settles).
+    * protocol point makes the id durable.
     */
   private val wireIds =
     new java.util.concurrent.ConcurrentHashMap[String, String]()
@@ -86,24 +75,18 @@ final class SessionSupport[B <: BackendTag] private (
           case IdScheme.ClientClaimed => Dispatch.Fresh(Some(client.onWire))
           case IdScheme.ServerMinted  => Dispatch.Fresh(None)
 
-  /** Record the client→wire mapping, so a follow-up call on the same client id
-    * resumes the right thread. On resume the flow runtime also calls this to
-    * rehydrate the map from the persisted log.
+  /** Record the client→wire mapping so a follow-up call on the same client id
+    * resumes the right thread; also called on resume to rehydrate the map from
+    * the persisted log.
     *
-    * The LOG-AND-SKIP wire-id guard, for the interactive path
-    * (`AgentCall.runInteractiveOnce`) and rehydration
-    * (`Agent.registerResumeWireId`). An unsafe wire id (empty, or failing
-    * [[orca.agents.SessionId.isSafe]]) would make the NEXT call dispatch
-    * `resume ""`/`resume ../etc`; a poisoned log would rehydrate it. So if the
-    * id is unsafe we LOG at ERROR and record NOTHING — we do NOT throw. On the
-    * interactive path the user's completed session output must survive a
-    * bookkeeping failure, and rehydration must not hard-abort setup over one
-    * stale field; the safe fallback is that the next call re-seeds a fresh
-    * session.
-    *
-    * The autonomous drain uses the sibling [[commitAfterDrain]] instead (a
-    * THROWING guard). Both doors live here and the bookkeeping is encapsulated,
-    * so EVERY resume-mapping write funnels through one of the two.
+    * Log-and-skip wire-id guard for the interactive path and rehydration: an
+    * unsafe wire id (empty, or failing [[orca.agents.SessionId.isSafe]]) would
+    * make the next call dispatch `resume ""`/`resume ../etc`, so an unsafe id
+    * is logged at ERROR and NOTHING is recorded — no throw. The user's
+    * completed session output must survive a bookkeeping failure, and
+    * rehydration must not hard-abort setup over one stale field; the next call
+    * then re-seeds a fresh session. The autonomous drain uses the throwing
+    * [[commitAfterDrain]].
     */
   def register(client: SessionId[B], server: WireSessionId[B]): Unit =
     if !SessionId.isSafe(WireSessionId.value(server)) then
@@ -113,14 +96,11 @@ final class SessionSupport[B <: BackendTag] private (
       )
     else commit(client, server)
 
-  /** The THROWING wire-id guard for the autonomous drain (see
-    * [[Conversations.drainAndCommit]]): commit the client→wire mapping only
-    * after a clean drain, refusing an unsafe id by throwing. Unlike
-    * [[register]]'s log-and-skip, this runs pre-commit, autonomous, and
-    * retryable — throwing BEFORE the commit leaves the bookkeeping untouched,
-    * so a retry (which may see a healthy init event) needn't unwind a bad
-    * commit, and re-seeding a finished-but-unrecorded turn is the wrong
-    * trade-off here where nothing has been consumed yet.
+  /** Throwing wire-id guard for the autonomous drain: commit the client→wire
+    * mapping only after a clean drain, refusing an unsafe id by throwing.
+    * Throwing before the commit leaves the bookkeeping untouched, so a retry
+    * needn't unwind a bad commit — and nothing has been consumed yet, so
+    * re-seeding is not warranted.
     */
   def commitAfterDrain(client: SessionId[B], server: WireSessionId[B]): Unit =
     val wire = WireSessionId.value(server)
@@ -142,38 +122,33 @@ final class SessionSupport[B <: BackendTag] private (
       case IdScheme.ServerMinted  => WireSessionId.value(server)
     val _ = wireIds.putIfAbsent(SessionId.value(client), wire)
 
-  /** Pure, thread-safe read of the wire id recorded for `client`, or `None`
-    * when no mapping is known. Every id in the map already passed
-    * [[orca.agents.SessionId.isSafe]] at [[register]] or [[commitAfterDrain]] —
-    * the only two write doors — so no re-check is needed downstream.
+  /** The wire id recorded for `client`, or `None` when no mapping is known.
+    * Every id in the map already passed [[orca.agents.SessionId.isSafe]] at its
+    * write door ([[register]] or [[commitAfterDrain]]), so no re-check is
+    * needed.
     */
   private def resumeWire(client: SessionId[B]): Option[WireSessionId[B]] =
     Option(wireIds.get(SessionId.value(client))).map(WireSessionId[B](_))
 
-  /** The wire id to resume `client` against for the flow runtime to persist
-    * into the progress log, or `None` when nothing durable is known — always
-    * `None` for an ephemeral backend, since its sessions leave nothing to
-    * resume across a restart. Pure, thread-safe, side-effect-free.
+  /** The wire id to persist into the progress log for resuming `client`, or
+    * `None` when nothing durable is known — always `None` for an ephemeral
+    * backend, whose sessions leave nothing to resume across a restart.
     */
   def persistableWireId(client: SessionId[B]): Option[WireSessionId[B]] =
     if probe.isDefined then resumeWire(client) else None
 
-  /** Will the NEXT call on `client` continue an already-live conversation
-    * (rather than start a fresh one that must be re-seeded)? This is the
-    * question the durable-session runtime asks before deciding whether to
-    * re-inject the seed + progress preamble.
+  /** Will the next call on `client` continue an already-live conversation
+    * (rather than start a fresh one that must be re-seeded)? The
+    * durable-session runtime asks this before deciding whether to re-inject the
+    * seed + progress preamble; re-seeding on `false` is always safe.
     *
     * For a durable backend this resolves the recorded wire id (no mapping ⇒
-    * `false`) and runs the `probe` on it — best-effort and non-destructive: the
-    * probe must NOT create, mutate, or resume the session, ANY non-fatal probe
-    * failure reads as "won't continue", and the caller re-seeds on `false`,
-    * which is always safe.
+    * `false`) and runs the `probe` on it: the probe must NOT create, mutate, or
+    * resume the session, and any non-fatal failure reads as "won't continue".
     *
-    * An ephemeral backend (pi) differs crucially: it keeps no durable
-    * transcript to probe — yet within a live process its bookkeeping DOES track
-    * the in-process claim, and the CLI is genuinely told to continue. So the
-    * answer is simply whether a mapping is recorded: `false` on the first call,
-    * `true` once the session has been committed this run.
+    * An ephemeral backend keeps no durable transcript to probe, but its
+    * bookkeeping tracks the in-process claim, so the answer is simply whether a
+    * mapping is recorded.
     */
   def willContinue(client: SessionId[B]): Boolean =
     probe match
@@ -189,9 +164,8 @@ object SessionSupport:
   private val log = LoggerFactory.getLogger(classOf[SessionSupport[?]])
 
   /** Sessions outlive the process (claude's on-disk transcripts,
-    * codex/gemini/opencode's server-side threads). `probe` is the backend's
-    * best-effort, non-destructive existence check, run against the resolved
-    * wire id (see [[SessionSupport.willContinue]]).
+    * codex/gemini/opencode's server-side threads). `probe` is a best-effort,
+    * non-destructive existence check (see [[SessionSupport.willContinue]]).
     */
   def durable[B <: BackendTag](
       scheme: IdScheme,
@@ -200,9 +174,8 @@ object SessionSupport:
     new SessionSupport(scheme, Some(probe))
 
   /** Sessions live only for the process lifetime (pi's `deleteOnExit` session
-    * dirs). Fresh-vs-resume is still tracked within the run, but nothing is
-    * durably resumable, so [[SessionSupport.persistableWireId]] always reports
-    * absence.
+    * dirs). Fresh-vs-resume is tracked within the run, but nothing is durably
+    * resumable, so [[SessionSupport.persistableWireId]] always reports absence.
     */
   def ephemeral[B <: BackendTag](scheme: IdScheme): SessionSupport[B] =
     new SessionSupport(scheme, None)

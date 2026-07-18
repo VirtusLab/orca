@@ -1,7 +1,7 @@
 package orca
 
-/** Consumer-taint canary — pins the research's no-taint verdict against future
-  * compiler upgrades.
+/** Consumer-taint canary — pins the no-taint property against future compiler
+  * upgrades.
   *
   * [[InStage]] extends `caps.SharedCapability` (non-experimental), while
   * [[WorkspaceWrite]] and [[FlowControl]] extend `caps.ExclusiveCapability` —
@@ -10,12 +10,10 @@ package orca
   * `@experimental`, yet it freely mints, summons, and passes all three tokens.
   *
   * If a future compiler propagated `@experimental` from the capture-checking
-  * parents into these definitions, merely referencing them from this plain,
-  * non-CC compilation unit would fail with "... is marked @experimental",
-  * turning this green test RED. That is exactly the taint the research showed
-  * cannot happen on stable 3.8.4 (the `sbt compile` of every non-CC module that
-  * already references `FlowControl`/`InStage` is the implicit canary; this is
-  * the explicit, named insurance).
+  * parents into these definitions, referencing them from this plain, non-CC
+  * compilation unit would fail with "... is marked @experimental", turning this
+  * test RED. That taint cannot happen on stable 3.8.4; this is the explicit,
+  * named insurance for it.
   */
 class NoTaintCanaryTest extends munit.FunSuite:
 

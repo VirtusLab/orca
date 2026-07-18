@@ -56,22 +56,18 @@ private[orca] class CodexBackend(
     override val workDir: os.Path = os.pwd
 ) extends AgentBackend[BackendTag.Codex.type]:
 
-  /** Codex's threads are server-side and durable: the client→server mapping is
-    * persisted to the progress log and rehydrated on resume, and existence
-    * probes the SERVER id resolved for a client (the caller's stable id never
-    * appears in a rollout filename). The probe walks [[sessionsDir]] for a file
-    * whose name matches `rollout-*-<server-id>.jsonl`.
+  /** Codex's threads are server-side and durable: the probe walks
+    * [[sessionsDir]] for a file matching `rollout-*-<server-id>.jsonl` (the
+    * caller's stable id never appears in a rollout filename).
     *
-    * Because [[SessionSupport.willContinue]] resolves the recorded mapping
-    * first, `false` results when no server id is mapped — which includes a
-    * server id that failed the [[orca.agents.SessionId.isSafe]] guard at commit
-    * time (blocks regex injection; e.g. a server id of `.*` would otherwise
-    * match every rollout file): `register`/`commitAfterDrain` refuse to record
-    * it — as well as map-not-rehydrated-yet, or the sessions dir not existing.
+    * `false` results whenever no server id is mapped — including one that
+    * failed the [[orca.agents.SessionId.isSafe]] guard (blocks regex injection;
+    * e.g. `.*` would match every rollout file), the map not yet rehydrated, or
+    * the sessions dir missing.
     *
-    * Note: the installed codex on some machines uses SQLite
-    * (`~/.codex/state_5.sqlite`) rather than `rollout-*.jsonl` files. If no
-    * matching files exist, the probe returns `false` → re-seed, always safe.
+    * Some machines' codex uses SQLite (`~/.codex/state_5.sqlite`) instead of
+    * `rollout-*.jsonl`; with no matching files the probe returns `false` →
+    * re-seed, always safe.
     */
   val tag: BackendTag.Codex.type = BackendTag.Codex
 
@@ -90,9 +86,7 @@ private[orca] class CodexBackend(
   /** The sole session handle. [[IdScheme.ServerMinted]]: the client-allocated
     * id (the UUID the caller passes around) maps to codex's server-allocated
     * thread id (learned from `thread.started`), so subsequent calls dispatch
-    * through `codex exec resume <server-id>`. The bookkeeping is encapsulated;
-    * the spawn/commit paths go through `sessions.dispatchFor` /
-    * `Conversations.runAutonomous(session, sessions, …)`.
+    * through `codex exec resume <server-id>`.
     */
   val sessions: SessionSupport[BackendTag.Codex.type] =
     SessionSupport.durable(
@@ -112,9 +106,9 @@ private[orca] class CodexBackend(
       events: OrcaListener,
       outputSchema: Option[String]
   ): AgentResult[BackendTag.Codex.type] =
-    // drainAndCommit records the client→server mapping so a follow-up call on
-    // this client id resumes the right thread; the result carries the server
-    // thread id as its wireId, and the caller keeps using the client id.
+    // Records the client→server mapping so a follow-up call on this client id
+    // resumes the right thread; the result carries the server thread id as its
+    // wireId, and the caller keeps using the client id.
     Conversations.runAutonomous(session, sessions, events):
       openConversation(
         prompt = prompt,
@@ -123,11 +117,9 @@ private[orca] class CodexBackend(
         config = config,
         // Forwarded so (a) `conv.outputSchema` signals structured mode to the
         // drain (suppressing the raw JSON payload from the user log) and (b)
-        // `--output-schema` enforces the contract on the codex side too.
-        // `exec resume` rejects `--output-schema`, so retries against an
-        // existing session fall back to prompt-only enforcement; the
-        // retry-with-corrective-prompt loop in `DefaultAgentCall` handles a
-        // resume that produces malformed JSON.
+        // `--output-schema` enforces the contract on the codex side too. A
+        // resume can't pass `--output-schema`, so it falls back to prompt-only
+        // enforcement.
         outputSchema = outputSchema
       )
 
@@ -147,24 +139,17 @@ private[orca] class CodexBackend(
     )
 
   /** Spawn `codex exec --json` (fresh) or `codex exec resume <server-id>`
-    * (continuation), and wrap the process in a live [[CodexConversation]].
-    * Stdin is closed immediately — codex consumes the prompt argv-side.
-    *
-    * The fresh-vs-resume decision is driven by `sessions.dispatchFor`: if we've
-    * seen this client id before we resume against its mapped server thread,
-    * otherwise we start fresh and the post-drain commit (via `commitAfterDrain`
-    * on the autonomous path, `sessions.register` on the interactive path)
-    * records the mapping.
+    * (continuation), and wrap the process in a live [[CodexConversation]]. The
+    * fresh-vs-resume decision comes from `sessions.dispatchFor`; on a fresh
+    * spawn the post-drain commit records the client→server mapping.
     *
     * `Interactive` mode wires the MCP `ask_user` tool: stand up the bridge +
-    * Netty server, hand the URL to `CodexArgs` for the `-c mcp_servers.orca`
+    * Netty server, hand its URL to `CodexArgs` for the `-c mcp_servers.orca`
     * override, fold the system-prompt hint into the user prompt (codex has no
-    * `--append-system-prompt`), and hand the bridge + server to
-    * `CodexConversation` so it can surface `UserQuestion` events and close the
-    * binding on finalize. `Autonomous` skips all of it.
-    *
-    * If anything between resource allocation and conversation construction
-    * throws we tear down the server so no Netty binding leaks.
+    * `--append-system-prompt`), and hand the bridge to `CodexConversation` to
+    * surface `UserQuestion` events and close the binding on finalize.
+    * `Autonomous` skips all of it. Any throw before conversation construction
+    * tears down the server so no Netty binding leaks.
     */
   private def openConversation(
       prompt: String,
@@ -173,14 +158,10 @@ private[orca] class CodexBackend(
       config: AgentConfig,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.Codex.type] =
-    // Write the schema temp file FIRST — before ANY resource is allocated — so
-    // a temp-write failure (e.g. disk full) can't leak the Netty bridge that
-    // `AskUserSession.allocate()` would spin up: with nothing allocated yet,
-    // there's nothing to tear down. It's threaded into `resources` (failure-path
-    // cleanup) and the conversation below (success-path cleanup via
-    // `onFinalize`). A unique temp file outside the tree — never `workDir` — so
-    // concurrent structured calls (the reviewer fan-out) each get their own file
-    // and `git add -A` never sees it.
+    // Write the schema temp file FIRST — before any resource is allocated — so
+    // a temp-write failure can't leak the Netty bridge `AskUserSession.allocate()`
+    // would spin up. Threaded into `resources` (failure-path cleanup) and the
+    // conversation below (success-path cleanup via `onFinalize`).
     val schemaFile = writeSchemaIfPresent(outputSchema)
     val displayPrompt = mode.displayPrompt
     val askUser: Option[AskUserSession] =
@@ -218,9 +199,8 @@ private[orca] class CodexBackend(
           )
       cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
     } { process =>
-      // codex doesn't accept user turns over stdin once the initial prompt has
-      // been argv-supplied; close immediately so the child stops waiting on
-      // stdin EOF. Same reflex as claude's single-shot stream-json path.
+      // codex doesn't accept user turns over stdin once the prompt is
+      // argv-supplied; close immediately so the child stops waiting on EOF.
       process.closeStdin()
       new CodexConversation(
         process,
@@ -234,11 +214,10 @@ private[orca] class CodexBackend(
 
   /** Write the `--output-schema` payload (if any) to a unique temp file OUTSIDE
     * the working tree — never `workDir` — so it can't race a concurrent
-    * structured call for the same directory (the reviewer fan-out) and never
-    * gets swept into a flow's `git add -A`. `deleteOnExit = false`: cleanup is
-    * explicit, via [[SubprocessSpawn.deleteFileResource]] wired into the
-    * conversation's finalize (success path) and `SubprocessSpawn.open`'s
-    * `resources` (failure path) — not left to JVM-exit best-effort.
+    * structured call (the reviewer fan-out) or get swept into a flow's `git add
+    * -A`. `deleteOnExit = false`: cleanup is explicit, via
+    * [[SubprocessSpawn.deleteFileResource]] wired into both success and failure
+    * paths, not left to JVM-exit best-effort.
     */
   private def writeSchemaIfPresent(schema: Option[String]): Option[os.Path] =
     schema.map: body =>

@@ -82,9 +82,8 @@ class FixLoopTest extends munit.FunSuite:
       result.issues,
       List(IgnoredIssue(Title("b"), "out of scope"))
     )
-    // Iterations are progress markers (`display`) now, not committing stages —
-    // they run under the caller's task stage (ADR 0018 §2.2), so they surface
-    // as Step events rather than StageStarted.
+    // Iterations run under the caller's task stage (ADR 0018 §2.2), so they
+    // surface as Step events rather than StageStarted.
     assertEquals(
       rec.steps.filter(_.startsWith("Iteration ")),
       List("Iteration 1", "Iteration 2", "Iteration 3")

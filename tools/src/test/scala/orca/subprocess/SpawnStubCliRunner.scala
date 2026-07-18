@@ -3,12 +3,8 @@ package orca.subprocess
 import java.util.concurrent.atomic.AtomicReference
 
 /** CliRunner that hands out a pre-scripted [[FakePipedCliProcess]] on each
-  * `spawnPiped` call. Records the args. Single-call: each prepared process is
-  * consumed by exactly one spawn; running out throws so a test failure doesn't
-  * drift into an unrelated stack.
-  *
-  * `run` is unsupported — drivers that need both shapes shouldn't share a
-  * runner instance.
+  * `spawnPiped` call and records the args. Each prepared process is consumed by
+  * exactly one spawn; running out throws. `run` is unsupported.
   */
 class SpawnStubCliRunner(prepared: List[FakePipedCliProcess]) extends CliRunner:
   private val queue = new AtomicReference[List[FakePipedCliProcess]](prepared)

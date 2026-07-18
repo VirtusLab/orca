@@ -8,12 +8,12 @@ import java.util.concurrent.atomic.{
 }
 
 /** Test double for `PipedCliProcess`. Tests push stdout lines via
-  * `enqueueStdout` (optionally in response to observed writes) and read what
-  * the subject wrote to stdin via `writes`. Both queues are thread-safe so a
-  * test can drive the subject from one thread while asserting on another.
+  * `enqueueStdout` and read what the subject wrote to stdin via `writes`. Both
+  * queues are thread-safe, so a test can drive the subject from one thread
+  * while asserting on another.
   *
-  * `stdoutLines` blocks on read, same as the real piped process; tests that
-  * might deadlock a driver should call `closeStdout()` to signal EOF.
+  * `stdoutLines` blocks on read like the real piped process; call
+  * `closeStdout()` to signal EOF.
   */
 class FakePipedCliProcess(
     initiallyAlive: Boolean = true
@@ -37,9 +37,8 @@ class FakePipedCliProcess(
 
   /** Forcible kill: close both streams so a reader blocked on `stdoutLines` /
     * `stderrLines` unblocks, mirroring the real process's pipes closing. Unlike
-    * `sendSigInt`, this does not bump `sigIntCount` — it is the backstop, not a
-    * SIGINT. Idempotent (closing an already-closed queue just offers another
-    * EOF sentinel, which the single-consumer iterator ignores).
+    * `sendSigInt`, does not bump `sigIntCount`. Idempotent — a repeated EOF
+    * sentinel is ignored by the single-consumer iterator.
     */
   def destroyForcibly(): Unit =
     alive.set(false)
@@ -90,8 +89,7 @@ class FakePipedCliProcess(
 
       def hasNext: Boolean =
         if next0.get() == null then
-          // `take()` blocks until something lands; Some means a line,
-          // None means EOF.
+          // `take()` blocks until something lands; None means EOF.
           next0.set(q.take())
         next0.get().isDefined
 

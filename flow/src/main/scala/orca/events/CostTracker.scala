@@ -5,22 +5,18 @@ import orca.agents.Model
 import java.util.concurrent.atomic.AtomicReference
 
 /** Listener that accumulates `TokensUsed` events along two independent axes —
-  * by `agent` (e.g. `claude`, `abstraction`, `performance`) and by `model`
-  * (e.g. `claude-opus-4-7`, `claude-haiku-4-5`). State is held in an
-  * `AtomicReference` so the tracker is safe to register across concurrent LLM
-  * calls.
+  * by `agent` and by `model`. State is held in an `AtomicReference` so the
+  * tracker is safe to register across concurrent LLM calls.
   *
-  * Cost: each event either carries a reported figure (Claude CLI returns
-  * `total_cost_usd`) or has its cost estimated from the supplied [[PriceList]].
-  * Estimated costs are flagged so the user can see when the number depends on a
-  * maintained price table rather than the backend's own figure; the legend
-  * shows the table's `lastUpdated` date so a stale snapshot is obvious. Pass a
-  * custom `pricing` to override the default rates.
+  * Cost per event is either a reported figure (Claude CLI returns
+  * `total_cost_usd`) or estimated from the supplied [[PriceList]]. Estimated
+  * costs are flagged, and the legend shows the table's `lastUpdated` date so a
+  * stale snapshot is obvious; pass a custom `pricing` to override the rates.
   *
-  * Both axes share the same set of underlying calls, so summing either map
-  * yields the grand total. The `model` axis stores `Option[Model]` because the
-  * response's reported model isn't always present; the by-model summary
-  * surfaces the missing case as `(unknown)`.
+  * Both axes share the same underlying calls, so summing either map yields the
+  * grand total. The `model` axis keys on `Option[Model]` because the reported
+  * model isn't always present; the summary surfaces the missing case as
+  * `(unknown)`.
   */
 class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
 
@@ -29,11 +25,9 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
       byModel: Map[Option[Model], Usage] = Map.empty,
       byAgentCost: Map[String, Cost] = Map.empty,
       byModelCost: Map[Option[Model], Cost] = Map.empty,
-      /** The role last recorded for a given agent — `TokensUsed.role` is
-        * constant per agent in practice (an agent's role is set once, at the
-        * emission edge, before any of its calls), so "last write" and "first
-        * write" agree; this is purely a display/subtotal lookup, not itself a
-        * source of truth for anything. See [[byRole]] for the subtotal axis.
+      /** The role last recorded for a given agent, for display/subtotal lookup.
+        * `TokensUsed.role` is constant per agent in practice, so last-write and
+        * first-write agree. See [[byRole]] for the subtotal axis.
         */
       agentRoles: Map[String, Option[String]] = Map.empty,
       byRole: Map[Option[String], Usage] = Map.empty,
@@ -122,14 +116,11 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
 
   /** Two or three sections — by-agent, by-model, and (only when at least one
     * call carried a [[orca.agents.Agent.role]] tag) by-role — each sorted
-    * alphabetically by its RENDERED label, so the ordering the reader sees is
-    * the ordering applied. Each by-agent line is prefixed with that agent's
-    * role when it has one (e.g. `reviewer: performance`), purely a display
-    * derivation from [[State.agentRoles]] — `agent` itself is never mutated to
-    * carry it. Cache hits and reasoning tokens are shown parenthetically when
-    * non-zero, and cost (when known) is appended as `$X.XXXX`. An asterisk
-    * after the dollar amount marks an estimated figure; a trailing legend line
-    * explains it when at least one estimate is present.
+    * alphabetically by its rendered label. Each by-agent line is prefixed with
+    * that agent's role when it has one (e.g. `reviewer: performance`). Cache
+    * hits and reasoning tokens are shown parenthetically when non-zero, and
+    * cost (when known) is appended as `$X.XXXX`; an asterisk marks an estimated
+    * figure, with a trailing legend line when any estimate is present.
     *
     * Empty string when no `TokensUsed` events have been observed.
     */

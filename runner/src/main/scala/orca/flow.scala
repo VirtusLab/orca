@@ -68,12 +68,12 @@ import scala.util.control.NonFatal
   * ```
   *
   * Agent overrides are `AgentWiring => Ox ?=> Agent` factories, not prebuilt
-  * agents — see [[orca.runner.FlowWiring]] for why and for the shared `Ox ?=>`
-  * shape. Start from a per-backend factory and tune it, `claude = Some(w =>
+  * agents — see [[orca.runner.FlowWiring]] for the shared shape. Start from a
+  * per-backend factory and tune it, `claude = Some(w =>
   * ClaudeAgents.default(w).opus)`, or wrap a prebuilt agent `claude = Some(_ =>
-  * myAgent)`. There's no separate `opencodeLauncher` parameter — select a
-  * non-default launcher through the factory itself: `opencode = Some(w =>
-  * OpencodeAgents.default(w, OpencodeLauncher.ollama("qwen3-coder")))`.
+  * myAgent)`. Select a non-default opencode launcher through the factory
+  * itself: `opencode = Some(w => OpencodeAgents.default(w,
+  * OpencodeLauncher.ollama("qwen3-coder")))`.
   *
   * '''Role agents (ADR 0020).''' A run has three role agents —
   * [[orca.planningAgent]], [[orca.codingAgent]], [[orca.reviewAgent]] —
@@ -82,40 +82,28 @@ import scala.util.control.NonFatal
   * `{workDir}/.orca/settings.properties` > the user-global file
   * `$XDG_CONFIG_HOME/orca/settings.properties` > the built-in default (claude,
   * default model). Each file carries `planningAgent`/`codingAgent`/
-  * `reviewAgent = harness[:model]` lines (`codingAgent = codex`, `planningAgent
-  * \= claude:opus`, …); a malformed value in either file — or an unreadable one
-  * — aborts the run before any tree mutation. Both files are read once, before
-  * setup; setup then emits one `Step` naming each resolved role and its source
-  * (default/project/global/override), the debugging handle for "why did codex
-  * run here?".
+  * `reviewAgent = harness[:model]` lines; a malformed or unreadable value in
+  * either file aborts the run before any tree mutation. Setup emits one `Step`
+  * naming each resolved role and its source, the handle for "why did codex run
+  * here?".
   *
-  * The three `planningAgent`/`codingAgent`/`reviewAgent` overrides are the
-  * programmatic top of that precedence — selector-shaped
-  * (`Some(_.claude.opus)`) so a `copyTool`-derived sibling of a wired agent
-  * stays expressible, and the seam the tests use in place of a real user-global
-  * file. Each must resolve to one of the five wired agents (`_.claude`, …) or a
-  * sibling of one — anything sharing their backend is safe. An override that
-  * instead returns an agent built from a SEPARATE `AgentWiring`/backend (e.g.
-  * `_ => myPrebuiltAgent`) compiles but is event-blind — it never reaches this
-  * run's dispatcher, so its cost/steps never reach the terminal or cost tracker
-  * — and gets a loud resolution-time warning; the runtime still closes its
-  * backend at flow end to avoid a resource leak, but nothing can retrofit it
-  * onto this run's event stream after the fact.
+  * The three overrides are the programmatic top of that precedence — selector-
+  * shaped (`Some(_.claude.opus)`) so a `copyTool`-derived sibling stays
+  * expressible, and the seam tests use in place of a global file. Each must
+  * resolve to one of the wired agents or a sibling — anything sharing their
+  * backend. An override returning an agent built from a SEPARATE
+  * `AgentWiring`/backend (e.g. `_ => myPrebuiltAgent`) compiles but is
+  * event-blind: it never reaches this run's dispatcher, so its cost/steps never
+  * surface, and it gets a loud resolution-time warning. Its backend is still
+  * closed at flow end to avoid a leak.
   *
-  * The runtime resolves the three roles BEFORE the `FlowContext` is constructed
-  * (the context receives them as constructor vals); `FlowContext` extends
-  * `AgentSet`, so the same accessors keep working inside the body. Each role's
-  * backend tag is captured into `FlowContext.PlanB`/`CodeB`/`ReviewB` so the
-  * role accessors are concretely typed and sessions thread.
-  *
-  * `stackSettings` still wins outright for the stack commands (ADR 0019): when
-  * passed, the project file's stack keys are ignored and discovery is skipped —
-  * but the file's agent keys are STILL honoured (a malformed file still
-  * aborts).
+  * `stackSettings` wins outright for the stack commands (ADR 0019): when
+  * passed, the project file's stack keys are ignored and discovery is skipped,
+  * but its agent keys are still honoured (a malformed file still aborts).
   *
   * Overrides default to `None` so the runtime can build the default lazily —
-  * `TerminalInteraction`, in particular, takes the resolved `workDir` which
-  * can't be threaded through a Scala 3 default-arg expression.
+  * `TerminalInteraction` in particular takes the resolved `workDir`, which
+  * can't be threaded through a default-arg expression.
   */
 def flow(
     args: OrcaArgs,
@@ -123,22 +111,14 @@ def flow(
     interaction: Option[Interaction] = None,
     extraListeners: List[OrcaListener] = Nil,
     branchNaming: Option[BranchNamingStrategy] = None,
-    // Explicit stack settings win outright for the stack commands (ADR 0019):
-    // when passed, the project file's stack keys are neither read nor written —
-    // the escape hatch for language-specific flows that own their tooling. The
-    // file's agent keys are still honoured.
     stackSettings: Option[StackSettings] = None,
-    // Per-role programmatic overrides — win over both settings files. Selector-
-    // shaped so a derived sibling of a wired agent stays expressible
-    // (`Some(_.claude.opus)`); also the seam tests use in place of the global
-    // file.
     planningAgent: Option[AgentSet => Agent[?]] = None,
     codingAgent: Option[AgentSet => Agent[?]] = None,
     reviewAgent: Option[AgentSet => Agent[?]] = None,
     returnToStartBranch: Boolean = false,
     progressStore: Option[ProgressStore] = None,
-    // Every field shares the `AgentWiring => Ox ?=> Agent` shape — see
-    // FlowWiring's scaladoc for why.
+    // Agent factories share the `AgentWiring => Ox ?=> Agent` shape — see
+    // FlowWiring's scaladoc.
     claude: Option[AgentWiring => Ox ?=> ClaudeAgent] = None,
     codex: Option[AgentWiring => Ox ?=> CodexAgent] = None,
     opencode: Option[AgentWiring => Ox ?=> OpencodeAgent] = None,
@@ -150,26 +130,20 @@ def flow(
     prompts: Prompts = DefaultPrompts,
     pricing: PriceList = Pricing.default
 )(body: FlowControl ?=> Unit): Unit =
-  // Per-run trace file: captures every stage, prompt, tool/subprocess call and
-  // result at DEBUG. Started before anything logs so the whole run is caught;
-  // the path is printed by the banner and the detail stays in the file.
+  // Per-run trace file capturing every stage, prompt and tool/subprocess call
+  // at DEBUG. Started before anything logs so the whole run is caught.
   val orcaLog = OrcaLog.start()
   OrcaBanner.print(System.err, orcaLog.file)
   val flowLog = LoggerFactory.getLogger("orca.flow")
   flowLog.info("orca {} starting (workDir={})", OrcaBanner.version, workDir)
   flowLog.info("user prompt: {}", args.userPrompt)
-  // A daemon thread or unsupervised fork that throws would otherwise
-  // disappear with no diagnostic. Log the message to the console and the
-  // stack to the trace file so a silent exit always leaves a trail.
+  // A daemon thread or unsupervised fork that throws would otherwise disappear
+  // with no diagnostic; this leaves a trail on the console and in the trace.
   installUncaughtExceptionHandler()
-  // Always tally token usage; print the summary on exit (success or failure)
-  // so the user sees what was spent before the process terminates. Callers
-  // can still pass their own CostTracker via `extraListeners` for other uses
-  // — it'll observe the same events independently.
+  // Tally token usage and print the summary on exit (success or failure).
   val costTracker = new CostTracker(pricing)
   // `try/finally` so the cost summary always lands — even when a fatal
   // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
-  // Tokens may have already been spent; the user deserves to see what.
   var failed = false
   try
     try
@@ -198,55 +172,40 @@ def flow(
         )
       )(body)
     catch
-      // Every phase that can fail — lead resolution and setup (bracketed in
-      // `runFlow`), rehydration and the body (bracketed in
-      // `FlowLifecycle.run`) — is wrapped so a failure is reported to the
-      // user's event surface BEFORE it escapes, then rethrown as
-      // `SurfacedFlowFailure`. Seeing that marker means the message already
-      // reached the user — only the exit code remains to decide (after the
-      // finally below prints the summary and detaches the trace).
+      // A `SurfacedFlowFailure` marks a failure already reported to the user's
+      // event surface by the phase that raised it; only the exit code remains.
       case _: SurfacedFlowFailure => failed = true
-      // Backstop: any other NonFatal escaped a code path that was never
-      // bracketed — a pre-dispatcher failure (agent factory,
-      // TerminalInteraction start) has no event surface to report to, and a
-      // future unsurfaced path would otherwise exit 1 in silence. Print it
-      // loudly to stderr so no failure is ever swallowed.
+      // Backstop for any other NonFatal — a pre-dispatcher failure (agent
+      // factory, TerminalInteraction start) has no event surface, so print it
+      // to stderr rather than exit 1 in silence.
       case NonFatal(e) =>
         failed = true
         System.err.println(s"[orca] ${TextUtil.throwableMessage(e)}")
   finally
     costTracker.printSummary()
     orcaLog.finish()
-  // Residual: for a NESTED `flow()` call (the outer flow's body invoking
-  // `flow()` again), this `System.exit` tears down the JVM before the OUTER
-  // flow's own `finally` (branch restore, workdir-lock release) ever runs —
-  // the outer branch is left checked out and `.orca/flow.lock` stays behind
-  // (self-heals: the next run steals the dead-PID lock with a warning).
-  // Known, not fixed — an accepted residual of the exit-based CLI contract.
+  // Known residual: in a NESTED `flow()` call this `System.exit` tears down the
+  // JVM before the OUTER flow's `finally` (branch restore, lock release) runs,
+  // leaving the outer branch checked out and `.orca/flow.lock` behind (the next
+  // run self-heals by stealing the dead-PID lock). Accepted cost of the
+  // exit-based CLI contract.
   if failed then System.exit(1)
 
-/** Exit-free flow lifecycle: builds the interaction and the wired agents,
-  * resolves the three role agents from settings, runs setup, constructs the
-  * context, then runs the body as a top-level stage with disjoint
-  * success/failure teardown. Unlike [[flow]], a failure in any phase is
-  * **propagated** (after any body-failure teardown), not turned into a
-  * `System.exit` — so the crash→`resetHard`→resume wiring is directly testable
-  * end-to-end. Every phase that can fail — settings read + role resolution and
-  * setup (pre-context, bracketed below), then rehydration and the body
-  * (bracketed inside `FlowLifecycle.run`) — reports to the event surface first,
-  * so a `NonFatal` failure from one of those escapes here wrapped in
-  * [[orca.runner.SurfacedFlowFailure]]`(cause)`; tests inspect its `cause`. A
-  * failure from BEFORE the dispatcher and agents exist (e.g. an agent-override
-  * factory, applied just after the dispatcher is built) has no event surface to
-  * report to and so escapes unwrapped instead. [[flow]] wraps this to keep the
-  * observable CLI behaviour (cost summary, OrcaLog, `System.exit(1)`).
+/** Exit-free flow lifecycle: builds the interaction and wired agents, resolves
+  * the three role agents from settings, runs setup, constructs the context,
+  * then runs the body as a top-level stage with disjoint success/failure
+  * teardown. Unlike [[flow]], a failure in any phase is **propagated** (after
+  * body-failure teardown), not turned into a `System.exit`, so the
+  * crash→`resetHard`→resume wiring is directly testable. A phase that reports
+  * to the event surface first escapes wrapped in
+  * [[orca.runner.SurfacedFlowFailure]]`(cause)`; a failure from BEFORE the
+  * dispatcher and agents exist (e.g. an agent-override factory) has no event
+  * surface and escapes unwrapped.
   *
-  * `extraListeners` is the full listener set this run should observe beyond the
-  * interaction's own (the CLI wrapper adds its [[CostTracker]] here); a
-  * [[LoggingListener]] is always appended. `globalSettingsPath` is the
-  * user-global settings file location — defaulted to
-  * [[orca.settings.GlobalSettings.default]] and overridden only by tests, which
-  * must never read the developer's real `~/.config`.
+  * `extraListeners` is the listener set beyond the interaction's own (the CLI
+  * wrapper adds its [[CostTracker]] here); a [[LoggingListener]] is always
+  * appended. `globalSettingsPath` is overridden only by tests, which must never
+  * read the developer's real `~/.config`.
   */
 private[orca] def runFlow(
     args: OrcaArgs,
@@ -264,17 +223,16 @@ private[orca] def runFlow(
     wiring: FlowWiring = FlowWiring()
 )(body: FlowControl ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose.value
-  // Acquire both reentrancy/concurrency guards before anything else
-  // — including before `supervised:`, since neither needs an `Ox` scope — so
-  // a violation is caught before any git mutation. See [[FlowLock]] for the
-  // two-layer rationale and the release-ordering symmetry.
+  // Acquire both guards before `supervised:` (neither needs an `Ox` scope) so a
+  // violation is caught before any git mutation. See [[FlowLock]] for the
+  // two-layer rationale and release-ordering symmetry.
   FlowLock.acquireProcess()
   try
     val lockPath = FlowLock.acquireWorkdir(workDir)
     try
       // Default TerminalInteraction is built inside `supervised:` because its
       // worker is a `forkUser` bound to that scope; close() in the body's
-      // `finally` lets the worker drain and exit before the scope joins it.
+      // `finally` lets it drain before the scope joins it.
       supervised:
         val effectiveInteraction = interaction.getOrElse(
           TerminalInteraction.start(workDir = Some(workDir))
@@ -289,13 +247,11 @@ private[orca] def runFlow(
             progressStore.getOrElse(
               ProgressStore.default(workDir, args.userPrompt)
             )
-          // One wiring bundle handed to every agent factory — overrides and
-          // defaults build against the SAME event sink (dispatcher),
-          // interaction, workDir and prompts, so a user agent is wired into the
-          // run exactly like the default ones. Agent construction is pure —
-          // backends are created but no subprocess spawns until the first gated
-          // `run` — and runs BEFORE the reporting bracket below, so a factory
-          // failure escapes unwrapped (there are no agents to close yet).
+          // One wiring bundle handed to every agent factory, so overrides and
+          // defaults build against the SAME dispatcher, interaction, workDir and
+          // prompts. Agent construction is pure (no subprocess spawns until the
+          // first gated `run`) and runs BEFORE the reporting bracket below, so a
+          // factory failure escapes unwrapped (no agents to close yet).
           val agentWiring = AgentWiring(
             events = dispatcher,
             interaction = effectiveInteraction,
@@ -309,26 +265,21 @@ private[orca] def runFlow(
           )
           val fsTool = wiring.fs.getOrElse(new OsFsTool(workDir))
           val log = LoggerFactory.getLogger("orca.flow")
-          // Ownership-transfer guard: between here and the context taking
-          // ownership at construction, the wired agents (and the resolved role
-          // agents) have no owner whose close() runs on failure. If an
-          // exception escapes before the transfer, close them best-effort — the
-          // five wired agents, then any FOREIGN role (an override built from a
-          // separate backend). A settings-resolved or `copyTool`-sibling role
-          // shares a wired backend, already closed via `agents.all`, so it's
-          // filtered out here to avoid closing the same backend twice (post
-          // transfer `ctx.close()` stays unconditional, leaning on backend
-          // idempotence, but the pre-transfer guard can be precise). git/gh/fs
-          // hold no closeable resources, so the agents are all it must cover.
+          // Ownership-transfer guard: until the context takes ownership at
+          // construction, the wired and role agents have no owner whose close()
+          // runs on failure. If an exception escapes before the transfer, close
+          // them best-effort — the wired agents, then any FOREIGN role (an
+          // override from a separate backend). A settings-resolved or
+          // `copyTool`-sibling role shares a wired backend already covered by
+          // `agents.all`, so it's filtered out to avoid a double close. git/gh/fs
+          // hold no closeable resources.
           var roles: List[Agent[?]] = Nil
           var transferred = false
           try
             // Pre-context equivalent of `FlowLifecycle.run`'s `surfaced`
             // bracket: report the failure to the event surface, log, print the
-            // stack under `--verbose`/debug, and rethrow as
-            // `SurfacedFlowFailure` so `flow()` exits without re-printing. No
-            // `reportOnce` here — pre-context there is no second reporter that
-            // could double-report the same throwable.
+            // stack under debug, and rethrow as `SurfacedFlowFailure` so
+            // `flow()` exits without re-printing.
             def surfaced[T](op: => T): T =
               try op
               catch
@@ -339,25 +290,21 @@ private[orca] def runFlow(
                   log.debug("flow aborted", e)
                   if debug then e.printStackTrace(System.err)
                   throw SurfacedFlowFailure(e)
-            // Read both settings files, then resolve the three roles (override
-            // > project > global > default) and everything derived from that
-            // resolution — the announcement text and any foreign-agent warnings
-            // — in one place (`RoleAgents.resolveAll`, ADR 0020 §10). Inside
-            // `surfaced` so a malformed file, a bad model pin, or a throwing
-            // override reaches the event surface before aborting — and BEFORE
-            // any tree mutation, since setup (and its `ensureClean`) runs after.
+            // Read both settings files, then resolve the three roles and
+            // derived announcement/warnings in one place (`RoleAgents.resolveAll`,
+            // ADR 0020 §10). Inside `surfaced` so a malformed file, bad model pin
+            // or throwing override reaches the event surface before aborting, and
+            // BEFORE any tree mutation (setup runs after).
             val (resolvedRoles, settingsRead) = surfaced:
               val read = FlowLifecycle.readSettings(
                 workDir,
                 globalSettingsPath,
                 stackSettings
               )
-              // Cover each resolved role in the pre-transfer close guard AS it
-              // resolves — the wired backends are already covered via
-              // `agents.all`, so only a foreign override adds anything (filtered
-              // below). Appended incrementally (not from the returned
-              // `RoleResolution`) so an earlier foreign role is still closed when
-              // a LATER override throws and `resolveAll` never returns.
+              // Cover each resolved role in the close guard AS it resolves,
+              // appended incrementally (not from the returned `RoleResolution`)
+              // so an earlier foreign role is still closed when a LATER override
+              // throws and `resolveAll` never returns.
               val resolution = RoleAgents.resolveAll(
                 read.projectAgents,
                 read.globalAgents,
@@ -370,8 +317,8 @@ private[orca] def runFlow(
               dispatcher.onEvent(OrcaEvent.Step(resolution.announcement))
               (resolution.roles, read)
             // Setup (branch + log binding, stack discovery) runs BEFORE the
-            // context is constructed, so its outcome is a constructor input
-            // rather than late-bound state; it drives the CODING role.
+            // context so its outcome is a constructor input; it drives the
+            // CODING role.
             val flowSetup = surfaced(
               FlowLifecycle.setup(
                 args,
@@ -387,9 +334,7 @@ private[orca] def runFlow(
             )
             // Open the three runtime `Agent[?]` roles into their own backend
             // tags so `DefaultFlowContext` is concretely typed and each role's
-            // sessions thread. The single case matches every tuple of the three
-            // `Agent[?]` values — the type-variable patterns just bind each
-            // existential's tag.
+            // sessions thread.
             val ctx = (
               resolvedRoles.planning,
               resolvedRoles.coding,
@@ -411,10 +356,10 @@ private[orca] def runFlow(
                   stackSettings = flowSetup.stackSettings
                 )
             transferred = true
-            // From here on, `ctx.close()` runs in this `finally`, BEFORE the
-            // `supervised` scope joins its forks: it destroys the opencode
-            // `serve` process so its drain forks' reads EOF and the join can't
-            // hang (Ox runs `releaseAfterScope` only after the join).
+            // `ctx.close()` runs here, BEFORE the `supervised` scope joins its
+            // forks: it destroys the opencode `serve` process so its drain
+            // forks' reads EOF and the join can't hang (Ox runs
+            // `releaseAfterScope` only after the join).
             try
               FlowLifecycle.run(ctx, flowSetup, returnToStartBranch, debug)(
                 body
@@ -430,10 +375,9 @@ private[orca] def runFlow(
   finally FlowLock.releaseProcess()
 
 private def installUncaughtExceptionHandler(): Unit =
-  // Idempotent across nested or repeated `flow(...)` calls — we only install
-  // our handler if no app-specific one is already in place. The `orca` logger
-  // is routed to the trace file only (see `OrcaLog`), so the message goes
-  // straight to the console via stderr; the stack follows it into the trace.
+  // Idempotent across nested or repeated `flow(...)` calls: install only if no
+  // handler is already in place. The `orca` logger routes to the trace file
+  // only, so the message goes to stderr and the stack into the trace.
   if Thread.getDefaultUncaughtExceptionHandler == null then
     val log = LoggerFactory.getLogger("orca")
     Thread.setDefaultUncaughtExceptionHandler: (thread, throwable) =>

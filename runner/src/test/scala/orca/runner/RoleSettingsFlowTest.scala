@@ -36,11 +36,7 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.AtomicReference
 
 /** End-to-end coverage of settings-driven role resolution through `runFlow`
-  * (ADR 0020): the three role agents resolve from the project and user-global
-  * settings files (and the per-role programmatic overrides), a malformed file
-  * aborts before any tree mutation, agent keys survive a stack override, and an
-  * agents-only file still triggers stack discovery (appended, not clobbered).
-  * The stub agent factories keep every backend off a real CLI.
+  * (ADR 0020). The stub agent factories keep every backend off a real CLI.
   */
 class RoleSettingsFlowTest extends munit.FunSuite:
 
@@ -174,8 +170,8 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       wiring = wiringWith(claude = StubAgent.claude, codex = canned)
     ):
       // Real committed work keeps the feature branch (a throwaway branch is
-      // deleted on teardown, taking the just-committed settings file with it),
-      // so the appended file is still present to inspect.
+      // deleted on teardown, taking the settings file with it), so the appended
+      // file survives for inspection.
       val _ = orca.stage("work"):
         os.write(workDir / "work.txt", "real code")
         "done"
@@ -215,8 +211,8 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       wiring = wiringWith(claude = canned)
     ):
       // Real committed work keeps the feature branch (a throwaway branch is
-      // deleted on teardown, taking the just-written settings file with it),
-      // so the written file is still present to inspect.
+      // deleted on teardown, taking the settings file with it), so the written
+      // file survives for inspection.
       val _ = orca.stage("work"):
         os.write(workDir / "work.txt", "real code")
         "done"
@@ -230,9 +226,9 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     "a discovery-written file with only commented stack lines does not re-trigger discovery"
   ):
     val workDir = GitRepo.seeded()
-    // The stack lines are all commented (as a discovery-written file leaves
-    // them), so `hasStackLines` is true and discovery must NOT run again — the
-    // plain codex stub would throw if it did.
+    // All stack lines commented (as a discovery-written file leaves them) makes
+    // `hasStackLines` true, so discovery must not run again — the plain codex
+    // stub would throw if it did.
     writeProject(
       workDir,
       "codingAgent = codex\n# format =   (no formatter found)\n"
@@ -279,18 +275,16 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     "a symlinked project settings file aborts before any write or branch mutation"
   ):
     val workDir = GitRepo.seeded()
-    // A committed `.orca/settings.properties` symlink pointing outside the tree:
-    // `os.write.over` follows the link, so discovery would write its output at
-    // `outside`. The link is dangling (target absent), which is exactly the
-    // shape whose `os.exists` reads false and would otherwise drive a
-    // fresh-write discovery straight through the link.
+    // A committed `.orca/settings.properties` symlink pointing outside the tree.
+    // The link is dangling (target absent), the shape whose `os.exists` reads
+    // false and would otherwise drive a fresh-write discovery through the link.
     val outside = TempDirs.dir() / "outside.properties"
     val linkPath = OrcaDir.settingsPath(workDir)
     os.makeDir.all(linkPath / os.up)
     os.symlink(linkPath, outside)
     val startBranch = new OsGitTool(workDir).currentBranch()
-    // A canned discovery agent that WOULD succeed and write, so the abort — not
-    // a discovery failure — is what keeps the target file from being created.
+    // A canned discovery agent that would succeed and write, so it's the abort,
+    // not a discovery failure, that keeps the target file from being created.
     val canned = CannedDiscoveryAgent(
       StackDiscoveryResult(
         format = DiscoveredTask(commands =
@@ -316,18 +310,17 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     "a symlinked `.orca` directory aborts before any write or branch mutation"
   ):
     val workDir = GitRepo.seeded()
-    // A committed `.orca` DIRECTORY symlink (git mode 120000) pointing at an
-    // existing directory outside the tree. The leaf `os.isLink` check misses
-    // this — it inspects only the final path component — so without the
-    // `.orca`-root guard every write (cache, lock, discovery output) would land
-    // inside `outside`, off-tree. `outside` starts empty, so any file appearing
-    // in it is a write that went through the link.
+    // A committed `.orca` DIRECTORY symlink pointing at an existing directory
+    // outside the tree. A leaf-only `os.isLink` check misses this, so without
+    // the `.orca`-root guard every write (cache, lock, discovery output) would
+    // land inside `outside`. `outside` starts empty, so any file appearing in it
+    // is a write that went through the link.
     val outside = TempDirs.dir() / "outside-orca"
     os.makeDir.all(outside)
     os.symlink(OrcaDir.rootPath(workDir), outside)
     val startBranch = new OsGitTool(workDir).currentBranch()
-    // A canned discovery agent that WOULD succeed and write, so the abort — not
-    // a discovery failure — is what keeps the target from being written.
+    // A canned discovery agent that would succeed and write, so it's the abort,
+    // not a discovery failure, that keeps the target from being written.
     val canned = CannedDiscoveryAgent(
       StackDiscoveryResult(
         format = DiscoveredTask(commands =
@@ -353,20 +346,19 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     "a symlinked `.orca/cache` directory aborts before any write or branch mutation"
   ):
     val workDir = GitRepo.seeded()
-    // A committed `.orca` real DIRECTORY holding a `.orca/cache` symlink (git
-    // mode 120000) pointing off-tree. The `.orca`-root guard passes (it's a real
-    // dir), so a leaf-only or root-only check would let `ensureCache`'s
-    // `os.makeDir.all(.orca/cache)` and the flow lock write follow the link into
-    // `outside`. Guarding every component from `.orca` down catches the
-    // symlinked cache dir. `outside` starts empty, so any file appearing in it
-    // is a write that escaped the tree.
+    // A committed `.orca` real DIRECTORY holding a `.orca/cache` symlink pointing
+    // off-tree. The `.orca`-root guard passes (it's a real dir), so a root-only
+    // check would let `ensureCache`'s `os.makeDir.all` and the flow lock write
+    // follow the link into `outside`; guarding every component from `.orca` down
+    // catches the symlinked cache dir. `outside` starts empty, so any file
+    // appearing in it is a write that escaped the tree.
     val outside = TempDirs.dir() / "outside-cache"
     os.makeDir.all(outside)
     os.makeDir.all(OrcaDir.rootPath(workDir))
     os.symlink(OrcaDir.rootPath(workDir) / "cache", outside)
     val startBranch = new OsGitTool(workDir).currentBranch()
-    // A canned discovery agent that WOULD succeed and write, so the abort — not
-    // a discovery failure — is what keeps the target from being written.
+    // A canned discovery agent that would succeed and write, so it's the abort,
+    // not a discovery failure, that keeps the target from being written.
     val canned = CannedDiscoveryAgent(
       StackDiscoveryResult(
         format = DiscoveredTask(commands =
@@ -476,10 +468,7 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       "the malformed-file abort must precede any branch mutation"
     )
 
-  /** A `CodexAgent` stub: every builder returns `this`, every call throws — the
-    * codex sibling of [[StubClaudeAgent]], for a role that must never reach a
-    * real CLI.
-    */
+  /** A `CodexAgent` stub: every builder returns `this`, every call throws. */
   private class StubCodex extends CodexAgent:
     val name = "stub-codex"
     def mini: CodexAgent = this
@@ -507,10 +496,9 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     def resultAs[O: JsonData: Announce]: AgentCall[BackendTag.Gemini.type, O] =
       throw new UnsupportedOperationException
 
-  /** The codex discovery seam, mirroring [[CannedDiscoveryAgent]] for the codex
-    * role: `resultAs[O].autonomous.run` returns the canned discovery result in
-    * the [[StackDiscoveryReply]] envelope; free-text calls throw (branch naming
-    * falls back to the deterministic slug).
+  /** The codex discovery seam, mirroring [[CannedDiscoveryAgent]]:
+    * `resultAs[O].autonomous.run` returns the canned discovery result in the
+    * [[StackDiscoveryReply]] envelope; free-text calls throw.
     */
   private class CannedDiscoveryCodex(result: StackDiscoveryResult)
       extends StubCodex:

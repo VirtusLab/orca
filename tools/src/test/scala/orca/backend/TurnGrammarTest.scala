@@ -9,24 +9,16 @@ import ox.supervised
 /** Base-level grammar suite: drives a minimal fake [[ForkedConversation]]
   * through raw `ConversationEvent`-level sequences (bypassing all wire parsing)
   * and asserts the emitted stream satisfies
-  * [[ConversationEventConformance.assertGrammar]]. This is where the turn-
-  * boundary grammar is pinned ONCE, for all five backends at once — the base
-  * class guarantees it by construction, so the per-backend suites only need to
-  * check they translate protocol frames into the right payloads.
-  *
-  * It covers the exact sequences each broken driver used to route around before
-  * task 4A moved enforcement into `EventQueue.enqueue` + the settle helpers:
-  * claude's deltas-then-error, codex's tool-only turn, gemini's activity-free
-  * result end, claude's suppressed `ask_user`-only turn, and pi's
-  * failWith-after-activity — plus the abnormal-termination carve-out the
-  * grammar deliberately still allows.
+  * [[ConversationEventConformance.assertGrammar]]. Pins the turn-boundary
+  * grammar once for all backends, since the base class guarantees it by
+  * construction.
   */
 class TurnGrammarTest extends munit.FunSuite:
 
   /** Fake driver whose `handleLine` interprets each scripted stdout line as a
-    * direct `ConversationEvent`-level command. Everything runs on the reader
-    * thread inside `handleLine`, exactly as a real driver's enqueues do — so
-    * the `openTurn` single-writer confinement is exercised faithfully.
+    * direct `ConversationEvent`-level command. Runs on the reader thread inside
+    * `handleLine`, like a real driver, so `openTurn` single-writer confinement
+    * is exercised faithfully.
     */
   private class GrammarFakeConversation(source: StreamSource)
       extends ForkedConversation[BackendTag.ClaudeCode.type](
@@ -58,11 +50,7 @@ class TurnGrammarTest extends munit.FunSuite:
         case other =>
           throw new IllegalStateException(s"unknown script line: $other")
 
-  /** Run a scripted sequence and return the EMITTED events. `closeAtEnd`
-    * signals stdout EOF after the script; leave it on except for the abnormal-
-    * termination case, where the script settles nothing and we want the source
-    * to just end mid-turn.
-    */
+  /** Run a scripted sequence and return the emitted events. */
   private def runScript(lines: String*): List[ConversationEvent] =
     supervised:
       val process = new FakePipedCliProcess()
@@ -159,9 +147,9 @@ class TurnGrammarTest extends munit.FunSuite:
       completedNormally = false
     )
 
-  /** Fake driver whose only purpose is counting
-    * [[ForkedConversation.onCancelRequested]] invocations, so `cancel()`'s
-    * settled-gate can be pinned independently of any backend's own hook body.
+  /** Fake driver counting [[ForkedConversation.onCancelRequested]] invocations,
+    * so `cancel()`'s settled-gate can be pinned independently of any backend's
+    * hook body.
     */
   private class HookFakeConversation(source: StreamSource)
       extends ForkedConversation[BackendTag.ClaudeCode.type](
@@ -201,16 +189,15 @@ class TurnGrammarTest extends munit.FunSuite:
       process.closeStderr()
       conv.events.foreach(_ => ())
       val _ = conv.awaitResult()
-      // The routine `finally cancel()` every caller runs after a turn that
-      // already succeeded on its own — must be a pure teardown, no hook.
+      // The routine `finally cancel()` after a turn that already succeeded must
+      // be a pure teardown, no hook.
       conv.cancel()
       assertEquals(conv.cancelRequests, 0)
 
-  /** Fake driver whose only purpose is exposing `succeedWith` to a caller on an
-    * arbitrary thread, so 12.2's single-writer assertion can be exercised from
-    * outside `handleLine` (every real backend only ever calls it from inside
-    * `handleLine`, on the reader thread — this deliberately breaks that
-    * contract to prove the check fires).
+  /** Fake driver exposing `succeedWith` to a caller on an arbitrary thread, so
+    * the write-side single-writer assertion can be exercised from outside
+    * `handleLine` — every real backend only ever settles from inside
+    * `handleLine` on the reader thread.
     */
   private class ThreadInvariantFakeConversation(source: StreamSource)
       extends ForkedConversation[BackendTag.ClaudeCode.type](
@@ -238,10 +225,8 @@ class TurnGrammarTest extends munit.FunSuite:
       process.closeStdout()
       process.closeStderr()
       conv.events.foreach(_ => ())
-      // Reader thread has now settled once via a real handleLine dispatch —
-      // its identity is recorded. A second settle from a genuinely different
-      // thread (never legitimate — every backend settles from inside
-      // handleLine) must trip the assertion rather than silently no-op.
+      // The reader thread's identity is recorded on its first settle. A second
+      // settle from a different thread must trip the assertion, not silently no-op.
       val _ = conv.awaitResult()
       var caught: Throwable = null
       val t = new Thread(() =>

@@ -17,13 +17,10 @@ private[runner] case class DiscoveredCommand(
 ) derives JsonData
 
 /** A task's proposed commands, or a one-line reason it was left unset. The
-  * strict output schema requires BOTH keys on every task (every field is
-  * required, Options nullable — see [[orca.util.JsonSchemaGen]]), so the agent
-  * emits `"commands": []` / `"unsetReason": null` for whichever side doesn't
-  * apply. The Scala-side defaults additionally keep the jsoniter parse lenient
-  * about a genuinely omitted field (opting out of strict jsoniter's
-  * collection-required check); required-field protection lives on the
-  * no-default fields.
+  * strict output schema requires BOTH keys on every task (Options nullable —
+  * see [[orca.util.JsonSchemaGen]]), so the agent emits `"commands": []` /
+  * `"unsetReason": null` for whichever side doesn't apply. The Scala-side
+  * defaults keep the jsoniter parse lenient about a genuinely omitted field.
   */
 private[runner] case class DiscoveredTask(
     commands: List[DiscoveredCommand] = Nil,
@@ -43,13 +40,10 @@ private[runner] case class StackDiscoveryResult(
 /** Single-property envelope around [[StackDiscoveryResult]] — the actual
   * `resultAs` payload. Claude's `--json-schema` mode surfaces the schema's
   * top-level properties as the StructuredOutput tool's parameters, and the
-  * cheap tier (haiku) reliably stuffs the whole result under the FIRST
-  * parameter when there are several (observed deterministically: `{"format":
-  * {"format": ..., "lint": ..., "test": ...}}`, failing CLI-side validation
-  * until the retry budget ran out). Every other payload the cheap tier produces
-  * in production has a single-property root (`SelectedReviewers.names`,
-  * `ReviewResult.issues`) — this envelope gives the discovery reply that same
-  * proven shape.
+  * cheap tier (haiku) reliably misbehaves with several — stuffing the whole
+  * result under the FIRST parameter. A single-property root avoids that; it
+  * matches every other cheap-tier payload in production
+  * (`SelectedReviewers.names`, `ReviewResult.issues`).
   */
 private[runner] case class StackDiscoveryReply(result: StackDiscoveryResult)
     derives JsonData
@@ -67,8 +61,8 @@ private[runner] object StackDiscoveryReply:
   */
 private[runner] object StackDiscovery:
 
-  /** The principle-based discovery prompt (no real stack→command examples — ADR
-    * 0019 records the rejection; one fictional-stack example only).
+  /** The principle-based discovery prompt (no real stack→command examples, one
+    * fictional-stack example only — ADR 0019).
     */
   private[runner] val Prompt: String =
     PromptResource.load("/orca/runner/prompts/stack-discovery.md")
@@ -81,13 +75,11 @@ private[runner] object StackDiscovery:
     * Returns the surviving settings and the full entry list for the caller to
     * render and write.
     *
-    * Deliberately catch-free (ADR 0019): a discovery failure — backend
-    * unavailable, spawn failure, structured output still invalid after the
-    * retry policy — propagates and aborts the run as an ordinary surfaced setup
-    * failure. It is never degraded to writing an all-commented file: under the
-    * frozen-file semantics that would turn a transient outage into a
-    * permanently recorded "gates off", and the run needs the same backend
-    * minutes later anyway.
+    * Deliberately catch-free (ADR 0019): a discovery failure propagates and
+    * aborts the run as an ordinary surfaced setup failure, rather than being
+    * degraded to writing an all-commented file — under the frozen-file
+    * semantics that would turn a transient outage into a permanently recorded
+    * "gates off".
     */
   def discover(
       agent: Agent[?],
@@ -165,23 +157,20 @@ private[runner] object StackDiscovery:
 
   /** First mechanical check (ADR 0019): `None` = resolvable, `Some(reason)` =
     * demote. Strips leading `VAR=` assignment tokens, then resolves the first
-    * remaining word through the execution environment's own lookup — `bash -c
-    * 'command -v'`, builtins included, the same environment stage-time `bash
-    * -c` inherits. The word is passed as an ARGUMENT (`"$1"`) — never
-    * interpolated into the bash script text, so shell metacharacters in an
-    * agent-proposed command cannot execute here. The probe runs with
-    * cwd=`workDir`, so a repo-relative path like `./script.sh` resolves here
-    * too — exactly as the command itself later does at stage time with the same
-    * cwd.
+    * remaining word via `bash -c 'command -v'` (builtins included, the same
+    * environment stage-time `bash -c` inherits). The word is passed as an
+    * ARGUMENT (`"$1"`), never interpolated into the script text, so shell
+    * metacharacters in an agent-proposed command cannot execute here. cwd is
+    * `workDir`, so a repo-relative path like `./script.sh` resolves as it will
+    * at stage time.
     */
   private[runner] def unresolvedReason(
       command: String,
       workDir: os.Path
   ): Option[String] =
     // Naive whitespace tokenization: a quoted token containing spaces (e.g.
-    // `FOO="a b" cargo check`) splits mid-quote, so the probed word is wrong
-    // and the command demotes. The failure direction is safe — a visible
-    // demoted line in the settings file, hand-fixable.
+    // `FOO="a b" cargo check`) splits mid-quote and demotes. Safe direction — a
+    // visible demoted line in the settings file, hand-fixable.
     val words = command.trim.split("\\s+").toList.filter(_.nonEmpty)
     words.dropWhile(w => AssignmentToken.findPrefixOf(w).isDefined) match
       case Nil => Some("empty command")
@@ -207,24 +196,19 @@ private[runner] object StackDiscovery:
     catch case _: IllegalArgumentException => false
 
   /** Assemble the agent's `result` into settings-file entries plus the
-    * [[StackSettings]] the run uses, applying the two mechanical checks —
-    * injected as functions so this stays pure and process-free:
-    * `unresolvedReason` returns the demotion reason for a command whose first
-    * word doesn't resolve, `evidenceExists` answers whether a cited evidence
-    * file is present.
+    * [[StackSettings]] the run uses. The two mechanical checks are injected as
+    * functions so this stays pure and process-free.
     *
     * Per command: passing both checks → a [[SettingsEntry.Command]] carrying
     * its evidence as the comment, and the command joins the returned settings;
-    * failing one → a [[SettingsEntry.Demoted]] with the failure reason. A task
-    * that proposed no commands at all becomes [[SettingsEntry.Unset]] with the
-    * agent's reason (or a stock one); a task whose every command was demoted is
-    * documented by the demoted lines themselves — no contradictory "no evidence
-    * found" line is added.
+    * failing one → a [[SettingsEntry.Demoted]] with the reason. A task that
+    * proposed no commands becomes [[SettingsEntry.Unset]]; a task whose every
+    * command was demoted is documented by the demoted lines themselves.
     */
   def toEntries(
       result: StackDiscoveryResult,
-      // Some = the demotion reason — deliberately a bare String: it is
-      // human-facing text for the demoted line, never branched on.
+      // Some = the demotion reason — a bare String, human-facing text for the
+      // demoted line, never branched on.
       unresolvedReason: String => Option[String],
       evidenceExists: String => Boolean
   ): (List[SettingsEntry], StackSettings) =
@@ -245,10 +229,8 @@ private[runner] object StackDiscovery:
         case None =>
           SettingsEntry.Command(
             key,
-            // Sanitized with the SAME collapse the renderer applies to every
-            // command line (TextUtil.collapseNewlines), so the command the
-            // first run executes is identical to the line the written file
-            // carries.
+            // Same collapse the renderer applies to every command line, so the
+            // command the first run executes is identical to the written line.
             TextUtil.collapseNewlines(cmd.command),
             Some(cmd.evidencePath + cmd.evidenceNote.fold("")("; " + _))
           )

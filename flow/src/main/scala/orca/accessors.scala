@@ -42,22 +42,17 @@ def planningAgent(using ctx: FlowContext): Agent[ctx.PlanB] = ctx.planningAgent
   * A session from `codingAgent.session` threads into `session.run` and the
   * reviewers because [[FlowContext.CodeB]] pins the backend.
   *
-  * Two ways to drive a model in a flow: a role accessor
+  * Two ways to drive a model: a role accessor
   * (`codingAgent`/`planningAgent`/`reviewAgent`) is backend-agnostic — settings
-  * choose the harness, and its session threads because the role type pins the
-  * backend. A concrete accessor + tier (`claude.opus`, `codex.mini`,
-  * `opencode.openaiLuna`) names a specific backend/tier — for interactive
-  * planning or a one-off cheap call. The tier accessors (`.opus`/`.sonnet`/…)
-  * live on the concrete types, not on the agnostic role accessors, so name the
-  * model/tier **first**, then any constraints (`claude.opus.withReadOnly`, not
-  * `claude.withReadOnly.opus`). Don't mix the two for one session: a
-  * `SessionId` is backend-typed, so a session minted from `claude` won't thread
-  * through `codingAgent` when settings name a different backend.
+  * choose the harness, and its session threads. A concrete accessor + tier
+  * (`claude.opus`, `codex.mini`) names a specific backend/tier for a one-off
+  * call; name the tier first, then constraints (`claude.opus.withReadOnly`).
+  * Don't mix the two for one session: a `SessionId` is backend-typed, so a
+  * session minted from `claude` won't thread through `codingAgent` when
+  * settings name a different backend.
   *
-  * See [[orca.FlowContext.CodeB]] for the helper-authoring caveat that the
-  * path-dependent `Agent[ctx.CodeB]` (and `ctx.PlanB` / `ctx.ReviewB`) carries
-  * once code is factored into a helper *function*, shared by all three role
-  * accessors.
+  * See [[orca.FlowContext.CodeB]] for the helper-authoring caveat shared by all
+  * three role accessors.
   */
 def codingAgent(using ctx: FlowContext): Agent[ctx.CodeB] = ctx.codingAgent
 

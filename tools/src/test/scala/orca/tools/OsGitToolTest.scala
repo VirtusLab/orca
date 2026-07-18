@@ -11,8 +11,7 @@ import orca.testkit.TempDirs
 class OsGitToolTest extends munit.FunSuite:
 
   // Tests exercise gated git mutators directly; mint the workspace-write token
-  // once for the whole suite (package `orca.tools` can reach
-  // `WorkspaceWrite.unsafe`).
+  // once for the whole suite (package `orca.tools` can reach `WorkspaceWrite.unsafe`).
   private given WorkspaceWrite = WorkspaceWrite.unsafe
 
   private def withRepo(body: (OsGitTool, os.Path) => Unit): Unit =
@@ -457,10 +456,9 @@ class OsGitToolTest extends munit.FunSuite:
       )
 
   test("commit on a corrupted repo throws with status + fsck diagnostics"):
-    // Integration check that the formatter is actually wired into the commit
-    // path: corrupt the index so `git add -A` fails, then confirm the thrown
-    // message carries the status + fsck blocks (and isn't just the bare
-    // stderr we used to throw before).
+    // Integration check that the formatter is wired into the commit path:
+    // corrupt the index so `git add -A` fails, then confirm the thrown message
+    // carries the status + fsck blocks rather than the bare stderr.
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "seed")
       git.commit("seed").orThrow

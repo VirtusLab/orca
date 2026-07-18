@@ -64,10 +64,10 @@ private[opencode] class JavaNetOpencodeHttp(baseUrl: String, password: String)
 
   def events(): StreamSource =
     val req = request("/event").GET().build()
-    // `ofInputStream` returns once headers arrive; we read lines off the raw body
-    // ourselves. Closing the InputStream reliably unblocks a thread parked in
-    // `readLine()` (the SSE stream is otherwise open-ended) — `ofLines().close()`
-    // does not, which deadlocks the reader at turn end.
+    // `ofInputStream` returns once headers arrive; we read lines off the raw
+    // body ourselves. Closing the InputStream reliably unblocks a thread parked
+    // in `readLine()` on the open-ended SSE stream — `ofLines().close()` does
+    // not, which deadlocks the reader at turn end.
     val body =
       client.send(req, HttpResponse.BodyHandlers.ofInputStream()).body()
     val reader =

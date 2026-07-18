@@ -9,10 +9,9 @@ import ox.{Ox, supervised}
 
 class CodexConversationTest extends munit.FunSuite:
 
-  /** `CodexConversation` forks its reader/stderr/ask-user workers into the
-    * caller's per-turn Ox, so construction needs a `using Ox`. Run each test
-    * body in a fresh supervised scope that provides it. Tests managing their
-    * own scope (the ask-user ones) stay on plain `test`.
+  /** Runs each test body in a fresh supervised scope, which `CodexConversation`
+    * needs to fork its reader/stderr/ask-user workers. Tests managing their own
+    * scope (the ask-user ones) stay on plain `test`.
     */
   private def convTest(name: String)(body: Ox ?=> Unit): Unit =
     test(name)(supervised(body))
@@ -51,9 +50,9 @@ class CodexConversationTest extends munit.FunSuite:
   convTest(
     "usage attributes to the configured model when the wire omits it"
   ):
-    // `thread.started` here carries no `model` field (as codex's `resume`
-    // exec often doesn't), so without the configured-model fallback the turn's
-    // tokens would land under `(unknown)` and go unpriced.
+    // `thread.started` here carries no `model` field (as codex's `resume` exec
+    // often doesn't); without the configured-model fallback the turn's tokens
+    // would land under `(unknown)` and go unpriced.
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(
       process,
@@ -136,9 +135,8 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStderr()
 
     val events = conv.events.toList
-    // Each agent_message item closes its own turn (see CodexConversation's
-    // scaladoc); two agent_message items means two turns are KEPT, not
-    // merged — "last wins" only picks the final result text, below.
+    // Each agent_message item closes its own turn, so two items means two turns
+    // are KEPT; "last wins" only picks the final result text, below.
     assertEquals(events.count(_ == ConversationEvent.AssistantTurnEnd), 2)
     val Right(result) = conv.awaitResult(): @unchecked
     assertEquals(result.output, "final answer")
@@ -163,10 +161,9 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStderr()
 
     val events = conv.events.toList
-    // A tool-only turn: the AssistantToolCall + ToolResult open the turn, and
-    // `turn.completed` → `succeedWith`, whose base-class auto-close now injects
-    // the owed AssistantTurnEnd (was routed around before 4A — the turn used to
-    // settle open).
+    // A tool-only turn: AssistantToolCall + ToolResult open the turn, and
+    // `turn.completed` → `succeedWith` auto-closes it with the owed
+    // AssistantTurnEnd.
     assertEquals(events.size, 3)
     events(0) match
       case ConversationEvent.AssistantToolCall(name, rawInput) =>
@@ -296,7 +293,7 @@ class CodexConversationTest extends munit.FunSuite:
 
     val events = conv.events.toList
     // Abnormal termination: the stream ends before turn.completed, so a
-    // trailing open turn (none here) is legal — completedNormally = false.
+    // trailing open turn is legal — completedNormally = false.
     ConversationEventConformance.assertGrammar(
       events,
       completedNormally = false
@@ -362,10 +359,9 @@ class CodexConversationTest extends munit.FunSuite:
   convTest(
     "`failed to record rollout items` shutdown noise is filtered out"
   ):
-    // Codex emits this ERROR line on stderr during its shutdown sequence
-    // after the rollout writer is already torn down. The rollout file is
-    // written correctly to ~/.codex/sessions/; the message is harmless and
-    // would otherwise spam the user log on every codex call.
+    // Codex emits this ERROR line during shutdown after the rollout writer is
+    // torn down; the rollout file is still written correctly, so it's harmless
+    // noise that would otherwise spam the user log on every call.
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -417,9 +413,8 @@ class CodexConversationTest extends munit.FunSuite:
     val _ = conv.awaitResult()
 
   convTest("consecutive identical stderr lines collapse to a single Error"):
-    // Some CLIs repeat the same warning on every invocation (claude's
-    // `ANTHROPIC_API_KEY overrides…` fired ~8×/run). StderrPipeline suppresses
-    // a line identical to the one just surfaced.
+    // StderrPipeline suppresses a line identical to the one just surfaced (some
+    // CLIs repeat the same warning on every invocation).
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -445,8 +440,8 @@ class CodexConversationTest extends munit.FunSuite:
     val _ = conv.awaitResult()
 
   convTest("interleaved different stderr lines all surface"):
-    // Dedup only collapses CONSECUTIVE identical lines; distinct lines (even an
-    // a/b/a run, where the second `a` isn't adjacent to the first) all pass.
+    // Dedup only collapses CONSECUTIVE identical lines; an a/b/a run, where the
+    // second `a` isn't adjacent to the first, surfaces all three.
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -473,10 +468,8 @@ class CodexConversationTest extends munit.FunSuite:
     val _ = conv.awaitResult()
 
   convTest("stderr strips terminal controls before surfacing as an Error"):
-    // Pinning Task 8.4's hoist: pre-hoist, only pi's handleStderr stripped
-    // ANSI/terminal control sequences before surfacing stderr as an Error
-    // event — codex and gemini did not. StderrPipeline now strips
-    // for all three uniformly.
+    // StderrPipeline strips ANSI/terminal control sequences before surfacing
+    // stderr as an Error event.
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -502,9 +495,8 @@ class CodexConversationTest extends munit.FunSuite:
     val _ = conv.awaitResult()
 
   convTest("mcp_tool_call emits AssistantToolCall + ToolResult"):
-    // A non-ask_user MCP tool: started and completed items round-trip
-    // into matching AssistantToolCall + ToolResult events using the
-    // dotted `server.tool` naming.
+    // A non-ask_user MCP tool round-trips into matching AssistantToolCall +
+    // ToolResult events using the dotted `server.tool` naming.
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -543,9 +535,9 @@ class CodexConversationTest extends munit.FunSuite:
   convTest(
     "mcp_tool_call ToolResult drops non-text content fragments"
   ):
-    // The MCP content array can carry text + image + resource fragments;
-    // we only know how to render text. Non-text fragments must not leak
-    // their wire shape into the user-facing ToolResult.
+    // The MCP content array can carry text + image + resource fragments; only
+    // text is rendered, and non-text fragments must not leak their wire shape
+    // into the ToolResult.
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -574,8 +566,8 @@ class CodexConversationTest extends munit.FunSuite:
   convTest(
     "mcp_tool_call ToolResult surfaces raw JSON when result fails to parse"
   ):
-    // MCP servers in the wild emit non-standard result shapes too; the
-    // parser must fall back to the raw JSON so the diagnostic isn't lost.
+    // For non-standard result shapes the parser falls back to the raw JSON so
+    // the diagnostic isn't lost.
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
 
@@ -606,9 +598,8 @@ class CodexConversationTest extends munit.FunSuite:
   test(
     "ask_user mcp_tool_call items are suppressed (no echo in event stream)"
   ):
-    // The host-side AskUserBridge raises a UserQuestion for the same
-    // exchange (covered by its own test below); rendering the agent's
-    // tool call and the answer-as-tool-result on top would be noise.
+    // The host-side AskUserBridge raises a UserQuestion for the same exchange
+    // (covered below); echoing the tool call and answer on top would be noise.
     import ox.supervised
     import ox.channels.BufferCapacity
     import orca.backend.mcp.AskUserSession
@@ -660,9 +651,8 @@ class CodexConversationTest extends munit.FunSuite:
   test(
     "askUserBridge: questions surface as UserQuestion events; respond unblocks ask"
   ):
-    // Mirror of the equivalent ClaudeConversation test. Verifies the
-    // drainer thread converts bridge questions into UserQuestion events
-    // and the respond closure unblocks the originating `ask`.
+    // The drainer converts bridge questions into UserQuestion events and the
+    // respond closure unblocks the originating `ask`.
     import ox.{forkUser, supervised}
     import ox.channels.BufferCapacity
     import orca.backend.mcp.AskUserSession

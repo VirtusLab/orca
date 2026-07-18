@@ -24,8 +24,7 @@ import orca.testkit.TempDirs
 import orca.util.RawJson
 
 /** Tests for [[FlowSession]] — the durable-session handle that owns the probe →
-  * seed/preamble → run → persist protocol (ADR 0018 §2.6, absorbs the former
-  * `agent.runSeeded` extension).
+  * seed/preamble → run → persist protocol (ADR 0018 §2.6).
   *
   * Each scenario constructs a [[FlowSession]] directly over a
   * [[StubAgentForSeeded]] (whose `willContinue` and `run` behaviours are
@@ -93,9 +92,9 @@ class FlowSessionTest extends FunSuite:
   ) extends Agent[BackendTag.ClaudeCode.type]:
     val name: String = "stub-seeded"
 
-    /** [[Agent.backendTag]] override — `None` by default (matching every
-      * pre-6B.2 test's expectation), settable so a self-heal test can drive
-      * `persistResumeWireId`'s tag-healing write with a concrete tag.
+    /** [[Agent.backendTag]] override — `None` by default, settable so a
+      * self-heal test can drive `persistResumeWireId`'s tag-healing write with
+      * a concrete tag.
       */
     override private[orca] def backendTag: Option[BackendTag] = tag
 
@@ -224,7 +223,7 @@ class FlowSessionTest extends FunSuite:
   ): FlowSession[BackendTag.ClaudeCode.type] =
     new FlowSession(agent, testSession)
 
-  // ── tests: free-text run protocol (ported from the former runSeeded) ────────
+  // ── tests: free-text run protocol ───────────────────────────────────────────
 
   test("live session: prompt forwarded verbatim, no preamble, no seed"):
     val seed = "You are a planning agent."
@@ -596,9 +595,6 @@ class FlowSessionTest extends FunSuite:
   ):
     // The guard in persistResumeWireId calls agent.resumeWireId(session).foreach { … }
     // so a None result short-circuits and the record's resumeWireId is left intact.
-    // Pre-seed the log with a SessionRecord whose resumeWireId is already
-    // Some("server-1"), then run with a stub whose resumeWireId returns None, and
-    // confirm the stored resumeWireId is still Some("server-1") (not cleared).
     val fc = makeControl(
       sessions = List(
         SessionRecord(
@@ -626,8 +622,8 @@ class FlowSessionTest extends FunSuite:
   test(
     "resultAs.run primes seed + preamble and persists wire id on a lost session"
   ):
-    // The structured door had NO seed/probe/persist path before FlowSession
-    // (it went through the raw door); assert it now follows the same protocol.
+    // The structured door must follow the same seed/probe/persist protocol as
+    // the free-text door.
     val seed = "You are a fixer."
     val fc = makeControl(
       sessions = List(

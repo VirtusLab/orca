@@ -13,24 +13,19 @@ import scala.util.control.NonFatal
 /** Per-run execution-trace log.
   *
   * [[start]] creates a fresh temp file and attaches a DEBUG-level logback
-  * `FileAppender` to the `orca` logger, made **non-additive** — so the whole
-  * `orca.*` tree (events via [[LoggingListener]], subprocess invocations via
-  * `orca.proc`) lands in the file and never propagates to the root console
-  * appender. The terminal renderer owns the console; orca's logging is purely
-  * the trace. Framework chatter (netty/tapir/…) is on its own loggers and still
-  * reaches the console's WARN appender, unaffected.
+  * `FileAppender` to the `orca` logger, made non-additive — so the whole
+  * `orca.*` tree lands in the file and never propagates to the root console
+  * appender. Framework chatter (netty/tapir/…) is on its own loggers and still
+  * reaches the console's WARN appender.
   *
-  * The file is intentionally NOT deleted on exit, so it can be inspected after
-  * the run. If logback isn't the active slf4j backend, or the temp file can't
-  * be created, file logging is skipped (best-effort) rather than failing the
-  * flow — [[file]] is then `None`.
+  * The file is NOT deleted on exit, so it can be inspected after the run. If
+  * logback isn't the active slf4j backend, or the temp file can't be created,
+  * file logging is skipped (best-effort) and [[file]] is `None`.
   *
-  * Convention: the trace file carries full diagnostics — every level, including
-  * stacks, for every legitimate error (logged at ERROR) or degraded condition
-  * (WARN). The console shows only high-level lines: framework loggers'
-  * WARN-and-above still reach it (they stay additive), and orca's own code
-  * reaches it only through deliberate `[orca]`-prefixed `System.err` lines for
-  * cases the file-only `orca` logger can't surface on its own.
+  * The trace file carries full diagnostics (every level, including stacks). The
+  * console shows only high-level lines: framework WARN-and-above (still
+  * additive), and orca's own code only through deliberate `[orca]`-prefixed
+  * `System.err` lines.
   */
 private[orca] final class OrcaLog private (
     val file: Option[os.Path],
@@ -40,10 +35,8 @@ private[orca] final class OrcaLog private (
   private val finished = new AtomicBoolean(false)
 
   /** Detach and stop the per-run file appender and restore the `orca` logger to
-    * the additive default (it was set non-additive in [[start]]) — so a later
-    * run, or another test in a shared JVM, logs normally again. The trace is
-    * left on disk for inspection. Idempotent — safe to call from both the error
-    * path (before `System.exit`) and the success path.
+    * additive — so a later run, or another test in a shared JVM, logs normally
+    * again. The trace is left on disk. Idempotent.
     */
   def finish(): Unit =
     if finished.compareAndSet(false, true) then
@@ -81,14 +74,13 @@ private[orca] object OrcaLog:
         orcaLogger.setAdditive(false) // orca.* → file only, never the console
         new OrcaLog(Some(file), Some(appender), Some(orcaLogger))
       case _ =>
-        // No temp file or logback isn't active: skip file logging entirely.
+        // No temp file or logback isn't active: skip file logging.
         new OrcaLog(None, None, None)
 
   /** The bound logback `LoggerContext`. Touching a logger first forces slf4j to
     * finish binding its provider — calling `getILoggerFactory` cold can return
     * a transient `SubstituteLoggerFactory` mid-initialization. `None` when
-    * logback isn't the active backend, so file logging is skipped rather than
-    * crashing the flow.
+    * logback isn't the active backend.
     */
   private def loggerContext(): Option[LoggerContext] =
     val _ = LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME)

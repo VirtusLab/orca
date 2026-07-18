@@ -10,32 +10,23 @@ import ox.{Ox, supervised}
   *
   * Structured mode (`conv.outputSchema.isDefined`) withholds the last assistant
   * turn so the closing JSON payload doesn't surface as an `AssistantMessage` —
-  * the caller emits it via `OrcaEvent.StructuredResult` instead. Outside
-  * structured mode every turn flushes immediately. The withheld-turn state
-  * machine lives in [[TurnBuffer]]; a normal end drops the withheld payload and
-  * flushes any unfinished buffer, while an abnormal (thrown) end flushes
-  * everything — a mid-turn crash never silently loses partial output.
+  * the caller emits it via `OrcaEvent.StructuredResult` instead. The
+  * withheld-turn state machine lives in [[TurnBuffer]].
   *
-  * Interactive-only events that nevertheless reach this drain are handled
-  * explicitly rather than dropped: `ApproveTool` is auto-denied (the subprocess
-  * would otherwise block waiting for a response), and `UserQuestion` is
-  * auto-answered with a placeholder for the same reason. Both also surface as
-  * `OrcaEvent.Error` so the user sees what happened.
-  *
-  * `Left(OrcaInteractiveCancelled)` from `awaitResult()` is rethrown — the
-  * autonomous shape never exposes a cancel button to the caller.
+  * Interactive-only events that reach this drain are handled explicitly to
+  * avoid blocking the subprocess: `ApproveTool` is auto-denied and
+  * `UserQuestion` auto-answered, both also surfacing as `OrcaEvent.Error`.
   */
 private[orca] object Conversations:
 
   /** Structured-mode turn buffer: streams every completed turn EXCEPT the most
-    * recent one, which is withheld one turn (the final turn is the JSON payload
-    * — the caller re-surfaces it via OrcaEvent.StructuredResult). Consequence:
-    * turn N renders when turn N+1 completes — a deliberate one-turn display
-    * delay, the price of live streaming without showing the payload as prose.
-    * In non-structured mode every turn flushes immediately.
+    * recent, which is withheld one turn (the final turn is the JSON payload,
+    * the caller re-surfaces it via OrcaEvent.StructuredResult). Turn N thus
+    * renders when turn N+1 completes — a one-turn display delay that keeps the
+    * payload out of the prose stream. In non-structured mode every turn flushes
+    * immediately.
     *
-    * All state is confined to one drain's single-threaded event loop: the drain
-    * owns the instance and calls it from exactly one thread.
+    * State is confined to the drain's single-threaded event loop.
     */
   private final class TurnBuffer(structuredMode: Boolean, emit: String => Unit):
     private val current = new StringBuilder
@@ -57,26 +48,20 @@ private[orca] object Conversations:
         else emit(text)
 
     /** Normal end of stream: the withheld turn IS the payload — drop it (the
-      * caller emits StructuredResult); flush any unfinished current buffer. (In
-      * non-structured mode `withheld` is always empty, so the drop is a no-op
-      * and only the unfinished buffer flushes — matching the historical
-      * end-of-stream behaviour.)
+      * caller emits StructuredResult); flush any unfinished current buffer.
       *
-      * Post-turn-grammar (ForkedConversation auto-closes every completed turn),
-      * a normally-completed session always ends its last turn with an
-      * `AssistantTurnEnd` that already ran `turnEnd()`, so `current` is empty
-      * and `flushCurrent()` is a no-op. It only flushes something for a turn
-      * the stream left open — i.e. abnormal termination (cancel/crash mid-turn)
-      * the grammar explicitly permits. It is a safety net, not driver-slop
-      * compensation.
+      * Since ForkedConversation auto-closes every completed turn, a normal
+      * session ends its last turn with an `AssistantTurnEnd` that already ran
+      * `turnEnd()`, leaving `current` empty. `flushCurrent()` is a safety net
+      * for a turn the stream left open (abnormal termination mid-turn).
       */
     def finishNormally(): Unit =
       withheld = None
       flushCurrent()
 
-    /** Abnormal end (the drain threw mid-stream): nothing here is reliably the
-      * payload — flush EVERYTHING (withheld + partial) rather than silently
-      * dropping prose. Worst case the user sees a JSON blob once.
+    /** Abnormal end (the drain threw mid-stream): nothing is reliably the
+      * payload, so flush everything rather than drop prose. Worst case the user
+      * sees a JSON blob once.
       */
     def finishAbnormally(): Unit =
       withheld.foreach(emit)
@@ -107,10 +92,9 @@ private[orca] object Conversations:
         case ConversationEvent.Error(msg) =>
           events.onEvent(OrcaEvent.Error(msg))
         case ConversationEvent.ApproveTool(toolName, _, respond) =>
-          // The subprocess is blocking on stdin waiting for our decision;
-          // autonomous mode has no user to ask. Deny with an explanatory
-          // reason (so the agent can adapt) and surface the denial as a
-          // visible error — silently dropping would deadlock the call.
+          // The subprocess blocks on stdin waiting for our decision and
+          // autonomous mode has no user to ask, so deny with a reason (so the
+          // agent can adapt) and surface as an error; dropping would deadlock.
           respond(
             ApprovalDecision.Deny(
               Some(
@@ -126,12 +110,10 @@ private[orca] object Conversations:
             )
           )
         case ConversationEvent.UserQuestion(_, respond) =>
-          // Defensive: in autonomous mode the ask_user MCP bridge isn't
-          // wired (see `ConversationMode.Autonomous`), so this event should be
-          // unreachable. If a future change ever lands one here, the
-          // bridge thread is blocked on `respond` — unblock it instead of
-          // leaking the thread. The synthetic answer surfaces in the
-          // tool result the agent receives.
+          // The ask_user MCP bridge isn't wired in autonomous mode (see
+          // `ConversationMode.Autonomous`), so this should be unreachable. If it
+          // ever fires, the bridge thread is blocked on `respond` — unblock it
+          // rather than leak the thread.
           respond("[autonomous mode: no user available to answer]")
           events.onEvent(
             OrcaEvent.Error(
@@ -139,56 +121,35 @@ private[orca] object Conversations:
             )
           )
         case ConversationEvent.UserMessage(_) =>
-          // Wire-level echo of input we already sent. Surfaced upstream as
-          // `OrcaEvent.UserPrompt` from the Agent layer; nothing to do
-          // here.
+          // Wire-level echo of input we already sent; surfaced upstream as
+          // `OrcaEvent.UserPrompt` from the Agent layer.
           ()
         case ConversationEvent.ToolResult(_, _, _) =>
-          // Tool output volume is unbounded (full cargo-test logs, etc.).
-          // The matching `AssistantToolCall` already surfaced as
-          // `OrcaEvent.ToolUse`; the agent's follow-up turn summarises the
-          // outcome. Listeners that need raw output should subscribe at
-          // the `ConversationEvent` layer instead.
+          // Tool output volume is unbounded (full cargo-test logs, etc.), so it
+          // isn't surfaced here; the matching `AssistantToolCall` already went
+          // out as `OrcaEvent.ToolUse`. Listeners needing raw output subscribe
+          // at the `ConversationEvent` layer instead.
           ()
-      // The loop ran to completion: the withheld turn is the payload, drop it;
-      // flush any unfinished buffer. See TurnBuffer.finishNormally.
       buffer.finishNormally()
     catch
       case t: Throwable =>
-        // The loop threw mid-turn: nothing is reliably the payload, so flush
-        // everything rather than dropping prose, then rethrow the original
-        // failure. See TurnBuffer.finishAbnormally.
         buffer.finishAbnormally()
         throw t
     conv.awaitResult() match
       case Right(result) => result
-      // Autonomous callers can't produce a Left; surface as a throw so the
-      // AgentResult call shape is honoured.
+      // Autonomous callers can't produce a Left; throw to honour the
+      // AgentResult call shape.
       case Left(cancelled) => throw cancelled
 
-  /** The shared autonomous-turn finalize for the subprocess backends
-    * (claude/codex/gemini/pi): drain the conversation, then — on success only —
-    * commit the session as resumable. Returns the drained result verbatim. The
-    * result carries the backend-reported wire id under its own
-    * [[orca.agents.WireSessionId]] type, so there is nothing to re-stamp:
-    * callers hand back the stable client handle they already hold, and the wire
-    * id lives on the result only for the registry to learn the mapping.
+  /** Shared autonomous-turn finalize for the subprocess backends: drain the
+    * conversation, then — on success only — commit the session as resumable.
+    * Returns the drained result verbatim.
     *
     * The commit runs only after a clean drain, so a subprocess that crashed
     * before registering its session doesn't wedge the registry into resuming a
-    * session that was never created. Drain failures propagate verbatim — the
+    * session that was never created. Drain failures propagate verbatim; the
     * retryability classification already happened in
-    * [[ForkedConversation.awaitResult]], the sole place that decides whether a
-    * failure is an [[orca.AgentTurnFailed]] or a plain retryable
-    * [[orca.OrcaFlowException]]; relabelling here would only obscure that
-    * decision.
-    *
-    * `sessions.commitAfterDrain(session, result.wireId)` carries the throwing
-    * wire-id guard and is uniform across both id schemes:
-    * [[IdScheme.ServerMinted]] records the learned server id, while
-    * [[IdScheme.ClientClaimed]] records the client id itself. Taking the
-    * backend's [[SessionSupport]] means a backend physically can't hand this
-    * shell bookkeeping other than the one backing its declared `sessions`.
+    * [[ForkedConversation.awaitResult]].
     */
   def drainAndCommit[B <: BackendTag](
       conv: Conversation[B],
@@ -201,10 +162,10 @@ private[orca] object Conversations:
     result
 
   /** The complete autonomous-turn shell shared by all backends: open the
-    * conversation inside its own supervised scope, drain + commit, and ALWAYS
-    * cancel before the scope joins (the cancel is load-bearing on failure paths
-    * — `drainAndCommit` does not tear down). `open` runs inside the scope so
-    * the conversation's forks bind to it.
+    * conversation inside its own supervised scope, drain + commit, and always
+    * cancel before the scope joins (load-bearing on failure paths —
+    * `drainAndCommit` does not tear down). `open` runs inside the scope so the
+    * conversation's forks bind to it.
     */
   def runAutonomous[B <: BackendTag](
       session: SessionId[B],

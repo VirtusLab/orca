@@ -41,19 +41,12 @@ import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 import orca.testkit.{GitRepo, TempDirs}
 
-/** Tests for the flow lifecycle: success teardown, failure teardown, and resume
-  * across two calls. Each test uses a real temp git repo via `GitRepo.seeded()`
-  * and a null-sink `TerminalInteraction` so no TTY is required.
+/** Flow lifecycle tests: success/failure teardown and resume. Each uses a real
+  * temp git repo (`GitRepo.seeded()`) and a null-sink `TerminalInteraction` so
+  * no TTY is required.
   *
-  * The first three tests cover teardown/resume through the public `flow(...)`
-  * and by hand-building state — `flow()` calls `System.exit(1)` on body
-  * failure, so they can't drive a failing invocation directly.
-  *
-  * The last two tests exercise the genuine end-to-end crash→resume path via the
-  * exit-free `runFlow(...)` seam: a body that throws in stage 2 propagates (no
-  * `System.exit`), failure teardown keeps HEAD on the feature branch with stage
-  * 1 recorded, and a second `runFlow` over the same store resumes — replaying
-  * stage 1 instead of re-running it.
+  * `flow()` calls `System.exit(1)` on body failure, so tests that must drive a
+  * failing invocation use the exit-free `runFlow(...)` seam instead.
   */
 class FlowLifecycleTest extends munit.FunSuite:
 
@@ -78,7 +71,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         interaction = Some(interaction)
       ):
         summon[FlowContext].emit(OrcaEvent.Step("body ran"))
-    // After flow returns, HEAD must be back on main (the starting branch).
     val branch =
       os.proc("git", "rev-parse", "--abbrev-ref", "HEAD")
         .call(cwd = workDir)
@@ -86,7 +78,6 @@ class FlowLifecycleTest extends munit.FunSuite:
         .text()
         .trim
     assertEquals(branch, "main")
-    // The progress-log file must have been removed.
     val store = ProgressStore.default(workDir, "lifecycle-success")
     assert(!os.exists(store.path), s"progress log ${store.path} should be gone")
 
@@ -94,9 +85,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     "failure teardown: stays on feature branch with clean working tree and earlier commit present"
   ):
     // Build the pre-failure state manually: feature branch with a committed
-    // progress header + one completed stage entry, then staged (but not yet
-    // committed) partial work from a second stage.
-    // Then apply failure teardown (resetHard) and assert the resulting state.
+    // progress header + one completed stage entry, then staged (uncommitted)
+    // partial work from a second stage. Then apply failure teardown (resetHard).
     val workDir = GitRepo.seeded()
     val git = new OsGitTool(workDir)
     val prompt = "lifecycle-failure"
@@ -134,9 +124,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     // Apply failure teardown (git reset --hard, stay on feature branch).
     git.resetHard()
 
-    // HEAD must still be on the feature branch.
     assertEquals(git.currentBranch(), featureBranch)
-    // Working tree must be clean (staged partial work was discarded).
     val status =
       os.proc("git", "status", "--porcelain")
         .call(cwd = workDir)
@@ -148,10 +136,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       "",
       "working tree must be clean after failure teardown"
     )
-    // Stage one's result must survive in the progress log.
     val ids = store.load().get.entries.map(_.id)
     assert(ids.contains("stage-one#0"), "stage one must remain recorded")
-    // Stage two's partial file must be gone (reset --hard wiped it from index).
     assert(
       !os.exists(workDir / "two.txt"),
       "staged partial file must be wiped by reset --hard"
@@ -187,8 +173,6 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     git.forceAdd(store.path)
     val _ = git.commit("stage: resumable-stage")
-    // We are on the feature branch (as failure teardown would leave us) and the
-    // progress-log file is present on disk — flow() can read it via store.load().
 
     // Second run: flow detects the header in the store, resumes the feature
     // branch (already there), and skips the already-recorded stage body.
@@ -252,12 +236,10 @@ class FlowLifecycleTest extends munit.FunSuite:
           throw new RuntimeException("boom in stage two")
     assertEquals(thrown.cause.getMessage, "boom in stage two")
 
-    // HEAD must be on the feature branch, not the start branch.
     val branch = git.currentBranch()
     assertNotEquals(branch, startBranch)
     assertEquals(branch, store.load().get.header.branch)
 
-    // Stage one's commit + log entry must survive.
     val ids = store.load().get.entries.map(_.id)
     assert(ids.contains("stage-one#0"), "stage one must be recorded")
     assert(
@@ -289,10 +271,8 @@ class FlowLifecycleTest extends munit.FunSuite:
           throw new RuntimeException("boom")
     assertEquals(stageOneRuns.get(), 1, "stage one runs once in the first run")
 
-    // Failure teardown leaves the repo on the feature branch — which is exactly
-    // the resume entry point: a re-run "in place" (the next invocation inherits
-    // the repo's HEAD, which the crash left on the feature branch) finds the
-    // committed progress log in the working tree and resumes from it.
+    // Failure teardown left HEAD on the feature branch; a re-run "in place"
+    // finds the committed progress log there and resumes from it.
     val featureBranch = git.currentBranch()
     assertNotEquals(featureBranch, startBranch)
 
@@ -390,16 +370,13 @@ class FlowLifecycleTest extends munit.FunSuite:
     "R20: snapshot-before-stash restores the log file if the stash removed it"
   ):
     // The end-to-end stash hazard is belt-and-suspenders (the log is normally
-    // committed, so the stash can't remove it), so cover the helper directly:
-    // a snapshot taken while the file exists restores its exact bytes after the
-    // file is gone, and is a no-op when the file still exists.
+    // committed, so the stash can't remove it), so cover the helper directly.
     val dir = TempDirs.dir()
     val path = dir / ".orca" / "progress-x.json"
     os.write(path, "{\"header\":true}", createFolders = true)
     val snapshot = FlowLifecycle.snapshotLog(path)
     assert(snapshot.isDefined, "snapshot must capture an existing file")
 
-    // Simulate the stash removing the file, then restore it.
     val _ = os.remove(path)
     FlowLifecycle.restoreLogIfMissing(path, snapshot)
     assert(os.exists(path), "log must be restored from the snapshot")
@@ -440,8 +417,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     val _ = git.commit("orca: progress log")
     val currentBranch = git.currentBranch()
 
-    // The abort now surfaces first (reported to the user), then escapes wrapped
-    // in `SurfacedFlowFailure`; the original `OrcaFlowException` is its `cause`.
+    // The abort surfaces first (reported), then escapes wrapped in
+    // `SurfacedFlowFailure`; the original `OrcaFlowException` is its `cause`.
     val thrown = intercept[SurfacedFlowFailure]:
       runFlowForTest(workDir, prompt, store):
         val _ = stage("never-runs"):
@@ -459,12 +436,10 @@ class FlowLifecycleTest extends munit.FunSuite:
     "setup: a corrupt (unparseable) progress log proceeds FRESH — new branch, header written"
   ):
     // A garbage-bytes file at the store's path (a torn/truncated write, not a
-    // "no log yet" absence). `loadDetailed()` returns `Corrupt`, and `setup`
-    // must take the same fresh-run path an absent log would — resolve +
-    // create a branch and commit a brand-new header — rather than throwing or
-    // silently doing nothing. The "starting fresh" warning is now routed
-    // through the threaded `emit` as an `OrcaEvent.Step` (so a Slack-backed
-    // Interaction sees it, not just a terminal), which this test captures.
+    // "no log yet" absence). `setup` must take the same fresh-run path an absent
+    // log would — resolve + create a branch and commit a brand-new header —
+    // rather than throwing. The "starting fresh" warning routes through `emit`
+    // as an `OrcaEvent.Step` so a listener (e.g. Slack) sees it.
     val workDir = GitRepo.seeded()
     val prompt = "corrupt-log-fresh"
     val store = ProgressStore.default(workDir, prompt)
@@ -489,28 +464,23 @@ class FlowLifecycleTest extends munit.FunSuite:
       emit = e => { val _ = emitted.updateAndGet(e :: _) }
     )
 
-    // The corrupt-log warning reached the event surface as a Step (a listener,
-    // e.g. Slack, can observe it) — not only a stderr line.
     val steps = emitted.get().collect { case s: OrcaEvent.Step => s }
     assert(
       steps.exists(_.message.contains("corrupt")),
       s"a Step warning about the corrupt log must be emitted: $steps"
     )
 
-    // A fresh branch was resolved and created, distinct from the start branch
-    // — not an abort, and not a no-op that leaves HEAD where it was.
+    // A fresh branch was resolved and created, distinct from the start branch.
     assertEquals(git.currentBranch(), setup.featureBranch.value)
     assertNotEquals(setup.featureBranch.value, startBranch)
     assertEquals(setup.startBranch, startBranch)
-    // A brand-new header was written and committed — the corrupt bytes are
-    // gone, replaced by a valid fresh log with no entries.
+    // A brand-new header replaced the corrupt bytes: a valid fresh log, no entries.
     val loaded = store.load()
     assert(loaded.isDefined, "a fresh header must have been written")
     assertEquals(loaded.get.header.branch, setup.featureBranch.value)
     assertEquals(loaded.get.entries, Nil)
 
-  // Pinned ADR-0019 migration warning: names the settings path and the likely
-  // gitignore line to remove.
+  // The ADR-0019 gitignored-settings warning message.
   private val settingsIgnoredWarning =
     "stack settings at .orca/settings.properties are gitignored — remove the " +
       "'.orca/' line from .gitignore so they can be committed (scratch " +
@@ -766,9 +736,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     val (setup, steps) =
       setupDiscovering(workDir, CannedDiscoveryAgent(canned), "discover-fresh")
-    // The discovered settings are the run's settings…
     assertEquals(setup.stackSettings, StackSettings(format = List("echo fmt")))
-    // …and the written file is the byte-exact render of the checked entries.
+    // The written file is the byte-exact render of the checked entries.
     assertEquals(
       os.read(OrcaDir.settingsPath(workDir)),
       """# orca settings — edit freely, commit with the project.
@@ -789,14 +758,12 @@ class FlowLifecycleTest extends munit.FunSuite:
       commitMessage(workDir, "HEAD~1"),
       "orca: stack settings (discovered)"
     )
-    // The header commit (HEAD) carries only the progress log its message names —
-    // NOT the settings file.
+    // The header commit (HEAD) carries only the progress log, not the settings file.
     assertEquals(commitMessage(workDir, "HEAD"), "orca: progress log")
     assert(
       !commitFiles(workDir, "HEAD").contains(".orca/settings.properties"),
       s"the header commit must NOT include the settings file, got: ${commitFiles(workDir, "HEAD")}"
     )
-    // The bracketing discovery events reached the event surface.
     assert(
       steps.contains(
         "no .orca/settings.properties — running stack discovery"
@@ -835,14 +802,13 @@ class FlowLifecycleTest extends munit.FunSuite:
       ),
       s"the demoted command must be a commented-out line with its reason: $content"
     )
-    // Parsing the written file yields only the surviving commands…
+    // The written file parses to only the surviving commands, matching the run's.
     assertEquals(
       orca.settings.SettingsFile
         .parse(content, orca.settings.SettingsScope.Project)
         .map(_.stack),
       Right(StackSettings(format = List("echo fmt"), test = List("echo test")))
     )
-    // …which are also what the run got.
     assertEquals(setup.stackSettings.lint, Nil)
     assert(
       steps.contains(
@@ -883,10 +849,9 @@ class FlowLifecycleTest extends munit.FunSuite:
     val (setup, _) =
       setupDiscovering(workDir, CannedDiscoveryAgent(canned), prompt)
     assertEquals(setup.stackSettings, StackSettings(format = List("echo fmt")))
-    // The resume arm gives the rediscovered file its own dedicated commit
-    // (the branch already existed): HEAD advances by exactly that commit,
-    // which carries EXACTLY the settings file under the pinned message — the
-    // file is no longer left untracked.
+    // The resume arm gives the rediscovered file its own dedicated commit (the
+    // branch already existed): HEAD advances by exactly that commit, carrying
+    // exactly the settings file under the pinned message.
     assertEquals(
       os.proc("git", "rev-parse", "HEAD~1").call(cwd = workDir).out.text().trim,
       headBefore,
@@ -1085,8 +1050,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     assert(
       lead.recordedWire("x-1").isEmpty && codex.recordedWire("x-1").isEmpty
     )
-    // Pre-6B.1 this skip was a silent for-comprehension drop; it must now
-    // reach the event surface as a Step, not just vanish.
+    // The skip must reach the event surface as a Step, not vanish silently.
     val steps = listener.events.collect { case s: OrcaEvent.Step => s }
     assert(
       steps.exists(s =>
@@ -1263,13 +1227,11 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "teardownSuccess is best-effort: a non-missing-file removal error does not fail an otherwise-successful run"
   ):
-    // teardownSuccess's doc comment promises log-removal/commit/handoff errors
-    // are "cosmetic — swallowed", but the removal leg only ever caught
-    // NoSuchFileException. Replace the progress-log file with a non-empty
-    // directory (after the last stage's own commit has already landed it as a
-    // plain file) so `os.remove` throws DirectoryNotEmptyException instead —
-    // a real, not-NoSuchFile IO error. The run must still complete: nothing
-    // should escape teardown and turn a successful run into exit 1.
+    // teardownSuccess swallows log-removal/commit/handoff errors as cosmetic.
+    // Replace the progress-log file with a non-empty directory (after the last
+    // stage committed it as a plain file) so `os.remove` throws
+    // DirectoryNotEmptyException — a real, not-NoSuchFile IO error. The run must
+    // still complete: nothing should escape teardown and turn success into exit 1.
     val workDir = GitRepo.seeded()
     val prompt = "bestEffort-teardown"
     val store = ProgressStore.default(workDir, prompt)
@@ -1350,10 +1312,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ):
         // body does nothing — no code changes
         summon[orca.FlowContext].emit(OrcaEvent.Step("no-op"))
-    // Back on main.
     assertEquals(git.currentBranch(), "main")
-    // The feature branch must be gone (auto-deleted as throwaway).
-    // Verify by checking git branch list: no branch other than main exists.
+    // The feature branch must be gone (auto-deleted as throwaway): only main left.
     val branches = os
       .proc("git", "branch", "--format=%(refname:short)")
       .call(cwd = workDir)
@@ -1432,9 +1392,9 @@ class FlowLifecycleTest extends munit.FunSuite:
         val _ = stage("write code"):
           os.write(workDir / "code.txt", "real code")
           "done"
-    // PR-flow behaviour: HEAD returns to the starting branch…
+    // HEAD returns to the starting branch, but the feature branch is kept (it
+    // holds the work / backs the PR).
     assertEquals(git.currentBranch(), "main")
-    // …but the feature branch is kept (it holds the work / backs the PR).
     val branches = os
       .proc("git", "branch", "--format=%(refname:short)")
       .call(cwd = workDir)
@@ -1462,10 +1422,8 @@ class FlowLifecycleTest extends munit.FunSuite:
         featureBranchName = summon[orca.FlowControl].git.currentBranch()
         val _ = stage[String]("crash"):
           throw new RuntimeException("boom")
-    // On the feature branch, not main.
     assertNotEquals(git.currentBranch(), "main")
     assert(featureBranchName.nonEmpty, "must have captured feature branch name")
-    // Feature branch still exists (not deleted).
     val branches = os
       .proc("git", "branch", "--format=%(refname:short)")
       .call(cwd = workDir)
@@ -1483,12 +1441,9 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "default branchNaming (None) resolves via shortenPrompt: branch name equals slug(prompt)"
   ):
-    // When `branchNaming = None` (the default), `flowSetup` uses
-    // `BranchNamingStrategy.shortenPrompt`. With `StubAgent.claude`, `cheap`
-    // returns `this` (haiku = this) and `autonomous` throws
-    // `UnsupportedOperationException`; `shortenPrompt` catches the failure and
-    // falls back to `slug(userPrompt)`. This pins that the default is
-    // `shortenPrompt`, not the old `fromText`.
+    // With `branchNaming = None`, setup uses `BranchNamingStrategy.shortenPrompt`.
+    // `StubAgent.claude`'s `autonomous` throws, so `shortenPrompt` catches and
+    // falls back to `slug(userPrompt)`.
     val workDir = GitRepo.seeded()
     val prompt = "default-naming"
     val expectedBranch = BranchNamingStrategy.slug(prompt)
@@ -1517,13 +1472,9 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "fresh run refuses to bind to a protected branch name"
   ):
-    // The headline hazard this task closes: a `branchNaming` strategy (or,
-    // in production, the cheap-model reply `shortenPrompt` slugs) that
-    // resolves to "main" must NOT bind the whole flow to the repo's default
-    // branch. Today (pre-fix) `freshRun` calls `checkoutOrCreate("main")`
-    // with zero protected-branch check, so this test is RED before
-    // `FeatureBranch` lands: `featureBranchName` observes "main" and no
-    // protecting Step event is emitted.
+    // A `branchNaming` strategy that resolves to "main" must NOT bind the flow
+    // to the repo's default branch: it falls back to a feature branch and emits
+    // a protecting Step.
     val workDir = GitRepo.seeded()
     val prompt = "fresh-protected"
     val git = new OsGitTool(workDir)
@@ -1570,16 +1521,10 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "fresh run does not silently adopt a pre-existing branch with the same resolved name"
   ):
-    // The other tracker hazard task 3.4 closes: `checkoutOrCreate`'s
-    // silent-adopt path took over ANY existing branch with the resolved
-    // name, binding the whole run to whatever unrelated history that branch
-    // already carried — with zero signal. Pre-create a branch with the exact
-    // name `freshRun` will resolve to (a deterministic `branchNaming`), give
-    // it a commit of its own ("unrelated history"), then run a fresh flow
-    // that resolves to that same name. Today (pre-fix) `checkoutOrCreate`
-    // just checks it out and proceeds silently — this test is RED before the
-    // create/checkout split lands: `featureBranchName` observes
-    // `"taken-name"` and the pre-existing branch's head has moved.
+    // A fresh run must not silently adopt a pre-existing branch with the resolved
+    // name, binding the run to its unrelated history. Pre-create "taken-name"
+    // with a commit of its own, then run a fresh flow that resolves to that same
+    // name: it must fall back and leave the pre-existing branch untouched.
     val workDir = GitRepo.seeded()
     val prompt = "adoption-hazard"
     val git = new OsGitTool(workDir)
@@ -1645,15 +1590,13 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "fresh run aborts loudly when the deterministic fallback branch itself already exists"
   ):
-    // The interaction the brief calls out: if the resolved name already went
-    // to the deterministic `flow-<hash>` fallback (here: because a
-    // protected-name collision fires first), a git-level "already exists"
-    // collision on THAT fallback must abort rather than hash a second time —
-    // a deterministic name colliding twice for the same prompt means a
-    // previous run's branch is genuinely still there, and the user must
-    // decide, not have orca guess again. Pre-create the exact deterministic
-    // fallback name as an unrelated branch, then force the protected-name
-    // fallback to land on it by resolving to "main".
+    // If the resolved name already went to the deterministic `flow-<hash>`
+    // fallback (here because a protected-name collision fires first), a git
+    // "already exists" collision on THAT fallback must abort rather than hash
+    // again: a deterministic name colliding twice for the same prompt means a
+    // previous run's branch is still there, and the user must decide. Pre-create
+    // the fallback name, then force the protected-name fallback onto it by
+    // resolving to "main".
     val workDir = GitRepo.seeded()
     val prompt = "fallback-collision-hazard"
     val store = ProgressStore.default(workDir, prompt)
@@ -1694,10 +1637,8 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "surfaced: a setup resume-refusal reaches the user as one Error and escapes as SurfacedFlowFailure"
   ):
-    // The silent-exit family's headline case: a tampered header makes `setup`
-    // throw the resume refusal. Before the `surfaced` bracket, that escaped
-    // `flow()` unreported — banner + exit 1 and nothing else. Now it must reach
-    // the user's event surface exactly once, and escape marked as surfaced.
+    // A tampered header makes `setup` throw the resume refusal. It must reach
+    // the user's event surface exactly once and escape marked as surfaced.
     val workDir = GitRepo.seeded()
     val prompt = "surfaced-tampered"
     val store = ProgressStore.default(workDir, prompt)
@@ -1727,8 +1668,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       thrown.cause.isInstanceOf[orca.OrcaFlowException],
       s"the surfaced cause must be the original refusal: ${thrown.cause}"
     )
-    // Folded from the deleted R32 (same fixture, same validation branch): the
-    // header-validation failure reason rides along in the same message.
+    // The header-validation failure reason rides along in the same message.
     assert(
       thrown.cause.getMessage.contains("failed validation"),
       s"abort message must mention validation failure: ${thrown.cause.getMessage}"
@@ -1774,10 +1714,9 @@ class FlowLifecycleTest extends munit.FunSuite:
   test(
     "surfaced: a rehydration failure reaches the user as one Error, not a silent exit"
   ):
-    // rehydrateSessions runs OUTSIDE the body's try today; a throw there
-    // escaped unreported exactly like a setup failure. Force one: resume in
-    // place (valid header) with a persisted resume-wire-id, and a lead agent
-    // whose registry throws when the runtime replays it.
+    // rehydrateSessions runs outside the body's try, so a throw there must be
+    // surfaced like a setup failure. Force one: resume in place with a persisted
+    // resume-wire-id and a lead agent whose registry throws on replay.
     val workDir = GitRepo.seeded()
     val prompt = "surfaced-rehydrate"
     val store = ProgressStore.default(workDir, prompt)
@@ -1969,8 +1908,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         ):
           ()
     // `intercept[orca.OrcaFlowException]` above already pins the static type
-    // — an unwrapped `OrcaFlowException`, not a `SurfacedFlowFailure` — since
-    // the two types are unrelated; nothing further to assert on that front.
+    // (unwrapped, not a `SurfacedFlowFailure`); nothing further to assert.
     assertEquals(
       thrown.getMessage,
       s"a flow is already running in this working tree (pid $livePid)"
@@ -2226,9 +2164,9 @@ class FlowLifecycleTest extends munit.FunSuite:
       opencodeOverride: => OpencodeAgent = notWired("opencode"),
       piOverride: => PiAgent = notWired("pi"),
       geminiOverride: => GeminiAgent = notWired("gemini"),
-      /** Records every emitted event — `Nil` (the default) keeps `emit` a true
-        * no-op for tests that don't care; the two rehydration-warning tests
-        * below pass a listener to assert on the emitted `Step`.
+      /** Sink for emitted events; the default no-op suits tests that don't
+        * care, while the rehydration-warning tests pass a listener to assert on
+        * `Step`s.
         */
       emitTo: OrcaEvent => Unit = _ => ()
   ) extends FlowContext:

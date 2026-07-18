@@ -26,10 +26,8 @@ private[orca] class DefaultGeminiAgent(
     )
     with GeminiAgent:
 
-  /** Pin the cheap-and-fast model variant. The literal id matches what's
-    * available in the installed `gemini` CLI; newer versions may rename, in
-    * which case callers override via `withConfig(AgentConfig(model =
-    * Some(Model("..."))))`.
+  /** Pin the cheap-and-fast model variant. Newer `gemini` CLI versions may
+    * rename the id — callers override via `withConfig`.
     */
   def flash: GeminiAgent = withModel(Model("gemini-2.5-flash"))
 
@@ -50,9 +48,7 @@ private[orca] class DefaultGeminiAgent(
 
 private[orca] object DefaultGeminiAgent:
 
-  /** The strong default model. Bare `gemini` pins this (in the runtime wiring,
-    * mirroring claude's Opus default for the long-lived implementer); `flash`
-    * opts down. Newer `gemini` CLI versions may rename the id — override via
-    * `withConfig` if so.
+  /** The strong default model that bare `gemini` pins; `flash` opts down. Newer
+    * `gemini` CLI versions may rename the id — override via `withConfig` if so.
     */
   val Pro: Model = Model("gemini-2.5-pro")

@@ -35,8 +35,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
     val events = conv.events.toList
     // The delta opens a turn; `result:success` settles it, and the base-class
-    // auto-close injects the owed AssistantTurnEnd (before 4A this turn settled
-    // open — a grammar violation).
+    // auto-close injects the owed AssistantTurnEnd.
     assertEquals(
       events,
       List(
@@ -87,8 +86,8 @@ class ClaudeConversationTest extends munit.FunSuite:
       s"the error event should not duplicate the streamed body; got: ${errors.head}"
     )
     // The delta opened a turn; the out-of-band is_error settles via `failWith`,
-    // whose base-class auto-close now injects the owed AssistantTurnEnd — so the
-    // settled-failure sequence is grammar-clean (was routed around before 4A).
+    // whose base-class auto-close injects the owed AssistantTurnEnd — so the
+    // settled-failure sequence is grammar-clean.
     assertEquals(events.last, ConversationEvent.AssistantTurnEnd)
     ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val failure = intercept[OrcaFlowException](conv.awaitResult())
@@ -125,10 +124,10 @@ class ClaudeConversationTest extends munit.FunSuite:
   convTest(
     "is_error after a tool-only turn (no assistant text) surfaces the full error body"
   ):
-    // Pins the deltasSinceLastFullTurn-vs-turnIsOpen distinction (see that
-    // field's scaladoc): the ToolResult below makes turnIsOpen true, but no
-    // text/thinking delta ever streamed, so is_error must NOT collapse into
-    // the "see message above" marker — there IS no message above.
+    // The deltasSinceLastFullTurn-vs-turnIsOpen distinction (see that field's
+    // scaladoc): the ToolResult below makes turnIsOpen true, but no text/
+    // thinking delta ever streamed, so is_error must NOT collapse into the "see
+    // message above" marker — there IS no message above.
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, AgentConfig())
 
@@ -236,14 +235,13 @@ class ClaudeConversationTest extends munit.FunSuite:
   convTest(
     "tool_use surrounding streaming events are ignored; emission comes from the full-turn message"
   ):
-    // In claude's live protocol the `assistant` message arrives BEFORE
-    // the matching `content_block_stop`, so the full-turn message is the
-    // single source of truth for tool calls. Streaming events for a
-    // tool_use block (start/json_delta/stop) accumulate no state and
-    // produce no events — emitting from them would either duplicate the
-    // full-turn emit (if the order is assistant→stop) or be too late
-    // (if it ever flipped). Pin both: feed the streaming events, then
-    // the full-turn message, and expect exactly one AssistantToolCall.
+    // In claude's live protocol the `assistant` message arrives BEFORE the
+    // matching `content_block_stop`, so the full-turn message is the single
+    // source of truth for tool calls. Streaming events for a tool_use block
+    // (start/json_delta/stop) accumulate no state and produce no events —
+    // emitting from them would duplicate the full-turn emit. Feed the streaming
+    // events, then the full-turn message, and expect exactly one
+    // AssistantToolCall.
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, AgentConfig())
 
@@ -317,8 +315,7 @@ class ClaudeConversationTest extends munit.FunSuite:
 
     val events = conv.events.toList
     // The ToolResult opens a turn (a tool ran); `result:success` settles it and
-    // the base-class auto-close injects the owed AssistantTurnEnd (before 4A
-    // this turn settled open).
+    // the base-class auto-close injects the owed AssistantTurnEnd.
     assertEquals(
       events,
       List(
@@ -470,11 +467,10 @@ class ClaudeConversationTest extends munit.FunSuite:
     val process = new FakePipedCliProcess()
     val conv = new ClaudeConversation(process, AgentConfig())
 
-    // Assistant turn carrying a tool_use block for the MCP-prefixed
-    // ask_user tool name. Our renderer-side suppression drops the
-    // AssistantToolCall event, so this turn bears no assistant activity at all —
-    // the trailing AssistantTurnEnd is therefore an empty turn and the base
-    // funnel drops it (before 4A it leaked through as an empty-turn violation).
+    // Assistant turn carrying a tool_use block for the MCP-prefixed ask_user
+    // tool name. Renderer-side suppression drops the AssistantToolCall event, so
+    // this turn bears no assistant activity — the trailing AssistantTurnEnd is
+    // therefore an empty turn and the base funnel drops it.
     process.enqueueStdout(
       s"""{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_1","name":"${ClaudeBackend.AskUserToolName}","input":{"question":"x"}}]}}"""
     )

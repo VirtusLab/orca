@@ -262,9 +262,9 @@ class SettingsFileTest extends FunSuite:
     "hasStackLines and the parser agree on a key with a trailing control byte"
   ):
     // `\u001f` is stripped by String.trim (the parser's key trim) but is not
-    // matched by a regex `\s`: the old regex-based gate reported "no stack
-    // line" for this line while the parser read a live `format` key, so the
-    // line survived the discovery append and self-activated on a later run.
+    // matched by a regex `\s`: `hasStackLines` and the parser must agree that
+    // this is a live `format` key, or the line survives a discovery append and
+    // self-activates on a later run.
     val line = "format\u001f= cargo fmt"
     assert(
       SettingsFile.hasStackLines(line),

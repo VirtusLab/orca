@@ -15,14 +15,13 @@ import orca.tools.pi.rpc.{
 
 import scala.util.control.NonFatal
 
-/** Drives one `pi --mode rpc` process for a single Orca LLM call. The backend
-  * sends one `prompt` command, this conversation translates Pi RPC events into
-  * Orca conversation events, and `agent_end` becomes the terminal
+/** Drives one `pi --mode rpc` process for a single Orca LLM call: translates Pi
+  * RPC events into Orca conversation events, with `agent_end` as the terminal
   * [[AgentResult]].
   *
-  * Pi has no native structured-output / JSON-schema flag, so `outputSchema` is
-  * carried only for the framework's parsing: the schema is enforced through the
-  * prompt (`DefaultAgentCall` injects the rules), not the Pi CLI.
+  * Pi has no native structured-output flag, so `outputSchema` is carried only
+  * for the framework's parsing; the schema is enforced through the prompt, not
+  * the Pi CLI.
   */
 private[pi] class PiConversation(
     process: PipedCliProcess,
@@ -41,13 +40,12 @@ private[pi] class PiConversation(
 
   import PiConversation.*
 
-  /** Turn state, accrued by the single reader thread — `handleLine` and the
-    * handlers it drives all run there, so a plain `var` over an immutable
-    * snapshot is safe and avoids cross-thread machinery; `awaitResult` reads
-    * the outcome only after joining the reader, which publishes these writes.
+  /** Turn state, accrued only by the single reader thread, so a plain `var` is
+    * safe; `awaitResult` reads the outcome after joining the reader, which
+    * publishes these writes.
     *
-    * `textStreamedThisMessage` lets `message_end` emit the completed text as a
-    * fallback only when no `text_delta` already streamed it.
+    * `textStreamedThisMessage` lets `message_end` emit its text as a fallback
+    * only when no `text_delta` already streamed it.
     */
   private case class TurnState(
       lastAssistantMessage: String = "",
@@ -57,15 +55,14 @@ private[pi] class PiConversation(
   )
   private var turnState: TurnState = TurnState()
 
-  // All stdin writes funnel through this lock: `sendPrompt` runs on the caller's
-  // thread, the ask-user reply on the event consumer's, and the reader fork may
-  // write an extension cancel. `writeLine` is an unsynchronised write+flush, so
-  // concurrent callers would otherwise interleave JSONL frames.
+  // All stdin writes funnel through this lock: `sendPrompt` (caller thread), the
+  // ask-user reply (event consumer), and the reader fork's extension cancel can
+  // race. `writeLine` is an unsynchronised write+flush, so concurrent callers
+  // would otherwise interleave JSONL frames.
   private val stdinLock = new AnyRef
 
-  // No `start()`: the base spawns its reader / stderr forks lazily on first
-  // touch of the conversation surface, after this subclass's fields (incl.
-  // `stdinLock`) are initialised.
+  // The base spawns its reader/stderr forks lazily on first touch, after this
+  // subclass's fields (incl. `stdinLock`) are initialised.
 
   def sendPrompt(prompt: String): Unit =
     sendLine(OutboundMessage.prompt(prompt))
@@ -150,14 +147,12 @@ private[pi] class PiConversation(
       if fallbackText then
         eventQueue.enqueue(ConversationEvent.AssistantTextDelta(message.text))
 
-  // A turn can span several assistant messages (each ends with `message_end`),
-  // so the single turn boundary is `agent_end`, not per-message. `agent_end` is
-  // terminal (one turn per conversation), so the base funnel auto-closes the
-  // open turn when `succeedWith` settles — no explicit `AssistantTurnEnd` here.
+  // A turn can span several assistant messages, so the turn boundary is
+  // `agent_end`, not per-message. It's terminal, so the base funnel auto-closes
+  // the open turn on `succeedWith` — no explicit `AssistantTurnEnd` here.
   private def handleAgentEnd(): Unit =
-    // Closing stdin tells Pi no more commands are coming; `settleSuccess` (via
-    // `succeedWith`) then sets the outcome and interrupts the source (SIGINTs
-    // the process), so stdin must close first.
+    // Close stdin first: `settleSuccess` then interrupts the source (SIGINTs the
+    // process), so no more commands can be sent afterward.
     closeStdin()
     settleSuccess(
       wireId = clientSession.value,
@@ -177,16 +172,15 @@ private[pi] class PiConversation(
           ConversationEvent.UserQuestion(
             question,
             answer =>
-              // The turn may have already reached agent_end (stdin closed) by
-              // the time a human answers; a late reply is moot, so don't let the
-              // write blow up the consumer thread.
+              // Stdin may already be closed (agent_end reached) by the time a
+              // human answers; a late reply is moot, so don't let the write
+              // blow up the consumer thread.
               try sendLine(OutboundMessage.extensionUiValue(id, answer))
               catch case NonFatal(_) => ()
           )
         )
       case method if FireAndForgetUiMethods.contains(method) =>
-        // Pi extensions use these for TUI decoration/status. In RPC mode they
-        // are explicitly fire-and-forget, so Orca can safely ignore them.
+        // TUI decoration/status; fire-and-forget in RPC mode, so ignore them.
         ()
       case other =>
         eventQueue.enqueue(
@@ -207,8 +201,7 @@ private[pi] object PiConversation:
   )
 
   private def isKnownStderrNoise(line: String): Boolean =
-    // Pi's terminal notifier can write iTerm2-style notifications to stderr as
-    // OSC 777 (`ESC ] 777 ; ... BEL`). We strip well-formed controls before
-    // trimming, but keep this guard for environments that have already removed
-    // the leading ESC byte before the line reaches us.
+    // Pi's terminal notifier writes iTerm2 OSC 777 notifications to stderr
+    // (`ESC ] 777 ; ... BEL`). Well-formed controls are stripped before
+    // trimming; this guard catches lines that already lost the leading ESC.
     line.startsWith("]777;notify;")

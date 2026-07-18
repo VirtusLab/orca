@@ -19,8 +19,6 @@ object Title:
   def apply(s: String): Title = s
   extension (t: Title) def value: String = t
 
-  // Title is `String` at runtime, so jsoniter's existing String codec semantics
-  // apply directly — we just retype them.
   given JsonValueCodec[Title] with
     def decodeValue(in: JsonReader, default: Title): Title =
       in.readString(default)

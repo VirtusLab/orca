@@ -20,19 +20,15 @@ trait ProgressStore:
     */
   def path: os.Path
 
-  /** Lenient load for the runtime's frequent reads (rehydration, `appendEntry`
-    * / `upsertSession`'s read-modify-write): absent and corrupt both collapse
-    * to `None`, since those call sites don't need to tell the two apart.
-    * `loadDetailed()` is the one call site that does — the lifecycle's resume
-    * decision.
+  /** Lenient load for the runtime's frequent reads: absent and corrupt both
+    * collapse to `None`. Use [[loadDetailed]] where the difference matters.
     */
   def load(): Option[ProgressLog]
 
-  /** Detailed load for the lifecycle's resume decision: distinguishes an absent
-    * log (normal fresh run) from a present-but-unparseable one (a corrupt or
-    * truncated file — the caller starts fresh but WARNS, because the user may
-    * have expected a resume). `load()` keeps its lenient Option shape for the
-    * runtime's frequent reads.
+  /** Distinguishes an absent log (normal fresh run) from a present-but-
+    * unparseable one (corrupt or truncated — the caller starts fresh but WARNS,
+    * since the user may have expected a resume). Used by the lifecycle's resume
+    * decision.
     */
   def loadDetailed(): ProgressStore.LoadResult
 
@@ -50,24 +46,17 @@ trait ProgressStore:
     * [[SessionRecord.occurrence]]: replaces an existing record with that key,
     * or appends if none exists. Last write wins.
     *
-    * Requires [[writeHeader]] to have been called first; otherwise it throws.
-    * Does NOT commit — the session is recorded in the log file only; the next
-    * stage commit will force-add the log and carry it. Consequence: on failure
-    * teardown (`git reset --hard`) any session record written since the last
-    * stage commit is erased — the retry then mints a fresh session and
-    * re-seeds. This is the intended fail-safe; `session(name, seed)`'s
-    * get-or-create contract is therefore best-effort until a stage commit has
-    * carried the log.
+    * Requires [[writeHeader]] first; otherwise it throws. Does NOT commit — the
+    * next stage commit force-adds the log and carries it. So on failure
+    * teardown (`git reset --hard`) any record written since the last stage
+    * commit is erased and the retry re-seeds; `session(name, seed)`'s
+    * get-or-create is best-effort until a stage commit has carried the log.
     */
   def upsertSession(record: SessionRecord)(using WorkspaceWrite): Unit
 
 object ProgressStore:
 
-  /** Outcome of [[ProgressStore.loadDetailed]]. Nested here (rather than a
-    * top-level type) so it reads as `ProgressStore.LoadResult` at import sites
-    * — it's meaningless without the store it came from, same call as
-    * `Verdict.RejectionKind`.
-    */
+  /** Outcome of [[ProgressStore.loadDetailed]]. */
   enum LoadResult:
     case Absent
     case Corrupt(reason: String)
@@ -118,14 +107,9 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
     writeLog(upsertSessionRecord(currentLogOrThrow("upsertSession"), record))
 
   /** Read-modify-write precondition for [[appendEntry]] / [[upsertSession]]:
-    * both require a log to already exist (`writeHeader` must have run first).
-    * Routed through [[loadDetailed]] (not the lenient [[load]]) so the two ways
-    * "no usable log" can happen get distinct, honest messages: a log that was
-    * genuinely never written (`Absent` — the real protocol violation the
-    * original message described) vs. one that exists but is corrupted
-    * (`Corrupt` — a torn write, an external edit — mid-run, which `load()`'s
-    * collapsing to `None` used to misreport as "before writeHeader" even though
-    * writeHeader plainly *did* run).
+    * both require a log to already exist. Routed through [[loadDetailed]] so an
+    * `Absent` log (writeHeader never ran) and a `Corrupt` one (a torn write or
+    * external edit mid-run) get distinct messages.
     */
   private def currentLogOrThrow(callerName: String): ProgressLog =
     loadDetailed() match
@@ -158,20 +142,15 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
       else log.sessions :+ record
     log.copy(sessions = updated)
 
-  // We rewrite the whole file each time rather than append JSONL: the log is a
-  // single structured *document* (a header + entries + sessions object), not a
-  // flat event stream — `upsertEntry`/`upsertSession` mutate existing elements,
-  // which an append-only log can't express. It's also small and bounded (a
-  // handful of stages + sessions per run), so a full rewrite is negligible.
+  // Rewrite the whole file each time rather than append JSONL: the log is a
+  // single structured document whose elements `upsertEntry`/`upsertSession`
+  // mutate in place, which an append-only log can't express, and it's small and
+  // bounded so a full rewrite is negligible.
   //
-  // Written atomically: a plain `os.write.over` can tear the file if the
-  // process dies mid-write (a killed run, an OOM), leaving `loadDetailed()`
-  // reading `Corrupt` where a resume was expected. Writing to a sibling temp
-  // file (same directory, so the same filesystem) then `os.move` with
-  // `atomicMove = true` makes the visible file always either the old complete
-  // content or the new complete content, never a partial write.
+  // Written atomically via a sibling temp file + `os.move(atomicMove = true)`:
+  // a plain `os.write.over` can tear the file if the process dies mid-write,
+  // leaving `loadDetailed()` reading `Corrupt` where a resume was expected.
   private def writeLog(log: ProgressLog): Unit =
-    // `.orca` creation routes through OrcaDir like every other writer's.
     val dir = OrcaDir.ensureRoot(workDir)
     val tmp = os.temp(
       contents = writeToString(log)(using codec),
@@ -180,20 +159,16 @@ private class OsProgressStore(workDir: os.Path, val path: os.Path)
       suffix = ".tmp",
       deleteOnExit = false
     )
-    // The whole move sequence (including the fallback) is wrapped so that ANY
-    // failure — not just the handled AtomicMoveNotSupportedException — cleans
-    // up the temp file instead of leaking it. The target itself is untouched
-    // on failure; only the orphaned `tmp` is removed here.
+    // Wrapped so ANY failure cleans up the temp file rather than leaking it;
+    // the target is untouched on failure.
     try
       try os.move(tmp, path, replaceExisting = true, atomicMove = true)
       catch
-        // Some filesystems (network mounts, certain container overlay/bind
-        // mounts) reject ATOMIC_MOVE even for a same-directory rename,
-        // throwing this checked exception. Torn writes are impossible on
-        // those anyway (rename semantics still apply — only the *atomicity
-        // guarantee against concurrent readers* is unavailable) so a plain
-        // move is a safe fallback, not a silent downgrade of the actual
-        // protection we need.
+        // Some filesystems (network mounts, some container overlay/bind mounts)
+        // reject ATOMIC_MOVE even for a same-directory rename. Torn writes are
+        // impossible there anyway (only the atomicity guarantee against
+        // concurrent readers is unavailable), so a plain move is a safe
+        // fallback.
         case _: java.nio.file.AtomicMoveNotSupportedException =>
           os.move(tmp, path, replaceExisting = true)
     catch

@@ -14,8 +14,7 @@ import orca.agents.{
 }
 
 /** The shared `ClaudeAgent` skeleton for runner tests: every builder returns
-  * `this`, every call throws. Concrete stubs override only what differs —
-  * [[StubAgent.claude]] nothing, [[CannedDiscoveryAgent]] `resultAs`.
+  * `this`, every call throws. Concrete stubs override only what differs.
   */
 private[runner] abstract class StubClaudeAgent(val name: String)
     extends ClaudeAgent:

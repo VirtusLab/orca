@@ -16,10 +16,9 @@ import orca.progress.ProgressStore
 import orca.testkit.GitRepo
 import orca.tools.{GitTool, OsGitTool}
 
-/** Tests for the agent-generated commit-message path in `recordAndCommit`.
-  *
-  * Strategy: build a `TestFlowControlWithAgent` that wires a real temp repo and
-  * a stubbed LLM, then assert the message in `git log` after a stage runs.
+/** Tests for the agent-generated commit-message path in `recordAndCommit`: wire
+  * a real temp repo and a stubbed LLM, then assert the message in `git log`
+  * after a stage runs.
   */
 class CommitMessageTest extends munit.FunSuite:
 
@@ -121,7 +120,6 @@ class CommitMessageTest extends munit.FunSuite:
     lazy val gh: orca.tools.GitHubTool = stub("gh")
     lazy val fs: orca.tools.FsTool = stub("fs")
     def emit(event: OrcaEvent): Unit = ()
-    // Stage-identity bookkeeping inherited from the shared `StageFrames` mixin.
 
   private def withCtx(
       agentStub: Agent[BackendTag.ClaudeCode.type]
@@ -159,11 +157,8 @@ class CommitMessageTest extends munit.FunSuite:
     // force-added) triggers the `s"stage: $name"` fallback.
     withCtx(stubbedAgent("should not appear")): (ctx, dir) =>
       given FlowControl = ctx
-      // Run a stage that produces no code changes — only the progress file changes.
       val _ = stage("no-op"):
         "done"
-      // The commit message must be the fallback, not the LLM reply, because the
-      // diff was empty (no code files modified in the body).
       assertEquals(lastCommitMessage(dir), "stage: no-op")
 
   test(

@@ -2,13 +2,11 @@ package orca.backend
 
 import orca.subprocess.PipedCliProcess
 
-/** The line-oriented source a [[orca.backend.ForkedConversation]] drives.
-  *
-  * Abstracts the four things the driver needs from its producer — a primary
-  * line stream, an optional secondary diagnostic stream, a way to stop it, and
-  * a terminal status — so one driver serves both a subprocess
-  * ([[StreamSource.fromProcess]], used by the Claude/Codex backends) and any
-  * other line producer (the OpenCode `GET /event` SSE connection).
+/** The line-oriented source a [[orca.backend.ForkedConversation]] drives: a
+  * primary line stream, an optional secondary diagnostic stream, a way to stop
+  * it, and a terminal status — so one driver serves both a subprocess
+  * ([[StreamSource.fromProcess]]) and any other line producer (the OpenCode
+  * `GET /event` SSE connection).
   *
   * Thread-safety: [[lines]] and [[errorLines]] are each single-consumer (one
   * reader thread per stream). [[interrupt]] must tolerate calls from any

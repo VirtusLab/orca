@@ -81,15 +81,10 @@ class ProgressStoreTest extends FunSuite:
   test("load returns None for a corrupt file (no throw)"):
     val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
-    // Manually write garbage to the expected path location
     val path = workDir / ".orca"
     os.makeDir.all(path)
-    // Write garbage to every possible progress file via direct os.write
-    // The store's path is deterministic for a given prompt, so we can
-    // reconstruct it by writing to any file there — but we need the exact path.
-    // Instead, call writeHeader so the file exists, then overwrite with garbage.
+    // writeHeader creates the store file; overwrite it with garbage.
     store.writeHeader(header)
-    // Overwrite with non-JSON content
     val files = os.list(path).filter(_.last.startsWith("progress-"))
     assert(files.nonEmpty, "expected at least one progress file")
     os.write.over(files.head, "not json {{{")
@@ -166,9 +161,9 @@ class ProgressStoreTest extends FunSuite:
   test(
     "appendEntry against a corrupted-but-present log surfaces a corruption-specific message, not the before-writeHeader lie"
   ):
-    // 12.4: a log that exists but is torn/corrupted mid-run must not be
-    // misreported as "appendEntry called before writeHeader" — that message
-    // is a lie when writeHeader plainly did run (the file exists).
+    // A log that exists but is torn/corrupted mid-run must not be misreported
+    // as "appendEntry called before writeHeader" — that message is wrong when
+    // writeHeader plainly did run (the file exists).
     val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     val path = workDir / ".orca"
@@ -229,7 +224,6 @@ class ProgressStoreTest extends FunSuite:
     val files = os.list(orcaDir).filter(_.last.startsWith("progress-"))
     assert(files.size == 1, s"expected exactly one progress file, got $files")
     val filename = files.head.last
-    // filename must match progress-<12 hex chars>.json
     assert(
       filename.matches("progress-[0-9a-f]{12}\\.json"),
       s"unexpected filename: $filename"
@@ -330,9 +324,8 @@ class ProgressStoreTest extends FunSuite:
   test(
     "writeHeader writes atomically: no leftover .tmp files"
   ):
-    // The AtomicMoveNotSupportedException fallback path has no injectable
-    // seam in this test harness — verified by code review, mirroring
-    // FlowLifecycleTest's convention for the corrupt-log WARN.
+    // The AtomicMoveNotSupportedException fallback path has no injectable seam
+    // in this harness; it is verified by code review only.
     val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "my prompt")
     store.writeHeader(header)

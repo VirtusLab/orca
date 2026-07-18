@@ -16,30 +16,16 @@ import scala.util.control.NonFatal
   * streaming LLM output, and errors to a `PrintStream` (defaults to stderr so
   * the structured output on stdout stays clean).
   *
-  * The output is split in two zones:
-  *   - The **event log** at the top, growing line-by-line as stages start and
-  *     tools fire.
-  *   - A **status line** pinned at the bottom, showing the current activity
-  *     with an animated spinner glyph.
+  * The output has two zones, both owned by [[TerminalOutput]]: an **event log**
+  * growing line-by-line at the top, and a **status line** with an animated
+  * spinner pinned at the bottom. When stderr isn't a TTY (CI, redirected
+  * output, `NO_COLOR`/`ORCA_NO_ANIMATION`) it degrades to plain inline writes.
   *
-  * Both zones are owned by [[TerminalOutput]], which serialises every write on
-  * a single worker thread. When stderr isn't a TTY (CI, redirected output,
-  * `NO_COLOR`/`ORCA_NO_ANIMATION`), the output degrades to plain inline writes
-  * without ANSI escapes.
-  *
-  * The default output stream is forced to UTF-8 (see [[start]]): orca's UI is
-  * built from non-ASCII glyphs, and when the process is launched under a
-  * non-UTF-8 default charset (a `C`/`POSIX` locale — common in containers and
-  * editor sandboxes) the JVM's `System.err` would otherwise encode each glyph
-  * to `?`.
-  *
-  * `drive` runs on the caller's thread (no actor ask). It iterates the
-  * conversation's event stream and tells the output. The spinner runs on a
-  * separate fork inside `TerminalOutput`, so it keeps advancing while drive
-  * blocks on the backend.
-  *
-  * [[close]] is called from `flow(...)`'s `finally` to flush pending writes and
-  * clear the status row before the enclosing scope ends.
+  * The default stream is forced to UTF-8 (see [[start]]) so orca's non-ASCII
+  * glyphs survive a non-UTF-8 default charset. `drive` runs on the caller's
+  * thread; the spinner advances on a separate fork inside `TerminalOutput`
+  * while drive blocks on the backend. [[close]] runs from `flow(...)`'s
+  * `finally` to flush and clear the status row before the scope ends.
   */
 class TerminalInteraction private[terminal] (
     output: TerminalOutput,
@@ -69,15 +55,10 @@ class TerminalInteraction private[terminal] (
       prompter = prompter
     ).render(conversation).orThrow
 
-  /** Close in construction-reverse order: the prompter (process-scoped, shared
-    * across every conversation this interaction drove — renderers never close
-    * it) then the output. A test-injected prompter is closed here too; there's
-    * no hardcoded singleton in this path.
-    *
-    * The prompter close is guarded: it's teardown-only degradation, and a
-    * throwing prompter must never strand the output (leaving the status row
-    * uncleared) or mask whatever error is already unwinding through the
-    * caller's `finally`.
+  /** Close the prompter (shared across every conversation; renderers never
+    * close it), then the output. The prompter close is guarded so a throwing
+    * prompter can't strand the output uncleared or mask an error already
+    * unwinding through the caller's `finally`.
     */
   override def close(): Unit =
     try prompter.close()
@@ -86,10 +67,9 @@ class TerminalInteraction private[terminal] (
 
 object TerminalInteraction:
 
-  /** Build a `TerminalInteraction` in the given Ox scope. Inside, the
+  /** Build a `TerminalInteraction` in the given Ox scope. The
     * [[TerminalOutput]]'s actor and animator fork are tied to the scope and
-    * terminate when it ends. `flow(...)` calls [[close]] in its `finally`
-    * before the scope joins, draining pending writes.
+    * terminate when it ends.
     */
   def start(
       out: PrintStream = utf8Stderr,
@@ -118,14 +98,10 @@ object TerminalInteraction:
     defaultUseColor && !sys.env.contains("ORCA_NO_ANIMATION")
 
   /** `System.err`, re-encoded as UTF-8 regardless of the JVM's default charset.
-    * orca's UI is built from non-ASCII glyphs (`…`, `✖`, `▸`, `●`, braille
-    * spinner); when launched under a non-UTF-8 locale (`C`/`POSIX`, common in
-    * containers and editor sandboxes) the JVM resolves `stderr.encoding` to
-    * US-ASCII and `System.err` would encode each glyph to `?`. Wrapping forces
-    * UTF-8 char→byte encoding; the bytes pass through the underlying
-    * `System.err` unchanged (`PrintStream.write(byte[])` doesn't re-encode).
-    * Never closed by [[TerminalOutput]] (it only prints/flushes), so the
-    * underlying `System.err` stays open.
+    * Under a non-UTF-8 locale (`C`/`POSIX`, common in containers/sandboxes) the
+    * JVM resolves `stderr.encoding` to US-ASCII and would encode orca's
+    * non-ASCII glyphs to `?`; wrapping forces UTF-8 encoding. Never closed by
+    * [[TerminalOutput]], so the underlying `System.err` stays open.
     */
   private[terminal] def utf8Stderr: PrintStream =
     new PrintStream(System.err, true, UTF_8)

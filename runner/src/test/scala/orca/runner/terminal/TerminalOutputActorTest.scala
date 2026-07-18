@@ -100,9 +100,8 @@ class TerminalOutputActorTest extends munit.FunSuite:
           "A"
 
       firstStarted.await()
-      // The first prompt owns the terminal now. A log write and a status
-      // update arriving concurrently must not land on `out` (7B.1) — they
-      // should be deferred until resume.
+      // The first prompt owns the terminal now. A log write and a status update
+      // arriving concurrently must not land on `out`; they defer until resume.
       val sizeDuringPrompt = buf.size()
       output.log("during-first-prompt")
       output.setStatus(Some("stage started"))

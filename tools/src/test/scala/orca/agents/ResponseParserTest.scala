@@ -5,8 +5,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 case class ParsedSample(name: String, count: Int)
     derives ConfiguredJsonValueCodec
 
-// Mirrors the reviewer verdict shape (`{"issues":[...]}`) from the live-test
-// crash log, so the regression test below reproduces the exact bytes.
+// Reviewer verdict shape (`{"issues":[...]}`) for the input-envelope regression.
 case class IssuesSample(issues: List[String]) derives ConfiguredJsonValueCodec
 
 class ResponseParserTest extends munit.FunSuite:
@@ -47,13 +46,10 @@ class ResponseParserTest extends munit.FunSuite:
     assert(!e.getMessage.contains("+---"))
     assert(!e.getMessage.contains("\n"))
 
-  // Regression: opencode (reviewer routed through claude-haiku) echoed its own
-  // structured-output tool's argument envelope — the tool's sole parameter is
-  // named `input` — back as the agent response instead of the bare schema
-  // value. Live-test finding B: `{"input":"{\"issues\":[]}"}` aborted the
-  // whole flow with a MalformedAgentOutputException.
+  // Regression: some backends echo their structured-output tool's argument
+  // envelope (sole parameter named `input`) instead of the bare schema value,
+  // e.g. `{"input":"{\"issues\":[]}"}`. Unwrap the lone `input` key.
   test("unwraps a lone input-key envelope whose value is a JSON string"):
-    // The exact payload observed in the opencode live-test crash log.
     val observed = """{"input":"{\"issues\":[]}"}"""
     assertEquals(
       ResponseParser.parse[IssuesSample](observed),

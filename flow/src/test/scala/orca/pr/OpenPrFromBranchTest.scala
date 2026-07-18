@@ -24,14 +24,12 @@ import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import scala.concurrent.duration.FiniteDuration
 import java.util.concurrent.ConcurrentLinkedQueue
 
-/** Tests for [[openPrFromBranch]] — the push → summarise → create tail bundled
-  * as three resume-safe stages.
-  *
-  * The helper is thin orchestration, so the honest thing to pin is its
-  * STRUCTURE: three stages in the fixed order, and — the resume-critical
-  * property — `git.push` happening in an earlier stage than `gh.createPr`.
-  * Recording `git`/`gh` doubles capture call order; a real [[TestFlowControl]]
-  * runs the actual `stage` machinery so the emitted stage boundaries are real.
+/** Tests for [[openPrFromBranch]] — push → summarise → create as three
+  * resume-safe stages. Pins the structure: three stages in fixed order, with
+  * the resume-critical property that `git.push` runs in an earlier stage than
+  * `gh.createPr`. Recording `git`/`gh` doubles capture call order; a real
+  * [[TestFlowControl]] runs the actual `stage` machinery so the emitted stage
+  * boundaries are real.
   */
 class OpenPrFromBranchTest extends FunSuite:
 

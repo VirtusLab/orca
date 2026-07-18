@@ -93,7 +93,6 @@ class OpencodeBackendTest extends munit.FunSuite:
           "/session/ses_server1/prompt_async"
         )
       )
-      // The backend forwards the prompt into the prompt_async body.
       val (_, body) = http.posts.find(_._1.endsWith("/prompt_async")).get
       assert(body.contains(""""text":"hi""""), body)
 
@@ -161,13 +160,11 @@ class OpencodeBackendTest extends munit.FunSuite:
     "interactive shell: finally-cancel after a successful turn posts no /abort " +
       "(settledOutcome race regression)"
   ):
-    // Mirrors the real driving loop (`AgentCall.runInteractiveOnce`:
-    // `try interaction.drive(conversation) finally conversation.cancel()`):
-    // the reader settles on its own fork/thread while `cancel()` runs here, on
-    // the test's thread — a genuine cross-thread race on `isSettled`, not just
-    // a same-thread call sequence. Before `settledOutcome` was `@volatile`,
-    // `cancel()` could observe a stale `isSettled == false` on this path and
-    // fire the real `/abort` on a turn that already succeeded.
+    // Mirrors the real driving loop (`try interaction.drive(conversation)
+    // finally conversation.cancel()`): the reader settles on its own fork while
+    // `cancel()` runs on the test's thread — a genuine cross-thread race on
+    // `isSettled`. A stale `isSettled == false` here would fire a real `/abort`
+    // on a turn that already succeeded.
     supervised:
       val http = new FakeHttp(
         turn(
@@ -223,12 +220,10 @@ class OpencodeBackendTest extends munit.FunSuite:
   ):
     supervised:
       // Mirrors resume: FlowLifecycle.rehydrateSessions registers the
-      // client→server mapping before any turn has touched the server, so
-      // `http` has never been forced yet when `exists` is called. The probe
-      // must still force the (lazy) spawn and contact the fresh server rather
-      // than short-circuiting on whether it was already running — that
-      // short-circuit was the cross-restart-resume bug this pins against a
-      // regression of.
+      // client→server mapping before any turn has touched the server, so `http`
+      // has never been forced when `exists` is called. The probe must still
+      // force the lazy spawn and contact the fresh server rather than
+      // short-circuiting on whether it was already running.
       val http = new FakeHttp(
         Nil,
         path => if path == "/session/ses_server1" then 200 else 404

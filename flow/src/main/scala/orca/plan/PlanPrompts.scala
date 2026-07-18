@@ -16,11 +16,10 @@ import orca.util.PromptResource
   */
 object PlanPrompts:
 
-  /** Used by `Plan.interactive.*` and `Plan.autonomous.*` to brief the planner
-    * agent. Without the opening clause agents tend to start editing files
-    * during the planning turn — the implementation is the implementer's job.
-    * Also asks the planner to fill the `brief` field of its structured output
-    * with a codebase briefing for the implementing agents.
+  /** Briefs the planner agent for `Plan.{autonomous,interactive}.from`. The
+    * opening clause keeps agents from editing files during the planning turn;
+    * also asks the planner to fill the `brief` field with a codebase briefing
+    * for the implementing agents.
     */
   val Planning: String =
     PromptResource.load("/orca/plan/prompts/planning.md")

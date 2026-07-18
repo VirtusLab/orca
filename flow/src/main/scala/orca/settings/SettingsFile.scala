@@ -39,10 +39,9 @@ private[settings] enum SettingsError:
 
 /** The closed set of settings-file keys; `raw` is the exact on-disk spelling
   * (keys are case-sensitive). Split into [[StackKey]] and [[AgentKey]] so
-  * `append` and the agent-key handling each match only their own cases —
-  * exhaustively, with no wildcard arm over the full six-case set — a key added
-  * to either enum without matching code added everywhere fails to compile
-  * instead of silently falling through.
+  * `append` and the agent-key handling each match exhaustively over their own
+  * cases — a key added without matching code fails to compile rather than
+  * silently falling through.
   */
 private[settings] sealed trait SettingKey:
   def raw: String
@@ -78,13 +77,13 @@ private[orca] case class ParsedSettings(
     agents: AgentSettings
 )
 
-/** Strict line format for `.orca/settings.properties`: `#` comments (a line
-  * whose first non-space char is `#`), `key = value` with the value taken
-  * verbatim (trimmed) after the first `=` — always, with no comment stripping,
-  * so a `#` inside the value is command text — repeated stack keys append in
-  * file order, repeated agent keys are rejected, an empty value is equivalent
-  * to omitting the key. Hand-rolled rather than `java.util.Properties`, whose
-  * backslash/unicode escape handling would mangle shell commands (ADR 0019).
+/** Strict line format for `.orca/settings.properties`: `#` comments (first
+  * non-space char is `#`), `key = value` with the value taken verbatim
+  * (trimmed) after the first `=` — no comment stripping, so a `#` inside the
+  * value is command text. Repeated stack keys append in file order, repeated
+  * agent keys are rejected, an empty value is equivalent to omitting the key.
+  * Hand-rolled rather than `java.util.Properties`, whose backslash/unicode
+  * escape handling would mangle shell commands (ADR 0019).
   */
 private[orca] object SettingsFile:
 
@@ -121,9 +120,8 @@ private[orca] object SettingsFile:
             case None      => Left(SettingsError.UnknownKey(number, rawKey))
             case Some(key) =>
               // A value starting with `#` (e.g. `lint = # disabled`) runs
-              // nothing under `bash -c` and exits 0, silently turning the
-              // gate off — rejected so the whole line is commented out
-              // instead.
+              // nothing under `bash -c` and exits 0, silently turning the gate
+              // off — rejected so the whole line is commented out instead.
               if value.startsWith("#") then
                 Left(SettingsError.CommentedValue(number, rawKey))
               else if value.isEmpty then Right(acc)
@@ -172,9 +170,9 @@ private[orca] object SettingsFile:
       "re-run auto-discovery."
 
   /** The full settings-file text for `entries` under [[Header]],
-    * newline-terminated. A [[SettingsEntry.Command]]'s comment renders as its
-    * own `# ` line(s) directly above the `key = command` line — one `# ` line
-    * per line of comment text, so a multi-line comment stays parseable.
+    * newline-terminated. A [[SettingsEntry.Command]]'s comment renders as one
+    * `# ` line per line of comment text, directly above the `key = command`
+    * line, so a multi-line comment stays parseable.
     */
   def render(entries: List[SettingsEntry]): String =
     (Header :: entries.map(renderEntry)).mkString("", "\n", "\n")
@@ -183,8 +181,7 @@ private[orca] object SettingsFile:
     * newline-terminated. The append shape for a file that already exists but
     * carries no stack lines (an agents-only hand-written file): discovery
     * appends its stack entries below the user's untouched agent lines instead
-    * of overwriting the whole file. Shares [[renderEntry]] with [[render]] so
-    * the entry formatting lives in one place.
+    * of overwriting the whole file.
     */
   def renderAppend(entries: List[SettingsEntry]): String =
     entries.map(renderEntry).mkString("", "\n", "\n")
@@ -192,12 +189,9 @@ private[orca] object SettingsFile:
   private def renderEntry(entry: SettingsEntry): String =
     entry match
       case SettingsEntry.Command(key, command, comment) =>
-        // Newlines in the command collapse to single spaces so the entry stays
-        // one physical line (an LLM-sourced multi-line string would otherwise
-        // wedge the next parse).
+        // Collapse newlines so the entry stays one physical line — an
+        // LLM-sourced multi-line command would otherwise wedge the next parse.
         val commandLine = s"$key = ${collapseNewlines(command)}"
-        // A blank comment renders as absent — a lone `# ` line above the
-        // command would carry no information.
         comment.filter(!_.isBlank) match
           case Some(text) =>
             text.linesIterator
@@ -205,12 +199,10 @@ private[orca] object SettingsFile:
               .mkString("", "\n", "\n") + commandLine
           case None => commandLine
       case SettingsEntry.Unset(key, reason) =>
-        // Whitespace runs in the reason collapse to single spaces — the same
-        // one-physical-line guarantee as the command above.
         s"# $key =   (${collapseWhitespace(reason)})"
       case SettingsEntry.Demoted(key, command, reason) =>
-        // Both parts collapse like Unset's reason: the whole entry must stay
-        // one physical `#` line or the tail would parse as live commands.
+        // Collapse both parts: the whole entry must stay one physical `#` line
+        // or the tail would parse as live commands.
         s"# $key = ${collapseWhitespace(command)}   " +
           s"(${collapseWhitespace(reason)})"
 
@@ -231,13 +223,11 @@ private[orca] object SettingsFile:
       case StackKey.Test   => acc.copy(test = acc.test :+ command)
 
   /** Split a `key = value` line at the FIRST `=`: the trimmed key and the
-    * verbatim-but-trimmed value (everything after the first `=` belongs to the
-    * value, so commands containing `=` — e.g. `FOO=bar cargo check` — survive
-    * intact). `None` when the line has no `=`. The single definition of "which
-    * key does this line name", shared by [[parseLine]] and [[hasStackLines]] so
-    * a control byte `String.trim` strips (but a `\s` regex would not match) can
-    * never make the discovery gate and the parser disagree about whether a line
-    * is a live stack key.
+    * verbatim-but-trimmed value (so commands containing `=` — e.g. `FOO=bar
+    * cargo check` — survive intact). `None` when the line has no `=`. The
+    * single definition of "which key does this line name", shared by
+    * [[parseLine]] and [[hasStackLines]] so the discovery gate and the parser
+    * can't disagree about whether a line is a live stack key.
     */
   private def splitAssignment(line: String): Option[(String, String)] =
     line.indexOf('=') match
@@ -247,14 +237,9 @@ private[orca] object SettingsFile:
   /** True when any line of `content` names a stack key — live or commented. The
     * discovery trigger (ADR 0020): a discovery-written file always carries at
     * least commented stack lines, so only a hand-written file with no stack
-    * content at all re-triggers discovery.
-    *
-    * Uses the parser's own [[splitAssignment]] key extraction (after stripping
-    * a leading `#` comment marker so a commented stack line still counts),
-    * rather than a second regex: the two must agree on what a stack key is, and
-    * `String.trim`'s control-byte stripping is a strict superset of a regex
-    * `\s`, so a divergent second definition could report "no stack line" for a
-    * line the parser reads as a live stack key.
+    * content re-triggers discovery. Reuses [[splitAssignment]] (after stripping
+    * a leading `#`) rather than a second regex, so it can't disagree with the
+    * parser about what a stack key is.
     */
   def hasStackLines(content: String): Boolean =
     content.linesIterator.exists(namesStackKey)

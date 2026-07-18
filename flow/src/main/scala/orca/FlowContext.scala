@@ -29,7 +29,7 @@ import scala.annotation.implicitNotFound
 trait FlowContext extends AgentSet:
   /** Backend tag of the planning-role agent (ADR 0020): resolved from
     * `planningAgent = harness[:model]` in settings, default claude. A type
-    * *member*, not a parameter, so `FlowContext` stays unparametrised; pins
+    * member, not a parameter, so `FlowContext` stays unparametrised; pins
     * [[planningAgent]]'s backend so sessions minted from it thread. See
     * [[CodeB]] for the helper-authoring caveat shared by all three role types.
     */
@@ -37,37 +37,30 @@ trait FlowContext extends AgentSet:
 
   /** Backend tag of the coding-role agent (ADR 0020): resolved from
     * `codingAgent = harness[:model]` in settings, default claude — the run's
-    * primary backend. A type *member*, not a parameter, so `FlowContext` stays
+    * primary backend. A type member, not a parameter, so `FlowContext` stays
     * unparametrised; pins [[codingAgent]]'s backend so sessions minted from it
     * thread.
     *
-    * '''Helper authoring:''' the path-dependent `Agent[ctx.CodeB]` (the same
-    * holds for `ctx.PlanB` / `ctx.ReviewB`) is convenient in a straight-line
-    * `flow(...)` body. When you factor flow logic into a helper *function*,
-    * prefer an explicit `[B <: BackendTag]` type parameter instead: an
-    * `Agent[B]` / `FlowSession[B]` carries its backend in its own type, so the
-    * helper works for whichever backend the settings named, stays callable
-    * wherever the session is held (a `FlowSession` is a value passed around
-    * freely, not only used where the originating context is in scope), and
-    * composes with the library's other session-carrying APIs. Two ways the
-    * library does this:
+    * '''Helper authoring:''' the path-dependent `Agent[ctx.CodeB]` (likewise
+    * `ctx.PlanB` / `ctx.ReviewB`) is fine in a straight-line `flow(...)` body,
+    * but a helper *function* should take an explicit `[B <: BackendTag]` type
+    * parameter instead, so it works for whichever backend settings named and
+    * stays callable wherever the session value is held. Two shapes the library
+    * uses:
     *
-    *   - Type the helper's own parameters against the `[B <: BackendTag]`
-    *     parameter — `B` is a genuine type variable the caller instantiates
-    *     once, not a path into someone else's context. See
+    *   - Type the helper's parameters against `[B <: BackendTag]` — see
     *     [[orca.review.reviewAndFixLoop]]`(coderSession: FlowSession[B], ...)`,
-    *     whose single [[orca.FlowSession]] bundles the agent and its session so
-    *     `B` is pinned once at the call site.
-    *   - Bundle the agent's session with its result as a single
-    *     [[orca.plan.Sessioned]]`[B, A]` value, so callers pass one thing
-    *     instead of two that have to agree on `B`. See `Plan.autonomous.*` /
-    *     `Plan.interactive.*`.
+    *     whose [[orca.FlowSession]] bundles the agent and its session so `B` is
+    *     pinned once at the call site.
+    *   - Bundle session and result as a single [[orca.plan.Sessioned]]`[B, A]`
+    *     so callers pass one thing, not two that must agree on `B`. See
+    *     `Plan.autonomous.*` / `Plan.interactive.*`.
     */
   type CodeB <: BackendTag
 
   /** Backend tag of the review-role agent (ADR 0020): resolved from
     * `reviewAgent = harness[:model]` in settings, default claude. A type
-    * *member*, not a parameter, so `FlowContext` stays unparametrised; pins
+    * member, not a parameter, so `FlowContext` stays unparametrised; pins
     * [[reviewAgent]]'s backend so sessions minted from it thread. See [[CodeB]]
     * for the helper-authoring caveat shared by all three role types.
     */
@@ -107,14 +100,11 @@ trait FlowContext extends AgentSet:
   /** Exactly-once error reporting: the runtime marks a throwable here when it
     * publishes an `OrcaEvent.Error` for it, and every enclosing frame (nested
     * stages, the flow boundary) checks before re-reporting. Identity-based
-    * (`eq`) — the mark travels with the object, not its type or message, so
-    * plain RuntimeExceptions are covered too. `private[orca]`: user code never
-    * participates.
+    * (`eq`), so it covers plain RuntimeExceptions too.
     *
-    * The contract assumes a freshly-constructed throwable per failure (as every
-    * failure site in orca produces): identity marking would suppress a
-    * semantically-new failure that happened to reuse a cached/singleton
-    * exception instance — nothing in orca does that today.
+    * Assumes a freshly-constructed throwable per failure (as every orca failure
+    * site produces): identity marking would wrongly suppress a semantically-new
+    * failure that reused a cached/singleton exception instance.
     */
   private[orca] def markErrorReported(e: Throwable): Unit
   private[orca] def errorAlreadyReported(e: Throwable): Boolean

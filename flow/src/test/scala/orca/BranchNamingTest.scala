@@ -282,7 +282,7 @@ class BranchNamingTest extends munit.FunSuite:
     "producer == validator: slug output always passes RecoveryCheck.isSafeBranchRef"
   ):
     // Pins that the producer (slug) and the untrusted-header validator agree by
-    // construction — they now share one predicate (BranchNamingStrategy.isSlugSegment).
+    // construction — they share one predicate (BranchNamingStrategy.isSlugSegment).
     val inputs = List(
       "Add a Multiply Function!",
       "  -rf dangerous  ",

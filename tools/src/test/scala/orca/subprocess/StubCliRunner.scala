@@ -10,10 +10,9 @@ case class CliCall(
 )
 
 /** A `CliRunner` that returns a pre-configured response and records every `run`
-  * invocation for later assertions. The response can be swapped via
-  * `setResponse` so tests can simulate external state changes across polls.
-  * Tests that need a piped subprocess construct `FakePipedCliProcess` directly
-  * — this stub's `spawnPiped` is a no-op that throws.
+  * invocation. `setResponse` swaps the response so tests can simulate external
+  * state changes across polls. `spawnPiped` throws; use `FakePipedCliProcess`
+  * directly for piped subprocesses.
   */
 class StubCliRunner(
     initialResponse: CliResult = CliResult(0, "", "")

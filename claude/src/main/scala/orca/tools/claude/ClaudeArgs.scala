@@ -20,14 +20,10 @@ private[claude] object ClaudeArgs:
   /** Stream-json invocation: `claude --print --input-format stream-json
     * --output-format stream-json --verbose --include-partial-messages`. Used by
     * both the autonomous and interactive paths — they only differ in whether
-    * the `--mcp-config` arg (and the `ask_user` tool that comes with it) is
-    * wired. The prompt goes in as the first user turn on stdin; for single-turn
-    * (autonomous) calls the backend closes stdin immediately, for multi-turn
-    * (interactive) it stays open.
+    * the `--mcp-config` arg (and the `ask_user` tool it wires) is present.
     *
     * `--print` is required by the CLI for `--input-format stream-json` to take
-    * effect — despite the name, the session runs multi-turn because stdin can
-    * stay open.
+    * effect.
     */
   def streamJson(
       config: AgentConfig,
@@ -67,9 +63,8 @@ private[claude] object ClaudeArgs:
     case Dispatch.Fresh(Some(id)) =>
       Seq("--session-id", WireSessionId.value(id))
     // Unreachable: claude is `IdScheme.ClientClaimed`, which always supplies the
-    // claim id on a fresh dispatch (the client id IS the wire id). A defensive
-    // error rather than a silent fallback, so a future scheme-wiring mistake
-    // fails loudly instead of spawning claude with no `--session-id`.
+    // claim id on a fresh dispatch. A defensive error rather than a silent
+    // fallback, so a future scheme-wiring mistake fails loudly.
     case Dispatch.Fresh(None) =>
       throw new IllegalStateException(
         "claude's ClientClaimed scheme must supply a fresh claim id"
@@ -77,10 +72,8 @@ private[claude] object ClaudeArgs:
     case Dispatch.Resume(id) => Seq("--resume", WireSessionId.value(id))
 
   /** claude's CLI only accepts `--json-schema <inline>` — there's no
-    * `--json-schema-file` form. For typical Orca schemas (a few KB) inlining is
-    * fine; `ARG_MAX` gives us ~128KB of headroom on Linux and ~256KB of total
-    * argv on macOS. If someone builds a flow with a schema that large, the exec
-    * will fail loudly.
+    * `--json-schema-file` form. Typical Orca schemas (a few KB) inline fine
+    * within `ARG_MAX`; a pathologically large schema fails the exec loudly.
     */
   private def jsonSchemaArgs(schema: Option[String]): Seq[String] =
     CliArgs.flag("--json-schema", schema)(identity)
@@ -90,21 +83,17 @@ private[claude] object ClaudeArgs:
 
   /** Maps [[AgentConfig.tools]] to claude's permission flags. Both read-only
     * tiers use `--permission-mode plan`, which makes Edit/Write/Bash
-    * unavailable (not just non-auto-approved) — turning the planner's advisory
-    * "don't edit" prompt into a hard guarantee. `Full` follows
-    * [[AgentConfig.autoApprove]].
+    * unavailable (not just non-auto-approved) — a hard no-edit guarantee.
     *
     * `NetworkOnly` additionally pre-approves `networkTools` via
-    * `--allowedTools`, layering read-only network access (web + scoped `gh`)
-    * onto plan mode so an autonomous planner can fetch issues/PRs without a
-    * permission prompt it can't answer. The list is command-scoped, so plan
-    * mode still hard-blocks general bash and every edit. An empty list leaves
-    * plain plan mode.
+    * `--allowedTools`, layering read-only network access onto plan mode. The
+    * list is command-scoped, so plan mode still blocks general bash and every
+    * edit; an empty list leaves plain plan mode.
     *
-    * `Full` is the only tier whose approval policy claude mechanically honours
-    * (see [[enforcement]]): `All` → `bypassPermissions`; `Only(_)` → default
-    * permission mode plus an `--allowedTools` allowlist, so ONLY the listed
-    * tools are pre-approved and everything else (edits included) still prompts.
+    * `Full` follows [[AgentConfig.autoApprove]]: `All` → `bypassPermissions`;
+    * `Only(_)` → default permission mode plus an `--allowedTools` allowlist, so
+    * only listed tools are pre-approved and everything else (edits included)
+    * still prompts.
     */
   private def autoApproveArgs(
       config: AgentConfig,
@@ -125,32 +114,21 @@ private[claude] object ClaudeArgs:
         config.autoApprove match
           case AutoApprove.All =>
             Seq("--permission-mode", "bypassPermissions")
-          // Honest Only semantics: default permission mode — nothing is
-          // pre-approved except the listed tools. Edits are NOT implicitly
-          // approved (an earlier revision pre-approved them via acceptEdits);
-          // in autonomous mode an unlisted tool's prompt is auto-denied by
-          // the drain.
+          // Default permission mode — nothing pre-approved except the listed
+          // tools. Edits are not implicitly approved; in autonomous mode an
+          // unlisted tool's prompt is auto-denied by the drain.
           case AutoApprove.Only(tools) if tools.isEmpty => Seq.empty
           case AutoApprove.Only(tools) =>
             Seq("--allowedTools", tools.toSeq.sorted.mkString(","))
 
   /** How strongly claude enforces each `(tools, autoApprove)` combination — see
-    * [[autoApproveArgs]] for the flags this classifies.
-    *
-    *   - `ReadOnly` / `NetworkOnly` → `Hard`: `--permission-mode plan` makes
-    *     edits/shell mechanically unavailable; `NetworkOnly` only layers a
-    *     command-scoped `--allowedTools`, so the no-edit gate stays hard.
-    *   - `Full` + `AutoApprove.All` → `Hard`: `bypassPermissions` is exactly
-    *     "approve everything" — the requested policy is honoured verbatim.
-    *   - `Full` + `AutoApprove.Only(_)` → `Hard`: default permission mode with
-    *     an `--allowedTools` allowlist is a mechanical per-tool gate; unlisted
-    *     tools still prompt (post finding 2.1), so the policy is enforced, not
-    *     approximated. `Only(empty)` emits no allowlist at all — plain default
-    *     mode where every tool prompts — which is still a hard per-tool gate.
+    * [[autoApproveArgs]] for the flags this classifies. Every combination is
+    * `Hard`: plan mode makes edits/shell mechanically unavailable, and every
+    * `--allowedTools`/`bypassPermissions` variant is a mechanical per-tool
+    * gate.
     *
     * Written as an exhaustive match (all arms `Hard`) rather than a bare
-    * constant so a future `ToolSet`/`AutoApprove` case fails compilation here,
-    * as it does on the other four backends.
+    * constant so a future `ToolSet`/`AutoApprove` case fails compilation here.
     */
   def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
     tools match

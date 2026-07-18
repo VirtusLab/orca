@@ -17,22 +17,11 @@ object OrcaArgs:
   def parse(args: Seq[String]): Either[String, OrcaArgs] =
     summon[ParserForClass[OrcaArgs]].constructEither(args.toList)
 
-  /** Convenience overload for scala-cli flow scripts, where the top-level
-    * `args` is `Array[String]`:
-    *
-    * ```
-    * flow(OrcaArgs(args)):
-    *   // userPrompt resolves against the positional CLI arg
-    * ```
-    *
-    * Throws `OrcaFlowException` on a parse failure — flow scripts should either
-    * surface the message to the user or catch and handle it.
+  /** Overload for scala-cli flow scripts, whose top-level `args` is
+    * `Array[String]`. Throws `OrcaFlowException` on a parse failure.
     */
   def apply(args: Array[String]): OrcaArgs = from(args.toSeq)
 
-  /** `Seq[String]` companion to the array-taking `apply` above — useful for
-    * tests and callers that already have a parsed list.
-    */
   def from(args: Seq[String]): OrcaArgs =
     parse(args) match
       case Right(parsed)  => parsed

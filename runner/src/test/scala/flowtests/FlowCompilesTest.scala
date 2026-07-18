@@ -1,19 +1,15 @@
 package flowtests
 
-// This file deliberately lives outside the `orca.*` package tree — it's
-// the canary for the user-facing DSL. A third-party flow script sees
-// exactly what this file sees: top-level types, accessors, and givens
-// brought in by `import orca.{*, given}` and nothing else. The `given`
-// selector is non-negotiable: Scala 3's plain `import orca.*` excludes
-// givens, and the forwarders in `JsonData.scala` are what let nested
+// This file deliberately lives outside the `orca.*` package tree — it's the
+// canary for the user-facing DSL. A third-party flow script sees exactly what
+// this file sees: top-level types, accessors, and givens from
+// `import orca.{*, given}` and nothing else. The `given` selector is
+// non-negotiable: the forwarders in `JsonData.scala` are what let nested
 // `derives JsonData` find the child Schema during derivation.
 //
-// Each `def` targets one DSL concern so compile errors localise to the
-// affected surface. Nothing here is invoked at runtime; `sbt test`
-// simply requires the file to typecheck.
-//
-// If this file stops compiling, some aspect of the DSL contract has
-// regressed. Fix the API, not the test.
+// Each `def` targets one DSL concern so compile errors localise. Nothing here
+// runs; `sbt test` only requires the file to typecheck. If it stops compiling,
+// fix the API, not the test.
 
 import orca.{*, given}
 // Deliberately NOT in the `orca.*` export wildcard: a recoverable `createPr`
@@ -104,9 +100,6 @@ object FlowCanary:
         claude.chat(session.id).resultAs[FlowPlan].interactive.run(userPrompt)
       for task <- plan.tasks do
         stage(task.description):
-          // The ADR 0019 migration shapes: `formatCommand = Some(x)` became
-          // `formatCommands = Configured.Use(List(x))`, `lint = Some(l)`
-          // became `lint = Configured.Use(l)`.
           reviewAndFixLoop(
             coderSession = session,
             reviewers = allReviewers(claude),
@@ -192,8 +185,7 @@ object FlowCanary:
 
   /** `summarisePr` + `PrSummary` surface; exercised by `examples/issue-pr.sc`.
     * Pins the call shape (`agent`, `diff`, optional `context`, optional
-    * `instructions`) and the result type so a rename or signature drift
-    * surfaces in this test instead of at the next live run.
+    * `instructions`) and the result type.
     */
   def summarisePrSurface(): Unit =
     flow(OrcaArgs()):
@@ -206,9 +198,9 @@ object FlowCanary:
         val _ = summary.title
         val _ = summary.body
 
-  /** 10.3: types newly added to `exports.scala` (`Usage`, `Cost`,
-    * `CostTracker`, `IgnoredIssue`/`IgnoredIssues`, `PushFailure`) must resolve
-    * from `import orca.*` alone, with no side import.
+  /** These `exports.scala` types (`Usage`, `Cost`, `CostTracker`,
+    * `IgnoredIssue`/`IgnoredIssues`, `PushFailure`) must resolve from `import
+    * orca.*` alone, with no side import.
     */
   def exportsSurface(): Unit =
     flow(OrcaArgs()):
@@ -231,7 +223,7 @@ object FlowCanary:
           case Right(_)                            => ()
 
   /** Issue/PR-comment surface on `gh` — exercised by the issue-pr plan in
-    * `examples/`. If any of these signatures move, the canary fails.
+    * `examples/`.
     */
   def issueAndPrSurface(): Unit =
     flow(OrcaArgs()):
@@ -254,11 +246,9 @@ object FlowCanary:
         gh.updatePr(pr, "new title", "new body")
 
   /** Branch + PR surface — exercised by `examples/implement-enhanced.sc`. Pins
-    * the branch ops the runtime still exposes to flow scripts and the
-    * `createPr` `Either` with its recoverable `PrAlreadyExists`. The manual
-    * `Plan.recover`/`ensureClean`/`checkoutOrCreate` resume guard is gone — the
-    * flow runtime now owns branch + resume (ADR 0018 §2.5); the examples'
-    * conversion restored the per-flow branching ceremony.
+    * the branch ops the runtime exposes to flow scripts and the `createPr`
+    * `Either` with its recoverable `PrAlreadyExists`. The flow runtime owns
+    * branch + resume (ADR 0018 §2.5).
     */
   def branchAndPrSurface(): Unit =
     flow(OrcaArgs()):
@@ -276,8 +266,7 @@ object FlowCanary:
   /** Planning grid surface; exercised across `examples/`. Pins the full `mode ×
     * operation` grid: every cell returns `Sessioned[B, <result>]` where the
     * result is `Plan` (`from`), `Verdict[Plan]` (`assessThenPlan`), or `Triage`
-    * (`triage`). A hole in the grid, a return-type drift, or an enum
-    * rename/case removal surfaces here instead of at the next live run.
+    * (`triage`).
     */
   def planningGridSurface(): Unit =
     flow(OrcaArgs()):
@@ -335,12 +324,10 @@ object FlowCanary:
 
   /** Post-planning step (`reviewed`) plus the per-task stage loop — exercised
     * by `examples/implement-enhanced.sc`. Pins that the `Sessioned[B, Plan]`
-    * extension resolves through `import orca.*` alone. Plans are always briefed
-    * (the `brief` rides in the structured output, so `plan.brief` /
-    * `plan.taskPrompt` are always available — no `.briefed` step, no
-    * `PlanWithBrief`). The `Plan.recoverOrCreate` / `implementTaskLoop`
-    * persistence calls are gone — resume is now the stage log (ADR 0018 §2.8),
-    * and the task loop is a plain per-task `stage(...)`.
+    * extension resolves through `import orca.*` alone. Plans are always
+    * briefed: the `brief` rides in the structured output, so `plan.brief` /
+    * `plan.taskPrompt` are always available. Resume is the stage log (ADR 0018
+    * §2.8), and the task loop is a plain per-task `stage(...)`.
     */
   def planReviewAndBriefSurface(): Unit =
     flow(OrcaArgs()):
@@ -357,16 +344,14 @@ object FlowCanary:
           val _ = claude.run(plan.taskPrompt(task))
 
   // -----------------------------------------------------------------------
-  // Example-shape canaries (ADR 0018 §3, Task F2)
-  // Each def mirrors the distinct pattern in one of the `examples/*.sc`
-  // files so a signature drift or missing API surfaces here instead of at
-  // the next live run. Nothing is invoked at runtime.
+  // Example-shape canaries (ADR 0018 §3)
+  // Each def mirrors the distinct pattern in one of the `examples/*.sc` files
+  // so a signature drift or missing API surfaces here. Nothing runs at runtime.
   // -----------------------------------------------------------------------
 
   /** `implement.sc`: autonomous plan → session seeded from brief → task loop
     * with `session.run` + `reviewAndFixLoop`. The session-based shapes
-    * (`session(name, seed=)` → `FlowSession`, `session.run`) are the core
-    * new-API additions.
+    * (`session(name, seed=)` → `FlowSession`, `session.run`) are the core ones.
     */
   def implementFlowShape(): Unit =
     flow(OrcaArgs()):

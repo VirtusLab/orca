@@ -8,24 +8,19 @@ import sttp.tapir.server.netty.sync.NettySyncServer
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
-/** Input shape of the `ask_user` MCP tool. The agent fills in `question`; we
-  * hand the typed answer back as the tool result. `private[mcp]` — only the
-  * handler in this file references it (the server's `ServerName`/`ToolSlug`/
-  * `ToolTimeout`/`Hint` stay `private[orca]` because the backends consult
-  * them).
+/** Input shape of the `ask_user` MCP tool: the agent fills in `question` and
+  * gets the typed answer back as the tool result.
   */
 private[mcp] case class AskUserInput(question: String) derives Codec, Schema
 
-/** Boots a tiny MCP HTTP server exposing the `ask_user` tool. The handler
-  * closes over an [[AskUserBridge]] — each tool invocation enqueues the
-  * question on the bridge and blocks until the host process supplies an answer.
+/** A tiny MCP HTTP server exposing the `ask_user` tool. The handler closes over
+  * an [[AskUserBridge]] — each invocation enqueues the question and blocks
+  * until the host supplies an answer.
   *
-  * Bound on `127.0.0.1` at an ephemeral port so multiple conversations inside
-  * one flow don't collide. Lifecycle is **caller-owned**: the factory returns
-  * an `AutoCloseable` whose `close()` stops the Netty binding. Callers should
-  * tie that close to the lifetime of the conversation it serves (e.g. via
-  * `Conversation.onFinalize`) so per-call bindings don't accumulate over a long
-  * flow.
+  * Bound on `127.0.0.1` at an ephemeral port so conversations don't collide.
+  * Lifecycle is caller-owned: `close()` stops the Netty binding, and callers
+  * should tie it to the conversation's lifetime (e.g. via
+  * `Conversation.onFinalize`) so per-call bindings don't accumulate.
   */
 private[orca] class AskUserMcpServer private[mcp] (
     /** The bound port. Useful when the caller wants to disambiguate per-server
@@ -44,10 +39,8 @@ private[orca] class AskUserMcpServer private[mcp] (
 private[orca] object AskUserMcpServer:
 
   /** MCP server name advertised to every backend (`mcp_servers.<name>` in
-    * codex's config, the `mcpServers` map key in claude's `.mcp.json`). The two
-    * backends are required to use the same name so a single MCP host binding
-    * serves both; promoting the literal here keeps that identity explicit
-    * instead of letting each backend re-declare it.
+    * codex's config, the `mcpServers` map key in claude's `.mcp.json`). All
+    * backends must use the same name so a single MCP host binding serves them.
     */
   private[orca] val ServerName: String = "orca"
 
@@ -58,31 +51,25 @@ private[orca] object AskUserMcpServer:
     */
   private[orca] val ToolSlug: String = "ask_user"
 
-  /** Upper bound on how long one `ask_user` invocation can take, from the
-    * agent's MCP request to the user's answer. Both backend MCP clients
-    * (claude, codex) and this server's Netty binding must agree on a value
-    * larger than any reasonable user delay — otherwise the client times out
-    * client-side, the agent synthesises a tool failure, and a follow-up
-    * `ask_user` fires while the user is still typing. Each consumer converts to
-    * its native unit (claude wants ms, codex wants seconds, Netty wants
-    * `FiniteDuration`).
-    *
-    * One of three renderings of this value across backends — claude JSON ms /
-    * codex TOML sec / gemini settings.json ms; keep in sync.
+  /** Upper bound on one `ask_user` invocation, from the agent's MCP request to
+    * the user's answer. Both backend MCP clients and this server's Netty
+    * binding must agree on a value larger than any reasonable user delay —
+    * otherwise the client times out, the agent synthesises a tool failure, and
+    * a follow-up `ask_user` fires while the user is still typing. Each consumer
+    * converts to its native unit (claude JSON ms, codex TOML sec, gemini
+    * settings.json ms, Netty `FiniteDuration`); keep in sync.
     */
   private[orca] val ToolTimeout: FiniteDuration = 1.hour
 
-  /** Mount the `ask_user` MCP endpoint on a fresh Netty binding. The Ox
-    * capability is used to start the server in the enclosing scope; the caller
-    * is responsible for calling `close()` (or relying on scope tear-down) to
-    * stop it.
+  /** Mount the `ask_user` MCP endpoint on a fresh Netty binding in the
+    * enclosing Ox scope; the caller calls `close()` (or relies on scope
+    * tear-down).
     *
     * The handler blocks until the host user types an answer, which can take
-    * arbitrarily long. Netty's default 20s `requestTimeout` (and 60s
-    * `idleTimeout`) would close the connection mid-prompt; raise both to match
-    * [[ToolTimeout]] so a thoughtful user gets time without leaving the binding
-    * open forever. `idleTimeout` adds a minute of slop because Netty's docs
-    * require `idleTimeout > requestTimeout`.
+    * arbitrarily long, so Netty's default request/idle timeouts are raised to
+    * [[ToolTimeout]] to avoid closing the connection mid-prompt. `idleTimeout`
+    * adds a minute of slop because Netty requires `idleTimeout >
+    * requestTimeout`.
     */
   def start(bridge: AskUserBridge)(using Ox): AskUserMcpServer =
     val askUserTool =
@@ -105,7 +92,7 @@ private[orca] object AskUserMcpServer:
 
   /** Short system-prompt hint telling the agent it has an `ask_user` tool for
     * clarifying questions. Worded conservatively — agents over-use tools
-    * they're told about. Used by every backend's interactive setup.
+    * they're told about.
     */
   val Hint: String =
     """When you genuinely need a piece of information from the user to

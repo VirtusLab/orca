@@ -23,10 +23,8 @@ import orca.events.{EventDispatcher, OrcaEvent, OrcaListener, Usage}
 import orca.testkit.TempDirs
 
 /** Fake AgentCall whose `autonomous.run` drains a scripted sequence of outputs
-  * in order — cast through `Any` because the trait is generic over output type.
-  * The session id from the call site is echoed back so tests can verify the
-  * loop threaded a consistent id; `seenSessions` records each call's session id
-  * so tests can assert "fresh on first, same id thereafter."
+  * in order. `seenSessions` records each call's session id so tests can assert
+  * "fresh on first, same id thereafter."
   */
 class FakeAgentCall[O](outputs: Iterator[Any])
     extends AgentCall[BackendTag.ClaudeCode.type, O]:
@@ -73,10 +71,8 @@ class FakeAgent(
   def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
 
 /** A reviewer stub that emits a `TokensUsed` event carrying the name + role
-  * captured at `resultAs` time — mirroring `BaseAgent`, whose `resultAs`
-  * snapshots `name`/`role` for the cost axes. `withRole` returns a role-tagged
-  * copy (identity/`name` unchanged), so the copy the loop makes at its emission
-  * edge reports the tagged role without renaming.
+  * captured at `resultAs` time, mirroring `BaseAgent`. `withRole` returns a
+  * role-tagged copy with `name` unchanged.
   */
 private class TokenEmittingReviewer(
     override val name: String,
@@ -114,9 +110,8 @@ private class TokenEmittingReviewer(
         ???
 
 /** A coder stub for the fix-turn seeding test: captures the prompt its
-  * structured `run` receives (after the [[orca.FlowSession]] door composes
-  * seed/preamble) and drives `willContinue` via a real durable
-  * [[SessionSupport]] so a test can exercise both the fresh (re-seed) and live
+  * structured `run` receives and drives `willContinue` via a real durable
+  * [[SessionSupport]], so a test can exercise both the fresh (re-seed) and live
   * (no re-seed) branches of the fix turn. Always returns `fixOutcome`.
   */
 private class SeedProbingCoder(
@@ -127,9 +122,8 @@ private class SeedProbingCoder(
 
   @volatile var capturedFixPrompt: Option[String] = None
 
-  // A fresh support per access, registered (only when `existsResult`) so the
-  // mapping-gated probe returns `existsResult`; mirrors the durability wiring
-  // `Agent.willContinue` / `resumeWireId` route through.
+  // A fresh support per access, registered only when `existsResult` so the
+  // mapping-gated probe returns `existsResult`.
   override private[orca] def sessionSupport
       : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
     val support = SessionSupport.durable[BackendTag.ClaudeCode.type](
@@ -166,8 +160,8 @@ private class SeedProbingCoder(
 
 class ReviewAndFixTest extends munit.FunSuite:
 
-  // `reviewAndFixLoop` is gated on `InStage` + `WorkspaceWrite` (the durable
-  // fix turn's tokens, ADR 0018 §6); mint both for the suite.
+  // `reviewAndFixLoop` is gated on `InStage` + `WorkspaceWrite` (ADR 0018 §6);
+  // mint both for the suite.
   private given orca.InStage = orca.InStage.unsafe
   private given orca.WorkspaceWrite = orca.WorkspaceWrite.unsafe
 
@@ -266,10 +260,8 @@ class ReviewAndFixTest extends munit.FunSuite:
   test(
     "reviewer is called with the same session id on every iteration"
   ):
-    // Pins the cross-iteration session-threading contract: a reviewer's
-    // first call mints its own chat (`agent.chat()`), and every subsequent
-    // call resumes the SAME conversation. Without this the loop could lose
-    // context across iterations.
+    // Cross-iteration session-threading contract: a reviewer's first call mints
+    // its own chat, and every subsequent call resumes the SAME conversation.
     given FlowControl = control
     val stubborn = issue("never ends")
     val reviewer = new FakeAgent(
@@ -767,11 +759,10 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(events.map(_.role), List(Some("reviewer")))
 
   test("a selector runs exactly the roster entries it returns"):
-    // The new roster-bound contract: `prepare` is handed the roster as opaque
+    // Roster-bound contract: `prepare` is handed the roster as opaque
     // `RosterEntry` handles and can only return a subset/permutation of them —
-    // a foreign agent is unrepresentable (the ctor is `private[review]`). Here
-    // the selector keeps only "x", so "y" (an empty-output stub that would
-    // throw if run) must never run.
+    // a foreign agent is unrepresentable. Here the selector keeps only "x", so
+    // "y" (an empty-output stub that would throw if run) must never run.
     given FlowControl = control
     val rosterX = new FakeAgent(
       name = "x",
@@ -804,11 +795,10 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test("an empty selection runs no reviewers and stops the round honestly"):
-    // The old silent full-roster fallback is gone. An empty selection now means
-    // exactly what it says: no reviewers run this round. With no issues found,
-    // the shared stop policy converges — the loop never resurrects the roster
-    // behind the selector's back, and the (empty-output) coder is never asked
-    // to fix anything.
+    // An empty selection means exactly what it says: no reviewers run this
+    // round. With no issues found, the shared stop policy converges — the loop
+    // never resurrects the roster behind the selector's back, and the
+    // (empty-output) coder is never asked to fix anything.
     given FlowControl = control
     val rosterA = new FakeAgent(name = "a") // no outputs: throws if run
     val emptySelector = new ReviewerSelector:
@@ -870,10 +860,9 @@ class ReviewAndFixTest extends munit.FunSuite:
   test(
     "fix turn seeds a fresh coder session but not a live one"
   ):
-    // The fix turn now routes through the durable FlowSession door (task 2C):
-    // on a coder whose backend conversation is fresh/lost it re-applies the
-    // recorded seed; on a live one it forwards the fix request verbatim. This
-    // is the gap the pre-2C raw-door fix turn silently skipped.
+    // The fix turn routes through the durable FlowSession door: on a coder
+    // whose backend conversation is fresh/lost it re-applies the recorded seed;
+    // on a live one it forwards the fix request verbatim.
     val seed = "SEED-MARKER: you are the fixer for this repo."
 
     def fixPromptWhen(existsResult: Boolean): String =

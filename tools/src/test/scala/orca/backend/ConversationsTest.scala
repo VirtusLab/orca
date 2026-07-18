@@ -110,13 +110,8 @@ class ConversationsTest extends munit.FunSuite:
     "a plain OrcaFlowException propagates verbatim through drainAndCommit " +
       "(no relabelling)"
   ):
-    // Same shape as the AgentTurnFailed test above, but with a plain
-    // OrcaFlowException — the exact type the deleted branch used to catch
-    // and rewrap as "$backendName CLI failed: ...". Both tests throw through
-    // the identical drainAndCommit code path; this one is the one that would
-    // actually fail if the relabelling branch were reintroduced, since a
-    // plain OrcaFlowException (unlike AgentTurnFailed) matches its catch
-    // clause.
+    // A plain OrcaFlowException must reach the caller unchanged — not rewrapped
+    // with a backend-specific "CLI failed" prefix.
     val client = SessionId.fresh[BackendTag.Codex.type]
     val support = SessionSupport
       .durable[BackendTag.Codex.type](IdScheme.ServerMinted, _ => false)
@@ -181,9 +176,8 @@ class ConversationsTest extends munit.FunSuite:
     assertEquals(thrown, cancelled)
 
   test("AssistantToolCall emits OrcaEvent.ToolUse with the raw input"):
-    // The drain hands the raw JSON through unchanged; the terminal listener
-    // does summarisation so non-terminal listeners (structured logs, Slack)
-    // see the full input.
+    // The drain passes the raw JSON through unchanged; summarisation happens in
+    // the terminal listener, so other listeners see the full input.
     val recorder = new RecordingListener
     val conv = new ScriptedConversation(
       List(
@@ -346,12 +340,10 @@ class ConversationsTest extends munit.FunSuite:
   test(
     "structured mode flushes an unfinished trailing buffer on a clean close"
   ):
-    // Structured mode, clean drain, but the stream ended with deltas and no
-    // closing TurnEnd. The payload is always a COMPLETED turn (the withheld
-    // one, dropped by finishNormally); an unfinished trailing buffer never
-    // became the payload, so finishNormally flushes it rather than dropping
-    // prose. Here there is no completed turn at all, so only the partial
-    // surfaces.
+    // Structured mode, clean drain, stream ended with deltas and no closing
+    // TurnEnd. The JSON payload is always a completed turn; an unfinished
+    // trailing buffer is never the payload, so it flushes rather than being
+    // dropped. Here there is no completed turn, so only the partial surfaces.
     val recorder = new RecordingListener
     val conv = new ScriptedConversation(
       List(
@@ -370,12 +362,11 @@ class ConversationsTest extends munit.FunSuite:
   test(
     "structured mode: an abnormal mid-stream end flushes withheld + partial"
   ):
-    // Turn 1 completes (and is withheld, awaiting the next turn to decide if
-    // it's the payload); turn 2 streams deltas, then the stream crashes before
-    // its TurnEnd. On an abnormal end nothing is reliably the payload, so both
-    // the withheld completed turn AND the partial are flushed — the old drain
-    // dropped the partial (and only surfaced turn 1 via a finally-side
-    // closeTurn). The crash is rethrown verbatim.
+    // Turn 1 completes (withheld, awaiting the next turn to decide if it's the
+    // payload); turn 2 streams deltas, then the stream crashes before its
+    // TurnEnd. On an abnormal end nothing is reliably the payload, so both the
+    // withheld completed turn and the partial flush. The crash is rethrown
+    // verbatim.
     val recorder = new RecordingListener
     val crash = new OrcaFlowException("stream died mid-turn")
     val conv = new CrashingConversation(

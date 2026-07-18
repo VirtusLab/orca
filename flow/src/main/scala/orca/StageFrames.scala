@@ -2,73 +2,59 @@ package orca
 
 /** Per-run stage-identity bookkeeping shared by every [[FlowControl]]
   * implementation (production [[orca.runner.DefaultFlowContext]] and the test
-  * doubles), so a test double can never drift from production semantics and
-  * silently greenwash a nesting/resume test. This is the canonical description
-  * of the frame-stack protocol — [[FlowControl]] and `stage` in Flow.scala
-  * point back here rather than repeating it; see ADR 0018 §2.1 for the design
-  * rationale.
+  * doubles), so a test double can't drift from production semantics and
+  * greenwash a nesting/resume test. Canonical description of the frame-stack
+  * protocol; see ADR 0018 §2.1 for the design rationale.
   *
   * '''Mechanism.''' A stack of frames — one per currently-open stage, plus a
   * root frame (path `""`) for the flow body — scopes occurrence counters
-  * hierarchically. Each frame stores its own full path id (denormalized, rather
-  * than just a parent pointer plus a segment) and a `name -> count` map for the
-  * stages nested directly under it, so [[enterStage]] builds a child's id by
-  * string-joining `name#occurrence` onto the already-materialized parent path —
-  * no walk up the stack needed. `enterStage` pushes the child frame;
-  * [[exitStage]] pops it; the stack's head is always the current scope.
+  * hierarchically. Each frame stores its own full path id and a `name -> count`
+  * map for the stages nested directly under it, so [[enterStage]] builds a
+  * child's id by joining `name#occurrence` onto the parent path. `enterStage`
+  * pushes the child frame, [[exitStage]] pops it, and the head is always the
+  * current scope.
   *
   * '''Invariants.'''
-  *   - '''Exactly-once bump.''' `enterStage` bumps the parent frame's
-  *     occurrence counter for `name` exactly once per stage attempt, before the
-  *     resume decision is made — so the slot is consumed whether the body is
-  *     skipped, runs to completion, or throws (`stage` pops the frame in a
-  *     `finally`, covering all three outcomes). Later same-named siblings
-  *     therefore see a stable occurrence index across resumes.
-  *   - '''Structural unreachability.''' A skipped (resumed) stage's body never
-  *     runs, so its nested `stage(...)` calls never fire and never call
-  *     `enterStage` — their frames are never opened and no counter desyncs. A
-  *     flat, un-nested id scheme could not offer this: a skipped parent's
-  *     vanished nested bumps would let a later same-named stage recompute the
-  *     nested stage's id and misattribute a stale or wrong-typed record.
+  *   - '''Exactly-once bump.''' `enterStage` bumps the parent's occurrence
+  *     counter for `name` exactly once per stage attempt, before the resume
+  *     decision — so the slot is consumed whether the body is skipped,
+  *     completes, or throws (`stage` pops in a `finally`). Later same-named
+  *     siblings then see a stable occurrence index across resumes.
+  *   - '''Structural unreachability.''' A skipped stage's body never runs, so
+  *     its nested `stage(...)` calls never `enterStage` and no counter desyncs.
+  *     A flat id scheme could not offer this: a skipped parent's vanished
+  *     nested bumps would let a later same-named stage recompute a nested id
+  *     and misattribute a stale or wrong-typed record.
   *   - '''Opaque paths.''' The `#`/`/`-joined path id is only ever compared for
-  *     exact equality, never parsed or reconstructed from its parts.
+  *     exact equality, never parsed or reconstructed.
   *
-  * Thread-affine: reached only through [[FlowControl]], which is
-  * single-threaded per top-level `flow(...)` (R12, ADR 0018 §2.2) — stages,
-  * `enterStage`, `exitStage` and `session(...)` calls never run concurrently,
-  * so plain vars state the real invariant where a concurrent map would falsely
-  * advertise cross-thread sharing. `ownerThread` (captured when the concrete
-  * class mixing this trait in is constructed) is asserted against
-  * `Thread.currentThread()` on [[enterStage]], [[exitStage]], and
-  * [[nextSessionOccurrence]], so a stray call from an `ox.fork` — always a
-  * fresh thread, verified for the pinned ox 1.0.5 — throws immediately instead
-  * of silently corrupting the frame stack / occurrence counters. Every
-  * `StageFrames` implementation (production `DefaultFlowContext`, every test
-  * double) gets this for free, per this trait's own purpose above. Note that Ox
-  * runs a `supervised:` block's own body on a fresh fork as well, so
-  * `stage(...)` from the direct body of a user-opened nested scope is rejected
-  * just like an explicit `fork` — the same boundary CC's separation checking
-  * draws (that body is a fork closure capturing the exclusive capability).
-  * Production is unaffected: `runFlow` constructs the context inside the same
-  * `supervised:` body that runs the flow, so owner and body thread coincide.
+  * Thread-affine: reached only through [[FlowControl]], single-threaded per
+  * top-level `flow(...)` (R12, ADR 0018 §2.2), so plain vars state the real
+  * invariant. `ownerThread` (captured at construction) is asserted on
+  * [[enterStage]], [[exitStage]], and [[nextSessionOccurrence]], so a stray
+  * call from an `ox.fork` — always a fresh thread on the pinned ox 1.0.5 —
+  * throws instead of silently corrupting the frame stack / counters. Ox runs a
+  * `supervised:` block's own body on a fresh fork too, so `stage(...)` from the
+  * direct body of a user-opened nested scope is rejected just like an explicit
+  * `fork`. Production is unaffected: `runFlow` constructs the context inside
+  * the same `supervised:` body that runs the flow, so owner and body thread
+  * coincide.
   *
   * '''This is the only enforcement of R12 for user flow scripts.''' The
-  * capture/separation checking enforcement (ADR 0018 §6) catches a fork
-  * boundary violation at compile time, but only in files that opt into the
-  * `captureChecking`/ `separationChecking` language imports — today that's
-  * exactly one internal call site (`orca.review.ReviewLoop`'s reviewer
-  * fan-out); no example or user `.sc` script carries them. It's also strictly
-  * stronger than CC regardless: a capture check can't see a leak via mutable
-  * storage (a fork reading a `FlowControl` out of a `var`/global a stage
-  * stashed it in), only this runtime assert can.
+  * capture/separation checking enforcement (ADR 0018 §6) catches a
+  * fork-boundary violation at compile time, but only in files opting into the
+  * `captureChecking`/`separationChecking` imports — today just
+  * `orca.review.ReviewLoop`, no user `.sc` script. It's also strictly stronger:
+  * a capture check can't see a leak via mutable storage (a fork reading a
+  * `FlowControl` out of a `var`/global a stage stashed it in); this runtime
+  * assert can.
   */
 private[orca] trait StageFrames:
   private val ownerThread: Thread = Thread.currentThread()
 
-  /** Throws with the R12 message when called off `ownerThread` — see the trait
-    * scaladoc's "only enforcement of R12 for user flow scripts" note. Also
-    * called by `FlowSession`'s run doors (via [[FlowControl]]), so durable runs
-    * — not just stage/session minting — refuse from a fork at runtime.
+  /** Throws when called off `ownerThread` (R12 — see the trait scaladoc). Also
+    * called by `FlowSession`'s run doors, so durable runs — not just
+    * stage/session minting — refuse from a fork at runtime.
     */
   private[orca] def assertOwnerThread(what: String): Unit =
     if Thread.currentThread() ne ownerThread then
@@ -87,14 +73,12 @@ private[orca] trait StageFrames:
       counts = counts.updated(name, n + 1)
       n
 
-  // The root frame (path "") is the flow body; it is never popped. `enterStage`
-  // pushes, `exitStage` pops, so the head is always the current scope.
+  // The root frame (path "") is the flow body; it is never popped.
   private var frames: List[Frame] = List(new Frame(""))
 
-  /** Bump the current frame's occurrence counter for `name`, push a child frame
-    * for the new stage, and return its full path id. See the class doc's
-    * "Exactly-once bump" and "Structural unreachability" invariants for why
-    * this must be called exactly once per stage attempt.
+  /** Bump the current frame's occurrence counter for `name`, push a child
+    * frame, and return its full path id. Must be called exactly once per stage
+    * attempt — see the class doc's "Exactly-once bump" invariant.
     */
   def enterStage(name: String): String =
     assertOwnerThread("stage(...)")
@@ -116,10 +100,9 @@ private[orca] trait StageFrames:
     */
   def inStage: Boolean = frames.tail.nonEmpty
 
-  // Session occurrences are counted flat, independent of the stage frames:
-  // `agent.session(...)` is required to be called outside any stage (see
-  // `FlowControl.inStage` / `Session.session`), so it always mints against the
-  // root scope. Keyed per-name, mirroring a frame's stage counter.
+  // Session occurrences are counted flat: `agent.session(...)` must be called
+  // outside any stage, so it always mints against the root scope. Keyed
+  // per-name, mirroring a frame's stage counter.
   private var sessionCounts: Map[String, Int] = Map.empty
   def nextSessionOccurrence(name: String): Int =
     assertOwnerThread("agent.session(...)")

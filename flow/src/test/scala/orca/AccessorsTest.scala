@@ -32,9 +32,8 @@ class AccessorsTest extends munit.FunSuite:
 
   /** Compile-only: a session minted from `codingAgent` must type as
     * `FlowSession[ctx.CodeB]`, matching the coding role's pinned backend — a
-    * regression here would silently erase the type and stop sessions from
-    * threading through `session.run`. Never invoked; typechecking alone is the
-    * assertion (see `flowtests.FlowCompilesTest` for the sibling canary style).
+    * regression here would erase the type and stop sessions from threading
+    * through `session.run`. Typechecking alone is the assertion.
     */
   def codingAgentSessionThreads(using
       ctx: FlowContext,

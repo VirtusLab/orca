@@ -99,8 +99,8 @@ class ReviewerSelectorTest extends munit.FunSuite:
     // Even though the picker tried to include scala-fp, it was never offered
     // and the post-filter drops it from the result.
     assertEquals(picked.map(_.name), List("generic"))
-    // The picker is shown bare slugs (which are now the reviewers' identity —
-    // no `reviewer: ` cost-attribution prefix reaches it).
+    // The picker is shown bare slugs — no `reviewer: ` cost-attribution prefix
+    // reaches it.
     assertEquals(
       captured.get().map(_.availableReviewers.map(_.name)),
       Some(List("generic"))

@@ -11,10 +11,9 @@ class StackDiscoveryTest extends munit.FunSuite:
   test(
     "a representative always-both envelope shape decodes under the strict codec"
   ):
-    // The strict output schema requires both keys on every task, so agents
-    // emit "commands": [] and "unsetReason": null where a side doesn't apply
-    // — this pins that the strict jsoniter codec accepts exactly that shape,
-    // including the single-property "result" envelope.
+    // The strict schema requires both keys on every task ("commands": [] and
+    // "unsetReason": null where a side doesn't apply); this pins that the codec
+    // accepts that shape, including the single-property "result" envelope.
     val json =
       """{"result":
         | {"format": {"commands": [{"command": "acme style --write",
@@ -57,8 +56,8 @@ class StackDiscoveryTest extends munit.FunSuite:
       )
     )
 
-  /** Checks that pass everything — the assembly tests inject failures
-    * explicitly where a scenario needs them.
+  /** Checks that pass everything; tests inject failures where a scenario needs
+    * them.
     */
   private val allResolvable: String => Option[String] = _ => None
   private val allEvidenceExists: String => Boolean = _ => true

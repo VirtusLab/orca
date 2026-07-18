@@ -112,11 +112,7 @@ class SessionSupportTest extends munit.FunSuite:
     assert(s.willContinue(client) && probed == List("srv-1"))
 
   test("willContinue (durable): a throwing probe is 'won't continue'"):
-    // No isSafe re-check on the resolved wire id here: every id that reaches
-    // the bookkeeping does so through `register`/`commitAfterDrain`, both of
-    // which already validate it — the unsafe-id defense is pinned at those
-    // two tests below. This test covers the other absence case: a probe that
-    // throws.
+    // A probe that throws counts as "won't continue".
     val s = SessionSupport.durable[BackendTag.Codex.type](
       IdScheme.ServerMinted,
       _ => throw RuntimeException("boom")
@@ -143,13 +139,9 @@ class SessionSupportTest extends munit.FunSuite:
   test(
     "register: an invalid wire id records nothing (skip-don't-throw guard)"
   ):
-    // The central guard covering the interactive + rehydration paths: an empty
-    // (or otherwise unsafe) wire id must be logged-and-dropped, never recorded,
-    // so the NEXT call can't dispatch `resume ""`. It must NOT throw — the
-    // completed session output / setup must survive a bookkeeping failure.
-    // The SessionSupport-level test suffices; `Agent.registerResumeWireId`
-    // funnels straight into this same `register`, so no separate harness is
-    // needed to exercise the rehydration path's guard.
+    // An empty (or otherwise unsafe) wire id must be dropped, never recorded, so
+    // the next call can't dispatch `resume ""`. It must not throw — completed
+    // session output must survive a bookkeeping failure.
     val s = SessionSupport.durable[BackendTag.Codex.type](
       IdScheme.ServerMinted,
       _ => true

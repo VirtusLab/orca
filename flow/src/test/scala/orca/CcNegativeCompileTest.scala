@@ -9,30 +9,26 @@ import dotty.tools.dotc.core.Contexts.Context
 import dotty.tools.dotc.interfaces.Diagnostic as IDiagnostic
 import dotty.tools.dotc.reporting.{Diagnostic, Reporter}
 
-/** Capture-checking enforcement, pinned as automated negative-compile tests. A
-  * manual spike first proved that the checked fan-out shape — an impure-typed
-  * thunk list (`Seq[() => Int]`) routed through [[orca.CheckedPar]] — rejects
-  * an exclusive-capability capture; this suite pins that proof so a compiler
-  * upgrade or a wrapper edit can't silently drop the enforcement. Note the
+/** Capture-checking enforcement pinned as automated negative-compile tests, so
+  * a compiler upgrade or a wrapper edit can't silently drop it. The checked
+  * fan-out shape — an impure-typed thunk list (`Seq[() => Int]`) routed through
+  * [[orca.CheckedPar]] — must reject an exclusive-capability capture. The
   * rejection fires at the fixture's impure `Seq[() => Int]` ascription (the
-  * widening that "hides" the exclusive token), not at the wrapper boundary
-  * itself — see [[orca.CheckedPar]]'s object doc.
+  * widening that "hides" the exclusive token), not at the wrapper boundary —
+  * see [[orca.CheckedPar]]'s object doc.
   *
-  * Why an in-process compiler, not munit's `compileErrors`: that macro runs
-  * only the typer, but capture/separation checking runs post-typer — so a
+  * An in-process `dotc` is used, not munit's `compileErrors`: that macro runs
+  * only the typer, but capture/separation checking runs post-typer, so a
   * `compileErrors` version of the exclusive-capture cases would report ZERO
-  * errors and pass vacuously. (`orcacaps.InStageNegativeTest` legitimately
-  * stays on `compileErrors`: its negatives ARE typer errors.) Here we invoke
-  * the real `dotc` ([[dotty.tools.dotc.Main]]) on fixture sources, against this
-  * module's own Test classpath, so the full checked-compilation pipeline runs.
+  * errors and pass vacuously. Invoking the real `dotc`
+  * ([[dotty.tools.dotc.Main]]) against this module's own Test classpath runs
+  * the full checked-compilation pipeline.
   *
   * Fixtures declare `package orca` because [[orca.CheckedPar]] is
-  * `private[orca]` — an internal funnel, not meant on the `import orca.*` user
-  * namespace. They still pass the capability token in as a method parameter
+  * `private[orca]`. They pass the capability token in as a method parameter
   * rather than minting it via `InStage.unsafe`: passing an exclusive parameter
   * into the parallel closures is exactly the smuggling separation checking must
-  * reject, and it keeps each fixture to one token, one wrapper call, two
-  * closures — no `.unsafe` door, no Ox scope.
+  * reject, and keeps each fixture to one token, one wrapper call, two closures.
   */
 class CcNegativeCompileTest extends munit.FunSuite:
 
@@ -81,7 +77,6 @@ class CcNegativeCompileTest extends munit.FunSuite:
       deleteRecursively(srcDir)
       deleteRecursively(outDir)
 
-  /** Recursively removes a directory tree created for one fixture compile. */
   private def deleteRecursively(dir: java.nio.file.Path): Unit =
     if Files.exists(dir) then
       Files
@@ -156,12 +151,12 @@ class CcNegativeCompileTest extends munit.FunSuite:
       s"expected a separation-checking error rejecting the $token capture, got: $errors"
     )
 
-  /** Fixture implementing [[orca.review.ReviewerSelector]] (ADR 0011's
-    * 2026-07-08 amendment: `prepare` returns a pure `->` arrow that may only
-    * narrow over `history`). `body` is that returned lambda; the surrounding
-    * shape — imports, `prepare`'s signature, the `using ctx: FlowContext, ev:
-    * InStage` capabilities in scope — is identical for the (d)/(e) pair below,
-    * so purity of the returned lambda is the only axis under test.
+  /** Fixture implementing [[orca.review.ReviewerSelector]] (ADR 0011: `prepare`
+    * returns a pure `->` arrow that may only narrow over `history`). `body` is
+    * that returned lambda; the surrounding shape — imports, `prepare`'s
+    * signature, the `using ctx: FlowContext, ev: InStage` capabilities in scope
+    * — is identical for the (d)/(e) pair below, so purity of the returned
+    * lambda is the only axis under test.
     */
   private def selectorFixture(body: String): String =
     s"""package orca.review
@@ -200,7 +195,7 @@ class CcNegativeCompileTest extends munit.FunSuite:
 
   /** Assert `prepare`'s returned arrow was rejected for capturing a `using`
     * capability into a pure `->` type — the compile-time form of the
-    * ReviewerSelector contract (ADR 0011, 2026-07-08 amendment; see also
+    * ReviewerSelector contract (ADR 0011; see also
     * [[orca.review.ReviewerSelector]]'s trait doc): the returned narrowing may
     * only close over `history`, not the loop's capabilities.
     *

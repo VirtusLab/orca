@@ -2,13 +2,11 @@ package orca.tools.pi
 
 import scala.util.control.NonFatal
 
-/** Temporary Pi extension that exposes Orca's backend-agnostic `ask_user`
-  * conversation event through Pi's native extension UI protocol.
+/** Temporary Pi extension exposing Orca's `ask_user` conversation event through
+  * Pi's native extension UI protocol.
   *
-  * The extension intentionally has no imports so it can be written to a temp
-  * directory and loaded by Pi without relying on Node module resolution from
-  * that directory. The `parameters` value is plain JSON Schema / TypeBox shape,
-  * which Pi accepts for tool schemas.
+  * The extension deliberately has no imports, so it can be written to a temp
+  * directory and loaded without Node module resolution from there.
   */
 private[pi] final class PiAskUserExtension private (
     val dir: os.Path,

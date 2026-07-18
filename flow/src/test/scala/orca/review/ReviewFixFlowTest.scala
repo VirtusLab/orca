@@ -13,8 +13,8 @@ import java.util.concurrent.atomic.AtomicReference
   */
 class ReviewFixFlowTest extends munit.FunSuite:
 
-  // `reviewAndFixLoop` is gated on `InStage` + `WorkspaceWrite` (the durable
-  // fix turn's tokens, ADR 0018 §6); mint both for the suite.
+  // `reviewAndFixLoop` is gated on `InStage` + `WorkspaceWrite` (ADR 0018 §6);
+  // mint both for the suite.
   private given orca.InStage = orca.InStage.unsafe
   private given orca.WorkspaceWrite = orca.WorkspaceWrite.unsafe
 
@@ -60,8 +60,8 @@ class ReviewFixFlowTest extends munit.FunSuite:
       initialDiff = Some("")
     )
 
-    // The loop now runs under the caller's task stage (ADR 0018 §2.2), so it
-    // emits a progress line rather than opening its own committing stage.
+    // The loop runs under the caller's task stage (ADR 0018 §2.2), so it emits
+    // a progress line rather than opening its own committing stage.
     val events = listener.events
     assert(
       events.exists {
@@ -78,7 +78,6 @@ class ReviewFixFlowTest extends munit.FunSuite:
     // Reviewer keeps reporting the same issue every round; coder claims it
     // fixed it every round (so the loop sees progress) but the next eval
     // still finds it. The cap is the only thing that can stop this.
-    // Reviewer keeps reporting the same issue across all iterations.
     val stubborn = issue("never ends")
     val reviewer = new FakeAgent(
       name = "loud",

@@ -63,8 +63,8 @@ class ClaudeArgsTest extends munit.FunSuite:
   test(
     "AutoApprove.Only(tools) maps to sorted --allowedTools in default mode"
   ):
-    // Honest Only (finding 2.1): default permission mode, only the listed
-    // tools pre-approved — no acceptEdits blanket-approving every edit.
+    // Default permission mode, only the listed tools pre-approved — no
+    // acceptEdits blanket-approving every edit.
     val args = streamJson(
       AgentConfig(autoApprove =
         AutoApprove.Only(Set("Zeta", "Alpha", "Middle"))

@@ -36,10 +36,9 @@ private[claude] class ClaudeConversation(
       initialPrompt = initialPrompt
     ):
 
-  // The reader thread is the sole writer for all four fields below.
-  // No cross-thread visibility concerns: reads happen on the same thread
-  // immediately after writes, within `handle(...)` dispatch. Plain `var`s
-  // suffice — atomics would be theatre.
+  // The reader thread is the sole writer for the fields below, and reads happen
+  // on the same thread within `handle(...)` dispatch — no cross-thread
+  // visibility concerns, so plain `var`s suffice.
 
   /** Captured from the `system.init` message so `handleResult` can fall back to
     * it when the `result` message itself doesn't carry the resolved model id.
@@ -48,41 +47,32 @@ private[claude] class ClaudeConversation(
   private var initModel: Option[String] = None
 
   /** Set when a text or thinking delta streams, cleared when the next full-turn
-    * `assistant` message lands (reset at the top of `handleAssistantTurn`).
-    * Both consumers rely on claude's wire ordering — the full `assistant`
-    * message arrives AFTER any partials for the same turn — and ask the same
-    * question: "did the model's prose already stream as deltas since the last
-    * full-turn boundary?"
+    * `assistant` message lands. Answers "did the model's prose already stream
+    * as deltas since the last full-turn boundary?" for two consumers:
     *   - `handleAssistantTurn` gates its fallback that re-emits Text/Thinking
-    *     blocks when no partials arrived (older claude builds, partials
-    *     disabled);
-    *   - `handleResultError` shows a short marker instead of repeating the full
-    *     body when an `is_error`'s body already streamed as deltas this turn.
+    *     blocks when no partials arrived;
+    *   - `handleResultError` shows a short marker instead of repeating an
+    *     `is_error` body that already streamed as deltas.
     *
-    * NOTE: this is deliberately NOT the base's `turnIsOpen`. `turnIsOpen`
-    * counts a `ToolResult` as turn-opening activity (correct for the grammar),
-    * but a tool result is not streamed prose. After `tool_use → tool_result →
-    * is_error` with no assistant text, `turnIsOpen` is `true` while this flag
-    * is `false`; wiring `handleResultError` to `turnIsOpen` would then show
-    * "session failed (see message above)" pointing at a tool result instead of
-    * surfacing the actual error body. So the flag stays delta-specific.
+    * Deliberately NOT the base's `turnIsOpen`, which counts a `ToolResult` as
+    * turn-opening activity. After `tool_use → tool_result → is_error` with no
+    * assistant text, `turnIsOpen` is `true` while this flag is `false`; wiring
+    * `handleResultError` to `turnIsOpen` would point "session failed (see
+    * message above)" at a tool result instead of the actual error body.
     */
   private var deltasSinceLastFullTurn: Boolean = false
 
-  /** Tool-use ids of calls suppressed in `handleAssistantTurn` — `ask_user`
-    * invocations and (in structured mode) the CLI-injected `StructuredOutput`
-    * exit call. `handleUserTurn` drops the matching `tool_result` so the
-    * suppressed exchange doesn't re-render halfway: the user's typed answer as
-    * `⎿ <answer>` right after the UserQuestion prompt already surfaced it, or
-    * the structured payload's acknowledgement. See
-    * [[orca.backend.AskUserEchoes]].
+  /** Tool-use ids suppressed in `handleAssistantTurn` — `ask_user` invocations
+    * and (in structured mode) the CLI-injected `StructuredOutput` exit call.
+    * `handleUserTurn` drops the matching `tool_result` so the suppressed
+    * exchange doesn't re-render. See [[orca.backend.AskUserEchoes]].
     */
   private val askUserEchoes = new orca.backend.AskUserEchoes
 
-  // `canAskUser` + ask_user bridge drainer + onFinalize close are owned by
-  // the base; this subclass just declares `askUser` on the ctor param
-  // above. Stdin-as-user-channel is closed right after the initial prompt,
-  // so mid-session input flows through the MCP tool result either way.
+  // The ask_user bridge drainer and onFinalize close are owned by the base;
+  // this subclass just declares `askUser` on the ctor param. Stdin is closed
+  // right after the initial prompt, so mid-session input flows through the MCP
+  // tool result.
 
   // --- Reader hook ---
 
@@ -121,38 +111,31 @@ private[claude] class ClaudeConversation(
         eventQueue.enqueue(evt)
       }
     case InboundMessage.Unknown(_) =>
-      // Unknown top-level message types are protocol drift (new
-      // message kinds in newer CLI versions, etc.) — nothing the user
+      // Unknown top-level message types are protocol drift — nothing the user
       // can act on, so drop silently rather than rendering ✖.
       ()
 
-  /** Full assistant turn arrives after partials have streamed. This is the
-    * single source of truth for tool calls — claude's protocol emits the
-    * `assistant` message BEFORE the matching `content_block_stop`, so we can't
-    * usefully stream tool-use events earlier. Text and thinking are normally
-    * already streamed as deltas; if no deltas preceded this turn (older claude
-    * builds, partials disabled) we fall back to emitting each block as a single
-    * delta.
+  /** Full assistant turn, arriving after partials have streamed. Single source
+    * of truth for tool calls — claude emits the `assistant` message BEFORE the
+    * matching `content_block_stop`, so tool-use events can't stream earlier.
+    * Text and thinking normally already streamed as deltas; if none preceded
+    * this turn we fall back to emitting each block as a single delta.
     */
   private def handleAssistantTurn(content: List[ContentBlock]): Unit =
     val sawDeltasThisTurn = deltasSinceLastFullTurn
     deltasSinceLastFullTurn = false
     content.foreach:
-      // Suppress the agent's own ToolCall block for `ask_user` — the
-      // host-side bridge emits a UserQuestion event for the same exchange
-      // and rendering the tool-call line on top of it is just noise.
-      // Remember the id so `handleUserTurn` can also drop the matching
-      // tool_result (otherwise the user's typed answer re-renders as
-      // `⎿ <answer>` after the prompt already surfaced it).
+      // Suppress the agent's own `ask_user` ToolCall — the host-side bridge
+      // emits a UserQuestion for the same exchange. Remember the id so
+      // `handleUserTurn` also drops the matching tool_result (else the typed
+      // answer re-renders).
       case ContentBlock.ToolUse(id, name, _)
           if name == ClaudeBackend.AskUserToolName =>
         askUserEchoes.suppress(id)
       // The CLI-injected structured-output "exit" call (`--json-schema`): the
-      // payload reaches the caller via the result message and surfaces as
-      // `OrcaEvent.StructuredResult`, so rendering the tool call would show
-      // the same JSON twice. Gated on structured mode so a genuine user tool
-      // that happens to be named `StructuredOutput` is unaffected in plain
-      // runs.
+      // payload reaches the caller via the result message, so rendering the
+      // tool call would show the same JSON twice. Gated on structured mode so a
+      // genuine user tool named `StructuredOutput` is unaffected in plain runs.
       case ContentBlock.ToolUse(id, name, _)
           if outputSchema.isDefined &&
             name == ClaudeBackend.StructuredOutputToolName =>
@@ -174,9 +157,9 @@ private[claude] class ClaudeConversation(
     content.foreach:
       case ContentBlock.ToolResult(toolUseId, _, _)
           if askUserEchoes.consume(toolUseId) =>
-        // Paired with a suppressed `ask_user` ToolUse; the user has already
-        // seen their own typed answer at the prompt, so don't echo it back.
-        // `consume` removes the id as it matches.
+        // Paired with a suppressed `ask_user` ToolUse; the user already saw
+        // their typed answer at the prompt, so don't echo it. `consume` removes
+        // the id.
         ()
       case ContentBlock.ToolResult(_, body, isError) =>
         eventQueue.enqueue(
@@ -207,13 +190,11 @@ private[claude] class ClaudeConversation(
     )
 
   /** Claude sets `is_error: true` for out-of-band failures (API errors, rate
-    * limits, auth problems) that happen at the CLI boundary rather than inside
-    * a turn. Treat these as session-ending failures rather than feeding the
-    * error body into the downstream response parser, which might otherwise
-    * accept a `{"type":"error",...}` payload as a structurally valid agent
-    * output. `failWith` carries the full message for `awaitResult` to surface;
-    * the in-stream `Error` event is short if the user already saw the body as
-    * part of a streamed turn.
+    * limits, auth) at the CLI boundary rather than inside a turn. Treat these
+    * as session-ending rather than feeding the error body into the response
+    * parser, which might otherwise accept a `{"type":"error",...}` payload as
+    * valid output. `failWith` carries the full message; the in-stream `Error`
+    * event is short if the body already streamed as part of a turn.
     */
   private def handleResultError(output: Option[String]): Unit =
     val message =
@@ -248,15 +229,10 @@ private[claude] class ClaudeConversation(
     case AutoApprove.Only(tools) => tools.contains(toolName)
 
   /** Translate one stream-event payload into a `ConversationEvent`, or `None`
-    * if the payload contributes only to state we'll surface elsewhere.
-    *
-    * Text and thinking deltas pass straight through — claude chunks them and
-    * the renderer handles re-assembly. Tool-use deltas (start / json / stop)
-    * are NOT translated here: in the live protocol the full `assistant` message
-    * arrives BEFORE the matching `content_block_stop`, so emitting from a stop
-    * event would always be a duplicate of what `handleAssistantTurn` already
-    * emitted. The full-turn message is the single source of truth for tool
-    * calls.
+    * if it contributes only to state surfaced elsewhere. Text and thinking
+    * deltas pass straight through; tool-use deltas are NOT translated here,
+    * since the full-turn message is the single source of truth for tool calls
+    * (see [[handleAssistantTurn]]).
     */
   private def translateStreamEvent(
       payload: StreamEventPayload

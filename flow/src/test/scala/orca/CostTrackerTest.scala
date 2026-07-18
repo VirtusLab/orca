@@ -140,7 +140,7 @@ class CostTrackerTest extends munit.FunSuite:
   test(
     "price-table lookup does NOT fall back across a non-date model-tier suffix"
   ):
-    // 12.5: "opus-mini" is a different (and differently-priced) model tier
+    // "opus-mini" is a different (and differently-priced) model tier
     // from "opus", not a dated snapshot of it — unlike "opus-20251015" above,
     // the prefix fallback must not cross tiers just because one name prefixes
     // the other. Mirrors the real-world gemini-2.5-flash / -flash-lite risk.
@@ -271,9 +271,8 @@ class CostTrackerTest extends munit.FunSuite:
   test(
     "summary derives a display-only role prefix per agent and adds a By role subtotal section"
   ):
-    // 12.7: the old "reviewer: <slug>" string was baked into the agent's
-    // identity/name; now `agent` stays bare and the summary derives the same
-    // display text purely from `role`, plus a "By role:" subtotal section.
+    // `agent` stays bare; the summary derives the "reviewer: <slug>" display
+    // text purely from `role`, and adds a "By role:" subtotal section.
     val tracker = new CostTracker(pricing = testTable)
     tracker.onEvent(
       tokens(

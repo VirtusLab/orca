@@ -45,23 +45,18 @@ private[opencode] trait OpencodeServerHandle:
   * Each turn opens its own `GET /event` SSE stream, starts the turn with
   * `prompt_async`, and reads the result off the stream via
   * [[OpencodeConversation]]. The single [[OpencodeServerHandle]] is built once
-  * at construction ([[OpencodeBackend.apply]]) and shared across turns; the
-  * process spawn behind it stays lazy.
-  *
-  * OpenCode mints `ses_…` ids, so — like Codex — a [[IdScheme.ServerMinted]]
-  * bookkeeping maps the caller's stable id to the server id; [[runAutonomous]]
-  * returns the caller's id so it stays the handle.
+  * at construction and shared across turns; the process spawn behind it stays
+  * lazy.
   *
   * A turn relies on the server emitting a terminal
   * `session.idle`/`session.error` (or closing the SSE stream); there is no
-  * per-turn timeout at this layer, so an orchestrator-level deadline (the
-  * flow's own timeout) is the backstop for a server that wedges mid-turn.
+  * per-turn timeout at this layer, so the flow's own timeout is the backstop
+  * for a server that wedges mid-turn.
   */
 private[orca] object OpencodeBackend:
-  /** Build the backend with its server fixed at construction. Per-turn working
-    * directories are assumed constant (orca flows run in one repo), so the
-    * server's `workDir` is pinned here — and is the SAME value
-    * [[AgentBackend.workDir]] exposes, by construction.
+  /** Build the backend with its server fixed at construction. orca flows run in
+    * one repo, so the server's `workDir` is pinned here — the same value
+    * [[AgentBackend.workDir]] exposes.
     */
   def apply(
       cli: CliRunner,
@@ -79,9 +74,8 @@ private[orca] class OpencodeBackend(
 ) extends AgentBackend[BackendTag.Opencode.type]:
 
   /** Tear down the shared `opencode serve` process and its drain forks. A no-op
-    * if the server was never started (opencode wired but unused). Called by the
-    * runtime in the flow body's `finally`, before the flow scope joins forks
-    * (see [[orca.backend.AgentBackend.close]]).
+    * if the server was never started. Called in the flow body's `finally`,
+    * before the flow scope joins forks.
     */
   override def close(): Unit = server.close()
 
@@ -123,44 +117,13 @@ private[orca] class OpencodeBackend(
     )
 
   /** Probe `http` for the given session id via `GET /session/<id>` → status
-    * 200. Callable directly in tests without going through the lazy-init guard.
-    * Returns `false` on any transport error. The
-    * [[orca.agents.SessionId.isSafe]] guard must have passed before this method
-    * is called — it is not re-checked here.
+    * 200; `false` on any transport error. The [[orca.agents.SessionId.isSafe]]
+    * guard must have passed before this is called — it is not re-checked here.
     */
   private[opencode] def probeSession(id: String, http: OpencodeHttp): Boolean =
     try http.getStatus(s"/session/$id") == 200
     catch case NonFatal(_) => false
 
-  /** OpenCode's `ses_…` sessions are server-side and durable: the client→server
-    * map is persisted to the progress log and rehydrated on resume. Existence
-    * probes the SERVER id resolved for a client (opencode mints server-side
-    * ids; the caller's stable id never matches one) via `GET
-    * /session/<serverId>` → 200.
-    *
-    * Because [[SessionSupport.willContinue]] resolves the recorded mapping
-    * first, `false` results when no server id is mapped — which includes a
-    * server id that failed the [[orca.agents.SessionId.isSafe]] guard at commit
-    * time (blocks URL injection such as `a/b` routing to a different endpoint):
-    * `register`/`commitAfterDrain` refuse to record it — as well as the map not
-    * having been rehydrated yet (⇒ no known live session), or the request
-    * failing for any reason.
-    *
-    * Sessions genuinely outlive the process: opencode persists them to a global
-    * on-disk store shared by every `opencode serve` on the machine
-    * (cwd-independent), so a fresh server spawned after a kill/restart resumes
-    * a prior run's `resumeWireId` — `GET /session/<id>` returns 200 with full
-    * message history (live-verified 2026-07-08). The probe therefore forces
-    * `server.http` (the lazy spawn) rather than gating on whether the server
-    * has already started: on resume the registry has a mapped id but no turn
-    * has necessarily touched the server yet, so gating on "already spawned"
-    * would answer "absent" before ever asking the (perfectly capable) fresh
-    * server. This is safe because [[SessionSupport.willContinue]]
-    * short-circuits on no mapped id, so the forced spawn only fires when there
-    * is a wire id to resume — i.e. precisely when the server is about to be
-    * needed for a turn anyway. The per-run server process is an implementation
-    * detail, not a durability boundary.
-    */
   val tag: BackendTag.Opencode.type = BackendTag.Opencode
 
   override def enforcement(
@@ -185,14 +148,12 @@ private[orca] class OpencodeBackend(
   val sessions: SessionSupport[BackendTag.Opencode.type] =
     SessionSupport.durable(
       IdScheme.ServerMinted,
-      // No `server.started &&` guard: opencode persists sessions in its
-      // global on-disk DB, and a freshly (lazily) spawned server resumes
-      // them, so the probe must be allowed to force the spawn — gating on
-      // "already started" would short-circuit the very first resume probe
-      // of a run, before anything had forced `server.http` yet. Safe because
-      // `SessionSupport.willContinue` short-circuits on no mapped wire id,
-      // so the forced spawn only fires on a genuine resume, when the server
-      // is about to be needed for a turn anyway.
+      // No `server.started &&` guard: opencode persists sessions in a global
+      // on-disk DB that a freshly (lazily) spawned server resumes, so the probe
+      // must be allowed to force the spawn. Safe because
+      // `SessionSupport.willContinue` short-circuits on no mapped wire id, so
+      // the forced spawn only fires on a genuine resume — when the server is
+      // about to be needed anyway.
       id => probeSession(id, server.http)
     )
 
@@ -209,17 +170,12 @@ private[orca] class OpencodeBackend(
         val resp = http.postJson("/session", writeToString(SessionCreateBody()))
         readFromString[SessionCreated](resp).id
 
-  /** Resolve the server session, THEN open the SSE stream —
-    * [[serverSessionFor]] can throw (a fresh `POST /session`, or a bad resume
-    * id), and Scala evaluates call arguments left-to-right, so putting
-    * `http.events()` in argument position ahead of it used to open a live `GET
-    * /event` connection that a subsequent `serverSessionFor` failure then
-    * discarded uninterrupted (leaking the connection/socket). Resolving the
-    * session first means that failure never gets near the stream at all. The
+  /** Resolve the server session, THEN open the SSE stream: [[serverSessionFor]]
+    * can throw (fresh `POST /session`, or a bad resume id), and opening the
+    * stream first would leak the `GET /event` connection on that failure. The
     * `try`/`catch` is defense-in-depth for any throw between the stream opening
-    * and [[openConversation]] handing it to the [[OpencodeConversation]] that
-    * owns it (that method's own `catch` only covers the later `prompt_async`
-    * POST).
+    * and [[openConversation]] handing it to the owning [[OpencodeConversation]]
+    * (whose own `catch` only covers the later `prompt_async` POST).
     */
   private def startTurn(
       http: OpencodeHttp,
@@ -246,10 +202,9 @@ private[orca] class OpencodeBackend(
         source.interrupt()
         throw e
 
-  /** Open the SSE stream (reader running) **then** fire `prompt_async`, so no
-    * turn events are missed. The conversation derives the result from the
-    * stream. Callers ([[startTurn]]) are responsible for resolving the server
-    * session and opening `source` in the leak-safe order.
+  /** Start the reader on the SSE stream **then** fire `prompt_async`, so no
+    * turn events are missed. Callers ([[startTurn]]) resolve the server session
+    * and open `source` in the leak-safe order.
     */
   private def openConversation(
       http: OpencodeHttp,

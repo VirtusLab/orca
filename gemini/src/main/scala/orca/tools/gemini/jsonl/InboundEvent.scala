@@ -6,37 +6,29 @@ import orca.util.RawJson
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
-/** Typed classification of a `message` event's `role` field — see
-  * [[InboundEvent.Message]]. gemini spells the assistant side `model`/
-  * `assistant` across versions, so any *present* value that isn't literally
-  * `"user"` counts as [[Role.Assistant]] (matching the pre-existing "not user"
-  * match). A *missing* `role` key is [[Role.Unknown]] — identity-critical, so
-  * it's typed and dropped by the conversation rather than defaulting to `""`
-  * and silently passing gemini's `!= "user"` check as agent output.
+/** Typed classification of a `message` event's `role` field. gemini spells the
+  * assistant side `model`/`assistant` across versions, so any *present* value
+  * that isn't `"user"` counts as [[Role.Assistant]]. A *missing* `role` key is
+  * [[Role.Unknown]] — dropped by the conversation rather than treated as agent
+  * output.
   */
 private[gemini] enum Role:
   case User, Assistant, Unknown
 
-/** One event parsed off gemini's stdout when it runs with `-p <prompt>
-  * --output-format stream-json`.
-  *
-  * The shape is documented in
-  * [[../../../adr/0015-gemini-stream-json-driver.md ADR 0015]]; each variant
-  * carries only the fields the driver actually inspects. Unknown top-level
-  * types collapse to [[Unknown]] so protocol drift doesn't crash the pipeline.
-  * Most wire fields are optional with a default so a renamed/missing key
-  * degrades gracefully rather than throwing — the two identity-critical
-  * exceptions are `init`'s `session_id` (required; a missing key throws so the
-  * reader's generic parse-error handling surfaces it as a visible `Error` event
-  * near the cause, instead of silently becoming `Init("")`) and `message`'s
-  * `role` (typed via [[Role]] rather than defaulted to `""`).
+/** One event parsed off gemini's stdout under `-p <prompt> --output-format
+  * stream-json` (shape in
+  * [[../../../adr/0015-gemini-stream-json-driver.md ADR 0015]]). Each variant
+  * carries only the fields the driver inspects. Unknown top-level types
+  * collapse to [[Unknown]] so protocol drift doesn't crash the pipeline. Most
+  * wire fields default so a renamed/missing key degrades gracefully; the two
+  * identity-critical exceptions are `init`'s `session_id` (required — a missing
+  * key throws rather than becoming `Init("")`) and `message`'s `role` (typed
+  * via [[Role]]).
   */
 private[gemini] enum InboundEvent:
-  /** First event in a session — carries the session id (used to drive
-    * `--resume`) and, when present, the resolved model id. `sessionId` is never
-    * empty: [[InitWire.session_id]] is a required wire field, so a missing key
-    * fails parsing rather than producing an `Init` with an empty id (see
-    * [[InboundEvent.parse]]/[[InboundEvent.parseInit]]).
+  /** First event in a session — the session id (drives `--resume`) and, when
+    * present, the resolved model id. `sessionId` is never empty: a missing
+    * `session_id` fails parsing rather than producing an `Init("")`.
     */
   case Init(sessionId: String, model: Option[String])
 
@@ -58,9 +50,7 @@ private[gemini] object InboundEvent:
 
   /** Parse one JSONL line. Malformed JSON, and — for `init` — a missing
     * `session_id`, propagate `JsonReaderException`; callers decide whether to
-    * skip or fail (`ForkedConversation.runReader`'s generic per-line catch
-    * skips this one line and surfaces a visible `Error` event, see its
-    * scaladoc).
+    * skip or fail.
     */
   def parse(line: String): InboundEvent =
     val envelope = readFromString[TopEnvelope](line)
@@ -81,9 +71,8 @@ private[gemini] object InboundEvent:
     val w = readFromString[MessageWire](line)
     Message(roleOf(w.role), w.content.getOrElse(""))
 
-  /** Classify the wire `role` — see [[Role]]. Operates on the `Option` (not the
-    * `.getOrElse("")`-collapsed string) so a genuinely missing key ([[None]])
-    * is distinguishable from a present-but-empty one.
+  /** Classify the wire `role` — see [[Role]]. Operates on the `Option` so a
+    * missing key ([[None]]) is distinguishable from a present-but-empty value.
     */
   private def roleOf(role: Option[String]): Role = role match
     case Some("user") => Role.User
@@ -131,9 +120,7 @@ private[gemini] object InboundEvent:
       derives ConfiguredJsonValueCodec
 
   /** `session_id` is required (no default): missing it throws
-    * `JsonReaderException` from `readFromString`, rather than silently becoming
-    * `Init("")` — see [[InboundEvent.parseInit]]. Mirrors codex's
-    * `ThreadStartedWire.thread_id`.
+    * `JsonReaderException` rather than silently becoming `Init("")`.
     */
   private case class InitWire(
       session_id: String,

@@ -10,10 +10,7 @@ import orca.subprocess.OsProcCliRunner
   */
 object PiAgents:
 
-  /** The default pi agent for a run: standard config. Pi model selection is
-    * left to generic [[AgentConfig.model]] values since Pi supports many
-    * providers and fuzzy model patterns through its own CLI.
-    */
+  /** The default pi agent for a run: standard config. */
   def default(wiring: AgentWiring): PiAgent =
     new DefaultPiAgent(
       backend = new PiBackend(OsProcCliRunner, workDir = wiring.workDir),

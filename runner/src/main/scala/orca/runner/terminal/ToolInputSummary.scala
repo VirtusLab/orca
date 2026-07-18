@@ -3,16 +3,14 @@ package orca.runner.terminal
 import scala.annotation.tailrec
 
 /** Produces a short, human-readable summary of a tool call's raw JSON input —
-  * the bit the renderer shows in parentheses after the tool name. The
-  * implementation is a deliberately small hand-written JSON string extractor: a
-  * full parser would cost a dependency edge and time for what is purely a
-  * display heuristic. If the input doesn't match one of the known "headline"
-  * fields, we fall back to the truncated JSON so nothing is lost.
+  * the bit the renderer shows in parentheses after the tool name. A
+  * deliberately small hand-written JSON string extractor rather than a full
+  * parser, since this is purely a display heuristic; unmatched input falls back
+  * to truncated JSON.
   *
-  * `workDir`, when supplied, is used to relativise paths that fall inside the
-  * flow's working directory — `/tmp/orca-AbC/src/Main.scala` becomes
-  * `src/Main.scala`. Paths outside `workDir` stay absolute, so external file
-  * access remains visually obvious in the output.
+  * `workDir`, when supplied, relativises paths inside the flow's working
+  * directory (`/tmp/orca-AbC/src/Main.scala` → `src/Main.scala`). Paths outside
+  * stay absolute, so external file access remains visually obvious.
   */
 private[terminal] object ToolInputSummary:
 
@@ -31,11 +29,9 @@ private[terminal] object ToolInputSummary:
       "description"
     )
 
-  /** Field names whose values are paths the renderer should try to relativise
-    * against `workDir` (when provided). Subset of [[HeadlineFields]] —
-    * `command`/`pattern`/`query`/`url`/ `description` are free-form strings
-    * that may contain any number of paths interleaved with other text, so we
-    * leave those alone.
+  /** Headline fields whose values are single paths to relativise against
+    * `workDir`. The others are free-form strings that may interleave paths with
+    * other text, so they're left alone.
     */
   private val PathFields: Set[String] = Set("file_path", "path")
 
@@ -83,10 +79,8 @@ private[terminal] object ToolInputSummary:
     WhitespaceRun.matcher(raw).replaceAll(" ").trim
 
   /** Matches a `"field":"value"` entry and walks the value honouring `\"` /
-    * `\\` escapes. Returns `None` if the field isn't present or the string
-    * doesn't terminate. Deliberately not a full JSON parser — escapes beyond
-    * the common shell/path ones round-trip verbatim because they wouldn't
-    * otherwise appear in tool inputs.
+    * `\\` escapes. Returns `None` if the field is absent or the string doesn't
+    * terminate. Escapes beyond the common shell/path ones round-trip verbatim.
     */
   private def extractStringField(json: String, field: String): Option[String] =
     val needle = s""""$field":""""

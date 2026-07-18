@@ -5,24 +5,22 @@ package orca.agents
   * result as an `OrcaEvent.StructuredResult`. Provide a specific given in the
   * type's companion to opt into a friendlier rendering.
   *
-  * From a specific given, `Some(text)` is rendered as the result summary and
-  * `None` means "deliberately say nothing" — for results whose outcome the call
-  * site already narrates (e.g. the review loop's per-reviewer lines). A type
-  * with NO specific given resolves to the catch-all [[Announce.default]], which
-  * renderers treat differently: they fall back to showing the raw payload, so
-  * an unannounced result never disappears silently (ADR 0008; ADR 0009
-  * amendment 2026-07-11).
+  * From a specific given, `Some(text)` is the result summary and `None` means
+  * "deliberately say nothing" (for results the call site already narrates, e.g.
+  * the review loop's per-reviewer lines). A type with NO specific given
+  * resolves to the catch-all [[Announce.default]], which renderers fall back to
+  * showing the raw payload for — so an unannounced result never disappears
+  * silently (ADR 0008; ADR 0009).
   */
 trait Announce[O]:
   def message(value: O): Option[String]
 
 object Announce:
 
-  /** The catch-all's class — named (rather than a lambda) so the emission edge
-    * (`DefaultAgentCall.emitStructuredResult`) can tell "no specific instance
-    * exists" (renderers fall back to the raw payload) apart from a specific
-    * instance that returns `None` (deliberate silence). The two are different
-    * display contracts.
+  /** The catch-all's class — named (rather than a lambda) so
+    * `DefaultAgentCall.emitStructuredResult` can distinguish "no specific
+    * instance exists" (fall back to raw payload) from a specific instance
+    * returning `None` (deliberate silence). Different display contracts.
     */
   final private[agents] class NoSpecific[O] extends Announce[O]:
     def message(value: O): Option[String] = None
@@ -42,9 +40,6 @@ object Announce:
       case ""  => None
       case msg => Some(msg)
 
-  /** Construct from a function returning `Option[String]` directly, for cases
-    * where the empty/non-empty distinction is more naturally expressed at the
-    * source.
-    */
+  /** Construct from a function returning `Option[String]` directly. */
   def fromOption[O](f: O => Option[String]): Announce[O] =
     (value: O) => f(value)

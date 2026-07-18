@@ -1,17 +1,13 @@
 package orca.backend
 
-/** Event the driver emits for the channel to render. One full session is
-  * represented by a sequence of these, terminated by the `events` iterator on
-  * [[Conversation]] closing; the final outcome (success or cancel) is read via
+/** Event the driver emits for the channel to render. One session is a sequence
+  * of these, terminated by the `events` iterator on [[Conversation]] closing;
+  * the final outcome (success or cancel) is read via
   * [[Conversation.awaitResult]].
   *
-  * Partial deltas (`AssistantTextDelta`, `AssistantThinkingDelta`) arrive as
-  * the agent streams its response. `AssistantTurnEnd` marks the boundary
-  * between turns. `AssistantToolCall` is purely informational — the agent
-  * narrated a tool invocation. `ToolResult` echoes what the SDK reported back
-  * to the model after running the tool. `ApproveTool` is the only event the
-  * channel must respond to — it carries a `respond` closure the channel invokes
-  * exactly once with its decision.
+  * The deltas stream as the agent responds. `AssistantToolCall` is purely
+  * informational; `ToolResult` echoes what the SDK reported back to the model.
+  * `ApproveTool` is the only event the channel must respond to.
   *
   * Distinct from [[OrcaEvent]], which fans out flow-wide; conversation events
   * stay between driver and channel.
@@ -34,21 +30,17 @@ package orca.backend
   *
   * `ToolResult.toolName` is `Some(name)` when the wire carries the name and
   * `None` when it doesn't (claude's `tool_result` blocks carry only a tool-use
-  * id, so claude emits `None`). It is never `Some("")`.
+  * id). It is never `Some("")`.
   *
   * [[opensTurn]] is the single source of truth for the activity/neutral split
-  * above — an exhaustive match, so a new case added to this enum without a
-  * classification fails to compile rather than silently falling into the
-  * neutral bucket. [[ForkedConversation.EventQueue.enqueue]] (the funnel) and
-  * [[orca.backend.ConversationEventConformance]] (tools test sources, the
-  * oracle that asserts this grammar over a recorded sequence) both dispatch on
-  * it; backend scripted tests wire the oracle in.
+  * above, dispatched on by both [[ForkedConversation.EventQueue.enqueue]] (the
+  * funnel) and [[orca.backend.ConversationEventConformance]] (the oracle that
+  * asserts this grammar over a recorded sequence).
   */
 enum ConversationEvent:
-  /** A user turn — either the opening prompt (emitted by the driver when the
-    * session starts) or a mid-session reply. Letting the channel render these
-    * alongside agent output gives the user visible context about their own
-    * input; a long agent response to an unseen prompt feels unmoored.
+  /** A user turn — the opening prompt (emitted by the driver at session start)
+    * or a mid-session reply. Rendered so the user sees context for their own
+    * input alongside agent output.
     */
   case UserMessage(text: String)
   case AssistantTextDelta(text: String)
@@ -76,9 +68,7 @@ enum ConversationEvent:
 
   /** The agent wants a free-form answer from the user. The channel displays
     * `question`, reads a reply, and calls `respond` exactly once with what the
-    * user typed. The driver feeds the answer back into the conversation as a
-    * tool result (the backend-specific machinery surfaces these via an
-    * `ask_user` MCP tool or equivalent).
+    * user typed; the driver feeds the answer back as a tool result.
     *
     * Only emitted by backends whose [[Conversation.canAskUser]] is true —
     * claude and codex (both via the shared `AskUserMcpServer`).
@@ -86,15 +76,12 @@ enum ConversationEvent:
   case UserQuestion(question: String, respond: String => Unit)
 
   /** True for the events the "Turn grammar" scaladoc above classifies as
-    * assistant activity (open/continue a turn); false for the neutral events
-    * that never affect turn state. Deliberately exhaustive — no wildcard arm —
-    * so a future case added to this enum is a compile error here until it's
-    * explicitly classified, rather than silently defaulting to neutral in both
-    * the funnel ([[ForkedConversation.EventQueue.enqueue]]) and the oracle
-    * ([[orca.backend.ConversationEventConformance.assertGrammar]]).
-    * `AssistantTurnEnd` classifies as `false` (neutral) here — it has its own
-    * forward/drop arm in the funnel and its own assertion arm in the oracle,
-    * both ahead of the activity/neutral split this method drives.
+    * assistant activity (open/continue a turn); false for neutral events that
+    * never affect turn state. Deliberately exhaustive — no wildcard arm — so a
+    * future case is a compile error here until explicitly classified.
+    * `AssistantTurnEnd` classifies as `false` (neutral): it has its own
+    * forward/drop and assertion arms ahead of this split, in the funnel and the
+    * oracle respectively.
     */
   def opensTurn: Boolean = this match
     case ConversationEvent.AssistantTextDelta(_)     => true

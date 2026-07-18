@@ -17,41 +17,30 @@ import org.jline.reader.{
 import org.jline.terminal.{Terminal, TerminalBuilder}
 import ox.Ox
 
-/** Renders a [[Conversation]] to the terminal. The layout aims for a
-  * Claude-Code-like aesthetic: the user's opening prompt sits on its own
-  * section, the agent's prose flushes as a single block at each turn boundary,
-  * and each tool call/result gets a compact one-line summary tagged with a
-  * glyph.
+/** Renders a [[Conversation]] to the terminal: the user's opening prompt sits
+  * on its own section, the agent's prose flushes as a single block at each turn
+  * boundary, and each tool call/result gets a compact one-line glyph-tagged
+  * summary.
   *
-  * All event-log writes flow through the shared [[TerminalOutput]] so the
-  * persistent status row at the bottom doesn't get torn by ad-hoc `print`
-  * calls. The renderer accepts the output directly so it shares the surface
-  * with [[TerminalEventListener]] — a single output, one set of cursor escapes.
+  * All writes go through the shared [[TerminalOutput]] so the persistent status
+  * row isn't torn by ad-hoc prints and this renderer shares one surface with
+  * [[TerminalEventListener]]. Constructed per conversation on the caller
+  * thread; its state doesn't escape. `output.prompt` around the
+  * approval/question prompts keeps live event output from scribbling on top of
+  * `readLine`.
   *
-  * The renderer is constructed per conversation and lives on the caller (body)
-  * thread — it's not shared. State (`textBuffer`, `currentSection`,
-  * `pendingProseStyling`) doesn't escape this thread. Output writes are
-  * fire-and-forget tells; `output.prompt` around the approval/question prompts
-  * keeps live event output from scribbling on top of `readLine`.
-  *
-  * Spacing is controlled by a small section state machine — consecutive tool
-  * events don't grow blank lines between them, but a transition from prose to a
-  * tool block (or back) gets exactly one separator.
+  * A small section state machine controls spacing: consecutive tool events stay
+  * tight, but a prose↔tool transition gets exactly one blank-line separator.
   */
 private[terminal] class ConversationRenderer(
     useColor: Boolean,
     output: TerminalOutput,
     currentIndent: () => String,
     workDir: Option[os.Path] = None,
-    /** When non-empty the conversation is in structured-output mode — the
-      * agent's final assistant text is the JSON payload the library will
-      * deserialize and surface via `OrcaEvent.StructuredResult`. We swallow the
-      * streamed text to avoid showing the raw JSON twice (once mid-stream as
-      * `●`, once via the structured-result event). This drop is safe only
-      * because `TerminalEventListener`'s `StructuredResult` case (ADR 0008)
-      * guarantees a visible result either way: the `Announce[O]` summary as `▶`
-      * when available, otherwise the truncated raw payload as `●` — never
-      * silence.
+    /** When set, the agent's final assistant text is a JSON payload surfaced
+      * via `OrcaEvent.StructuredResult`, so we drop the streamed text to avoid
+      * showing the raw JSON twice. Safe because `TerminalEventListener`'s
+      * `StructuredResult` case (ADR 0008) always renders a visible result.
       */
     structuredMode: Boolean = false,
     prompter: ConversationRenderer.Prompter = ConversationRenderer.JLinePrompter
@@ -59,37 +48,27 @@ private[terminal] class ConversationRenderer(
 
   import ConversationRenderer.*
 
-  /** Section-spacing state. Consecutive `Tool` events stay tight; a `Tool →
-    * Prose` (or vice versa) transition inserts a blank line.
-    */
   private var currentSection: Section = Section.None
 
-  /** Buffer for assistant text in the current turn. Flushed as a single block
-    * at `AssistantTurnEnd` so the prose lands together rather than
-    * delta-by-delta. In structured-output mode the buffer is dropped instead of
-    * flushed — see the `structuredMode` constructor doc.
+  /** Assistant text for the current turn, flushed as a single block at
+    * `AssistantTurnEnd`. Dropped rather than flushed in structured-output mode.
     */
   private val textBuffer = new StringBuilder
 
-  /** Per-turn glyph + style we'll prepend to the buffered text when we flush.
-    * Captured at the first delta so we don't lose the styling between buffering
-    * and flush.
-    */
+  /** Glyph + style to prepend at flush, captured at the first delta. */
   private var pendingProseStyling: Option[ProseStyling] = None
 
-  /** Render the conversation to completion. Returns whatever
-    * `Conversation.awaitResult()` returns — the Either is passed through so the
-    * caller decides whether to throw or surface the cancellation as a value.
+  /** Render the conversation to completion. The `Either` from `awaitResult()`
+    * is passed through so the caller decides whether to throw or surface the
+    * cancellation as a value.
     */
   def render[B <: BackendTag](
       conversation: Conversation[B]
   )(using Ox): Either[OrcaInteractiveCancelled, AgentResult[B]] =
     conversation.events.foreach(dispatch(_, conversation))
-    // The turn grammar (ForkedConversation auto-closes every completed turn)
-    // guarantees each turn ends with an AssistantTurnEnd that already flushed
-    // the buffer, so on the normal path this is a no-op. It only flushes for a
-    // turn the stream left open — abnormal termination (cancellation/crash
-    // mid-turn) the grammar permits; a safety net, not driver-slop compensation.
+    // Normally a no-op: every completed turn ends with an AssistantTurnEnd that
+    // already flushed. Safety net for a turn the stream left open (cancellation
+    // or crash mid-turn).
     flushBufferedText()
     conversation.awaitResult()
 
@@ -101,10 +80,8 @@ private[terminal] class ConversationRenderer(
     case ConversationEvent.AssistantTextDelta(text) =>
       bufferText(text, AssistantGlyph, AssistantGlyphStyle, AssistantTextStyle)
     case ConversationEvent.AssistantThinkingDelta(_) =>
-      // Deliberately dropped: there is no thinking-display toggle, and
-      // buffering thinking into the shared textBuffer/pendingProseStyling
-      // would mis-style the whole turn (whichever delta kind arrives first
-      // wins the styling for the rest of the buffered block).
+      // Dropped: buffering thinking into the shared textBuffer would let the
+      // first delta kind win the styling for the whole turn.
       ()
     case ConversationEvent.AssistantToolCall(name, input) =>
       renderToolCall(name, input)
@@ -122,9 +99,8 @@ private[terminal] class ConversationRenderer(
   private def renderUserMessage(text: String): Unit =
     enterSection(Section.Prose)
     val header = paint(UserHeaderStyle, s"$UserGlyph you")
-    // One line, truncated — matching the autonomous path's `▸` prompt render;
-    // the initial message here is usually a full templated instruction, and
-    // dumping it would dominate the log.
+    // One truncated line: the initial message is usually a full templated
+    // instruction that would otherwise dominate the log.
     val body = paint(
       UserBodyStyle,
       bulletIndent(Text.oneLine(text, MaxUserMessageLength))
@@ -157,11 +133,9 @@ private[terminal] class ConversationRenderer(
     enterSection(Section.Prose)
     appendBlock(paint(ErrorStyle, s"$ErrorGlyph $message"))
 
-  /** Render the buffered text as a single prose block. In structured-output
-    * mode the buffer is dropped — the structured payload arrives via
-    * `OrcaEvent.StructuredResult` instead, so showing the raw JSON inline would
-    * just duplicate. Either way, `pendingProseStyling` and the buffer are
-    * cleared so an empty-buffer turn doesn't leak state.
+  /** Render the buffered text as a single prose block, or drop it in
+    * structured-output mode (the payload arrives via `StructuredResult`).
+    * Always clears the buffer and `pendingProseStyling`.
     */
   private def flushBufferedText(): Unit =
     val styling = pendingProseStyling.getOrElse(
@@ -169,10 +143,7 @@ private[terminal] class ConversationRenderer(
     )
     pendingProseStyling = None
     if textBuffer.isEmpty then ()
-    else if structuredMode then
-      // Drop. The `StructuredResult` event will carry the canonical
-      // text and the listener decides what to render.
-      textBuffer.clear()
+    else if structuredMode then textBuffer.clear()
     else
       val text = textBuffer.toString
       textBuffer.clear()
@@ -182,8 +153,7 @@ private[terminal] class ConversationRenderer(
       appendBlock(rendered)
 
   /** Insert a blank-line separator when crossing a section boundary, then
-    * update the section. No-op when staying in the same kind of section or when
-    * nothing has been emitted yet.
+    * update the section. No-op within a section or before anything is emitted.
     */
   private def enterSection(next: Section): Unit =
     if currentSection != Section.None && currentSection != next then
@@ -213,10 +183,8 @@ private[terminal] class ConversationRenderer(
     appendBlock(
       paint(ApprovalStyle, s"$ApprovalGlyph $toolName requested: $summary")
     )
-    // `prompt` suspends the status (clears the spinner row, buffers
-    // concurrent log tells from other listeners) so the readline lands
-    // cleanly and live events can't scribble on top of the prompt, then
-    // drains/redraws on the way out — even if `respond` throws.
+    // `prompt` suspends the status and buffers concurrent log tells so the
+    // readline lands cleanly, then drains/redraws on the way out.
     output.prompt: () =>
       prompter.ask(
         currentIndent() + paint(ApprovalStyle, "  [y]es / [n]o ? ")
@@ -251,8 +219,8 @@ private[terminal] class ConversationRenderer(
 
   // --- Helpers ---
 
-  /** Inset prose under a header glyph by 2 spaces. Operates on the raw text —
-    * the outer stage-depth indent is added later by [[appendBlock]].
+  /** Inset prose under a header glyph by 2 spaces. The outer stage-depth indent
+    * is added later by [[appendBlock]].
     */
   private def bulletIndent(text: String): String =
     text.linesIterator.map(l => s"  $l").mkString("\n")
@@ -262,12 +230,9 @@ private[terminal] class ConversationRenderer(
 
 private[terminal] object ConversationRenderer:
   val MaxInlineInputLength: Int = 120
-  // Tool results are large file reads or command output; show just
-  // enough for "something happened" without wrapping past one line.
+  // Enough of a large file read / command output to signal "something
+  // happened" without wrapping past one line.
   val MaxInlineContentLength: Int = 100
-  // The interactive session's user message is usually the full templated
-  // instruction; one truncated line identifies the turn (same budget the
-  // autonomous `▸` prompt line uses in TerminalEventListener).
   val MaxUserMessageLength: Int = 100
 
   val UserGlyph: String = "▸"
@@ -278,15 +243,10 @@ private[terminal] object ConversationRenderer:
   val ErrorGlyph: String = "✖"
   val ApprovalGlyph: String = "?"
 
-  // Palette: magenta-bold glyphs are the dominant accent (stages,
-  // steps, assistant prose) — they pop against neutral body text
-  // without the previous wash of cyan/blue. Tool calls move to
-  // yellow-bold so the "the agent is doing something external"
-  // signal stands out from the magenta-bold "primary content"
-  // signal. Secondary text (tool args, tool results) all
-  // stays dark-gray. User prompts keep cyan as their distinctive
-  // colour since they're rare and want to be visually anchored at
-  // the top of an interactive session.
+  // Palette: magenta-bold is the dominant "primary content" accent (stages,
+  // steps, assistant prose); tool calls are yellow-bold so "doing something
+  // external" stands apart; secondary text (tool args/results) is dark-gray;
+  // user prompts keep cyan as their distinctive, rare accent.
   val UserHeaderStyle: fansi.Attrs = fansi.Color.Cyan ++ fansi.Bold.On
   val UserBodyStyle: fansi.Attrs = fansi.Color.Cyan
   val AssistantGlyphStyle: fansi.Attrs = fansi.Color.Magenta ++ fansi.Bold.On
@@ -319,29 +279,24 @@ private[terminal] object ConversationRenderer:
   trait Prompter:
     def ask(prompt: String): PromptOutcome
 
-    /** Release any I/O resources the prompter acquired. Process-scoped: called
-      * once at interaction teardown, never per conversation. The default is a
-      * no-op — a prompter that never opens anything has nothing to release.
+    /** Release any I/O resources the prompter acquired. Called once at
+      * interaction teardown, never per conversation. Default is a no-op.
       */
     def close(): Unit = ()
 
   /** Default production prompter: JLine line reader. Lazy so the terminal is
-    * only opened when an approval prompt actually fires — pure non-interactive
-    * sessions never allocate a terminal.
+    * only opened when an approval prompt fires — non-interactive sessions never
+    * allocate one.
     *
-    * Limitation: this object is process-scoped and its lazy terminal cannot
-    * re-initialize after `close()` — a second `flow(...)` in the same JVM that
-    * fires a prompt is unsupported. Inject a custom [[Prompter]] for
-    * embedded/multi-run scenarios. (A resettable-holder fix is deferred; this
-    * note records the boundary.)
+    * Limitation: process-scoped and its lazy terminal cannot re-initialize
+    * after `close()`, so a second `flow(...)` in the same JVM that fires a
+    * prompt is unsupported. Inject a custom [[Prompter]] for embedded/multi-run
+    * scenarios.
     */
   object JLinePrompter extends Prompter:
-    // Guard so close() never forces the lazy terminal: pure non-interactive
-    // runs must never allocate one (that laziness is the object's whole
-    // point). `opened` records a SUCCESSFUL build — set only after `build()`
-    // returns, inside the lazy-init lock — so a failed build leaves nothing
-    // to close and a later close() won't re-run the failed initializer. Read
-    // from whatever thread calls close(); @volatile keeps that read correct.
+    // `opened` records a SUCCESSFUL build (set inside the lazy-init lock, after
+    // build() returns) so close() never forces the lazy terminal and a failed
+    // build leaves nothing to close. @volatile for the close()-thread read.
     @volatile private var opened = false
     private lazy val terminal: Terminal =
       val t = TerminalBuilder.builder().system(true).dumb(true).build()
@@ -351,14 +306,10 @@ private[terminal] object ConversationRenderer:
       LineReaderBuilder.builder().terminal(terminal).build()
 
     def ask(prompt: String): PromptOutcome =
-      // Ctrl-C (UserInterrupt) and Ctrl-D / closed-stdin (EndOfFile — also hit
-      // by a headless run that reaches an ask-user prompt with no tty) both mean
-      // "the user isn't answering"; map both to the same graceful Interrupted
-      // outcome rather than letting EndOfFileException escape as an opaque,
-      // message-less stage failure. Not unit-tested: `reader` is a private lazy
-      // val bound to the real system terminal, with no seam to inject a throwing
-      // readLine — tests that need scripted outcomes stub the [[Prompter]] trait
-      // instead. The two catch arms are exercised only through the live CLI.
+      // Ctrl-C (UserInterrupt) and Ctrl-D / closed-stdin (EndOfFile, also hit by
+      // a headless run reaching an ask-user prompt with no tty) both mean "the
+      // user isn't answering": map both to Interrupted rather than let
+      // EndOfFileException escape as a message-less stage failure.
       try PromptOutcome.Answer(reader.readLine(prompt))
       catch
         case _: (UserInterruptException | EndOfFileException) =>

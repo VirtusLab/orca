@@ -15,7 +15,7 @@ class PlanGridTest extends munit.FunSuite:
   private given orca.FlowContext =
     new orca.TestFlowContext(new EventDispatcher(Nil))
 
-  // Planning helpers are now gated on `InStage`; mint the token for the suite.
+  // Planning helpers are gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
 
   private val samplePlan = Plan(

@@ -6,33 +6,27 @@ import orca.subprocess.PipedCliProcess
 import scala.util.control.NonFatal
 
 /** The two-level spawn-and-build teardown every subprocess stream backend
-  * (claude/codex/gemini/pi) needs, factored out so the resource-leak handling —
-  * the part most dangerous to get subtly wrong — lives in one place.
+  * (claude/codex/gemini/pi) needs, factored out so resource-leak handling lives
+  * in one place.
   *
-  * The lifecycle:
+  *   - `spawn` builds the argv and launches the process. If it throws, the
+  *     process never came up, so only `resources` are released.
+  *   - `build` wraps the live process in a [[Conversation]]. If it throws after
+  *     the spawn, the child is SIGINT-ed and the failure is rethrown as "Failed
+  *     to open <sessionLabel> session".
+  *   - `resources` are the session-scoped `AutoCloseable`s the conversation
+  *     takes ownership of on success — on the happy path they ride through the
+  *     conversation's `onFinalize`, so this closes them (in reverse) only when
+  *     spawn or build fails.
   *
-  *   - `spawn` builds the argv (system-prompt files, MCP config, the
-  *     fresh-vs-resume dispatch lookup) and launches the process. If it throws,
-  *     the process never came up, so only `resources` are released.
-  *   - `build` wraps the live process in a [[Conversation]] (writing the
-  *     opening turn, closing stdin, etc.). If it throws after the spawn, the
-  *     child is SIGINT-ed (so it doesn't linger) and the failure is rethrown as
-  *     "Failed to open <sessionLabel> session".
-  *   - `resources` are the session-scoped `AutoCloseable`s (the ask_user
-  *     bundle, pi's temp files) the conversation takes ownership of on success
-  *     — on the happy path they ride through the conversation's `onFinalize`,
-  *     so this closes them (in reverse) only when spawn or build fails.
-  *
-  * `sessionLabel` is the backend's own descriptor for the failure message
-  * ("claude stream-json", "codex", "gemini", "pi RPC") — deliberately not the
-  * bare backend name, which is pinned by tests.
+  * `sessionLabel` is the backend's descriptor for the failure message —
+  * deliberately not the bare backend name, which is pinned by tests.
   */
 private[orca] object SubprocessSpawn:
 
-  /** Returns an `AutoCloseable` that best-effort deletes the given file when
-    * closed. Shared by the backends (claude's MCP config, codex's schema temp
-    * file) that write a per-call temp file and need it removed on both the
-    * failure path (via `open`'s `resources`) and the success path (via the
+  /** An `AutoCloseable` that best-effort deletes the given file when closed.
+    * Used by backends that write a per-call temp file needing removal on both
+    * the failure path (via `open`'s `resources`) and the success path (via the
     * conversation's `onFinalize`).
     */
   def deleteFileResource(path: os.Path): AutoCloseable =
