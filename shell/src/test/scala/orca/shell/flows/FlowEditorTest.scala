@@ -41,7 +41,7 @@ class FlowEditorTest extends munit.FunSuite:
     val builtIn = TempDirs.dir()
     val flow = builtInFlow(builtIn, "release.sc", "// Release.\nval x = 1")
 
-    val result = FlowEditor.customizeTarget(flow, FlowOrigin.Project, workDir, TempDirs.dir())
+    val result = FlowEditor.customizeTarget(flow, CustomizeTier.Project, workDir, TempDirs.dir())
 
     val expected = workDir / ".orca" / "flows" / "release.sc"
     assertEquals(result, Right(expected))
@@ -52,7 +52,7 @@ class FlowEditorTest extends munit.FunSuite:
     val globalFlows = TempDirs.dir() / "flows"
     val flow = builtInFlow(builtIn, "epic.sc", "// Epic.\nval x = 1")
 
-    val result = FlowEditor.customizeTarget(flow, FlowOrigin.Global, TempDirs.dir(), globalFlows)
+    val result = FlowEditor.customizeTarget(flow, CustomizeTier.Global, TempDirs.dir(), globalFlows)
 
     assertEquals(result, Right(globalFlows / "epic.sc"))
     assertEquals(os.read(globalFlows / "epic.sc"), "// Epic.\nval x = 1")
@@ -63,7 +63,7 @@ class FlowEditorTest extends munit.FunSuite:
     val flow = builtInFlow(builtIn, "release.sc", "// Release.\nval x = 1")
     os.write(workDir / ".orca" / "flows" / "release.sc", "// Already customized.\n", createFolders = true)
 
-    val result = FlowEditor.customizeTarget(flow, FlowOrigin.Project, workDir, TempDirs.dir())
+    val result = FlowEditor.customizeTarget(flow, CustomizeTier.Project, workDir, TempDirs.dir())
 
     result match
       case Left(message) => assert(message.contains("already exists"), s"unexpected message: $message")

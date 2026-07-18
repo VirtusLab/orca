@@ -61,15 +61,8 @@ object BuiltInFlows:
     val expectedNames = names
 
     if ShellVersion.isRelease(version) then
-      if !isComplete(dir, expectedNames) then
-        materialize(dir, expectedNames, resourceText, skipIfRaceCompleted = true)
-    else
-      materialize(
-        dir,
-        expectedNames,
-        name => pinToRunningVersion(resourceText(name), version),
-        skipIfRaceCompleted = false
-      )
+      if !isComplete(dir, expectedNames) then materialize(dir, expectedNames, resourceText)
+    else materialize(dir, expectedNames, name => pinToRunningVersion(resourceText(name), version))
 
     dir
 
@@ -90,29 +83,30 @@ object BuiltInFlows:
     * the "not yet extracted" state `extracted` already re-extracts from, so
     * a half-populated `dir` can never result.
     *
-    * `skipIfRaceCompleted` is true only for the release path, whose content
-    * is a pure function of `version`: if another call (this process racing
-    * itself, or a concurrent process) already completed `dir` by the time
-    * this one finishes staging, that existing content is equally valid, so
-    * the freshly staged temp directory is discarded instead of swapped in.
-    * The dev path always swaps in fresh content, since it can differ between
-    * calls even for the same `version` (e.g. after a recompile).
+    * Always swaps after staging, even into a `dir` that a racing call (this
+    * process racing itself, or a concurrent process) completed in the
+    * meantime — the outer completeness check in `extracted` already skips
+    * this call on the release path once `dir` is complete, and release-path
+    * content is a pure function of `version`, so a racing swap is equally
+    * valid content. Accepted residual: the remove+move pair here is not
+    * atomic, so a reader mid-`os.read` during that window can see `dir`
+    * transiently absent; harmless for the release path's single first-ever
+    * extraction, and an accepted dev-build-only window otherwise, since the
+    * dev path re-extracts and re-swaps on every call.
     */
   private def materialize(
       dir: os.Path,
       expectedNames: List[String],
-      content: String => String,
-      skipIfRaceCompleted: Boolean
+      content: String => String
   ): Unit =
     val parent = dir / os.up
     os.makeDir.all(parent)
     val tmp = os.temp.dir(dir = parent, prefix = s".${dir.last}.", deleteOnExit = false)
     try
       expectedNames.foreach(name => os.write(tmp / name, content(name)))
-      if !(skipIfRaceCompleted && isComplete(dir, expectedNames)) then
-        if os.exists(dir) then os.remove.all(dir)
-        try os.move(tmp, dir, atomicMove = true)
-        catch case _: java.nio.file.AtomicMoveNotSupportedException => os.move(tmp, dir)
+      if os.exists(dir) then os.remove.all(dir)
+      try os.move(tmp, dir, atomicMove = true)
+      catch case _: java.nio.file.AtomicMoveNotSupportedException => os.move(tmp, dir)
     finally if os.exists(tmp) then os.remove.all(tmp)
 
   /** Rewrites the `using dep` pin line to `version` and inserts the

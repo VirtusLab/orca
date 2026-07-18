@@ -3,13 +3,14 @@ package orca.shell
 import org.jline.terminal.TerminalBuilder
 import orca.OrcaDir
 import orca.settings.GlobalSettings
-import orca.shell.flows.{BuiltInFlows, DiscoveredFlow, FlowCatalog, FlowEditor, FlowOrigin, FlowViewer}
+import orca.shell.flows.{BuiltInFlows, CustomizeTier, DiscoveredFlow, FlowCatalog, FlowEditor, FlowOrigin, FlowViewer}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
 import orca.subprocess.PathProbe
 import ox.discard
 
 import scala.annotation.tailrec
+import scala.util.control.NonFatal
 
 /** Entry point for the `orca` shell executable (ADR 0021). */
 object Main:
@@ -88,8 +89,8 @@ object Main:
   private def customizeThenEditPath(ui: ShellUi, flow: DiscoveredFlow): Option[os.Path] =
     val globalFlows = GlobalSettings.defaultFlows
     val tierChoices = List(
-      Choice(FlowOrigin.Project, "Project (.orca/flows/)"),
-      Choice(FlowOrigin.Global, s"Global ($globalFlows)")
+      Choice(CustomizeTier.Project, "Project (.orca/flows/)"),
+      Choice(CustomizeTier.Global, s"Global ($globalFlows)")
     )
     ui.select(s"'${flow.name}' is built-in — customize it into", tierChoices) match
       case UiOutcome.Cancelled => None
@@ -100,19 +101,38 @@ object Main:
             None
           case Right(path) => Some(path)
 
+  /** Lists flows across the three tiers, guarding the project tier's
+    * component chain against a committed symlink first (`.orca` or
+    * `.orca/flows` redirecting reads/writes outside the tree) — a read-only
+    * check ([[OrcaDir.assertNoOrcaSymlinks]]), so listing never creates
+    * `.orca`. Both that guard and the listing itself (built-in extraction can
+    * hit a full-disk or permission error) are wrapped here: any failure is
+    * reported and the caller gets `None`, same as Cancelled, so the menu
+    * redraws instead of the shell crashing.
+    */
   private def selectFlow(ui: ShellUi, title: String): Option[DiscoveredFlow] =
-    val flows = FlowCatalog.list(
-      OrcaDir.flowsPath(os.pwd),
-      GlobalSettings.defaultFlows,
-      BuiltInFlows.extracted(sys.env.get, os.home, ShellVersion.value)
-    )
-    ui.select(title, flows.map(flowChoice)) match
-      case UiOutcome.Cancelled  => None
-      case UiOutcome.Selected(flow) => Some(flow)
+    val workDir = os.pwd
+    val flows =
+      try
+        OrcaDir.assertNoOrcaSymlinks(workDir, OrcaDir.flowsPath(workDir))
+        Some(
+          FlowCatalog.list(
+            OrcaDir.flowsPath(workDir),
+            GlobalSettings.defaultFlows,
+            BuiltInFlows.extracted(sys.env.get, os.home, ShellVersion.value)
+          )
+        )
+      catch
+        case NonFatal(e) =>
+          println(s"orca: couldn't list flows — ${e.getMessage}")
+          None
+    flows.flatMap: fs =>
+      ui.select(title, fs.map(flowChoice)) match
+        case UiOutcome.Cancelled      => None
+        case UiOutcome.Selected(flow) => Some(flow)
 
   /** `name — description [origin]`, with a `[shadows ...]` suffix when the
-    * winner shadows a lower-precedence tier (ADR 0021 §5); the description
-    * is also carried on [[Choice.description]].
+    * winner shadows a lower-precedence tier (ADR 0021 §5).
     */
   private def flowChoice(flow: DiscoveredFlow): Choice[DiscoveredFlow] =
     val shadows =
@@ -120,7 +140,7 @@ object Main:
       else s" [shadows ${flow.shadows.map(originLabel).mkString(", ")}]"
     val description = flow.description.getOrElse("(no description)")
     val label = s"${flow.name} — $description [${originLabel(flow.origin)}]$shadows"
-    Choice(flow, label, description = flow.description)
+    Choice(flow, label)
 
   private def originLabel(origin: FlowOrigin): String = origin match
     case FlowOrigin.Project => "project"

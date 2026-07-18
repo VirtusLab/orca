@@ -3,6 +3,13 @@ package orca.shell.flows
 import orca.OrcaDir
 import ox.tap
 
+/** Where a built-in flow can be customized to (ADR 0021 §5) — excludes
+  * `BuiltIn` itself, so [[FlowEditor.customizeTarget]] has no dead arm to
+  * throw on.
+  */
+enum CustomizeTier:
+  case Project, Global
+
 /** Opens a flow in the user's editor (ADR 0021 §6). */
 object FlowEditor:
 
@@ -38,15 +45,13 @@ object FlowEditor:
     */
   def customizeTarget(
       flow: DiscoveredFlow,
-      tier: FlowOrigin,
+      tier: CustomizeTier,
       workDir: os.Path,
       globalFlows: os.Path
   ): Either[String, os.Path] =
     val targetDir = tier match
-      case FlowOrigin.Project => OrcaDir.ensureFlows(workDir)
-      case FlowOrigin.Global  => globalFlows.tap(os.makeDir.all(_))
-      case FlowOrigin.BuiltIn =>
-        throw new IllegalArgumentException("customizeTarget cannot target the built-in tier")
+      case CustomizeTier.Project => OrcaDir.ensureFlows(workDir)
+      case CustomizeTier.Global  => globalFlows.tap(os.makeDir.all(_))
     val target = targetDir / flow.name
     if os.exists(target) then Left(s"$target already exists — refusing to overwrite it")
     else

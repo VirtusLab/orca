@@ -78,6 +78,15 @@ private[orca] object OrcaDir:
     abortIfOrcaComponentSymlink(workDir, flows)
     flows.tap(os.makeDir.all(_))
 
+  /** Read-only counterpart to [[abortIfOrcaComponentSymlink]], for callers
+    * that only need to verify before reading (e.g. flow discovery) and must
+    * not create `.orca` as a side effect. A no-op when `.orca` doesn't exist
+    * yet — there is nothing to guard, and discovery already tolerates a
+    * missing tier directory.
+    */
+  private[orca] def assertNoOrcaSymlinks(workDir: os.Path, dir: os.Path): Unit =
+    if os.exists(root(workDir)) then abortIfOrcaComponentSymlink(workDir, dir)
+
   /** Refuse if `.orca` — or any orca-created directory from it down to `dir`
     * (inclusive) — is a symlink, before any `os.makeDir.all`/write through it.
     * A committed symlink at any component (git mode 120000) would redirect
