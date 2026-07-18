@@ -84,3 +84,9 @@ class FlowLauncherTest extends munit.FunSuite:
 
   test("decideNextAction: forced failure with no compile probe (already pin-honouring) reports the failure directly"):
     assertEquals(FlowLauncher.decideNextAction(1, None), FlowLauncher.NextAction.ReportFailure(1))
+
+  test("toLaunchResult: signal-range exits are Cancelled on any spawn path, others map to Ok/Failed"):
+    assertEquals(FlowLauncher.toLaunchResult(0), LaunchResult.Ok)
+    assertEquals(FlowLauncher.toLaunchResult(1), LaunchResult.Failed(1))
+    assertEquals(FlowLauncher.toLaunchResult(130), LaunchResult.Cancelled)
+    assertEquals(FlowLauncher.toLaunchResult(143), LaunchResult.Cancelled)

@@ -69,9 +69,11 @@ object FlowLauncher:
         case Some(_) => NextAction.OfferFallback
         case None    => NextAction.ReportFailure(forcedExit)
 
-  /** A forced run killed by a signal (128 + signal number, e.g. 130 for
-    * SIGINT, 143 for SIGTERM — `man 7 signal`'s exit-status convention).
-    * There's nothing here to blame on the version override, so no compile
+  /** A run conventionally killed by a signal (128 + signal number, e.g. 130
+    * for SIGINT, 143 for SIGTERM — `man 7 signal`'s exit-status convention).
+    * A script deliberately exiting >= 128 is indistinguishable and gets
+    * classified as cancelled too — accepted imprecision. For a forced run
+    * there's nothing here to blame on the version override, so no compile
     * probe is warranted.
     */
   private def isSignalExit(exit: Int): Boolean = exit >= 128
@@ -92,7 +94,13 @@ object FlowLauncher:
       val compileExit = if forcedExit != 0 && forcedVersionDefined then Some(compileProbe()) else None
       decideNextAction(forcedExit, compileExit)
 
-  private def toLaunchResult(exit: Int): LaunchResult = if exit == 0 then LaunchResult.Ok else LaunchResult.Failed(exit)
+  /** Signal-range exits map to Cancelled on every spawn path — the fallback
+    * re-run is just as interruptible as the forced one.
+    */
+  private[run] def toLaunchResult(exit: Int): LaunchResult =
+    if exit == 0 then LaunchResult.Ok
+    else if isSignalExit(exit) then LaunchResult.Cancelled
+    else LaunchResult.Failed(exit)
 
   private def spawnInherited(argv: Seq[String], workDir: os.Path): Int =
     os.proc(argv)
