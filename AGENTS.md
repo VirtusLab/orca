@@ -267,6 +267,12 @@ with a test pinning the observed wire shape.
 ### Code style
 
 - Use proper packaging — related functionality lives in one package.
+- A comment must earn its place: keep it succinct and include only what a
+  competent reader can't get from the code, names, or signature — a non-obvious
+  *why*, an invariant, or a side effect the types can't express. Don't restate
+  the README, neighbouring comments, or the obvious, and don't narrate the next
+  line. Default to fewer words; delete a sentence that adds nothing rather than
+  rewording it.
 - Scaladoc describes contract and intent; implementation notes go in inline
   `//` comments alongside the code.
 - Comments state present-tense facts about how the code works now — never

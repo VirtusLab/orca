@@ -203,11 +203,9 @@ val limited = claude.withConfig(
 `AutoApprove.Only` fits interactive flows, where a human answers anything outside
 the set; an autonomous turn has no one to approve, so an out-of-set call blocks.
 Only claude enforces the set per tool — codex and gemini have no per-tool
-granularity, so there `Only` widens to full auto-approve.
-So for an unattended run the practical safety boundary is process isolation: run
-the flow in a sandbox. We recommend [Sandcat](https://github.com/VirtusLab/sandcat),
-[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/), or any other sandboxing
-solution.
+granularity, so there `Only` widens to full auto-approve. For an unattended run
+the practical boundary is a sandbox: [Sandcat](https://github.com/VirtusLab/sandcat),
+[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/), or any other.
 
 ## Flow methods
 
