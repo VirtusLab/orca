@@ -43,21 +43,21 @@ trait FlowContext extends AgentSet:
     *
     * '''Helper authoring:''' the path-dependent `Agent[ctx.CodeB]` (the same
     * holds for `ctx.PlanB` / `ctx.ReviewB`) is convenient in a straight-line
-    * `flow(...)` body, where every reference resolves against the same `using
-    * FlowContext` in scope — but it stops working the moment you factor code
-    * into a helper *function*. `ctx1.CodeB` and `ctx2.CodeB` from two different
-    * `using FlowContext` parameters are different types to the compiler even
-    * when they're the same backend at runtime, so a helper that takes
-    * `Agent[ctx.CodeB]` in one parameter and tries to combine it with
-    * `SessionId[ctx.CodeB]` from another can't unify them. Two ways out, both
-    * used by the library's own helpers:
+    * `flow(...)` body. When you factor flow logic into a helper *function*,
+    * prefer an explicit `[B <: BackendTag]` type parameter instead: an
+    * `Agent[B]` / `FlowSession[B]` carries its backend in its own type, so the
+    * helper works for whichever backend the settings named, stays callable
+    * wherever the session is held (a `FlowSession` is a value passed around
+    * freely, not only used where the originating context is in scope), and
+    * composes with the library's other session-carrying APIs. Two ways the
+    * library does this:
     *
-    *   - Take an explicit `[B <: BackendTag]` type parameter and type the
-    *     helper's own parameters against it — `B` is then a genuine type
-    *     variable the caller instantiates once, not a path into someone else's
-    *     context. See [[orca.review.reviewAndFixLoop]]`(coderSession:
-    *     FlowSession[B], ...)`, whose single [[orca.FlowSession]] bundles the
-    *     agent and its session so `B` is pinned once at the call site.
+    *   - Type the helper's own parameters against the `[B <: BackendTag]`
+    *     parameter — `B` is a genuine type variable the caller instantiates
+    *     once, not a path into someone else's context. See
+    *     [[orca.review.reviewAndFixLoop]]`(coderSession: FlowSession[B], ...)`,
+    *     whose single [[orca.FlowSession]] bundles the agent and its session so
+    *     `B` is pinned once at the call site.
     *   - Bundle the agent's session with its result as a single
     *     [[orca.plan.Sessioned]]`[B, A]` value, so callers pass one thing
     *     instead of two that have to agree on `B`. See `Plan.autonomous.*` /

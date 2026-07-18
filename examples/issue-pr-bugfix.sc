@@ -227,11 +227,10 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
   * brief (no separate `.briefed` step); `taskPrompt` prepends it to each task.
   * Implementation reuses the triage `session`.
   *
-  * Takes an explicit `[B <: BackendTag]` rather than a role's path-dependent
-  * `Agent[ctx.CodeB]`: a helper factored out of the flow body can't rely on
-  * the ambient `FlowContext` the mint site saw (see the `codingAgent`
-  * scaladoc's helper-authoring note), so `B` is a genuine type variable
-  * inferred once from `session` at the call site.
+  * `[B <: BackendTag]` carries the coding agent's backend so the `session`
+  * threads through the reviewers and `session.run`; it's read off the
+  * `session` argument, letting the helper accept a session for whichever
+  * backend the settings named.
   */
 def planAndImplementFix[B <: BackendTag](
     session: FlowSession[B]
