@@ -9,7 +9,7 @@ import orca.settings.{AgentSettings, AgentSpec}
   * backend. `runFlow` opens the existentials with type-variable patterns to
   * construct the concretely-typed [[orca.runner.DefaultFlowContext]].
   */
-private[orca] case class ResolvedRoles(
+private[runner] case class ResolvedRoles(
     planning: Agent[?],
     coding: Agent[?],
     review: Agent[?]
@@ -19,7 +19,7 @@ private[orca] case class ResolvedRoles(
   * decision 10). Drives the role-announcement `Step`'s `(source)` suffix; the
   * winning [[AgentSpec]] (if any) drives the `harness[:model]` part.
   */
-private[orca] enum RoleSource:
+private[runner] enum RoleSource:
   case Override, Project, Global, Default
 
 /** The three per-role programmatic overrides passed to `flow(...)` — selector-

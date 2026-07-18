@@ -12,7 +12,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
 // All `private[orca]` — internal to the tools layer, never part of the public
 // surface (callers see `Comment`/`Issue`/`PrHandle`, not these).
 
-private[orca] case class GhCheck(
+private[tools] case class GhCheck(
     // CheckRun entries use `status`/`conclusion`; legacy commit-status entries
     // use only `state`. Both are optional so a single codec handles both.
     status: Option[String] = None,
@@ -21,11 +21,11 @@ private[orca] case class GhCheck(
     name: Option[String] = None
 ) derives ConfiguredJsonValueCodec
 
-private[orca] case class GhCheckRollup(
+private[tools] case class GhCheckRollup(
     statusCheckRollup: List[GhCheck]
 ) derives ConfiguredJsonValueCodec
 
-private[orca] case class GhCommentJson(
+private[tools] case class GhCommentJson(
     body: String,
     user: GhUserJson
 ) derives ConfiguredJsonValueCodec
@@ -34,7 +34,7 @@ private[orca] case class GhCommentJson(
   * support the PATCH path in `upsertComment`. The id is a GitHub-issued int.
   * Not exposed publicly — callers see the id-free [[Comment]] type.
   */
-private[orca] case class GhIdentifiedCommentJson(
+private[tools] case class GhIdentifiedCommentJson(
     id: Long,
     body: String,
     user: GhUserJson
@@ -45,15 +45,15 @@ private[orca] case class GhIdentifiedCommentJson(
   * is needed: the owner/repo/number are extracted from it via [[PrUrlPattern]]
   * so no separate `headRefName` field is required.
   */
-private[orca] case class GhPrListJson(
+private[tools] case class GhPrListJson(
     number: Int,
     url: String
 ) derives ConfiguredJsonValueCodec
 
-private[orca] case class GhUserJson(login: String)
+private[tools] case class GhUserJson(login: String)
     derives ConfiguredJsonValueCodec
 
-private[orca] case class GhIssueJson(
+private[tools] case class GhIssueJson(
     title: String,
     // Issues without a body return `null` from the API; the codec
     // treats a missing key as None and a null literal as None too.

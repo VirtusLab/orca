@@ -3,7 +3,7 @@ package orca.util
 /** Parsed result of [[PromptResource.loadWithMetadata]]: frontmatter key/value
   * pairs plus the body text below the closing `---`.
   */
-private[orca] case class ParsedPrompt(
+private[util] case class ParsedPrompt(
     metadata: Map[String, String],
     body: String
 )

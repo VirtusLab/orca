@@ -95,7 +95,7 @@ private[orca] class AskUserBridge(using BufferCapacity):
   * supplied, plus a closure that delivers the user's typed answer back to the
   * blocked MCP handler.
   */
-private[orca] final case class PendingQuestion(
+private[mcp] final case class PendingQuestion(
     question: String,
     respond: String => Unit
 )

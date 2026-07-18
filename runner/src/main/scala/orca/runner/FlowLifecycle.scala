@@ -473,7 +473,7 @@ object FlowLifecycle:
     * pre-stash so a hand-written file the stash sweeps out of a dirty tree is
     * not lost.
     */
-  private[orca] enum SettingsResolution:
+  private[runner] enum SettingsResolution:
     case Resolved(settings: StackSettings)
     case NeedsDiscovery(existingContent: Option[String])
 
@@ -482,7 +482,7 @@ object FlowLifecycle:
     * `runFlow` can track each role's source (project/global/default) for the
     * announcement `Step`.
     */
-  private[orca] case class SettingsRead(
+  private[runner] case class SettingsRead(
       stack: SettingsResolution,
       projectAgents: AgentSettings,
       globalAgents: AgentSettings

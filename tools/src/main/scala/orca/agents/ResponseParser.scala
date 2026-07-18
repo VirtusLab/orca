@@ -25,7 +25,7 @@ class MalformedAgentOutputException(
     ):
   initCause(cause)
 
-private[orca] object ResponseParser:
+private[agents] object ResponseParser:
 
   private val FencePattern: Regex =
     """(?s)\A```(?:\w+)?\n?(.*?)\n?```\z""".r
