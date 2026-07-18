@@ -3,10 +3,9 @@ package orca.review
 import orca.util.PromptResource
 
 /** Default prompt fragments for the helpers in this package. Each `val` is a
-  * complete instruction block that the helper sends as part of its LLM call.
-  * Override by passing a different string to the helper's `instructions`
-  * parameter — wrap one of these defaults if you only want to extend the
-  * boilerplate:
+  * complete instruction block the helper sends as part of its LLM call;
+  * override via the helper's `instructions` parameter, wrapping a default to
+  * extend it:
   *
   * {{{
   * reviewAndFixLoop(
@@ -24,9 +23,9 @@ import orca.util.PromptResource
 object ReviewLoopPrompts:
 
   /** Used by [[reviewAndFixLoop]]'s fix step. Tells the agent to classify every
-    * input issue as either `fixed` (title listed) or `ignored` (title +
-    * reason). The loop relies on `fixed` being non-empty to justify
-    * re-evaluating, so any override should preserve that contract.
+    * input issue as `fixed` (title) or `ignored` (title + reason). The loop
+    * relies on `fixed` being non-empty to justify re-evaluating, so any
+    * override should preserve that contract.
     */
   val Fix: String =
     PromptResource.load("/orca/review/prompts/fix.md")

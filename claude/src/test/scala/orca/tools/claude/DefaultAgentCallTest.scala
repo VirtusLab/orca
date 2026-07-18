@@ -49,7 +49,7 @@ class SequencedBackend(
 
   /** Listeners the backend was called with, in invocation order. Lets tests
     * assert that `DefaultAgentCall` threaded its own `events` through rather
-    * than silently dropping it on the floor.
+    * than dropping it.
     */
   def events: List[orca.events.OrcaListener] = seenEvents.get().reverse
 
@@ -118,8 +118,7 @@ class SequencedBackend(
 
 class DefaultAgentCallTest extends munit.FunSuite:
 
-  // LLM `run` is now gated on `InStage`; mint the token once for the suite
-  // (package `orca.tools.claude` can reach `InStage.unsafe`).
+  // LLM `run` is gated on `InStage`; mint the token once for the suite.
   private given orca.InStage = orca.InStage.unsafe
 
   import scala.concurrent.duration.DurationInt
@@ -265,11 +264,9 @@ class DefaultAgentCallTest extends munit.FunSuite:
   test(
     "autonomous forwards a Some(schema) to backend.runAutonomous"
   ):
-    // Pins the SPI-level wiring: structured calls must carry their
-    // generated schema down to the backend so the conversation knows it's
-    // in structured mode (drain suppresses raw JSON) and the CLI gets
-    // `--json-schema`/`--output-schema`. A regression that dropped the
-    // schema to None would compile and pass every other test.
+    // Structured calls must carry their generated schema down to the backend so
+    // the conversation knows it's in structured mode (drain suppresses raw JSON)
+    // and the CLI gets `--json-schema`/`--output-schema`.
     val backend = new SequencedBackend(List("""{"value":1}"""))
     supervised:
       val _ = makeCall(backend).autonomous.run("anything")
@@ -420,9 +417,9 @@ class DefaultAgentCallTest extends munit.FunSuite:
       assertEquals(calls.get(), 1, "AgentTurnFailed must not be retried")
       assert(ex.getMessage.contains("agent 'claude'"), ex.getMessage)
       assert(ex.getMessage.contains("Prompt is too long"), ex.getMessage)
-      // 12.1: runAutonomousWithRetry's re-attribution rewrap must thread the
-      // original AgentTurnFailed through as the cause, not just splice its
-      // message into the new one and drop it.
+      // runAutonomousWithRetry's re-attribution rewrap must thread the original
+      // AgentTurnFailed through as the cause, not just splice its message into
+      // the new one and drop it.
       assert(
         ex.getCause != null && ex.getCause.getMessage == "Prompt is too long",
         s"expected the original AgentTurnFailed as cause; got: ${ex.getCause}"
@@ -463,12 +460,10 @@ class DefaultAgentCallTest extends munit.FunSuite:
   test(
     "autonomous passes the effective (tool-resolved) config to prompts.autonomous"
   ):
-    // Pins the prompt-resolved-config fix: the prompt builder must see the
-    // EFFECTIVE config (tool defaults folded in), not the raw/empty per-call
-    // config. Here the tool-level config carries systemPrompt =
-    // Some("tool-prompt") via effectiveConfig; the call omits config, so the
-    // old code (which handed the raw None-derived config to prompts.autonomous)
-    // would capture None here.
+    // The prompt builder must see the EFFECTIVE config (tool defaults folded
+    // in), not the raw/empty per-call config. Here the tool-level config carries
+    // systemPrompt = Some("tool-prompt") via effectiveConfig, and the call omits
+    // config, so a builder given the raw None-derived config would capture None.
     val captured = new AtomicReference[Option[AgentConfig]](None)
     val recordingPrompts = new orca.agents.Prompts:
       def autonomous(
@@ -505,11 +500,9 @@ class DefaultAgentCallTest extends munit.FunSuite:
       assertEquals(captured.get().flatMap(_.systemPrompt), Some("tool-prompt"))
 
   test("interactive.runWithSession registers the (clientSid, serverSid) map"):
-    // Pins the codex-interactive bug fix end-to-end: the framework must call
-    // `backend.sessions.register(session, result.wireId)` after
-    // `interaction.drive` returns, so a follow-up turn on the same session
-    // resumes the right thread. Removing the `backend.sessions.register` call
-    // in `DefaultAgentCall.runInteractiveOnce` would fail this test.
+    // The framework must call `backend.sessions.register(session, result.wireId)`
+    // after `interaction.drive` returns, so a follow-up turn on the same session
+    // resumes the right thread.
     val clientSid =
       SessionId[BackendTag.ClaudeCode.type]("client-uuid-aaaa")
     val serverSid =

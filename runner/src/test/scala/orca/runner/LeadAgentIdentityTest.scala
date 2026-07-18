@@ -38,18 +38,15 @@ import java.util.concurrent.atomic.AtomicReference
 /** Pins the foreign-agent handling: a per-role override (`codingAgent =
   * Some(...)`) can return an agent built from a backend that isn't wired into
   * this run — event-blind (built against its own `AgentWiring`, not this run's
-  * dispatcher) and, absent this fix, never closed. [[DefaultFlowContext.close]]
-  * unconditionally closes the three resolved role agents alongside all five
-  * wired agents (no wired/foreign branch needed there — a backend's own
-  * `close()` is idempotent), so a foreign role agent's backend is closed too.
-  * `runFlow` separately warns loudly per role when it resolves a foreign agent
-  * against the wired agent set, comparing backend IDENTITY
-  * ([[orca.agents.Agent.backendIdentity]]), not `Agent` reference equality —
-  * the positive case below pins that a `copyTool`-derived sibling of a wired
-  * agent (the common `_.claude.opus` shape) does NOT trip that warning, which a
-  * naive `Agent eq Agent` implementation would get wrong, and that its shared
-  * backend's teardown still runs exactly once despite being closed via two
-  * different `Agent` instances.
+  * dispatcher). [[DefaultFlowContext.close]] unconditionally closes the three
+  * resolved role agents alongside all five wired agents (safe because a
+  * backend's own `close()` is idempotent), so a foreign role agent's backend is
+  * closed too. `runFlow` separately warns per role when it resolves a foreign
+  * agent, comparing backend IDENTITY ([[orca.agents.Agent.backendIdentity]]),
+  * not `Agent` reference equality — the positive case below pins that a
+  * `copyTool`-derived sibling of a wired agent (the common `_.claude.opus`
+  * shape) does NOT trip that warning, and that its shared backend's teardown
+  * still runs exactly once despite two `Agent` instances.
   */
 class LeadAgentIdentityTest extends munit.FunSuite:
 
@@ -267,19 +264,15 @@ class LeadAgentIdentityTest extends munit.FunSuite:
       throw new UnsupportedOperationException
 
   /** A minimal `AgentBackend` that counts REALISED close teardowns —
-    * `runAutonomous`/`runInteractive` are never exercised by these tests (the
-    * lead agent is never actually called, only resolved and closed).
+    * `runAutonomous`/`runInteractive` are never exercised (the lead agent is
+    * only resolved and closed, never called).
     *
-    * `close()` itself is CAS-guarded, mirroring the idempotence every real
-    * backend already provides (the shared `closedFlag` latches via a plain
-    * `set`, opencode's process teardown is CAS-guarded, every other backend's
-    * `close()` is a no-op) — see `DefaultFlowContext.close`'s scaladoc. Since
-    * `DefaultFlowContext.close()` now appends the resolved lead
-    * UNCONDITIONALLY, a lead sharing a wired backend gets `Agent.close()`
-    * invoked on it twice; `closeCount` pins that the doubled CALL still
-    * produces a single observable teardown, which is the actual contract
-    * `close()`'s scaladoc relies on — not that `Agent.close()` is called
-    * exactly once.
+    * `close()` is CAS-guarded, mirroring the idempotence every real backend
+    * provides. Since `DefaultFlowContext.close()` appends the resolved lead
+    * unconditionally, a lead sharing a wired backend gets `Agent.close()`
+    * invoked twice; `closeCount` pins that the doubled call still produces a
+    * single observable teardown — the actual contract, not that `close()` is
+    * called exactly once.
     */
   private class RecordingCloseBackend extends AgentBackend[BackendTag.Pi.type]:
     val workDir: os.Path = os.pwd

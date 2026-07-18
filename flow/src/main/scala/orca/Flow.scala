@@ -16,23 +16,14 @@ private val log = LoggerFactory.getLogger("orca.flow")
 
 /** Run `body` as a named, resumable, committing stage (ADR 0018 §2.1).
   *
-  * Control flow:
-  *
-  *   - Open the stage frame ([[FlowControl.enterStage]]) to compute its path id
-  *     `parent/name#occurrence` (just `name#occurrence` at the flow-body top
-  *     level), where `occurrence` counts prior same-named stages under the same
-  *     parent frame in this run. The frame is opened before the resume decision
-  *     and closed in a `finally`.
-  *   - Resume: if the progress log already holds an entry for this id whose
-  *     stored JSON decodes to `T`, emit StageStarted/StageCompleted and return
-  *     the decoded value without running `body`. A decode failure (the stage's
-  *     result type changed under this id) is fail-safe: fall through and run.
-  *   - Run: emit StageStarted, supply the `InStage` (LLM-call) and
-  *     `WorkspaceWrite` (index-mutation) tokens, evaluate `body`.
-  *   - Record & commit: append a `StageEntry(id, name, resultJson)` to the log,
-  *     force-add the log file, then commit (the commit also `add -A`s code
-  *     changes, so a stage yields one commit covering code + progress). Emit
-  *     StageCompleted.
+  * The stage id is a path `parent/name#occurrence` (`occurrence` counts prior
+  * same-named stages under the same parent frame). On resume, if the progress
+  * log holds an entry for this id whose JSON decodes to `T`, the decoded value
+  * is returned without running `body`; a decode failure (result type changed
+  * under this id) falls through and re-runs. A fresh run appends a
+  * `StageEntry(id, name, resultJson)`, force-adds the log, and commits — the
+  * commit also `add -A`s code changes, so a stage yields one commit covering
+  * code + progress.
   *
   * A nested stage's commit stages the whole tree, so it sweeps up any
   * uncommitted edits the outer stage's body made before the nesting point. If
@@ -42,10 +33,9 @@ private val log = LoggerFactory.getLogger("orca.flow")
   * leftovers. Prefer doing edits inside their own stage rather than around a
   * nested one.
   *
-  * Error handling mirrors `fail`/tool-adapter semantics: a non-fatal failure in
-  * `body` emits an Error event (once — `fail` and malformed-output already
-  * carry their own emission state) and re-raises. Fatal throwables propagate
-  * unreported, as they signal shutdown rather than a stage outcome.
+  * A non-fatal failure in `body` emits an Error event once (`fail` and
+  * malformed-output carry their own emission state) and re-raises. Fatal
+  * throwables propagate unreported — they signal shutdown, not a stage outcome.
   */
 def stage[T: JsonData](
     name: String,
@@ -69,10 +59,8 @@ private def resumeFrom[T: JsonData](id: String, name: String)(using
     .flatMap(_.entries.find(_.id == id))
     .flatMap: entry =>
       // The try is scoped to the decode only: a decode failure means the
-      // stage's result type changed under this id, so we fall through and
-      // re-run (None). The emits sit outside the try because listener throws
-      // no longer escape `emit` — there's nothing left for the try to guard
-      // against there.
+      // stage's result type changed under this id, so fall through and re-run
+      // (None).
       val decoded =
         try
           Some(
@@ -105,12 +93,10 @@ private def runStage[T: JsonData](
   catch
     case NonFatal(e) =>
       // Report the failure once, then mark it so an enclosing stage / the flow
-      // boundary doesn't re-report it as it unwinds. `reportOnce` covers every
-      // non-fatal throwable by identity: exceptions from `fail(...)` arrive
-      // already marked (skipped), tool adapters that throw directly and plain
-      // RuntimeExceptions arrive unmarked (surfaced here, else the user would
-      // see `exit 1` with no diagnostic). Malformed-output keeps its richer
-      // render context.
+      // boundary doesn't re-report it as it unwinds. Exceptions from `fail(...)`
+      // arrive already marked; unmarked ones (tool adapters, plain
+      // RuntimeExceptions) are surfaced here, else the user would see `exit 1`
+      // with no diagnostic. Malformed-output gets a richer render.
       fc.reportOnce(e):
         e match
           case mao: orca.agents.MalformedAgentOutputException =>
@@ -125,10 +111,7 @@ private def runStage[T: JsonData](
 
 /** Append the stage's result to the log and commit code + log as one commit.
   * The progress file is force-added (so it lands even when `.orca/` is
-  * gitignored); `git.commit`'s own `add -A` picks up any code changes. The log
-  * always changed, so a `NothingToCommit` is unexpected — logged at DEBUG (so
-  * it's observable) rather than failed, since the recorded result is what
-  * matters for resume.
+  * gitignored); `git.commit`'s own `add -A` picks up any code changes.
   */
 private def recordAndCommit[T: JsonData](
     id: String,
@@ -137,11 +120,10 @@ private def recordAndCommit[T: JsonData](
     commitMessage: Option[T => String]
 )(using fc: FlowControl): Unit =
   val resultJson = writeToString(result)(using summon[JsonData[T]].codec)
-  // Deliberately mints fresh runtime tokens rather than threading the body's:
-  // recording + committing the stage result is the runtime's own privileged
-  // step, not part of the user body. Both are needed here: `InStage` for the
-  // cheap-model commit-message fallback (`defaultCommitMessage`), `WorkspaceWrite`
-  // for the progress-store append + git force-add/commit below.
+  // Fresh runtime tokens rather than the body's: recording + committing is the
+  // runtime's own privileged step, not part of the user body. `InStage` is for
+  // the cheap-model commit-message fallback, `WorkspaceWrite` for the
+  // progress-store append + git force-add/commit below.
   given InStage = RuntimeInStage.token()
   given WorkspaceWrite = RuntimeInStage.workspaceToken()
   // Capture the code diff BEFORE force-adding the progress file so the LLM
@@ -150,9 +132,8 @@ private def recordAndCommit[T: JsonData](
     commitMessage.map(_(result)).getOrElse(defaultCommitMessage(name))
   fc.progressStore.appendEntry(StageEntry(id, name, RawJson(resultJson)))
   fc.git.forceAdd(fc.progressStore.path)
-  // The log always changed, so a clean tree here is unexpected (a prior partial
-  // run may already have committed this entry). Surface it at DEBUG so it's
-  // observable rather than silent; never fail the stage over it.
+  // The log always changed, so a clean tree is unexpected (a prior partial run
+  // may already have committed this entry): log at DEBUG, never fail the stage.
   fc.git.commit(message) match
     case Right(()) => ()
     case Left(_) =>

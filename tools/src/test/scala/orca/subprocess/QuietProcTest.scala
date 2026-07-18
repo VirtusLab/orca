@@ -2,11 +2,9 @@ package orca.subprocess
 
 class QuietProcTest extends munit.FunSuite:
 
-  /** Pin the contract: a subprocess that writes to stderr must have its output
-    * captured into `result.err`, never inherited to the parent's terminal. The
-    * renderer's StatusBar relies on this invariant — any subprocess invocation
-    * that bypasses [[QuietProc]] (or another stderr-capturing layer)
-    * reintroduces the staircase-spinner artifact.
+  /** A subprocess writing to stderr must have its output captured into
+    * `result.err`, never inherited to the parent's terminal — the renderer's
+    * StatusBar relies on this to avoid the staircase-spinner artifact.
     */
   test("call captures stderr into result.err"):
     val result = QuietProc.call(

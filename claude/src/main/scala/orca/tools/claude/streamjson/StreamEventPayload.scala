@@ -6,11 +6,10 @@ import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 
 /** The inner `event` of a `stream_event` message: one chunk of a partial turn.
-  * We care about the block-delta events (text, thinking, tool-input chunks)
-  * because they drive responsive UI. Events we recognise but don't act on
-  * (message_start, message_stop, etc.) collapse to `Unhandled(eventType)` so
-  * the driver has one no-op path for them; this is deliberately distinct from
-  * `Unknown` in the other ADTs, which covers types we don't recognise at all.
+  * We route on the block-delta events (text, thinking, tool-input chunks) that
+  * drive responsive UI. Events we recognise but don't act on collapse to
+  * `Unhandled(eventType)`; this is deliberately distinct from `Unknown` in the
+  * other ADTs, which covers types we don't recognise at all.
   */
 private[claude] enum StreamEventPayload:
   case TextDelta(index: Int, text: String)

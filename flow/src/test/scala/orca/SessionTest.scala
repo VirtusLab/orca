@@ -203,9 +203,8 @@ class SessionTest extends FunSuite:
     assertEquals(store.load().get.sessions.head.backend, Some("Codex"))
 
     // Second run over the SAME (name, occurrence): a differently-tagged
-    // agent — a lead-backend swap between runs. Today (pre-6B.2) this
-    // silently reuses the Codex-minted id under the new tag; the fix must
-    // mint fresh and warn instead.
+    // agent — a lead-backend swap between runs. A backend-tag mismatch must
+    // mint a fresh id and warn, not silently reuse the Codex-minted id.
     val claudeAgent = new StubAgent:
       override private[orca] def backendTag: Option[BackendTag] =
         Some(BackendTag.ClaudeCode)

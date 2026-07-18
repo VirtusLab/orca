@@ -5,44 +5,35 @@ import orca.agents.{Announce, BackendTag, JsonData, Agent, given}
 
 import scala.annotation.unused
 
-/** A development plan: an ordered list of [[Task]]s the agent will work
-  * through, all on a single branch, plus a `brief` — a concise codebase
-  * briefing the implementing agents rely on so they don't have to rediscover
-  * the layout.
+/** A development plan: an ordered list of [[Task]]s the agent works through on
+  * a single branch, plus a `brief` — a concise codebase briefing the
+  * implementing agents rely on. The brief is always present: it is part of the
+  * planner's structured output, and feeds the implementer session seed (ADR
+  * 0018 §2.6).
   *
   * `epicId` is a kebab-case identifier for the plan itself (it heads the
-  * markdown render). It is NOT the git branch name: the flow derives and
-  * announces its own branch at setup via [[orca.BranchNamingStrategy]], so the
-  * two can differ.
-  *
-  * The brief is always present: it is produced as part of the planner's
-  * structured output, not a separate turn, and feeds the implementer session
-  * seed (ADR 0018 §2.6).
+  * markdown render), NOT the git branch name: the flow derives and announces
+  * its own branch at setup via [[orca.BranchNamingStrategy]], so the two can
+  * differ.
   *
   * ==Planning grid==
   *
-  * The planning entry points form a `mode × operation` grid. Mode and operation
-  * are orthogonal — every combination is valid:
+  * The entry points form an orthogonal `mode × operation` grid:
   *
   *   - **mode** — [[autonomous]] (single agentic turn, read-only, no human) or
   *     [[interactive]] (a conversation the agent can drive via `ask_user`).
-  *     Chosen by the nested object so it's visible at the call site, mirroring
-  *     `claude.autonomous.run` / `claude.resultAs[O].interactive.run`.
   *   - **operation** — `from` (produce a [[Plan]] directly), `assessThenPlan`
   *     (skeptically assess first, returning a [[Verdict]] that either proceeds
   *     with a plan or rejects), or `triage` (classify a bug report into a
   *     [[Triage]] verdict).
   *
   * Every cell returns a [[Sessioned]] — the result plus the agent session that
-  * produced it. From a `Sessioned[B, Plan]` the same session can be continued
-  * read-only into [[Sessioned.reviewed]] (self-critique), or discarded for a
-  * fresh implementer session.
+  * produced it. A `Sessioned[B, Plan]` can be continued read-only into
+  * [[Sessioned.reviewed]] (self-critique), or discarded for a fresh implementer
+  * session.
   *
-  * `derives JsonData` so the structured-output path works directly: the helper
-  * methods consume Orca's auto-generated JSON schema; no caller-side
-  * serialization is needed. As a single case class it is also a valid stage
-  * result (ADR 0018 §2.3) — the stage log, not a plan file, is what resume
-  * reads.
+  * As a single case class it is a valid stage result (ADR 0018 §2.3) — the
+  * stage log, not a plan file, is what resume reads.
   */
 case class Plan(
     epicId: String,
@@ -52,8 +43,7 @@ case class Plan(
 ) derives JsonData:
 
   /** Prompt for `task`: its description, with the shared brief prepended when
-    * present. An empty brief yields the description verbatim — no stray
-    * separator.
+    * present (an empty brief yields the description verbatim).
     */
   def taskPrompt(task: Task): String =
     if brief.isEmpty then task.description
@@ -62,16 +52,13 @@ case class Plan(
 object Plan:
 
   /** Autonomous planning — a single agentic turn, no human in the loop. The
-    * agent runs `NetworkOnly` (`.withNetworkOnly`): it can verify claims via
-    * Read/Grep and read-only network (issues/PRs/web) but can't edit during the
-    * planning turn (see [[autonomousResult]] for the per-backend guarantee).
-    * Sibling of [[interactive]]; the choice between the two is visible at the
-    * call site (`Plan.autonomous.from(...)` vs `Plan.interactive.from(...)`),
-    * mirroring `Agent`'s own `autonomous` / `interactive` split.
+    * agent runs `NetworkOnly`: it can verify claims via Read/Grep and read-only
+    * network (issues/PRs/web) but can't edit during the planning turn (see
+    * [[autonomousResult]] for the per-backend guarantee).
     *
-    * Each operation returns a [[Sessioned]]: the read-only planning turn's
-    * session is still resumable by a later writable call, so the caller can
-    * continue it into implementation or discard it for a fresh session.
+    * Each operation returns a [[Sessioned]]: the read-only planning session is
+    * still resumable by a later writable call, so the caller can continue it
+    * into implementation or discard it for a fresh session.
     */
   object autonomous:
     /** Produce a [[Plan]] directly from `userPrompt`. */
@@ -109,15 +96,15 @@ object Plan:
         getOrFail(b.toTriage)
       )
 
-  /** Interactive planning — the LLM call opens a conversation the user can
-    * drive (clarifying questions, refinements) before the agent produces the
-    * result. Not read-only: claude's plan mode would disable the `ask_user` MCP
-    * tool, so the agent runs with normal permissions; the prompt asks it not to
-    * edit, and the user sees any violation. Use [[autonomous]] when no
-    * mid-session questions are needed.
+  /** Interactive planning — opens a conversation the user can drive (clarifying
+    * questions, refinements) before the agent produces the result. Not
+    * read-only: plan mode would disable the `ask_user` MCP tool, so the agent
+    * runs with normal permissions; the prompt asks it not to edit, and the user
+    * sees any violation. Use [[autonomous]] when no mid-session questions are
+    * needed.
     *
     * Each operation returns a [[Sessioned]] so the conversation can carry into
-    * implementation (e.g. a triage agent's exploration informs the fix).
+    * implementation.
     */
   object interactive:
     /** Produce a [[Plan]] directly from `userPrompt`. */
@@ -170,14 +157,13 @@ object Plan:
 
   /** Run one autonomous turn producing wire type `O`, convert it to the public
     * result `A`, and pair it with the session. Shared by every `autonomous.*`
-    * operation (`from`, `assessThenPlan`, `triage`).
+    * operation.
     *
     * Runs `NetworkOnly`: reads plus read-only network, so the planner can fetch
-    * an issue/PR it was pointed at and verify external claims. Edits stay
-    * blocked (hard on claude/gemini/opencode; prompt-only on pi/codex — the
-    * planning prompts forbid edits). Reviewers and the post-planning `reviewed`
-    * turn use plain `withReadOnly` instead — no network, hard no-edit
-    * everywhere.
+    * an issue/PR and verify external claims. Edits stay blocked (hard on
+    * claude/gemini/opencode; prompt-only on pi/codex). Reviewers and the
+    * post-planning `reviewed` turn use plain `withReadOnly` instead — no
+    * network, hard no-edit everywhere.
     */
   private def autonomousResult[B <: BackendTag, O: JsonData: Announce, A](
       agent: Agent[B],
@@ -188,9 +174,8 @@ object Plan:
       ev: InStage
   ): Sessioned[B, A] =
     // The planning turn runs on the restricted (NetworkOnly) sibling, but the
-    // chat handed out is bound to the BASE agent: a continuation must get the
-    // caller's full capability back (a NetworkOnly chat couldn't edit files),
-    // so the restriction stays per-turn, never on the thread.
+    // chat handed out is bound to the BASE agent, so a continuation regains the
+    // caller's full capability — the restriction stays per-turn.
     val planningChat = agent.withNetworkOnly.chat()
     val raw = planningChat
       .resultAs[O]
@@ -221,11 +206,9 @@ object Plan:
       .run(withInstructions(input, instructions))
     Sessioned(chat, convert(raw))
 
-  // == Post-planning step on a produced plan ==
-  //
   // `reviewed` resumes the planning session read-only, reusing the planner's
-  // exploration. Defined here so it's in the implicit scope of
-  // `Sessioned[B, Plan]` — no extra import needed.
+  // exploration. Defined here to keep it in the implicit scope of
+  // `Sessioned[B, Plan]`.
 
   extension [B <: BackendTag](sp: Sessioned[B, Plan])
     /** Resume the planning conversation for a critical self-review, returning
@@ -253,17 +236,15 @@ object Plan:
     else
       val plural = if plan.tasks.size == 1 then "" else "s"
       // No branch name here: `epicId` is the plan's own identifier, not the git
-      // branch (which the flow derives and announces separately at setup). The
-      // two can differ, so naming a branch here would be misleading on resume.
+      // branch (derived and announced separately at setup).
       val header = s"Planned ${plan.tasks.size} task$plural:"
       val body = plan.tasks.map(t => s"  - ${t.title}").mkString("\n")
       s"$header\n$body"
 
   /** Render a plan to markdown (tasks as plain bullets, the brief as a trailing
     * `## Brief` section). Used by [[Sessioned.reviewed]] to feed the plan back
-    * into the self-review prompt, and equally usable as a human-readable
-    * summary. It is **never parsed back**: the stage log is the sole resume
-    * mechanism (ADR 0018 §2.8), so there is no inverse parser to keep in sync.
+    * into the self-review prompt, and usable as a human-readable summary. Never
+    * parsed back — the stage log is the sole resume mechanism (ADR 0018 §2.8).
     */
   def render(plan: Plan): String =
     val base = renderPlan(plan)

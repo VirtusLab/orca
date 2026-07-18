@@ -20,9 +20,9 @@ private[orca] object OrcaDir:
   /** `<workDir>/.orca` — committed project metadata lives at this root. */
   private def root(workDir: os.Path): os.Path = workDir / ".orca"
 
-  /** `<workDir>/.orca` as an absolute path — the committed-metadata root, for
-    * callers that guard it (e.g. the symlink check in
-    * `FlowLifecycle.readSettings`) before writing through it.
+  /** `<workDir>/.orca` — the committed-metadata root, for callers that guard it
+    * (e.g. the symlink check in `FlowLifecycle.readSettings`) before writing
+    * through it.
     */
   def rootPath(workDir: os.Path): os.Path = root(workDir)
 
@@ -45,10 +45,10 @@ private[orca] object OrcaDir:
     abortIfOrcaComponentSymlink(workDir, r)
     r.tap(os.makeDir.all(_))
 
-  /** Idempotently ensure `.orca/cache/` exists — writing its self-ignoring
-    * `.gitignore` and `CACHEDIR.TAG` before returning, so nothing can land in
-    * the dir before the exclusion is in place — and return it. The marker files
-    * are written only when absent, so repeated calls do not churn mtimes.
+  /** Idempotently ensure `.orca/cache/` exists, writing its self-ignoring
+    * `.gitignore` and `CACHEDIR.TAG` before returning so nothing lands in the
+    * dir before the exclusion is in place. Markers are written only when
+    * absent, so repeated calls do not churn mtimes.
     */
   def ensureCache(workDir: os.Path): os.Path =
     val cache = root(workDir) / "cache"
@@ -60,27 +60,15 @@ private[orca] object OrcaDir:
 
   /** Refuse if `.orca` — or any orca-created directory from it down to `dir`
     * (inclusive) — is a symlink, before any `os.makeDir.all`/write through it.
-    * A committed symlink at ANY of these components (git mode 120000) would
-    * redirect orca's writes — cache markers, flow lock, progress log,
-    * discovered settings — to the link's target, outside the working tree.
-    * `.orca` is the only repo-committable subtree, so it and each directory
-    * orca itself makes beneath it (currently just `cache/`) are checked, one
-    * segment at a time: `os.isLink` is lstat/no-follow and inspects only the
-    * FINAL component, so a symlinked ANCESTOR (e.g. a `.orca` DIRECTORY link)
-    * is invisible to a leaf-only check and must be tested on its own. lstat
-    * also does not follow the final link, so a dangling component (target
-    * absent) is caught too.
+    * A committed symlink at any component (git mode 120000) would redirect
+    * orca's writes to the link's target, outside the working tree. Each segment
+    * is checked on its own because `os.isLink` (lstat, no-follow) inspects only
+    * the final component, so a symlinked ancestor would be invisible to a
+    * leaf-only check; the no-follow also catches a dangling final link.
     *
-    * Runs at the earliest touch of each directory — `.orca` on [[ensureRoot]],
-    * `.orca` and `.orca/cache` on [[ensureCache]] (via
-    * `FlowLock.acquireWorkdir`, a run's first `.orca` write) — ahead of the
-    * settings-file guard in `FlowLifecycle.readSettings`.
-    *
-    * Accepted residual (TOCTOU): the check precedes each `makeDir`/write, so a
-    * purely LOCAL race could swap a plain component for a symlink in that
-    * window. That is out of scope under the committed-repo-symlink threat model
-    * (the attacker controls repo content, not the victim's live filesystem
-    * mid-run), so it is left open deliberately.
+    * Accepted residual (TOCTOU): a purely LOCAL race could swap a plain
+    * component for a symlink between the check and the write. Out of scope
+    * under the committed-repo-symlink threat model, so left open deliberately.
     */
   private def abortIfOrcaComponentSymlink(
       workDir: os.Path,
@@ -101,10 +89,10 @@ private[orca] object OrcaDir:
             "writes outside the working tree)"
         )
 
-  // Check-then-write races on the first-ever cache creation: two processes can
-  // both see the file absent before the flow lock exists to serialize them, so
-  // the loser's `os.write` (CREATE_NEW) throws. Both writers carry identical
-  // contents, so losing the create race is harmless.
+  // On first-ever cache creation two processes can both see the file absent
+  // before the flow lock exists to serialize them; the loser's `os.write`
+  // (CREATE_NEW) throws. Both writers carry identical contents, so losing the
+  // race is harmless.
   private def writeIfAbsent(path: os.Path, contents: String): Unit =
     if !os.exists(path) then
       try os.write(path, contents)

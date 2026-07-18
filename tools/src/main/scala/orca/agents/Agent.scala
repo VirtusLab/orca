@@ -8,21 +8,19 @@ import scala.util.control.NonFatal
   * `flow(...)` block (`claude`, `codex`, etc.). Three rungs, by how long the
   * conversation must live:
   *
-  *   - **`run(prompt)`** — one ephemeral free-text turn on a fresh, throwaway
+  *   - **`run(prompt)`** — one ephemeral free-text turn on a fresh
   *     conversation. `resultAs[O].{autonomous,interactive}.run(input)` is the
   *     structured sibling.
   *   - **`chat()`** — a fresh EPHEMERAL multi-turn conversation ([[Chat]]):
-  *     in-run only, needs only `InStage`, so it works inside a fork (parallel
-  *     fan-outs). Gone on crash/resume.
+  *     in-run only, needs only `InStage` so it works inside a fork. Gone on
+  *     crash/resume.
   *   - **`agent.session(name, seed)`** (a flow extension) — a DURABLE
   *     `orca.FlowSession` that survives a flow crash/resume: named, seeded, and
   *     persisted.
   *
   * Free text is always autonomous; `interactive` (a human steering the turn)
   * exists only under `resultAs[O]`, where the structured payload marks the
-  * conversation's end. For structured calls the autonomous-vs-interactive
-  * choice is never hidden behind a default — it's always visible at the call
-  * site.
+  * conversation's end.
   *
   * Parameterized by the concrete `BackendTag` so session ids and results carry
   * the backend identity at the type level.
@@ -34,11 +32,11 @@ trait Agent[B <: BackendTag]:
     */
   def name: String
 
-  /** Role tag for this agent in the event stream — a second, orthogonal axis on
-    * `OrcaEvent.TokensUsed` alongside [[name]]. `None` for an ordinary agent;
-    * the review loop sets `Some("reviewer")` via [[withRole]] so `CostTracker`
-    * can subtotal reviewer spend without baking a display prefix into [[name]]
-    * itself (the identity a session/selector keys off). Defaults to `None`.
+  /** Role tag for this agent in the event stream — a second axis on
+    * `OrcaEvent.TokensUsed` alongside [[name]]. The review loop sets
+    * `Some("reviewer")` via [[withRole]] so `CostTracker` can subtotal reviewer
+    * spend without baking a prefix into [[name]] (the identity a
+    * session/selector keys off). Defaults to `None`.
     */
   def role: Option[String] = None
 
@@ -61,10 +59,8 @@ trait Agent[B <: BackendTag]:
     autonomous.runWithSession(prompt, SessionId.fresh[B], config, emitPrompt)
 
   /** Start a fresh EPHEMERAL multi-turn conversation — see [[Chat]]. In-run
-    * only: nothing is persisted, so a crash/resume starts over. Runs need only
-    * `InStage`, so a chat can be minted and driven inside an `ox` fork
-    * (parallel reviewers, fan-outs). A plain immutable value — close over it
-    * freely.
+    * only: nothing is persisted, so a crash/resume starts over. Needs only
+    * `InStage`, so a chat can be minted and driven inside an `ox` fork.
     */
   final def chat(): Chat[B] = new Chat(this, SessionId.fresh[B])
 
@@ -94,14 +90,8 @@ trait Agent[B <: BackendTag]:
 
   /** Return a sibling tool tagged with `role` (see [[role]]) for the event
     * stream — used by the review loop to tag a reviewer's run without renaming
-    * it.
-    *
-    * On an `Agent` that doesn't override this, the call is a SILENT NO-OP —
-    * `this` is returned unchanged, mirroring [[withSelfManagedGit]] /
-    * [[withCheapModel]]'s documented pattern for optional capabilities.
-    * `BaseAgent`-derived tools (every real backend) override it; a custom
-    * `Agent` implementation that wants role-tagged `TokensUsed` events must
-    * override it too.
+    * it. No-op default (returns `this`); `BaseAgent`-derived tools override it,
+    * and a custom `Agent` wanting role-tagged `TokensUsed` events must too.
     */
   def withRole(role: String): Agent[B] = this
 
@@ -140,22 +130,17 @@ trait Agent[B <: BackendTag]:
   /** Pin the model that [[cheap]] resolves to, overriding the backend default.
     * Lets a flow specify both a leading and a cheap model, e.g.
     * `_.opencode.anthropicSonnet.withCheapModel(Model("anthropic/claude-haiku-4-5"))`.
-    *
-    * On an `Agent` that doesn't override this, the call is a SILENT NO-OP —
-    * `this` is returned unchanged and the pin is dropped. `BaseAgent`-derived
-    * tools (every real backend) override it; a custom `Agent` implementation
-    * must override it too, or a caller's `.withCheapModel(...)` is silently
-    * ignored and [[cheap]] keeps resolving to [[defaultCheap]].
+    * No-op default (returns `this`, dropping the pin); `BaseAgent`-derived
+    * tools override it, and a custom `Agent` must too or the pin is silently
+    * ignored.
     */
   def withCheapModel(model: Model): Agent[B] = this
 
   /** Best-effort one-line reply from the cheap model, for the runtime's own
-    * incidental text (branch naming, default commit messages). Runs `prompt` on
-    * `cheap.withReadOnly` (no prompt echo), returns the first non-blank line
-    * trimmed — or `fallback` if the reply is empty or the call fails for any
-    * non-fatal reason (markdown fence lines are skipped). Never throws: these
-    * calls must never break a flow. `private[orca]` — internal; flow scripts
-    * use `cheap.run(...)` directly if they want a one-off cheap call.
+    * incidental text (branch naming, default commit messages). Returns the
+    * first non-blank, non-fence line trimmed, or `fallback` if the reply is
+    * empty or the call fails for any non-fatal reason. Never throws: these
+    * calls must never break a flow.
     */
   private[orca] def cheapOneShot(prompt: String, fallback: => String)(using
       InStage
@@ -173,9 +158,8 @@ trait Agent[B <: BackendTag]:
   /** One autonomous text turn with the streaming display suppressed: no `▸`
     * prompt echo and — on `BaseAgent`-derived tools, which override this — no
     * `●` prose or `⏺` tool lines either (`TokensUsed` and `Error` events still
-    * flow). For the runtime's internal turns ([[cheapOneShot]]): their display
-    * channel is the caller's own event (the branch-switch or commit `Step`), so
-    * streaming the reply would show the same text twice.
+    * flow). For the runtime's internal turns ([[cheapOneShot]]), whose display
+    * channel is the caller's own event, so streaming would show the text twice.
     */
   private[orca] def quietTextTurn(prompt: String)(using InStage): String =
     run(prompt, emitPrompt = false)
@@ -184,81 +168,63 @@ trait Agent[B <: BackendTag]:
     * [[AgentConfig.selfManagedGit]] on, suppressing the standing "runtime owns
     * git" rule the runtime otherwise injects (don't `git commit`/`push`/branch;
     * leave edits in the working tree). Use only for a flow that genuinely wants
-    * the agent to drive git; the default keeps git runtime-owned.
+    * the agent to drive git.
     *
-    * Unlike [[withReadOnly]] this carries a no-op default (returns `this`), so
-    * a custom `Agent` that forgets to wire it simply keeps the safe
-    * runtime-owns-git behaviour rather than silently granting the escape hatch.
-    *
-    * On an `Agent` that doesn't override this, the call is a SILENT NO-OP —
-    * `this` is returned unchanged. This one is deliberate (a fail-safe, not a
-    * bug): `BaseAgent`-derived tools override it to actually flip the flag; a
-    * custom `Agent` implementation must override it too if it wants callers'
-    * `.withSelfManagedGit` to take effect.
+    * No-op default (returns `this`), deliberately fail-safe: a custom `Agent`
+    * that forgets to wire it keeps the safe runtime-owns-git behaviour rather
+    * than silently granting the escape hatch. `BaseAgent`-derived tools
+    * override it to flip the flag.
     */
   def withSelfManagedGit: Agent[B] = this
 
   /** The backend's session-durability capability, or `None` for tools without a
-    * backend (lightweight stubs). The ONLY overridable session hook — the
-    * `willContinue` / `resumeWireId` / `registerResumeWireId` trio below is
-    * `final`, implemented uniformly through this. A concrete tool exposes its
-    * backend's whole [[orca.backend.SessionSupport]] or nothing, so it cannot
-    * reflect one session operation while silently defaulting the others.
+    * backend. The ONLY overridable session hook — the `willContinue` /
+    * `resumeWireId` / `registerResumeWireId` trio below is `final`, implemented
+    * uniformly through this, so a tool exposes its backend's whole
+    * [[orca.backend.SessionSupport]] or nothing, never a partial mix.
     */
   private[orca] def sessionSupport: Option[orca.backend.SessionSupport[B]] =
     None
 
   /** This tool's backend tag, or `None` for tools without a backend
-    * (lightweight stubs). Used to stamp [[orca.progress.SessionRecord.backend]]
-    * so a resumed run's targeted rehydration knows which agent a session
-    * belongs to. `BaseAgent` overrides this to `Some(backend.tag)`; a concrete
-    * tool built directly on `Agent` (no backend) keeps the `None` default.
+    * (lightweight stubs). Stamps [[orca.progress.SessionRecord.backend]] so a
+    * resumed run's targeted rehydration knows which agent a session belongs to.
     */
   private[orca] def backendTag: Option[BackendTag] = None
 
   /** An opaque token identifying this tool's underlying backend INSTANCE (not
-    * just its runtime tag/type), or `None` for tools without a backend
-    * (lightweight stubs). Two independently-built backends of the same kind
-    * (e.g. two `ClaudeCode` backends from separate `AgentWiring`s) get
-    * different tokens even though [[backendTag]] can't tell them apart;
-    * `copyTool`-derived siblings (`_.claude.opus`, `.withReadOnly`, …) share
-    * the SAME token because they share the SAME backend object. Used by
-    * [[orca.runner.DefaultFlowContext]] to tell a selector-derived sibling of a
-    * wired agent (safe — same backend, same events, same close latch) apart
-    * from an agent built against a genuinely different backend (foreign —
-    * event-blind, leaked past `close()`), without false-positiving on the
-    * former the way a plain `Agent eq Agent` check would. `BaseAgent` overrides
-    * this to the shared `AgentBackend.closedFlag` reference — already unique
-    * per backend instance, and deliberately shared across sibling backend
-    * instances that opt into it (e.g. claude's `withNetworkTools`), for exactly
-    * this identity purpose.
+    * just its runtime tag/type), or `None` for tools without a backend.
+    * Independently-built backends of the same kind get different tokens even
+    * though [[backendTag]] can't tell them apart; `copyTool`-derived siblings
+    * (`_.claude.opus`, `.withReadOnly`, …) share the SAME token, sharing the
+    * SAME backend object. [[orca.runner.DefaultFlowContext]] uses this to tell
+    * a selector-derived sibling of a wired agent (safe) apart from an agent
+    * built against a genuinely different backend (foreign — event-blind, leaked
+    * past `close()`), which a plain `Agent eq Agent` check couldn't.
+    * `BaseAgent` overrides it to the shared `AgentBackend.closedFlag`
+    * reference.
     *
-    * Compared by REFERENCE (`eq`), never `==`: a token type that happened to
-    * implement structural equality (unlike today's `AtomicBoolean`, which falls
-    * back to reference equality by having none) would silently false-positive
-    * two independently-built backends into looking wired together.
-    * Implementations must mint an identity-unique token per backend instance —
-    * never a value shared across independently-built backends.
+    * Compared by REFERENCE (`eq`), never `==`: a token with structural equality
+    * would false-positive two independently-built backends into looking wired
+    * together. Implementations must mint an identity-unique token per backend
+    * instance.
     */
   private[orca] def backendIdentity: Option[AnyRef] = None
 
   /** Will the NEXT call on `session` continue an already-live conversation
     * (rather than open a fresh one that needs re-seeding)? The durable-session
     * runtime asks this before deciding whether to re-inject the seed + progress
-    * preamble — see [[orca.backend.SessionSupport.willContinue]] for the
-    * durable-probe vs in-process-claim split. Returns `false` — safe re-seed —
-    * when a concrete tool can't reach a backend.
+    * preamble — see [[orca.backend.SessionSupport.willContinue]]. Returns
+    * `false` (safe re-seed) when a concrete tool can't reach a backend.
     */
   final def willContinue(session: SessionId[B]): Boolean =
     sessionSupport.exists(_.willContinue(session))
 
-  /** The wire id to resume `client` against, or `None` if unknown (or the
-    * backend's sessions aren't durably resumable). `client` is orca's stable
-    * handle ([[SessionId]]); the result is the [[WireSessionId]] the backend
-    * actually resumes against — equal to `client` where the client id IS the
-    * wire id (claude), a learned server-thread id for codex/gemini/opencode,
-    * `None` for pi (ephemeral sessions). The flow runtime reads this after a
-    * run to persist the resume wire id into the progress log.
+  /** The [[WireSessionId]] to resume `client` ([[SessionId]], orca's stable
+    * handle) against, or `None` if unknown or not durably resumable — equal to
+    * `client` where the client id IS the wire id (claude), a learned
+    * server-thread id for codex/gemini/opencode, `None` for pi (ephemeral). The
+    * flow runtime reads this after a run to persist it into the progress log.
     */
   final def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] =
     sessionSupport.flatMap(_.persistableWireId(client))
@@ -275,10 +241,8 @@ trait Agent[B <: BackendTag]:
     sessionSupport.foreach(_.register(client, wireId))
 
   /** Release background resources this agent's backend owns. Delegates to
-    * [[orca.backend.AgentBackend.close]]; a lightweight stub built directly on
-    * `Agent` (no backend) keeps the no-op default. `private[orca]` — the
-    * runtime calls this from `DefaultFlowContext.close()`; flow scripts never
-    * call it directly.
+    * [[orca.backend.AgentBackend.close]]; a stub without a backend keeps the
+    * no-op default. The runtime calls this from `DefaultFlowContext.close()`.
     */
   private[orca] def close(): Unit = ()
 

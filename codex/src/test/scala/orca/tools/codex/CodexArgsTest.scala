@@ -111,11 +111,9 @@ class CodexArgsTest extends munit.FunSuite:
   test(
     "exec emits -c mcp_servers.orca.{url,tool_timeout_sec} when an MCP url is supplied"
   ):
-    // The `-c` overrides register an MCP server for the duration of the
-    // codex invocation (this is how we plug in the ask_user bridge) and
-    // raise its tool timeout from codex's 60s default to one hour — long
-    // enough that a slow human typing an answer doesn't trigger codex's
-    // internal MCP timeout and a duplicate follow-up question.
+    // The `-c` overrides register the ask_user MCP server for the codex
+    // invocation and raise its tool timeout from codex's 60s default to one
+    // hour, so a slow human answering doesn't trigger a duplicate follow-up.
     val args = CodexArgs.exec(
       "x",
       AgentConfig(),

@@ -109,14 +109,11 @@ class ClaudeBackendTest extends munit.FunSuite:
     "a withNetworkTools sibling shares the parent's closed latch"
   ):
     // withNetworkTools is the one builder that swaps in a genuinely NEW
-    // ClaudeBackend instance rather than reusing the caller's (every other
-    // builder — withConfig/withModel/opus/withName/… — goes through
-    // BaseAgent.copyTool, which keeps the same backend). Before this fix each
-    // fresh instance got its own closedFlag, so a handle derived via
-    // `agent.withNetworkTools(...)` while the flow was open and used AFTER
-    // the leading agent's flow closed would silently bypass the
-    // use-after-close guard. `run` never reaches the (empty) stub runner: the
-    // guard must throw first.
+    // ClaudeBackend instance rather than reusing the caller's; the new instance
+    // must still share the parent's closedFlag, or a handle derived while the
+    // flow was open and used after the leading agent's flow closed would bypass
+    // the use-after-close guard. `run` never reaches the (empty) stub runner:
+    // the guard must throw first.
     val backend = new ClaudeBackend(new SpawnStubCliRunner(Nil))
     val agent = new DefaultClaudeAgent(
       backend,
@@ -242,12 +239,11 @@ class ClaudeBackendTest extends munit.FunSuite:
   test(
     "registerSession (rehydrate on resume) makes the first call use --resume, not --session-id"
   ):
-    // Regression for the cross-process resume bug: claude's sessions are
-    // durable on disk, so a resumed run re-claims the recorded id via
-    // `registerSession` (what `rehydrateSessions` calls). The very first call in
-    // THIS process must then `--resume` the existing session rather than
-    // re-create it with `--session-id` (which the CLI rejects as "already in
-    // use"). Before the fix, claude wired neither hook, so it always re-created.
+    // Claude's sessions are durable on disk, so a resumed run re-claims the
+    // recorded id via `registerSession` (what `rehydrateSessions` calls). The
+    // very first call in THIS process must then `--resume` the existing session
+    // rather than re-create it with `--session-id` (which the CLI rejects as
+    // "already in use").
     val sid = SessionId[BackendTag.ClaudeCode.type](
       "44444444-4444-4444-4444-444444444444"
     )
@@ -268,8 +264,8 @@ class ClaudeBackendTest extends munit.FunSuite:
     "resumeWireId reflects the claim so the runtime records the resumable id"
   ):
     // `resumeWireId` is the source the runtime reads to write the resume wire id
-    // into the progress log; without it (the old default `None`) the claim was
-    // never persisted and resume re-created the session.
+    // into the progress log; without the claim, resume would re-create the
+    // session.
     val sid = SessionId[BackendTag.ClaudeCode.type](
       "55555555-5555-5555-5555-555555555555"
     )
@@ -289,8 +285,7 @@ class ClaudeBackendTest extends munit.FunSuite:
   ):
     // The session mapping is recorded only after `new ClaudeConversation`
     // succeeds, so a first call that throws (e.g. is_error from the result
-    // message) doesn't wedge the bookkeeping. Pins the post-success ordering
-    // against regressions back to mark-then-spawn.
+    // message) doesn't wedge the bookkeeping.
     val sid = SessionId[BackendTag.ClaudeCode.type](
       "33333333-3333-3333-3333-333333333333"
     )
@@ -337,14 +332,12 @@ class ClaudeBackendTest extends munit.FunSuite:
   test(
     "workDir is shared, by construction, between the actual spawn cwd and the session-existence probe"
   ):
-    // Pins the workDir unification: `workDir` is fixed once at construction
-    // and BOTH the probe (via `sessions.willContinue`) and the real subprocess
-    // spawn (via `runAutonomous` → `cli.spawnPiped(..., cwd = workDir)`) read
-    // that SAME field — no separate per-call value can drift out of sync,
-    // which is exactly what the old `cwdForProbe`-vs-per-call-`workDir` split
-    // allowed. A backend constructed with a worktree-style
-    // `workDir` (!= the process cwd) must probe AND spawn under that same
-    // directory.
+    // `workDir` is fixed once at construction and BOTH the probe (via
+    // `sessions.willContinue`) and the real subprocess spawn (via
+    // `runAutonomous` → `cli.spawnPiped(..., cwd = workDir)`) read that SAME
+    // field, so no per-call value can drift out of sync. A backend constructed
+    // with a worktree-style `workDir` (!= the process cwd) must probe AND spawn
+    // under that same directory.
     val tmpProjects = TempDirs.dir()
     val flowWorkDir =
       TempDirs.dir() // stands in for a worktree checkout, != os.pwd
@@ -390,10 +383,10 @@ class ClaudeBackendTest extends munit.FunSuite:
   test(
     "willContinue returns false when the transcript is present but never claimed"
   ):
-    // Mapping gate: existence is only answered for an id the bookkeeping
-    // knows (claimed this run or rehydrated). A stray transcript for an id we
-    // never claimed reports false — outcome-preserving, since dispatch would say
-    // `Fresh` and the CLI would refuse the duplicate `--session-id` anyway.
+    // Existence is only answered for an id the bookkeeping knows (claimed this
+    // run or rehydrated). A stray transcript for an id we never claimed reports
+    // false — outcome-preserving, since dispatch would say `Fresh` and the CLI
+    // would refuse the duplicate `--session-id` anyway.
     val tmpProjects = TempDirs.dir()
     val cwd = TempDirs.dir()
     val slug = ClaudeBackend.cwdSlug(cwd)

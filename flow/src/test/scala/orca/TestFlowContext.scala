@@ -103,8 +103,8 @@ class TestFlowControl(
 
   // Stage-identity bookkeeping (enterStage/exitStage/inStage and
   // nextSessionOccurrence) is inherited from the shared `StageFrames` mixin — the
-  // SAME implementation production uses, so this double cannot silently keep the
-  // old flat-counter semantics and greenwash a nesting/resume test.
+  // SAME implementation production uses, so this double can't diverge from
+  // production nesting/resume semantics and greenwash a test.
 
 object TestFlowControl:
   /** Build a `TestFlowControl` over a fresh temp git repo (with one seed commit

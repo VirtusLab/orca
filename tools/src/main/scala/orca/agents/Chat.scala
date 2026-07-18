@@ -9,22 +9,20 @@ import orca.InStage
   * `agent.session(name, seed)`, is the door for conversations that must
   * survive).
   *
-  * Runs need only [[InStage]] — a shared capability that crosses forks — so
-  * chats are the conversation handle for parallel fan-outs: each fork mints its
-  * own `agent.chat()` and drives multi-turn exchanges without resending context
-  * (the review loop's reviewers work exactly this way).
+  * Runs need only [[InStage]], which crosses forks, so chats are the
+  * conversation handle for parallel fan-outs: each fork mints its own
+  * `agent.chat()` and drives multi-turn exchanges without resending context.
   *
   * The handle bundles the minting [[Agent]] with a reserved [[SessionId]], so
-  * every turn runs on the same agent configuration and the same conversation —
-  * there is no loose id to mis-route. Drive one chat from one place at a time:
-  * concurrent turns against the same backend conversation fail.
+  * every turn runs on the same agent configuration and conversation. Drive one
+  * chat from one place at a time: concurrent turns against the same backend
+  * conversation fail.
   */
 final class Chat[B <: BackendTag] private[orca] (
     private[orca] val agent: Agent[B],
     /** The underlying conversation id. `private[orca]` — the library's own
-      * continuations (the planning grid) reach it; scripts hold the chat
-      * itself, and the only public id-adoption door is `agent.chat(id)` over a
-      * `FlowSession.id`.
+      * continuations reach it; the only public id-adoption door is
+      * `agent.chat(id)` over a `FlowSession.id`.
       */
     private[orca] val id: SessionId[B]
 ):

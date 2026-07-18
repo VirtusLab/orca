@@ -1,10 +1,6 @@
 package orca
 
-/** Tests for the InStage capability type (ADR 0018 §2.2).
-  *
-  * Positive test: verifies that runtime code (in package `orca`) can mint and
-  * use an InStage token.
-  */
+/** Tests for the InStage capability type (ADR 0018 §2.2). */
 class InStageTest extends munit.FunSuite:
 
   test(

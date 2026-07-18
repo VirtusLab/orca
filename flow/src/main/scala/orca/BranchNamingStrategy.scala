@@ -34,14 +34,12 @@ object BranchNamingStrategy:
     if capped.isEmpty || capped.startsWith("-") then fallback(text)
     else capped
 
-  /** Deterministic `"flow-<8-hex-chars>"` name for `text` — the exact fallback
-    * shape [[slug]] uses internally when it can't produce a safe non-empty
-    * result from its input. Exposed as a public entry point so callers that
-    * need a guaranteed-safe deterministic rename OUTSIDE of `slug`'s own
-    * trigger conditions (e.g. [[orca.progress.FeatureBranch]]'s
-    * protected-name-collision fallback, keyed on the prompt rather than the
-    * rejected name so the rename is stable across retries of the same prompt)
-    * reuse this one format rather than inventing a second one.
+  /** Deterministic `"flow-<8-hex-chars>"` name for `text` — the same fallback
+    * shape [[slug]] uses internally. Exposed so callers needing a
+    * guaranteed-safe deterministic rename outside `slug`'s own trigger
+    * conditions (e.g. [[orca.progress.FeatureBranch]]'s
+    * protected-name-collision fallback) reuse this format rather than inventing
+    * a second one.
     */
   def flowFallbackName(text: String): String = fallback(text)
 
@@ -49,11 +47,10 @@ object BranchNamingStrategy:
   private[orca] def isSlugChar(c: Char): Boolean =
     (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'
 
-  /** True iff `s` is a single git-ref-safe segment of the exact shape [[slug]]
-    * produces: non-empty, leading alphanumeric, only `[a-z0-9-]`. The producer
-    * ([[slug]]) and validators (e.g. recovery's untrusted-header check, which
-    * splits on `/` and checks each segment) share this one definition so they
-    * cannot drift.
+  /** True iff `s` is a single git-ref-safe segment of the shape [[slug]]
+    * produces: non-empty, leading alphanumeric, only `[a-z0-9-]`. Shared by the
+    * producer ([[slug]]) and validators (e.g. recovery's untrusted-header
+    * check) so they cannot drift.
     */
   private[orca] def isSlugSegment(s: String): Boolean =
     s.nonEmpty && isSlugChar(s.head) && s.head != '-' && s.forall(isSlugChar)

@@ -52,10 +52,9 @@ object JsonData:
       ConfiguredJsonValueCodec.derived[A](using strictCodecConfig)
     )
 
-  /** Wraps a plain `JsonValueCodec` as a `ConfiguredJsonValueCodec`.
-    * `ConfiguredJsonValueCodec` is a marker interface that extends
-    * `JsonValueCodec` without adding methods, so we just delegate all calls.
-    * Used by the hand-written primitive/generic givens below.
+  /** Wraps a plain `JsonValueCodec` as a `ConfiguredJsonValueCodec` (a marker
+    * interface adding no methods) by delegating all calls. Used by the
+    * hand-written primitive/generic givens below.
     */
   private def wrap[A](c: JsonValueCodec[A]): ConfiguredJsonValueCodec[A] =
     new ConfiguredJsonValueCodec[A]:
@@ -80,13 +79,11 @@ object JsonData:
   given doubleJsonData: JsonData[Double] =
     apply(Schema.schemaForDouble, wrap(JsonCodecMaker.make))
 
-  /** Unit serialises as `{}` (an empty JSON object) — a valid, round-trippable
-    * JSON value that conveys "no meaningful payload". `JsonCodecMaker` does not
-    * support `Unit`, so we write the codec by hand.
-    *
-    * Decode is strict: it requires exactly the empty object `{}` the encoder
-    * produces, rejecting any other token (including `null`). So `Option[Unit]`
-    * round-trips correctly — `None`/`Some(())` map to `null`/`{}`.
+  /** Unit serialises as `{}`, a valid round-trippable "no meaningful payload"
+    * value. `JsonCodecMaker` doesn't support `Unit`, so the codec is hand-
+    * written. Decode is strict: it requires exactly `{}`, rejecting any other
+    * token (including `null`), so `Option[Unit]` round-trips —
+    * `None`/`Some(())` map to `null`/`{}`.
     */
   given unitJsonData: JsonData[Unit] = apply(
     Schema.schemaForUnit,

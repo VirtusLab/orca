@@ -22,8 +22,7 @@ import scala.util.control.NonFatal
 
 /** The five agents wired for one run — the [[orca.AgentSet]] the `flow(...)`
   * lead selector resolves against. Built (via [[WiredAgents.build]]) before the
-  * `FlowContext` exists; the context then takes ownership of the bundle at
-  * construction and forwards its accessors here.
+  * `FlowContext` exists; the context then takes ownership of the bundle.
   */
 private[orca] final class WiredAgents(
     val claude: ClaudeAgent,
@@ -33,15 +32,10 @@ private[orca] final class WiredAgents(
     val gemini: GeminiAgent
 ) extends AgentSet:
 
-  /** The five wired agents keyed by backend tag — derived once from the
-    * constructor vals above, not a second source of truth: adding a backend is
-    * still one new field plus one new match arm here. Written as a match over
-    * `BackendTag.values` (not a literal `Map(...)`) so the exhaustiveness
-    * checker — not a human — flags a sixth `BackendTag` case that this map
-    * hasn't been taught about yet. The five concretely-typed accessors
-    * (`claude`, `codex`, …) stay as the public, `AgentSet`-mandated surface,
-    * and `agentFor` is unaffected (the trait default already dispatches on the
-    * same five fields — see [[orca.AgentSet.agentFor]]).
+  /** The five wired agents keyed by backend tag, derived from the constructor
+    * vals. Written as a match over `BackendTag.values` (not a literal
+    * `Map(...)`) so the exhaustiveness checker flags a sixth `BackendTag` case
+    * this map hasn't been taught about.
     */
   private val byTag: Map[BackendTag, Agent[?]] =
     BackendTag.values.map {
@@ -57,20 +51,14 @@ private[orca] final class WiredAgents(
   def all: List[Agent[?]] = byTag.values.toList
 
   /** True when `a` IS one of the five wired agents, or was derived from one via
-    * a `copyTool`-style builder (`_.claude.opus`, `.withReadOnly`, …) — checked
-    * by shared [[orca.agents.Agent.backendIdentity]], compared by REFERENCE
-    * (`eq`, per that method's contract), not `Agent` reference equality,
-    * because a builder-derived sibling is a DIFFERENT `Agent` instance sharing
-    * the SAME backend: a naive `eq` check on the `Agent`s alone would
-    * false-positive-warn on the common `_.claude.opus` selector pattern. The
-    * direct `eq` fallback (on the `Agent`s themselves) exists for agents with
-    * no backend at all (e.g. test stubs built straight on `Agent`, whose
-    * `backendIdentity` is `None`) so a selector that literally returns one of
-    * the five wired agents unchanged still counts as wired even without a
-    * backend token to compare. Used only for the foreign-lead warning at
-    * selector-resolution time, where a false warning (not a resource leak) is
-    * the failure mode — both close fan-outs skip the check and close the lead
-    * unconditionally.
+    * a builder (`_.claude.opus`, `.withReadOnly`, …). A builder-derived sibling
+    * is a different `Agent` instance sharing the same backend, so the primary
+    * test compares shared [[orca.agents.Agent.backendIdentity]] by `eq`; a
+    * naive `eq` on the `Agent`s alone would false-positive-warn on
+    * `_.claude.opus`. The direct `eq` fallback covers agents with no backend
+    * (e.g. test stubs, whose `backendIdentity` is `None`). Used only for the
+    * foreign-lead warning, where a false warning (not a leak) is the failure
+    * mode.
     */
   def isWiredBackend(a: Agent[?]): Boolean =
     byTag.values.exists: w =>
@@ -84,11 +72,9 @@ private[orca] object WiredAgents:
   /** Wire the run's agents, filling every `None` override with the production
     * default. Every factory is applied against `agentWiring` — the run's single
     * bundle of event sink, interaction, workDir and prompts — so a user agent
-    * is wired into the run exactly like a default one. The default configs
-    * (Opus1M/Pro pins) live in the per-backend `*Agents.default` factories, the
-    * single source of truth. Applying each factory against the field's expected
-    * concrete-agent type drives Scala's context-function auto-application — see
-    * [[FlowWiring]] for why every field shares the `Ox ?=>` shape.
+    * is wired into the run exactly like a default one. Default configs live in
+    * the per-backend `*Agents.default` factories. See [[FlowWiring]] for why
+    * every field shares the `Ox ?=>` shape.
     */
   def build(wiring: FlowWiring, agentWiring: AgentWiring)(using
       ox.Ox
@@ -111,11 +97,10 @@ private[orca] object WiredAgents:
     )
 
   /** Best-effort close fan-out over `agents` (each delegates to its backend;
-    * all default to no-op — today only opencode holds a live resource, the
-    * shared `serve` process). Per-agent best-effort: one failing close must not
-    * keep the others from closing. Shared by `DefaultFlowContext.close()` and
-    * `runFlow`'s pre-construction ownership guard so both close the same way,
-    * in the same order.
+    * today only opencode holds a live resource, the shared `serve` process).
+    * One failing close must not keep the others from closing. Shared by
+    * `DefaultFlowContext.close()` and `runFlow`'s pre-construction ownership
+    * guard so both close the same way.
     */
   def closeBestEffort(agents: List[Agent[?]]): Unit =
     agents.foreach: a =>

@@ -43,12 +43,9 @@ private[codex] class CodexConversation(
       * [[orca.backend.SubprocessSpawn.deleteFileResource]] and [[onFinalize]].
       */
     schemaFile: Option[os.Path] = None,
-    /** The model this agent was configured with, if any. Used as the cost-
-      * attribution fallback when codex's `thread.started` omits the resolved
-      * model id (some `codex exec` invocations, notably `resume`, do) — without
-      * it those turns' tokens land under `(unknown)` and go unpriced, so the
-      * estimated total disagrees with the by-agent breakdown. Mirrors claude's
-      * `system.init` → `result` model fallback ([[ClaudeConversation]]).
+    /** Cost-attribution fallback when codex's `thread.started` omits the
+      * resolved model id (notably on `resume`); without it those turns' tokens
+      * land under `(unknown)` and go unpriced.
       */
     configuredModel: Option[Model] = None
 ) extends ForkedConversation[BackendTag.Codex.type](
@@ -68,31 +65,21 @@ private[codex] class CodexConversation(
   private var sessionId: String = ""
   private var model: Option[String] = None
 
-  /** The most recent agent_message text the model produced (reader-thread-
-    * confined; see the group comment above). See the class scaladoc for why we
-    * synthesise rather than receive.
+  /** The most recent agent_message text (reader-thread-confined). See the class
+    * scaladoc for why we synthesise the result rather than receive it.
     */
   private var lastAgentMessage: String = ""
 
   /** MCP item ids whose `AssistantToolCall` echo we drop — the host-side bridge
-    * has already surfaced the corresponding `UserQuestion` event, so rendering
-    * the tool call on top would be noise. The matching `item.completed` is also
-    * suppressed: the user's typed answer would otherwise re-render as `⎿
-    * <answer>` after the prompt surfaced it. See
-    * [[orca.backend.AskUserEchoes]].
+    * has already surfaced the corresponding `UserQuestion`, so rendering the
+    * tool call (and its `item.completed` answer echo) on top would be noise.
+    * See [[orca.backend.AskUserEchoes]].
     */
   private val askUserEchoes = new orca.backend.AskUserEchoes
 
   // No `start()`: the base spawns its reader / stderr / ask-user forks lazily
   // on first touch of the conversation surface, after this subclass's fields
   // are initialised.
-
-  // --- Conversation surface ---
-
-  // `canAskUser` is owned by the base — true when this conversation was
-  // constructed with `askUser = Some(...)`. Codex exec has no in-session
-  // stdin channel (ADR 0007), but the agent CAN reach the user via the
-  // ask_user MCP tool when the bridge is wired.
 
   // --- Reader hooks ---
 
@@ -102,25 +89,22 @@ private[codex] class CodexConversation(
   /** codex prints known-benign noise on every exec invocation:
     *
     *   - `Reading additional input from stdin…` whenever stdin is piped (we
-    *     always pipe stdin, even though we immediately close it).
+    *     always pipe, even though we immediately close it).
     *   - `ERROR codex_core::session: failed to record rollout items: thread
-    *     <id> not found` during shutdown — fires inside codex's cleanup after
-    *     the rollout writer is already torn down. The rollout file is still
-    *     written correctly to `~/.codex/sessions/`; the message is harmless.
+    *     <id> not found` during shutdown, after the rollout writer is torn
+    *     down. The rollout file is still written correctly; the message is
+    *     harmless.
     *
-    * Filter both; anything else passes through [[StderrPipeline]]'s hoisted
-    * `handleStderr` (strip → trim → filter → Error event → recorded
-    * diagnostic).
+    * Filter both; anything else passes through [[StderrPipeline]]'s
+    * `handleStderr`.
     */
   override protected def isStderrNoise(line: String): Boolean =
     CodexConversation.isKnownStderrNoise(line)
 
   /** Best-effort delete the `--output-schema` temp file (if any), then defer to
-    * [[StderrPipeline.onFinalize]] to join the stderr drain. Runs exactly once
-    * (reader happy-path OR `cancel()` — see `ForkedConversation.runFinalize`),
-    * so the file never outlives the turn that wrote it. The delete runs in a
-    * `finally` so a throw from it (e.g. the file already gone) can't skip
-    * `super.onFinalize()` — and with it, the stderr-drain join it depends on.
+    * [[StderrPipeline.onFinalize]] to join the stderr drain. The delete runs in
+    * a `finally` so a throw from it can't skip `super.onFinalize()` and the
+    * stderr-drain join it depends on.
     */
   override protected def onFinalize(): Unit =
     try schemaFile.foreach(p => SubprocessSpawn.deleteFileResource(p).close())
@@ -217,10 +201,9 @@ private[codex] class CodexConversation(
     case Item.Other(_, _) =>
       ()
 
-  /** Compose the user-facing tool name from codex's `(server, tool)` pair.
-    * Codex namespaces MCP tools by server, so a dotted form reads naturally in
-    * the renderer log and stays distinct from the bare `bash` / `file_change`
-    * names used by codex's built-in items.
+  /** User-facing tool name from codex's `(server, tool)` pair. The dotted form
+    * stays distinct from the bare `bash` / `file_change` names of codex's
+    * built-in items.
     */
   private def mcpToolName(server: String, tool: String): String =
     s"$server.$tool"
@@ -230,9 +213,8 @@ private[codex] class CodexConversation(
       wireId = sessionId,
       output = lastAgentMessage,
       usage = usage,
-      // Fall back to the configured model when the wire omitted it (e.g.
-      // `thread.started` on a resume), so the turn's tokens are priced rather
-      // than attributed to `(unknown)`.
+      // Fall back to the configured model when the wire omitted it (e.g. on a
+      // resume) so the turn's tokens are priced, not attributed to `(unknown)`.
       modelId = model.orElse(configuredModel.map(_.name))
     )
 

@@ -8,12 +8,9 @@ import java.net.http.{HttpClient, HttpRequest, HttpResponse}
 
 class AskUserMcpServerTest extends munit.FunSuite:
 
-  /** Smoke test: spin up the server, send a `tools/list` JSON-RPC request,
-    * assert the `ask_user` tool is advertised in the response.
-    *
-    * No bridge interaction — the handler isn't invoked here, just the
-    * tools-discovery path. Bridge-driven end-to-end behaviour belongs in a
-    * higher-level integration test once the Claude wiring lands.
+  /** Smoke test of the tools-discovery path: a `tools/list` JSON-RPC request
+    * must advertise `ask_user`. No bridge interaction — the handler isn't
+    * invoked here.
     */
   test("tools/list advertises ask_user"):
     supervised:

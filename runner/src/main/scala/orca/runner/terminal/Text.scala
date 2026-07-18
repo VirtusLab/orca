@@ -1,9 +1,7 @@
 package orca.runner.terminal
 
-/** Tiny string helpers shared by the terminal-rendering layer. Scoped
-  * package-private since their tradeoffs (in particular the cheap-and- cheerful
-  * character truncation that doesn't worry about wide graphemes) only make
-  * sense inside this layer.
+/** Tiny string helpers for the terminal-rendering layer. Truncation is
+  * character-based and doesn't account for wide graphemes.
   */
 private[terminal] object Text:
 
@@ -24,10 +22,8 @@ private[terminal] object Text:
     val collapsed = s.replaceAll("\\s+", " ").trim
     truncate(collapsed, max)
 
-  /** Prefix `text` with `indent`, and re-indent every embedded newline so a
-    * multi-line block stays aligned under the leading glyph/indent. Shared by
-    * [[TerminalEventListener]] and [[ConversationRenderer]], the two places
-    * that print a block under the current stage indent.
+  /** Prefix `text` with `indent`, re-indenting every embedded newline so a
+    * multi-line block stays aligned under the leading glyph/indent.
     */
   def indentBlock(indent: String, text: String): String =
     indent + text.replace("\n", "\n" + indent)

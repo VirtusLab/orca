@@ -85,9 +85,8 @@ class ConversationRendererTest extends munit.FunSuite:
     )
 
   test("UserMessage renders as one truncated line, not the full prompt"):
-    // The initial user message of an interactive session is usually the full
-    // templated instruction; the render identifies the turn like the
-    // autonomous `▸` prompt line does, instead of dumping pages of prompt.
+    // The initial user message is usually the full templated instruction; the
+    // render identifies the turn instead of dumping pages of prompt.
     val buf = new ByteArrayOutputStream()
     val long = "Add a feature to the calculator.\n" + ("detail " * 100)
     val conv = new ScriptedConversation(
@@ -107,9 +106,8 @@ class ConversationRendererTest extends munit.FunSuite:
     )
 
   test("non-structured mode: assistant text flushes verbatim at TurnEnd"):
-    // Off the structured-output path, the renderer doesn't
-    // second-guess the agent's output — JSON-shaped or not, it
-    // streams as `●` prose like everything else.
+    // Off the structured-output path the renderer streams the agent's output as
+    // `●` prose, JSON-shaped or not.
     val buf = new ByteArrayOutputStream()
     val conv = new ScriptedConversation(
       List(
@@ -127,9 +125,8 @@ class ConversationRendererTest extends munit.FunSuite:
   test(
     "structured mode: assistant text is suppressed (StructuredResult takes over)"
   ):
-    // When the conversation was launched with an `outputSchema`,
-    // the agent's final text is the structured payload. Suppressing
-    // it here lets the listener pick the canonical render via
+    // With an `outputSchema` the agent's final text is the structured payload;
+    // suppressing it lets the listener pick the canonical render via
     // `OrcaEvent.StructuredResult` (raw or summary, never both).
     val buf = new ByteArrayOutputStream()
     val conv = new ScriptedConversation(
@@ -272,8 +269,8 @@ class ConversationRendererTest extends munit.FunSuite:
 
   test("render does not close its prompter (prompter is process-scoped)"):
     // The prompter is shared across every conversation in a run; a
-    // per-conversation renderer must never close it, or the next
-    // interactive prompt would operate on closed I/O.
+    // per-conversation renderer must never close it, or the next prompt would
+    // operate on closed I/O.
     val buf = new ByteArrayOutputStream()
     val prompter = new ScriptedPrompter(Nil)
     val conv = new ScriptedConversation(Nil, Right(sampleResult))
@@ -281,9 +278,8 @@ class ConversationRendererTest extends munit.FunSuite:
     assertEquals(prompter.closes.get(), 0)
 
   test("two sequential render+prompt cycles against one prompter both ask"):
-    // Pins the second-prompt-usable property: a single shared prompter
-    // survives across conversations, so a second render still reaches
-    // `ask` rather than a closed reader.
+    // A single shared prompter survives across conversations, so a second
+    // render still reaches `ask` rather than a closed reader.
     val buf = new ByteArrayOutputStream()
     val prompter = new ScriptedPrompter(
       List(PromptOutcome.Answer("yes"), PromptOutcome.Answer("no"))

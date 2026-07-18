@@ -11,8 +11,7 @@ class SystemPromptComposerTest extends munit.FunSuite:
     assertEquals(out, Some(gitRule))
 
   test("read-only turn with neither config nor hint returns None"):
-    // Read-only turns can't commit, so the git rule is omitted — and with no
-    // systemPrompt or hint there's nothing left to compose.
+    // Read-only turns can't commit, so the git rule is omitted; nothing else to compose.
     val out = SystemPromptComposer.combine(
       AgentConfig().copy(tools = ToolSet.ReadOnly),
       None
@@ -44,8 +43,7 @@ class SystemPromptComposerTest extends munit.FunSuite:
     assertEquals(out, Some("be terse"))
 
   test("selfManagedGit escape hatch omits the git rule"):
-    // `agent.withSelfManagedGit` flips this flag; the runtime then stays out of
-    // the agent's git so the agent may commit/push itself.
+    // With this flag the runtime stays out of the agent's git, so the agent may commit/push itself.
     val out = SystemPromptComposer.combine(
       AgentConfig().copy(selfManagedGit = true),
       extraHint = None
@@ -53,8 +51,7 @@ class SystemPromptComposerTest extends munit.FunSuite:
     assertEquals(out, None)
 
   test("joins config + hint + git rule with blank lines, in order"):
-    // Pins both the order (config, hint, rule) and the separator (\\n\\n) —
-    // backends rely on blank lines so the agent reads distinct paragraphs.
+    // Backends rely on the blank-line separator so the agent reads distinct paragraphs.
     val out = SystemPromptComposer.combine(
       AgentConfig().copy(systemPrompt = Some("be terse")),
       extraHint = Some("the hint")

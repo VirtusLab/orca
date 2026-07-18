@@ -7,11 +7,10 @@ private[orca] enum SettingsEntry:
   /** `key = command`, with an optional comment carrying the discovery evidence,
     * rendered as `# ` line(s) directly above the command line.
     *
-    * `command` is non-blank and does not start with `#` (even after render's
-    * newline collapse): discovery's mechanical checks demote blank and
-    * unresolvable commands to [[Demoted]] before render sees them, so render
-    * does not re-validate. A violating command would render as a line the
-    * parser drops (blank value) or rejects (`#`-leading `CommentedValue`).
+    * Invariant: `command` is non-blank and does not start with `#` (even after
+    * render's newline collapse) — discovery demotes blank and unresolvable
+    * commands to [[Demoted]] before render sees them, so render does not
+    * re-validate.
     */
   case Command(key: String, command: String, comment: Option[String])
 
@@ -24,9 +23,8 @@ private[orca] enum SettingsEntry:
   case Unset(key: String, reason: String)
 
   /** A discovered command that failed a mechanical check (ADR 0019), rendered
-    * commented-out with the failure reason — invisible to the parser like any
-    * `#` line, but the command stays visible for the user to fix and
-    * un-comment:
+    * commented-out with the failure reason — invisible to the parser, but the
+    * command stays visible for the user to fix and un-comment:
     * {{{
     * # key = command   (reason)
     * }}}

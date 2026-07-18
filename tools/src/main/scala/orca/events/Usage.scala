@@ -2,21 +2,19 @@ package orca.events
 
 /** Token + cost accounting for one or more LLM calls.
   *
-  * **Normalisation contract.** All backends map onto the same axes so that
-  * summing `Usage` across calls and across backends is apples-to-apples:
+  * **Normalisation contract.** All backends map onto the same axes so summing
+  * `Usage` across calls and backends is apples-to-apples:
   *
   *   - `inputTokens` is the TOTAL prompt tokens, **inclusive** of any served
   *     from prompt cache. `outputTokens` is the total completion tokens.
-  *   - `cachedInputTokens` is the cache-served sub-portion (`cachedInputTokens
-  *     <= inputTokens`); `reasoningOutputTokens` is the internal-reasoning
-  *     sub-portion of `outputTokens` (codex / o-series). Both are
-  *     non-cumulative breakdowns, surfaced so callers can report cache-hit and
-  *     reasoning ratios without re-deriving them.
+  *   - `cachedInputTokens` is the cache-served sub-portion (`<= inputTokens`);
+  *     `reasoningOutputTokens` is the internal-reasoning sub-portion of
+  *     `outputTokens` (codex / o-series). Both are non-cumulative breakdowns so
+  *     callers can report cache-hit and reasoning ratios directly.
   *
-  * Backends reach this contract from different wire shapes, so a NEW backend
-  * must fold any cache-served tokens INTO `inputTokens` rather than report them
-  * alongside it. The per-backend arithmetic (and why it differs) is documented
-  * at each driver's `Usage(...)` construction site.
+  * A new backend must fold any cache-served tokens INTO `inputTokens` rather
+  * than report them alongside it. The per-backend arithmetic is documented at
+  * each driver's `Usage(...)` construction site.
   */
 case class Usage(
     inputTokens: Long,

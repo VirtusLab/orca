@@ -12,11 +12,10 @@ import scala.util.matching.Regex
   * the selector drops the reviewer before the picker LLM sees it.
   *
   * Public so a flow can define its own reviewers alongside the shipped
-  * [[ReviewerPrompts]] set: build a `List[Reviewer]` (shipped entries, a
-  * subset, and/or your own), turn it into agents with [[buildReviewers]], and
-  * hand that to [[reviewAndFixLoop]]. To make [[ReviewerSelector.agentDriven]]
-  * purpose- aware of custom reviewers, pass matching
-  * `descriptions`/`filePatterns` maps keyed by `name`.
+  * [[ReviewerPrompts]] set: build a `List[Reviewer]`, turn it into agents with
+  * [[buildReviewers]], and hand that to [[reviewAndFixLoop]]. To make
+  * [[ReviewerSelector.agentDriven]] purpose-aware of custom reviewers, pass
+  * matching `descriptions`/`filePatterns` maps keyed by `name`.
   */
 case class Reviewer(
     name: String,
@@ -37,19 +36,17 @@ case class Reviewer(
   * Public as the customization surface: reference individual reviewers
   * ([[CodeFunctionality]], [[Security]], …), the preset lists ([[all]],
   * [[minimal]]), or the selector-feeding maps ([[descriptionsBySlug]],
-  * [[filePatternsBySlug]]) when composing your own reviewer list to swap or
-  * extend what [[allReviewers]] builds. Pair with [[buildReviewers]].
+  * [[filePatternsBySlug]]) when composing your own reviewer list. Pair with
+  * [[buildReviewers]].
   */
 object ReviewerPrompts:
 
-  /** Role tag applied to a reviewer's agent ONLY at the loop's emission edge,
-    * via `Agent.withRole`, right before the actual LLM run — never baked into
-    * the agent's `name`/identity, so the roster, the session map, the selection
-    * picker, and the on-screen outcomes all keep using the bare slug. Its sole
-    * job is cost attribution: `CostTracker` groups/subtotals every `TokensUsed`
-    * event carrying this role, and derives the human-readable `"reviewer:
-    * <slug>"` display line from it — a display derivation, not a stringly
-    * identity convention (12.7).
+  /** Role tag applied to a reviewer's agent via `Agent.withRole` only at the
+    * loop's emission edge, never baked into the agent's `name`/identity — the
+    * roster, session map, picker, and outcomes all keep using the bare slug.
+    * Its sole job is cost attribution: `CostTracker` groups every `TokensUsed`
+    * event carrying this role and derives the `"reviewer: <slug>"` display line
+    * from it.
     */
   val Role: String = "reviewer"
 
@@ -90,10 +87,8 @@ object ReviewerPrompts:
   )
 
   /** A small universally-applicable subset: correctness, test quality, clarity.
-    * Useful as a starting point when the full set is overkill — e.g. a flow
-    * that touches small diffs where performance/architecture concerns are
-    * rarely actionable. Pair with [[ReviewerSelector.agentDriven]] (the default
-    * in [[reviewAndFixLoop]]) to let the picker narrow further.
+    * Useful when the full set is overkill — e.g. a flow that touches small
+    * diffs where performance/architecture concerns are rarely actionable.
     */
   val minimal: List[Reviewer] = List(
     CodeFunctionality,
@@ -101,11 +96,10 @@ object ReviewerPrompts:
     Test
   )
 
-  /** Descriptions keyed by the bare reviewer slug (a reviewer's identity).
+  /** Descriptions keyed by the bare reviewer slug.
     * [[ReviewerSelector.agentDriven]] consults this by default so the picker
-    * LLM gets each reviewer's purpose alongside its name. Covers every shipped
-    * reviewer, regardless of which preset list was used to build the actual
-    * tools.
+    * gets each reviewer's purpose alongside its name. Covers every shipped
+    * reviewer.
     */
   val descriptionsBySlug: Map[String, String] =
     all.map(r => r.name -> r.description).toMap
@@ -118,9 +112,9 @@ object ReviewerPrompts:
   val filePatternsBySlug: Map[String, Regex] =
     all.flatMap(r => r.filePattern.map(p => r.name -> p)).toMap
 
-/** Build Agents for every reviewer the library ships with. The picker in
-  * [[ReviewerSelector.agentDriven]] (the default in [[reviewAndFixLoop]])
-  * narrows the active set per task, so passing the full list isn't wasteful.
+/** Build Agents for every reviewer the library ships with. The default picker
+  * ([[ReviewerSelector.agentDriven]]) narrows the active set per task, so
+  * passing the full list isn't wasteful.
   */
 def allReviewers[B <: BackendTag](base: Agent[B]): List[Agent[B]] =
   buildReviewers(base, ReviewerPrompts.all)
@@ -133,19 +127,14 @@ def minimalReviewers[B <: BackendTag](base: Agent[B]): List[Agent[B]] =
   buildReviewers(base, ReviewerPrompts.minimal)
 
 /** Layer each reviewer's system prompt onto the base tool, name it with the
-  * bare reviewer slug (its identity — the cost-attribution `reviewer` role tag
-  * is applied only later, when the loop labels the actual LLM run for the
-  * `OrcaEvent.TokensUsed` breakdown), and gate every reviewer to read-only
-  * access. A reviewer's job is to *report* issues, not fix them; without
-  * `withReadOnly` the agent inherits the base tool's permissions (typically
-  * `AutoApprove.All`) and could edit files mid-review. Reads (Read/Glob/Grep on
-  * claude, `--sandbox read-only` on codex) stay available so the agent can
-  * verify claims beyond the diff. The non-reviewer driver agent keeps its
-  * default name (`main`) and write permissions.
+  * bare reviewer slug, and gate every reviewer to read-only access. A
+  * reviewer's job is to *report* issues, not fix them; without `withReadOnly`
+  * the agent inherits the base tool's permissions (typically `AutoApprove.All`)
+  * and could edit files mid-review. Reads stay available so the agent can
+  * verify claims beyond the diff.
   *
-  * Public so a flow can build agents from a custom [[Reviewer]] list —
-  * `buildReviewers(base, ReviewerPrompts.minimal :+ myReviewer)` — rather than
-  * being limited to the [[allReviewers]] / [[minimalReviewers]] presets.
+  * Public so a flow can build agents from a custom [[Reviewer]] list rather
+  * than being limited to the [[allReviewers]] / [[minimalReviewers]] presets.
   */
 def buildReviewers[B <: BackendTag](
     base: Agent[B],

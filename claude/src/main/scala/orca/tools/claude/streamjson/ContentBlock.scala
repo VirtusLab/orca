@@ -33,7 +33,7 @@ private[claude] object ContentBlock:
       case "tool_result" => readFromString[ToolResultWire](rawJson).toBlock
       case other         => Unknown(other)
 
-  // --- Wire-level shapes (jsoniter-derived; kept private). ---
+  // --- Wire shapes ---
 
   private case class BlockEnvelope(`type`: String)
       derives ConfiguredJsonValueCodec
@@ -54,9 +54,8 @@ private[claude] object ContentBlock:
       ToolUse(id = id, name = name, rawInput = input.value)
 
   /** Claude's tool_result `content` field is either a plain string or a list of
-    * nested blocks (text / tool_reference / etc.). Capture it as RawJson and
-    * reduce to a displayable string at the domain boundary; callers that need
-    * structure can re-parse.
+    * nested blocks; captured as RawJson and reduced to a displayable string at
+    * the domain boundary.
     */
   private case class ToolResultWire(
       tool_use_id: String,
@@ -70,11 +69,10 @@ private[claude] object ContentBlock:
         isError = is_error.getOrElse(false)
       )
 
-  /** Claude sends `content` as either a JSON string literal or an array of
-    * nested blocks (currently: text blocks and tool_reference blocks). We
-    * flatten to a human-readable string so the renderer can truncate without
-    * leaking `[{"type":"text",...}]` scaffolding into the terminal. Unknown
-    * shapes fall back to the raw JSON.
+  /** Flatten `content` (a JSON string literal, or an array of text/
+    * tool_reference blocks) to a human-readable string, so the renderer doesn't
+    * leak `[{"type":"text",...}]` scaffolding into the terminal. Unknown shapes
+    * fall back to the raw JSON.
     */
   private def renderToolResultContent(raw: String): String =
     val trimmed = raw.trim
@@ -86,11 +84,9 @@ private[claude] object ContentBlock:
     try readFromString[String](raw)(using stringCodec)
     catch
       case NonFatal(t) =>
-        // The fallback to the raw payload is intentional — claude
-        // occasionally sends malformed string literals and we'd rather
-        // show something than crash. Surface the detail under
-        // ORCA_DEBUG so a real bug isn't masked. Fatal errors (VM
-        // errors, InterruptedException, etc.) propagate.
+        // Claude occasionally sends malformed string literals; fall back to the
+        // raw payload rather than crash, surfacing the detail under ORCA_DEBUG
+        // so a real bug isn't masked.
         logSwallowedDecode("decodeStringLiteral", raw, t)
         raw
 
@@ -119,10 +115,8 @@ private[claude] object ContentBlock:
       )
 
   /** Concatenate the legible bits of each block: text prose as-is, and
-    * tool_reference lists (ToolSearch results) as a comma-joined name list —
-    * easier to skim than `<Name1> <Name2>`. Returns an empty string if the
-    * blocks carry nothing renderable, so the caller can fall back to the raw
-    * JSON.
+    * tool_reference lists as a comma-joined name list. Returns an empty string
+    * if nothing is renderable, so the caller can fall back to the raw JSON.
     */
   private def flattenBlocks(blocks: List[NestedBlock]): String =
     val texts =

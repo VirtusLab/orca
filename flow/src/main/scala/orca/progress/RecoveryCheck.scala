@@ -16,15 +16,13 @@ object RecoveryCheck:
     * same charset [[orca.BranchNamingStrategy.slug]] produces). Issue branches
     * like `fix/issue-42` pass; ``, `-x`, `a/..`, `a b`, `Feat` are rejected.
     *
-    * Forcing a leading alphanumeric blocks a name that begins with `-` (which
-    * `git`/`gh` would read as a CLI flag) and bans path-traversal/whitespace
-    * segments.
+    * The leading-alphanumeric requirement blocks a name beginning with `-`
+    * (which `git`/`gh` would read as a CLI flag) and bans
+    * path-traversal/whitespace segments. Referencing
+    * `BranchNamingStrategy.isSlugSegment` keeps producer and validator from
+    * drifting.
     */
   def isSafeBranchRef(s: String): Boolean =
-    // A safe ref is a `/`-separated path of slug segments — the exact shape
-    // `BranchNamingStrategy.slug` produces. Referencing its predicate (rather
-    // than re-deriving the charset here) keeps the producer and this validator
-    // from drifting apart.
     s.nonEmpty && s
       .split("/", -1)
       .forall(orca.BranchNamingStrategy.isSlugSegment)
@@ -65,12 +63,8 @@ object RecoveryCheck:
         case Left(ProtectedBranchRefused(name)) =>
           Left(s"branch '$name' is a protected branch")
         case Left(UnsafeBranchRefRefused(name)) =>
-          // Unreachable in practice: `header.branch` already passed
-          // `isSafeBranchRef` above, before `resolve` was even called.
-          // `resolve`'s own shape check is redundant here — this arm exists
-          // only so the match stays exhaustive — but the message matches the
-          // existing shape-check message above for consistency if it were
-          // ever hit.
+          // Unreachable: `header.branch` already passed `isSafeBranchRef` above.
+          // This arm exists only for exhaustiveness.
           Left(s"branch '$name' is not a safe ref")
         case Right(featureBranch) =>
           if header.promptHash != ProgressStore.hashPrompt(userPrompt) then

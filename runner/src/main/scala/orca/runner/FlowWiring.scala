@@ -24,16 +24,9 @@ import ox.Ox
   * dispatcher as the defaults — costs/steps reach the tracker and terminal. A
   * caller with a prebuilt agent writes `Some(_ => myAgent)`. All five fields
   * share the `Ox ?=>` shape even though only opencode's default factory needs
-  * it — the opencode backend pins a `serve` process + drain forks to the run
-  * scope at construction, so its factory is applied inside
-  * `WiredAgents.build`'s Ox scope, not at the `flow(...)` argument site (see
-  * `flow`'s param scaladoc) — a plain `AgentWiring => Agent` lambda auto-adapts
-  * to the shape, so the other four fields are unaffected by carrying it too.
-  * That auto-adaptation is a property of INLINE lambda literals against an
-  * expected type, not of the function type itself: a `val`/`def` stored with
-  * the bare `AgentWiring => Agent` type (no `Ox ?=>`) does NOT widen later just
-  * by being passed where the context-function shape is expected — the `Ox ?=>`
-  * has to be in the value's own declared type from the start.
+  * it (it pins a `serve` process + drain forks to the run scope, so its factory
+  * is applied inside `WiredAgents.build`'s Ox scope); a plain `AgentWiring =>
+  * Agent` lambda literal auto-adapts to the shape.
   */
 private[orca] case class FlowWiring(
     claude: Option[AgentWiring => Ox ?=> ClaudeAgent] = None,

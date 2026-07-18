@@ -32,45 +32,37 @@ import ox.Ox
   * into [[orca.tools.gemini.jsonl.InboundEvent]]s, and the accumulated
   * assistant message content becomes the result at the terminal `result` event.
   * See [[../../../adr/0015-gemini-stream-json-driver.md ADR 0015]] for the
-  * protocol shape and the rationale.
+  * protocol shape and rationale.
   *
   * Both modes wrap the subprocess in a [[GeminiConversation]]; the autonomous
-  * path drains it internally via [[orca.backend.Conversations.drainAutonomous]]
-  * while the interactive path returns the conversation for an `Interaction` to
-  * drive. Multi-turn: subsequent calls with the same session id route through
-  * `gemini --resume <session-id>` via [[sessions]] (backed by a
-  * [[IdScheme.ServerMinted]]), where the id was learned from the `init` event
-  * of the prior run.
+  * path drains it internally, the interactive path returns it for an
+  * `Interaction` to drive. Multi-turn calls with the same session id route
+  * through `gemini --resume <session-id>` via [[sessions]] (an
+  * [[IdScheme.ServerMinted]] id learned from the prior run's `init` event).
   *
   * Interactive calls additionally stand up an `ask_user` MCP host bridge
-  * ([[AskUserMcpServer]]) on an ephemeral port and register it with gemini by
-  * merging an `mcpServers.orca` entry into a project-local
-  * `.gemini/settings.json` ([[GeminiSettings]]) — gemini has no inline `-c` MCP
-  * override like codex. The merge is restored when the conversation finalises
-  * (the restore rides as an `extras` `AutoCloseable` on the
-  * [[AskUserSession]]). Autonomous calls skip the bridge entirely.
+  * ([[AskUserMcpServer]]) and register it by merging an `mcpServers.orca` entry
+  * into a project-local `.gemini/settings.json` ([[GeminiSettings]]) — gemini
+  * has no inline `-c` MCP override. The merge is restored when the conversation
+  * finalises. Autonomous calls skip the bridge.
   */
 private[orca] class GeminiBackend(
     cli: CliRunner,
-    /** Fixed at construction; every spawn (`openConversation`) runs in this
-      * directory. The `os.pwd` default serves bare/test construction; the
-      * runtime (`GeminiAgents.default`) passes the flow's real `workDir`.
+    /** Fixed at construction; every spawn runs in this directory. The `os.pwd`
+      * default serves bare/test construction; the runtime passes the flow's
+      * real `workDir`.
       */
     override val workDir: os.Path = os.pwd
 ) extends AgentBackend[BackendTag.Gemini.type]:
 
   /** Gemini's sessions are server-side and durable: the client→server map is
-    * persisted to the progress log and rehydrated on resume. Existence probes
-    * the SERVER id resolved for a client (gemini mints its own id; the caller's
-    * stable id never appears in `--list-sessions`): it runs `gemini
-    * --list-sessions` and scans the output for that server id (substring).
-    *
-    * Because [[SessionSupport.willContinue]] resolves the recorded mapping
-    * first, `false` results when no server id is mapped — which includes a
-    * server id that failed the [[orca.agents.SessionId.isSafe]] guard at commit
-    * time (kept for uniformity with the other backends' probes; the substring
-    * scan itself is not injection-susceptible): `register`/`commitAfterDrain`
-    * refuse to record it — as well as on non-zero exit or any exception.
+    * persisted to the progress log and rehydrated on resume. The existence
+    * probe runs `gemini --list-sessions` and scans for the resolved SERVER id
+    * (substring) — gemini mints its own id; the caller's stable id never
+    * appears there. [[SessionSupport.willContinue]] resolves the mapping first,
+    * so it returns `false` when no server id is mapped (including an id
+    * rejected by the [[orca.agents.SessionId.isSafe]] guard at commit time), on
+    * non-zero exit, or on any exception.
     */
   val tag: BackendTag.Gemini.type = BackendTag.Gemini
 
@@ -87,11 +79,8 @@ private[orca] class GeminiBackend(
     StructuredOutputMode.RawText
 
   /** The sole session handle. [[IdScheme.ServerMinted]]: the client-allocated
-    * id maps to gemini's `init`-reported session id (`gemini -p` mints its
-    * own), so subsequent calls dispatch through `gemini --resume <server-id>`.
-    * The bookkeeping is encapsulated; the spawn/commit paths go through
-    * `sessions.dispatchFor` / `Conversations.runAutonomous(session, sessions,
-    * …)`.
+    * id maps to gemini's `init`-reported session id, so subsequent calls
+    * dispatch through `gemini --resume <server-id>`.
     */
   val sessions: SessionSupport[BackendTag.Gemini.type] =
     SessionSupport.durable(
@@ -120,8 +109,7 @@ private[orca] class GeminiBackend(
         session = session,
         config = config,
         // Forwarded so `conv.outputSchema` signals structured mode to the drain
-        // (suppressing the raw JSON payload from the user log). gemini has no
-        // `--output-schema` flag, so enforcement is prompt-only.
+        // (suppressing the raw JSON payload from the user log).
         outputSchema = outputSchema
       )
 
@@ -141,15 +129,12 @@ private[orca] class GeminiBackend(
     )
 
   /** Spawn `gemini -p` (fresh) or `gemini --resume <server-id> -p`
-    * (continuation), and wrap the process in a live [[GeminiConversation]].
+    * (continuation) and wrap the process in a live [[GeminiConversation]].
     * Stdin is closed immediately — gemini consumes the prompt argv-side.
     *
-    * `Interactive` mode wires the MCP `ask_user` tool: stand up the bridge +
-    * Netty server, merge the server URL into `.gemini/settings.json` (the
-    * restore rides as an `extras` `AutoCloseable`), fold the system-prompt hint
-    * into the user prompt (gemini has no `--append-system-prompt`), and hand
-    * the bundle to `GeminiConversation` so it can surface `UserQuestion` events
-    * and restore the settings file on finalize. `Autonomous` skips all of it.
+    * `Interactive` mode additionally wires the MCP `ask_user` tool: stand up
+    * the bridge, merge the server URL into `.gemini/settings.json`, and fold
+    * the system-prompt hint into the user prompt. `Autonomous` skips all of it.
     */
   private def openConversation(
       prompt: String,
@@ -166,9 +151,8 @@ private[orca] class GeminiBackend(
     // On a spawn/build failure the ask_user bundle is closed, which also
     // restores the settings.json via its `extras`, so nothing leaks.
     SubprocessSpawn.open("gemini", askUser.toList) {
-      // gemini has no `--append-system-prompt` flag (it picks up `GEMINI.md`
-      // files for static instructions), so fold the composed system prompt into
-      // the user prompt — same approach as codex.
+      // gemini has no `--append-system-prompt` flag, so fold the composed
+      // system prompt into the user prompt.
       val finalPrompt = SystemPromptComposer.foldIntoPrompt(
         config,
         prompt,
@@ -181,8 +165,7 @@ private[orca] class GeminiBackend(
           GeminiArgs.headless(finalPrompt, config)
       cli.spawnPiped(args, cwd = workDir, pipeStderr = true)
     } { process =>
-      // Close stdin so the child stops waiting on EOF (gemini reads the prompt
-      // argv-side).
+      // Close stdin so the child stops waiting on EOF.
       process.closeStdin()
       new GeminiConversation(
         process,

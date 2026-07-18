@@ -49,14 +49,11 @@ private[opencode] class OpencodeConversation(
       nativeAskUser = canAsk
     ):
 
-  /** Best-effort `POST /session/{id}/abort`, so a GENUINELY cancelled turn
+  /** Best-effort `POST /session/{id}/abort`, so a genuinely cancelled turn
     * (mid-flight, never settled) stops running (and writing) on the shared
-    * server instead of continuing headless after the user has moved on. The
-    * base [[ForkedConversation.cancel]] only calls this hook when the turn
-    * hasn't already settled via `succeedWith`/`failWith` — a turn that finished
-    * normally and is merely being torn down in a `finally` never reaches here,
-    * so a just-idle session (which may be resumed next turn) doesn't get a
-    * spurious abort.
+    * server. The base [[ForkedConversation.cancel]] only calls this hook when
+    * the turn hasn't already settled, so a just-idle session that may be
+    * resumed next turn doesn't get a spurious abort.
     */
   override protected def onCancelRequested(): Unit =
     try
@@ -64,9 +61,8 @@ private[opencode] class OpencodeConversation(
     catch case NonFatal(_) => ()
 
   /** Turn state, accumulated as the reader thread processes frames.
-    * `handleLine` (and the `settleResult` it drives at `session.idle`) run only
-    * on that single thread, so a plain `var` over an immutable snapshot is safe
-    * and avoids cross-thread machinery; `awaitResult` reads the outcome only
+    * `handleLine` (and the `settleResult` it drives) run only on that single
+    * thread, so a plain `var` is safe; `awaitResult` reads the outcome only
     * after joining the reader, which publishes these writes.
     */
   private var turnState: TurnState = TurnState()
@@ -129,11 +125,8 @@ private[opencode] class OpencodeConversation(
 
   /** Terminal (`session.idle`): a turn whose assistant message carries
     * `info.error`, or that went idle without producing anything, is a failure;
-    * otherwise settle with the built result. The base funnel auto-closes any
-    * still-open turn at settle (and drops an empty one), so no turn end is
-    * emitted here — a `session.idle` is a single turn per conversation, hence
-    * always settle-adjacent. Both paths close the otherwise open-ended SSE
-    * stream (via [[succeedWith]]/[[failWith]]).
+    * otherwise settle with the built result. Both paths close the otherwise
+    * open-ended SSE stream (via [[succeedWith]]/[[failWith]]).
     */
   private def finishTurn(): Unit =
     turnState.info.flatMap(_.error) match

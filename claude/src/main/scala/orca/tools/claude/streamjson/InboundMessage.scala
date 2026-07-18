@@ -41,9 +41,8 @@ private[claude] enum InboundMessage:
 
 private[claude] object InboundMessage:
 
-  /** Parse one NDJSON line. The dispatch reads the `type` field, then re-reads
-    * the line into the appropriate case class. Malformed JSON propagates
-    * `JsonReaderException` — callers decide whether to skip or fail.
+  /** Parse one NDJSON line. Malformed JSON propagates `JsonReaderException` —
+    * callers decide whether to skip or fail.
     */
   def parse(line: String): InboundMessage =
     val envelope = readFromString[TopEnvelope](line)
@@ -73,11 +72,10 @@ private[claude] object InboundMessage:
   private def parseResult(line: String): InboundMessage =
     val wire = readFromString[ResultWire](line)
     val u = wire.usage.getOrElse(UsageWire())
-    // Claude Code splits input across `input_tokens` (new portion of the
-    // turn), `cache_creation_input_tokens` (first turn pays for the cached
-    // system prompt + tool defs), and `cache_read_input_tokens` (every later
-    // turn re-reads the cached prefix). The three are separate categories,
-    // so the billed total is the sum, with cached = creation + read.
+    // Claude Code splits input across `input_tokens` (new this turn),
+    // `cache_creation_input_tokens`, and `cache_read_input_tokens` — three
+    // separate categories, so the billed total is their sum, with
+    // cached = creation + read.
     val cached = u.cache_creation_input_tokens.getOrElse(0L) +
       u.cache_read_input_tokens.getOrElse(0L)
     Result(

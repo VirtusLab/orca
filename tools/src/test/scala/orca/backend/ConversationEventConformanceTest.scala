@@ -5,8 +5,6 @@ import orca.backend.ConversationEvent.*
 /** Self-test for [[ConversationEventConformance.assertGrammar]] — pins the
   * helper's own verdicts so a regression in the checker (which every backend's
   * scripted tests trust) fails here rather than silently passing bad sequences.
-  * munit's `assert`/`fail` both throw `FailException <: AssertionError`, so an
-  * expected rejection is an intercepted `AssertionError`.
   */
 class ConversationEventConformanceTest extends munit.FunSuite:
 

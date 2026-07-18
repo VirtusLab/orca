@@ -5,23 +5,15 @@ import java.util.concurrent.ConcurrentLinkedQueue
 /** Shared temp-dir cleanup for tests.
   *
   * `os.temp.dir(..., deleteOnExit = true)` relies on JVM `File.deleteOnExit`,
-  * which only removes an *empty* directory at shutdown — it silently no-ops on
-  * a non-empty tree. Every git-repo fixture (`GitRepo`) and every backend
-  * workDir under test gets files written into it after creation, so on the
-  * default `os.temp.dir()` behavior every one of those directories leaked
-  * permanently. This is what once filled an 8G tmpfs with ~35k orphaned fixture
-  * dirs in a single day of test runs.
+  * which only removes an *empty* directory at shutdown and silently no-ops on a
+  * non-empty tree — so every fixture that gets files written into it leaks.
+  * Instead, `register`/`dir` track every temp root and recursively remove it
+  * (`os.remove.all`, which handles non-empty trees) via a single JVM shutdown
+  * hook.
   *
-  * `register`/`dir` track every temp root handed out and recursively remove it
-  * (`os.remove.all`, which — unlike `deleteOnExit` — handles non-empty trees)
-  * via a single JVM shutdown hook. Cleanup timing depends on how tests run:
-  * only the `runner` module forks its tests (`Test / fork := true` in
-  * `build.sbt`); the other modules run in-process in sbt's JVM. A one-shot `sbt
-  * test` from a shell — the dominant CI/agent pattern per AGENTS.md — exits
-  * that JVM when the command finishes, so the hook fires and every fixture dir
-  * is swept per invocation either way. Under a long-lived interactive session
-  * (`sbt ~test`) on an unforked module, dirs accumulate until the session exits
-  * — bounded, session-scoped growth, not the old permanent leak.
+  * Cleanup timing depends on the run mode: a one-shot `sbt test` exits its JVM
+  * when done, so the hook sweeps every fixture per invocation. A long-lived
+  * `sbt ~test` on an unforked module accumulates dirs until the session exits.
   */
 object TempDirs:
   private val roots = new ConcurrentLinkedQueue[os.Path]()

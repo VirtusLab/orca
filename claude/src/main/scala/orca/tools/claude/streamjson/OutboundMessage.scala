@@ -13,7 +13,6 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
   * version so drift is caught on CI.
   */
 private[claude] enum OutboundMessage:
-  /** A user turn, as text. */
   case UserText(text: String)
 
   /** Response to a `control_request` tool-approval prompt. */

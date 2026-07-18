@@ -10,8 +10,7 @@ import orca.agents.AgentConfig
 private[orca] object CliArgs:
 
   /** Render an optional value as its two-token flag `Seq(name, render(value))`,
-    * or an empty `Seq` for `None` — the `opt.toSeq.flatMap(v => Seq(name, …))`
-    * idiom the arg builders repeat for every optional flag, in one place.
+    * or an empty `Seq` for `None`.
     */
   def flag[A](name: String, opt: Option[A])(render: A => String): Seq[String] =
     opt.toSeq.flatMap(v => Seq(name, render(v)))

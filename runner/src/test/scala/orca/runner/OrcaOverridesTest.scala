@@ -146,14 +146,12 @@ class OrcaOverridesTest extends munit.FunSuite:
   test(
     "the opencode override slot accepts its own default factory (Ox ?=> result)"
   ):
-    // Item 2 pin: the opencode param is `AgentWiring => Ox ?=> OpencodeAgent`,
-    // so `Some(w => OpencodeAgents.default(w))` — the factory that itself needs
-    // an Ox — compiles at the `flow(...)` argument position, with the Ox
-    // resolved where `WiredAgents.build` applies it. This is a compiles-and-runs
-    // case (not a stub-CLI run): the lead is the claude stub and the body never
-    // touches opencode, and the opencode `serve` spawn is lazy, so the flow
-    // runs to completion without a real process. Building the default opencode
-    // agent via the factory is what's under test.
+    // The opencode param is `AgentWiring => Ox ?=> OpencodeAgent`, so
+    // `Some(w => OpencodeAgents.default(w))` — a factory that itself needs an Ox
+    // — compiles at the `flow(...)` argument position, with the Ox resolved
+    // where `WiredAgents.build` applies it. Compiles-and-runs: the lead is the
+    // claude stub, the body never touches opencode, and opencode's `serve` spawn
+    // is lazy, so the flow completes without a real process.
     var ran = false
     supervised:
       val interaction = TerminalInteraction.start(
@@ -212,10 +210,10 @@ class OrcaOverridesTest extends munit.FunSuite:
   test(
     "an agent-override factory receives the run's event sink: its TokensUsed reaches extraListeners"
   ):
-    // The pin: a user agent built by the override
-    // factory must land on the SAME dispatcher as the defaults, so the tokens
-    // it spends reach the cost tracker and terminal. The factory receives
-    // `w.events`; the stub emits a TokensUsed through it on `run`.
+    // A user agent built by the override factory must land on the SAME
+    // dispatcher as the defaults, so the tokens it spends reach the cost tracker
+    // and terminal. The factory receives `w.events`; the stub emits a TokensUsed
+    // through it on `run`.
     def wiredClaude(events: OrcaListener): ClaudeAgent = new ClaudeAgent:
       val name = "wired"
       def haiku = this

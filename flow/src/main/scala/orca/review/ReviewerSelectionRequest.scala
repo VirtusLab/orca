@@ -5,12 +5,10 @@ import orca.plan.Title
 
 /** The `(name, description)` pair the picker LLM sees for one reviewer.
   *
-  * Lives in its own compilation unit (not `ReviewerSelector.scala`) because its
-  * `derives JsonData` expands the tapir `Schema` derivation macro, whose
-  * generated code does not type-check under `ReviewerSelector.scala`'s
-  * `captureChecking` mode (needed there so `prepare` can declare a pure `->`
-  * arrow). Keeping the derivation in a plain, non-capture-checked file
-  * sidesteps the macro/CC interaction — the same split `FixRequest.scala` uses.
+  * In its own compilation unit because `derives JsonData` expands the tapir
+  * `Schema` macro, whose generated code doesn't type-check under
+  * `ReviewerSelector.scala`'s `captureChecking` mode (same split as
+  * `FixRequest.scala`).
   */
 private[review] case class ReviewerInfo(name: String, description: String)
     derives JsonData

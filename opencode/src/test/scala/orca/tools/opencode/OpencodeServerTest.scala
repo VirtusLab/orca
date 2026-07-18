@@ -161,8 +161,7 @@ class OpencodeServerTest extends munit.FunSuite:
       server.shutdown() // idempotent: no exception, no double effect
     // The scope then joins the drain forks. (The fake's queue read is
     // interruptible, unlike a real native readLine, so this can't reproduce the
-    // production hang — the destroy/close assertions above are the real teeth;
-    // OpencodeServerTest's value is shutdown's effects + idempotency.)
+    // production hang; the destroy/close assertions above are the real teeth.)
 
   test("shutdown is a no-op when the server was never started"):
     supervised:

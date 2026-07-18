@@ -2,15 +2,11 @@ package orca.agents
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 
-/** Typeclass that serializes an arbitrary value into the string that gets
-  * embedded in the prompt sent to the LLM. Every `run` method on
-  * `AutonomousAgentCall` / `InteractiveAgentCall` that accepts an `input: I`
-  * requires an `AgentInput[I]` so callers don't have to pre-stringify their
-  * arguments.
+/** Serializes an arbitrary value into the string embedded in the prompt sent to
+  * the LLM, so callers don't have to pre-stringify their arguments.
   *
   * Two givens ship out of the box: `String` passes through verbatim, and any
   * type with a `JsonData` instance is serialized to JSON via its codec.
-  * `derives JsonData` on a case class provides the JSON path automatically.
   */
 trait AgentInput[A]:
   def serialize(a: A): String

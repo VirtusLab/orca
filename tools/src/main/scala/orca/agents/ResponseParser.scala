@@ -10,11 +10,10 @@ import io.circe.parser.{parse as parseCirceJson}
 import scala.annotation.tailrec
 import scala.util.matching.Regex
 
-/** Thrown when the agent returned output that doesn't parse as `O`. Carries the
-  * raw (possibly truncated) response and a short human-readable cause message;
-  * the underlying jsoniter exception (with its hex buffer dump) is attached as
-  * `getCause` for `--verbose` inspection without being part of the default
-  * message.
+/** Thrown when agent output doesn't parse as `O`. Carries the raw (possibly
+  * truncated) response and a short cause message; the underlying jsoniter
+  * exception (with its hex buffer dump) is attached as `getCause` for
+  * `--verbose` inspection, out of the default message.
   */
 class MalformedAgentOutputException(
     val rawOutput: String,
@@ -31,14 +30,12 @@ private[agents] object ResponseParser:
     """(?s)\A```(?:\w+)?\n?(.*?)\n?```\z""".r
 
   /** Parse an LLM-returned JSON string into `O`, tolerating markdown code
-    * fences (optionally with a language tag) and prose preamble/coda around the
-    * JSON body. Tries candidates from the *right* first, so a final answer
-    * `{...}` at the end of the response wins over an incidental `{ ... }` in
-    * prose (e.g. a Java snippet quoted in the explanation). If every direct
-    * attempt fails, also tries unwrapping a lone `{"input": <value>}` envelope
-    * (see [[unwrapInputEnvelope]]) before giving up. On a total parse failure,
-    * raises a [[MalformedAgentOutputException]] carrying the raw output and a
-    * short cause — never jsoniter's hex buffer dump.
+    * fences and prose preamble/coda around the JSON body. Tries candidates from
+    * the *right* first, so a final answer `{...}` at the end wins over an
+    * incidental `{ ... }` in prose. If every direct attempt fails, also tries
+    * unwrapping a lone `{"input": <value>}` envelope (see
+    * [[unwrapInputEnvelope]]) before raising a
+    * [[MalformedAgentOutputException]].
     */
   def parse[O](raw: String)(using JsonValueCodec[O]): O =
     val trimmed = stripFences(raw)
@@ -68,16 +65,14 @@ private[agents] object ResponseParser:
     catch case e: JsonReaderException => Left(e)
 
   /** Some backends (observed: opencode routing a reviewer call through
-    * claude-haiku) echo their own structured-output tool's argument envelope
-    * back as the "response" instead of the model's raw JSON — the tool's sole
-    * parameter happens to be named `input`, so the payload arrives as
-    * `{"input": <value>}` where `<value>` is either the expected JSON
-    * string-encoded (`{"input":"{\"issues\":[]}"}`) or nested directly
-    * (`{"input":{"issues":[]}}`). Unwrap exactly that one shape — a top-level
-    * object with the single key `input` — one level, and retry the normal parse
-    * on what's inside. Anything else (extra keys, a different lone key, a
-    * non-JSON string under `input`) is left alone and falls through to the
-    * ordinary parse failure; this is not a general fuzzy unwrapper.
+    * claude-haiku) echo their structured-output tool's argument envelope back
+    * as the "response" — the tool's sole parameter is named `input`, so the
+    * payload arrives as `{"input": <value>}` with `<value>` either the expected
+    * JSON string-encoded (`{"input":"{\"issues\":[]}"}`) or nested directly
+    * (`{"input":{"issues":[]}}`). Unwrap exactly that shape — a top-level
+    * object with the single key `input` — one level and retry the normal parse.
+    * Anything else falls through to the ordinary parse failure; this is not a
+    * general fuzzy unwrapper.
     */
   private def unwrapInputEnvelope[O: JsonValueCodec](
       candidate: String
@@ -96,10 +91,8 @@ private[agents] object ResponseParser:
       case FencePattern(inner) => inner.trim
       case unfenced            => unfenced
 
-  /** Every balanced `{...}` substring in the input, in source order. The parser
-    * tries these right-to-left so an incidental code snippet in prose doesn't
-    * preempt the real final answer that agents tend to place at the end of a
-    * response.
+  /** Every balanced `{...}` substring in the input, in source order (the parser
+    * tries them right-to-left).
     */
   private def extractJsonObjects(s: String): List[String] =
     @tailrec
@@ -143,9 +136,8 @@ private[agents] object ResponseParser:
               case _ => loop(i + 1, depth, ScanMode.Normal)
     loop(open, 0, ScanMode.Normal)
 
-  /** jsoniter's default `getMessage` bundles the offset + a hex buffer dump —
-    * useful in logs, intimidating in a user-facing error. Keep only the first
-    * line.
+  /** jsoniter's `getMessage` bundles the offset + a hex buffer dump — keep only
+    * the first line for the user-facing error.
     */
   private def shortMessage(e: JsonReaderException): String =
     val msg = Option(e.getMessage).getOrElse(e.getClass.getSimpleName)

@@ -42,11 +42,9 @@ class GeminiSettingsTest extends munit.FunSuite:
     assertEquals(httpUrl, """http://h/"x\y""")
 
   test("merge sets the orca server's timeout to the shared ToolTimeout"):
-    // 3 600 000 ms == 1h == AskUserMcpServer.ToolTimeout, the same value
-    // claude (ms) and codex (sec) render for the same tool. Without this,
-    // gemini's own MCP client default (10 min) undercuts the shared budget —
-    // the same answer-twice bug class as claude/codex's 60s defaults, just
-    // with a longer fuse.
+    // 3 600 000 ms == 1h == AskUserMcpServer.ToolTimeout. Without it gemini's
+    // own MCP client default undercuts the shared budget and fires a duplicate
+    // question mid-answer.
     val merged = GeminiSettings.merge("{}", "http://x/mcp")
     val servers = topLevel(topLevel(merged)("mcpServers").value)
     assertEquals(

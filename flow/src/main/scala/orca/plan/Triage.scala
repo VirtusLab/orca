@@ -17,24 +17,18 @@ import orca.agents.{Announce, JsonData}
   * pattern-match instead of guarding the wide-record [[BugTriage]] wire format
   * with runtime `Option#get` / empty-string checks.
   *
-  * Produced by [[Plan.autonomous.triage]] / [[Plan.interactive.triage]], both
-  * wrapped in a [[Sessioned]] that carries the triage session id. Flows
-  * typically discard the triage session (calling `.value`) and start a FRESH
-  * implementer session seeded with the issue body
-  * (`agent.session("implementer", seed = issue.body)`) rather than continuing
-  * the triage session — so the `Sessioned` wrapper is available but no
-  * carry-over is guaranteed.
+  * Produced by [[Plan.autonomous.triage]] / [[Plan.interactive.triage]],
+  * wrapped in a [[Sessioned]]. Flows typically discard the triage session
+  * (`.value`) and seed a fresh implementer session from the issue body.
   *
-  * `derives JsonData` so a `stage` can record and replay a `Triage` result —
-  * the triage stage is a checkpoint before the failing-test / fix pipeline (ADR
-  * 0018 §3.2).
+  * A `stage` can record and replay a `Triage` result — the triage stage is a
+  * checkpoint before the failing-test / fix pipeline (ADR 0018 §3.2).
   */
 enum Triage derives JsonData:
   case NotABug(explanation: String)
   case Untestable(summary: String, reproductionSteps: String)
-  // `branchName` is the LLM-suggested name from the wire format. The actual
-  // feature branch is created by the flow runtime (via BranchNamingStrategy),
-  // not from this field — flows should wildcard it in pattern matches.
+  // `branchName` is only the LLM's suggestion; the actual feature branch comes
+  // from the runtime (BranchNamingStrategy), so flows should wildcard it.
   case Testable(summary: String, branchName: String, failingTestPath: String)
 
 object Triage:

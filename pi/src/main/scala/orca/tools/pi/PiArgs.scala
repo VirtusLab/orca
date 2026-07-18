@@ -3,15 +3,13 @@ package orca.tools.pi
 import orca.backend.CliArgs
 import orca.agents.{AgentConfig, AutoApprove, Enforcement, ToolSet}
 
-/** Maps Orca backend configuration to Pi CLI arguments. The backend drives Pi
-  * through RPC mode and sends prompts over stdin, so the argv carries only
-  * process/session/configuration flags.
+/** Maps Orca backend configuration to Pi CLI arguments; the argv carries only
+  * process/session/configuration flags, since prompts go over stdin.
   *
   * Session continuity uses Pi's on-disk sessions: `--session-dir` points at a
-  * directory Pi creates a fresh session in on the first turn; `resume` adds
-  * `--continue` so a later turn picks up the prior session in that dir. (Pi's
-  * `--session <id>` only *resumes* an existing id, so it can't seed a
-  * caller-chosen id for a new session.)
+  * directory Pi seeds a fresh session in; `resume` adds `--continue` to pick up
+  * the prior session there. (`--session <id>` only resumes an existing id, so
+  * it can't seed a caller-chosen id for a new session.)
   */
 private[pi] object PiArgs:
 
@@ -41,10 +39,9 @@ private[pi] object PiArgs:
   private def systemPromptArgs(file: Option[os.Path]): Seq[String] =
     CliArgs.flag("--append-system-prompt", file)(_.toString)
 
-  /** Maps [[AgentConfig.tools]] to pi's `--tools` allowlist. `Full` omits the
-    * flag (all built-in tools enabled); `ReadOnly` restricts to
-    * [[ReadOnlyTools]]; `NetworkOnly` adds [[NetworkTool]] (`bash`) for network
-    * access. The ask-user extension tool is appended when present.
+  /** Maps [[AgentConfig.tools]] to pi's `--tools` allowlist (`Full` omits the
+    * flag for all built-ins); the ask-user extension tool is appended when
+    * present.
     */
   private def toolsArgs(
       config: AgentConfig,
@@ -67,17 +64,14 @@ private[pi] object PiArgs:
   private def extensionArgs(file: Option[os.Path]): Seq[String] =
     CliArgs.flag("--extension", file)(_.toString)
 
-  /** How strongly pi enforces each `(tools, autoApprove)` combination — see
-    * [[toolsArgs]] for the `--tools` allowlist this classifies.
-    *
-    *   - `ReadOnly` → `Hard`: `--tools read,grep,find,ls` mechanically excludes
+  /** How strongly pi enforces each `(tools, autoApprove)` combination:
+    *   - `ReadOnly` → `Hard`: the `--tools` allowlist mechanically excludes
     *     every writable tool.
-    *   - `NetworkOnly` → `PromptOnly`: pi has no web tool, so network arrives
-    *     only via the general `bash` tool, which also permits writes — the
-    *     no-edit guarantee then rests only on the planner prompt.
+    *   - `NetworkOnly` → `PromptOnly`: network arrives only via the general
+    *     `bash` tool, which also permits writes, so the no-edit guarantee rests
+    *     on the planner prompt.
     *   - `Full` + `AutoApprove.All` / `Only(_)` → `Ignored`: pi RPC never
-    *     prompts and the argv encodes no approval policy, so `autoApprove` is
-    *     not represented at all.
+    *     prompts and the argv encodes no approval policy.
     */
   def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
     tools match

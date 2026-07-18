@@ -11,22 +11,20 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 
 /** Registers the ephemeral `ask_user` MCP server with gemini for the lifetime
-  * of one interactive conversation. Unlike codex (which takes an inline `-c
-  * mcp_servers.orca.url=…` override), gemini only reads MCP server config from
+  * of one interactive conversation. gemini only reads MCP server config from
   * `settings.json`, so we merge an entry into the project-local
   * `<workDir>/.gemini/settings.json` and restore the prior state when the
   * conversation finalises.
   *
-  * Merge strategy preserves the user's file: unknown top-level keys and other
-  * configured `mcpServers` ride through verbatim (held as [[RawJson]]). The
-  * `allowedMcpServerNames` allowlist is only touched when it already exists —
-  * introducing one where there was none would restrict gemini to ONLY orca and
-  * hide the user's other servers.
+  * The merge preserves the user's file: unknown top-level keys and other
+  * configured `mcpServers` ride through verbatim. The `allowedMcpServerNames`
+  * allowlist is only touched when it already exists — introducing one where
+  * there was none would restrict gemini to ONLY orca and hide the user's other
+  * servers.
   *
-  * Two sharp edges (documented in ADR 0015): two interactive runs in the same
+  * Restore is best-effort, not transactional: two interactive runs in the same
   * `workDir` race on this file, and a hard crash skips the restore, leaving a
-  * stale `orca` entry behind. Restore is therefore best-effort, not
-  * transactional.
+  * stale `orca` entry behind (ADR 0015).
   */
 private[gemini] object GeminiSettings:
 
@@ -70,12 +68,10 @@ private[gemini] object GeminiSettings:
     // Serialize through a typed codec rather than interpolating into a raw JSON
     // string, so a URL containing `"` or `\` stays valid JSON.
     //
-    // `timeout` (ms) is one of three renderings of
-    // [[orca.backend.mcp.AskUserMcpServer.ToolTimeout]] — claude JSON ms /
-    // codex TOML sec / gemini settings.json ms; keep in sync. Without it,
-    // gemini falls back to its own per-server default (shorter than our 1h
-    // ToolTimeout), giving up on `ask_user` mid-answer and firing a duplicate
-    // question.
+    // `timeout` (ms) mirrors [[orca.backend.mcp.AskUserMcpServer.ToolTimeout]]
+    // (rendered as ms/sec across backends; keep in sync). Without it gemini
+    // falls back to a shorter per-server default, giving up on `ask_user`
+    // mid-answer and firing a duplicate question.
     val orcaEntry = RawJson(
       writeToString(
         OrcaServerEntry(mcpUrl, AskUserMcpServer.ToolTimeout.toMillis)

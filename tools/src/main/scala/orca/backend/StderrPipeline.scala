@@ -8,19 +8,15 @@ import java.util.concurrent.atomic.AtomicReference
 /** Bounded-stderr diagnostics shared by the subprocess [[ForkedConversation]]s
   * (codex, gemini, pi). Keeps the last few trimmed stderr lines (capped on
   * count and bytes) so a non-zero exit / clean-exit-without-result carries the
-  * real failure context in the thrown exception — listener subscribers saw each
-  * line as a `ConversationEvent.Error`, but a noop listener (tests, simple
-  * scripts) would otherwise lose it. Also joins the stderr drain at finalize so
-  * trailing lines reach the queue before it closes.
+  * real failure context in the thrown exception — a noop listener (tests,
+  * simple scripts) would otherwise lose the per-line
+  * `ConversationEvent.Error`s.
   *
-  * This trait also owns the full stderr pipeline (see [[handleStderr]]): strip
-  * terminal control sequences → trim → drop known noise → surface as an `Error`
-  * event → record for the bounded diagnostic buffer. The three mixing-in
-  * drivers used to hand-roll this identically (and, pre-hoist, only pi stripped
-  * control sequences — the other two are deliberately brought up to the same
-  * behavior here); each keeps ONLY its own [[isStderrNoise]] predicate. A
-  * driver needing extra teardown overrides `onFinalize` and calls
-  * `super.onFinalize()`.
+  * Also owns the full stderr pipeline (see [[handleStderr]]): strip terminal
+  * control sequences → trim → drop known noise → surface as an `Error` event →
+  * record for the bounded diagnostic buffer. Each mixing-in driver varies only
+  * its own [[isStderrNoise]] predicate. A driver needing extra teardown
+  * overrides `onFinalize` and calls `super.onFinalize()`.
   */
 private[orca] trait StderrPipeline[B <: BackendTag]
     extends ForkedConversation[B]:
@@ -31,12 +27,8 @@ private[orca] trait StderrPipeline[B <: BackendTag]
 
   /** The last stderr line surfaced (post-strip/trim/noise-filter), used to
     * collapse a run of identical lines into one — some CLIs repeat the same
-    * warning on every invocation (claude's `ANTHROPIC_API_KEY overrides…` fired
-    * ~8×/run). Reader-thread-confined like `ForkedConversation.openTurn`:
-    * [[handleStderr]] is only ever called from the single `stderrDrainFork`
-    * (`ForkedConversation.stderrLoop` iterates `source.errorLines` on one
-    * fork), so a plain `var` needs no synchronisation — an atomic would be
-    * theatre.
+    * warning on every invocation. Confined to the single `stderrDrainFork` that
+    * calls [[handleStderr]], so a plain `var` needs no synchronisation.
     */
   private var lastStderrLine: Option[String] = None
 
@@ -48,9 +40,8 @@ private[orca] trait StderrPipeline[B <: BackendTag]
 
   /** Strip terminal control sequences, trim, drop [[isStderrNoise]] lines, drop
     * a line identical to the one just surfaced (see [[lastStderrLine]]), and
-    * surface anything real as both an `Error` event (`"$backendName: $line"`)
-    * and a recorded diagnostic line (see [[recordStderr]]). `final` — the
-    * pipeline itself is identical across backends, so subclasses vary only
+    * surface anything real as both an `Error` event and a recorded diagnostic
+    * line (see [[recordStderr]]). `final` — subclasses vary only
     * [[isStderrNoise]].
     */
   final override protected def handleStderr(line: String): Unit =
@@ -67,11 +58,9 @@ private[orca] trait StderrPipeline[B <: BackendTag]
     val _ = stderrBuffer.updateAndGet(appendBounded(_, line))
 
   /** Wait for the stderr drain so trailing lines reach the queue before the
-    * failure outcome is computed. No timeout is needed: `cancel()`'s
-    * `destroyForcibly` (and a real process's exit) always EOFs the stderr
-    * stream, so the drain fork terminates. `None` (workers never started —
-    * constructed-but-never-consumed, then cancelled) means there is no drain to
-    * wait for.
+    * failure outcome is computed. No timeout needed: `destroyForcibly` (and a
+    * real process's exit) always EOFs the stderr stream, so the drain fork
+    * terminates. `None` means workers never started (nothing to wait for).
     */
   override protected def onFinalize(): Unit =
     stderrDrainFork.foreach(_.join())

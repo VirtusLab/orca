@@ -2,9 +2,8 @@ package orca
 
 import orca.events.EventDispatcher
 
-/** Tests for the FlowControl capability type (ADR 0018 §2.2).
-  *
-  * Verifies that FlowControl <: FlowContext (subtyping satisfaction).
+/** Tests for the FlowControl capability type (ADR 0018 §2.2): FlowControl
+  * satisfies a `using FlowContext` requirement.
   */
 class CapabilitiesTest extends munit.FunSuite:
 

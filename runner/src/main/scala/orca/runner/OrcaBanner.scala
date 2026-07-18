@@ -8,9 +8,9 @@ import java.io.PrintStream
   */
 private[orca] object OrcaBanner:
 
-  /** orca's version from the jar manifest (`Implementation-Version`, written by
-    * sbt's `packageBin`). `"dev"` when running from class directories (a local
-    * `sbt run` or the test suite), where there's no jar manifest.
+  /** orca's version from the jar manifest (`Implementation-Version`). `"dev"`
+    * when running from class directories (local `sbt run` or the test suite),
+    * where there's no jar manifest.
     */
   def version: String =
     Option(getClass.getPackage.getImplementationVersion).getOrElse("dev")

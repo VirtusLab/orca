@@ -1,13 +1,12 @@
 package orca.util
 
 /** One place that knows which `ORCA_*` debug environment variables exist. The
-  * flags are read once at object initialization (env vars don't change
-  * mid-process), so the booleans are safe to pin in cold paths.
+  * flags are read once at object initialization, so the booleans are safe to
+  * pin in cold paths.
   *
   * Display-side env vars (`NO_COLOR`, `ORCA_NO_ANIMATION`, `CI`) live in
-  * `orca.runner.terminal.TerminalInteraction`'s companion since they're
-  * terminal-rendering specific; this object covers only the debug/diagnostic
-  * switches that more than one module reads.
+  * `orca.runner.terminal.TerminalInteraction`'s companion; this object covers
+  * only the debug/diagnostic switches that more than one module reads.
   */
 private[orca] object OrcaDebug:
 

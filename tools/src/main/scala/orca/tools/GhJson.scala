@@ -6,15 +6,14 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   JsonCodecMaker
 }
 
-// Wire-format DTOs for the `gh`/`git` JSON output that `OsGitHubTool` parses.
-// Kept separate from the public GitHubTool contract: these mirror the GitHub
-// CLI/API shape and change for a different reason than the tool's own API.
-// All `private[orca]` — internal to the tools layer, never part of the public
-// surface (callers see `Comment`/`Issue`/`PrHandle`, not these).
+// Wire-format DTOs for the `gh`/`git` JSON that `OsGitHubTool` parses. Kept
+// separate from the public GitHubTool contract: they mirror the GitHub CLI/API
+// shape and change for a different reason than the tool's own API. Callers see
+// `Comment`/`Issue`/`PrHandle`, not these.
 
 private[tools] case class GhCheck(
-    // CheckRun entries use `status`/`conclusion`; legacy commit-status entries
-    // use only `state`. Both are optional so a single codec handles both.
+    // CheckRun entries use `status`/`conclusion`; commit-status entries use
+    // only `state`. All optional so a single codec handles both.
     status: Option[String] = None,
     conclusion: Option[String] = None,
     state: Option[String] = None,
@@ -30,9 +29,8 @@ private[tools] case class GhCommentJson(
     user: GhUserJson
 ) derives ConfiguredJsonValueCodec
 
-/** Comment JSON with its numeric id, used internally by [[OsGitHubTool]] to
-  * support the PATCH path in `upsertComment`. The id is a GitHub-issued int.
-  * Not exposed publicly — callers see the id-free [[Comment]] type.
+/** Comment JSON with its GitHub-issued numeric id, used by [[OsGitHubTool]] for
+  * the PATCH path in `upsertComment`. Callers see the id-free [[Comment]] type.
   */
 private[tools] case class GhIdentifiedCommentJson(
     id: Long,
@@ -40,10 +38,9 @@ private[tools] case class GhIdentifiedCommentJson(
     user: GhUserJson
 ) derives ConfiguredJsonValueCodec
 
-/** Minimal PR fields returned by `gh pr list --json number,url`. Used by
-  * [[OsGitHubTool.findOpenPr]] to map a head branch to an open PR. Only the URL
-  * is needed: the owner/repo/number are extracted from it via [[PrUrlPattern]]
-  * so no separate `headRefName` field is required.
+/** Minimal PR fields from `gh pr list --json number,url`, used by
+  * [[OsGitHubTool.findOpenPr]] to map a head branch to an open PR. The
+  * owner/repo/number are extracted from the URL via [[PrUrlPattern]].
   */
 private[tools] case class GhPrListJson(
     number: Int,
@@ -55,8 +52,8 @@ private[tools] case class GhUserJson(login: String)
 
 private[tools] case class GhIssueJson(
     title: String,
-    // Issues without a body return `null` from the API; the codec
-    // treats a missing key as None and a null literal as None too.
+    // Issues without a body return `null`; the codec maps both a missing key
+    // and a null literal to None.
     body: Option[String] = None,
     user: GhUserJson,
     state: String

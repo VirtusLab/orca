@@ -4,20 +4,15 @@ import orca.events.{OrcaEvent, OrcaListener}
 import org.slf4j.LoggerFactory
 
 /** Mirrors every [[OrcaEvent]] into the slf4j log (logger `orca.flow`) so the
-  * per-run trace file ([[OrcaLog]]) captures the whole execution: stage
-  * transitions, each prompt sent to an agent (full text), assistant turns, tool
-  * uses, steps (git / gh / recovery / …), structured results, token usage, and
-  * errors. Wired into the flow's `EventDispatcher` alongside the cost tracker.
+  * per-run trace file ([[OrcaLog]]) captures the whole execution. Wired into
+  * the flow's `EventDispatcher` alongside the cost tracker.
   *
-  * This is a trace mirror, not a console channel: the whole `orca.*` logger
-  * tree is routed to the trace file only (`OrcaLog` makes it non-additive), so
-  * even the `Error` line — logged at ERROR for greppability — never reaches the
-  * console. The terminal renderer owns the console (it shows the `✖`).
+  * A trace mirror, not a console channel: the whole `orca.*` tree routes to the
+  * trace file only ([[OrcaLog]] makes it non-additive), so even the ERROR line
+  * never reaches the console — the terminal renderer owns that.
   *
-  * Messages are plain ASCII on purpose — the trace file is read back and dumped
-  * to the console verbatim, and glyphs would corrupt under a non-UTF-8 console.
-  * slf4j `{}` placeholders defer string building until an appender consumes the
-  * event.
+  * Messages are plain ASCII on purpose: the trace file is dumped to the console
+  * verbatim, and glyphs would corrupt under a non-UTF-8 console.
   */
 private[orca] class LoggingListener extends OrcaListener:
   private val log = LoggerFactory.getLogger("orca.flow")
@@ -31,10 +26,9 @@ private[orca] class LoggingListener extends OrcaListener:
     case OrcaEvent.ToolUse(tool, args) =>
       log.debug("tool use: {} {}", tool, args)
     case OrcaEvent.StructuredResult(raw, summary) =>
-      // The trace mirror always records the payload: on a deliberately
-      // silent summary (`Some("")`) or a missing one (`None`), log the raw
-      // JSON — display-level silence must not hide the result from the
-      // trace file.
+      // On a deliberately silent summary (`Some("")`) or a missing one
+      // (`None`), log the raw JSON — display silence must not hide the result
+      // from the trace.
       log.debug(
         "structured result: {}",
         summary.filter(_.nonEmpty).getOrElse(raw)

@@ -247,10 +247,6 @@ class GeminiConversationTest extends munit.FunSuite:
     val _ = conv.awaitResult()
 
   convTest("stderr strips terminal controls before surfacing as an Error"):
-    // Pinning Task 8.4's hoist: pre-hoist, only pi's handleStderr stripped
-    // ANSI/terminal control sequences before surfacing stderr as an Error
-    // event — codex and gemini did not. StderrPipeline now strips
-    // for all three uniformly.
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
 
@@ -333,14 +329,10 @@ class GeminiConversationTest extends munit.FunSuite:
   convTest(
     "missing session_id on init surfaces a visible Error and the turn fails loudly"
   ):
-    // Task 8.5: session_id is identity-critical. Pre-fix, a missing key
-    // silently became Init("") with no exception and no Error event — the
-    // wrong session id would only surface indirectly, retries later, at
-    // commitAfterDrain's guard. Post-fix, InitWire.session_id is a required
-    // wire field, so the malformed init line throws JsonReaderException;
-    // ForkedConversation's generic per-line catch turns that into a visible
-    // Error event near the cause. With no other line ever settling the turn,
-    // it still fails loudly via the existing clean-exit-without-result path.
+    // session_id is identity-critical: a missing key makes InitWire parsing
+    // throw JsonReaderException, which ForkedConversation's per-line catch turns
+    // into a visible Error event. With no line settling the turn, it then fails
+    // loudly via the clean-exit-without-result path.
     val process = new FakePipedCliProcess(initiallyAlive = false)
     val conv = new GeminiConversation(process)
 
@@ -361,9 +353,8 @@ class GeminiConversationTest extends munit.FunSuite:
       ex.getMessage.contains("result"),
       s"expected the missing-result message; got: ${ex.getMessage}"
     )
-    // 12.1: ForkedConversation.awaitResult's generic Outcome.Failed(e) arm
-    // must thread `e` through as the cause, not just fold its message into
-    // text and drop it.
+    // ForkedConversation.awaitResult's generic Outcome.Failed(e) arm must thread
+    // `e` through as the cause, not just fold its message into text.
     assert(
       ex.getCause != null,
       "AgentTurnFailed from the generic clean-exit-without-result path must " +
@@ -373,9 +364,8 @@ class GeminiConversationTest extends munit.FunSuite:
   convTest(
     "a message with a missing role is dropped, never treated as assistant prose"
   ):
-    // Task 8.5: pre-fix, a missing role's "" default failed the `!= "user"`
-    // check and silently landed in the answer as agent output. Post-fix it's
-    // typed Role.Unknown and dropped.
+    // A missing role is typed Role.Unknown and dropped, never landing in the
+    // answer as agent output.
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
 

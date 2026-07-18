@@ -10,9 +10,8 @@ import orca.subprocess.OsProcCliRunner
   */
 object GeminiAgents:
 
-  /** The default gemini agent for a run: Gemini Pro pinned (the strong model,
-    * like claude defaults to Opus for the long-lived implementer); `.flash`
-    * opts down for cheap one-shots.
+  /** The default gemini agent for a run: Gemini Pro pinned (the strong model);
+    * `.flash` opts down for cheap one-shots.
     */
   def default(wiring: AgentWiring): GeminiAgent =
     new DefaultGeminiAgent(

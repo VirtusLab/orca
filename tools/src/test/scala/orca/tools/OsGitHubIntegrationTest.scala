@@ -30,9 +30,8 @@ class OsGitHubIntegrationTest extends munit.FunSuite:
     assert(result.stdout.contains("\"login\""))
 
   test("readPrComments succeeds against a public issue-or-PR endpoint"):
-    // GitHub's /issues/{n}/comments endpoint is shared between issues and
-    // PRs; Hello-World #1 is stable public data. We assert the call returns
-    // (no exception) and each entry carries a non-empty author.
+    // GitHub's /issues/{n}/comments endpoint is shared between issues and PRs;
+    // Hello-World #1 is stable public data.
     val gh = new OsGitHubTool(OsProcCliRunner)
     val handle = PrHandle("octocat", "Hello-World", 1)
     val comments = gh.readPrComments(handle)

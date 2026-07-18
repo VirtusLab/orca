@@ -2,20 +2,17 @@ package orca.review
 
 import orca.util.{TextUtil, TextWrap}
 
-// Rendering of review outcomes into `Step`-body text for the event log — split
-// out of `ReviewLoop` so the loop file carries only the loop control flow.
-// Plain (non-capture-checked): these are pure string helpers with no fork
-// boundary to guard, so they don't need `ReviewLoop.scala`'s CC imports.
+// Rendering of review outcomes into `Step`-body text for the event log.
 
 /** Format a single review comment as the body lines of a `Step`.
   *
-  * Shape: `- [Severity] title ...wrapped to ~76 cols...`, optionally followed
-  * by ` at file:line` and a ` suggestion: …` line. The leading `- ` makes the
-  * issue a bullet within a multi-issue body; outer indentation is added by the
-  * caller (typically [[formatReviewerOutcome]]).
+  * Shape: `- [Severity] title ...wrapped...`, optionally followed by ` at
+  * file:line` and a ` suggestion: …` line. The leading `- ` makes the issue a
+  * bullet within a multi-issue body; outer indentation is added by the caller
+  * (typically [[formatReviewerOutcome]]).
   *
-  * The `description` field is intentionally not rendered — it's the longer form
-  * fed back to the fixing agent; the user sees the short form on screen.
+  * `description` is deliberately not rendered — it's the longer form fed back
+  * to the fixing agent; the user sees the short form on screen.
   */
 private[review] def formatIssue(issue: ReviewIssue): String =
   val header = TextWrap.wrap(

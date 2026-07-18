@@ -20,10 +20,9 @@ class InboundEventTest extends munit.FunSuite:
       case other => fail(s"expected Init, got $other")
 
   test("init with a missing session_id throws rather than defaulting to \"\""):
-    // Identity-critical field (see Task 8.5): a missing session_id must not
-    // silently become Init(""); it propagates JsonReaderException so the
-    // reader's generic catch turns it into a visible Error event near the
-    // cause, instead of a session id that's wrong three retries later.
+    // Identity-critical: a missing session_id must not silently become Init("");
+    // it propagates JsonReaderException so the reader's generic catch surfaces a
+    // visible Error event near the cause.
     val line = """{"type":"init","model":"gemini-2.5-pro"}"""
     intercept[com.github.plokhotnyuk.jsoniter_scala.core.JsonReaderException]:
       InboundEvent.parse(line)

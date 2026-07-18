@@ -13,10 +13,9 @@ class DefaultPromptsTest extends munit.FunSuite:
     assert(prompt.contains("no markdown code fences"))
 
   test("autonomous delivery rules follow the declared structured-output mode"):
-    // Tool-mode backends (claude with --json-schema) receive their reply via
-    // a CLI-injected StructuredOutput tool — telling the model "raw JSON only"
-    // there contradicts the wire and steers weak models into malformed tool
-    // calls. RawText backends keep the raw-JSON contract verbatim.
+    // Tool-mode backends receive their reply via a CLI-injected StructuredOutput
+    // tool, so "raw JSON only" would contradict the wire; RawText backends keep
+    // the raw-JSON contract verbatim.
     val raw = DefaultPrompts
       .autonomous(input, schema, config, StructuredOutputMode.RawText)
     val tool = DefaultPrompts
@@ -26,7 +25,6 @@ class DefaultPromptsTest extends munit.FunSuite:
     assert(tool.contains("calling the StructuredOutput tool"))
     assert(tool.contains("top-level fields as the tool's arguments"))
     assert(!tool.contains("raw JSON only"))
-    // Same task framing either way — only the delivery rules differ.
     assert(tool.contains(input) && tool.contains(schema))
 
   test("retry prompt includes the failed response, error, and raw-JSON rules"):
@@ -43,7 +41,6 @@ class DefaultPromptsTest extends munit.FunSuite:
     val prompt = DefaultPrompts.interactive(input, schema, config)
     assert(prompt.contains(input))
     assert(prompt.contains(schema))
-    // Explicit negative checks: the stream-json path uses --json-schema for
-    // validation, not a sentinel + transcript scrape.
+    // The stream-json path validates via --json-schema, not a sentinel marker.
     assert(!prompt.contains("<<<"))
     assert(!prompt.contains("marker"))

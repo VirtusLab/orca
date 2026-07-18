@@ -10,11 +10,9 @@ class AskUserSessionTest extends munit.FunSuite:
   test(
     "allocate closes the bridge + server when the extras callback throws"
   ):
-    // Pins the defensive cleanup in `allocate`'s catch block: if the
-    // backend-specific `extras` callback fails (e.g. workDir write fails),
-    // the partially-allocated Netty binding must still be torn down so
-    // the test process can rebind the same port and so long-running
-    // flows don't leak.
+    // If the backend-specific `extras` callback fails, the partially-allocated
+    // Netty binding must still be torn down so the port can be rebound and
+    // long-running flows don't leak.
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val thrown = intercept[RuntimeException]:
@@ -25,9 +23,8 @@ class AskUserSessionTest extends munit.FunSuite:
       assertEquals(thrown.getMessage, "extras callback boom")
 
   test("close runs each closer once even when an earlier one throws"):
-    // Pins the per-step `swallow`: one resource failing during teardown
-    // must not skip the others. We can't see bridge/server post-close,
-    // so use the extras slot to count.
+    // One resource failing during teardown must not skip the others. Bridge and
+    // server aren't observable post-close, so count via the extras slot.
     supervised:
       given BufferCapacity = BufferCapacity(8)
       val calls = new AtomicInteger(0)

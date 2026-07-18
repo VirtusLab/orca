@@ -14,39 +14,33 @@ import sttp.tapir.docs.apispec.schema.TapirSchemaToJsonSchema
   *   - every object node carries `additionalProperties: false`;
   *   - every object's `required` array lists every key in `properties`.
   *
-  * Tapir's default output is JSON-Schema-valid but more permissive than
-  * OpenAI's strict mode, so codex rejects it with `invalid_json_schema`.
-  * Optional fields and fields with Scala-side defaults (`List` → `Nil`, etc.)
-  * are marked nullable via `markOptionsAsNullable = true`, so requiring them is
-  * safe — the agent emits `null` or an empty list rather than omitting.
+  * Tapir's default output is more permissive than strict mode, so codex rejects
+  * it with `invalid_json_schema`. Optional fields and fields with Scala-side
+  * defaults are marked nullable via `markOptionsAsNullable = true`, so
+  * requiring them is safe — the agent emits `null` or an empty list rather than
+  * omitting.
   *
   * A `Map[String, _]` field has no fixed key set, so it can't be expressed in
-  * OpenAI's strict dialect (which requires every object's exact key set up
-  * front); such a field makes this throw [[orca.OrcaFlowException]] rather than
-  * emit a schema the backend would reject anyway, later and more opaquely.
+  * the strict dialect; such a field makes this throw [[orca.OrcaFlowException]]
+  * rather than emit a schema the backend would reject later and more opaquely.
   *
-  * The strict post-processing applies to EVERY backend, not just the two
-  * OpenAI-dialect ones — which is why it lives here, at the backend-agnostic
-  * `resultAs[O]` seam, rather than in a backend module. The one schema string
-  * per `O` is both passed to native schema flags (claude `--json-schema`, codex
+  * The post-processing applies to every backend, which is why it lives at the
+  * backend-agnostic `resultAs[O]` seam. The one schema string per `O` is both
+  * passed to native schema flags (claude `--json-schema`, codex
   * `--output-schema`) and embedded into the prompt template all backends
   * receive (`Prompts`; pi/gemini/opencode have no native flag). Strict-mode
-  * output is still standard, valid JSON Schema — just more constrained — so the
-  * strictest dialect any backend requires is safe as the single common form,
-  * and it keeps the native flag, the prompt text, and the parse step in
-  * agreement about the expected shape.
+  * output is still valid JSON Schema, just more constrained, so the strictest
+  * dialect any backend requires is safe as the single common form.
   */
 object JsonSchemaGen:
   def apply[O](using schema: Schema[O]): String =
     val jsonSchema =
       TapirSchemaToJsonSchema(schema, markOptionsAsNullable = true)
     // Tapir stamps `$schema: .../draft/2020-12/schema` on its output; the
-    // claude CLI (observed on 2.1.207) validates `--json-schema` input with a
-    // validator that has no 2020-12 meta-schema registered and rejects any
-    // schema DECLARING that dialect ("no schema with key or ref ..."), before
-    // the turn starts. No consumer needs the declaration — codex/claude
-    // interpret the strict subset regardless, and prompt-embedded schemas
-    // carry their meaning in the nodes themselves — so strip it.
+    // claude CLI (observed on 2.1.207) has no 2020-12 meta-schema registered
+    // and rejects any schema declaring that dialect ("no schema with key or ref
+    // ...") before the turn starts. No consumer needs the declaration, so strip
+    // it.
     toOpenAiStrict(jsonSchema.asJson).mapObject(_.remove("$schema")).noSpaces
 
   /** Walk every object subtree and inject the two OpenAI-strict-mode
@@ -72,14 +66,12 @@ object JsonSchemaGen:
     else recursed
 
   /** Tapir renders a `Map[String, T]` field as an object node whose
-    * `additionalProperties` is `T`'s own sub-schema (there's no `properties`
-    * key — the keys are unbounded). OpenAI's strict structured-output mode
-    * requires `additionalProperties: false` on every object node, which would
-    * silently discard the value-type constraint if we overwrote it — so instead
-    * fail fast here, at schema-generation time, with a message naming the
-    * actual fix, rather than letting the non-strict schema reach codex/claude
-    * and bounce back as an opaque `invalid_json_schema` after a stage has
-    * already run.
+    * `additionalProperties` is `T`'s own sub-schema (no `properties` key — the
+    * keys are unbounded). Strict mode requires `additionalProperties: false` on
+    * every object node, which would silently discard the value-type constraint
+    * if overwritten — so fail fast here, with a message naming the fix, rather
+    * than letting the schema bounce back as an opaque `invalid_json_schema`
+    * after a stage has already run.
     */
   private def rejectMapShapedAdditionalProperties(obj: JsonObject): Unit =
     obj("additionalProperties").filterNot(_.isBoolean).foreach { _ =>
@@ -92,10 +84,9 @@ object JsonSchemaGen:
     }
 
   /** A node is an "object schema" — eligible for the strict-mode constraints —
-    * when it declares `"type": "object"` AND carries a `"properties"` object.
-    * The properties check rules out empty/marker objects like
-    * `{"type":"object"}` which would otherwise get `additionalProperties:
-    * false` with no purpose.
+    * when it declares `"type": "object"` AND carries a non-empty `"properties"`
+    * object. The properties check rules out empty/marker objects like
+    * `{"type":"object"}`.
     */
   private def isObjectSchemaNode(obj: JsonObject): Boolean =
     obj("type").flatMap(_.asString).contains("object") &&
@@ -105,10 +96,9 @@ object JsonSchemaGen:
     val props =
       obj("properties").flatMap(_.asObject).getOrElse(JsonObject.empty)
     val allKeys = props.keys.toList
-    // A non-boolean `additionalProperties` (the Map[String, T] shape) was
-    // already rejected by `rejectMapShapedAdditionalProperties` above, so
-    // anything reaching here is either absent or already `true`/`false` —
-    // don't clobber an explicit boolean, only fill in the missing default.
+    // The Map[String, T] shape was already rejected above, so
+    // `additionalProperties` here is absent or already boolean — don't clobber
+    // an explicit boolean, only fill in the missing default.
     val withAdditional =
       if obj.contains("additionalProperties") then obj
       else obj.add("additionalProperties", Json.False)

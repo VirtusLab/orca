@@ -11,8 +11,7 @@ import orca.agents.{
   Prompts
 }
 
-/** Default [[OpencodeAgent]]. Inherits the autonomous-text + `resultAs[O]`
-  * plumbing from [[BaseAgent]] and adds OpenCode's provider-prefixed model
+/** Default [[OpencodeAgent]]. Adds OpenCode's provider-prefixed model
   * accessors. The pinned ids are convenience defaults — any id from `opencode
   * models` is valid; bump them as the catalog moves.
   */
@@ -43,20 +42,19 @@ private[orca] class DefaultOpencodeAgent(
 
   // Cheap is provider-matched so incidental work doesn't pull in a second
   // provider's auth: an openai-led tool's cheap is an openai model, otherwise
-  // anthropic haiku (also the default when no model is pinned). Reads the
-  // provider prefix directly (not OpencodeModel.split, which throws on a bare
-  // id) so resolving the cheap model can never break a flow.
+  // anthropic haiku. Reads the provider prefix directly (not
+  // OpencodeModel.split, which throws on a bare id) so resolving cheap can
+  // never break a flow.
   override protected def defaultCheap: OpencodeAgent =
     config.model.map(m => Model.name(m).takeWhile(_ != '/')) match
       case Some("openai") => openaiLuna
       case _              => anthropicHaiku
 
-  // Two-arg form validates and joins via OpencodeModel (one place); the
-  // accessors above share it. `withModel(String)` takes an already-joined id.
+  // Validates and joins via OpencodeModel (one place); the accessors share it.
   override def withModel(provider: String, modelId: String): OpencodeAgent =
     super[BaseAgent].withModel(OpencodeModel(provider, modelId))
 
-  // `super` disambiguates from BaseAgent's protected `withModel(Model)`.
+  // Takes an already-joined `provider/model` id.
   def withModel(providerModel: String): OpencodeAgent =
     super[BaseAgent].withModel(Model(providerModel))
 

@@ -11,13 +11,10 @@ class OsProcCliRunnerTest extends munit.FunSuite:
     while alive(pid) && System.currentTimeMillis < deadline do Thread.sleep(20)
     !alive(pid)
 
-  /** Regression guard for the opencode-serve teardown fix: a launch wrapper
-    * forks the real worker, which inherits the stdout/stderr pipes, so killing
-    * only the wrapper PID would orphan it and leave a drain reader blocked on a
-    * never-EOF'd pipe. `destroyForciblyTree` must reap the descendant too. This
-    * fails if the method ever regresses to the PID-only `destroyForcibly`
-    * default: the reparented `sleep` would survive and `awaitDead` would time
-    * out.
+  /** A launch wrapper forks a worker that inherits the stdout/stderr pipes, so
+    * killing only the wrapper PID would orphan it and leave a drain reader
+    * blocked on a never-EOF'd pipe. `destroyForciblyTree` must reap the
+    * descendant too, unlike the PID-only `destroyForcibly`.
     */
   test("destroyForciblyTree reaps a forked descendant"):
     // `$!` is the backgrounded sleep's PID; `wait` keeps bash alive as its

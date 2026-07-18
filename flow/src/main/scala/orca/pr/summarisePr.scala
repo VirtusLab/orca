@@ -6,27 +6,21 @@ import orca.agents.{Announce, JsonData, Agent}
 import scala.annotation.unused
 
 /** What [[summarisePr]] produces: a one-line PR title and a multi-paragraph
-  * body. `gh.createPr(title = …, body = …)` accepts the two fields directly, so
-  * call sites typically destructure or pass them positionally.
+  * body, consumed directly by `gh.createPr(title = …, body = …)`.
   */
 case class PrSummary(title: String, body: String) derives JsonData
 
 object PrSummary:
-  /** Silent — the calling stage already names the PR; an `Announce` summary
-    * here would just repeat the title.
-    */
+  /** Silent — the calling stage already names the PR. */
   given Announce[PrSummary] = Announce.from(_ => "")
 
-/** Ask `agent` to fold `diff` (and optionally `context`) into a [[PrSummary]] —
-  * the one-line title and multi-paragraph body that `gh.createPr` consumes.
+/** Ask `agent` to fold `diff` (and optionally `context`) into a [[PrSummary]].
   *
-  * `context` is rendered above the diff as a preamble; typical contents are the
-  * originating issue link and title, the user prompt that drove the work, or
-  * whatever the flow author wants the model to anchor the description to. Omit
-  * for diff-only summarisation.
+  * `context` is rendered above the diff as a preamble — typically the
+  * originating issue link and title, or the user prompt that drove the work.
+  * Omit for diff-only summarisation.
   *
-  * Use a cheap model — summarisation is a small fold and doesn't benefit from a
-  * frontier model. The autonomous call runs `emitPrompt = false` because the
+  * Use a cheap model. The autonomous call runs `emitPrompt = false` because the
   * diff dominates the prompt and would dwarf the event log.
   */
 def summarisePr(

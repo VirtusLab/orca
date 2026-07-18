@@ -8,21 +8,18 @@ import java.nio.file.FileSystems
   * accessor. Reads, writes, and globs files against the flow's working
   * directory.
   *
-  * Paths passed to `read` and `write` are resolved relative to the flow's
-  * working directory unless they are absolute (an absolute path is used as-is).
-  * `list` does not support this: it only accepts a glob *relative* to the
-  * working directory. A leading `/`, or a `.`/`..` path segment, is rejected
-  * with [[orca.OrcaFlowException]] at call time rather than resolved — an
-  * absolute glob could otherwise only ever silently match nothing (see
-  * [[OsFsTool.list]]). `list` accepts a glob pattern (e.g. `src/**/*.scala`)
-  * following the JVM's default glob syntax and returns matching file paths as
-  * strings relative to the same working directory.
+  * `read`/`write` paths are resolved relative to the working directory unless
+  * absolute. `list` instead takes a glob (JVM default syntax, e.g.
+  * `src/**/*.scala`) that must be *relative* to the working directory and
+  * returns matching paths relative to it; a leading `/` or a `.`/`..` segment
+  * is rejected with [[orca.OrcaFlowException]] rather than resolved (see
+  * [[OsFsTool.list]]).
   */
 trait FsTool:
 
-  /** Read the file at `path`. Returns `None` when no file exists at that
-    * location — a recoverable miss the caller can branch on. Throws for
-    * system-level failures (permission, IO).
+  /** Read the file at `path`. `None` when no file exists there — a recoverable
+    * miss the caller can branch on. Throws for system-level failures
+    * (permission, IO).
     */
   def read(path: String): Option[String]
 
@@ -30,9 +27,8 @@ trait FsTool:
   def list(glob: String): List[String]
 
 /** `FsTool` implementation backed by os-lib. Path resolution and glob semantics
-  * are specified on the trait; this class wires them to `os.read` /
-  * `os.write.over` / `os.walk.stream` and narrows the `list` traversal to the
-  * deepest wildcard-free prefix of the glob.
+  * are specified on the trait; the `list` traversal is narrowed to the deepest
+  * wildcard-free prefix of the glob.
   */
 private[orca] class OsFsTool(base: os.Path = os.pwd) extends FsTool:
 
@@ -61,13 +57,10 @@ private[orca] class OsFsTool(base: os.Path = os.pwd) extends FsTool:
     os.Path(path, base)
 
   /** Reject glob shapes `globRoot`'s segment fold can't handle cleanly: a
-    * leading `/` (os-lib throws `InvalidSegment` walking an empty first
-    * segment, or — if that were papered over — the glob would only ever match
-    * nothing, since found paths are always relative to `base`) and any `.`/`..`
-    * segment (os-lib rejects both outright; `..` in particular has no defined
-    * meaning for a glob rooted at `base`). Fails fast with a message naming
-    * `list` and the offending glob, rather than letting os-lib's generic
-    * `IllegalArgumentException` (no `list`-level context) surface instead.
+    * leading `/` (would only ever match nothing, since found paths are relative
+    * to `base`) and any `.`/`..` segment (no defined meaning for a glob rooted
+    * at `base`). Fails fast with a message naming `list`, rather than letting
+    * os-lib's generic `IllegalArgumentException` surface.
     */
   private def validateGlob(glob: String): Unit =
     if glob.startsWith("/") then
@@ -80,9 +73,8 @@ private[orca] class OsFsTool(base: os.Path = os.pwd) extends FsTool:
         s"fs.list: glob must not contain '.' or '..' segments: '$glob'"
       )
 
-  /** Walk only the deepest directory that contains no wildcards — e.g. for
-    * `src/main/**/*.scala` start at `src/main`. Cuts traversal cost for
-    * patterns rooted in a subtree.
+  /** Walk only the deepest wildcard-free directory — e.g. for
+    * `src/main/**/*.scala` start at `src/main` — to cut traversal cost.
     */
   private def globRoot(glob: String): os.Path =
     glob

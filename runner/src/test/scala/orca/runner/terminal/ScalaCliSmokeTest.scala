@@ -17,12 +17,10 @@ class ScalaCliSmokeTest extends munit.FunSuite:
     import scala.concurrent.duration.DurationInt
     20.minutes
 
-  /** Memoise the publishLocal step across the suite's tests — every script here
-    * links against the same dynver-computed version, so re-publishing once per
-    * test would just multiply the slowest step. The fixture runs once per
-    * suite, fails fast if sbt fails, and exposes both the repo root and the
-    * published version (read back from sbt because dynver derives it from git
-    * state rather than a static literal).
+  /** Memoises the publishLocal step across the suite (every script links
+    * against the same version). Runs once per suite, fails fast if sbt fails,
+    * and exposes the repo root plus the published version, read back from sbt
+    * because dynver derives it from git state rather than a static literal.
     */
   case class Published(repoRoot: os.Path, version: String)
 
@@ -113,11 +111,10 @@ class ScalaCliSmokeTest extends munit.FunSuite:
     "epic.sc"
   )
 
-  /** Each flow script is a real-world consumer of the library — when a
-    * public-API rename or signature change ships, these scripts are the first
-    * thing that breaks for users. Compile-checking them here closes the gap
-    * between sbt's internal compile (which doesn't see `examples/`) and what a
-    * fresh user actually runs.
+  /** Each flow script is a real-world consumer of the public API, so a rename
+    * or signature change breaks them first. Compile-checking here closes the
+    * gap between sbt's internal compile (which doesn't see `examples/`) and
+    * what a fresh user runs.
     */
   for relPath <- flowScripts do
     test(s"examples/$relPath compiles via scala-cli"):

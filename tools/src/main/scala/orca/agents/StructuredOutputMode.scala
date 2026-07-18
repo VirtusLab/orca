@@ -1,14 +1,14 @@
 package orca.agents
 
 /** How a backend's wire delivers the payload of a structured (`resultAs[O]`)
-  * turn — declared per backend via `AgentBackend.structuredOutputMode` and
-  * consumed by [[Prompts.autonomous]], so the prompt's delivery instruction
-  * names the mechanism the wire actually expects instead of contradicting it.
+  * turn. Declared per backend via `AgentBackend.structuredOutputMode` and
+  * consumed by [[Prompts.autonomous]], so the delivery instruction matches what
+  * the wire actually expects.
   */
 enum StructuredOutputMode:
-  /** The backend's CLI enforces the schema via an injected `StructuredOutput`
-    * tool whose parameters are the schema's top-level properties — the result
-    * arrives as that tool call, never as reply text (claude's `--json-schema`).
+  /** The result arrives as a CLI-injected `StructuredOutput` tool call whose
+    * parameters are the schema's top-level properties, never as reply text
+    * (claude's `--json-schema`).
     */
   case Tool
 

@@ -48,12 +48,10 @@ private[plan] case class AssessedPlan(
       Left(s"assess-then-plan: unknown verdict '$other'")
 
 private[plan] object AssessedPlan:
-  /** Friendly summary surfaced via `StructuredResult` after the assess turn.
-    * Defers to [[Plan]]'s own `Announce` on proceed; on reject it surfaces the
-    * kind so the event log shows why no PR happened. Malformed payloads
-    * (`toVerdict` Left) silently fall through to `None` here —
-    * [[Plan.autonomous.assessThenPlan]] throws the structured error at the call
-    * site, so the log just stays quiet about the rendering.
+  /** Summary surfaced after the assess turn: defers to [[Plan]]'s `Announce` on
+    * proceed, surfaces the rejection kind otherwise. Malformed payloads fall
+    * through to `None` — [[Plan.autonomous.assessThenPlan]] throws the
+    * structured error at the call site.
     */
   given Announce[AssessedPlan] = Announce.fromOption: a =>
     a.toVerdict.toOption.flatMap:

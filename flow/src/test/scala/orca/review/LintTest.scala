@@ -21,22 +21,21 @@ import orca.{TestFlowContext}
 
 class LintTest extends munit.FunSuite:
 
-  // `lint` is now gated on `InStage`; mint the token for the suite.
+  // `lint` is gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
 
   private def ctx: FlowContext =
     new TestFlowContext(new EventDispatcher(Nil))
 
   /** Agent that records the serialized prompt passed to
-    * `resultAs.autonomous.run` and returns a canned ReviewResult. Method-scope
-    * mutable var holds the captured string.
+    * `resultAs.autonomous.run` and returns a canned ReviewResult.
     */
   private class CapturingAgent(canned: ReviewResult)
       extends Agent[BackendTag.ClaudeCode.type]:
     var captured: String = ""
-    // Contents of the `*.txt` file the prompt references, if any, read inside
-    // `run` while it still exists — `lint` deletes it once `run` returns. Empty
-    // when the output was inlined (small) rather than spilled to a file.
+    // Contents of the `*.txt` file the prompt references, read inside `run`
+    // while it still exists — `lint` deletes it once `run` returns. Empty when
+    // the output was inlined rather than spilled to a file.
     var capturedFileContent: String = ""
     val name = "mock"
     def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
@@ -86,10 +85,9 @@ class LintTest extends munit.FunSuite:
     val mock = new CapturingAgent(expected)
     val result = lint(List("echo LINT-BODY-MARKER"), mock)
     assertEquals(result, expected)
-    // Small output is inlined directly — the sandbox-safe path (a read-only
-    // autonomous agent that can't reach files outside its worktree still sees
-    // it). So no `.txt` file is referenced and the output is in the prompt;
-    // the exact block format is pinned by the block-labelling test below.
+    // Small output is inlined directly, so a read-only autonomous agent that
+    // can't reach files outside its worktree still sees it: no `.txt` file is
+    // referenced.
     assert(
       mock.captured.contains("LINT-BODY-MARKER"),
       s"prompt should inline the lint output, got: ${mock.captured}"
@@ -105,9 +103,8 @@ class LintTest extends munit.FunSuite:
     val result = lint(List("echo ONE-OUT; exit 2", "echo TWO-OUT"), mock)
     assertEquals(result, expected)
     // The FIRST command fails, and the second's block still follows — an
-    // earlier failure never hides later diagnostics. The summariser sees one
-    // concatenation, in command order, each block labelled with its own
-    // command and exit status.
+    // earlier failure never hides later diagnostics. Blocks are concatenated in
+    // command order, each labelled with its command and exit status.
     assert(
       mock.captured.contains(
         "$ echo ONE-OUT; exit 2   (exit 2)\nONE-OUT\n\n" +
@@ -122,8 +119,8 @@ class LintTest extends munit.FunSuite:
     val result = lint(List("exit 3"), mock)
     assertEquals(result, expected)
     // A linter can fail with no stdout — the nonzero exit must not be
-    // swallowed by the empty-output short-circuit. The block is the label
-    // line alone, telling the summariser "ran, empty output, exit 3".
+    // swallowed by the empty-output short-circuit. The block is the label line
+    // alone.
     assert(
       mock.captured.contains("```\n$ exit 3   (exit 3)\n```"),
       s"prompt should hold the label-only block, got: ${mock.captured}"

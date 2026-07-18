@@ -2,11 +2,9 @@ package orca.pr
 
 import orca.util.PromptResource
 
-/** Default prompt fragment for the helpers in this package. Override by passing
-  * a different string to the helper's `instructions` parameter — wrap the
-  * default if you only want to extend it.
-  *
-  * Source text lives in `src/main/resources/orca/pr/prompts/`.
+/** Default prompt fragments for the helpers in this package, overridable via
+  * each helper's `instructions` parameter. Source text lives in
+  * `src/main/resources/orca/pr/prompts/`.
   */
 object PrPrompts:
 

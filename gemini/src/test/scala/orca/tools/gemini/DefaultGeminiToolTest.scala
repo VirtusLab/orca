@@ -7,7 +7,7 @@ import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 
 class DefaultGeminiAgentTest extends munit.FunSuite:
 
-  // LLM `run` is now gated on `InStage`; mint the token for the suite.
+  // LLM `run` is gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
 
   private val stubInteraction: Interaction = new Interaction:

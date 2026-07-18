@@ -6,8 +6,7 @@ import orca.settings.{AgentSettings, AgentSpec}
 
 /** The three role agents resolved for one run — every field an existentially
   * typed [[Agent]] since planning/coding/review can each land on a different
-  * backend. `runFlow` opens the existentials with type-variable patterns to
-  * construct the concretely-typed [[orca.runner.DefaultFlowContext]].
+  * backend.
   */
 private[runner] case class ResolvedRoles(
     planning: Agent[?],
@@ -15,9 +14,9 @@ private[runner] case class ResolvedRoles(
     review: Agent[?]
 )
 
-/** Where a resolved role's agent came from, in precedence order (design
-  * decision 10). Drives the role-announcement `Step`'s `(source)` suffix; the
-  * winning [[AgentSpec]] (if any) drives the `harness[:model]` part.
+/** Where a resolved role's agent came from, in precedence order. Drives the
+  * role-announcement `Step`'s `(source)` suffix; the winning [[AgentSpec]] (if
+  * any) drives the `harness[:model]` part.
   */
 private[runner] enum RoleSource:
   case Override, Project, Global, Default
@@ -34,9 +33,7 @@ private[orca] case class RoleOverrides(
 
 /** Outcome of [[RoleAgents.resolveAll]]: the resolved role agents, the
   * ready-to-emit announcement `Step` text, and any foreign-agent warnings (one
-  * per role whose override escaped the wired set). `runFlow` emits the warnings
-  * and the announcement, then threads the roles into the existential-opening
-  * match and the close guard.
+  * per role whose override escaped the wired set).
   */
 private[orca] case class RoleResolution(
     roles: ResolvedRoles,
@@ -56,27 +53,22 @@ private[orca] object RoleAgents:
       review = one(settings.review, agents)
     )
 
-  /** Resolve all three roles AND everything derived from that resolution, in
-    * one place, so the override>project>global>default precedence is encoded
-    * once (design decision 10). Per role: apply the programmatic override if
-    * present (winning over both files), else resolve the project-or-global spec
-    * against the wired set, else default to claude. The winning [[RoleSource]]
-    * and [[AgentSpec]] are captured as each role resolves and read back by the
-    * announcement, rather than re-derived — so the precedence ladder can't
-    * drift between agent selection and the `(source)` labels.
+  /** Resolve all three roles AND everything derived from that resolution, so
+    * the override>project>global>default precedence is encoded once. Per role:
+    * apply the programmatic override if present (winning over both files), else
+    * resolve the project-or-global spec against the wired set, else default to
+    * claude. The winning [[RoleSource]] and [[AgentSpec]] are captured as each
+    * role resolves and read back by the announcement, so the precedence ladder
+    * can't drift between agent selection and the `(source)` labels.
     *
     * A settings-resolved role is always one of the wired agents; only a
-    * programmatic override can escape the wired set (`_ => myPrebuiltAgent`,
-    * built from a separate `AgentWiring`), so a foreign-agent warning only ever
-    * fires for an override — event-blind, it never reaches this run's
-    * dispatcher.
+    * programmatic override can escape the wired set, so a foreign-agent warning
+    * only ever fires for an override.
     *
     * `onRoleResolved` is invoked with each role's agent AS IT resolves, before
-    * the next role's override runs. `runFlow` uses it to append to the
-    * pre-transfer close guard incrementally, so an EARLIER role that resolved
-    * to a foreign agent is still covered when a LATER override throws and this
-    * method never returns — resolution is atomic in its RESULT (a throw yields
-    * no `RoleResolution`), but the guard must see every agent already built.
+    * the next role's override runs — so an EARLIER role that resolved to a
+    * foreign agent is still covered by the caller's close guard when a LATER
+    * override throws and this method never returns.
     */
   def resolveAll(
       project: AgentSettings,
@@ -170,12 +162,11 @@ private[orca] object RoleAgents:
               foreign = false
             )
 
-  /** One role's announcement segment, `label=harness[:model] (source)` (design
-    * decision 10). The harness/model come from the winning [[AgentSpec]] when
-    * there is one (project/global); otherwise from the resolved backend's tag
-    * (an override shows its backend's harness, no model — the override's pin
-    * isn't a spec — and the built-in default resolves to claude). The
-    * `(source)` label is driven purely by the [[RoleSource]].
+  /** One role's announcement segment, `label=harness[:model] (source)`. The
+    * harness/model come from the winning [[AgentSpec]] when there is one
+    * (project/global); otherwise from the resolved backend's tag (an override
+    * shows its backend's harness, no model; the built-in default resolves to
+    * claude). The `(source)` label is driven purely by the [[RoleSource]].
     */
   private def announce(c: RoleChoice): String =
     val harness = c.spec match

@@ -39,9 +39,9 @@ class BaseAgentTest extends munit.FunSuite:
       AgentBackend.ClosedMessage
     )
 
-  // An unsupported output shape (a Map[String, _] field, which
-  // JsonSchemaGen rejects) must fail at `resultAs[O]` construction — before
-  // any stage runs — not remotely, after `.run()` spawns a backend process.
+  // An unsupported output shape (a Map[String, _] field, rejected by
+  // JsonSchemaGen) must fail at `resultAs[O]` construction, before any stage
+  // runs — not remotely, after `.run()` spawns a backend process.
   test("resultAs[O] with a Map field throws OrcaFlowException at construction"):
     val tool = new StubTool(StubBackend)
     val thrown = intercept[orca.OrcaFlowException]:
@@ -61,11 +61,10 @@ class BaseAgentTest extends munit.FunSuite:
       AgentBackend.ClosedMessage
     )
 
-  // The closed latch lives on the shared backend, so it must survive the two
-  // ways a leaked handle can re-derive a "fresh" object after close: the
-  // copyTool builders (`withName`/`withConfig`/model accessors — a new Agent
-  // instance over the same backend) and a resultAs gateway built before the
-  // close and invoked after (a DefaultAgentCall holding the backend directly).
+  // The closed latch lives on the shared backend, so it survives the two ways a
+  // leaked handle re-derives a "fresh" object after close: copyTool builders (a
+  // new Agent over the same backend) and a resultAs gateway built before close
+  // and invoked after.
   test("a copyTool-derived handle after close() throws OrcaFlowException"):
     val tool = new StubTool(new RecordingCloseBackend)
     tool.close()
@@ -88,10 +87,9 @@ class BaseAgentTest extends munit.FunSuite:
       AgentBackend.ClosedMessage
     )
 
-  // The runtime's internal cheap turns (branch naming, commit messages)
-  // consume their reply and re-surface it as the caller's own Step event —
-  // streaming the turn too would print the same text twice (e.g. a stray
-  // `● <branch-slug>` line right before "Switched to a new branch ...").
+  // The runtime's internal cheap turns (branch naming, commit messages) consume
+  // their reply and re-surface it as the caller's own Step event; streaming the
+  // turn too would print the same text twice.
   test(
     "cheapOneShot suppresses the turn's display events; TokensUsed still flows"
   ):
@@ -119,10 +117,9 @@ class BaseAgentTest extends munit.FunSuite:
       s"cost accounting must still flow on a quiet turn: $events"
     )
 
-  // Pins finding 6.3's fix: `config` is `Option[AgentConfig]`, not the old
-  // `AgentConfig.default` eq-sentinel. An explicit `Some(...)` wholly
-  // replaces the tool-level config (no per-field merge); omission (`None`)
-  // inherits it — see `BaseAgent.effectiveConfig`.
+  // An explicit `Some(...)` config wholly replaces the tool-level config (no
+  // per-field merge); omission (`None`) inherits it — see
+  // `BaseAgent.effectiveConfig`.
   test(
     "run(config = Some(AgentConfig())) wholly replaces the tool-level config"
   ):
@@ -161,10 +158,9 @@ class BaseAgentTest extends munit.FunSuite:
         StubInteraction
       ):
     val name: String = "stub"
-    // Mirrors every production implementation: a NEW instance over the SAME
-    // backend — so the copyTool-after-close test exercises the real leak
-    // shape (a fresh Agent object whose only tie to the closed flow is the
-    // shared backend), not a trivial same-instance alias.
+    // A new instance over the same backend, as production implementations do, so
+    // the copyTool-after-close test exercises the real leak shape rather than a
+    // same-instance alias.
     protected def copyTool(
         config: AgentConfig = toolConfig,
         name: String = name,

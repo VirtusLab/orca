@@ -21,12 +21,10 @@ import orca.util.RawJson
   */
 private[opencode] object OpencodeArgs:
 
-  /** `opencode serve` launch args. The `launcher` prefix (default: the bare
-    * `opencode` binary, resolved from `PATH`) is followed by `serve …`; an
-    * alternative like [[OpencodeLauncher.ollama]] wraps the binary to inject
-    * provider config. Port 0 = an OS-assigned free port (read back from the
-    * server's "listening on …" line). `--pure` is deliberately omitted so the
-    * spawned server inherits the user's configured providers.
+  /** `opencode serve` launch args: the `launcher` prefix followed by `serve …`.
+    * Port 0 = an OS-assigned free port (read back from the server's "listening
+    * on …" line). `--pure` is deliberately omitted so the spawned server
+    * inherits the user's configured providers.
     */
   def serve(
       launcher: OpencodeLauncher = OpencodeLauncher.default,
@@ -63,13 +61,9 @@ private[opencode] object OpencodeArgs:
     * `question` tool on an autonomous turn. Returns `None` when nothing is
     * gated so the body omits `tools` and the server's defaults apply.
     *
-    * Both read-only tiers disable the same write tools, so `NetworkOnly`
-    * behaves like `ReadOnly` here — opencode gets no dedicated network
-    * handling. opencode's web tool isn't in the disabled set, so web reads may
-    * remain available (server-dependent; not verified here); shell `gh` stays
-    * off (`bash` disabled). Scoped network would require enabling `bash`
-    * (dropping the hard no-edit guarantee) — out of scope; opencode flows
-    * pre-fetch issue/PR context instead.
+    * `NetworkOnly` gets no dedicated handling and behaves like `ReadOnly`:
+    * scoped network would need `bash` enabled, dropping the hard no-edit
+    * guarantee, so opencode flows pre-fetch issue/PR context instead.
     */
   private def toolFlags(
       config: AgentConfig,
@@ -95,14 +89,11 @@ private[opencode] object OpencodeArgs:
   /** How strongly opencode enforces each `(tools, autoApprove)` combination —
     * see [[toolFlags]] for the gate this classifies.
     *
-    *   - `ReadOnly` / `NetworkOnly` → `Hard`: both tiers disable the write
-    *     tools (`write`/`edit`/`bash`/`patch`) on the message body, a
-    *     mechanical no-edit gate. (`NetworkOnly` gets no dedicated handling —
-    *     it behaves like `ReadOnly`.)
-    *   - `Full` + `AutoApprove.All` / `Only(_)` → `Ignored`: `autoApprove` is
-    *     never encoded here — the approval policy is whatever the user's
-    *     `opencode` server config says via the `permission.asked` reply, which
-    *     is outside orca's control (ADR 0014 risk).
+    *   - `ReadOnly` / `NetworkOnly` → `Hard`: the write tools are disabled on
+    *     the message body, a mechanical no-edit gate.
+    *   - `Full` → `Ignored`: `autoApprove` is never encoded here — the approval
+    *     policy is whatever the user's `opencode` server config says via the
+    *     `permission.asked` reply, outside orca's control (ADR 0014 risk).
     */
   def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
     tools match

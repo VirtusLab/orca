@@ -20,55 +20,35 @@ import scala.util.control.NonFatal
   * '''Startup''': the workers (a stderr drain, an optional ask-user drainer,
   * and the reader) are started once, lazily, by [[ensureStarted]] — invoked
   * from the conversation surface ([[events]] / [[awaitResult]]), never from
-  * this constructor. Two reasons the capability lives on the surface methods
-  * rather than the constructor: (1) spawning from the constructor would race
-  * the subclass's own field initializers (which run after this
-  * super-constructor) and let the reader fork call [[handleLine]] against
+  * this constructor. Forking from the constructor would race the subclass's own
+  * field initializers and let the reader fork call [[handleLine]] against
   * half-built subclass state; by the time a consumer touches the surface,
-  * construction has finished. (2) keeping constructors capability-free (the
-  * owner's Ox method-scoping rule) — the `using Ox` the workers fork into is
-  * the per-turn supervised scope the backend's drain shell already opened
-  * (`Conversations.runAutonomous` / `AgentCall.runInteractiveOnce`), which is
-  * also the scope construction happens in, so the fork lifetime is unchanged.
+  * construction has finished. The scope the workers fork into is the per-turn
+  * supervised scope the backend's drain shell already opened.
   *
-  * '''Outcome plumbing''': there's no polled outcome ref — the reader fork
-  * RETURNS the `Outcome[B]`, and [[awaitResult]] is just the reader fork's join
-  * mapped. An in-stream settle ([[succeedWith]] / [[failWith]], run on the
-  * reader thread from inside [[handleLine]]) stashes its result for the
-  * reader's end-of-stream to pick up.
+  * '''Outcome plumbing''': the reader fork RETURNS the `Outcome[B]` and
+  * [[awaitResult]] is its join mapped. An in-stream settle ([[succeedWith]] /
+  * [[failWith]], run on the reader thread from inside [[handleLine]]) stashes
+  * its result for the reader's end-of-stream to pick up.
   *
-  * Subclasses implement a driver by supplying these hooks, grouped by role:
-  *   - '''Per-line translation''': [[handleLine]] (abstract — parse one stdout
-  *     line into enqueues and/or a settle) and [[handleStderr]] (default:
-  *     enqueue as an `Error`; the `StderrPipeline` mix-ins override it `final`
-  *     and vary only their `isStderrNoise` predicate).
-  *   - '''Settle''': [[succeedWith]] / [[failWith]] end the turn with a result
-  *     or a failure.
-  *   - '''Turn-grammar reads''': [[turnIsOpen]] / [[isSettled]] let a driver
-  *     ask "did activity stream this turn?" / "have we already settled?"
-  *     without its own bookkeeping.
-  *   - '''Lifecycle''': [[onFinalize]] (drain background streams, release
-  *     session resources — runs exactly once), [[onCancelRequested]] (genuine
-  *     mid-turn cancel only, never a routine post-success teardown), and
-  *     [[cleanExitWithoutResult]] (the exception for a zero-exit stream that
-  *     never sent a terminal message).
-  *   - '''Diagnostics''': [[diagnosticContext]] / [[appendContext]] fold
-  *     optional buffered context into failure messages.
-  *   - '''Ask-user''': [[askUser]] wires an MCP `ask_user` bundle; the base
-  *     spawns its drainer fork and closes it at finalize.
+  * Subclasses implement a driver by supplying these hooks:
+  *   - '''Per-line translation''': [[handleLine]] (parse one stdout line into
+  *     enqueues and/or a settle) and [[handleStderr]].
+  *   - '''Settle''': [[succeedWith]] / [[failWith]].
+  *   - '''Turn-grammar reads''': [[turnIsOpen]] / [[isSettled]].
+  *   - '''Lifecycle''': [[onFinalize]] (runs exactly once),
+  *     [[onCancelRequested]] (genuine mid-turn cancel only), and
+  *     [[cleanExitWithoutResult]].
+  *   - '''Diagnostics''': [[diagnosticContext]] / [[appendContext]].
+  *   - '''Ask-user''': [[askUser]] wires an MCP `ask_user` bundle.
   *   - '''Enqueue contract''': all events reach the channel through
-  *     `eventQueue.enqueue`, which enforces the [[ConversationEvent]] turn
-  *     grammar by construction. Callers from a background fork (the stderr
-  *     loop, the ask-user drainer) MUST only ever pass NEUTRAL events — see
-  *     [[EventQueue]]'s confinement contract.
+  *     `eventQueue.enqueue`; callers from a background fork MUST only pass
+  *     NEUTRAL events — see [[EventQueue]]'s confinement contract.
   */
 private[orca] abstract class ForkedConversation[B <: BackendTag](
     source: StreamSource,
     /** Used in fork-internal debug traces, parse-error messages, and the
       * default stderr error prefix. Should match the user-facing backend name.
-      * `protected` so [[StderrPipeline]]'s hoisted `handleStderr` can build the
-      * same `"$backendName: $line"` prefix each subprocess backend used to
-      * hardcode individually.
       */
     protected val backendName: String,
     initialPrompt: String = "",
@@ -83,49 +63,36 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
 
   /** Bounded event channel: a slow consumer applies backpressure to the
     * producer (the reader's `send` blocks once full) so it flows back into the
-    * subprocess pipe. Created with the explicit capacity so no `BufferCapacity`
-    * needs threading through the backends.
+    * subprocess pipe.
     */
   private val channel: Channel[ConversationEvent] =
     Channel.buffered(EventQueueCapacity)
 
-  /** `enqueue` / `close` facade over the channel for subclass drivers. It
-    * centralises the swallow-on-closed decision in one place: both use the
-    * `*OrClosed` variants so a late enqueue (e.g. the ask-user drainer racing
-    * the reader's close) is a no-op rather than a thrown `ChannelClosed` that
-    * would tear the scope.
+  /** `enqueue` / `close` facade over the channel for subclass drivers. Both use
+    * the `*OrClosed` variants so a late enqueue (e.g. the ask-user drainer
+    * racing the reader's close) is a no-op rather than a thrown `ChannelClosed`
+    * that would tear the scope.
     *
-    * It ALSO enforces the [[ConversationEvent]] turn grammar by construction,
-    * so backends no longer hand-roll it: activity events open the current turn,
-    * an `AssistantTurnEnd` closes an open turn (and is DROPPED as an empty turn
-    * if none is open), and the settle helpers auto-close a still-open turn (see
-    * [[succeedWith]] / [[failWith]]). The activity/neutral classification
-    * routes through [[ConversationEvent.opensTurn]], the single source of truth
-    * for that split — an exhaustive match, so a future `ConversationEvent` case
-    * can't silently fall through as neutral here.
+    * It ALSO enforces the [[ConversationEvent]] turn grammar by construction:
+    * activity events open the current turn, an `AssistantTurnEnd` closes an
+    * open turn (and is DROPPED as an empty turn if none is open), and the
+    * settle helpers auto-close a still-open turn (see [[succeedWith]] /
+    * [[failWith]]). The activity/neutral split routes through
+    * [[ConversationEvent.opensTurn]].
     *
     * '''Confinement contract''': `enqueue` mutates the reader-thread-confined
     * [[turnIsOpen]] state, so any caller from a background fork (`stderrLoop`,
-    * `askUserDrain`) MUST only ever pass NEUTRAL events — verified today across
-    * all five backends (stderr enqueues only `Error`; the ask-user drainer only
-    * `UserQuestion`). A future driver that emits an activity event or an
-    * `AssistantTurnEnd` off the reader thread would race `turnIsOpen` with no
-    * compiler or test signal; see [[turnIsOpen]]'s single-writer note.
+    * `askUserDrain`) MUST only ever pass NEUTRAL events — see [[turnIsOpen]]'s
+    * single-writer note.
     */
   protected final class EventQueue:
     def enqueue(event: ConversationEvent): Unit =
       event match
-        // AssistantTurnEnd has its own forward/drop arm, ahead of the
-        // activity/neutral split below: it closes an open turn, or is DROPPED
-        // as an empty turn if none is open (fixes gemini's unconditional
-        // pre-result end and claude's suppressed ask_user-only turn).
+        // Closes an open turn, or is dropped as an empty turn if none is open.
         case ConversationEvent.AssistantTurnEnd =>
           if openTurn then
             openTurn = false
             channel.sendOrClosed(event).discard
-        // Activity (turn-opening) vs. neutral (UserMessage, Error,
-        // ApproveTool, UserQuestion): ConversationEvent.opensTurn is the
-        // exhaustive, single-source-of-truth classifier — see its scaladoc.
         case _ if event.opensTurn =>
           openTurn = true
           channel.sendOrClosed(event).discard
@@ -137,20 +104,14 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
 
   /** In-stream settled outcome, written once by [[succeedWith]] / [[failWith]]
     * (on the reader thread, inside [[handleLine]]) and read by the reader at
-    * end-of-stream (`runReader`, same thread) — that side is still a
-    * single-WRITER property: every caller of `succeedWith`/`failWith` across
-    * the backends (claude, codex, gemini, pi, opencode) settles from inside its
-    * `handleLine` dispatch, so "first write wins" needs no CAS.
+    * end-of-stream — a single-writer property, so "first write wins" needs no
+    * CAS.
     *
-    * But [[isSettled]] is also read from [[cancel]], which runs on the DRIVING
-    * thread (the caller's `finally`, e.g. `AgentCall`/`Conversations`, or
-    * `ConversationRenderer` on a prompt interrupt) — a genuinely cross-thread
-    * read racing the reader's write with no channel operation or other
-    * synchronization action between them. `@volatile` is what makes that read
-    * see a completed settle rather than a stale `None`; without it a cancel
-    * racing the reader's last line could observe `isSettled == false` and fire
-    * a backend's real abort-the-turn hook ([[onCancelRequested]]) on a turn
-    * that just succeeded.
+    * `@volatile` because [[isSettled]] is also read from [[cancel]], which runs
+    * on the DRIVING thread — a cross-thread read racing the reader's write with
+    * no synchronization between them. Without it a cancel racing the reader's
+    * last line could observe `isSettled == false` and fire
+    * [[onCancelRequested]] on a turn that just succeeded.
     */
   @volatile private var settledOutcome: Option[Outcome[B]] = None
 
@@ -161,49 +122,32 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
 
   /** Whether a turn is currently open — set by [[EventQueue.enqueue]] when an
     * activity event flows and cleared by the closing `AssistantTurnEnd` (or the
-    * settle auto-close). Read by the settle helpers here and exposed to
-    * subclasses so a driver can ask "did activity stream this turn?" without
-    * its own bookkeeping.
+    * settle auto-close).
     *
-    * '''Reader-thread-confined invariant''' (distinct from [[settledOutcome]]'s
-    * — that field has a genuine cross-thread reader in [[cancel]], which is why
-    * it's `@volatile`; `openTurn` has no such reader): `openTurn` is written
-    * only from `enqueue` on activity/turn-end events and from the settle-time
-    * auto-close — all of which run on the reader thread, inside [[handleLine]]
-    * or the reader's end-of-stream — and read only via [[turnIsOpen]] from that
-    * same thread ([[closeOpenTurn]], and subclasses' reads happen from inside
-    * their own `handleLine`). The other two `enqueue` producers run on
-    * different threads (`stderrLoop`, `askUserDrain`) but only ever pass
-    * NEUTRAL events, which don't touch this field (the confinement contract
-    * stated on [[EventQueue]]). So both single-writer AND single-reader are
-    * plain-`var` properties, not a coincidence — but an implicit one: a future
-    * driver emitting activity off the reader thread, or a cross-thread read of
-    * [[turnIsOpen]], would silently break it.
+    * '''Reader-thread-confined invariant''': `openTurn` is written and read
+    * only from the reader thread (via `enqueue` on activity/turn-end events,
+    * the settle-time auto-close, and [[turnIsOpen]] reads inside `handleLine`),
+    * so a plain `var` is correct with no `@volatile`. The
+    * `stderrLoop`/`askUserDrain` producers run on other threads but pass only
+    * NEUTRAL events, which don't touch this field (the [[EventQueue]]
+    * confinement contract). A future driver emitting activity off the reader
+    * thread, or a cross-thread [[turnIsOpen]] read, would silently break it.
     */
   private var openTurn: Boolean = false
 
-  /** The reader thread's identity, captured once at the top of [[runReader]]
-    * (before any [[handleLine]] dispatch can run) so [[succeedWith]] /
-    * [[failWith]] can assert the single-writer invariant [[settledOutcome]]'s
-    * scaladoc documents — every backend settles from inside its own
-    * `handleLine`, on this thread — rather than let a future backend #6 that
-    * settles from a background fork silently violate it. Written once,
-    * read-after-write on the same thread that wrote it (the reader), so a plain
-    * `var` needs no `@volatile`: unlike [[settledOutcome]], nothing reads this
-    * cross-thread. `null` only before the reader fork starts, which is also
-    * before either settle method can possibly run.
+  /** The reader thread's identity, captured once at the top of [[runReader]] so
+    * [[succeedWith]] / [[failWith]] can assert [[settledOutcome]]'s
+    * single-writer invariant (every settle happens on the reader thread).
+    * Written and read only on the reader thread, so a plain `var` suffices;
+    * `null` only before the reader fork starts, which is also before either
+    * settle method can run.
     */
   private var readerThread: Thread | Null = null
 
   /** Single-writer check for [[succeedWith]] / [[failWith]]: neither may run
-    * off the reader thread. A plain (unelided) `assert` rather than an
-    * `OrcaDebug`-gated one — this is a backend-authoring contract violation (a
-    * driver settling from a background fork instead of `handleLine`), always a
-    * bug and never a legitimate runtime condition a production flow should
-    * tolerate silently, so it's not worth hiding behind a debug flag a real
-    * user run would never think to set. Deliberately does NOT touch
-    * [[isSettled]]'s read from [[cancel]], which runs on the driving thread by
-    * design.
+    * off the reader thread. A plain (unelided) `assert` because a driver
+    * settling from a background fork is always a backend-authoring bug, never a
+    * legitimate runtime condition to tolerate silently.
     */
   private def assertReaderThread(caller: String): Unit =
     assert(
@@ -215,8 +159,7 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     )
 
   /** True iff a turn is currently open (activity streamed since the last
-    * `AssistantTurnEnd`). The base reads it to decide the settle auto-close;
-    * subclasses may read it in place of their own turn-openness flags.
+    * `AssistantTurnEnd`).
     */
   protected final def turnIsOpen: Boolean = openTurn
 
@@ -230,10 +173,9 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
   private val finalized: AtomicBoolean = new AtomicBoolean(false)
 
   /** Optional `ask_user` MCP resource bundle for this conversation. Interactive
-    * subclasses override (via `override val askUser` on the ctor param) to
-    * point the base at the bundle; the base spawns the drainer fork when the
-    * workers start and closes the bundle in the finalize. Autonomous calls
-    * leave the default `None`.
+    * subclasses override to point the base at the bundle; the base spawns the
+    * drainer fork when the workers start and closes the bundle in the finalize.
+    * Autonomous calls leave the default `None`.
     */
   protected def askUser: Option[AskUserSession] = None
 
@@ -242,45 +184,39 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     */
   final def canAskUser: Boolean = nativeAskUser || askUser.isDefined
 
-  // Surface the opening prompt before any agent output, so the channel has
-  // something to anchor the eventual response against instead of sitting silent
-  // while the agent warms up. Lands in the buffer now; the consumer reads it
-  // first once the reader starts.
+  // Surface the opening prompt before any agent output, so the channel isn't
+  // silent while the agent warms up. Lands in the buffer now; the consumer
+  // reads it first once the reader starts.
   if initialPrompt.nonEmpty then
     eventQueue.enqueue(ConversationEvent.UserMessage(initialPrompt))
 
   // --- Workers (Ox forks) ---
   //
-  // Started once, lazily, from the conversation surface ([[ensureStarted]], via
-  // [[events]] / [[awaitResult]]), never from this constructor (see the class
-  // scaladoc). The reader is `forkUnsupervised` so its (by-design impossible)
-  // stray exception surfaces via `join` rather than tearing the per-turn scope;
-  // it returns an `Outcome[B]` and never throws. The stderr-drain and ask-user
+  // The reader is `forkUnsupervised` so its (by-design impossible) stray
+  // exception surfaces via `join` rather than tearing the per-turn scope; it
+  // returns an `Outcome[B]` and never throws. The stderr-drain and ask-user
   // forks are ordinary daemon `fork`s the scope cancels at its end.
 
   private case class Workers(reader: UnsupervisedFork[Outcome[B]])
 
-  /** The started workers, written once by [[ensureStarted]]. Read by
-    * [[awaitResult]] (reader join) on the consuming thread — `@volatile` so a
+  /** The started workers, written once by [[ensureStarted]]. `@volatile` so a
     * `cancel` racing the first `events` / `awaitResult` sees the started fork
     * (or a definite `None`), never a torn half-initialised reference.
     */
   @volatile private var workers: Option[Workers] = None
 
   /** The stderr-drain fork handle, in its own field written BEFORE the reader
-    * fork starts: the reader's happy-path finalize joins [[stderrDrainFork]]
-    * from the reader's own thread, and on an instant-EOF stream it can get
-    * there before `ensureStarted`'s later writes land — reading `None` there
-    * would silently skip the drain join and drop the stderr diagnostics from
-    * the failure message.
+    * fork starts: the reader's happy-path finalize joins it from the reader's
+    * own thread, and on an instant-EOF stream it can get there before
+    * `ensureStarted`'s later writes land — reading `None` there would drop the
+    * stderr diagnostics from the failure message.
     */
   @volatile private var stderrFork: Option[Fork[Unit]] = None
 
   /** Start the reader / stderr / ask-user forks on first touch of the surface;
-    * a no-op thereafter, returning the already-started set. The auxiliary
-    * workers are forked (and [[stderrFork]] published) before the reader, so
-    * stderr/ask-user are running — and the drain handle is visible to the
-    * reader's finalize — before the reader consumes stdout. The consumer is
+    * a no-op thereafter. The auxiliary workers are forked (and [[stderrFork]]
+    * published) before the reader, so the drain handle is visible to the
+    * reader's finalize before the reader consumes stdout. The consumer is
     * single-threaded ([[events]] then [[awaitResult]] on the same thread), so
     * the check-then-start needs no lock.
     */
@@ -303,10 +239,9 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     * the turn has run and the wire session may already exist, so a retry
     * against the same id would only cascade into "already in use" / a broken
     * pipe rather than a clean re-attempt. Pre-spawn *open* failures never reach
-    * this method at all — they throw from `openConversation` (before a
-    * `Conversation` exists to call `awaitResult` on) as plain
-    * [[OrcaFlowException]]s and stay retryable. The retry POLICY that acts on
-    * this classification lives in `DefaultAgentCall.runAutonomousWithRetry`.
+    * this method — they throw from `openConversation` as plain
+    * [[OrcaFlowException]]s and stay retryable. The retry POLICY lives in
+    * `DefaultAgentCall.runAutonomousWithRetry`.
     */
   def awaitResult()(using
       Ox
@@ -323,19 +258,16 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
 
   def cancel(): Unit =
     if cancelled.compareAndSet(false, true) then
-      // Only a turn that hasn't settled yet is a GENUINE cancel (the user hit
-      // Ctrl-C, or the driving loop unwound mid-turn); a turn already settled
-      // via succeedWith/failWith is merely being torn down here in a
-      // `finally` after it finished on its own, so the hook must not see it
-      // as a cancellation. Checked before the interrupt/destroy sequence,
-      // which must always run regardless (idle teardown is harmless there).
+      // Only a turn that hasn't settled yet is a GENUINE cancel; a turn already
+      // settled via succeedWith/failWith is merely being torn down here in a
+      // `finally`, so the hook must not see it as a cancellation. The
+      // interrupt/destroy below always runs regardless (idle teardown is
+      // harmless there).
       if !isSettled then onCancelRequested()
-      // Graceful SIGINT first, then the guaranteed forcible backstop, so the
+      // Graceful SIGINT first, then the forcible backstop, so the
       // non-interruptible reader's `source.lines` always reaches EOF and the
-      // scope join never hangs. On the happy path both are no-ops (the source
-      // already ended). Then run the full finalize (subsuming the old
-      // `finalizeLoop` resource close); the `finalized` guard means the reader,
-      // if it got there first, isn't re-run.
+      // scope join never hangs. Both are no-ops on the happy path. The
+      // `finalized` guard means the reader, if it got there first, isn't re-run.
       source.interrupt()
       source.destroyForcibly()
       runFinalize()
@@ -355,11 +287,8 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     source.interrupt()
 
   /** Assemble an [[AgentResult]] from a driver's synthesised turn values and
-    * settle with it via [[succeedWith]]. Wraps the reported wire-id string in
-    * [[WireSessionId]]`[B]` and the optional model-id string in [[Model]] —
-    * collapsing the byte-identical settle scaffolding every driver used to
-    * spell out (a `WireSessionId[…]` + `Model.apply` +
-    * `succeedWith(AgentResult(…))`).
+    * settle with it via [[succeedWith]]. Wraps the wire-id string in
+    * [[WireSessionId]]`[B]` and the optional model-id string in [[Model]].
     */
   protected def settleSuccess(
       wireId: String,
@@ -387,11 +316,10 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     source.interrupt()
 
   /** Terminate an open turn at settle time by enqueuing the owed
-    * `AssistantTurnEnd` (which closes it via the funnel). A no-op when no turn
-    * is open, so a driver that already emitted its own protocol-driven turn end
-    * before settling never double-emits — its end closed the turn, this sees
-    * none open. Runs on the reader thread, before `settledOutcome` is set, so
-    * the closing event reaches the channel ahead of the reader's close.
+    * `AssistantTurnEnd`. A no-op when no turn is open, so a driver that already
+    * emitted its own turn end before settling never double-emits. Runs on the
+    * reader thread, before `settledOutcome` is set, so the closing event
+    * reaches the channel ahead of the reader's close.
     */
   private def closeOpenTurn(): Unit =
     if turnIsOpen then eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
@@ -415,20 +343,17 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
   /** Hook called inside the finalize **before** the failure outcome is
     * computed, so subclasses can drain background streams whose buffered state
     * [[diagnosticContext]] / [[cleanExitWithoutResult]] depend on (join the
-    * [[stderrDrainFork]] here). Also where backends release session-scoped
-    * resources. Runs exactly once (reader happy-path OR [[cancel]]). Default:
-    * no-op.
+    * [[stderrDrainFork]] here), and release session-scoped resources. Runs
+    * exactly once (reader happy-path OR [[cancel]]). Default: no-op.
     */
   protected def onFinalize(): Unit = ()
 
-  /** Hook called from inside [[cancel]]'s idempotence guard, but ONLY when the
-    * turn hasn't already settled (see [[isSettled]]) — i.e. exactly the genuine
-    * "torn down mid-turn" case, never the routine `finally cancel()` that every
-    * caller runs after a turn that already succeeded or failed on its own. Runs
-    * before the interrupt/destroy sequence. Default: no-op. Backends that need
-    * to notify a remote peer the turn is being abandoned (e.g. OpenCode's `POST
-    * /abort`) override this instead of [[cancel]], so that notification never
-    * fires for a session merely being torn down after a normal turn.
+  /** Hook called from inside [[cancel]], but ONLY when the turn hasn't already
+    * settled — i.e. the genuine "torn down mid-turn" case, never the routine
+    * `finally cancel()` after a turn that finished on its own. Runs before the
+    * interrupt/destroy sequence. Default: no-op. Backends that must notify a
+    * remote peer the turn is being abandoned (e.g. OpenCode's `POST /abort`)
+    * override this instead of [[cancel]].
     */
   protected def onCancelRequested(): Unit = ()
 
@@ -441,8 +366,7 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
 
   /** The exception used when the subprocess exits with code 0 without having
     * sent its [[terminalMessageNoun]]. Folds [[diagnosticContext]] into the
-    * message (a no-op for backends that carry none); backends vary only the
-    * noun, not this assembly.
+    * message; backends vary only the noun, not this assembly.
     */
   protected def cleanExitWithoutResult(): Throwable =
     new OrcaFlowException(
@@ -454,13 +378,12 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
   /** Optional context the base folds into the non-zero-exit / clean-exit
     * failure messages, so noop-listener callers still get something useful in
     * the thrown exception. Default `None`; backends override to attach buffered
-    * stderr. Overrides return just the payload, never the separator.
+    * stderr, returning just the payload, never the separator.
     */
   protected def diagnosticContext: Option[String] = None
 
   /** Fold the [[diagnosticContext]] payload (if any) onto a failure-message
-    * base — newline + two-space-indented payload. Centralised so every consumer
-    * gets the same framing.
+    * base — newline + two-space-indented payload.
     */
   protected def appendContext(base: String): String =
     diagnosticContext.fold(base)(ctx => s"$base\n  $ctx")
@@ -479,7 +402,7 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
   // --- Internals ---
 
   /** Sole outcome producer. Catches everything and RETURNS an `Outcome[B]` —
-    * never throws (H1), so the reader fork's `join()` always yields an outcome.
+    * never throws, so the reader fork's `join()` always yields an outcome.
     */
   private def runReader(): Outcome[B] =
     readerThread = Thread.currentThread()
@@ -550,11 +473,11 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
 
   private def runFinalize(): Unit =
     if finalized.compareAndSet(false, true) then
-      // 1. Subclass hook — typically joins the stderr-drain fork so trailing
-      //    lines reach the queue / `diagnosticContext` before the outcome.
+      // Subclass hook — typically joins the stderr-drain fork so trailing lines
+      // reach the queue / `diagnosticContext` before the outcome.
       onFinalize()
-      // 2. Close the ask_user bundle (bridge → server → extras) if wired, after
-      //    `onFinalize` so any cleanup depending on it runs first. Idempotent.
+      // Close the ask_user bundle if wired, after `onFinalize` so any cleanup
+      // depending on it runs first. Idempotent.
       askUser.foreach(_.close())
 
   private def outcomeFromExit(exitCode: Option[Int]): Outcome[B] =
@@ -603,10 +526,7 @@ private[orca] object ForkedConversation:
     */
   val EventQueueCapacity: Int = 1024
 
-  /** Internal outcome of the session as the reader sees it. Modelled as a
-    * sealed trait + cases so `Cancelled` / `Failed` are backend-agnostic
-    * (`Nothing` for their `B` keeps them assignable to any `Outcome[B]` while
-    * the match still narrows `Success`'s `B`). `Outcome` is invariant in `B`
+  /** Internal outcome of the session as the reader sees it. Invariant in `B`
     * because `AgentResult[B]` is.
     */
   sealed trait Outcome[B <: BackendTag]

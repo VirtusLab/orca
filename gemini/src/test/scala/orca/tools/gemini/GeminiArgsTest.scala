@@ -22,9 +22,7 @@ class GeminiArgsTest extends munit.FunSuite:
 
   test("headless passes --skip-trust so headless runs in an untrusted dir"):
     // Without it gemini refuses to run in a non-trusted folder (exit 55) and
-    // silently overrides --approval-mode back to "default". orca always drives
-    // a working dir the agent is meant to operate in, so trust is unconditional
-    // — the analog of codex's --skip-git-repo-check.
+    // silently overrides --approval-mode back to "default".
     val args = GeminiArgs.headless("x", AgentConfig())
     assert(args.contains("--skip-trust"), args.toString)
 
@@ -43,9 +41,9 @@ class GeminiArgsTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--approval-mode", "yolo")), args.toString)
 
   test("AutoApprove.Only widens to --approval-mode yolo"):
-    // Gemini has no per-tool CLI allowlist; Only(_) widens to yolo so
-    // autonomous (headless) turns actually progress instead of blocking on
-    // an approval prompt no one can answer. See ADR 0015.
+    // Gemini has no per-tool CLI allowlist; Only(_) widens to yolo so headless
+    // turns progress instead of blocking on an approval no one can answer (ADR
+    // 0015).
     val args = GeminiArgs.headless(
       "x",
       AgentConfig().copy(autoApprove = AutoApprove.Only(Set("Bash")))

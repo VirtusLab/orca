@@ -20,8 +20,7 @@ import scala.jdk.CollectionConverters.*
 class OsGitHubToolTest extends munit.FunSuite:
 
   // Tests exercise gated gh mutators directly; mint the workspace-write token
-  // once for the whole suite (package `orca.tools` can reach
-  // `WorkspaceWrite.unsafe`).
+  // once for the whole suite (package `orca.tools` can reach `WorkspaceWrite.unsafe`).
   private given WorkspaceWrite = WorkspaceWrite.unsafe
 
   private def stubGh(response: CliResult): (StubCliRunner, OsGitHubTool) =
@@ -216,12 +215,11 @@ class OsGitHubToolTest extends munit.FunSuite:
   test(
     "buildStatus reports Pending when a still-running check is mixed with an already-failed one"
   ):
-    // aggregateOutcome checks `states.contains(CheckState.Pending)` before it
-    // ever asks whether any check failed, so one lagging check short-circuits
-    // the whole rollup to Pending even though a sibling check already
-    // resolved to Failure — this is what keeps waitForBuild polling past a
-    // failed check while the others are still running, instead of returning
-    // Failure the instant the first one lands.
+    // aggregateOutcome checks `states.contains(CheckState.Pending)` before
+    // asking whether any check failed, so one lagging check short-circuits the
+    // whole rollup to Pending even when a sibling already resolved to Failure —
+    // this keeps waitForBuild polling while other checks run rather than
+    // returning Failure the instant the first one lands.
     val json =
       """{"statusCheckRollup":[
         | {"status":"IN_PROGRESS","name":"slow-check"},
@@ -240,10 +238,9 @@ class OsGitHubToolTest extends munit.FunSuite:
   test("stateOf maps a legacy EXPECTED status context to Pending"):
     // GitHub's legacy commit-status/GraphQL StatusState `EXPECTED` means "a
     // required external CI context registered but hasn't reported yet" —
-    // distinct from PENDING (running), but equally not-yet-resolved. Before
-    // this classification existed, a present-but-not-pending, present-but-
-    // not-success check fell through to an instant Failure, defeating
-    // waitForBuild's noChecksGrace machinery.
+    // distinct from PENDING (running), but equally not-yet-resolved. Without
+    // this classification such a check falls through to an instant Failure,
+    // defeating waitForBuild's noChecksGrace machinery.
     assertEquals(
       OsGitHubTool.stateOf(GhCheck(state = Some("EXPECTED"))),
       CheckState.Pending
@@ -392,20 +389,16 @@ class OsGitHubToolTest extends munit.FunSuite:
   test(
     "waitForBuild's sticky watermark carries the ON transition forward across later polls"
   ):
-    // Reverse of the transition above: the rollup starts EMPTY (checkCount
-    // 0, not yet seen), then gains a check on the very next poll. `seen`
-    // must flip to true right there and *stay* true on every later poll —
-    // including the ones after the sequenced stub runs out and repeats its
-    // last response — so the NoChecksConfigured fast-path never fires even
-    // once the grace deadline passes; the loop instead falls through to
-    // BuildTimedOut at the (later) timeout. This pins the recursive
-    // `loop(seen)` threading, not a "checkCount vs log.nonEmpty" distinction
-    // — an IN_PROGRESS check renders a non-empty log line too, so this
-    // input can't actually discriminate between the two signals.
+    // Reverse of the transition above: the rollup starts EMPTY (not yet seen),
+    // then gains a check on the next poll. `seen` must flip to true there and
+    // *stay* true on every later poll — including after the sequenced stub runs
+    // out and repeats its last response — so the NoChecksConfigured fast-path
+    // never fires even once the grace deadline passes; the loop falls through
+    // to BuildTimedOut at the (later) timeout. Pins the recursive `loop(seen)`
+    // threading.
     //
-    // Driven by a call-count-sequenced stub rather than a wall-clock race
-    // (a background thread flipping the response after a sleep), so it
-    // can't false-fail under CI scheduling jitter.
+    // Call-count-sequenced rather than a wall-clock race, so it can't
+    // false-fail under CI scheduling jitter.
     val pendingJson =
       """{"statusCheckRollup":[{"status":"IN_PROGRESS","name":"t"}]}"""
     val cli = new SequencedCliRunner(
@@ -473,7 +466,6 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
     val pr = gh.createPr("feat: hi", "hello").orThrow
     assertEquals(pr, samplePr)
-    // Prove the idempotency path went through git rev-parse and gh pr list
     val callArgs = cli.calls.map(_.args)
     assert(
       callArgs.exists(
@@ -496,10 +488,9 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
 
   test("currentBranchGit carries OsGitTool.nonInteractiveEnv"):
-    // The git rev-parse call made during the PR-reuse fallback must carry the
-    // same non-interactive env as every other git invocation
-    // (OsGitTool.nonInteractiveEnv) — otherwise a stalled credential/
-    // passphrase prompt on this one path could hang the flow.
+    // The git rev-parse in the PR-reuse fallback must carry the same
+    // non-interactive env as every other git invocation — otherwise a stalled
+    // credential/passphrase prompt on this path could hang the flow.
     val prListJson =
       """[{"number":42,"url":"https://github.com/acme/widgets/pull/42"}]"""
     val cli = new SequencedCliRunner(

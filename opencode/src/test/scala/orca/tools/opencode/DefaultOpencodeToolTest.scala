@@ -23,7 +23,7 @@ import orca.agents.{
 
 class DefaultOpencodeAgentTest extends munit.FunSuite:
 
-  // LLM `run` is now gated on `InStage`; mint the token for the suite.
+  // LLM `run` is gated on `InStage`; mint the token for the suite.
   private given orca.InStage = orca.InStage.unsafe
 
   /** Captures the config the tool resolves for an autonomous call. */

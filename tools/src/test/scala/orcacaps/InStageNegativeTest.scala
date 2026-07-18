@@ -34,10 +34,8 @@ class InStageNegativeTest extends munit.FunSuite:
   test(
     "a gated git mutation does NOT compile without a WorkspaceWrite in scope"
   ):
-    // The real B2 enforcement, post-0.4 split: with a `GitTool` in scope but NO
-    // `WorkspaceWrite`, `git.commit(...)` must fail to compile, pointing at the
-    // missing capability. Proves the gate works end-to-end — a workspace
-    // mutation is impossible outside a stage.
+    // With a `GitTool` in scope but NO `WorkspaceWrite`, `git.commit(...)` must
+    // fail to compile — a workspace mutation is impossible outside a stage.
     val errors = compileErrors(
       """
       val git: orca.tools.GitTool = ???
@@ -48,12 +46,11 @@ class InStageNegativeTest extends munit.FunSuite:
       errors.nonEmpty,
       "expected a compile error for git.commit without a WorkspaceWrite"
     )
-    // `WorkspaceWrite`'s `@implicitNotFound` makes the error user-facing — it
-    // tells the author to move the call into a `stage(...)` body (not a `fork`
-    // within one), rather than naming the internal `WorkspaceWrite` type. Pin
-    // that message (and that the cryptic default is gone) — and that it is
-    // DISTINCT from the InStage message below, since the two tokens now gate
-    // different effects.
+    // `WorkspaceWrite`'s `@implicitNotFound` tells the author to move the call
+    // into a `stage(...)` body (not a `fork` within one), rather than naming
+    // the internal `WorkspaceWrite` type. Pin that message, and that it is
+    // DISTINCT from the InStage message below — the two tokens gate different
+    // effects.
     assert(
       errors.contains(
         "must be made inside a `stage(...)` body"
@@ -67,10 +64,8 @@ class InStageNegativeTest extends munit.FunSuite:
     )
 
   test("a gated LLM run does NOT compile without an InStage in scope"):
-    // The InStage half of the same enforcement: with an `Agent` in scope but
-    // NO `InStage`, `agent.run(...)` must fail to compile. Proves the
-    // LLM-call gate still works after the split — only a `stage(...)` body can
-    // spend tokens.
+    // With an `Agent` in scope but NO `InStage`, `agent.run(...)` must fail to
+    // compile — only a `stage(...)` body can spend tokens.
     val errors = compileErrors(
       """
       val agent: orca.agents.Agent[orca.agents.BackendTag.ClaudeCode.type] = ???
