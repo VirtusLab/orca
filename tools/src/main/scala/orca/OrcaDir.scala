@@ -58,6 +58,26 @@ private[orca] object OrcaDir:
     writeIfAbsent(cache / "CACHEDIR.TAG", cachedirTagContents)
     cache
 
+  /** `<workDir>/.orca/cache/runs/`, idempotently ensured. Holds per-run
+    * ephemera (a later epic); a trivial sibling of [[ensureCache]] since it
+    * lives inside the already-guarded cache dir.
+    */
+  def cacheRunsPath(workDir: os.Path): os.Path =
+    val runs = ensureCache(workDir) / "runs"
+    os.makeDir.all(runs)
+    runs
+
+  /** `<workDir>/.orca/flows` — project-tier flow scripts (ADR 0021 §5),
+    * committed like the rest of `.orca`'s root.
+    */
+  def flowsPath(workDir: os.Path): os.Path = root(workDir) / "flows"
+
+  /** Idempotently ensure `.orca/flows/` exists and return it. */
+  def ensureFlows(workDir: os.Path): os.Path =
+    val flows = flowsPath(workDir)
+    abortIfOrcaComponentSymlink(workDir, flows)
+    flows.tap(os.makeDir.all(_))
+
   /** Refuse if `.orca` — or any orca-created directory from it down to `dir`
     * (inclusive) — is a symlink, before any `os.makeDir.all`/write through it.
     * A committed symlink at any component (git mode 120000) would redirect
