@@ -11,7 +11,9 @@ import scala.annotation.implicitNotFound
   * `caps.SharedCapability`, so it may be captured freely into a `fork` (the
   * reviewer fan-out's shared `InStage` capture is load-bearing) and is exempt
   * from separation rules. The EXCLUSIVE half — [[WorkspaceWrite]] — gates
-  * mutations that must NOT cross a fork boundary.
+  * mutations that must NOT cross a fork boundary. `caps.SharedCapability` is
+  * non-experimental on 3.8.4, so — unlike [[WorkspaceWrite]] — this file needs
+  * no `captureChecking` language import.
   *
   * Carries no state; it is a real class only so capture checking has a
   * reference to track.
