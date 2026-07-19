@@ -30,6 +30,11 @@ import scala.util.control.NonFatal
 object Main:
 
   def main(args: Array[String]): Unit =
+    // scala-cli's dependency-download progress writes bare `\r` (no line
+    // clear) before handing control here, so the cursor can still be mid-line
+    // over that stale text; clear it first so the banner starts on a clean
+    // line instead of appending to it.
+    print("[2K\r")
     println(s"orca shell ${ShellVersion.value}")
     val terminal = TerminalBuilder.builder().system(true).dumb(true).build()
     try
