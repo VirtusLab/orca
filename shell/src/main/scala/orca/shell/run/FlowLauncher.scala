@@ -158,8 +158,8 @@ object FlowLauncher:
     * forced run killed by a signal (Ctrl-C's SIGINT, or a SIGTERM) is reported
     * as [[LaunchResult.Cancelled]] directly, without a compile probe or
     * fallback offer — there's nothing to blame on the version override. The
-    * verbose toggle is wired by task 4.2 alongside the menu item; runs here are
-    * never verbose.
+    * argv supports verbose; the menu does not currently expose it, so runs here
+    * are never verbose.
     */
   def run(
       ui: ShellUi,

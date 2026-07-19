@@ -361,7 +361,7 @@ class WizardTest extends munit.FunSuite:
   // --- repairMalformed ---
 
   test(
-    "repairMalformed: accepting removes the malformed file and runs the wizard"
+    "repairMalformed: accepting runs the wizard and rewrites the file with the chosen roles"
   ):
     withTempPath: path =>
       os.write(path, "not a valid line\n")
@@ -375,6 +375,10 @@ class WizardTest extends munit.FunSuite:
       )
       Wizard(ui, probe, path).repairMalformed()
 
+      assert(
+        ui.recordedChoices.nonEmpty,
+        "accepting must run the wizard's role prompts"
+      )
       val written = os.read(path)
       val agents = parse(written)
       assertEquals(
@@ -402,4 +406,22 @@ class WizardTest extends munit.FunSuite:
         ui.recordedChoices,
         Nil,
         "declining must not run the wizard's role prompts"
+      )
+
+  test(
+    "repairMalformed: cancelling mid-wizard leaves the original malformed content on disk"
+  ):
+    withTempPath: path =>
+      val original = "not a valid line\n"
+      os.write(path, original)
+      val ui = ScriptedUi(
+        selectScript = List(UiOutcome.Cancelled),
+        confirmScript = List(UiOutcome.Selected(true))
+      )
+      Wizard(ui, probe, path).repairMalformed()
+
+      assertEquals(
+        os.read(path),
+        original,
+        "cancelling mid-wizard must not lose the original malformed content"
       )

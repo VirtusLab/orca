@@ -100,7 +100,8 @@ from, and that cwd is the `workDir` for everything project-scoped — project
 flows, manifests, session resume — exactly as `os.pwd` is for directly-run
 flows; there is no directory picker. After the user selects a flow, the shell
 shows its description and prompts for the task text, appended after `--`
-(with a verbose toggle) — the same argv a direct
+(FlowLauncher's argv supports a verbose flag; v1's menu does not yet expose
+it) — the same argv a direct
 `scala-cli run flow.sc -- "task"` gets. Started outside a project, the shell
 still works: the project tier lists nothing, continue-session is disabled
 until a manifest exists, and built-in/global flows remain listed — a flow
@@ -124,9 +125,12 @@ Subprocess obligations (research 02 §S3, all mandatory):
   resumes its menu after the child exits.
 - Terminal attributes are restored after every child exit (a child crashed
   in raw mode must not wedge the menu).
-- Cancel = SIGINT to the tree, then escalate to a `descendants()` tree-kill
-  (the `OsProcCliRunner.destroyForciblyTree` pattern) so an orphaned
-  `opencode serve` cannot linger.
+- Cancel = SIGINT reaches the entire tree via the shared foreground process
+  group (no separate signal-forwarding code): the shell itself ignores the
+  SIGINT and survives to resume its menu once the child tree exits. A
+  descendant that ignores SIGINT and outlives its parent (e.g. an orphaned
+  `opencode serve`) is a recorded residual — explicit escalation (a
+  `descendants()` tree-kill) is deferred until observed in practice.
 - Compile failures are distinguished from flow failures (exit code + the
   manifest's `outcome` field; optionally a `scala-cli compile` pre-flight).
 

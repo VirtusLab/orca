@@ -56,11 +56,14 @@ class Wizard(
         write(existingContent, agents)
         true
 
-  /** Offers to discard a malformed global settings file and re-run the wizard
-    * from scratch (ADR 0021 §4). Declining leaves the file untouched and skips
-    * the wizard, so every flow run keeps failing loudly on it until it's fixed
-    * by hand or via Re-configure. The caller (`Main`) is responsible for
-    * surfacing the parse error itself; this only handles the
+  /** Offers to rewrite a malformed global settings file from scratch via the
+    * wizard (ADR 0021 §4). Declining leaves the file untouched and skips the
+    * wizard, so every flow run keeps failing loudly on it until it's fixed by
+    * hand or via Re-configure. Accepting does NOT remove the file up front —
+    * `run`'s malformed-content parse check already makes `write` rewrite it
+    * wholesale, so removing it early would only lose the original content for
+    * nothing if the user then cancels mid-wizard. The caller (`Main`) is
+    * responsible for surfacing the parse error itself; this only handles the
     * confirm-and-rewrite action.
     */
   private[shell] def repairMalformed(): Unit =
@@ -68,10 +71,8 @@ class Wizard(
       "Rewrite it from scratch with the wizard?",
       default = false
     ) match
-      case UiOutcome.Selected(true) =>
-        os.remove(globalSettingsPath).discard
-        run(reconfigure = false).discard
-      case _ => ()
+      case UiOutcome.Selected(true) => run(reconfigure = false).discard
+      case _                        => ()
 
   private def selectRole(
       roleLabel: String,
