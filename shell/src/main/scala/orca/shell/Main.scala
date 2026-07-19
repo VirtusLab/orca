@@ -1,32 +1,34 @@
 package orca.shell
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
-import orca.OrcaDir
 import orca.StackSettings
 import orca.agents.BackendTag
-import orca.runner.{ManifestSession, RunManifest}
+import orca.runner.ManifestSession
 import orca.settings.{AgentSpec, GlobalSettings, SettingsFile, SettingsScope}
-import orca.shell.create.{CreateFlow, CreateTarget, CreateTier}
-import orca.shell.flows.{
-  BuiltInFlows,
-  CustomizeTier,
-  DiscoveredFlow,
-  FlowCatalog,
-  FlowEditor,
-  FlowOrigin,
-  FlowViewer
+import orca.shell.actions.{
+  AuthorAction,
+  AuthorParams,
+  EditAction,
+  FlowResolution,
+  RunAction,
+  SessionAction,
+  SessionSelection,
+  StackAction,
+  StackStatus,
+  ViewAction
 }
-import orca.shell.run.{ChildTerminal, FlowLauncher}
+import orca.shell.create.{CreateFlow, CreateTarget, CreateTier}
+import orca.shell.flows.{CustomizeTier, DiscoveredFlow, FlowOrigin}
+import orca.shell.run.FallbackPolicy
 import orca.shell.sessions.{ManifestReader, ReadRun, ResumeCommand}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
-import orca.subprocess.{PathProbe, QuietProc}
+import orca.subprocess.PathProbe
 import ox.discard
 
 import java.time.Instant
 import scala.annotation.tailrec
 import scala.util.Try
-import scala.util.control.NonFatal
 
 /** Entry point for the `orca` shell executable (ADR 0021). */
 object Main:
@@ -126,45 +128,43 @@ object Main:
     */
   private def viewFlow(ui: ShellUi, tty: Boolean): Unit =
     selectFlow(ui, "View which flow?").foreach: flow =>
-      println(FlowViewer.render(os.read(flow.path), tty))
+      println(ViewAction.render(flow, tty))
 
   /** Opens the chosen flow in `$VISUAL`/`$EDITOR`/`vi`. Project and global
-    * flows are edited in place; a built-in is never edited in its cache copy,
-    * so [[customizeThenEditPath]] offers to copy it into a tier first. The
-    * editor is a tty child like the flow runner, so it runs under the same
-    * [[ChildTerminal.withChild]] bracket (ADR 0021 §2).
+    * flows are edited in place ([[EditAction.editInPlace]]); a built-in is
+    * never edited in its cache copy, so [[promptCustomizeTier]] plus
+    * [[EditAction.customizeThenEdit]] copy it into a tier first.
     */
   private def editFlow(ui: ShellUi, terminal: Terminal): Unit =
     selectFlow(ui, "Edit which flow?").foreach: flow =>
-      val path =
-        if flow.origin != FlowOrigin.BuiltIn then Some(flow.path)
-        else customizeThenEditPath(ui, flow)
-      path.foreach: p =>
-        ChildTerminal
-          .withChild(terminal)(
-            FlowEditor.edit(FlowEditor.resolveEditor(sys.env.get), p)
-          )
-          .discard
+      if flow.origin != FlowOrigin.BuiltIn then
+        EditAction.editInPlace(terminal, flow.path).discard
+      else
+        promptCustomizeTier(ui, flow).foreach: tier =>
+          EditAction.customizeThenEdit(
+            terminal,
+            flow,
+            tier,
+            os.pwd,
+            GlobalSettings.defaultFlows
+          ) match
+            case Left(message) => ShellOutput.error(message)
+            case Right(_)      => ()
 
-  /** Selects a flow, prompts for the task text, then runs it as a tty-inherited
-    * child under [[ChildTerminal.withChild]] (ADR 0021 §2). Verbose is not
-    * exposed here in v1 — task text only; a later task can add a verbose
-    * confirm alongside session tracking.
+  /** Selects a flow, prompts for the task text, then hands off to
+    * [[RunAction.run]]. Verbose is not exposed here in v1 — task text only; a
+    * later task can add a verbose confirm alongside session tracking.
     */
   private def runFlow(ui: ShellUi, terminal: Terminal): Unit =
     for
       flow <- selectFlow(ui, "Run which flow?")
       task <- promptTask(ui)
     do
-      println()
-      ShellOutput.section(s"starting flow ${flow.name}")
-      val result = ChildTerminal.withChild(terminal)(
-        FlowLauncher.run(ui, flow.path, task, os.pwd)
+      val opts = RunAction.RunOptions(
+        verbose = false,
+        fallback = FallbackPolicy.Ask(ui)
       )
-      ShellOutput.section(
-        s"flow ${flow.name} ${FlowLauncher.outcomeSuffix(result)}"
-      )
-      println()
+      RunAction.run(flow, task, opts, os.pwd, terminal).discard
 
   /** Prompts for the flow's task text, re-prompting on blank input — an empty
     * `userPrompt` reaches the flow's agent directly (branch naming, the coding
@@ -180,12 +180,11 @@ object Main:
       case UiOutcome.Selected(text) => Some(text)
 
   /** New-flow authoring (item 9): tier → goal → filename (defaulted from the
-    * goal's [[suggestedFilename]] slug) → harness+yolo, then extracts the
-    * bundled API material into the harness's workspace and execs it with an
-    * initial prompt under [[launchAuthoringSession]]. Cancelling any prompt, or
-    * a filename collision, aborts back to the menu without launching anything.
-    * Reachable via [[MenuItem.CreateFlow]]; [[MenuItem.ForkFlow]] (item 10) is
-    * the sibling entry point for [[createForkFlow]].
+    * goal's [[suggestedFilename]] slug) → harness+yolo, then hands off to
+    * [[AuthorAction.create]]. Cancelling any prompt, or a filename collision,
+    * aborts back to the menu without launching anything. Reachable via
+    * [[MenuItem.CreateFlow]]; [[MenuItem.ForkFlow]] (item 10) is the sibling
+    * entry point for [[createForkFlow]].
     */
   private def createNewFlow(ui: ShellUi, terminal: Terminal): Unit =
     val workDir = os.pwd
@@ -206,27 +205,14 @@ object Main:
       )
       (backend, yolo) <- selectHarnessAndYolo(ui)
     do
-      val apiDir = CreateFlow.extractApiMaterial(
-        cacheBaseFor(tier, workDir, target),
-        ShellVersion.value
-      )
-      val prompt =
-        CreateFlow.initialPrompt(
-          goal,
-          target.flowPath,
-          apiDir,
-          ShellVersion.value
-        )
-      launchAuthoringSession(ui, terminal, target, prompt, backend, yolo)
+      val params = AuthorParams(tier, target, backend, yolo)
+      AuthorAction.create(goal, params, workDir, ui, terminal).discard
 
   /** Fork-an-existing-flow authoring (item 10): pick the source flow from every
     * tier (same rows View/Edit use) → describe the changes → tier for the
     * fork's target → filename (defaulted from
-    * [[CreateFlow.forkFilenameDefault]]) → harness+yolo. The fork-specific
-    * initial prompt states whichever source path
-    * [[CreateFlow.resolveForkSource]] resolves as readable from the harness's
-    * workspace, copying the source into the extracted API material dir first
-    * when it isn't (a cross-tier fork, or any BuiltIn source).
+    * [[CreateFlow.forkFilenameDefault]]) → harness+yolo, then hands off to
+    * [[AuthorAction.fork]].
     */
   private def createForkFlow(ui: ShellUi, terminal: Terminal): Unit =
     val workDir = os.pwd
@@ -248,40 +234,8 @@ object Main:
       )
       (backend, yolo) <- selectHarnessAndYolo(ui)
     do
-      val apiDir = CreateFlow.extractApiMaterial(
-        cacheBaseFor(tier, workDir, target),
-        ShellVersion.value
-      )
-      val sourcePath = CreateFlow.resolveForkSource(
-        source.path,
-        source.name,
-        target.cwd,
-        apiDir
-      )
-      val prompt = CreateFlow.forkPrompt(
-        changes,
-        sourcePath,
-        target.flowPath,
-        apiDir,
-        ShellVersion.value
-      )
-      launchAuthoringSession(ui, terminal, target, prompt, backend, yolo)
-
-  /** The tier's cache dir to extract the API material into: project flows under
-    * `.orca/cache/`, global ones under `cache/` alongside the config-home
-    * `orca/` dir (ADR 0021 §9) — shared by both the new-flow and fork paths.
-    */
-  private def cacheBaseFor(
-      tier: CreateTier,
-      workDir: os.Path,
-      target: CreateTarget
-  ): os.Path =
-    tier match
-      case CreateTier.Project => OrcaDir.ensureCache(workDir)
-      case CreateTier.Global =>
-        val cache = target.cwd / "cache"
-        os.makeDir.all(cache)
-        cache
+      val params = AuthorParams(tier, target, backend, yolo)
+      AuthorAction.fork(source, changes, params, workDir, ui, terminal).discard
 
   private def selectCreateTier(
       ui: ShellUi,
@@ -411,74 +365,6 @@ object Main:
       .map(_.backend)
       .getOrElse(BackendTag.ClaudeCode)
 
-  /** Execs the harness from `target.cwd` with `prompt` as its initial message
-    * under [[ChildTerminal.withChild]] (ADR 0021 §2) — the shared final step
-    * for both [[createNewFlow]] and [[createForkFlow]], once each has built its
-    * own prompt and resolved its own target. Prints [[CreateFlow.yoloCaveat]]
-    * first when set (pi/opencode can't honor `yolo` via argv). When
-    * [[CreateFlow.harnessArgv]] returns a paste-fallback prompt (opencode),
-    * it's printed and the user must confirm they've read it before the harness
-    * launches — its TUI switches to the alternate screen buffer, which would
-    * otherwise wipe the print before anyone could copy it. Reports whether
-    * `target.flowPath` exists once the harness session ends, with the
-    * `scala-cli compile` hint either way. The exec itself is wrapped in a
-    * `NonFatal` backstop, same as [[resumeSession]]'s — a missing harness
-    * binary otherwise throws `IOException` out of `os.proc`, which `check =
-    * false` doesn't cover since that only governs a non-zero exit, not a failed
-    * process start.
-    */
-  private def launchAuthoringSession(
-      ui: ShellUi,
-      terminal: Terminal,
-      target: CreateTarget,
-      prompt: String,
-      backend: BackendTag,
-      yolo: Boolean
-  ): Unit =
-    val launch = CreateFlow.harnessArgv(backend, prompt, yolo)
-    CreateFlow.yoloCaveat(backend, yolo).foreach(ShellOutput.info)
-    val ready = launch.pastePrompt match
-      case None => true
-      case Some(toPaste) =>
-        ShellOutput.info(
-          s"paste this prompt into the agent once it opens:\n\n$toPaste\n"
-        )
-        ui.confirm("Ready to launch?", default = true) match
-          case UiOutcome.Selected(proceed) => proceed
-          case UiOutcome.Cancelled         => false
-    if !ready then ShellOutput.info("create-flow cancelled")
-    else
-      try
-        val exitCode = ChildTerminal.withChild(terminal):
-          os.proc(launch.argv)
-            .call(
-              cwd = target.cwd,
-              stdin = os.Inherit,
-              stdout = os.Inherit,
-              stderr = os.Inherit,
-              check = false
-            )
-            .exitCode
-        ShellOutput.info(s"harness session ended (exit code $exitCode)")
-        if os.exists(target.flowPath) then
-          ShellOutput.info(
-            s"${target.flowPath} created — verify with `scala-cli compile ${target.flowPath}`"
-          )
-        else ShellOutput.info(s"${target.flowPath} was not created")
-      catch
-        case NonFatal(e) =>
-          ShellOutput.error(s"create-flow launch failed — ${e.getMessage}")
-
-  /** One prior run's manifest paired with the session the user picked to resume
-    * — everything [[resumeSession]] needs (the harness command comes from the
-    * session; the working directory comes from the manifest, which may differ
-    * from `os.pwd`).
-    */
-  private[shell] case class SessionSelection(
-      manifest: RunManifest,
-      session: ManifestSession
-  )
-
   /** One session occurrence paired with the run it came from — the unit
     * [[sessionRows]] groups, sorts, and labels. Carrying the whole [[ReadRun]]
     * (not just its `crashed` flag) keeps [[SessionSelection]] constructible
@@ -513,7 +399,9 @@ object Main:
       case UiOutcome.Selected(PickerRow.ShowMore) =>
         continueSession(ui, terminal, runs, expanded = true)
       case UiOutcome.Selected(PickerRow.Resume(selection)) =>
-        resumeSession(terminal, selection)
+        SessionAction.resume(terminal, selection) match
+          case Left(message) => ShellOutput.error(message)
+          case Right(_)      => ()
 
   /** Builds the continue-session picker's rows (ADR 0021 §8, research 08 items
     * 7+8): durable lineages first, one-shots last, with two kinds of rows
@@ -538,8 +426,8 @@ object Main:
     * what [[ResumeCommand.staticGate]] can tell without a live harness call: a
     * wireId-less session (pi always) or an unrecognised harness. Gemini's real
     * resumability needs `gemini --list-sessions` (deferred to selection, in
-    * [[resumeSession]]) — `staticGate` passes any gemini session with a wireId,
-    * leaving its row enabled pending that later check.
+    * [[SessionAction.resume]]) — `staticGate` passes any gemini session with a
+    * wireId, leaving its row enabled pending that later check.
     */
   private[shell] def sessionRows(
       runs: List[ReadRun],
@@ -648,80 +536,14 @@ object Main:
       .flatMap(AgentSpec.harnessNameFor.get)
       .getOrElse(wireName)
 
-  /** Parses the manifest's stored `workDir` and confirms it's still a directory
-    * — a checkout deleted after its run finished otherwise crashes resume:
-    * `os.Path` throws `IllegalArgumentException` on a relative or malformed
-    * string, and `os.proc`'s `cwd` throws `IOException` on a well-formed but
-    * now-missing directory. Both collapse to the one message here rather than
-    * propagating past the menu.
+  /** Prompts which tier to customize a built-in flow into (Project or Global) —
+    * the tier [[EditAction.customizeThenEdit]] then copies the flow into and
+    * opens.
     */
-  private[shell] def validatedWorkDir(raw: String): Either[String, os.Path] =
-    val resolved =
-      try Some(os.Path(raw)).filter(p => Try(os.isDir(p)).getOrElse(false))
-      catch case NonFatal(_) => None
-    resolved.toRight(
-      s"the recorded working directory $raw no longer exists"
-    )
-
-  /** Resolves gemini's index (a live `gemini --list-sessions` from the
-    * manifest's `workDir`, matching the session's stored wireId) if needed,
-    * then execs the resume command as a tty-inherited child under
-    * [[ChildTerminal.withChild]] (ADR 0021 §2) from that same `workDir` — which
-    * may differ from `os.pwd` (claude/gemini/opencode scope session lookup by
-    * cwd). A failed or missing `gemini` binary is treated the same as "index
-    * not found": [[ResumeCommand.build]] reports it as not resumable.
-    * [[validatedWorkDir]] guards the manifest's `workDir` up front; the exec
-    * itself is further wrapped in a `NonFatal` backstop (e.g. the checkout
-    * vanishing in the gap between that check and this exec, or the resume
-    * binary itself being missing).
-    */
-  private def resumeSession(
-      terminal: Terminal,
-      selection: SessionSelection
-  ): Unit =
-    validatedWorkDir(selection.manifest.workDir) match
-      case Left(reason) => ShellOutput.error(s"can't resume — $reason")
-      case Right(workDir) =>
-        val isGemini =
-          BackendTag
-            .fromWireName(selection.session.harness)
-            .contains(BackendTag.Gemini)
-        val geminiIndex =
-          if !isGemini then None
-          else
-            selection.session.wireId.flatMap: uuid =>
-              try
-                val listing = QuietProc
-                  .call(Seq("gemini", "--list-sessions"), cwd = workDir)
-                ResumeCommand.geminiIndexOf(listing.out.text(), uuid)
-              catch case NonFatal(_) => None
-        ResumeCommand.build(selection.session, geminiIndex) match
-          case Left(reason) => ShellOutput.error(s"can't resume — $reason")
-          case Right(argv) =>
-            try
-              val exitCode = ChildTerminal.withChild(terminal):
-                os.proc(argv)
-                  .call(
-                    cwd = workDir,
-                    stdin = os.Inherit,
-                    stdout = os.Inherit,
-                    stderr = os.Inherit,
-                    check = false
-                  )
-                  .exitCode
-              ShellOutput.info(s"session ended (exit code $exitCode)")
-            catch
-              case NonFatal(e) =>
-                ShellOutput.error(s"resume failed — ${e.getMessage}")
-
-  /** Prompts for Project or Global, copies the built-in there via
-    * [[FlowEditor.customizeTarget]], and returns the copy's path — `None` on
-    * Cancelled or on a name collision (reported and left unedited).
-    */
-  private def customizeThenEditPath(
+  private def promptCustomizeTier(
       ui: ShellUi,
       flow: DiscoveredFlow
-  ): Option[os.Path] =
+  ): Option[CustomizeTier] =
     val globalFlows = GlobalSettings.defaultFlows
     val tierChoices = List(
       Choice(CustomizeTier.Project, "Project (.orca/flows/)"),
@@ -731,39 +553,21 @@ object Main:
       s"'${flow.name}' is built-in — customize it into",
       tierChoices
     ) match
-      case UiOutcome.Cancelled => None
-      case UiOutcome.Selected(tier) =>
-        FlowEditor.customizeTarget(flow, tier, os.pwd, globalFlows) match
-          case Left(message) =>
-            ShellOutput.error(message)
-            None
-          case Right(path) => Some(path)
+      case UiOutcome.Cancelled      => None
+      case UiOutcome.Selected(tier) => Some(tier)
 
-  /** Lists flows across the three tiers, guarding the project tier's component
-    * chain against a committed symlink first (`.orca` or `.orca/flows`
-    * redirecting reads/writes outside the tree) — a read-only check
-    * ([[OrcaDir.assertNoOrcaSymlinks]]), so listing never creates `.orca`. Both
-    * that guard and the listing itself (built-in extraction can hit a full-disk
-    * or permission error) are wrapped here: any failure is reported and the
-    * caller gets `None`, same as Cancelled, so the menu redraws instead of the
-    * shell crashing.
+  /** Lists flows across the three tiers via [[FlowResolution.list]] — any
+    * failure (a committed symlink guard tripping, or built-in extraction
+    * hitting a full-disk/permission error) is reported and the caller gets
+    * `None`, same as Cancelled, so the menu redraws instead of the shell
+    * crashing.
     */
   private def selectFlow(ui: ShellUi, title: String): Option[DiscoveredFlow] =
-    val workDir = os.pwd
-    val flows =
-      try
-        OrcaDir.assertNoOrcaSymlinks(workDir, OrcaDir.flowsPath(workDir))
-        Some(
-          FlowCatalog.list(
-            OrcaDir.flowsPath(workDir),
-            GlobalSettings.defaultFlows,
-            BuiltInFlows.extracted(sys.env.get, os.home, ShellVersion.value)
-          )
-        )
-      catch
-        case NonFatal(e) =>
-          ShellOutput.error(s"couldn't list flows — ${e.getMessage}")
-          None
+    val flows = FlowResolution.list(os.pwd) match
+      case Left(message) =>
+        ShellOutput.error(message)
+        None
+      case Right(fs) => Some(fs)
     flows.flatMap: fs =>
       ui.select(title, fs.map(flowChoice)) match
         case UiOutcome.Cancelled      => None
@@ -787,51 +591,36 @@ object Main:
     case FlowOrigin.BuiltIn => "built-in"
 
   /** "Re-discover project stack settings" (ADR 0021 §8/§4, feedback item 4):
-    * surgically strips the project settings file's stack lines
-    * ([[SettingsFile.stripStackLines]]) so the next flow run's own
-    * `hasStackLines`-driven check (`FlowLifecycle.readSettings`) fires
-    * discovery again — the shell has no `Agent`/`InStage` plumbing to invoke
-    * discovery itself. Reads via [[OrcaDir.settingsPath]] passively (no `.orca`
-    * creation) and guards the write with [[OrcaDir.assertNoOrcaSymlinks]], the
-    * same guard [[selectFlow]] uses. A missing file, or one with no stack lines
-    * already, is a no-op with a one-line explanation. An unparseable file
-    * aborts with the same message `FlowLifecycle.readSettings` would show
-    * (`parseOrAbort`'s wording), rather than being surgically edited blind.
-    * `workDir` is explicit (rather than reading `os.pwd` itself), same as
-    * [[sessionRows]]/[[validatedWorkDir]], so tests can point it at a temp dir.
+    * [[StackAction.status]] does the guarded read/parse (a missing file, or one
+    * with no stack lines already, is a no-op with a one-line explanation; an
+    * unparseable file aborts instead of being surgically edited blind); on a
+    * live status this renders it, confirms, and calls [[StackAction.clear]] —
+    * which strips the stack lines ([[SettingsFile.stripStackLines]]) so the
+    * next flow run's own `hasStackLines`-driven check
+    * (`FlowLifecycle.readSettings`) fires discovery again. `workDir` is
+    * explicit (rather than reading `os.pwd` itself), same as [[sessionRows]],
+    * so tests can point it at a temp dir.
     */
   private[shell] def rediscoverStack(ui: ShellUi, workDir: os.Path): Unit =
-    val path = OrcaDir.settingsPath(workDir)
-    try
-      OrcaDir.assertNoOrcaSymlinks(workDir, path)
-      if !os.exists(path) then noStackSettingsToClear()
-      else
-        val content = os.read(path)
-        if !SettingsFile.hasStackLines(content) then noStackSettingsToClear()
-        else
-          SettingsFile.parse(content, SettingsScope.Project) match
-            case Left(error) =>
-              ShellOutput.error(s"invalid settings at $path: ${error.message}")
-            case Right(parsed) =>
-              ShellOutput.info("Current stack settings:")
-              println(renderStackSettings(parsed.stack))
-              ui.confirm(
-                "Clear discovered stack settings so the next flow run " +
-                  "re-detects them?",
-                default = false
-              ) match
-                case UiOutcome.Selected(true) =>
-                  os.write.over(path, SettingsFile.stripStackLines(content))
-                  ShellOutput.info(
-                    "cleared — the next flow run will re-discover " +
-                      "format/lint/test"
-                  )
-                case _ => ()
-    catch
-      case NonFatal(e) =>
-        ShellOutput.error(
-          s"couldn't re-discover stack settings — ${e.getMessage}"
-        )
+    StackAction.status(workDir) match
+      case Left(message) => ShellOutput.error(message)
+      case Right(StackStatus.NoSettings | StackStatus.NoStackLines) =>
+        noStackSettingsToClear()
+      case Right(StackStatus.Present(stack, content)) =>
+        ShellOutput.info("Current stack settings:")
+        println(renderStackSettings(stack))
+        ui.confirm(
+          "Clear discovered stack settings so the next flow run " +
+            "re-detects them?",
+          default = false
+        ) match
+          case UiOutcome.Selected(true) =>
+            StackAction.clear(workDir, content)
+            ShellOutput.info(
+              "cleared — the next flow run will re-discover " +
+                "format/lint/test"
+            )
+          case _ => ()
 
   private def noStackSettingsToClear(): Unit =
     ShellOutput.info(

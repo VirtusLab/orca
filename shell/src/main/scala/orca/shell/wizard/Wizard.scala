@@ -2,7 +2,8 @@ package orca.shell.wizard
 
 import orca.agents.BackendTag
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile, SettingsScope}
-import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
+import orca.shell.actions.ConfigAction
+import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import ox.discard
 
 /** The welcome wizard (ADR 0021 §4): detects installed harnesses, asks the user
@@ -53,14 +54,14 @@ class Wizard(
     chosen match
       case UiOutcome.Cancelled => false
       case UiOutcome.Selected(agents) =>
-        write(existingContent, agents)
+        ConfigAction.set(globalSettingsPath, agents)
         true
 
   /** Offers to rewrite a malformed global settings file from scratch via the
     * wizard (ADR 0021 §4). Declining leaves the file untouched and skips the
     * wizard, so every flow run keeps failing loudly on it until it's fixed by
     * hand or via Re-configure. Accepting does NOT remove the file up front —
-    * `run`'s malformed-content parse check already makes `write` rewrite it
+    * [[ConfigAction.set]]'s malformed-content check already rewrites it
     * wholesale, so removing it early would only lose the original content for
     * nothing if the user then cancels mid-wizard. The caller (`Main`) is
     * responsible for surfacing the parse error itself; this only handles the
@@ -98,41 +99,6 @@ class Wizard(
     val marked = if current.contains(tag) then s"$name (current)" else name
     val status = if detected(tag) then "✓ found" else "not found on PATH"
     Choice(tag, s"$marked — $status")
-
-  /** Writes the wizard's result to the global settings file. `existingContent`
-    * is `Some` iff the file existed before this call; the rewrite strategy
-    * gates on whether that content parses cleanly under
-    * [[SettingsScope.UserGlobal]] — not merely on whether the file existed — so
-    * a malformed file is rewritten from scratch exactly like an absent one,
-    * instead of having [[SettingsFile.updateGlobal]] pass its unparseable lines
-    * through unchanged: clean-parse → `updateGlobal` (preserves comments),
-    * absent or malformed → [[SettingsFile.renderGlobal]] (full rewrite).
-    */
-  private def write(
-      existingContent: Option[String],
-      agents: AgentSettings
-  ): Unit =
-    val parseable = existingContent
-      .filter(text =>
-        SettingsFile.parse(text, SettingsScope.UserGlobal).isRight
-      )
-    // A malformed file is replaced wholesale, discarding any hand-written
-    // comments alongside the bad lines — say so, since the Reconfigure path
-    // reaches here without the repair flow's explicit confirm.
-    if existingContent.nonEmpty && parseable.isEmpty then
-      ShellOutput.info(
-        s"The existing file at $globalSettingsPath did not parse; rewriting it " +
-          "from scratch (previous contents, including comments, are replaced)."
-      )
-    val content = parseable
-      .fold(SettingsFile.renderGlobal(agents))(
-        SettingsFile.updateGlobal(_, agents)
-      )
-    os.write.over(globalSettingsPath, content, createFolders = true)
-    ShellOutput.info(
-      s"Settings written to $globalSettingsPath — hand-editable any time " +
-        "(`harness[:model]`, e.g. `claude:sonnet`)."
-    )
 
 object Wizard:
 

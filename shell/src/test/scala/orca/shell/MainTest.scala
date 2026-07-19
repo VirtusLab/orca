@@ -4,6 +4,7 @@ import orca.StackSettings
 import orca.agents.BackendTag
 import orca.runner.{ManifestSession, RunManifest}
 import orca.settings.SettingsFile
+import orca.shell.actions.{SessionAction, SessionSelection}
 import orca.shell.sessions.ReadRun
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.TempDirs
@@ -90,7 +91,7 @@ class MainTest extends munit.FunSuite:
 
   private def resumeSelections(
       rows: List[orca.shell.ui.Choice[Main.PickerRow]]
-  ): List[Main.SessionSelection] =
+  ): List[SessionSelection] =
     rows.collect {
       case orca.shell.ui.Choice(Main.PickerRow.Resume(s), _, _, _) =>
         s
@@ -403,30 +404,6 @@ class MainTest extends munit.FunSuite:
     assertEquals(
       Main.harnessLabel(BackendTag.ClaudeCode, _ => false),
       "claude — not found on PATH"
-    )
-
-  test("validatedWorkDir accepts a path that's still a directory"):
-    val dir = TempDirs.dir()
-    assertEquals(Main.validatedWorkDir(dir.toString), Right(dir))
-
-  test(
-    "validatedWorkDir rejects a relative/malformed path (os.Path's IllegalArgumentException)"
-  ):
-    assertEquals(
-      Main.validatedWorkDir("not-an-absolute-path"),
-      Left(
-        "the recorded working directory not-an-absolute-path no longer exists"
-      )
-    )
-
-  test(
-    "validatedWorkDir rejects a well-formed but deleted directory (os.proc's cwd IOException, guarded before it happens)"
-  ):
-    val dir = TempDirs.dir()
-    os.remove.all(dir)
-    assertEquals(
-      Main.validatedWorkDir(dir.toString),
-      Left(s"the recorded working directory $dir no longer exists")
     )
 
   // --- rediscoverStack ---

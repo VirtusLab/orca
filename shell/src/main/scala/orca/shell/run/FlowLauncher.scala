@@ -10,6 +10,16 @@ enum LaunchResult:
   case Failed(exit: Int)
   case Cancelled
 
+/** Who decides whether to fall back to a pin-honouring re-run when the forced
+  * version fails to compile (ADR 0021 §2, [[FlowLauncher.run]]'s
+  * [[FlowLauncher.NextAction.OfferFallback]] branch): the interactive menu asks
+  * via a [[ShellUi]] confirm; a non-interactive caller refuses outright with a
+  * hint instead of ever prompting.
+  */
+enum FallbackPolicy:
+  case Ask(ui: ShellUi)
+  case Refuse(hint: String)
+
 /** Runs a selected flow as a `scala-cli run` child inheriting the shell's
   * terminal (ADR 0021 §2). By default the shell forces its own orca version via
   * `--dep`, overriding the flow's own `//> using dep` pin, so the run-manifest
@@ -161,25 +171,27 @@ object FlowLauncher:
   /** Runs `flow` forced to the shell's own orca version (skipped — i.e. the
     * forced and pin-honouring runs coincide — when the running shell is a dev
     * build, never an unpublishable version to force). On a forced failure that
-    * a compile probe also reproduces, offers a pin-honouring re-run via
-    * `ui.confirm`, with the notice that its sessions won't be continuable. A
-    * forced run killed by a signal (Ctrl-C's SIGINT, or a SIGTERM) is reported
-    * as [[LaunchResult.Cancelled]] directly, without a compile probe or
-    * fallback offer — there's nothing to blame on the version override. The
-    * argv supports verbose; the menu does not currently expose it, so runs here
-    * are never verbose.
+    * a compile probe also reproduces, `fallback` decides what happens next:
+    * [[FallbackPolicy.Ask]] offers a pin-honouring re-run via `ui.confirm`,
+    * with the notice that its sessions won't be continuable;
+    * [[FallbackPolicy.Refuse]] reports the forced failure directly, with its
+    * hint appended, never prompting. A forced run killed by a signal (Ctrl-C's
+    * SIGINT, or a SIGTERM) is reported as [[LaunchResult.Cancelled]] directly,
+    * without a compile probe or fallback offer either way — there's nothing to
+    * blame on the version override.
     */
   def run(
-      ui: ShellUi,
+      fallback: FallbackPolicy,
       flow: os.Path,
       task: String,
-      workDir: os.Path
+      workDir: os.Path,
+      verbose: Boolean
   ): LaunchResult =
     val shellVersion = ShellVersion.value
     val forcedVersion =
       if ShellVersion.isRelease(shellVersion) then Some(shellVersion) else None
     val forcedExit = spawnInherited(
-      argv(flow, forcedVersion, task, verbose = false),
+      argv(flow, forcedVersion, task, verbose),
       workDir,
       childEnv(flow)
     )
@@ -190,19 +202,26 @@ object FlowLauncher:
       case NextAction.ReportFailure(exit) => LaunchResult.Failed(exit)
       case NextAction.CancelledBySignal   => LaunchResult.Cancelled
       case NextAction.OfferFallback =>
-        ui.confirm(fallbackQuestion(shellVersion), default = true) match
-          case UiOutcome.Selected(true) =>
-            println()
-            ShellOutput.section(s"pin-honouring re-run of ${flow.last}")
-            val result = toLaunchResult(
-              spawnInherited(
-                argv(flow, None, task, verbose = false),
-                workDir,
-                childEnv(flow)
-              )
-            )
-            ShellOutput.section(s"flow ${flow.last} ${outcomeSuffix(result)}")
-            println()
-            result
-          case UiOutcome.Selected(false) | UiOutcome.Cancelled =>
-            LaunchResult.Cancelled
+        fallback match
+          case FallbackPolicy.Ask(ui) =>
+            ui.confirm(fallbackQuestion(shellVersion), default = true) match
+              case UiOutcome.Selected(true) =>
+                println()
+                ShellOutput.section(s"pin-honouring re-run of ${flow.last}")
+                val result = toLaunchResult(
+                  spawnInherited(
+                    argv(flow, None, task, verbose),
+                    workDir,
+                    childEnv(flow)
+                  )
+                )
+                ShellOutput.section(
+                  s"flow ${flow.last} ${outcomeSuffix(result)}"
+                )
+                println()
+                result
+              case UiOutcome.Selected(false) | UiOutcome.Cancelled =>
+                LaunchResult.Cancelled
+          case FallbackPolicy.Refuse(hint) =>
+            ShellOutput.error(s"${fallbackQuestion(shellVersion)} $hint")
+            LaunchResult.Failed(forcedExit)
