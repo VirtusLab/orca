@@ -173,29 +173,131 @@ object Main:
         promptTask(ui)
       case UiOutcome.Selected(text) => Some(text)
 
-  /** Create-a-flow (ADR 0021 §9): tier → filename → goal → harness (defaulting
-    * to the configured coding agent), then extracts the bundled API material
-    * into the harness's workspace and execs it with an initial prompt under
-    * [[ChildTerminal.withChild]]. Cancelling any prompt, or a filename
-    * collision (reported by [[CreateFlow.prepareTarget]]), aborts back to the
-    * menu without launching anything.
+  /** Create-a-flow menu entry point (ADR 0021 §9, items 9/10): a two-way select
+    * between authoring a brand-new flow from a description and forking an
+    * existing one, before either path's own tier/filename/harness prompts.
     */
+  private enum CreateMode:
+    case New, Fork
+
   private def createFlow(ui: ShellUi, terminal: Terminal): Unit =
+    ui.select(
+      "Create a flow:",
+      List(
+        Choice(CreateMode.New, "Create a new flow from a description:"),
+        Choice(CreateMode.Fork, "Fork an existing flow:")
+      )
+    ) match
+      case UiOutcome.Cancelled                => ()
+      case UiOutcome.Selected(CreateMode.New)  => createNewFlow(ui, terminal)
+      case UiOutcome.Selected(CreateMode.Fork) => createForkFlow(ui, terminal)
+
+  /** New-flow authoring (item 9): tier → goal → filename (defaulted from the
+    * goal's [[CreateFlow.proposeFilename]] slug) → harness+yolo, then extracts
+    * the bundled API material into the harness's workspace and execs it with
+    * an initial prompt under [[launchAuthoringSession]]. Cancelling any
+    * prompt, or a filename collision, aborts back to the menu without
+    * launching anything.
+    */
+  private def createNewFlow(ui: ShellUi, terminal: Terminal): Unit =
     val workDir = os.pwd
     val globalFlows = GlobalSettings.defaultFlows
     for
-      tier <- selectCreateTier(ui, globalFlows)
-      target <- promptFlowTarget(ui, tier, workDir, globalFlows)
-      goal <- promptGoal(ui)
-      backend <- selectHarness(ui)
-    do runCreateFlowHarness(ui, terminal, tier, target, workDir, goal, backend)
+      tier <- selectCreateTier(
+        ui,
+        "Where should the new flow be saved:",
+        globalFlows
+      )
+      goal <- promptDescription(ui, "Describe what the flow should do")
+      target <- promptFlowTarget(
+        ui,
+        tier,
+        workDir,
+        globalFlows,
+        default = Some(CreateFlow.proposeFilename(goal))
+      )
+      (backend, yolo) <- selectHarnessAndYolo(ui)
+    do
+      val apiDir = CreateFlow.extractApiMaterial(
+        cacheBaseFor(tier, workDir, target),
+        ShellVersion.value
+      )
+      val prompt =
+        CreateFlow.initialPrompt(goal, target.flowPath, apiDir, ShellVersion.value)
+      launchAuthoringSession(ui, terminal, target, prompt, backend, yolo)
+
+  /** Fork-an-existing-flow authoring (item 10): pick the source flow from
+    * every tier (same rows View/Edit use) → describe the changes → tier for
+    * the fork's target → filename (defaulted from
+    * [[CreateFlow.forkFilenameDefault]]) → harness+yolo. The fork-specific
+    * initial prompt states whichever source path
+    * [[CreateFlow.resolveForkSource]] resolves as readable from the harness's
+    * workspace, copying the source into the extracted API material dir first
+    * when it isn't (a cross-tier fork, or any BuiltIn source).
+    */
+  private def createForkFlow(ui: ShellUi, terminal: Terminal): Unit =
+    val workDir = os.pwd
+    val globalFlows = GlobalSettings.defaultFlows
+    for
+      source <- selectFlow(ui, "Fork which flow:")
+      changes <- promptDescription(ui, "Describe the changes for the fork")
+      tier <- selectCreateTier(
+        ui,
+        "Where should the fork be saved:",
+        globalFlows
+      )
+      target <- promptFlowTarget(
+        ui,
+        tier,
+        workDir,
+        globalFlows,
+        default = Some(CreateFlow.forkFilenameDefault(source.name))
+      )
+      (backend, yolo) <- selectHarnessAndYolo(ui)
+    do
+      val apiDir = CreateFlow.extractApiMaterial(
+        cacheBaseFor(tier, workDir, target),
+        ShellVersion.value
+      )
+      val sourcePath = CreateFlow.resolveForkSource(
+        source.path,
+        source.name,
+        target.cwd,
+        apiDir
+      )
+      val prompt = CreateFlow.forkPrompt(
+        changes,
+        sourcePath,
+        target.flowPath,
+        apiDir,
+        ShellVersion.value
+      )
+      launchAuthoringSession(ui, terminal, target, prompt, backend, yolo)
+
+  /** The tier's cache dir to extract the API material into: project flows
+    * under `.orca/cache/`, global ones under `cache/` alongside the
+    * config-home `orca/` dir (ADR 0021 §9) — shared by both the new-flow and
+    * fork paths.
+    */
+  private def cacheBaseFor(
+      tier: CreateTier,
+      workDir: os.Path,
+      target: CreateTarget
+  ): os.Path =
+    tier match
+      case CreateTier.Project => OrcaDir.ensureCache(workDir)
+      case CreateTier.Global =>
+        val cache = target.cwd / "cache"
+        os.makeDir.all(cache)
+        cache
 
   private def selectCreateTier(
       ui: ShellUi,
+      title: String,
       globalFlows: os.Path
   ): Option[CreateTier] =
     ui.select(
-      "Create a flow — where should it be saved?",
+      title,
       List(
         Choice(CreateTier.Project, "Project (.orca/flows/)"),
         Choice(CreateTier.Global, s"Global ($globalFlows)")
@@ -204,18 +306,21 @@ object Main:
       case UiOutcome.Cancelled      => None
       case UiOutcome.Selected(tier) => Some(tier)
 
-  /** Prompts for the flow's filename and resolves it to a target path via
-    * [[CreateFlow.prepareTarget]], printing and returning `None` on a collision
-    * — the harness writes the flow file itself, so an existing file at the
-    * target path is never overwritten.
+  /** Prompts for the flow's filename (pre-filled with `default`, e.g. the
+    * goal's proposed slug or the fork's `-fork.sc` suggestion — either way
+    * editable, per `ui.input`'s default-hint path) and resolves it to a target
+    * path via [[CreateFlow.prepareTarget]], printing and returning `None` on a
+    * collision — the harness writes the flow file itself, so an existing file
+    * at the target path is never overwritten.
     */
   private def promptFlowTarget(
       ui: ShellUi,
       tier: CreateTier,
       workDir: os.Path,
-      globalFlows: os.Path
+      globalFlows: os.Path,
+      default: Option[String]
   ): Option[CreateTarget] =
-    ui.input("Flow filename") match
+    ui.input("Flow filename:", default) match
       case UiOutcome.Cancelled => None
       case UiOutcome.Selected(rawName) =>
         CreateFlow.prepareTarget(tier, rawName, workDir, globalFlows) match
@@ -224,17 +329,39 @@ object Main:
             None
           case Right(target) => Some(target)
 
-  /** Prompts for the flow's goal, re-prompting on blank input — mirrors
-    * [[promptTask]]'s rationale: an empty goal would reach the harness as a
-    * degenerate initial prompt.
+  /** Prompts for a multi-line description (the new flow's goal, or the fork's
+    * described changes), re-prompting on blank input — mirrors
+    * [[promptTask]]'s rationale: an empty description would reach the harness
+    * as a degenerate initial prompt.
     */
-  @tailrec private def promptGoal(ui: ShellUi): Option[String] =
-    ui.input("Goal for the new flow") match
+  @tailrec private def promptDescription(
+      ui: ShellUi,
+      label: String
+  ): Option[String] =
+    ui.inputMultiline(label) match
       case UiOutcome.Cancelled => None
       case UiOutcome.Selected(text) if text.trim.isEmpty =>
-        println("orca: goal can't be empty")
-        promptGoal(ui)
+        println("orca: description can't be empty")
+        promptDescription(ui, label)
       case UiOutcome.Selected(text) => Some(text)
+
+  /** Harness picker (see [[selectHarness]]) plus the yolo confirm (item 11):
+    * `"Run the harness without approval prompts (yolo)?"`, defaulting to yes
+    * to match that Orca's own flows already run autonomously by default.
+    */
+  private def selectHarnessAndYolo(ui: ShellUi): Option[(BackendTag, Boolean)] =
+    for
+      backend <- selectHarness(ui)
+      yolo <- promptYolo(ui)
+    yield (backend, yolo)
+
+  private def promptYolo(ui: ShellUi): Option[Boolean] =
+    ui.confirm(
+      "Run the harness without approval prompts (yolo)?",
+      default = true
+    ) match
+      case UiOutcome.Cancelled   => None
+      case UiOutcome.Selected(v) => Some(v)
 
   /** Harness picker, preselecting the configured coding agent (falling back to
     * claude when the global settings file is absent or unparseable — same
@@ -246,7 +373,7 @@ object Main:
   private def selectHarness(ui: ShellUi): Option[BackendTag] =
     val default = configuredCodingAgent(GlobalSettings.default)
     ui.select(
-      "Harness for the authoring session",
+      "Harness for the authoring session:",
       BackendTag.values.toList.map(tag =>
         Choice(tag, harnessLabel(tag, PathProbe.resolves(_, os.pwd)))
       ),
@@ -277,40 +404,32 @@ object Main:
       .map(_.backend)
       .getOrElse(BackendTag.ClaudeCode)
 
-  /** Extracts the API material into the tier's cache dir (project:
-    * `.orca/cache/`; global: `cache/` under the config-home orca dir), builds
-    * the initial prompt, and execs the harness from `target.cwd` under
-    * [[ChildTerminal.withChild]] (ADR 0021 §2). When [[CreateFlow.harnessArgv]]
-    * returns a paste-fallback prompt (opencode), it's printed and the user must
-    * confirm they've read it before the harness launches — its TUI switches to
-    * the alternate screen buffer, which would otherwise wipe the print before
-    * anyone could copy it. Reports whether `target.flowPath` exists once the
-    * harness session ends, with the `scala-cli compile` hint either way. The
-    * exec itself is wrapped in a `NonFatal` backstop, same as
-    * [[resumeSession]]'s — a missing harness binary otherwise throws
-    * `IOException` out of `os.proc`, which `check = false` doesn't cover since
-    * that only governs a non-zero exit, not a failed process start.
+  /** Execs the harness from `target.cwd` with `prompt` as its initial message
+    * under [[ChildTerminal.withChild]] (ADR 0021 §2) — the shared final step
+    * for both [[createNewFlow]] and [[createForkFlow]], once each has built its
+    * own prompt and resolved its own target. Prints [[CreateFlow.yoloCaveat]]
+    * first when set (pi/opencode can't honor `yolo` via argv). When
+    * [[CreateFlow.harnessArgv]] returns a paste-fallback prompt (opencode),
+    * it's printed and the user must confirm they've read it before the harness
+    * launches — its TUI switches to the alternate screen buffer, which would
+    * otherwise wipe the print before anyone could copy it. Reports whether
+    * `target.flowPath` exists once the harness session ends, with the
+    * `scala-cli compile` hint either way. The exec itself is wrapped in a
+    * `NonFatal` backstop, same as [[resumeSession]]'s — a missing harness
+    * binary otherwise throws `IOException` out of `os.proc`, which `check =
+    * false` doesn't cover since that only governs a non-zero exit, not a
+    * failed process start.
     */
-  private def runCreateFlowHarness(
+  private def launchAuthoringSession(
       ui: ShellUi,
       terminal: Terminal,
-      tier: CreateTier,
       target: CreateTarget,
-      workDir: os.Path,
-      goal: String,
-      backend: BackendTag
+      prompt: String,
+      backend: BackendTag,
+      yolo: Boolean
   ): Unit =
-    val version = ShellVersion.value
-    val cacheBase = tier match
-      case CreateTier.Project => OrcaDir.ensureCache(workDir)
-      case CreateTier.Global =>
-        val cache = target.cwd / "cache"
-        os.makeDir.all(cache)
-        cache
-    val apiDir = CreateFlow.extractApiMaterial(cacheBase, version)
-    val prompt =
-      CreateFlow.initialPrompt(goal, target.flowPath, apiDir, version)
-    val launch = CreateFlow.harnessArgv(backend, prompt)
+    val launch = CreateFlow.harnessArgv(backend, prompt, yolo)
+    CreateFlow.yoloCaveat(backend, yolo).foreach(note => println(s"orca: $note"))
     val ready = launch.pastePrompt match
       case None => true
       case Some(toPaste) =>

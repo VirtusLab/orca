@@ -6,6 +6,8 @@ import orca.shell.ShellVersion
 import orca.util.PromptResource
 import ox.discard
 
+import scala.util.control.NonFatal
+
 /** Where a new flow is saved, and the cwd the authoring harness launches from
   * (ADR 0021 §9): Project saves under the workdir's committed `.orca/flows/`
   * and launches from `workDir` itself; Global saves under the config-home
@@ -47,6 +49,44 @@ object CreateFlow:
   /** Ensures a `.sc` suffix on a user-supplied filename. */
   def normalizedFileName(raw: String): String =
     if raw.endsWith(".sc") then raw else s"$raw.sc"
+
+  /** Words dropped from [[proposeFilename]]'s slug — common enough to appear in
+    * almost any goal sentence without saying anything about the flow itself.
+    */
+  private val slugStopwords =
+    Set("a", "an", "the", "to", "for", "and", "of", "in", "on", "with")
+
+  private val slugWordCount = 4
+
+  /** Proposes a `.sc` filename from a goal description, kebab-casing its first
+    * few meaningful words: lowercase, split on runs of non-letter/non-digit
+    * characters (unicode-aware, so accented input splits the same as plain
+    * ASCII), drop [[slugStopwords]], keep the first [[slugWordCount]] survivors,
+    * join with `-`. A goal that yields no words at all (empty, punctuation-only,
+    * or entirely stopwords) falls back to `new-flow.sc` rather than an empty
+    * name. Offered to the user as an editable default (`ui.input`'s existing
+    * default-hint path), never written unconfirmed — an LLM-proposed slug was
+    * considered instead but deferred: the shell has no cheap-agent plumbing
+    * today, and standing one up for a filename suggestion the user reviews
+    * anyway isn't worth the new surface.
+    */
+  def proposeFilename(goal: String): String =
+    val words = goal.toLowerCase(java.util.Locale.ROOT)
+      .split("[^\\p{L}\\p{N}]+")
+      .filter(_.nonEmpty)
+      .filterNot(slugStopwords.contains)
+      .take(slugWordCount)
+    val base = if words.isEmpty then "new-flow" else words.mkString("-")
+    s"$base.sc"
+
+  /** Fork target's default filename: the source's basename minus `.sc`, plus
+    * `-fork.sc` — offered the same editable way as [[proposeFilename]].
+    */
+  def forkFilenameDefault(sourceName: String): String =
+    val base =
+      if sourceName.endsWith(".sc") then sourceName.dropRight(3)
+      else sourceName
+    s"$base-fork.sc"
 
   /** Pure path arithmetic for the tier choice (ADR 0021 §9) — no I/O, so
     * unit-testable without touching a real filesystem. `globalFlows` is
@@ -155,12 +195,18 @@ object CreateFlow:
     val ivy2LocalLine =
       if ShellVersion.isRelease(orcaVersion) then ""
       else "\n//> using repository ivy2Local"
+    // The goal now comes from a multiline prompt (inputMultiline), so it's
+    // indented as its own block rather than trailing "Goal: " on one line —
+    // keeps a multi-paragraph goal visually distinct from the rest of the
+    // prompt instead of running the first line on with the label.
+    val indentedGoal = indentBlock(goal)
     // The "3.8.4" literal in the header below is kept in lockstep with
     // V.scala in project/Dependencies.scala by hand — updateDocs only
     // rewrites .md/.sc files, so this prompt text is invisible to it.
     s"""Write a new Orca flow at $targetPath.
        |
-       |Goal: $goal
+       |Goal:
+       |$indentedGoal
        |
        |Start the file with this exact header (the pinned version matches the
        |orca release this session was launched from):
@@ -174,6 +220,93 @@ object CreateFlow:
        |The Orca API reference is at $readme — read it before writing the
        |flow. Two example flows are at $example1 and $example2; start from
        |whichever is closer to the goal.
+       |
+       |After writing the file, verify it with `scala-cli compile $targetPath`
+       |and fix errors until it compiles.
+       |
+       |Caveat: some authoring rules (fork-boundary captures, stage
+       |push-after-commit ordering, no concurrent stages) are enforced at runtime,
+       |not by the compiler — a script can compile and still violate them.
+       |Follow the README's Authoring rules section beyond what the compiler
+       |catches.
+       |
+       |Last resort, only if the local README above is somehow missing: the
+       |tag-pinned reference is at
+       |https://raw.githubusercontent.com/VirtusLab/orca/v$orcaVersion/README.md
+       |""".stripMargin
+
+  /** Two-space-indents every line of `text` — the shared block-quoting used by
+    * [[initialPrompt]]'s goal and [[forkPrompt]]'s change description, both of
+    * which come from `inputMultiline` and so may be several lines long.
+    */
+  private def indentBlock(text: String): String =
+    text.linesIterator.map(line => s"  $line").mkString("\n")
+
+  /** The path the authoring harness should be told to read the fork's source
+    * flow from: `sourcePath` itself when it already sits inside `cwd` (the
+    * harness's launch workspace) — true for a Project-tier source forked to a
+    * Project-tier target (both under `workDir`), and for a Global-tier source
+    * forked to a Global-tier target (`cwd` is `globalFlows`'s parent, so
+    * `globalFlows/name.sc` is still inside it). Verified false in every other
+    * case: a cross-tier fork (Project source into a Global target or vice
+    * versa) puts the source under the *other* tier's directory, outside `cwd`;
+    * a BuiltIn source lives under `BuiltInFlows.extracted`'s cache directory
+    * (`$XDG_CACHE_HOME/orca/shell/<version>/flows`), which is never inside
+    * either tier's workspace regardless of the fork's target tier.
+    *
+    * In every such case, copies `sourcePath` into `apiDir` (already inside the
+    * workspace, alongside the extracted README/examples) under its own
+    * basename and returns that copy instead — so the harness (gemini in
+    * particular, which hard-fails on an out-of-workspace path; claude/opencode
+    * otherwise prompt for approval) can always read the fork's source without
+    * a workspace escape. The copy is written once per basename: a repeat call
+    * (re-running create-flow against the same apiDir) leaves an existing copy
+    * as-is rather than re-copying over it.
+    */
+  def resolveForkSource(
+      sourcePath: os.Path,
+      sourceName: String,
+      cwd: os.Path,
+      apiDir: os.Path
+  ): os.Path =
+    if sourcePath.startsWith(cwd) then sourcePath
+    else
+      val copy = apiDir / sourceName
+      if !os.exists(copy) then os.copy(sourcePath, copy, replaceExisting = true)
+      copy
+
+  /** The initial prompt for a fork session (ADR 0021 §9/item 10): states the
+    * source path and the described changes, instructs copying the source to
+    * the target path verbatim before applying them, and otherwise mirrors
+    * [[initialPrompt]]'s API-reference pointers, compile-check step, and
+    * runtime-rules caveat. `sourcePath` is whatever [[resolveForkSource]]
+    * resolved — a path already known-readable from the harness's workspace.
+    */
+  def forkPrompt(
+      changes: String,
+      sourcePath: os.Path,
+      targetPath: os.Path,
+      apiDir: os.Path,
+      orcaVersion: String
+  ): String =
+    val readme = apiDir / "README.md"
+    val example1 = apiDir / "implement.sc"
+    val example2 = apiDir / "implement-interactive.sc"
+    val indentedChanges = indentBlock(changes)
+    s"""Fork the Orca flow at $sourcePath into a new flow at $targetPath.
+       |
+       |First copy $sourcePath to $targetPath verbatim, then apply these
+       |changes:
+       |$indentedChanges
+       |
+       |Keep the copied file's existing version-pinned header (`//> using
+       |scala`/`//> using dep`/`//> using jvm`) and its line-1 `//`
+       |one-line-description convention — update the description line only if
+       |the fork's behavior changes enough to make the original one wrong.
+       |
+       |The Orca API reference is at $readme — read it if the changes need API
+       |surface the source doesn't already use. Two example flows are at
+       |$example1 and $example2.
        |
        |After writing the file, verify it with `scala-cli compile $targetPath`
        |and fix errors until it compiles.
@@ -214,13 +347,52 @@ object CreateFlow:
     *     returns the prompt for the caller to print with a "paste this into the
     *     agent" instruction instead of relying on a flag that would leave the
     *     user unsure whether anything was submitted.
+    *
+    * `yolo`, when true, appends each CLI's own no-approval-prompts flag
+    * (research 11, verified against each installed CLI's `--help`): claude's
+    * `--dangerously-skip-permissions`, codex's
+    * `--dangerously-bypass-approvals-and-sandbox`, gemini's `-y`/`--yolo`. pi
+    * has no approval gate to bypass (nothing to append; [[yoloCaveat]] notes
+    * this) and opencode's interactive TUI has no such flag at all — only its
+    * headless `opencode run` subcommand does — so opencode's argv is unchanged
+    * regardless of `yolo` ([[yoloCaveat]] notes that too).
     */
-  def harnessArgv(backend: BackendTag, prompt: String): HarnessLaunch =
+  def harnessArgv(
+      backend: BackendTag,
+      prompt: String,
+      yolo: Boolean
+  ): HarnessLaunch =
     backend match
-      case BackendTag.ClaudeCode => HarnessLaunch(Seq("claude", prompt), None)
-      case BackendTag.Codex      => HarnessLaunch(Seq("codex", prompt), None)
-      case BackendTag.Pi         => HarnessLaunch(Seq("pi", prompt), None)
+      case BackendTag.ClaudeCode =>
+        val flag = if yolo then Seq("--dangerously-skip-permissions") else Nil
+        HarnessLaunch(Seq("claude", prompt) ++ flag, None)
+      case BackendTag.Codex =>
+        val flag =
+          if yolo then Seq("--dangerously-bypass-approvals-and-sandbox")
+          else Nil
+        HarnessLaunch(Seq("codex", prompt) ++ flag, None)
+      case BackendTag.Pi => HarnessLaunch(Seq("pi", prompt), None)
       case BackendTag.Gemini =>
-        HarnessLaunch(Seq("gemini", "-i", prompt), None)
+        val flag = if yolo then Seq("--yolo") else Nil
+        HarnessLaunch(Seq("gemini", "-i", prompt) ++ flag, None)
       case BackendTag.Opencode =>
         HarnessLaunch(Seq("opencode"), Some(prompt))
+
+  /** A one-line note to print when `yolo` was requested but the backend can't
+    * honor it via argv — `None` for every backend that either doesn't need one
+    * (`yolo` false) or already got its flag appended in [[harnessArgv]]. Kept
+    * separate from [[harnessArgv]] (which stays a pure argv builder) since this
+    * is display-only text for the caller to print, not part of the launch
+    * command.
+    */
+  def yoloCaveat(backend: BackendTag, yolo: Boolean): Option[String] =
+    if !yolo then None
+    else
+      backend match
+        case BackendTag.Pi =>
+          Some("pi has no approval gate to bypass — nothing to change.")
+        case BackendTag.Opencode =>
+          Some(
+            "opencode has no interactive yolo flag — approvals are controlled by opencode.jsonc's `permission` field."
+          )
+        case _ => None
