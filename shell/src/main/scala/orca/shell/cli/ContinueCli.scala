@@ -24,7 +24,7 @@ private[cli] object ContinueCli:
       tty: Boolean
   ): Int =
     val (runs, warnings) = ManifestReader.list(workDir, ManifestReader.pidAlive)
-    warnings.foreach(Cli.fail)
+    warnings.foreach(Cli.diagnostic)
     if list then
       Tables.printSessionListing(runs, json)
       ExitCodes.Ok
@@ -45,7 +45,7 @@ private[cli] object ContinueCli:
   private def resumeSelected(
       selection: SessionSelection
   ): Either[CliFailure, Int] =
-    Cli.fail(resumeNotice(selection))
+    Cli.diagnostic(resumeNotice(selection))
     withTerminal(SessionAction.resume(_, selection)).left.map(actionFailure)
 
   /** The resolved session's identity, printed to stderr immediately before

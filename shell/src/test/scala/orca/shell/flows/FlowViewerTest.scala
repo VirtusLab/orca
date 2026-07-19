@@ -11,10 +11,10 @@ class FlowViewerTest extends munit.FunSuite:
       |""".stripMargin
 
   test("non-tty render is byte-identical to the input"):
-    assertEquals(FlowViewer.render(source, tty = false), source)
+    assertEquals(FlowViewer.render(source, highlight = false), source)
 
   test("tty render contains ANSI escapes and strips back to the input"):
-    val rendered = FlowViewer.render(source, tty = true)
+    val rendered = FlowViewer.render(source, highlight = true)
     assert(
       rendered.contains("["),
       "expected an ANSI escape sequence in tty output"

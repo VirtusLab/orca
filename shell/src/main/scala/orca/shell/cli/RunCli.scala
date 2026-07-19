@@ -20,12 +20,12 @@ private[cli] object RunCli:
   ): Int =
     FlowResolution.resolve(flowRef, workDir) match
       case Left(message) =>
-        Cli.fail(message)
+        Cli.diagnostic(message)
         ExitCodes.ActionFailed
       case Right(resolved) =>
         readTask(task, tty, readAllStdin) match
           case Left(message) =>
-            Cli.fail(message)
+            Cli.diagnostic(message)
             ExitCodes.UsageError
           case Right(taskText) =>
             Cli.withTerminal: terminal =>

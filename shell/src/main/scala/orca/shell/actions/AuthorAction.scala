@@ -4,7 +4,7 @@ import org.jline.terminal.Terminal
 import orca.OrcaDir
 import orca.agents.BackendTag
 import orca.shell.ShellVersion
-import orca.shell.create.{CreateFlow, CreateTarget, CreateTier}
+import orca.shell.create.{FlowAuthoring, CreateTarget, CreateTier}
 import orca.shell.flows.DiscoveredFlow
 import orca.shell.run.ChildTerminal
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
@@ -39,7 +39,7 @@ private[shell] enum AuthorOutcome:
 private[shell] object AuthorAction:
 
   /** New-flow authoring's action half (item 9): extracts the bundled API
-    * material into the tier's cache dir, builds [[CreateFlow.initialPrompt]],
+    * material into the tier's cache dir, builds [[FlowAuthoring.initialPrompt]],
     * and launches the authoring session.
     */
   def create(
@@ -49,11 +49,11 @@ private[shell] object AuthorAction:
       ui: ShellUi,
       terminal: Terminal
   ): AuthorOutcome =
-    val apiDir = CreateFlow.extractApiMaterial(
+    val apiDir = FlowAuthoring.extractApiMaterial(
       cacheBaseFor(params.tier, workDir, params.target),
       ShellVersion.value
     )
-    val prompt = CreateFlow.initialPrompt(
+    val prompt = FlowAuthoring.initialPrompt(
       goal,
       params.target.flowPath,
       apiDir,
@@ -70,7 +70,7 @@ private[shell] object AuthorAction:
 
   /** Fork-an-existing-flow authoring's action half (item 10): extracts the
     * bundled API material, resolves the source flow to a harness-readable path
-    * ([[CreateFlow.resolveForkSource]]), builds [[CreateFlow.forkPrompt]], and
+    * ([[FlowAuthoring.resolveForkSource]]), builds [[FlowAuthoring.forkPrompt]], and
     * launches the authoring session.
     */
   def fork(
@@ -81,17 +81,17 @@ private[shell] object AuthorAction:
       ui: ShellUi,
       terminal: Terminal
   ): AuthorOutcome =
-    val apiDir = CreateFlow.extractApiMaterial(
+    val apiDir = FlowAuthoring.extractApiMaterial(
       cacheBaseFor(params.tier, workDir, params.target),
       ShellVersion.value
     )
-    val sourcePath = CreateFlow.resolveForkSource(
+    val sourcePath = FlowAuthoring.resolveForkSource(
       source.path,
       source.name,
       params.target.cwd,
       apiDir
     )
-    val prompt = CreateFlow.forkPrompt(
+    val prompt = FlowAuthoring.forkPrompt(
       changes,
       sourcePath,
       params.target.flowPath,
@@ -125,9 +125,9 @@ private[shell] object AuthorAction:
 
   /** Execs the harness from `target.cwd` with `prompt` as its initial message
     * under [[ChildTerminal.withChild]] (ADR 0021 §2) — the shared final step
-    * for both [[create]] and [[fork]]. Prints [[CreateFlow.yoloCaveat]] first
+    * for both [[create]] and [[fork]]. Prints [[FlowAuthoring.yoloCaveat]] first
     * when set (pi/opencode can't honor `yolo` via argv). When
-    * [[CreateFlow.harnessArgv]] returns a paste-fallback prompt (opencode),
+    * [[FlowAuthoring.harnessArgv]] returns a paste-fallback prompt (opencode),
     * it's printed and the user must confirm they've read it before the harness
     * launches — its TUI switches to the alternate screen buffer, which would
     * otherwise wipe the print before anyone could copy it. Reports whether
@@ -145,8 +145,8 @@ private[shell] object AuthorAction:
       backend: BackendTag,
       yolo: Boolean
   ): AuthorOutcome =
-    val launch = CreateFlow.harnessArgv(backend, prompt, yolo)
-    CreateFlow.yoloCaveat(backend, yolo).foreach(ShellOutput.info)
+    val launch = FlowAuthoring.harnessArgv(backend, prompt, yolo)
+    FlowAuthoring.yoloCaveat(backend, yolo).foreach(ShellOutput.info)
     val ready = launch.pastePrompt match
       case None => true
       case Some(toPaste) =>

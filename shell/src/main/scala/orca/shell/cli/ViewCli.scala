@@ -16,7 +16,7 @@ private[cli] object ViewCli:
   ): Int =
     resolveHighlight(plain, color, tty) match
       case Left(message) =>
-        Cli.fail(message)
+        Cli.diagnostic(message)
         ExitCodes.UsageError
       case Right(highlight) => runView(workDir, flowRef, highlight)
 
@@ -50,7 +50,7 @@ private[cli] object ViewCli:
   ): Int =
     FlowResolution.resolve(flowRef, workDir) match
       case Left(message) =>
-        Cli.fail(message)
+        Cli.diagnostic(message)
         ExitCodes.ActionFailed
       case Right(resolved) =>
         println(ViewAction.render(resolved, highlight))

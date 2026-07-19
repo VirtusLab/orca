@@ -26,7 +26,7 @@ private[shell] case class CreateTarget(flowPath: os.Path, cwd: os.Path)
 
 /** Harness argv for the create-a-flow session, plus a prompt to print and have
   * the user paste in when the harness can't be handed one on its own argv (see
-  * [[CreateFlow.harnessArgv]]).
+  * [[FlowAuthoring.harnessArgv]]).
   */
 private[shell] case class HarnessLaunch(
     argv: Seq[String],
@@ -39,7 +39,7 @@ private[shell] case class HarnessLaunch(
   * (target-tier/filename/goal/harness prompts, the actual `exec`) lives in
   * `Main`.
   */
-private[shell] object CreateFlow:
+private[shell] object FlowAuthoring:
 
   private val resourcePrefix = "/orca/shell/api/"
 
@@ -54,7 +54,7 @@ private[shell] object CreateFlow:
   def normalizedFileName(raw: String): String =
     if raw.endsWith(".sc") then raw else s"$raw.sc"
 
-  /** Words dropped from [[proposeFilename]]'s slug — common enough to appear in
+  /** Words dropped from [[localFilenameSlug]]'s slug — common enough to appear in
     * almost any goal sentence without saying anything about the flow itself.
     */
   private val slugStopwords =
@@ -74,7 +74,7 @@ private[shell] object CreateFlow:
     * the user as an editable default (`ui.input`'s existing default-hint path),
     * never written unconfirmed.
     */
-  def proposeFilename(goal: String): String =
+  def localFilenameSlug(goal: String): String =
     val words = goal
       .toLowerCase(java.util.Locale.ROOT)
       .split("[^\\p{L}\\p{N}]+")
@@ -85,7 +85,7 @@ private[shell] object CreateFlow:
     s"$base.sc"
 
   /** Fork target's default filename: the source's basename minus `.sc`, plus
-    * `-fork.sc` — offered the same editable way as [[proposeFilename]].
+    * `-fork.sc` — offered the same editable way as [[localFilenameSlug]].
     */
   def forkFilenameDefault(sourceName: String): String =
     val base =
@@ -148,7 +148,7 @@ private[shell] object CreateFlow:
   /** Best-effort filename suggestion for a new flow — the "cheap slug prompt"
     * (item 9): runs `backend` non-interactively on [[slugPrompt]] (via
     * [[slugArgv]]) with a short timeout, sanitizes its last non-blank output
-    * line through [[sanitizeSlug]], and falls back to [[proposeFilename]]'s
+    * line through [[sanitizeSlug]], and falls back to [[localFilenameSlug]]'s
     * local word-based derivation whenever the harness is unreachable, too slow,
     * exits non-zero, or replies with nothing [[sanitizeSlug]] can turn into
     * more than `new-flow.sc`. This is a nicety layered on top of a
@@ -170,12 +170,12 @@ private[shell] object CreateFlow:
         .lastOption
     lastLine.map(sanitizeSlug) match
       case Some(slug) if slug != "new-flow.sc" => slug
-      case _                                   => proposeFilename(goal)
+      case _                                   => localFilenameSlug(goal)
 
   /** The configured coding-role agent from the global settings file, falling
     * back to claude when the file is absent or unparseable — the same fallback
     * the wizard uses for an undetected default. Shared by the harness picker's
-    * preselect and [[suggestedFilename]]'s slug call.
+    * preselect and [[suggestFilenameForGoal]]'s slug call.
     */
   def configuredCodingAgent(globalSettingsPath: os.Path): BackendTag =
     Option
@@ -193,7 +193,7 @@ private[shell] object CreateFlow:
     * back to its own local word-based derivation within a few seconds if that
     * harness is slow, absent, or unreachable.
     */
-  def suggestedFilename(goal: String): String =
+  def suggestFilenameForGoal(goal: String): String =
     suggestFilename(configuredCodingAgent(GlobalSettings.default), goal)
 
   /** Runs `argv` to completion within `timeoutMillis`, returning its stdout on

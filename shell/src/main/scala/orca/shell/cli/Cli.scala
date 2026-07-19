@@ -15,7 +15,7 @@ private[shell] object ExitCodes:
 /** A subcommand failure carrying the exact process exit code it maps to — the
   * `Left` half of each per-command handler's for-comprehension, so the message
   * and its code travel together to [[Cli.complete]] instead of every error
-  * branch re-pairing a `fail(...)` with a literal `ExitCodes` value.
+  * branch re-pairing a `diagnostic(...)` with a literal `ExitCodes` value.
   */
 private[cli] case class CliFailure(message: String, exitCode: Int)
 
@@ -39,7 +39,7 @@ private[shell] object Cli:
     * it to stderr is what keeps e.g. `orca continue --list --json | jq`
     * parseable.
     */
-  private[cli] def fail(msg: String): Unit = Console.err.println(msg)
+  private[cli] def diagnostic(msg: String): Unit = Console.err.println(msg)
 
   private[cli] def usageFailure(message: String): CliFailure =
     CliFailure(message, ExitCodes.UsageError)
@@ -48,13 +48,13 @@ private[shell] object Cli:
     CliFailure(message, ExitCodes.ActionFailed)
 
   /** Runs a handler's for-comprehension to a process exit code: a `Left` is
-    * [[fail]]ed to stderr and yields its carried exit code, a `Right` is the
+    * [[diagnostic]] emitted to stderr and yields its carried exit code, a `Right` is the
     * subcommand's own returned code.
     */
   private[cli] def complete(program: Either[CliFailure, Int]): Int =
     program match
       case Left(failure) =>
-        fail(failure.message)
+        diagnostic(failure.message)
         failure.exitCode
       case Right(exit) => exit
 

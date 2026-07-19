@@ -12,7 +12,7 @@ import scala.util.control.NonFatal
   * `"running"` with a dead pid, ADR 0021 §8) — computed once here rather than
   * re-derived by every caller.
   */
-private[shell] case class ReadRun(manifest: RunManifest, crashed: Boolean)
+private[shell] case class RecordedRun(manifest: RunManifest, crashed: Boolean)
 
 /** Reads `.orca/cache/runs/` for the shell's "continue a session" menu (ADR
   * 0021 §8).
@@ -36,7 +36,7 @@ private[shell] object ManifestReader:
   def list(
       workDir: os.Path,
       pidAlive: Long => Boolean
-  ): (List[ReadRun], List[String]) =
+  ): (List[RecordedRun], List[String]) =
     val dir = OrcaDir.runsPath(workDir)
     OrcaDir.assertNoOrcaSymlinks(workDir, dir)
     if !os.exists(dir) then (Nil, Nil)
@@ -46,7 +46,7 @@ private[shell] object ManifestReader:
           .filter(_.ext == "json")
           .toList
           .foldLeft(
-            (List.empty[ReadRun], List.empty[String])
+            (List.empty[RecordedRun], List.empty[String])
           ):
             case ((runs, warnings), file) =>
               readManifest(file) match
@@ -65,7 +65,7 @@ private[shell] object ManifestReader:
                 case Right(manifest) =>
                   val crashed =
                     manifest.outcome == "running" && !pidAlive(manifest.pid)
-                  (ReadRun(manifest, crashed) :: runs, warnings)
+                  (RecordedRun(manifest, crashed) :: runs, warnings)
       (
         runs.sortBy(r => Instant.parse(r.manifest.startedAt)).reverse,
         warnings.reverse

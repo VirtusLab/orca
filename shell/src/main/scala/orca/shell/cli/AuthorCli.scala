@@ -6,7 +6,7 @@ import orca.agents.BackendTag
 import orca.settings.{AgentSpec, GlobalSettings}
 import orca.shell.actions.{AuthorAction, AuthorOutcome, AuthorParams}
 import orca.shell.actions.FlowResolution
-import orca.shell.create.{CreateFlow, CreateTarget, CreateTier}
+import orca.shell.create.{FlowAuthoring, CreateTarget, CreateTier}
 import orca.shell.ui.{ShellOutput, ShellUi}
 
 import Cli.{actionFailure, complete, requireNonBlank, requireTty, usageFailure}
@@ -42,7 +42,7 @@ private[cli] object AuthorCli:
       harness = harness,
       workDir = workDir,
       resolveSource = Right(()),
-      defaultFileName = _ => CreateFlow.suggestedFilename(goal),
+      defaultFileName = _ => FlowAuthoring.suggestFilenameForGoal(goal),
       launch = (_, params, ui, terminal) =>
         AuthorAction.create(goal, params, workDir, ui, terminal)
     )
@@ -71,7 +71,7 @@ private[cli] object AuthorCli:
       workDir = workDir,
       resolveSource =
         FlowResolution.resolve(source, workDir).left.map(actionFailure),
-      defaultFileName = src => CreateFlow.forkFilenameDefault(src.name),
+      defaultFileName = src => FlowAuthoring.forkFilenameDefault(src.name),
       launch = (src, params, ui, terminal) =>
         AuthorAction.fork(src, changes, params, workDir, ui, terminal)
     )
@@ -127,12 +127,12 @@ private[cli] object AuthorCli:
     ShellOutput.info(s"target flow: ${target.flowPath}")
     Cli.withTerminal: terminal =>
       val ui = ShellUi.make(terminal)
-      exitFor(launch(source, params, ui, terminal))
+      exitCodeFor(launch(source, params, ui, terminal))
 
   /** `name`/fork's filename argument is documented as a bare filename, not a
     * path — rejects one containing a path separator (`../escape.sc`,
     * `sub/dir.sc`) with a clean usage error up front, before it ever reaches
-    * [[CreateFlow.prepareTarget]]'s path arithmetic (which, for a name with
+    * [[FlowAuthoring.prepareTarget]]'s path arithmetic (which, for a name with
     * enough `..`s, os-lib can reject by throwing a raw `PathError` instead of
     * returning one).
     */
@@ -143,7 +143,7 @@ private[cli] object AuthorCli:
       s"'$fileName' isn't a valid flow filename — path separators aren't allowed"
     )
 
-  /** [[CreateFlow.prepareTarget]], with any exception os-lib's path arithmetic
+  /** [[FlowAuthoring.prepareTarget]], with any exception os-lib's path arithmetic
     * throws for a filename that survived [[validateFileName]] but still drives
     * it outside the filesystem root (e.g.
     * `os.PathError.AbsolutePathOutsideRoot` — every `os.PathError` variant is a
@@ -157,7 +157,7 @@ private[cli] object AuthorCli:
       workDir: os.Path,
       globalFlows: os.Path
   ): Either[String, CreateTarget] =
-    try CreateFlow.prepareTarget(tier, fileName, workDir, globalFlows)
+    try FlowAuthoring.prepareTarget(tier, fileName, workDir, globalFlows)
     catch
       case _: IllegalArgumentException =>
         Left(s"'$fileName' isn't a valid flow filename")
@@ -185,7 +185,7 @@ private[cli] object AuthorCli:
   ): Either[String, BackendTag] =
     raw match
       case None =>
-        Right(CreateFlow.configuredCodingAgent(GlobalSettings.default))
+        Right(FlowAuthoring.configuredCodingAgent(GlobalSettings.default))
       case Some(name) =>
         AgentSpec.harnessNames
           .get(name)
@@ -194,6 +194,6 @@ private[cli] object AuthorCli:
               AgentSpec.harnessNames.keys.toList.sorted.mkString(", ")
           )
 
-  private[cli] def exitFor(outcome: AuthorOutcome): Int = outcome match
+  private[cli] def exitCodeFor(outcome: AuthorOutcome): Int = outcome match
     case AuthorOutcome.Launched(exit) => exit
     case AuthorOutcome.NotLaunched    => ExitCodes.ActionFailed

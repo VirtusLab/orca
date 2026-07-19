@@ -141,7 +141,7 @@ class BaseAgentTest extends munit.FunSuite:
       e
     }
     assertEquals(committed.size, 1, committed)
-    assertEquals(committed.head.backend, BackendTag.Pi.wireName)
+    assertEquals(committed.head.harness, BackendTag.Pi.wireName)
     assertEquals(committed.head.wireId, Some("wire-committed"))
     assertEquals(committed.head.agent, "stub")
     assertEquals(committed.head.role, None)

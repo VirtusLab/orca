@@ -5,7 +5,7 @@ import orca.agents.BackendTag
 import orca.runner.{ManifestSession, RunManifest}
 import orca.settings.SettingsFile
 import orca.shell.actions.StackAction
-import orca.shell.sessions.{ReadRun, SessionPicker, SessionSelection}
+import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.TempDirs
 
@@ -101,8 +101,8 @@ class MainTest extends munit.FunSuite:
   // research 08 items 7+8): a "main" coder lineage resumed/re-run across three
   // separate flow runs (so three occurrences, newest last-active wins), a
   // Plan-stage one-shot, and three reviewer one-shots.
-  private def mixedRuns(): List[ReadRun] =
-    val run1 = ReadRun(
+  private def mixedRuns(): List[RecordedRun] =
+    val run1 = RecordedRun(
       manifest(
         startedAt = "2026-07-16T09:00:00Z",
         sessions = List(
@@ -116,7 +116,7 @@ class MainTest extends munit.FunSuite:
       ),
       crashed = false
     )
-    val run2 = ReadRun(
+    val run2 = RecordedRun(
       manifest(
         startedAt = "2026-07-17T09:00:00Z",
         sessions = List(
@@ -140,7 +140,7 @@ class MainTest extends munit.FunSuite:
       ),
       crashed = false
     )
-    val run3 = ReadRun(
+    val run3 = RecordedRun(
       manifest(
         startedAt = "2026-07-18T09:00:00Z",
         sessions = List(
@@ -219,7 +219,7 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows (expanded): earlier-occurrence rows are labeled with the session name and an (earlier occurrence) marker"
   ):
-    val run1 = ReadRun(
+    val run1 = RecordedRun(
       manifest(
         startedAt = "2026-07-17T09:00:00Z",
         sessions = List(
@@ -228,7 +228,7 @@ class MainTest extends munit.FunSuite:
       ),
       crashed = false
     )
-    val run2 = ReadRun(
+    val run2 = RecordedRun(
       manifest(
         startedAt = "2026-07-18T09:00:00Z",
         sessions = List(
@@ -249,7 +249,7 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows (expanded): one-shot rows are labeled with agent, role, stage and an (one-shot) marker"
   ):
-    val run = ReadRun(
+    val run = RecordedRun(
       manifest(sessions =
         List(
           oneShot(
@@ -271,7 +271,7 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows omits the earlier-occurrences expander when there's only one occurrence"
   ):
-    val run = ReadRun(
+    val run = RecordedRun(
       manifest(sessions = List(durable())),
       crashed = false
     )
@@ -281,7 +281,7 @@ class MainTest extends munit.FunSuite:
     )
 
   test("sessionRows singularises a count of 1 in the expander label"):
-    val run = ReadRun(
+    val run = RecordedRun(
       manifest(sessions = List(durable(), oneShot())),
       crashed = false
     )
@@ -296,7 +296,7 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows groups durable lineages by (agent, sessionName), not agent alone"
   ):
-    val run = ReadRun(
+    val run = RecordedRun(
       manifest(sessions =
         List(
           durable(
@@ -323,7 +323,7 @@ class MainTest extends munit.FunSuite:
     )
 
   test("sessionRows suffixes a crashed run's rows with `(crashed)`"):
-    val run = ReadRun(manifest(sessions = List(durable())), crashed = true)
+    val run = RecordedRun(manifest(sessions = List(durable())), crashed = true)
     assertEquals(
       SessionPicker.sessionRows(List(run), expanded = false).map(_.label),
       List("★ main — latest (no stage yet) [claude] (crashed)")
@@ -332,7 +332,7 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows falls back to the raw harness string for an unrecognised one"
   ):
-    val run = ReadRun(
+    val run = RecordedRun(
       manifest(sessions = List(durable(harness = "SomeFutureHarness"))),
       crashed = false
     )
@@ -343,7 +343,7 @@ class MainTest extends munit.FunSuite:
 
   test("sessionRows disables a wireId-less session with its stored reason"):
     val reason = "pi sessions are deleted when the run's temp dir is reclaimed"
-    val run = ReadRun(
+    val run = RecordedRun(
       manifest(sessions =
         List(durable(harness = "Pi", wireId = None, reason = Some(reason)))
       ),
@@ -357,7 +357,7 @@ class MainTest extends munit.FunSuite:
     )
 
   test("sessionRows disables an unrecognised harness"):
-    val run = ReadRun(
+    val run = RecordedRun(
       manifest(sessions = List(durable(harness = "SomeFutureHarness"))),
       crashed = false
     )
@@ -370,7 +370,7 @@ class MainTest extends munit.FunSuite:
     )
 
   test("sessionRows enables a claude session with a wireId"):
-    val run = ReadRun(manifest(sessions = List(durable())), crashed = false)
+    val run = RecordedRun(manifest(sessions = List(durable())), crashed = false)
     assertEquals(
       SessionPicker
         .sessionRows(List(run), expanded = false)
@@ -381,7 +381,7 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows enables a gemini session with a wireId, deferring the real index lookup to selection"
   ):
-    val run = ReadRun(
+    val run = RecordedRun(
       manifest(sessions =
         List(durable(harness = "Gemini", wireId = Some("uuid")))
       ),

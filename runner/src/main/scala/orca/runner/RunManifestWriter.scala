@@ -161,9 +161,9 @@ private[runner] class RunManifestWriterState(
         case _ :: rest =>
           state = state.copy(stageStack = rest)
       if hasCommittedSession then safeWrite()
-    case OrcaEvent.SessionCommitted(backend, clientId, wireId, agent, role) =>
+    case OrcaEvent.SessionCommitted(harness, clientId, wireId, agent, role) =>
       state = state.copy(entries =
-        upsertSession(backend, clientId, wireId, agent, role)
+        upsertSession(harness, clientId, wireId, agent, role)
       )
       safeWrite()
     case _ => ()
@@ -199,7 +199,7 @@ private[runner] class RunManifestWriterState(
     * sighting.
     */
   private def upsertSession(
-      backend: String,
+      harness: String,
       clientId: String,
       wireId: Option[String],
       agent: String,
@@ -210,13 +210,13 @@ private[runner] class RunManifestWriterState(
     val stage = state.stageStack.headOption
     val sessionName = durableSessionName(clientId)
     val existing =
-      state.entries.find(e => e.harness == backend && e.dedupKey == key)
+      state.entries.find(e => e.harness == harness && e.dedupKey == key)
     val session = ManifestSession(
-      harness = backend,
+      harness = harness,
       wireId = wireId,
       resumable = wireId.isDefined,
       reason =
-        if wireId.isEmpty then Some(s"$backend sessions do not survive the run")
+        if wireId.isEmpty then Some(s"$harness sessions do not survive the run")
         else None,
       agent = agent,
       role = role,
@@ -226,11 +226,11 @@ private[runner] class RunManifestWriterState(
       firstSeenAt = existing.map(_.session.firstSeenAt).getOrElse(now),
       lastActiveAt = now
     )
-    val entry = Entry(backend, key, session)
+    val entry = Entry(harness, key, session)
     existing match
       case Some(_) =>
         state.entries.map: e =>
-          if e.harness == backend && e.dedupKey == key then entry else e
+          if e.harness == harness && e.dedupKey == key then entry else e
       case None => state.entries :+ entry
 
   /** `clientId` joined against every `progress-*.json` under `.orca/` —

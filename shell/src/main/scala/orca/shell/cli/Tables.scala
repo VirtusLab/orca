@@ -9,7 +9,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   ConfiguredJsonValueCodec
 }
 import orca.shell.flows.DiscoveredFlow
-import orca.shell.sessions.{ReadRun, SessionPicker}
+import orca.shell.sessions.{RecordedRun, SessionPicker}
 import orca.shell.ui.Choice
 
 /** The CLI's table/JSON rendering (ADR 0021 §10) — the row shapes `list` and
@@ -39,9 +39,9 @@ private[cli] object Tables:
       CodecMakerConfig.withTransientEmpty(false).withTransientNone(false)
     )
 
-  private[cli] def sessionListingRows(runs: List[ReadRun]): List[SessionRow] =
+  private[cli] def sessionListingRows(runs: List[RecordedRun]): List[SessionRow] =
     SessionPicker
-      .resumableRows(SessionPicker.sessionRows(runs, expanded = true))
+      .withoutExpanders(SessionPicker.sessionRows(runs, expanded = true))
       .zipWithIndex
       .collect:
         case (
@@ -67,7 +67,7 @@ private[cli] object Tables:
           )
 
   private[cli] def printSessionListing(
-      runs: List[ReadRun],
+      runs: List[RecordedRun],
       asJson: Boolean
   ): Unit =
     val rows = sessionListingRows(runs)

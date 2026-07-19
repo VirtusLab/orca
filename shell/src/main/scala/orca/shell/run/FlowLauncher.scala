@@ -271,7 +271,7 @@ private[shell] object FlowLauncher:
           case FallbackPolicy.Ask(ui) =>
             ui.confirm(fallbackQuestion(shellVersion), default = true) match
               case UiOutcome.Selected(true) =>
-                announced(s"pin-honouring re-run of ${flow.last}", flow.last)(
+                announced(s"pin-honoring re-run of ${flow.last}", flow.last)(
                   toLaunchResult(
                     spawnInherited(
                       argv(flow, None, task, verbose),

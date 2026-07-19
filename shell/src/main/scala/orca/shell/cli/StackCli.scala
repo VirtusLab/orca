@@ -20,7 +20,7 @@ private[cli] object StackCli:
   ): Int =
     StackAction.status(workDir) match
       case Left(message) =>
-        Cli.fail(message)
+        Cli.diagnostic(message)
         ExitCodes.ActionFailed
       case Right(StackStatus.NoSettings | StackStatus.NoStackLines) =>
         ShellOutput.info(StackAction.noSettingsMessage)
@@ -32,7 +32,7 @@ private[cli] object StackCli:
         else if tty then confirmAndClear(workDir, stack, content)
         else
           StackAction.clearIfConfirmed(workDir, stack, content, () => false)
-          Cli.fail(
+          Cli.diagnostic(
             "pass --yes to confirm clearing stack settings (non-interactive)"
           )
           ExitCodes.UsageError

@@ -8,7 +8,7 @@ import orca.shell.actions.AuthorOutcome
 import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.run.LaunchResult
-import orca.shell.sessions.{ReadRun, SessionPicker, SessionSelection}
+import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
 import orca.testkit.TempDirs
 
 class CliTest extends munit.FunSuite:
@@ -271,13 +271,13 @@ class CliTest extends munit.FunSuite:
 
   // --- AuthorOutcome -> exit code mapping ---
 
-  test("exitFor: Launched propagates the harness's own exit code"):
-    assertEquals(AuthorCli.exitFor(AuthorOutcome.Launched(0)), 0)
-    assertEquals(AuthorCli.exitFor(AuthorOutcome.Launched(7)), 7)
+  test("exitCodeFor: Launched propagates the harness's own exit code"):
+    assertEquals(AuthorCli.exitCodeFor(AuthorOutcome.Launched(0)), 0)
+    assertEquals(AuthorCli.exitCodeFor(AuthorOutcome.Launched(7)), 7)
 
-  test("exitFor: NotLaunched maps to ActionFailed"):
+  test("exitCodeFor: NotLaunched maps to ActionFailed"):
     assertEquals(
-      AuthorCli.exitFor(AuthorOutcome.NotLaunched),
+      AuthorCli.exitCodeFor(AuthorOutcome.NotLaunched),
       ExitCodes.ActionFailed
     )
 
@@ -365,7 +365,7 @@ class CliTest extends munit.FunSuite:
     assertEquals(AuthorCli.validateFileName("my-flow.sc"), Right(()))
 
   test(
-    "safePrepareTarget: delegates to CreateFlow.prepareTarget for an ordinary name"
+    "safePrepareTarget: delegates to FlowAuthoring.prepareTarget for an ordinary name"
   ):
     val dir = TempDirs.dir()
     val result =
@@ -594,16 +594,16 @@ class CliTest extends munit.FunSuite:
       lastActiveAt = lastActiveAt
     )
 
-  private def runsFixture(): List[ReadRun] =
+  private def runsFixture(): List[RecordedRun] =
     List(
-      ReadRun(
+      RecordedRun(
         manifest(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(durable("newest", "2026-07-18T09:45:00Z"))
         ),
         crashed = false
       ),
-      ReadRun(
+      RecordedRun(
         manifest(
           startedAt = "2026-07-17T09:00:00Z",
           sessions = List(
@@ -704,7 +704,7 @@ class CliTest extends munit.FunSuite:
     "selectByName: a name shared by two distinct lineages (different agents) is ambiguous"
   ):
     val runs = List(
-      ReadRun(
+      RecordedRun(
         manifest(
           startedAt = "2026-07-18T09:00:00Z",
           sessions = List(

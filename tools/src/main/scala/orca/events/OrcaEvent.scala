@@ -81,14 +81,16 @@ enum OrcaEvent:
   case Error(message: String)
 
   /** Fires when a session's first turn commits — its wire id, if any, is known
-    * by then (ADR 0021 §8). Once per (backend, clientId, wireId) commit;
-    * listeners dedup on a resumed session's later turns. `wireId` is the
-    * persistable id ([[orca.agents.Agent.resumeWireId]]) — `None` for backends
-    * whose sessions don't survive the run (pi), so a non-resumable commit still
-    * fires accurately.
+    * by then (ADR 0021 §8). Once per (harness, clientId, wireId) commit;
+    * listeners dedup on a resumed session's later turns. `harness` is the
+    * backend's wire name — the one string the persisted manifest also calls
+    * `harness` ([[orca.runner.ManifestSession]]). `wireId` is the persistable id
+    * ([[orca.agents.Agent.resumeWireId]]) — `None` for backends whose sessions
+    * don't survive the run (pi), so a non-resumable commit still fires
+    * accurately.
     */
   case SessionCommitted(
-      backend: String,
+      harness: String,
       clientId: String,
       wireId: Option[String],
       agent: String,

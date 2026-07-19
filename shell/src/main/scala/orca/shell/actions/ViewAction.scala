@@ -7,5 +7,5 @@ import orca.shell.flows.{DiscoveredFlow, FlowViewer}
   * has the same one-line call the menu's `viewFlow` makes.
   */
 private[shell] object ViewAction:
-  def render(flow: DiscoveredFlow, tty: Boolean): String =
-    FlowViewer.render(os.read(flow.path), tty)
+  def render(flow: DiscoveredFlow, highlight: Boolean): String =
+    FlowViewer.render(os.read(flow.path), highlight)

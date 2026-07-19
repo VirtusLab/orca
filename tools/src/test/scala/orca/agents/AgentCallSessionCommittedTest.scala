@@ -64,11 +64,11 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
       }
       // Fires per attempt now (both the failed-parse attempt and the
       // succeeding one commit the same session), so assert dedup-equivalence
-      // rather than an exact count: listeners dedup on (backend, clientId,
+      // rather than an exact count: listeners dedup on (harness, clientId,
       // wireId) per the event's scaladoc.
       assert(committed.nonEmpty, "expected at least one SessionCommitted")
       assertEquals(committed.distinct.size, 1, committed)
-      assertEquals(committed.head.backend, BackendTag.ClaudeCode.wireName)
+      assertEquals(committed.head.harness, BackendTag.ClaudeCode.wireName)
       assertEquals(committed.head.wireId, Some("committed-wire"))
       assertEquals(committed.head.agent, "claude")
       assertEquals(committed.head.role, Some("reviewer"))
@@ -109,7 +109,7 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
       // scaladoc): every attempt commits the same session, so all payloads
       // must agree.
       assertEquals(committed.distinct.size, 1, committed)
-      assertEquals(committed.head.backend, BackendTag.ClaudeCode.wireName)
+      assertEquals(committed.head.harness, BackendTag.ClaudeCode.wireName)
       assertEquals(committed.head.wireId, Some("committed-wire"))
       assertEquals(committed.head.agent, "claude")
       assertEquals(committed.head.role, Some("reviewer"))

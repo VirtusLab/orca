@@ -3,7 +3,7 @@ package orca.shell.create
 import orca.agents.BackendTag
 import orca.testkit.TempDirs
 
-class CreateFlowTest extends munit.FunSuite:
+class FlowAuthoringTest extends munit.FunSuite:
 
   private val resourcePrefix = "/orca/shell/api/"
 
@@ -18,7 +18,7 @@ class CreateFlowTest extends munit.FunSuite:
 
   test("extractApiMaterial writes the three bundled files, matching resources"):
     val target = TempDirs.dir()
-    val dir = CreateFlow.extractApiMaterial(target, "0.0.18")
+    val dir = FlowAuthoring.extractApiMaterial(target, "0.0.18")
     assertEquals(dir, target / "orca-api-0.0.18")
     List("README.md", "implement.sc", "implement-interactive.sc").foreach:
       name => assertEquals(os.read(dir / name), resourceText(name))
@@ -27,10 +27,10 @@ class CreateFlowTest extends munit.FunSuite:
     "extractApiMaterial is idempotent — a second call leaves files unchanged"
   ):
     val target = TempDirs.dir()
-    val dir = CreateFlow.extractApiMaterial(target, "0.0.18")
+    val dir = FlowAuthoring.extractApiMaterial(target, "0.0.18")
     val mtimesBefore = os.list(dir).map(p => p.last -> os.mtime(p)).toMap
 
-    val dirAgain = CreateFlow.extractApiMaterial(target, "0.0.18")
+    val dirAgain = FlowAuthoring.extractApiMaterial(target, "0.0.18")
 
     assertEquals(dirAgain, dir)
     val mtimesAfter = os.list(dir).map(p => p.last -> os.mtime(p)).toMap
@@ -42,7 +42,7 @@ class CreateFlowTest extends munit.FunSuite:
     os.makeDir.all(dir)
     os.write(dir / "README.md", "stale-partial-content")
 
-    val result = CreateFlow.extractApiMaterial(target, "0.0.18")
+    val result = FlowAuthoring.extractApiMaterial(target, "0.0.18")
 
     assertEquals(result, dir)
     assertEquals(os.read(dir / "README.md"), resourceText("README.md"))
@@ -57,7 +57,7 @@ class CreateFlowTest extends munit.FunSuite:
   private val apiDir = os.root / "work" / ".orca" / "cache" / "orca-api-0.0.18"
 
   private def prompt: String =
-    CreateFlow.initialPrompt(
+    FlowAuthoring.initialPrompt(
       "sync issues nightly",
       targetPath,
       apiDir,
@@ -70,7 +70,7 @@ class CreateFlowTest extends munit.FunSuite:
 
   test("initialPrompt indents a multi-line goal as its own block"):
     val multilineGoal = "sync issues nightly\nand also close stale ones"
-    val text = CreateFlow.initialPrompt(
+    val text = FlowAuthoring.initialPrompt(
       multilineGoal,
       targetPath,
       apiDir,
@@ -102,7 +102,7 @@ class CreateFlowTest extends munit.FunSuite:
     "initialPrompt (dev version) injects ivy2Local right after the dep pin, so the compile hint stays honest"
   ):
     val devPrompt =
-      CreateFlow.initialPrompt("sync issues nightly", targetPath, apiDir, "dev")
+      FlowAuthoring.initialPrompt("sync issues nightly", targetPath, apiDir, "dev")
     val depLineIdx = devPrompt.linesIterator.indexWhere(
       _.contains("""//> using dep "org.virtuslab::orca:dev"""")
     )
@@ -123,26 +123,26 @@ class CreateFlowTest extends munit.FunSuite:
 
   test("harnessArgv: claude takes the prompt as a positional argument"):
     assertEquals(
-      CreateFlow
+      FlowAuthoring
         .harnessArgv(BackendTag.ClaudeCode, "do the thing", yolo = false),
       HarnessLaunch(Seq("claude", "do the thing"), None)
     )
 
   test("harnessArgv: codex takes the prompt as a positional argument"):
     assertEquals(
-      CreateFlow.harnessArgv(BackendTag.Codex, "do the thing", yolo = false),
+      FlowAuthoring.harnessArgv(BackendTag.Codex, "do the thing", yolo = false),
       HarnessLaunch(Seq("codex", "do the thing"), None)
     )
 
   test("harnessArgv: pi takes the prompt as a positional argument"):
     assertEquals(
-      CreateFlow.harnessArgv(BackendTag.Pi, "do the thing", yolo = false),
+      FlowAuthoring.harnessArgv(BackendTag.Pi, "do the thing", yolo = false),
       HarnessLaunch(Seq("pi", "do the thing"), None)
     )
 
   test("harnessArgv: gemini uses -i/--prompt-interactive"):
     assertEquals(
-      CreateFlow.harnessArgv(BackendTag.Gemini, "do the thing", yolo = false),
+      FlowAuthoring.harnessArgv(BackendTag.Gemini, "do the thing", yolo = false),
       HarnessLaunch(Seq("gemini", "-i", "do the thing"), None)
     )
 
@@ -150,13 +150,13 @@ class CreateFlowTest extends munit.FunSuite:
     "harnessArgv: opencode launches bare with the prompt as a paste-fallback (--prompt only prefills, doesn't submit)"
   ):
     assertEquals(
-      CreateFlow.harnessArgv(BackendTag.Opencode, "do the thing", yolo = false),
+      FlowAuthoring.harnessArgv(BackendTag.Opencode, "do the thing", yolo = false),
       HarnessLaunch(Seq("opencode"), Some("do the thing"))
     )
 
   test("harnessArgv: yolo appends claude's --dangerously-skip-permissions"):
     assertEquals(
-      CreateFlow
+      FlowAuthoring
         .harnessArgv(BackendTag.ClaudeCode, "do the thing", yolo = true),
       HarnessLaunch(
         Seq("claude", "do the thing", "--dangerously-skip-permissions"),
@@ -168,7 +168,7 @@ class CreateFlowTest extends munit.FunSuite:
     "harnessArgv: yolo appends codex's --dangerously-bypass-approvals-and-sandbox"
   ):
     assertEquals(
-      CreateFlow.harnessArgv(BackendTag.Codex, "do the thing", yolo = true),
+      FlowAuthoring.harnessArgv(BackendTag.Codex, "do the thing", yolo = true),
       HarnessLaunch(
         Seq(
           "codex",
@@ -181,13 +181,13 @@ class CreateFlowTest extends munit.FunSuite:
 
   test("harnessArgv: yolo appends gemini's --yolo"):
     assertEquals(
-      CreateFlow.harnessArgv(BackendTag.Gemini, "do the thing", yolo = true),
+      FlowAuthoring.harnessArgv(BackendTag.Gemini, "do the thing", yolo = true),
       HarnessLaunch(Seq("gemini", "-i", "do the thing", "--yolo"), None)
     )
 
   test("harnessArgv: yolo is a no-op for pi (no approval gate to bypass)"):
     assertEquals(
-      CreateFlow.harnessArgv(BackendTag.Pi, "do the thing", yolo = true),
+      FlowAuthoring.harnessArgv(BackendTag.Pi, "do the thing", yolo = true),
       HarnessLaunch(Seq("pi", "do the thing"), None)
     )
 
@@ -195,7 +195,7 @@ class CreateFlowTest extends munit.FunSuite:
     "harnessArgv: yolo is a no-op for opencode (no interactive-TUI flag exists)"
   ):
     assertEquals(
-      CreateFlow.harnessArgv(BackendTag.Opencode, "do the thing", yolo = true),
+      FlowAuthoring.harnessArgv(BackendTag.Opencode, "do the thing", yolo = true),
       HarnessLaunch(Seq("opencode"), Some("do the thing"))
     )
 
@@ -203,64 +203,64 @@ class CreateFlowTest extends munit.FunSuite:
 
   test("yoloCaveat is None when yolo wasn't requested, for every backend"):
     BackendTag.values.foreach: tag =>
-      assertEquals(CreateFlow.yoloCaveat(tag, yolo = false), None)
+      assertEquals(FlowAuthoring.yoloCaveat(tag, yolo = false), None)
 
   test("yoloCaveat is None for claude/codex/gemini when yolo was requested"):
     List(BackendTag.ClaudeCode, BackendTag.Codex, BackendTag.Gemini).foreach:
-      tag => assertEquals(CreateFlow.yoloCaveat(tag, yolo = true), None)
+      tag => assertEquals(FlowAuthoring.yoloCaveat(tag, yolo = true), None)
 
   test("yoloCaveat notes pi has no approval gate to bypass"):
     assertEquals(
-      CreateFlow.yoloCaveat(BackendTag.Pi, yolo = true),
+      FlowAuthoring.yoloCaveat(BackendTag.Pi, yolo = true),
       Some("pi has no approval gate to bypass — nothing to change.")
     )
 
   test("yoloCaveat notes opencode's approvals are config-only"):
     assertEquals(
-      CreateFlow.yoloCaveat(BackendTag.Opencode, yolo = true),
+      FlowAuthoring.yoloCaveat(BackendTag.Opencode, yolo = true),
       Some(
         "opencode has no interactive yolo flag — approvals are controlled by opencode.jsonc's `permission` field."
       )
     )
 
-  // --- proposeFilename ---
+  // --- localFilenameSlug ---
 
   test(
-    "proposeFilename slugs the first four meaningful words, dropping stopwords"
+    "localFilenameSlug slugs the first four meaningful words, dropping stopwords"
   ):
     assertEquals(
-      CreateFlow.proposeFilename(
+      FlowAuthoring.localFilenameSlug(
         "Implement a rate limiter for the login endpoint"
       ),
       "implement-rate-limiter-login.sc"
     )
 
-  test("proposeFilename lowercases and strips punctuation"):
+  test("localFilenameSlug lowercases and strips punctuation"):
     assertEquals(
-      CreateFlow.proposeFilename("Fix the bug: NPE on save!!!"),
+      FlowAuthoring.localFilenameSlug("Fix the bug: NPE on save!!!"),
       "fix-bug-npe-save.sc"
     )
 
-  test("proposeFilename handles unicode letters as ordinary word characters"):
+  test("localFilenameSlug handles unicode letters as ordinary word characters"):
     assertEquals(
-      CreateFlow.proposeFilename("Résumé café münchen naïve"),
+      FlowAuthoring.localFilenameSlug("Résumé café münchen naïve"),
       "résumé-café-münchen-naïve.sc"
     )
 
   test(
-    "proposeFilename falls back to new-flow.sc when nothing survives filtering (all stopwords)"
+    "localFilenameSlug falls back to new-flow.sc when nothing survives filtering (all stopwords)"
   ):
-    assertEquals(CreateFlow.proposeFilename("the a to for and"), "new-flow.sc")
+    assertEquals(FlowAuthoring.localFilenameSlug("the a to for and"), "new-flow.sc")
 
-  test("proposeFilename falls back to new-flow.sc on punctuation-only input"):
-    assertEquals(CreateFlow.proposeFilename("!!! ??? ..."), "new-flow.sc")
+  test("localFilenameSlug falls back to new-flow.sc on punctuation-only input"):
+    assertEquals(FlowAuthoring.localFilenameSlug("!!! ??? ..."), "new-flow.sc")
 
-  test("proposeFilename falls back to new-flow.sc on empty input"):
-    assertEquals(CreateFlow.proposeFilename(""), "new-flow.sc")
+  test("localFilenameSlug falls back to new-flow.sc on empty input"):
+    assertEquals(FlowAuthoring.localFilenameSlug(""), "new-flow.sc")
 
-  test("proposeFilename takes only the first four words, ignoring the rest"):
+  test("localFilenameSlug takes only the first four words, ignoring the rest"):
     assertEquals(
-      CreateFlow.proposeFilename("one two three four five six seven"),
+      FlowAuthoring.localFilenameSlug("one two three four five six seven"),
       "one-two-three-four.sc"
     )
 
@@ -268,38 +268,38 @@ class CreateFlowTest extends munit.FunSuite:
 
   test("slugArgv: claude uses -p/--print"):
     assertEquals(
-      CreateFlow.slugArgv(BackendTag.ClaudeCode, "suggest a name"),
+      FlowAuthoring.slugArgv(BackendTag.ClaudeCode, "suggest a name"),
       Seq("claude", "-p", "suggest a name")
     )
 
   test("slugArgv: codex uses the exec subcommand"):
     assertEquals(
-      CreateFlow.slugArgv(BackendTag.Codex, "suggest a name"),
+      FlowAuthoring.slugArgv(BackendTag.Codex, "suggest a name"),
       Seq("codex", "exec", "suggest a name")
     )
 
   test("slugArgv: pi uses -p/--print"):
     assertEquals(
-      CreateFlow.slugArgv(BackendTag.Pi, "suggest a name"),
+      FlowAuthoring.slugArgv(BackendTag.Pi, "suggest a name"),
       Seq("pi", "-p", "suggest a name")
     )
 
   test("slugArgv: gemini uses -p/--prompt (the non-interactive/headless flag)"):
     assertEquals(
-      CreateFlow.slugArgv(BackendTag.Gemini, "suggest a name"),
+      FlowAuthoring.slugArgv(BackendTag.Gemini, "suggest a name"),
       Seq("gemini", "-p", "suggest a name")
     )
 
   test("slugArgv: opencode uses the run subcommand"):
     assertEquals(
-      CreateFlow.slugArgv(BackendTag.Opencode, "suggest a name"),
+      FlowAuthoring.slugArgv(BackendTag.Opencode, "suggest a name"),
       Seq("opencode", "run", "suggest a name")
     )
 
   // --- slugPrompt ---
 
   test("slugPrompt states the goal and asks for only the filename"):
-    val text = CreateFlow.slugPrompt("sync issues nightly")
+    val text = FlowAuthoring.slugPrompt("sync issues nightly")
     assert(text.contains("sync issues nightly"))
     assert(text.contains("Reply with ONLY the filename"))
 
@@ -307,22 +307,22 @@ class CreateFlowTest extends munit.FunSuite:
 
   test("sanitizeSlug kebab-cases junk (mixed case, punctuation, spaces)"):
     assertEquals(
-      CreateFlow.sanitizeSlug("Sure! Here's one: My Cool Flow"),
+      FlowAuthoring.sanitizeSlug("Sure! Here's one: My Cool Flow"),
       "sure-here-s-one-my-cool-flow.sc"
     )
 
   test("sanitizeSlug strips an existing .sc suffix before re-appending it"):
-    assertEquals(CreateFlow.sanitizeSlug("my-cool-flow.sc"), "my-cool-flow.sc")
+    assertEquals(FlowAuthoring.sanitizeSlug("my-cool-flow.sc"), "my-cool-flow.sc")
 
   test("sanitizeSlug falls back to new-flow.sc on an empty string"):
-    assertEquals(CreateFlow.sanitizeSlug(""), "new-flow.sc")
+    assertEquals(FlowAuthoring.sanitizeSlug(""), "new-flow.sc")
 
   test("sanitizeSlug falls back to new-flow.sc on punctuation/whitespace only"):
-    assertEquals(CreateFlow.sanitizeSlug("   !!! ... ???  "), "new-flow.sc")
+    assertEquals(FlowAuthoring.sanitizeSlug("   !!! ... ???  "), "new-flow.sc")
 
   test("sanitizeSlug bounds an unreasonably long reply"):
     val long = ("word" * 30)
-    val result = CreateFlow.sanitizeSlug(long)
+    val result = FlowAuthoring.sanitizeSlug(long)
     assert(result.stripSuffix(".sc").length <= 50, result)
 
   // --- suggestFilename ---
@@ -331,7 +331,7 @@ class CreateFlowTest extends munit.FunSuite:
     val runner: (Seq[String], Long) => Option[String] =
       (_, _) => Some("Thinking...\n\nSure, how about: My Cool Flow\n")
     val result =
-      CreateFlow.suggestFilename(
+      FlowAuthoring.suggestFilename(
         BackendTag.ClaudeCode,
         "sync issues nightly",
         runner = runner
@@ -339,40 +339,40 @@ class CreateFlowTest extends munit.FunSuite:
     assertEquals(result, "sure-how-about-my-cool-flow.sc")
 
   test(
-    "suggestFilename falls back to proposeFilename when the harness is unreachable/times out"
+    "suggestFilename falls back to localFilenameSlug when the harness is unreachable/times out"
   ):
     val runner: (Seq[String], Long) => Option[String] = (_, _) => None
     val goal = "Implement a rate limiter for the login endpoint"
     assertEquals(
-      CreateFlow.suggestFilename(BackendTag.ClaudeCode, goal, runner = runner),
-      CreateFlow.proposeFilename(goal)
+      FlowAuthoring.suggestFilename(BackendTag.ClaudeCode, goal, runner = runner),
+      FlowAuthoring.localFilenameSlug(goal)
     )
 
   test(
-    "suggestFilename falls back to proposeFilename when the harness reply sanitizes to nothing"
+    "suggestFilename falls back to localFilenameSlug when the harness reply sanitizes to nothing"
   ):
     val runner: (Seq[String], Long) => Option[String] =
       (_, _) => Some("   !!! ... ???  ")
     val goal = "Implement a rate limiter for the login endpoint"
     assertEquals(
-      CreateFlow.suggestFilename(BackendTag.ClaudeCode, goal, runner = runner),
-      CreateFlow.proposeFilename(goal)
+      FlowAuthoring.suggestFilename(BackendTag.ClaudeCode, goal, runner = runner),
+      FlowAuthoring.localFilenameSlug(goal)
     )
 
   test("suggestFilename passes slugArgv/slugPrompt through to the runner"):
     var seenArgv: Seq[String] = Nil
     val runner: (Seq[String], Long) => Option[String] =
       (argv, _) => { seenArgv = argv; Some("my-flow") }
-    CreateFlow.suggestFilename(
+    FlowAuthoring.suggestFilename(
       BackendTag.Gemini,
       "sync issues nightly",
       runner = runner
     )
     assertEquals(
       seenArgv,
-      CreateFlow.slugArgv(
+      FlowAuthoring.slugArgv(
         BackendTag.Gemini,
-        CreateFlow.slugPrompt("sync issues nightly")
+        FlowAuthoring.slugPrompt("sync issues nightly")
       )
     )
 
@@ -380,13 +380,13 @@ class CreateFlowTest extends munit.FunSuite:
 
   test("forkFilenameDefault strips .sc and appends -fork.sc"):
     assertEquals(
-      CreateFlow.forkFilenameDefault("implement.sc"),
+      FlowAuthoring.forkFilenameDefault("implement.sc"),
       "implement-fork.sc"
     )
 
   test("forkFilenameDefault appends -fork.sc even without a .sc source name"):
     assertEquals(
-      CreateFlow.forkFilenameDefault("implement"),
+      FlowAuthoring.forkFilenameDefault("implement"),
       "implement-fork.sc"
     )
 
@@ -400,7 +400,7 @@ class CreateFlowTest extends munit.FunSuite:
     os.write(source, "// a flow\n", createFolders = true)
     val apiDir = TempDirs.dir()
     assertEquals(
-      CreateFlow.resolveForkSource(source, "implement.sc", cwd, apiDir),
+      FlowAuthoring.resolveForkSource(source, "implement.sc", cwd, apiDir),
       source
     )
     assert(!os.exists(apiDir / "implement.sc"), "should not have copied")
@@ -412,7 +412,7 @@ class CreateFlowTest extends munit.FunSuite:
     os.write(source, "// a flow\n")
     val apiDir = TempDirs.dir()
     val resolved =
-      CreateFlow.resolveForkSource(source, "implement.sc", cwd, apiDir)
+      FlowAuthoring.resolveForkSource(source, "implement.sc", cwd, apiDir)
     assertEquals(resolved, apiDir / "implement.sc")
     assertEquals(os.read(resolved), "// a flow\n")
 
@@ -425,7 +425,7 @@ class CreateFlowTest extends munit.FunSuite:
     os.write(apiDir / "implement.sc", "// pre-existing copy\n")
 
     val resolved =
-      CreateFlow.resolveForkSource(source, "implement.sc", cwd, apiDir)
+      FlowAuthoring.resolveForkSource(source, "implement.sc", cwd, apiDir)
 
     assertEquals(resolved, apiDir / "implement.sc")
     assertEquals(os.read(resolved), "// pre-existing copy\n")
@@ -433,7 +433,7 @@ class CreateFlowTest extends munit.FunSuite:
   // --- forkPrompt ---
 
   private def fork: String =
-    CreateFlow.forkPrompt(
+    FlowAuthoring.forkPrompt(
       "add a rate limit",
       targetPath / os.up / "implement.sc",
       targetPath,
@@ -463,7 +463,7 @@ class CreateFlowTest extends munit.FunSuite:
 
   test("forkPrompt indents a multi-line change description as its own block"):
     val multilineChanges = "add a rate limit\nand log rejected requests"
-    val text = CreateFlow.forkPrompt(
+    val text = FlowAuthoring.forkPrompt(
       multilineChanges,
       targetPath / os.up / "implement.sc",
       targetPath,
@@ -476,16 +476,16 @@ class CreateFlowTest extends munit.FunSuite:
   // --- resolveTarget / prepareTarget ---
 
   test("normalizedFileName adds a .sc suffix when missing"):
-    assertEquals(CreateFlow.normalizedFileName("my-flow"), "my-flow.sc")
+    assertEquals(FlowAuthoring.normalizedFileName("my-flow"), "my-flow.sc")
 
   test("normalizedFileName leaves an existing .sc suffix alone"):
-    assertEquals(CreateFlow.normalizedFileName("my-flow.sc"), "my-flow.sc")
+    assertEquals(FlowAuthoring.normalizedFileName("my-flow.sc"), "my-flow.sc")
 
   test("resolveTarget (Project): saves under .orca/flows, cwd is workDir"):
     val workDir = os.root / "repo"
     val globalFlows = os.root / "home" / "u" / ".config" / "orca" / "flows"
     assertEquals(
-      CreateFlow.resolveTarget(
+      FlowAuthoring.resolveTarget(
         CreateTier.Project,
         "my-flow",
         workDir,
@@ -500,7 +500,7 @@ class CreateFlowTest extends munit.FunSuite:
     val workDir = os.root / "repo"
     val globalFlows = os.root / "home" / "u" / ".config" / "orca" / "flows"
     assertEquals(
-      CreateFlow.resolveTarget(
+      FlowAuthoring.resolveTarget(
         CreateTier.Global,
         "my-flow",
         workDir,
@@ -515,7 +515,7 @@ class CreateFlowTest extends munit.FunSuite:
   test("prepareTarget (Project) ensures .orca/flows/ via OrcaDir.ensureFlows"):
     val workDir = TempDirs.dir()
     val result =
-      CreateFlow.prepareTarget(
+      FlowAuthoring.prepareTarget(
         CreateTier.Project,
         "my-flow",
         workDir,
@@ -529,7 +529,7 @@ class CreateFlowTest extends munit.FunSuite:
 
   test("prepareTarget (Global) ensures the global flows dir exists"):
     val globalFlows = TempDirs.dir() / "flows"
-    val result = CreateFlow.prepareTarget(
+    val result = FlowAuthoring.prepareTarget(
       CreateTier.Global,
       "my-flow",
       TempDirs.dir(),
@@ -549,7 +549,7 @@ class CreateFlowTest extends munit.FunSuite:
       createFolders = true
     )
     val result =
-      CreateFlow.prepareTarget(
+      FlowAuthoring.prepareTarget(
         CreateTier.Project,
         "my-flow",
         workDir,

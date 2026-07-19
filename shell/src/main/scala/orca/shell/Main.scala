@@ -15,10 +15,10 @@ import orca.shell.actions.{
   ViewAction
 }
 import orca.shell.cli.{Cli, CliHelp}
-import orca.shell.create.{CreateFlow, CreateTarget, CreateTier}
+import orca.shell.create.{FlowAuthoring, CreateTarget, CreateTier}
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.run.FallbackPolicy
-import orca.shell.sessions.{ManifestReader, ReadRun, SessionPicker}
+import orca.shell.sessions.{ManifestReader, RecordedRun, SessionPicker}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
 import orca.subprocess.PathProbe
@@ -198,7 +198,7 @@ object Main:
       case UiOutcome.Selected(text) => Some(text)
 
   /** New-flow authoring (item 9): tier → goal → filename (defaulted from the
-    * goal's [[suggestedFilename]] slug) → harness+yolo, then hands off to
+    * goal's [[suggestFilenameForGoal]] slug) → harness+yolo, then hands off to
     * [[AuthorAction.create]]. Cancelling any prompt, or a filename collision,
     * aborts back to the menu without launching anything. Reachable via
     * [[MenuItem.CreateFlow]]; [[MenuItem.ForkFlow]] (item 10) is the sibling
@@ -215,7 +215,7 @@ object Main:
         tier,
         workDir,
         globalFlows,
-        default = Some(CreateFlow.suggestedFilename(goal))
+        default = Some(FlowAuthoring.suggestFilenameForGoal(goal))
       )
       (backend, yolo) <- selectHarnessAndYolo(ui)
     do
@@ -225,7 +225,7 @@ object Main:
   /** Fork-an-existing-flow authoring (item 10): pick the source flow from every
     * tier (same rows View/Edit use) → describe the changes → tier for the
     * fork's target → filename (defaulted from
-    * [[CreateFlow.forkFilenameDefault]]) → harness+yolo, then hands off to
+    * [[FlowAuthoring.forkFilenameDefault]]) → harness+yolo, then hands off to
     * [[AuthorAction.fork]].
     */
   private def createForkFlow(ui: ShellUi, terminal: Terminal): Unit =
@@ -240,7 +240,7 @@ object Main:
         tier,
         workDir,
         globalFlows,
-        default = Some(CreateFlow.forkFilenameDefault(source.name))
+        default = Some(FlowAuthoring.forkFilenameDefault(source.name))
       )
       (backend, yolo) <- selectHarnessAndYolo(ui)
     do
@@ -269,7 +269,7 @@ object Main:
   /** Prompts for the flow's filename (pre-filled with `default`, e.g. the
     * goal's suggested slug or the fork's `-fork.sc` suggestion — either way
     * editable, per `ui.input`'s default-hint path) and resolves it to a target
-    * path via [[CreateFlow.prepareTarget]], re-prompting with the same
+    * path via [[FlowAuthoring.prepareTarget]], re-prompting with the same
     * `default` on a collision (printing the reason first) rather than aborting
     * the whole create-flow attempt over one taken name — the harness writes the
     * flow file itself, so an existing file at the target path is never
@@ -285,7 +285,7 @@ object Main:
     ui.input("Flow filename:", default) match
       case UiOutcome.Cancelled => None
       case UiOutcome.Selected(rawName) =>
-        CreateFlow.prepareTarget(tier, rawName, workDir, globalFlows) match
+        FlowAuthoring.prepareTarget(tier, rawName, workDir, globalFlows) match
           case Left(message) =>
             ShellOutput.error(message)
             promptFlowTarget(ui, tier, workDir, globalFlows, default)
@@ -333,7 +333,7 @@ object Main:
     * detection, since this is one-off informational decoration, not a gate.
     */
   private def selectHarness(ui: ShellUi): Option[BackendTag] =
-    val default = CreateFlow.configuredCodingAgent(GlobalSettings.default)
+    val default = FlowAuthoring.configuredCodingAgent(GlobalSettings.default)
     ui.select(
       "Harness for the authoring session:",
       BackendTag.values.toList.map(tag =>
@@ -368,7 +368,7 @@ object Main:
   private def continueSession(
       ui: ShellUi,
       terminal: Terminal,
-      runs: List[ReadRun],
+      runs: List[RecordedRun],
       expanded: Boolean = false
   ): Unit =
     ui.select(

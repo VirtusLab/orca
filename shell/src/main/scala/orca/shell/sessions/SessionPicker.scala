@@ -17,11 +17,11 @@ import scala.util.Try
 private[shell] object SessionPicker:
 
   /** One session occurrence paired with the run it came from — the unit
-    * [[sessionRows]] groups, sorts, and labels. Carrying the whole [[ReadRun]]
+    * [[sessionRows]] groups, sorts, and labels. Carrying the whole [[RecordedRun]]
     * (not just its `crashed` flag) keeps [[SessionSelection]] constructible
     * straight from an occurrence.
     */
-  private case class Occurrence(run: ReadRun, session: ManifestSession)
+  private case class Occurrence(run: RecordedRun, session: ManifestSession)
 
   /** One outcome of the continue-session picker: either resume a specific
     * session, or re-render the picker with the collapsed groups (older lineage
@@ -59,7 +59,7 @@ private[shell] object SessionPicker:
     * check.
     */
   private[shell] def sessionRows(
-      runs: List[ReadRun],
+      runs: List[RecordedRun],
       expanded: Boolean
   ): List[Choice[PickerRow]] =
     val occurrences =
@@ -172,7 +172,7 @@ private[shell] object SessionPicker:
     * (expanded) listing, and anything else is matched by session name.
     */
   private[shell] def resolveSelection(
-      runs: List[ReadRun],
+      runs: List[RecordedRun],
       selector: Option[String]
   ): Either[String, SessionSelection] =
     selector match
@@ -183,7 +183,7 @@ private[shell] object SessionPicker:
           case None        => selectByName(runs, s)
 
   private[shell] def newestDurableSelection(
-      runs: List[ReadRun]
+      runs: List[RecordedRun]
   ): Either[String, SessionSelection] =
     sessionRows(runs, expanded = false).headOption match
       case None => Left("no sessions recorded yet")
@@ -200,10 +200,10 @@ private[shell] object SessionPicker:
             )
 
   private[shell] def selectByIndex(
-      runs: List[ReadRun],
+      runs: List[RecordedRun],
       index: Int
   ): Either[String, SessionSelection] =
-    val rows = resumableRows(sessionRows(runs, expanded = true))
+    val rows = withoutExpanders(sessionRows(runs, expanded = true))
     rows.lift(index - 1) match
       case None =>
         Left(
@@ -217,15 +217,15 @@ private[shell] object SessionPicker:
                 Left(s"session $index isn't resumable — $reason")
               case None => Right(selection)
           case PickerRow.ShowMore =>
-            // unreachable: resumableRows already dropped every ShowMore row
+            // unreachable: withoutExpanders already dropped every ShowMore row
             Left(s"no session at index $index")
 
   private[shell] def selectByName(
-      runs: List[ReadRun],
+      runs: List[RecordedRun],
       name: String
   ): Either[String, SessionSelection] =
     val matches =
-      resumableRows(sessionRows(runs, expanded = false)).collect:
+      withoutExpanders(sessionRows(runs, expanded = false)).collect:
         case choice @ Choice(PickerRow.Resume(selection), _, _, _)
             if selection.session.sessionName.contains(name) =>
           (selection, choice.disabledReason)
@@ -244,7 +244,7 @@ private[shell] object SessionPicker:
     * listing, `selectByName`/`newestDurableSelection` only ever resolve to an
     * actual session or fail).
     */
-  private[shell] def resumableRows(
+  private[shell] def withoutExpanders(
       rows: List[Choice[PickerRow]]
   ): List[Choice[PickerRow]] =
     rows.filter(_.value != PickerRow.ShowMore)

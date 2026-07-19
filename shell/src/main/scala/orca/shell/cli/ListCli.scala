@@ -14,7 +14,7 @@ private[cli] object ListCli:
   private[cli] def runList(workDir: os.Path, json: Boolean): Int =
     FlowResolution.list(workDir) match
       case Left(message) =>
-        Cli.fail(message)
+        Cli.diagnostic(message)
         ExitCodes.ActionFailed
       case Right(flows) =>
         Tables.printFlows(flows, json)
