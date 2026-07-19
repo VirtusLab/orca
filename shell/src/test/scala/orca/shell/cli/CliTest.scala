@@ -4,11 +4,11 @@ import mainargs.ParserForMethods
 import orca.agents.BackendTag
 import orca.runner.{ManifestSession, RunManifest}
 import orca.settings.{AgentSettings, AgentSpec}
-import orca.shell.actions.{AuthorOutcome, SessionSelection}
+import orca.shell.actions.AuthorOutcome
 import orca.shell.create.CreateTier
-import orca.shell.flows.{CustomizeTier, DiscoveredFlow, FlowOrigin}
+import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.run.LaunchResult
-import orca.shell.sessions.{ReadRun, SessionPicker}
+import orca.shell.sessions.{ReadRun, SessionPicker, SessionSelection}
 import orca.testkit.TempDirs
 
 class CliTest extends munit.FunSuite:
@@ -107,14 +107,14 @@ class CliTest extends munit.FunSuite:
   test("edit: the required flow positional missing is a usage error"):
     assert(!parses("edit"))
 
-  test("parseCustomizeTier: 'project' resolves to CustomizeTier.Project"):
+  test("parseCustomizeTier: 'project' resolves to CreateTier.Project"):
     assertEquals(
       Cli.parseCustomizeTier("project"),
-      Right(CustomizeTier.Project)
+      Right(CreateTier.Project)
     )
 
-  test("parseCustomizeTier: 'global' resolves to CustomizeTier.Global"):
-    assertEquals(Cli.parseCustomizeTier("global"), Right(CustomizeTier.Global))
+  test("parseCustomizeTier: 'global' resolves to CreateTier.Global"):
+    assertEquals(Cli.parseCustomizeTier("global"), Right(CreateTier.Global))
 
   test("parseCustomizeTier: anything else is a usage error naming the value"):
     assertEquals(

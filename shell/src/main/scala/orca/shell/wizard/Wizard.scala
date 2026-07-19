@@ -12,7 +12,7 @@ import ox.discard
   * a real PATH; `globalSettingsPath` is likewise injected so tests never touch
   * the developer's `~/.config`.
   */
-class Wizard(
+private[shell] class Wizard(
     ui: ShellUi,
     probe: String => Boolean,
     globalSettingsPath: os.Path
@@ -97,10 +97,15 @@ class Wizard(
   ): Choice[BackendTag] =
     val name = AgentSpec.harnessNameFor(tag)
     val marked = if current.contains(tag) then s"$name (current)" else name
-    val status = if detected(tag) then "✓ found" else "not found on PATH"
-    Choice(tag, s"$marked — $status")
+    Choice(tag, s"$marked — ${Wizard.pathStatus(detected(tag))}")
 
-object Wizard:
+private[shell] object Wizard:
+
+  /** The `✓ found` / `not found on PATH` detection suffix shared by every
+    * harness picker's row label ([[Wizard.choiceFor]] and `Main.harnessLabel`).
+    */
+  def pathStatus(found: Boolean): String =
+    if found then "✓ found" else "not found on PATH"
 
   /** The model-pin retention rule (ADR 0021 §4): a pin only means something for
     * the harness it was pinned under, so keep it when `tag` matches the role's

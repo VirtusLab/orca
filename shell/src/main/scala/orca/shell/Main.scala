@@ -1,6 +1,6 @@
 package orca.shell
 
-import org.jline.terminal.{Terminal, TerminalBuilder}
+import org.jline.terminal.Terminal
 import orca.agents.BackendTag
 import orca.settings.{AgentSpec, GlobalSettings}
 import orca.shell.actions.{
@@ -16,7 +16,7 @@ import orca.shell.actions.{
 }
 import orca.shell.cli.{Cli, CliHelp}
 import orca.shell.create.{CreateFlow, CreateTarget, CreateTier}
-import orca.shell.flows.{CustomizeTier, DiscoveredFlow, FlowOrigin}
+import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.run.FallbackPolicy
 import orca.shell.sessions.{ManifestReader, ReadRun, SessionPicker}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
@@ -60,7 +60,7 @@ object Main:
     // line instead of appending to it.
     print("[2K\r")
     ShellOutput.info(s"orca shell ${ShellVersion.value}")
-    val terminal = TerminalBuilder.builder().system(true).dumb(true).build()
+    val terminal = ShellUi.buildTerminal()
     try
       val ui = ShellUi.make(terminal)
       val globalSettingsPath = GlobalSettings.default
@@ -146,7 +146,7 @@ object Main:
 
   /** Opens the chosen flow in `$VISUAL`/`$EDITOR`/`vi`. Project and global
     * flows are edited in place ([[EditAction.editInPlace]]); a built-in is
-    * never edited in its cache copy, so [[promptCustomizeTier]] plus
+    * never edited in its cache copy, so [[pickTier]] plus
     * [[EditAction.customizeThenEdit]] copy it into a tier first.
     */
   private def editFlow(ui: ShellUi, terminal: Terminal): Unit =
@@ -154,7 +154,11 @@ object Main:
       if flow.origin != FlowOrigin.BuiltIn then
         EditAction.editInPlace(terminal, flow.path).discard
       else
-        promptCustomizeTier(ui, flow).foreach: tier =>
+        pickTier(
+          ui,
+          s"'${flow.name}' is built-in — customize it into",
+          GlobalSettings.defaultFlows
+        ).foreach: tier =>
           EditAction.customizeThenEdit(
             terminal,
             flow,
@@ -204,11 +208,7 @@ object Main:
     val workDir = os.pwd
     val globalFlows = GlobalSettings.defaultFlows
     for
-      tier <- selectCreateTier(
-        ui,
-        "Where should the new flow be saved:",
-        globalFlows
-      )
+      tier <- pickTier(ui, "Where should the new flow be saved:", globalFlows)
       goal <- promptDescription(ui, "Describe what the flow should do")
       target <- promptFlowTarget(
         ui,
@@ -234,11 +234,7 @@ object Main:
     for
       source <- selectFlow(ui, "Fork which flow:")
       changes <- promptDescription(ui, "Describe the changes for the fork")
-      tier <- selectCreateTier(
-        ui,
-        "Where should the fork be saved:",
-        globalFlows
-      )
+      tier <- pickTier(ui, "Where should the fork be saved:", globalFlows)
       target <- promptFlowTarget(
         ui,
         tier,
@@ -251,7 +247,11 @@ object Main:
       val params = AuthorParams(tier, target, backend, yolo)
       AuthorAction.fork(source, changes, params, workDir, ui, terminal).discard
 
-  private def selectCreateTier(
+  /** The Project/Global target-tier picker, shared by new-flow authoring, fork
+    * authoring, and customizing a built-in into a tier — same two choices every
+    * time, only the `title` differs.
+    */
+  private def pickTier(
       ui: ShellUi,
       title: String,
       globalFlows: os.Path
@@ -353,8 +353,7 @@ object Main:
       probe: String => Boolean
   ): String =
     val name = AgentSpec.harnessNameFor(tag)
-    val status = if probe(name) then "✓ found" else "not found on PATH"
-    s"$name — $status"
+    s"$name — ${Wizard.pathStatus(probe(name))}"
 
   /** Prompts among every session across `runs` and resumes the chosen one,
     * printing its identity — including `workDir` — before the resume exec
@@ -389,26 +388,6 @@ object Main:
         SessionAction.resume(terminal, selection) match
           case Left(message) => ShellOutput.error(message)
           case Right(_)      => ()
-
-  /** Prompts which tier to customize a built-in flow into (Project or Global) —
-    * the tier [[EditAction.customizeThenEdit]] then copies the flow into and
-    * opens.
-    */
-  private def promptCustomizeTier(
-      ui: ShellUi,
-      flow: DiscoveredFlow
-  ): Option[CustomizeTier] =
-    val globalFlows = GlobalSettings.defaultFlows
-    val tierChoices = List(
-      Choice(CustomizeTier.Project, "Project (.orca/flows/)"),
-      Choice(CustomizeTier.Global, s"Global ($globalFlows)")
-    )
-    ui.select(
-      s"'${flow.name}' is built-in — customize it into",
-      tierChoices
-    ) match
-      case UiOutcome.Cancelled      => None
-      case UiOutcome.Selected(tier) => Some(tier)
 
   /** Lists flows across the three tiers via [[FlowResolution.list]] — any
     * failure (a committed symlink guard tripping, or built-in extraction

@@ -3,7 +3,6 @@ package orca.shell.sessions
 import orca.agents.BackendTag
 import orca.runner.ManifestSession
 import orca.settings.AgentSpec
-import orca.shell.actions.SessionSelection
 import orca.shell.ui.Choice
 
 import java.time.Instant

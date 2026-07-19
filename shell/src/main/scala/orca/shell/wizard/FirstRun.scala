@@ -3,11 +3,11 @@ package orca.shell.wizard
 import orca.settings.{SettingsError, SettingsFile, SettingsScope}
 
 /** Outcome of [[FirstRun.check]]. */
-enum FirstRunStatus:
+private[shell] enum FirstRunStatus:
   case FirstRun, AlreadyConfigured
 
 /** First-run detection for the welcome wizard (ADR 0021 §4). */
-object FirstRun:
+private[shell] object FirstRun:
 
   /** `Right(FirstRun)` — global settings file absent, or parses cleanly with
     * all three role keys unset (comments-only / empty-values file).

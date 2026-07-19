@@ -2,27 +2,13 @@ package orca.shell.actions
 
 import org.jline.terminal.Terminal
 import orca.agents.BackendTag
-import orca.runner.{ManifestSession, RunManifest}
 import orca.shell.run.ChildTerminal
-import orca.shell.sessions.ResumeCommand
+import orca.shell.sessions.{ResumeCommand, SessionSelection}
 import orca.shell.ui.ShellOutput
 import orca.subprocess.QuietProc
 
 import scala.util.Try
 import scala.util.control.NonFatal
-
-/** One prior run's manifest paired with the session picked to resume —
-  * everything [[SessionAction.resume]] needs (the harness command comes from
-  * the session; the working directory comes from the manifest, which may differ
-  * from the shell's own cwd). `crashed` carries the run's crashed status
-  * (outcome `"running"` with a dead pid) through to display — resuming still
-  * offers a crashed run's sessions (ADR 0021 §8), but the notice should say so.
-  */
-private[shell] case class SessionSelection(
-    manifest: RunManifest,
-    session: ManifestSession,
-    crashed: Boolean
-)
 
 /** Resumes a recorded harness session (ADR 0021 §8) — the moved action half of
   * `Main.continueSession`/`resumeSession`; the picker that produces `selection`

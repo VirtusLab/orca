@@ -5,11 +5,11 @@ import orca.shell.ui.Choice
 /** Main menu selection (ADR 0021 §3, `ForkFlow` added §6/§9, `RediscoverStack`
   * added §8).
   */
-enum MenuItem:
+private[shell] enum MenuItem:
   case RunFlow, ViewFlow, EditFlow, CreateFlow, ForkFlow, ContinueSession,
     Reconfigure, RediscoverStack, Exit
 
-object MainMenu:
+private[shell] object MainMenu:
 
   /** Fixed ADR §3 order; `continueDisabledReason` non-None renders the item
     * disabled, dropping `newestRunSessionCount` from its label — the count is

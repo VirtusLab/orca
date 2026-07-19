@@ -21,8 +21,6 @@ import scala.util.control.NonFatal
   */
 private[shell] object FlowResolution:
 
-  private val descriptionLinesToRead = 50
-
   /** [[FlowCatalog.list]] across all three tiers, guarding the project tier's
     * component chain against a committed symlink first
     * ([[OrcaDir.assertNoOrcaSymlinks]]) — the exact guarded build the menu's
@@ -121,9 +119,7 @@ private[shell] object FlowResolution:
   private def fromPath(path: os.Path): DiscoveredFlow =
     DiscoveredFlow(
       name = path.last,
-      description = FlowDescription.extract(
-        os.read.lines.stream(path).take(descriptionLinesToRead).toList
-      ),
+      description = FlowDescription.ofFile(path),
       origin = FlowOrigin.Project,
       path = path,
       shadows = Nil

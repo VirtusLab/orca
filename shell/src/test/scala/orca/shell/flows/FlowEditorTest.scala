@@ -1,5 +1,6 @@
 package orca.shell.flows
 
+import orca.shell.create.CreateTier
 import orca.testkit.TempDirs
 
 class FlowEditorTest extends munit.FunSuite:
@@ -57,7 +58,7 @@ class FlowEditorTest extends munit.FunSuite:
 
     val result = FlowEditor.customizeTarget(
       flow,
-      CustomizeTier.Project,
+      CreateTier.Project,
       workDir,
       TempDirs.dir()
     )
@@ -73,7 +74,7 @@ class FlowEditorTest extends munit.FunSuite:
 
     val result = FlowEditor.customizeTarget(
       flow,
-      CustomizeTier.Global,
+      CreateTier.Global,
       TempDirs.dir(),
       globalFlows
     )
@@ -95,7 +96,7 @@ class FlowEditorTest extends munit.FunSuite:
 
     val result = FlowEditor.customizeTarget(
       flow,
-      CustomizeTier.Project,
+      CreateTier.Project,
       workDir,
       TempDirs.dir()
     )

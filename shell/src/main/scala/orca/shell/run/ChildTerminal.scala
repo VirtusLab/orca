@@ -31,7 +31,7 @@ import sun.misc.{Signal, SignalHandler}
   * SIGINT/SIGQUIT around the editor/pager) lets Ctrl-C kill only the child; the
   * shell's own prompt handling resumes right after.
   */
-object ChildTerminal:
+private[shell] object ChildTerminal:
 
   private val sigint = new Signal("INT")
 

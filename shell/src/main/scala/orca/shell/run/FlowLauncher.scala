@@ -1,11 +1,12 @@
 package orca.shell.run
 
+import org.jline.terminal.Terminal
 import orca.shell.ShellVersion
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
 import orca.subprocess.QuietProc
 
 /** Outcome of [[FlowLauncher.run]]. */
-enum LaunchResult:
+private[shell] enum LaunchResult:
   case Ok
   case Failed(exit: Int)
   case Cancelled
@@ -16,7 +17,7 @@ enum LaunchResult:
   * via a [[ShellUi]] confirm; a non-interactive caller refuses outright with a
   * hint instead of ever prompting.
   */
-enum FallbackPolicy:
+private[shell] enum FallbackPolicy:
   case Ask(ui: ShellUi)
   case Refuse(hint: String)
 
@@ -26,7 +27,7 @@ enum FallbackPolicy:
   * writer is guaranteed present; on a version-incompatible flow (forced compile
   * fails) it falls back to a pin-honouring re-run at the user's confirmation.
   */
-object FlowLauncher:
+private[shell] object FlowLauncher:
 
   private val orgAndArtifact = "org.virtuslab::orca"
 
@@ -122,12 +123,11 @@ object FlowLauncher:
       decideNextAction(forcedExit, compileExit)
 
   /** Signal-range exits map to Cancelled on every spawn path — the fallback
-    * re-run is just as interruptible as the forced one. `private[shell]` (not
-    * just `private[run]`) so `Cli`'s own `--honor-pin` spawn (which bypasses
-    * [[run]] entirely) maps its raw exit the same way instead of
-    * re-implementing this match.
+    * re-run is just as interruptible as the forced one. Every raw-exit spawn
+    * path in this object ([[run]]'s fallback, [[runHonoringPin]]) maps through
+    * here, so the classification stays in one place.
     */
-  private[shell] def toLaunchResult(exit: Int): LaunchResult =
+  private[run] def toLaunchResult(exit: Int): LaunchResult =
     if exit == 0 then LaunchResult.Ok
     else if isSignalExit(exit) then LaunchResult.Cancelled
     else LaunchResult.Failed(exit)
@@ -166,10 +166,72 @@ object FlowLauncher:
   /** The flow-end line's outcome suffix: `finished (exit N)` for a completed
     * run, `finished (cancelled)` for a signal-killed one.
     */
-  private[shell] def outcomeSuffix(result: LaunchResult): String = result match
+  private[run] def outcomeSuffix(result: LaunchResult): String = result match
     case LaunchResult.Ok           => "finished (exit 0)"
     case LaunchResult.Failed(exit) => s"finished (exit $exit)"
     case LaunchResult.Cancelled    => "finished (cancelled)"
+
+  /** The shared `println / section(start) / … / section(end) / println` bracket
+    * every foreground flow spawn prints around itself: the top-level forced run
+    * ([[runAnnounced]]), the `--honor-pin` run ([[runHonoringPin]]), and
+    * [[run]]'s own pin-honouring fallback re-run. `spawn` produces the
+    * [[LaunchResult]] whose [[outcomeSuffix]] closes the bracket.
+    */
+  private[run] def announced(startLabel: String, flowName: String)(
+      spawn: => LaunchResult
+  ): LaunchResult =
+    println()
+    ShellOutput.section(startLabel)
+    val result = spawn
+    ShellOutput.section(s"flow $flowName ${outcomeSuffix(result)}")
+    println()
+    result
+
+  /** Top-level flow run for [[orca.shell.actions.RunAction]]: the announced
+    * bracket around [[run]], executed as a tty-inherited child under
+    * [[ChildTerminal.withChild]] (ADR 0021 §2). Owns the section markers and
+    * the terminal bracket so callers hand off a single call.
+    */
+  private[shell] def runAnnounced(
+      fallback: FallbackPolicy,
+      flow: os.Path,
+      task: String,
+      workDir: os.Path,
+      verbose: Boolean,
+      terminal: Terminal
+  ): LaunchResult =
+    announced(s"starting flow ${flow.last}", flow.last)(
+      ChildTerminal.withChild(terminal)(
+        run(fallback, flow, task, workDir, verbose)
+      )
+    )
+
+  /** `--honor-pin`'s direct pin-honouring run (ADR 0021 §2/§10): [[run]] has no
+    * "skip the forced version from the start" path — its pin-honouring re-run
+    * is only offered as a fallback after a forced failure — so this spawns
+    * [[argv]]'s pin-honouring argv (no `--dep`) itself, under the same
+    * [[ChildTerminal.withChild]] bracket, [[childEnv]] stamp, and announced
+    * markers the forced run uses. No compile probe or fallback: the user has
+    * already opted into the flow's own pin.
+    */
+  private[shell] def runHonoringPin(
+      flow: os.Path,
+      task: String,
+      workDir: os.Path,
+      verbose: Boolean,
+      terminal: Terminal
+  ): LaunchResult =
+    announced(s"starting flow ${flow.last} (honoring pin)", flow.last)(
+      ChildTerminal.withChild(terminal)(
+        toLaunchResult(
+          spawnInherited(
+            argv(flow, None, task, verbose),
+            workDir,
+            childEnv(flow)
+          )
+        )
+      )
+    )
 
   /** Runs `flow` forced to the shell's own orca version (skipped — i.e. the
     * forced and pin-honouring runs coincide — when the running shell is a dev
@@ -209,20 +271,15 @@ object FlowLauncher:
           case FallbackPolicy.Ask(ui) =>
             ui.confirm(fallbackQuestion(shellVersion), default = true) match
               case UiOutcome.Selected(true) =>
-                println()
-                ShellOutput.section(s"pin-honouring re-run of ${flow.last}")
-                val result = toLaunchResult(
-                  spawnInherited(
-                    argv(flow, None, task, verbose),
-                    workDir,
-                    childEnv(flow)
+                announced(s"pin-honouring re-run of ${flow.last}", flow.last)(
+                  toLaunchResult(
+                    spawnInherited(
+                      argv(flow, None, task, verbose),
+                      workDir,
+                      childEnv(flow)
+                    )
                   )
                 )
-                ShellOutput.section(
-                  s"flow ${flow.last} ${outcomeSuffix(result)}"
-                )
-                println()
-                result
               case UiOutcome.Selected(false) | UiOutcome.Cancelled =>
                 LaunchResult.Cancelled
           case FallbackPolicy.Refuse(hint) =>

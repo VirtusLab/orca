@@ -3,7 +3,7 @@ package orca.shell.flows
 import org.jline.builtins.SyntaxHighlighter
 
 /** Renders a flow's source for the "view" menu item (ADR 0021 §6). */
-object FlowViewer:
+private[shell] object FlowViewer:
   private val nanorcResource = "classpath:/orca/shell/scala.nanorc"
 
   /** `source` unchanged on a non-tty (piped output stays byte-identical);

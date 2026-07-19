@@ -8,7 +8,7 @@ import orca.shell.ShellVersion
   * resource (newline-separated filenames) drives the listing, since jar
   * resources aren't listable directly.
   */
-object BuiltInFlows:
+private[shell] object BuiltInFlows:
   private val resourcePrefix = "/orca/shell/flows/"
 
   private val orcaDepModule = "org.virtuslab::orca"

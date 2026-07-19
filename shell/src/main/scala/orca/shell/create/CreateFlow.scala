@@ -17,18 +17,21 @@ import scala.util.control.NonFatal
   * flow file itself land inside the harness's workspace (gemini hard-fails,
   * claude/opencode prompt for approval, on an out-of-workspace path).
   */
-enum CreateTier:
+private[shell] enum CreateTier:
   case Project, Global
 
 /** The new flow's target path and the cwd its authoring harness launches from.
   */
-case class CreateTarget(flowPath: os.Path, cwd: os.Path)
+private[shell] case class CreateTarget(flowPath: os.Path, cwd: os.Path)
 
 /** Harness argv for the create-a-flow session, plus a prompt to print and have
   * the user paste in when the harness can't be handed one on its own argv (see
   * [[CreateFlow.harnessArgv]]).
   */
-case class HarnessLaunch(argv: Seq[String], pastePrompt: Option[String])
+private[shell] case class HarnessLaunch(
+    argv: Seq[String],
+    pastePrompt: Option[String]
+)
 
 /** Creates a new flow with a harness's help (ADR 0021 §9): extracts the bundled
   * API material into the harness's workspace, builds the initial prompt, and
@@ -36,7 +39,7 @@ case class HarnessLaunch(argv: Seq[String], pastePrompt: Option[String])
   * (target-tier/filename/goal/harness prompts, the actual `exec`) lives in
   * `Main`.
   */
-object CreateFlow:
+private[shell] object CreateFlow:
 
   private val resourcePrefix = "/orca/shell/api/"
 

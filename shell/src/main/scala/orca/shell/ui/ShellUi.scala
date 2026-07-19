@@ -1,6 +1,6 @@
 package orca.shell.ui
 
-import org.jline.terminal.Terminal
+import org.jline.terminal.{Terminal, TerminalBuilder}
 
 /** Result of a single prompt: either a value, or [[UiOutcome.Cancelled]] for
   * ESC / Ctrl-C / EOF — the caller's convention is "back out of the current
@@ -52,6 +52,14 @@ object ShellUi:
     */
   def isInteractive(terminal: Terminal): Boolean =
     terminal.getType != Terminal.TYPE_DUMB && System.console() != null
+
+  /** The shell's JLine terminal: a system terminal, permitting the dumb
+    * fallback (`dumb(true)`) so a non-tty stdin/stdout still yields a usable
+    * [[Terminal]] rather than throwing. Built by [[orca.shell.Main]]'s
+    * interactive loop and by every CLI subcommand that execs a child.
+    */
+  def buildTerminal(): Terminal =
+    TerminalBuilder.builder().system(true).dumb(true).build()
 
   /** ConsoleUI when stdin+stdout are a tty, [[NumberedUi]] otherwise (ConsoleUI
     * NPEs on non-tty stdin — research 03 skeptic).

@@ -12,12 +12,12 @@ import scala.util.control.NonFatal
   * `"running"` with a dead pid, ADR 0021 §8) — computed once here rather than
   * re-derived by every caller.
   */
-private[orca] case class ReadRun(manifest: RunManifest, crashed: Boolean)
+private[shell] case class ReadRun(manifest: RunManifest, crashed: Boolean)
 
 /** Reads `.orca/cache/runs/` for the shell's "continue a session" menu (ADR
   * 0021 §8).
   */
-object ManifestReader:
+private[shell] object ManifestReader:
 
   /** Newest-first by `startedAt`. Skips a file whose `manifestVersion` is newer
     * than this shell understands, or whose `startedAt` doesn't parse as an

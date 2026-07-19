@@ -1,7 +1,8 @@
 package orca.shell.actions
 
 import org.jline.terminal.Terminal
-import orca.shell.flows.{CustomizeTier, DiscoveredFlow, FlowEditor}
+import orca.shell.create.CreateTier
+import orca.shell.flows.{DiscoveredFlow, FlowEditor}
 import orca.shell.run.ChildTerminal
 
 /** Opens a flow in the user's editor (ADR 0021 §6) — the exec half of
@@ -27,7 +28,7 @@ private[shell] object EditAction:
   def customizeThenEdit(
       terminal: Terminal,
       flow: DiscoveredFlow,
-      tier: CustomizeTier,
+      tier: CreateTier,
       workDir: os.Path,
       globalFlows: os.Path
   ): Either[String, Int] =

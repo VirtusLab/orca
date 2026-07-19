@@ -1,6 +1,7 @@
 package orca.shell.actions
 
 import orca.runner.{ManifestSession, RunManifest}
+import orca.shell.sessions.SessionSelection
 import orca.testkit.TempDirs
 
 class SessionActionTest extends munit.FunSuite:

@@ -1,10 +1,10 @@
 package orca.shell.flows
 
 /** Which of the three tiers (ADR 0021 §5) a flow was read from. */
-enum FlowOrigin:
+private[shell] enum FlowOrigin:
   case Project, Global, BuiltIn
 
-object FlowOrigin:
+private[shell] object FlowOrigin:
   /** The tier's user-facing label, as shown in flow-listing rows and shadow
     * annotations (ADR 0021 §5).
     */
@@ -17,7 +17,7 @@ object FlowOrigin:
 /** One flow-listing row: the winning tier's script plus the tiers it shadowed,
   * so the menu can annotate `[shadows global, built-in]`.
   */
-case class DiscoveredFlow(
+private[shell] case class DiscoveredFlow(
     name: String,
     description: Option[String],
     origin: FlowOrigin,
@@ -28,8 +28,7 @@ case class DiscoveredFlow(
 /** Discovers `.sc` flow scripts across the three tiers and resolves per-name
   * precedence (ADR 0021 §5).
   */
-object FlowCatalog:
-  private val descriptionLinesToRead = 50
+private[shell] object FlowCatalog:
 
   /** One entry per filename across `projectFlows`, `globalFlows`, and
     * `builtIns`, sorted by name. Precedence project > global > built-in: the
@@ -61,9 +60,7 @@ object FlowCatalog:
     val (winnerOrigin, winnerPath) = hits.head
     DiscoveredFlow(
       name = name,
-      description = FlowDescription.extract(
-        os.read.lines.stream(winnerPath).take(descriptionLinesToRead).toList
-      ),
+      description = FlowDescription.ofFile(winnerPath),
       origin = winnerOrigin,
       path = winnerPath,
       shadows = hits.tail.map(_._1)

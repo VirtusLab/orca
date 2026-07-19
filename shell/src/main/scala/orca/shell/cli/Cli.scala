@@ -9,7 +9,7 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.{
   ConfiguredJsonValueCodec
 }
 import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
-import org.jline.terminal.{Terminal, TerminalBuilder}
+import org.jline.terminal.Terminal
 import orca.agents.BackendTag
 import orca.settings.{AgentSettings, AgentSpec, GlobalSettings}
 import orca.shell.actions.{
@@ -21,20 +21,19 @@ import orca.shell.actions.{
   FlowResolution,
   RunAction,
   SessionAction,
-  SessionSelection,
   StackAction,
   StackStatus,
   ViewAction
 }
 import orca.shell.create.{CreateFlow, CreateTarget, CreateTier}
-import orca.shell.flows.{CustomizeTier, DiscoveredFlow, FlowOrigin}
-import orca.shell.run.{
-  ChildTerminal,
-  FallbackPolicy,
-  FlowLauncher,
-  LaunchResult
+import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
+import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult}
+import orca.shell.sessions.{
+  ManifestReader,
+  ReadRun,
+  SessionPicker,
+  SessionSelection
 }
-import orca.shell.sessions.{ManifestReader, ReadRun, SessionPicker}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 
 /** Exit codes shared by every subcommand (ADR 0021 §10/§4). */
@@ -150,15 +149,15 @@ private[shell] object Cli:
             fail(message)
             ExitCodes.UsageError
           case Right(taskText) =>
-            val terminal = buildTerminal()
+            val terminal = ShellUi.buildTerminal()
             try
               val result =
                 if honorPin.value then
-                  runHonoringPin(
-                    resolved,
+                  FlowLauncher.runHonoringPin(
+                    resolved.path,
                     taskText,
-                    verbose.value,
                     workDir,
+                    verbose.value,
                     terminal
                   )
                 else
@@ -207,42 +206,6 @@ private[shell] object Cli:
           val piped = readStdin().trim
           if piped.isEmpty then Left("no task given, and stdin was empty")
           else Right(piped)
-
-  /** `--honor-pin`'s direct pin-honouring run: [[FlowLauncher.run]] has no
-    * "skip the forced version from the start" entry point — only the
-    * interactive fallback offers a pin-honouring RE-run after a forced failure
-    * — so this spawns [[FlowLauncher.argv]]'s pin-honouring argv itself, under
-    * the same [[ChildTerminal.withChild]] bracket and `ORCA_FLOW_NAME` env
-    * stamp `FlowLauncher.run` uses, reusing [[FlowLauncher.outcomeSuffix]] for
-    * the end-of-run message.
-    */
-  private def runHonoringPin(
-      flow: DiscoveredFlow,
-      task: String,
-      verbose: Boolean,
-      workDir: os.Path,
-      terminal: Terminal
-  ): LaunchResult =
-    val argv = FlowLauncher.argv(flow.path, None, task, verbose)
-    println()
-    ShellOutput.section(s"starting flow ${flow.name} (honoring pin)")
-    val exit = ChildTerminal.withChild(terminal):
-      os.proc(argv)
-        .call(
-          cwd = workDir,
-          env = Map("ORCA_FLOW_NAME" -> flow.path.last),
-          stdin = os.Inherit,
-          stdout = os.Inherit,
-          stderr = os.Inherit,
-          check = false
-        )
-        .exitCode
-    val result = FlowLauncher.toLaunchResult(exit)
-    ShellOutput.section(
-      s"flow ${flow.name} ${FlowLauncher.outcomeSuffix(result)}"
-    )
-    println()
-    result
 
   private[cli] def exitCodeFor(result: LaunchResult): Int = result match
     case LaunchResult.Ok           => ExitCodes.Ok
@@ -330,7 +293,7 @@ private[shell] object Cli:
             fail(message)
             ExitCodes.ActionFailed
           case Right(resolved) =>
-            val terminal = buildTerminal()
+            val terminal = ShellUi.buildTerminal()
             try runEdit(resolved, to, workDir, terminal)
             finally terminal.close()
 
@@ -374,10 +337,10 @@ private[shell] object Cli:
 
   private[cli] def parseCustomizeTier(
       raw: String
-  ): Either[String, CustomizeTier] =
+  ): Either[String, CreateTier] =
     raw match
-      case "project" => Right(CustomizeTier.Project)
-      case "global"  => Right(CustomizeTier.Global)
+      case "project" => Right(CreateTier.Project)
+      case "global"  => Right(CreateTier.Global)
       case other => Left(s"--to must be 'project' or 'global', got '$other'")
 
   // --- create / fork ---
@@ -475,7 +438,7 @@ private[shell] object Cli:
                         ExitCodes.ActionFailed
                       case Right(target) =>
                         ShellOutput.info(s"target flow: ${target.flowPath}")
-                        val terminal = buildTerminal()
+                        val terminal = ShellUi.buildTerminal()
                         try
                           val ui = ShellUi.make(terminal)
                           val params = AuthorParams(
@@ -566,7 +529,7 @@ private[shell] object Cli:
                             ShellOutput.info(
                               s"target flow: ${target.flowPath}"
                             )
-                            val terminal = buildTerminal()
+                            val terminal = ShellUi.buildTerminal()
                             try
                               val ui = ShellUi.make(terminal)
                               val params = AuthorParams(
@@ -683,7 +646,7 @@ private[shell] object Cli:
               ExitCodes.ActionFailed
             case Right(selection) =>
               fail(resumeNotice(selection))
-              val terminal = buildTerminal()
+              val terminal = ShellUi.buildTerminal()
               try
                 SessionAction.resume(terminal, selection) match
                   case Left(message) =>
@@ -911,7 +874,7 @@ private[shell] object Cli:
       stack: orca.StackSettings,
       content: String
   ): Int =
-    val terminal = buildTerminal()
+    val terminal = ShellUi.buildTerminal()
     try
       val ui = ShellUi.make(terminal)
       StackAction.clearIfConfirmed(
@@ -1025,6 +988,3 @@ private[shell] object Cli:
       (),
       s"`orca $command` needs a terminal; run it interactively"
     )
-
-  private def buildTerminal(): Terminal =
-    TerminalBuilder.builder().system(true).dumb(true).build()

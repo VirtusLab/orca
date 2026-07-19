@@ -5,7 +5,7 @@ import orca.runner.ManifestSession
 import orca.settings.AgentSpec
 
 /** Per-harness interactive resume argv (ADR 0021 §8's resume table). */
-object ResumeCommand:
+private[shell] object ResumeCommand:
 
   /** Left = not resumable, checkable without a live harness call: an
     * unrecognised `harness` string, or a wireId-less session (pi always, since

@@ -3,7 +3,16 @@ package orca.shell.flows
 /** Extracts a flow's one-line description for the flow-listing menu (ADR 0021
   * §5).
   */
-object FlowDescription:
+private[shell] object FlowDescription:
+
+  private val descriptionLinesToRead = 50
+
+  /** [[extract]] over the file's leading `descriptionLinesToRead` lines — the
+    * bounded read [[FlowCatalog]] and [[orca.shell.actions.FlowResolution]]
+    * both need to derive a flow's one-line description off disk.
+    */
+  def ofFile(path: os.Path): Option[String] =
+    extract(os.read.lines.stream(path).take(descriptionLinesToRead).toList)
 
   /** The first `//` comment (not a `//>` directive) in the file's leading block
     * of blank lines, `//` comments, and `//>` directives, with the marker and
