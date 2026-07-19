@@ -56,29 +56,29 @@ class CliTest extends munit.FunSuite:
 
   test("resolveHighlight: neither flag auto-detects from tty"):
     assertEquals(
-      Cli.resolveHighlight(plain = false, color = false, tty = true),
+      ViewCli.resolveHighlight(plain = false, color = false, tty = true),
       Right(true)
     )
     assertEquals(
-      Cli.resolveHighlight(plain = false, color = false, tty = false),
+      ViewCli.resolveHighlight(plain = false, color = false, tty = false),
       Right(false)
     )
 
   test("resolveHighlight: --plain forces off regardless of tty"):
     assertEquals(
-      Cli.resolveHighlight(plain = true, color = false, tty = true),
+      ViewCli.resolveHighlight(plain = true, color = false, tty = true),
       Right(false)
     )
 
   test("resolveHighlight: --color forces on regardless of tty"):
     assertEquals(
-      Cli.resolveHighlight(plain = false, color = true, tty = false),
+      ViewCli.resolveHighlight(plain = false, color = true, tty = false),
       Right(true)
     )
 
   test("resolveHighlight: --plain and --color together is rejected"):
     assertEquals(
-      Cli.resolveHighlight(plain = true, color = true, tty = false),
+      ViewCli.resolveHighlight(plain = true, color = true, tty = false),
       Left("--plain and --color are mutually exclusive")
     )
 
@@ -87,11 +87,17 @@ class CliTest extends munit.FunSuite:
     os.write(dir / "x.sc", "// desc\nval a = 1\n")
     val plainOut =
       captured(
-        assertEquals(Cli.runView(dir, "x.sc", highlight = false), ExitCodes.Ok)
+        assertEquals(
+          ViewCli.runView(dir, "x.sc", highlight = false),
+          ExitCodes.Ok
+        )
       )
     val colorOut =
       captured(
-        assertEquals(Cli.runView(dir, "x.sc", highlight = true), ExitCodes.Ok)
+        assertEquals(
+          ViewCli.runView(dir, "x.sc", highlight = true),
+          ExitCodes.Ok
+        )
       )
     assert(!plainOut.contains("\u001b"), plainOut)
     assert(colorOut.contains("\u001b"), colorOut)
@@ -109,16 +115,16 @@ class CliTest extends munit.FunSuite:
 
   test("parseCustomizeTier: 'project' resolves to CreateTier.Project"):
     assertEquals(
-      Cli.parseCustomizeTier("project"),
+      EditCli.parseCustomizeTier("project"),
       Right(CreateTier.Project)
     )
 
   test("parseCustomizeTier: 'global' resolves to CreateTier.Global"):
-    assertEquals(Cli.parseCustomizeTier("global"), Right(CreateTier.Global))
+    assertEquals(EditCli.parseCustomizeTier("global"), Right(CreateTier.Global))
 
   test("parseCustomizeTier: anything else is a usage error naming the value"):
     assertEquals(
-      Cli.parseCustomizeTier("bogus"),
+      EditCli.parseCustomizeTier("bogus"),
       Left("--to must be 'project' or 'global', got 'bogus'")
     )
 
@@ -238,47 +244,50 @@ class CliTest extends munit.FunSuite:
 
   test("readTask: a non-blank positional task wins outright"):
     assertEquals(
-      Cli.readTask(Some("do it"), tty = false, () => "unused"),
+      RunCli.readTask(Some("do it"), tty = false, () => "unused"),
       Right("do it")
     )
 
   test("readTask: a blank positional task is rejected"):
     assertEquals(
-      Cli.readTask(Some("   "), tty = true, () => "unused"),
+      RunCli.readTask(Some("   "), tty = true, () => "unused"),
       Left("task text can't be empty")
     )
 
   test("readTask: omitted + tty is a usage error, and never calls readStdin"):
     var called = false
-    val result = Cli.readTask(None, tty = true, () => { called = true; "x" })
+    val result = RunCli.readTask(None, tty = true, () => { called = true; "x" })
     assert(result.isLeft)
     assert(!called, "must not read stdin when it's a terminal")
 
   test("readTask: omitted + piped stdin reads and trims it"):
     assertEquals(
-      Cli.readTask(None, tty = false, () => "  piped task\n"),
+      RunCli.readTask(None, tty = false, () => "  piped task\n"),
       Right("piped task")
     )
 
   test("readTask: omitted + empty piped stdin is a usage error"):
-    assert(Cli.readTask(None, tty = false, () => "   \n").isLeft)
+    assert(RunCli.readTask(None, tty = false, () => "   \n").isLeft)
 
   // --- AuthorOutcome -> exit code mapping ---
 
   test("exitFor: Launched propagates the harness's own exit code"):
-    assertEquals(Cli.exitFor(AuthorOutcome.Launched(0)), 0)
-    assertEquals(Cli.exitFor(AuthorOutcome.Launched(7)), 7)
+    assertEquals(AuthorCli.exitFor(AuthorOutcome.Launched(0)), 0)
+    assertEquals(AuthorCli.exitFor(AuthorOutcome.Launched(7)), 7)
 
   test("exitFor: NotLaunched maps to ActionFailed"):
-    assertEquals(Cli.exitFor(AuthorOutcome.NotLaunched), ExitCodes.ActionFailed)
+    assertEquals(
+      AuthorCli.exitFor(AuthorOutcome.NotLaunched),
+      ExitCodes.ActionFailed
+    )
 
   // --- LaunchResult -> exit code mapping ---
 
   test("exitCodeFor maps Ok/Failed/Cancelled"):
-    assertEquals(Cli.exitCodeFor(LaunchResult.Ok), 0)
-    assertEquals(Cli.exitCodeFor(LaunchResult.Failed(3)), 3)
+    assertEquals(RunCli.exitCodeFor(LaunchResult.Ok), 0)
+    assertEquals(RunCli.exitCodeFor(LaunchResult.Failed(3)), 3)
     assertEquals(
-      Cli.exitCodeFor(LaunchResult.Cancelled),
+      RunCli.exitCodeFor(LaunchResult.Cancelled),
       ExitCodes.SignalKilled
     )
 
@@ -286,18 +295,21 @@ class CliTest extends munit.FunSuite:
 
   test("resolveHarness: an unknown name is rejected, listing the valid ones"):
     assertEquals(
-      Cli.resolveHarness(Some("chatgpt")),
+      AuthorCli.resolveHarness(Some("chatgpt")),
       Left(
         "unknown harness 'chatgpt' — valid: claude, codex, gemini, opencode, pi"
       )
     )
 
   test("resolveHarness: a known name resolves to its BackendTag"):
-    assertEquals(Cli.resolveHarness(Some("codex")), Right(BackendTag.Codex))
+    assertEquals(
+      AuthorCli.resolveHarness(Some("codex")),
+      Right(BackendTag.Codex)
+    )
 
   test("authorParams: yolo defaults on when neither flag is given"):
     val result =
-      Cli.authorParams(
+      AuthorCli.authorParams(
         mainargs.Flag(),
         mainargs.Flag(),
         mainargs.Flag(),
@@ -306,7 +318,7 @@ class CliTest extends munit.FunSuite:
     assertEquals(result, Right((CreateTier.Project, BackendTag.Codex, true)))
 
   test("authorParams: --no-yolo turns yolo off"):
-    val result = Cli.authorParams(
+    val result = AuthorCli.authorParams(
       mainargs.Flag(),
       mainargs.Flag(),
       mainargs.Flag(true),
@@ -315,7 +327,7 @@ class CliTest extends munit.FunSuite:
     assertEquals(result.map(_._3), Right(false))
 
   test("authorParams: --global selects CreateTier.Global"):
-    val result = Cli.authorParams(
+    val result = AuthorCli.authorParams(
       mainargs.Flag(true),
       mainargs.Flag(),
       mainargs.Flag(),
@@ -325,7 +337,7 @@ class CliTest extends munit.FunSuite:
 
   test("authorParams: --yolo and --no-yolo together is rejected"):
     assertEquals(
-      Cli.authorParams(
+      AuthorCli.authorParams(
         mainargs.Flag(),
         mainargs.Flag(true),
         mainargs.Flag(true),
@@ -340,24 +352,29 @@ class CliTest extends munit.FunSuite:
     "validateFileName: a name containing '..' plus '/' is rejected outright"
   ):
     assertEquals(
-      Cli.validateFileName("../escape.sc"),
+      AuthorCli.validateFileName("../escape.sc"),
       Left(
         "'../escape.sc' isn't a valid flow filename — path separators aren't allowed"
       )
     )
 
   test("validateFileName: a nested-directory name is rejected too"):
-    assert(Cli.validateFileName("sub/dir.sc").isLeft)
+    assert(AuthorCli.validateFileName("sub/dir.sc").isLeft)
 
   test("validateFileName: a bare filename is accepted"):
-    assertEquals(Cli.validateFileName("my-flow.sc"), Right(()))
+    assertEquals(AuthorCli.validateFileName("my-flow.sc"), Right(()))
 
   test(
     "safePrepareTarget: delegates to CreateFlow.prepareTarget for an ordinary name"
   ):
     val dir = TempDirs.dir()
     val result =
-      Cli.safePrepareTarget(CreateTier.Project, "x.sc", dir, dir / "global")
+      AuthorCli.safePrepareTarget(
+        CreateTier.Project,
+        "x.sc",
+        dir,
+        dir / "global"
+      )
     assertEquals(
       result.map(_.flowPath),
       Right(dir / ".orca" / "flows" / "x.sc")
@@ -375,7 +392,7 @@ class CliTest extends munit.FunSuite:
     withTempPath: path =>
       val out = captured(
         assertEquals(
-          Cli.runConfig(path, None, None, None, force = false),
+          ConfigCli.runConfig(path, None, None, None, force = false),
           ExitCodes.Ok
         )
       )
@@ -389,7 +406,7 @@ class CliTest extends munit.FunSuite:
     withTempPath: path =>
       os.write(path, "planningAgent = claude\ncodingAgent = codex\n")
       assertEquals(
-        Cli.runConfig(path, None, Some("gemini"), None, force = false),
+        ConfigCli.runConfig(path, None, Some("gemini"), None, force = false),
         ExitCodes.Ok
       )
       val written = orca.settings.SettingsFile
@@ -408,7 +425,8 @@ class CliTest extends munit.FunSuite:
   ):
     withTempPath: path =>
       assertEquals(
-        Cli.runConfig(path, None, Some("not-a-harness"), None, force = false),
+        ConfigCli
+          .runConfig(path, None, Some("not-a-harness"), None, force = false),
         ExitCodes.UsageError
       )
       assert(!os.exists(path))
@@ -419,7 +437,7 @@ class CliTest extends munit.FunSuite:
     withTempPath: path =>
       os.write(path, "not a valid line\n")
       assertEquals(
-        Cli.runConfig(path, Some("codex"), None, None, force = false),
+        ConfigCli.runConfig(path, Some("codex"), None, None, force = false),
         ExitCodes.ActionFailed
       )
       assertEquals(os.read(path), "not a valid line\n")
@@ -430,7 +448,7 @@ class CliTest extends munit.FunSuite:
     withTempPath: path =>
       os.write(path, "not a valid line\n")
       assertEquals(
-        Cli.runConfig(path, Some("codex"), None, None, force = true),
+        ConfigCli.runConfig(path, Some("codex"), None, None, force = true),
         ExitCodes.Ok
       )
       val written = orca.settings.SettingsFile
@@ -444,7 +462,7 @@ class CliTest extends munit.FunSuite:
       )
 
   test("renderAgents: a set model pin renders as harness:model"):
-    val text = Cli.renderAgents(
+    val text = ConfigCli.renderAgents(
       AgentSettings(coding =
         Some(AgentSpec(BackendTag.ClaudeCode, Some("sonnet")))
       )
@@ -458,7 +476,7 @@ class CliTest extends munit.FunSuite:
   ):
     val dir = TempDirs.dir()
     assertEquals(
-      Cli.runRediscoverStack(dir, yes = false, tty = false),
+      StackCli.runRediscoverStack(dir, yes = false, tty = false),
       ExitCodes.Ok
     )
 
@@ -474,7 +492,7 @@ class CliTest extends munit.FunSuite:
         "format = cargo fmt\n"
     os.write.over(path, content)
     assertEquals(
-      Cli.runRediscoverStack(dir, yes = false, tty = false),
+      StackCli.runRediscoverStack(dir, yes = false, tty = false),
       ExitCodes.UsageError
     )
     assertEquals(os.read(path), content)
@@ -491,7 +509,7 @@ class CliTest extends munit.FunSuite:
         "format = cargo fmt\n"
     os.write.over(path, content)
     assertEquals(
-      Cli.runRediscoverStack(dir, yes = true, tty = false),
+      StackCli.runRediscoverStack(dir, yes = true, tty = false),
       ExitCodes.Ok
     )
     assert(!orca.settings.SettingsFile.hasStackLines(os.read(path)))
@@ -506,7 +524,7 @@ class CliTest extends munit.FunSuite:
       path = os.root / "tmp" / "x.sc",
       shadows = List(FlowOrigin.Global, FlowOrigin.BuiltIn)
     )
-    val row = Cli.toFlowRow(flow)
+    val row = Tables.toFlowRow(flow)
     assertEquals(row.name, "x.sc")
     assertEquals(row.description, Some("does a thing"))
     assertEquals(row.origin, "project")
@@ -520,7 +538,7 @@ class CliTest extends munit.FunSuite:
       createFolders = true
     )
     val out =
-      captured(assertEquals(Cli.runList(dir, json = true), ExitCodes.Ok))
+      captured(assertEquals(ListCli.runList(dir, json = true), ExitCodes.Ok))
     assert(out.contains(""""name":"x.sc""""), out)
     assert(out.contains(""""origin":"project""""), out)
     assert(out.contains(""""description":"does a thing""""), out)
@@ -533,7 +551,7 @@ class CliTest extends munit.FunSuite:
       createFolders = true
     )
     val out =
-      captured(assertEquals(Cli.runList(dir, json = false), ExitCodes.Ok))
+      captured(assertEquals(ListCli.runList(dir, json = false), ExitCodes.Ok))
     assert(out.contains("x.sc"), out)
     assert(out.contains("does a thing"), out)
     assert(!out.contains("{"), out)
@@ -705,7 +723,7 @@ class CliTest extends munit.FunSuite:
   test(
     "sessionListingRows numbers rows 1-based in the same order continue <n> uses"
   ):
-    val rows = Cli.sessionListingRows(runsFixture())
+    val rows = Tables.sessionListingRows(runsFixture())
     assertEquals(
       rows.map(r => (r.index, r.sessionName)),
       List((1, "newest"), (2, "older"), (3, "unresumable"))
@@ -723,7 +741,7 @@ class CliTest extends munit.FunSuite:
         crashed = false
       )
     assertEquals(
-      Cli.resumeNotice(selection),
+      ContinueCli.resumeNotice(selection),
       "resuming session 'newest' [claude], in /work"
     )
 
@@ -733,7 +751,7 @@ class CliTest extends munit.FunSuite:
       run.manifest.sessions.head.copy(stage = Some("Task: fix a bug"))
     val selection = SessionSelection(run.manifest, withStage, crashed = false)
     assertEquals(
-      Cli.resumeNotice(selection),
+      ContinueCli.resumeNotice(selection),
       "resuming session 'newest' [claude], stage 'Task: fix a bug', in /work"
     )
 
@@ -742,7 +760,7 @@ class CliTest extends munit.FunSuite:
     val selection =
       SessionSelection(run.manifest, run.manifest.sessions.head, crashed = true)
     assertEquals(
-      Cli.resumeNotice(selection),
+      ContinueCli.resumeNotice(selection),
       "resuming session 'newest' [claude], in /work (crashed)"
     )
 
@@ -772,7 +790,8 @@ class CliTest extends munit.FunSuite:
     writeFutureManifest(dir)
     val (out, err) = capturedBoth(
       assertEquals(
-        Cli.runContinue(dir, None, list = true, json = true, tty = false),
+        ContinueCli
+          .runContinue(dir, None, list = true, json = true, tty = false),
         ExitCodes.Ok
       )
     )
@@ -810,7 +829,8 @@ class CliTest extends munit.FunSuite:
     writeCrashedManifest(dir)
     val out = captured(
       assertEquals(
-        Cli.runContinue(dir, None, list = true, json = true, tty = false),
+        ContinueCli
+          .runContinue(dir, None, list = true, json = true, tty = false),
         ExitCodes.Ok
       )
     )
@@ -821,7 +841,8 @@ class CliTest extends munit.FunSuite:
     writeCrashedManifest(dir)
     val out = captured(
       assertEquals(
-        Cli.runContinue(dir, None, list = true, json = false, tty = false),
+        ContinueCli
+          .runContinue(dir, None, list = true, json = false, tty = false),
         ExitCodes.Ok
       )
     )
@@ -859,7 +880,8 @@ class CliTest extends munit.FunSuite:
     )
     val (out, err) = capturedBoth(
       assertEquals(
-        Cli.runContinue(dir, None, list = false, json = false, tty = true),
+        ContinueCli
+          .runContinue(dir, None, list = false, json = false, tty = true),
         ExitCodes.ActionFailed
       )
     )
