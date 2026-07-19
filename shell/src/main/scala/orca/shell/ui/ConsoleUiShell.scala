@@ -27,14 +27,13 @@ import scala.annotation.tailrec
 /** ConsoleUI-backed [[ShellUi]]: arrow-key prompts over
   * `org.jline.consoleui.prompt.ConsolePrompt` (ADR 0021 §3). Requires a real
   * tty — construct only via `ShellUi.make`, which gates on it; ConsoleUI NPEs
-  * on non-tty stdin otherwise (research 03 skeptic).
+  * on non-tty stdin otherwise.
   *
   * ConsoleUI's single-choice list prompt has no non-selectable-item support in
   * its public API — `ListItem.isSelectable()` is hardcoded `true`, and
   * `ListPromptBuilder` exposes no way to add a `Separator`; only the checkbox
   * prompt's items carry a disabled flag (jar-verified against
-  * `jline-console-ui` 3.30.15, correcting research 03's blanket "disabled items
-  * with reason" claim). Disabled choices are therefore rendered with their
+  * `jline-console-ui` 3.30.15). Disabled choices are therefore rendered with their
   * reason folded into the label and, if picked anyway, the prompt simply
   * re-runs — same "not a valid answer" re-prompt `NumberedUi` uses. The same
   * absence rules out honoring `preselect`'s starting cursor position; it is a
@@ -158,7 +157,7 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
   private def plainLineInput(prompt: String): UiOutcome[String] =
     // Same late-byte guard as runOrCancelled: this path bypasses ConsoleUI
     // entirely, so it needs its own clear immediately before painting.
-    print("[2K\r")
+    print(ShellOutput.AnsiClearLine)
     val styled = AttributedStringBuilder()
       .style(AttributedStyle.DEFAULT.foreground(AttributedStyle.GREEN))
       .append("? ")
@@ -201,7 +200,7 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     val writer = terminal.writer()
     // Clear any stray bytes (e.g. a late coursier progress line) off the
     // current line before painting, like the other prompt entry points.
-    print("[2K\r")
+    print(ShellOutput.AnsiClearLine)
     writer.println()
     writer.println(
       AttributedStringBuilder()
@@ -237,10 +236,10 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
   ): UiOutcome[java.util.Map[String, PromptResultItemIF]] =
     try
       // A late byte from some other writer (coursier's fetch-progress
-      // renderer on a fresh-cache run, research item 1) can still be sitting
-      // on the current line right before this prompt paints — clear it first,
-      // same treatment Main's banner print already gets.
-      print("[2K\r")
+      // renderer on a fresh-cache run) can still be sitting on the current line
+      // right before this prompt paints — clear it first, same treatment
+      // Main's banner print already gets.
+      print(ShellOutput.AnsiClearLine)
       val results = withIsigDisabled(consolePrompt.prompt(elements))
       if results.isEmpty then UiOutcome.Cancelled
       else UiOutcome.Selected(results)
@@ -259,7 +258,7 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     * `BindingReader`, so `AbstractPrompt`'s own `ctrl('C')` keymap binding
     * (which throws `UserInterruptException` — jar-verified) never fires. Since
     * this shell's `Terminal` is built via a plain
-    * `TerminalBuilder.builder()...build()` (`Main.scala`) with no
+    * `TerminalBuilder.builder()...build()` ([[ShellUi.buildTerminal]]) with no
     * `signalHandler` override, its registered `SIGINT` disposition is jline's
     * own default, `SIG_DFL` — so the signal falls through to the JVM's default
     * handling (process termination), which is the RC-130 kill this fixes.

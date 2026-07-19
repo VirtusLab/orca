@@ -93,14 +93,14 @@ class MainTest extends munit.FunSuite:
       rows: List[orca.shell.ui.Choice[SessionPicker.PickerRow]]
   ): List[SessionSelection] =
     rows.collect {
-      case orca.shell.ui.Choice(SessionPicker.PickerRow.Resume(s), _, _, _) =>
+      case orca.shell.ui.Choice(SessionPicker.PickerRow.Resume(s), _, _) =>
         s
     }
 
-  // -- Realistic mixed fixture (mirrors the user's observed session mix,
-  // research 08 items 7+8): a "main" coder lineage resumed/re-run across three
-  // separate flow runs (so three occurrences, newest last-active wins), a
-  // Plan-stage one-shot, and three reviewer one-shots.
+  // -- Realistic mixed fixture (a representative session mix): a "main" coder
+  // lineage resumed/re-run across three separate flow runs (so three
+  // occurrences, newest last-active wins), a Plan-stage one-shot, and three
+  // reviewer one-shots.
   private def mixedRuns(): List[RecordedRun] =
     val run1 = RecordedRun(
       manifest(

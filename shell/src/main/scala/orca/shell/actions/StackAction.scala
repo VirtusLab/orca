@@ -15,9 +15,8 @@ private[shell] enum StackStatus:
   case NoStackLines
   case Present(stack: StackSettings, content: String)
 
-/** "Re-discover project stack settings" (ADR 0021 §8/§4, feedback item 4) — the
-  * moved read/write halves of `Main.rediscoverStack`; the confirm prompt and
-  * rendering stay in `Main`.
+/** "Re-discover project stack settings" (ADR 0021 §8/§4). The confirm prompt and
+  * rendering live in `Main.rediscoverStack`.
   */
 private[shell] object StackAction:
 

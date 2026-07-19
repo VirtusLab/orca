@@ -62,7 +62,7 @@ object ShellUi:
     TerminalBuilder.builder().system(true).dumb(true).build()
 
   /** ConsoleUI when stdin+stdout are a tty, [[NumberedUi]] otherwise (ConsoleUI
-    * NPEs on non-tty stdin — research 03 skeptic).
+    * NPEs on non-tty stdin).
     */
   def make(terminal: Terminal): ShellUi =
     if isInteractive(terminal) then ConsoleUiShell(terminal)

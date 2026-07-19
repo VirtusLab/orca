@@ -10,9 +10,8 @@ import orca.subprocess.QuietProc
 import scala.util.Try
 import scala.util.control.NonFatal
 
-/** Resumes a recorded harness session (ADR 0021 §8) — the moved action half of
-  * `Main.continueSession`/`resumeSession`; the picker that produces `selection`
-  * stays in `Main`.
+/** Resumes a recorded harness session (ADR 0021 §8). The picker that produces
+  * `selection` lives in `Main.continueSession`.
   */
 private[shell] object SessionAction:
 

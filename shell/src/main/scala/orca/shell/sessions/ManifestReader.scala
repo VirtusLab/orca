@@ -51,7 +51,8 @@ private[shell] object ManifestReader:
             case ((runs, warnings), file) =>
               readManifest(file) match
                 case Left(warning) => (runs, warning :: warnings)
-                case Right(manifest) if manifest.manifestVersion > 1 =>
+                case Right(manifest)
+                    if manifest.manifestVersion > RunManifest.SupportedVersion =>
                   (
                     runs,
                     s"skipping $file: manifestVersion ${manifest.manifestVersion} is newer than this shell understands" :: warnings
@@ -64,7 +65,9 @@ private[shell] object ManifestReader:
                   )
                 case Right(manifest) =>
                   val crashed =
-                    manifest.outcome == "running" && !pidAlive(manifest.pid)
+                    manifest.outcome == RunManifest.OutcomeRunning && !pidAlive(
+                      manifest.pid
+                    )
                   (RecordedRun(manifest, crashed) :: runs, warnings)
       (
         runs.sortBy(r => Instant.parse(r.manifest.startedAt)).reverse,

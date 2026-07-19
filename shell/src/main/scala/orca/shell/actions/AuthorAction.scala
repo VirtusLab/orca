@@ -22,11 +22,6 @@ private[shell] case class AuthorParams(
     yolo: Boolean
 )
 
-/** Authors a new flow with a harness's help (ADR 0021 §9) — the moved action
-  * halves of `Main.createNewFlow`/`createForkFlow`: extracts the bundled API
-  * material, builds the initial prompt, and launches the authoring session. The
-  * prompting that produces `goal`/`changes`/`params` stays in `Main`.
-  */
 /** Outcome of [[AuthorAction.create]]/[[AuthorAction.fork]]: either the harness
   * process ran to completion with `exit`, or it was never launched at all — the
   * opencode paste-confirm was declined, or the exec itself failed to even start
@@ -36,11 +31,16 @@ private[shell] enum AuthorOutcome:
   case Launched(exit: Int)
   case NotLaunched
 
+/** Authors a new or forked flow with a harness's help (ADR 0021 §9): extracts
+  * the bundled API material, builds the initial prompt, and launches the
+  * authoring session. The prompting that produces `goal`/`changes`/`params`
+  * lives in `Main.createNewFlow`/`createForkFlow`.
+  */
 private[shell] object AuthorAction:
 
-  /** New-flow authoring's action half (item 9): extracts the bundled API
-    * material into the tier's cache dir, builds [[FlowAuthoring.initialPrompt]],
-    * and launches the authoring session.
+  /** New-flow authoring: extracts the bundled API material into the tier's
+    * cache dir, builds [[FlowAuthoring.initialPrompt]], and launches the
+    * authoring session.
     */
   def create(
       goal: String,
@@ -68,7 +68,7 @@ private[shell] object AuthorAction:
       params.yolo
     )
 
-  /** Fork-an-existing-flow authoring's action half (item 10): extracts the
+  /** Fork-an-existing-flow authoring: extracts the
     * bundled API material, resolves the source flow to a harness-readable path
     * ([[FlowAuthoring.resolveForkSource]]), builds [[FlowAuthoring.forkPrompt]], and
     * launches the authoring session.

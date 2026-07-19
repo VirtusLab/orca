@@ -1,7 +1,7 @@
 package orca.shell.sessions
 
 import orca.agents.BackendTag
-import orca.runner.ManifestSession
+import orca.runner.{ManifestSession, RunManifest}
 import orca.settings.AgentSpec
 import orca.shell.ui.Choice
 
@@ -31,9 +31,9 @@ private[shell] object SessionPicker:
     case Resume(selection: SessionSelection)
     case ShowMore
 
-  /** Builds the continue-session picker's rows (ADR 0021 §8, research 08 items
-    * 7+8): durable lineages first, one-shots last, with two kinds of rows
-    * collapsed by default behind an expander.
+  /** Builds the continue-session picker's rows (ADR 0021 §8): durable lineages
+    * first, one-shots last, with two kinds of rows collapsed by default behind
+    * an expander.
     *
     * A durable lineage is a `(agent, sessionName)` pair with `kind ==
     * "durable"` — every occurrence of it across every run in `runs`, not just
@@ -67,7 +67,8 @@ private[shell] object SessionPicker:
         run <- runs
         session <- run.manifest.sessions
       yield Occurrence(run, session)
-    val (durable, oneShot) = occurrences.partition(_.session.kind == "durable")
+    val (durable, oneShot) =
+      occurrences.partition(_.session.kind == RunManifest.KindDurable)
 
     val lineages = durable
       .groupBy(o => (o.session.agent, o.session.sessionName))
@@ -125,9 +126,8 @@ private[shell] object SessionPicker:
 
   /** `★ <sessionName> — latest (stage: <stage>) [<harness>]`, or `(no stage
     * yet)` when the durable session hasn't entered a stage (rare — custom flows
-    * only, per research 08 item 7+8 §5). Falls back to the agent name if a
-    * malformed manifest somehow has `kind == "durable"` without a
-    * `sessionName`.
+    * only). Falls back to the agent name if a malformed manifest somehow has
+    * `kind == "durable"` without a `sessionName`.
     */
   private def primaryLabel(o: Occurrence): String =
     val name = o.session.sessionName.getOrElse(o.session.agent)
@@ -226,7 +226,7 @@ private[shell] object SessionPicker:
   ): Either[String, SessionSelection] =
     val matches =
       withoutExpanders(sessionRows(runs, expanded = false)).collect:
-        case choice @ Choice(PickerRow.Resume(selection), _, _, _)
+        case choice @ Choice(PickerRow.Resume(selection), _, _)
             if selection.session.sessionName.contains(name) =>
           (selection, choice.disabledReason)
     matches match

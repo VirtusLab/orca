@@ -29,7 +29,7 @@ private[orca] case class ManifestSession(
     lastActiveAt: String
 )
 
-/** Schema v1 (research 08 §4, ADR 0021 §8) of a per-run manifest written to
+/** Schema v1 (ADR 0021 §8) of a per-run manifest written to
   * `.orca/cache/runs/<startedAt-epoch-ms>-<pid>.json`, read by the shell to
   * offer "continue a session". `manifestVersion` is a hard gate: a shell that
   * doesn't understand a newer version skips the file rather than guessing.
@@ -38,7 +38,7 @@ private[orca] case class ManifestSession(
   * the run crashed, and the shell still offers its recorded sessions.
   */
 private[orca] case class RunManifest(
-    manifestVersion: Int = 1,
+    manifestVersion: Int = RunManifest.SupportedVersion,
     orcaVersion: String,
     flow: Option[String],
     workDir: String,
@@ -50,6 +50,22 @@ private[orca] case class RunManifest(
 )
 
 private[orca] object RunManifest:
+  /** The manifest schema version this build reads and writes. Ties the writer's
+    * `manifestVersion` default to the reader's gate ([[ManifestReader]] skips a
+    * file whose version exceeds this rather than guessing at a newer schema).
+    */
+  val SupportedVersion = 1
+
+  // The `outcome` and `ManifestSession.kind` wire strings, named once here so
+  // the writer that produces them (RunManifestWriter's Outcome/SessionKind
+  // enums) and every reader that matches on them share one spelling.
+  val OutcomeRunning = "running"
+  val OutcomeSucceeded = "succeeded"
+  val OutcomeFailed = "failed"
+  val KindDurable = "durable"
+  val KindOneShot = "oneShot"
+  val KindInteractive = "interactive"
+
   // Only a jsoniter codec — no `JsonData`/`Schema` half, deliberately: the
   // manifest crosses the process/disk boundary to the shell, never an HTTP or
   // LLM boundary, so it needs on-disk (de)serialisation but no tool schema.

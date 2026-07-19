@@ -23,9 +23,9 @@ private[shell] object FlowResolution:
 
   /** [[FlowCatalog.list]] across all three tiers, guarding the project tier's
     * component chain against a committed symlink first
-    * ([[OrcaDir.assertNoOrcaSymlinks]]) — the exact guarded build the menu's
-    * flow picker used inline before this moved out. Left on either the guard or
-    * the built-in extraction failing (full-disk, permission error, …).
+    * ([[OrcaDir.assertNoOrcaSymlinks]]) — the same guarded build the menu's
+    * flow picker uses. Left on either the guard or the built-in extraction
+    * failing (full-disk, permission error, …).
     */
   def list(workDir: os.Path): Either[String, List[DiscoveredFlow]] =
     try

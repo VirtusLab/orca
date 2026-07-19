@@ -26,7 +26,10 @@ private[orca] object Conversations:
     * payload out of the prose stream. In non-structured mode every turn flushes
     * immediately.
     *
-    * State is confined to the drain's single-threaded event loop.
+    * State is confined to the drain's single-threaded event loop — the mutable
+    * `StringBuilder`/`var` here is a deliberate, reviewed deviation from the
+    * codebase's Ox-concurrency default, not an actor oversight: this runs on one
+    * thread only, so no channel/actor would buy anything.
     */
   private final class TurnBuffer(structuredMode: Boolean, emit: String => Unit):
     private val current = new StringBuilder
@@ -225,6 +228,10 @@ private[orca] object Conversations:
     * what matters: don't echo a turn the wire itself closed. An exception from
     * `inner` is treated as `finishAbnormally` (flush rather than risk losing
     * genuine prose) and rethrown.
+    *
+    * Like [[TurnBuffer]], the mutable `buffer`/`pending` state is single-thread
+    * confined (one iterator, one consumer) — a deliberate, reviewed deviation
+    * from the Ox-concurrency default, not an actor oversight.
     */
   private final class ProseWithholdingIterator(
       inner: Iterator[ConversationEvent],

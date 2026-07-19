@@ -44,8 +44,8 @@ private[shell] object FlowAuthoring:
   private val resourcePrefix = "/orca/shell/api/"
 
   /** The bundled files' basenames, matching the resource-generator's copy
-    * (build.sbt) — the README plus the two example flows that research 07
-    * singled out as few-shot material.
+    * (build.sbt) — the README plus the two example flows used as few-shot
+    * material.
     */
   private val bundledNames =
     List("README.md", "implement.sc", "implement-interactive.sc")
@@ -145,8 +145,8 @@ private[shell] object FlowAuthoring:
 
   private val slugTimeoutMillis = 4000L
 
-  /** Best-effort filename suggestion for a new flow — the "cheap slug prompt"
-    * (item 9): runs `backend` non-interactively on [[slugPrompt]] (via
+  /** Best-effort filename suggestion for a new flow — the "cheap slug prompt":
+    * runs `backend` non-interactively on [[slugPrompt]] (via
     * [[slugArgv]]) with a short timeout, sanitizes its last non-blank output
     * line through [[sanitizeSlug]], and falls back to [[localFilenameSlug]]'s
     * local word-based derivation whenever the harness is unreachable, too slow,
@@ -187,7 +187,7 @@ private[shell] object FlowAuthoring:
       .map(_.backend)
       .getOrElse(BackendTag.ClaudeCode)
 
-  /** The new flow's filename suggestion (item 9's cheap slug prompt): runs the
+  /** The new flow's filename suggestion (the cheap slug prompt): runs the
     * configured coding agent — not the harness picked later in the same
     * create-flow attempt — non-interactively via [[suggestFilename]], falling
     * back to its own local word-based derivation within a few seconds if that
@@ -309,8 +309,8 @@ private[shell] object FlowAuthoring:
       case _: java.nio.file.AtomicMoveNotSupportedException =>
         os.move(tmp, path, replaceExisting = true)
 
-  /** The initial prompt handed to the authoring harness (ADR 0021 §9, research
-    * 07 amended recommendation): the goal and target path, the verbatim
+  /** The initial prompt handed to the authoring harness (ADR 0021 §9): the goal
+    * and target path, the verbatim
     * version-pinned header to start the file with, the line-1 `//` description
     * convention, pointers to the extracted README/examples, the `scala-cli
     * compile` verification step, the runtime-vs-compile-time rules caveat, and
@@ -416,7 +416,7 @@ private[shell] object FlowAuthoring:
       if !os.exists(copy) then os.copy(sourcePath, copy, replaceExisting = true)
       copy
 
-  /** The initial prompt for a fork session (ADR 0021 §9/item 10): states the
+  /** The initial prompt for a fork session (ADR 0021 §9): states the
     * source path and the described changes, instructs copying the source to the
     * target path verbatim before applying them, and otherwise mirrors
     * [[initialPrompt]]'s API-reference pointers, compile-check step, and
@@ -490,7 +490,7 @@ private[shell] object FlowAuthoring:
     *     user unsure whether anything was submitted.
     *
     * `yolo`, when true, appends each CLI's own no-approval-prompts flag
-    * (research 11, verified against each installed CLI's `--help`): claude's
+    * (verified against each installed CLI's `--help`): claude's
     * `--dangerously-skip-permissions`, codex's
     * `--dangerously-bypass-approvals-and-sandbox`, gemini's `-y`/`--yolo`. pi
     * has no approval gate to bypass (nothing to append; [[yoloCaveat]] notes

@@ -48,7 +48,6 @@ private[cli] object Tables:
               choice @ Choice(
                 SessionPicker.PickerRow.Resume(selection),
                 _,
-                _,
                 _
               ),
               i

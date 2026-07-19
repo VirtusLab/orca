@@ -4,9 +4,8 @@ import org.jline.terminal.Terminal
 import orca.shell.flows.DiscoveredFlow
 import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult}
 
-/** Runs a resolved flow (ADR 0021 §2) — the moved action half of
-  * `Main.runFlow`; the selection and task-text prompting that produce `flow`
-  * and `task` stay in `Main`.
+/** Runs a resolved flow (ADR 0021 §2). The selection and task-text prompting
+  * that produce `flow` and `task` live in `Main.runFlow`.
   */
 private[shell] object RunAction:
 

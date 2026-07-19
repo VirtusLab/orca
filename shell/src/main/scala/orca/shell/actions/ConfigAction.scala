@@ -3,9 +3,8 @@ package orca.shell.actions
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
 import orca.shell.ui.ShellOutput
 
-/** Shows or writes the user-global settings file's role agents (ADR 0021 §4) —
-  * the moved read/write half of what `Wizard.run`/`Wizard.write` used inline;
-  * the wizard keeps its own role-selection prompting and calls [[set]] with the
+/** Shows or writes the user-global settings file's role agents (ADR 0021 §4).
+  * The wizard keeps its own role-selection prompting and calls [[set]] with the
   * result.
   */
 private[shell] object ConfigAction:

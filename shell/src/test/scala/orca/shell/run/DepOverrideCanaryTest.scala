@@ -25,10 +25,9 @@ class DepOverrideCanaryTest extends munit.FunSuite:
 
   /** Writes a script pinning `com.lihaoyi::os-lib:0.9.1`, runs it via
     * `scala-cli run --command` with an overriding `--dep`, and returns the
-    * classpath line. Per the research
-    * (docs/research/shell/02-in-process-execution.md §S2), `--command` prints
-    * one argument per line with `-D` lines before `-cp`, so the classpath is
-    * the line immediately after the literal `-cp`.
+    * classpath line. `--command` prints one argument per line with `-D` lines
+    * before `-cp`, so the classpath is the line immediately after the literal
+    * `-cp`.
     */
   private def classpathAfterOverride(overrideVersion: String): String =
     val scriptDir = TempDirs.dir()

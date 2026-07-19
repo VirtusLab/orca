@@ -9,7 +9,6 @@ package orca.shell.ui
 case class Choice[A](
     value: A,
     label: String,
-    description: Option[String] = None,
     disabledReason: Option[String] = None
 ):
   def isEnabled: Boolean = disabledReason.isEmpty

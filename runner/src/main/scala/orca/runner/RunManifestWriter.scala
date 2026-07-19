@@ -108,6 +108,9 @@ private[runner] class RunManifestWriterState(
 
   private val log = LoggerFactory.getLogger("orca.flow")
 
+  /** How many of the newest manifests `pruneOldManifests` keeps. */
+  private val MaxKeptManifests = 20
+
   private val pid: Long = ProcessHandle.current().pid()
   private val startedAt: Instant = clock()
   private val manifestPath: os.Path =
@@ -130,9 +133,9 @@ private[runner] class RunManifestWriterState(
     * [[RunOutcome]] onto `Succeeded`/`Failed`.
     */
   private enum Outcome(val wireValue: String):
-    case Running extends Outcome("running")
-    case Succeeded extends Outcome("succeeded")
-    case Failed extends Outcome("failed")
+    case Running extends Outcome(RunManifest.OutcomeRunning)
+    case Succeeded extends Outcome(RunManifest.OutcomeSucceeded)
+    case Failed extends Outcome(RunManifest.OutcomeFailed)
 
   private def outcomeOf(finished: RunOutcome): Outcome = finished match
     case RunOutcome.Succeeded => Outcome.Succeeded
@@ -235,7 +238,7 @@ private[runner] class RunManifestWriterState(
 
   /** `clientId` joined against every `progress-*.json` under `.orca/` —
     * `SessionRecord`s only exist for durable `agent.session(name, seed)`
-    * sessions (research 08 §A.4), so a match means `clientId` came from one;
+    * sessions, so a match means `clientId` came from one;
     * the record's `name` is the manifest's `sessionName`. `None` for a plain
     * one-shot call — and, a known gap, for an interactive call too
     * (`AgentCall.runInteractiveOnce` mints a fresh `SessionId` that never
@@ -268,7 +271,8 @@ private[runner] class RunManifestWriterState(
   /** Atomic rewrite of the whole manifest — the `ProgressStore.writeLog`
     * temp+move idiom: a sibling temp file, then `os.move(atomicMove = true)` so
     * a crash mid-write never leaves a torn file behind. On the very first
-    * write, also prunes `.orca/cache/runs/` down to its newest 20 files (ADR
+    * write, also prunes `.orca/cache/runs/` down to its newest
+    * [[MaxKeptManifests]] files (ADR
     * 0021 §8) — every later write only rewrites this run's own file, so no new
     * file is ever added afterward and re-pruning would find nothing to do.
     */
@@ -304,7 +308,7 @@ private[runner] class RunManifestWriterState(
       state = state.copy(prunedOnce = true)
       pruneOldManifests(dir)
 
-  /** Keeps the newest 20 manifests (by filename, which sorts chronologically
+  /** Keeps the newest [[MaxKeptManifests]] (by filename, which sorts chronologically
     * since `<startedAt-epoch-ms>-<pid>.json` epoch prefixes are fixed-width),
     * deleting the rest. Fully best-effort — the listing itself and each delete
     * are both guarded — since this runs exactly once per writer and a failure
@@ -316,7 +320,7 @@ private[runner] class RunManifestWriterState(
       val newestFirst =
         os.list(dir).filter(_.ext == "json").sortBy(_.last).reverse
       newestFirst
-        .drop(20)
+        .drop(MaxKeptManifests)
         .foreach: p =>
           try os.remove(p)
           catch case NonFatal(_) => ()
@@ -330,9 +334,9 @@ private[runner] class RunManifestWriterState(
   * [[RunManifestWriterState.durableSessionName]]).
   */
 private enum SessionKind(val wireValue: String):
-  case Durable extends SessionKind("durable")
-  case OneShot extends SessionKind("oneShot")
-  case Interactive extends SessionKind("interactive")
+  case Durable extends SessionKind(RunManifest.KindDurable)
+  case OneShot extends SessionKind(RunManifest.KindOneShot)
+  case Interactive extends SessionKind(RunManifest.KindInteractive)
 
 private object SessionKind:
   def of(sessionName: Option[String]): SessionKind =

@@ -54,11 +54,8 @@ object Main:
         sys.exit(2)
 
   private def runInteractiveShell(): Unit =
-    // scala-cli's dependency-download progress writes bare `\r` (no line
-    // clear) before handing control here, so the cursor can still be mid-line
-    // over that stale text; clear it first so the banner starts on a clean
-    // line instead of appending to it.
-    print("[2K\r")
+    // Clear stale mid-line progress bytes so the banner starts clean.
+    print(ShellOutput.AnsiClearLine)
     ShellOutput.info(s"orca shell ${ShellVersion.value}")
     val terminal = ShellUi.buildTerminal()
     try
@@ -197,12 +194,12 @@ object Main:
         promptTask(ui)
       case UiOutcome.Selected(text) => Some(text)
 
-  /** New-flow authoring (item 9): tier → goal → filename (defaulted from the
+  /** New-flow authoring: tier → goal → filename (defaulted from the
     * goal's [[suggestFilenameForGoal]] slug) → harness+yolo, then hands off to
     * [[AuthorAction.create]]. Cancelling any prompt, or a filename collision,
     * aborts back to the menu without launching anything. Reachable via
-    * [[MenuItem.CreateFlow]]; [[MenuItem.ForkFlow]] (item 10) is the sibling
-    * entry point for [[createForkFlow]].
+    * [[MenuItem.CreateFlow]]; [[MenuItem.ForkFlow]] is the sibling entry point
+    * for [[createForkFlow]].
     */
   private def createNewFlow(ui: ShellUi, terminal: Terminal): Unit =
     val workDir = os.pwd
@@ -222,7 +219,7 @@ object Main:
       val params = AuthorParams(tier, target, backend, yolo)
       AuthorAction.create(goal, params, workDir, ui, terminal).discard
 
-  /** Fork-an-existing-flow authoring (item 10): pick the source flow from every
+  /** Fork-an-existing-flow authoring: pick the source flow from every
     * tier (same rows View/Edit use) → describe the changes → tier for the
     * fork's target → filename (defaulted from
     * [[FlowAuthoring.forkFilenameDefault]]) → harness+yolo, then hands off to
@@ -307,7 +304,7 @@ object Main:
         promptDescription(ui, label)
       case UiOutcome.Selected(text) => Some(text)
 
-  /** Harness picker (see [[selectHarness]]) plus the yolo confirm (item 11):
+  /** Harness picker (see [[selectHarness]]) plus the yolo confirm:
     * `"Run the harness without approval prompts (yolo)?"`, defaulting to yes to
     * match that Orca's own flows already run autonomously by default.
     */
@@ -418,7 +415,7 @@ object Main:
       s"${flow.name} — $description [${flow.origin.originLabel}]$shadows"
     Choice(flow, label)
 
-  /** "Re-discover project stack settings" (ADR 0021 §8/§4, feedback item 4):
+  /** "Re-discover project stack settings" (ADR 0021 §8/§4):
     * [[StackAction.status]] does the guarded read/parse (a missing file, or one
     * with no stack lines already, is a no-op with a one-line explanation; an
     * unparseable file aborts instead of being surgically edited blind); on a
