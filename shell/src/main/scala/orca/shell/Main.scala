@@ -17,6 +17,7 @@ import orca.shell.actions.{
   StackStatus,
   ViewAction
 }
+import orca.shell.cli.{Cli, CliHelp}
 import orca.shell.create.{CreateFlow, CreateTarget, CreateTier}
 import orca.shell.flows.{CustomizeTier, DiscoveredFlow, FlowOrigin}
 import orca.shell.run.FallbackPolicy
@@ -30,10 +31,34 @@ import java.time.Instant
 import scala.annotation.tailrec
 import scala.util.Try
 
-/** Entry point for the `orca` shell executable (ADR 0021). */
+/** Entry point for the `orca` shell executable (ADR 0021). No-arg → the
+  * interactive shell below, unchanged. Any argv → the non-interactive CLI
+  * surface (ADR 0021 §10, `cli/Cli.scala`): a curated `--help`/`--version`
+  * handled here, a known subcommand dispatched to [[Cli.dispatch]] with its
+  * returned code the sole `sys.exit` call, anything else a usage error. The CLI
+  * path never prints the banner or runs the first-run wizard — both are
+  * exclusive to the interactive shell.
+  */
 object Main:
 
   def main(args: Array[String]): Unit =
+    args.headOption match
+      case None => runInteractiveShell()
+      case Some("--help") | Some("-h") | Some("help") =>
+        println(CliHelp.topLevel)
+        sys.exit(0)
+      case Some("--version") | Some("-V") =>
+        println(ShellVersion.value)
+        sys.exit(0)
+      case Some(token) if Cli.commandNames(token) =>
+        sys.exit(Cli.dispatch(args.toIndexedSeq))
+      case Some(token) =>
+        Console.err.println(
+          s"orca: unknown command '$token' — run 'orca --help'"
+        )
+        sys.exit(2)
+
+  private def runInteractiveShell(): Unit =
     // scala-cli's dependency-download progress writes bare `\r` (no line
     // clear) before handing control here, so the cursor can still be mid-line
     // over that stale text; clear it first so the banner starts on a clean
@@ -118,8 +143,10 @@ object Main:
 
   /** `ProcessHandle.of` finds nothing for a pid that's been reaped — treated as
     * not alive, same as a live handle reporting `isAlive == false`.
+    * `private[shell]` so the CLI's `continue`/`continue --list` can read the
+    * same manifest listing as the interactive menu.
     */
-  private def pidAlive(pid: Long): Boolean =
+  private[shell] def pidAlive(pid: Long): Boolean =
     ProcessHandle.of(pid).map[Boolean](_.isAlive).orElse(false)
 
   /** Prints the chosen flow's source (highlighted when `tty`) and returns — the
@@ -259,7 +286,7 @@ object Main:
     * own local word-based derivation within a few seconds if that harness is
     * slow, absent, or unreachable.
     */
-  private def suggestedFilename(goal: String): String =
+  private[shell] def suggestedFilename(goal: String): String =
     CreateFlow.suggestFilename(
       configuredCodingAgent(GlobalSettings.default),
       goal
@@ -355,7 +382,9 @@ object Main:
     val status = if probe(name) then "✓ found" else "not found on PATH"
     s"$name — $status"
 
-  private def configuredCodingAgent(globalSettingsPath: os.Path): BackendTag =
+  private[shell] def configuredCodingAgent(
+      globalSettingsPath: os.Path
+  ): BackendTag =
     Option
       .when(os.exists(globalSettingsPath))(os.read(globalSettingsPath))
       .flatMap(content =>
@@ -530,7 +559,7 @@ object Main:
     * unrecognised one (the row itself is disabled in that case, so this is
     * display-only).
     */
-  private def harnessSettingsName(wireName: String): String =
+  private[shell] def harnessSettingsName(wireName: String): String =
     BackendTag
       .fromWireName(wireName)
       .flatMap(AgentSpec.harnessNameFor.get)
@@ -585,7 +614,7 @@ object Main:
       s"${flow.name} — $description [${originLabel(flow.origin)}]$shadows"
     Choice(flow, label)
 
-  private def originLabel(origin: FlowOrigin): String = origin match
+  private[shell] def originLabel(origin: FlowOrigin): String = origin match
     case FlowOrigin.Project => "project"
     case FlowOrigin.Global  => "global"
     case FlowOrigin.BuiltIn => "built-in"

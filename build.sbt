@@ -184,7 +184,10 @@ lazy val shell = (project in file("shell"))
   .settings(
     name := "orca-shell",
     Compile / mainClass := Some("orca.shell.Main"),
-    libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros, ox, jline, jlineConsoleUi, fansi),
+    // mainargs backs the non-interactive CLI subcommands (ADR 0021 §10,
+    // cli/Cli.scala); already on the classpath transitively via `runner`, but
+    // declared explicitly since shell uses it directly.
+    libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros, ox, jline, jlineConsoleUi, fansi, mainargs),
     // ChildTerminal's SIGINT test mutates process-global JVM signal state
     // (`sun.misc.Signal.handle` on INT). Fork so that state never lives in
     // the sbt/Bloop daemon's own JVM, and serialize so no concurrently

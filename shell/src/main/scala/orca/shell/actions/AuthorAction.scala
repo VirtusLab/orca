@@ -27,14 +27,16 @@ private[shell] case class AuthorParams(
   * material, builds the initial prompt, and launches the authoring session. The
   * prompting that produces `goal`/`changes`/`params` stays in `Main`.
   */
-private[shell] object AuthorAction:
+/** Outcome of [[AuthorAction.create]]/[[AuthorAction.fork]]: either the harness
+  * process ran to completion with `exit`, or it was never launched at all — the
+  * opencode paste-confirm was declined, or the exec itself failed to even start
+  * ([[scala.util.control.NonFatal]], e.g. a missing binary).
+  */
+private[shell] enum AuthorOutcome:
+  case Launched(exit: Int)
+  case NotLaunched
 
-  /** [[create]]/[[fork]] sentinel for "no harness process was ever started" —
-    * the opencode paste-confirm was declined, or the exec itself failed to even
-    * launch ([[NonFatal]], e.g. a missing binary). A real harness exit code is
-    * always `>= 0`.
-    */
-  val NotLaunched: Int = -1
+private[shell] object AuthorAction:
 
   /** New-flow authoring's action half (item 9): extracts the bundled API
     * material into the tier's cache dir, builds [[CreateFlow.initialPrompt]],
@@ -46,7 +48,7 @@ private[shell] object AuthorAction:
       workDir: os.Path,
       ui: ShellUi,
       terminal: Terminal
-  ): Int =
+  ): AuthorOutcome =
     val apiDir = CreateFlow.extractApiMaterial(
       cacheBaseFor(params.tier, workDir, params.target),
       ShellVersion.value
@@ -78,7 +80,7 @@ private[shell] object AuthorAction:
       workDir: os.Path,
       ui: ShellUi,
       terminal: Terminal
-  ): Int =
+  ): AuthorOutcome =
     val apiDir = CreateFlow.extractApiMaterial(
       cacheBaseFor(params.tier, workDir, params.target),
       ShellVersion.value
@@ -142,7 +144,7 @@ private[shell] object AuthorAction:
       prompt: String,
       backend: BackendTag,
       yolo: Boolean
-  ): Int =
+  ): AuthorOutcome =
     val launch = CreateFlow.harnessArgv(backend, prompt, yolo)
     CreateFlow.yoloCaveat(backend, yolo).foreach(ShellOutput.info)
     val ready = launch.pastePrompt match
@@ -156,7 +158,7 @@ private[shell] object AuthorAction:
           case UiOutcome.Cancelled         => false
     if !ready then
       ShellOutput.info("create-flow cancelled")
-      NotLaunched
+      AuthorOutcome.NotLaunched
     else
       try
         val exitCode = ChildTerminal.withChild(terminal):
@@ -175,8 +177,8 @@ private[shell] object AuthorAction:
             s"${target.flowPath} created — verify with `scala-cli compile ${target.flowPath}`"
           )
         else ShellOutput.info(s"${target.flowPath} was not created")
-        exitCode
+        AuthorOutcome.Launched(exitCode)
       catch
         case NonFatal(e) =>
           ShellOutput.error(s"create-flow launch failed — ${e.getMessage}")
-          NotLaunched
+          AuthorOutcome.NotLaunched
