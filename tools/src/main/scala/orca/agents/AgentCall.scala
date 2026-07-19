@@ -1,7 +1,7 @@
 package orca.agents
 
 import orca.AgentTurnFailed
-import orca.backend.{Interaction, AgentBackend}
+import orca.backend.{Conversations, Interaction, AgentBackend}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.util.JsonSchemaGen
 import ox.resilience.{ResultPolicy, RetryConfig, retry}
@@ -292,13 +292,20 @@ class DefaultAgentCall[B <: BackendTag, O](
     // leaks the subprocess/forks. On cancel `drive` throws, skipping the
     // register / TokensUsed bookkeeping below.
     val result = ox.supervised:
-      val conversation = backend.runInteractive(
+      val rawConversation = backend.runInteractive(
         prompt,
         session,
         displayPrompt = serialized,
         effective,
         Some(outputSchema)
       )(using summon[ox.Ox])
+      // Withhold the closing structured-payload turn from every `Interaction`
+      // impl uniformly (parallel to `Conversations.TurnBuffer` on the
+      // autonomous drain) rather than leaving each renderer to reinvent it.
+      val conversation = Conversations.withholdInteractiveProse(
+        rawConversation,
+        events
+      )
       try interaction.drive(conversation)
       finally conversation.cancel()
     // Codex mints its server thread id inside the drain (not at spawn); surface

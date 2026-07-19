@@ -18,9 +18,9 @@ import org.jline.terminal.{Terminal, TerminalBuilder}
 import ox.Ox
 
 /** Renders a [[Conversation]] to the terminal: the user's opening prompt sits
-  * on its own section, the agent's prose flushes as a single block at each turn
-  * boundary, and each tool call/result gets a compact one-line glyph-tagged
-  * summary.
+  * on its own section, and each tool call/result gets a compact one-line
+  * glyph-tagged summary. Assistant prose is NOT rendered here — see the
+  * `render` scaladoc.
   *
   * All writes go through the shared [[TerminalOutput]] so the persistent status
   * row isn't torn by ad-hoc prints and this renderer shares one surface with
@@ -37,12 +37,6 @@ private[terminal] class ConversationRenderer(
     output: TerminalOutput,
     currentIndent: () => String,
     workDir: Option[os.Path] = None,
-    /** When set, the agent's final assistant text is a JSON payload surfaced
-      * via `OrcaEvent.StructuredResult`, so we drop the streamed text to avoid
-      * showing the raw JSON twice. Safe because `TerminalEventListener`'s
-      * `StructuredResult` case (ADR 0008) always renders a visible result.
-      */
-    structuredMode: Boolean = false,
     prompter: ConversationRenderer.Prompter = ConversationRenderer.JLinePrompter
 ):
 
@@ -50,44 +44,40 @@ private[terminal] class ConversationRenderer(
 
   private var currentSection: Section = Section.None
 
-  /** Assistant text for the current turn, flushed as a single block at
-    * `AssistantTurnEnd`. Dropped rather than flushed in structured-output mode.
-    */
-  private val textBuffer = new StringBuilder
-
-  /** Glyph + style to prepend at flush, captured at the first delta. */
-  private var pendingProseStyling: Option[ProseStyling] = None
-
   /** Render the conversation to completion. The `Either` from `awaitResult()`
     * is passed through so the caller decides whether to throw or surface the
     * cancellation as a value.
+    *
+    * Assistant prose never reaches this renderer directly: `AgentCall`
+    * withholds it upstream (`Conversations.withholdInteractiveProse`) and
+    * re-surfaces it as `OrcaEvent.AssistantMessage` /
+    * `OrcaEvent.StructuredResult`, which `TerminalEventListener` renders — the
+    * same channel the autonomous path uses. This renderer only ever sees tool
+    * calls/results, approvals, questions, errors, and the user's own messages.
     */
   def render[B <: BackendTag](
       conversation: Conversation[B]
   )(using Ox): Either[OrcaInteractiveCancelled, AgentResult[B]] =
     conversation.events.foreach(dispatch(_, conversation))
-    // Normally a no-op: every completed turn ends with an AssistantTurnEnd that
-    // already flushed. Safety net for a turn the stream left open (cancellation
-    // or crash mid-turn).
-    flushBufferedText()
     conversation.awaitResult()
 
   private def dispatch[B <: BackendTag](
       event: ConversationEvent,
       conversation: Conversation[B]
   ): Unit = event match
-    case ConversationEvent.UserMessage(text) => renderUserMessage(text)
-    case ConversationEvent.AssistantTextDelta(text) =>
-      bufferText(text, AssistantGlyph, AssistantGlyphStyle, AssistantTextStyle)
-    case ConversationEvent.AssistantThinkingDelta(_) =>
-      // Dropped: buffering thinking into the shared textBuffer would let the
-      // first delta kind win the styling for the whole turn.
+    case ConversationEvent.UserMessage(text)     => renderUserMessage(text)
+    case ConversationEvent.AssistantTextDelta(_) =>
+      // Never reaches here in production (see the `render` scaladoc); a
+      // renderer driven directly against a raw, un-withheld `Conversation`
+      // (as some tests do) simply drops prose rather than rendering it twice
+      // once `Interaction.listeners`' `TerminalEventListener` also does.
       ()
+    case ConversationEvent.AssistantThinkingDelta(_) => ()
     case ConversationEvent.AssistantToolCall(name, input) =>
       renderToolCall(name, input)
     case ConversationEvent.ToolResult(_, ok, content) =>
       renderToolResult(ok, content)
-    case ConversationEvent.AssistantTurnEnd => flushBufferedText()
+    case ConversationEvent.AssistantTurnEnd => ()
     case ConversationEvent.Error(message)   => renderError(message)
     case ConversationEvent.ApproveTool(name, input, respond) =>
       promptApproval(name, input, respond, conversation)
@@ -107,16 +97,6 @@ private[terminal] class ConversationRenderer(
     )
     appendBlock(s"$header\n$body")
 
-  private def bufferText(
-      text: String,
-      glyph: String,
-      glyphStyle: fansi.Attrs,
-      textStyle: fansi.Attrs
-  ): Unit =
-    if pendingProseStyling.isEmpty then
-      pendingProseStyling = Some(ProseStyling(glyph, glyphStyle, textStyle))
-    val _ = textBuffer.append(text)
-
   private def renderToolCall(name: String, input: String): Unit =
     enterSection(Section.Tool)
     appendBlock(ToolCallLine.format(name, input, paint, workDir))
@@ -132,25 +112,6 @@ private[terminal] class ConversationRenderer(
   private def renderError(message: String): Unit =
     enterSection(Section.Prose)
     appendBlock(paint(ErrorStyle, s"$ErrorGlyph $message"))
-
-  /** Render the buffered text as a single prose block, or drop it in
-    * structured-output mode (the payload arrives via `StructuredResult`).
-    * Always clears the buffer and `pendingProseStyling`.
-    */
-  private def flushBufferedText(): Unit =
-    val styling = pendingProseStyling.getOrElse(
-      ProseStyling(AssistantGlyph, AssistantGlyphStyle, AssistantTextStyle)
-    )
-    pendingProseStyling = None
-    if textBuffer.isEmpty then ()
-    else if structuredMode then textBuffer.clear()
-    else
-      val text = textBuffer.toString
-      textBuffer.clear()
-      enterSection(Section.Prose)
-      val rendered = paint(styling.glyphStyle, s"${styling.glyph} ") +
-        paint(styling.textStyle, text)
-      appendBlock(rendered)
 
   /** Insert a blank-line separator when crossing a section boundary, then
     * update the section. No-op within a section or before anything is emitted.
@@ -236,7 +197,6 @@ private[terminal] object ConversationRenderer:
   val MaxUserMessageLength: Int = 100
 
   val UserGlyph: String = "▸"
-  val AssistantGlyph: String = "●"
   val ToolCallGlyph: String = "⏺"
   val ToolResultGlyph: String = "⎿"
   val ToolErrorGlyph: String = "✖"
@@ -249,7 +209,6 @@ private[terminal] object ConversationRenderer:
   // user prompts keep cyan as their distinctive, rare accent.
   val UserHeaderStyle: fansi.Attrs = fansi.Color.Cyan ++ fansi.Bold.On
   val UserBodyStyle: fansi.Attrs = fansi.Color.Cyan
-  val AssistantGlyphStyle: fansi.Attrs = fansi.Color.Magenta ++ fansi.Bold.On
   val AssistantTextStyle: fansi.Attrs = fansi.Attrs.Empty
   val ToolNameStyle: fansi.Attrs = fansi.Color.Yellow ++ fansi.Bold.On
   val ToolArgsStyle: fansi.Attrs = fansi.Color.DarkGray
@@ -259,13 +218,6 @@ private[terminal] object ConversationRenderer:
 
   private[terminal] enum Section:
     case None, Prose, Tool
-
-  /** Styling captured for the buffered text we'll flush at TurnEnd. */
-  private[terminal] case class ProseStyling(
-      glyph: String,
-      glyphStyle: fansi.Attrs,
-      textStyle: fansi.Attrs
-  )
 
   /** Outcome of a readline-style prompt. */
   enum PromptOutcome:

@@ -122,8 +122,10 @@ private[runner] object TerminalEventListener:
     */
   val StepGlyphStyle: fansi.Attrs = fansi.Color.Magenta ++ fansi.Bold.On
 
-  /** `●` prose glyph, same magenta-bold as [[StepGlyphStyle]]; matches the
-    * [[ConversationRenderer]]'s prose glyph.
+  /** `●` prose glyph, same magenta-bold as [[StepGlyphStyle]] — the canonical
+    * assistant-prose render for both the autonomous drain and the interactive
+    * door (which withholds prose upstream and re-surfaces it here; see
+    * `Conversations.withholdInteractiveProse`).
     */
   val AssistantGlyphStyle: fansi.Attrs = StepGlyphStyle
 

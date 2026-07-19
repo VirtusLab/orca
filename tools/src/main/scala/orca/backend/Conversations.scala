@@ -176,3 +176,89 @@ private[orca] object Conversations:
       val conv = open
       try drainAndCommit(conv, session, sessions, events)
       finally conv.cancel()
+
+  /** Interactive counterpart to the autonomous drain's `TurnBuffer`: wraps a
+    * live [[Conversation]] so its assistant PROSE (text deltas + the turn
+    * boundary that closes them) is translated into `OrcaEvent.AssistantMessage`
+    * on `events` — exactly like [[drainAutonomous]] — instead of being exposed
+    * on the conversation's own event stream. Structured mode
+    * (`conv.outputSchema.isDefined`) withholds the final turn the same
+    * one-turn-delayed way `TurnBuffer` does; the caller re-surfaces it via
+    * `OrcaEvent.StructuredResult` instead (see `AgentCall.runInteractiveOnce`).
+    *
+    * Every OTHER event (tool calls/results, approvals, questions, errors, the
+    * user's own messages) passes through to the returned conversation's
+    * `events` unchanged and un-delayed — this only touches prose, so an
+    * `ApproveTool`/`UserQuestion` prompt is never stuck waiting behind a
+    * withheld turn (which would deadlock: the subprocess blocks on the
+    * response, and nothing but a later event would ever release it).
+    *
+    * Shared here (rather than special-cased per `Interaction` implementation)
+    * so every `Interaction` — not just the terminal one — gets the same
+    * suppression `drive` would otherwise have to reimplement itself.
+    */
+  def withholdInteractiveProse[B <: BackendTag](
+      conv: Conversation[B],
+      listener: OrcaListener
+  ): Conversation[B] =
+    new Conversation[B]:
+      def outputSchema: Option[String] = conv.outputSchema
+      def canAskUser: Boolean = conv.canAskUser
+      def cancel(): Unit = conv.cancel()
+      def awaitResult()(using Ox) = conv.awaitResult()
+      def events(using Ox): Iterator[ConversationEvent] =
+        ProseWithholdingIterator(
+          conv.events,
+          conv.outputSchema.isDefined,
+          text => listener.onEvent(OrcaEvent.AssistantMessage(text))
+        )
+
+  /** Filters an interactive [[ConversationEvent]] stream through a
+    * [[TurnBuffer]]: prose events (`AssistantTextDelta` /
+    * `AssistantThinkingDelta` / `AssistantTurnEnd`) are consumed and converted
+    * into `emit` calls instead of being yielded; every other event is yielded
+    * immediately, un-reordered relative to other non-prose events.
+    *
+    * Termination is treated as `TurnBuffer.finishNormally` regardless of why
+    * `inner` ran out (clean end or cancellation) — this iterator has no way to
+    * tell the two apart, and the common case (a completed structured turn) is
+    * what matters: don't echo a turn the wire itself closed. An exception from
+    * `inner` is treated as `finishAbnormally` (flush rather than risk losing
+    * genuine prose) and rethrown.
+    */
+  private final class ProseWithholdingIterator(
+      inner: Iterator[ConversationEvent],
+      structuredMode: Boolean,
+      emit: String => Unit
+  ) extends Iterator[ConversationEvent]:
+    private val buffer = new TurnBuffer(structuredMode, emit)
+    private val pending =
+      scala.collection.mutable.Queue.empty[ConversationEvent]
+    private var settled = false
+
+    private def fill(): Unit =
+      try
+        while pending.isEmpty && inner.hasNext do
+          inner.next() match
+            case ConversationEvent.AssistantTextDelta(text) =>
+              buffer.append(text)
+            case ConversationEvent.AssistantThinkingDelta(_) => ()
+            case ConversationEvent.AssistantTurnEnd          => buffer.turnEnd()
+            case other => pending.enqueue(other)
+        if pending.isEmpty && !settled && !inner.hasNext then
+          settled = true
+          buffer.finishNormally()
+      catch
+        case t: Throwable =>
+          if !settled then
+            settled = true
+            buffer.finishAbnormally()
+          throw t
+
+    def hasNext: Boolean =
+      fill()
+      pending.nonEmpty
+
+    def next(): ConversationEvent =
+      fill()
+      pending.dequeue()
