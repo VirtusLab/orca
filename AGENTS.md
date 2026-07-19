@@ -19,7 +19,8 @@ orca/
 ├── tools/      # tool traits + os-backed impls (git/gh/fs), LLM SPI + session durability, InStage, events, subprocess
 ├── flow/       # stage/display/fail + FlowContext/FlowControl; orca.{plan,review,pr,progress}
 ├── claude/ codex/ gemini/ opencode/ pi/   # one module per coding-agent backend
-└── runner/     # flow() entry, DefaultFlowContext, FlowLifecycle, terminal UI
+├── runner/     # flow() entry, DefaultFlowContext, FlowLifecycle, terminal UI
+└── shell/      # `orca-shell`, the `orca` CLI's interactive front-end (ADR 0021)
 ```
 
 Dependency graph:
@@ -29,7 +30,8 @@ tools   (standalone)
   ├── flow                          → tools
   ├── claude / codex / gemini /
   │     opencode / pi               → tools
-  └── runner                        → tools + flow + all five backends
+  ├── runner                        → tools + flow + all five backends
+  └── shell                         → runner (published `orca`)
 ```
 
 The runner module owns the `flow` entry point (`package orca`) and wires

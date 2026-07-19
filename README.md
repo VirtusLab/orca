@@ -796,6 +796,32 @@ run:
 scala-cli run implement.sc -- "your task here"
 ```
 
+## Orca Shell
+
+Orca Shell is an interactive terminal front-end for the same flow scripts: a
+first-run wizard picks a harness for each of the planning/coding/review roles,
+then a menu lets you discover flows (project, global, and built-in), run one,
+view or edit its source, create a new flow with a harness's help, or continue
+a session left by a previous run. It launches flows the same way `scala-cli
+run` does — direct `scala-cli run flow.sc -- "task"` keeps working unchanged.
+
+Install it with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/VirtusLab/orca/master/install.sh | bash
+```
+
+This writes a small shim to `~/.local/bin/orca` that always resolves to the
+latest release, so it never needs a version bump; add `~/.local/bin` to your
+`PATH` if the installer says it isn't there yet, then run `orca`.
+
+Prefer not to install anything, or need a pinned version (e.g. in CI)? Run the
+shell directly instead:
+
+```bash
+scala-cli run --jvm 21 --dep "org.virtuslab::orca-shell:0.0.17" --main-class orca.shell.Main
+```
+
 ## Documentation
 
 - [`adr/`](adr/) — architecture decision records. [ADR
