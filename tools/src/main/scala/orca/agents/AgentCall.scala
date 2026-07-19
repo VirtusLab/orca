@@ -1,7 +1,7 @@
 package orca.agents
 
 import orca.AgentTurnFailed
-import orca.backend.{Interaction, AgentBackend}
+import orca.backend.{Conversations, Interaction, AgentBackend}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.util.JsonSchemaGen
 import ox.resilience.{ResultPolicy, RetryConfig, retry}
@@ -164,6 +164,23 @@ class DefaultAgentCall[B <: BackendTag, O](
       case specific                  => specific.message(value).orElse(Some(""))
     events.onEvent(OrcaEvent.StructuredResult(raw, summary))
 
+  /** Fires once a session's first turn commits (ADR 0021 §8). Read
+    * `backend.sessions.persistableWireId` directly (rather than through
+    * `Agent.resumeWireId`, which needs an `Agent` instance this class doesn't
+    * hold) — the same underlying lookup a `BaseAgent`-backed tool's
+    * `resumeWireId` resolves to.
+    */
+  private def emitSessionCommitted(session: SessionId[B]): Unit =
+    events.onEvent(
+      OrcaEvent.SessionCommitted(
+        backend.tag.wireName,
+        session.value,
+        backend.sessions.persistableWireId(session).map(_.value),
+        agentName,
+        agentRole
+      )
+    )
+
   /** THE retry policy — the only place that decides whether an autonomous-turn
     * failure gets retried: parse failures (corrective re-prompt, same session
     * resumed) and pre-spawn open failures (a fresh spawn) are retried;
@@ -217,6 +234,13 @@ class DefaultAgentCall[B <: BackendTag, O](
           events,
           outputSchema = Some(outputSchema)
         )
+        // Fire as soon as the backend drain commits — before the fallible
+        // parse below — so a session that later exhausts its retries (parse
+        // keeps failing) or throws on a subsequent attempt still gets
+        // announced as durably resumable (ADR 0021 §8). Every attempt on this
+        // session re-fires with the same payload; listeners dedup on
+        // (backend, clientId, wireId) per the event's scaladoc.
+        emitSessionCommitted(session)
         events.onEvent(
           OrcaEvent.TokensUsed(
             agentName,
@@ -268,19 +292,27 @@ class DefaultAgentCall[B <: BackendTag, O](
     // leaks the subprocess/forks. On cancel `drive` throws, skipping the
     // register / TokensUsed bookkeeping below.
     val result = ox.supervised:
-      val conversation = backend.runInteractive(
+      val rawConversation = backend.runInteractive(
         prompt,
         session,
         displayPrompt = serialized,
         effective,
         Some(outputSchema)
       )(using summon[ox.Ox])
+      // Withhold the closing structured-payload turn from every `Interaction`
+      // impl uniformly (parallel to `Conversations.TurnBuffer` on the
+      // autonomous drain) rather than leaving each renderer to reinvent it.
+      val conversation = Conversations.withholdInteractiveProse(
+        rawConversation,
+        events
+      )
       try interaction.drive(conversation)
       finally conversation.cancel()
     // Codex mints its server thread id inside the drain (not at spawn); surface
     // it back so a follow-up call with the same `session` resumes the right
     // thread. No-op for backends whose session id IS the client UUID (claude).
     backend.sessions.register(session, result.wireId)
+    emitSessionCommitted(session)
     // Normal path only: on mid-session cancel `drive` throws before this line,
     // and the wire protocols don't always carry partial usage, so there's
     // nothing authoritative to emit at cancel time.

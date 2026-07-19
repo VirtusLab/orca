@@ -6,7 +6,7 @@ import orca.util.TextUtil
 /** A problem found in `.orca/settings.properties` — the `Left` of
   * [[SettingsFile.parse]]. Line numbers are 1-based.
   */
-private[settings] enum SettingsError:
+private[orca] enum SettingsError:
   case NoAssignment(line: Int, text: String)
   case UnknownKey(line: Int, key: String)
   case CommentedValue(line: Int, key: String)
@@ -53,7 +53,7 @@ private[orca] enum StackKey(val raw: String) extends SettingKey:
   case Test extends StackKey("test")
 
 /** The agent role keys: valid in both scopes, single-valued. */
-private[settings] enum AgentKey(val raw: String) extends SettingKey:
+private[orca] enum AgentKey(val raw: String) extends SettingKey:
   case PlanningAgent extends AgentKey("planningAgent")
   case CodingAgent extends AgentKey("codingAgent")
   case ReviewAgent extends AgentKey("reviewAgent")
@@ -186,6 +186,75 @@ private[orca] object SettingsFile:
   def renderAppend(entries: List[SettingsEntry]): String =
     entries.map(renderEntry).mkString("", "\n", "\n")
 
+  /** The header comment [[renderGlobal]] places at the top of a fresh
+    * user-global settings file — distinct wording from [[Header]], which is
+    * stack-discovery-specific and doesn't apply to the agent-only global file.
+    */
+  private[orca] val GlobalHeader: String =
+    "# orca global settings — role agents; edit freely. " +
+      "Values: harness[:model]"
+
+  /** A fresh global settings file: [[GlobalHeader]] plus one `key = value` line
+    * per role `agents` sets, in planning/coding/review order. Round-trips
+    * through `SettingsFile.parse(_, SettingsScope.UserGlobal)`.
+    */
+  private[orca] def renderGlobal(agents: AgentSettings): String =
+    (GlobalHeader :: agentLines(agents).map(renderAgentLine))
+      .mkString("", "\n", "\n")
+
+  /** Surgical update of an existing global file's text: each role `agents` sets
+    * that already has a live line in `content` is replaced in place (same
+    * first-`=` key extraction as the parser); a set role with no existing line
+    * is appended at the end; everything else — comments, blank lines, and a
+    * role `agents` leaves unset — passes through untouched. Precondition:
+    * `content` parses cleanly under [[SettingsScope.UserGlobal]] (the caller's
+    * job — this rewrites known-good text, not recovers bad text).
+    */
+  private[orca] def updateGlobal(
+      content: String,
+      agents: AgentSettings
+  ): String =
+    val toSet = agentLines(agents)
+    val toSetByKey = toSet.toMap
+    val (revLines, remaining) =
+      content.linesIterator.foldLeft((List.empty[String], toSetByKey.keySet)):
+        case ((acc, pending), line) =>
+          liveAgentKey(line) match
+            case Some(key) if pending(key) =>
+              (renderAgentLine(key, toSetByKey(key)) :: acc, pending - key)
+            case _ => (line :: acc, pending)
+    val appended = toSet.collect:
+      case (key, spec) if remaining(key) => renderAgentLine(key, spec)
+    (revLines.reverse ::: appended).mkString("", "\n", "\n")
+
+  /** `agents`' set roles as `(key, spec)` pairs, in planning/coding/review
+    * order — the single definition of that order, shared by [[renderGlobal]]
+    * and [[updateGlobal]]'s append tail.
+    */
+  private def agentLines(agents: AgentSettings): List[(AgentKey, AgentSpec)] =
+    List(
+      AgentKey.PlanningAgent -> agents.planning,
+      AgentKey.CodingAgent -> agents.coding,
+      AgentKey.ReviewAgent -> agents.review
+    ).collect { case (key, Some(spec)) => (key, spec) }
+
+  private def renderAgentLine(key: AgentKey, spec: AgentSpec): String =
+    val model = spec.model.fold("")(":" + _)
+    s"${key.raw} = ${AgentSpec.harnessNameFor(spec.backend)}$model"
+
+  /** The [[AgentKey]] a line assigns, if it's a live (non-comment, non-blank)
+    * agent-key line — `None` for a comment, a blank line, a stack-key line, or
+    * a line with no `=`. Reuses [[splitAssignment]] so this can't disagree with
+    * the parser about what counts as a live agent-key line.
+    */
+  private def liveAgentKey(line: String): Option[AgentKey] =
+    val trimmed = line.trim
+    if trimmed.isEmpty || trimmed.startsWith("#") then None
+    else
+      splitAssignment(trimmed)
+        .flatMap((rawKey, _) => SettingKey.fromRaw(rawKey))
+        .collect { case key: AgentKey => key }
+
   private def renderEntry(entry: SettingsEntry): String =
     entry match
       case SettingsEntry.Command(key, command, comment) =>
@@ -243,6 +312,45 @@ private[orca] object SettingsFile:
     */
   def hasStackLines(content: String): Boolean =
     content.linesIterator.exists(namesStackKey)
+
+  /** `content` with every stack line (live or `#`-commented `format`/`lint`/
+    * `test`) removed — the surgical edit behind the shell's "re-discover
+    * project stack settings" action (ADR 0021 §4/§8). Reuses [[namesStackKey]]
+    * so this can never disagree with [[hasStackLines]] about which physical
+    * lines are stack lines; the result always satisfies
+    * `!hasStackLines(result)`. For each LIVE (non-commented) stack line, the
+    * contiguous run of `#`-comment lines immediately above it — discovery's
+    * evidence citation, [[renderEntry]]'s `Command` shape — is dropped too,
+    * stopping at a blank line, a non-comment line, [[Header]]'s two lines, or
+    * another stack line (that comment run belongs to a different entry). A
+    * `Demoted`/`Unset` line is a single self-contained `#` line and needs no
+    * such lookback; it's removed directly by matching [[namesStackKey]] like
+    * any live line. Every other line — agent keys, blank lines, unrelated
+    * comments, [[Header]], ordering — passes through with its original line
+    * terminator untouched.
+    */
+  private[orca] def stripStackLines(content: String): String =
+    val lines = content.linesWithSeparators.toIndexedSeq
+    def bare(line: String): String = line.stripLineEnd
+    val headerLines = Header.linesIterator.toSet
+    val stackIdx =
+      lines.indices.filter(i => namesStackKey(bare(lines(i)))).toSet
+    def isLiveStackLine(i: Int): Boolean =
+      stackIdx(i) && !bare(lines(i)).trim.startsWith("#")
+
+    val evidenceIdx = scala.collection.mutable.Set.empty[Int]
+    for i <- lines.indices if isLiveStackLine(i) do
+      var j = i - 1
+      while j >= 0 && bare(lines(j)).trim.startsWith("#") &&
+        !headerLines(bare(lines(j))) && !stackIdx(j)
+      do
+        evidenceIdx += j
+        j -= 1
+
+    val toRemove = stackIdx ++ evidenceIdx
+    lines.zipWithIndex.collect {
+      case (line, i) if !toRemove(i) => line
+    }.mkString
 
   private def namesStackKey(line: String): Boolean =
     val uncommented = line.trim.stripPrefix("#")

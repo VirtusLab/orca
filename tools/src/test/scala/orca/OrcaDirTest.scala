@@ -1,5 +1,6 @@
 package orca
 
+import ox.discard
 import orca.testkit.TempDirs
 
 class OrcaDirTest extends munit.FunSuite:
@@ -35,3 +36,60 @@ class OrcaDirTest extends munit.FunSuite:
     assertEquals(root, wd / ".orca")
     assert(os.isDir(root))
     assert(!os.exists(root / "cache"))
+
+  test("flowsPath points at .orca/flows without creating it"):
+    val wd = TempDirs.dir()
+    assertEquals(OrcaDir.flowsPath(wd), wd / ".orca" / "flows")
+    assert(!os.exists(wd / ".orca"))
+
+  test("ensureFlows creates .orca/flows and is idempotent"):
+    val wd = TempDirs.dir()
+    val flows = OrcaDir.ensureFlows(wd)
+    assertEquals(flows, wd / ".orca" / "flows")
+    assert(os.isDir(flows))
+    assertEquals(OrcaDir.ensureFlows(wd), flows)
+
+  test("ensureFlows aborts on a symlinked .orca/flows"):
+    val wd = TempDirs.dir()
+    val outside = TempDirs.dir() / "outside-flows"
+    os.makeDir.all(outside)
+    os.makeDir.all(OrcaDir.rootPath(wd))
+    os.symlink(OrcaDir.rootPath(wd) / "flows", outside)
+    intercept[OrcaFlowException](OrcaDir.ensureFlows(wd)).discard
+    assert(os.list(outside).isEmpty, "no write must go through the symlink")
+
+  test("assertNoOrcaSymlinks is a no-op when .orca doesn't exist"):
+    val wd = TempDirs.dir()
+    OrcaDir.assertNoOrcaSymlinks(wd, OrcaDir.flowsPath(wd))
+    assert(
+      !os.exists(OrcaDir.rootPath(wd)),
+      "must not create .orca as a side effect"
+    )
+
+  test("assertNoOrcaSymlinks passes silently for a real .orca/flows dir"):
+    val wd = TempDirs.dir()
+    OrcaDir.ensureFlows(wd).discard
+    OrcaDir.assertNoOrcaSymlinks(wd, OrcaDir.flowsPath(wd))
+
+  test("assertNoOrcaSymlinks aborts on a symlinked .orca/flows"):
+    val wd = TempDirs.dir()
+    val outside = TempDirs.dir() / "outside-flows"
+    os.makeDir.all(outside)
+    os.makeDir.all(OrcaDir.rootPath(wd))
+    os.symlink(OrcaDir.rootPath(wd) / "flows", outside)
+    val ex = intercept[OrcaFlowException](
+      OrcaDir.assertNoOrcaSymlinks(wd, OrcaDir.flowsPath(wd))
+    )
+    assert(ex.getMessage.contains("symlink"), ex.getMessage)
+
+  test("cacheRunsPath creates .orca/cache/runs, including the cache dir"):
+    val wd = TempDirs.dir()
+    val runs = OrcaDir.cacheRunsPath(wd)
+    assertEquals(runs, wd / ".orca" / "cache" / "runs")
+    assert(os.isDir(runs))
+    assert(os.isDir(wd / ".orca" / "cache"))
+
+  test("runsPath points at .orca/cache/runs without creating anything"):
+    val wd = TempDirs.dir()
+    assertEquals(OrcaDir.runsPath(wd), wd / ".orca" / "cache" / "runs")
+    assert(!os.exists(wd / ".orca"))

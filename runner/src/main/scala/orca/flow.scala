@@ -30,6 +30,8 @@ import orca.runner.{
   OrcaLog,
   RoleAgents,
   RoleOverrides,
+  RunManifestWriter,
+  RunOutcome,
   SurfacedFlowFailure,
   WiredAgents
 }
@@ -145,45 +147,72 @@ def flow(
   // `try/finally` so the cost summary always lands — even when a fatal
   // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
   var failed = false
-  try
+  // Positive success capture, kept separate from `failed`: set ONLY when
+  // `runFlow` returns normally. `failed` still drives the exit code; `succeeded`
+  // drives the manifest outcome. They aren't complements — an escaping fatal
+  // throwable (OOM, StackOverflow) runs neither the `succeeded = true` line nor
+  // the catch, so `failed` stays false (no exit 1, matching today) while
+  // `succeeded` stays false, yielding an honest manifest outcome of "failed"
+  // rather than a false "succeeded".
+  var succeeded = false
+  // The manifest writer's actor fork lives in this scope, spanning its
+  // construction through `finish`; `System.exit` below stays OUTSIDE it. A
+  // nested `flow()` call gets its own scope and writer.
+  supervised:
+    // Per-run session manifest (ADR 0021 §8): always attached, like
+    // LoggingListener. `flow` comes from `ORCA_FLOW_NAME` — the flow script's
+    // own path is unknown inside the library, so the shell sets this env var
+    // before exec'ing the flow subprocess; a flow run outside the shell
+    // leaves it unset, so `flow` is `None`.
+    val manifestWriter = RunManifestWriter.start(
+      workDir,
+      OrcaBanner.version,
+      sys.env.get("ORCA_FLOW_NAME"),
+      () => java.time.Instant.now()
+    )
     try
-      runFlow(
-        args = args,
-        workDir = workDir,
-        interaction = interaction,
-        extraListeners = extraListeners ++ List(costTracker),
-        branchNaming = branchNaming,
-        stackSettings = stackSettings,
-        planningAgent = planningAgent,
-        codingAgent = codingAgent,
-        reviewAgent = reviewAgent,
-        returnToStartBranch = returnToStartBranch,
-        progressStore = progressStore,
-        wiring = FlowWiring(
-          claude = claude,
-          codex = codex,
-          opencode = opencode,
-          pi = pi,
-          gemini = gemini,
-          git = git,
-          gh = gh,
-          fs = fs,
-          prompts = prompts
-        )
-      )(body)
-    catch
-      // A `SurfacedFlowFailure` marks a failure already reported to the user's
-      // event surface by the phase that raised it; only the exit code remains.
-      case _: SurfacedFlowFailure => failed = true
-      // Backstop for any other NonFatal — a pre-dispatcher failure (agent
-      // factory, TerminalInteraction start) has no event surface, so print it
-      // to stderr rather than exit 1 in silence.
-      case NonFatal(e) =>
-        failed = true
-        System.err.println(s"[orca] ${TextUtil.throwableMessage(e)}")
-  finally
-    costTracker.printSummary()
-    orcaLog.finish()
+      try
+        runFlow(
+          args = args,
+          workDir = workDir,
+          interaction = interaction,
+          extraListeners = extraListeners ++ List(costTracker, manifestWriter),
+          branchNaming = branchNaming,
+          stackSettings = stackSettings,
+          planningAgent = planningAgent,
+          codingAgent = codingAgent,
+          reviewAgent = reviewAgent,
+          returnToStartBranch = returnToStartBranch,
+          progressStore = progressStore,
+          wiring = FlowWiring(
+            claude = claude,
+            codex = codex,
+            opencode = opencode,
+            pi = pi,
+            gemini = gemini,
+            git = git,
+            gh = gh,
+            fs = fs,
+            prompts = prompts
+          )
+        )(body)
+        succeeded = true
+      catch
+        // A `SurfacedFlowFailure` marks a failure already reported to the user's
+        // event surface by the phase that raised it; only the exit code remains.
+        case _: SurfacedFlowFailure => failed = true
+        // Backstop for any other NonFatal — a pre-dispatcher failure (agent
+        // factory, TerminalInteraction start) has no event surface, so print it
+        // to stderr rather than exit 1 in silence.
+        case NonFatal(e) =>
+          failed = true
+          System.err.println(s"[orca] ${TextUtil.throwableMessage(e)}")
+    finally
+      manifestWriter.finish(
+        if succeeded then RunOutcome.Succeeded else RunOutcome.Failed
+      )
+      costTracker.printSummary()
+      orcaLog.finish()
   // Known residual: in a NESTED `flow()` call this `System.exit` tears down the
   // JVM before the OUTER flow's `finally` (branch restore, lock release) runs,
   // leaving the outer branch checked out and `.orca/flow.lock` behind (the next

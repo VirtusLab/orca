@@ -2,10 +2,10 @@ package orca.runner.terminal
 import orca.testkit.TempDirs
 
 /** Publishes the library to the local Ivy cache, then exercises both the
-  * minimal smoke script and the real flow scripts under `examples/` via
+  * minimal smoke script and the real flow scripts under `flows/` via
   * `scala-cli`. Gated on `ORCA_INTEGRATION` because it shells out to a real sbt
-  * + scala-cli and the fan-out across examples can take several minutes cold.
-  * CI sets the env var; local devs opt in when they want the check.
+  * + scala-cli and the fan-out across flows can take several minutes cold. CI
+  * sets the env var; local devs opt in when they want the check.
   */
 class ScalaCliSmokeTest extends munit.FunSuite:
 
@@ -99,7 +99,7 @@ class ScalaCliSmokeTest extends munit.FunSuite:
     )
 
   /** Add new flow scripts here so they're picked up by the compile-check loop.
-    * Each entry is a path under `examples/` (the seed scripts copy these `.sc`
+    * Each entry is a path under `flows/` (the seed scripts copy these `.sc`
     * files into the user's project at create-test-project time).
     */
   private val flowScripts: Seq[String] = Seq(
@@ -113,20 +113,20 @@ class ScalaCliSmokeTest extends munit.FunSuite:
 
   /** Each flow script is a real-world consumer of the public API, so a rename
     * or signature change breaks them first. Compile-checking here closes the
-    * gap between sbt's internal compile (which doesn't see `examples/`) and
-    * what a fresh user runs.
+    * gap between sbt's internal compile (which doesn't see `flows/`) and what a
+    * fresh user runs.
     */
   for relPath <- flowScripts do
-    test(s"examples/$relPath compiles via scala-cli"):
+    test(s"flows/$relPath compiles via scala-cli"):
       val repoRoot = publishedRepo().repoRoot
-      val scriptPath = repoRoot / "examples" / relPath
+      val scriptPath = repoRoot / "flows" / relPath
       val result = os
         .proc("scala-cli", "compile", scriptPath.toString)
         .call(cwd = repoRoot, check = false, mergeErrIntoOut = true)
       assertEquals(
         result.exitCode,
         0,
-        s"scala-cli compile failed for examples/$relPath:\n${result.out.text()}"
+        s"scala-cli compile failed for flows/$relPath:\n${result.out.text()}"
       )
 
   /** Walk up from the test's working directory until we see a build.sbt. */

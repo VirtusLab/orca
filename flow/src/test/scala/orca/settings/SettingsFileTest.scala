@@ -318,6 +318,54 @@ class SettingsFileTest extends FunSuite:
         s"reason, whitespace runs collapsed, got: $rendered"
     )
 
+  test(
+    "stripStackLines drops live and commented stack lines plus their " +
+      "evidence comments, keeping the header, agent keys, and user comments"
+  ):
+    val content =
+      """# orca settings — edit freely, commit with the project.
+        |# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.
+        |# Cargo.toml (rustfmt ships with the toolchain)
+        |format = cargo fmt
+        |# compiles main+test code, runs nothing
+        |lint = cargo check --tests
+        |# test =   (no test evidence found)
+        |# a user note about coding agent
+        |codingAgent = codex
+        |# just a regular comment
+        |""".stripMargin
+    val stripped = SettingsFile.stripStackLines(content)
+    assertEquals(
+      stripped,
+      """# orca settings — edit freely, commit with the project.
+        |# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.
+        |# a user note about coding agent
+        |codingAgent = codex
+        |# just a regular comment
+        |""".stripMargin
+    )
+    assert(!SettingsFile.hasStackLines(stripped))
+
+  test("stripStackLines leaves a file with no stack lines unchanged"):
+    val content =
+      """# orca settings — edit freely, commit with the project.
+        |codingAgent = codex
+        |# a user comment
+        |
+        |reviewAgent = claude:opus
+        |""".stripMargin
+    assertEquals(SettingsFile.stripStackLines(content), content)
+
+  test(
+    "stripStackLines removes a live stack line directly below the header " +
+      "without eating the header itself"
+  ):
+    val content = SettingsFile.Header + "\nformat = cargo fmt\n"
+    assertEquals(
+      SettingsFile.stripStackLines(content),
+      SettingsFile.Header + "\n"
+    )
+
   test("render turns a multi-line comment into # lines that parse ignores"):
     val rendered = SettingsFile.render(
       List(

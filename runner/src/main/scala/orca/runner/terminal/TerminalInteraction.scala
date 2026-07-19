@@ -51,7 +51,6 @@ class TerminalInteraction private[terminal] (
       output = output,
       currentIndent = () => listener.currentIndent,
       workDir = workDir,
-      structuredMode = conversation.outputSchema.isDefined,
       prompter = prompter
     ).render(conversation).orThrow
 

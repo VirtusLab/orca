@@ -4,6 +4,7 @@ import orca.{InStage, StackSettings}
 import orca.agents.{Agent, Announce, JsonData, given}
 import orca.events.OrcaEvent
 import orca.settings.{SettingsEntry, StackKey}
+import orca.subprocess.PathProbe
 import orca.util.{PromptResource, TextUtil}
 
 /** One command the discovery agent proposes for a task, with the repo-relative
@@ -157,12 +158,9 @@ private[runner] object StackDiscovery:
 
   /** First mechanical check (ADR 0019): `None` = resolvable, `Some(reason)` =
     * demote. Strips leading `VAR=` assignment tokens, then resolves the first
-    * remaining word via `bash -c 'command -v'` (builtins included, the same
-    * environment stage-time `bash -c` inherits). The word is passed as an
-    * ARGUMENT (`"$1"`), never interpolated into the script text, so shell
-    * metacharacters in an agent-proposed command cannot execute here. cwd is
-    * `workDir`, so a repo-relative path like `./script.sh` resolves as it will
-    * at stage time.
+    * remaining word via [[PathProbe]] (builtins included, the same environment
+    * stage-time `bash -c` inherits). cwd is `workDir`, so a repo-relative path
+    * like `./script.sh` resolves as it will at stage time.
     */
   private[runner] def unresolvedReason(
       command: String,
@@ -175,15 +173,7 @@ private[runner] object StackDiscovery:
     words.dropWhile(w => AssignmentToken.findPrefixOf(w).isDefined) match
       case Nil => Some("empty command")
       case word :: _ =>
-        val probe = os
-          .proc("bash", "-c", """command -v -- "$1"""", "bash", word)
-          .call(
-            cwd = workDir,
-            check = false,
-            stdout = os.Pipe,
-            stderr = os.Pipe
-          )
-        if probe.exitCode == 0 then None
+        if PathProbe.resolves(word, workDir) then None
         else Some(s"$word: not found on PATH")
 
   /** Second mechanical check (ADR 0019): the cited evidence file must exist

@@ -93,7 +93,7 @@ There are two runnable examples under [`examples/runnable/`](examples/runnable/)
   planner can ask clarifying questions via `ask_user`).
 
 More flow scripts — `epic.sc`, `issue-pr.sc`, `issue-pr-bugfix.sc`,
-`implement-enhanced.sc` — live in [`examples/`](examples/); run them against
+`implement-enhanced.sc` — live in [`flows/`](flows/); run them against
 your own git repo.
 
 For convenient editing of Orca flow scripts, with code-completion, you can try
@@ -794,6 +794,74 @@ run:
 
 ```bash
 scala-cli run implement.sc -- "your task here"
+```
+
+## Orca Shell
+
+Orca Shell is an interactive terminal front-end for the same flow scripts: a
+first-run wizard picks a harness for each of the planning/coding/review roles,
+then a menu lets you discover flows (project, global, and built-in), run one,
+view or edit its source, create a new flow with a harness's help, or continue
+a session left by a previous run. It launches flows the same way `scala-cli
+run` does — direct `scala-cli run flow.sc -- "task"` keeps working unchanged.
+
+### Command-line usage
+
+Every action in the interactive menu also has a scriptable subcommand — `orca`
+with no arguments starts the interactive shell; `orca <command> ...` runs one
+action non-interactively and exits.
+
+| Command | Key flags | Does |
+|---|---|---|
+| `orca run <flow> [task]` | `--verbose`, `--honor-pin` | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
+| `orca view <flow>` | `--plain`, `--color` | print a flow's source (highlighted when stdout is a terminal) |
+| `orca edit <flow>` | `--to project\|global` | open a flow in `$VISUAL`/`$EDITOR`/vi (`--to` required to customize a built-in) |
+| `orca create [name]` | `--goal <text>` (required), `--harness <h>`, `--global`, `--yolo`/`--no-yolo` | author a new flow with a coding agent's help |
+| `orca fork <source> [name]` | `--changes <text>` (required), `--harness <h>`, `--global`, `--yolo`/`--no-yolo` | fork an existing flow |
+| `orca continue [selector]` | `--list`, `--json` | resume a recorded harness session (no selector = newest); `selector` is an index or session name |
+| `orca config` | `--planning h`, `--coding h`, `--review h` | show the configured role agents, or set any subset |
+| `orca list` | `--json` | list discovered flows across the project/global/built-in tiers |
+| `orca rediscover-stack` | `--yes` | clear discovered stack settings so the next flow run re-detects them |
+
+`create`/`fork` default to yolo mode (the harness runs without approval
+prompts) — pass `--no-yolo` to opt out. `create`, `fork`, `edit`, and
+`continue`'s resume each need a real terminal and error cleanly if run
+without one; `run`, `view`, `list`, `config`, and `rediscover-stack --yes`
+work fine piped or in CI.
+
+Examples:
+
+```bash
+orca run implement.sc "add a rate limiter to /login"
+echo "add a rate limiter" | orca run implement.sc
+orca list --json | jq -r '.[].name'
+orca create rate-limit.sc --goal "add a token-bucket limiter" --harness claude
+orca continue              # resume the last session
+orca continue --list
+orca config --coding codex
+orca view implement.sc
+```
+
+Run `orca --help` for the full command list, or `orca <command> --help` for a
+command's own flags. Exit codes: 0 success, 1 action failure, 2 usage error —
+`orca run` propagates the flow's own exit code, which makes it CI-friendly.
+
+Install it with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/VirtusLab/orca/master/install.sh | bash
+```
+
+This writes a small shim to `~/.local/bin/orca` that always resolves to the
+latest release, so it never needs a version bump; add `~/.local/bin` to your
+`PATH` if the installer says it isn't there yet, then run `orca`.
+
+To avoid installing anything, or to pin a version (e.g. in CI), run the shell
+directly instead. The pinned form works from the first release that includes
+the shell; the version below always tracks the latest release:
+
+```bash
+scala-cli run --jvm 21 --quiet --dep "org.virtuslab::orca-shell:0.0.17" --main-class orca.shell.Main
 ```
 
 ## Documentation
