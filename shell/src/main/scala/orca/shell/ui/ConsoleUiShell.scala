@@ -160,6 +160,57 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
       case _: UserInterruptException | _: EndOfFileException | _: IOError =>
         UiOutcome.Cancelled
 
+  /** Prints the prompt line and [[ShellUi.multilineHint]] (dim, `faint()`),
+    * then reads lines off the same `lineReader` used by [[plainLineInput]]
+    * until Ctrl-D (`EndOfFileException`) — a real tty keeps accepting input
+    * after that per-`readLine` exception, so unlike [[NumberedUi]]'s EOF this
+    * always submits (trimmed, possibly blank; `Main.promptTask` re-prompts on
+    * blank the same way it does for [[plainLineInput]]). Ctrl-C
+    * (`UserInterruptException`) and a severed tty (`IOError`) cancel outright,
+    * discarding whatever was typed so far.
+    */
+  def inputMultiline(prompt: String): UiOutcome[String] =
+    val writer = terminal.writer()
+    writer.println()
+    writer.println(
+      AttributedStringBuilder()
+        .style(AttributedStyle.DEFAULT.foreground(AttributedStyle.GREEN))
+        .append("? ")
+        .style(AttributedStyle.BOLD)
+        .append(prompt)
+        .append(":")
+        .style(AttributedStyle.DEFAULT)
+        .toAnsi(terminal)
+    )
+    writer.println(
+      AttributedStringBuilder()
+        .style(AttributedStyle.DEFAULT.faint())
+        .append(ShellUi.multilineHint)
+        .style(AttributedStyle.DEFAULT)
+        .toAnsi(terminal)
+    )
+    writer.flush()
+    val continuationPrompt = AttributedStringBuilder()
+      .style(AttributedStyle.DEFAULT.faint())
+      .append("… ")
+      .style(AttributedStyle.DEFAULT)
+      .toAnsi(terminal)
+
+    // Not @tailrec: the recursive call sits inside a try/catch, which the JVM
+    // can't turn into a loop — bounded by how many lines the user pastes, so
+    // stack depth is never a real concern here.
+    val lines = scala.collection.mutable.ArrayBuffer.empty[String]
+    def loop(): UiOutcome[String] =
+      try
+        lines += lineReader.readLine(continuationPrompt)
+        loop()
+      catch
+        case _: EndOfFileException =>
+          UiOutcome.Selected(lines.mkString("\n").trim)
+        case _: UserInterruptException | _: IOError => UiOutcome.Cancelled
+
+    loop()
+
   /** Runs one prompt batch. ESC (an empty result map — ConsoleUI's own
     * cancel-to-empty-map behavior, enabled by `cancellableFirstPrompt`),
     * `UserInterruptException` (Ctrl-C), `EndOfFileException` and `IOError`

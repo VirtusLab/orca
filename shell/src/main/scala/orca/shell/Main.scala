@@ -15,7 +15,7 @@ import orca.shell.flows.{
   FlowOrigin,
   FlowViewer
 }
-import orca.shell.run.{ChildTerminal, FlowLauncher, LaunchResult}
+import orca.shell.run.{ChildTerminal, FlowLauncher}
 import orca.shell.sessions.{ManifestReader, ReadRun, ResumeCommand}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
@@ -79,7 +79,12 @@ object Main:
     warnings.foreach(w => println(s"orca: $w"))
     val continueDisabledReason =
       if runs.nonEmpty then None else Some("no sessions recorded yet")
-    ui.select("orca shell", MainMenu.choices(continueDisabledReason)) match
+    val newestRunSessionCount =
+      runs.headOption.fold(0)(_.manifest.sessions.size)
+    ui.select(
+      "orca shell",
+      MainMenu.choices(continueDisabledReason, newestRunSessionCount)
+    ) match
       case UiOutcome.Cancelled               => ()
       case UiOutcome.Selected(MenuItem.Exit) => ()
       case UiOutcome.Selected(MenuItem.Reconfigure) =>
@@ -143,10 +148,16 @@ object Main:
       flow <- selectFlow(ui, "Run which flow?")
       task <- promptTask(ui)
     do
+      println()
+      println(FlowLauncher.marker(s"starting flow ${flow.name}"))
       val result = ChildTerminal.withChild(terminal)(
         FlowLauncher.run(ui, flow.path, task, os.pwd)
       )
-      println(outcomeLine(result))
+      println(
+        FlowLauncher
+          .marker(s"flow ${flow.name} ${FlowLauncher.outcomeSuffix(result)}")
+      )
+      println()
 
   /** Prompts for the flow's task text, re-prompting on blank input — an empty
     * `userPrompt` reaches the flow's agent directly (branch naming, the coding
@@ -154,17 +165,12 @@ object Main:
     * as a degenerate run.
     */
   @tailrec private def promptTask(ui: ShellUi): Option[String] =
-    ui.input("Task for the flow") match
+    ui.inputMultiline("Task for the flow") match
       case UiOutcome.Cancelled => None
       case UiOutcome.Selected(text) if text.trim.isEmpty =>
         println("orca: task text can't be empty")
         promptTask(ui)
       case UiOutcome.Selected(text) => Some(text)
-
-  private def outcomeLine(result: LaunchResult): String = result match
-    case LaunchResult.Ok           => "orca: flow finished"
-    case LaunchResult.Failed(exit) => s"orca: flow failed (exit code $exit)"
-    case LaunchResult.Cancelled    => "orca: run cancelled"
 
   /** Create-a-flow (ADR 0021 §9): tier → filename → goal → harness (defaulting
     * to the configured coding agent), then extracts the bundled API material

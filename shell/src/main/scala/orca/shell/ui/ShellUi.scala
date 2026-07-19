@@ -33,7 +33,20 @@ trait ShellUi:
   def confirm(question: String, default: Boolean): UiOutcome[Boolean]
   def input(prompt: String, default: Option[String] = None): UiOutcome[String]
 
+  /** Multi-line free-text input, for prompts whose answer is often more than
+    * one line (currently just the flow task text): prints `$prompt:` on its own
+    * line followed by [[ShellUi.multilineHint]], then reads lines until EOF
+    * (Ctrl-D), returning them joined with `\n` and trimmed. Each pasted line
+    * lands as one iteration, so a blank line pasted mid-text survives in the
+    * result.
+    */
+  def inputMultiline(prompt: String): UiOutcome[String]
+
 object ShellUi:
+
+  /** Shown under the prompt line by both [[inputMultiline]] backends. */
+  private[ui] val multilineHint =
+    "(paste freely — multiple lines ok; finish with Ctrl-D, Ctrl-C cancels)"
 
   /** Whether stdin+stdout are both a real tty — the gate [[make]] uses to pick
     * a backend, also reused by callers that need to know before they print

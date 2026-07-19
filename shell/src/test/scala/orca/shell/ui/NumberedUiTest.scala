@@ -93,3 +93,42 @@ class NumberedUiTest extends munit.FunSuite:
   test("input returns Cancelled on EOF"):
     val (ui, _) = uiOf("")
     assertEquals(ui.input("Name"), UiOutcome.Cancelled)
+
+  test("inputMultiline prints the prompt on its own line, ending with a colon"):
+    val (ui, out) = uiOf("one line\n")
+    val _ = ui.inputMultiline("Task for the flow")
+    val rendered = out.toString
+    assert(rendered.contains("\nTask for the flow:\n"))
+
+  test("inputMultiline prints the paste/Ctrl-D/Ctrl-C hint"):
+    val (ui, out) = uiOf("one line\n")
+    val _ = ui.inputMultiline("Task for the flow")
+    assert(out.toString.contains(ShellUi.multilineHint))
+
+  test("inputMultiline joins every pasted line, including a blank middle line"):
+    val (ui, _) = uiOf("first\n\nthird\n")
+    assertEquals(
+      ui.inputMultiline("Task"),
+      UiOutcome.Selected("first\n\nthird")
+    )
+
+  test("inputMultiline reads until EOF, not just the first line"):
+    val (ui, _) = uiOf("one\ntwo\nthree\n")
+    assertEquals(
+      ui.inputMultiline("Task"),
+      UiOutcome.Selected("one\ntwo\nthree")
+    )
+
+  test("inputMultiline trims leading/trailing blank lines from the result"):
+    val (ui, _) = uiOf("\n\nreal text\n\n")
+    assertEquals(ui.inputMultiline("Task"), UiOutcome.Selected("real text"))
+
+  test("inputMultiline is Cancelled on immediate EOF (nothing accumulated)"):
+    val (ui, _) = uiOf("")
+    assertEquals(ui.inputMultiline("Task"), UiOutcome.Cancelled)
+
+  test(
+    "inputMultiline is Cancelled on EOF after only blank lines (nothing to submit)"
+  ):
+    val (ui, _) = uiOf("\n\n")
+    assertEquals(ui.inputMultiline("Task"), UiOutcome.Cancelled)

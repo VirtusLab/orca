@@ -64,3 +64,28 @@ private[ui] final class NumberedUi(in: BufferedReader, out: PrintStream)
       case null => UiOutcome.Cancelled
       case line =>
         UiOutcome.Selected(if line.isEmpty then default.getOrElse("") else line)
+
+  /** EOF (`readLine` returning `null`) ends the read outright rather than
+    * re-prompting: unlike a real terminal, this reader's underlying stream
+    * stays exhausted, so a re-prompt would just hit EOF again forever. Nothing
+    * accumulated by then is therefore [[UiOutcome.Cancelled]], not a blank
+    * submission left for the caller to reject-and-retry.
+    */
+  def inputMultiline(prompt: String): UiOutcome[String] =
+    out.println()
+    out.println(s"$prompt:")
+    out.println(ShellUi.multilineHint)
+    out.flush()
+
+    val lines = scala.collection.mutable.ArrayBuffer.empty[String]
+    @tailrec def loop(): UiOutcome[String] =
+      in.readLine() match
+        case null =>
+          val text = lines.mkString("\n").trim
+          if text.nonEmpty then UiOutcome.Selected(text)
+          else UiOutcome.Cancelled
+        case line =>
+          lines += line
+          loop()
+
+    loop()

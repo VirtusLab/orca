@@ -181,8 +181,9 @@ Step 2 — preferred harness for planning / coding / review: harness only, no
 model picker. Every bare harness resolves to a sensible default model, and
 orca deliberately passes model ids through unvalidated — a curated list
 would drift (research 06 §3). The wizard's closing note tells users the file
-is hand-editable (`harness[:model]`) and that changing a role's harness makes
-previously recorded sessions mint fresh (ADR 0020 §8).
+is hand-editable (`harness[:model]`); the harness-change/mint-fresh-sessions
+detail (ADR 0020 §8) was dropped from that note per user feedback — unnecessary
+detail at write time.
 
 Write path: file absent → fresh write with a wizard-appropriate header (not
 `SettingsFile.Header`, whose stack-discovery wording doesn't apply) and

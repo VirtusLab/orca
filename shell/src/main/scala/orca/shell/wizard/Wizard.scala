@@ -133,10 +133,6 @@ class Wizard(
       s"Settings written to $globalSettingsPath — hand-editable any time " +
         "(`harness[:model]`, e.g. `claude:sonnet`)."
     )
-    println(
-      "Note: changing a role's harness makes previously recorded sessions for " +
-        "that role mint fresh, with a warning, the next time they'd resume (ADR 0020 §8)."
-    )
 
 object Wizard:
 

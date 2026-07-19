@@ -39,6 +39,9 @@ private class ScriptedUi(
   def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
     throw new UnsupportedOperationException("Wizard doesn't prompt for input")
 
+  def inputMultiline(prompt: String): UiOutcome[String] =
+    throw new UnsupportedOperationException("Wizard doesn't prompt for input")
+
 class WizardTest extends munit.FunSuite:
 
   private val probe: String => Boolean = Set("claude", "gemini").contains
