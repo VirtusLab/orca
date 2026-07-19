@@ -209,6 +209,24 @@ lazy val shell = (project in file("shell"))
       val indexFile = outDir / "index"
       IO.write(indexFile, flowFiles.map(_.getName).mkString("\n"))
       copied.toSeq :+ indexFile
+    }.taskValue,
+    // Bundles the README plus two example flows as jar resources under
+    // orca/shell/api/ (ADR 0021 §9), so `CreateFlow` can extract them into the
+    // authoring harness's workspace as its API reference material.
+    Compile / resourceGenerators += Def.task {
+      val base = (ThisBuild / baseDirectory).value
+      val outDir = (Compile / resourceManaged).value / "orca" / "shell" / "api"
+      IO.createDirectory(outDir)
+      val sources = List(
+        base / "README.md",
+        base / "flows" / "implement.sc",
+        base / "flows" / "implement-interactive.sc"
+      )
+      sources.map { f =>
+        val target = outDir / f.getName
+        IO.copyFile(f, target)
+        target
+      }
     }.taskValue
   )
 

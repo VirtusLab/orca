@@ -4,7 +4,8 @@ import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.OrcaDir
 import orca.agents.BackendTag
 import orca.runner.{ManifestSession, RunManifest}
-import orca.settings.{AgentSpec, GlobalSettings}
+import orca.settings.{AgentSpec, GlobalSettings, SettingsFile, SettingsScope}
+import orca.shell.create.{CreateFlow, CreateTarget, CreateTier}
 import orca.shell.flows.{
   BuiltInFlows,
   CustomizeTier,
@@ -59,11 +60,9 @@ object Main:
         wizard.repairMalformed()
 
   /** Runs the main menu until Exit is chosen or the top-level prompt is
-    * cancelled (Ctrl-C / EOF); every non-Exit, non-Reconfigure, non-flow,
-    * non-ContinueSession item is a stub until its epic lands. Continue a
-    * session re-reads `.orca/cache/runs/` on every redraw (ADR 0021 §8) — a
-    * flow run started from this same menu can only have just finished, so the
-    * freshest listing is worth the re-read.
+    * cancelled (Ctrl-C / EOF). Continue a session re-reads `.orca/cache/runs/`
+    * on every redraw (ADR 0021 §8) — a flow run started from this same menu can
+    * only have just finished, so the freshest listing is worth the re-read.
     */
   @tailrec private def loop(
       ui: ShellUi,
@@ -90,11 +89,11 @@ object Main:
       case UiOutcome.Selected(MenuItem.RunFlow) =>
         runFlow(ui, terminal)
         loop(ui, wizard, terminal, tty)
+      case UiOutcome.Selected(MenuItem.CreateFlow) =>
+        createFlow(ui, terminal)
+        loop(ui, wizard, terminal, tty)
       case UiOutcome.Selected(MenuItem.ContinueSession) =>
         continueSession(ui, terminal, runs)
-        loop(ui, wizard, terminal, tty)
-      case UiOutcome.Selected(item) =>
-        println(s"$item: not implemented yet")
         loop(ui, wizard, terminal, tty)
 
   /** `ProcessHandle.of` finds nothing for a pid that's been reaped — treated as
@@ -161,6 +160,153 @@ object Main:
     case LaunchResult.Ok           => "orca: flow finished"
     case LaunchResult.Failed(exit) => s"orca: flow failed (exit code $exit)"
     case LaunchResult.Cancelled    => "orca: run cancelled"
+
+  /** Create-a-flow (ADR 0021 §9): tier → filename → goal → harness (defaulting
+    * to the configured coding agent), then extracts the bundled API material
+    * into the harness's workspace and execs it with an initial prompt under
+    * [[ChildTerminal.withChild]]. Cancelling any prompt, or a filename
+    * collision (reported by [[CreateFlow.prepareTarget]]), aborts back to the
+    * menu without launching anything.
+    */
+  private def createFlow(ui: ShellUi, terminal: Terminal): Unit =
+    val workDir = os.pwd
+    val globalFlows = GlobalSettings.defaultFlows
+    for
+      tier <- selectCreateTier(ui, globalFlows)
+      target <- promptFlowTarget(ui, tier, workDir, globalFlows)
+      goal <- promptGoal(ui)
+      backend <- selectHarness(ui)
+    do runCreateFlowHarness(ui, terminal, tier, target, workDir, goal, backend)
+
+  private def selectCreateTier(
+      ui: ShellUi,
+      globalFlows: os.Path
+  ): Option[CreateTier] =
+    ui.select(
+      "Create a flow — where should it be saved?",
+      List(
+        Choice(CreateTier.Project, "Project (.orca/flows/)"),
+        Choice(CreateTier.Global, s"Global ($globalFlows)")
+      )
+    ) match
+      case UiOutcome.Cancelled      => None
+      case UiOutcome.Selected(tier) => Some(tier)
+
+  /** Prompts for the flow's filename and resolves it to a target path via
+    * [[CreateFlow.prepareTarget]], printing and returning `None` on a collision
+    * — the harness writes the flow file itself, so an existing file at the
+    * target path is never overwritten.
+    */
+  private def promptFlowTarget(
+      ui: ShellUi,
+      tier: CreateTier,
+      workDir: os.Path,
+      globalFlows: os.Path
+  ): Option[CreateTarget] =
+    ui.input("Flow filename") match
+      case UiOutcome.Cancelled => None
+      case UiOutcome.Selected(rawName) =>
+        CreateFlow.prepareTarget(tier, rawName, workDir, globalFlows) match
+          case Left(message) =>
+            println(s"orca: $message")
+            None
+          case Right(target) => Some(target)
+
+  /** Prompts for the flow's goal, re-prompting on blank input — mirrors
+    * [[promptTask]]'s rationale: an empty goal would reach the harness as a
+    * degenerate initial prompt.
+    */
+  @tailrec private def promptGoal(ui: ShellUi): Option[String] =
+    ui.input("Goal for the new flow") match
+      case UiOutcome.Cancelled => None
+      case UiOutcome.Selected(text) if text.trim.isEmpty =>
+        println("orca: goal can't be empty")
+        promptGoal(ui)
+      case UiOutcome.Selected(text) => Some(text)
+
+  /** Harness picker, preselecting the configured coding agent (falling back to
+    * claude when the global settings file is absent or unparseable — same
+    * fallback [[Wizard]] uses for an undetected default).
+    */
+  private def selectHarness(ui: ShellUi): Option[BackendTag] =
+    val default = configuredCodingAgent(GlobalSettings.default)
+    ui.select(
+      "Harness for the authoring session",
+      BackendTag.values.toList.map(tag =>
+        Choice(tag, AgentSpec.harnessNameFor(tag))
+      ),
+      preselect = Some(default)
+    ) match
+      case UiOutcome.Cancelled         => None
+      case UiOutcome.Selected(backend) => Some(backend)
+
+  private def configuredCodingAgent(globalSettingsPath: os.Path): BackendTag =
+    Option
+      .when(os.exists(globalSettingsPath))(os.read(globalSettingsPath))
+      .flatMap(content =>
+        SettingsFile.parse(content, SettingsScope.UserGlobal).toOption
+      )
+      .flatMap(_.agents.coding)
+      .map(_.backend)
+      .getOrElse(BackendTag.ClaudeCode)
+
+  /** Extracts the API material into the tier's cache dir (project:
+    * `.orca/cache/`; global: `cache/` under the config-home orca dir), builds
+    * the initial prompt, and execs the harness from `target.cwd` under
+    * [[ChildTerminal.withChild]] (ADR 0021 §2). When [[CreateFlow.harnessArgv]]
+    * returns a paste-fallback prompt (opencode), it's printed and the user must
+    * confirm they've read it before the harness launches — its TUI switches to
+    * the alternate screen buffer, which would otherwise wipe the print before
+    * anyone could copy it. Reports whether `target.flowPath` exists once the
+    * harness session ends, with the `scala-cli compile` hint either way.
+    */
+  private def runCreateFlowHarness(
+      ui: ShellUi,
+      terminal: Terminal,
+      tier: CreateTier,
+      target: CreateTarget,
+      workDir: os.Path,
+      goal: String,
+      backend: BackendTag
+  ): Unit =
+    val version = ShellVersion.value
+    val cacheBase = tier match
+      case CreateTier.Project => OrcaDir.ensureCache(workDir)
+      case CreateTier.Global =>
+        val cache = target.cwd / "cache"
+        os.makeDir.all(cache)
+        cache
+    val apiDir = CreateFlow.extractApiMaterial(cacheBase, version)
+    val prompt =
+      CreateFlow.initialPrompt(goal, target.flowPath, apiDir, version)
+    val launch = CreateFlow.harnessArgv(backend, prompt)
+    val ready = launch.pastePrompt match
+      case None => true
+      case Some(toPaste) =>
+        println(
+          s"orca: paste this prompt into the agent once it opens:\n\n$toPaste\n"
+        )
+        ui.confirm("Ready to launch?", default = true) match
+          case UiOutcome.Selected(proceed) => proceed
+          case UiOutcome.Cancelled         => false
+    if !ready then println("orca: create-flow cancelled")
+    else
+      val exitCode = ChildTerminal.withChild(terminal):
+        os.proc(launch.argv)
+          .call(
+            cwd = target.cwd,
+            stdin = os.Inherit,
+            stdout = os.Inherit,
+            stderr = os.Inherit,
+            check = false
+          )
+          .exitCode
+      println(s"orca: harness session ended (exit code $exitCode)")
+      if os.exists(target.flowPath) then
+        println(
+          s"orca: ${target.flowPath} created — verify with `scala-cli compile ${target.flowPath}`"
+        )
+      else println(s"orca: ${target.flowPath} was not created")
 
   /** One prior run's manifest paired with the session the user picked to resume
     * — everything [[resumeSession]] needs (the harness command comes from the
