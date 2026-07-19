@@ -1,9 +1,28 @@
 package orca.shell
 
+import orca.StackSettings
 import orca.agents.BackendTag
 import orca.runner.{ManifestSession, RunManifest}
+import orca.settings.SettingsFile
 import orca.shell.sessions.ReadRun
+import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.TempDirs
+
+/** Answers a single fixed `confirm` outcome; every other prompt is unsupported
+  * — [[Main.rediscoverStack]] only ever calls `confirm`.
+  */
+private class ConfirmOnlyUi(outcome: UiOutcome[Boolean]) extends ShellUi:
+  def select[A](
+      title: String,
+      choices: List[Choice[A]],
+      preselect: Option[A] = None
+  ): UiOutcome[A] =
+    throw new UnsupportedOperationException("rediscoverStack doesn't select")
+  def confirm(question: String, default: Boolean): UiOutcome[Boolean] = outcome
+  def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
+    throw new UnsupportedOperationException("rediscoverStack doesn't input")
+  def inputMultiline(prompt: String): UiOutcome[String] =
+    throw new UnsupportedOperationException("rediscoverStack doesn't input")
 
 class MainTest extends munit.FunSuite:
 
@@ -408,4 +427,105 @@ class MainTest extends munit.FunSuite:
     assertEquals(
       Main.validatedWorkDir(dir.toString),
       Left(s"the recorded working directory $dir no longer exists")
+    )
+
+  // --- rediscoverStack ---
+
+  private def captured(body: => Unit): String =
+    val buffer = new java.io.ByteArrayOutputStream()
+    Console.withOut(new java.io.PrintStream(buffer))(body)
+    buffer.toString
+
+  test(
+    "rediscoverStack is a no-op, without creating .orca, when the settings file is absent"
+  ):
+    val dir = TempDirs.dir()
+    val out =
+      captured(Main.rediscoverStack(ConfirmOnlyUi(UiOutcome.Cancelled), dir))
+    assert(!os.exists(dir / ".orca"))
+    assert(
+      out.contains("no stack settings to clear"),
+      s"should explain there's nothing to clear: $out"
+    )
+
+  test(
+    "rediscoverStack is a no-op, leaving the file untouched, when it has no stack lines"
+  ):
+    val dir = TempDirs.dir()
+    os.makeDir.all(dir / ".orca")
+    val path = dir / ".orca" / "settings.properties"
+    val content =
+      "# orca settings — edit freely, commit with the project.\ncodingAgent = codex\n"
+    os.write.over(path, content)
+    val out =
+      captured(Main.rediscoverStack(ConfirmOnlyUi(UiOutcome.Cancelled), dir))
+    assertEquals(os.read(path), content)
+    assert(
+      out.contains("no stack settings to clear"),
+      s"should explain there's nothing to clear: $out"
+    )
+
+  test("rediscoverStack aborts on a malformed settings file without writing"):
+    val dir = TempDirs.dir()
+    os.makeDir.all(dir / ".orca")
+    val path = dir / ".orca" / "settings.properties"
+    val content = "format = cargo fmt\nnotAKey = whatever\n"
+    os.write.over(path, content)
+    val out =
+      captured(Main.rediscoverStack(ConfirmOnlyUi(UiOutcome.Cancelled), dir))
+    assertEquals(os.read(path), content)
+    assert(
+      out.contains("invalid settings"),
+      s"should abort with the parse error: $out"
+    )
+
+  test(
+    "rediscoverStack strips stack lines and writes back when the user confirms"
+  ):
+    val dir = TempDirs.dir()
+    os.makeDir.all(dir / ".orca")
+    val path = dir / ".orca" / "settings.properties"
+    val content =
+      "# orca settings — edit freely, commit with the project.\n" +
+        "# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.\n" +
+        "format = cargo fmt\n" +
+        "codingAgent = codex\n"
+    os.write.over(path, content)
+    Main.rediscoverStack(ConfirmOnlyUi(UiOutcome.Selected(true)), dir)
+    val rewritten = os.read(path)
+    assertEquals(rewritten, SettingsFile.stripStackLines(content))
+    assert(!SettingsFile.hasStackLines(rewritten))
+
+  test("rediscoverStack leaves the file untouched when the user declines"):
+    val dir = TempDirs.dir()
+    os.makeDir.all(dir / ".orca")
+    val path = dir / ".orca" / "settings.properties"
+    val content =
+      "# orca settings — edit freely, commit with the project.\n" +
+        "format = cargo fmt\n"
+    os.write.over(path, content)
+    Main.rediscoverStack(ConfirmOnlyUi(UiOutcome.Selected(false)), dir)
+    assertEquals(os.read(path), content)
+
+  // --- renderStackSettings ---
+
+  test(
+    "renderStackSettings lists each non-empty key in format/lint/test order"
+  ):
+    assertEquals(
+      Main.renderStackSettings(
+        StackSettings(
+          format = List("cargo fmt"),
+          lint = List("cargo check --tests"),
+          test = List("cargo test")
+        )
+      ),
+      "  format: cargo fmt\n  lint: cargo check --tests\n  test: cargo test"
+    )
+
+  test("renderStackSettings notes when there are no live commands"):
+    assert(
+      Main
+        .renderStackSettings(StackSettings.empty)
+        .contains("no live commands")
     )

@@ -185,8 +185,8 @@ object Main:
     * bundled API material into the harness's workspace and execs it with an
     * initial prompt under [[launchAuthoringSession]]. Cancelling any prompt, or
     * a filename collision, aborts back to the menu without launching anything.
-    * Reachable via [[MenuItem.CreateFlow]]; [[MenuItem.ForkFlow]] (item 10)
-    * is the sibling entry point for [[createForkFlow]].
+    * Reachable via [[MenuItem.CreateFlow]]; [[MenuItem.ForkFlow]] (item 10) is
+    * the sibling entry point for [[createForkFlow]].
     */
   private def createNewFlow(ui: ShellUi, terminal: Terminal): Unit =
     val workDir = os.pwd
@@ -212,12 +212,17 @@ object Main:
         ShellVersion.value
       )
       val prompt =
-        CreateFlow.initialPrompt(goal, target.flowPath, apiDir, ShellVersion.value)
+        CreateFlow.initialPrompt(
+          goal,
+          target.flowPath,
+          apiDir,
+          ShellVersion.value
+        )
       launchAuthoringSession(ui, terminal, target, prompt, backend, yolo)
 
-  /** Fork-an-existing-flow authoring (item 10): pick the source flow from
-    * every tier (same rows View/Edit use) → describe the changes → tier for
-    * the fork's target → filename (defaulted from
+  /** Fork-an-existing-flow authoring (item 10): pick the source flow from every
+    * tier (same rows View/Edit use) → describe the changes → tier for the
+    * fork's target → filename (defaulted from
     * [[CreateFlow.forkFilenameDefault]]) → harness+yolo. The fork-specific
     * initial prompt states whichever source path
     * [[CreateFlow.resolveForkSource]] resolves as readable from the harness's
@@ -263,10 +268,9 @@ object Main:
       )
       launchAuthoringSession(ui, terminal, target, prompt, backend, yolo)
 
-  /** The tier's cache dir to extract the API material into: project flows
-    * under `.orca/cache/`, global ones under `cache/` alongside the
-    * config-home `orca/` dir (ADR 0021 §9) — shared by both the new-flow and
-    * fork paths.
+  /** The tier's cache dir to extract the API material into: project flows under
+    * `.orca/cache/`, global ones under `cache/` alongside the config-home
+    * `orca/` dir (ADR 0021 §9) — shared by both the new-flow and fork paths.
     */
   private def cacheBaseFor(
       tier: CreateTier,
@@ -303,16 +307,19 @@ object Main:
     * slow, absent, or unreachable.
     */
   private def suggestedFilename(goal: String): String =
-    CreateFlow.suggestFilename(configuredCodingAgent(GlobalSettings.default), goal)
+    CreateFlow.suggestFilename(
+      configuredCodingAgent(GlobalSettings.default),
+      goal
+    )
 
   /** Prompts for the flow's filename (pre-filled with `default`, e.g. the
     * goal's suggested slug or the fork's `-fork.sc` suggestion — either way
     * editable, per `ui.input`'s default-hint path) and resolves it to a target
     * path via [[CreateFlow.prepareTarget]], re-prompting with the same
-    * `default` on a collision (printing the reason first) rather than
-    * aborting the whole create-flow attempt over one taken name — the harness
-    * writes the flow file itself, so an existing file at the target path is
-    * never overwritten.
+    * `default` on a collision (printing the reason first) rather than aborting
+    * the whole create-flow attempt over one taken name — the harness writes the
+    * flow file itself, so an existing file at the target path is never
+    * overwritten.
     */
   @tailrec private def promptFlowTarget(
       ui: ShellUi,
@@ -331,9 +338,9 @@ object Main:
           case Right(target) => Some(target)
 
   /** Prompts for a multi-line description (the new flow's goal, or the fork's
-    * described changes), re-prompting on blank input — mirrors
-    * [[promptTask]]'s rationale: an empty description would reach the harness
-    * as a degenerate initial prompt.
+    * described changes), re-prompting on blank input — mirrors [[promptTask]]'s
+    * rationale: an empty description would reach the harness as a degenerate
+    * initial prompt.
     */
   @tailrec private def promptDescription(
       ui: ShellUi,
@@ -347,8 +354,8 @@ object Main:
       case UiOutcome.Selected(text) => Some(text)
 
   /** Harness picker (see [[selectHarness]]) plus the yolo confirm (item 11):
-    * `"Run the harness without approval prompts (yolo)?"`, defaulting to yes
-    * to match that Orca's own flows already run autonomously by default.
+    * `"Run the harness without approval prompts (yolo)?"`, defaulting to yes to
+    * match that Orca's own flows already run autonomously by default.
     */
   private def selectHarnessAndYolo(ui: ShellUi): Option[(BackendTag, Boolean)] =
     for
@@ -418,8 +425,8 @@ object Main:
     * `scala-cli compile` hint either way. The exec itself is wrapped in a
     * `NonFatal` backstop, same as [[resumeSession]]'s — a missing harness
     * binary otherwise throws `IOException` out of `os.proc`, which `check =
-    * false` doesn't cover since that only governs a non-zero exit, not a
-    * failed process start.
+    * false` doesn't cover since that only governs a non-zero exit, not a failed
+    * process start.
     */
   private def launchAuthoringSession(
       ui: ShellUi,
@@ -430,7 +437,9 @@ object Main:
       yolo: Boolean
   ): Unit =
     val launch = CreateFlow.harnessArgv(backend, prompt, yolo)
-    CreateFlow.yoloCaveat(backend, yolo).foreach(note => println(s"orca: $note"))
+    CreateFlow
+      .yoloCaveat(backend, yolo)
+      .foreach(note => println(s"orca: $note"))
     val ready = launch.pastePrompt match
       case None => true
       case Some(toPaste) =>
