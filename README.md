@@ -815,8 +815,9 @@ This writes a small shim to `~/.local/bin/orca` that always resolves to the
 latest release, so it never needs a version bump; add `~/.local/bin` to your
 `PATH` if the installer says it isn't there yet, then run `orca`.
 
-Prefer not to install anything, or need a pinned version (e.g. in CI)? Run the
-shell directly instead:
+To avoid installing anything, or to pin a version (e.g. in CI), run the shell
+directly instead. The pinned form works from the first release that includes
+the shell; the version below always tracks the latest release:
 
 ```bash
 scala-cli run --jvm 21 --dep "org.virtuslab::orca-shell:0.0.17" --main-class orca.shell.Main

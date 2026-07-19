@@ -8,7 +8,7 @@
 # so re-running this script never needs a version bump.
 set -eu
 
-marker="# orca-shell-shim (ADR 0021 sec 1) - safe to overwrite"
+marker="# orca-shell-shim (ADR 0021 §1) - safe to overwrite"
 bin_dir="${HOME}/.local/bin"
 bin_path="${bin_dir}/orca"
 

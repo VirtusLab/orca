@@ -1,5 +1,6 @@
 package orca.shell
 
+import orca.agents.BackendTag
 import orca.runner.{ManifestSession, RunManifest}
 import orca.shell.sessions.ReadRun
 import orca.testkit.TempDirs
@@ -141,6 +142,18 @@ class MainTest extends munit.FunSuite:
       crashed = false
     )
     assertEquals(Main.sessionRows(List(run)).map(_.disabledReason), List(None))
+
+  test("harnessLabel suffixes a detected harness with the found marker"):
+    assertEquals(
+      Main.harnessLabel(BackendTag.ClaudeCode, _ => true),
+      "claude — ✓ found"
+    )
+
+  test("harnessLabel suffixes an undetected harness with not-found-on-PATH"):
+    assertEquals(
+      Main.harnessLabel(BackendTag.ClaudeCode, _ => false),
+      "claude — not found on PATH"
+    )
 
   test("validatedWorkDir accepts a path that's still a directory"):
     val dir = TempDirs.dir()

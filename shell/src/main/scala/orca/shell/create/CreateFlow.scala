@@ -38,8 +38,8 @@ object CreateFlow:
   private val resourcePrefix = "/orca/shell/api/"
 
   /** The bundled files' basenames, matching the resource-generator's copy
-    * (build.sbt) — the README plus the two example flows research 07 singled
-    * out as few-shot material.
+    * (build.sbt) — the README plus the two example flows that research 07
+    * singled out as few-shot material.
     */
   private val bundledNames =
     List("README.md", "implement.sc", "implement-interactive.sc")
@@ -88,11 +88,11 @@ object CreateFlow:
     else Right(target)
 
   /** Extracts the bundled README + two example flows into
-    * `<target>/orca-api-<version>/`, returning that directory. `target` is the
-    * already-ensured cache base — `OrcaDir.ensureCache(workDir)` for a project
-    * flow, `<config-home orca dir>/cache` for a global one (ADR 0021 §9).
-    * Idempotency key: the directory holding all three bundled names, mirroring
-    * [[orca.shell.flows.BuiltInFlows]]'s completeness check.
+    * `<cacheBase>/orca-api-<version>/`, returning that directory. `cacheBase`
+    * is the already-ensured cache base — `OrcaDir.ensureCache(workDir)` for a
+    * project flow, `<config-home orca dir>/cache` for a global one (ADR 0021
+    * §9). Idempotency key: the directory holding all three bundled names,
+    * mirroring [[orca.shell.flows.BuiltInFlows]]'s completeness check.
     *
     * Simpler than `BuiltInFlows`' whole-directory temp-dir-then-move: this
     * material is three small, static files with no per-version content rewrite
@@ -103,8 +103,8 @@ object CreateFlow:
     * name looking complete — only a whole-file miss is possible, which the
     * completeness check catches and retries.
     */
-  def extractApiMaterial(target: os.Path, version: String): os.Path =
-    val dir = target / s"orca-api-$version"
+  def extractApiMaterial(cacheBase: os.Path, version: String): os.Path =
+    val dir = cacheBase / s"orca-api-$version"
     if !isComplete(dir) then
       os.makeDir.all(dir)
       bundledNames.foreach: name =>
@@ -155,12 +155,15 @@ object CreateFlow:
     val ivy2LocalLine =
       if ShellVersion.isRelease(orcaVersion) then ""
       else "\n//> using repository ivy2Local"
+    // The "3.8.4" literal in the header below is kept in lockstep with
+    // V.scala in project/Dependencies.scala by hand — updateDocs only
+    // rewrites .md/.sc files, so this prompt text is invisible to it.
     s"""Write a new Orca flow at $targetPath.
        |
        |Goal: $goal
        |
        |Start the file with this exact header (the pinned version matches the
-       |shell you're running under):
+       |orca release this session was launched from):
        |//> using scala 3.8.4
        |//> using dep "org.virtuslab::orca:$orcaVersion"$ivy2LocalLine
        |//> using jvm 21

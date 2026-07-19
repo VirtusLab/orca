@@ -226,19 +226,34 @@ object Main:
 
   /** Harness picker, preselecting the configured coding agent (falling back to
     * claude when the global settings file is absent or unparseable — same
-    * fallback [[Wizard]] uses for an undetected default).
+    * fallback [[Wizard]] uses for an undetected default). Labels get the same
+    * PATH-detection suffix as the wizard's harness picker
+    * ([[Wizard.choiceFor]]) — every harness stays selectable regardless of
+    * detection, since this is one-off informational decoration, not a gate.
     */
   private def selectHarness(ui: ShellUi): Option[BackendTag] =
     val default = configuredCodingAgent(GlobalSettings.default)
     ui.select(
       "Harness for the authoring session",
       BackendTag.values.toList.map(tag =>
-        Choice(tag, AgentSpec.harnessNameFor(tag))
+        Choice(tag, harnessLabel(tag, PathProbe.resolves(_, os.pwd)))
       ),
       preselect = Some(default)
     ) match
       case UiOutcome.Cancelled         => None
       case UiOutcome.Selected(backend) => Some(backend)
+
+  /** `<name> — ✓ found` / `<name> — not found on PATH`, matching
+    * [[Wizard.choiceFor]]'s status suffix. `probe` is injected so tests never
+    * touch a real PATH.
+    */
+  private[shell] def harnessLabel(
+      tag: BackendTag,
+      probe: String => Boolean
+  ): String =
+    val name = AgentSpec.harnessNameFor(tag)
+    val status = if probe(name) then "✓ found" else "not found on PATH"
+    s"$name — $status"
 
   private def configuredCodingAgent(globalSettingsPath: os.Path): BackendTag =
     Option
@@ -258,7 +273,11 @@ object Main:
     * confirm they've read it before the harness launches — its TUI switches to
     * the alternate screen buffer, which would otherwise wipe the print before
     * anyone could copy it. Reports whether `target.flowPath` exists once the
-    * harness session ends, with the `scala-cli compile` hint either way.
+    * harness session ends, with the `scala-cli compile` hint either way. The
+    * exec itself is wrapped in a `NonFatal` backstop, same as
+    * [[resumeSession]]'s — a missing harness binary otherwise throws
+    * `IOException` out of `os.proc`, which `check = false` doesn't cover since
+    * that only governs a non-zero exit, not a failed process start.
     */
   private def runCreateFlowHarness(
       ui: ShellUi,
@@ -291,22 +310,26 @@ object Main:
           case UiOutcome.Cancelled         => false
     if !ready then println("orca: create-flow cancelled")
     else
-      val exitCode = ChildTerminal.withChild(terminal):
-        os.proc(launch.argv)
-          .call(
-            cwd = target.cwd,
-            stdin = os.Inherit,
-            stdout = os.Inherit,
-            stderr = os.Inherit,
-            check = false
+      try
+        val exitCode = ChildTerminal.withChild(terminal):
+          os.proc(launch.argv)
+            .call(
+              cwd = target.cwd,
+              stdin = os.Inherit,
+              stdout = os.Inherit,
+              stderr = os.Inherit,
+              check = false
+            )
+            .exitCode
+        println(s"orca: harness session ended (exit code $exitCode)")
+        if os.exists(target.flowPath) then
+          println(
+            s"orca: ${target.flowPath} created — verify with `scala-cli compile ${target.flowPath}`"
           )
-          .exitCode
-      println(s"orca: harness session ended (exit code $exitCode)")
-      if os.exists(target.flowPath) then
-        println(
-          s"orca: ${target.flowPath} created — verify with `scala-cli compile ${target.flowPath}`"
-        )
-      else println(s"orca: ${target.flowPath} was not created")
+        else println(s"orca: ${target.flowPath} was not created")
+      catch
+        case NonFatal(e) =>
+          println(s"orca: create-flow launch failed — ${e.getMessage}")
 
   /** One prior run's manifest paired with the session the user picked to resume
     * — everything [[resumeSession]] needs (the harness command comes from the
