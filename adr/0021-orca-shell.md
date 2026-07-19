@@ -314,10 +314,18 @@ skeptic §2); internal `quietTextTurn` calls bypass the emission point and
 are excluded automatically.
 
 **Shell side**: after a flow run (and on entry, from existing manifests,
-newest first) the "continue a session" item lists
-`<agent> (<role>) — stage <stage> [<harness>]` rows; it is disabled with a
-hint when no manifests exist — including the version-skew case where the
-flow ran under a pre-manifest orca pin (§2's fallback path). Resume execs
+newest first) the "continue a session" item lists one row per durable
+`(agent, sessionName)` lineage — `★ <sessionName> — latest (stage: <stage>)
+[<harness>]`, deduped across every run to just the lineage's most-recently-
+active occurrence — plus two collapsed-by-default expander rows ("show N
+earlier occurrences", "show N one-shot sessions") revealing everything else
+in place when picked (research 08 items 7+8: the naive one-row-per-manifest-
+session listing floods the picker with same-named one-shot calls — Plan-stage
+runs, reviewer-selection picks, reviewer `chat()` turns — since only durable
+`agent.session(...)` calls carry a distinguishing `sessionName`). It is
+disabled with a hint when no manifests exist — including the version-skew
+case where the flow ran under a pre-manifest orca pin (§2's fallback path).
+Resume execs
 the harness's own interactive UI from the manifest's `workDir`
 (claude/gemini/opencode scope session lookup by cwd/project; codex's by-id
 resume is global, but the resumed context still references that directory):

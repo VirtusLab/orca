@@ -22,6 +22,7 @@ import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
 import orca.subprocess.{PathProbe, QuietProc}
 import ox.discard
 
+import java.time.Instant
 import scala.annotation.tailrec
 import scala.util.Try
 import scala.util.control.NonFatal
@@ -352,53 +353,163 @@ object Main:
       session: ManifestSession
   )
 
-  /** Prompts among every session across `runs` (already newest-run-first from
-    * [[ManifestReader.list]]) and resumes the chosen one. A cancelled prompt,
-    * or `runs` being empty (unreachable via the menu today, since the item is
-    * disabled then, but harmless), is a silent no-op.
+  /** One session occurrence paired with the run it came from — the unit
+    * [[sessionRows]] groups, sorts, and labels. Carrying the whole [[ReadRun]]
+    * (not just its `crashed` flag) keeps [[SessionSelection]] constructible
+    * straight from an occurrence.
+    */
+  private case class Occurrence(run: ReadRun, session: ManifestSession)
+
+  /** One outcome of the continue-session picker: either resume a specific
+    * session, or re-render the picker with the collapsed groups (older lineage
+    * occurrences, one-shots) expanded.
+    */
+  private[shell] enum PickerRow:
+    case Resume(selection: SessionSelection)
+    case ShowMore
+
+  /** Prompts among every session across `runs` and resumes the chosen one.
+    * Picking the expander re-renders the same picker with `expanded = true`;
+    * there is no way back to the collapsed view short of re-opening the menu
+    * item, which is fine — the picker is re-read from disk on every open
+    * anyway. A cancelled prompt, or `runs` being empty (unreachable via the
+    * menu today, since the item is disabled then, but harmless), is a silent
+    * no-op.
     */
   private def continueSession(
       ui: ShellUi,
       terminal: Terminal,
-      runs: List[ReadRun]
+      runs: List[ReadRun],
+      expanded: Boolean = false
   ): Unit =
-    ui.select("Continue which session?", sessionRows(runs)) match
-      case UiOutcome.Cancelled           => ()
-      case UiOutcome.Selected(selection) => resumeSession(terminal, selection)
+    ui.select("Continue which session?", sessionRows(runs, expanded)) match
+      case UiOutcome.Cancelled => ()
+      case UiOutcome.Selected(PickerRow.ShowMore) =>
+        continueSession(ui, terminal, runs, expanded = true)
+      case UiOutcome.Selected(PickerRow.Resume(selection)) =>
+        resumeSession(terminal, selection)
 
-  /** One row per session across every run, in `runs`' order (newest-run-first;
-    * a run's own sessions keep the manifest's order). Disabling here previews
-    * only what [[ResumeCommand.staticGate]] can tell without a live harness
-    * call: a wireId-less session (pi always) or an unrecognised harness.
-    * Gemini's real resumability needs `gemini --list-sessions` (deferred to
-    * selection, in [[resumeSession]]) — `staticGate` passes any gemini session
-    * with a wireId, leaving its row enabled pending that later check, per the
-    * ADR's example UX (research 08 §C — only pi is greyed out up front).
+  /** Builds the continue-session picker's rows (ADR 0021 §8, research 08 items
+    * 7+8): durable lineages first, one-shots last, with two kinds of rows
+    * collapsed by default behind an expander.
+    *
+    * A durable lineage is a `(agent, sessionName)` pair with `kind ==
+    * "durable"` — every occurrence of it across every run in `runs`, not just
+    * the newest run, since a lineage's `sessionName` is stable across separate
+    * flow runs (a fresh run mints a fresh `clientId`/`wireId` but reuses the
+    * same `agent.session(name, ...)` name) while a single run's own durable
+    * session always upserts onto one manifest row. Only the occurrence with the
+    * max `lastActiveAt` is shown (marked `★ ... — latest`, the primary
+    * continuation target); the rest collapse behind a "show N earlier
+    * occurrences" row. One-shot sessions (`kind == "oneShot"` — Plan-stage
+    * calls, reviewer-selection calls, reviewer `chat()` runs) are never deduped
+    * — each is a genuinely distinct fresh session — but collapse behind a
+    * single "show N one-shot sessions" row, since these are the rows that
+    * otherwise flood the picker with same-named, low-value entries.
+    *
+    * `expanded` reveals both collapsed groups in place, sorted the same as the
+    * primary rows (newest `lastActiveAt` first). Disabling a row previews only
+    * what [[ResumeCommand.staticGate]] can tell without a live harness call: a
+    * wireId-less session (pi always) or an unrecognised harness. Gemini's real
+    * resumability needs `gemini --list-sessions` (deferred to selection, in
+    * [[resumeSession]]) — `staticGate` passes any gemini session with a wireId,
+    * leaving its row enabled pending that later check.
     */
   private[shell] def sessionRows(
-      runs: List[ReadRun]
-  ): List[Choice[SessionSelection]] =
-    runs.flatMap: run =>
-      run.manifest.sessions.map: session =>
-        val label = sessionLabel(session, run.crashed)
-        val disabledReason = ResumeCommand.staticGate(session).left.toOption
-        Choice(
-          SessionSelection(run.manifest, session),
-          label,
-          disabledReason = disabledReason
+      runs: List[ReadRun],
+      expanded: Boolean
+  ): List[Choice[PickerRow]] =
+    val occurrences =
+      for
+        run <- runs
+        session <- run.manifest.sessions
+      yield Occurrence(run, session)
+    val (durable, oneShot) = occurrences.partition(_.session.kind == "durable")
+
+    val lineages = durable
+      .groupBy(o => (o.session.agent, o.session.sessionName))
+      .values
+      .map(_.sortBy(recency).reverse)
+      .toList
+    val primary = lineages.map(_.head).sortBy(recency).reverse
+    val earlier = lineages.flatMap(_.tail).sortBy(recency).reverse
+    val oneShotSorted = oneShot.sortBy(recency).reverse
+
+    val primaryRows = primary.map(o => resumeRow(o, primaryLabel(o)))
+    val earlierRows =
+      if expanded then earlier.map(o => resumeRow(o, earlierLabel(o)))
+      else expanderRow(earlier.size, "earlier occurrence")
+    val oneShotRows =
+      if expanded then oneShotSorted.map(o => resumeRow(o, oneShotLabel(o)))
+      else
+        expanderRow(
+          oneShotSorted.size,
+          "one-shot session",
+          " (reviews, plan steps)"
         )
 
-  /** `<agent> (<role>) — stage <stage> [<harness>]` (ADR 0021 §8), omitting the
-    * role/stage segments when absent; a crashed run's sessions get a trailing
-    * `(crashed)` marker on every row (simpler than a separate per-run heading,
-    * and just as visible in a flat session list).
+    primaryRows ++ earlierRows ++ oneShotRows
+
+  /** Parses `session.lastActiveAt` — always a valid `Instant` from the writer
+    * (`clock().toString`), but falls back to the epoch rather than throwing on
+    * a hand-edited or future-schema manifest, so one bad row can't take down
+    * the whole picker.
     */
-  private def sessionLabel(session: ManifestSession, crashed: Boolean): String =
-    val role = session.role.fold("")(r => s" ($r)")
-    val stage = session.stage.fold("")(s => s" — stage $s")
-    val harness = harnessSettingsName(session.harness)
-    val crashedSuffix = if crashed then " (crashed)" else ""
-    s"${session.agent}$role$stage [$harness]$crashedSuffix"
+  private def recency(o: Occurrence): Instant =
+    Try(Instant.parse(o.session.lastActiveAt)).getOrElse(Instant.EPOCH)
+
+  private def resumeRow(o: Occurrence, label: String): Choice[PickerRow] =
+    Choice(
+      PickerRow.Resume(SessionSelection(o.run.manifest, o.session)),
+      label,
+      disabledReason = ResumeCommand.staticGate(o.session).left.toOption
+    )
+
+  /** A single "show N ..." expander row, or `Nil` when there's nothing to
+    * reveal — omitting the row entirely rather than showing "show 0 ...".
+    */
+  private def expanderRow(
+      count: Int,
+      noun: String,
+      suffix: String = ""
+  ): List[Choice[PickerRow]] =
+    if count == 0 then Nil
+    else
+      val plural = if count == 1 then "" else "s"
+      List(Choice(PickerRow.ShowMore, s"… show $count $noun$plural$suffix"))
+
+  /** `★ <sessionName> — latest (stage: <stage>) [<harness>]`, or `(no stage
+    * yet)` when the durable session hasn't entered a stage (rare — custom flows
+    * only, per research 08 item 7+8 §5). Falls back to the agent name if a
+    * malformed manifest somehow has `kind == "durable"` without a
+    * `sessionName`.
+    */
+  private def primaryLabel(o: Occurrence): String =
+    val name = o.session.sessionName.getOrElse(o.session.agent)
+    val stage = o.session.stage.fold("no stage yet")(s => s"stage: $s")
+    val harness = harnessSettingsName(o.session.harness)
+    val crashedSuffix = if o.run.crashed then " (crashed)" else ""
+    s"★ $name — latest ($stage) [$harness]$crashedSuffix"
+
+  /** `<sessionName> — stage <stage> [<harness>] (earlier occurrence)`, shown
+    * only when the picker is expanded.
+    */
+  private def earlierLabel(o: Occurrence): String =
+    val name = o.session.sessionName.getOrElse(o.session.agent)
+    val stage = o.session.stage.fold("")(s => s" — stage $s")
+    val harness = harnessSettingsName(o.session.harness)
+    val crashedSuffix = if o.run.crashed then " (crashed)" else ""
+    s"$name$stage [$harness] (earlier occurrence)$crashedSuffix"
+
+  /** `<agent> (<role>) — stage <stage> [<harness>] (one-shot)`, omitting the
+    * role/stage segments when absent; shown only when the picker is expanded.
+    */
+  private def oneShotLabel(o: Occurrence): String =
+    val role = o.session.role.fold("")(r => s" ($r)")
+    val stage = o.session.stage.fold("")(s => s" — stage $s")
+    val harness = harnessSettingsName(o.session.harness)
+    val crashedSuffix = if o.run.crashed then " (crashed)" else ""
+    s"${o.session.agent}$role$stage [$harness] (one-shot)$crashedSuffix"
 
   /** The settings-file harness name (`claude`, `codex`, …) for a manifest's
     * [[BackendTag.wireName]] string, falling back to the raw string for an

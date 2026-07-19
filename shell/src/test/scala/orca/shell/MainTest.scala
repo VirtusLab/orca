@@ -9,6 +9,7 @@ class MainTest extends munit.FunSuite:
 
   private def manifest(
       workDir: String = "/work",
+      startedAt: String = "2026-07-18T10:00:00Z",
       sessions: List[ManifestSession]
   ): RunManifest =
     RunManifest(
@@ -16,19 +17,43 @@ class MainTest extends munit.FunSuite:
       flow = Some("a-flow.sc"),
       workDir = workDir,
       pid = 1,
-      startedAt = "2026-07-18T10:00:00Z",
+      startedAt = startedAt,
       finishedAt = None,
       outcome = "succeeded",
       sessions = sessions
     )
 
-  private def session(
+  private def durable(
+      agent: String = "main",
+      sessionName: String = "main",
+      stage: Option[String] = None,
+      lastActiveAt: String = "2026-07-18T10:00:00Z",
       harness: String = "ClaudeCode",
       wireId: Option[String] = Some("uuid"),
-      reason: Option[String] = None,
-      agent: String = "coder",
+      reason: Option[String] = None
+  ): ManifestSession =
+    ManifestSession(
+      harness = harness,
+      wireId = wireId,
+      resumable = wireId.isDefined,
+      reason = reason,
+      agent = agent,
+      role = None,
+      stage = stage,
+      sessionName = Some(sessionName),
+      kind = "durable",
+      firstSeenAt = lastActiveAt,
+      lastActiveAt = lastActiveAt
+    )
+
+  private def oneShot(
+      agent: String = "main",
       role: Option[String] = None,
-      stage: Option[String] = None
+      stage: Option[String] = None,
+      lastActiveAt: String = "2026-07-18T10:00:00Z",
+      harness: String = "ClaudeCode",
+      wireId: Option[String] = Some("uuid"),
+      reason: Option[String] = None
   ): ManifestSession =
     ManifestSession(
       harness = harness,
@@ -40,108 +65,314 @@ class MainTest extends munit.FunSuite:
       stage = stage,
       sessionName = None,
       kind = "oneShot",
-      firstSeenAt = "2026-07-18T10:00:00Z",
-      lastActiveAt = "2026-07-18T10:00:00Z"
+      firstSeenAt = lastActiveAt,
+      lastActiveAt = lastActiveAt
     )
 
-  test(
-    "sessionRows lists sessions in the given runs' order, one row per session"
-  ):
-    val run1 =
-      ReadRun(manifest(sessions = List(session(agent = "a1"))), crashed = false)
-    val run2 = ReadRun(
-      manifest(sessions = List(session(agent = "a2"), session(agent = "a3"))),
+  private def resumeSelections(
+      rows: List[orca.shell.ui.Choice[Main.PickerRow]]
+  ): List[Main.SessionSelection] =
+    rows.collect {
+      case orca.shell.ui.Choice(Main.PickerRow.Resume(s), _, _, _) =>
+        s
+    }
+
+  // -- Realistic mixed fixture (mirrors the user's observed session mix,
+  // research 08 items 7+8): a "main" coder lineage resumed/re-run across three
+  // separate flow runs (so three occurrences, newest last-active wins), a
+  // Plan-stage one-shot, and three reviewer one-shots.
+  private def mixedRuns(): List[ReadRun] =
+    val run1 = ReadRun(
+      manifest(
+        startedAt = "2026-07-16T09:00:00Z",
+        sessions = List(
+          durable(stage = Some("Plan"), lastActiveAt = "2026-07-16T09:05:00Z"),
+          oneShot(
+            role = None,
+            stage = Some("Plan"),
+            lastActiveAt = "2026-07-16T09:01:00Z"
+          )
+        )
+      ),
       crashed = false
     )
-    val rows = Main.sessionRows(List(run1, run2))
-    assertEquals(rows.map(_.value.session.agent), List("a1", "a2", "a3"))
+    val run2 = ReadRun(
+      manifest(
+        startedAt = "2026-07-17T09:00:00Z",
+        sessions = List(
+          durable(
+            stage = Some("Task: add auth"),
+            lastActiveAt = "2026-07-17T09:30:00Z"
+          ),
+          oneShot(
+            agent = "code-structure",
+            role = Some("reviewer"),
+            stage = Some("Task: add auth"),
+            lastActiveAt = "2026-07-17T09:20:00Z"
+          ),
+          oneShot(
+            agent = "test-coverage",
+            role = Some("reviewer"),
+            stage = Some("Task: add auth"),
+            lastActiveAt = "2026-07-17T09:21:00Z"
+          )
+        )
+      ),
+      crashed = false
+    )
+    val run3 = ReadRun(
+      manifest(
+        startedAt = "2026-07-18T09:00:00Z",
+        sessions = List(
+          durable(
+            stage = Some("Task: fix bug"),
+            lastActiveAt = "2026-07-18T09:45:00Z"
+          ),
+          oneShot(
+            agent = "security",
+            role = Some("reviewer"),
+            stage = Some("Task: fix bug"),
+            lastActiveAt = "2026-07-18T09:40:00Z"
+          )
+        )
+      ),
+      crashed = false
+    )
+    List(run3, run2, run1) // newest-run-first, as ManifestReader.list returns
 
   test(
-    "sessionRows labels with agent, role, stage, and the harness settings name"
+    "sessionRows (collapsed): shows only the newest durable occurrence, starred"
+  ):
+    val rows = Main.sessionRows(mixedRuns(), expanded = false)
+    val resumes = resumeSelections(rows)
+    assertEquals(resumes.map(_.session.stage), List(Some("Task: fix bug")))
+
+  test("sessionRows (collapsed): starred row is labeled with the session name"):
+    val rows = Main.sessionRows(mixedRuns(), expanded = false)
+    assertEquals(
+      rows.map(_.label),
+      List(
+        "★ main — latest (stage: Task: fix bug) [claude]",
+        "… show 2 earlier occurrences",
+        "… show 4 one-shot sessions (reviews, plan steps)"
+      )
+    )
+
+  test(
+    "sessionRows (collapsed): one-shots and earlier occurrences are hidden behind expanders"
+  ):
+    val rows = Main.sessionRows(mixedRuns(), expanded = false)
+    assertEquals(rows.size, 3)
+    assertEquals(rows(1).value, Main.PickerRow.ShowMore)
+    assertEquals(rows(2).value, Main.PickerRow.ShowMore)
+
+  test(
+    "sessionRows (expanded): reveals earlier occurrences and one-shots, no expander rows"
+  ):
+    val rows = Main.sessionRows(mixedRuns(), expanded = true)
+    assert(!rows.exists(_.value == Main.PickerRow.ShowMore))
+    // 1 starred + 2 earlier occurrences + 4 one-shots
+    assertEquals(rows.size, 7)
+
+  test(
+    "sessionRows (expanded): earlier occurrences and one-shots are each sorted newest-first"
+  ):
+    val rows = Main.sessionRows(mixedRuns(), expanded = true)
+    val resumes = resumeSelections(rows)
+    val stages = resumes.map(_.session.stage.getOrElse(""))
+    // starred row (fix bug) is first; then earlier occurrences (auth, then
+    // plan, newest first); then one-shots (security, test-coverage,
+    // code-structure, plan) newest first.
+    assertEquals(
+      stages,
+      List(
+        "Task: fix bug",
+        "Task: add auth",
+        "Plan",
+        "Task: fix bug",
+        "Task: add auth",
+        "Task: add auth",
+        "Plan"
+      )
+    )
+
+  test(
+    "sessionRows (expanded): earlier-occurrence rows are labeled with the session name and an (earlier occurrence) marker"
+  ):
+    val run1 = ReadRun(
+      manifest(
+        startedAt = "2026-07-17T09:00:00Z",
+        sessions = List(
+          durable(stage = Some("Plan"), lastActiveAt = "2026-07-17T09:05:00Z")
+        )
+      ),
+      crashed = false
+    )
+    val run2 = ReadRun(
+      manifest(
+        startedAt = "2026-07-18T09:00:00Z",
+        sessions = List(
+          durable(stage = Some("Task"), lastActiveAt = "2026-07-18T09:05:00Z")
+        )
+      ),
+      crashed = false
+    )
+    val rows = Main.sessionRows(List(run2, run1), expanded = true)
+    assertEquals(
+      rows.map(_.label),
+      List(
+        "★ main — latest (stage: Task) [claude]",
+        "main — stage Plan [claude] (earlier occurrence)"
+      )
+    )
+
+  test(
+    "sessionRows (expanded): one-shot rows are labeled with agent, role, stage and an (one-shot) marker"
   ):
     val run = ReadRun(
       manifest(sessions =
         List(
-          session(
-            agent = "coder",
+          oneShot(
+            agent = "code-structure",
             role = Some("reviewer"),
-            stage = Some("implement")
+            stage = Some("Task: add auth")
           )
         )
       ),
       crashed = false
     )
     assertEquals(
-      Main.sessionRows(List(run)).map(_.label),
-      List("coder (reviewer) — stage implement [claude]")
+      Main.sessionRows(List(run), expanded = true).map(_.label),
+      List(
+        "code-structure (reviewer) — stage Task: add auth [claude] (one-shot)"
+      )
     )
 
-  test("sessionRows omits absent role/stage segments"):
+  test(
+    "sessionRows omits the earlier-occurrences expander when there's only one occurrence"
+  ):
     val run = ReadRun(
-      manifest(sessions = List(session(agent = "coder"))),
+      manifest(sessions = List(durable())),
       crashed = false
     )
     assertEquals(
-      Main.sessionRows(List(run)).map(_.label),
-      List("coder [claude]")
+      Main.sessionRows(List(run), expanded = false).map(_.label),
+      List("★ main — latest (no stage yet) [claude]")
+    )
+
+  test("sessionRows singularises a count of 1 in the expander label"):
+    val run = ReadRun(
+      manifest(sessions = List(durable(), oneShot())),
+      crashed = false
+    )
+    assertEquals(
+      Main.sessionRows(List(run), expanded = false).map(_.label),
+      List(
+        "★ main — latest (no stage yet) [claude]",
+        "… show 1 one-shot session (reviews, plan steps)"
+      )
+    )
+
+  test(
+    "sessionRows groups durable lineages by (agent, sessionName), not agent alone"
+  ):
+    val run = ReadRun(
+      manifest(sessions =
+        List(
+          durable(
+            agent = "coder",
+            sessionName = "main",
+            lastActiveAt = "2026-07-18T09:00:00Z"
+          ),
+          durable(
+            agent = "coder",
+            sessionName = "helper",
+            lastActiveAt = "2026-07-18T09:05:00Z"
+          )
+        )
+      ),
+      crashed = false
+    )
+    val rows = Main.sessionRows(List(run), expanded = false)
+    assertEquals(
+      rows.map(_.label),
+      List(
+        "★ helper — latest (no stage yet) [claude]",
+        "★ main — latest (no stage yet) [claude]"
+      )
     )
 
   test("sessionRows suffixes a crashed run's rows with `(crashed)`"):
-    val run = ReadRun(
-      manifest(sessions = List(session(agent = "coder"))),
-      crashed = true
-    )
+    val run = ReadRun(manifest(sessions = List(durable())), crashed = true)
     assertEquals(
-      Main.sessionRows(List(run)).map(_.label),
-      List("coder [claude] (crashed)")
+      Main.sessionRows(List(run), expanded = false).map(_.label),
+      List("★ main — latest (no stage yet) [claude] (crashed)")
     )
 
   test(
     "sessionRows falls back to the raw harness string for an unrecognised one"
   ):
     val run = ReadRun(
-      manifest(sessions = List(session(harness = "SomeFutureHarness"))),
+      manifest(sessions = List(durable(harness = "SomeFutureHarness"))),
       crashed = false
     )
     assertEquals(
-      Main.sessionRows(List(run)).map(_.label),
-      List("coder [SomeFutureHarness]")
+      Main.sessionRows(List(run), expanded = false).map(_.label),
+      List("★ main — latest (no stage yet) [SomeFutureHarness]")
     )
 
   test("sessionRows disables a wireId-less session with its stored reason"):
     val reason = "pi sessions are deleted when the run's temp dir is reclaimed"
     val run = ReadRun(
       manifest(sessions =
-        List(session(harness = "Pi", wireId = None, reason = Some(reason)))
+        List(durable(harness = "Pi", wireId = None, reason = Some(reason)))
       ),
       crashed = false
     )
     assertEquals(
-      Main.sessionRows(List(run)).map(_.disabledReason),
+      Main.sessionRows(List(run), expanded = false).map(_.disabledReason),
       List(Some(reason))
     )
 
   test("sessionRows disables an unrecognised harness"):
     val run = ReadRun(
-      manifest(sessions = List(session(harness = "SomeFutureHarness"))),
+      manifest(sessions = List(durable(harness = "SomeFutureHarness"))),
       crashed = false
     )
-    assert(Main.sessionRows(List(run)).head.disabledReason.isDefined)
+    assert(
+      Main
+        .sessionRows(List(run), expanded = false)
+        .head
+        .disabledReason
+        .isDefined
+    )
 
   test("sessionRows enables a claude session with a wireId"):
-    val run = ReadRun(manifest(sessions = List(session())), crashed = false)
-    assertEquals(Main.sessionRows(List(run)).map(_.disabledReason), List(None))
+    val run = ReadRun(manifest(sessions = List(durable())), crashed = false)
+    assertEquals(
+      Main.sessionRows(List(run), expanded = false).map(_.disabledReason),
+      List(None)
+    )
 
   test(
     "sessionRows enables a gemini session with a wireId, deferring the real index lookup to selection"
   ):
     val run = ReadRun(
       manifest(sessions =
-        List(session(harness = "Gemini", wireId = Some("uuid")))
+        List(durable(harness = "Gemini", wireId = Some("uuid")))
       ),
       crashed = false
     )
-    assertEquals(Main.sessionRows(List(run)).map(_.disabledReason), List(None))
+    assertEquals(
+      Main.sessionRows(List(run), expanded = false).map(_.disabledReason),
+      List(None)
+    )
+
+  test(
+    "sessionRows is a silent no-op shape on an empty run list (no rows, no crash)"
+  ):
+    assertEquals(Main.sessionRows(Nil, expanded = false), Nil)
+    assertEquals(Main.sessionRows(Nil, expanded = true), Nil)
 
   test("harnessLabel suffixes a detected harness with the found marker"):
     assertEquals(
