@@ -11,7 +11,9 @@ import org.jline.consoleui.prompt.{
 }
 import org.jline.reader.{
   EndOfFileException,
+  LineReader,
   LineReaderBuilder,
+  Reference,
   UserInterruptException
 }
 import org.jline.terminal.Attributes.LocalFlag
@@ -56,6 +58,12 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
 
   private val lineReader =
     LineReaderBuilder.builder().terminal(terminal).build()
+
+  // Continuation lines within a single multi-line buffer (a paste, or a
+  // literal newline from ConsoleUiShell.insertNewlineWidgetName) are shown
+  // with the same "… " marker inputMultiline previously used per pasted line.
+  lineReader.setVariable(LineReader.SECONDARY_PROMPT_PATTERN, "… ")
+  ConsoleUiShell.registerInsertNewlineWidget(lineReader)
 
   private def newConsolePrompt(): ConsolePrompt =
     val config = ConsolePrompt.UiConfig()
@@ -164,14 +172,30 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
       case _: UserInterruptException | _: EndOfFileException | _: IOError =>
         UiOutcome.Cancelled
 
-  /** Prints the prompt line and [[ShellUi.multilineHint]] (dim, `faint()`),
-    * then reads lines off the same `lineReader` used by [[plainLineInput]]
-    * until Ctrl-D (`EndOfFileException`) — a real tty keeps accepting input
-    * after that per-`readLine` exception, so unlike [[NumberedUi]]'s EOF this
-    * always submits (trimmed, possibly blank; `Main.promptTask` re-prompts on
-    * blank the same way it does for [[plainLineInput]]). Ctrl-C
-    * (`UserInterruptException`) and a severed tty (`IOError`) cancel outright,
-    * discarding whatever was typed so far.
+  /** Prints the prompt line, then reads the answer as a single `readLine` call
+    * — Enter (`accept-line`) submits directly, like [[plainLineInput]]; no
+    * "paste is fine" hint, since a multi-line answer needs no explaining.
+    * Pasting and Shift/Alt+Enter are pty-verified against jline `3.30.15` (a
+    * plain unit test can't drive real terminal byte sequences):
+    *
+    *   - '''Bracketed paste'''. `Option.BRACKETED_PASTE` defaults to `true` and
+    *     `BEGIN_PASTE` is bound to the terminal's paste-start sequence in the
+    *     default keymap (`LineReaderImpl.bindArrowKeys`), so a paste arrives as
+    *     one `beginPaste()` call that writes the whole captured block —
+    *     embedded newlines included — into the buffer as data. A pasted newline
+    *     is therefore never mistaken for a keypress; the terminal must actually
+    *     support bracketed paste for this to fire (most modern terminal
+    *     emulators and `tmux` do).
+    *   - '''Shift+Enter / Alt+Enter insert a newline'''.
+    *     [[ConsoleUiShell.registerInsertNewlineWidget]] binds a custom widget
+    *     for both — see its own scaladoc for exactly which byte sequences.
+    *
+    * Ctrl-D on an empty buffer and Ctrl-C both cancel, exactly like
+    * [[plainLineInput]] (`LineReaderImpl`'s own main loop throws
+    * `EndOfFileException` for Ctrl-D only when the buffer is empty — on a
+    * non-empty buffer it's ordinary editing, deleting the character under the
+    * cursor — so Ctrl-D can no longer "finish" a multi-line entry the way it
+    * used to; Enter does that now).
     */
   def inputMultiline(prompt: String): UiOutcome[String] =
     val writer = terminal.writer()
@@ -189,13 +213,6 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
         .style(AttributedStyle.DEFAULT)
         .toAnsi(terminal)
     )
-    writer.println(
-      AttributedStringBuilder()
-        .style(AttributedStyle.DEFAULT.faint())
-        .append(ShellUi.multilineHint)
-        .style(AttributedStyle.DEFAULT)
-        .toAnsi(terminal)
-    )
     writer.flush()
     val continuationPrompt = AttributedStringBuilder()
       .style(AttributedStyle.DEFAULT.faint())
@@ -203,20 +220,10 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
       .style(AttributedStyle.DEFAULT)
       .toAnsi(terminal)
 
-    // Not @tailrec: the recursive call sits inside a try/catch, which the JVM
-    // can't turn into a loop — bounded by how many lines the user pastes, so
-    // stack depth is never a real concern here.
-    val lines = scala.collection.mutable.ArrayBuffer.empty[String]
-    def loop(): UiOutcome[String] =
-      try
-        lines += lineReader.readLine(continuationPrompt)
-        loop()
-      catch
-        case _: EndOfFileException =>
-          UiOutcome.Selected(lines.mkString("\n").trim)
-        case _: UserInterruptException | _: IOError => UiOutcome.Cancelled
-
-    loop()
+    try UiOutcome.Selected(lineReader.readLine(continuationPrompt).trim)
+    catch
+      case _: UserInterruptException | _: EndOfFileException | _: IOError =>
+        UiOutcome.Cancelled
 
   /** Runs one prompt batch. ESC (an empty result map — ConsoleUI's own
     * cancel-to-empty-map behavior, enabled by `cancellableFirstPrompt`),
@@ -286,3 +293,39 @@ private[ui] object ConsoleUiShell:
       val occurrence = seenCounts.getOrElse(label, 0)
       seenCounts(label) = occurrence + 1
       if occurrence == 0 then label else s"$label#$occurrence"
+
+  private val insertNewlineWidgetName = "orca-insert-newline"
+
+  /** Registers a widget on `reader` that writes a literal `\n` into the buffer
+    * instead of submitting, and binds it to Alt+Enter's and Shift+Enter's byte
+    * sequences — used by [[ConsoleUiShell.inputMultiline]] so Enter alone means
+    * "submit" while an explicit newline stays reachable mid-edit. Pty-verified:
+    * each sequence bound below inserts a newline without ending the read, and
+    * doesn't disturb plain Enter's own `accept-line` binding (bare `CR`/`LF`,
+    * deliberately not touched here). Called once per `ConsoleUiShell` instance,
+    * from its constructor.
+    */
+  private[ui] def registerInsertNewlineWidget(reader: LineReader): Unit =
+    reader.getWidgets.put(
+      insertNewlineWidgetName,
+      () =>
+        reader.getBuffer.write('\n')
+        true
+    )
+    val mainKeyMap = reader.getKeyMaps.get(LineReader.MAIN)
+    val newline = Reference(insertNewlineWidgetName)
+    // Alt+Enter: a raw-mode terminal's Enter key always sends CR (0x0D);
+    // "Meta sends Escape" (the near-universal default for Alt) prefixes it
+    // with ESC. This is the portable fallback — it works in nearly every
+    // terminal, the same convention Claude Code's own CLI relies on.
+    mainKeyMap.bind(newline, "\r")
+    // Shift+Enter: the kitty keyboard protocol's CSI-u encoding (also xterm's
+    // `modifyOtherKeys` mode 2) — kitty, WezTerm, foot, Ghostty, recent
+    // xterm/VS Code all send this. The second binding is xterm's older
+    // `modifyOtherKeys` mode 1 encoding of the same key. Terminals
+    // implementing neither (GNOME Terminal/VTE, macOS Terminal.app, xterm
+    // with modifyOtherKeys off) send a plain CR for Shift+Enter —
+    // indistinguishable from Enter itself — which is exactly why Alt+Enter
+    // above exists as a fallback that doesn't depend on terminal support.
+    mainKeyMap.bind(newline, "[13;2u")
+    mainKeyMap.bind(newline, "[27;2;13~")

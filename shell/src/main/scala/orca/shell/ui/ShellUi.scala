@@ -35,18 +35,16 @@ trait ShellUi:
 
   /** Multi-line free-text input, for prompts whose answer is often more than
     * one line (currently just the flow task text): prints `$prompt:` on its own
-    * line followed by [[ShellUi.multilineHint]], then reads lines until EOF
-    * (Ctrl-D), returning them joined with `\n` and trimmed. Each pasted line
-    * lands as one iteration, so a blank line pasted mid-text survives in the
-    * result.
+    * line, then reads the answer. On [[ConsoleUiShell]] (a real tty) this is a
+    * normal single-line-feeling input — Enter submits, and a multi-line paste
+    * lands intact in one go (bracketed paste), with Alt+Enter available to
+    * insert an explicit newline mid-edit. [[NumberedUi]] has no tty to bind
+    * keys on, so it keeps reading lines until EOF instead (see its own
+    * scaladoc). Result is trimmed either way.
     */
   def inputMultiline(prompt: String): UiOutcome[String]
 
 object ShellUi:
-
-  /** Shown under the prompt line by both [[inputMultiline]] backends. */
-  private[ui] val multilineHint =
-    "(paste freely — multiple lines ok; finish with Ctrl-D, Ctrl-C cancels)"
 
   /** Whether stdin+stdout are both a real tty — the gate [[make]] uses to pick
     * a backend, also reused by callers that need to know before they print

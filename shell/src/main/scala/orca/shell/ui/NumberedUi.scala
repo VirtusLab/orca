@@ -65,7 +65,11 @@ private[ui] final class NumberedUi(in: BufferedReader, out: PrintStream)
       case line =>
         UiOutcome.Selected(if line.isEmpty then default.getOrElse("") else line)
 
-  /** EOF (`readLine` returning `null`) ends the read outright rather than
+  /** Non-tty fallback: a plain `BufferedReader` has no keys to bind (no
+    * Enter-vs-Alt+Enter distinction, no bracketed paste), so this keeps reading
+    * lines until EOF, same as before this file's tty-side sibling
+    * ([[ConsoleUiShell.inputMultiline]]) switched to Enter-submits. EOF
+    * (`readLine` returning `null`) ends the read outright rather than
     * re-prompting: unlike a real terminal, this reader's underlying stream
     * stays exhausted, so a re-prompt would just hit EOF again forever. Nothing
     * accumulated by then is therefore [[UiOutcome.Cancelled]], not a blank
@@ -74,7 +78,6 @@ private[ui] final class NumberedUi(in: BufferedReader, out: PrintStream)
   def inputMultiline(prompt: String): UiOutcome[String] =
     out.println()
     out.println(s"$prompt:")
-    out.println(ShellUi.multilineHint)
     out.flush()
 
     val lines = scala.collection.mutable.ArrayBuffer.empty[String]

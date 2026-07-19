@@ -100,11 +100,6 @@ class NumberedUiTest extends munit.FunSuite:
     val rendered = out.toString
     assert(rendered.contains("\nTask for the flow:\n"))
 
-  test("inputMultiline prints the paste/Ctrl-D/Ctrl-C hint"):
-    val (ui, out) = uiOf("one line\n")
-    val _ = ui.inputMultiline("Task for the flow")
-    assert(out.toString.contains(ShellUi.multilineHint))
-
   test("inputMultiline joins every pasted line, including a blank middle line"):
     val (ui, _) = uiOf("first\n\nthird\n")
     assertEquals(
