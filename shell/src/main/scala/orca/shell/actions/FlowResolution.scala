@@ -64,7 +64,59 @@ private[shell] object FlowResolution:
           list(workDir).flatMap: flows =>
             flows
               .find(_.name == name)
-              .toRight(s"no flow named '$ref' found in the catalog")
+              .toRight(notFoundMessage(ref, flows))
+
+  /** `no flow named '<ref>' found in the catalog`, or, when any catalog name
+    * looks close enough to be a typo of `ref` ([[nearMatches]]), `no flow named
+    * '<ref>'; did you mean: a.sc, b.sc?` instead.
+    */
+  private def notFoundMessage(
+      ref: String,
+      flows: List[DiscoveredFlow]
+  ): String =
+    nearMatches(ref, flows) match
+      case Nil => s"no flow named '$ref' found in the catalog"
+      case matches =>
+        s"no flow named '$ref'; did you mean: ${matches.mkString(", ")}?"
+
+  /** Catalog names that look like a typo of `ref`: a substring match either way
+    * (`ref` inside the name, or the name inside `ref`), or a small edit
+    * distance ([[levenshtein]] <= 2) — cheap enough over a flow catalog's size
+    * (tens of entries, not thousands). Compared case-insensitively and
+    * `.sc`-stripped, so `implment` still matches `implement.sc`. Sorted for a
+    * deterministic message.
+    */
+  private def nearMatches(
+      ref: String,
+      flows: List[DiscoveredFlow]
+  ): List[String] =
+    val target = ref.toLowerCase(java.util.Locale.ROOT).stripSuffix(".sc")
+    flows
+      .map(_.name)
+      .filter: candidate =>
+        val base =
+          candidate.toLowerCase(java.util.Locale.ROOT).stripSuffix(".sc")
+        base.contains(target) || target.contains(
+          base
+        ) || levenshtein(base, target) <= 2
+      .distinct
+      .sorted
+
+  /** Classic Levenshtein edit distance (insert/delete/substitute), via a
+    * single-row rolling DP — [[nearMatches]]'s "small typo" check.
+    */
+  private def levenshtein(a: String, b: String): Int =
+    val row = Array.range(0, b.length + 1)
+    for i <- 1 to a.length do
+      var previousDiagonal = row(0)
+      row(0) = i
+      for j <- 1 to b.length do
+        val previousAbove = row(j)
+        row(j) =
+          if a(i - 1) == b(j - 1) then previousDiagonal
+          else 1 + math.min(previousDiagonal, math.min(row(j - 1), row(j)))
+        previousDiagonal = previousAbove
+    row(b.length)
 
   private def fromPath(path: os.Path): DiscoveredFlow =
     DiscoveredFlow(

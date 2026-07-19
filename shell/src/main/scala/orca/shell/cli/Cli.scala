@@ -27,7 +27,7 @@ import orca.shell.actions.{
   StackStatus,
   ViewAction
 }
-import orca.shell.create.{CreateFlow, CreateTier}
+import orca.shell.create.{CreateFlow, CreateTarget, CreateTier}
 import orca.shell.flows.{CustomizeTier, DiscoveredFlow, FlowOrigin}
 import orca.shell.run.{
   ChildTerminal,
@@ -57,6 +57,15 @@ private[shell] object Cli:
 
   private val nameMapper = Util.kebabCaseNameMapper
 
+  /** Every CLI-path diagnostic (errors, `ManifestReader` warnings) goes here,
+    * plain text with no ANSI/fansi coloring — unlike [[ShellOutput.error]],
+    * which is stdout-and-colored for the interactive shell. `--json`/table data
+    * is exclusively `println` (stdout); this is the only other output a CLI
+    * subcommand ever produces, so routing it to stderr is what keeps e.g. `orca
+    * continue --list --json | jq` parseable.
+    */
+  private def fail(msg: String): Unit = Console.err.println(msg)
+
   /** Every subcommand's dispatch name, kebab-mapped from its method name —
     * `Main.main`'s single source of truth for "is this token a subcommand".
     */
@@ -73,6 +82,11 @@ private[shell] object Cli:
     * own returned exit code.
     */
   def dispatch(args: Seq[String]): Int =
+    require(
+      args.nonEmpty,
+      "dispatch requires a non-empty argv — Main.main only calls this after " +
+        "confirming args.head names a known subcommand"
+    )
     val name = args.head
     if args.tail.exists(t => t == "--help" || t == "-h") then
       println(commandHelp(name).getOrElse(s"orca: unknown command '$name'"))
@@ -129,12 +143,12 @@ private[shell] object Cli:
     val workDir = os.pwd
     FlowResolution.resolve(flow, workDir) match
       case Left(message) =>
-        ShellOutput.error(message)
+        fail(message)
         ExitCodes.ActionFailed
       case Right(resolved) =>
         readTask(task, isTty, readAllStdin) match
           case Left(message) =>
-            ShellOutput.error(message)
+            fail(message)
             ExitCodes.UsageError
           case Right(taskText) =>
             val terminal = buildTerminal()
@@ -153,12 +167,16 @@ private[shell] object Cli:
                     resolved,
                     taskText,
                     RunAction.RunOptions(
-                      verbose.value,
-                      FallbackPolicy.Refuse("re-run with --honor-pin")
+                      verbose = verbose.value,
+                      fallback =
+                        FallbackPolicy.Refuse("re-run with --honor-pin")
                     ),
                     workDir,
                     terminal
                   )
+              // propagates the flow child's raw exit code (LaunchResult.Failed's
+              // exit, via exitCodeFor) — run mirrors a wrapped subprocess's
+              // status rather than the flat 0/1/2 usage-error convention.
               exitCodeFor(result)
             finally terminal.close()
 
@@ -220,10 +238,7 @@ private[shell] object Cli:
           check = false
         )
         .exitCode
-    val result =
-      if exit == 0 then LaunchResult.Ok
-      else if exit >= 128 then LaunchResult.Cancelled
-      else LaunchResult.Failed(exit)
+    val result = FlowLauncher.toLaunchResult(exit)
     ShellOutput.section(
       s"flow ${flow.name} ${FlowLauncher.outcomeSuffix(result)}"
     )
@@ -238,30 +253,58 @@ private[shell] object Cli:
   // --- view ---
 
   @main(doc =
-    "Print a flow's source (highlighted only when stdout is a terminal).\n" +
+    "Print a flow's source (highlighted only when stdout is a terminal; " +
+      "--plain/--color override the auto-detection).\n" +
       "Example: orca view implement.sc"
   )
   def view(
       @arg(positional = true, doc = "flow name or path")
-      flow: String
+      flow: String,
+      @arg(doc = "never highlight, regardless of stdout")
+      plain: Flag = Flag(),
+      @arg(doc = "always highlight, regardless of stdout")
+      color: Flag = Flag()
   ): Int =
-    runView(os.pwd, flow, isTty)
+    resolveHighlight(plain.value, color.value, isTty) match
+      case Left(message) =>
+        fail(message)
+        ExitCodes.UsageError
+      case Right(highlight) => runView(os.pwd, flow, highlight)
 
-  /** `view`'s full behavior over an explicit `workDir`/`tty` — pulled out of
-    * the `@main` method so tests can point it at a temp project and simulate
-    * either a terminal or a pipe without touching the real console.
+  /** `--plain`/`--color`'s resolution (ADR 0021 §10 fold-in): mutually
+    * exclusive; either wins outright over the auto-detected `tty` — JDK 21 has
+    * no clean stdout-only tty probe, so an explicit flag is the escape hatch
+    * for `view | less -R` (wants highlighting) or a genuinely-a-terminal stdout
+    * piped through something that mangles ANSI (wants none). `tty` is injected
+    * (production: [[isTty]]) so every branch is testable without a real
+    * console.
+    */
+  private[cli] def resolveHighlight(
+      plain: Boolean,
+      color: Boolean,
+      tty: Boolean
+  ): Either[String, Boolean] =
+    if plain && color then Left("--plain and --color are mutually exclusive")
+    else if plain then Right(false)
+    else if color then Right(true)
+    else Right(tty)
+
+  /** `view`'s full behavior over an explicit `workDir` and resolved `highlight`
+    * decision — pulled out of the `@main` method so tests can point it at a
+    * temp project and pass a resolved boolean directly, without touching the
+    * real console.
     */
   private[cli] def runView(
       workDir: os.Path,
       flowRef: String,
-      tty: Boolean
+      highlight: Boolean
   ): Int =
     FlowResolution.resolve(flowRef, workDir) match
       case Left(message) =>
-        ShellOutput.error(message)
+        fail(message)
         ExitCodes.ActionFailed
       case Right(resolved) =>
-        println(ViewAction.render(resolved, tty))
+        println(ViewAction.render(resolved, highlight))
         ExitCodes.Ok
 
   // --- edit ---
@@ -279,13 +322,13 @@ private[shell] object Cli:
   ): Int =
     requireTty("edit", isTty) match
       case Left(message) =>
-        ShellOutput.error(message)
+        fail(message)
         ExitCodes.UsageError
       case Right(()) =>
         val workDir = os.pwd
         FlowResolution.resolve(flow, workDir) match
           case Left(message) =>
-            ShellOutput.error(message)
+            fail(message)
             ExitCodes.ActionFailed
           case Right(resolved) =>
             val terminal = buildTerminal()
@@ -300,20 +343,22 @@ private[shell] object Cli:
   ): Int =
     if flow.origin != FlowOrigin.BuiltIn then
       if to.isDefined then
-        ShellOutput.error("--to only applies when customizing a built-in flow")
+        fail("--to only applies when customizing a built-in flow")
         ExitCodes.UsageError
+      // propagates the editor child's raw exit code — same
+      // wraps-a-subprocess convention as run/continue.
       else EditAction.editInPlace(terminal, flow.path)
     else
       to match
         case None =>
-          ShellOutput.error(
+          fail(
             "'" + flow.name + "' is built-in — pass --to project|global to customize it"
           )
           ExitCodes.UsageError
         case Some(raw) =>
           parseCustomizeTier(raw) match
             case Left(message) =>
-              ShellOutput.error(message)
+              fail(message)
               ExitCodes.UsageError
             case Right(tier) =>
               EditAction.customizeThenEdit(
@@ -324,7 +369,7 @@ private[shell] object Cli:
                 GlobalSettings.defaultFlows
               ) match
                 case Left(message) =>
-                  ShellOutput.error(message)
+                  fail(message)
                   ExitCodes.ActionFailed
                 case Right(exit) => exit
 
@@ -337,6 +382,39 @@ private[shell] object Cli:
       case other => Left(s"--to must be 'project' or 'global', got '$other'")
 
   // --- create / fork ---
+
+  /** `name`/fork's filename argument is documented as a bare filename, not a
+    * path — rejects one containing a path separator (`../escape.sc`,
+    * `sub/dir.sc`) with a clean usage error up front, before it ever reaches
+    * [[CreateFlow.prepareTarget]]'s path arithmetic (which, for a name with
+    * enough `..`s, os-lib can reject by throwing a raw `PathError` instead of
+    * returning one).
+    */
+  private[cli] def validateFileName(fileName: String): Either[String, Unit] =
+    Either.cond(
+      !fileName.contains("/") && !fileName.contains("\\"),
+      (),
+      s"'$fileName' isn't a valid flow filename — path separators aren't allowed"
+    )
+
+  /** [[CreateFlow.prepareTarget]], with any exception os-lib's path arithmetic
+    * throws for a filename that survived [[validateFileName]] but still drives
+    * it outside the filesystem root (e.g.
+    * `os.PathError.AbsolutePathOutsideRoot` — every `os.PathError` variant is a
+    * plain `IllegalArgumentException`, there's no shared marker type to catch)
+    * converted to a clean `Left` instead of propagating as an uncaught
+    * exception.
+    */
+  private[cli] def safePrepareTarget(
+      tier: CreateTier,
+      fileName: String,
+      workDir: os.Path,
+      globalFlows: os.Path
+  ): Either[String, CreateTarget] =
+    try CreateFlow.prepareTarget(tier, fileName, workDir, globalFlows)
+    catch
+      case _: IllegalArgumentException =>
+        Left(s"'$fileName' isn't a valid flow filename")
 
   @main(doc =
     "Author a new flow with a coding agent's help. --goal is required; yolo defaults on.\n" +
@@ -365,31 +443,41 @@ private[shell] object Cli:
   ): Int =
     requireTty("create", isTty) match
       case Left(message) =>
-        ShellOutput.error(message)
+        fail(message)
         ExitCodes.UsageError
       case Right(()) =>
         authorParams(global, yolo, noYolo, harness) match
           case Left(message) =>
-            ShellOutput.error(message)
+            fail(message)
             ExitCodes.UsageError
           case Right((tier, backend, yoloValue)) =>
             val workDir = os.pwd
             val globalFlows = GlobalSettings.defaultFlows
             val fileName = name.getOrElse(Main.suggestedFilename(goal))
-            CreateFlow.prepareTarget(tier, fileName, workDir, globalFlows) match
+            validateFileName(fileName) match
               case Left(message) =>
-                ShellOutput.error(message)
-                ExitCodes.ActionFailed
-              case Right(target) =>
-                ShellOutput.info(s"target flow: ${target.flowPath}")
-                val terminal = buildTerminal()
-                try
-                  val ui = ShellUi.make(terminal)
-                  val params = AuthorParams(tier, target, backend, yoloValue)
-                  exitFor(
-                    AuthorAction.create(goal, params, workDir, ui, terminal)
-                  )
-                finally terminal.close()
+                fail(message)
+                ExitCodes.UsageError
+              case Right(()) =>
+                safePrepareTarget(tier, fileName, workDir, globalFlows) match
+                  case Left(message) =>
+                    fail(message)
+                    ExitCodes.ActionFailed
+                  case Right(target) =>
+                    ShellOutput.info(s"target flow: ${target.flowPath}")
+                    val terminal = buildTerminal()
+                    try
+                      val ui = ShellUi.make(terminal)
+                      val params = AuthorParams(
+                        tier = tier,
+                        target = target,
+                        backend = backend,
+                        yolo = yoloValue
+                      )
+                      exitFor(
+                        AuthorAction.create(goal, params, workDir, ui, terminal)
+                      )
+                    finally terminal.close()
 
   @main(doc =
     "Fork an existing flow. --changes is required; yolo defaults on.\n" +
@@ -420,18 +508,18 @@ private[shell] object Cli:
   ): Int =
     requireTty("fork", isTty) match
       case Left(message) =>
-        ShellOutput.error(message)
+        fail(message)
         ExitCodes.UsageError
       case Right(()) =>
         val workDir = os.pwd
         FlowResolution.resolve(source, workDir) match
           case Left(message) =>
-            ShellOutput.error(message)
+            fail(message)
             ExitCodes.ActionFailed
           case Right(resolvedSource) =>
             authorParams(global, yolo, noYolo, harness) match
               case Left(message) =>
-                ShellOutput.error(message)
+                fail(message)
                 ExitCodes.UsageError
               case Right((tier, backend, yoloValue)) =>
                 val globalFlows = GlobalSettings.defaultFlows
@@ -439,33 +527,42 @@ private[shell] object Cli:
                   name.getOrElse(
                     CreateFlow.forkFilenameDefault(resolvedSource.name)
                   )
-                CreateFlow.prepareTarget(
-                  tier,
-                  fileName,
-                  workDir,
-                  globalFlows
-                ) match
+                validateFileName(fileName) match
                   case Left(message) =>
-                    ShellOutput.error(message)
-                    ExitCodes.ActionFailed
-                  case Right(target) =>
-                    ShellOutput.info(s"target flow: ${target.flowPath}")
-                    val terminal = buildTerminal()
-                    try
-                      val ui = ShellUi.make(terminal)
-                      val params =
-                        AuthorParams(tier, target, backend, yoloValue)
-                      exitFor(
-                        AuthorAction.fork(
-                          resolvedSource,
-                          changes,
-                          params,
-                          workDir,
-                          ui,
-                          terminal
-                        )
-                      )
-                    finally terminal.close()
+                    fail(message)
+                    ExitCodes.UsageError
+                  case Right(()) =>
+                    safePrepareTarget(
+                      tier,
+                      fileName,
+                      workDir,
+                      globalFlows
+                    ) match
+                      case Left(message) =>
+                        fail(message)
+                        ExitCodes.ActionFailed
+                      case Right(target) =>
+                        ShellOutput.info(s"target flow: ${target.flowPath}")
+                        val terminal = buildTerminal()
+                        try
+                          val ui = ShellUi.make(terminal)
+                          val params = AuthorParams(
+                            tier = tier,
+                            target = target,
+                            backend = backend,
+                            yolo = yoloValue
+                          )
+                          exitFor(
+                            AuthorAction.fork(
+                              resolvedSource,
+                              changes,
+                              params,
+                              workDir,
+                              ui,
+                              terminal
+                            )
+                          )
+                        finally terminal.close()
 
   /** Shared `create`/`fork` flag resolution: the tier, the harness (parsed
     * `--harness`, or the configured coding agent), and yolo (on by default,
@@ -534,29 +631,47 @@ private[shell] object Cli:
       tty: Boolean
   ): Int =
     val (runs, warnings) = ManifestReader.list(workDir, Main.pidAlive)
-    warnings.foreach(ShellOutput.info)
+    warnings.foreach(fail)
     if list then
       printSessionListing(runs, json)
       ExitCodes.Ok
     else
       requireTty("continue", tty) match
         case Left(message) =>
-          ShellOutput.error(message)
+          fail(message)
           ExitCodes.UsageError
         case Right(()) =>
           resolveSelection(runs, selector) match
             case Left(message) =>
-              ShellOutput.error(message)
+              fail(message)
               ExitCodes.ActionFailed
             case Right(selection) =>
+              fail(resumeNotice(selection))
               val terminal = buildTerminal()
               try
                 SessionAction.resume(terminal, selection) match
                   case Left(message) =>
-                    ShellOutput.error(message)
+                    fail(message)
                     ExitCodes.ActionFailed
+                  // propagates the resumed harness child's raw exit code —
+                  // same wraps-a-subprocess convention as run/edit.
                   case Right(exit) => exit
               finally terminal.close()
+
+  /** The resolved session's identity, printed to stderr immediately before
+    * [[SessionAction.resume]] execs its harness child (security fold-in, ADR
+    * 0021 §10): mirrors what the interactive picker's row label already shows,
+    * so a no-selector `orca continue` — which could otherwise resume whatever
+    * session a hostile repo's `.orca/cache/runs/` manifest names, without the
+    * user ever having chosen it — is visible before the exec, on this tty-gated
+    * command's own terminal, giving the user a chance to Ctrl-C.
+    */
+  private[cli] def resumeNotice(selection: SessionSelection): String =
+    val session = selection.session
+    val name = session.sessionName.getOrElse(session.agent)
+    val harness = Main.harnessSettingsName(session.harness)
+    val stage = session.stage.fold("")(s => s", stage '$s'")
+    s"resuming session '$name' [$harness]$stage, in ${selection.manifest.workDir}"
 
   private[cli] def resolveSelection(
       runs: List[ReadRun],
@@ -726,7 +841,7 @@ private[shell] object Cli:
     if planning.isEmpty && coding.isEmpty && review.isEmpty then
       ConfigAction.show(path) match
         case Left(message) =>
-          ShellOutput.error(message)
+          fail(message)
           ExitCodes.ActionFailed
         case Right(agents) =>
           println(renderAgents(agents))
@@ -734,12 +849,12 @@ private[shell] object Cli:
     else
       parseRoleFlags(planning, coding, review) match
         case Left(message) =>
-          ShellOutput.error(message)
+          fail(message)
           ExitCodes.UsageError
         case Right(overrides) =>
           ConfigAction.show(path) match
             case Left(parseError) if !force =>
-              ShellOutput.error(
+              fail(
                 s"$parseError — pass --force to rewrite it from scratch"
               )
               ExitCodes.ActionFailed
@@ -802,7 +917,7 @@ private[shell] object Cli:
   ): Int =
     StackAction.status(workDir) match
       case Left(message) =>
-        ShellOutput.error(message)
+        fail(message)
         ExitCodes.ActionFailed
       case Right(StackStatus.NoSettings | StackStatus.NoStackLines) =>
         ShellOutput.info(
@@ -820,7 +935,7 @@ private[shell] object Cli:
           ExitCodes.Ok
         else if tty then confirmAndClear(workDir, content)
         else
-          ShellOutput.error(
+          fail(
             "pass --yes to confirm clearing stack settings (non-interactive)"
           )
           ExitCodes.UsageError
@@ -861,7 +976,7 @@ private[shell] object Cli:
   private[cli] def runList(workDir: os.Path, json: Boolean): Int =
     FlowResolution.list(workDir) match
       case Left(message) =>
-        ShellOutput.error(message)
+        fail(message)
         ExitCodes.ActionFailed
       case Right(flows) =>
         if json then println(writeToString(flows.map(toFlowRow)))

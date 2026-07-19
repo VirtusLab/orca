@@ -4,7 +4,7 @@ import mainargs.ParserForMethods
 import orca.agents.BackendTag
 import orca.runner.{ManifestSession, RunManifest}
 import orca.settings.{AgentSettings, AgentSpec}
-import orca.shell.actions.AuthorOutcome
+import orca.shell.actions.{AuthorOutcome, SessionSelection}
 import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.run.LaunchResult
@@ -43,6 +43,58 @@ class CliTest extends munit.FunSuite:
 
   test("view: the required flow positional missing is a usage error"):
     assert(!parses("view"))
+
+  test(
+    "view: --plain and --color together is a usage error at the method level"
+  ):
+    assertEquals(
+      invoke("view", "no-such-flow.sc", "--plain", "--color"),
+      Right(2)
+    )
+
+  // --- view: --plain/--color resolution (injected tty, no real console) ---
+
+  test("resolveHighlight: neither flag auto-detects from tty"):
+    assertEquals(
+      Cli.resolveHighlight(plain = false, color = false, tty = true),
+      Right(true)
+    )
+    assertEquals(
+      Cli.resolveHighlight(plain = false, color = false, tty = false),
+      Right(false)
+    )
+
+  test("resolveHighlight: --plain forces off regardless of tty"):
+    assertEquals(
+      Cli.resolveHighlight(plain = true, color = false, tty = true),
+      Right(false)
+    )
+
+  test("resolveHighlight: --color forces on regardless of tty"):
+    assertEquals(
+      Cli.resolveHighlight(plain = false, color = true, tty = false),
+      Right(true)
+    )
+
+  test("resolveHighlight: --plain and --color together is rejected"):
+    assertEquals(
+      Cli.resolveHighlight(plain = true, color = true, tty = false),
+      Left("--plain and --color are mutually exclusive")
+    )
+
+  test("runView: highlight=true emits ANSI escapes, highlight=false doesn't"):
+    val dir = TempDirs.dir()
+    os.write(dir / "x.sc", "// desc\nval a = 1\n")
+    val plainOut =
+      captured(
+        assertEquals(Cli.runView(dir, "x.sc", highlight = false), ExitCodes.Ok)
+      )
+    val colorOut =
+      captured(
+        assertEquals(Cli.runView(dir, "x.sc", highlight = true), ExitCodes.Ok)
+      )
+    assert(!plainOut.contains("\u001b"), plainOut)
+    assert(colorOut.contains("\u001b"), colorOut)
 
   test(
     "edit: well-formed args are accepted by mainargs (the tty gate is the method's own logic)"
@@ -122,6 +174,9 @@ class CliTest extends munit.FunSuite:
 
   test("dispatch: an unknown subcommand is a usage error, not a crash"):
     assertEquals(Cli.dispatch(Seq("no-such-command")), ExitCodes.UsageError)
+
+  test("dispatch: requires a non-empty argv (Main.main's own contract)"):
+    intercept[IllegalArgumentException](Cli.dispatch(Seq.empty))
 
   test(
     "dispatch: '<command> --help' prints that command's own help and exits 0"
@@ -245,6 +300,35 @@ class CliTest extends munit.FunSuite:
         Some("codex")
       ),
       Left("--yolo and --no-yolo are mutually exclusive")
+    )
+
+  // --- create/fork filename guard: no path separators (security review) ---
+
+  test(
+    "validateFileName: a name containing '..' plus '/' is rejected outright"
+  ):
+    assertEquals(
+      Cli.validateFileName("../escape.sc"),
+      Left(
+        "'../escape.sc' isn't a valid flow filename — path separators aren't allowed"
+      )
+    )
+
+  test("validateFileName: a nested-directory name is rejected too"):
+    assert(Cli.validateFileName("sub/dir.sc").isLeft)
+
+  test("validateFileName: a bare filename is accepted"):
+    assertEquals(Cli.validateFileName("my-flow.sc"), Right(()))
+
+  test(
+    "safePrepareTarget: delegates to CreateFlow.prepareTarget for an ordinary name"
+  ):
+    val dir = TempDirs.dir()
+    val result =
+      Cli.safePrepareTarget(CreateTier.Project, "x.sc", dir, dir / "global")
+    assertEquals(
+      result.map(_.flowPath),
+      Right(dir / ".orca" / "flows" / "x.sc")
     )
 
   // --- config: partial merge over an explicit settings path ---
@@ -555,7 +639,108 @@ class CliTest extends munit.FunSuite:
     )
     assertEquals(rows.map(_.resumable), List(true, true, false))
 
+  // --- resumeNotice: the resolved session's identity, printed before resuming ---
+
+  test("resumeNotice: names the session, harness, and workDir"):
+    val run = runsFixture().head
+    val selection = SessionSelection(run.manifest, run.manifest.sessions.head)
+    assertEquals(
+      Cli.resumeNotice(selection),
+      "resuming session 'newest' [claude], in /work"
+    )
+
+  test("resumeNotice: includes the stage when the session has one"):
+    val run = runsFixture().head
+    val withStage =
+      run.manifest.sessions.head.copy(stage = Some("Task: fix a bug"))
+    val selection = SessionSelection(run.manifest, withStage)
+    assertEquals(
+      Cli.resumeNotice(selection),
+      "resuming session 'newest' [claude], stage 'Task: fix a bug', in /work"
+    )
+
+  // --- stdout/stderr separation (CLI review finding 1) ---
+
+  private def writeFutureManifest(dir: os.Path): Unit =
+    val json =
+      """{
+        |  "manifestVersion": 2,
+        |  "orcaVersion": "0.0.test",
+        |  "workDir": "/work",
+        |  "pid": 1,
+        |  "startedAt": "2026-07-18T09:00:00Z",
+        |  "outcome": "succeeded",
+        |  "sessions": []
+        |}""".stripMargin
+    os.write(
+      dir / ".orca" / "cache" / "runs" / "future.json",
+      json,
+      createFolders = true
+    )
+
+  test(
+    "runContinue --list --json: a manifestVersion warning lands on stderr, only JSON on stdout"
+  ):
+    val dir = TempDirs.dir()
+    writeFutureManifest(dir)
+    val (out, err) = capturedBoth(
+      assertEquals(
+        Cli.runContinue(dir, None, list = true, json = true, tty = false),
+        ExitCodes.Ok
+      )
+    )
+    assertEquals(out.trim, "[]")
+    assert(err.contains("manifestVersion 2 is newer"), err)
+
+  test(
+    "runContinue: no selector prints the resume notice to stderr before attempting to resume"
+  ):
+    val dir = TempDirs.dir()
+    val goneWorkDir = (dir / "gone").toString
+    val json =
+      s"""{
+        |  "manifestVersion": 1,
+        |  "orcaVersion": "0.0.test",
+        |  "workDir": "$goneWorkDir",
+        |  "pid": 1,
+        |  "startedAt": "2026-07-18T09:00:00Z",
+        |  "outcome": "succeeded",
+        |  "sessions": [{
+        |    "harness": "ClaudeCode",
+        |    "wireId": "uuid",
+        |    "resumable": true,
+        |    "agent": "main",
+        |    "stage": "Task: fix a bug",
+        |    "sessionName": "main",
+        |    "kind": "durable",
+        |    "firstSeenAt": "2026-07-18T09:00:00Z",
+        |    "lastActiveAt": "2026-07-18T09:00:00Z"
+        |  }]
+        |}""".stripMargin
+    os.write(
+      dir / ".orca" / "cache" / "runs" / "a.json",
+      json,
+      createFolders = true
+    )
+    val (out, err) = capturedBoth(
+      assertEquals(
+        Cli.runContinue(dir, None, list = false, json = false, tty = true),
+        ExitCodes.ActionFailed
+      )
+    )
+    assertEquals(out, "")
+    assert(err.contains("resuming session 'main' [claude]"), err)
+    assert(err.contains("stage 'Task: fix a bug'"), err)
+    assert(err.contains("no longer exists"), err)
+
   private def captured(body: => Unit): String =
     val buffer = new java.io.ByteArrayOutputStream()
     Console.withOut(new java.io.PrintStream(buffer))(body)
     buffer.toString
+
+  private def capturedBoth(body: => Unit): (String, String) =
+    val outBuffer = new java.io.ByteArrayOutputStream()
+    val errBuffer = new java.io.ByteArrayOutputStream()
+    Console.withOut(new java.io.PrintStream(outBuffer)):
+      Console.withErr(new java.io.PrintStream(errBuffer))(body)
+    (outBuffer.toString, errBuffer.toString)

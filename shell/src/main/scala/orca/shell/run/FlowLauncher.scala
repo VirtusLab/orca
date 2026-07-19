@@ -122,9 +122,12 @@ object FlowLauncher:
       decideNextAction(forcedExit, compileExit)
 
   /** Signal-range exits map to Cancelled on every spawn path — the fallback
-    * re-run is just as interruptible as the forced one.
+    * re-run is just as interruptible as the forced one. `private[shell]` (not
+    * just `private[run]`) so `Cli`'s own `--honor-pin` spawn (which bypasses
+    * [[run]] entirely) maps its raw exit the same way instead of
+    * re-implementing this match.
     */
-  private[run] def toLaunchResult(exit: Int): LaunchResult =
+  private[shell] def toLaunchResult(exit: Int): LaunchResult =
     if exit == 0 then LaunchResult.Ok
     else if isSignalExit(exit) then LaunchResult.Cancelled
     else LaunchResult.Failed(exit)

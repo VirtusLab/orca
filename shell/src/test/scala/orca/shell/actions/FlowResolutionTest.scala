@@ -50,6 +50,21 @@ class FlowResolutionTest extends munit.FunSuite:
     )
 
   test(
+    "resolve's not-found error lists near-matches when a catalog name is a close typo"
+  ):
+    val workDir = TempDirs.dir()
+    os.write(
+      workDir / ".orca" / "flows" / "release-notes.sc",
+      "// Release notes.\nval x = 1",
+      createFolders = true
+    )
+
+    assertEquals(
+      FlowResolution.resolve("relase-notes", workDir),
+      Left("no flow named 'relase-notes'; did you mean: release-notes.sc?")
+    )
+
+  test(
     "resolve finds a bare catalog name (no '.sc' suffix required) in the project tier"
   ):
     val workDir = TempDirs.dir()
