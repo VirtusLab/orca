@@ -446,38 +446,54 @@ private[shell] object Cli:
         fail(message)
         ExitCodes.UsageError
       case Right(()) =>
-        authorParams(global, yolo, noYolo, harness) match
+        requireNonBlank("goal", goal) match
           case Left(message) =>
             fail(message)
             ExitCodes.UsageError
-          case Right((tier, backend, yoloValue)) =>
-            val workDir = os.pwd
-            val globalFlows = GlobalSettings.defaultFlows
-            val fileName = name.getOrElse(Main.suggestedFilename(goal))
-            validateFileName(fileName) match
+          case Right(()) =>
+            authorParams(global, yolo, noYolo, harness) match
               case Left(message) =>
                 fail(message)
                 ExitCodes.UsageError
-              case Right(()) =>
-                safePrepareTarget(tier, fileName, workDir, globalFlows) match
+              case Right((tier, backend, yoloValue)) =>
+                val workDir = os.pwd
+                val globalFlows = GlobalSettings.defaultFlows
+                val fileName = name.getOrElse(Main.suggestedFilename(goal))
+                validateFileName(fileName) match
                   case Left(message) =>
                     fail(message)
-                    ExitCodes.ActionFailed
-                  case Right(target) =>
-                    ShellOutput.info(s"target flow: ${target.flowPath}")
-                    val terminal = buildTerminal()
-                    try
-                      val ui = ShellUi.make(terminal)
-                      val params = AuthorParams(
-                        tier = tier,
-                        target = target,
-                        backend = backend,
-                        yolo = yoloValue
-                      )
-                      exitFor(
-                        AuthorAction.create(goal, params, workDir, ui, terminal)
-                      )
-                    finally terminal.close()
+                    ExitCodes.UsageError
+                  case Right(()) =>
+                    safePrepareTarget(
+                      tier,
+                      fileName,
+                      workDir,
+                      globalFlows
+                    ) match
+                      case Left(message) =>
+                        fail(message)
+                        ExitCodes.ActionFailed
+                      case Right(target) =>
+                        ShellOutput.info(s"target flow: ${target.flowPath}")
+                        val terminal = buildTerminal()
+                        try
+                          val ui = ShellUi.make(terminal)
+                          val params = AuthorParams(
+                            tier = tier,
+                            target = target,
+                            backend = backend,
+                            yolo = yoloValue
+                          )
+                          exitFor(
+                            AuthorAction.create(
+                              goal,
+                              params,
+                              workDir,
+                              ui,
+                              terminal
+                            )
+                          )
+                        finally terminal.close()
 
   @main(doc =
     "Fork an existing flow. --changes is required; yolo defaults on.\n" +
@@ -511,58 +527,77 @@ private[shell] object Cli:
         fail(message)
         ExitCodes.UsageError
       case Right(()) =>
-        val workDir = os.pwd
-        FlowResolution.resolve(source, workDir) match
+        requireNonBlank("changes", changes) match
           case Left(message) =>
             fail(message)
-            ExitCodes.ActionFailed
-          case Right(resolvedSource) =>
-            authorParams(global, yolo, noYolo, harness) match
+            ExitCodes.UsageError
+          case Right(()) =>
+            val workDir = os.pwd
+            FlowResolution.resolve(source, workDir) match
               case Left(message) =>
                 fail(message)
-                ExitCodes.UsageError
-              case Right((tier, backend, yoloValue)) =>
-                val globalFlows = GlobalSettings.defaultFlows
-                val fileName =
-                  name.getOrElse(
-                    CreateFlow.forkFilenameDefault(resolvedSource.name)
-                  )
-                validateFileName(fileName) match
+                ExitCodes.ActionFailed
+              case Right(resolvedSource) =>
+                authorParams(global, yolo, noYolo, harness) match
                   case Left(message) =>
                     fail(message)
                     ExitCodes.UsageError
-                  case Right(()) =>
-                    safePrepareTarget(
-                      tier,
-                      fileName,
-                      workDir,
-                      globalFlows
-                    ) match
+                  case Right((tier, backend, yoloValue)) =>
+                    val globalFlows = GlobalSettings.defaultFlows
+                    val fileName =
+                      name.getOrElse(
+                        CreateFlow.forkFilenameDefault(resolvedSource.name)
+                      )
+                    validateFileName(fileName) match
                       case Left(message) =>
                         fail(message)
-                        ExitCodes.ActionFailed
-                      case Right(target) =>
-                        ShellOutput.info(s"target flow: ${target.flowPath}")
-                        val terminal = buildTerminal()
-                        try
-                          val ui = ShellUi.make(terminal)
-                          val params = AuthorParams(
-                            tier = tier,
-                            target = target,
-                            backend = backend,
-                            yolo = yoloValue
-                          )
-                          exitFor(
-                            AuthorAction.fork(
-                              resolvedSource,
-                              changes,
-                              params,
-                              workDir,
-                              ui,
-                              terminal
+                        ExitCodes.UsageError
+                      case Right(()) =>
+                        safePrepareTarget(
+                          tier,
+                          fileName,
+                          workDir,
+                          globalFlows
+                        ) match
+                          case Left(message) =>
+                            fail(message)
+                            ExitCodes.ActionFailed
+                          case Right(target) =>
+                            ShellOutput.info(
+                              s"target flow: ${target.flowPath}"
                             )
-                          )
-                        finally terminal.close()
+                            val terminal = buildTerminal()
+                            try
+                              val ui = ShellUi.make(terminal)
+                              val params = AuthorParams(
+                                tier = tier,
+                                target = target,
+                                backend = backend,
+                                yolo = yoloValue
+                              )
+                              exitFor(
+                                AuthorAction.fork(
+                                  resolvedSource,
+                                  changes,
+                                  params,
+                                  workDir,
+                                  ui,
+                                  terminal
+                                )
+                              )
+                            finally terminal.close()
+
+  /** Rejects a blank/whitespace-only `value` (`--goal`/`--changes`) with a
+    * usage error — the interactive path's `promptDescription` already
+    * re-prompts on blank rather than passing a degenerate description to the
+    * harness, and `create`/`fork` need the same guard since they have no prompt
+    * to re-ask.
+    */
+  private[cli] def requireNonBlank(
+      argName: String,
+      value: String
+  ): Either[String, Unit] =
+    Either.cond(!value.isBlank, (), s"--$argName can't be empty")
 
   /** Shared `create`/`fork` flag resolution: the tier, the harness (parsed
     * `--harness`, or the configured coding agent), and yolo (on by default,
@@ -667,11 +702,10 @@ private[shell] object Cli:
     * command's own terminal, giving the user a chance to Ctrl-C.
     */
   private[cli] def resumeNotice(selection: SessionSelection): String =
-    val session = selection.session
-    val name = session.sessionName.getOrElse(session.agent)
-    val harness = Main.harnessSettingsName(session.harness)
-    val stage = session.stage.fold("")(s => s", stage '$s'")
-    s"resuming session '$name' [$harness]$stage, in ${selection.manifest.workDir}"
+    SessionAction.identityNotice(
+      selection,
+      Main.harnessSettingsName(selection.session.harness)
+    )
 
   private[cli] def resolveSelection(
       runs: List[ReadRun],
@@ -759,7 +793,8 @@ private[shell] object Cli:
       harness: String,
       lastActiveAt: String,
       resumable: Boolean,
-      reason: Option[String]
+      reason: Option[String],
+      crashed: Boolean
   )
   // `withTransientEmpty`/`withTransientNone` false: `--json` output is for
   // scripts, which should see an always-present `reason` key (null when
@@ -781,7 +816,8 @@ private[shell] object Cli:
           harness = Main.harnessSettingsName(session.harness),
           lastActiveAt = session.lastActiveAt,
           resumable = choice.isEnabled,
-          reason = choice.disabledReason
+          reason = choice.disabledReason,
+          crashed = selection.crashed
         )
 
   private def printSessionListing(runs: List[ReadRun], asJson: Boolean): Unit =
@@ -793,9 +829,11 @@ private[shell] object Cli:
         val status =
           if r.resumable then ""
           else s"  not resumable: ${r.reason.getOrElse("")}"
+        val sessionName =
+          r.sessionName + (if r.crashed then " (crashed)" else "")
         (
           r.index.toString,
-          r.sessionName,
+          sessionName,
           r.kind,
           r.stage.getOrElse(""),
           r.harness,

@@ -96,6 +96,20 @@ class ResumeCommandTest extends munit.FunSuite:
         .isLeft
     )
 
+  test("a wireId starting with `-` is rejected rather than passed as argv"):
+    assert(
+      ResumeCommand
+        .build(session("ClaudeCode", Some("-rf")), geminiIndex = None)
+        .isLeft
+    )
+
+  test("a blank wireId is rejected rather than passed as argv"):
+    assert(
+      ResumeCommand
+        .build(session("ClaudeCode", Some("   ")), geminiIndex = None)
+        .isLeft
+    )
+
   test("an unrecognised harness string is not resumable"):
     assert(
       ResumeCommand

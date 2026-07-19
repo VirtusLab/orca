@@ -1,5 +1,6 @@
 package orca.shell.sessions
 
+import orca.OrcaFlowException
 import orca.testkit.TempDirs
 
 class ManifestReaderTest extends munit.FunSuite:
@@ -139,3 +140,14 @@ class ManifestReaderTest extends munit.FunSuite:
       warnings.head.contains("garbage.json"),
       s"expected the filename in the warning, got: ${warnings.head}"
     )
+
+  test("list aborts on a symlinked .orca/cache/runs"):
+    val workDir = TempDirs.dir()
+    val outside = TempDirs.dir() / "outside-runs"
+    os.makeDir.all(outside)
+    os.makeDir.all(workDir / ".orca" / "cache")
+    os.symlink(runsDir(workDir), outside)
+    val ex = intercept[OrcaFlowException](
+      ManifestReader.list(workDir, alwaysDead)
+    )
+    assert(ex.getMessage.contains("symlink"), ex.getMessage)

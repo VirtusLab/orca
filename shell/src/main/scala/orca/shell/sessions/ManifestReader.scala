@@ -38,6 +38,7 @@ object ManifestReader:
       pidAlive: Long => Boolean
   ): (List[ReadRun], List[String]) =
     val dir = OrcaDir.runsPath(workDir)
+    OrcaDir.assertNoOrcaSymlinks(workDir, dir)
     if !os.exists(dir) then (Nil, Nil)
     else
       val (runs, warnings) =

@@ -4,7 +4,7 @@ import orca.StackSettings
 import orca.agents.BackendTag
 import orca.runner.{ManifestSession, RunManifest}
 import orca.settings.SettingsFile
-import orca.shell.actions.{SessionAction, SessionSelection}
+import orca.shell.actions.SessionSelection
 import orca.shell.sessions.ReadRun
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.TempDirs

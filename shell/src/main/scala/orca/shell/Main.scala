@@ -409,13 +409,15 @@ object Main:
     case Resume(selection: SessionSelection)
     case ShowMore
 
-  /** Prompts among every session across `runs` and resumes the chosen one.
-    * Picking the expander re-renders the same picker with `expanded = true`;
-    * there is no way back to the collapsed view short of re-opening the menu
-    * item, which is fine — the picker is re-read from disk on every open
-    * anyway. A cancelled prompt, or `runs` being empty (unreachable via the
-    * menu today, since the item is disabled then, but harmless), is a silent
-    * no-op.
+  /** Prompts among every session across `runs` and resumes the chosen one,
+    * printing its identity — including `workDir` — before the resume exec
+    * ([[SessionAction.identityNotice]], ADR 0021 §10; the CLI's own resume
+    * paths print the same notice). Picking the expander re-renders the same
+    * picker with `expanded = true`; there is no way back to the collapsed view
+    * short of re-opening the menu item, which is fine — the picker is re-read
+    * from disk on every open anyway. A cancelled prompt, or `runs` being empty
+    * (unreachable via the menu today, since the item is disabled then, but
+    * harmless), is a silent no-op.
     */
   private def continueSession(
       ui: ShellUi,
@@ -428,6 +430,12 @@ object Main:
       case UiOutcome.Selected(PickerRow.ShowMore) =>
         continueSession(ui, terminal, runs, expanded = true)
       case UiOutcome.Selected(PickerRow.Resume(selection)) =>
+        ShellOutput.info(
+          SessionAction.identityNotice(
+            selection,
+            harnessSettingsName(selection.session.harness)
+          )
+        )
         SessionAction.resume(terminal, selection) match
           case Left(message) => ShellOutput.error(message)
           case Right(_)      => ()
@@ -503,7 +511,9 @@ object Main:
 
   private def resumeRow(o: Occurrence, label: String): Choice[PickerRow] =
     Choice(
-      PickerRow.Resume(SessionSelection(o.run.manifest, o.session)),
+      PickerRow.Resume(
+        SessionSelection(o.run.manifest, o.session, o.run.crashed)
+      ),
       label,
       disabledReason = ResumeCommand.staticGate(o.session).left.toOption
     )

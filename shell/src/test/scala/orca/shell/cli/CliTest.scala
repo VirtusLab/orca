@@ -6,7 +6,7 @@ import orca.runner.{ManifestSession, RunManifest}
 import orca.settings.{AgentSettings, AgentSpec}
 import orca.shell.actions.{AuthorOutcome, SessionSelection}
 import orca.shell.create.CreateTier
-import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
+import orca.shell.flows.{CustomizeTier, DiscoveredFlow, FlowOrigin}
 import orca.shell.run.LaunchResult
 import orca.shell.sessions.ReadRun
 import orca.testkit.TempDirs
@@ -107,6 +107,21 @@ class CliTest extends munit.FunSuite:
   test("edit: the required flow positional missing is a usage error"):
     assert(!parses("edit"))
 
+  test("parseCustomizeTier: 'project' resolves to CustomizeTier.Project"):
+    assertEquals(
+      Cli.parseCustomizeTier("project"),
+      Right(CustomizeTier.Project)
+    )
+
+  test("parseCustomizeTier: 'global' resolves to CustomizeTier.Global"):
+    assertEquals(Cli.parseCustomizeTier("global"), Right(CustomizeTier.Global))
+
+  test("parseCustomizeTier: anything else is a usage error naming the value"):
+    assertEquals(
+      Cli.parseCustomizeTier("bogus"),
+      Left("--to must be 'project' or 'global', got 'bogus'")
+    )
+
   test("create: missing the required --goal is a usage error"):
     assert(!parses("create", "--harness", "claude"))
 
@@ -124,6 +139,23 @@ class CliTest extends munit.FunSuite:
     assertEquals(
       invoke("fork", "source.sc", "--changes", "make it better"),
       Right(2)
+    )
+
+  // requireNonBlank backs create/fork's --goal/--changes guard; the tty gate
+  // (already covered above) runs before it, so exercising the guard itself
+  // — rather than the full argv path, which always hits the tty gate first
+  // off-tty — is what actually proves it rejects blank input.
+
+  test("requireNonBlank: a non-blank value passes"):
+    assertEquals(Cli.requireNonBlank("goal", "do a thing"), Right(()))
+
+  test("requireNonBlank: an empty value is a usage error naming the flag"):
+    assertEquals(Cli.requireNonBlank("goal", ""), Left("--goal can't be empty"))
+
+  test("requireNonBlank: a whitespace-only value is a usage error"):
+    assertEquals(
+      Cli.requireNonBlank("changes", "   "),
+      Left("--changes can't be empty")
     )
 
   test(
@@ -629,6 +661,45 @@ class CliTest extends munit.FunSuite:
       Left("session 'unresumable' isn't resumable — pi has no id")
     )
 
+  private def durableAgent(
+      agent: String,
+      sessionName: String,
+      lastActiveAt: String
+  ): ManifestSession =
+    ManifestSession(
+      harness = "ClaudeCode",
+      wireId = Some("uuid"),
+      resumable = true,
+      reason = None,
+      agent = agent,
+      role = None,
+      stage = None,
+      sessionName = Some(sessionName),
+      kind = "durable",
+      firstSeenAt = lastActiveAt,
+      lastActiveAt = lastActiveAt
+    )
+
+  test(
+    "selectByName: a name shared by two distinct lineages (different agents) is ambiguous"
+  ):
+    val runs = List(
+      ReadRun(
+        manifest(
+          startedAt = "2026-07-18T09:00:00Z",
+          sessions = List(
+            durableAgent("agentA", "shared", "2026-07-18T09:30:00Z"),
+            durableAgent("agentB", "shared", "2026-07-18T09:20:00Z")
+          )
+        ),
+        crashed = false
+      )
+    )
+    assertEquals(
+      Cli.selectByName(runs, "shared"),
+      Left("'shared' is ambiguous — matches agents: agentA, agentB")
+    )
+
   test(
     "sessionListingRows numbers rows 1-based in the same order continue <n> uses"
   ):
@@ -643,7 +714,12 @@ class CliTest extends munit.FunSuite:
 
   test("resumeNotice: names the session, harness, and workDir"):
     val run = runsFixture().head
-    val selection = SessionSelection(run.manifest, run.manifest.sessions.head)
+    val selection =
+      SessionSelection(
+        run.manifest,
+        run.manifest.sessions.head,
+        crashed = false
+      )
     assertEquals(
       Cli.resumeNotice(selection),
       "resuming session 'newest' [claude], in /work"
@@ -653,10 +729,19 @@ class CliTest extends munit.FunSuite:
     val run = runsFixture().head
     val withStage =
       run.manifest.sessions.head.copy(stage = Some("Task: fix a bug"))
-    val selection = SessionSelection(run.manifest, withStage)
+    val selection = SessionSelection(run.manifest, withStage, crashed = false)
     assertEquals(
       Cli.resumeNotice(selection),
       "resuming session 'newest' [claude], stage 'Task: fix a bug', in /work"
+    )
+
+  test("resumeNotice: mentions a crashed run"):
+    val run = runsFixture().head
+    val selection =
+      SessionSelection(run.manifest, run.manifest.sessions.head, crashed = true)
+    assertEquals(
+      Cli.resumeNotice(selection),
+      "resuming session 'newest' [claude], in /work (crashed)"
     )
 
   // --- stdout/stderr separation (CLI review finding 1) ---
@@ -691,6 +776,54 @@ class CliTest extends munit.FunSuite:
     )
     assertEquals(out.trim, "[]")
     assert(err.contains("manifestVersion 2 is newer"), err)
+
+  private def writeCrashedManifest(dir: os.Path): Unit =
+    val json =
+      """{
+        |  "manifestVersion": 1,
+        |  "orcaVersion": "0.0.test",
+        |  "workDir": "/work",
+        |  "pid": 999999,
+        |  "startedAt": "2026-07-18T09:00:00Z",
+        |  "outcome": "running",
+        |  "sessions": [{
+        |    "harness": "ClaudeCode",
+        |    "wireId": "uuid",
+        |    "resumable": true,
+        |    "agent": "main",
+        |    "sessionName": "main",
+        |    "kind": "durable",
+        |    "firstSeenAt": "2026-07-18T09:00:00Z",
+        |    "lastActiveAt": "2026-07-18T09:00:00Z"
+        |  }]
+        |}""".stripMargin
+    os.write(
+      dir / ".orca" / "cache" / "runs" / "a.json",
+      json,
+      createFolders = true
+    )
+
+  test("runContinue --list --json: a crashed run reports crashed=true"):
+    val dir = TempDirs.dir()
+    writeCrashedManifest(dir)
+    val out = captured(
+      assertEquals(
+        Cli.runContinue(dir, None, list = true, json = true, tty = false),
+        ExitCodes.Ok
+      )
+    )
+    assert(out.contains("\"crashed\":true"), out)
+
+  test("runContinue --list: a crashed run's table row is suffixed (crashed)"):
+    val dir = TempDirs.dir()
+    writeCrashedManifest(dir)
+    val out = captured(
+      assertEquals(
+        Cli.runContinue(dir, None, list = true, json = false, tty = false),
+        ExitCodes.Ok
+      )
+    )
+    assert(out.contains("main (crashed)"), out)
 
   test(
     "runContinue: no selector prints the resume notice to stderr before attempting to resume"

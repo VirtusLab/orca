@@ -36,30 +36,37 @@ object ResumeCommand:
     * uuid — the caller resolves the index by matching the session's wireId
     * against `gemini --list-sessions` output and passes it in). Binary names
     * come from [[AgentSpec.harnessNameFor]] (the settings-file spelling —
-    * `claude`, `codex`, …), not the manifest's [[BackendTag.wireName]].
+    * `claude`, `codex`, …), not the manifest's [[BackendTag.wireName]]. Also
+    * rejects a blank wireId or one starting with `-` — passed straight into an
+    * argv slot, such a value could otherwise be parsed as a flag by the harness
+    * CLI.
     */
   def build(
       s: ManifestSession,
       geminiIndex: Option[Int]
   ): Either[String, Seq[String]] =
     wireIdAndTag(s).flatMap: (wireId, tag) =>
-      val binary = AgentSpec.harnessNameFor.getOrElse(tag, s.harness)
-      tag match
-        case BackendTag.ClaudeCode => Right(Seq(binary, "--resume", wireId))
-        case BackendTag.Codex      => Right(Seq(binary, "resume", wireId))
-        case BackendTag.Opencode   => Right(Seq(binary, "--session", wireId))
-        case BackendTag.Gemini =>
-          geminiIndex match
-            case Some(index) =>
-              Right(Seq(binary, "--resume", index.toString))
-            case None =>
-              Left(
-                s.reason.getOrElse(
-                  s"no matching session found via `$binary --list-sessions`"
+      if wireId.isBlank || wireId.startsWith("-") then
+        Left(s"manifest wireId `$wireId` is not a valid session id")
+      else
+        val binary = AgentSpec.harnessNameFor.getOrElse(tag, s.harness)
+        tag match
+          case BackendTag.ClaudeCode =>
+            Right(Seq(binary, "--resume", wireId))
+          case BackendTag.Codex    => Right(Seq(binary, "resume", wireId))
+          case BackendTag.Opencode => Right(Seq(binary, "--session", wireId))
+          case BackendTag.Gemini =>
+            geminiIndex match
+              case Some(index) =>
+                Right(Seq(binary, "--resume", index.toString))
+              case None =>
+                Left(
+                  s.reason.getOrElse(
+                    s"no matching session found via `$binary --list-sessions`"
+                  )
                 )
-              )
-        case BackendTag.Pi =>
-          Left(s.reason.getOrElse("pi sessions are not resumable"))
+          case BackendTag.Pi =>
+            Left(s.reason.getOrElse("pi sessions are not resumable"))
 
   // Matches one `--list-sessions` entry line: "  N. <title> (<time>) [<id>]".
   private val entryLine = raw"^\s*(\d+)\.\s.*\[(.+)\]\s*$$".r
