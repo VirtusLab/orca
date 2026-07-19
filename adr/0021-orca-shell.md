@@ -162,6 +162,11 @@ Create a new flow · Continue a session · Re-configure · Exit. Unavailable
 items (continue with no manifests, §8) render disabled with the reason, not
 hidden.
 
+Shell-voice output — the lines the shell prints on its own behalf, as opposed
+to prompts or a flow child's own output — carries a single `◆` glyph
+(`ShellOutput.info`/`error`/`section`), distinguishing it from the flow
+runtime's own glyph family (`⏺`/`●`/`▶`/`▸`).
+
 ### 4. Welcome wizard and settings
 
 First run = the global settings file (`$XDG_CONFIG_HOME/orca/settings.properties`,

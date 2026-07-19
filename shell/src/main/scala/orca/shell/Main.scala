@@ -18,7 +18,7 @@ import orca.shell.flows.{
 }
 import orca.shell.run.{ChildTerminal, FlowLauncher}
 import orca.shell.sessions.{ManifestReader, ReadRun, ResumeCommand}
-import orca.shell.ui.{Choice, ShellOut, ShellUi, UiOutcome}
+import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
 import orca.subprocess.{PathProbe, QuietProc}
 import ox.discard
@@ -37,7 +37,7 @@ object Main:
     // over that stale text; clear it first so the banner starts on a clean
     // line instead of appending to it.
     print("[2K\r")
-    ShellOut.say(s"orca shell ${ShellVersion.value}")
+    ShellOutput.info(s"orca shell ${ShellVersion.value}")
     val terminal = TerminalBuilder.builder().system(true).dumb(true).build()
     try
       val ui = ShellUi.make(terminal)
@@ -61,7 +61,7 @@ object Main:
         wizard.run(reconfigure = false).discard
       case Right(FirstRunStatus.AlreadyConfigured) => ()
       case Left(error) =>
-        ShellOut.say(
+        ShellOutput.error(
           s"the global settings file is malformed — ${error.message}"
         )
         wizard.repairMalformed()
@@ -78,7 +78,7 @@ object Main:
       tty: Boolean
   ): Unit =
     val (runs, warnings) = ManifestReader.list(os.pwd, pidAlive)
-    warnings.foreach(ShellOut.say)
+    warnings.foreach(ShellOutput.info)
     val continueDisabledReason =
       if runs.nonEmpty then None else Some("no sessions recorded yet")
     val newestRunSessionCount =
@@ -157,11 +157,11 @@ object Main:
       task <- promptTask(ui)
     do
       println()
-      ShellOut.say(s"starting flow ${flow.name}")
+      ShellOutput.section(s"starting flow ${flow.name}")
       val result = ChildTerminal.withChild(terminal)(
         FlowLauncher.run(ui, flow.path, task, os.pwd)
       )
-      ShellOut.say(
+      ShellOutput.section(
         s"flow ${flow.name} ${FlowLauncher.outcomeSuffix(result)}"
       )
       println()
@@ -175,7 +175,7 @@ object Main:
     ui.inputMultiline("Task for the flow") match
       case UiOutcome.Cancelled => None
       case UiOutcome.Selected(text) if text.trim.isEmpty =>
-        ShellOut.say("task text can't be empty")
+        ShellOutput.error("task text can't be empty")
         promptTask(ui)
       case UiOutcome.Selected(text) => Some(text)
 
@@ -332,7 +332,7 @@ object Main:
       case UiOutcome.Selected(rawName) =>
         CreateFlow.prepareTarget(tier, rawName, workDir, globalFlows) match
           case Left(message) =>
-            ShellOut.say(message)
+            ShellOutput.error(message)
             promptFlowTarget(ui, tier, workDir, globalFlows, default)
           case Right(target) => Some(target)
 
@@ -348,7 +348,7 @@ object Main:
     ui.inputMultiline(label) match
       case UiOutcome.Cancelled => None
       case UiOutcome.Selected(text) if text.trim.isEmpty =>
-        ShellOut.say("description can't be empty")
+        ShellOutput.error("description can't be empty")
         promptDescription(ui, label)
       case UiOutcome.Selected(text) => Some(text)
 
@@ -436,17 +436,17 @@ object Main:
       yolo: Boolean
   ): Unit =
     val launch = CreateFlow.harnessArgv(backend, prompt, yolo)
-    CreateFlow.yoloCaveat(backend, yolo).foreach(ShellOut.say)
+    CreateFlow.yoloCaveat(backend, yolo).foreach(ShellOutput.info)
     val ready = launch.pastePrompt match
       case None => true
       case Some(toPaste) =>
-        ShellOut.say(
+        ShellOutput.info(
           s"paste this prompt into the agent once it opens:\n\n$toPaste\n"
         )
         ui.confirm("Ready to launch?", default = true) match
           case UiOutcome.Selected(proceed) => proceed
           case UiOutcome.Cancelled         => false
-    if !ready then ShellOut.say("create-flow cancelled")
+    if !ready then ShellOutput.info("create-flow cancelled")
     else
       try
         val exitCode = ChildTerminal.withChild(terminal):
@@ -459,15 +459,15 @@ object Main:
               check = false
             )
             .exitCode
-        ShellOut.say(s"harness session ended (exit code $exitCode)")
+        ShellOutput.info(s"harness session ended (exit code $exitCode)")
         if os.exists(target.flowPath) then
-          ShellOut.say(
+          ShellOutput.info(
             s"${target.flowPath} created — verify with `scala-cli compile ${target.flowPath}`"
           )
-        else ShellOut.say(s"${target.flowPath} was not created")
+        else ShellOutput.info(s"${target.flowPath} was not created")
       catch
         case NonFatal(e) =>
-          ShellOut.say(s"create-flow launch failed — ${e.getMessage}")
+          ShellOutput.error(s"create-flow launch failed — ${e.getMessage}")
 
   /** One prior run's manifest paired with the session the user picked to resume
     * — everything [[resumeSession]] needs (the harness command comes from the
@@ -680,7 +680,7 @@ object Main:
       selection: SessionSelection
   ): Unit =
     validatedWorkDir(selection.manifest.workDir) match
-      case Left(reason) => ShellOut.say(s"can't resume — $reason")
+      case Left(reason) => ShellOutput.error(s"can't resume — $reason")
       case Right(workDir) =>
         val isGemini =
           BackendTag
@@ -696,7 +696,7 @@ object Main:
                 ResumeCommand.geminiIndexOf(listing.out.text(), uuid)
               catch case NonFatal(_) => None
         ResumeCommand.build(selection.session, geminiIndex) match
-          case Left(reason) => ShellOut.say(s"can't resume — $reason")
+          case Left(reason) => ShellOutput.error(s"can't resume — $reason")
           case Right(argv) =>
             try
               val exitCode = ChildTerminal.withChild(terminal):
@@ -709,10 +709,10 @@ object Main:
                     check = false
                   )
                   .exitCode
-              ShellOut.say(s"session ended (exit code $exitCode)")
+              ShellOutput.info(s"session ended (exit code $exitCode)")
             catch
               case NonFatal(e) =>
-                ShellOut.say(s"resume failed — ${e.getMessage}")
+                ShellOutput.error(s"resume failed — ${e.getMessage}")
 
   /** Prompts for Project or Global, copies the built-in there via
     * [[FlowEditor.customizeTarget]], and returns the copy's path — `None` on
@@ -735,7 +735,7 @@ object Main:
       case UiOutcome.Selected(tier) =>
         FlowEditor.customizeTarget(flow, tier, os.pwd, globalFlows) match
           case Left(message) =>
-            ShellOut.say(message)
+            ShellOutput.error(message)
             None
           case Right(path) => Some(path)
 
@@ -762,7 +762,7 @@ object Main:
         )
       catch
         case NonFatal(e) =>
-          ShellOut.say(s"couldn't list flows — ${e.getMessage}")
+          ShellOutput.error(s"couldn't list flows — ${e.getMessage}")
           None
     flows.flatMap: fs =>
       ui.select(title, fs.map(flowChoice)) match
@@ -811,9 +811,9 @@ object Main:
         else
           SettingsFile.parse(content, SettingsScope.Project) match
             case Left(error) =>
-              ShellOut.say(s"invalid settings at $path: ${error.message}")
+              ShellOutput.error(s"invalid settings at $path: ${error.message}")
             case Right(parsed) =>
-              ShellOut.say("Current stack settings:")
+              ShellOutput.info("Current stack settings:")
               println(renderStackSettings(parsed.stack))
               ui.confirm(
                 "Clear discovered stack settings so the next flow run " +
@@ -822,19 +822,19 @@ object Main:
               ) match
                 case UiOutcome.Selected(true) =>
                   os.write.over(path, SettingsFile.stripStackLines(content))
-                  ShellOut.say(
+                  ShellOutput.info(
                     "cleared — the next flow run will re-discover " +
                       "format/lint/test"
                   )
                 case _ => ()
     catch
       case NonFatal(e) =>
-        ShellOut.say(
+        ShellOutput.error(
           s"couldn't re-discover stack settings — ${e.getMessage}"
         )
 
   private def noStackSettingsToClear(): Unit =
-    ShellOut.say(
+    ShellOutput.info(
       "no stack settings to clear (discovery runs on the next flow)"
     )
 

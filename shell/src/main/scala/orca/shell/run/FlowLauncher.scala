@@ -1,7 +1,7 @@
 package orca.shell.run
 
 import orca.shell.ShellVersion
-import orca.shell.ui.{ShellOut, ShellUi, UiOutcome}
+import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
 import orca.subprocess.QuietProc
 
 /** Outcome of [[FlowLauncher.run]]. */
@@ -193,7 +193,7 @@ object FlowLauncher:
         ui.confirm(fallbackQuestion(shellVersion), default = true) match
           case UiOutcome.Selected(true) =>
             println()
-            ShellOut.say(s"pin-honouring re-run of ${flow.last}")
+            ShellOutput.section(s"pin-honouring re-run of ${flow.last}")
             val result = toLaunchResult(
               spawnInherited(
                 argv(flow, None, task, verbose = false),
@@ -201,7 +201,7 @@ object FlowLauncher:
                 childEnv(flow)
               )
             )
-            ShellOut.say(s"flow ${flow.last} ${outcomeSuffix(result)}")
+            ShellOutput.section(s"flow ${flow.last} ${outcomeSuffix(result)}")
             println()
             result
           case UiOutcome.Selected(false) | UiOutcome.Cancelled =>
