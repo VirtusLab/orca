@@ -820,7 +820,7 @@ directly instead. The pinned form works from the first release that includes
 the shell; the version below always tracks the latest release:
 
 ```bash
-scala-cli run --jvm 21 --dep "org.virtuslab::orca-shell:0.0.17" --main-class orca.shell.Main
+scala-cli run --jvm 21 --quiet --dep "org.virtuslab::orca-shell:0.0.17" --main-class orca.shell.Main
 ```
 
 ## Documentation

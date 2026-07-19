@@ -2,10 +2,10 @@ package orca.shell
 
 import orca.shell.ui.Choice
 
-/** Main menu selection (ADR 0021 §3). */
+/** Main menu selection (ADR 0021 §3, `RediscoverStack` added §8). */
 enum MenuItem:
   case RunFlow, ViewFlow, EditFlow, CreateFlow, ContinueSession, Reconfigure,
-    Exit
+    RediscoverStack, Exit
 
 object MainMenu:
 
@@ -33,5 +33,9 @@ object MainMenu:
         disabledReason = continueDisabledReason
       ),
       Choice(MenuItem.Reconfigure, "Re-configure"),
+      Choice(
+        MenuItem.RediscoverStack,
+        "Re-discover project stack settings"
+      ),
       Choice(MenuItem.Exit, "Exit")
     )

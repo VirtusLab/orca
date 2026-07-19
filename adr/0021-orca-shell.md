@@ -50,7 +50,7 @@ curl-able `install.sh`:
 
 ```bash
 #!/usr/bin/env bash
-exec scala-cli run --jvm 21 \
+exec scala-cli run --jvm 21 --quiet \
   --dep "org.virtuslab::orca-shell:latest.release" \
   --main-class orca.shell.Main -- "$@"
 ```
@@ -196,6 +196,26 @@ pre-select current values from `SettingsFile.parse`; keep an existing
 Both shapes live beside `render` in `SettingsFile`, keeping format knowledge
 in one file, with a render/parse round-trip test. The wizard writes ONLY the
 global file — the project file is discovery's territory (ADR 0019/0020).
+
+**Re-discovering project stack settings** (a distinct top-level menu item,
+"Re-discover project stack settings", not folded into Re-configure — stack
+commands and role agents are unrelated settings, and reusing Re-configure
+would force an extra sub-menu layer onto its existing, simple "re-run the
+wizard" behavior): the shell has no `Agent`/`InStage` plumbing to invoke
+`StackDiscovery` itself, so it doesn't try to. Instead it surgically strips
+every stack line (`format`/`lint`/`test`, live or `#`-commented) from
+`{workDir}/.orca/settings.properties` via `SettingsFile.stripStackLines` — a
+new helper that reuses `hasStackLines`'s own line predicate, so it can never
+disagree with `FlowLifecycle.readSettings`'s re-discovery trigger — leaving
+role-agent keys, blank lines, and unrelated comments untouched. That trigger
+already re-runs discovery whenever the file names no stack key at all, so the
+strip alone is enough: no new discovery path is added. The action reads the
+project file passively (no `.orca` creation on a bare view), guards the write
+with the same `OrcaDir.assertNoOrcaSymlinks` check `selectFlow` uses, shows
+the current stack commands, and requires a `[y/N]`-defaulted confirm before
+writing — a no-op with a one-line explanation when the file is absent or
+already stack-line-free, and an abort on a malformed file (the same message
+`FlowLifecycle.readSettings` would show) rather than a blind rewrite.
 
 ### 5. Flow discovery
 

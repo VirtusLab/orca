@@ -23,7 +23,7 @@ mkdir -p "$bin_dir"
 cat > "$bin_path" <<EOF
 #!/usr/bin/env bash
 $marker
-exec scala-cli run --jvm 21 \\
+exec scala-cli run --jvm 21 --quiet \\
   --dep "org.virtuslab::orca-shell:latest.release" \\
   --main-class orca.shell.Main -- "\$@"
 EOF

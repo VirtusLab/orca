@@ -147,6 +147,9 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     * bold message — `ConsolePrompt.UiConfig`'s default `pr`/`me` colors).
     */
   private def plainLineInput(prompt: String): UiOutcome[String] =
+    // Same late-byte guard as runOrCancelled: this path bypasses ConsoleUI
+    // entirely, so it needs its own clear immediately before painting.
+    print("[2K\r")
     val styled = AttributedStringBuilder()
       .style(AttributedStyle.DEFAULT.foreground(AttributedStyle.GREEN))
       .append("? ")
@@ -222,6 +225,11 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
       elements: java.util.List[PromptableElementIF]
   ): UiOutcome[java.util.Map[String, PromptResultItemIF]] =
     try
+      // A late byte from some other writer (coursier's fetch-progress
+      // renderer on a fresh-cache run, research item 1) can still be sitting
+      // on the current line right before this prompt paints — clear it first,
+      // same treatment Main's banner print already gets.
+      print("[2K\r")
       val results = consolePrompt.prompt(elements)
       if results.isEmpty then UiOutcome.Cancelled
       else UiOutcome.Selected(results)

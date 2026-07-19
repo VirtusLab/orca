@@ -313,6 +313,45 @@ private[orca] object SettingsFile:
   def hasStackLines(content: String): Boolean =
     content.linesIterator.exists(namesStackKey)
 
+  /** `content` with every stack line (live or `#`-commented `format`/`lint`/
+    * `test`) removed — the surgical edit behind the shell's "re-discover
+    * project stack settings" action (ADR 0021 §4/§8). Reuses [[namesStackKey]]
+    * so this can never disagree with [[hasStackLines]] about which physical
+    * lines are stack lines; the result always satisfies
+    * `!hasStackLines(result)`. For each LIVE (non-commented) stack line, the
+    * contiguous run of `#`-comment lines immediately above it — discovery's
+    * evidence citation, [[renderEntry]]'s `Command` shape — is dropped too,
+    * stopping at a blank line, a non-comment line, [[Header]]'s two lines, or
+    * another stack line (that comment run belongs to a different entry). A
+    * `Demoted`/`Unset` line is a single self-contained `#` line and needs no
+    * such lookback; it's removed directly by matching [[namesStackKey]] like
+    * any live line. Every other line — agent keys, blank lines, unrelated
+    * comments, [[Header]], ordering — passes through with its original line
+    * terminator untouched.
+    */
+  private[orca] def stripStackLines(content: String): String =
+    val lines = content.linesWithSeparators.toIndexedSeq
+    def bare(line: String): String = line.stripLineEnd
+    val headerLines = Header.linesIterator.toSet
+    val stackIdx =
+      lines.indices.filter(i => namesStackKey(bare(lines(i)))).toSet
+    def isLiveStackLine(i: Int): Boolean =
+      stackIdx(i) && !bare(lines(i)).trim.startsWith("#")
+
+    val evidenceIdx = scala.collection.mutable.Set.empty[Int]
+    for i <- lines.indices if isLiveStackLine(i) do
+      var j = i - 1
+      while j >= 0 && bare(lines(j)).trim.startsWith("#") &&
+        !headerLines(bare(lines(j))) && !stackIdx(j)
+      do
+        evidenceIdx += j
+        j -= 1
+
+    val toRemove = stackIdx ++ evidenceIdx
+    lines.zipWithIndex.collect {
+      case (line, i) if !toRemove(i) => line
+    }.mkString
+
   private def namesStackKey(line: String): Boolean =
     val uncommented = line.trim.stripPrefix("#")
     splitAssignment(uncommented) match

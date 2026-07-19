@@ -2,6 +2,7 @@ package orca.shell
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.OrcaDir
+import orca.StackSettings
 import orca.agents.BackendTag
 import orca.runner.{ManifestSession, RunManifest}
 import orca.settings.{AgentSpec, GlobalSettings, SettingsFile, SettingsScope}
@@ -90,6 +91,9 @@ object Main:
       case UiOutcome.Selected(MenuItem.Exit) => ()
       case UiOutcome.Selected(MenuItem.Reconfigure) =>
         wizard.run(reconfigure = true).discard
+        loop(ui, wizard, terminal, tty)
+      case UiOutcome.Selected(MenuItem.RediscoverStack) =>
+        rediscoverStack(ui, os.pwd)
         loop(ui, wizard, terminal, tty)
       case UiOutcome.Selected(MenuItem.ViewFlow) =>
         viewFlow(ui, tty)
@@ -778,3 +782,67 @@ object Main:
     case FlowOrigin.Project => "project"
     case FlowOrigin.Global  => "global"
     case FlowOrigin.BuiltIn => "built-in"
+
+  /** "Re-discover project stack settings" (ADR 0021 §8/§4, feedback item 4):
+    * surgically strips the project settings file's stack lines
+    * ([[SettingsFile.stripStackLines]]) so the next flow run's own
+    * `hasStackLines`-driven check (`FlowLifecycle.readSettings`) fires
+    * discovery again — the shell has no `Agent`/`InStage` plumbing to invoke
+    * discovery itself. Reads via [[OrcaDir.settingsPath]] passively (no `.orca`
+    * creation) and guards the write with [[OrcaDir.assertNoOrcaSymlinks]], the
+    * same guard [[selectFlow]] uses. A missing file, or one with no stack lines
+    * already, is a no-op with a one-line explanation. An unparseable file
+    * aborts with the same message `FlowLifecycle.readSettings` would show
+    * (`parseOrAbort`'s wording), rather than being surgically edited blind.
+    * `workDir` is explicit (rather than reading `os.pwd` itself), same as
+    * [[sessionRows]]/[[validatedWorkDir]], so tests can point it at a temp dir.
+    */
+  private[shell] def rediscoverStack(ui: ShellUi, workDir: os.Path): Unit =
+    val path = OrcaDir.settingsPath(workDir)
+    try
+      OrcaDir.assertNoOrcaSymlinks(workDir, path)
+      if !os.exists(path) then noStackSettingsToClear()
+      else
+        val content = os.read(path)
+        if !SettingsFile.hasStackLines(content) then noStackSettingsToClear()
+        else
+          SettingsFile.parse(content, SettingsScope.Project) match
+            case Left(error) =>
+              println(s"orca: invalid settings at $path: ${error.message}")
+            case Right(parsed) =>
+              println("Current stack settings:")
+              println(renderStackSettings(parsed.stack))
+              ui.confirm(
+                "Clear discovered stack settings so the next flow run " +
+                  "re-detects them?",
+                default = false
+              ) match
+                case UiOutcome.Selected(true) =>
+                  os.write.over(path, SettingsFile.stripStackLines(content))
+                  println(
+                    "orca: cleared — the next flow run will re-discover " +
+                      "format/lint/test"
+                  )
+                case _ => ()
+    catch
+      case NonFatal(e) =>
+        println(s"orca: couldn't re-discover stack settings — ${e.getMessage}")
+
+  private def noStackSettingsToClear(): Unit =
+    println(
+      "orca: no stack settings to clear (discovery runs on the next flow)"
+    )
+
+  /** ` format: <cmd>` per line for each non-empty [[StackSettings]] key, in
+    * format/lint/test order — display only for [[rediscoverStack]]'s confirm
+    * prompt; a key with only demoted/unset (commented) lines and no live
+    * command shows nothing here even though it still counts for
+    * [[SettingsFile.hasStackLines]].
+    */
+  private[shell] def renderStackSettings(stack: StackSettings): String =
+    val rows =
+      List("format" -> stack.format, "lint" -> stack.lint, "test" -> stack.test)
+        .flatMap((key, commands) => commands.map(cmd => s"  $key: $cmd"))
+    if rows.isEmpty then
+      "  (no live commands — only commented-out/unset stack lines on file)"
+    else rows.mkString("\n")
