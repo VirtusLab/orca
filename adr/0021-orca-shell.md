@@ -421,6 +421,62 @@ rules are enforced at runtime, so the README's authoring rules must be
 followed beyond what the compiler catches. A tag-pinned raw README URL is
 included only as a last-resort fallback line.
 
+### 10. Command-line interface
+
+`orca` with no args starts the interactive shell unchanged (§§3–9); any argv
+is the non-interactive CLI. `Main.main` dispatches on `args.head`:
+`--help`/`-h`/`help` prints a curated top-level synopsis (`CliHelp.topLevel`,
+hand-rolled — mainargs' no-subcommand output is a flat, undifferentiated
+dump); `--version`/`-V` prints `ShellVersion.value`; a known subcommand name
+goes to `Cli.dispatch`; anything else is `orca: unknown command '<tok>'` to
+stderr, exit 2. Built with mainargs (already an `runner` dependency, ADR
+0004), one `@main` method per verb — no new arg-parsing library.
+
+The subcommand set mirrors every main-menu action, one short verb each, no
+`-flow` suffix (the domain object *is* the flow): `run <flow> [task]`,
+`view <flow>`, `edit <flow>`, `create [name] --goal <text>`,
+`fork <source> [name] --changes <text>`, `continue [selector]`, `config`,
+`rediscover-stack`, `list`. Flags are shared by name across commands that mean
+the same thing (`--global`, `--harness`, `--yolo`/`--no-yolo`, `--json`,
+`--yes`). `create`/`fork` default to yolo ON (skip-approval mode) —
+`--no-yolo` opts out — matching the interactive confirm's own default and
+Orca's autonomous-by-default norm.
+
+Both entry points call a shared `orca.shell.actions` package (`FlowResolution`,
+`RunAction`, `ViewAction`, `EditAction`, `AuthorAction`, `SessionAction`,
+`ConfigAction`, `StackAction`): each takes fully-resolved parameters and does
+the work, with no prompting inside. `Main`'s interactive handlers keep only
+the prompting that produces those parameters; `Cli` parses the same
+parameters from argv. This is why CLI and menu behavior can't drift — they
+call the same code below the point where a human would otherwise be asked.
+
+CLI hygiene: results/data go to stdout (`view`'s source, `list`/`continue
+--list` rows or `--json`, `config` show) — nothing else shares stdout with
+`--json` output; diagnostics go to stderr. Exit codes are 0 success, 1 action
+failure, 2 usage error (unknown subcommand, bad/missing args, missing tty),
+except `run`, `edit`, and `continue`'s resume, which wrap a subprocess and so
+propagate its raw exit code instead (130 on signal) — mirroring the child's
+status, not the flat convention. A missing required flag (`--goal`,
+`--changes`) is always a hard error, never a tty prompt-fallback: a
+subcommand's behavior must not depend on where it runs.
+
+`create`, `fork`, `edit`, and `continue`'s resume each exec or hand off to an
+interactive child (a harness session, `$EDITOR`) and so require a real
+terminal; off a tty they fail cleanly with a one-line stderr error and exit 2
+before constructing any UI — the interactive stack (ConsoleUI, JLine) NPEs if
+built off-tty, so the gate runs before any `Terminal`/`ShellUi` is
+constructed. `run`, `view`, `list`, `config`, `rediscover-stack` (without
+`--yes`, which then requires a tty), `--help`, and `--version` all work with
+no terminal, piped in or out.
+
+Security: `continue` with no selector resumes the newest durable session
+without asking — convenient, but a `.orca/cache/runs/` manifest is
+project-local and a committed repo could otherwise smuggle a silent resume
+into an attacker-chosen session. To keep the choice visible, `continue`
+prints the resolved session's identity (name, harness, stage, workdir) to
+stderr immediately before exec'ing the harness child, on the same tty-gated
+terminal — giving the user a beat to Ctrl-C even with no selector typed.
+
 ## Non-goals
 
 - Windows support beyond the existing `bash -c` contract (consistent with
@@ -457,3 +513,7 @@ included only as a last-resort fallback line.
   `--dep`-overrides-pin canary test, the codex exec→TUI resume check, the
   gemini index-resume check, and the interactive terminal-matrix pass for
   ConsoleUI (tmux/emulators, Ctrl-C, harness-TUI handoff).
+- A non-interactive CLI surface ships alongside the menu (§10): the `shell`
+  module gains a `mainargs` dependency, and every menu action's non-prompting
+  body lives in the new `orca.shell.actions` package, shared by `Main` and
+  `Cli`.
