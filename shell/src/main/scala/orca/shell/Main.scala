@@ -18,7 +18,7 @@ import orca.shell.flows.{
 }
 import orca.shell.run.{ChildTerminal, FlowLauncher}
 import orca.shell.sessions.{ManifestReader, ReadRun, ResumeCommand}
-import orca.shell.ui.{Choice, ShellUi, UiOutcome}
+import orca.shell.ui.{Choice, ShellOut, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
 import orca.subprocess.{PathProbe, QuietProc}
 import ox.discard
@@ -36,8 +36,8 @@ object Main:
     // clear) before handing control here, so the cursor can still be mid-line
     // over that stale text; clear it first so the banner starts on a clean
     // line instead of appending to it.
-    print("[2K\r")
-    println(s"orca shell ${ShellVersion.value}")
+    print("[2K\r")
+    ShellOut.say(s"orca shell ${ShellVersion.value}")
     val terminal = TerminalBuilder.builder().system(true).dumb(true).build()
     try
       val ui = ShellUi.make(terminal)
@@ -61,8 +61,8 @@ object Main:
         wizard.run(reconfigure = false).discard
       case Right(FirstRunStatus.AlreadyConfigured) => ()
       case Left(error) =>
-        println(
-          s"orca: the global settings file is malformed — ${error.message}"
+        ShellOut.say(
+          s"the global settings file is malformed — ${error.message}"
         )
         wizard.repairMalformed()
 
@@ -78,7 +78,7 @@ object Main:
       tty: Boolean
   ): Unit =
     val (runs, warnings) = ManifestReader.list(os.pwd, pidAlive)
-    warnings.foreach(w => println(s"orca: $w"))
+    warnings.foreach(ShellOut.say)
     val continueDisabledReason =
       if runs.nonEmpty then None else Some("no sessions recorded yet")
     val newestRunSessionCount =
@@ -157,13 +157,12 @@ object Main:
       task <- promptTask(ui)
     do
       println()
-      println(FlowLauncher.marker(s"starting flow ${flow.name}"))
+      ShellOut.say(s"starting flow ${flow.name}")
       val result = ChildTerminal.withChild(terminal)(
         FlowLauncher.run(ui, flow.path, task, os.pwd)
       )
-      println(
-        FlowLauncher
-          .marker(s"flow ${flow.name} ${FlowLauncher.outcomeSuffix(result)}")
+      ShellOut.say(
+        s"flow ${flow.name} ${FlowLauncher.outcomeSuffix(result)}"
       )
       println()
 
@@ -176,7 +175,7 @@ object Main:
     ui.inputMultiline("Task for the flow") match
       case UiOutcome.Cancelled => None
       case UiOutcome.Selected(text) if text.trim.isEmpty =>
-        println("orca: task text can't be empty")
+        ShellOut.say("task text can't be empty")
         promptTask(ui)
       case UiOutcome.Selected(text) => Some(text)
 
@@ -333,7 +332,7 @@ object Main:
       case UiOutcome.Selected(rawName) =>
         CreateFlow.prepareTarget(tier, rawName, workDir, globalFlows) match
           case Left(message) =>
-            println(s"orca: $message")
+            ShellOut.say(message)
             promptFlowTarget(ui, tier, workDir, globalFlows, default)
           case Right(target) => Some(target)
 
@@ -349,7 +348,7 @@ object Main:
     ui.inputMultiline(label) match
       case UiOutcome.Cancelled => None
       case UiOutcome.Selected(text) if text.trim.isEmpty =>
-        println("orca: description can't be empty")
+        ShellOut.say("description can't be empty")
         promptDescription(ui, label)
       case UiOutcome.Selected(text) => Some(text)
 
@@ -437,19 +436,17 @@ object Main:
       yolo: Boolean
   ): Unit =
     val launch = CreateFlow.harnessArgv(backend, prompt, yolo)
-    CreateFlow
-      .yoloCaveat(backend, yolo)
-      .foreach(note => println(s"orca: $note"))
+    CreateFlow.yoloCaveat(backend, yolo).foreach(ShellOut.say)
     val ready = launch.pastePrompt match
       case None => true
       case Some(toPaste) =>
-        println(
-          s"orca: paste this prompt into the agent once it opens:\n\n$toPaste\n"
+        ShellOut.say(
+          s"paste this prompt into the agent once it opens:\n\n$toPaste\n"
         )
         ui.confirm("Ready to launch?", default = true) match
           case UiOutcome.Selected(proceed) => proceed
           case UiOutcome.Cancelled         => false
-    if !ready then println("orca: create-flow cancelled")
+    if !ready then ShellOut.say("create-flow cancelled")
     else
       try
         val exitCode = ChildTerminal.withChild(terminal):
@@ -462,15 +459,15 @@ object Main:
               check = false
             )
             .exitCode
-        println(s"orca: harness session ended (exit code $exitCode)")
+        ShellOut.say(s"harness session ended (exit code $exitCode)")
         if os.exists(target.flowPath) then
-          println(
-            s"orca: ${target.flowPath} created — verify with `scala-cli compile ${target.flowPath}`"
+          ShellOut.say(
+            s"${target.flowPath} created — verify with `scala-cli compile ${target.flowPath}`"
           )
-        else println(s"orca: ${target.flowPath} was not created")
+        else ShellOut.say(s"${target.flowPath} was not created")
       catch
         case NonFatal(e) =>
-          println(s"orca: create-flow launch failed — ${e.getMessage}")
+          ShellOut.say(s"create-flow launch failed — ${e.getMessage}")
 
   /** One prior run's manifest paired with the session the user picked to resume
     * — everything [[resumeSession]] needs (the harness command comes from the
@@ -683,7 +680,7 @@ object Main:
       selection: SessionSelection
   ): Unit =
     validatedWorkDir(selection.manifest.workDir) match
-      case Left(reason) => println(s"orca: can't resume — $reason")
+      case Left(reason) => ShellOut.say(s"can't resume — $reason")
       case Right(workDir) =>
         val isGemini =
           BackendTag
@@ -699,7 +696,7 @@ object Main:
                 ResumeCommand.geminiIndexOf(listing.out.text(), uuid)
               catch case NonFatal(_) => None
         ResumeCommand.build(selection.session, geminiIndex) match
-          case Left(reason) => println(s"orca: can't resume — $reason")
+          case Left(reason) => ShellOut.say(s"can't resume — $reason")
           case Right(argv) =>
             try
               val exitCode = ChildTerminal.withChild(terminal):
@@ -712,10 +709,10 @@ object Main:
                     check = false
                   )
                   .exitCode
-              println(s"orca: session ended (exit code $exitCode)")
+              ShellOut.say(s"session ended (exit code $exitCode)")
             catch
               case NonFatal(e) =>
-                println(s"orca: resume failed — ${e.getMessage}")
+                ShellOut.say(s"resume failed — ${e.getMessage}")
 
   /** Prompts for Project or Global, copies the built-in there via
     * [[FlowEditor.customizeTarget]], and returns the copy's path — `None` on
@@ -738,7 +735,7 @@ object Main:
       case UiOutcome.Selected(tier) =>
         FlowEditor.customizeTarget(flow, tier, os.pwd, globalFlows) match
           case Left(message) =>
-            println(s"orca: $message")
+            ShellOut.say(message)
             None
           case Right(path) => Some(path)
 
@@ -765,7 +762,7 @@ object Main:
         )
       catch
         case NonFatal(e) =>
-          println(s"orca: couldn't list flows — ${e.getMessage}")
+          ShellOut.say(s"couldn't list flows — ${e.getMessage}")
           None
     flows.flatMap: fs =>
       ui.select(title, fs.map(flowChoice)) match
@@ -814,9 +811,9 @@ object Main:
         else
           SettingsFile.parse(content, SettingsScope.Project) match
             case Left(error) =>
-              println(s"orca: invalid settings at $path: ${error.message}")
+              ShellOut.say(s"invalid settings at $path: ${error.message}")
             case Right(parsed) =>
-              println("Current stack settings:")
+              ShellOut.say("Current stack settings:")
               println(renderStackSettings(parsed.stack))
               ui.confirm(
                 "Clear discovered stack settings so the next flow run " +
@@ -825,18 +822,20 @@ object Main:
               ) match
                 case UiOutcome.Selected(true) =>
                   os.write.over(path, SettingsFile.stripStackLines(content))
-                  println(
-                    "orca: cleared — the next flow run will re-discover " +
+                  ShellOut.say(
+                    "cleared — the next flow run will re-discover " +
                       "format/lint/test"
                   )
                 case _ => ()
     catch
       case NonFatal(e) =>
-        println(s"orca: couldn't re-discover stack settings — ${e.getMessage}")
+        ShellOut.say(
+          s"couldn't re-discover stack settings — ${e.getMessage}"
+        )
 
   private def noStackSettingsToClear(): Unit =
-    println(
-      "orca: no stack settings to clear (discovery runs on the next flow)"
+    ShellOut.say(
+      "no stack settings to clear (discovery runs on the next flow)"
     )
 
   /** ` format: <cmd>` per line for each non-empty [[StackSettings]] key, in

@@ -2,7 +2,7 @@ package orca.shell.wizard
 
 import orca.agents.BackendTag
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile, SettingsScope}
-import orca.shell.ui.{Choice, ShellUi, UiOutcome}
+import orca.shell.ui.{Choice, ShellOut, ShellUi, UiOutcome}
 import ox.discard
 
 /** The welcome wizard (ADR 0021 §4): detects installed harnesses, asks the user
@@ -120,7 +120,7 @@ class Wizard(
     // comments alongside the bad lines — say so, since the Reconfigure path
     // reaches here without the repair flow's explicit confirm.
     if existingContent.nonEmpty && parseable.isEmpty then
-      println(
+      ShellOut.say(
         s"The existing file at $globalSettingsPath did not parse; rewriting it " +
           "from scratch (previous contents, including comments, are replaced)."
       )
@@ -129,7 +129,7 @@ class Wizard(
         SettingsFile.updateGlobal(_, agents)
       )
     os.write.over(globalSettingsPath, content, createFolders = true)
-    println(
+    ShellOut.say(
       s"Settings written to $globalSettingsPath — hand-editable any time " +
         "(`harness[:model]`, e.g. `claude:sonnet`)."
     )

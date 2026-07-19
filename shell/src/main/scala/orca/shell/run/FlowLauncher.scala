@@ -1,7 +1,7 @@
 package orca.shell.run
 
 import orca.shell.ShellVersion
-import orca.shell.ui.{ShellUi, UiOutcome}
+import orca.shell.ui.{ShellOut, ShellUi, UiOutcome}
 import orca.subprocess.QuietProc
 
 /** Outcome of [[FlowLauncher.run]]. */
@@ -150,13 +150,7 @@ object FlowLauncher:
     s"This flow pins an orca version incompatible with the shell ($shellVersion) — " +
       "sessions from a pin-honouring run can't be continued. Run anyway?"
 
-  /** `── <text> ──`: the flow-run start/end delineation printed around every
-    * child spawn (`Main.runFlow`, and the pin-honouring fallback re-run below)
-    * — a plain single line so it survives a narrow terminal without wrapping.
-    */
-  private[shell] def marker(text: String): String = s"── $text ──"
-
-  /** The closing marker's outcome suffix: `finished (exit N)` for a completed
+  /** The flow-end line's outcome suffix: `finished (exit N)` for a completed
     * run, `finished (cancelled)` for a signal-killed one.
     */
   private[shell] def outcomeSuffix(result: LaunchResult): String = result match
@@ -199,7 +193,7 @@ object FlowLauncher:
         ui.confirm(fallbackQuestion(shellVersion), default = true) match
           case UiOutcome.Selected(true) =>
             println()
-            println(marker(s"pin-honouring re-run of ${flow.last}"))
+            ShellOut.say(s"pin-honouring re-run of ${flow.last}")
             val result = toLaunchResult(
               spawnInherited(
                 argv(flow, None, task, verbose = false),
@@ -207,7 +201,7 @@ object FlowLauncher:
                 childEnv(flow)
               )
             )
-            println(marker(s"flow ${flow.last} ${outcomeSuffix(result)}"))
+            ShellOut.say(s"flow ${flow.last} ${outcomeSuffix(result)}")
             println()
             result
           case UiOutcome.Selected(false) | UiOutcome.Cancelled =>
