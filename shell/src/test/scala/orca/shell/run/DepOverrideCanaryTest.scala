@@ -56,19 +56,10 @@ class DepOverrideCanaryTest extends munit.FunSuite:
     )
     lines(cpIndex + 1)
 
-  test(
-    "--dep overriding upward (0.9.1 -> 0.11.3) replaces the directive's pin on the classpath"
-  ):
-    val classpath = classpathAfterOverride("0.11.3")
-    assert(
-      classpath.contains("os-lib_3-0.11.3"),
-      s"expected 0.11.3 on the classpath, got: $classpath"
-    )
-    assert(
-      !classpath.contains("os-lib_3-0.9.1"),
-      s"expected no 0.9.1 on the classpath, got: $classpath"
-    )
-
+  // The downward case is load-bearing: a LOWER version on the classpath proves
+  // `--dep` REPLACES the directive's pin rather than folding into highest-wins
+  // resolution (which would keep 0.9.1). An upward override can't distinguish
+  // the two, so it isn't worth a separate case.
   test(
     "--dep overriding downward (0.9.1 -> 0.8.1) replaces the directive's pin on the classpath"
   ):

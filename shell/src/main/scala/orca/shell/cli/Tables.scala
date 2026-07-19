@@ -39,7 +39,9 @@ private[cli] object Tables:
       CodecMakerConfig.withTransientEmpty(false).withTransientNone(false)
     )
 
-  private[cli] def sessionListingRows(runs: List[RecordedRun]): List[SessionRow] =
+  private[cli] def sessionListingRows(
+      runs: List[RecordedRun]
+  ): List[SessionRow] =
     SessionPicker
       .withoutExpanders(SessionPicker.sessionRows(runs, expanded = true))
       .zipWithIndex

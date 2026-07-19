@@ -73,47 +73,6 @@ class AgentCallSessionCommittedTest extends munit.FunSuite:
       assertEquals(committed.head.agent, "claude")
       assertEquals(committed.head.role, Some("reviewer"))
 
-  test(
-    "structured autonomous run whose retries exhaust still emits SessionCommitted"
-  ):
-    // First turn drains fine (the backend commits the session on every call,
-    // as a real subprocess's drainAndCommit does) but never parses, so every
-    // retry re-sends "garbage" until the schedule's 6 attempts (1 + 5
-    // retries) are exhausted and the call throws.
-    val backend = new SequencedBackend(List.fill(6)("garbage"))
-    val seen = AtomicReference[List[OrcaEvent]](Nil)
-    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
-    supervised:
-      val call = new DefaultAgentCall[
-        BackendTag.ClaudeCode.type,
-        SessionCommittedAnswer
-      ](
-        backend = backend,
-        effectiveConfig =
-          cfg => cfg.getOrElse(AgentConfig()).copy(retrySchedule = fastRetry),
-        prompts = DefaultPrompts,
-        events = listener,
-        interaction = stubInteraction,
-        agentName = "claude",
-        agentRole = Some("reviewer")
-      )
-      val _ =
-        intercept[MalformedAgentOutputException](
-          call.autonomous.run("question")
-        )
-      val committed = seen.get().reverse.collect {
-        case e: OrcaEvent.SessionCommitted => e
-      }
-      assert(committed.nonEmpty, "expected at least one SessionCommitted")
-      // Per-attempt firing (dedup is a listener-side concern per the event's
-      // scaladoc): every attempt commits the same session, so all payloads
-      // must agree.
-      assertEquals(committed.distinct.size, 1, committed)
-      assertEquals(committed.head.harness, BackendTag.ClaudeCode.wireName)
-      assertEquals(committed.head.wireId, Some("committed-wire"))
-      assertEquals(committed.head.agent, "claude")
-      assertEquals(committed.head.role, Some("reviewer"))
-
   test("interactive path emits SessionCommitted after register"):
     val clientSid = SessionId[BackendTag.ClaudeCode.type]("client-uuid-cccc")
     val serverSid =

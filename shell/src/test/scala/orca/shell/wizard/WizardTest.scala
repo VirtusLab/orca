@@ -266,19 +266,14 @@ class WizardTest extends munit.FunSuite:
       )
       assert(Wizard(ui, probe, path).run(reconfigure = true))
 
+      // The gate: the malformed file is rewritten from scratch — the result
+      // parses cleanly and the junk is gone. What the chosen roles serialise to
+      // is covered by the first-run data test.
       val written = os.read(path)
-      val parsed = SettingsFile.parse(written, SettingsScope.UserGlobal)
       assert(
-        parsed.isRight,
+        SettingsFile.parse(written, SettingsScope.UserGlobal).isRight,
         s"the rewritten file must parse cleanly, got: $written"
       )
-      val agents = parsed.toOption.get.agents
-      assertEquals(
-        agents.planning,
-        Some(AgentSpec(BackendTag.ClaudeCode, None))
-      )
-      assertEquals(agents.coding, Some(AgentSpec(BackendTag.Codex, None)))
-      assertEquals(agents.review, Some(AgentSpec(BackendTag.Gemini, None)))
       assert(
         !written.contains("not a valid line"),
         s"the malformed junk must not survive, got: $written"

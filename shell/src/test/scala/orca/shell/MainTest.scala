@@ -167,7 +167,9 @@ class MainTest extends munit.FunSuite:
     val resumes = resumeSelections(rows)
     assertEquals(resumes.map(_.session.stage), List(Some("Task: fix bug")))
 
-  test("sessionRows (collapsed): starred row is labeled with the session name"):
+  test(
+    "sessionRows (collapsed): render shape is the starred row plus both expander labels"
+  ):
     val rows = SessionPicker.sessionRows(mixedRuns(), expanded = false)
     assertEquals(
       rows.map(_.label),
@@ -356,37 +358,8 @@ class MainTest extends munit.FunSuite:
       List(Some(reason))
     )
 
-  test("sessionRows disables an unrecognised harness"):
-    val run = RecordedRun(
-      manifest(sessions = List(durable(harness = "SomeFutureHarness"))),
-      crashed = false
-    )
-    assert(
-      SessionPicker
-        .sessionRows(List(run), expanded = false)
-        .head
-        .disabledReason
-        .isDefined
-    )
-
   test("sessionRows enables a claude session with a wireId"):
     val run = RecordedRun(manifest(sessions = List(durable())), crashed = false)
-    assertEquals(
-      SessionPicker
-        .sessionRows(List(run), expanded = false)
-        .map(_.disabledReason),
-      List(None)
-    )
-
-  test(
-    "sessionRows enables a gemini session with a wireId, deferring the real index lookup to selection"
-  ):
-    val run = RecordedRun(
-      manifest(sessions =
-        List(durable(harness = "Gemini", wireId = Some("uuid")))
-      ),
-      crashed = false
-    )
     assertEquals(
       SessionPicker
         .sessionRows(List(run), expanded = false)

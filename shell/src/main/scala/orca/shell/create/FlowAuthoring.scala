@@ -54,8 +54,8 @@ private[shell] object FlowAuthoring:
   def normalizedFileName(raw: String): String =
     if raw.endsWith(".sc") then raw else s"$raw.sc"
 
-  /** Words dropped from [[localFilenameSlug]]'s slug — common enough to appear in
-    * almost any goal sentence without saying anything about the flow itself.
+  /** Words dropped from [[localFilenameSlug]]'s slug — common enough to appear
+    * in almost any goal sentence without saying anything about the flow itself.
     */
   private val slugStopwords =
     Set("a", "an", "the", "to", "for", "and", "of", "in", "on", "with")
@@ -146,16 +146,16 @@ private[shell] object FlowAuthoring:
   private val slugTimeoutMillis = 4000L
 
   /** Best-effort filename suggestion for a new flow — the "cheap slug prompt":
-    * runs `backend` non-interactively on [[slugPrompt]] (via
-    * [[slugArgv]]) with a short timeout, sanitizes its last non-blank output
-    * line through [[sanitizeSlug]], and falls back to [[localFilenameSlug]]'s
-    * local word-based derivation whenever the harness is unreachable, too slow,
-    * exits non-zero, or replies with nothing [[sanitizeSlug]] can turn into
-    * more than `new-flow.sc`. This is a nicety layered on top of a
-    * fully-working local fallback, never something the caller blocks on
-    * indefinitely. `runner` is injected for testing — a stub returning canned
-    * stdout, or `None` to simulate an unreachable/timed-out harness — and
-    * defaults to a real, timeout-bounded [[os.proc]] spawn ([[runSlugProc]]).
+    * runs `backend` non-interactively on [[slugPrompt]] (via [[slugArgv]]) with
+    * a short timeout, sanitizes its last non-blank output line through
+    * [[sanitizeSlug]], and falls back to [[localFilenameSlug]]'s local
+    * word-based derivation whenever the harness is unreachable, too slow, exits
+    * non-zero, or replies with nothing [[sanitizeSlug]] can turn into more than
+    * `new-flow.sc`. This is a nicety layered on top of a fully-working local
+    * fallback, never something the caller blocks on indefinitely. `runner` is
+    * injected for testing — a stub returning canned stdout, or `None` to
+    * simulate an unreachable/timed-out harness — and defaults to a real,
+    * timeout-bounded [[os.proc]] spawn ([[runSlugProc]]).
     */
   def suggestFilename(
       backend: BackendTag,
@@ -310,12 +310,12 @@ private[shell] object FlowAuthoring:
         os.move(tmp, path, replaceExisting = true)
 
   /** The initial prompt handed to the authoring harness (ADR 0021 §9): the goal
-    * and target path, the verbatim
-    * version-pinned header to start the file with, the line-1 `//` description
-    * convention, pointers to the extracted README/examples, the `scala-cli
-    * compile` verification step, the runtime-vs-compile-time rules caveat, and
-    * — last resort only — the tag-pinned raw README URL. Kept in one place
-    * since the prompt text is itself the deliverable.
+    * and target path, the verbatim version-pinned header to start the file
+    * with, the line-1 `//` description convention, pointers to the extracted
+    * README/examples, the `scala-cli compile` verification step, the
+    * runtime-vs-compile-time rules caveat, and — last resort only — the
+    * tag-pinned raw README URL. Kept in one place since the prompt text is
+    * itself the deliverable.
     *
     * On a non-release `orcaVersion` (a dev build's `"dev"`, or a dynver
     * snapshot) the plain `//> using dep` pin doesn't resolve from Maven
@@ -416,9 +416,9 @@ private[shell] object FlowAuthoring:
       if !os.exists(copy) then os.copy(sourcePath, copy, replaceExisting = true)
       copy
 
-  /** The initial prompt for a fork session (ADR 0021 §9): states the
-    * source path and the described changes, instructs copying the source to the
-    * target path verbatim before applying them, and otherwise mirrors
+  /** The initial prompt for a fork session (ADR 0021 §9): states the source
+    * path and the described changes, instructs copying the source to the target
+    * path verbatim before applying them, and otherwise mirrors
     * [[initialPrompt]]'s API-reference pointers, compile-check step, and
     * runtime-rules caveat. `sourcePath` is whatever [[resolveForkSource]]
     * resolved — a path already known-readable from the harness's workspace.

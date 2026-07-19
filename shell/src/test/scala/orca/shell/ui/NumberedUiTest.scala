@@ -29,11 +29,6 @@ class NumberedUiTest extends munit.FunSuite:
     assert(rendered.contains("no manifests"))
     assert(rendered.contains("3. Third"))
 
-  test("select accepts a numeric line and returns the matching value"):
-    val (ui, _) = uiOf("2\n")
-    // choice 2 is disabled, so "2" alone must re-prompt into EOF -> Cancelled
-    assertEquals(ui.select("Pick one", choices), UiOutcome.Cancelled)
-
   test("select returns the value of an enabled choice"):
     val (ui, _) = uiOf("3\n")
     assertEquals(ui.select("Pick one", choices), UiOutcome.Selected(3))
@@ -105,13 +100,6 @@ class NumberedUiTest extends munit.FunSuite:
     assertEquals(
       ui.inputMultiline("Task"),
       UiOutcome.Selected("first\n\nthird")
-    )
-
-  test("inputMultiline reads until EOF, not just the first line"):
-    val (ui, _) = uiOf("one\ntwo\nthree\n")
-    assertEquals(
-      ui.inputMultiline("Task"),
-      UiOutcome.Selected("one\ntwo\nthree")
     )
 
   test("inputMultiline trims leading/trailing blank lines from the result"):

@@ -33,8 +33,8 @@ import scala.annotation.tailrec
   * its public API — `ListItem.isSelectable()` is hardcoded `true`, and
   * `ListPromptBuilder` exposes no way to add a `Separator`; only the checkbox
   * prompt's items carry a disabled flag (jar-verified against
-  * `jline-console-ui` 3.30.15). Disabled choices are therefore rendered with their
-  * reason folded into the label and, if picked anyway, the prompt simply
+  * `jline-console-ui` 3.30.15). Disabled choices are therefore rendered with
+  * their reason folded into the label and, if picked anyway, the prompt simply
   * re-runs — same "not a valid answer" re-prompt `NumberedUi` uses. The same
   * absence rules out honoring `preselect`'s starting cursor position; it is a
   * no-op here.

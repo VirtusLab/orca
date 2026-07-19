@@ -143,9 +143,9 @@ private[cli] object AuthorCli:
       s"'$fileName' isn't a valid flow filename — path separators aren't allowed"
     )
 
-  /** [[FlowAuthoring.prepareTarget]], with any exception os-lib's path arithmetic
-    * throws for a filename that survived [[validateFileName]] but still drives
-    * it outside the filesystem root (e.g.
+  /** [[FlowAuthoring.prepareTarget]], with any exception os-lib's path
+    * arithmetic throws for a filename that survived [[validateFileName]] but
+    * still drives it outside the filesystem root (e.g.
     * `os.PathError.AbsolutePathOutsideRoot` — every `os.PathError` variant is a
     * plain `IllegalArgumentException`, there's no shared marker type to catch)
     * converted to a clean `Left` instead of propagating as an uncaught

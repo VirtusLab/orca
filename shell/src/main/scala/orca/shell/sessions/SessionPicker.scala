@@ -17,9 +17,9 @@ import scala.util.Try
 private[shell] object SessionPicker:
 
   /** One session occurrence paired with the run it came from — the unit
-    * [[sessionRows]] groups, sorts, and labels. Carrying the whole [[RecordedRun]]
-    * (not just its `crashed` flag) keeps [[SessionSelection]] constructible
-    * straight from an occurrence.
+    * [[sessionRows]] groups, sorts, and labels. Carrying the whole
+    * [[RecordedRun]] (not just its `crashed` flag) keeps [[SessionSelection]]
+    * constructible straight from an occurrence.
     */
   private case class Occurrence(run: RecordedRun, session: ManifestSession)
 

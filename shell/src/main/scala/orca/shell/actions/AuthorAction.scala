@@ -68,10 +68,10 @@ private[shell] object AuthorAction:
       params.yolo
     )
 
-  /** Fork-an-existing-flow authoring: extracts the
-    * bundled API material, resolves the source flow to a harness-readable path
-    * ([[FlowAuthoring.resolveForkSource]]), builds [[FlowAuthoring.forkPrompt]], and
-    * launches the authoring session.
+  /** Fork-an-existing-flow authoring: extracts the bundled API material,
+    * resolves the source flow to a harness-readable path
+    * ([[FlowAuthoring.resolveForkSource]]), builds
+    * [[FlowAuthoring.forkPrompt]], and launches the authoring session.
     */
   def fork(
       source: DiscoveredFlow,
@@ -125,8 +125,8 @@ private[shell] object AuthorAction:
 
   /** Execs the harness from `target.cwd` with `prompt` as its initial message
     * under [[ChildTerminal.withChild]] (ADR 0021 §2) — the shared final step
-    * for both [[create]] and [[fork]]. Prints [[FlowAuthoring.yoloCaveat]] first
-    * when set (pi/opencode can't honor `yolo` via argv). When
+    * for both [[create]] and [[fork]]. Prints [[FlowAuthoring.yoloCaveat]]
+    * first when set (pi/opencode can't honor `yolo` via argv). When
     * [[FlowAuthoring.harnessArgv]] returns a paste-fallback prompt (opencode),
     * it's printed and the user must confirm they've read it before the harness
     * launches — its TUI switches to the alternate screen buffer, which would

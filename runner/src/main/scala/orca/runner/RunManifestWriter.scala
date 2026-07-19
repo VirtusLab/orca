@@ -238,13 +238,13 @@ private[runner] class RunManifestWriterState(
 
   /** `clientId` joined against every `progress-*.json` under `.orca/` —
     * `SessionRecord`s only exist for durable `agent.session(name, seed)`
-    * sessions, so a match means `clientId` came from one;
-    * the record's `name` is the manifest's `sessionName`. `None` for a plain
-    * one-shot call — and, a known gap, for an interactive call too
-    * (`AgentCall.runInteractiveOnce` mints a fresh `SessionId` that never
-    * touches a `FlowSession`), so interactive sessions currently report `kind:
-    * "oneShot"` (a gap for the ADR to absorb: `SessionCommitted` carries
-    * nothing that distinguishes interactive from autonomous).
+    * sessions, so a match means `clientId` came from one; the record's `name`
+    * is the manifest's `sessionName`. `None` for a plain one-shot call — and, a
+    * known gap, for an interactive call too (`AgentCall.runInteractiveOnce`
+    * mints a fresh `SessionId` that never touches a `FlowSession`), so
+    * interactive sessions currently report `kind: "oneShot"` (a gap for the ADR
+    * to absorb: `SessionCommitted` carries nothing that distinguishes
+    * interactive from autonomous).
     */
   private def durableSessionName(clientId: String): Option[String] =
     progressLogFiles.iterator
@@ -272,9 +272,9 @@ private[runner] class RunManifestWriterState(
     * temp+move idiom: a sibling temp file, then `os.move(atomicMove = true)` so
     * a crash mid-write never leaves a torn file behind. On the very first
     * write, also prunes `.orca/cache/runs/` down to its newest
-    * [[MaxKeptManifests]] files (ADR
-    * 0021 §8) — every later write only rewrites this run's own file, so no new
-    * file is ever added afterward and re-pruning would find nothing to do.
+    * [[MaxKeptManifests]] files (ADR 0021 §8) — every later write only rewrites
+    * this run's own file, so no new file is ever added afterward and re-pruning
+    * would find nothing to do.
     */
   private def write(): Unit =
     val manifest = RunManifest(
@@ -308,12 +308,12 @@ private[runner] class RunManifestWriterState(
       state = state.copy(prunedOnce = true)
       pruneOldManifests(dir)
 
-  /** Keeps the newest [[MaxKeptManifests]] (by filename, which sorts chronologically
-    * since `<startedAt-epoch-ms>-<pid>.json` epoch prefixes are fixed-width),
-    * deleting the rest. Fully best-effort — the listing itself and each delete
-    * are both guarded — since this runs exactly once per writer and a failure
-    * here (a vanished dir, a concurrent cleanup) must not turn into a
-    * quarantined listener or an aborted manifest write.
+  /** Keeps the newest [[MaxKeptManifests]] (by filename, which sorts
+    * chronologically since `<startedAt-epoch-ms>-<pid>.json` epoch prefixes are
+    * fixed-width), deleting the rest. Fully best-effort — the listing itself
+    * and each delete are both guarded — since this runs exactly once per writer
+    * and a failure here (a vanished dir, a concurrent cleanup) must not turn
+    * into a quarantined listener or an aborted manifest write.
     */
   private def pruneOldManifests(dir: os.Path): Unit =
     try

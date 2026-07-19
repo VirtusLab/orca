@@ -451,15 +451,17 @@ class CliTest extends munit.FunSuite:
         ConfigCli.runConfig(path, Some("codex"), None, None, force = true),
         ExitCodes.Ok
       )
-      val written = orca.settings.SettingsFile
-        .parse(os.read(path), orca.settings.SettingsScope.UserGlobal)
-        .toOption
-        .get
-        .agents
-      assertEquals(
-        written,
-        AgentSettings(planning = Some(AgentSpec(BackendTag.Codex, None)))
+      // The gate: --force rewrites the malformed file into one that parses
+      // cleanly (junk gone). The exact merged content is covered by the
+      // subset-merge test above.
+      val written = os.read(path)
+      assert(
+        orca.settings.SettingsFile
+          .parse(written, orca.settings.SettingsScope.UserGlobal)
+          .isRight,
+        written
       )
+      assert(!written.contains("not a valid line"), written)
 
   test("renderAgents: a set model pin renders as harness:model"):
     val text = ConfigCli.renderAgents(

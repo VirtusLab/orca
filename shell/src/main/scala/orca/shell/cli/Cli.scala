@@ -48,8 +48,8 @@ private[shell] object Cli:
     CliFailure(message, ExitCodes.ActionFailed)
 
   /** Runs a handler's for-comprehension to a process exit code: a `Left` is
-    * [[diagnostic]] emitted to stderr and yields its carried exit code, a `Right` is the
-    * subcommand's own returned code.
+    * [[diagnostic]] emitted to stderr and yields its carried exit code, a
+    * `Right` is the subcommand's own returned code.
     */
   private[cli] def complete(program: Either[CliFailure, Int]): Int =
     program match

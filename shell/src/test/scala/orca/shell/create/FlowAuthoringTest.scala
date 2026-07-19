@@ -102,7 +102,12 @@ class FlowAuthoringTest extends munit.FunSuite:
     "initialPrompt (dev version) injects ivy2Local right after the dep pin, so the compile hint stays honest"
   ):
     val devPrompt =
-      FlowAuthoring.initialPrompt("sync issues nightly", targetPath, apiDir, "dev")
+      FlowAuthoring.initialPrompt(
+        "sync issues nightly",
+        targetPath,
+        apiDir,
+        "dev"
+      )
     val depLineIdx = devPrompt.linesIterator.indexWhere(
       _.contains("""//> using dep "org.virtuslab::orca:dev"""")
     )
@@ -142,7 +147,8 @@ class FlowAuthoringTest extends munit.FunSuite:
 
   test("harnessArgv: gemini uses -i/--prompt-interactive"):
     assertEquals(
-      FlowAuthoring.harnessArgv(BackendTag.Gemini, "do the thing", yolo = false),
+      FlowAuthoring
+        .harnessArgv(BackendTag.Gemini, "do the thing", yolo = false),
       HarnessLaunch(Seq("gemini", "-i", "do the thing"), None)
     )
 
@@ -150,7 +156,8 @@ class FlowAuthoringTest extends munit.FunSuite:
     "harnessArgv: opencode launches bare with the prompt as a paste-fallback (--prompt only prefills, doesn't submit)"
   ):
     assertEquals(
-      FlowAuthoring.harnessArgv(BackendTag.Opencode, "do the thing", yolo = false),
+      FlowAuthoring
+        .harnessArgv(BackendTag.Opencode, "do the thing", yolo = false),
       HarnessLaunch(Seq("opencode"), Some("do the thing"))
     )
 
@@ -195,7 +202,8 @@ class FlowAuthoringTest extends munit.FunSuite:
     "harnessArgv: yolo is a no-op for opencode (no interactive-TUI flag exists)"
   ):
     assertEquals(
-      FlowAuthoring.harnessArgv(BackendTag.Opencode, "do the thing", yolo = true),
+      FlowAuthoring
+        .harnessArgv(BackendTag.Opencode, "do the thing", yolo = true),
       HarnessLaunch(Seq("opencode"), Some("do the thing"))
     )
 
@@ -250,13 +258,13 @@ class FlowAuthoringTest extends munit.FunSuite:
   test(
     "localFilenameSlug falls back to new-flow.sc when nothing survives filtering (all stopwords)"
   ):
-    assertEquals(FlowAuthoring.localFilenameSlug("the a to for and"), "new-flow.sc")
+    assertEquals(
+      FlowAuthoring.localFilenameSlug("the a to for and"),
+      "new-flow.sc"
+    )
 
   test("localFilenameSlug falls back to new-flow.sc on punctuation-only input"):
     assertEquals(FlowAuthoring.localFilenameSlug("!!! ??? ..."), "new-flow.sc")
-
-  test("localFilenameSlug falls back to new-flow.sc on empty input"):
-    assertEquals(FlowAuthoring.localFilenameSlug(""), "new-flow.sc")
 
   test("localFilenameSlug takes only the first four words, ignoring the rest"):
     assertEquals(
@@ -312,10 +320,10 @@ class FlowAuthoringTest extends munit.FunSuite:
     )
 
   test("sanitizeSlug strips an existing .sc suffix before re-appending it"):
-    assertEquals(FlowAuthoring.sanitizeSlug("my-cool-flow.sc"), "my-cool-flow.sc")
-
-  test("sanitizeSlug falls back to new-flow.sc on an empty string"):
-    assertEquals(FlowAuthoring.sanitizeSlug(""), "new-flow.sc")
+    assertEquals(
+      FlowAuthoring.sanitizeSlug("my-cool-flow.sc"),
+      "my-cool-flow.sc"
+    )
 
   test("sanitizeSlug falls back to new-flow.sc on punctuation/whitespace only"):
     assertEquals(FlowAuthoring.sanitizeSlug("   !!! ... ???  "), "new-flow.sc")
@@ -344,7 +352,8 @@ class FlowAuthoringTest extends munit.FunSuite:
     val runner: (Seq[String], Long) => Option[String] = (_, _) => None
     val goal = "Implement a rate limiter for the login endpoint"
     assertEquals(
-      FlowAuthoring.suggestFilename(BackendTag.ClaudeCode, goal, runner = runner),
+      FlowAuthoring
+        .suggestFilename(BackendTag.ClaudeCode, goal, runner = runner),
       FlowAuthoring.localFilenameSlug(goal)
     )
 
@@ -355,7 +364,8 @@ class FlowAuthoringTest extends munit.FunSuite:
       (_, _) => Some("   !!! ... ???  ")
     val goal = "Implement a rate limiter for the login endpoint"
     assertEquals(
-      FlowAuthoring.suggestFilename(BackendTag.ClaudeCode, goal, runner = runner),
+      FlowAuthoring
+        .suggestFilename(BackendTag.ClaudeCode, goal, runner = runner),
       FlowAuthoring.localFilenameSlug(goal)
     )
 

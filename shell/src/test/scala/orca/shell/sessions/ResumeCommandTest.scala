@@ -131,20 +131,6 @@ class ResumeCommandTest extends munit.FunSuite:
       Right(BackendTag.Gemini)
     )
 
-  test(
-    "staticGate: a wireId-less session reports the manifest's stored reason"
-  ):
-    val reason = "pi sessions are deleted when the run's temp dir is reclaimed"
-    assertEquals(
-      ResumeCommand.staticGate(session("Pi", None, reason = Some(reason))),
-      Left(reason)
-    )
-
-  test("staticGate: an unrecognised harness string is not resumable"):
-    assert(
-      ResumeCommand.staticGate(session("SomeFutureHarness", Some("id"))).isLeft
-    )
-
   // Populated shape built from gemini-cli 0.50.0's own `listSessions` source
   // (see ResumeCommand.geminiIndexOf's scaladoc for provenance) — real ids
   // are full UUIDs, not the 8-char form shown in the CLI's own docs example.

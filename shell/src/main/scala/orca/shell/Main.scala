@@ -194,8 +194,8 @@ object Main:
         promptTask(ui)
       case UiOutcome.Selected(text) => Some(text)
 
-  /** New-flow authoring: tier → goal → filename (defaulted from the
-    * goal's [[suggestFilenameForGoal]] slug) → harness+yolo, then hands off to
+  /** New-flow authoring: tier → goal → filename (defaulted from the goal's
+    * [[suggestFilenameForGoal]] slug) → harness+yolo, then hands off to
     * [[AuthorAction.create]]. Cancelling any prompt, or a filename collision,
     * aborts back to the menu without launching anything. Reachable via
     * [[MenuItem.CreateFlow]]; [[MenuItem.ForkFlow]] is the sibling entry point
@@ -219,11 +219,10 @@ object Main:
       val params = AuthorParams(tier, target, backend, yolo)
       AuthorAction.create(goal, params, workDir, ui, terminal).discard
 
-  /** Fork-an-existing-flow authoring: pick the source flow from every
-    * tier (same rows View/Edit use) → describe the changes → tier for the
-    * fork's target → filename (defaulted from
-    * [[FlowAuthoring.forkFilenameDefault]]) → harness+yolo, then hands off to
-    * [[AuthorAction.fork]].
+  /** Fork-an-existing-flow authoring: pick the source flow from every tier
+    * (same rows View/Edit use) → describe the changes → tier for the fork's
+    * target → filename (defaulted from [[FlowAuthoring.forkFilenameDefault]]) →
+    * harness+yolo, then hands off to [[AuthorAction.fork]].
     */
   private def createForkFlow(ui: ShellUi, terminal: Terminal): Unit =
     val workDir = os.pwd
@@ -304,9 +303,9 @@ object Main:
         promptDescription(ui, label)
       case UiOutcome.Selected(text) => Some(text)
 
-  /** Harness picker (see [[selectHarness]]) plus the yolo confirm:
-    * `"Run the harness without approval prompts (yolo)?"`, defaulting to yes to
-    * match that Orca's own flows already run autonomously by default.
+  /** Harness picker (see [[selectHarness]]) plus the yolo confirm: `"Run the
+    * harness without approval prompts (yolo)?"`, defaulting to yes to match
+    * that Orca's own flows already run autonomously by default.
     */
   private def selectHarnessAndYolo(ui: ShellUi): Option[(BackendTag, Boolean)] =
     for

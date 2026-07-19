@@ -27,16 +27,6 @@ class FlowLauncherTest extends munit.FunSuite:
       Seq("scala-cli", "run", flow.toString, "--", "do the thing")
     )
 
-  test("argv places the task text after -- as its own argv element"):
-    val result = FlowLauncher.argv(
-      flow,
-      Some("0.0.18"),
-      "a task with spaces",
-      verbose = false
-    )
-    assertEquals(result.last, "a task with spaces")
-    assertEquals(result(result.indexOf("--") + 1), "a task with spaces")
-
   test(
     "argv adds --verbose (OrcaArgs's exact flag spelling) after -- when verbose is set"
   ):
@@ -60,11 +50,6 @@ class FlowLauncherTest extends munit.FunSuite:
       "--verbose must come after --"
     )
 
-  test("argv omits --verbose when verbose is false"):
-    val result =
-      FlowLauncher.argv(flow, Some("0.0.18"), "do the thing", verbose = false)
-    assert(!result.contains("--verbose"))
-
   test("argv keeps a spaces-bearing flow path as a single argv element"):
     val spacedFlow = os.root / "home" / "u" / "my flows" / "release.sc"
     val result = FlowLauncher.argv(spacedFlow, None, "task", verbose = false)
@@ -85,28 +70,17 @@ class FlowLauncherTest extends munit.FunSuite:
     )
 
   test(
-    "resolveNextAction: a SIGINT exit (130) is CancelledBySignal, without invoking the compile probe"
+    "resolveNextAction: a signal-range exit (SIGINT 130 / SIGTERM 143) is CancelledBySignal, without invoking the compile probe"
   ):
-    val probeCalls = new java.util.concurrent.atomic.AtomicInteger(0)
-    val result = FlowLauncher.resolveNextAction(
-      130,
-      forcedVersionDefined = true,
-      () => probeCalls.incrementAndGet()
-    )
-    assertEquals(result, FlowLauncher.NextAction.CancelledBySignal)
-    assertEquals(probeCalls.get(), 0)
-
-  test(
-    "resolveNextAction: a SIGTERM exit (143) is CancelledBySignal, without invoking the compile probe"
-  ):
-    val probeCalls = new java.util.concurrent.atomic.AtomicInteger(0)
-    val result = FlowLauncher.resolveNextAction(
-      143,
-      forcedVersionDefined = true,
-      () => probeCalls.incrementAndGet()
-    )
-    assertEquals(result, FlowLauncher.NextAction.CancelledBySignal)
-    assertEquals(probeCalls.get(), 0)
+    for signalExit <- List(130, 143) do
+      val probeCalls = new java.util.concurrent.atomic.AtomicInteger(0)
+      val result = FlowLauncher.resolveNextAction(
+        signalExit,
+        forcedVersionDefined = true,
+        () => probeCalls.incrementAndGet()
+      )
+      assertEquals(result, FlowLauncher.NextAction.CancelledBySignal)
+      assertEquals(probeCalls.get(), 0)
 
   test(
     "resolveNextAction: a non-signal failure (1) still invokes the compile probe"

@@ -28,8 +28,8 @@ private[orca] object Conversations:
     *
     * State is confined to the drain's single-threaded event loop — the mutable
     * `StringBuilder`/`var` here is a deliberate, reviewed deviation from the
-    * codebase's Ox-concurrency default, not an actor oversight: this runs on one
-    * thread only, so no channel/actor would buy anything.
+    * codebase's Ox-concurrency default, not an actor oversight: this runs on
+    * one thread only, so no channel/actor would buy anything.
     */
   private final class TurnBuffer(structuredMode: Boolean, emit: String => Unit):
     private val current = new StringBuilder
