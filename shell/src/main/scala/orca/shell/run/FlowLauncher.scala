@@ -119,10 +119,26 @@ object FlowLauncher:
     else if isSignalExit(exit) then LaunchResult.Cancelled
     else LaunchResult.Failed(exit)
 
-  private def spawnInherited(argv: Seq[String], workDir: os.Path): Int =
+  /** `ORCA_FLOW_NAME`, read by `runner`'s `flow()` (`orca.flow.scala`) to stamp
+    * the run manifest's `flow` field — the flow script's own filename, per the
+    * manifest schema (`RunManifest.flow`'s scaladoc examples), unavailable from
+    * inside the running script itself.
+    */
+  private[run] def childEnv(flow: os.Path): Map[String, String] =
+    Map("ORCA_FLOW_NAME" -> flow.last)
+
+  /** `env` is added onto the inherited environment (os-lib's `ProcessBuilder`
+    * starts from the parent's own env), not a replacement of it.
+    */
+  private def spawnInherited(
+      argv: Seq[String],
+      workDir: os.Path,
+      env: Map[String, String]
+  ): Int =
     os.proc(argv)
       .call(
         cwd = workDir,
+        env = env,
         stdin = os.Inherit,
         stdout = os.Inherit,
         stderr = os.Inherit,
@@ -154,8 +170,11 @@ object FlowLauncher:
     val shellVersion = ShellVersion.value
     val forcedVersion =
       if ShellVersion.isRelease(shellVersion) then Some(shellVersion) else None
-    val forcedExit =
-      spawnInherited(argv(flow, forcedVersion, task, verbose = false), workDir)
+    val forcedExit = spawnInherited(
+      argv(flow, forcedVersion, task, verbose = false),
+      workDir,
+      childEnv(flow)
+    )
     val compileProbe = () =>
       QuietProc.call(compileArgv(flow, forcedVersion), cwd = workDir).exitCode
     resolveNextAction(forcedExit, forcedVersion.isDefined, compileProbe) match
@@ -166,7 +185,11 @@ object FlowLauncher:
         ui.confirm(fallbackQuestion(shellVersion), default = true) match
           case UiOutcome.Selected(true) =>
             toLaunchResult(
-              spawnInherited(argv(flow, None, task, verbose = false), workDir)
+              spawnInherited(
+                argv(flow, None, task, verbose = false),
+                workDir,
+                childEnv(flow)
+              )
             )
           case UiOutcome.Selected(false) | UiOutcome.Cancelled =>
             LaunchResult.Cancelled

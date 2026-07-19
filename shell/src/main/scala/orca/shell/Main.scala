@@ -22,6 +22,7 @@ import orca.subprocess.{PathProbe, QuietProc}
 import ox.discard
 
 import scala.annotation.tailrec
+import scala.util.Try
 import scala.util.control.NonFatal
 
 /** Entry point for the `orca` shell executable (ADR 0021). */
@@ -187,13 +188,12 @@ object Main:
 
   /** One row per session across every run, in `runs`' order (newest-run-first;
     * a run's own sessions keep the manifest's order). Disabling here previews
-    * only what's known without a live harness call: a wireId-less session (pi
-    * always) or an unrecognised harness. Gemini's real resumability needs
-    * `gemini --list-sessions` (deferred to selection, in [[resumeSession]]), so
-    * its preview passes a placeholder index — any `Some` bypasses just the
-    * "index not yet known" branch of [[ResumeCommand.build]], leaving gemini
-    * rows enabled pending that later check, per the ADR's example UX (research
-    * 08 §C — only pi is greyed out up front).
+    * only what [[ResumeCommand.staticGate]] can tell without a live harness
+    * call: a wireId-less session (pi always) or an unrecognised harness.
+    * Gemini's real resumability needs `gemini --list-sessions` (deferred to
+    * selection, in [[resumeSession]]) — `staticGate` passes any gemini session
+    * with a wireId, leaving its row enabled pending that later check, per the
+    * ADR's example UX (research 08 §C — only pi is greyed out up front).
     */
   private[shell] def sessionRows(
       runs: List[ReadRun]
@@ -201,8 +201,7 @@ object Main:
     runs.flatMap: run =>
       run.manifest.sessions.map: session =>
         val label = sessionLabel(session, run.crashed)
-        val disabledReason =
-          ResumeCommand.build(session, geminiIndex = Some(0)).left.toOption
+        val disabledReason = ResumeCommand.staticGate(session).left.toOption
         Choice(
           SessionSelection(run.manifest, session),
           label,
@@ -232,6 +231,21 @@ object Main:
       .flatMap(AgentSpec.harnessNameFor.get)
       .getOrElse(wireName)
 
+  /** Parses the manifest's stored `workDir` and confirms it's still a directory
+    * — a checkout deleted after its run finished otherwise crashes resume:
+    * `os.Path` throws `IllegalArgumentException` on a relative or malformed
+    * string, and `os.proc`'s `cwd` throws `IOException` on a well-formed but
+    * now-missing directory. Both collapse to the one message here rather than
+    * propagating past the menu.
+    */
+  private[shell] def validatedWorkDir(raw: String): Either[String, os.Path] =
+    val resolved =
+      try Some(os.Path(raw)).filter(p => Try(os.isDir(p)).getOrElse(false))
+      catch case NonFatal(_) => None
+    resolved.toRight(
+      s"the recorded working directory $raw no longer exists"
+    )
+
   /** Resolves gemini's index (a live `gemini --list-sessions` from the
     * manifest's `workDir`, matching the session's stored wireId) if needed,
     * then execs the resume command as a tty-inherited child under
@@ -239,39 +253,49 @@ object Main:
     * may differ from `os.pwd` (claude/gemini/opencode scope session lookup by
     * cwd). A failed or missing `gemini` binary is treated the same as "index
     * not found": [[ResumeCommand.build]] reports it as not resumable.
+    * [[validatedWorkDir]] guards the manifest's `workDir` up front; the exec
+    * itself is further wrapped in a `NonFatal` backstop (e.g. the checkout
+    * vanishing in the gap between that check and this exec, or the resume
+    * binary itself being missing).
     */
   private def resumeSession(
       terminal: Terminal,
       selection: SessionSelection
   ): Unit =
-    val workDir = os.Path(selection.manifest.workDir)
-    val isGemini =
-      BackendTag
-        .fromWireName(selection.session.harness)
-        .contains(BackendTag.Gemini)
-    val geminiIndex =
-      if !isGemini then None
-      else
-        selection.session.wireId.flatMap: uuid =>
-          try
-            val listing =
-              QuietProc.call(Seq("gemini", "--list-sessions"), cwd = workDir)
-            ResumeCommand.geminiIndexOf(listing.out.text(), uuid)
-          catch case NonFatal(_) => None
-    ResumeCommand.build(selection.session, geminiIndex) match
+    validatedWorkDir(selection.manifest.workDir) match
       case Left(reason) => println(s"orca: can't resume — $reason")
-      case Right(argv) =>
-        val exitCode = ChildTerminal.withChild(terminal):
-          os.proc(argv)
-            .call(
-              cwd = workDir,
-              stdin = os.Inherit,
-              stdout = os.Inherit,
-              stderr = os.Inherit,
-              check = false
-            )
-            .exitCode
-        println(s"orca: session ended (exit code $exitCode)")
+      case Right(workDir) =>
+        val isGemini =
+          BackendTag
+            .fromWireName(selection.session.harness)
+            .contains(BackendTag.Gemini)
+        val geminiIndex =
+          if !isGemini then None
+          else
+            selection.session.wireId.flatMap: uuid =>
+              try
+                val listing = QuietProc
+                  .call(Seq("gemini", "--list-sessions"), cwd = workDir)
+                ResumeCommand.geminiIndexOf(listing.out.text(), uuid)
+              catch case NonFatal(_) => None
+        ResumeCommand.build(selection.session, geminiIndex) match
+          case Left(reason) => println(s"orca: can't resume — $reason")
+          case Right(argv) =>
+            try
+              val exitCode = ChildTerminal.withChild(terminal):
+                os.proc(argv)
+                  .call(
+                    cwd = workDir,
+                    stdin = os.Inherit,
+                    stdout = os.Inherit,
+                    stderr = os.Inherit,
+                    check = false
+                  )
+                  .exitCode
+              println(s"orca: session ended (exit code $exitCode)")
+            catch
+              case NonFatal(e) =>
+                println(s"orca: resume failed — ${e.getMessage}")
 
   /** Prompts for Project or Global, copies the built-in there via
     * [[FlowEditor.customizeTarget]], and returns the copy's path — `None` on

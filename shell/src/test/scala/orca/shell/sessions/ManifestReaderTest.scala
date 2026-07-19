@@ -112,6 +112,19 @@ class ManifestReaderTest extends munit.FunSuite:
     val (runs, _) = ManifestReader.list(workDir, alwaysDead)
     assertEquals(runs.map(_.crashed), List(false))
 
+  test(
+    "list skips a manifest with an unparseable startedAt, warning by filename"
+  ):
+    val workDir = TempDirs.dir()
+    writeManifest(workDir, "badstart.json", startedAt = "not-a-timestamp")
+    val (runs, warnings) = ManifestReader.list(workDir, alwaysDead)
+    assertEquals(runs, Nil)
+    assertEquals(warnings.size, 1)
+    assert(
+      warnings.head.contains("badstart.json"),
+      s"expected the filename in the warning, got: ${warnings.head}"
+    )
+
   test("list skips unparseable JSON, warning by filename"):
     val workDir = TempDirs.dir()
     os.write(

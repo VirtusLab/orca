@@ -78,6 +78,12 @@ class FlowLauncherTest extends munit.FunSuite:
       FlowLauncher.argv(flow, None, "   ", verbose = false)
     )
 
+  test("childEnv sets ORCA_FLOW_NAME to the flow script's filename"):
+    assertEquals(
+      FlowLauncher.childEnv(flow),
+      Map("ORCA_FLOW_NAME" -> "flow.sc")
+    )
+
   test(
     "resolveNextAction: a SIGINT exit (130) is CancelledBySignal, without invoking the compile probe"
   ):

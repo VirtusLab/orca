@@ -35,8 +35,10 @@ private[orca] enum RunOutcome:
   * `flowName` comes from `ORCA_FLOW_NAME`, read by the caller (`flow()`), not
   * here — the flow script's own filename is genuinely unavailable inside the
   * library: `runFlow` never sees the `.sc` path, only the parsed `OrcaArgs`.
-  * The shell sets the env var before exec'ing the flow subprocess (epic 6/7);
-  * until then every manifest's `flow` is `None`.
+  * The shell sets the env var before exec'ing the flow subprocess
+  * (`FlowLauncher.childEnv`, `shell`); a flow launched outside the shell
+  * (`scala-cli run` directly) leaves it unset, so its manifest's `flow` is
+  * `None`.
   *
   * THREAD-SAFETY: [[OrcaListener]]s receive events from parallel agent forks,
   * and this listener's update ends in a file write — so, unlike

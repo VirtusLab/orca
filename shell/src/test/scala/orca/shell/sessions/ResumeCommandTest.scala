@@ -1,5 +1,6 @@
 package orca.shell.sessions
 
+import orca.agents.BackendTag
 import orca.runner.ManifestSession
 
 class ResumeCommandTest extends munit.FunSuite:
@@ -100,6 +101,34 @@ class ResumeCommandTest extends munit.FunSuite:
       ResumeCommand
         .build(session("SomeFutureHarness", Some("id")), geminiIndex = None)
         .isLeft
+    )
+
+  test("staticGate: a recognised harness with a wireId is Right with its tag"):
+    assertEquals(
+      ResumeCommand.staticGate(session("ClaudeCode", Some("uuid"))),
+      Right(BackendTag.ClaudeCode)
+    )
+
+  test(
+    "staticGate: gemini with a wireId is Right, deferring the index check to build"
+  ):
+    assertEquals(
+      ResumeCommand.staticGate(session("Gemini", Some("uuid"))),
+      Right(BackendTag.Gemini)
+    )
+
+  test(
+    "staticGate: a wireId-less session reports the manifest's stored reason"
+  ):
+    val reason = "pi sessions are deleted when the run's temp dir is reclaimed"
+    assertEquals(
+      ResumeCommand.staticGate(session("Pi", None, reason = Some(reason))),
+      Left(reason)
+    )
+
+  test("staticGate: an unrecognised harness string is not resumable"):
+    assert(
+      ResumeCommand.staticGate(session("SomeFutureHarness", Some("id"))).isLeft
     )
 
   // Populated shape built from gemini-cli 0.50.0's own `listSessions` source

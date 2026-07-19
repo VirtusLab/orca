@@ -162,7 +162,8 @@ def flow(
     // Per-run session manifest (ADR 0021 §8): always attached, like
     // LoggingListener. `flow` comes from `ORCA_FLOW_NAME` — the flow script's
     // own path is unknown inside the library, so the shell sets this env var
-    // before exec'ing the flow subprocess (epic 6/7); until then it's `None`.
+    // before exec'ing the flow subprocess; a flow run outside the shell
+    // leaves it unset, so `flow` is `None`.
     val manifestWriter = RunManifestWriter.start(
       workDir,
       OrcaBanner.version,

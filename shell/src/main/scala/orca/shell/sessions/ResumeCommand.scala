@@ -7,43 +7,59 @@ import orca.settings.AgentSpec
 /** Per-harness interactive resume argv (ADR 0021 §8's resume table). */
 object ResumeCommand:
 
-  /** Left = not resumable: an unrecognised `harness` string; a wireId-less
-    * session (pi always, since its sessions never survive the run — the
-    * manifest's stored `reason` is used when set, else a generic fallback);
-    * gemini when `geminiIndex` is `None` (gemini resumes interactively by
-    * index, not by uuid — the caller resolves the index by matching the
-    * session's wireId against `gemini --list-sessions` output and passes it
-    * in). Binary names come from [[AgentSpec.harnessNameFor]] (the
-    * settings-file spelling — `claude`, `codex`, …), not the manifest's
-    * [[BackendTag.wireName]].
+  /** Left = not resumable, checkable without a live harness call: an
+    * unrecognised `harness` string, or a wireId-less session (pi always, since
+    * its sessions never survive the run — the manifest's stored `reason` is
+    * used when set, else a generic fallback). `Right` carries the recognised
+    * [[BackendTag]] but doesn't mean "definitely resumable" — gemini's row
+    * still needs [[build]]'s live index lookup. Used both by [[build]] itself
+    * and by the shell's session-list preview (which has no `geminiIndex` yet).
     */
-  def build(
-      s: ManifestSession,
-      geminiIndex: Option[Int]
-  ): Either[String, Seq[String]] =
+  private def wireIdAndTag(
+      s: ManifestSession
+  ): Either[String, (String, BackendTag)] =
     (s.wireId, BackendTag.fromWireName(s.harness)) match
       case (_, None) =>
         Left(s"unknown harness in manifest: `${s.harness}`")
       case (None, Some(_)) =>
         Left(s.reason.getOrElse(s"${s.harness} session has no resumable id"))
-      case (Some(wireId), Some(tag)) =>
-        val binary = AgentSpec.harnessNameFor.getOrElse(tag, s.harness)
-        tag match
-          case BackendTag.ClaudeCode => Right(Seq(binary, "--resume", wireId))
-          case BackendTag.Codex      => Right(Seq(binary, "resume", wireId))
-          case BackendTag.Opencode   => Right(Seq(binary, "--session", wireId))
-          case BackendTag.Gemini =>
-            geminiIndex match
-              case Some(index) =>
-                Right(Seq(binary, "--resume", index.toString))
-              case None =>
-                Left(
-                  s.reason.getOrElse(
-                    s"no matching session found via `$binary --list-sessions`"
-                  )
+      case (Some(wireId), Some(tag)) => Right((wireId, tag))
+
+  /** The static (no-live-call) half of [[build]]'s resumability check, exposed
+    * for the shell's session-list preview.
+    */
+  def staticGate(s: ManifestSession): Either[String, BackendTag] =
+    wireIdAndTag(s).map(_._2)
+
+  /** Left = not resumable: [[staticGate]]'s checks, plus gemini when
+    * `geminiIndex` is `None` (gemini resumes interactively by index, not by
+    * uuid — the caller resolves the index by matching the session's wireId
+    * against `gemini --list-sessions` output and passes it in). Binary names
+    * come from [[AgentSpec.harnessNameFor]] (the settings-file spelling —
+    * `claude`, `codex`, …), not the manifest's [[BackendTag.wireName]].
+    */
+  def build(
+      s: ManifestSession,
+      geminiIndex: Option[Int]
+  ): Either[String, Seq[String]] =
+    wireIdAndTag(s).flatMap: (wireId, tag) =>
+      val binary = AgentSpec.harnessNameFor.getOrElse(tag, s.harness)
+      tag match
+        case BackendTag.ClaudeCode => Right(Seq(binary, "--resume", wireId))
+        case BackendTag.Codex      => Right(Seq(binary, "resume", wireId))
+        case BackendTag.Opencode   => Right(Seq(binary, "--session", wireId))
+        case BackendTag.Gemini =>
+          geminiIndex match
+            case Some(index) =>
+              Right(Seq(binary, "--resume", index.toString))
+            case None =>
+              Left(
+                s.reason.getOrElse(
+                  s"no matching session found via `$binary --list-sessions`"
                 )
-          case BackendTag.Pi =>
-            Left(s.reason.getOrElse("pi sessions are not resumable"))
+              )
+        case BackendTag.Pi =>
+          Left(s.reason.getOrElse("pi sessions are not resumable"))
 
   // Matches one `--list-sessions` entry line: "  N. <title> (<time>) [<id>]".
   private val entryLine = raw"^\s*(\d+)\.\s.*\[(.+)\]\s*$$".r
