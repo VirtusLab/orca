@@ -56,7 +56,10 @@ exec scala-cli run --jvm 21 --quiet \
 ```
 
 Verified: scala-cli runs a main class straight from a Maven dependency with
-no sources, and `latest.release` resolves (research 04). The shim therefore
+no sources, and `latest.release` resolves (research 04). `--quiet` suppresses
+coursier's fetch-progress chrome (which otherwise races the wizard's first
+prompt paint); verified it does NOT hide real compile/resolution errors —
+those still print. The shim therefore
 never needs version bumps; the shell prints its resolved version at startup
 (manifest `Implementation-Version`, the existing `OrcaBanner.version`
 pattern — no BuildInfo plugin). The README additionally documents the pinned

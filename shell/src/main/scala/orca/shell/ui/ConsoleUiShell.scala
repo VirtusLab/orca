@@ -174,6 +174,9 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     */
   def inputMultiline(prompt: String): UiOutcome[String] =
     val writer = terminal.writer()
+    // Clear any stray bytes (e.g. a late coursier progress line) off the
+    // current line before painting, like the other prompt entry points.
+    print("[2K\r")
     writer.println()
     writer.println(
       AttributedStringBuilder()
