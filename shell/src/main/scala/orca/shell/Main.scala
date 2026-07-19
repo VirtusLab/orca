@@ -1,10 +1,8 @@
 package orca.shell
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
-import orca.StackSettings
 import orca.agents.BackendTag
-import orca.runner.ManifestSession
-import orca.settings.{AgentSpec, GlobalSettings, SettingsFile, SettingsScope}
+import orca.settings.{AgentSpec, GlobalSettings}
 import orca.shell.actions.{
   AuthorAction,
   AuthorParams,
@@ -12,7 +10,6 @@ import orca.shell.actions.{
   FlowResolution,
   RunAction,
   SessionAction,
-  SessionSelection,
   StackAction,
   StackStatus,
   ViewAction
@@ -21,15 +18,13 @@ import orca.shell.cli.{Cli, CliHelp}
 import orca.shell.create.{CreateFlow, CreateTarget, CreateTier}
 import orca.shell.flows.{CustomizeTier, DiscoveredFlow, FlowOrigin}
 import orca.shell.run.FallbackPolicy
-import orca.shell.sessions.{ManifestReader, ReadRun, ResumeCommand}
+import orca.shell.sessions.{ManifestReader, ReadRun, SessionPicker}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
 import orca.subprocess.PathProbe
 import ox.discard
 
-import java.time.Instant
 import scala.annotation.tailrec
-import scala.util.Try
 
 /** Entry point for the `orca` shell executable (ADR 0021). No-arg → the
   * interactive shell below, unchanged. Any argv → the non-interactive CLI
@@ -104,7 +99,7 @@ object Main:
       terminal: Terminal,
       tty: Boolean
   ): Unit =
-    val (runs, warnings) = ManifestReader.list(os.pwd, pidAlive)
+    val (runs, warnings) = ManifestReader.list(os.pwd, ManifestReader.pidAlive)
     warnings.foreach(ShellOutput.info)
     val continueDisabledReason =
       if runs.nonEmpty then None else Some("no sessions recorded yet")
@@ -140,14 +135,6 @@ object Main:
       case UiOutcome.Selected(MenuItem.ContinueSession) =>
         continueSession(ui, terminal, runs)
         loop(ui, wizard, terminal, tty)
-
-  /** `ProcessHandle.of` finds nothing for a pid that's been reaped — treated as
-    * not alive, same as a live handle reporting `isAlive == false`.
-    * `private[shell]` so the CLI's `continue`/`continue --list` can read the
-    * same manifest listing as the interactive menu.
-    */
-  private[shell] def pidAlive(pid: Long): Boolean =
-    ProcessHandle.of(pid).map[Boolean](_.isAlive).orElse(false)
 
   /** Prints the chosen flow's source (highlighted when `tty`) and returns — the
     * menu redraws on the next loop iteration, so no pager is needed (ADR 0021
@@ -228,7 +215,7 @@ object Main:
         tier,
         workDir,
         globalFlows,
-        default = Some(suggestedFilename(goal))
+        default = Some(CreateFlow.suggestedFilename(goal))
       )
       (backend, yolo) <- selectHarnessAndYolo(ui)
     do
@@ -278,19 +265,6 @@ object Main:
     ) match
       case UiOutcome.Cancelled      => None
       case UiOutcome.Selected(tier) => Some(tier)
-
-  /** The new flow's filename suggestion (item 9's cheap slug prompt): runs the
-    * configured coding agent — not the harness picked later in this same flow
-    * ([[selectHarnessAndYolo]] hasn't been asked yet at this point) —
-    * non-interactively via [[CreateFlow.suggestFilename]], falling back to its
-    * own local word-based derivation within a few seconds if that harness is
-    * slow, absent, or unreachable.
-    */
-  private[shell] def suggestedFilename(goal: String): String =
-    CreateFlow.suggestFilename(
-      configuredCodingAgent(GlobalSettings.default),
-      goal
-    )
 
   /** Prompts for the flow's filename (pre-filled with `default`, e.g. the
     * goal's suggested slug or the fork's `-fork.sc` suggestion — either way
@@ -359,7 +333,7 @@ object Main:
     * detection, since this is one-off informational decoration, not a gate.
     */
   private def selectHarness(ui: ShellUi): Option[BackendTag] =
-    val default = configuredCodingAgent(GlobalSettings.default)
+    val default = CreateFlow.configuredCodingAgent(GlobalSettings.default)
     ui.select(
       "Harness for the authoring session:",
       BackendTag.values.toList.map(tag =>
@@ -382,33 +356,6 @@ object Main:
     val status = if probe(name) then "✓ found" else "not found on PATH"
     s"$name — $status"
 
-  private[shell] def configuredCodingAgent(
-      globalSettingsPath: os.Path
-  ): BackendTag =
-    Option
-      .when(os.exists(globalSettingsPath))(os.read(globalSettingsPath))
-      .flatMap(content =>
-        SettingsFile.parse(content, SettingsScope.UserGlobal).toOption
-      )
-      .flatMap(_.agents.coding)
-      .map(_.backend)
-      .getOrElse(BackendTag.ClaudeCode)
-
-  /** One session occurrence paired with the run it came from — the unit
-    * [[sessionRows]] groups, sorts, and labels. Carrying the whole [[ReadRun]]
-    * (not just its `crashed` flag) keeps [[SessionSelection]] constructible
-    * straight from an occurrence.
-    */
-  private case class Occurrence(run: ReadRun, session: ManifestSession)
-
-  /** One outcome of the continue-session picker: either resume a specific
-    * session, or re-render the picker with the collapsed groups (older lineage
-    * occurrences, one-shots) expanded.
-    */
-  private[shell] enum PickerRow:
-    case Resume(selection: SessionSelection)
-    case ShowMore
-
   /** Prompts among every session across `runs` and resumes the chosen one,
     * printing its identity — including `workDir` — before the resume exec
     * ([[SessionAction.identityNotice]], ADR 0021 §10; the CLI's own resume
@@ -425,155 +372,23 @@ object Main:
       runs: List[ReadRun],
       expanded: Boolean = false
   ): Unit =
-    ui.select("Continue which session?", sessionRows(runs, expanded)) match
+    ui.select(
+      "Continue which session?",
+      SessionPicker.sessionRows(runs, expanded)
+    ) match
       case UiOutcome.Cancelled => ()
-      case UiOutcome.Selected(PickerRow.ShowMore) =>
+      case UiOutcome.Selected(SessionPicker.PickerRow.ShowMore) =>
         continueSession(ui, terminal, runs, expanded = true)
-      case UiOutcome.Selected(PickerRow.Resume(selection)) =>
+      case UiOutcome.Selected(SessionPicker.PickerRow.Resume(selection)) =>
         ShellOutput.info(
           SessionAction.identityNotice(
             selection,
-            harnessSettingsName(selection.session.harness)
+            SessionPicker.harnessSettingsName(selection.session.harness)
           )
         )
         SessionAction.resume(terminal, selection) match
           case Left(message) => ShellOutput.error(message)
           case Right(_)      => ()
-
-  /** Builds the continue-session picker's rows (ADR 0021 §8, research 08 items
-    * 7+8): durable lineages first, one-shots last, with two kinds of rows
-    * collapsed by default behind an expander.
-    *
-    * A durable lineage is a `(agent, sessionName)` pair with `kind ==
-    * "durable"` — every occurrence of it across every run in `runs`, not just
-    * the newest run, since a lineage's `sessionName` is stable across separate
-    * flow runs (a fresh run mints a fresh `clientId`/`wireId` but reuses the
-    * same `agent.session(name, ...)` name) while a single run's own durable
-    * session always upserts onto one manifest row. Only the occurrence with the
-    * max `lastActiveAt` is shown (marked `★ ... — latest`, the primary
-    * continuation target); the rest collapse behind a "show N earlier
-    * occurrences" row. One-shot sessions (`kind == "oneShot"` — Plan-stage
-    * calls, reviewer-selection calls, reviewer `chat()` runs) are never deduped
-    * — each is a genuinely distinct fresh session — but collapse behind a
-    * single "show N one-shot sessions" row, since these are the rows that
-    * otherwise flood the picker with same-named, low-value entries.
-    *
-    * `expanded` reveals both collapsed groups in place, sorted the same as the
-    * primary rows (newest `lastActiveAt` first). Disabling a row previews only
-    * what [[ResumeCommand.staticGate]] can tell without a live harness call: a
-    * wireId-less session (pi always) or an unrecognised harness. Gemini's real
-    * resumability needs `gemini --list-sessions` (deferred to selection, in
-    * [[SessionAction.resume]]) — `staticGate` passes any gemini session with a
-    * wireId, leaving its row enabled pending that later check.
-    */
-  private[shell] def sessionRows(
-      runs: List[ReadRun],
-      expanded: Boolean
-  ): List[Choice[PickerRow]] =
-    val occurrences =
-      for
-        run <- runs
-        session <- run.manifest.sessions
-      yield Occurrence(run, session)
-    val (durable, oneShot) = occurrences.partition(_.session.kind == "durable")
-
-    val lineages = durable
-      .groupBy(o => (o.session.agent, o.session.sessionName))
-      .values
-      .map(_.sortBy(recency).reverse)
-      .toList
-    val primary = lineages.map(_.head).sortBy(recency).reverse
-    val earlier = lineages.flatMap(_.tail).sortBy(recency).reverse
-    val oneShotSorted = oneShot.sortBy(recency).reverse
-
-    val primaryRows = primary.map(o => resumeRow(o, primaryLabel(o)))
-    val earlierRows =
-      if expanded then earlier.map(o => resumeRow(o, earlierLabel(o)))
-      else expanderRow(earlier.size, "earlier occurrence")
-    val oneShotRows =
-      if expanded then oneShotSorted.map(o => resumeRow(o, oneShotLabel(o)))
-      else
-        expanderRow(
-          oneShotSorted.size,
-          "one-shot session",
-          " (reviews, plan steps)"
-        )
-
-    primaryRows ++ earlierRows ++ oneShotRows
-
-  /** Parses `session.lastActiveAt` — always a valid `Instant` from the writer
-    * (`clock().toString`), but falls back to the epoch rather than throwing on
-    * a hand-edited or future-schema manifest, so one bad row can't take down
-    * the whole picker.
-    */
-  private def recency(o: Occurrence): Instant =
-    Try(Instant.parse(o.session.lastActiveAt)).getOrElse(Instant.EPOCH)
-
-  private def resumeRow(o: Occurrence, label: String): Choice[PickerRow] =
-    Choice(
-      PickerRow.Resume(
-        SessionSelection(o.run.manifest, o.session, o.run.crashed)
-      ),
-      label,
-      disabledReason = ResumeCommand.staticGate(o.session).left.toOption
-    )
-
-  /** A single "show N ..." expander row, or `Nil` when there's nothing to
-    * reveal — omitting the row entirely rather than showing "show 0 ...".
-    */
-  private def expanderRow(
-      count: Int,
-      noun: String,
-      suffix: String = ""
-  ): List[Choice[PickerRow]] =
-    if count == 0 then Nil
-    else
-      val plural = if count == 1 then "" else "s"
-      List(Choice(PickerRow.ShowMore, s"… show $count $noun$plural$suffix"))
-
-  /** `★ <sessionName> — latest (stage: <stage>) [<harness>]`, or `(no stage
-    * yet)` when the durable session hasn't entered a stage (rare — custom flows
-    * only, per research 08 item 7+8 §5). Falls back to the agent name if a
-    * malformed manifest somehow has `kind == "durable"` without a
-    * `sessionName`.
-    */
-  private def primaryLabel(o: Occurrence): String =
-    val name = o.session.sessionName.getOrElse(o.session.agent)
-    val stage = o.session.stage.fold("no stage yet")(s => s"stage: $s")
-    val harness = harnessSettingsName(o.session.harness)
-    val crashedSuffix = if o.run.crashed then " (crashed)" else ""
-    s"★ $name — latest ($stage) [$harness]$crashedSuffix"
-
-  /** `<sessionName> — stage <stage> [<harness>] (earlier occurrence)`, shown
-    * only when the picker is expanded.
-    */
-  private def earlierLabel(o: Occurrence): String =
-    val name = o.session.sessionName.getOrElse(o.session.agent)
-    val stage = o.session.stage.fold("")(s => s" — stage $s")
-    val harness = harnessSettingsName(o.session.harness)
-    val crashedSuffix = if o.run.crashed then " (crashed)" else ""
-    s"$name$stage [$harness] (earlier occurrence)$crashedSuffix"
-
-  /** `<agent> (<role>) — stage <stage> [<harness>] (one-shot)`, omitting the
-    * role/stage segments when absent; shown only when the picker is expanded.
-    */
-  private def oneShotLabel(o: Occurrence): String =
-    val role = o.session.role.fold("")(r => s" ($r)")
-    val stage = o.session.stage.fold("")(s => s" — stage $s")
-    val harness = harnessSettingsName(o.session.harness)
-    val crashedSuffix = if o.run.crashed then " (crashed)" else ""
-    s"${o.session.agent}$role$stage [$harness] (one-shot)$crashedSuffix"
-
-  /** The settings-file harness name (`claude`, `codex`, …) for a manifest's
-    * [[BackendTag.wireName]] string, falling back to the raw string for an
-    * unrecognised one (the row itself is disabled in that case, so this is
-    * display-only).
-    */
-  private[shell] def harnessSettingsName(wireName: String): String =
-    BackendTag
-      .fromWireName(wireName)
-      .flatMap(AgentSpec.harnessNameFor.get)
-      .getOrElse(wireName)
 
   /** Prompts which tier to customize a built-in flow into (Project or Global) —
     * the tier [[EditAction.customizeThenEdit]] then copies the flow into and
@@ -618,64 +433,35 @@ object Main:
   private def flowChoice(flow: DiscoveredFlow): Choice[DiscoveredFlow] =
     val shadows =
       if flow.shadows.isEmpty then ""
-      else s" [shadows ${flow.shadows.map(originLabel).mkString(", ")}]"
+      else s" [shadows ${flow.shadows.map(_.originLabel).mkString(", ")}]"
     val description = flow.description.getOrElse("(no description)")
     val label =
-      s"${flow.name} — $description [${originLabel(flow.origin)}]$shadows"
+      s"${flow.name} — $description [${flow.origin.originLabel}]$shadows"
     Choice(flow, label)
-
-  private[shell] def originLabel(origin: FlowOrigin): String = origin match
-    case FlowOrigin.Project => "project"
-    case FlowOrigin.Global  => "global"
-    case FlowOrigin.BuiltIn => "built-in"
 
   /** "Re-discover project stack settings" (ADR 0021 §8/§4, feedback item 4):
     * [[StackAction.status]] does the guarded read/parse (a missing file, or one
     * with no stack lines already, is a no-op with a one-line explanation; an
     * unparseable file aborts instead of being surgically edited blind); on a
-    * live status this renders it, confirms, and calls [[StackAction.clear]] —
-    * which strips the stack lines ([[SettingsFile.stripStackLines]]) so the
-    * next flow run's own `hasStackLines`-driven check
-    * (`FlowLifecycle.readSettings`) fires discovery again. `workDir` is
-    * explicit (rather than reading `os.pwd` itself), same as [[sessionRows]],
-    * so tests can point it at a temp dir.
+    * live status [[StackAction.clearIfConfirmed]] renders it, confirms, and
+    * calls [[StackAction.clear]] — which strips the stack lines
+    * ([[SettingsFile.stripStackLines]]) so the next flow run's own
+    * `hasStackLines`-driven check (`FlowLifecycle.readSettings`) fires
+    * discovery again. `workDir` is explicit (rather than reading `os.pwd`
+    * itself) so tests can point it at a temp dir.
     */
   private[shell] def rediscoverStack(ui: ShellUi, workDir: os.Path): Unit =
     StackAction.status(workDir) match
       case Left(message) => ShellOutput.error(message)
       case Right(StackStatus.NoSettings | StackStatus.NoStackLines) =>
-        noStackSettingsToClear()
+        ShellOutput.info(StackAction.noSettingsMessage)
       case Right(StackStatus.Present(stack, content)) =>
-        ShellOutput.info("Current stack settings:")
-        println(renderStackSettings(stack))
-        ui.confirm(
-          "Clear discovered stack settings so the next flow run " +
-            "re-detects them?",
-          default = false
-        ) match
-          case UiOutcome.Selected(true) =>
-            StackAction.clear(workDir, content)
-            ShellOutput.info(
-              "cleared — the next flow run will re-discover " +
-                "format/lint/test"
-            )
-          case _ => ()
-
-  private def noStackSettingsToClear(): Unit =
-    ShellOutput.info(
-      "no stack settings to clear (discovery runs on the next flow)"
-    )
-
-  /** ` format: <cmd>` per line for each non-empty [[StackSettings]] key, in
-    * format/lint/test order — display only for [[rediscoverStack]]'s confirm
-    * prompt; a key with only demoted/unset (commented) lines and no live
-    * command shows nothing here even though it still counts for
-    * [[SettingsFile.hasStackLines]].
-    */
-  private[shell] def renderStackSettings(stack: StackSettings): String =
-    val rows =
-      List("format" -> stack.format, "lint" -> stack.lint, "test" -> stack.test)
-        .flatMap((key, commands) => commands.map(cmd => s"  $key: $cmd"))
-    if rows.isEmpty then
-      "  (no live commands — only commented-out/unset stack lines on file)"
-    else rows.mkString("\n")
+        StackAction.clearIfConfirmed(
+          workDir,
+          stack,
+          content,
+          () =>
+            ui.confirm(StackAction.clearConfirmPrompt, default = false) match
+              case UiOutcome.Selected(true) => true
+              case _                        => false
+        )

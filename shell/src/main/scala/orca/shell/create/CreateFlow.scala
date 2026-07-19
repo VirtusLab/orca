@@ -2,6 +2,7 @@ package orca.shell.create
 
 import orca.OrcaDir
 import orca.agents.BackendTag
+import orca.settings.{GlobalSettings, SettingsFile, SettingsScope}
 import orca.shell.ShellVersion
 import orca.util.PromptResource
 import ox.discard
@@ -167,6 +168,30 @@ object CreateFlow:
     lastLine.map(sanitizeSlug) match
       case Some(slug) if slug != "new-flow.sc" => slug
       case _                                   => proposeFilename(goal)
+
+  /** The configured coding-role agent from the global settings file, falling
+    * back to claude when the file is absent or unparseable — the same fallback
+    * the wizard uses for an undetected default. Shared by the harness picker's
+    * preselect and [[suggestedFilename]]'s slug call.
+    */
+  def configuredCodingAgent(globalSettingsPath: os.Path): BackendTag =
+    Option
+      .when(os.exists(globalSettingsPath))(os.read(globalSettingsPath))
+      .flatMap(content =>
+        SettingsFile.parse(content, SettingsScope.UserGlobal).toOption
+      )
+      .flatMap(_.agents.coding)
+      .map(_.backend)
+      .getOrElse(BackendTag.ClaudeCode)
+
+  /** The new flow's filename suggestion (item 9's cheap slug prompt): runs the
+    * configured coding agent — not the harness picked later in the same
+    * create-flow attempt — non-interactively via [[suggestFilename]], falling
+    * back to its own local word-based derivation within a few seconds if that
+    * harness is slow, absent, or unreachable.
+    */
+  def suggestedFilename(goal: String): String =
+    suggestFilename(configuredCodingAgent(GlobalSettings.default), goal)
 
   /** Runs `argv` to completion within `timeoutMillis`, returning its stdout on
     * a zero exit; `None` on a timeout (the process is killed rather than left

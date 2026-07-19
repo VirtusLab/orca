@@ -3,6 +3,7 @@ package orca.shell.actions
 import orca.OrcaDir
 import orca.StackSettings
 import orca.settings.{SettingsFile, SettingsScope}
+import orca.shell.ui.ShellOutput
 
 import scala.util.control.NonFatal
 
@@ -54,3 +55,52 @@ private[shell] object StackAction:
       OrcaDir.settingsPath(workDir),
       SettingsFile.stripStackLines(content)
     )
+
+  /** The one-line explanation shown when there's nothing to clear — an absent
+    * settings file, or one with no live stack lines.
+    */
+  val noSettingsMessage =
+    "no stack settings to clear (discovery runs on the next flow)"
+
+  /** The confirm prompt shown before clearing a live stack settings block —
+    * identical wording on the interactive menu and the CLI's `--yes`-less
+    * terminal path.
+    */
+  val clearConfirmPrompt =
+    "Clear discovered stack settings so the next flow run re-detects them?"
+
+  /** Prints the current [[StackStatus.Present]] stack settings, then — when
+    * `confirm()` returns true — clears them and reports the clear. The single
+    * confirm-driven clear both fronts share (ADR 0021 §8): the interactive menu
+    * passes a `ui.confirm`, the CLI passes `() => true` for `--yes` or its own
+    * `ui.confirm` for the terminal path. Rendering always happens (even when
+    * `confirm()` is false) so the CLI's non-interactive refusal still shows
+    * what it would have cleared.
+    */
+  def clearIfConfirmed(
+      workDir: os.Path,
+      stack: StackSettings,
+      content: String,
+      confirm: () => Boolean
+  ): Unit =
+    ShellOutput.info("Current stack settings:")
+    println(renderStackSettings(stack))
+    if confirm() then
+      clear(workDir, content)
+      ShellOutput.info(
+        "cleared — the next flow run will re-discover format/lint/test"
+      )
+
+  /** ` format: <cmd>` per line for each non-empty [[StackSettings]] key, in
+    * format/lint/test order — display only for [[clearIfConfirmed]]'s confirm
+    * prompt; a key with only demoted/unset (commented) lines and no live
+    * command shows nothing here even though it still counts for
+    * [[SettingsFile.hasStackLines]].
+    */
+  def renderStackSettings(stack: StackSettings): String =
+    val rows =
+      List("format" -> stack.format, "lint" -> stack.lint, "test" -> stack.test)
+        .flatMap((key, commands) => commands.map(cmd => s"  $key: $cmd"))
+    if rows.isEmpty then
+      "  (no live commands — only commented-out/unset stack lines on file)"
+    else rows.mkString("\n")

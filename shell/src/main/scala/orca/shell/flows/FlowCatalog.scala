@@ -4,6 +4,16 @@ package orca.shell.flows
 enum FlowOrigin:
   case Project, Global, BuiltIn
 
+object FlowOrigin:
+  /** The tier's user-facing label, as shown in flow-listing rows and shadow
+    * annotations (ADR 0021 §5).
+    */
+  extension (origin: FlowOrigin)
+    def originLabel: String = origin match
+      case FlowOrigin.Project => "project"
+      case FlowOrigin.Global  => "global"
+      case FlowOrigin.BuiltIn => "built-in"
+
 /** One flow-listing row: the winning tier's script plus the tiers it shadowed,
   * so the menu can annotate `[shadows global, built-in]`.
   */

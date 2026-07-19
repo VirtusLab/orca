@@ -4,8 +4,8 @@ import orca.StackSettings
 import orca.agents.BackendTag
 import orca.runner.{ManifestSession, RunManifest}
 import orca.settings.SettingsFile
-import orca.shell.actions.SessionSelection
-import orca.shell.sessions.ReadRun
+import orca.shell.actions.{SessionSelection, StackAction}
+import orca.shell.sessions.{ReadRun, SessionPicker}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.TempDirs
 
@@ -90,10 +90,10 @@ class MainTest extends munit.FunSuite:
     )
 
   private def resumeSelections(
-      rows: List[orca.shell.ui.Choice[Main.PickerRow]]
+      rows: List[orca.shell.ui.Choice[SessionPicker.PickerRow]]
   ): List[SessionSelection] =
     rows.collect {
-      case orca.shell.ui.Choice(Main.PickerRow.Resume(s), _, _, _) =>
+      case orca.shell.ui.Choice(SessionPicker.PickerRow.Resume(s), _, _, _) =>
         s
     }
 
@@ -163,12 +163,12 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows (collapsed): shows only the newest durable occurrence, starred"
   ):
-    val rows = Main.sessionRows(mixedRuns(), expanded = false)
+    val rows = SessionPicker.sessionRows(mixedRuns(), expanded = false)
     val resumes = resumeSelections(rows)
     assertEquals(resumes.map(_.session.stage), List(Some("Task: fix bug")))
 
   test("sessionRows (collapsed): starred row is labeled with the session name"):
-    val rows = Main.sessionRows(mixedRuns(), expanded = false)
+    val rows = SessionPicker.sessionRows(mixedRuns(), expanded = false)
     assertEquals(
       rows.map(_.label),
       List(
@@ -181,23 +181,23 @@ class MainTest extends munit.FunSuite:
   test(
     "sessionRows (collapsed): one-shots and earlier occurrences are hidden behind expanders"
   ):
-    val rows = Main.sessionRows(mixedRuns(), expanded = false)
+    val rows = SessionPicker.sessionRows(mixedRuns(), expanded = false)
     assertEquals(rows.size, 3)
-    assertEquals(rows(1).value, Main.PickerRow.ShowMore)
-    assertEquals(rows(2).value, Main.PickerRow.ShowMore)
+    assertEquals(rows(1).value, SessionPicker.PickerRow.ShowMore)
+    assertEquals(rows(2).value, SessionPicker.PickerRow.ShowMore)
 
   test(
     "sessionRows (expanded): reveals earlier occurrences and one-shots, no expander rows"
   ):
-    val rows = Main.sessionRows(mixedRuns(), expanded = true)
-    assert(!rows.exists(_.value == Main.PickerRow.ShowMore))
+    val rows = SessionPicker.sessionRows(mixedRuns(), expanded = true)
+    assert(!rows.exists(_.value == SessionPicker.PickerRow.ShowMore))
     // 1 starred + 2 earlier occurrences + 4 one-shots
     assertEquals(rows.size, 7)
 
   test(
     "sessionRows (expanded): earlier occurrences and one-shots are each sorted newest-first"
   ):
-    val rows = Main.sessionRows(mixedRuns(), expanded = true)
+    val rows = SessionPicker.sessionRows(mixedRuns(), expanded = true)
     val resumes = resumeSelections(rows)
     val stages = resumes.map(_.session.stage.getOrElse(""))
     // starred row (fix bug) is first; then earlier occurrences (auth, then
@@ -237,7 +237,7 @@ class MainTest extends munit.FunSuite:
       ),
       crashed = false
     )
-    val rows = Main.sessionRows(List(run2, run1), expanded = true)
+    val rows = SessionPicker.sessionRows(List(run2, run1), expanded = true)
     assertEquals(
       rows.map(_.label),
       List(
@@ -262,7 +262,7 @@ class MainTest extends munit.FunSuite:
       crashed = false
     )
     assertEquals(
-      Main.sessionRows(List(run), expanded = true).map(_.label),
+      SessionPicker.sessionRows(List(run), expanded = true).map(_.label),
       List(
         "code-structure (reviewer) — stage Task: add auth [claude] (one-shot)"
       )
@@ -276,7 +276,7 @@ class MainTest extends munit.FunSuite:
       crashed = false
     )
     assertEquals(
-      Main.sessionRows(List(run), expanded = false).map(_.label),
+      SessionPicker.sessionRows(List(run), expanded = false).map(_.label),
       List("★ main — latest (no stage yet) [claude]")
     )
 
@@ -286,7 +286,7 @@ class MainTest extends munit.FunSuite:
       crashed = false
     )
     assertEquals(
-      Main.sessionRows(List(run), expanded = false).map(_.label),
+      SessionPicker.sessionRows(List(run), expanded = false).map(_.label),
       List(
         "★ main — latest (no stage yet) [claude]",
         "… show 1 one-shot session (reviews, plan steps)"
@@ -313,7 +313,7 @@ class MainTest extends munit.FunSuite:
       ),
       crashed = false
     )
-    val rows = Main.sessionRows(List(run), expanded = false)
+    val rows = SessionPicker.sessionRows(List(run), expanded = false)
     assertEquals(
       rows.map(_.label),
       List(
@@ -325,7 +325,7 @@ class MainTest extends munit.FunSuite:
   test("sessionRows suffixes a crashed run's rows with `(crashed)`"):
     val run = ReadRun(manifest(sessions = List(durable())), crashed = true)
     assertEquals(
-      Main.sessionRows(List(run), expanded = false).map(_.label),
+      SessionPicker.sessionRows(List(run), expanded = false).map(_.label),
       List("★ main — latest (no stage yet) [claude] (crashed)")
     )
 
@@ -337,7 +337,7 @@ class MainTest extends munit.FunSuite:
       crashed = false
     )
     assertEquals(
-      Main.sessionRows(List(run), expanded = false).map(_.label),
+      SessionPicker.sessionRows(List(run), expanded = false).map(_.label),
       List("★ main — latest (no stage yet) [SomeFutureHarness]")
     )
 
@@ -350,7 +350,9 @@ class MainTest extends munit.FunSuite:
       crashed = false
     )
     assertEquals(
-      Main.sessionRows(List(run), expanded = false).map(_.disabledReason),
+      SessionPicker
+        .sessionRows(List(run), expanded = false)
+        .map(_.disabledReason),
       List(Some(reason))
     )
 
@@ -360,7 +362,7 @@ class MainTest extends munit.FunSuite:
       crashed = false
     )
     assert(
-      Main
+      SessionPicker
         .sessionRows(List(run), expanded = false)
         .head
         .disabledReason
@@ -370,7 +372,9 @@ class MainTest extends munit.FunSuite:
   test("sessionRows enables a claude session with a wireId"):
     val run = ReadRun(manifest(sessions = List(durable())), crashed = false)
     assertEquals(
-      Main.sessionRows(List(run), expanded = false).map(_.disabledReason),
+      SessionPicker
+        .sessionRows(List(run), expanded = false)
+        .map(_.disabledReason),
       List(None)
     )
 
@@ -384,15 +388,17 @@ class MainTest extends munit.FunSuite:
       crashed = false
     )
     assertEquals(
-      Main.sessionRows(List(run), expanded = false).map(_.disabledReason),
+      SessionPicker
+        .sessionRows(List(run), expanded = false)
+        .map(_.disabledReason),
       List(None)
     )
 
   test(
     "sessionRows is a silent no-op shape on an empty run list (no rows, no crash)"
   ):
-    assertEquals(Main.sessionRows(Nil, expanded = false), Nil)
-    assertEquals(Main.sessionRows(Nil, expanded = true), Nil)
+    assertEquals(SessionPicker.sessionRows(Nil, expanded = false), Nil)
+    assertEquals(SessionPicker.sessionRows(Nil, expanded = true), Nil)
 
   test("harnessLabel suffixes a detected harness with the found marker"):
     assertEquals(
@@ -490,7 +496,7 @@ class MainTest extends munit.FunSuite:
     "renderStackSettings lists each non-empty key in format/lint/test order"
   ):
     assertEquals(
-      Main.renderStackSettings(
+      StackAction.renderStackSettings(
         StackSettings(
           format = List("cargo fmt"),
           lint = List("cargo check --tests"),
@@ -502,7 +508,7 @@ class MainTest extends munit.FunSuite:
 
   test("renderStackSettings notes when there are no live commands"):
     assert(
-      Main
+      StackAction
         .renderStackSettings(StackSettings.empty)
         .contains("no live commands")
     )

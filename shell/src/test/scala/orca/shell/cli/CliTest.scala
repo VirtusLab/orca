@@ -8,7 +8,7 @@ import orca.shell.actions.{AuthorOutcome, SessionSelection}
 import orca.shell.create.CreateTier
 import orca.shell.flows.{CustomizeTier, DiscoveredFlow, FlowOrigin}
 import orca.shell.run.LaunchResult
-import orca.shell.sessions.ReadRun
+import orca.shell.sessions.{ReadRun, SessionPicker}
 import orca.testkit.TempDirs
 
 class CliTest extends munit.FunSuite:
@@ -603,12 +603,12 @@ class CliTest extends munit.FunSuite:
     )
 
   test("resolveSelection: no selector resumes the newest durable lineage"):
-    val result = Cli.resolveSelection(runsFixture(), None)
+    val result = SessionPicker.resolveSelection(runsFixture(), None)
     assertEquals(result.map(_.session.sessionName), Right(Some("newest")))
 
   test("resolveSelection: no selector on an empty run list is an error"):
     assertEquals(
-      Cli.resolveSelection(Nil, None),
+      SessionPicker.resolveSelection(Nil, None),
       Left("no sessions recorded yet")
     )
 
@@ -617,7 +617,9 @@ class CliTest extends munit.FunSuite:
   ):
     // Full listing (expanded) order: newest, older, unresumable.
     assertEquals(
-      Cli.resolveSelection(runsFixture(), Some("2")).map(_.session.sessionName),
+      SessionPicker
+        .resolveSelection(runsFixture(), Some("2"))
+        .map(_.session.sessionName),
       Right(Some("older"))
     )
 
@@ -625,7 +627,7 @@ class CliTest extends munit.FunSuite:
     "resolveSelection: an out-of-range index is an error naming the valid range"
   ):
     assertEquals(
-      Cli.resolveSelection(runsFixture(), Some("99")),
+      SessionPicker.resolveSelection(runsFixture(), Some("99")),
       Left("no session at index 99 — see `orca continue --list` (1-3)")
     )
 
@@ -633,13 +635,13 @@ class CliTest extends munit.FunSuite:
     "resolveSelection: an index pointing at an unresumable row reports the stored reason"
   ):
     assertEquals(
-      Cli.resolveSelection(runsFixture(), Some("3")),
+      SessionPicker.resolveSelection(runsFixture(), Some("3")),
       Left("session 3 isn't resumable — pi has no id")
     )
 
   test("resolveSelection: a name selector resolves that durable lineage"):
     assertEquals(
-      Cli
+      SessionPicker
         .resolveSelection(runsFixture(), Some("older"))
         .map(_.session.sessionName),
       Right(Some("older"))
@@ -647,7 +649,7 @@ class CliTest extends munit.FunSuite:
 
   test("resolveSelection: an unknown name is an error"):
     assertEquals(
-      Cli.resolveSelection(runsFixture(), Some("no-such-session")),
+      SessionPicker.resolveSelection(runsFixture(), Some("no-such-session")),
       Left(
         "no session named 'no-such-session' found — see `orca continue --list`"
       )
@@ -657,7 +659,7 @@ class CliTest extends munit.FunSuite:
     "resolveSelection: a name selector on an unresumable session reports the reason"
   ):
     assertEquals(
-      Cli.resolveSelection(runsFixture(), Some("unresumable")),
+      SessionPicker.resolveSelection(runsFixture(), Some("unresumable")),
       Left("session 'unresumable' isn't resumable — pi has no id")
     )
 
@@ -696,7 +698,7 @@ class CliTest extends munit.FunSuite:
       )
     )
     assertEquals(
-      Cli.selectByName(runs, "shared"),
+      SessionPicker.selectByName(runs, "shared"),
       Left("'shared' is ambiguous — matches agents: agentA, agentB")
     )
 

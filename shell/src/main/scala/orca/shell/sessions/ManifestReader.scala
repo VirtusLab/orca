@@ -75,3 +75,12 @@ object ManifestReader:
     try
       Right(readFromString[RunManifest](os.read(file))(using RunManifest.codec))
     catch case NonFatal(e) => Left(s"skipping $file: ${e.getMessage}")
+
+  /** The production value of [[list]]'s `pidAlive` parameter (ADR 0021 §8):
+    * `ProcessHandle.of` finds nothing for a pid that's been reaped — treated as
+    * not alive, same as a live handle reporting `isAlive == false`. Shared by
+    * the interactive menu and the CLI's `continue`, so both derive a run's
+    * crashed status the same way.
+    */
+  private[shell] def pidAlive(pid: Long): Boolean =
+    ProcessHandle.of(pid).map[Boolean](_.isAlive).orElse(false)

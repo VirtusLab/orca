@@ -12,7 +12,6 @@ import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
 import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.agents.BackendTag
 import orca.settings.{AgentSettings, AgentSpec, GlobalSettings}
-import orca.shell.Main
 import orca.shell.actions.{
   AuthorAction,
   AuthorOutcome,
@@ -35,7 +34,7 @@ import orca.shell.run.{
   FlowLauncher,
   LaunchResult
 }
-import orca.shell.sessions.{ManifestReader, ReadRun}
+import orca.shell.sessions.{ManifestReader, ReadRun, SessionPicker}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 
 /** Exit codes shared by every subcommand (ADR 0021 §10/§4). */
@@ -458,7 +457,8 @@ private[shell] object Cli:
               case Right((tier, backend, yoloValue)) =>
                 val workDir = os.pwd
                 val globalFlows = GlobalSettings.defaultFlows
-                val fileName = name.getOrElse(Main.suggestedFilename(goal))
+                val fileName =
+                  name.getOrElse(CreateFlow.suggestedFilename(goal))
                 validateFileName(fileName) match
                   case Left(message) =>
                     fail(message)
@@ -621,7 +621,8 @@ private[shell] object Cli:
       raw: Option[String]
   ): Either[String, BackendTag] =
     raw match
-      case None => Right(Main.configuredCodingAgent(GlobalSettings.default))
+      case None =>
+        Right(CreateFlow.configuredCodingAgent(GlobalSettings.default))
       case Some(name) =>
         AgentSpec.harnessNames
           .get(name)
@@ -665,7 +666,7 @@ private[shell] object Cli:
       json: Boolean,
       tty: Boolean
   ): Int =
-    val (runs, warnings) = ManifestReader.list(workDir, Main.pidAlive)
+    val (runs, warnings) = ManifestReader.list(workDir, ManifestReader.pidAlive)
     warnings.foreach(fail)
     if list then
       printSessionListing(runs, json)
@@ -676,7 +677,7 @@ private[shell] object Cli:
           fail(message)
           ExitCodes.UsageError
         case Right(()) =>
-          resolveSelection(runs, selector) match
+          SessionPicker.resolveSelection(runs, selector) match
             case Left(message) =>
               fail(message)
               ExitCodes.ActionFailed
@@ -704,86 +705,8 @@ private[shell] object Cli:
   private[cli] def resumeNotice(selection: SessionSelection): String =
     SessionAction.identityNotice(
       selection,
-      Main.harnessSettingsName(selection.session.harness)
+      SessionPicker.harnessSettingsName(selection.session.harness)
     )
-
-  private[cli] def resolveSelection(
-      runs: List[ReadRun],
-      selector: Option[String]
-  ): Either[String, SessionSelection] =
-    selector match
-      case None => newestDurableSelection(runs)
-      case Some(s) =>
-        s.toIntOption match
-          case Some(index) => selectByIndex(runs, index)
-          case None        => selectByName(runs, s)
-
-  private[cli] def newestDurableSelection(
-      runs: List[ReadRun]
-  ): Either[String, SessionSelection] =
-    Main.sessionRows(runs, expanded = false).headOption match
-      case None => Left("no sessions recorded yet")
-      case Some(choice) =>
-        choice.value match
-          case Main.PickerRow.Resume(selection) =>
-            choice.disabledReason match
-              case Some(reason) =>
-                Left(s"can't resume the newest session — $reason")
-              case None => Right(selection)
-          case Main.PickerRow.ShowMore =>
-            Left(
-              "no durable session to continue yet — see `orca continue --list`"
-            )
-
-  private[cli] def selectByIndex(
-      runs: List[ReadRun],
-      index: Int
-  ): Either[String, SessionSelection] =
-    val rows = resumableRows(Main.sessionRows(runs, expanded = true))
-    rows.lift(index - 1) match
-      case None =>
-        Left(
-          s"no session at index $index — see `orca continue --list` (1-${rows.size})"
-        )
-      case Some(choice) =>
-        choice.value match
-          case Main.PickerRow.Resume(selection) =>
-            choice.disabledReason match
-              case Some(reason) =>
-                Left(s"session $index isn't resumable — $reason")
-              case None => Right(selection)
-          case Main.PickerRow.ShowMore =>
-            // unreachable: resumableRows already dropped every ShowMore row
-            Left(s"no session at index $index")
-
-  private[cli] def selectByName(
-      runs: List[ReadRun],
-      name: String
-  ): Either[String, SessionSelection] =
-    val matches =
-      resumableRows(Main.sessionRows(runs, expanded = false)).collect:
-        case choice @ Choice(Main.PickerRow.Resume(selection), _, _, _)
-            if selection.session.sessionName.contains(name) =>
-          (selection, choice.disabledReason)
-    matches match
-      case Nil =>
-        Left(s"no session named '$name' found — see `orca continue --list`")
-      case (selection, None) :: Nil => Right(selection)
-      case (_, Some(reason)) :: Nil =>
-        Left(s"session '$name' isn't resumable — $reason")
-      case multiple =>
-        val agents = multiple.map(_._1.session.agent).distinct.mkString(", ")
-        Left(s"'$name' is ambiguous — matches agents: $agents")
-
-  /** [[Main.sessionRows]]'s rows, dropping the "show more" expanders — never
-    * present for [[SessionSelection]] callers here (`selectByIndex` reads the
-    * fully expanded listing, `selectByName`/`newestDurableSelection` only ever
-    * resolve to an actual session or fail).
-    */
-  private def resumableRows(
-      rows: List[Choice[Main.PickerRow]]
-  ): List[Choice[Main.PickerRow]] =
-    rows.filter(_.value != Main.PickerRow.ShowMore)
 
   private[cli] case class SessionRow(
       index: Int,
@@ -805,20 +728,31 @@ private[shell] object Cli:
     )
 
   private[cli] def sessionListingRows(runs: List[ReadRun]): List[SessionRow] =
-    resumableRows(Main.sessionRows(runs, expanded = true)).zipWithIndex.collect:
-      case (choice @ Choice(Main.PickerRow.Resume(selection), _, _, _), i) =>
-        val session = selection.session
-        SessionRow(
-          index = i + 1,
-          sessionName = session.sessionName.getOrElse(session.agent),
-          kind = session.kind,
-          stage = session.stage,
-          harness = Main.harnessSettingsName(session.harness),
-          lastActiveAt = session.lastActiveAt,
-          resumable = choice.isEnabled,
-          reason = choice.disabledReason,
-          crashed = selection.crashed
-        )
+    SessionPicker
+      .resumableRows(SessionPicker.sessionRows(runs, expanded = true))
+      .zipWithIndex
+      .collect:
+        case (
+              choice @ Choice(
+                SessionPicker.PickerRow.Resume(selection),
+                _,
+                _,
+                _
+              ),
+              i
+            ) =>
+          val session = selection.session
+          SessionRow(
+            index = i + 1,
+            sessionName = session.sessionName.getOrElse(session.agent),
+            kind = session.kind,
+            stage = session.stage,
+            harness = SessionPicker.harnessSettingsName(session.harness),
+            lastActiveAt = session.lastActiveAt,
+            resumable = choice.isEnabled,
+            reason = choice.disabledReason,
+            crashed = selection.crashed
+          )
 
   private def printSessionListing(runs: List[ReadRun], asJson: Boolean): Unit =
     val rows = sessionListingRows(runs)
@@ -958,41 +892,38 @@ private[shell] object Cli:
         fail(message)
         ExitCodes.ActionFailed
       case Right(StackStatus.NoSettings | StackStatus.NoStackLines) =>
-        ShellOutput.info(
-          "no stack settings to clear (discovery runs on the next flow)"
-        )
+        ShellOutput.info(StackAction.noSettingsMessage)
         ExitCodes.Ok
       case Right(StackStatus.Present(stack, content)) =>
-        ShellOutput.info("Current stack settings:")
-        println(Main.renderStackSettings(stack))
         if yes then
-          StackAction.clear(workDir, content)
-          ShellOutput.info(
-            "cleared — the next flow run will re-discover format/lint/test"
-          )
+          StackAction.clearIfConfirmed(workDir, stack, content, () => true)
           ExitCodes.Ok
-        else if tty then confirmAndClear(workDir, content)
+        else if tty then confirmAndClear(workDir, stack, content)
         else
+          StackAction.clearIfConfirmed(workDir, stack, content, () => false)
           fail(
             "pass --yes to confirm clearing stack settings (non-interactive)"
           )
           ExitCodes.UsageError
 
-  private def confirmAndClear(workDir: os.Path, content: String): Int =
+  private def confirmAndClear(
+      workDir: os.Path,
+      stack: orca.StackSettings,
+      content: String
+  ): Int =
     val terminal = buildTerminal()
     try
       val ui = ShellUi.make(terminal)
-      ui.confirm(
-        "Clear discovered stack settings so the next flow run re-detects them?",
-        default = false
-      ) match
-        case UiOutcome.Selected(true) =>
-          StackAction.clear(workDir, content)
-          ShellOutput.info(
-            "cleared — the next flow run will re-discover format/lint/test"
-          )
-          ExitCodes.Ok
-        case _ => ExitCodes.Ok
+      StackAction.clearIfConfirmed(
+        workDir,
+        stack,
+        content,
+        () =>
+          ui.confirm(StackAction.clearConfirmPrompt, default = false) match
+            case UiOutcome.Selected(true) => true
+            case _                        => false
+      )
+      ExitCodes.Ok
     finally terminal.close()
 
   // --- list ---
@@ -1037,9 +968,9 @@ private[shell] object Cli:
     FlowRow(
       flow.name,
       flow.description,
-      Main.originLabel(flow.origin),
+      flow.origin.originLabel,
       flow.path.toString,
-      flow.shadows.map(Main.originLabel)
+      flow.shadows.map(_.originLabel)
     )
 
   private def printFlowTable(flows: List[DiscoveredFlow]): Unit =
@@ -1048,11 +979,11 @@ private[shell] object Cli:
       val cols = flows.map: f =>
         val shadows =
           if f.shadows.isEmpty then ""
-          else s"shadows ${f.shadows.map(Main.originLabel).mkString(", ")}"
+          else s"shadows ${f.shadows.map(_.originLabel).mkString(", ")}"
         (
           f.name,
           f.description.getOrElse("(no description)"),
-          Main.originLabel(f.origin),
+          f.origin.originLabel,
           shadows
         )
       val header = ("name", "description", "origin", "")
