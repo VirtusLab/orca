@@ -184,8 +184,22 @@ object CreateFlow:
         if proc.waitFor(timeoutMillis) && proc.exitCode() == 0 then
           Some(proc.stdout.text())
         else None
-      finally if proc.isAlive() then proc.destroyForcibly()
+      finally if proc.isAlive() then destroyQuietly(proc)
     catch case NonFatal(_) => None
+
+  /** Force-kills `proc` (`destroy(shutdownGracePeriod = 0)` — the
+    * non-deprecated spelling of `destroyForcibly()`), with stdout muted for the
+    * call itself. os-lib 0.11.4's `SubProcess.destroy` unconditionally
+    * `println`s `"wrapped.destroyForcibly()"` to the real stdout right before
+    * actually forcibly killing (an upstream debug leftover, not gated behind
+    * any flag) — on this timeout path that noise would otherwise land on the
+    * user's terminal mid-prompt. The subprocess's own stdout was captured via
+    * `os.Pipe` above, not `Console.out`, so muting it here can't drop any of
+    * its output.
+    */
+  private def destroyQuietly(proc: os.SubProcess): Unit =
+    val mutedOut = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
+    Console.withOut(mutedOut)(proc.destroy(shutdownGracePeriod = 0))
 
   /** Pure path arithmetic for the tier choice (ADR 0021 §9) — no I/O, so
     * unit-testable without touching a real filesystem. `globalFlows` is

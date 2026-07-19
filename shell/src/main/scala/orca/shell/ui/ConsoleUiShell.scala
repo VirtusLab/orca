@@ -14,7 +14,8 @@ import org.jline.reader.{
   LineReaderBuilder,
   UserInterruptException
 }
-import org.jline.terminal.Terminal
+import org.jline.terminal.Attributes.LocalFlag
+import org.jline.terminal.{Attributes, Terminal}
 import org.jline.utils.{AttributedStringBuilder, AttributedStyle}
 import ox.discard
 
@@ -233,12 +234,45 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
       // on the current line right before this prompt paints — clear it first,
       // same treatment Main's banner print already gets.
       print("[2K\r")
-      val results = consolePrompt.prompt(elements)
+      val results = withIsigDisabled(consolePrompt.prompt(elements))
       if results.isEmpty then UiOutcome.Cancelled
       else UiOutcome.Selected(results)
     catch
       case _: UserInterruptException | _: EndOfFileException | _: IOError =>
         UiOutcome.Cancelled
+
+  /** Disables the terminal's `ISIG` local flag for the duration of `body`
+    * (restored in `finally`, regardless of outcome).
+    *
+    * `ConsolePrompt.open()` only calls jline's `Terminal.enterRawMode()`, which
+    * turns off `ICANON`/`ECHO`/`IEXTEN` but deliberately leaves `ISIG`
+    * untouched (verified against the jline 3.30.15 `AbstractTerminal` source).
+    * With `ISIG` on, the kernel's tty driver intercepts Ctrl-C itself and
+    * raises a real `SIGINT` — the byte `0x03` never reaches jline's
+    * `BindingReader`, so `AbstractPrompt`'s own `ctrl('C')` keymap binding
+    * (which throws `UserInterruptException` — jar-verified) never fires. Since
+    * this shell's `Terminal` is built via a plain
+    * `TerminalBuilder.builder()...build()` (`Main.scala`) with no
+    * `signalHandler` override, its registered `SIGINT` disposition is jline's
+    * own default, `SIG_DFL` — so the signal falls through to the JVM's default
+    * handling (process termination), which is the RC-130 kill this fixes.
+    *
+    * The plain-`LineReader` paths ([[plainLineInput]], [[inputMultiline]])
+    * don't need this: `LineReaderImpl.readLine()` installs its own
+    * `terminal.handle(Signal.INT, ...)` for the duration of the read (also
+    * jar-verified), converting a delivered `SIGINT` into an interrupt of the
+    * reading thread regardless of `ISIG`. `ConsolePrompt`'s prompts read via a
+    * raw `BindingReader` instead and install no such signal hook, so they need
+    * Ctrl-C to arrive as an ordinary byte instead — hence turning `ISIG` off
+    * here rather than installing a signal handler.
+    */
+  private[ui] def withIsigDisabled[A](body: => A): A =
+    val original = terminal.getAttributes
+    val relaxed = Attributes(original)
+    relaxed.setLocalFlag(LocalFlag.ISIG, false)
+    terminal.setAttributes(relaxed)
+    try body
+    finally terminal.setAttributes(original)
 
 private[ui] object ConsoleUiShell:
 
