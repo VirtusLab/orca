@@ -161,7 +161,7 @@ private[shell] object FlowLauncher:
 
   private def fallbackQuestion(shellVersion: String): String =
     s"This flow pins an orca version incompatible with the shell ($shellVersion) — " +
-      "sessions from a pin-honouring run can't be continued. Run anyway?"
+      "sessions from a pin-honoring run can't be continued. Run anyway?"
 
   /** The flow-end line's outcome suffix: `finished (exit N)` for a completed
     * run, `finished (cancelled)` for a signal-killed one.
