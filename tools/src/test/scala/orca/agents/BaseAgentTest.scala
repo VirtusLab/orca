@@ -2,6 +2,8 @@ package orca.agents
 
 import orca.backend.{
   Conversation,
+  ConversationEvent,
+  Conversations,
   Interaction,
   AgentBackend,
   AgentResult,
@@ -15,6 +17,12 @@ import orca.events.{OrcaEvent, OrcaListener, Usage}
   * at construction" test below.
   */
 case class MapCarrier(m: Map[String, Int]) derives JsonData
+
+/** A structured-call output shape shaped like a real flow result, used by the
+  * raw-payload-suppression tests below.
+  */
+private case class FixOutcome(fixed: List[String], ignored: List[String])
+    derives JsonData
 
 class BaseAgentTest extends munit.FunSuite:
 
@@ -153,6 +161,58 @@ class BaseAgentTest extends munit.FunSuite:
       s"quietTextTurn must not emit SessionCommitted: ${seen.get()}"
     )
 
+  // A structured resultAs[O] call's closing assistant turn IS the raw JSON
+  // payload; the caller re-surfaces it via StructuredResult, so it must not
+  // also flow through as an AssistantMessage (double display of the same
+  // result — see Conversations.TurnBuffer).
+  test(
+    "resultAs[O].autonomous.run: the raw JSON payload doesn't echo as an AssistantMessage"
+  ):
+    val json = """{"fixed":["main.rs now depends on untracked src/lib.rs"],"ignored":[]}"""
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(
+      new ScriptedDrainBackend(json),
+      listener = listener,
+      prompts = DefaultPrompts
+    )
+    val result = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
+    assertEquals(
+      result,
+      FixOutcome(List("main.rs now depends on untracked src/lib.rs"), Nil)
+    )
+    val events = seen.get().reverse
+    assert(
+      events.exists(_.isInstanceOf[OrcaEvent.StructuredResult]),
+      s"expected a StructuredResult event: $events"
+    )
+    assert(
+      !events.exists(_ == OrcaEvent.AssistantMessage(json)),
+      s"the raw JSON payload must not also surface as an AssistantMessage: $events"
+    )
+
+  // Guard against over-filtering: a plain free-text autonomous.run's whole
+  // point is to surface its reply, so the AssistantMessage suppression above
+  // must be scoped to structured calls only.
+  test(
+    "plain text autonomous.run still emits its AssistantMessage"
+  ):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(
+      new ScriptedDrainBackend("plain prose reply"),
+      listener = listener,
+      prompts = DefaultPrompts
+    )
+    val reply = tool.run("say hello")
+    assertEquals(reply, "plain prose reply")
+    assert(
+      seen.get().reverse.contains(OrcaEvent.AssistantMessage("plain prose reply")),
+      s"a plain text call must still surface its AssistantMessage: ${seen.get()}"
+    )
+
   // An explicit `Some(...)` config wholly replaces the tool-level config (no
   // per-field merge); omission (`None`) inherits it — see
   // `BaseAgent.effectiveConfig`.
@@ -185,11 +245,15 @@ class BaseAgentTest extends munit.FunSuite:
   private class StubTool(
       backend: AgentBackend[BackendTag.Pi.type],
       toolConfig: AgentConfig = AgentConfig(),
-      listener: OrcaListener = OrcaListener.noop
+      listener: OrcaListener = OrcaListener.noop,
+      // Most tests never call `prompts.autonomous` (StubPrompts throws), so it
+      // defaults to the stub; tests that actually run a resultAs/run call pass
+      // DefaultPrompts to get a real prompt string.
+      prompts: Prompts = StubPrompts
   ) extends BaseAgent[BackendTag.Pi.type, Agent[BackendTag.Pi.type]](
         backend,
         toolConfig,
-        StubPrompts,
+        prompts,
         listener,
         StubInteraction
       ):
@@ -201,7 +265,7 @@ class BaseAgentTest extends munit.FunSuite:
         config: AgentConfig = toolConfig,
         name: String = name,
         role: Option[String] = None
-    ): Agent[BackendTag.Pi.type] = new StubTool(backend, config, listener)
+    ): Agent[BackendTag.Pi.type] = new StubTool(backend, config, listener, prompts)
 
   /** Records the `AgentConfig` the framework actually resolved and passed to
     * the backend, so tests can assert on it directly.
@@ -272,6 +336,60 @@ class BaseAgentTest extends munit.FunSuite:
       Enforcement.Ignored
     def structuredOutputMode: StructuredOutputMode =
       StructuredOutputMode.RawText
+
+  /** Drives a real `Conversations.runAutonomous` (rather than returning a
+    * canned `AgentResult` directly, as the other stub backends do) so the
+    * TurnBuffer withholding logic actually runs: `finalText` streams as a
+    * single completed assistant turn, exactly the shape a real backend
+    * produces for a one-turn structured reply. Threads the caller's
+    * `outputSchema` through unchanged, so a plain `run()` call (which passes
+    * `None`) exercises non-structured mode and a `resultAs[O]` call (which
+    * passes `Some(...)`) exercises structured mode.
+    */
+  private class ScriptedDrainBackend(finalText: String)
+      extends AgentBackend[BackendTag.Pi.type]:
+    val workDir: os.Path = os.pwd
+    val sessions: SessionSupport[BackendTag.Pi.type] =
+      SessionSupport.ephemeral(IdScheme.ClientClaimed)
+    val tag: BackendTag.Pi.type = BackendTag.Pi
+    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+      Enforcement.Ignored
+    def structuredOutputMode: StructuredOutputMode =
+      StructuredOutputMode.RawText
+    def runAutonomous(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        config: AgentConfig,
+        events: OrcaListener,
+        outputSchema: Option[String]
+    ): AgentResult[BackendTag.Pi.type] =
+      val schema = outputSchema
+      Conversations.runAutonomous(session, sessions, events):
+        new Conversation[BackendTag.Pi.type]:
+          val outputSchema: Option[String] = schema
+          def events(using ox.Ox): Iterator[ConversationEvent] =
+            Iterator(
+              ConversationEvent.AssistantTextDelta(finalText),
+              ConversationEvent.AssistantTurnEnd
+            )
+          def awaitResult()(using ox.Ox) =
+            Right(
+              AgentResult(
+                WireSessionId[BackendTag.Pi.type]("scripted-wire"),
+                finalText,
+                Usage.empty
+              )
+            )
+          def canAskUser: Boolean = false
+          def cancel(): Unit = ()
+    def runInteractive(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        displayPrompt: String,
+        config: AgentConfig,
+        outputSchema: Option[String]
+    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
+      throw new UnsupportedOperationException
 
   /** Mimics a real subprocess backend's `drainAndCommit`: returns a canned
     * result and immediately commits the session as resumable, so
