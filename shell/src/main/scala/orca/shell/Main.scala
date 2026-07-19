@@ -105,7 +105,10 @@ object Main:
         runFlow(ui, terminal)
         loop(ui, wizard, terminal, tty)
       case UiOutcome.Selected(MenuItem.CreateFlow) =>
-        createFlow(ui, terminal)
+        createNewFlow(ui, terminal)
+        loop(ui, wizard, terminal, tty)
+      case UiOutcome.Selected(MenuItem.ForkFlow) =>
+        createForkFlow(ui, terminal)
         loop(ui, wizard, terminal, tty)
       case UiOutcome.Selected(MenuItem.ContinueSession) =>
         continueSession(ui, terminal, runs)
@@ -177,31 +180,13 @@ object Main:
         promptTask(ui)
       case UiOutcome.Selected(text) => Some(text)
 
-  /** Create-a-flow menu entry point (ADR 0021 §9, items 9/10): a two-way select
-    * between authoring a brand-new flow from a description and forking an
-    * existing one, before either path's own tier/filename/harness prompts.
-    */
-  private enum CreateMode:
-    case New, Fork
-
-  private def createFlow(ui: ShellUi, terminal: Terminal): Unit =
-    ui.select(
-      "Create a flow:",
-      List(
-        Choice(CreateMode.New, "Create a new flow from a description:"),
-        Choice(CreateMode.Fork, "Fork an existing flow:")
-      )
-    ) match
-      case UiOutcome.Cancelled                => ()
-      case UiOutcome.Selected(CreateMode.New)  => createNewFlow(ui, terminal)
-      case UiOutcome.Selected(CreateMode.Fork) => createForkFlow(ui, terminal)
-
   /** New-flow authoring (item 9): tier → goal → filename (defaulted from the
-    * goal's [[CreateFlow.proposeFilename]] slug) → harness+yolo, then extracts
-    * the bundled API material into the harness's workspace and execs it with
-    * an initial prompt under [[launchAuthoringSession]]. Cancelling any
-    * prompt, or a filename collision, aborts back to the menu without
-    * launching anything.
+    * goal's [[suggestedFilename]] slug) → harness+yolo, then extracts the
+    * bundled API material into the harness's workspace and execs it with an
+    * initial prompt under [[launchAuthoringSession]]. Cancelling any prompt, or
+    * a filename collision, aborts back to the menu without launching anything.
+    * Reachable via [[MenuItem.CreateFlow]]; [[MenuItem.ForkFlow]] (item 10)
+    * is the sibling entry point for [[createForkFlow]].
     */
   private def createNewFlow(ui: ShellUi, terminal: Terminal): Unit =
     val workDir = os.pwd
@@ -218,7 +203,7 @@ object Main:
         tier,
         workDir,
         globalFlows,
-        default = Some(CreateFlow.proposeFilename(goal))
+        default = Some(suggestedFilename(goal))
       )
       (backend, yolo) <- selectHarnessAndYolo(ui)
     do
@@ -310,14 +295,26 @@ object Main:
       case UiOutcome.Cancelled      => None
       case UiOutcome.Selected(tier) => Some(tier)
 
-  /** Prompts for the flow's filename (pre-filled with `default`, e.g. the
-    * goal's proposed slug or the fork's `-fork.sc` suggestion — either way
-    * editable, per `ui.input`'s default-hint path) and resolves it to a target
-    * path via [[CreateFlow.prepareTarget]], printing and returning `None` on a
-    * collision — the harness writes the flow file itself, so an existing file
-    * at the target path is never overwritten.
+  /** The new flow's filename suggestion (item 9's cheap slug prompt): runs the
+    * configured coding agent — not the harness picked later in this same flow
+    * ([[selectHarnessAndYolo]] hasn't been asked yet at this point) —
+    * non-interactively via [[CreateFlow.suggestFilename]], falling back to its
+    * own local word-based derivation within a few seconds if that harness is
+    * slow, absent, or unreachable.
     */
-  private def promptFlowTarget(
+  private def suggestedFilename(goal: String): String =
+    CreateFlow.suggestFilename(configuredCodingAgent(GlobalSettings.default), goal)
+
+  /** Prompts for the flow's filename (pre-filled with `default`, e.g. the
+    * goal's suggested slug or the fork's `-fork.sc` suggestion — either way
+    * editable, per `ui.input`'s default-hint path) and resolves it to a target
+    * path via [[CreateFlow.prepareTarget]], re-prompting with the same
+    * `default` on a collision (printing the reason first) rather than
+    * aborting the whole create-flow attempt over one taken name — the harness
+    * writes the flow file itself, so an existing file at the target path is
+    * never overwritten.
+    */
+  @tailrec private def promptFlowTarget(
       ui: ShellUi,
       tier: CreateTier,
       workDir: os.Path,
@@ -330,7 +327,7 @@ object Main:
         CreateFlow.prepareTarget(tier, rawName, workDir, globalFlows) match
           case Left(message) =>
             println(s"orca: $message")
-            None
+            promptFlowTarget(ui, tier, workDir, globalFlows, default)
           case Right(target) => Some(target)
 
   /** Prompts for a multi-line description (the new flow's goal, or the fork's

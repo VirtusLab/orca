@@ -273,6 +273,19 @@ built-in offers "customize" — copy to the project or global tier, then open
 the copy, which thereafter shadows the built-in under the standard
 `[shadows built-in]` label (§5).
 
+**Fork** (feedback item 10) is a third entry point over the same discovery
+listing, reusing §9's tier/filename/harness/yolo machinery instead of editing
+in place: pick a source flow from any tier, describe the desired changes, pick
+where the fork is saved and its filename (defaulted from the source's name),
+then a harness authors it. The initial prompt points the harness at the
+source flow and asks it to copy that file to the target path verbatim before
+applying the described changes — the shell itself never writes the fork's
+content. A source that isn't already inside the authoring harness's workspace
+(a cross-tier fork, or any built-in, whose cache directory sits outside both
+tiers) is copied alongside the extracted API material first, so gemini/
+claude/opencode can all read it without a workspace-escape prompt or hard
+failure (§9).
+
 ### 7. Built-in flows
 
 `examples/*.sc` (implement, implement-interactive, implement-enhanced, epic,
@@ -360,11 +373,23 @@ resume is global, but the resumed context still references that directory):
 
 ### 9. Creating a new flow with a harness
 
-Menu flow: pick global vs project target upfront (fixes the save path:
-`$XDG_CONFIG_HOME/orca/flows/<name>.sc` vs `{workDir}/.orca/flows/<name>.sc`),
-describe the flow's goal, pick a harness (default: the configured coding
-agent); the shell then execs that harness's interactive UI with an initial
-prompt.
+Menu flow (feedback item 9, goal-first): pick global vs project target upfront
+(fixes the save path: `$XDG_CONFIG_HOME/orca/flows/<name>.sc` vs
+`{workDir}/.orca/flows/<name>.sc`), describe the flow's goal, then a filename —
+suggested by a cheap, best-effort non-interactive call to the configured
+coding agent (`claude -p`/`codex exec`/`gemini -p`/`opencode run`/`pi -p`,
+whichever is print-mode for that CLI) turning the goal into a kebab-case slug,
+sanitized hard and bounded by a short timeout; a slow, absent, or unreachable
+agent degrades to a local word-based slug instead, and either way the
+suggestion is shown as an editable default, never written unconfirmed. Then
+pick a harness (default: the configured coding agent) and confirm running it
+without approval prompts ("yolo mode", feedback item 11, default yes) — mapped
+per backend to claude's `--dangerously-skip-permissions`, codex's
+`--dangerously-bypass-approvals-and-sandbox`, gemini's `--yolo`; pi has no
+approval gate to bypass and opencode's interactive TUI has no such flag at all
+(config-only, via `opencode.jsonc`), so both print a one-line note instead of
+silently doing nothing. The shell then execs the harness's interactive UI with
+an initial prompt.
 
 How the agent learns the API (research 07): the shell ships the README (the
 project's single, self-contained API reference — only ~4% of it is non-API

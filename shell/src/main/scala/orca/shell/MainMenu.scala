@@ -2,10 +2,12 @@ package orca.shell
 
 import orca.shell.ui.Choice
 
-/** Main menu selection (ADR 0021 §3, `RediscoverStack` added §8). */
+/** Main menu selection (ADR 0021 §3, `ForkFlow` added §6/§9, `RediscoverStack`
+  * added §8).
+  */
 enum MenuItem:
-  case RunFlow, ViewFlow, EditFlow, CreateFlow, ContinueSession, Reconfigure,
-    RediscoverStack, Exit
+  case RunFlow, ViewFlow, EditFlow, CreateFlow, ForkFlow, ContinueSession,
+    Reconfigure, RediscoverStack, Exit
 
 object MainMenu:
 
@@ -27,6 +29,7 @@ object MainMenu:
       Choice(MenuItem.ViewFlow, "View a flow"),
       Choice(MenuItem.EditFlow, "Edit a flow"),
       Choice(MenuItem.CreateFlow, "Create a new flow"),
+      Choice(MenuItem.ForkFlow, "Fork a flow"),
       Choice(
         MenuItem.ContinueSession,
         continueLabel,

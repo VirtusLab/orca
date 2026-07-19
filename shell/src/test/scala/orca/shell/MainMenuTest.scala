@@ -2,7 +2,7 @@ package orca.shell
 
 class MainMenuTest extends munit.FunSuite:
 
-  test("choices(None) yields the 8 ADR-order items, all enabled"):
+  test("choices(None) yields the 9 ADR-order items, all enabled"):
     val values = MainMenu
       .choices(continueDisabledReason = None, newestRunSessionCount = 2)
       .map(_.value)
@@ -13,6 +13,7 @@ class MainMenuTest extends munit.FunSuite:
         MenuItem.ViewFlow,
         MenuItem.EditFlow,
         MenuItem.CreateFlow,
+        MenuItem.ForkFlow,
         MenuItem.ContinueSession,
         MenuItem.Reconfigure,
         MenuItem.RediscoverStack,

@@ -61,17 +61,18 @@ object CreateFlow:
   /** Proposes a `.sc` filename from a goal description, kebab-casing its first
     * few meaningful words: lowercase, split on runs of non-letter/non-digit
     * characters (unicode-aware, so accented input splits the same as plain
-    * ASCII), drop [[slugStopwords]], keep the first [[slugWordCount]] survivors,
-    * join with `-`. A goal that yields no words at all (empty, punctuation-only,
-    * or entirely stopwords) falls back to `new-flow.sc` rather than an empty
-    * name. Offered to the user as an editable default (`ui.input`'s existing
-    * default-hint path), never written unconfirmed — an LLM-proposed slug was
-    * considered instead but deferred: the shell has no cheap-agent plumbing
-    * today, and standing one up for a filename suggestion the user reviews
-    * anyway isn't worth the new surface.
+    * ASCII), drop [[slugStopwords]], keep the first [[slugWordCount]]
+    * survivors, join with `-`. A goal that yields no words at all (empty,
+    * punctuation-only, or entirely stopwords) falls back to `new-flow.sc`
+    * rather than an empty name. This is the local, no-LLM fallback
+    * [[suggestFilename]] degrades to when the cheap slug-suggestion harness
+    * call is slow, absent, or unreachable; either way the result is offered to
+    * the user as an editable default (`ui.input`'s existing default-hint path),
+    * never written unconfirmed.
     */
   def proposeFilename(goal: String): String =
-    val words = goal.toLowerCase(java.util.Locale.ROOT)
+    val words = goal
+      .toLowerCase(java.util.Locale.ROOT)
       .split("[^\\p{L}\\p{N}]+")
       .filter(_.nonEmpty)
       .filterNot(slugStopwords.contains)
@@ -87,6 +88,104 @@ object CreateFlow:
       if sourceName.endsWith(".sc") then sourceName.dropRight(3)
       else sourceName
     s"$base-fork.sc"
+
+  /** Non-interactive, one-shot-and-exit invocation per backend for the cheap
+    * slug-suggestion call ([[suggestFilename]]), verified against each
+    * installed CLI's `--help`: claude's `-p`/`--print`, codex's `exec`
+    * subcommand, gemini's `-p`/`--prompt`, opencode's `run` subcommand, and
+    * pi's `-p`/`--print` — all distinct from [[harnessArgv]]'s interactive
+    * session forms.
+    */
+  def slugArgv(backend: BackendTag, prompt: String): Seq[String] =
+    backend match
+      case BackendTag.ClaudeCode => Seq("claude", "-p", prompt)
+      case BackendTag.Codex      => Seq("codex", "exec", prompt)
+      case BackendTag.Pi         => Seq("pi", "-p", prompt)
+      case BackendTag.Gemini     => Seq("gemini", "-p", prompt)
+      case BackendTag.Opencode   => Seq("opencode", "run", prompt)
+
+  /** The cheap slug-suggestion prompt: asks for nothing but a bare filename, so
+    * [[sanitizeSlug]] has the best chance of a clean answer to sanitize.
+    */
+  def slugPrompt(goal: String): String =
+    s"""Suggest a short lowercase-kebab-case filename (letters, digits, and
+       |hyphens only, no file extension, no explanation) for a script whose
+       |goal is:
+       |$goal
+       |
+       |Reply with ONLY the filename, nothing else.""".stripMargin
+
+  private val maxSlugLength = 50
+
+  private def toKebab(text: String): String =
+    text
+      .toLowerCase(java.util.Locale.ROOT)
+      .replaceAll("[^a-z0-9]+", "-")
+      .replaceAll("-{2,}", "-")
+      .stripPrefix("-")
+      .stripSuffix("-")
+
+  /** Sanitizes arbitrary text — a harness's raw slug reply, or anything else —
+    * into a valid flow filename: lowercase kebab-case, letters/digits/hyphens
+    * only, length-bounded, `.sc`-suffixed. Falls back to `new-flow.sc` when
+    * nothing survives (an empty string, or one that's pure punctuation/
+    * whitespace).
+    */
+  def sanitizeSlug(raw: String): String =
+    val stripped = toKebab(raw.stripSuffix(".sc"))
+    val bounded =
+      if stripped.length > maxSlugLength then
+        toKebab(stripped.take(maxSlugLength))
+      else stripped
+    if bounded.isEmpty then "new-flow.sc" else normalizedFileName(bounded)
+
+  private val slugTimeoutMillis = 4000L
+
+  /** Best-effort filename suggestion for a new flow — the "cheap slug prompt"
+    * (item 9): runs `backend` non-interactively on [[slugPrompt]] (via
+    * [[slugArgv]]) with a short timeout, sanitizes its last non-blank output
+    * line through [[sanitizeSlug]], and falls back to [[proposeFilename]]'s
+    * local word-based derivation whenever the harness is unreachable, too slow,
+    * exits non-zero, or replies with nothing [[sanitizeSlug]] can turn into
+    * more than `new-flow.sc`. This is a nicety layered on top of a
+    * fully-working local fallback, never something the caller blocks on
+    * indefinitely. `runner` is injected for testing — a stub returning canned
+    * stdout, or `None` to simulate an unreachable/timed-out harness — and
+    * defaults to a real, timeout-bounded [[os.proc]] spawn ([[runSlugProc]]).
+    */
+  def suggestFilename(
+      backend: BackendTag,
+      goal: String,
+      timeoutMillis: Long = slugTimeoutMillis,
+      runner: (Seq[String], Long) => Option[String] = runSlugProc
+  ): String =
+    val lastLine =
+      runner(slugArgv(backend, slugPrompt(goal)), timeoutMillis).toList
+        .flatMap(_.linesIterator.map(_.trim))
+        .filter(_.nonEmpty)
+        .lastOption
+    lastLine.map(sanitizeSlug) match
+      case Some(slug) if slug != "new-flow.sc" => slug
+      case _                                   => proposeFilename(goal)
+
+  /** Runs `argv` to completion within `timeoutMillis`, returning its stdout on
+    * a zero exit; `None` on a timeout (the process is killed rather than left
+    * running), a non-zero exit, or any failure to even start (a missing binary
+    * throws from `os.proc`'s spawn). [[suggestFilename]]'s production runner.
+    */
+  private def runSlugProc(
+      argv: Seq[String],
+      timeoutMillis: Long
+  ): Option[String] =
+    try
+      val proc =
+        os.proc(argv).spawn(stdin = os.Pipe, stdout = os.Pipe, stderr = os.Pipe)
+      try
+        if proc.waitFor(timeoutMillis) && proc.exitCode() == 0 then
+          Some(proc.stdout.text())
+        else None
+      finally if proc.isAlive() then proc.destroyForcibly()
+    catch case NonFatal(_) => None
 
   /** Pure path arithmetic for the tier choice (ADR 0021 §9) — no I/O, so
     * unit-testable without touching a real filesystem. `globalFlows` is
@@ -255,13 +354,13 @@ object CreateFlow:
     * either tier's workspace regardless of the fork's target tier.
     *
     * In every such case, copies `sourcePath` into `apiDir` (already inside the
-    * workspace, alongside the extracted README/examples) under its own
-    * basename and returns that copy instead — so the harness (gemini in
-    * particular, which hard-fails on an out-of-workspace path; claude/opencode
-    * otherwise prompt for approval) can always read the fork's source without
-    * a workspace escape. The copy is written once per basename: a repeat call
-    * (re-running create-flow against the same apiDir) leaves an existing copy
-    * as-is rather than re-copying over it.
+    * workspace, alongside the extracted README/examples) under its own basename
+    * and returns that copy instead — so the harness (gemini in particular,
+    * which hard-fails on an out-of-workspace path; claude/opencode otherwise
+    * prompt for approval) can always read the fork's source without a workspace
+    * escape. The copy is written once per basename: a repeat call (re-running
+    * create-flow against the same apiDir) leaves an existing copy as-is rather
+    * than re-copying over it.
     */
   def resolveForkSource(
       sourcePath: os.Path,
@@ -276,8 +375,8 @@ object CreateFlow:
       copy
 
   /** The initial prompt for a fork session (ADR 0021 §9/item 10): states the
-    * source path and the described changes, instructs copying the source to
-    * the target path verbatim before applying them, and otherwise mirrors
+    * source path and the described changes, instructs copying the source to the
+    * target path verbatim before applying them, and otherwise mirrors
     * [[initialPrompt]]'s API-reference pointers, compile-check step, and
     * runtime-rules caveat. `sourcePath` is whatever [[resolveForkSource]]
     * resolved — a path already known-readable from the harness's workspace.

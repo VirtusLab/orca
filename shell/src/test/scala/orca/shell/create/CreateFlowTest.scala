@@ -123,7 +123,8 @@ class CreateFlowTest extends munit.FunSuite:
 
   test("harnessArgv: claude takes the prompt as a positional argument"):
     assertEquals(
-      CreateFlow.harnessArgv(BackendTag.ClaudeCode, "do the thing", yolo = false),
+      CreateFlow
+        .harnessArgv(BackendTag.ClaudeCode, "do the thing", yolo = false),
       HarnessLaunch(Seq("claude", "do the thing"), None)
     )
 
@@ -155,7 +156,8 @@ class CreateFlowTest extends munit.FunSuite:
 
   test("harnessArgv: yolo appends claude's --dangerously-skip-permissions"):
     assertEquals(
-      CreateFlow.harnessArgv(BackendTag.ClaudeCode, "do the thing", yolo = true),
+      CreateFlow
+        .harnessArgv(BackendTag.ClaudeCode, "do the thing", yolo = true),
       HarnessLaunch(
         Seq("claude", "do the thing", "--dangerously-skip-permissions"),
         None
@@ -223,7 +225,9 @@ class CreateFlowTest extends munit.FunSuite:
 
   // --- proposeFilename ---
 
-  test("proposeFilename slugs the first four meaningful words, dropping stopwords"):
+  test(
+    "proposeFilename slugs the first four meaningful words, dropping stopwords"
+  ):
     assertEquals(
       CreateFlow.proposeFilename(
         "Implement a rate limiter for the login endpoint"
@@ -243,7 +247,9 @@ class CreateFlowTest extends munit.FunSuite:
       "résumé-café-münchen-naïve.sc"
     )
 
-  test("proposeFilename falls back to new-flow.sc when nothing survives filtering (all stopwords)"):
+  test(
+    "proposeFilename falls back to new-flow.sc when nothing survives filtering (all stopwords)"
+  ):
     assertEquals(CreateFlow.proposeFilename("the a to for and"), "new-flow.sc")
 
   test("proposeFilename falls back to new-flow.sc on punctuation-only input"):
@@ -258,6 +264,118 @@ class CreateFlowTest extends munit.FunSuite:
       "one-two-three-four.sc"
     )
 
+  // --- slugArgv ---
+
+  test("slugArgv: claude uses -p/--print"):
+    assertEquals(
+      CreateFlow.slugArgv(BackendTag.ClaudeCode, "suggest a name"),
+      Seq("claude", "-p", "suggest a name")
+    )
+
+  test("slugArgv: codex uses the exec subcommand"):
+    assertEquals(
+      CreateFlow.slugArgv(BackendTag.Codex, "suggest a name"),
+      Seq("codex", "exec", "suggest a name")
+    )
+
+  test("slugArgv: pi uses -p/--print"):
+    assertEquals(
+      CreateFlow.slugArgv(BackendTag.Pi, "suggest a name"),
+      Seq("pi", "-p", "suggest a name")
+    )
+
+  test("slugArgv: gemini uses -p/--prompt (the non-interactive/headless flag)"):
+    assertEquals(
+      CreateFlow.slugArgv(BackendTag.Gemini, "suggest a name"),
+      Seq("gemini", "-p", "suggest a name")
+    )
+
+  test("slugArgv: opencode uses the run subcommand"):
+    assertEquals(
+      CreateFlow.slugArgv(BackendTag.Opencode, "suggest a name"),
+      Seq("opencode", "run", "suggest a name")
+    )
+
+  // --- slugPrompt ---
+
+  test("slugPrompt states the goal and asks for only the filename"):
+    val text = CreateFlow.slugPrompt("sync issues nightly")
+    assert(text.contains("sync issues nightly"))
+    assert(text.contains("Reply with ONLY the filename"))
+
+  // --- sanitizeSlug ---
+
+  test("sanitizeSlug kebab-cases junk (mixed case, punctuation, spaces)"):
+    assertEquals(
+      CreateFlow.sanitizeSlug("Sure! Here's one: My Cool Flow"),
+      "sure-here-s-one-my-cool-flow.sc"
+    )
+
+  test("sanitizeSlug strips an existing .sc suffix before re-appending it"):
+    assertEquals(CreateFlow.sanitizeSlug("my-cool-flow.sc"), "my-cool-flow.sc")
+
+  test("sanitizeSlug falls back to new-flow.sc on an empty string"):
+    assertEquals(CreateFlow.sanitizeSlug(""), "new-flow.sc")
+
+  test("sanitizeSlug falls back to new-flow.sc on punctuation/whitespace only"):
+    assertEquals(CreateFlow.sanitizeSlug("   !!! ... ???  "), "new-flow.sc")
+
+  test("sanitizeSlug bounds an unreasonably long reply"):
+    val long = ("word" * 30)
+    val result = CreateFlow.sanitizeSlug(long)
+    assert(result.stripSuffix(".sc").length <= 50, result)
+
+  // --- suggestFilename ---
+
+  test("suggestFilename sanitizes the harness's last non-blank output line"):
+    val runner: (Seq[String], Long) => Option[String] =
+      (_, _) => Some("Thinking...\n\nSure, how about: My Cool Flow\n")
+    val result =
+      CreateFlow.suggestFilename(
+        BackendTag.ClaudeCode,
+        "sync issues nightly",
+        runner = runner
+      )
+    assertEquals(result, "sure-how-about-my-cool-flow.sc")
+
+  test(
+    "suggestFilename falls back to proposeFilename when the harness is unreachable/times out"
+  ):
+    val runner: (Seq[String], Long) => Option[String] = (_, _) => None
+    val goal = "Implement a rate limiter for the login endpoint"
+    assertEquals(
+      CreateFlow.suggestFilename(BackendTag.ClaudeCode, goal, runner = runner),
+      CreateFlow.proposeFilename(goal)
+    )
+
+  test(
+    "suggestFilename falls back to proposeFilename when the harness reply sanitizes to nothing"
+  ):
+    val runner: (Seq[String], Long) => Option[String] =
+      (_, _) => Some("   !!! ... ???  ")
+    val goal = "Implement a rate limiter for the login endpoint"
+    assertEquals(
+      CreateFlow.suggestFilename(BackendTag.ClaudeCode, goal, runner = runner),
+      CreateFlow.proposeFilename(goal)
+    )
+
+  test("suggestFilename passes slugArgv/slugPrompt through to the runner"):
+    var seenArgv: Seq[String] = Nil
+    val runner: (Seq[String], Long) => Option[String] =
+      (argv, _) => { seenArgv = argv; Some("my-flow") }
+    CreateFlow.suggestFilename(
+      BackendTag.Gemini,
+      "sync issues nightly",
+      runner = runner
+    )
+    assertEquals(
+      seenArgv,
+      CreateFlow.slugArgv(
+        BackendTag.Gemini,
+        CreateFlow.slugPrompt("sync issues nightly")
+      )
+    )
+
   // --- forkFilenameDefault ---
 
   test("forkFilenameDefault strips .sc and appends -fork.sc"):
@@ -267,11 +385,16 @@ class CreateFlowTest extends munit.FunSuite:
     )
 
   test("forkFilenameDefault appends -fork.sc even without a .sc source name"):
-    assertEquals(CreateFlow.forkFilenameDefault("implement"), "implement-fork.sc")
+    assertEquals(
+      CreateFlow.forkFilenameDefault("implement"),
+      "implement-fork.sc"
+    )
 
   // --- resolveForkSource ---
 
-  test("resolveForkSource returns the source path unchanged when it's already inside cwd"):
+  test(
+    "resolveForkSource returns the source path unchanged when it's already inside cwd"
+  ):
     val cwd = TempDirs.dir()
     val source = cwd / ".orca" / "flows" / "implement.sc"
     os.write(source, "// a flow\n", createFolders = true)
