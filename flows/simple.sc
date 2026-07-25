@@ -26,13 +26,28 @@
 
 import orca.{*, given}
 
+// One custom reviewer covering everything in a single pass, rather than
+// `allReviewers` + agent-driven selection — with only one reviewer to pick
+// from, that selection call would just burn a cheap-model round-trip.
+val review = Reviewer(
+  name = "review",
+  description = "single all-round pass",
+  systemPrompt =
+    """You are the only reviewer, in the only review round. Check whether the
+      |change correctly and completely implements the task, look for real
+      |bugs or missed edge cases, judge the clarity of what was written, and
+      |flag unnecessary complexity worth removing. Report only issues worth
+      |fixing — no nitpicks or style opinions.""".stripMargin
+)
+
 flow(OrcaArgs(args)):
   val session = codingAgent.session("implementer", seed = userPrompt)
   stage("Implement"):
     session.run("Implement the task from the seed prompt above.")
     reviewAndFixLoop(
       coderSession = session,
-      reviewers = allReviewers(reviewAgent),
+      reviewers = buildReviewers(reviewAgent, List(review)),
+      reviewerSelection = ReviewerSelector.allEveryRound,
       task = userPrompt,
       maxIterations = 1
     )

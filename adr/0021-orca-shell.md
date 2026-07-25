@@ -474,7 +474,8 @@ included only as a last-resort fallback line.
 > and the review loop then fighting itself over the verbatim-copy task for
 > several iterations — over-orchestration for what authoring actually needs.
 > `simple.sc` runs no plan stage and a single review round (`maxIterations =
-> 1`) against the configured coding/review agents.
+> 1`) against one custom all-round reviewer (not the full `allReviewers`
+> roster), built on the configured review agent.
 
 ### 10. Command-line interface
 
