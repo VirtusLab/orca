@@ -144,7 +144,7 @@ class WizardTest extends munit.FunSuite:
           UiOutcome.Selected(BackendTag.Gemini)
         ),
         inputScript = List(
-          UiOutcome.Selected("claude-opus-4-8[1m]"),
+          UiOutcome.Selected("claude-opus-5[1m]"),
           UiOutcome.Selected("")
         )
       )
@@ -153,7 +153,7 @@ class WizardTest extends munit.FunSuite:
       val agents = parse(os.read(path))
       assertEquals(
         agents.planning,
-        Some(AgentSpec(BackendTag.ClaudeCode, Some("claude-opus-4-8[1m]")))
+        Some(AgentSpec(BackendTag.ClaudeCode, Some("claude-opus-5[1m]")))
       )
 
   test("blank free text on an open-ended harness writes the bare harness"):
@@ -384,7 +384,7 @@ class WizardTest extends munit.FunSuite:
     "re-configure prefills manual entry with a pin that isn't in the curated list"
   ):
     withTempPath: path =>
-      os.write(path, "codingAgent = claude:claude-opus-4-8[1m]\n")
+      os.write(path, "codingAgent = claude:claude-opus-5[1m]\n")
       val ui = ScriptedUi(
         selectScript = List(
           UiOutcome.Selected(BackendTag.ClaudeCode),
@@ -394,7 +394,7 @@ class WizardTest extends munit.FunSuite:
           UiOutcome.Selected(BackendTag.ClaudeCode),
           UiOutcome.Selected(Wizard.ModelPick.Default)
         ),
-        inputScript = List(UiOutcome.Selected("claude-opus-4-8[1m]"))
+        inputScript = List(UiOutcome.Selected("claude-opus-5[1m]"))
       )
       assert(Wizard(ui, probe, path).run(reconfigure = true))
 
@@ -406,14 +406,14 @@ class WizardTest extends munit.FunSuite:
         ui.recordedInputs.head,
         (
           "Coding model (Enter keeps current, - clears)" -> Some(
-            "claude-opus-4-8[1m]"
+            "claude-opus-5[1m]"
           )
         )
       )
       val agents = parse(os.read(path))
       assertEquals(
         agents.coding,
-        Some(AgentSpec(BackendTag.ClaudeCode, Some("claude-opus-4-8[1m]")))
+        Some(AgentSpec(BackendTag.ClaudeCode, Some("claude-opus-5[1m]")))
       )
 
   test(
@@ -462,7 +462,7 @@ class WizardTest extends munit.FunSuite:
 
   test("re-configure: submitting '-' on the manual entry clears the pin"):
     withTempPath: path =>
-      os.write(path, "codingAgent = claude:claude-opus-4-8[1m]\n")
+      os.write(path, "codingAgent = claude:claude-opus-5[1m]\n")
       val ui = ScriptedUi(
         selectScript = List(
           UiOutcome.Selected(BackendTag.ClaudeCode),
@@ -738,7 +738,7 @@ class WizardTest extends munit.FunSuite:
         .curatedModels(
           Wizard.Role.Coding,
           BackendTag.ClaudeCode,
-          Some("claude-opus-4-8[1m]")
+          Some("claude-opus-5[1m]")
         )
         .map(_._1),
       List("opus", "fable", "sonnet")
@@ -756,7 +756,7 @@ class WizardTest extends munit.FunSuite:
     assertEquals(
       Wizard.preselectModelPick(
         curated,
-        Some("claude-opus-4-8[1m]"),
+        Some("claude-opus-5[1m]"),
         Some("fable")
       ),
       Wizard.ModelPick.Manual

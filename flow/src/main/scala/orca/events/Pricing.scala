@@ -110,6 +110,8 @@ object Pricing:
       // `[1m]` is the CLI's 1M-context spelling of the same model at the same
       // price; the suffix isn't a date, so `lookup` won't bridge it — hence its
       // own row.
+      Model("claude-opus-5") -> ModelPricing(5, 0.50, 25),
+      Model("claude-opus-5[1m]") -> ModelPricing(5, 0.50, 25),
       Model("claude-opus-4-8") -> ModelPricing(5, 0.50, 25),
       Model("claude-opus-4-8[1m]") -> ModelPricing(5, 0.50, 25),
       Model("claude-opus-4-7") -> ModelPricing(5, 0.50, 25),

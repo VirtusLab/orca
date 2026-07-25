@@ -32,7 +32,7 @@ private[orca] class DefaultOpencodeAgent(
     )
     with OpencodeAgent:
 
-  def anthropicOpus: OpencodeAgent = withModel("anthropic", "claude-opus-4-8")
+  def anthropicOpus: OpencodeAgent = withModel("anthropic", "claude-opus-5")
   def anthropicSonnet: OpencodeAgent =
     withModel("anthropic", "claude-sonnet-5")
   def anthropicHaiku: OpencodeAgent = withModel("anthropic", "claude-haiku-4-5")

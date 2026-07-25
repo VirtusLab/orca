@@ -70,7 +70,7 @@ private[orca] object DefaultClaudeAgent:
     * is too long"). Cheaper one-shot calls go through `claude.sonnet` /
     * `claude.haiku`.
     */
-  val Opus1M: Model = Model("claude-opus-4-8[1m]")
+  val Opus1M: Model = Model("claude-opus-5[1m]")
 
   /** Fable: the most capable tier, above Opus. Opt in via `claude.fable` for
     * the hardest one-shots; the long-lived implementer stays on Opus (the

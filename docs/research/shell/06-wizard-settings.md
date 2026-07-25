@@ -131,7 +131,7 @@ and the backend defaults:
 
 | harness | bare default | named tiers in code | citation |
 |---|---|---|---|
-| claude | Opus 1M (`claude-opus-4-8[1m]`) | `haiku`=claude-haiku-4-5, `sonnet`=claude-sonnet-5, `opus`, `fable`=claude-fable-5 | `/home/adamw/orca/claude/src/main/scala/orca/tools/claude/ClaudeAgents.scala:18-25`, `DefaultClaudeAgent.scala:30-32, 73, 79` |
+| claude | Opus 1M (`claude-opus-5[1m]`) | `haiku`=claude-haiku-4-5, `sonnet`=claude-sonnet-5, `opus`, `fable`=claude-fable-5 | `/home/adamw/orca/claude/src/main/scala/orca/tools/claude/ClaudeAgents.scala:18-25`, `DefaultClaudeAgent.scala:30-32, 73, 79` |
 | codex | installed CLI's own default (no pin) | `mini`=gpt-5.4-mini | `/home/adamw/orca/codex/src/main/scala/orca/tools/codex/CodexAgents.scala:13-14`, `DefaultCodexAgent.scala:35` |
 | opencode | server's configured default (model field omitted) | `anthropicOpus/Sonnet/Haiku`, `openaiSol/Terra/Luna` (provider-qualified `provider/model`) | `/home/adamw/orca/opencode/src/main/scala/orca/tools/opencode/OpencodeArgs.scala:36-39`, `DefaultOpencodeAgent.scala:35-41` |
 | pi | pi's own CLI config selects | none (only `withModel`) | `/home/adamw/orca/tools/src/main/scala/orca/agents/Agent.scala` (PiAgent trait), `PiAgents.scala:13-14` |

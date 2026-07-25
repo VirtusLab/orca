@@ -132,7 +132,7 @@ class RoleAgentsTest extends munit.FunSuite:
     )
     assert(
       resolution.announcement.contains(
-        "planning=claude:claude-opus-4-8[1m] (default)"
+        "planning=claude:claude-opus-5[1m] (default)"
       ),
       s"expected the wired default model in the segment: ${resolution.announcement}"
     )
@@ -286,7 +286,7 @@ class RoleAgentsTest extends munit.FunSuite:
     */
   private class DefaultModelClaude extends StubClaudeAgent("claude"):
     override private[orca] def configuredModel: Option[Model] =
-      Some(Model("claude-opus-4-8[1m]"))
+      Some(Model("claude-opus-5[1m]"))
 
   private object NoopCodex extends CodexAgent:
     val name = "noop-codex"
