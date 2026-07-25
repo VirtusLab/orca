@@ -2,7 +2,7 @@ package orca.shell.create
 
 import orca.OrcaDir
 import orca.agents.BackendTag
-import orca.settings.{GlobalSettings, SettingsFile, SettingsScope}
+import orca.settings.{AgentSpec, GlobalSettings, SettingsFile, SettingsScope}
 import orca.shell.ShellVersion
 import orca.util.PromptResource
 import ox.discard
@@ -172,18 +172,28 @@ private[shell] object FlowAuthoring:
       case Some(slug) if slug != "new-flow.sc" => slug
       case _                                   => localFilenameSlug(goal)
 
-  /** The configured coding-role agent from the global settings file, falling
-    * back to claude when the file is absent or unparseable — the same fallback
-    * the wizard uses for an undetected default. Shared by the harness picker's
-    * preselect and [[suggestFilenameForGoal]]'s slug call.
+  /** The configured coding-role agent spec (harness + model pin) from the
+    * global settings file, `None` when it's absent or unparseable. Shared by
+    * [[configuredCodingAgent]] and the authoring model step's preselect
+    * (`Main.selectAuthoringModel`).
     */
-  def configuredCodingAgent(globalSettingsPath: os.Path): BackendTag =
+  def configuredCodingAgentSpec(
+      globalSettingsPath: os.Path
+  ): Option[AgentSpec] =
     Option
       .when(os.exists(globalSettingsPath))(os.read(globalSettingsPath))
       .flatMap(content =>
         SettingsFile.parse(content, SettingsScope.UserGlobal).toOption
       )
       .flatMap(_.agents.coding)
+
+  /** The configured coding-role harness, falling back to claude when the global
+    * settings file is absent or unparseable — the same fallback the wizard uses
+    * for an undetected default. Shared by the harness picker's preselect and
+    * [[suggestFilenameForGoal]]'s slug call.
+    */
+  def configuredCodingAgent(globalSettingsPath: os.Path): BackendTag =
+    configuredCodingAgentSpec(globalSettingsPath)
       .map(_.backend)
       .getOrElse(BackendTag.ClaudeCode)
 
@@ -532,27 +542,39 @@ private[shell] object FlowAuthoring:
     * this) and opencode's interactive TUI has no such flag at all — only its
     * headless `opencode run` subcommand does — so opencode's argv is unchanged
     * regardless of `yolo` ([[yoloCaveat]] notes that too).
+    *
+    * `model`, when set, is passed as every backend's own `--model`/`-m` flag —
+    * also verified against each installed CLI's `--help` (July 2026): claude's
+    * `--model <model>` (alias or full name), codex's `-m/--model <MODEL>`, pi's
+    * `--model <pattern>`, gemini's `-m/--model`, and opencode's `-m/--model` on
+    * its DEFAULT command (`opencode [project]`, the same interactive TUI this
+    * launches) — distinct from `opencode run`'s flag of the same name, but
+    * resolved the same way. Every harness here can honor a model pin; there's
+    * no backend to skip the flag for.
     */
   def harnessArgv(
       backend: BackendTag,
       prompt: String,
-      yolo: Boolean
+      yolo: Boolean,
+      model: Option[String] = None
   ): HarnessLaunch =
+    val modelFlag = model.toSeq.flatMap(m => Seq("--model", m))
     backend match
       case BackendTag.ClaudeCode =>
         val flag = if yolo then Seq("--dangerously-skip-permissions") else Nil
-        HarnessLaunch(Seq("claude", prompt) ++ flag, None)
+        HarnessLaunch(Seq("claude", prompt) ++ modelFlag ++ flag, None)
       case BackendTag.Codex =>
         val flag =
           if yolo then Seq("--dangerously-bypass-approvals-and-sandbox")
           else Nil
-        HarnessLaunch(Seq("codex", prompt) ++ flag, None)
-      case BackendTag.Pi => HarnessLaunch(Seq("pi", prompt), None)
+        HarnessLaunch(Seq("codex", prompt) ++ modelFlag ++ flag, None)
+      case BackendTag.Pi =>
+        HarnessLaunch(Seq("pi", prompt) ++ modelFlag, None)
       case BackendTag.Gemini =>
         val flag = if yolo then Seq("--yolo") else Nil
-        HarnessLaunch(Seq("gemini", "-i", prompt) ++ flag, None)
+        HarnessLaunch(Seq("gemini", "-i", prompt) ++ modelFlag ++ flag, None)
       case BackendTag.Opencode =>
-        HarnessLaunch(Seq("opencode"), Some(prompt))
+        HarnessLaunch(Seq("opencode") ++ modelFlag, Some(prompt))
 
   /** A one-line note to print when `yolo` was requested but the backend can't
     * honor it via argv — `None` for every backend that either doesn't need one

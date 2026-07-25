@@ -405,8 +405,12 @@ per backend to claude's `--dangerously-skip-permissions`, codex's
 `--dangerously-bypass-approvals-and-sandbox`, gemini's `--yolo`; pi has no
 approval gate to bypass and opencode's interactive TUI has no such flag at all
 (config-only, via `opencode.jsonc`), so both print a one-line note instead of
-silently doing nothing. The shell then execs the harness's interactive UI with
-an initial prompt.
+silently doing nothing. Between the harness and yolo prompts sits a model
+step — the wizard's own curated/free-text UX (`ModelCatalog`, shared with §4),
+preselecting the configured coding agent's pin when its harness matches — and
+the chosen model is passed as every harness's own `--model`/`-m` flag,
+opencode's default TUI launch included. The shell then execs the harness's
+interactive UI with an initial prompt.
 
 How the agent learns the API (research 07): the shell ships the README (the
 project's single, self-contained API reference — only ~4% of it is non-API

@@ -207,6 +207,103 @@ class FlowAuthoringTest extends munit.FunSuite:
       HarnessLaunch(Seq("opencode"), Some("do the thing"))
     )
 
+  test("harnessArgv: claude passes a model pin as --model"):
+    assertEquals(
+      FlowAuthoring.harnessArgv(
+        BackendTag.ClaudeCode,
+        "do the thing",
+        yolo = false,
+        model = Some("opus")
+      ),
+      HarnessLaunch(
+        Seq("claude", "do the thing", "--model", "opus"),
+        None
+      )
+    )
+
+  test("harnessArgv: codex passes a model pin as --model"):
+    assertEquals(
+      FlowAuthoring.harnessArgv(
+        BackendTag.Codex,
+        "do the thing",
+        yolo = false,
+        model = Some("gpt-5.6-sol")
+      ),
+      HarnessLaunch(
+        Seq("codex", "do the thing", "--model", "gpt-5.6-sol"),
+        None
+      )
+    )
+
+  test("harnessArgv: pi passes a model pin as --model"):
+    assertEquals(
+      FlowAuthoring.harnessArgv(
+        BackendTag.Pi,
+        "do the thing",
+        yolo = false,
+        model = Some("sonnet:high")
+      ),
+      HarnessLaunch(Seq("pi", "do the thing", "--model", "sonnet:high"), None)
+    )
+
+  test("harnessArgv: gemini passes a model pin as --model"):
+    assertEquals(
+      FlowAuthoring.harnessArgv(
+        BackendTag.Gemini,
+        "do the thing",
+        yolo = false,
+        model = Some("gemini-2.5-pro")
+      ),
+      HarnessLaunch(
+        Seq("gemini", "-i", "do the thing", "--model", "gemini-2.5-pro"),
+        None
+      )
+    )
+
+  test(
+    "harnessArgv: opencode passes a model pin as --model on its default TUI launch, alongside the paste-fallback prompt"
+  ):
+    assertEquals(
+      FlowAuthoring.harnessArgv(
+        BackendTag.Opencode,
+        "do the thing",
+        yolo = false,
+        model = Some("anthropic/claude-sonnet-5")
+      ),
+      HarnessLaunch(
+        Seq("opencode", "--model", "anthropic/claude-sonnet-5"),
+        Some("do the thing")
+      )
+    )
+
+  test("harnessArgv: no model pin means no --model flag, for any backend"):
+    BackendTag.values.foreach: tag =>
+      val withoutModel = FlowAuthoring.harnessArgv(tag, "x", yolo = false)
+      assert(
+        !withoutModel.argv.contains("--model"),
+        s"$tag: ${withoutModel.argv}"
+      )
+
+  test("harnessArgv: model and yolo combine on the same argv"):
+    assertEquals(
+      FlowAuthoring.harnessArgv(
+        BackendTag.ClaudeCode,
+        "do the thing",
+        yolo = true,
+        model = Some("opus")
+      ),
+      HarnessLaunch(
+        Seq(
+          "claude",
+          "do the thing",
+          "--model",
+          "opus",
+          "--dangerously-skip-permissions"
+        ),
+        None
+      )
+    )
+
   // --- yoloCaveat ---
 
   test("yoloCaveat is None when yolo wasn't requested, for every backend"):

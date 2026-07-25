@@ -28,8 +28,11 @@ private[shell] object MainMenu:
       Choice(MenuItem.RunFlow, "Run a flow"),
       Choice(MenuItem.ViewFlow, "View a flow"),
       Choice(MenuItem.EditFlow, "Edit a flow"),
-      Choice(MenuItem.CreateFlow, "Create a new flow"),
-      Choice(MenuItem.ForkFlow, "Fork a flow"),
+      Choice(
+        MenuItem.CreateFlow,
+        "Create a new flow — describe it, an agent writes it"
+      ),
+      Choice(MenuItem.ForkFlow, "Fork a flow — an agent edits a copy"),
       Choice(
         MenuItem.ContinueSession,
         continueLabel,

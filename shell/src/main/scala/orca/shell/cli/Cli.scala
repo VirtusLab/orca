@@ -182,7 +182,7 @@ private[shell] object Cli:
 
   @main(doc =
     "Author a new flow with a coding agent's help. --goal is required; yolo defaults on.\n" +
-      """Example: orca create --goal "summarize a PR's review threads" --harness claude"""
+      """Example: orca create --goal "summarize a PR's review threads" --harness claude:opus"""
   )
   def create(
       @arg(
@@ -193,7 +193,8 @@ private[shell] object Cli:
       @arg(doc = "what the flow should do")
       goal: String,
       @arg(doc =
-        "harness to author with: claude|codex|pi|gemini|opencode (default: configured coding agent)"
+        "harness[:model] to author with: claude|codex|pi|gemini|opencode, " +
+          "e.g. claude:opus (default: configured coding agent/model)"
       )
       harness: Option[String] = None,
       @arg(doc =
@@ -222,7 +223,8 @@ private[shell] object Cli:
       @arg(doc = "the changes to make")
       changes: String,
       @arg(doc =
-        "harness to author with: claude|codex|pi|gemini|opencode (default: configured coding agent)"
+        "harness[:model] to author with: claude|codex|pi|gemini|opencode, " +
+          "e.g. claude:opus (default: configured coding agent/model)"
       )
       harness: Option[String] = None,
       @arg(doc =

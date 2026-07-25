@@ -13,12 +13,15 @@ import scala.util.control.NonFatal
 
 /** Where the new/forked flow is saved and who authors it (ADR 0021 §9) — the
   * already-resolved parameters `Main.createNewFlow`/`createForkFlow` gather via
-  * prompts before calling into [[AuthorAction]].
+  * prompts before calling into [[AuthorAction]]. `model`, when set, is passed
+  * to the harness as its own `--model`-style flag
+  * ([[FlowAuthoring.harnessArgv]]); `None` means the harness's own default.
   */
 private[shell] case class AuthorParams(
     tier: CreateTier,
     target: CreateTarget,
     backend: BackendTag,
+    model: Option[String],
     yolo: Boolean
 )
 
@@ -65,6 +68,7 @@ private[shell] object AuthorAction:
       params.target,
       prompt,
       params.backend,
+      params.model,
       params.yolo
     )
 
@@ -104,6 +108,7 @@ private[shell] object AuthorAction:
       params.target,
       prompt,
       params.backend,
+      params.model,
       params.yolo
     )
 
@@ -125,17 +130,19 @@ private[shell] object AuthorAction:
 
   /** Execs the harness from `target.cwd` with `prompt` as its initial message
     * under [[ChildTerminal.withChild]] (ADR 0021 §2) — the shared final step
-    * for both [[create]] and [[fork]]. Prints [[FlowAuthoring.yoloCaveat]]
-    * first when set (pi/opencode can't honor `yolo` via argv). When
-    * [[FlowAuthoring.harnessArgv]] returns a paste-fallback prompt (opencode),
-    * it's printed and the user must confirm they've read it before the harness
-    * launches — its TUI switches to the alternate screen buffer, which would
-    * otherwise wipe the print before anyone could copy it. Reports whether
-    * `target.flowPath` exists once the harness session ends, with the
-    * `scala-cli compile` hint either way. The exec itself is wrapped in a
-    * `NonFatal` backstop — a missing harness binary otherwise throws
-    * `IOException` out of `os.proc`, which `check = false` doesn't cover since
-    * that only governs a non-zero exit, not a failed process start.
+    * for both [[create]] and [[fork]]. `model`, when set, is folded into the
+    * harness's own argv by [[FlowAuthoring.harnessArgv]]. Prints
+    * [[FlowAuthoring.yoloCaveat]] first when set (pi/opencode can't honor
+    * `yolo` via argv). When [[FlowAuthoring.harnessArgv]] returns a
+    * paste-fallback prompt (opencode), it's printed and the user must confirm
+    * they've read it before the harness launches — its TUI switches to the
+    * alternate screen buffer, which would otherwise wipe the print before
+    * anyone could copy it. Reports whether `target.flowPath` exists once the
+    * harness session ends, with the `scala-cli compile` hint either way. The
+    * exec itself is wrapped in a `NonFatal` backstop — a missing harness binary
+    * otherwise throws `IOException` out of `os.proc`, which `check = false`
+    * doesn't cover since that only governs a non-zero exit, not a failed
+    * process start.
     */
   private def launchAuthoringSession(
       ui: ShellUi,
@@ -143,9 +150,10 @@ private[shell] object AuthorAction:
       target: CreateTarget,
       prompt: String,
       backend: BackendTag,
+      model: Option[String],
       yolo: Boolean
   ): AuthorOutcome =
-    val launch = FlowAuthoring.harnessArgv(backend, prompt, yolo)
+    val launch = FlowAuthoring.harnessArgv(backend, prompt, yolo, model)
     FlowAuthoring.yoloCaveat(backend, yolo).foreach(ShellOutput.info)
     val ready = launch.pastePrompt match
       case None => true

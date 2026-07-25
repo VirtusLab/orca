@@ -55,3 +55,16 @@ class MainMenuTest extends munit.FunSuite:
     val label =
       choices.find(_.value == MenuItem.ContinueSession).get.label
     assertEquals(label, "Continue a session")
+
+  test("CreateFlow/ForkFlow labels explain what happens, not just the verb"):
+    val choices = MainMenu
+      .choices(continueDisabledReason = None, newestRunSessionCount = 0)
+    val byValue = choices.map(c => c.value -> c.label).toMap
+    assertEquals(
+      byValue(MenuItem.CreateFlow),
+      "Create a new flow — describe it, an agent writes it"
+    )
+    assertEquals(
+      byValue(MenuItem.ForkFlow),
+      "Fork a flow — an agent edits a copy"
+    )

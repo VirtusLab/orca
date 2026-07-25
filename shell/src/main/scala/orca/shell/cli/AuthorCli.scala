@@ -106,14 +106,14 @@ private[cli] object AuthorCli:
         source <- resolveSource
         resolved <- authorParams(global, yolo, noYolo, harness).left
           .map(usageFailure)
-        (tier, backend, yoloValue) = resolved
+        (tier, spec, yoloValue) = resolved
         fileName = name.getOrElse(defaultFileName(source))
         _ <- validateFileName(fileName).left.map(usageFailure)
         target <- safePrepareTarget(tier, fileName, workDir, globalFlows).left
           .map(actionFailure)
       yield launchAuthoring(
         target,
-        AuthorParams(tier, target, backend, yoloValue),
+        AuthorParams(tier, target, spec.backend, spec.model, yoloValue),
         source,
         launch
       )
@@ -147,37 +147,41 @@ private[cli] object AuthorCli:
   ): Either[String, CreateTarget] =
     FlowAuthoring.safePrepareTarget(tier, fileName, workDir, globalFlows)
 
-  /** Shared `create`/`fork` flag resolution: the tier, the harness (parsed
-    * `--harness`, or the configured coding agent), and yolo (on by default,
-    * `--no-yolo` to disable — mutually exclusive with an explicit `--yolo`).
+  /** Shared `create`/`fork` flag resolution: the tier, the harness+model
+    * (parsed `--harness harness[:model]` via [[AgentSpec.parse]], or the
+    * configured coding agent's own spec), and yolo (on by default, `--no-yolo`
+    * to disable — mutually exclusive with an explicit `--yolo`).
     */
   private[cli] def authorParams(
       global: Flag,
       yolo: Flag,
       noYolo: Flag,
       harness: Option[String]
-  ): Either[String, (CreateTier, BackendTag, Boolean)] =
+  ): Either[String, (CreateTier, AgentSpec, Boolean)] =
     if yolo.value && noYolo.value then
       Left("--yolo and --no-yolo are mutually exclusive")
     else
-      resolveHarness(harness).map: backend =>
+      resolveAgentSpec(harness).map: spec =>
         val tier =
           if global.value then CreateTier.Global else CreateTier.Project
-        (tier, backend, !noYolo.value)
+        (tier, spec, !noYolo.value)
 
-  private[cli] def resolveHarness(
+  /** `--harness`'s value, `harness[:model]` in the same syntax as settings and
+    * `orca config` ([[AgentSpec.parse]]); omitted, it's the configured coding
+    * agent's own spec (harness AND model pin), falling back to bare claude when
+    * the global settings file is absent or unparseable.
+    */
+  private[cli] def resolveAgentSpec(
       raw: Option[String]
-  ): Either[String, BackendTag] =
+  ): Either[String, AgentSpec] =
     raw match
       case None =>
-        Right(FlowAuthoring.configuredCodingAgent(GlobalSettings.default))
-      case Some(name) =>
-        AgentSpec.harnessNames
-          .get(name)
-          .toRight(
-            s"unknown harness '$name' — valid: " +
-              AgentSpec.harnessNames.keys.toList.sorted.mkString(", ")
-          )
+        Right(
+          FlowAuthoring
+            .configuredCodingAgentSpec(GlobalSettings.default)
+            .getOrElse(AgentSpec(BackendTag.ClaudeCode, None))
+        )
+      case Some(spec) => AgentSpec.parse(spec)
 
   private[cli] def exitCodeFor(outcome: AuthorOutcome): Int = outcome match
     case AuthorOutcome.Launched(exit) => exit

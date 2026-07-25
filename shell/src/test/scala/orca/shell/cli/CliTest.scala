@@ -306,20 +306,34 @@ class CliTest extends munit.FunSuite:
       ExitCodes.SignalKilled
     )
 
-  // --- create/fork flag resolution: harness + yolo default-on ---
+  // --- create/fork flag resolution: harness[:model] + yolo default-on ---
 
-  test("resolveHarness: an unknown name is rejected, listing the valid ones"):
+  test(
+    "resolveAgentSpec: an unknown harness is rejected, listing the valid ones"
+  ):
     assertEquals(
-      AuthorCli.resolveHarness(Some("chatgpt")),
+      AuthorCli.resolveAgentSpec(Some("chatgpt")),
       Left(
-        "unknown harness 'chatgpt' — valid: claude, codex, gemini, opencode, pi"
+        "unknown harness `chatgpt` — valid: claude, codex, gemini, opencode, pi"
       )
     )
 
-  test("resolveHarness: a known name resolves to its BackendTag"):
+  test("resolveAgentSpec: a bare harness name resolves with no model pin"):
     assertEquals(
-      AuthorCli.resolveHarness(Some("codex")),
-      Right(BackendTag.Codex)
+      AuthorCli.resolveAgentSpec(Some("codex")),
+      Right(AgentSpec(BackendTag.Codex, None))
+    )
+
+  test("resolveAgentSpec: harness:model parses both parts"):
+    assertEquals(
+      AuthorCli.resolveAgentSpec(Some("claude:opus")),
+      Right(AgentSpec(BackendTag.ClaudeCode, Some("opus")))
+    )
+
+  test("resolveAgentSpec: a blank model after the colon means no pin"):
+    assertEquals(
+      AuthorCli.resolveAgentSpec(Some("claude:")),
+      Right(AgentSpec(BackendTag.ClaudeCode, None))
     )
 
   test("authorParams: yolo defaults on when neither flag is given"):
@@ -330,7 +344,23 @@ class CliTest extends munit.FunSuite:
         mainargs.Flag(),
         Some("codex")
       )
-    assertEquals(result, Right((CreateTier.Project, BackendTag.Codex, true)))
+    assertEquals(
+      result,
+      Right((CreateTier.Project, AgentSpec(BackendTag.Codex, None), true))
+    )
+
+  test("authorParams: --harness codex:gpt-5.6-terra threads the model through"):
+    val result =
+      AuthorCli.authorParams(
+        mainargs.Flag(),
+        mainargs.Flag(),
+        mainargs.Flag(),
+        Some("codex:gpt-5.6-terra")
+      )
+    assertEquals(
+      result.map(_._2),
+      Right(AgentSpec(BackendTag.Codex, Some("gpt-5.6-terra")))
+    )
 
   test("authorParams: --no-yolo turns yolo off"):
     val result = AuthorCli.authorParams(
@@ -360,6 +390,57 @@ class CliTest extends munit.FunSuite:
       ),
       Left("--yolo and --no-yolo are mutually exclusive")
     )
+
+  test("authorParams: a bad --harness spec is rejected before yolo is checked"):
+    assertEquals(
+      AuthorCli.authorParams(
+        mainargs.Flag(),
+        mainargs.Flag(),
+        mainargs.Flag(),
+        Some("chatgpt:foo")
+      ),
+      Left(
+        "unknown harness `chatgpt` — valid: claude, codex, gemini, opencode, pi"
+      )
+    )
+
+  // --- create/fork: --harness harness[:model] end-to-end argv parity ---
+
+  test("create: --harness claude:opus parses (fails later, off-tty)"):
+    assertEquals(
+      invoke(
+        "create",
+        "--goal",
+        "do a thing",
+        "--harness",
+        "claude:opus"
+      ),
+      Right(2)
+    )
+
+  test("create: bare --harness claude is unchanged"):
+    assertEquals(
+      invoke("create", "--goal", "do a thing", "--harness", "claude"),
+      Right(2)
+    )
+
+  test(
+    "fork: an unknown --harness is a clean usage error (exit 2), no stacktrace"
+  ):
+    val dir = TempDirs.dir()
+    os.write(dir / "source.sc", "// desc\nval a = 1\n")
+    val result = AuthorCli.fork(
+      "source.sc",
+      Some("out.sc"),
+      "make it better",
+      Some("chatgpt"),
+      mainargs.Flag(),
+      mainargs.Flag(),
+      mainargs.Flag(),
+      tty = true,
+      workDir = dir
+    )
+    assertEquals(result, ExitCodes.UsageError)
 
   // --- create/fork filename guard: no path separators (security review) ---
 

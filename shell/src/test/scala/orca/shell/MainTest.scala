@@ -9,6 +9,7 @@ import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
+import orca.shell.wizard.ModelCatalog
 import orca.testkit.TempDirs
 
 /** Answers a single fixed `confirm` outcome; every other prompt is unsupported
@@ -73,6 +74,53 @@ private class InputQueueUi(inputs: List[UiOutcome[String]]) extends ShellUi:
   def inputMultiline(prompt: String): UiOutcome[String] =
     throw new UnsupportedOperationException(
       "promptFlowTarget doesn't input-multiline"
+    )
+
+/** Records every `select` call's title and preselect, and replays queued
+  * outcomes for `select`/`input`/`confirm` — exercises
+  * [[Main.selectHarness]]/[[Main.selectAuthoringModel]]/
+  * [[Main.selectHarnessModelAndYolo]] the same way WizardTest's own
+  * `ScriptedUi` exercises the wizard's harness+model prompts. `inputMultiline`
+  * is unsupported: none of those call it.
+  */
+private class AuthoringScriptedUi(
+    selectScript: List[UiOutcome[Any]] = Nil,
+    inputScript: List[UiOutcome[String]] = Nil,
+    confirmScript: List[UiOutcome[Boolean]] = Nil
+) extends ShellUi:
+  private var pendingSelect = selectScript
+  private var pendingInput = inputScript
+  private var pendingConfirm = confirmScript
+  private var titles: List[String] = Nil
+  private var preselects: List[Option[Any]] = Nil
+
+  def recordedTitles: List[String] = titles
+  def recordedPreselects: List[Option[Any]] = preselects
+
+  def select[A](
+      title: String,
+      choices: List[Choice[A]],
+      preselect: Option[A] = None
+  ): UiOutcome[A] =
+    titles = titles :+ title
+    preselects = preselects :+ preselect.asInstanceOf[Option[Any]]
+    val outcome = pendingSelect.head
+    pendingSelect = pendingSelect.tail
+    outcome.asInstanceOf[UiOutcome[A]]
+
+  def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
+    val outcome = pendingConfirm.head
+    pendingConfirm = pendingConfirm.tail
+    outcome
+
+  def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
+    val outcome = pendingInput.head
+    pendingInput = pendingInput.tail
+    outcome
+
+  def inputMultiline(prompt: String): UiOutcome[String] =
+    throw new UnsupportedOperationException(
+      "authoring prompts don't use inputMultiline"
     )
 
 class MainTest extends munit.FunSuite:
@@ -433,6 +481,106 @@ class MainTest extends munit.FunSuite:
     assertEquals(
       Main.harnessLabel(BackendTag.ClaudeCode, _ => false),
       "claude — not found on PATH"
+    )
+
+  // --- authoring: harness + model prompts ---
+
+  private def emptySettingsPath: os.Path =
+    TempDirs.dir() / "settings.properties"
+
+  test("selectHarness: create and fork ask differently-worded questions"):
+    val settings = emptySettingsPath
+    val createUi =
+      AuthoringScriptedUi(List(UiOutcome.Selected(BackendTag.ClaudeCode)))
+    val _ = Main.selectHarness(createUi, Main.AuthoringAction.Create, settings)
+    assertEquals(
+      createUi.recordedTitles,
+      List("Coding agent to write the flow script:")
+    )
+
+    val forkUi =
+      AuthoringScriptedUi(List(UiOutcome.Selected(BackendTag.ClaudeCode)))
+    val _ = Main.selectHarness(forkUi, Main.AuthoringAction.Fork, settings)
+    assertEquals(
+      forkUi.recordedTitles,
+      List("Coding agent to edit the forked flow:")
+    )
+
+  test(
+    "selectAuthoringModel: preselects/orders the configured coding pin first when its harness matches"
+  ):
+    val settings = TempDirs.dir() / "settings.properties"
+    os.write(settings, "codingAgent = claude:sonnet\n")
+    val ui = AuthoringScriptedUi(
+      List(UiOutcome.Selected(ModelCatalog.ModelPick.Curated("sonnet")))
+    )
+    val result = Main.selectAuthoringModel(
+      ui,
+      Main.AuthoringAction.Create,
+      BackendTag.ClaudeCode,
+      settings
+    )
+    assertEquals(result, Some(Some("sonnet")))
+    assertEquals(
+      ui.recordedPreselects,
+      List(Some(ModelCatalog.ModelPick.Curated("sonnet")))
+    )
+
+  test(
+    "selectAuthoringModel: falls back to the coding-role default when the configured pin's harness differs"
+  ):
+    val settings = TempDirs.dir() / "settings.properties"
+    os.write(settings, "codingAgent = gemini:some-model\n")
+    val ui = AuthoringScriptedUi(
+      List(UiOutcome.Selected(ModelCatalog.ModelPick.Curated("opus")))
+    )
+    val result = Main.selectAuthoringModel(
+      ui,
+      Main.AuthoringAction.Create,
+      BackendTag.ClaudeCode,
+      settings
+    )
+    assertEquals(result, Some(Some("opus")))
+    assertEquals(
+      ui.recordedPreselects,
+      List(Some(ModelCatalog.ModelPick.Curated("opus")))
+    )
+
+  test(
+    "selectHarnessModelAndYolo: a curated model pick is threaded through alongside the harness and yolo choice"
+  ):
+    val ui = AuthoringScriptedUi(
+      selectScript = List(
+        UiOutcome.Selected(BackendTag.ClaudeCode),
+        UiOutcome.Selected(ModelCatalog.ModelPick.Curated("opus"))
+      ),
+      confirmScript = List(UiOutcome.Selected(true))
+    )
+    assertEquals(
+      Main.selectHarnessModelAndYolo(
+        ui,
+        Main.AuthoringAction.Create,
+        emptySettingsPath
+      ),
+      Some((BackendTag.ClaudeCode, Some("opus"), true))
+    )
+
+  test(
+    "selectHarnessModelAndYolo: cancelling the model prompt aborts without ever asking about yolo"
+  ):
+    val ui = AuthoringScriptedUi(
+      selectScript =
+        List(UiOutcome.Selected(BackendTag.ClaudeCode), UiOutcome.Cancelled)
+      // confirmScript is empty on purpose: if yolo were asked anyway, `.head`
+      // on the empty queue would throw, failing this test loudly.
+    )
+    assertEquals(
+      Main.selectHarnessModelAndYolo(
+        ui,
+        Main.AuthoringAction.Create,
+        emptySettingsPath
+      ),
+      None
     )
 
   // --- promoteByName ---

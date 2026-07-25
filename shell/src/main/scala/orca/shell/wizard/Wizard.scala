@@ -111,7 +111,8 @@ private[shell] class Wizard(
       model <- selectModel(role, tag, currentModel)
     yield AgentSpec(tag, model)
 
-  /** The per-harness model step: a curated select for harnesses with
+  /** The per-harness model step ([[ModelCatalog.pick]], shared with the
+    * authoring harness picker): a curated select for harnesses with
     * CLI-resolved aliases ([[Wizard.curatedModels]]), free text otherwise.
     * `currentModel` is the role's existing pin, already dropped by the caller
     * if the harness changed.
@@ -122,42 +123,7 @@ private[shell] class Wizard(
       currentModel: Option[String]
   ): UiOutcome[Option[String]] =
     val curated = Wizard.curatedModels(role, tag, currentModel)
-    if curated.isEmpty then
-      val hint = Wizard.freeTextHint(tag) + Wizard.clearAffordance(currentModel)
-      freeTextModel(s"${role.label} model$hint", currentModel)
-    else
-      val curatedChoices: List[Choice[Wizard.ModelPick]] =
-        curated.map((id, desc) =>
-          Choice(Wizard.ModelPick.Curated(id), s"$id — $desc")
-        )
-      val choices =
-        curatedChoices :+
-          Choice(Wizard.ModelPick.Manual, "enter manually…") :+
-          Choice(Wizard.ModelPick.Default, "harness default (no model pin)")
-      // The role default, for when there's no current pin to promote instead
-      // (preselectModelPick only consults this in that case) — `curated`'s own
-      // head, since it's only reordered away from role-default-first when a
-      // pin was found and promoted.
-      val default = curated.headOption.map(_._1)
-      val preselect =
-        Wizard.preselectModelPick(curated, currentModel, default)
-      ui.select(s"${role.label} model", choices, preselect = Some(preselect))
-        .flatMap:
-          case Wizard.ModelPick.Curated(id) => UiOutcome.Selected(Some(id))
-          case Wizard.ModelPick.Default     => UiOutcome.Selected(None)
-          case Wizard.ModelPick.Manual =>
-            val hint = Wizard.clearAffordance(currentModel)
-            freeTextModel(s"${role.label} model$hint", currentModel)
-
-  /** A single free-text model prompt: Enter keeps `currentModel` (the prompt's
-    * default), `-` clears it, anything else is the typed model
-    * ([[Wizard.resolveModelInput]]).
-    */
-  private def freeTextModel(
-      prompt: String,
-      currentModel: Option[String]
-  ): UiOutcome[Option[String]] =
-    ui.input(prompt, default = currentModel).map(Wizard.resolveModelInput)
+    ModelCatalog.pick(ui, s"${role.label} model", tag, curated, currentModel)
 
   private def choiceFor(
       tag: BackendTag,
@@ -181,21 +147,34 @@ private[shell] object Wizard:
     case Coding extends Role("Coding")
     case Review extends Role("Review")
 
-  /** A row in a curated model picker: a specific model, "enter manually" (falls
-    * through to free text), or "harness default" (no pin).
+  /** Re-exported from [[ModelCatalog]] (also consumed by the authoring harness
+    * picker, `Main.selectAuthoringModel`) so existing `Wizard.ModelPick`/etc.
+    * call sites — including tests — need no change.
     */
-  private[wizard] enum ModelPick:
-    case Curated(model: String)
-    case Manual
-    case Default
+  private[wizard] type ModelPick = ModelCatalog.ModelPick
+  private[wizard] val ModelPick: ModelCatalog.ModelPick.type =
+    ModelCatalog.ModelPick
 
-  /** Curated `(id, description)` rows for a role's harness: the matching row
-    * for `current` first when it names one of these ids (reconfigure onto an
-    * existing pin — otherwise a blind Enter would silently flip it to whichever
-    * row `roleDefaultOrder` puts first instead), else the role's default row
-    * first as `roleDefaultOrder` orders them. Either way, ordering is what
-    * actually surfaces the intended row: the interactive tty backend doesn't
-    * honor `preselect` (`ConsoleUiShell.select`'s scaladoc). `Nil` means the
+  private[wizard] def preselectModelPick(
+      curated: List[(String, String)],
+      current: Option[String],
+      default: Option[String]
+  ): ModelPick = ModelCatalog.preselectModelPick(curated, current, default)
+
+  private[wizard] def freeTextHint(tag: BackendTag): String =
+    ModelCatalog.freeTextHint(tag)
+
+  private[wizard] def clearAffordance(current: Option[String]): String =
+    ModelCatalog.clearAffordance(current)
+
+  private[wizard] def resolveModelInput(input: String): Option[String] =
+    ModelCatalog.resolveModelInput(input)
+
+  /** Curated `(id, description)` rows for a role's harness:
+    * [[roleDefaultOrder]] with `current`'s row promoted to the front when it
+    * names one of these ids ([[ModelCatalog.promoteCurrent]]) — reconfigure
+    * onto an existing pin, otherwise a blind Enter would silently flip it to
+    * whichever row `roleDefaultOrder` puts first instead. `Nil` means the
     * harness is free-text only.
     */
   private[wizard] def curatedModels(
@@ -203,87 +182,21 @@ private[shell] object Wizard:
       tag: BackendTag,
       current: Option[String] = None
   ): List[(String, String)] =
-    val ordered = roleDefaultOrder(role, tag)
-    current.filter(id => ordered.exists(_._1 == id)) match
-      case Some(id) =>
-        val (front, rest) = ordered.partition(_._1 == id)
-        front ++ rest
-      case None => ordered
+    ModelCatalog.promoteCurrent(roleDefaultOrder(role, tag), current)
 
   /** The base curated order, role default first, before any current-pin
-    * promotion: Planning gets the cheaper claude alias, Coding/Review get the
-    * flagship; codex's flagship alias leads for every role. Values are
-    * CLI-resolved ALIASES, not raw model ids — claude and codex resolve them
-    * themselves, so the list can't drift the way a curated list of raw ids
-    * would (ADR 0021 §4).
+    * promotion: Planning gets the cheaper claude alias, everyone else
+    * ([[ModelCatalog.defaultOrder]]) gets the flagship.
     */
   private def roleDefaultOrder(
       role: Role,
       tag: BackendTag
   ): List[(String, String)] =
-    tag match
-      case BackendTag.ClaudeCode =>
-        if role == Role.Planning then
-          List(
-            "fable" -> "Fable 5",
-            "opus" -> "latest Opus",
-            "sonnet" -> "latest Sonnet"
-          )
-        else
-          List(
-            "opus" -> "latest Opus",
-            "fable" -> "Fable 5",
-            "sonnet" -> "latest Sonnet"
-          )
-      case BackendTag.Codex =>
+    (role, tag) match
+      case (Role.Planning, BackendTag.ClaudeCode) =>
         List(
-          "gpt-5.6-sol" -> "flagship",
-          "gpt-5.6-terra" -> "balanced",
-          "gpt-5.6-luna" -> "fast"
+          "fable" -> "Fable 5",
+          "opus" -> "latest Opus",
+          "sonnet" -> "latest Sonnet"
         )
-      case _ => Nil
-
-  /** Which row a curated model picker preselects: the matching curated row if
-    * `current` names one, "enter manually" if it pins something else (the
-    * caller prefills the follow-up input with it), else the role's default row,
-    * else "harness default".
-    */
-  private[wizard] def preselectModelPick(
-      curated: List[(String, String)],
-      current: Option[String],
-      default: Option[String]
-  ): ModelPick =
-    val curatedIds = curated.map(_._1).toSet
-    current match
-      case Some(model) if curatedIds.contains(model) => ModelPick.Curated(model)
-      case Some(_)                                   => ModelPick.Manual
-      case None =>
-        default.map(ModelPick.Curated.apply).getOrElse(ModelPick.Default)
-
-  /** The free-text hint appended to the model prompt for harnesses picked
-    * entirely by hand.
-    */
-  private[wizard] def freeTextHint(tag: BackendTag): String =
-    tag match
-      case BackendTag.Opencode =>
-        " (provider/model, e.g. anthropic/claude-sonnet-5)"
-      case BackendTag.Pi => " (name or pattern, `:thinking` suffix allowed)"
-      case _             => ""
-
-  /** The clear-pin affordance appended to a free-text model prompt, only when
-    * there's a `current` pin to clear: with a pin prefilled as the input's
-    * default, plain Enter re-submits it (`NumberedUi.input`), so blank alone
-    * can no longer mean "clear" — `-` is the explicit clear signal instead
-    * ([[resolveModelInput]]).
-    */
-  private[wizard] def clearAffordance(current: Option[String]): String =
-    if current.isDefined then " (Enter keeps current, - clears)" else ""
-
-  /** A free-text model answer: blank means no pin (the common case — no
-    * existing pin to keep), `-` explicitly clears an existing pin even though
-    * it was prefilled as the input's default, anything else is the typed model.
-    */
-  private[wizard] def resolveModelInput(input: String): Option[String] =
-    input.trim match
-      case "" | "-" => None
-      case model    => Some(model)
+      case _ => ModelCatalog.defaultOrder(tag)
