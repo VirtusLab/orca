@@ -37,7 +37,11 @@ else
     echo "orca: install scala-cli yourself (https://scala-cli.virtuslab.org/install), then re-run this script" >&2
     exit 1
   fi
-  sh "$installer"
+  if ! sh "$installer"; then
+    echo "orca: the scala-cli installer failed" >&2
+    echo "orca: install scala-cli yourself (https://scala-cli.virtuslab.org/install), then re-run this script" >&2
+    exit 1
+  fi
 
   if command -v scala-cli >/dev/null 2>&1; then
     echo "orca: scala-cli installed"
