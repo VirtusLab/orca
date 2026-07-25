@@ -38,10 +38,13 @@ private[shell] object MainMenu:
         continueLabel,
         disabledReason = continueDisabledReason
       ),
-      Choice(MenuItem.Reconfigure, "Re-configure"),
+      Choice(
+        MenuItem.Reconfigure,
+        "Re-configure — pick the agents & models for planning/coding/review"
+      ),
       Choice(
         MenuItem.RediscoverStack,
-        "Re-discover project stack settings"
+        "Re-detect project stack (format/lint/test) on the next flow run"
       ),
       Choice(MenuItem.Exit, "Exit")
     )

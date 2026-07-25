@@ -68,3 +68,18 @@ class MainMenuTest extends munit.FunSuite:
       byValue(MenuItem.ForkFlow),
       "Fork a flow — an agent edits a copy"
     )
+
+  test(
+    "Reconfigure/RediscoverStack labels say what they reconfigure/re-detect"
+  ):
+    val choices = MainMenu
+      .choices(continueDisabledReason = None, newestRunSessionCount = 0)
+    val byValue = choices.map(c => c.value -> c.label).toMap
+    assertEquals(
+      byValue(MenuItem.Reconfigure),
+      "Re-configure — pick the agents & models for planning/coding/review"
+    )
+    assertEquals(
+      byValue(MenuItem.RediscoverStack),
+      "Re-detect project stack (format/lint/test) on the next flow run"
+    )

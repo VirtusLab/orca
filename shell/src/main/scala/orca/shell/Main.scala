@@ -177,7 +177,7 @@ object Main:
       else
         pickTier(
           ui,
-          s"'${flow.name}' is built-in — customize it into",
+          s"'${flow.name}' is built-in — customize it into:",
           GlobalSettings.defaultFlows
         ).foreach: tier =>
           EditAction.customizeThenEdit(
@@ -215,7 +215,7 @@ object Main:
     * as a degenerate run.
     */
   @tailrec private def promptTask(ui: ShellUi): Option[String] =
-    ui.inputMultiline("Task for the flow") match
+    ui.inputMultiline("Describe the task for this flow run") match
       case UiOutcome.Cancelled => None
       case UiOutcome.Selected(text) if text.trim.isEmpty =>
         ShellOutput.error("task text can't be empty")
@@ -278,7 +278,7 @@ object Main:
     val workDir = os.pwd
     val globalFlows = GlobalSettings.defaultFlows
     for
-      source <- selectFlow(ui, "Fork which flow:")
+      source <- selectFlow(ui, "Fork which flow?")
       changes <- promptDescription(ui, "Describe the changes for the fork")
       tier <- pickTier(ui, "Where should the fork be saved:", globalFlows)
     do
@@ -427,12 +427,12 @@ object Main:
       s"${flow.name} — $description [${flow.origin.originLabel}]$shadows"
     Choice(flow, label)
 
-  /** "Re-discover project stack settings" (ADR 0021 §8/§4):
-    * [[StackAction.status]] does the guarded read/parse (a missing file, or one
-    * with no stack lines already, is a no-op with a one-line explanation; an
-    * unparseable file aborts instead of being surgically edited blind); on a
-    * live status [[StackAction.clearIfConfirmed]] renders it, confirms, and
-    * calls [[StackAction.clear]] — which strips the stack lines
+  /** "Re-detect project stack (format/lint/test) on the next flow run" (ADR
+    * 0021 §8/§4): [[StackAction.status]] does the guarded read/parse (a missing
+    * file, or one with no stack lines already, is a no-op with a one-line
+    * explanation; an unparseable file aborts instead of being surgically edited
+    * blind); on a live status [[StackAction.clearIfConfirmed]] renders it,
+    * confirms, and calls [[StackAction.clear]] — which strips the stack lines
     * ([[SettingsFile.stripStackLines]]) so the next flow run's own
     * `hasStackLines`-driven check (`FlowLifecycle.readSettings`) fires
     * discovery again. `workDir` is explicit (rather than reading `os.pwd`
