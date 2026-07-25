@@ -268,6 +268,41 @@ private[shell] object FlowAuthoring:
       Left(s"${target.flowPath} already exists — pick a different name")
     else Right(target)
 
+  /** A flow filename is documented as a bare filename, not a path — rejects one
+    * containing a path separator (`../escape.sc`, `sub/dir.sc`) with a clean
+    * usage error up front, before it ever reaches [[prepareTarget]]'s path
+    * arithmetic (which, for a name with enough `..`s, os-lib can reject by
+    * throwing a raw `PathError` instead of returning one). Shared by the CLI's
+    * `create`/`fork` (`AuthorCli`) and the interactive shell's new-flow/fork
+    * prompts (`Main.promptFlowTarget`) — either path must re-prompt/re-report
+    * on an invalid name rather than crash or silently escape the target
+    * directory.
+    */
+  def validateFileName(fileName: String): Either[String, Unit] =
+    Either.cond(
+      !fileName.contains("/") && !fileName.contains("\\"),
+      (),
+      s"'$fileName' isn't a valid flow filename — path separators aren't allowed"
+    )
+
+  /** [[prepareTarget]], with any exception os-lib's path arithmetic throws for
+    * a filename that survived [[validateFileName]] but still drives it outside
+    * the filesystem root (e.g. `os.PathError.AbsolutePathOutsideRoot` — every
+    * `os.PathError` variant is a plain `IllegalArgumentException`, there's no
+    * shared marker type to catch) converted to a clean `Left` instead of
+    * propagating as an uncaught exception.
+    */
+  def safePrepareTarget(
+      tier: CreateTier,
+      fileName: String,
+      workDir: os.Path,
+      globalFlows: os.Path
+  ): Either[String, CreateTarget] =
+    try prepareTarget(tier, fileName, workDir, globalFlows)
+    catch
+      case _: IllegalArgumentException =>
+        Left(s"'$fileName' isn't a valid flow filename")
+
   /** Extracts the bundled README + two example flows into
     * `<cacheBase>/orca-api-<version>/`, returning that directory. `cacheBase`
     * is the already-ensured cache base — `OrcaDir.ensureCache(workDir)` for a

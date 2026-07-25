@@ -282,13 +282,16 @@ object Main:
   /** Prompts for the flow's filename (pre-filled with `default`, e.g. the
     * goal's suggested slug or the fork's `-fork.sc` suggestion — either way
     * editable, per `ui.input`'s default-hint path) and resolves it to a target
-    * path via [[FlowAuthoring.prepareTarget]], re-prompting with the same
-    * `default` on a collision (printing the reason first) rather than aborting
-    * the whole create-flow attempt over one taken name — the harness writes the
-    * flow file itself, so an existing file at the target path is never
-    * overwritten.
+    * path via [[FlowAuthoring.validateFileName]] +
+    * [[FlowAuthoring.safePrepareTarget]] — the same guard `AuthorCli`'s
+    * `create`/`fork` use — re-prompting with the same `default` on an invalid
+    * name or a collision (printing the reason first) rather than aborting the
+    * whole create-flow attempt, or (before this guard existed) crashing the
+    * shell on a name like `sub/x` that os-lib rejects with a raw exception. The
+    * harness writes the flow file itself, so an existing file at the target
+    * path is never overwritten.
     */
-  @tailrec private def promptFlowTarget(
+  @tailrec private[shell] def promptFlowTarget(
       ui: ShellUi,
       tier: CreateTier,
       workDir: os.Path,
@@ -298,11 +301,27 @@ object Main:
     ui.input("Flow filename:", default) match
       case UiOutcome.Cancelled => None
       case UiOutcome.Selected(rawName) =>
-        FlowAuthoring.prepareTarget(tier, rawName, workDir, globalFlows) match
+        prepareValidTarget(tier, rawName, workDir, globalFlows) match
           case Left(message) =>
             ShellOutput.error(message)
             promptFlowTarget(ui, tier, workDir, globalFlows, default)
           case Right(target) => Some(target)
+
+  private def prepareValidTarget(
+      tier: CreateTier,
+      rawName: String,
+      workDir: os.Path,
+      globalFlows: os.Path
+  ): Either[String, CreateTarget] =
+    for
+      _ <- FlowAuthoring.validateFileName(rawName)
+      target <- FlowAuthoring.safePrepareTarget(
+        tier,
+        rawName,
+        workDir,
+        globalFlows
+      )
+    yield target
 
   /** Prompts for a multi-line description (the new flow's goal, or the fork's
     * described changes), re-prompting on blank input — mirrors [[promptTask]]'s

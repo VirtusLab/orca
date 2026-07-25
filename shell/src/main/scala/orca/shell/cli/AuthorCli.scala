@@ -129,27 +129,15 @@ private[cli] object AuthorCli:
       val ui = ShellUi.make(terminal)
       exitCodeFor(launch(source, params, ui, terminal))
 
-  /** `name`/fork's filename argument is documented as a bare filename, not a
-    * path — rejects one containing a path separator (`../escape.sc`,
-    * `sub/dir.sc`) with a clean usage error up front, before it ever reaches
-    * [[FlowAuthoring.prepareTarget]]'s path arithmetic (which, for a name with
-    * enough `..`s, os-lib can reject by throwing a raw `PathError` instead of
-    * returning one).
+  /** Forwards to [[FlowAuthoring.validateFileName]] — the shared home also used
+    * by the interactive shell's `Main.promptFlowTarget`, kept as a thin alias
+    * here since existing call sites/tests spell it `AuthorCli.*`.
     */
   private[cli] def validateFileName(fileName: String): Either[String, Unit] =
-    Either.cond(
-      !fileName.contains("/") && !fileName.contains("\\"),
-      (),
-      s"'$fileName' isn't a valid flow filename — path separators aren't allowed"
-    )
+    FlowAuthoring.validateFileName(fileName)
 
-  /** [[FlowAuthoring.prepareTarget]], with any exception os-lib's path
-    * arithmetic throws for a filename that survived [[validateFileName]] but
-    * still drives it outside the filesystem root (e.g.
-    * `os.PathError.AbsolutePathOutsideRoot` — every `os.PathError` variant is a
-    * plain `IllegalArgumentException`, there's no shared marker type to catch)
-    * converted to a clean `Left` instead of propagating as an uncaught
-    * exception.
+  /** Forwards to [[FlowAuthoring.safePrepareTarget]] — see
+    * [[validateFileName]]'s scaladoc.
     */
   private[cli] def safePrepareTarget(
       tier: CreateTier,
@@ -157,10 +145,7 @@ private[cli] object AuthorCli:
       workDir: os.Path,
       globalFlows: os.Path
   ): Either[String, CreateTarget] =
-    try FlowAuthoring.prepareTarget(tier, fileName, workDir, globalFlows)
-    catch
-      case _: IllegalArgumentException =>
-        Left(s"'$fileName' isn't a valid flow filename")
+    FlowAuthoring.safePrepareTarget(tier, fileName, workDir, globalFlows)
 
   /** Shared `create`/`fork` flag resolution: the tier, the harness (parsed
     * `--harness`, or the configured coding agent), and yolo (on by default,

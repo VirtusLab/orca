@@ -5,6 +5,7 @@ import orca.agents.BackendTag
 import orca.runner.{ManifestSession, RunManifest}
 import orca.settings.SettingsFile
 import orca.shell.actions.StackAction
+import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
@@ -49,6 +50,30 @@ private class RecordingSelectUi(outcome: UiOutcome[DiscoveredFlow])
     throw new UnsupportedOperationException("pickFlow doesn't input")
   def inputMultiline(prompt: String): UiOutcome[String] =
     throw new UnsupportedOperationException("pickFlow doesn't input")
+
+/** Answers a queue of `input` outcomes in order; every other prompt is
+  * unsupported — [[Main.promptFlowTarget]] only ever calls `input`.
+  */
+private class InputQueueUi(inputs: List[UiOutcome[String]]) extends ShellUi:
+  private var pending = inputs
+  def select[A](
+      title: String,
+      choices: List[Choice[A]],
+      preselect: Option[A] = None
+  ): UiOutcome[A] =
+    throw new UnsupportedOperationException("promptFlowTarget doesn't select")
+  def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
+    throw new UnsupportedOperationException(
+      "promptFlowTarget doesn't confirm"
+    )
+  def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
+    val outcome = pending.head
+    pending = pending.tail
+    outcome
+  def inputMultiline(prompt: String): UiOutcome[String] =
+    throw new UnsupportedOperationException(
+      "promptFlowTarget doesn't input-multiline"
+    )
 
 class MainTest extends munit.FunSuite:
 
@@ -491,6 +516,22 @@ class MainTest extends munit.FunSuite:
     assertEquals(
       Main.promptCreateBranch(ConfirmOnlyUi(UiOutcome.Cancelled)),
       None
+    )
+
+  // --- promptFlowTarget (F1: a `/` in the filename must re-prompt, not crash) ---
+
+  test(
+    "promptFlowTarget: a filename with a path separator re-prompts instead of crashing"
+  ):
+    val dir = TempDirs.dir()
+    val ui = InputQueueUi(
+      List(UiOutcome.Selected("sub/x"), UiOutcome.Selected("valid-name"))
+    )
+    val result =
+      Main.promptFlowTarget(ui, CreateTier.Project, dir, dir / "global", None)
+    assertEquals(
+      result.map(_.flowPath),
+      Some(dir / ".orca" / "flows" / "valid-name.sc")
     )
 
   // --- rediscoverStack ---

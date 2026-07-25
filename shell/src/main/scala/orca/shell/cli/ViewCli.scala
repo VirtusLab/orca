@@ -21,12 +21,13 @@ private[cli] object ViewCli:
       case Right(highlight) => runView(workDir, flowRef, highlight)
 
   /** `--plain`/`--color`'s resolution (ADR 0021 §10 fold-in): mutually
-    * exclusive; either wins outright over the auto-detected `tty` — JDK 21 has
-    * no clean stdout-only tty probe, so an explicit flag is the escape hatch
-    * for `view | less -R` (wants highlighting) or a genuinely-a-terminal stdout
-    * piped through something that mangles ANSI (wants none). `tty` is injected
-    * (production: `Cli.isTty`) so every branch is testable without a real
-    * console.
+    * exclusive; either wins outright over the auto-detected `tty` — an explicit
+    * flag is still the escape hatch for `view | less -R` (wants highlighting)
+    * or a genuinely-a-terminal stdout piped through something that mangles ANSI
+    * (wants none). `tty` is stdout-specific (production: `TtyProbe.stdout()`,
+    * not the combined `System.console() != null` — stdin's own redirection is
+    * irrelevant to whether stdout can render highlighting) and injected so
+    * every branch is testable without a real console.
     */
   private[cli] def resolveHighlight(
       plain: Boolean,

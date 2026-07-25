@@ -4,6 +4,7 @@ import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
 import org.jline.terminal.Terminal
 import orca.settings.GlobalSettings
 import orca.shell.ui.ShellUi
+import orca.subprocess.TtyProbe
 
 /** Exit codes shared by every subcommand (ADR 0021 §10/§4). */
 private[shell] object ExitCodes:
@@ -148,7 +149,7 @@ private[shell] object Cli:
       skipBranch.value,
       honorPin.value,
       os.pwd,
-      isTty
+      TtyProbe.stdin()
     )
 
   @main(doc =
@@ -164,7 +165,7 @@ private[shell] object Cli:
       @arg(doc = "always highlight, regardless of stdout")
       color: Flag = Flag()
   ): Int =
-    ViewCli.run(flow, plain.value, color.value, isTty, os.pwd)
+    ViewCli.run(flow, plain.value, color.value, TtyProbe.stdout(), os.pwd)
 
   @main(doc =
     "Open a flow in $VISUAL/$EDITOR/vi.\n" +
@@ -307,7 +308,13 @@ private[shell] object Cli:
   ): Int =
     ListCli.runList(os.pwd, json.value)
 
-  private def isTty: Boolean = System.console() != null
+  /** Both stdin and stdout are a real terminal — the combined gate every
+    * `requireTty` call site needs (an interactive prompt reads one and draws on
+    * the other). `run`/`view` each care about exactly one side instead, so they
+    * probe [[TtyProbe.stdin]]/[[TtyProbe.stdout]] directly rather than going
+    * through this.
+    */
+  private def isTty: Boolean = TtyProbe.stdin() && TtyProbe.stdout()
 
   /** The mandatory gate before touching any interactive UI or child-exec
     * command (ADR 0021 §4/§10): `create`/`fork`/`edit`/`continue`'s resume all
