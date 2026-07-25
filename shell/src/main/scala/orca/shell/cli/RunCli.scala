@@ -1,7 +1,7 @@
 package orca.shell.cli
 
 import orca.shell.actions.{FlowResolution, RunAction}
-import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult}
+import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher, LaunchResult}
 
 /** `orca run`'s behavior (ADR 0021 §10): resolve the flow, read the task
   * (argument or piped stdin), then either the forced run ([[RunAction.run]]) or
@@ -36,8 +36,7 @@ private[cli] object RunCli:
                     resolved.path,
                     taskText,
                     workDir,
-                    verbose,
-                    skipBranch,
+                    FlowFlags(verbose, skipBranch),
                     terminal
                   )
                 else

@@ -73,6 +73,20 @@ class BuiltInFlowsTest extends munit.FunSuite:
       )
       assertEquals(lines(depLineIdx + 1), "//> using repository ivy2Local")
 
+  test(
+    "extracted (dev version) only re-materializes once per process (P1): unchanged on a second call"
+  ):
+    withTempHome: home =>
+      val runningVersion = "0.0.18+9-def456"
+      val dir = BuiltInFlows.extracted(Map.empty.get, home, runningVersion)
+      val expectedNames = indexNames.sorted
+      val mtimesBefore = expectedNames.map(n => n -> os.mtime(dir / n)).toMap
+
+      val _ = BuiltInFlows.extracted(Map.empty.get, home, runningVersion)
+
+      val mtimesAfter = expectedNames.map(n => n -> os.mtime(dir / n)).toMap
+      assertEquals(mtimesAfter, mtimesBefore)
+
   test("extracted (release version) self-heals a half-populated leftover dir"):
     withTempHome: home =>
       // Simulates a process killed mid-extraction under the old

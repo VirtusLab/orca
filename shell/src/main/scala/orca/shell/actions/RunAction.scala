@@ -2,7 +2,7 @@ package orca.shell.actions
 
 import org.jline.terminal.Terminal
 import orca.shell.flows.DiscoveredFlow
-import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult}
+import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher, LaunchResult}
 
 /** Runs a resolved flow (ADR 0021 §2). The selection and task-text prompting
   * that produce `flow` and `task` live in `Main.runFlow`.
@@ -31,7 +31,6 @@ private[shell] object RunAction:
       flow.path,
       task,
       workDir,
-      opts.verbose,
-      opts.skipBranch,
+      FlowFlags(opts.verbose, opts.skipBranch),
       terminal
     )

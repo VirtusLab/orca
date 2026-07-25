@@ -220,6 +220,16 @@ object FlowLifecycle:
       branchCreated: Boolean
   )
 
+  /** The branch half of [[FlowSetup]] (FP2), resolved by whichever of
+    * [[setup]]'s three `store.loadDetailed()` arms runs (corrupt log, absent
+    * log, or resumed) before the stack-settings half is folded in.
+    */
+  private[orca] case class BranchBinding(
+      featureBranch: FeatureBranch,
+      startBranch: String,
+      branchCreated: Boolean
+  )
+
   /** Bind the run to a branch + progress log before the body runs (ADR 0018
     * §2.4/§2.5). Records the starting branch, snapshots the log file, stashes a
     * dirty tree, then either resumes an existing log or starts fresh (resolve a
@@ -322,7 +332,7 @@ object FlowLifecycle:
       RecoveryCheck.alwaysProtected ++ git
         .defaultBranch()
         .map(_.toLowerCase(java.util.Locale.ROOT))
-    val (featureBranch, effectiveStartBranch, branchCreated) =
+    val binding: BranchBinding =
       store.loadDetailed() match
         case ProgressStore.LoadResult.Corrupt(reason) =>
           // The log file exists but didn't parse. Start fresh (no sane way to
@@ -351,7 +361,7 @@ object FlowLifecycle:
             discovered,
             emit
           )
-          (branch, startBranch, !args.skipBranch.value)
+          BranchBinding(branch, startBranch, !args.skipBranch.value)
         case ProgressStore.LoadResult.Absent =>
           val branch = freshRun(
             args,
@@ -365,7 +375,7 @@ object FlowLifecycle:
             discovered,
             emit
           )
-          (branch, startBranch, !args.skipBranch.value)
+          BranchBinding(branch, startBranch, !args.skipBranch.value)
         case ProgressStore.LoadResult.Loaded(progressLog) =>
           val header = progressLog.header
           // Validate the untrusted header before any destructive action, against
@@ -396,13 +406,17 @@ object FlowLifecycle:
           // a just-discovered settings file gets its dedicated commit right here
           // (ADR 0019) — this arm has no header commit that would sweep it in.
           if discovered then commitDiscoveredSettings(git, workDir)
-          (featureBranch, header.startingBranch, header.branchCreated)
+          BranchBinding(
+            featureBranch,
+            header.startingBranch,
+            header.branchCreated
+          )
     FlowSetup(
       store,
-      featureBranch,
-      effectiveStartBranch,
+      binding.featureBranch,
+      binding.startBranch,
       stackSettings,
-      branchCreated
+      binding.branchCreated
     )
 
   /** Outcome of the pre-`ensureClean` stack read: either the resolved values,

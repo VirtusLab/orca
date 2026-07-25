@@ -11,6 +11,15 @@ import orca.shell.ShellVersion
 private[shell] object BuiltInFlows:
   private val resourcePrefix = "/orca/shell/flows/"
 
+  // Per-process memo of [[extracted]]'s result, keyed by the extraction target
+  // dir (a pure function of the env/home/version arguments) — a non-release
+  // build otherwise re-extracts and rewrites all six flows on EVERY call (every
+  // picker open), even though nothing in the process's own env/home/version
+  // ever changes between them. `computeIfAbsent` keeps the first extraction for
+  // a given key atomic even under concurrent callers.
+  private val extractedCache =
+    new java.util.concurrent.ConcurrentHashMap[os.Path, os.Path]()
+
   private val orcaDepModule = "org.virtuslab::orca"
 
   private val depPin =
@@ -53,6 +62,10 @@ private[shell] object BuiltInFlows:
     * half-written, never `dir` itself; combined with the completeness check, a
     * legacy half-populated `dir` left by the old existence-keyed logic is
     * treated as absent and self-heals on the next call.
+    *
+    * Cached per JVM process ([[extractedCache]]), keyed by `dir` — a repeat
+    * call with the same arguments (every picker open in one shell process) only
+    * extracts/rewrites once instead of on every call (P1).
     */
   def extracted(
       env: String => Option[String],
@@ -65,19 +78,22 @@ private[shell] object BuiltInFlows:
       .flatMap(v => scala.util.Try(os.Path(v)).toOption)
       .getOrElse(home / ".cache")
     val dir = cacheHome / "orca" / "shell" / version / "flows"
-    val expectedNames = names
 
-    if ShellVersion.isRelease(version) then
-      if !isComplete(dir, expectedNames) then
-        materialize(dir, expectedNames, resourceText)
-    else
-      materialize(
-        dir,
-        expectedNames,
-        name => pinToRunningVersion(resourceText(name), version)
-      )
-
-    dir
+    extractedCache.computeIfAbsent(
+      dir,
+      target =>
+        val expectedNames = names
+        if ShellVersion.isRelease(version) then
+          if !isComplete(target, expectedNames) then
+            materialize(target, expectedNames, resourceText)
+        else
+          materialize(
+            target,
+            expectedNames,
+            name => pinToRunningVersion(resourceText(name), version)
+          )
+        target
+    )
 
   /** `dir` holds every one of `expectedNames` — the idempotency key for the
     * release path. Anything short of that (absent, or missing a file because a

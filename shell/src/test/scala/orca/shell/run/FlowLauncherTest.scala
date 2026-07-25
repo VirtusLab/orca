@@ -9,8 +9,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       Some("0.0.18"),
       "do the thing",
-      verbose = false,
-      skipBranch = false
+      FlowFlags(verbose = false, skipBranch = false)
     )
     assertEquals(
       result,
@@ -30,8 +29,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       None,
       "do the thing",
-      verbose = false,
-      skipBranch = false
+      FlowFlags(verbose = false, skipBranch = false)
     )
     assertEquals(
       result,
@@ -45,8 +43,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       Some("0.0.18"),
       "do the thing",
-      verbose = true,
-      skipBranch = false
+      FlowFlags(verbose = true, skipBranch = false)
     )
     assertEquals(
       result,
@@ -73,8 +70,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       Some("0.0.18"),
       "do the thing",
-      verbose = false,
-      skipBranch = true
+      FlowFlags(verbose = false, skipBranch = true)
     )
     assertEquals(
       result,
@@ -99,8 +95,7 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       None,
       "do the thing",
-      verbose = true,
-      skipBranch = true
+      FlowFlags(verbose = true, skipBranch = true)
     )
     assertEquals(
       result,
@@ -121,8 +116,7 @@ class FlowLauncherTest extends munit.FunSuite:
       spacedFlow,
       None,
       "task",
-      verbose = false,
-      skipBranch = false
+      FlowFlags(verbose = false, skipBranch = false)
     )
     assertEquals(result(2), spacedFlow.toString)
     assertEquals(result.length, 5)
@@ -131,7 +125,12 @@ class FlowLauncherTest extends munit.FunSuite:
     "argv rejects a blank task — Main.promptTask should have re-prompted before this is ever called"
   ):
     intercept[IllegalArgumentException](
-      FlowLauncher.argv(flow, None, "   ", verbose = false, skipBranch = false)
+      FlowLauncher.argv(
+        flow,
+        None,
+        "   ",
+        FlowFlags(verbose = false, skipBranch = false)
+      )
     )
 
   test("childEnv sets ORCA_FLOW_NAME to the flow script's filename"):

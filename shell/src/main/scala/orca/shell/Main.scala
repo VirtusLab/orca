@@ -172,10 +172,8 @@ object Main:
     */
   private def runFlow(ui: ShellUi, terminal: Terminal): Unit =
     for
-      flow <- selectFlow(
-        ui,
-        "Run which flow?",
-        reorder = promoteByName(FlagshipFlow, _)
+      flow <- listFlows().flatMap(
+        pickFlow(ui, "Run which flow?", _, promoteByName(FlagshipFlow, _))
       )
       task <- promptTask(ui)
       createBranch <- promptCreateBranch(ui)
@@ -442,24 +440,23 @@ object Main:
   /** Lists flows across the three tiers via [[FlowResolution.list]] — any
     * failure (a committed symlink guard tripping, or built-in extraction
     * hitting a full-disk/permission error) is reported and the caller gets
-    * `None`, same as Cancelled, so the menu redraws instead of the shell
-    * crashing. `reorder` lets a caller re-sequence the alphabetical listing
-    * before it's shown (only the run picker does, promoting the flagship flow —
-    * [[FlagshipFlow]]); other pickers pass the default identity and stay
-    * alphabetical. Delegates the actual reorder-then-show step to [[pickFlow]],
-    * split out so it's testable against a fixed flow list without touching real
-    * flow discovery.
+    * `None`. Shared by [[selectFlow]] and [[runFlow]], the one caller that
+    * needs [[pickFlow]]'s `reorder` (promoting [[FlagshipFlow]]) instead of its
+    * default alphabetical order.
     */
-  private def selectFlow(
-      ui: ShellUi,
-      title: String,
-      reorder: List[DiscoveredFlow] => List[DiscoveredFlow] = identity
-  ): Option[DiscoveredFlow] =
+  private def listFlows(): Option[List[DiscoveredFlow]] =
     FlowResolution.list(os.pwd) match
       case Left(message) =>
         ShellOutput.error(message)
         None
-      case Right(fs) => pickFlow(ui, title, fs, reorder)
+      case Right(fs) => Some(fs)
+
+  /** Shows `flows` via [[pickFlow]] at their default (alphabetical) order — any
+    * discovery failure is reported and the caller gets `None`, same as
+    * Cancelled, so the menu redraws instead of the shell crashing.
+    */
+  private def selectFlow(ui: ShellUi, title: String): Option[DiscoveredFlow] =
+    listFlows().flatMap(pickFlow(ui, title, _))
 
   /** Applies `reorder` to `flows` and shows the result via `ui.select` — the
     * half of [[selectFlow]] downstream of flow discovery, so a test can drive
