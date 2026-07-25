@@ -163,10 +163,14 @@ private[orca] object RoleAgents:
             )
 
   /** One role's announcement segment, `label=harness[:model] (source)`. The
-    * harness/model come from the winning [[AgentSpec]] when there is one
-    * (project/global); otherwise from the resolved backend's tag (an override
-    * shows its backend's harness, no model; the built-in default resolves to
-    * claude). The `(source)` label is driven purely by the [[RoleSource]].
+    * harness comes from the winning [[AgentSpec]] when there is one
+    * (project/global), otherwise from the resolved agent's backend tag (an
+    * override shows its backend's harness; the built-in default resolves to
+    * claude). The model shown is whichever settings never override: a settings
+    * pin wins outright (that's what the user asked for); absent a pin, the
+    * resolved agent's OWN configured model (e.g. claude's wired Opus1M default)
+    * is shown instead of staying silent — codex/pi, which pin no default, stay
+    * bare. The `(source)` label is driven purely by the [[RoleSource]].
     */
   private def announce(c: RoleChoice): String =
     val harness = c.spec match
@@ -175,7 +179,9 @@ private[orca] object RoleAgents:
         c.agent.backendTag
           .flatMap(AgentSpec.harnessNameFor.get)
           .getOrElse("claude")
-    val model = c.spec.flatMap(_.model)
+    val model = c.spec match
+      case Some(spec) => spec.model
+      case None       => c.agent.configuredModel.map(_.name)
     s"${c.label}=$harness${model.map(":" + _).getOrElse("")} (${sourceLabel(c.source)})"
 
   private def sourceLabel(source: RoleSource): String =

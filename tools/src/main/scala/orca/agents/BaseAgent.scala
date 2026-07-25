@@ -72,6 +72,8 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
 
   override private[orca] def backendTag: Option[BackendTag] = Some(backend.tag)
 
+  override private[orca] def configuredModel: Option[Model] = config.model
+
   override private[orca] def backendIdentity: Option[AnyRef] = Some(
     backend.closedFlag
   )

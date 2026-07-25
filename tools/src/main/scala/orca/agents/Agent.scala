@@ -192,6 +192,14 @@ trait Agent[B <: BackendTag]:
     */
   private[orca] def backendTag: Option[BackendTag] = None
 
+  /** The model this tool's NEXT call will run, if pinned — either by the wiring
+    * default (e.g. claude's Opus1M) or a `withModel`/tier accessor. `None` for
+    * a backend that picks its own model (codex/pi defaults) or a tool without a
+    * backend. The role-agents announcement reads this to show a resolved
+    * default model the settings layer never pinned.
+    */
+  private[orca] def configuredModel: Option[Model] = None
+
   /** An opaque token identifying this tool's underlying backend INSTANCE (not
     * just its runtime tag/type), or `None` for tools without a backend.
     * Independently-built backends of the same kind get different tokens even

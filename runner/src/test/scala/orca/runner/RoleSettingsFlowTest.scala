@@ -314,6 +314,29 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     )
 
   test(
+    "the wired claude's own configured default model is announced when unpinned"
+  ):
+    val workDir = GitRepo.seeded()
+    writeProject(workDir, "codingAgent = codex\n")
+    val steps = new AtomicReference[List[String]](Nil)
+    driveFlow(
+      workDir,
+      stackSettings = Some(StackSettings.empty),
+      listeners = List(recordSteps(steps)),
+      wiring =
+        wiringWith(claude = new DefaultModelClaude, codex = new StubCodex)
+    )(())
+    val announcements = steps.get().filter(_.startsWith("agents:"))
+    assertEquals(
+      announcements,
+      List(
+        "agents: planning=claude:claude-opus-4-8[1m] (default), " +
+          "coding=codex (project), review=claude:claude-opus-4-8[1m] (default)"
+      ),
+      s"expected the wired default model for the unpinned roles: ${steps.get()}"
+    )
+
+  test(
     "a symlinked project settings file aborts before any write or branch mutation"
   ):
     val workDir = GitRepo.seeded()
@@ -509,6 +532,14 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       startBranch,
       "the malformed-file abort must precede any branch mutation"
     )
+
+  /** A `ClaudeAgent` stub whose `configuredModel` mirrors the real wired
+    * default (claude's Opus1M pin), exercising the announcement's
+    * show-the-wired-default-model path end to end.
+    */
+  private class DefaultModelClaude extends StubClaudeAgent("claude"):
+    override private[orca] def configuredModel: Option[Model] =
+      Some(Model("claude-opus-4-8[1m]"))
 
   /** A `CodexAgent` stub: every builder returns `this`, every call throws. */
   private class StubCodex extends CodexAgent:
