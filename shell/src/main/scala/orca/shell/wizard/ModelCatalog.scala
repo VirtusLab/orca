@@ -29,7 +29,7 @@ private[shell] object ModelCatalog:
       case BackendTag.ClaudeCode =>
         List(
           "opus" -> "latest Opus",
-          "fable" -> "Fable 5",
+          "fable" -> "latest Fable",
           "sonnet" -> "latest Sonnet"
         )
       case BackendTag.Codex =>

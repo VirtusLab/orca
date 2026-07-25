@@ -207,9 +207,8 @@ private[shell] object Wizard:
   ): List[(String, String)] =
     (role, tag) match
       case (Role.Planning, BackendTag.ClaudeCode) =>
-        List(
-          "fable" -> "Fable 5",
-          "opus" -> "latest Opus",
-          "sonnet" -> "latest Sonnet"
+        ModelCatalog.promoteCurrent(
+          ModelCatalog.defaultOrder(tag),
+          Some("fable")
         )
       case _ => ModelCatalog.defaultOrder(tag)
