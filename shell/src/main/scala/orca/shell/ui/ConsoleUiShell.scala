@@ -63,6 +63,7 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
   // with the same "… " marker inputMultiline previously used per pasted line.
   lineReader.setVariable(LineReader.SECONDARY_PROMPT_PATTERN, "… ")
   ConsoleUiShell.registerInsertNewlineWidget(lineReader)
+  ConsoleUiShell.registerKittyInterruptWidget(lineReader)
 
   private def newConsolePrompt(): ConsolePrompt =
     val config = ConsolePrompt.UiConfig()
@@ -205,6 +206,14 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     *     to compensate for, so it is deliberately not requested. Terminals
     *     supporting neither protocol are unaffected; Alt+Enter remains the
     *     portable fallback that doesn't depend on terminal support.
+    *   - '''Ctrl-C cancels, even re-encoded'''. Pushing the disambiguate flag
+    *     is what makes Ctrl-C reach this read as a `CSI u` sequence rather than
+    *     the raw byte `0x03` on terminals that honor it (VS Code's included —
+    *     see [[withKittyKeyboardProtocol]]'s scaladoc); without a binding for
+    *     that sequence Ctrl-C would silently do nothing there.
+    *     [[ConsoleUiShell.registerKittyInterruptWidget]] binds it to the same
+    *     [[UserInterruptException]] this read already catches, so both forms of
+    *     Ctrl-C — raw byte or re-encoded — cancel identically.
     *
     * Ctrl-D on an empty buffer and Ctrl-C both cancel, exactly like
     * [[plainLineInput]] (`LineReaderImpl`'s own main loop throws
@@ -299,12 +308,9 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     finally terminal.setAttributes(original)
 
   /** Proactively pushes the kitty keyboard protocol's "disambiguate escape
-    * codes" flag (value `1`, the mildest of the protocol's flags — it only adds
-    * distinct encodings for keys/modifier combinations that would otherwise be
-    * ambiguous or silent, like Shift+Enter; it does not change how ordinary
-    * characters or Ctrl+letter combinations are sent) for the duration of
-    * `body`, popped again in `finally` regardless of outcome (submit, Ctrl-C,
-    * EOF, or any other exception). Together with the bindings
+    * codes" flag (value `1`) for the duration of `body`, popped again in
+    * `finally` regardless of outcome (submit, Ctrl-C, EOF, or any other
+    * exception). Together with the bindings
     * [[ConsoleUiShell.registerInsertNewlineWidget]] already installs, this is
     * what makes kitty-protocol-''capable'' terminals that don't turn it on by
     * default — including VS Code's integrated terminal — start sending the
@@ -315,6 +321,18 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     * to the same state. Terminals implementing the protocol not at all don't
     * recognize either escape sequence and ignore them outright, so pushing
     * unconditionally is safe.
+    *
+    * This flag is not as narrow as it sounds: per the kitty spec, it also
+    * re-encodes ''every'' Ctrl+letter combination as a `CSI u` sequence rather
+    * than its ordinary control byte — Enter, Tab and Backspace are the only
+    * keys explicitly exempted (so a crashed program that left the flag pushed
+    * doesn't also strand the user unable to type `reset`). That includes
+    * Ctrl-C: a kitty-protocol terminal that honors this flag (again, VS Code's
+    * integrated terminal among them) stops sending the raw byte `0x03` for
+    * Ctrl-C for as long as this flag is pushed, so the kernel never raises
+    * `SIGINT` and [[inputMultiline]]'s read never sees the interrupt the usual
+    * way. [[ConsoleUiShell.registerKittyInterruptWidget]] binds that re-encoded
+    * sequence directly so Ctrl-C still cancels; see its scaladoc.
     *
     * `CSI > 1 u` ''pushes'' the flag onto the protocol's own flag stack; `CSI <
     * u` ''pops'' one level back off — so push-then-pop restores whatever the
@@ -369,6 +387,7 @@ private[ui] object ConsoleUiShell:
       if occurrence == 0 then label else s"$label#$occurrence"
 
   private val insertNewlineWidgetName = "orca-insert-newline"
+  private val kittyInterruptWidgetName = "orca-kitty-interrupt"
 
   /** Registers a widget on `reader` that writes a literal `\n` into the buffer
     * instead of submitting, and binds it to Alt+Enter's and Shift+Enter's byte
@@ -411,3 +430,30 @@ private[ui] object ConsoleUiShell:
     // above exists as a fallback that doesn't depend on terminal support.
     mainKeyMap.bind(newline, "[13;2u")
     mainKeyMap.bind(newline, "[27;2;13~")
+
+  /** Registers a widget on `reader` that throws [[UserInterruptException]] —
+    * the same outcome a real Ctrl-C delivers via `SIGINT` — and binds it to the
+    * kitty keyboard protocol's CSI-u encoding of Ctrl-C. Needed because
+    * [[withKittyKeyboardProtocol]]'s pushed "disambiguate escape codes" flag
+    * makes a kitty-protocol terminal (VS Code's integrated terminal among them)
+    * stop sending Ctrl-C as the raw byte `0x03`; it sends this escape sequence
+    * instead (pty-verified: real Ctrl-C in a terminal that ignores the pushed
+    * flag, e.g. tmux/a dumb terminal, still arrives as `0x03` and is unaffected
+    * by this binding — both paths end up throwing the same exception). With no
+    * `0x03` byte, the kernel's tty driver never raises `SIGINT`, so
+    * `LineReaderImpl`'s own `Signal.INT` handler (which is what normally
+    * converts Ctrl-C into this exception — see [[inputMultiline]]'s scaladoc)
+    * never fires either; without this binding the escape sequence is simply
+    * unbound and Ctrl-C does nothing. `LineReaderImpl` throws this same
+    * exception type from its main read loop whenever a widget's `apply()`
+    * throws, so this reaches [[inputMultiline]]'s catch clause exactly like the
+    * ordinary signal-driven case. Called once per `ConsoleUiShell` instance,
+    * from its constructor.
+    */
+  private[ui] def registerKittyInterruptWidget(reader: LineReader): Unit =
+    reader.getWidgets.put(
+      kittyInterruptWidgetName,
+      () => throw UserInterruptException(reader.getBuffer.toString)
+    )
+    val mainKeyMap = reader.getKeyMaps.get(LineReader.MAIN)
+    mainKeyMap.bind(Reference(kittyInterruptWidgetName), "[99;5u")

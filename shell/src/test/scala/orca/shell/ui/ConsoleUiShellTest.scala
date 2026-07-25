@@ -1,6 +1,11 @@
 package orca.shell.ui
 
-import org.jline.reader.{LineReader, LineReaderBuilder, Reference}
+import org.jline.reader.{
+  LineReader,
+  LineReaderBuilder,
+  Reference,
+  UserInterruptException
+}
 import org.jline.terminal.Attributes
 import org.jline.terminal.TerminalBuilder
 import org.jline.terminal.impl.DumbTerminal
@@ -165,4 +170,26 @@ class ConsoleUiShellTest extends munit.FunSuite:
           && bareEnter.asInstanceOf[Reference].name() == LineReader.ACCEPT_LINE,
         s"bare Enter must still submit, not insert a newline: $bareEnter"
       )
+    finally terminal.close()
+
+  // Whether a real terminal actually re-encodes Ctrl-C this way under the
+  // pushed kitty flag is only pty-verifiable (see the manual pty repro in the
+  // PR/report: a terminal that ignores the flag keeps sending the raw 0x03
+  // byte, unaffected by this binding). What's pure here is the wiring: the
+  // CSI-u sequence resolves to a widget, and that widget raises the same
+  // exception a real Ctrl-C (SIGINT) does, so inputMultiline's existing catch
+  // clause handles both identically.
+  test(
+    "registerKittyInterruptWidget binds the kitty CSI-u Ctrl-C sequence to a widget that throws UserInterruptException"
+  ):
+    val terminal = TerminalBuilder.builder().dumb(true).build()
+    try
+      val reader = LineReaderBuilder.builder().terminal(terminal).build()
+      ConsoleUiShell.registerKittyInterruptWidget(reader)
+      val mainKeyMap = reader.getKeyMaps.get(LineReader.MAIN)
+      val bound = mainKeyMap.getBound("[99;5u")
+      assert(bound.isInstanceOf[Reference], s"must be bound: $bound")
+
+      val widget = reader.getWidgets.get(bound.asInstanceOf[Reference].name())
+      intercept[UserInterruptException](widget.apply())
     finally terminal.close()
