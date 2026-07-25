@@ -22,6 +22,30 @@ You can use Orca to orchestrate development in any language and ecosystem.
 Orca assumes that it has configured, logged-in access to Claude, Codex,
 OpenCode, or Pi (depending which backend you use), as well as `gh` and `git`.
 
+## Three ways to work with Orca
+
+**Interactively**: install the CLI, run `orca`, pick a flow (`implement.sc`
+comes first in the list) and enter your task. Non-interactively, use `orca run
+<flow> "<task>"`. See [Orca Shell](#orca-shell) for installation and the full
+command-line reference.
+
+**Driven by an agent (headless)**: a coding agent or harness invokes the CLI
+non-interactively to implement a task, e.g. from CI or as a sub-task of
+another agent:
+
+```bash
+orca run implement.sc "add a rate limiter to /login" --verbose --skip-branch --honor-pin
+```
+
+An installable agent skill for this workflow is planned.
+
+**As a script**: run a flow directly with `scala-cli`, no install required —
+see [An example flow](#an-example-flow).
+
+```bash
+scala-cli run implement.sc -- "add a rate limiter to /login"
+```
+
 ## An example flow
 
 Save this as `implement.sc` and run it with your task:
