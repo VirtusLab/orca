@@ -344,6 +344,27 @@ the wrong branch.
   (CLI-flag/argument injection into `git`/`gh`) nor be empty. A non-deterministic name is
   computed once and recorded, never recomputed on resume; a deterministic name needs
   no read-back.
+
+  > **Amendment (2026-07-25).** `OrcaArgs.skipBranch` (`--skip-branch`) opts
+  > out of R2 entirely: the run binds to the CURRENT branch verbatim instead
+  > of minting one — for a harness handoff where the user already planned
+  > work on a branch that carries plan files, and orca should continue there
+  > rather than fork off a fresh one. Refused (`OrcaFlowException`) when the
+  > current branch is protected (`main`/`master`/the repo's detected
+  > default) — the user must check out a feature branch themselves first —
+  > or when the tree is dirty: skip mode never auto-stashes (unlike R4),
+  > since the uncommitted state is likely the very context being handed off,
+  > and silently stashing it would be surprising. A reused branch name is
+  > validated against a weaker git-ref-safety check
+  > (`RecoveryCheck.isSafeGitRef`) rather than R2's minted-name slug shape,
+  > since it was never orca-authored (may be mixed-case, `feature/JIRA-123`,
+  > …); `RecoveryCheck.validateHeader` accepts a non-slug `header.branch` on
+  > resume under the same check, cross-checked against the actual current
+  > branch (R30). Teardown (R5) never deletes the reused branch: its
+  > throwaway check compares `featureBranch` to `startBranch`, which are
+  > always equal in skip mode. A PR flow's branch-vs-base diff then includes
+  > the user's own prior commits on that branch, not just orca's — intended,
+  > since the whole point is continuing their work in place.
 - **R3** — The starting branch is recorded. On a **successful** exit HEAD stays on
   the feature branch by default (so the author ends on the work — the common case
   is a flow that opens no PR); a flow that opens a PR passes `returnToStartBranch =

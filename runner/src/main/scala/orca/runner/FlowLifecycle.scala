@@ -264,7 +264,18 @@ object FlowLifecycle:
     // Snapshot the log file before the stash, restore it if the stash
     // removed it — so an uncommitted/untracked log is still readable below.
     val snapshot = snapshotLog(store.path)
-    val _ = git.ensureClean("orca: starting flow")
+    // Skip-branch mode (ADR 0018 amendment) refuses a dirty tree outright
+    // instead of auto-stashing: the user's uncommitted work is likely the very
+    // context they're handing off, so silently stashing it would be
+    // surprising. Normal mode keeps the auto-stash.
+    if args.skipBranch.value then
+      if git.isDirty() then
+        throw new OrcaFlowException(
+          "skip-branch mode requires a clean working tree — commit or " +
+            "stash your changes first"
+        )
+    else
+      val _ = git.ensureClean("orca: starting flow")
     restoreLogIfMissing(store.path, snapshot)
     // Discovery (ADR 0019) is sequenced after `ensureClean` (whose `stash -u`
     // would stash a just-written untracked file straight back out of the
@@ -521,6 +532,10 @@ object FlowLifecycle:
     * [[createFreshBranch]] then applies the same "never silently adopt" policy
     * to a git-level `BranchAlreadyExists` collision: an unrelated pre-existing
     * branch must never be silently checked out and carried into this run.
+    *
+    * `args.skipBranch` (ADR 0018 amendment) skips all of the above: the run
+    * binds to `startBranch` verbatim instead, via [[reuseCurrentBranch]] — no
+    * branch is created, so no fallback/collision handling applies either.
     */
   private def freshRun(
       args: OrcaArgs,
@@ -534,32 +549,36 @@ object FlowLifecycle:
       discovered: Boolean,
       emit: OrcaEvent => Unit
   )(using InStage, WorkspaceWrite): FeatureBranch =
-    val strategy =
-      branchNaming.getOrElse(BranchNamingStrategy.shortenPrompt)
-    val resolvedName = strategy.resolve(args.userPrompt, agent)
-    // Resolved once, shared by both fallback triggers below (a protected-name
-    // refusal and a git-level `BranchAlreadyExists` collision use the exact
-    // same deterministic name).
-    val fallback = resolveFallback(args.userPrompt, protectedBranches)
-    val protectionChecked =
-      FeatureBranch.resolve(resolvedName, protectedBranches) match
-        case Right(featureBranch) => featureBranch
-        case Left(ProtectedBranchRefused(name)) =>
-          emit(
-            OrcaEvent.Step(
-              s"branch name '$name' is protected — using '${fallback.value}' instead"
-            )
-          )
-          fallback
-        case Left(UnsafeBranchRefRefused(name)) =>
-          // Unreachable: `strategy.resolve` always returns an already-slugged
-          // name, so `resolve`'s shape check can never refuse it. Guarded
-          // defensively rather than assumed.
-          throw new OrcaFlowException(
-            s"internal error: strategy-resolved branch name '$name' is not " +
-              "a safe ref"
-          )
-    val branch = createFreshBranch(git, protectionChecked, fallback, emit)
+    val branch =
+      if args.skipBranch.value then
+        reuseCurrentBranch(startBranch, protectedBranches)
+      else
+        val strategy =
+          branchNaming.getOrElse(BranchNamingStrategy.shortenPrompt)
+        val resolvedName = strategy.resolve(args.userPrompt, agent)
+        // Resolved once, shared by both fallback triggers below (a
+        // protected-name refusal and a git-level `BranchAlreadyExists`
+        // collision use the exact same deterministic name).
+        val fallback = resolveFallback(args.userPrompt, protectedBranches)
+        val protectionChecked =
+          FeatureBranch.resolve(resolvedName, protectedBranches) match
+            case Right(featureBranch) => featureBranch
+            case Left(ProtectedBranchRefused(name)) =>
+              emit(
+                OrcaEvent.Step(
+                  s"branch name '$name' is protected — using '${fallback.value}' instead"
+                )
+              )
+              fallback
+            case Left(UnsafeBranchRefRefused(name)) =>
+              // Unreachable: `strategy.resolve` always returns an
+              // already-slugged name, so `resolve`'s shape check can never
+              // refuse it. Guarded defensively rather than assumed.
+              throw new OrcaFlowException(
+                s"internal error: strategy-resolved branch name '$name' is " +
+                  "not a safe ref"
+              )
+        createFreshBranch(git, protectionChecked, fallback, emit)
     // A just-discovered settings file gets its own commit here — after the
     // branch exists, before the header commit below — so the header commit
     // carries only the progress log its message names (ADR 0019).
@@ -594,6 +613,31 @@ object FlowLifecycle:
         OrcaDir.settingsPath(workDir),
         "orca: stack settings (discovered)"
       )
+
+  /** Skip-branch mode's binding (ADR 0018 amendment): mint `startBranch` — the
+    * user's current branch — as the `FeatureBranch` itself, instead of creating
+    * a new one. Refuses outright (no fallback rename, unlike the normal
+    * minted-name path) when `startBranch` is protected: the user must check out
+    * a feature branch themselves before asking to skip creating one. The
+    * unsafe-ref case is a defensive guard, not expected in practice —
+    * `startBranch` comes from `git.currentBranch()`, not untrusted input.
+    */
+  private def reuseCurrentBranch(
+      startBranch: String,
+      protectedBranches: Set[String]
+  ): FeatureBranch =
+    FeatureBranch.resolveReused(startBranch, protectedBranches) match
+      case Right(featureBranch) => featureBranch
+      case Left(ProtectedBranchRefused(name)) =>
+        throw new OrcaFlowException(
+          s"cannot skip branch creation on protected branch '$name' — " +
+            "check out a feature branch first"
+        )
+      case Left(UnsafeBranchRefRefused(name)) =>
+        throw new OrcaFlowException(
+          s"current branch '$name' is not a safe git ref — refusing to " +
+            "bind the run to it"
+        )
 
   /** The deterministic `flow-<hash>` fallback name for `userPrompt`, minted
     * into a [[FeatureBranch]]. Shared by both places `freshRun` needs a

@@ -27,6 +27,24 @@ object RecoveryCheck:
       .split("/", -1)
       .forall(orca.BranchNamingStrategy.isSlugSegment)
 
+  /** Whether `s` is safe enough to reuse as-is for a branch orca did NOT mint
+    * itself — a user's pre-existing current branch, in skip-branch mode (ADR
+    * 0018 amendment). Weaker than [[isSafeBranchRef]] (no slug shape, so mixed
+    * case and `feature/JIRA-123`-style names pass), but still refuses anything
+    * that could act as CLI-flag/argument injection into `git`/`gh` or a
+    * path-traversal ref: a leading `-`, whitespace/control characters, `..`
+    * anywhere (path traversal, forbidden in any git ref), a `.lock` suffix
+    * (git's own lockfile convention), or an empty `/`-separated segment
+    * (leading/trailing/doubled `/`).
+    */
+  def isSafeGitRef(s: String): Boolean =
+    s.nonEmpty &&
+      !s.startsWith("-") &&
+      !s.exists(c => c.isWhitespace || c.isControl) &&
+      !s.endsWith(".lock") &&
+      !s.contains("..") &&
+      !s.split("/", -1).exists(_.isEmpty)
+
   /** Branches that are always protected regardless of the repo's configured
     * default — the floor [[validateHeader]] enforces (ADR 0018). The runtime
     * adds the repo's actual default branch on top of these.
@@ -39,32 +57,38 @@ object RecoveryCheck:
     * caller (`FlowLifecycle.setup`'s resume arm) can bind `FlowSetup` to a
     * typed branch without a second, redundant resolve call.
     *
-    *   - `branch` and `startingBranch` must be safe refs.
+    *   - `branch` and `startingBranch` must pass [[isSafeGitRef]] — the weaker
+    *     check, not [[isSafeBranchRef]]'s strict slug shape: `branch` may be a
+    *     reused current branch from a skip-branch run (ADR 0018 amendment), and
+    *     `startingBranch` is always a pre-existing, orca-never-minted branch. A
+    *     minted slug name always passes the weaker check too, so this doesn't
+    *     loosen validation for the common case.
     *   - `branch` must not be a protected branch (`startingBranch` may be) —
-    *     delegated to [[FeatureBranch.resolve]], which unions
+    *     delegated to [[FeatureBranch.resolveReused]], which unions
     *     `protectedBranches` with the `main`/`master` floor.
     *   - `promptHash` must equal the recomputed hash of the current prompt.
     *
     * `protectedBranches` lets the runtime pass the repo's ACTUAL default branch
     * (e.g. `trunk`/`develop`), so a tampered header naming it as a feature
     * branch is refused — not just `main`/`master`. Compared case-insensitively.
+    *
+    * The caller separately cross-checks `branch` against the actual current
+    * branch (R30) — that check, combined with `isSafeGitRef` here, is what
+    * makes a reused non-slug branch name safe to accept: it must both look like
+    * a safe ref AND be the branch we're already sitting on.
     */
   def validateHeader(
       header: ProgressHeader,
       userPrompt: String,
       protectedBranches: Set[String]
   ): Either[String, FeatureBranch] =
-    if !isSafeBranchRef(header.branch) then
-      Left(s"branch '${header.branch}' is not a safe ref")
-    else if !isSafeBranchRef(header.startingBranch) then
+    if !isSafeGitRef(header.startingBranch) then
       Left(s"startingBranch '${header.startingBranch}' is not a safe ref")
     else
-      FeatureBranch.resolve(header.branch, protectedBranches) match
+      FeatureBranch.resolveReused(header.branch, protectedBranches) match
         case Left(ProtectedBranchRefused(name)) =>
           Left(s"branch '$name' is a protected branch")
         case Left(UnsafeBranchRefRefused(name)) =>
-          // Unreachable: `header.branch` already passed `isSafeBranchRef` above.
-          // This arm exists only for exhaustiveness.
           Left(s"branch '$name' is not a safe ref")
         case Right(featureBranch) =>
           if header.promptHash != ProgressStore.hashPrompt(userPrompt) then

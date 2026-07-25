@@ -17,6 +17,24 @@ class RecoveryCheckTest extends FunSuite:
     assert(!RecoveryCheck.isSafeBranchRef("Feat"))
     assert(!RecoveryCheck.isSafeBranchRef("a/"))
 
+  test("isSafeGitRef accepts mixed case and slashed names slugs would reject"):
+    assert(RecoveryCheck.isSafeGitRef("feature/JIRA-123"))
+    assert(RecoveryCheck.isSafeGitRef("Feature-ABC"))
+    assert(RecoveryCheck.isSafeGitRef("add-foo")) // a slug also passes
+
+  test(
+    "isSafeGitRef rejects argv-injection and path-traversal shapes"
+  ):
+    assert(!RecoveryCheck.isSafeGitRef(""))
+    assert(!RecoveryCheck.isSafeGitRef("-flag"))
+    assert(!RecoveryCheck.isSafeGitRef("a..b"))
+    assert(!RecoveryCheck.isSafeGitRef("a/../b"))
+    assert(!RecoveryCheck.isSafeGitRef("a b"))
+    assert(!RecoveryCheck.isSafeGitRef("x.lock"))
+    assert(!RecoveryCheck.isSafeGitRef("a/"))
+    assert(!RecoveryCheck.isSafeGitRef("/a"))
+    assert(!RecoveryCheck.isSafeGitRef("a\tb"))
+
   test("validateHeader rejects the main/master floor regardless of the set"):
     val prompt = "do the thing"
     for protectedName <- List("main", "master", "MAIN", "Master") do

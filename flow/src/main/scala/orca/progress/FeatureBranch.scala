@@ -5,13 +5,17 @@ package orca.progress
   * git happens to accept. Every [[FeatureBranch]] is guaranteed non-protected
   * (not in the always-protected floor [[RecoveryCheck.alwaysProtected]] unioned
   * with the caller-supplied set, in practice the repo's detected default) AND a
-  * safe git ref ([[RecoveryCheck.isSafeBranchRef]]), so the guarantee holds
-  * regardless of whether the caller already slugged `name`.
+  * safe git ref — [[RecoveryCheck.isSafeBranchRef]]'s strict slug shape via
+  * [[resolve]] for an orca-minted name, or [[RecoveryCheck.isSafeGitRef]]'s
+  * weaker shape via [[resolveReused]] for the user's own current branch
+  * (skip-branch mode) — so the guarantee holds regardless of which one minted
+  * `name`.
   *
-  * Both places orca binds itself to a feature branch mint one through
-  * [[FeatureBranch.resolve]]: `FlowLifecycle`'s fresh-run arm and its resume
-  * arm ([[RecoveryCheck.validateHeader]], checking an untrusted persisted
-  * header). One constructor, one home for the protected-branch check.
+  * Every place orca binds itself to a feature branch mints one through
+  * [[resolve]] or [[resolveReused]]: `FlowLifecycle`'s fresh-run arm and its
+  * resume arm ([[RecoveryCheck.validateHeader]], checking an untrusted
+  * persisted header). One pair of constructors, one home for the
+  * protected-branch check.
   *
   * Takes `protectedBranches: Set[String]` rather than a `GitTool` so it stays
   * pure and unit-testable without a repo fixture, and the git layer stays
@@ -30,21 +34,40 @@ object FeatureBranch:
     *
     * ALSO refuses `name` when it is not a safe ref shape
     * ([[RecoveryCheck.isSafeBranchRef]]) — this makes the guarantee
-    * unconditional rather than resting on callers having slugged `name`. Both
-    * call sites already pass a shape-safe name, so it is a defensive no-op
-    * there.
+    * unconditional rather than resting on callers having slugged `name`. The
+    * one call site (a fresh run's orca-minted name) already passes a shape-safe
+    * name, so it is a defensive no-op there.
     */
   def resolve(
       name: String,
       protectedBranches: Set[String]
+  ): Either[FeatureBranchRefused, FeatureBranch] =
+    resolveWith(name, protectedBranches, RecoveryCheck.isSafeBranchRef)
+
+  /** Mint a [[FeatureBranch]] for a branch orca did NOT create — the user's
+    * current branch, reused in skip-branch mode (ADR 0018 amendment) instead of
+    * minting a fresh one. `name` passes the weaker
+    * [[RecoveryCheck.isSafeGitRef]] shape check rather than the strict slug
+    * one: it was never orca-authored, so it may be mixed-case or carry `/`
+    * segments like `feature/JIRA-123`. Still refuses a protected branch.
+    */
+  def resolveReused(
+      name: String,
+      protectedBranches: Set[String]
+  ): Either[FeatureBranchRefused, FeatureBranch] =
+    resolveWith(name, protectedBranches, RecoveryCheck.isSafeGitRef)
+
+  private def resolveWith(
+      name: String,
+      protectedBranches: Set[String],
+      safeRef: String => Boolean
   ): Either[FeatureBranchRefused, FeatureBranch] =
     val protectedLower =
       (protectedBranches ++ RecoveryCheck.alwaysProtected)
         .map(_.toLowerCase(java.util.Locale.ROOT))
     if protectedLower.contains(name.toLowerCase(java.util.Locale.ROOT)) then
       Left(ProtectedBranchRefused(name))
-    else if !RecoveryCheck.isSafeBranchRef(name) then
-      Left(UnsafeBranchRefRefused(name))
+    else if !safeRef(name) then Left(UnsafeBranchRefRefused(name))
     else Right(name)
 
   extension (fb: FeatureBranch)
@@ -63,8 +86,9 @@ sealed trait FeatureBranchRefused:
 final case class ProtectedBranchRefused(name: String)
     extends FeatureBranchRefused
 
-/** `name` was refused because it is not a safe git ref
-  * ([[RecoveryCheck.isSafeBranchRef]]).
+/** `name` was refused because it is not a safe git ref — see
+  * [[RecoveryCheck.isSafeBranchRef]] ([[FeatureBranch.resolve]]) or
+  * [[RecoveryCheck.isSafeGitRef]] ([[FeatureBranch.resolveReused]]).
   */
 final case class UnsafeBranchRefRefused(name: String)
     extends FeatureBranchRefused
