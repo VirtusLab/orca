@@ -31,16 +31,20 @@ object RecoveryCheck:
     * itself — a user's pre-existing current branch, in skip-branch mode (ADR
     * 0018 amendment). Weaker than [[isSafeBranchRef]] (no slug shape, so mixed
     * case and `feature/JIRA-123`-style names pass), but still refuses anything
-    * that could act as CLI-flag/argument injection into `git`/`gh` or a
-    * path-traversal ref: a leading `-`, whitespace/control characters, `..`
-    * anywhere (path traversal, forbidden in any git ref), a `.lock` suffix
-    * (git's own lockfile convention), or an empty `/`-separated segment
-    * (leading/trailing/doubled `/`).
+    * that could act as CLI-flag/argument injection into `git`/`gh`, a
+    * path-traversal ref, or a shell-glob DoS against `git branch --list`: a
+    * leading `-`, whitespace/control characters, a glob metacharacter (`*`,
+    * `?`, `[`, `\`), `..` anywhere (path traversal, forbidden in any git ref),
+    * a `.lock` suffix (git's own lockfile convention), an empty `/`-separated
+    * segment (leading/trailing/doubled `/`), or the literal pseudo-ref `HEAD`
+    * (never a real branch; a detached-HEAD `currentBranch()` reads back as this
+    * literal string, and a header must not be able to claim it either).
     */
   def isSafeGitRef(s: String): Boolean =
     s.nonEmpty &&
+      s != "HEAD" &&
       !s.startsWith("-") &&
-      !s.exists(c => c.isWhitespace || c.isControl) &&
+      !s.exists(c => c.isWhitespace || c.isControl || "*?[\\".contains(c)) &&
       !s.endsWith(".lock") &&
       !s.contains("..") &&
       !s.split("/", -1).exists(_.isEmpty)

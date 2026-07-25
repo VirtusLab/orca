@@ -199,19 +199,25 @@ object FlowLifecycle:
       )
 
   /** Outcome of [[setup]]: the resolved progress store, the feature branch the
-    * run is bound to, the starting branch to restore on success, and the
-    * resolved stack settings (ADR 0019).
+    * run is bound to, the starting branch to restore on success, the resolved
+    * stack settings (ADR 0019), and whether orca created `featureBranch`
+    * itself.
     *
     * `featureBranch` is a [[FeatureBranch]], not a bare `String`: both arms of
     * `setup` construct one via [[FeatureBranch.resolve]], so a protected name
     * can never reach this field — "delete/checkout an unvalidated name" is
     * unrepresentable here.
+    *
+    * `branchCreated` (mirrors [[ProgressHeader.branchCreated]]) gates
+    * [[finishBranch]]'s throwaway auto-delete: `false` in skip-branch mode,
+    * where orca bound to a pre-existing branch rather than minting one.
     */
   private[orca] case class FlowSetup(
       store: ProgressStore,
       featureBranch: FeatureBranch,
       startBranch: String,
-      stackSettings: StackSettings
+      stackSettings: StackSettings,
+      branchCreated: Boolean
   )
 
   /** Bind the run to a branch + progress log before the body runs (ADR 0018
@@ -316,81 +322,88 @@ object FlowLifecycle:
       RecoveryCheck.alwaysProtected ++ git
         .defaultBranch()
         .map(_.toLowerCase(java.util.Locale.ROOT))
-    val (featureBranch, effectiveStartBranch) = store.loadDetailed() match
-      case ProgressStore.LoadResult.Corrupt(reason) =>
-        // The log file exists but didn't parse. Start fresh (no sane way to
-        // resume from unparseable data), but loudly — the user may have
-        // expected a resume, so this must be distinguishable from a first run.
-        // The `emit(Step)` reaches both the terminal renderer and custom
-        // Interaction listeners (e.g. Slack); the logger keeps the DEBUG trace.
-        log.warn(
-          s"progress log at ${store.path} is corrupt ($reason); starting fresh"
-        )
-        emit(
-          OrcaEvent.Step(
-            s"progress log at ${store.path} is corrupt ($reason); " +
-              "starting fresh — the previous run's stages will re-run"
+    val (featureBranch, effectiveStartBranch, branchCreated) =
+      store.loadDetailed() match
+        case ProgressStore.LoadResult.Corrupt(reason) =>
+          // The log file exists but didn't parse. Start fresh (no sane way to
+          // resume from unparseable data), but loudly — the user may have
+          // expected a resume, so this must be distinguishable from a first run.
+          // The `emit(Step)` reaches both the terminal renderer and custom
+          // Interaction listeners (e.g. Slack); the logger keeps the DEBUG trace.
+          log.warn(
+            s"progress log at ${store.path} is corrupt ($reason); starting fresh"
           )
-        )
-        val branch = freshRun(
-          args,
-          agent,
-          git,
-          workDir,
-          branchNaming,
-          store,
-          startBranch,
-          protectedBranches,
-          discovered,
-          emit
-        )
-        (branch, startBranch)
-      case ProgressStore.LoadResult.Absent =>
-        val branch = freshRun(
-          args,
-          agent,
-          git,
-          workDir,
-          branchNaming,
-          store,
-          startBranch,
-          protectedBranches,
-          discovered,
-          emit
-        )
-        (branch, startBranch)
-      case ProgressStore.LoadResult.Loaded(progressLog) =>
-        val header = progressLog.header
-        // Validate the untrusted header before any destructive action, against
-        // the same protected set — a tampered header naming e.g. `trunk` as a
-        // feature branch is refused too.
-        val featureBranch =
-          RecoveryCheck.validateHeader(
-            header,
-            args.userPrompt,
-            protectedBranches
-          ) match
-            case Left(reason) =>
-              throw new OrcaFlowException(
-                s"refusing to resume: progress log header failed validation ($reason)"
-              )
-            case Right(featureBranch) => featureBranch
-        // Only resume in place. If the log surfaced on a branch it does not
-        // name, it was likely carried here by a merge — abort, don't replay.
-        val current = git.currentBranch()
-        if current != header.branch then
-          throw new OrcaFlowException(
-            s"progress log for branch '${header.branch}' found while on " +
-              s"'$current' — was it merged? aborting rather than resuming " +
-              "against the wrong branch"
+          emit(
+            OrcaEvent.Step(
+              s"progress log at ${store.path} is corrupt ($reason); " +
+                "starting fresh — the previous run's stages will re-run"
+            )
           )
-        // The recorded start branch (where a return-to-start goes) is the
-        // original one, not this feature branch. The branch already exists, so
-        // a just-discovered settings file gets its dedicated commit right here
-        // (ADR 0019) — this arm has no header commit that would sweep it in.
-        if discovered then commitDiscoveredSettings(git, workDir)
-        (featureBranch, header.startingBranch)
-    FlowSetup(store, featureBranch, effectiveStartBranch, stackSettings)
+          val branch = freshRun(
+            args,
+            agent,
+            git,
+            workDir,
+            branchNaming,
+            store,
+            startBranch,
+            protectedBranches,
+            discovered,
+            emit
+          )
+          (branch, startBranch, !args.skipBranch.value)
+        case ProgressStore.LoadResult.Absent =>
+          val branch = freshRun(
+            args,
+            agent,
+            git,
+            workDir,
+            branchNaming,
+            store,
+            startBranch,
+            protectedBranches,
+            discovered,
+            emit
+          )
+          (branch, startBranch, !args.skipBranch.value)
+        case ProgressStore.LoadResult.Loaded(progressLog) =>
+          val header = progressLog.header
+          // Validate the untrusted header before any destructive action, against
+          // the same protected set — a tampered header naming e.g. `trunk` as a
+          // feature branch is refused too.
+          val featureBranch =
+            RecoveryCheck.validateHeader(
+              header,
+              args.userPrompt,
+              protectedBranches
+            ) match
+              case Left(reason) =>
+                throw new OrcaFlowException(
+                  s"refusing to resume: progress log header failed validation ($reason)"
+                )
+              case Right(featureBranch) => featureBranch
+          // Only resume in place. If the log surfaced on a branch it does not
+          // name, it was likely carried here by a merge — abort, don't replay.
+          val current = git.currentBranch()
+          if current != header.branch then
+            throw new OrcaFlowException(
+              s"progress log for branch '${header.branch}' found while on " +
+                s"'$current' — was it merged? aborting rather than resuming " +
+                "against the wrong branch"
+            )
+          // The recorded start branch (where a return-to-start goes) is the
+          // original one, not this feature branch. The branch already exists, so
+          // a just-discovered settings file gets its dedicated commit right here
+          // (ADR 0019) — this arm has no header commit that would sweep it in.
+          if discovered then commitDiscoveredSettings(git, workDir)
+          (featureBranch, header.startingBranch, header.branchCreated)
+    FlowSetup(
+      store,
+      featureBranch,
+      effectiveStartBranch,
+      stackSettings,
+      branchCreated
+    )
 
   /** Outcome of the pre-`ensureClean` stack read: either the resolved values,
     * or the marker that auto-discovery must run. `NeedsDiscovery` carries the
@@ -587,7 +600,8 @@ object FlowLifecycle:
       ProgressHeader(
         startingBranch = startBranch,
         branch = branch.value,
-        promptHash = ProgressStore.hashPrompt(args.userPrompt)
+        promptHash = ProgressStore.hashPrompt(args.userPrompt),
+        branchCreated = !args.skipBranch.value
       )
     )
     git.forceAdd(store.path)
@@ -618,26 +632,39 @@ object FlowLifecycle:
     * user's current branch — as the `FeatureBranch` itself, instead of creating
     * a new one. Refuses outright (no fallback rename, unlike the normal
     * minted-name path) when `startBranch` is protected: the user must check out
-    * a feature branch themselves before asking to skip creating one. The
-    * unsafe-ref case is a defensive guard, not expected in practice —
-    * `startBranch` comes from `git.currentBranch()`, not untrusted input.
+    * a feature branch themselves before asking to skip creating one.
+    *
+    * `startBranch` is checked for detached HEAD explicitly, ahead of the
+    * generic unsafe-ref case: `git.currentBranch()` reads back the literal
+    * string `"HEAD"` when detached, and binding a run to that would commit into
+    * an unnamed, GC-eligible state, plus make the resume-side R30 cross-check
+    * vacuous (every detached state reads as `"HEAD"`). The generic unsafe-ref
+    * case beyond that is a defensive guard, not expected in practice —
+    * `startBranch` otherwise comes from `git.currentBranch()`, not untrusted
+    * input.
     */
   private def reuseCurrentBranch(
       startBranch: String,
       protectedBranches: Set[String]
   ): FeatureBranch =
-    FeatureBranch.resolveReused(startBranch, protectedBranches) match
-      case Right(featureBranch) => featureBranch
-      case Left(ProtectedBranchRefused(name)) =>
-        throw new OrcaFlowException(
-          s"cannot skip branch creation on protected branch '$name' — " +
-            "check out a feature branch first"
-        )
-      case Left(UnsafeBranchRefRefused(name)) =>
-        throw new OrcaFlowException(
-          s"current branch '$name' is not a safe git ref — refusing to " +
-            "bind the run to it"
-        )
+    if startBranch == "HEAD" then
+      throw new OrcaFlowException(
+        "cannot skip branch creation while in detached HEAD — check out a " +
+          "branch first, or drop --skip-branch"
+      )
+    else
+      FeatureBranch.resolveReused(startBranch, protectedBranches) match
+        case Right(featureBranch) => featureBranch
+        case Left(ProtectedBranchRefused(name)) =>
+          throw new OrcaFlowException(
+            s"cannot skip branch creation on protected branch '$name' — " +
+              "check out a feature branch first"
+          )
+        case Left(UnsafeBranchRefRefused(name)) =>
+          throw new OrcaFlowException(
+            s"current branch '$name' is not a safe git ref — refusing to " +
+              "bind the run to it"
+          )
 
   /** The deterministic `flow-<hash>` fallback name for `userPrompt`, minted
     * into a [[FeatureBranch]]. Shared by both places `freshRun` needs a
@@ -763,6 +790,15 @@ object FlowLifecycle:
     * and `returnToStartBranch` chooses where HEAD lands — stay on the feature
     * branch (the default) or return to the starting branch (PR flows).
     * Best-effort and success-path-only; never deletes start/protected branches.
+    *
+    * The throwaway-delete is additionally gated on `setup.branchCreated`: a
+    * branch orca did not create (skip-branch mode) must never be deleted, even
+    * if a tampered header's `startingBranch` is crafted to name some existing
+    * branch that happens to diff-blank against the feature branch — that
+    * `startingBranch` cross-check doesn't otherwise exist (unlike `branch`'s
+    * R30 check against the actual current branch). Residual, accepted: with
+    * `branchCreated = false`, `returnToStartBranch` can still `checkout` a
+    * tampered `startingBranch` — navigation only, never destructive.
     */
   private def finishBranch(
       git: GitTool,
@@ -770,7 +806,8 @@ object FlowLifecycle:
       returnToStartBranch: Boolean
   )(using WorkspaceWrite): Unit =
     val throwaway =
-      setup.featureBranch.value != setup.startBranch &&
+      setup.branchCreated &&
+        setup.featureBranch.value != setup.startBranch &&
         git
           .diffBranchExcludingOrca(setup.startBranch, setup.featureBranch.value)
           .isBlank

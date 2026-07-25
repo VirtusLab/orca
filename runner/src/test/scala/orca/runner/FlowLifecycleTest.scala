@@ -32,7 +32,13 @@ import orca.agents.{
   ToolSet
 }
 import orca.backend.{IdScheme, SessionSupport}
-import orca.progress.{ProgressHeader, ProgressStore, SessionRecord, StageEntry}
+import orca.progress.{
+  FeatureBranch,
+  ProgressHeader,
+  ProgressStore,
+  SessionRecord,
+  StageEntry
+}
 import orca.runner.terminal.TerminalInteraction
 import orca.tools.{FsTool, GitHubTool, GitTool, OsGitTool}
 import mainargs.Flag
@@ -1720,6 +1726,80 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     assertEquals(git.currentBranch(), "main")
 
+  test("skip-branch mode refuses on detached HEAD"):
+    // `git rev-parse --abbrev-ref HEAD` reads back the literal string "HEAD"
+    // when detached. Binding a skip-branch run to that would commit into an
+    // unnamed, GC-eligible state, and make the resume-side R30 cross-check
+    // vacuous (every detached state reads as "HEAD").
+    val workDir = GitRepo.seeded()
+    val prompt = "skip-branch-detached"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    val head =
+      os.proc("git", "rev-parse", "HEAD").call(cwd = workDir).out.text().trim
+    val _ = os.proc("git", "checkout", "--detach", head).call(cwd = workDir)
+    assertEquals(git.currentBranch(), "HEAD")
+    val listener = new RecordingListener
+    val thrown = intercept[SurfacedFlowFailure]:
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        runFlow(
+          args = OrcaArgs(prompt, skipBranch = Flag(true)),
+          stackSettings = Some(StackSettings.empty),
+          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = List(listener),
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = Some(store)
+        ):
+          val _ = stage("never-runs")("x")
+    assert(
+      thrown.cause.getMessage.contains("detached HEAD"),
+      s"abort message must name detached HEAD: ${thrown.cause.getMessage}"
+    )
+
+  test(
+    "resume refuses a header naming the literal branch \"HEAD\" (hostile header, not just a valid detached read-back)"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "resume-head-header"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    // Detach HEAD so `git.currentBranch()` also reads back "HEAD" — the
+    // header's claimed branch must still be rejected on its own, independent
+    // of the current-branch cross-check.
+    val head =
+      os.proc("git", "rev-parse", "HEAD").call(cwd = workDir).out.text().trim
+    val _ = os.proc("git", "checkout", "--detach", head).call(cwd = workDir)
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "HEAD",
+        promptHash = ProgressStore.hashPrompt(prompt)
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    val listener = new RecordingListener
+    val thrown = intercept[SurfacedFlowFailure]:
+      runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
+        val _ = stage("never-runs")("x")
+    assert(
+      thrown.cause.getMessage.contains("refusing to resume"),
+      s"the refusal message must reach the user: ${thrown.cause.getMessage}"
+    )
+    assert(
+      thrown.cause.getMessage.contains("not a safe ref"),
+      s"abort message must name the unsafe ref: ${thrown.cause.getMessage}"
+    )
+
   test(
     "skip-branch mode refuses a dirty working tree instead of auto-stashing"
   ):
@@ -1788,6 +1868,35 @@ class FlowLifecycleTest extends munit.FunSuite:
         summon[orca.FlowContext].emit(OrcaEvent.Step("no-op"))
     assertEquals(git.currentBranch(), "my-empty-work")
     assertEquals(branchNames(workDir), Set("main", "my-empty-work"))
+
+  test(
+    "teardownSuccess: branchCreated = false blocks the throwaway auto-delete even when the diff is blank"
+  ):
+    // Direct FlowSetup construction simulates the hazard finding 3 closes: a
+    // tampered header's `startingBranch` (unlike `branch`, never cross-checked
+    // against anything) could name an existing branch that happens to
+    // diff-blank against the feature branch — which is exactly R5's throwaway
+    // signature. `branchCreated = false` (skip-branch mode) must block the
+    // delete regardless of what `startingBranch` claims.
+    val workDir = GitRepo.seeded() // "main"
+    val git = new OsGitTool(workDir)
+    val store = ProgressStore.default(workDir, "gated-delete")
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("reused-branch") // diff-blank vs "main"
+    val featureBranch =
+      FeatureBranch.resolveReused("reused-branch", Set.empty).toOption.get
+    val setup = FlowLifecycle.FlowSetup(
+      store = store,
+      featureBranch = featureBranch,
+      startBranch = "main",
+      stackSettings = StackSettings.empty,
+      branchCreated = false
+    )
+    FlowLifecycle.teardownSuccess(git, setup, returnToStartBranch = false)
+    assert(
+      branchNames(workDir).contains("reused-branch"),
+      "the reused branch must survive teardown when orca did not create it"
+    )
 
   test(
     "resume after a skip-branch run on a mixed-case/slashed branch name works"

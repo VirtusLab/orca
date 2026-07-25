@@ -351,20 +351,32 @@ the wrong branch.
   > work on a branch that carries plan files, and orca should continue there
   > rather than fork off a fresh one. Refused (`OrcaFlowException`) when the
   > current branch is protected (`main`/`master`/the repo's detected
-  > default) — the user must check out a feature branch themselves first —
+  > default) or detached HEAD (`git.currentBranch()` reads back the literal
+  > `"HEAD"`, which would otherwise commit into an unnamed, GC-eligible
+  > state) — the user must check out a feature branch themselves first —
   > or when the tree is dirty: skip mode never auto-stashes (unlike R4),
   > since the uncommitted state is likely the very context being handed off,
   > and silently stashing it would be surprising. A reused branch name is
   > validated against a weaker git-ref-safety check
-  > (`RecoveryCheck.isSafeGitRef`) rather than R2's minted-name slug shape,
-  > since it was never orca-authored (may be mixed-case, `feature/JIRA-123`,
-  > …); `RecoveryCheck.validateHeader` accepts a non-slug `header.branch` on
-  > resume under the same check, cross-checked against the actual current
-  > branch (R30). Teardown (R5) never deletes the reused branch: its
-  > throwaway check compares `featureBranch` to `startBranch`, which are
-  > always equal in skip mode. A PR flow's branch-vs-base diff then includes
-  > the user's own prior commits on that branch, not just orca's — intended,
-  > since the whole point is continuing their work in place.
+  > (`RecoveryCheck.isSafeGitRef`: no slug shape, but still rejects
+  > `-`-prefixes, whitespace/control chars, glob metacharacters, `..`, a
+  > `.lock` suffix, and the literal `"HEAD"`) rather than R2's minted-name
+  > slug shape, since it was never orca-authored (may be mixed-case,
+  > `feature/JIRA-123`, …); `RecoveryCheck.validateHeader` accepts a
+  > non-slug `header.branch` on resume under the same check, cross-checked
+  > against the actual current branch (R30). Teardown (R5)'s throwaway
+  > auto-delete is gated on a new header field, `branchCreated` (`true` for
+  > every pre-existing header — the default a missing field decodes to —
+  > since skip mode is the only case that ever sets it `false`): a branch
+  > orca did not create is never deleted, even if a tampered header's
+  > `startingBranch` (never cross-checked, unlike `branch`) is crafted to
+  > name an existing branch that happens to diff-blank against the feature
+  > branch. Residual, accepted: `branchCreated = false` blocks the *delete*
+  > but not a `returnToStartBranch` *checkout* of a tampered
+  > `startingBranch` — navigation only, never destructive. A PR flow's
+  > branch-vs-base diff then includes the user's own prior commits on that
+  > branch, not just orca's — intended, since the whole point is continuing
+  > their work in place.
 - **R3** — The starting branch is recorded. On a **successful** exit HEAD stays on
   the feature branch by default (so the author ends on the work — the common case
   is a flow that opens no PR); a flow that opens a PR passes `returnToStartBranch =

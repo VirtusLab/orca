@@ -135,3 +135,27 @@ class ProgressLogTest extends FunSuite:
     val decoded = readFromString[ProgressLog](oldJson)(using codec)
     assertEquals(decoded.sessions, Nil)
     assertEquals(decoded.header.branch, "feat/old")
+
+  test(
+    "ProgressHeader JSON without a branchCreated field decodes to true (back-compat)"
+  ):
+    // JSON produced before `branchCreated` existed (skip-branch predates it) —
+    // every such header is necessarily orca-minted, so the default must be true.
+    val oldJson =
+      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc123"},"entries":[]}"""
+    val codec = summon[JsonData[ProgressLog]].codec
+    val decoded = readFromString[ProgressLog](oldJson)(using codec)
+    assertEquals(decoded.header.branchCreated, true)
+
+  test("ProgressHeader round-trips branchCreated = false (skip-branch mode)"):
+    val log = ProgressLog(
+      header = ProgressHeader(
+        startingBranch = "my-work",
+        branch = "my-work",
+        promptHash = "abc123def456",
+        branchCreated = false
+      ),
+      entries = Nil
+    )
+    assertEquals(roundTrip(log), log)
+    assertEquals(roundTrip(log).header.branchCreated, false)

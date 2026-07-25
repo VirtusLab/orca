@@ -35,6 +35,40 @@ class RecoveryCheckTest extends FunSuite:
     assert(!RecoveryCheck.isSafeGitRef("/a"))
     assert(!RecoveryCheck.isSafeGitRef("a\tb"))
 
+  test(
+    "isSafeGitRef rejects glob metacharacters (would DoS `git branch --list`)"
+  ):
+    assert(!RecoveryCheck.isSafeGitRef("*"))
+    assert(!RecoveryCheck.isSafeGitRef("feature-*"))
+    assert(!RecoveryCheck.isSafeGitRef("a?b"))
+    assert(!RecoveryCheck.isSafeGitRef("[abc]"))
+    assert(!RecoveryCheck.isSafeGitRef("a\\b"))
+
+  test(
+    "isSafeGitRef rejects the literal pseudo-ref HEAD (never a real branch)"
+  ):
+    assert(!RecoveryCheck.isSafeGitRef("HEAD"))
+
+  test("validateHeader rejects a header naming the literal branch \"HEAD\""):
+    val prompt = "do the thing"
+    val header = ProgressHeader(
+      startingBranch = "main",
+      branch = "HEAD",
+      promptHash = ProgressStore.hashPrompt(prompt)
+    )
+    assert(RecoveryCheck.validateHeader(header, prompt, Set.empty).isLeft)
+
+  test(
+    "validateHeader rejects a header naming startingBranch as the literal \"HEAD\""
+  ):
+    val prompt = "do the thing"
+    val header = ProgressHeader(
+      startingBranch = "HEAD",
+      branch = "feat/do-the-thing",
+      promptHash = ProgressStore.hashPrompt(prompt)
+    )
+    assert(RecoveryCheck.validateHeader(header, prompt, Set.empty).isLeft)
+
   test("validateHeader rejects the main/master floor regardless of the set"):
     val prompt = "do the thing"
     for protectedName <- List("main", "master", "MAIN", "Master") do
