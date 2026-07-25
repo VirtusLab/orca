@@ -24,11 +24,10 @@ private[shell] enum CreateTier:
   */
 private[shell] case class CreateTarget(flowPath: os.Path, cwd: os.Path)
 
-/** Creates a new flow by authoring it through the built-in
-  * `implement-interactive.sc` flow (ADR 0021 §9): extracts the bundled API
-  * material, builds the initial prompt. The menu wiring itself
-  * (target-tier/filename/goal prompts) lives in `Main`; the flow launch lives
-  * in `orca.shell.actions.AuthorAction`.
+/** Creates a new flow by authoring it through the built-in `simple.sc` flow
+  * (ADR 0021 §9): extracts the bundled API material, builds the initial prompt.
+  * The menu wiring itself (target-tier/filename/goal prompts) lives in `Main`;
+  * the flow launch lives in `orca.shell.actions.AuthorAction`.
   */
 private[shell] object FlowAuthoring:
 
@@ -468,10 +467,13 @@ private[shell] object FlowAuthoring:
       copy
 
   /** The authoring task for a fork (ADR 0021 §9): states the source path and
-    * the described changes, instructs copying the source to the target path
-    * verbatim before applying them, and otherwise mirrors [[initialPrompt]]'s
-    * API-reference pointers, compile-check step, and runtime-rules caveat.
-    * `sourcePath` is whatever [[resolveForkSource]] resolved.
+    * the described changes as one indivisible step (create the target by
+    * copying the source and applying the changes — not two separate
+    * deliverables, since there's no planner here to split them and no reviewer
+    * should treat the copy as its own reviewable unit), and otherwise mirrors
+    * [[initialPrompt]]'s API-reference pointers, compile-check step, and
+    * runtime-rules caveat. `sourcePath` is whatever [[resolveForkSource]]
+    * resolved.
     */
   def forkPrompt(
       changes: String,
@@ -484,10 +486,8 @@ private[shell] object FlowAuthoring:
     val example1 = apiDir / "implement.sc"
     val example2 = apiDir / "implement-interactive.sc"
     val indentedChanges = indentBlock(changes)
-    s"""Fork the Orca flow at $sourcePath into a new flow at $targetPath.
-       |
-       |First copy $sourcePath to $targetPath verbatim, then apply these
-       |changes:
+    s"""Create the Orca flow at $targetPath by copying $sourcePath and
+       |applying these changes:
        |$indentedChanges
        |
        |Keep the copied file's existing version-pinned header (`//> using

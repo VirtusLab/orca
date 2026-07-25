@@ -349,9 +349,11 @@ class FlowAuthoringTest extends munit.FunSuite:
     assert(fork.contains(targetPath.toString))
     assert(fork.contains((targetPath / os.up / "implement.sc").toString))
 
-  test("forkPrompt instructs copying the source before applying changes"):
-    assert(fork.contains("First copy"))
-    assert(fork.contains("verbatim"))
+  test(
+    "forkPrompt instructs creating the target by copying the source and applying changes"
+  ):
+    assert(fork.contains("Create the Orca flow"))
+    assert(fork.contains("by copying"))
 
   test("forkPrompt points at the extracted README and both examples"):
     assert(fork.contains((apiDir / "README.md").toString))

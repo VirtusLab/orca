@@ -53,7 +53,7 @@ class AuthorActionTest extends munit.FunSuite:
 
   private val builtInFlow =
     BuiltInFlows.extracted(sys.env.get, os.home, ShellVersion.value) /
-      "implement-interactive.sc"
+      "simple.sc"
 
   private def withTerminal(body: Terminal => Unit): Unit =
     val terminal = TerminalBuilder.builder().dumb(true).build()
@@ -81,7 +81,7 @@ class AuthorActionTest extends munit.FunSuite:
     )
 
   test(
-    "create: launches the built-in implement-interactive.sc flow in a sandbox git repo, task targeting the sandbox"
+    "create: launches the built-in simple.sc flow in a sandbox git repo, task targeting the sandbox"
   ):
     withTerminal: terminal =>
       val target = projectTarget("new.sc")

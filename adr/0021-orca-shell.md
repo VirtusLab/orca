@@ -467,6 +467,14 @@ included only as a last-resort fallback line.
 > `<source>-fork.sc`), uniquified on collision, and never prompted for; the
 > CLI's optional `name` argument still allows an explicit choice (validated,
 > collision-refused).
+>
+> **Amendment (2026-07-25, third).** The authoring flow is now the built-in
+> `simple.sc`, not `implement-interactive.sc`: a log analysis showed the
+> planner splitting a trivial "copy file, then edit it" task into two tasks
+> and the review loop then fighting itself over the verbatim-copy task for
+> several iterations — over-orchestration for what authoring actually needs.
+> `simple.sc` runs no plan stage and a single review round (`maxIterations =
+> 1`) against the configured coding/review agents.
 
 ### 10. Command-line interface
 

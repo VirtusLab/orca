@@ -221,7 +221,7 @@ object Main:
   /** New-flow authoring: tier → goal, filename auto-derived from the goal's
     * [[FlowAuthoring.suggestFilenameForGoal]] slug (uniquified on collision —
     * never prompted for), then hands off to [[AuthorAction.create]] — which
-    * runs the built-in `implement-interactive.sc` flow in a throwaway
+    * runs the built-in `simple.sc` flow in a throwaway
     * [[orca.shell.create.AuthoringSandbox]], so the configured
     * planning/coding/review agents (and their model pins) do the writing
     * without ever touching the user's repository. Cancelling any prompt aborts

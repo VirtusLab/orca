@@ -191,7 +191,7 @@ private[shell] object Cli:
     EditCli.run(flow, to, isTty, os.pwd)
 
   @main(doc =
-    "Author a new flow: runs the built-in implement-interactive.sc flow in an " +
+    "Author a new flow: runs the built-in simple.sc flow in an " +
       "isolated sandbox, using the configured role agents. --goal is required; " +
       "the filename is derived from it when omitted.\n" +
       """Example: orca create --goal "summarize a PR's review threads""""
@@ -212,7 +212,7 @@ private[shell] object Cli:
     AuthorCli.create(name, goal, global, isTty, os.pwd)
 
   @main(doc =
-    "Fork an existing flow: runs the built-in implement-interactive.sc flow " +
+    "Fork an existing flow: runs the built-in simple.sc flow " +
       "in an isolated sandbox, using the configured role agents. --changes is " +
       "required; the filename defaults to <source>-fork.sc.\n" +
       """Example: orca fork implement.sc --changes "add a retry step""""

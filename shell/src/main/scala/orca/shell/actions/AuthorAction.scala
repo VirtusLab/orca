@@ -19,14 +19,16 @@ import orca.shell.ui.{ShellOutput, ShellUi}
   */
 private[shell] case class AuthorParams(tier: CreateTier, target: CreateTarget)
 
-/** Authors a new or forked flow by running the built-in
-  * `implement-interactive.sc` flow with an authoring task as its prompt (ADR
-  * 0021 §9): the configured planning/coding/review agents — and their model
-  * pins — do the writing, exactly as they would for any other flow run. The run
-  * happens inside a throwaway [[AuthoringSandbox]], never the user's
-  * repository: the flow writes the file at the sandbox root, and on success
-  * [[AuthorAction]] copies it out to the real tier. The prompting that produces
-  * `goal`/`changes`/`params` lives in `Main.createNewFlow`/`createForkFlow`.
+/** Authors a new or forked flow by running the built-in `simple.sc` flow with
+  * an authoring task as its prompt (ADR 0021 §9): the configured coding/review
+  * agents — and their model pins — do the writing, exactly as they would for
+  * any other flow run. No planning stage: the task (copy-and-modify, or write
+  * from a goal) is small and well-scoped enough that splitting it into a plan
+  * first is pure overhead. The run happens inside a throwaway
+  * [[AuthoringSandbox]], never the user's repository: the flow writes the file
+  * at the sandbox root, and on success [[AuthorAction]] copies it out to the
+  * real tier. The prompting that produces `goal`/`changes`/`params` lives in
+  * `Main.createNewFlow`/`createForkFlow`.
   */
 private[shell] object AuthorAction:
 
@@ -35,7 +37,7 @@ private[shell] object AuthorAction:
     * precedence: authoring always uses orca's own copy, never a same-named flow
     * a project or the global tier happens to define.
     */
-  private val AuthoringFlowName = "implement-interactive.sc"
+  private val AuthoringFlowName = "simple.sc"
 
   /** [[FlowLauncher.runAnnounced]]'s exact shape — a type alias so `create`/
     * `fork` can take it as an injectable parameter, defaulting to the real
