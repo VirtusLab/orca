@@ -12,17 +12,21 @@ import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.shell.wizard.ModelCatalog
 import orca.testkit.TempDirs
 
-/** Answers a single fixed `confirm` outcome; every other prompt is unsupported
-  * — [[Main.rediscoverStack]] only ever calls `confirm`.
+/** Answers a single fixed `confirm` outcome, recording the question it was
+  * asked; every other prompt is unsupported — [[Main.rediscoverStack]] and
+  * [[Main.promptCreateBranch]] only ever call `confirm`.
   */
 private class ConfirmOnlyUi(outcome: UiOutcome[Boolean]) extends ShellUi:
+  var recordedQuestion: Option[String] = None
   def select[A](
       title: String,
       choices: List[Choice[A]],
       preselect: Option[A] = None
   ): UiOutcome[A] =
     throw new UnsupportedOperationException("rediscoverStack doesn't select")
-  def confirm(question: String, default: Boolean): UiOutcome[Boolean] = outcome
+  def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
+    recordedQuestion = Some(question)
+    outcome
   def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
     throw new UnsupportedOperationException("rediscoverStack doesn't input")
   def inputMultiline(prompt: String): UiOutcome[String] =
@@ -643,6 +647,17 @@ class MainTest extends munit.FunSuite:
     )
 
   // --- promptCreateBranch (the branch-creation confirm before a run) ---
+
+  test("promptCreateBranch: the question explains what declining does"):
+    val ui = ConfirmOnlyUi(UiOutcome.Selected(true))
+    assertEquals(Main.promptCreateBranch(ui), Some(true))
+    assertEquals(
+      ui.recordedQuestion,
+      Some(
+        "Create a new branch for this run? (choosing 'no': the flow makes " +
+          "its changes on the current branch)"
+      )
+    )
 
   test(
     "promptCreateBranch: confirming (Enter's default) keeps normal branch-creating behavior"

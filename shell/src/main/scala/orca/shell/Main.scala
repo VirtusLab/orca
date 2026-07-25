@@ -211,7 +211,11 @@ object Main:
     * `private[shell]` so a scripted-UI test can drive it directly.
     */
   private[shell] def promptCreateBranch(ui: ShellUi): Option[Boolean] =
-    ui.confirm("Create a new branch for this run?", default = true) match
+    ui.confirm(
+      "Create a new branch for this run? (choosing 'no': the flow makes " +
+        "its changes on the current branch)",
+      default = true
+    ) match
       case UiOutcome.Cancelled   => None
       case UiOutcome.Selected(v) => Some(v)
 
