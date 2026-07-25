@@ -46,7 +46,8 @@ members the wizard needs (`SettingsError`, `AgentKey`) widen to
 `private[orca]`.
 
 The executable is a ~5-line shim script installed to `~/.local/bin/orca` by a
-curl-able `install.sh`:
+curl-able `install.sh`, which also bootstraps `scala-cli` itself via its
+official installer if it's missing:
 
 ```bash
 #!/usr/bin/env bash

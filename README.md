@@ -854,7 +854,10 @@ curl -fsSL https://raw.githubusercontent.com/VirtusLab/orca/master/install.sh | 
 
 This writes a small shim to `~/.local/bin/orca` that always resolves to the
 latest release, so it never needs a version bump; add `~/.local/bin` to your
-`PATH` if the installer says it isn't there yet, then run `orca`.
+`PATH` if the installer says it isn't there yet, then run `orca`. If
+`scala-cli` isn't already installed, the script bootstraps it via its
+official installer, so this is the only command you need to run — scala-cli
+then manages its own JVM.
 
 To avoid installing anything, or to pin a version (e.g. in CI), run the shell
 directly instead. The pinned form works from the first release that includes
