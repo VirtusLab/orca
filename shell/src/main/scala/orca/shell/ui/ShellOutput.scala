@@ -19,6 +19,19 @@ object ShellOutput:
     */
   val AnsiClearLine = "[2K\r"
 
+  /** ANSI erase-from-cursor-to-end-of-screen (`ESC[0J`). scala-cli/coursier's
+    * download progress can render several lines at once, and its last redraw
+    * leaves the cursor at the TOP of that block without erasing it —
+    * [[AnsiClearLine]] only wipes the current line, so the lines below survive
+    * underneath whatever paints next. `print`ed once, right after the banner
+    * and only on a real tty, so the first menu/wizard paint starts on a blank
+    * area instead of leaving stale tails where its (shorter) lines don't fully
+    * cover the old ones. Not reused mid-session: any later stale byte is
+    * single-line ([[AnsiClearLine]]'s case), and clearing to end-of-screen
+    * there would also erase a flow's own output.
+    */
+  val AnsiClearBelow = "[0J"
+
   /** A plain shell-voice line: outcomes, hints, notices. */
   def info(msg: String): Unit = println(s"$Glyph $msg")
 

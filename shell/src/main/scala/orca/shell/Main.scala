@@ -54,16 +54,22 @@ object Main:
         sys.exit(2)
 
   private def runInteractiveShell(): Unit =
-    // Clear stale mid-line progress bytes so the banner starts clean.
-    print(ShellOutput.AnsiClearLine)
-    ShellOutput.info(s"orca shell ${ShellVersion.value}")
     val terminal = ShellUi.buildTerminal()
     try
+      val tty = ShellUi.isInteractive(terminal)
+      // Clear stale mid-line progress bytes so the banner starts clean.
+      print(ShellOutput.AnsiClearLine)
+      ShellOutput.info(s"orca shell ${ShellVersion.value}")
+      // scala-cli/coursier's download progress can still have several stale
+      // lines sitting below the banner (see AnsiClearBelow) — wipe them before
+      // the first wizard/menu paint. Non-tty output (NumberedUi) skips this:
+      // there's no terminal to erase, only a redirected stream to pollute.
+      if tty then print(ShellOutput.AnsiClearBelow)
       val ui = ShellUi.make(terminal)
       val globalSettingsPath = GlobalSettings.default
       val wizard = Wizard(ui, PathProbe.resolves(_, os.pwd), globalSettingsPath)
       runWizardIfFirstRun(wizard, globalSettingsPath)
-      loop(ui, wizard, terminal, ShellUi.isInteractive(terminal))
+      loop(ui, wizard, terminal, tty)
     finally terminal.close()
 
   /** Runs the welcome wizard before the first menu when [[FirstRun.check]]
