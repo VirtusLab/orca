@@ -1,7 +1,7 @@
 package orca.shell
 
+import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.StackSettings
-import orca.agents.BackendTag
 import orca.runner.{ManifestSession, RunManifest}
 import orca.settings.SettingsFile
 import orca.shell.actions.StackAction
@@ -9,7 +9,6 @@ import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
-import orca.shell.wizard.ModelCatalog
 import orca.testkit.TempDirs
 
 /** Answers a single fixed `confirm` outcome, recording the question it was
@@ -80,52 +79,50 @@ private class InputQueueUi(inputs: List[UiOutcome[String]]) extends ShellUi:
       "promptFlowTarget doesn't input-multiline"
     )
 
-/** Records every `select` call's title and preselect, and replays queued
-  * outcomes for `select`/`input`/`confirm` — exercises
-  * [[Main.selectHarness]]/[[Main.selectAuthoringModel]]/
-  * [[Main.selectHarnessModelAndYolo]] the same way WizardTest's own
-  * `ScriptedUi` exercises the wizard's harness+model prompts. `inputMultiline`
-  * is unsupported: none of those call it.
+/** Counts calls to `select`/`inputMultiline`/`input` and replays queued
+  * outcomes for each — used to verify `Main.createNewFlow`/`createForkFlow`
+  * stop asking anything the moment a prompt is cancelled, in particular that no
+  * further harness/model/yolo prompt follows (authoring no longer has one).
+  * `confirm` is unsupported: neither method calls it.
   */
-private class AuthoringScriptedUi(
+private class FlowScriptedUi(
     selectScript: List[UiOutcome[Any]] = Nil,
-    inputScript: List[UiOutcome[String]] = Nil,
-    confirmScript: List[UiOutcome[Boolean]] = Nil
+    inputMultilineScript: List[UiOutcome[String]] = Nil,
+    inputScript: List[UiOutcome[String]] = Nil
 ) extends ShellUi:
   private var pendingSelect = selectScript
+  private var pendingInputMultiline = inputMultilineScript
   private var pendingInput = inputScript
-  private var pendingConfirm = confirmScript
-  private var titles: List[String] = Nil
-  private var preselects: List[Option[Any]] = Nil
-
-  def recordedTitles: List[String] = titles
-  def recordedPreselects: List[Option[Any]] = preselects
+  var selectCount = 0
+  var inputMultilineCount = 0
+  var inputCount = 0
 
   def select[A](
       title: String,
       choices: List[Choice[A]],
       preselect: Option[A] = None
   ): UiOutcome[A] =
-    titles = titles :+ title
-    preselects = preselects :+ preselect.asInstanceOf[Option[Any]]
+    selectCount += 1
     val outcome = pendingSelect.head
     pendingSelect = pendingSelect.tail
     outcome.asInstanceOf[UiOutcome[A]]
 
   def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
-    val outcome = pendingConfirm.head
-    pendingConfirm = pendingConfirm.tail
-    outcome
+    throw new UnsupportedOperationException(
+      "createNewFlow/createForkFlow don't confirm"
+    )
 
   def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
+    inputCount += 1
     val outcome = pendingInput.head
     pendingInput = pendingInput.tail
     outcome
 
   def inputMultiline(prompt: String): UiOutcome[String] =
-    throw new UnsupportedOperationException(
-      "authoring prompts don't use inputMultiline"
-    )
+    inputMultilineCount += 1
+    val outcome = pendingInputMultiline.head
+    pendingInputMultiline = pendingInputMultiline.tail
+    outcome
 
 class MainTest extends munit.FunSuite:
 
@@ -475,118 +472,6 @@ class MainTest extends munit.FunSuite:
     assertEquals(SessionPicker.sessionRows(Nil, expanded = false), Nil)
     assertEquals(SessionPicker.sessionRows(Nil, expanded = true), Nil)
 
-  test("harnessLabel suffixes a detected harness with the found marker"):
-    assertEquals(
-      Main.harnessLabel(BackendTag.ClaudeCode, _ => true),
-      "claude — ✓ found"
-    )
-
-  test("harnessLabel suffixes an undetected harness with not-found-on-PATH"):
-    assertEquals(
-      Main.harnessLabel(BackendTag.ClaudeCode, _ => false),
-      "claude — not found on PATH"
-    )
-
-  // --- authoring: harness + model prompts ---
-
-  private def emptySettingsPath: os.Path =
-    TempDirs.dir() / "settings.properties"
-
-  test("selectHarness: create and fork ask differently-worded questions"):
-    val settings = emptySettingsPath
-    val createUi =
-      AuthoringScriptedUi(List(UiOutcome.Selected(BackendTag.ClaudeCode)))
-    val _ = Main.selectHarness(createUi, Main.AuthoringAction.Create, settings)
-    assertEquals(
-      createUi.recordedTitles,
-      List("Coding agent to write the flow script:")
-    )
-
-    val forkUi =
-      AuthoringScriptedUi(List(UiOutcome.Selected(BackendTag.ClaudeCode)))
-    val _ = Main.selectHarness(forkUi, Main.AuthoringAction.Fork, settings)
-    assertEquals(
-      forkUi.recordedTitles,
-      List("Coding agent to edit the forked flow:")
-    )
-
-  test(
-    "selectAuthoringModel: preselects/orders the configured coding pin first when its harness matches"
-  ):
-    val settings = TempDirs.dir() / "settings.properties"
-    os.write(settings, "codingAgent = claude:sonnet\n")
-    val ui = AuthoringScriptedUi(
-      List(UiOutcome.Selected(ModelCatalog.ModelPick.Curated("sonnet")))
-    )
-    val result = Main.selectAuthoringModel(
-      ui,
-      Main.AuthoringAction.Create,
-      BackendTag.ClaudeCode,
-      settings
-    )
-    assertEquals(result, Some(Some("sonnet")))
-    assertEquals(
-      ui.recordedPreselects,
-      List(Some(ModelCatalog.ModelPick.Curated("sonnet")))
-    )
-
-  test(
-    "selectAuthoringModel: falls back to the coding-role default when the configured pin's harness differs"
-  ):
-    val settings = TempDirs.dir() / "settings.properties"
-    os.write(settings, "codingAgent = gemini:some-model\n")
-    val ui = AuthoringScriptedUi(
-      List(UiOutcome.Selected(ModelCatalog.ModelPick.Curated("opus")))
-    )
-    val result = Main.selectAuthoringModel(
-      ui,
-      Main.AuthoringAction.Create,
-      BackendTag.ClaudeCode,
-      settings
-    )
-    assertEquals(result, Some(Some("opus")))
-    assertEquals(
-      ui.recordedPreselects,
-      List(Some(ModelCatalog.ModelPick.Curated("opus")))
-    )
-
-  test(
-    "selectHarnessModelAndYolo: a curated model pick is threaded through alongside the harness and yolo choice"
-  ):
-    val ui = AuthoringScriptedUi(
-      selectScript = List(
-        UiOutcome.Selected(BackendTag.ClaudeCode),
-        UiOutcome.Selected(ModelCatalog.ModelPick.Curated("opus"))
-      ),
-      confirmScript = List(UiOutcome.Selected(true))
-    )
-    assertEquals(
-      Main.selectHarnessModelAndYolo(
-        ui,
-        Main.AuthoringAction.Create,
-        emptySettingsPath
-      ),
-      Some((BackendTag.ClaudeCode, Some("opus"), true))
-    )
-
-  test(
-    "selectHarnessModelAndYolo: cancelling the model prompt aborts without ever asking about yolo"
-  ):
-    val ui = AuthoringScriptedUi(
-      selectScript =
-        List(UiOutcome.Selected(BackendTag.ClaudeCode), UiOutcome.Cancelled)
-      // confirmScript is empty on purpose: if yolo were asked anyway, `.head`
-      // on the empty queue would throw, failing this test loudly.
-    )
-    assertEquals(
-      Main.selectHarnessModelAndYolo(
-        ui,
-        Main.AuthoringAction.Create,
-        emptySettingsPath
-      ),
-      None
-    )
-
   // --- promoteByName ---
 
   private def flow(name: String): DiscoveredFlow =
@@ -696,6 +581,91 @@ class MainTest extends munit.FunSuite:
       result.map(_.flowPath),
       Some(dir / ".orca" / "flows" / "valid-name.sc")
     )
+
+  // --- createNewFlow / createForkFlow: cancelling stops immediately, with no
+  // harness/model/yolo prompt following (authoring no longer has one — it
+  // runs the built-in flow with the configured role agents automatically).
+  // The launch itself (AuthorAction) is exercised separately in
+  // AuthorActionTest with an injected launcher; these only cover the
+  // menu-side prompting, up to the point where a real prompt is cancelled.
+
+  private def withDumbTerminal(body: Terminal => Unit): Unit =
+    val terminal = TerminalBuilder.builder().dumb(true).build()
+    try body(terminal)
+    finally terminal.close()
+
+  test("createNewFlow: cancelling the tier prompt asks nothing else"):
+    withDumbTerminal: terminal =>
+      val ui = FlowScriptedUi(selectScript = List(UiOutcome.Cancelled))
+      Main.createNewFlow(ui, terminal)
+      assertEquals(ui.selectCount, 1)
+      assertEquals(ui.inputMultilineCount, 0)
+      assertEquals(ui.inputCount, 0)
+
+  test(
+    "createNewFlow: cancelling the goal prompt stops before the filename prompt"
+  ):
+    withDumbTerminal: terminal =>
+      val ui = FlowScriptedUi(
+        selectScript = List(UiOutcome.Selected(CreateTier.Project)),
+        inputMultilineScript = List(UiOutcome.Cancelled)
+      )
+      Main.createNewFlow(ui, terminal)
+      assertEquals(ui.selectCount, 1)
+      assertEquals(ui.inputMultilineCount, 1)
+      assertEquals(ui.inputCount, 0)
+
+  test("createForkFlow: cancelling the source prompt asks nothing else"):
+    withDumbTerminal: terminal =>
+      val ui = FlowScriptedUi(selectScript = List(UiOutcome.Cancelled))
+      Main.createForkFlow(ui, terminal)
+      assertEquals(ui.selectCount, 1)
+      assertEquals(ui.inputMultilineCount, 0)
+      assertEquals(ui.inputCount, 0)
+
+  test(
+    "createForkFlow: cancelling the changes prompt stops before the tier prompt"
+  ):
+    withDumbTerminal: terminal =>
+      val ui = FlowScriptedUi(
+        selectScript = List(UiOutcome.Selected(flow("implement.sc"))),
+        inputMultilineScript = List(UiOutcome.Cancelled)
+      )
+      Main.createForkFlow(ui, terminal)
+      assertEquals(ui.selectCount, 1)
+      assertEquals(ui.inputMultilineCount, 1)
+      assertEquals(ui.inputCount, 0)
+
+  test(
+    "createForkFlow: cancelling the tier prompt stops before the filename prompt"
+  ):
+    withDumbTerminal: terminal =>
+      val ui = FlowScriptedUi(
+        selectScript =
+          List(UiOutcome.Selected(flow("implement.sc")), UiOutcome.Cancelled),
+        inputMultilineScript = List(UiOutcome.Selected("add a retry step"))
+      )
+      Main.createForkFlow(ui, terminal)
+      assertEquals(ui.selectCount, 2)
+      assertEquals(ui.inputMultilineCount, 1)
+      assertEquals(ui.inputCount, 0)
+
+  test(
+    "createForkFlow: cancelling the filename prompt is the last stop before authoring would launch"
+  ):
+    withDumbTerminal: terminal =>
+      val ui = FlowScriptedUi(
+        selectScript = List(
+          UiOutcome.Selected(flow("implement.sc")),
+          UiOutcome.Selected(CreateTier.Project)
+        ),
+        inputMultilineScript = List(UiOutcome.Selected("add a retry step")),
+        inputScript = List(UiOutcome.Cancelled)
+      )
+      Main.createForkFlow(ui, terminal)
+      assertEquals(ui.selectCount, 2)
+      assertEquals(ui.inputMultilineCount, 1)
+      assertEquals(ui.inputCount, 1)
 
   // --- rediscoverStack ---
 

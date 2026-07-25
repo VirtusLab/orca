@@ -4,7 +4,6 @@ import mainargs.ParserForMethods
 import orca.agents.BackendTag
 import orca.runner.{ManifestSession, RunManifest}
 import orca.settings.{AgentSettings, AgentSpec}
-import orca.shell.actions.AuthorOutcome
 import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.run.LaunchResult
@@ -144,7 +143,7 @@ class CliTest extends munit.FunSuite:
     )
 
   test("create: missing the required --goal is a usage error"):
-    assert(!parses("create", "--harness", "claude"))
+    assert(!parses("create"))
 
   test(
     "create: --goal present parses; off-tty the method itself refuses with exit 2"
@@ -284,18 +283,6 @@ class CliTest extends munit.FunSuite:
   test("readTask: omitted + empty piped stdin is a usage error"):
     assert(RunCli.readTask(None, tty = false, () => "   \n").isLeft)
 
-  // --- AuthorOutcome -> exit code mapping ---
-
-  test("exitCodeFor: Launched propagates the harness's own exit code"):
-    assertEquals(AuthorCli.exitCodeFor(AuthorOutcome.Launched(0)), 0)
-    assertEquals(AuthorCli.exitCodeFor(AuthorOutcome.Launched(7)), 7)
-
-  test("exitCodeFor: NotLaunched maps to ActionFailed"):
-    assertEquals(
-      AuthorCli.exitCodeFor(AuthorOutcome.NotLaunched),
-      ExitCodes.ActionFailed
-    )
-
   // --- LaunchResult -> exit code mapping ---
 
   test("exitCodeFor maps Ok/Failed/Cancelled"):
@@ -306,141 +293,32 @@ class CliTest extends munit.FunSuite:
       ExitCodes.SignalKilled
     )
 
-  // --- create/fork flag resolution: harness[:model] + yolo default-on ---
-
-  test(
-    "resolveAgentSpec: an unknown harness is rejected, listing the valid ones"
-  ):
+  test("AuthorCli.exitCodeFor maps Ok/Failed/Cancelled"):
+    assertEquals(AuthorCli.exitCodeFor(LaunchResult.Ok), 0)
+    assertEquals(AuthorCli.exitCodeFor(LaunchResult.Failed(3)), 3)
     assertEquals(
-      AuthorCli.resolveAgentSpec(Some("chatgpt")),
-      Left(
-        "unknown harness `chatgpt` — valid: claude, codex, gemini, opencode, pi"
-      )
+      AuthorCli.exitCodeFor(LaunchResult.Cancelled),
+      ExitCodes.SignalKilled
     )
 
-  test("resolveAgentSpec: a bare harness name resolves with no model pin"):
+  // --- create/fork: --harness/--yolo/--no-yolo are gone (ADR 0021 §9 amendment) ---
+
+  test("create: --harness is no longer a recognized flag"):
+    assert(!parses("create", "--goal", "do a thing", "--harness", "claude"))
+
+  test("create: --yolo is no longer a recognized flag"):
+    assert(!parses("create", "--goal", "do a thing", "--yolo"))
+
+  test("fork: --no-yolo is no longer a recognized flag"):
+    assert(
+      !parses("fork", "source.sc", "--changes", "make it better", "--no-yolo")
+    )
+
+  test("create: --global still parses (fails later, off-tty)"):
     assertEquals(
-      AuthorCli.resolveAgentSpec(Some("codex")),
-      Right(AgentSpec(BackendTag.Codex, None))
-    )
-
-  test("resolveAgentSpec: harness:model parses both parts"):
-    assertEquals(
-      AuthorCli.resolveAgentSpec(Some("claude:opus")),
-      Right(AgentSpec(BackendTag.ClaudeCode, Some("opus")))
-    )
-
-  test("resolveAgentSpec: a blank model after the colon means no pin"):
-    assertEquals(
-      AuthorCli.resolveAgentSpec(Some("claude:")),
-      Right(AgentSpec(BackendTag.ClaudeCode, None))
-    )
-
-  test("authorParams: yolo defaults on when neither flag is given"):
-    val result =
-      AuthorCli.authorParams(
-        mainargs.Flag(),
-        mainargs.Flag(),
-        mainargs.Flag(),
-        Some("codex")
-      )
-    assertEquals(
-      result,
-      Right((CreateTier.Project, AgentSpec(BackendTag.Codex, None), true))
-    )
-
-  test("authorParams: --harness codex:gpt-5.6-terra threads the model through"):
-    val result =
-      AuthorCli.authorParams(
-        mainargs.Flag(),
-        mainargs.Flag(),
-        mainargs.Flag(),
-        Some("codex:gpt-5.6-terra")
-      )
-    assertEquals(
-      result.map(_._2),
-      Right(AgentSpec(BackendTag.Codex, Some("gpt-5.6-terra")))
-    )
-
-  test("authorParams: --no-yolo turns yolo off"):
-    val result = AuthorCli.authorParams(
-      mainargs.Flag(),
-      mainargs.Flag(),
-      mainargs.Flag(true),
-      Some("codex")
-    )
-    assertEquals(result.map(_._3), Right(false))
-
-  test("authorParams: --global selects CreateTier.Global"):
-    val result = AuthorCli.authorParams(
-      mainargs.Flag(true),
-      mainargs.Flag(),
-      mainargs.Flag(),
-      Some("codex")
-    )
-    assertEquals(result.map(_._1), Right(CreateTier.Global))
-
-  test("authorParams: --yolo and --no-yolo together is rejected"):
-    assertEquals(
-      AuthorCli.authorParams(
-        mainargs.Flag(),
-        mainargs.Flag(true),
-        mainargs.Flag(true),
-        Some("codex")
-      ),
-      Left("--yolo and --no-yolo are mutually exclusive")
-    )
-
-  test("authorParams: a bad --harness spec is rejected before yolo is checked"):
-    assertEquals(
-      AuthorCli.authorParams(
-        mainargs.Flag(),
-        mainargs.Flag(),
-        mainargs.Flag(),
-        Some("chatgpt:foo")
-      ),
-      Left(
-        "unknown harness `chatgpt` — valid: claude, codex, gemini, opencode, pi"
-      )
-    )
-
-  // --- create/fork: --harness harness[:model] end-to-end argv parity ---
-
-  test("create: --harness claude:opus parses (fails later, off-tty)"):
-    assertEquals(
-      invoke(
-        "create",
-        "--goal",
-        "do a thing",
-        "--harness",
-        "claude:opus"
-      ),
+      invoke("create", "--goal", "do a thing", "--global"),
       Right(2)
     )
-
-  test("create: bare --harness claude is unchanged"):
-    assertEquals(
-      invoke("create", "--goal", "do a thing", "--harness", "claude"),
-      Right(2)
-    )
-
-  test(
-    "fork: an unknown --harness is a clean usage error (exit 2), no stacktrace"
-  ):
-    val dir = TempDirs.dir()
-    os.write(dir / "source.sc", "// desc\nval a = 1\n")
-    val result = AuthorCli.fork(
-      "source.sc",
-      Some("out.sc"),
-      "make it better",
-      Some("chatgpt"),
-      mainargs.Flag(),
-      mainargs.Flag(),
-      mainargs.Flag(),
-      tty = true,
-      workDir = dir
-    )
-    assertEquals(result, ExitCodes.UsageError)
 
   // --- create/fork filename guard: no path separators (security review) ---
 

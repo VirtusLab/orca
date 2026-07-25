@@ -2,31 +2,29 @@ package orca.shell.cli
 
 import mainargs.Flag
 import org.jline.terminal.Terminal
-import orca.agents.BackendTag
-import orca.settings.{AgentSpec, GlobalSettings}
-import orca.shell.actions.{AuthorAction, AuthorOutcome, AuthorParams}
+import orca.settings.GlobalSettings
+import orca.shell.actions.{AuthorAction, AuthorParams}
 import orca.shell.actions.FlowResolution
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
+import orca.shell.run.LaunchResult
 import orca.shell.ui.{ShellOutput, ShellUi}
 
 import Cli.{actionFailure, complete, requireNonBlank, requireTty, usageFailure}
 
 /** `orca create` and `orca fork`'s behavior (ADR 0021 §10/§9): the shared
-  * author pipeline both drive — tty-gate, non-blank guard, harness/tier/yolo
-  * resolution, filename validation, target preparation, then the authoring
-  * exec. Create and fork differ only in what they resolve up front (nothing vs.
-  * the source flow), the default filename, and which [[AuthorAction]] method
-  * launches the session.
+  * author pipeline both drive — tty-gate, non-blank guard, tier resolution,
+  * filename validation, target preparation, then the authoring flow launch. The
+  * configured role agents (and their model pins) do the writing automatically,
+  * so there's nothing else to resolve from flags. Create and fork differ only
+  * in what they resolve up front (nothing vs. the source flow), the default
+  * filename, and which [[AuthorAction]] method launches the flow.
   */
 private[cli] object AuthorCli:
 
   def create(
       name: Option[String],
       goal: String,
-      harness: Option[String],
       global: Flag,
-      yolo: Flag,
-      noYolo: Flag,
       tty: Boolean,
       workDir: os.Path
   ): Int =
@@ -37,9 +35,6 @@ private[cli] object AuthorCli:
       blankValue = goal,
       name = name,
       global = global,
-      yolo = yolo,
-      noYolo = noYolo,
-      harness = harness,
       workDir = workDir,
       resolveSource = Right(()),
       defaultFileName = _ => FlowAuthoring.suggestFilenameForGoal(goal),
@@ -51,10 +46,7 @@ private[cli] object AuthorCli:
       source: String,
       name: Option[String],
       changes: String,
-      harness: Option[String],
       global: Flag,
-      yolo: Flag,
-      noYolo: Flag,
       tty: Boolean,
       workDir: os.Path
   ): Int =
@@ -65,9 +57,6 @@ private[cli] object AuthorCli:
       blankValue = changes,
       name = name,
       global = global,
-      yolo = yolo,
-      noYolo = noYolo,
-      harness = harness,
       workDir = workDir,
       resolveSource =
         FlowResolution.resolve(source, workDir).left.map(actionFailure),
@@ -77,11 +66,11 @@ private[cli] object AuthorCli:
     )
 
   /** The pipeline `create` and `fork` share (ADR 0021 §9). `resolveSource`
-    * yields the fork's source flow (or `()` for create) before the flags are
-    * parsed, matching the original order in which fork resolved its source
-    * ahead of the harness/tier flags; `defaultFileName` derives the filename
-    * default from it lazily, only when no `name` was given; `launch` hands the
-    * prepared target to the matching authoring action.
+    * yields the fork's source flow (or `()` for create) before the tier flag is
+    * resolved, matching the original order in which fork resolved its source
+    * first; `defaultFileName` derives the filename default from it lazily, only
+    * when no `name` was given; `launch` hands the prepared target to the
+    * matching authoring action.
     */
   private def runAuthor[S](
       command: String,
@@ -90,13 +79,10 @@ private[cli] object AuthorCli:
       blankValue: String,
       name: Option[String],
       global: Flag,
-      yolo: Flag,
-      noYolo: Flag,
-      harness: Option[String],
       workDir: os.Path,
       resolveSource: => Either[CliFailure, S],
       defaultFileName: S => String,
-      launch: (S, AuthorParams, ShellUi, Terminal) => AuthorOutcome
+      launch: (S, AuthorParams, ShellUi, Terminal) => LaunchResult
   ): Int =
     val globalFlows = GlobalSettings.defaultFlows
     complete:
@@ -104,25 +90,18 @@ private[cli] object AuthorCli:
         _ <- requireTty(command, tty).left.map(usageFailure)
         _ <- requireNonBlank(blankArg, blankValue).left.map(usageFailure)
         source <- resolveSource
-        resolved <- authorParams(global, yolo, noYolo, harness).left
-          .map(usageFailure)
-        (tier, spec, yoloValue) = resolved
+        tier = if global.value then CreateTier.Global else CreateTier.Project
         fileName = name.getOrElse(defaultFileName(source))
         _ <- validateFileName(fileName).left.map(usageFailure)
         target <- safePrepareTarget(tier, fileName, workDir, globalFlows).left
           .map(actionFailure)
-      yield launchAuthoring(
-        target,
-        AuthorParams(tier, target, spec.backend, spec.model, yoloValue),
-        source,
-        launch
-      )
+      yield launchAuthoring(target, AuthorParams(tier, target), source, launch)
 
   private def launchAuthoring[S](
       target: CreateTarget,
       params: AuthorParams,
       source: S,
-      launch: (S, AuthorParams, ShellUi, Terminal) => AuthorOutcome
+      launch: (S, AuthorParams, ShellUi, Terminal) => LaunchResult
   ): Int =
     ShellOutput.info(s"target flow: ${target.flowPath}")
     Cli.withTerminal: terminal =>
@@ -147,42 +126,10 @@ private[cli] object AuthorCli:
   ): Either[String, CreateTarget] =
     FlowAuthoring.safePrepareTarget(tier, fileName, workDir, globalFlows)
 
-  /** Shared `create`/`fork` flag resolution: the tier, the harness+model
-    * (parsed `--harness harness[:model]` via [[AgentSpec.parse]], or the
-    * configured coding agent's own spec), and yolo (on by default, `--no-yolo`
-    * to disable — mutually exclusive with an explicit `--yolo`).
+  /** Mirrors [[RunCli.exitCodeFor]]: the authoring flow's own outcome, the same
+    * way any other flow run's exit code is propagated.
     */
-  private[cli] def authorParams(
-      global: Flag,
-      yolo: Flag,
-      noYolo: Flag,
-      harness: Option[String]
-  ): Either[String, (CreateTier, AgentSpec, Boolean)] =
-    if yolo.value && noYolo.value then
-      Left("--yolo and --no-yolo are mutually exclusive")
-    else
-      resolveAgentSpec(harness).map: spec =>
-        val tier =
-          if global.value then CreateTier.Global else CreateTier.Project
-        (tier, spec, !noYolo.value)
-
-  /** `--harness`'s value, `harness[:model]` in the same syntax as settings and
-    * `orca config` ([[AgentSpec.parse]]); omitted, it's the configured coding
-    * agent's own spec (harness AND model pin), falling back to bare claude when
-    * the global settings file is absent or unparseable.
-    */
-  private[cli] def resolveAgentSpec(
-      raw: Option[String]
-  ): Either[String, AgentSpec] =
-    raw match
-      case None =>
-        Right(
-          FlowAuthoring
-            .configuredCodingAgentSpec(GlobalSettings.default)
-            .getOrElse(AgentSpec(BackendTag.ClaudeCode, None))
-        )
-      case Some(spec) => AgentSpec.parse(spec)
-
-  private[cli] def exitCodeFor(outcome: AuthorOutcome): Int = outcome match
-    case AuthorOutcome.Launched(exit) => exit
-    case AuthorOutcome.NotLaunched    => ExitCodes.ActionFailed
+  private[cli] def exitCodeFor(result: LaunchResult): Int = result match
+    case LaunchResult.Ok           => ExitCodes.Ok
+    case LaunchResult.Failed(exit) => exit
+    case LaunchResult.Cancelled    => ExitCodes.SignalKilled

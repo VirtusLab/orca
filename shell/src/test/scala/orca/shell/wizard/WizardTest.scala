@@ -870,10 +870,15 @@ class WizardTest extends munit.FunSuite:
         val ok = Wizard(ui, probe, path).run(reconfigure = false)
         assert(ok)
 
-      val introLine = output.linesIterator.indexWhere(_.contains("Setting up Orca"))
-      val promptLine = output.linesIterator.indexWhere(_.contains("<<first prompt>>"))
+      val introLine =
+        output.linesIterator.indexWhere(_.contains("Setting up Orca"))
+      val promptLine =
+        output.linesIterator.indexWhere(_.contains("<<first prompt>>"))
       assert(introLine >= 0, s"expected an intro line, got:\n$output")
-      assert(promptLine >= 0, s"expected the first-prompt marker, got:\n$output")
+      assert(
+        promptLine >= 0,
+        s"expected the first-prompt marker, got:\n$output"
+      )
       assert(
         introLine < promptLine,
         s"intro must precede the first prompt, got:\n$output"

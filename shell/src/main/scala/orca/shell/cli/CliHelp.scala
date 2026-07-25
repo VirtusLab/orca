@@ -30,7 +30,7 @@ private[shell] object CliHelp:
        |Examples:
        |  orca run implement.sc "add pagination to the user list"
        |  git diff | orca run review.sc
-       |  orca create --goal "summarize a PR's review threads" --harness claude
+       |  orca create --goal "summarize a PR's review threads"
        |  orca continue --list
        |  orca config --coding codex
        |

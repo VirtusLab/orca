@@ -1,8 +1,7 @@
 package orca.shell
 
 import org.jline.terminal.Terminal
-import orca.agents.BackendTag
-import orca.settings.{AgentSpec, GlobalSettings}
+import orca.settings.GlobalSettings
 import orca.shell.actions.{
   AuthorAction,
   AuthorParams,
@@ -20,7 +19,7 @@ import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.run.FallbackPolicy
 import orca.shell.sessions.{ManifestReader, RecordedRun, SessionPicker}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
-import orca.shell.wizard.{FirstRun, FirstRunStatus, ModelCatalog, Wizard}
+import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
 import orca.subprocess.PathProbe
 import ox.discard
 
@@ -219,33 +218,18 @@ object Main:
       case UiOutcome.Cancelled   => None
       case UiOutcome.Selected(v) => Some(v)
 
-  /** Which authoring flow drives the harness/model prompts — only the wording
-    * differs between create and fork ([[selectHarness]]/
-    * [[selectAuthoringModel]]).
-    */
-  private[shell] enum AuthoringAction(
-      val harnessPrompt: String,
-      val modelPrompt: String
-  ):
-    case Create
-        extends AuthoringAction(
-          "Coding agent to write the flow script:",
-          "Model to write the flow script:"
-        )
-    case Fork
-        extends AuthoringAction(
-          "Coding agent to edit the forked flow:",
-          "Model to edit the forked flow:"
-        )
-
   /** New-flow authoring: tier → goal → filename (defaulted from the goal's
-    * [[suggestFilenameForGoal]] slug) → harness+model+yolo, then hands off to
-    * [[AuthorAction.create]]. Cancelling any prompt, or a filename collision,
-    * aborts back to the menu without launching anything. Reachable via
-    * [[MenuItem.CreateFlow]]; [[MenuItem.ForkFlow]] is the sibling entry point
-    * for [[createForkFlow]].
+    * [[suggestFilenameForGoal]] slug), then hands off to
+    * [[AuthorAction.create]] — which runs the built-in
+    * `implement-interactive.sc` flow with the authoring prompt as its task, so
+    * the configured planning/coding/review agents (and their model pins) do the
+    * writing, same as any other flow run. Cancelling any prompt, or a filename
+    * collision, aborts back to the menu without launching anything. Reachable
+    * via [[MenuItem.CreateFlow]]; [[MenuItem.ForkFlow]] is the sibling entry
+    * point for [[createForkFlow]]. `private[shell]` so a scripted-UI test can
+    * drive it directly.
     */
-  private def createNewFlow(ui: ShellUi, terminal: Terminal): Unit =
+  private[shell] def createNewFlow(ui: ShellUi, terminal: Terminal): Unit =
     val workDir = os.pwd
     val globalFlows = GlobalSettings.defaultFlows
     for
@@ -258,20 +242,19 @@ object Main:
         globalFlows,
         default = Some(FlowAuthoring.suggestFilenameForGoal(goal))
       )
-      (backend, model, yolo) <- selectHarnessModelAndYolo(
-        ui,
-        AuthoringAction.Create
-      )
     do
-      val params = AuthorParams(tier, target, backend, model, yolo)
-      AuthorAction.create(goal, params, workDir, ui, terminal).discard
+      AuthorAction
+        .create(goal, AuthorParams(tier, target), workDir, ui, terminal)
+        .discard
 
   /** Fork-an-existing-flow authoring: pick the source flow from every tier
     * (same rows View/Edit use) → describe the changes → tier for the fork's
-    * target → filename (defaulted from [[FlowAuthoring.forkFilenameDefault]]) →
-    * harness+model+yolo, then hands off to [[AuthorAction.fork]].
+    * target → filename (defaulted from [[FlowAuthoring.forkFilenameDefault]]),
+    * then hands off to [[AuthorAction.fork]] — same flow-based launch as
+    * [[createNewFlow]]. `private[shell]` so a scripted-UI test can drive it
+    * directly.
     */
-  private def createForkFlow(ui: ShellUi, terminal: Terminal): Unit =
+  private[shell] def createForkFlow(ui: ShellUi, terminal: Terminal): Unit =
     val workDir = os.pwd
     val globalFlows = GlobalSettings.defaultFlows
     for
@@ -285,13 +268,17 @@ object Main:
         globalFlows,
         default = Some(FlowAuthoring.forkFilenameDefault(source.name))
       )
-      (backend, model, yolo) <- selectHarnessModelAndYolo(
-        ui,
-        AuthoringAction.Fork
-      )
     do
-      val params = AuthorParams(tier, target, backend, model, yolo)
-      AuthorAction.fork(source, changes, params, workDir, ui, terminal).discard
+      AuthorAction
+        .fork(
+          source,
+          changes,
+          AuthorParams(tier, target),
+          workDir,
+          ui,
+          terminal
+        )
+        .discard
 
   /** The Project/Global target-tier picker, shared by new-flow authoring, fork
     * authoring, and customizing a built-in into a tier — same two choices every
@@ -371,98 +358,6 @@ object Main:
         ShellOutput.error("description can't be empty")
         promptDescription(ui, label)
       case UiOutcome.Selected(text) => Some(text)
-
-  /** Harness picker (see [[selectHarness]]) plus the model step
-    * ([[selectAuthoringModel]]) plus the yolo confirm: `"Run the harness
-    * without approval prompts (yolo)?"`, defaulting to yes to match that Orca's
-    * own flows already run autonomously by default. `globalSettingsPath` is
-    * injected so tests never touch the developer's `~/.config`.
-    */
-  private[shell] def selectHarnessModelAndYolo(
-      ui: ShellUi,
-      action: AuthoringAction,
-      globalSettingsPath: os.Path = GlobalSettings.default
-  ): Option[(BackendTag, Option[String], Boolean)] =
-    for
-      backend <- selectHarness(ui, action, globalSettingsPath)
-      model <- selectAuthoringModel(ui, action, backend, globalSettingsPath)
-      yolo <- promptYolo(ui)
-    yield (backend, model, yolo)
-
-  private def promptYolo(ui: ShellUi): Option[Boolean] =
-    ui.confirm(
-      "Run the harness without approval prompts (yolo)?",
-      default = true
-    ) match
-      case UiOutcome.Cancelled   => None
-      case UiOutcome.Selected(v) => Some(v)
-
-  /** Harness picker, preselecting the configured coding agent (falling back to
-    * claude when the global settings file is absent or unparseable — same
-    * fallback [[Wizard]] uses for an undetected default). Labels get the same
-    * PATH-detection suffix as the wizard's harness picker
-    * ([[Wizard.choiceFor]]) — every harness stays selectable regardless of
-    * detection, since this is one-off informational decoration, not a gate. The
-    * prompt itself is `action.harnessPrompt` — create and fork say what the
-    * agent is for rather than sharing one generic title.
-    */
-  private[shell] def selectHarness(
-      ui: ShellUi,
-      action: AuthoringAction,
-      globalSettingsPath: os.Path = GlobalSettings.default
-  ): Option[BackendTag] =
-    val default = FlowAuthoring.configuredCodingAgent(globalSettingsPath)
-    ui.select(
-      action.harnessPrompt,
-      BackendTag.values.toList.map(tag =>
-        Choice(tag, harnessLabel(tag, PathProbe.resolves(_, os.pwd)))
-      ),
-      preselect = Some(default)
-    ) match
-      case UiOutcome.Cancelled         => None
-      case UiOutcome.Selected(backend) => Some(backend)
-
-  /** The authoring model step ([[ModelCatalog.pick]], the wizard's model UX):
-    * curated aliases for claude/codex, free text otherwise. Preselects/orders
-    * the configured coding agent's own model pin first when its harness matches
-    * `backend` (mirrors [[Wizard.curatedModels]]'s current-pin-first behavior),
-    * else the coding-role default (`opus`/`gpt-5.6-sol`).
-    */
-  private[shell] def selectAuthoringModel(
-      ui: ShellUi,
-      action: AuthoringAction,
-      backend: BackendTag,
-      globalSettingsPath: os.Path = GlobalSettings.default
-  ): Option[Option[String]] =
-    val configuredCoding =
-      FlowAuthoring.configuredCodingAgentSpec(globalSettingsPath)
-    val currentModel =
-      configuredCoding.filter(_.backend == backend).flatMap(_.model)
-    val curated =
-      ModelCatalog.promoteCurrent(
-        ModelCatalog.defaultOrder(backend),
-        currentModel
-      )
-    ModelCatalog.pick(
-      ui,
-      action.modelPrompt,
-      backend,
-      curated,
-      currentModel
-    ) match
-      case UiOutcome.Cancelled       => None
-      case UiOutcome.Selected(model) => Some(model)
-
-  /** `<name> — ✓ found` / `<name> — not found on PATH`, matching
-    * [[Wizard.choiceFor]]'s status suffix. `probe` is injected so tests never
-    * touch a real PATH.
-    */
-  private[shell] def harnessLabel(
-      tag: BackendTag,
-      probe: String => Boolean
-  ): String =
-    val name = AgentSpec.harnessNameFor(tag)
-    s"$name — ${Wizard.pathStatus(probe(name))}"
 
   /** Prompts among every session across `runs` and resumes the chosen one,
     * printing its identity — including `workDir` — before the resume exec

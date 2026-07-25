@@ -181,8 +181,9 @@ private[shell] object Cli:
     EditCli.run(flow, to, isTty, os.pwd)
 
   @main(doc =
-    "Author a new flow with a coding agent's help. --goal is required; yolo defaults on.\n" +
-      """Example: orca create --goal "summarize a PR's review threads" --harness claude:opus"""
+    "Author a new flow: runs the built-in implement-interactive.sc flow with " +
+      "the goal as its task, using the configured role agents. --goal is required.\n" +
+      """Example: orca create --goal "summarize a PR's review threads""""
   )
   def create(
       @arg(
@@ -193,23 +194,16 @@ private[shell] object Cli:
       @arg(doc = "what the flow should do")
       goal: String,
       @arg(doc =
-        "harness[:model] to author with: claude|codex|pi|gemini|opencode, " +
-          "e.g. claude:opus (default: configured coding agent/model)"
-      )
-      harness: Option[String] = None,
-      @arg(doc =
         "save under the global flows directory instead of the project's"
       )
-      global: Flag = Flag(),
-      @arg(doc = "let the harness run without approval prompts (default: on)")
-      yolo: Flag = Flag(),
-      @arg(doc = "disable --yolo")
-      noYolo: Flag = Flag()
+      global: Flag = Flag()
   ): Int =
-    AuthorCli.create(name, goal, harness, global, yolo, noYolo, isTty, os.pwd)
+    AuthorCli.create(name, goal, global, isTty, os.pwd)
 
   @main(doc =
-    "Fork an existing flow. --changes is required; yolo defaults on.\n" +
+    "Fork an existing flow: runs the built-in implement-interactive.sc flow " +
+      "with the changes as its task, using the configured role agents. " +
+      "--changes is required.\n" +
       """Example: orca fork implement.sc my-variant --changes "add a retry step""""
   )
   def fork(
@@ -223,30 +217,11 @@ private[shell] object Cli:
       @arg(doc = "the changes to make")
       changes: String,
       @arg(doc =
-        "harness[:model] to author with: claude|codex|pi|gemini|opencode, " +
-          "e.g. claude:opus (default: configured coding agent/model)"
-      )
-      harness: Option[String] = None,
-      @arg(doc =
         "save the fork under the global flows directory instead of the project's"
       )
-      global: Flag = Flag(),
-      @arg(doc = "let the harness run without approval prompts (default: on)")
-      yolo: Flag = Flag(),
-      @arg(doc = "disable --yolo")
-      noYolo: Flag = Flag()
+      global: Flag = Flag()
   ): Int =
-    AuthorCli.fork(
-      source,
-      name,
-      changes,
-      harness,
-      global,
-      yolo,
-      noYolo,
-      isTty,
-      os.pwd
-    )
+    AuthorCli.fork(source, name, changes, global, isTty, os.pwd)
 
   @main(doc =
     "Resume a recorded harness session. No selector resumes the newest one.\n" +

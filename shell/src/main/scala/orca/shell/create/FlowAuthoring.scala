@@ -9,35 +9,26 @@ import ox.discard
 
 import scala.util.control.NonFatal
 
-/** Where a new flow is saved, and the cwd the authoring harness launches from
-  * (ADR 0021 §9): Project saves under the workdir's committed `.orca/flows/`
-  * and launches from `workDir` itself; Global saves under the config-home
-  * `flows/` dir and launches from its parent — the config-home `orca/` dir
-  * (`~/.config/orca` by default) — so both the extracted API material and the
-  * flow file itself land inside the harness's workspace (gemini hard-fails,
-  * claude/opencode prompt for approval, on an out-of-workspace path).
+/** Where a new flow is saved (ADR 0021 §9): Project saves under the workdir's
+  * committed `.orca/flows/`; Global saves under the config-home `flows/` dir.
+  * `cwd` (see [[CreateTarget]]) is the tier's associated directory — its parent
+  * for Global — used to place the extracted API material and to judge
+  * fork-source proximity, independent of the authoring flow's own launch
+  * `workDir` (always the project repo it was run from).
   */
 private[shell] enum CreateTier:
   case Project, Global
 
-/** The new flow's target path and the cwd its authoring harness launches from.
+/** The new flow's target path, plus its tier's associated directory (see
+  * [[CreateTier]]'s scaladoc).
   */
 private[shell] case class CreateTarget(flowPath: os.Path, cwd: os.Path)
 
-/** Harness argv for the create-a-flow session, plus a prompt to print and have
-  * the user paste in when the harness can't be handed one on its own argv (see
-  * [[FlowAuthoring.harnessArgv]]).
-  */
-private[shell] case class HarnessLaunch(
-    argv: Seq[String],
-    pastePrompt: Option[String]
-)
-
-/** Creates a new flow with a harness's help (ADR 0021 §9): extracts the bundled
-  * API material into the harness's workspace, builds the initial prompt, and
-  * resolves the harness's launch argv. The menu wiring itself
-  * (target-tier/filename/goal/harness prompts, the actual `exec`) lives in
-  * `Main`.
+/** Creates a new flow by authoring it through the built-in
+  * `implement-interactive.sc` flow (ADR 0021 §9): extracts the bundled API
+  * material, builds the initial prompt. The menu wiring itself
+  * (target-tier/filename/goal prompts) lives in `Main`; the flow launch lives
+  * in `orca.shell.actions.AuthorAction`.
   */
 private[shell] object FlowAuthoring:
 
@@ -97,8 +88,7 @@ private[shell] object FlowAuthoring:
     * slug-suggestion call ([[suggestFilename]]), verified against each
     * installed CLI's `--help`: claude's `-p`/`--print`, codex's `exec`
     * subcommand, gemini's `-p`/`--prompt`, opencode's `run` subcommand, and
-    * pi's `-p`/`--print` — all distinct from [[harnessArgv]]'s interactive
-    * session forms.
+    * pi's `-p`/`--print`.
     */
   def slugArgv(backend: BackendTag, prompt: String): Seq[String] =
     backend match
@@ -173,11 +163,10 @@ private[shell] object FlowAuthoring:
       case _                                   => localFilenameSlug(goal)
 
   /** The configured coding-role agent spec (harness + model pin) from the
-    * global settings file, `None` when it's absent or unparseable. Shared by
-    * [[configuredCodingAgent]] and the authoring model step's preselect
-    * (`Main.selectAuthoringModel`).
+    * global settings file, `None` when it's absent or unparseable. Backs
+    * [[configuredCodingAgent]].
     */
-  def configuredCodingAgentSpec(
+  private def configuredCodingAgentSpec(
       globalSettingsPath: os.Path
   ): Option[AgentSpec] =
     Option
@@ -189,8 +178,9 @@ private[shell] object FlowAuthoring:
 
   /** The configured coding-role harness, falling back to claude when the global
     * settings file is absent or unparseable — the same fallback the wizard uses
-    * for an undetected default. Shared by the harness picker's preselect and
-    * [[suggestFilenameForGoal]]'s slug call.
+    * for an undetected default. Used by [[suggestFilenameForGoal]]'s slug call
+    * — the cheap filename suggestion always runs on the configured coding
+    * agent, not a harness choice (authoring itself no longer has one).
     */
   def configuredCodingAgent(globalSettingsPath: os.Path): BackendTag =
     configuredCodingAgentSpec(globalSettingsPath)
@@ -354,13 +344,13 @@ private[shell] object FlowAuthoring:
       case _: java.nio.file.AtomicMoveNotSupportedException =>
         os.move(tmp, path, replaceExisting = true)
 
-  /** The initial prompt handed to the authoring harness (ADR 0021 §9): the goal
-    * and target path, the verbatim version-pinned header to start the file
-    * with, the line-1 `//` description convention, pointers to the extracted
-    * README/examples, the `scala-cli compile` verification step, the
-    * runtime-vs-compile-time rules caveat, and — last resort only — the
-    * tag-pinned raw README URL. Kept in one place since the prompt text is
-    * itself the deliverable.
+  /** The authoring task handed to the built-in `implement-interactive.sc` flow
+    * as its `userPrompt` (ADR 0021 §9): the goal and target path, the verbatim
+    * version-pinned header to start the file with, the line-1 `//` description
+    * convention, pointers to the extracted README/examples, the `scala-cli
+    * compile` verification step, the runtime-vs-compile-time rules caveat, and
+    * — last resort only — the tag-pinned raw README URL. Kept in one place
+    * since the prompt text is itself the deliverable.
     *
     * On a non-release `orcaVersion` (a dev build's `"dev"`, or a dynver
     * snapshot) the plain `//> using dep` pin doesn't resolve from Maven
@@ -395,7 +385,7 @@ private[shell] object FlowAuthoring:
        |$indentedGoal
        |
        |Start the file with this exact header (the pinned version matches the
-       |orca release this session was launched from):
+       |orca release this flow was launched from):
        |//> using scala 3.8.4
        |//> using dep "org.virtuslab::orca:$orcaVersion"$ivy2LocalLine
        |//> using jvm 21
@@ -428,24 +418,21 @@ private[shell] object FlowAuthoring:
   private def indentBlock(text: String): String =
     text.linesIterator.map(line => s"  $line").mkString("\n")
 
-  /** The path the authoring harness should be told to read the fork's source
-    * flow from: `sourcePath` itself when it already sits inside `cwd` (the
-    * harness's launch workspace) — true for a Project-tier source forked to a
-    * Project-tier target (both under `workDir`), and for a Global-tier source
-    * forked to a Global-tier target (`cwd` is `globalFlows`'s parent, so
-    * `globalFlows/name.sc` is still inside it). Verified false in every other
-    * case: a cross-tier fork (Project source into a Global target or vice
-    * versa) puts the source under the *other* tier's directory, outside `cwd`;
-    * a BuiltIn source lives under `BuiltInFlows.extracted`'s cache directory
-    * (`$XDG_CACHE_HOME/orca/shell/<version>/flows`), which is never inside
-    * either tier's workspace regardless of the fork's target tier.
+  /** The path the authoring prompt should point the coding session at for the
+    * fork's source flow: `sourcePath` itself when it already sits inside `cwd`
+    * — true for a Project-tier source forked to a Project-tier target (both
+    * under `workDir`), and for a Global-tier source forked to a Global-tier
+    * target (`cwd` is `globalFlows`'s parent, so `globalFlows/name.sc` is still
+    * inside it). False in every other case: a cross-tier fork (Project source
+    * into a Global target or vice versa) puts the source under the *other*
+    * tier's directory; a BuiltIn source lives under `BuiltInFlows.extracted`'s
+    * cache directory (`$XDG_CACHE_HOME/orca/shell/<version>/flows`), outside
+    * either tier entirely.
     *
-    * In every such case, copies `sourcePath` into `apiDir` (already inside the
-    * workspace, alongside the extracted README/examples) under its own basename
-    * and returns that copy instead — so the harness (gemini in particular,
-    * which hard-fails on an out-of-workspace path; claude/opencode otherwise
-    * prompt for approval) can always read the fork's source without a workspace
-    * escape. The copy is written once per basename: a repeat call (re-running
+    * In every such case, copies `sourcePath` into `apiDir` (alongside the
+    * extracted README/examples) under its own basename and returns that copy
+    * instead, so the prompt only ever names one directory's worth of reference
+    * material. The copy is written once per basename: a repeat call (re-running
     * create-flow against the same apiDir) leaves an existing copy as-is rather
     * than re-copying over it.
     */
@@ -461,12 +448,11 @@ private[shell] object FlowAuthoring:
       if !os.exists(copy) then os.copy(sourcePath, copy, replaceExisting = true)
       copy
 
-  /** The initial prompt for a fork session (ADR 0021 §9): states the source
-    * path and the described changes, instructs copying the source to the target
-    * path verbatim before applying them, and otherwise mirrors
-    * [[initialPrompt]]'s API-reference pointers, compile-check step, and
-    * runtime-rules caveat. `sourcePath` is whatever [[resolveForkSource]]
-    * resolved — a path already known-readable from the harness's workspace.
+  /** The authoring task for a fork (ADR 0021 §9): states the source path and
+    * the described changes, instructs copying the source to the target path
+    * verbatim before applying them, and otherwise mirrors [[initialPrompt]]'s
+    * API-reference pointers, compile-check step, and runtime-rules caveat.
+    * `sourcePath` is whatever [[resolveForkSource]] resolved.
     */
   def forkPrompt(
       changes: String,
@@ -507,90 +493,3 @@ private[shell] object FlowAuthoring:
        |tag-pinned reference is at
        |https://raw.githubusercontent.com/VirtusLab/orca/v$orcaVersion/README.md
        |""".stripMargin
-
-  /** Harness argv for the create-a-flow session, verified against each
-    * installed CLI's `--help` (July 2026) rather than assumed:
-    *
-    *   - claude: `claude <prompt>` — a positional prompt starts an interactive
-    *     session with it submitted as the first message (`claude --help`:
-    *     "starts an interactive session by default"; the prompt argument is
-    *     separate from `-p/--print`, which is the non-interactive mode).
-    *   - codex: `codex <prompt>` — `codex --help`: `[PROMPT]` "Optional user
-    *     prompt to start the session" on the bare (non-subcommand) form, which
-    *     is the interactive TUI.
-    *   - pi: `pi <prompt>` — `pi --help`'s own examples list `pi "List all .ts
-    *     files in src/"` under "Interactive mode with initial prompt".
-    *   - gemini: `gemini -i <prompt>` — `-i/--prompt-interactive`: "Execute the
-    *     provided prompt and continue in interactive mode" (the bare positional
-    *     `query` also seeds interactive mode, but `-i` is the documented,
-    *     unambiguous flag for it; `-p/--prompt` is the *non-interactive*
-    *     headless mode, a different flag entirely).
-    *   - opencode: no auto-submitting form exists. The default TUI command does
-    *     accept `--prompt <text>`, but it only PREFILLS the input box — it does
-    *     not submit it (confirmed: an open opencode feature request, "Add a TUI
-    *     flag/endpoint that auto-submits the initial prompt", asks for exactly
-    *     this because today's `--prompt` doesn't). So this launches bare and
-    *     returns the prompt for the caller to print with a "paste this into the
-    *     agent" instruction instead of relying on a flag that would leave the
-    *     user unsure whether anything was submitted.
-    *
-    * `yolo`, when true, appends each CLI's own no-approval-prompts flag
-    * (verified against each installed CLI's `--help`): claude's
-    * `--dangerously-skip-permissions`, codex's
-    * `--dangerously-bypass-approvals-and-sandbox`, gemini's `-y`/`--yolo`. pi
-    * has no approval gate to bypass (nothing to append; [[yoloCaveat]] notes
-    * this) and opencode's interactive TUI has no such flag at all — only its
-    * headless `opencode run` subcommand does — so opencode's argv is unchanged
-    * regardless of `yolo` ([[yoloCaveat]] notes that too).
-    *
-    * `model`, when set, is passed as every backend's own `--model`/`-m` flag —
-    * also verified against each installed CLI's `--help` (July 2026): claude's
-    * `--model <model>` (alias or full name), codex's `-m/--model <MODEL>`, pi's
-    * `--model <pattern>`, gemini's `-m/--model`, and opencode's `-m/--model` on
-    * its DEFAULT command (`opencode [project]`, the same interactive TUI this
-    * launches) — distinct from `opencode run`'s flag of the same name, but
-    * resolved the same way. Every harness here can honor a model pin; there's
-    * no backend to skip the flag for.
-    */
-  def harnessArgv(
-      backend: BackendTag,
-      prompt: String,
-      yolo: Boolean,
-      model: Option[String] = None
-  ): HarnessLaunch =
-    val modelFlag = model.toSeq.flatMap(m => Seq("--model", m))
-    backend match
-      case BackendTag.ClaudeCode =>
-        val flag = if yolo then Seq("--dangerously-skip-permissions") else Nil
-        HarnessLaunch(Seq("claude", prompt) ++ modelFlag ++ flag, None)
-      case BackendTag.Codex =>
-        val flag =
-          if yolo then Seq("--dangerously-bypass-approvals-and-sandbox")
-          else Nil
-        HarnessLaunch(Seq("codex", prompt) ++ modelFlag ++ flag, None)
-      case BackendTag.Pi =>
-        HarnessLaunch(Seq("pi", prompt) ++ modelFlag, None)
-      case BackendTag.Gemini =>
-        val flag = if yolo then Seq("--yolo") else Nil
-        HarnessLaunch(Seq("gemini", "-i", prompt) ++ modelFlag ++ flag, None)
-      case BackendTag.Opencode =>
-        HarnessLaunch(Seq("opencode") ++ modelFlag, Some(prompt))
-
-  /** A one-line note to print when `yolo` was requested but the backend can't
-    * honor it via argv — `None` for every backend that either doesn't need one
-    * (`yolo` false) or already got its flag appended in [[harnessArgv]]. Kept
-    * separate from [[harnessArgv]] (which stays a pure argv builder) since this
-    * is display-only text for the caller to print, not part of the launch
-    * command.
-    */
-  def yoloCaveat(backend: BackendTag, yolo: Boolean): Option[String] =
-    if !yolo then None
-    else
-      backend match
-        case BackendTag.Pi =>
-          Some("pi has no approval gate to bypass — nothing to change.")
-        case BackendTag.Opencode =>
-          Some(
-            "opencode has no interactive yolo flag — approvals are controlled by opencode.jsonc's `permission` field."
-          )
-        case _ => None

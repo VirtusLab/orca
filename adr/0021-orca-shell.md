@@ -303,6 +303,11 @@ tiers) is copied alongside the extracted API material first, so gemini/
 claude/opencode can all read it without a workspace-escape prompt or hard
 failure (§9).
 
+> **Amendment (2026-07-25).** "Harness"/"yolo" above is superseded by §9's
+> amendment: fork reuses the tier/filename machinery only, and "a harness
+> authors it" now means running the built-in authoring flow with the fork
+> prompt as its task.
+
 ### 7. Built-in flows
 
 `examples/*.sc` (implement, implement-interactive, implement-enhanced, epic,
@@ -433,6 +438,33 @@ description convention (§5); pointers to the extracted README and examples;
 rules are enforced at runtime, so the README's authoring rules must be
 followed beyond what the compiler catches. A tag-pinned raw README URL is
 included only as a last-resort fallback line.
+
+> **Amendment (2026-07-25).** Authoring no longer execs a harness's own
+> interactive UI directly. Create/fork instead run the built-in
+> `implement-interactive.sc` flow, with the prompt above as its task, over the
+> exact same launch path "Run a flow" uses
+> ([[FlowLauncher.runAnnounced]]/[[RunAction]]: forced-version + fallback
+> semantics, tty-inherited terminal). The configured planning/coding/review
+> agents — and their model pins, from settings — do the writing, planning, and
+> review automatically, same as any other flow run; there is no separate
+> harness, model, or yolo choice to make. Consequently the harness/model/yolo
+> prompts (menu and CLI) and `FlowAuthoring.harnessArgv`/session-launch
+> machinery are removed; `orca create`/`fork` lose `--harness`/`--yolo`/
+> `--no-yolo`. The wizard's model UX (`ModelCatalog`) is unaffected — it's
+> still how the wizard (§4) picks each role's model.
+>
+> The flow always launches with `workDir` = the project repo the shell was
+> invoked from (`os.pwd`), same as any other flow run — never the
+> harness-workspace `cwd` the old raw session launch used. The target tier
+> still governs where the new/forked file itself lands: a project-tier target
+> is inside that repo, so it lands in the run's own branch commits like any
+> other stage's edit. A global-tier target is written outside the repo
+> entirely, so the branch ends up carrying only orca's own progress-log
+> bookkeeping (no repo diff at all) — exactly the case
+> `FlowLifecycle.finishBranch`'s existing throwaway-branch check
+> (`diffBranchExcludingOrca` against the start branch is blank) already
+> deletes automatically once the run succeeds, restoring the start branch. No
+> new cleanup logic is needed for this.
 
 ### 10. Command-line interface
 

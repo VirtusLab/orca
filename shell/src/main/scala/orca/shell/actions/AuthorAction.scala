@@ -2,56 +2,65 @@ package orca.shell.actions
 
 import org.jline.terminal.Terminal
 import orca.OrcaDir
-import orca.agents.BackendTag
 import orca.shell.ShellVersion
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
-import orca.shell.flows.DiscoveredFlow
-import orca.shell.run.ChildTerminal
-import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
+import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
+import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher, LaunchResult}
+import orca.shell.ui.ShellUi
 
-import scala.util.control.NonFatal
-
-/** Where the new/forked flow is saved and who authors it (ADR 0021 §9) — the
-  * already-resolved parameters `Main.createNewFlow`/`createForkFlow` gather via
-  * prompts before calling into [[AuthorAction]]. `model`, when set, is passed
-  * to the harness as its own `--model`-style flag
-  * ([[FlowAuthoring.harnessArgv]]); `None` means the harness's own default.
+/** Where the new/forked flow is saved (ADR 0021 §9) — the already-resolved
+  * parameters `Main.createNewFlow`/`createForkFlow` gather via prompts before
+  * calling into [[AuthorAction]].
   */
-private[shell] case class AuthorParams(
-    tier: CreateTier,
-    target: CreateTarget,
-    backend: BackendTag,
-    model: Option[String],
-    yolo: Boolean
-)
+private[shell] case class AuthorParams(tier: CreateTier, target: CreateTarget)
 
-/** Outcome of [[AuthorAction.create]]/[[AuthorAction.fork]]: either the harness
-  * process ran to completion with `exit`, or it was never launched at all — the
-  * opencode paste-confirm was declined, or the exec itself failed to even start
-  * ([[scala.util.control.NonFatal]], e.g. a missing binary).
-  */
-private[shell] enum AuthorOutcome:
-  case Launched(exit: Int)
-  case NotLaunched
-
-/** Authors a new or forked flow with a harness's help (ADR 0021 §9): extracts
-  * the bundled API material, builds the initial prompt, and launches the
-  * authoring session. The prompting that produces `goal`/`changes`/`params`
-  * lives in `Main.createNewFlow`/`createForkFlow`.
+/** Authors a new or forked flow by running the built-in
+  * `implement-interactive.sc` flow with an authoring task as its prompt (ADR
+  * 0021 §9): the configured planning/coding/review agents — and their model
+  * pins — do the writing, exactly as they would for any other flow run, so
+  * there's no separate harness/model/yolo choice here. Extracts the bundled API
+  * material, builds the authoring prompt (`FlowAuthoring.initialPrompt`/
+  * `forkPrompt`), and launches the flow via [[FlowLauncher.runAnnounced]] — the
+  * same forced-version/fallback path `Main.runFlow`/[[RunAction]] use. The
+  * prompting that produces `goal`/`changes`/`params` lives in
+  * `Main.createNewFlow`/`createForkFlow`.
   */
 private[shell] object AuthorAction:
 
+  /** The built-in flow every authoring session runs — resolved straight from
+    * the built-in tier ([[BuiltInFlows.extracted]]), bypassing project/global
+    * precedence: authoring always uses orca's own copy, never a same-named flow
+    * a project or the global tier happens to define.
+    */
+  private val AuthoringFlowName = "implement-interactive.sc"
+
+  /** [[FlowLauncher.runAnnounced]]'s exact shape — a type alias so `create`/
+    * `fork` can take it as an injectable parameter, defaulting to the real
+    * thing, the same way [[FlowAuthoring.suggestFilename]]'s `runner` stands in
+    * for a real subprocess in tests.
+    */
+  private[shell] type FlowLaunch =
+    (
+        FallbackPolicy,
+        os.Path,
+        String,
+        os.Path,
+        FlowFlags,
+        Terminal
+    ) => LaunchResult
+
   /** New-flow authoring: extracts the bundled API material into the tier's
-    * cache dir, builds [[FlowAuthoring.initialPrompt]], and launches the
-    * authoring session.
+    * cache dir, builds [[FlowAuthoring.initialPrompt]], and runs it as the
+    * authoring flow's task.
     */
   def create(
       goal: String,
       params: AuthorParams,
       workDir: os.Path,
       ui: ShellUi,
-      terminal: Terminal
-  ): AuthorOutcome =
+      terminal: Terminal,
+      launch: FlowLaunch = FlowLauncher.runAnnounced
+  ): LaunchResult =
     val apiDir = FlowAuthoring.extractApiMaterial(
       cacheBaseFor(params.tier, workDir, params.target),
       ShellVersion.value
@@ -62,20 +71,12 @@ private[shell] object AuthorAction:
       apiDir,
       ShellVersion.value
     )
-    launchAuthoringSession(
-      ui,
-      terminal,
-      params.target,
-      prompt,
-      params.backend,
-      params.model,
-      params.yolo
-    )
+    launchAuthoringFlow(prompt, workDir, ui, terminal, launch)
 
   /** Fork-an-existing-flow authoring: extracts the bundled API material,
-    * resolves the source flow to a harness-readable path
+    * resolves the source flow to a readable path
     * ([[FlowAuthoring.resolveForkSource]]), builds
-    * [[FlowAuthoring.forkPrompt]], and launches the authoring session.
+    * [[FlowAuthoring.forkPrompt]], and runs it as the authoring flow's task.
     */
   def fork(
       source: DiscoveredFlow,
@@ -83,8 +84,9 @@ private[shell] object AuthorAction:
       params: AuthorParams,
       workDir: os.Path,
       ui: ShellUi,
-      terminal: Terminal
-  ): AuthorOutcome =
+      terminal: Terminal,
+      launch: FlowLaunch = FlowLauncher.runAnnounced
+  ): LaunchResult =
     val apiDir = FlowAuthoring.extractApiMaterial(
       cacheBaseFor(params.tier, workDir, params.target),
       ShellVersion.value
@@ -102,15 +104,7 @@ private[shell] object AuthorAction:
       apiDir,
       ShellVersion.value
     )
-    launchAuthoringSession(
-      ui,
-      terminal,
-      params.target,
-      prompt,
-      params.backend,
-      params.model,
-      params.yolo
-    )
+    launchAuthoringFlow(prompt, workDir, ui, terminal, launch)
 
   /** The tier's cache dir to extract the API material into: project flows under
     * `.orca/cache/`, global ones under `cache/` alongside the config-home
@@ -128,65 +122,30 @@ private[shell] object AuthorAction:
         os.makeDir.all(cache)
         cache
 
-  /** Execs the harness from `target.cwd` with `prompt` as its initial message
-    * under [[ChildTerminal.withChild]] (ADR 0021 §2) — the shared final step
-    * for both [[create]] and [[fork]]. `model`, when set, is folded into the
-    * harness's own argv by [[FlowAuthoring.harnessArgv]]. Prints
-    * [[FlowAuthoring.yoloCaveat]] first when set (pi/opencode can't honor
-    * `yolo` via argv). When [[FlowAuthoring.harnessArgv]] returns a
-    * paste-fallback prompt (opencode), it's printed and the user must confirm
-    * they've read it before the harness launches — its TUI switches to the
-    * alternate screen buffer, which would otherwise wipe the print before
-    * anyone could copy it. Reports whether `target.flowPath` exists once the
-    * harness session ends, with the `scala-cli compile` hint either way. The
-    * exec itself is wrapped in a `NonFatal` backstop — a missing harness binary
-    * otherwise throws `IOException` out of `os.proc`, which `check = false`
-    * doesn't cover since that only governs a non-zero exit, not a failed
-    * process start.
+  /** Runs the built-in authoring flow ([[AuthoringFlowName]], resolved from the
+    * built-in tier) with `prompt` as its task, via
+    * [[FlowLauncher.runAnnounced]] — same launch path, forced-version/fallback
+    * semantics, and tty-inherited terminal as "Run a flow". Normal branch
+    * semantics apply: a project-tier target lands inside the flow's own branch
+    * commits; a global-tier target is written outside the repo, so the branch
+    * carries only orca's own bookkeeping and is cleaned up by `FlowLifecycle`'s
+    * existing throwaway-branch auto-delete.
     */
-  private def launchAuthoringSession(
+  private def launchAuthoringFlow(
+      prompt: String,
+      workDir: os.Path,
       ui: ShellUi,
       terminal: Terminal,
-      target: CreateTarget,
-      prompt: String,
-      backend: BackendTag,
-      model: Option[String],
-      yolo: Boolean
-  ): AuthorOutcome =
-    val launch = FlowAuthoring.harnessArgv(backend, prompt, yolo, model)
-    FlowAuthoring.yoloCaveat(backend, yolo).foreach(ShellOutput.info)
-    val ready = launch.pastePrompt match
-      case None => true
-      case Some(toPaste) =>
-        ShellOutput.info(
-          s"paste this prompt into the agent once it opens:\n\n$toPaste\n"
-        )
-        ui.confirm("Ready to launch?", default = true) match
-          case UiOutcome.Selected(proceed) => proceed
-          case UiOutcome.Cancelled         => false
-    if !ready then
-      ShellOutput.info("create-flow cancelled")
-      AuthorOutcome.NotLaunched
-    else
-      try
-        val exitCode = ChildTerminal.withChild(terminal):
-          os.proc(launch.argv)
-            .call(
-              cwd = target.cwd,
-              stdin = os.Inherit,
-              stdout = os.Inherit,
-              stderr = os.Inherit,
-              check = false
-            )
-            .exitCode
-        ShellOutput.info(s"harness session ended (exit code $exitCode)")
-        if os.exists(target.flowPath) then
-          ShellOutput.info(
-            s"${target.flowPath} created — verify with `scala-cli compile ${target.flowPath}`"
-          )
-        else ShellOutput.info(s"${target.flowPath} was not created")
-        AuthorOutcome.Launched(exitCode)
-      catch
-        case NonFatal(e) =>
-          ShellOutput.error(s"create-flow launch failed — ${e.getMessage}")
-          AuthorOutcome.NotLaunched
+      launch: FlowLaunch
+  ): LaunchResult =
+    val flow =
+      BuiltInFlows.extracted(sys.env.get, os.home, ShellVersion.value) /
+        AuthoringFlowName
+    launch(
+      FallbackPolicy.Ask(ui),
+      flow,
+      prompt,
+      workDir,
+      FlowFlags(verbose = false, skipBranch = false),
+      terminal
+    )
