@@ -3,7 +3,7 @@ package orca.shell.wizard
 import orca.agents.BackendTag
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile, SettingsScope}
 import orca.shell.actions.ConfigAction
-import orca.shell.ui.{Choice, ShellUi, UiOutcome}
+import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 import ox.discard
 
 /** The welcome wizard (ADR 0021 §4): detects installed harnesses, asks the user
@@ -27,6 +27,7 @@ private[shell] class Wizard(
     * [[UiOutcome.Cancelled]].
     */
   def run(reconfigure: Boolean): Boolean =
+    if !reconfigure then printIntro()
     val existingContent =
       Option.when(os.exists(globalSettingsPath))(os.read(globalSettingsPath))
     val current =
@@ -72,6 +73,19 @@ private[shell] class Wizard(
       case UiOutcome.Selected(agents) =>
         ConfigAction.set(globalSettingsPath, agents)
         true
+
+  /** The one-time launch notice ahead of the first prompt, on every path that
+    * runs [[run]] with `reconfigure = false` — first run and the
+    * malformed-settings repair's "rewrite from scratch" accept
+    * ([[repairMalformed]]) — but not Re-configure, whose menu label already
+    * says what it does.
+    */
+  private def printIntro(): Unit =
+    ShellOutput.info(
+      "Setting up Orca: choosing the agent (and model) used for each of the " +
+        "planning, coding, and review roles."
+    )
+    ShellOutput.info(s"Saved to $globalSettingsPath.")
 
   /** Offers to rewrite a malformed global settings file from scratch via the
     * wizard (ADR 0021 §4). Declining leaves the file untouched and skips the

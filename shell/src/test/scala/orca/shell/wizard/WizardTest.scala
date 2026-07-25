@@ -21,16 +21,26 @@ private class ScriptedUi(
   private var shown: List[List[Choice[Any]]] = Nil
   private var preselects: List[Option[Any]] = Nil
   private var inputs: List[(String, Option[String])] = Nil
+  private var firstPromptMarked = false
 
   def recordedChoices: List[List[Choice[Any]]] = shown
   def recordedPreselects: List[Option[Any]] = preselects
   def recordedInputs: List[(String, Option[String])] = inputs
+
+  // Printed to stdout on the very first prompt of any kind — lets a test
+  // assert the wizard's launch intro (also printed via ShellOutput, so it
+  // lands in the same captured stream) came before it.
+  private def markFirstPrompt(): Unit =
+    if !firstPromptMarked then
+      firstPromptMarked = true
+      println("<<first prompt>>")
 
   def select[A](
       title: String,
       choices: List[Choice[A]],
       preselect: Option[A] = None
   ): UiOutcome[A] =
+    markFirstPrompt()
     shown = shown :+ choices.asInstanceOf[List[Choice[Any]]]
     preselects = preselects :+ preselect.asInstanceOf[Option[Any]]
     val outcome = pendingSelect.head
@@ -38,11 +48,13 @@ private class ScriptedUi(
     outcome.asInstanceOf[UiOutcome[A]]
 
   def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
+    markFirstPrompt()
     val outcome = pendingConfirm.head
     pendingConfirm = pendingConfirm.tail
     outcome
 
   def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
+    markFirstPrompt()
     inputs = inputs :+ (prompt -> default)
     val outcome = pendingInput.head
     pendingInput = pendingInput.tail
@@ -841,4 +853,45 @@ class WizardTest extends munit.FunSuite:
         os.read(path),
         original,
         "cancelling mid-wizard must not lose the original malformed content"
+      )
+
+  // --- launch intro ---
+
+  private def captured(body: => Unit): String =
+    val buffer = new java.io.ByteArrayOutputStream()
+    Console.withOut(new java.io.PrintStream(buffer))(body)
+    buffer.toString
+
+  test("first run prints the launch intro before the first prompt"):
+    withTempPath: path =>
+      val (selectScript, inputScript) = defaultRoleScript
+      val ui = ScriptedUi(selectScript, inputScript)
+      val output = captured:
+        val ok = Wizard(ui, probe, path).run(reconfigure = false)
+        assert(ok)
+
+      val introLine = output.linesIterator.indexWhere(_.contains("Setting up Orca"))
+      val promptLine = output.linesIterator.indexWhere(_.contains("<<first prompt>>"))
+      assert(introLine >= 0, s"expected an intro line, got:\n$output")
+      assert(promptLine >= 0, s"expected the first-prompt marker, got:\n$output")
+      assert(
+        introLine < promptLine,
+        s"intro must precede the first prompt, got:\n$output"
+      )
+      assert(
+        output.contains(path.toString),
+        s"expected the settings path in the intro, got:\n$output"
+      )
+
+  test("reconfigure does not print the launch intro"):
+    withTempPath: path =>
+      val (selectScript, inputScript) = defaultRoleScript
+      val ui = ScriptedUi(selectScript, inputScript)
+      val output = captured:
+        val ok = Wizard(ui, probe, path).run(reconfigure = true)
+        assert(ok)
+
+      assert(
+        !output.contains("Setting up Orca"),
+        s"reconfigure must not print the launch intro, got:\n$output"
       )
