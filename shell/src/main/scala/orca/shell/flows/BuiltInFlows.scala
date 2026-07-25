@@ -13,7 +13,7 @@ private[shell] object BuiltInFlows:
 
   // Per-process memo of [[extracted]]'s result, keyed by the extraction target
   // dir (a pure function of the env/home/version arguments) — a non-release
-  // build otherwise re-extracts and rewrites all six flows on EVERY call (every
+  // build otherwise re-extracts and rewrites every flow on EVERY call (every
   // picker open), even though nothing in the process's own env/home/version
   // ever changes between them. `computeIfAbsent` keeps the first extraction for
   // a given key atomic even under concurrent callers.

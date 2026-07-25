@@ -362,8 +362,8 @@ private[shell] object FlowAuthoring:
       case _: java.nio.file.AtomicMoveNotSupportedException =>
         os.move(tmp, path, replaceExisting = true)
 
-  /** The authoring task handed to the built-in `implement-interactive.sc` flow
-    * as its `userPrompt` (ADR 0021 §9): the goal and target path, the verbatim
+  /** The authoring task handed to the built-in `simple.sc` flow as its
+    * `userPrompt` (ADR 0021 §9): the goal and target path, the verbatim
     * version-pinned header to start the file with, the line-1 `//` description
     * convention, pointers to the extracted README/examples, the `scala-cli
     * compile` verification step, the runtime-vs-compile-time rules caveat, and
