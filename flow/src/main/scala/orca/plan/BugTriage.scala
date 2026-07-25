@@ -1,6 +1,6 @@
 package orca.plan
 
-import orca.agents.JsonData
+import orca.agents.{Announce, JsonData}
 
 /** Wire shape the LLM produces for a triage turn — a flat record with a boolean
   * discriminator (`isBug`) plus per-branch fields. Flattened (rather than a
@@ -51,3 +51,11 @@ private[plan] case class BugTriage(
             .filter(_.trim.nonEmpty)
             .toRight("triage: failingTestPath is missing")
         yield Triage.Testable(s, b, p)
+
+private[plan] object BugTriage:
+  /** Defers to [[Triage]]'s own `Announce` — same idiom as [[AssessedPlan]]'s.
+    * Malformed payloads fall through to `None`; `Plan.autonomous.triage` throws
+    * the structured error at the call site.
+    */
+  given Announce[BugTriage] = Announce.fromOption: b =>
+    b.toTriage.toOption.flatMap(t => summon[Announce[Triage]].message(t))

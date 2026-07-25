@@ -63,3 +63,15 @@ class BugTriageTest extends munit.FunSuite:
     assert(ok.copy(failingTestPath = Some("   ")).toTriage.isLeft)
     assert(ok.copy(branchName = "   ").toTriage.isLeft)
     assert(ok.copy(summary = "   ").toTriage.isLeft)
+
+  test("Announce[BugTriage] defers to Triage's own summary"):
+    val ok = empty.copy(isBug = false, notBugExplanation = "works as intended")
+    assertEquals(
+      summon[orca.agents.Announce[BugTriage]].message(ok),
+      Some("Not a bug: works as intended")
+    )
+
+  test("Announce[BugTriage] is None for a malformed (unparseable) payload"):
+    // `empty` is isBug=false with a blank notBugExplanation — toTriage
+    // rejects it, so there is no Triage summary to defer to.
+    assertEquals(summon[orca.agents.Announce[BugTriage]].message(empty), None)
