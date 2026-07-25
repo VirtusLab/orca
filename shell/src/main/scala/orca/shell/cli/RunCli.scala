@@ -14,6 +14,7 @@ private[cli] object RunCli:
       flowRef: String,
       task: Option[String],
       verbose: Boolean,
+      skipBranch: Boolean,
       honorPin: Boolean,
       workDir: os.Path,
       tty: Boolean
@@ -36,6 +37,7 @@ private[cli] object RunCli:
                     taskText,
                     workDir,
                     verbose,
+                    skipBranch,
                     terminal
                   )
                 else
@@ -44,6 +46,7 @@ private[cli] object RunCli:
                     taskText,
                     RunAction.RunOptions(
                       verbose = verbose,
+                      skipBranch = skipBranch,
                       fallback =
                         FallbackPolicy.Refuse("re-run with --honor-pin")
                     ),

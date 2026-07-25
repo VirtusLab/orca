@@ -262,7 +262,10 @@ log (`.orca/progress-<hash>.json`, where `<hash>` is derived from the prompt):
 
 - **Start:** stash a dirty working tree with a warning (recover with `git stash
   pop`); create + checkout the feature branch; write and commit the progress log
-  header.
+  header. `--skip-branch` (`OrcaArgs.skipBranch`) binds the run to the CURRENT
+  branch instead of creating one — for continuing work already planned on a
+  branch — refusing on a protected branch or a dirty tree (no auto-stash) rather
+  than creating one anyway.
 - **Resume:** the progress log lives at a branch-independent, prompt-derived path,
   so recovery finds it before any checkout. Its header is validated as untrusted
   input (branch must match orca naming rules, prompt hash must match), then the run
@@ -813,7 +816,7 @@ action non-interactively and exits.
 
 | Command | Key flags | Does |
 |---|---|---|
-| `orca run <flow> [task]` | `--verbose`, `--honor-pin` | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
+| `orca run <flow> [task]` | `--verbose`, `--skip-branch`, `--honor-pin` | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
 | `orca view <flow>` | `--plain`, `--color` | print a flow's source (highlighted when stdout is a terminal) |
 | `orca edit <flow>` | `--to project\|global` | open a flow in `$VISUAL`/`$EDITOR`/vi (`--to` required to customize a built-in) |
 | `orca create [name]` | `--goal <text>` (required), `--harness <h>`, `--global`, `--yolo`/`--no-yolo` | author a new flow with a coding agent's help |

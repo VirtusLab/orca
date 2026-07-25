@@ -39,9 +39,10 @@ private[shell] object FlowLauncher:
       .map(v => Seq("--dep", s"$orgAndArtifact:$v"))
       .getOrElse(Seq.empty)
 
-  /** `scala-cli run <flow> [--dep ...] -- <task> [--verbose]`. `--verbose` is a
-    * flow-script argument (parsed by the flow's own `OrcaArgs`, whose flag is
-    * spelled `--verbose`), so it lands after `--` alongside the task text, not
+  /** `scala-cli run <flow> [--dep ...] -- <task> [--verbose] [--skip-branch]`.
+    * `--verbose`/`--skip-branch` are flow-script arguments (parsed by the
+    * flow's own `OrcaArgs`, whose flags are spelled `--verbose`/
+    * `--skip-branch`), so they land after `--` alongside the task text, not
     * before it.
     *
     * Requires `task` to be non-blank — `Main.promptTask` re-prompts on blank
@@ -52,17 +53,19 @@ private[shell] object FlowLauncher:
       flow: os.Path,
       orcaVersion: Option[String],
       task: String,
-      verbose: Boolean
+      verbose: Boolean,
+      skipBranch: Boolean
   ): Seq[String] =
     require(
       task.trim.nonEmpty,
       "task text must be non-blank — Main.promptTask re-prompts before calling"
     )
     val verboseArgs = if verbose then Seq("--verbose") else Seq.empty
+    val skipBranchArgs = if skipBranch then Seq("--skip-branch") else Seq.empty
     Seq("scala-cli", "run", flow.toString) ++ depArgs(orcaVersion) ++ Seq(
       "--",
       task
-    ) ++ verboseArgs
+    ) ++ verboseArgs ++ skipBranchArgs
 
   private def compileArgv(
       flow: os.Path,
@@ -198,11 +201,12 @@ private[shell] object FlowLauncher:
       task: String,
       workDir: os.Path,
       verbose: Boolean,
+      skipBranch: Boolean,
       terminal: Terminal
   ): LaunchResult =
     announced(s"starting flow ${flow.last}", flow.last)(
       ChildTerminal.withChild(terminal)(
-        run(fallback, flow, task, workDir, verbose)
+        run(fallback, flow, task, workDir, verbose, skipBranch)
       )
     )
 
@@ -219,13 +223,14 @@ private[shell] object FlowLauncher:
       task: String,
       workDir: os.Path,
       verbose: Boolean,
+      skipBranch: Boolean,
       terminal: Terminal
   ): LaunchResult =
     announced(s"starting flow ${flow.last} (honoring pin)", flow.last)(
       ChildTerminal.withChild(terminal)(
         toLaunchResult(
           spawnInherited(
-            argv(flow, None, task, verbose),
+            argv(flow, None, task, verbose, skipBranch),
             workDir,
             childEnv(flow)
           )
@@ -250,13 +255,14 @@ private[shell] object FlowLauncher:
       flow: os.Path,
       task: String,
       workDir: os.Path,
-      verbose: Boolean
+      verbose: Boolean,
+      skipBranch: Boolean
   ): LaunchResult =
     val shellVersion = ShellVersion.value
     val forcedVersion =
       if ShellVersion.isRelease(shellVersion) then Some(shellVersion) else None
     val forcedExit = spawnInherited(
-      argv(flow, forcedVersion, task, verbose),
+      argv(flow, forcedVersion, task, verbose, skipBranch),
       workDir,
       childEnv(flow)
     )
@@ -274,7 +280,7 @@ private[shell] object FlowLauncher:
                 announced(s"pin-honoring re-run of ${flow.last}", flow.last)(
                   toLaunchResult(
                     spawnInherited(
-                      argv(flow, None, task, verbose),
+                      argv(flow, None, task, verbose, skipBranch),
                       workDir,
                       childEnv(flow)
                     )

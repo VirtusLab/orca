@@ -166,8 +166,8 @@ object Main:
             case Left(message) => ShellOutput.error(message)
             case Right(_)      => ()
 
-  /** Selects a flow, prompts for the task text, then hands off to
-    * [[RunAction.run]]. Verbose is not exposed here in v1 — task text only; a
+  /** Selects a flow, prompts for the task text and whether to create a branch,
+    * then hands off to [[RunAction.run]]. Verbose is not exposed here in v1 — a
     * later task can add a verbose confirm alongside session tracking.
     */
   private def runFlow(ui: ShellUi, terminal: Terminal): Unit =
@@ -178,9 +178,11 @@ object Main:
         reorder = promoteByName(FlagshipFlow, _)
       )
       task <- promptTask(ui)
+      createBranch <- promptCreateBranch(ui)
     do
       val opts = RunAction.RunOptions(
         verbose = false,
+        skipBranch = !createBranch,
         fallback = FallbackPolicy.Ask(ui)
       )
       RunAction.run(flow, task, opts, os.pwd, terminal).discard
@@ -197,6 +199,17 @@ object Main:
         ShellOutput.error("task text can't be empty")
         promptTask(ui)
       case UiOutcome.Selected(text) => Some(text)
+
+  /** "Create a new branch for this run?" confirm (default yes — Enter keeps
+    * today's behavior); declining runs in skip-branch mode instead (ADR 0018
+    * amendment), continuing on the current branch — the handoff-from-harness
+    * case where the user already planned work on a branch carrying plan files.
+    * `private[shell]` so a scripted-UI test can drive it directly.
+    */
+  private[shell] def promptCreateBranch(ui: ShellUi): Option[Boolean] =
+    ui.confirm("Create a new branch for this run?", default = true) match
+      case UiOutcome.Cancelled   => None
+      case UiOutcome.Selected(v) => Some(v)
 
   /** New-flow authoring: tier → goal → filename (defaulted from the goal's
     * [[suggestFilenameForGoal]] slug) → harness+yolo, then hands off to
@@ -394,7 +407,7 @@ object Main:
     * (`ConsoleUiShell.select`'s scaladoc), so first position is what actually
     * reads as the default.
     */
-  private val FlagshipFlow = "implement.sc"
+  private[shell] val FlagshipFlow = "implement.sc"
 
   /** Moves the flow named `name` to the front, leaving every other flow's
     * relative order unchanged; a no-op (alphabetical order preserved) if no
@@ -414,22 +427,35 @@ object Main:
     * crashing. `reorder` lets a caller re-sequence the alphabetical listing
     * before it's shown (only the run picker does, promoting the flagship flow —
     * [[FlagshipFlow]]); other pickers pass the default identity and stay
-    * alphabetical.
+    * alphabetical. Delegates the actual reorder-then-show step to [[pickFlow]],
+    * split out so it's testable against a fixed flow list without touching real
+    * flow discovery.
     */
   private def selectFlow(
       ui: ShellUi,
       title: String,
       reorder: List[DiscoveredFlow] => List[DiscoveredFlow] = identity
   ): Option[DiscoveredFlow] =
-    val flows = FlowResolution.list(os.pwd) match
+    FlowResolution.list(os.pwd) match
       case Left(message) =>
         ShellOutput.error(message)
         None
-      case Right(fs) => Some(fs)
-    flows.flatMap: fs =>
-      ui.select(title, reorder(fs).map(flowChoice)) match
-        case UiOutcome.Cancelled      => None
-        case UiOutcome.Selected(flow) => Some(flow)
+      case Right(fs) => pickFlow(ui, title, fs, reorder)
+
+  /** Applies `reorder` to `flows` and shows the result via `ui.select` — the
+    * half of [[selectFlow]] downstream of flow discovery, so a test can drive
+    * the reorder-then-show wiring (e.g. that the run picker's promotion of
+    * [[FlagshipFlow]] actually reaches `ui.select` first) against a fixed list.
+    */
+  private[shell] def pickFlow(
+      ui: ShellUi,
+      title: String,
+      flows: List[DiscoveredFlow],
+      reorder: List[DiscoveredFlow] => List[DiscoveredFlow] = identity
+  ): Option[DiscoveredFlow] =
+    ui.select(title, reorder(flows).map(flowChoice)) match
+      case UiOutcome.Cancelled      => None
+      case UiOutcome.Selected(flow) => Some(flow)
 
   /** `name — description [origin]`, with a `[shadows ...]` suffix when the
     * winner shadows a lower-precedence tier (ADR 0021 §5).

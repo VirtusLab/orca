@@ -26,6 +26,30 @@ private class ConfirmOnlyUi(outcome: UiOutcome[Boolean]) extends ShellUi:
   def inputMultiline(prompt: String): UiOutcome[String] =
     throw new UnsupportedOperationException("rediscoverStack doesn't input")
 
+/** Records every `select` call's shown choices (in shown order) and always
+  * answers with the fixed `outcome` — used to verify [[Main.pickFlow]] hands
+  * `ui.select` the ALREADY-reordered list, not just that the pure
+  * `promoteByName`/`reorder` helper computes the right order in isolation.
+  * `confirm`/`input` are unsupported: `pickFlow` never calls them.
+  */
+private class RecordingSelectUi(outcome: UiOutcome[DiscoveredFlow])
+    extends ShellUi:
+  private var shown: List[List[Choice[DiscoveredFlow]]] = Nil
+  def recordedChoices: List[List[Choice[DiscoveredFlow]]] = shown
+  def select[A](
+      title: String,
+      choices: List[Choice[A]],
+      preselect: Option[A] = None
+  ): UiOutcome[A] =
+    shown = shown :+ choices.asInstanceOf[List[Choice[DiscoveredFlow]]]
+    outcome.asInstanceOf[UiOutcome[A]]
+  def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
+    throw new UnsupportedOperationException("pickFlow doesn't confirm")
+  def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
+    throw new UnsupportedOperationException("pickFlow doesn't input")
+  def inputMultiline(prompt: String): UiOutcome[String] =
+    throw new UnsupportedOperationException("pickFlow doesn't input")
+
 class MainTest extends munit.FunSuite:
 
   private def manifest(
@@ -413,6 +437,61 @@ class MainTest extends munit.FunSuite:
 
   test("promoteByName on an empty list stays empty"):
     assertEquals(Main.promoteByName("implement.sc", Nil), Nil)
+
+  // --- pickFlow: end-to-end, ui.select actually receives the reordered list ---
+
+  private val threeFlows =
+    List(flow("alpha.sc"), flow("implement.sc"), flow("zeta.sc"))
+
+  test(
+    "pickFlow: the run picker's reorder promotes implement.sc to the front of what ui.select shows"
+  ):
+    val ui = new RecordingSelectUi(UiOutcome.Cancelled)
+    val _ =
+      Main.pickFlow(
+        ui,
+        "Run which flow?",
+        threeFlows,
+        reorder = Main.promoteByName(Main.FlagshipFlow, _)
+      )
+    assertEquals(
+      ui.recordedChoices.head.map(_.value.name),
+      List("implement.sc", "alpha.sc", "zeta.sc")
+    )
+
+  test(
+    "pickFlow: view/edit pickers (no reorder given) stay alphabetical"
+  ):
+    val ui = new RecordingSelectUi(UiOutcome.Cancelled)
+    val _ = Main.pickFlow(ui, "View which flow?", threeFlows)
+    assertEquals(
+      ui.recordedChoices.head.map(_.value.name),
+      List("alpha.sc", "implement.sc", "zeta.sc")
+    )
+
+  // --- promptCreateBranch (the branch-creation confirm before a run) ---
+
+  test(
+    "promptCreateBranch: confirming (Enter's default) keeps normal branch-creating behavior"
+  ):
+    assertEquals(
+      Main.promptCreateBranch(ConfirmOnlyUi(UiOutcome.Selected(true))),
+      Some(true)
+    )
+
+  test(
+    "promptCreateBranch: declining selects skip-branch mode (caller negates to skipBranch = true)"
+  ):
+    assertEquals(
+      Main.promptCreateBranch(ConfirmOnlyUi(UiOutcome.Selected(false))),
+      Some(false)
+    )
+
+  test("promptCreateBranch: cancelling aborts the run"):
+    assertEquals(
+      Main.promptCreateBranch(ConfirmOnlyUi(UiOutcome.Cancelled)),
+      None
+    )
 
   // --- rediscoverStack ---
 

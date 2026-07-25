@@ -35,6 +35,21 @@ class CliTest extends munit.FunSuite:
       Right(1)
     )
 
+  test(
+    "run: --skip-branch parses too (fails later, at flow resolution)"
+  ):
+    assertEquals(
+      invoke(
+        "run",
+        "no-such-flow.sc",
+        "a task",
+        "--verbose",
+        "--skip-branch",
+        "--honor-pin"
+      ),
+      Right(1)
+    )
+
   test("run: the required flow positional missing is a usage error"):
     assert(!parses("run"))
 

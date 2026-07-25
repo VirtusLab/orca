@@ -5,8 +5,13 @@ class FlowLauncherTest extends munit.FunSuite:
   private val flow = os.root / "home" / "u" / "flow.sc"
 
   test("argv forces --dep with a release version, before --"):
-    val result =
-      FlowLauncher.argv(flow, Some("0.0.18"), "do the thing", verbose = false)
+    val result = FlowLauncher.argv(
+      flow,
+      Some("0.0.18"),
+      "do the thing",
+      verbose = false,
+      skipBranch = false
+    )
     assertEquals(
       result,
       Seq(
@@ -21,7 +26,13 @@ class FlowLauncherTest extends munit.FunSuite:
     )
 
   test("argv omits --dep when orcaVersion is None (dev build, pin-honouring)"):
-    val result = FlowLauncher.argv(flow, None, "do the thing", verbose = false)
+    val result = FlowLauncher.argv(
+      flow,
+      None,
+      "do the thing",
+      verbose = false,
+      skipBranch = false
+    )
     assertEquals(
       result,
       Seq("scala-cli", "run", flow.toString, "--", "do the thing")
@@ -30,8 +41,13 @@ class FlowLauncherTest extends munit.FunSuite:
   test(
     "argv adds --verbose (OrcaArgs's exact flag spelling) after -- when verbose is set"
   ):
-    val result =
-      FlowLauncher.argv(flow, Some("0.0.18"), "do the thing", verbose = true)
+    val result = FlowLauncher.argv(
+      flow,
+      Some("0.0.18"),
+      "do the thing",
+      verbose = true,
+      skipBranch = false
+    )
     assertEquals(
       result,
       Seq(
@@ -50,9 +66,64 @@ class FlowLauncherTest extends munit.FunSuite:
       "--verbose must come after --"
     )
 
+  test(
+    "argv adds --skip-branch (OrcaArgs's exact flag spelling) after -- when set"
+  ):
+    val result = FlowLauncher.argv(
+      flow,
+      Some("0.0.18"),
+      "do the thing",
+      verbose = false,
+      skipBranch = true
+    )
+    assertEquals(
+      result,
+      Seq(
+        "scala-cli",
+        "run",
+        flow.toString,
+        "--dep",
+        "org.virtuslab::orca:0.0.18",
+        "--",
+        "do the thing",
+        "--skip-branch"
+      )
+    )
+    assert(
+      result.indexOf("--skip-branch") > result.indexOf("--"),
+      "--skip-branch must come after --"
+    )
+
+  test("argv adds both --verbose and --skip-branch, in that order, after --"):
+    val result = FlowLauncher.argv(
+      flow,
+      None,
+      "do the thing",
+      verbose = true,
+      skipBranch = true
+    )
+    assertEquals(
+      result,
+      Seq(
+        "scala-cli",
+        "run",
+        flow.toString,
+        "--",
+        "do the thing",
+        "--verbose",
+        "--skip-branch"
+      )
+    )
+
   test("argv keeps a spaces-bearing flow path as a single argv element"):
     val spacedFlow = os.root / "home" / "u" / "my flows" / "release.sc"
-    val result = FlowLauncher.argv(spacedFlow, None, "task", verbose = false)
+    val result = FlowLauncher.argv(
+      spacedFlow,
+      None,
+      "task",
+      verbose = false,
+      skipBranch = false
+    )
     assertEquals(result(2), spacedFlow.toString)
     assertEquals(result.length, 5)
 
@@ -60,7 +131,7 @@ class FlowLauncherTest extends munit.FunSuite:
     "argv rejects a blank task — Main.promptTask should have re-prompted before this is ever called"
   ):
     intercept[IllegalArgumentException](
-      FlowLauncher.argv(flow, None, "   ", verbose = false)
+      FlowLauncher.argv(flow, None, "   ", verbose = false, skipBranch = false)
     )
 
   test("childEnv sets ORCA_FLOW_NAME to the flow script's filename"):

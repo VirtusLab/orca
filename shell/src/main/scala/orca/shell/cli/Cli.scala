@@ -134,12 +134,22 @@ private[shell] object Cli:
       task: Option[String] = None,
       @arg(doc = "pass the flow's own --verbose flag")
       verbose: Flag = Flag(),
+      @arg(doc = "run on the current branch instead of creating a new one")
+      skipBranch: Flag = Flag(),
       @arg(doc =
         "run the flow's own pinned orca version instead of forcing this shell's"
       )
       honorPin: Flag = Flag()
   ): Int =
-    RunCli.run(flow, task, verbose.value, honorPin.value, os.pwd, isTty)
+    RunCli.run(
+      flow,
+      task,
+      verbose.value,
+      skipBranch.value,
+      honorPin.value,
+      os.pwd,
+      isTty
+    )
 
   @main(doc =
     "Print a flow's source (highlighted only when stdout is a terminal; " +

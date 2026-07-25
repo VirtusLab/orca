@@ -9,7 +9,11 @@ import orca.shell.run.{FallbackPolicy, FlowLauncher, LaunchResult}
   */
 private[shell] object RunAction:
 
-  case class RunOptions(verbose: Boolean, fallback: FallbackPolicy)
+  case class RunOptions(
+      verbose: Boolean,
+      skipBranch: Boolean = false,
+      fallback: FallbackPolicy
+  )
 
   /** Runs `flow` as a tty-inherited child, printing the same start/end section
     * markers the menu always has — the announced-bracket + terminal handling
@@ -28,5 +32,6 @@ private[shell] object RunAction:
       task,
       workDir,
       opts.verbose,
+      opts.skipBranch,
       terminal
     )
