@@ -121,7 +121,7 @@ private[shell] class Wizard(
       tag: BackendTag,
       currentModel: Option[String]
   ): UiOutcome[Option[String]] =
-    val curated = Wizard.curatedModels(role, tag)
+    val curated = Wizard.curatedModels(role, tag, currentModel)
     if curated.isEmpty then
       val hint = Wizard.freeTextHint(tag) + Wizard.clearAffordance(currentModel)
       freeTextModel(s"${role.label} model$hint", currentModel)
@@ -134,12 +134,13 @@ private[shell] class Wizard(
         curatedChoices :+
           Choice(Wizard.ModelPick.Manual, "enter manually…") :+
           Choice(Wizard.ModelPick.Default, "harness default (no model pin)")
+      // The role default, for when there's no current pin to promote instead
+      // (preselectModelPick only consults this in that case) — `curated`'s own
+      // head, since it's only reordered away from role-default-first when a
+      // pin was found and promoted.
+      val default = curated.headOption.map(_._1)
       val preselect =
-        Wizard.preselectModelPick(
-          curated,
-          currentModel,
-          Wizard.defaultModelFor(role, tag)
-        )
+        Wizard.preselectModelPick(curated, currentModel, default)
       ui.select(s"${role.label} model", choices, preselect = Some(preselect))
         .flatMap:
           case Wizard.ModelPick.Curated(id) => UiOutcome.Selected(Some(id))
@@ -188,15 +189,35 @@ private[shell] object Wizard:
     case Manual
     case Default
 
-  /** Curated `(id, description)` rows for a role's harness, role's default row
-    * first — the interactive tty backend doesn't honor `preselect`
-    * (`ConsoleUiShell.select`'s scaladoc), so ordering, not preselection, is
-    * what actually surfaces the default to most users. `Nil` means the harness
-    * is free-text only. Values are CLI-resolved ALIASES, not raw model ids —
-    * claude and codex resolve them themselves, so the list can't drift the way
-    * a curated list of raw ids would (ADR 0021 §4).
+  /** Curated `(id, description)` rows for a role's harness: the matching row
+    * for `current` first when it names one of these ids (reconfigure onto an
+    * existing pin — otherwise a blind Enter would silently flip it to whichever
+    * row `roleDefaultOrder` puts first instead), else the role's default row
+    * first as `roleDefaultOrder` orders them. Either way, ordering is what
+    * actually surfaces the intended row: the interactive tty backend doesn't
+    * honor `preselect` (`ConsoleUiShell.select`'s scaladoc). `Nil` means the
+    * harness is free-text only.
     */
   private[wizard] def curatedModels(
+      role: Role,
+      tag: BackendTag,
+      current: Option[String] = None
+  ): List[(String, String)] =
+    val ordered = roleDefaultOrder(role, tag)
+    current.filter(id => ordered.exists(_._1 == id)) match
+      case Some(id) =>
+        val (front, rest) = ordered.partition(_._1 == id)
+        front ++ rest
+      case None => ordered
+
+  /** The base curated order, role default first, before any current-pin
+    * promotion: Planning gets the cheaper claude alias, Coding/Review get the
+    * flagship; codex's flagship alias leads for every role. Values are
+    * CLI-resolved ALIASES, not raw model ids — claude and codex resolve them
+    * themselves, so the list can't drift the way a curated list of raw ids
+    * would (ADR 0021 §4).
+    */
+  private def roleDefaultOrder(
       role: Role,
       tag: BackendTag
   ): List[(String, String)] =
@@ -221,20 +242,6 @@ private[shell] object Wizard:
           "gpt-5.6-luna" -> "fast"
         )
       case _ => Nil
-
-  /** The curated row preselected when a role has no pin for `tag` (first run,
-    * or reconfigure onto a different harness): Planning gets the cheaper alias,
-    * Coding/Review get the flagship.
-    */
-  private[wizard] def defaultModelFor(
-      role: Role,
-      tag: BackendTag
-  ): Option[String] =
-    tag match
-      case BackendTag.ClaudeCode =>
-        Some(if role == Role.Planning then "fable" else "opus")
-      case BackendTag.Codex => Some("gpt-5.6-sol")
-      case _                => None
 
   /** Which row a curated model picker preselects: the matching curated row if
     * `current` names one, "enter manually" if it pins something else (the

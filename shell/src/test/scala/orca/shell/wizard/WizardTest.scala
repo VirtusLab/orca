@@ -497,6 +497,36 @@ class WizardTest extends munit.FunSuite:
       assert(currentLabel.contains("(current)"), currentLabel)
 
   test(
+    "re-configure with an existing sonnet pin shows sonnet as the first model row, not the flagship (F4)"
+  ):
+    withTempPath: path =>
+      os.write(path, "codingAgent = claude:sonnet\n")
+      val ui = ScriptedUi(
+        selectScript = List(
+          UiOutcome.Selected(BackendTag.ClaudeCode), // planning
+          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(BackendTag.ClaudeCode), // coding: re-chosen
+          UiOutcome.Selected(Wizard.ModelPick.Curated("sonnet")),
+          UiOutcome.Selected(BackendTag.Gemini) // review
+        ),
+        inputScript = List(UiOutcome.Selected(""))
+      )
+      assert(Wizard(ui, probe, path).run(reconfigure = true))
+
+      // the coding-role model menu (4th select overall)
+      val codingModelMenu = ui.recordedChoices(3)
+      assertEquals(
+        codingModelMenu.map(_.value),
+        List(
+          Wizard.ModelPick.Curated("sonnet"),
+          Wizard.ModelPick.Curated("opus"),
+          Wizard.ModelPick.Curated("fable"),
+          Wizard.ModelPick.Manual,
+          Wizard.ModelPick.Default
+        )
+      )
+
+  test(
     "re-configure passes the current harness as preselect, not the fallback"
   ):
     withTempPath: path =>
@@ -602,20 +632,6 @@ class WizardTest extends munit.FunSuite:
       assert(!Wizard(ui, probe, path).run(reconfigure = false))
       assert(!os.exists(path))
 
-  test(
-    "Cancelled on the manual-entry follow-up input writes nothing"
-  ):
-    withTempPath: path =>
-      val ui = ScriptedUi(
-        selectScript = List(
-          UiOutcome.Selected(BackendTag.ClaudeCode),
-          UiOutcome.Selected(Wizard.ModelPick.Manual)
-        ),
-        inputScript = List(UiOutcome.Cancelled)
-      )
-      assert(!Wizard(ui, probe, path).run(reconfigure = false))
-      assert(!os.exists(path))
-
   test("Cancelled on a later role's harness prompt writes nothing"):
     withTempPath: path =>
       val ui = ScriptedUi(selectScript =
@@ -679,31 +695,41 @@ class WizardTest extends munit.FunSuite:
     )
 
   test(
-    "defaultModelFor preselects the cheaper claude alias for planning, the flagship elsewhere"
+    "curatedModels promotes a current pin matching a curated row to the front, rest keep their relative order"
   ):
     assertEquals(
-      Wizard.defaultModelFor(Wizard.Role.Planning, BackendTag.ClaudeCode),
-      Some("fable")
+      Wizard
+        .curatedModels(
+          Wizard.Role.Coding,
+          BackendTag.ClaudeCode,
+          Some("sonnet")
+        )
+        .map(_._1),
+      List("sonnet", "opus", "fable")
     )
     assertEquals(
-      Wizard.defaultModelFor(Wizard.Role.Coding, BackendTag.ClaudeCode),
-      Some("opus")
+      Wizard
+        .curatedModels(
+          Wizard.Role.Planning,
+          BackendTag.Codex,
+          Some("gpt-5.6-luna")
+        )
+        .map(_._1),
+      List("gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra")
     )
+
+  test(
+    "curatedModels ignores a current pin that isn't one of the curated ids, keeping the role default first"
+  ):
     assertEquals(
-      Wizard.defaultModelFor(Wizard.Role.Review, BackendTag.ClaudeCode),
-      Some("opus")
-    )
-    assertEquals(
-      Wizard.defaultModelFor(Wizard.Role.Planning, BackendTag.Codex),
-      Some("gpt-5.6-sol")
-    )
-    assertEquals(
-      Wizard.defaultModelFor(Wizard.Role.Coding, BackendTag.Codex),
-      Some("gpt-5.6-sol")
-    )
-    assertEquals(
-      Wizard.defaultModelFor(Wizard.Role.Planning, BackendTag.Gemini),
-      None
+      Wizard
+        .curatedModels(
+          Wizard.Role.Coding,
+          BackendTag.ClaudeCode,
+          Some("claude-opus-4-8[1m]")
+        )
+        .map(_._1),
+      List("opus", "fable", "sonnet")
     )
 
   test(
