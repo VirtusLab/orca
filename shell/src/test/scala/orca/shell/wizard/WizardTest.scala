@@ -392,13 +392,80 @@ class WizardTest extends munit.FunSuite:
       )
       assertEquals(
         ui.recordedInputs.head,
-        ("Coding model" -> Some("claude-opus-4-8[1m]"))
+        (
+          "Coding model (Enter keeps current, - clears)" -> Some(
+            "claude-opus-4-8[1m]"
+          )
+        )
       )
       val agents = parse(os.read(path))
       assertEquals(
         agents.coding,
         Some(AgentSpec(BackendTag.ClaudeCode, Some("claude-opus-4-8[1m]")))
       )
+
+  test(
+    "re-configure: re-submitting the same value on an open-ended harness keeps the pin"
+  ):
+    withTempPath: path =>
+      os.write(path, "planningAgent = opencode:anthropic/claude-sonnet-5\n")
+      val ui = ScriptedUi(
+        selectScript = List(
+          UiOutcome.Selected(BackendTag.Opencode), // planning: unchanged
+          UiOutcome.Selected(BackendTag.ClaudeCode),
+          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(BackendTag.ClaudeCode),
+          UiOutcome.Selected(Wizard.ModelPick.Default)
+        ),
+        inputScript = List(UiOutcome.Selected("anthropic/claude-sonnet-5"))
+      )
+      assert(Wizard(ui, probe, path).run(reconfigure = true))
+
+      val agents = parse(os.read(path))
+      assertEquals(
+        agents.planning,
+        Some(AgentSpec(BackendTag.Opencode, Some("anthropic/claude-sonnet-5")))
+      )
+
+  test(
+    "re-configure: submitting '-' clears an open-ended harness's pin"
+  ):
+    withTempPath: path =>
+      os.write(path, "planningAgent = opencode:anthropic/claude-sonnet-5\n")
+      val ui = ScriptedUi(
+        selectScript = List(
+          UiOutcome.Selected(BackendTag.Opencode),
+          UiOutcome.Selected(BackendTag.ClaudeCode),
+          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(BackendTag.ClaudeCode),
+          UiOutcome.Selected(Wizard.ModelPick.Default)
+        ),
+        inputScript = List(UiOutcome.Selected("-"))
+      )
+      assert(Wizard(ui, probe, path).run(reconfigure = true))
+
+      assert(ui.recordedInputs.head._1.contains("- clears"))
+      val agents = parse(os.read(path))
+      assertEquals(agents.planning, Some(AgentSpec(BackendTag.Opencode, None)))
+
+  test("re-configure: submitting '-' on the manual entry clears the pin"):
+    withTempPath: path =>
+      os.write(path, "codingAgent = claude:claude-opus-4-8[1m]\n")
+      val ui = ScriptedUi(
+        selectScript = List(
+          UiOutcome.Selected(BackendTag.ClaudeCode),
+          UiOutcome.Selected(Wizard.ModelPick.Default),
+          UiOutcome.Selected(BackendTag.ClaudeCode),
+          UiOutcome.Selected(Wizard.ModelPick.Manual),
+          UiOutcome.Selected(BackendTag.ClaudeCode),
+          UiOutcome.Selected(Wizard.ModelPick.Default)
+        ),
+        inputScript = List(UiOutcome.Selected("-"))
+      )
+      assert(Wizard(ui, probe, path).run(reconfigure = true))
+
+      val agents = parse(os.read(path))
+      assertEquals(agents.coding, Some(AgentSpec(BackendTag.ClaudeCode, None)))
 
   // --- re-configure: UI shape ---
 
@@ -535,6 +602,20 @@ class WizardTest extends munit.FunSuite:
       assert(!Wizard(ui, probe, path).run(reconfigure = false))
       assert(!os.exists(path))
 
+  test(
+    "Cancelled on the manual-entry follow-up input writes nothing"
+  ):
+    withTempPath: path =>
+      val ui = ScriptedUi(
+        selectScript = List(
+          UiOutcome.Selected(BackendTag.ClaudeCode),
+          UiOutcome.Selected(Wizard.ModelPick.Manual)
+        ),
+        inputScript = List(UiOutcome.Cancelled)
+      )
+      assert(!Wizard(ui, probe, path).run(reconfigure = false))
+      assert(!os.exists(path))
+
   test("Cancelled on a later role's harness prompt writes nothing"):
     withTempPath: path =>
       val ui = ScriptedUi(selectScript =
@@ -562,16 +643,40 @@ class WizardTest extends munit.FunSuite:
     "curatedModels lists CLI-resolved aliases for claude and codex, nothing for open-ended harnesses"
   ):
     assertEquals(
-      Wizard.curatedModels(BackendTag.ClaudeCode).map(_._1),
+      Wizard.curatedModels(Wizard.Role.Coding, BackendTag.Opencode),
+      Nil
+    )
+    assertEquals(Wizard.curatedModels(Wizard.Role.Coding, BackendTag.Pi), Nil)
+    assertEquals(
+      Wizard.curatedModels(Wizard.Role.Coding, BackendTag.Gemini),
+      Nil
+    )
+    assertEquals(
+      Wizard.curatedModels(Wizard.Role.Planning, BackendTag.Codex).map(_._1),
+      List("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
+    )
+    assertEquals(
+      Wizard.curatedModels(Wizard.Role.Coding, BackendTag.Codex).map(_._1),
+      List("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
+    )
+
+  test(
+    "curatedModels puts the role's default row first, since the tty backend doesn't honor preselect"
+  ):
+    assertEquals(
+      Wizard
+        .curatedModels(Wizard.Role.Planning, BackendTag.ClaudeCode)
+        .map(_._1),
       List("fable", "opus", "sonnet")
     )
     assertEquals(
-      Wizard.curatedModels(BackendTag.Codex).map(_._1),
-      List("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna")
+      Wizard.curatedModels(Wizard.Role.Coding, BackendTag.ClaudeCode).map(_._1),
+      List("opus", "fable", "sonnet")
     )
-    assertEquals(Wizard.curatedModels(BackendTag.Opencode), Nil)
-    assertEquals(Wizard.curatedModels(BackendTag.Pi), Nil)
-    assertEquals(Wizard.curatedModels(BackendTag.Gemini), Nil)
+    assertEquals(
+      Wizard.curatedModels(Wizard.Role.Review, BackendTag.ClaudeCode).map(_._1),
+      List("opus", "fable", "sonnet")
+    )
 
   test(
     "defaultModelFor preselects the cheaper claude alias for planning, the flagship elsewhere"
@@ -604,7 +709,8 @@ class WizardTest extends munit.FunSuite:
   test(
     "preselectModelPick prefers the matching curated row, then manual, then the default, then harness default"
   ):
-    val curated = Wizard.curatedModels(BackendTag.ClaudeCode)
+    val curated =
+      Wizard.curatedModels(Wizard.Role.Coding, BackendTag.ClaudeCode)
     assertEquals(
       Wizard.preselectModelPick(curated, Some("sonnet"), Some("fable")),
       Wizard.ModelPick.Curated("sonnet")
@@ -633,10 +739,17 @@ class WizardTest extends munit.FunSuite:
     assert(Wizard.freeTextHint(BackendTag.Pi).contains(":thinking"))
     assertEquals(Wizard.freeTextHint(BackendTag.Gemini), "")
 
-  test("blankToNone treats blank/whitespace-only input as no pin"):
-    assertEquals(Wizard.blankToNone(""), None)
-    assertEquals(Wizard.blankToNone("   "), None)
-    assertEquals(Wizard.blankToNone(" sonnet "), Some("sonnet"))
+  test(
+    "resolveModelInput treats blank or '-' as no pin, anything else as the model"
+  ):
+    assertEquals(Wizard.resolveModelInput(""), None)
+    assertEquals(Wizard.resolveModelInput("   "), None)
+    assertEquals(Wizard.resolveModelInput("-"), None)
+    assertEquals(Wizard.resolveModelInput(" sonnet "), Some("sonnet"))
+
+  test("clearAffordance only appears when there's a pin to clear"):
+    assertEquals(Wizard.clearAffordance(None), "")
+    assert(Wizard.clearAffordance(Some("sonnet")).contains("- clears"))
 
   // --- repairMalformed ---
 

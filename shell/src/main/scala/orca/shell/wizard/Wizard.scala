@@ -121,12 +121,10 @@ private[shell] class Wizard(
       tag: BackendTag,
       currentModel: Option[String]
   ): UiOutcome[Option[String]] =
-    val curated = Wizard.curatedModels(tag)
+    val curated = Wizard.curatedModels(role, tag)
     if curated.isEmpty then
-      ui.input(
-        s"${role.label} model${Wizard.freeTextHint(tag)}",
-        default = currentModel
-      ).map(Wizard.blankToNone)
+      val hint = Wizard.freeTextHint(tag) + Wizard.clearAffordance(currentModel)
+      freeTextModel(s"${role.label} model$hint", currentModel)
     else
       val curatedChoices: List[Choice[Wizard.ModelPick]] =
         curated.map((id, desc) =>
@@ -147,8 +145,18 @@ private[shell] class Wizard(
           case Wizard.ModelPick.Curated(id) => UiOutcome.Selected(Some(id))
           case Wizard.ModelPick.Default     => UiOutcome.Selected(None)
           case Wizard.ModelPick.Manual =>
-            ui.input(s"${role.label} model", default = currentModel)
-              .map(Wizard.blankToNone)
+            val hint = Wizard.clearAffordance(currentModel)
+            freeTextModel(s"${role.label} model$hint", currentModel)
+
+  /** A single free-text model prompt: Enter keeps `currentModel` (the prompt's
+    * default), `-` clears it, anything else is the typed model
+    * ([[Wizard.resolveModelInput]]).
+    */
+  private def freeTextModel(
+      prompt: String,
+      currentModel: Option[String]
+  ): UiOutcome[Option[String]] =
+    ui.input(prompt, default = currentModel).map(Wizard.resolveModelInput)
 
   private def choiceFor(
       tag: BackendTag,
@@ -180,19 +188,32 @@ private[shell] object Wizard:
     case Manual
     case Default
 
-  /** Curated `(id, description)` rows for a harness, in menu order; `Nil` means
-    * the harness is free-text only. Values are CLI-resolved ALIASES, not raw
-    * model ids — claude and codex resolve them themselves, so the list can't
-    * drift the way a curated list of raw ids would (ADR 0021 §4).
+  /** Curated `(id, description)` rows for a role's harness, role's default row
+    * first — the interactive tty backend doesn't honor `preselect`
+    * (`ConsoleUiShell.select`'s scaladoc), so ordering, not preselection, is
+    * what actually surfaces the default to most users. `Nil` means the harness
+    * is free-text only. Values are CLI-resolved ALIASES, not raw model ids —
+    * claude and codex resolve them themselves, so the list can't drift the way
+    * a curated list of raw ids would (ADR 0021 §4).
     */
-  private[wizard] def curatedModels(tag: BackendTag): List[(String, String)] =
+  private[wizard] def curatedModels(
+      role: Role,
+      tag: BackendTag
+  ): List[(String, String)] =
     tag match
       case BackendTag.ClaudeCode =>
-        List(
-          "fable" -> "Fable 5",
-          "opus" -> "latest Opus",
-          "sonnet" -> "latest Sonnet"
-        )
+        if role == Role.Planning then
+          List(
+            "fable" -> "Fable 5",
+            "opus" -> "latest Opus",
+            "sonnet" -> "latest Sonnet"
+          )
+        else
+          List(
+            "opus" -> "latest Opus",
+            "fable" -> "Fable 5",
+            "sonnet" -> "latest Sonnet"
+          )
       case BackendTag.Codex =>
         List(
           "gpt-5.6-sol" -> "flagship",
@@ -242,6 +263,20 @@ private[shell] object Wizard:
       case BackendTag.Pi => " (name or pattern, `:thinking` suffix allowed)"
       case _             => ""
 
-  /** Blank free-text input means no pin (harness default). */
-  private[wizard] def blankToNone(input: String): Option[String] =
-    Option(input.trim).filter(_.nonEmpty)
+  /** The clear-pin affordance appended to a free-text model prompt, only when
+    * there's a `current` pin to clear: with a pin prefilled as the input's
+    * default, plain Enter re-submits it (`NumberedUi.input`), so blank alone
+    * can no longer mean "clear" — `-` is the explicit clear signal instead
+    * ([[resolveModelInput]]).
+    */
+  private[wizard] def clearAffordance(current: Option[String]): String =
+    if current.isDefined then " (Enter keeps current, - clears)" else ""
+
+  /** A free-text model answer: blank means no pin (the common case — no
+    * existing pin to keep), `-` explicitly clears an existing pin even though
+    * it was prefilled as the input's default, anything else is the typed model.
+    */
+  private[wizard] def resolveModelInput(input: String): Option[String] =
+    input.trim match
+      case "" | "-" => None
+      case model    => Some(model)
