@@ -24,7 +24,7 @@ private[shell] object CliHelp:
        |  fork <source> [name]     fork an existing flow (--changes required)
        |  continue [session]       resume a recorded harness session (--list to see them)
        |  list                     list discovered flows across all tiers
-       |  config                   show or set role agents (--planning/--coding/--review)
+       |  config                   show or set role agents (--planning-agent/--coding-agent/--review-agent)
        |  rediscover-stack         clear discovered stack settings (--yes to confirm)
        |
        |Examples:
@@ -32,6 +32,6 @@ private[shell] object CliHelp:
        |  git diff | orca run review.sc
        |  orca create --goal "summarize a PR's review threads"
        |  orca continue --list
-       |  orca config --coding codex
+       |  orca config --coding-agent codex
        |
        |Run 'orca <command> --help' for details. 'orca --version' prints the version.""".stripMargin

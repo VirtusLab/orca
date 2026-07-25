@@ -187,12 +187,15 @@ class CliTest extends munit.FunSuite:
     assert(parses("continue", "--list", "--json"))
 
   test(
-    "config: an unknown --coding harness is rejected before any settings file is touched"
+    "config: an unknown --coding-agent harness is rejected before any settings file is touched"
   ):
     // Never exercises a valid role flag here — that would write the real
     // user-global settings file; `RunConfigTest`-style coverage below uses an
     // explicit temp path instead.
-    assertEquals(invoke("config", "--coding", "not-a-real-harness"), Right(2))
+    assertEquals(
+      invoke("config", "--coding-agent", "not-a-real-harness"),
+      Right(2)
+    )
 
   test(
     "config: no flags parses (a read-only `show` of the real global settings file)"

@@ -855,7 +855,7 @@ action non-interactively and exits.
 | `orca create [name]` | `--goal <text>` (required), `--global` | author a new flow, run as the built-in `implement-interactive.sc` flow with the configured role agents |
 | `orca fork <source> [name]` | `--changes <text>` (required), `--global` | fork an existing flow, the same way |
 | `orca continue [selector]` | `--list`, `--json` | resume a recorded harness session (no selector = newest); `selector` is an index or session name |
-| `orca config` | `--planning h`, `--coding h`, `--review h` | show the configured role agents, or set any subset |
+| `orca config` | `--planning-agent h`, `--coding-agent h`, `--review-agent h` | show the configured role agents, or set any subset |
 | `orca list` | `--json` | list discovered flows across the project/global/built-in tiers |
 | `orca rediscover-stack` | `--yes` | clear discovered stack settings so the next flow run re-detects them |
 
@@ -872,7 +872,7 @@ orca list --json | jq -r '.[].name'
 orca create rate-limit.sc --goal "add a token-bucket limiter"
 orca continue              # resume the last session
 orca continue --list
-orca config --coding codex
+orca config --coding-agent codex
 orca view implement.sc
 ```
 

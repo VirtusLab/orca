@@ -253,15 +253,15 @@ private[shell] object Cli:
   @main(doc =
     "Show or set the global role agents (planning/coding/review).\n" +
       "No flags prints the current roles; any flag writes the given subset.\n" +
-      "Example: orca config --coding codex"
+      "Example: orca config --coding-agent codex"
   )
   def config(
       @arg(doc = "planning role, as harness[:model]")
-      planning: Option[String] = None,
+      planningAgent: Option[String] = None,
       @arg(doc = "coding role, as harness[:model]")
-      coding: Option[String] = None,
+      codingAgent: Option[String] = None,
       @arg(doc = "review role, as harness[:model]")
-      review: Option[String] = None,
+      reviewAgent: Option[String] = None,
       @arg(doc =
         "rewrite a malformed settings file from scratch instead of refusing"
       )
@@ -269,9 +269,9 @@ private[shell] object Cli:
   ): Int =
     ConfigCli.runConfig(
       GlobalSettings.default,
-      planning,
-      coding,
-      review,
+      planningAgent,
+      codingAgent,
+      reviewAgent,
       force.value
     )
 
