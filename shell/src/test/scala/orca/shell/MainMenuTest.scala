@@ -2,7 +2,7 @@ package orca.shell
 
 class MainMenuTest extends munit.FunSuite:
 
-  test("choices(None) yields the 9 ADR-order items, all enabled"):
+  test("choices(None) yields the 10 ADR-order items, all enabled"):
     val values = MainMenu
       .choices(continueDisabledReason = None, newestRunSessionCount = 2)
       .map(_.value)
@@ -16,6 +16,7 @@ class MainMenuTest extends munit.FunSuite:
         MenuItem.ForkFlow,
         MenuItem.ContinueSession,
         MenuItem.Reconfigure,
+        MenuItem.EditSettings,
         MenuItem.RediscoverStack,
         MenuItem.Exit
       )
@@ -82,4 +83,13 @@ class MainMenuTest extends munit.FunSuite:
     assertEquals(
       byValue(MenuItem.RediscoverStack),
       "Re-detect project stack (format/lint/test) on the next flow run"
+    )
+
+  test("EditSettings label names both tiers it can open"):
+    val choices = MainMenu
+      .choices(continueDisabledReason = None, newestRunSessionCount = 0)
+    val byValue = choices.map(c => c.value -> c.label).toMap
+    assertEquals(
+      byValue(MenuItem.EditSettings),
+      "Edit settings — open the project or global settings file in your editor"
     )

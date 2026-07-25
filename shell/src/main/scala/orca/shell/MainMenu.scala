@@ -3,11 +3,11 @@ package orca.shell
 import orca.shell.ui.Choice
 
 /** Main menu selection (ADR 0021 §3, `ForkFlow` added §6/§9, `RediscoverStack`
-  * added §8).
+  * added §8, `EditSettings` added §4).
   */
 private[shell] enum MenuItem:
   case RunFlow, ViewFlow, EditFlow, CreateFlow, ForkFlow, ContinueSession,
-    Reconfigure, RediscoverStack, Exit
+    Reconfigure, EditSettings, RediscoverStack, Exit
 
 private[shell] object MainMenu:
 
@@ -41,6 +41,10 @@ private[shell] object MainMenu:
       Choice(
         MenuItem.Reconfigure,
         "Re-configure — pick the agents & models for planning/coding/review"
+      ),
+      Choice(
+        MenuItem.EditSettings,
+        "Edit settings — open the project or global settings file in your editor"
       ),
       Choice(
         MenuItem.RediscoverStack,

@@ -610,6 +610,109 @@ class MainTest extends munit.FunSuite:
       assertEquals(ui.inputMultilineCount, 1)
       assertEquals(ui.inputCount, 0)
 
+  // --- editSettings ---
+  //
+  // `spawnEditor` is injected instead of `EditAction.editInPlace` (a real
+  // subprocess seam, like `AuthorAction`'s injected `FlowLaunch`) so these
+  // tests never spawn a real editor: the fake stands in for "the editor ran
+  // and exited", optionally rewriting the file first to simulate what the
+  // user did inside it.
+
+  test("editSettings: cancelling the tier prompt spawns no editor"):
+    withDumbTerminal: terminal =>
+      var spawnCount = 0
+      val ui = FlowScriptedUi(selectScript = List(UiOutcome.Cancelled))
+      Main.editSettings(
+        ui,
+        terminal,
+        TempDirs.dir() / "settings.properties",
+        workDir = TempDirs.dir(),
+        spawnEditor = (_, _) => { spawnCount += 1; 0 }
+      )
+      assertEquals(spawnCount, 0)
+
+  test(
+    "editSettings: Project — an absent file is created from the template before the editor opens it"
+  ):
+    withDumbTerminal: terminal =>
+      val workDir = TempDirs.dir()
+      val ui = FlowScriptedUi(selectScript =
+        List(UiOutcome.Selected(CreateTier.Project))
+      )
+      var editedPath: Option[os.Path] = None
+      Main.editSettings(
+        ui,
+        terminal,
+        TempDirs.dir() / "settings.properties",
+        workDir = workDir,
+        spawnEditor = (_, path) => { editedPath = Some(path); 0 }
+      )
+      val expected = workDir / ".orca" / "settings.properties"
+      assertEquals(editedPath, Some(expected))
+      assertEquals(os.read(expected), SettingsFile.render(Nil))
+
+  test(
+    "editSettings: Global — an absent file is created from the template before the editor opens it"
+  ):
+    withDumbTerminal: terminal =>
+      val globalPath = TempDirs.dir() / "settings.properties"
+      val ui = FlowScriptedUi(selectScript =
+        List(UiOutcome.Selected(CreateTier.Global))
+      )
+      Main.editSettings(
+        ui,
+        terminal,
+        globalPath,
+        workDir = TempDirs.dir(),
+        spawnEditor = (_, _) => 0
+      )
+      assert(os.exists(globalPath))
+
+  test(
+    "editSettings: a valid edit reprints the config summary"
+  ):
+    withDumbTerminal: terminal =>
+      val workDir = TempDirs.dir()
+      val globalPath = TempDirs.dir() / "settings.properties"
+      val ui = FlowScriptedUi(selectScript =
+        List(UiOutcome.Selected(CreateTier.Global))
+      )
+      val out = captured(
+        Main.editSettings(
+          ui,
+          terminal,
+          globalPath,
+          workDir = workDir,
+          spawnEditor = (_, _) => 0
+        )
+      )
+      assert(out.contains("agents:"), out)
+      assert(out.contains("stack:"), out)
+
+  test(
+    "editSettings: a malformed edit prints a warning instead of crashing, without reprinting the summary"
+  ):
+    withDumbTerminal: terminal =>
+      val workDir = TempDirs.dir()
+      val globalPath = TempDirs.dir() / "settings.properties"
+      val ui = FlowScriptedUi(selectScript =
+        List(UiOutcome.Selected(CreateTier.Global))
+      )
+      val out = captured(
+        Main.editSettings(
+          ui,
+          terminal,
+          globalPath,
+          workDir = workDir,
+          spawnEditor = (_, path) => {
+            os.write.over(path, "not a valid line\n")
+            0
+          }
+        )
+      )
+      assert(out.contains("malformed"), out)
+      assert(!out.contains("agents:"), out)
+
   // --- rediscoverStack ---
 
   private def captured(body: => Unit): String =

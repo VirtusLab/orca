@@ -1,13 +1,14 @@
 package orca.shell.cli
 
 import orca.settings.{AgentSettings, AgentSpec}
-import orca.shell.actions.ConfigAction
+import orca.shell.actions.{ConfigAction, EditAction, SettingsEditAction}
 
-import Cli.{actionFailure, complete, usageFailure}
+import Cli.{actionFailure, complete, requireTty, usageFailure, withTerminal}
 
 /** `orca config`'s behavior (ADR 0021 §10): with no role flags, print the
   * current planning/coding/review agents; with any, merge the given subset over
-  * the existing settings (or `--force`-rewrite a malformed file).
+  * the existing settings (or `--force`-rewrite a malformed file). `--edit`
+  * bypasses both and hand-edits the tier's settings file instead ([[runEdit]]).
   */
 private[cli] object ConfigCli:
 
@@ -61,6 +62,34 @@ private[cli] object ConfigCli:
       case Right(current) =>
         ConfigAction.set(path, overrides.orElse(current))
         Right(ExitCodes.Ok)
+
+  /** `orca config --edit <tier>`'s behavior (ADR 0021 §10): tty-gate, parse
+    * `rawTier` the same way `edit`'s `--to` does
+    * ([[EditCli.parseCustomizeTier]]), create the settings file from its
+    * template if absent, then open it via [[EditAction.editInPlace]] — same
+    * exit-code convention as `orca edit` (the editor child's raw exit code,
+    * propagated regardless of whether the edited file re-parses). A malformed
+    * result after the edit is a warning to stderr, not a failure: the file is
+    * the user's to break, and the editor itself already exited cleanly.
+    */
+  private[cli] def runEdit(
+      rawTier: String,
+      tty: Boolean,
+      workDir: os.Path,
+      globalSettingsPath: os.Path
+  ): Int =
+    complete:
+      for
+        _ <- requireTty("config", tty).left.map(usageFailure)
+        tier <- EditCli.parseCustomizeTier(rawTier).left.map(usageFailure)
+      yield
+        val path = SettingsEditAction.pathFor(tier, workDir, globalSettingsPath)
+        SettingsEditAction.ensureExists(tier, path, workDir)
+        val exit = withTerminal(EditAction.editInPlace(_, path))
+        SettingsEditAction.validate(tier, workDir, globalSettingsPath) match
+          case Left(error) => Cli.diagnostic(s"warning: $error")
+          case Right(_)    => ()
+        exit
 
   private def parseRole(
       raw: Option[String]

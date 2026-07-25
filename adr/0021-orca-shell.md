@@ -234,6 +234,13 @@ writing — a no-op with a one-line explanation when the file is absent or
 already stack-line-free, and an abort on a malformed file (the same message
 `FlowLifecycle.readSettings` would show) rather than a blind rewrite.
 
+> **Amendment (2026-07-25).** "Edit settings" (menu and `orca config --edit
+> project|global`) hand-opens the chosen tier's settings file in
+> `$VISUAL`/`$EDITOR`/vi via the same editor-spawn machinery as §6's "Edit a
+> flow", creating it from its template first if absent, and re-parses it once
+> the editor exits — a malformed result is a non-fatal warning, a valid one
+> reprints the startup config summary.
+
 ### 5. Flow discovery
 
 Three tiers, one listing:

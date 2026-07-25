@@ -873,13 +873,14 @@ action non-interactively and exits.
 | `orca create [name]` | `--goal <text>` (required), `--global` | author a new flow: the built-in `simple.sc` flow writes it in an isolated sandbox with the configured role agents; `name` is auto-derived when omitted |
 | `orca fork <source> [name]` | `--changes <text>` (required), `--global` | fork an existing flow, the same way |
 | `orca continue [selector]` | `--list`, `--json` | resume a recorded harness session (no selector = newest); `selector` is an index or session name |
-| `orca config` | `--planning-agent`, `--coding-agent`, `--review-agent`, each taking `harness[:model]` | show the configured role agents, or set any subset |
+| `orca config` | `--planning-agent`, `--coding-agent`, `--review-agent`, each taking `harness[:model]`; or `--edit project\|global` | show the configured role agents, set any subset, or hand-edit that tier's settings file in `$VISUAL`/`$EDITOR`/vi (created from its template if absent) |
 | `orca list` | `--json` | list discovered flows across the project/global/built-in tiers |
 | `orca rediscover-stack` | `--yes` | clear discovered stack settings so the next flow run re-detects them |
 
-`create`, `fork`, `edit`, and `continue`'s resume each need a real terminal
-and error cleanly if run without one; `run`, `view`, `list`, `config`, and
-`rediscover-stack --yes` work fine piped or in CI.
+`create`, `fork`, `edit`, `continue`'s resume, and `config --edit` each need a
+real terminal and error cleanly if run without one; `run`, `view`, `list`,
+`config` (without `--edit`), and `rediscover-stack --yes` work fine piped or
+in CI.
 
 Examples:
 

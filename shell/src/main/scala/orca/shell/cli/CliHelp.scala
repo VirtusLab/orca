@@ -24,7 +24,7 @@ private[shell] object CliHelp:
        |  fork <source> [name]     fork an existing flow (--changes required)
        |  continue [session]       resume a recorded harness session (--list to see them)
        |  list                     list discovered flows across all tiers
-       |  config                   show or set role agents (--planning-agent/--coding-agent/--review-agent)
+       |  config                   show or set role agents (--planning-agent/--coding-agent/--review-agent), or --edit project|global to hand-edit the file
        |  rediscover-stack         clear discovered stack settings (--yes to confirm)
        |
        |Examples:

@@ -10,6 +10,7 @@ import orca.shell.actions.{
   FlowResolution,
   RunAction,
   SessionAction,
+  SettingsEditAction,
   StackAction,
   StackStatus,
   ViewAction
@@ -123,6 +124,9 @@ object Main:
         if wizard.run(reconfigure = true) then
           printConfigSummary(globalSettingsPath, os.pwd)
         loop(ui, wizard, globalSettingsPath, terminal, tty)
+      case UiOutcome.Selected(MenuItem.EditSettings) =>
+        editSettings(ui, terminal, globalSettingsPath)
+        loop(ui, wizard, globalSettingsPath, terminal, tty)
       case UiOutcome.Selected(MenuItem.RediscoverStack) =>
         rediscoverStack(ui, os.pwd)
         loop(ui, wizard, globalSettingsPath, terminal, tty)
@@ -189,6 +193,51 @@ object Main:
           ) match
             case Left(message) => ShellOutput.error(message)
             case Right(_)      => ()
+
+  /** "Edit settings": tier prompt, create the file from its template if absent
+    * ([[SettingsEditAction.ensureExists]]), open it via the same editor-spawn
+    * machinery "Edit a flow" uses ([[EditAction.editInPlace]], injectable as
+    * `spawnEditor` so a test can fake the editor exiting without a real
+    * subprocess), then re-parse it ([[SettingsEditAction.validate]]): malformed
+    * reports a non-fatal warning and returns to the menu, valid reprints the
+    * startup config summary ([[ConfigSummary]], mirroring Reconfigure) so the
+    * edit's effect is visible immediately. `workDir` is explicit (rather than
+    * reading `os.pwd` itself, like [[rediscoverStack]]) so a test can point it
+    * at a temp dir; `private[shell]` so a scripted-UI test can drive it
+    * directly.
+    */
+  private[shell] def editSettings(
+      ui: ShellUi,
+      terminal: Terminal,
+      globalSettingsPath: os.Path,
+      workDir: os.Path = os.pwd,
+      spawnEditor: (Terminal, os.Path) => Int = EditAction.editInPlace
+  ): Unit =
+    pickSettingsTier(ui, globalSettingsPath).foreach: tier =>
+      val path = SettingsEditAction.pathFor(tier, workDir, globalSettingsPath)
+      SettingsEditAction.ensureExists(tier, path, workDir)
+      spawnEditor(terminal, path).discard
+      SettingsEditAction.validate(tier, workDir, globalSettingsPath) match
+        case Left(error) => ShellOutput.error(error)
+        case Right(_)    => printConfigSummary(globalSettingsPath, workDir)
+
+  /** The Project/Global tier picker for [[editSettings]] — same two-choice
+    * shape as [[pickTier]], but naming the settings file's own path in each
+    * label instead of the flows directory.
+    */
+  private def pickSettingsTier(
+      ui: ShellUi,
+      globalSettingsPath: os.Path
+  ): Option[CreateTier] =
+    ui.select(
+      "Edit settings for which tier:",
+      List(
+        Choice(CreateTier.Project, "Project (.orca/settings.properties)"),
+        Choice(CreateTier.Global, s"Global ($globalSettingsPath)")
+      )
+    ) match
+      case UiOutcome.Cancelled      => None
+      case UiOutcome.Selected(tier) => Some(tier)
 
   /** Selects a flow, prompts for the task text and whether to create a branch,
     * then hands off to [[RunAction.run]]. Verbose is not exposed here in v1 — a

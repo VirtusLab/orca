@@ -202,6 +202,13 @@ class CliTest extends munit.FunSuite:
   ):
     assert(parses("config"))
 
+  test(
+    "config --edit: well-formed args are accepted by mainargs; off-tty the method itself refuses with exit 2"
+  ):
+    // Same off-tty convention as `edit`'s own test above — sbt's forked test
+    // JVM always hits the tty gate here, proving the ARGS parsed fine.
+    assertEquals(invoke("config", "--edit", "project"), Right(2))
+
   test("rediscover-stack: --yes parses"):
     assert(parses("rediscover-stack", "--yes"))
 
@@ -431,6 +438,26 @@ class CliTest extends munit.FunSuite:
         written
       )
       assert(!written.contains("not a valid line"), written)
+
+  // --- runEdit: tty-gate and tier parsing (never reaches the real editor
+  // spawn — both failure modes short-circuit the for-comprehension before
+  // `withTerminal` is ever called).
+
+  test("runEdit: off-tty is a usage error, naming the command"):
+    withTempPath: path =>
+      assertEquals(
+        ConfigCli.runEdit("project", tty = false, TempDirs.dir(), path),
+        ExitCodes.UsageError
+      )
+      assert(!os.exists(path))
+
+  test("runEdit: an invalid tier value is a usage error"):
+    withTempPath: path =>
+      assertEquals(
+        ConfigCli.runEdit("bogus", tty = true, TempDirs.dir(), path),
+        ExitCodes.UsageError
+      )
+      assert(!os.exists(path))
 
   test("renderAgents: a set model pin renders as harness:model"):
     val text = ConfigCli.renderAgents(

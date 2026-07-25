@@ -254,6 +254,8 @@ private[shell] object Cli:
   @main(doc =
     "Show or set the global role agents (planning/coding/review).\n" +
       "No flags prints the current roles; any flag writes the given subset.\n" +
+      "--edit project|global hand-edits that tier's settings file in " +
+      "$VISUAL/$EDITOR/vi instead (created from its template if absent).\n" +
       "Example: orca config --coding-agent codex"
   )
   def config(
@@ -266,15 +268,21 @@ private[shell] object Cli:
       @arg(doc =
         "rewrite a malformed settings file from scratch instead of refusing"
       )
-      force: Flag = Flag()
+      force: Flag = Flag(),
+      @arg(doc = "hand-edit that tier's settings file instead: project|global")
+      edit: Option[String] = None
   ): Int =
-    ConfigCli.runConfig(
-      GlobalSettings.default,
-      planningAgent,
-      codingAgent,
-      reviewAgent,
-      force.value
-    )
+    edit match
+      case Some(tier) =>
+        ConfigCli.runEdit(tier, isTty, os.pwd, GlobalSettings.default)
+      case None =>
+        ConfigCli.runConfig(
+          GlobalSettings.default,
+          planningAgent,
+          codingAgent,
+          reviewAgent,
+          force.value
+        )
 
   @main(doc =
     "Clear discovered project stack settings so the next flow run re-detects them.\n" +
@@ -305,11 +313,11 @@ private[shell] object Cli:
   private def isTty: Boolean = TtyProbe.stdin() && TtyProbe.stdout()
 
   /** The mandatory gate before touching any interactive UI or child-exec
-    * command (ADR 0021 §4/§10): `create`/`fork`/`edit`/`continue`'s resume all
-    * exec an interactive child or (opencode) confirm via [[ShellUi]], which
-    * NPEs off a real tty — so this runs BEFORE any [[Terminal]] or [[ShellUi]]
-    * is built. `tty` is injected (production: [[isTty]]) so the decision is
-    * unit-testable without a real console.
+    * command (ADR 0021 §4/§10): `create`/`fork`/`edit`/`continue`'s resume and
+    * `config --edit` all exec an interactive child or (opencode) confirm via
+    * [[ShellUi]], which NPEs off a real tty — so this runs BEFORE any
+    * [[Terminal]] or [[ShellUi]] is built. `tty` is injected (production:
+    * [[isTty]]) so the decision is unit-testable without a real console.
     */
   private[cli] def requireTty(
       command: String,
