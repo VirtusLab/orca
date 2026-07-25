@@ -185,11 +185,19 @@ rather than the brief's optional step: it is instant and side-effect-free,
 so a skip option would only produce worse defaults. No `--version` probing
 in v1 (consistent with discovery's "resolves ≠ is-right" stance).
 
-Step 2 — preferred harness for planning / coding / review: harness only, no
-model picker. Every bare harness resolves to a sensible default model, and
-orca deliberately passes model ids through unvalidated — a curated list
-would drift (research 06 §3). The wizard's closing note tells users the file
-is hand-editable (`harness[:model]`); the harness-change/mint-fresh-sessions
+Step 2 — preferred harness for planning / coding / review, then a model step
+for that harness. claude and codex get a curated select (values are
+CLI-resolved ALIASES — `fable`/`opus`/`sonnet` for claude,
+`gpt-5.6-sol`/`-terra`/`-luna` for codex — not raw model ids, so the list
+can't drift the way research 06 §3 worried a curated list would: the CLI
+resolves the alias itself), plus "enter manually…" (free text) and "harness
+default" (no pin) rows. opencode / pi / gemini get free text only, as
+research 06 §3 anticipated for any future model step; blank input means no
+pin. Preselection: planning defaults to `fable`/`gpt-5.6-sol`, coding/review
+to `opus`/`gpt-5.6-sol`; re-configure preselects an existing pin's curated
+row (or "enter manually" prefilled with it), and picking "harness default"
+clears the pin. The wizard's closing note tells users the file is
+hand-editable (`harness[:model]`); the harness-change/mint-fresh-sessions
 detail (ADR 0020 §8) was dropped from that note per user feedback — unnecessary
 detail at write time.
 
@@ -199,9 +207,9 @@ explicit `role = harness` lines (explicit lines keep the wizard from
 re-triggering and make the role announcement say `(global)` honestly). File
 present (the re-configure menu item) → surgical line-level update: replace or
 append only the three agent-key lines, preserving comments and blanks;
-pre-select current values from `SettingsFile.parse`; keep an existing
-`:model` pin when the harness is unchanged, drop it when the harness changes.
-Both shapes live beside `render` in `SettingsFile`, keeping format knowledge
+pre-select current values from `SettingsFile.parse` (Step 2 re-asks the model
+explicitly rather than silently carrying a pin forward). Both shapes live
+beside `render` in `SettingsFile`, keeping format knowledge
 in one file, with a render/parse round-trip test. The wizard writes ONLY the
 global file — the project file is discovery's territory (ADR 0019/0020).
 
@@ -481,7 +489,6 @@ terminal — giving the user a beat to Ctrl-C even with no selector typed.
 
 - Windows support beyond the existing `bash -c` contract (consistent with
   ADR 0019/0020).
-- A model picker in the wizard; model pins remain hand-edits.
 - In-process flow execution (revisit condition in §2).
 - `cs install` / native-image packaging at launch (possible later; §1).
 - Running a shadowed flow tier from the menu (use `scala-cli run <path>`).

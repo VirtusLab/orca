@@ -7,10 +7,10 @@ import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import ox.discard
 
 /** The welcome wizard (ADR 0021 §4): detects installed harnesses, asks the user
-  * to pick one per role, and writes the user-global settings file. `probe` is
-  * `PathProbe.resolves(_, os.pwd)` in production, injected so tests never touch
-  * a real PATH; `globalSettingsPath` is likewise injected so tests never touch
-  * the developer's `~/.config`.
+  * to pick one per role plus its model, and writes the user-global settings
+  * file. `probe` is `PathProbe.resolves(_, os.pwd)` in production, injected so
+  * tests never touch a real PATH; `globalSettingsPath` is likewise injected so
+  * tests never touch the developer's `~/.config`.
   */
 private[shell] class Wizard(
     ui: ShellUi,
@@ -19,11 +19,12 @@ private[shell] class Wizard(
 ):
 
   /** Runs the three role prompts (planning, coding, review, in that order) and
-    * writes the result. `reconfigure = true` pre-selects each role's current
-    * harness (falling back to the first detected harness, else `claude`,
-    * exactly as on first run) and keeps that role's existing model pin when its
-    * harness is unchanged. Returns `false` without writing anything as soon as
-    * any prompt is [[UiOutcome.Cancelled]].
+    * writes the result. Each role prompt asks for a harness, then a model for
+    * that harness (Step 2, ADR 0021 §4). `reconfigure = true` pre-selects each
+    * role's current harness (falling back to the first detected harness, else
+    * `claude`, exactly as on first run) and its current model pin. Returns
+    * `false` without writing anything as soon as any prompt is
+    * [[UiOutcome.Cancelled]].
     */
   def run(reconfigure: Boolean): Boolean =
     val existingContent =
@@ -46,9 +47,24 @@ private[shell] class Wizard(
 
     val chosen =
       for
-        planning <- selectRole("Planning", current.planning, detected, fallback)
-        coding <- selectRole("Coding", current.coding, detected, fallback)
-        review <- selectRole("Review", current.review, detected, fallback)
+        planning <- selectRole(
+          Wizard.Role.Planning,
+          current.planning,
+          detected,
+          fallback
+        )
+        coding <- selectRole(
+          Wizard.Role.Coding,
+          current.coding,
+          detected,
+          fallback
+        )
+        review <- selectRole(
+          Wizard.Role.Review,
+          current.review,
+          detected,
+          fallback
+        )
       yield AgentSettings(Some(planning), Some(coding), Some(review))
 
     chosen match
@@ -76,7 +92,7 @@ private[shell] class Wizard(
       case _                        => ()
 
   private def selectRole(
-      roleLabel: String,
+      role: Wizard.Role,
       current: Option[AgentSpec],
       detected: Set[BackendTag],
       fallback: BackendTag
@@ -84,11 +100,55 @@ private[shell] class Wizard(
     val currentTag = current.map(_.backend)
     val choices =
       BackendTag.values.toList.map(tag => choiceFor(tag, currentTag, detected))
-    ui.select(
-      s"$roleLabel agent",
-      choices,
-      preselect = currentTag.orElse(Some(fallback))
-    ).map(tag => Wizard.resolvedSpec(tag, currentTag, current))
+    for
+      tag <- ui.select(
+        s"${role.label} agent",
+        choices,
+        preselect = currentTag.orElse(Some(fallback))
+      )
+      currentModel =
+        if currentTag.contains(tag) then current.flatMap(_.model) else None
+      model <- selectModel(role, tag, currentModel)
+    yield AgentSpec(tag, model)
+
+  /** The per-harness model step: a curated select for harnesses with
+    * CLI-resolved aliases ([[Wizard.curatedModels]]), free text otherwise.
+    * `currentModel` is the role's existing pin, already dropped by the caller
+    * if the harness changed.
+    */
+  private def selectModel(
+      role: Wizard.Role,
+      tag: BackendTag,
+      currentModel: Option[String]
+  ): UiOutcome[Option[String]] =
+    val curated = Wizard.curatedModels(tag)
+    if curated.isEmpty then
+      ui.input(
+        s"${role.label} model${Wizard.freeTextHint(tag)}",
+        default = currentModel
+      ).map(Wizard.blankToNone)
+    else
+      val curatedChoices: List[Choice[Wizard.ModelPick]] =
+        curated.map((id, desc) =>
+          Choice(Wizard.ModelPick.Curated(id), s"$id — $desc")
+        )
+      val choices =
+        curatedChoices :+
+          Choice(Wizard.ModelPick.Manual, "enter manually…") :+
+          Choice(Wizard.ModelPick.Default, "harness default (no model pin)")
+      val preselect =
+        Wizard.preselectModelPick(
+          curated,
+          currentModel,
+          Wizard.defaultModelFor(role, tag)
+        )
+      ui.select(s"${role.label} model", choices, preselect = Some(preselect))
+        .flatMap:
+          case Wizard.ModelPick.Curated(id) => UiOutcome.Selected(Some(id))
+          case Wizard.ModelPick.Default     => UiOutcome.Selected(None)
+          case Wizard.ModelPick.Manual =>
+            ui.input(s"${role.label} model", default = currentModel)
+              .map(Wizard.blankToNone)
 
   private def choiceFor(
       tag: BackendTag,
@@ -107,15 +167,81 @@ private[shell] object Wizard:
   def pathStatus(found: Boolean): String =
     if found then "✓ found" else "not found on PATH"
 
-  /** The model-pin retention rule (ADR 0021 §4): a pin only means something for
-    * the harness it was pinned under, so keep it when `tag` matches the role's
-    * current harness and drop it the moment the user picks any other.
+  private[wizard] enum Role(val label: String):
+    case Planning extends Role("Planning")
+    case Coding extends Role("Coding")
+    case Review extends Role("Review")
+
+  /** A row in a curated model picker: a specific model, "enter manually" (falls
+    * through to free text), or "harness default" (no pin).
     */
-  private[wizard] def resolvedSpec(
-      tag: BackendTag,
-      currentTag: Option[BackendTag],
-      current: Option[AgentSpec]
-  ): AgentSpec =
-    val model =
-      if currentTag.contains(tag) then current.flatMap(_.model) else None
-    AgentSpec(tag, model)
+  private[wizard] enum ModelPick:
+    case Curated(model: String)
+    case Manual
+    case Default
+
+  /** Curated `(id, description)` rows for a harness, in menu order; `Nil` means
+    * the harness is free-text only. Values are CLI-resolved ALIASES, not raw
+    * model ids — claude and codex resolve them themselves, so the list can't
+    * drift the way a curated list of raw ids would (ADR 0021 §4).
+    */
+  private[wizard] def curatedModels(tag: BackendTag): List[(String, String)] =
+    tag match
+      case BackendTag.ClaudeCode =>
+        List(
+          "fable" -> "Fable 5",
+          "opus" -> "latest Opus",
+          "sonnet" -> "latest Sonnet"
+        )
+      case BackendTag.Codex =>
+        List(
+          "gpt-5.6-sol" -> "flagship",
+          "gpt-5.6-terra" -> "balanced",
+          "gpt-5.6-luna" -> "fast"
+        )
+      case _ => Nil
+
+  /** The curated row preselected when a role has no pin for `tag` (first run,
+    * or reconfigure onto a different harness): Planning gets the cheaper alias,
+    * Coding/Review get the flagship.
+    */
+  private[wizard] def defaultModelFor(
+      role: Role,
+      tag: BackendTag
+  ): Option[String] =
+    tag match
+      case BackendTag.ClaudeCode =>
+        Some(if role == Role.Planning then "fable" else "opus")
+      case BackendTag.Codex => Some("gpt-5.6-sol")
+      case _                => None
+
+  /** Which row a curated model picker preselects: the matching curated row if
+    * `current` names one, "enter manually" if it pins something else (the
+    * caller prefills the follow-up input with it), else the role's default row,
+    * else "harness default".
+    */
+  private[wizard] def preselectModelPick(
+      curated: List[(String, String)],
+      current: Option[String],
+      default: Option[String]
+  ): ModelPick =
+    val curatedIds = curated.map(_._1).toSet
+    current match
+      case Some(model) if curatedIds.contains(model) => ModelPick.Curated(model)
+      case Some(_)                                   => ModelPick.Manual
+      case None =>
+        default.map(ModelPick.Curated.apply).getOrElse(ModelPick.Default)
+
+  /** The free-text hint appended to the model prompt for harnesses picked
+    * entirely by hand.
+    */
+  private[wizard] def freeTextHint(tag: BackendTag): String =
+    tag match
+      case BackendTag.Opencode =>
+        " (provider/model, e.g. anthropic/claude-sonnet-5)"
+      case BackendTag.Pi => " (name or pattern, `:thinking` suffix allowed)"
+      case _             => ""
+
+  /** Blank free-text input means no pin (harness default). */
+  private[wizard] def blankToNone(input: String): Option[String] =
+    Option(input.trim).filter(_.nonEmpty)
