@@ -17,37 +17,39 @@ class RecoveryCheckTest extends FunSuite:
     assert(!RecoveryCheck.isSafeBranchRef("Feat"))
     assert(!RecoveryCheck.isSafeBranchRef("a/"))
 
-  test("isSafeGitRef accepts mixed case and slashed names slugs would reject"):
-    assert(RecoveryCheck.isSafeGitRef("feature/JIRA-123"))
-    assert(RecoveryCheck.isSafeGitRef("Feature-ABC"))
-    assert(RecoveryCheck.isSafeGitRef("add-foo")) // a slug also passes
+  test(
+    "isSafeReusedRef accepts mixed case and slashed names slugs would reject"
+  ):
+    assert(RecoveryCheck.isSafeReusedRef("feature/JIRA-123"))
+    assert(RecoveryCheck.isSafeReusedRef("Feature-ABC"))
+    assert(RecoveryCheck.isSafeReusedRef("add-foo")) // a slug also passes
 
   test(
-    "isSafeGitRef rejects argv-injection and path-traversal shapes"
+    "isSafeReusedRef rejects argv-injection and path-traversal shapes"
   ):
-    assert(!RecoveryCheck.isSafeGitRef(""))
-    assert(!RecoveryCheck.isSafeGitRef("-flag"))
-    assert(!RecoveryCheck.isSafeGitRef("a..b"))
-    assert(!RecoveryCheck.isSafeGitRef("a/../b"))
-    assert(!RecoveryCheck.isSafeGitRef("a b"))
-    assert(!RecoveryCheck.isSafeGitRef("x.lock"))
-    assert(!RecoveryCheck.isSafeGitRef("a/"))
-    assert(!RecoveryCheck.isSafeGitRef("/a"))
-    assert(!RecoveryCheck.isSafeGitRef("a\tb"))
+    assert(!RecoveryCheck.isSafeReusedRef(""))
+    assert(!RecoveryCheck.isSafeReusedRef("-flag"))
+    assert(!RecoveryCheck.isSafeReusedRef("a..b"))
+    assert(!RecoveryCheck.isSafeReusedRef("a/../b"))
+    assert(!RecoveryCheck.isSafeReusedRef("a b"))
+    assert(!RecoveryCheck.isSafeReusedRef("x.lock"))
+    assert(!RecoveryCheck.isSafeReusedRef("a/"))
+    assert(!RecoveryCheck.isSafeReusedRef("/a"))
+    assert(!RecoveryCheck.isSafeReusedRef("a\tb"))
 
   test(
-    "isSafeGitRef rejects glob metacharacters (would DoS `git branch --list`)"
+    "isSafeReusedRef rejects glob metacharacters (would DoS `git branch --list`)"
   ):
-    assert(!RecoveryCheck.isSafeGitRef("*"))
-    assert(!RecoveryCheck.isSafeGitRef("feature-*"))
-    assert(!RecoveryCheck.isSafeGitRef("a?b"))
-    assert(!RecoveryCheck.isSafeGitRef("[abc]"))
-    assert(!RecoveryCheck.isSafeGitRef("a\\b"))
+    assert(!RecoveryCheck.isSafeReusedRef("*"))
+    assert(!RecoveryCheck.isSafeReusedRef("feature-*"))
+    assert(!RecoveryCheck.isSafeReusedRef("a?b"))
+    assert(!RecoveryCheck.isSafeReusedRef("[abc]"))
+    assert(!RecoveryCheck.isSafeReusedRef("a\\b"))
 
   test(
-    "isSafeGitRef rejects the literal pseudo-ref HEAD (never a real branch)"
+    "isSafeReusedRef rejects the literal pseudo-ref HEAD (never a real branch)"
   ):
-    assert(!RecoveryCheck.isSafeGitRef("HEAD"))
+    assert(!RecoveryCheck.isSafeReusedRef("HEAD"))
 
   test("validateHeader rejects a header naming the literal branch \"HEAD\""):
     val prompt = "do the thing"

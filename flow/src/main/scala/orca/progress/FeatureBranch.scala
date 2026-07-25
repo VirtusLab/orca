@@ -6,7 +6,7 @@ package orca.progress
   * (not in the always-protected floor [[RecoveryCheck.alwaysProtected]] unioned
   * with the caller-supplied set, in practice the repo's detected default) AND a
   * safe git ref — [[RecoveryCheck.isSafeBranchRef]]'s strict slug shape via
-  * [[resolve]] for an orca-minted name, or [[RecoveryCheck.isSafeGitRef]]'s
+  * [[resolve]] for an orca-minted name, or [[RecoveryCheck.isSafeReusedRef]]'s
   * weaker shape via [[resolveReused]] for the user's own current branch
   * (skip-branch mode) — so the guarantee holds regardless of which one minted
   * `name`.
@@ -47,7 +47,7 @@ object FeatureBranch:
   /** Mint a [[FeatureBranch]] for a branch orca did NOT create — the user's
     * current branch, reused in skip-branch mode (ADR 0018 amendment) instead of
     * minting a fresh one. `name` passes the weaker
-    * [[RecoveryCheck.isSafeGitRef]] shape check rather than the strict slug
+    * [[RecoveryCheck.isSafeReusedRef]] shape check rather than the strict slug
     * one: it was never orca-authored, so it may be mixed-case or carry `/`
     * segments like `feature/JIRA-123`. Still refuses a protected branch.
     */
@@ -55,7 +55,7 @@ object FeatureBranch:
       name: String,
       protectedBranches: Set[String]
   ): Either[FeatureBranchRefused, FeatureBranch] =
-    resolveWith(name, protectedBranches, RecoveryCheck.isSafeGitRef)
+    resolveWith(name, protectedBranches, RecoveryCheck.isSafeReusedRef)
 
   private def resolveWith(
       name: String,
@@ -88,7 +88,7 @@ final case class ProtectedBranchRefused(name: String)
 
 /** `name` was refused because it is not a safe git ref — see
   * [[RecoveryCheck.isSafeBranchRef]] ([[FeatureBranch.resolve]]) or
-  * [[RecoveryCheck.isSafeGitRef]] ([[FeatureBranch.resolveReused]]).
+  * [[RecoveryCheck.isSafeReusedRef]] ([[FeatureBranch.resolveReused]]).
   */
 final case class UnsafeBranchRefRefused(name: String)
     extends FeatureBranchRefused

@@ -20,7 +20,8 @@ object RecoveryCheck:
     * (which `git`/`gh` would read as a CLI flag) and bans
     * path-traversal/whitespace segments. Referencing
     * `BranchNamingStrategy.isSlugSegment` keeps producer and validator from
-    * drifting.
+    * drifting. For a branch orca did NOT mint itself, see the weaker
+    * [[isSafeReusedRef]] instead.
     */
   def isSafeBranchRef(s: String): Boolean =
     s.nonEmpty && s
@@ -40,7 +41,7 @@ object RecoveryCheck:
     * (never a real branch; a detached-HEAD `currentBranch()` reads back as this
     * literal string, and a header must not be able to claim it either).
     */
-  def isSafeGitRef(s: String): Boolean =
+  def isSafeReusedRef(s: String): Boolean =
     s.nonEmpty &&
       s != "HEAD" &&
       !s.startsWith("-") &&
@@ -61,12 +62,12 @@ object RecoveryCheck:
     * caller (`FlowLifecycle.setup`'s resume arm) can bind `FlowSetup` to a
     * typed branch without a second, redundant resolve call.
     *
-    *   - `branch` and `startingBranch` must pass [[isSafeGitRef]] — the weaker
-    *     check, not [[isSafeBranchRef]]'s strict slug shape: `branch` may be a
-    *     reused current branch from a skip-branch run (ADR 0018 amendment), and
-    *     `startingBranch` is always a pre-existing, orca-never-minted branch. A
-    *     minted slug name always passes the weaker check too, so this doesn't
-    *     loosen validation for the common case.
+    *   - `branch` and `startingBranch` must pass [[isSafeReusedRef]] — the
+    *     weaker check, not [[isSafeBranchRef]]'s strict slug shape: `branch`
+    *     may be a reused current branch from a skip-branch run (ADR 0018
+    *     amendment), and `startingBranch` is always a pre-existing,
+    *     orca-never-minted branch. A minted slug name always passes the weaker
+    *     check too, so this doesn't loosen validation for the common case.
     *   - `branch` must not be a protected branch (`startingBranch` may be) —
     *     delegated to [[FeatureBranch.resolveReused]], which unions
     *     `protectedBranches` with the `main`/`master` floor.
@@ -77,7 +78,7 @@ object RecoveryCheck:
     * branch is refused — not just `main`/`master`. Compared case-insensitively.
     *
     * The caller separately cross-checks `branch` against the actual current
-    * branch (R30) — that check, combined with `isSafeGitRef` here, is what
+    * branch (R30) — that check, combined with `isSafeReusedRef` here, is what
     * makes a reused non-slug branch name safe to accept: it must both look like
     * a safe ref AND be the branch we're already sitting on.
     */
@@ -86,7 +87,7 @@ object RecoveryCheck:
       userPrompt: String,
       protectedBranches: Set[String]
   ): Either[String, FeatureBranch] =
-    if !isSafeGitRef(header.startingBranch) then
+    if !isSafeReusedRef(header.startingBranch) then
       Left(s"startingBranch '${header.startingBranch}' is not a safe ref")
     else
       FeatureBranch.resolveReused(header.branch, protectedBranches) match

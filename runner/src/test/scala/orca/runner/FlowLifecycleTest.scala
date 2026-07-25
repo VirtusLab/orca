@@ -1903,7 +1903,7 @@ class FlowLifecycleTest extends munit.FunSuite:
   ):
     // Before the ADR-0018 amendment, `validateHeader` required the strict
     // minted-name slug shape for EVERY header.branch, which would reject
-    // "Feature/JIRA-123" outright. The weaker `isSafeGitRef` check now accepts
+    // "Feature/JIRA-123" outright. The weaker `isSafeReusedRef` check now accepts
     // it, since it also equals the current branch (R30's cross-check).
     val workDir = GitRepo.seeded()
     val prompt = "skip-branch-resume"

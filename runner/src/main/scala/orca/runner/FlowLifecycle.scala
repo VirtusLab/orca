@@ -287,8 +287,8 @@ object FlowLifecycle:
     if args.skipBranch.value then
       if git.isDirty() then
         throw new OrcaFlowException(
-          "skip-branch mode requires a clean working tree — commit or " +
-            "stash your changes first"
+          "cannot skip branch creation: requires a clean working tree — " +
+            "commit or stash your changes first"
         )
     else
       val _ = git.ensureClean("orca: starting flow")
@@ -663,7 +663,7 @@ object FlowLifecycle:
   ): FeatureBranch =
     if startBranch == "HEAD" then
       throw new OrcaFlowException(
-        "cannot skip branch creation while in detached HEAD — check out a " +
+        "cannot skip branch creation: in detached HEAD — check out a " +
           "branch first, or drop --skip-branch"
       )
     else
@@ -671,7 +671,7 @@ object FlowLifecycle:
         case Right(featureBranch) => featureBranch
         case Left(ProtectedBranchRefused(name)) =>
           throw new OrcaFlowException(
-            s"cannot skip branch creation on protected branch '$name' — " +
+            s"cannot skip branch creation: '$name' is a protected branch — " +
               "check out a feature branch first"
           )
         case Left(UnsafeBranchRefRefused(name)) =>
