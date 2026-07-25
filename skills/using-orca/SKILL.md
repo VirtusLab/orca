@@ -46,10 +46,13 @@ Exit codes: 0 success, 1 action failure, 2 usage error — `orca run`
 propagates the flow's own exit code. On success the flow has committed its
 work on a branch; report that branch (and any PR) to the user.
 
-`orca continue [selector] --list` resumes an interrupted recorded session,
-but requires a real terminal and errors without one — don't invoke it from
-a headless/non-interactive context; tell the user to run it themselves if
-a run was interrupted.
+If a run is interrupted, re-run the same `orca run` command: flows are
+resumable and pick up from the last committed stage.
+
+`orca continue` (list sessions with `--list`, resume one by selector)
+reattaches to a recorded harness session, but requires a real terminal and
+errors without one — don't invoke it headlessly; tell the user to run it
+themselves instead.
 
 ## Installation
 
