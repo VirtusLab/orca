@@ -5,6 +5,7 @@ import orca.agents.BackendTag
 import orca.runner.{ManifestSession, RunManifest}
 import orca.settings.SettingsFile
 import orca.shell.actions.StackAction
+import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.TempDirs
@@ -384,6 +385,34 @@ class MainTest extends munit.FunSuite:
       Main.harnessLabel(BackendTag.ClaudeCode, _ => false),
       "claude — not found on PATH"
     )
+
+  // --- promoteByName ---
+
+  private def flow(name: String): DiscoveredFlow =
+    DiscoveredFlow(
+      name = name,
+      description = None,
+      origin = FlowOrigin.BuiltIn,
+      path = os.root / s"$name",
+      shadows = Nil
+    )
+
+  test("promoteByName moves the named flow to the front, rest stay ordered"):
+    val flows = List(flow("alpha.sc"), flow("implement.sc"), flow("zeta.sc"))
+    assertEquals(
+      Main.promoteByName("implement.sc", flows).map(_.name),
+      List("implement.sc", "alpha.sc", "zeta.sc")
+    )
+
+  test("promoteByName is a no-op when the name isn't in the list"):
+    val flows = List(flow("alpha.sc"), flow("zeta.sc"))
+    assertEquals(
+      Main.promoteByName("implement.sc", flows).map(_.name),
+      List("alpha.sc", "zeta.sc")
+    )
+
+  test("promoteByName on an empty list stays empty"):
+    assertEquals(Main.promoteByName("implement.sc", Nil), Nil)
 
   // --- rediscoverStack ---
 

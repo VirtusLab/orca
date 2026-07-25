@@ -172,7 +172,11 @@ object Main:
     */
   private def runFlow(ui: ShellUi, terminal: Terminal): Unit =
     for
-      flow <- selectFlow(ui, "Run which flow?")
+      flow <- selectFlow(
+        ui,
+        "Run which flow?",
+        reorder = promoteByName(FlagshipFlow, _)
+      )
       task <- promptTask(ui)
     do
       val opts = RunAction.RunOptions(
@@ -385,20 +389,45 @@ object Main:
           case Left(message) => ShellOutput.error(message)
           case Right(_)      => ()
 
+  /** orca's flagship built-in flow — promoted to the front of the run picker
+    * ([[runFlow]]) since the interactive select has no cursor preselection
+    * (`ConsoleUiShell.select`'s scaladoc), so first position is what actually
+    * reads as the default.
+    */
+  private val FlagshipFlow = "implement.sc"
+
+  /** Moves the flow named `name` to the front, leaving every other flow's
+    * relative order unchanged; a no-op (alphabetical order preserved) if no
+    * flow has that name — e.g. it was deleted from every tier.
+    */
+  private[shell] def promoteByName(
+      name: String,
+      flows: List[DiscoveredFlow]
+  ): List[DiscoveredFlow] =
+    val (front, rest) = flows.partition(_.name == name)
+    front ++ rest
+
   /** Lists flows across the three tiers via [[FlowResolution.list]] — any
     * failure (a committed symlink guard tripping, or built-in extraction
     * hitting a full-disk/permission error) is reported and the caller gets
     * `None`, same as Cancelled, so the menu redraws instead of the shell
-    * crashing.
+    * crashing. `reorder` lets a caller re-sequence the alphabetical listing
+    * before it's shown (only the run picker does, promoting the flagship flow —
+    * [[FlagshipFlow]]); other pickers pass the default identity and stay
+    * alphabetical.
     */
-  private def selectFlow(ui: ShellUi, title: String): Option[DiscoveredFlow] =
+  private def selectFlow(
+      ui: ShellUi,
+      title: String,
+      reorder: List[DiscoveredFlow] => List[DiscoveredFlow] = identity
+  ): Option[DiscoveredFlow] =
     val flows = FlowResolution.list(os.pwd) match
       case Left(message) =>
         ShellOutput.error(message)
         None
       case Right(fs) => Some(fs)
     flows.flatMap: fs =>
-      ui.select(title, fs.map(flowChoice)) match
+      ui.select(title, reorder(fs).map(flowChoice)) match
         case UiOutcome.Cancelled      => None
         case UiOutcome.Selected(flow) => Some(flow)
 
