@@ -59,10 +59,18 @@ private[cli] object EditCli:
             ).left.map(actionFailure)
           yield exit
 
+  /** Parses a `project|global` tier value, naming `flagName` in the error so
+    * the message matches whichever flag the caller actually exposes — `--to`
+    * here, `--edit` for [[ConfigCli.runEdit]] (same grammar, shared so the two
+    * can't drift, distinct wording so neither names a flag that command doesn't
+    * have).
+    */
   private[cli] def parseCustomizeTier(
-      raw: String
+      raw: String,
+      flagName: String = "--to"
   ): Either[String, CreateTier] =
     raw match
       case "project" => Right(CreateTier.Project)
       case "global"  => Right(CreateTier.Global)
-      case other => Left(s"--to must be 'project' or 'global', got '$other'")
+      case other =>
+        Left(s"$flagName must be 'project' or 'global', got '$other'")

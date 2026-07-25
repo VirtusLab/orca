@@ -142,6 +142,14 @@ class CliTest extends munit.FunSuite:
       Left("--to must be 'project' or 'global', got 'bogus'")
     )
 
+  test(
+    "parseCustomizeTier: a non-default flag name is used in the error instead of --to"
+  ):
+    assertEquals(
+      EditCli.parseCustomizeTier("bogus", "--edit"),
+      Left("--edit must be 'project' or 'global', got 'bogus'")
+    )
+
   test("create: missing the required --goal is a usage error"):
     assert(!parses("create"))
 
@@ -208,6 +216,26 @@ class CliTest extends munit.FunSuite:
     // Same off-tty convention as `edit`'s own test above — sbt's forked test
     // JVM always hits the tty gate here, proving the ARGS parsed fine.
     assertEquals(invoke("config", "--edit", "project"), Right(2))
+
+  test(
+    "config --edit combined with a role flag is a usage error, not a silently-dropped flag"
+  ):
+    // The conflict check runs before the tty gate, so this is Right(2)
+    // regardless of the test JVM's own tty — proving it's the dedicated
+    // conflict error, not the tty gate, that fired.
+    val (_, err) = capturedBoth(
+      assertEquals(
+        invoke("config", "--edit", "project", "--coding-agent", "codex"),
+        Right(2)
+      )
+    )
+    assert(err.contains("--edit can't be combined with role flags"), err)
+
+  test("config --edit combined with --force is a usage error too"):
+    assertEquals(
+      invoke("config", "--edit", "global", "--force"),
+      Right(2)
+    )
 
   test("rediscover-stack: --yes parses"):
     assert(parses("rediscover-stack", "--yes"))
@@ -451,13 +479,100 @@ class CliTest extends munit.FunSuite:
       )
       assert(!os.exists(path))
 
-  test("runEdit: an invalid tier value is a usage error"):
+  test(
+    "runEdit: an invalid tier value is a usage error naming --edit, not --to"
+  ):
     withTempPath: path =>
-      assertEquals(
-        ConfigCli.runEdit("bogus", tty = true, TempDirs.dir(), path),
-        ExitCodes.UsageError
+      val (_, err) = capturedBoth(
+        assertEquals(
+          ConfigCli.runEdit("bogus", tty = true, TempDirs.dir(), path),
+          ExitCodes.UsageError
+        )
       )
       assert(!os.exists(path))
+      assert(
+        err.contains("--edit must be 'project' or 'global', got 'bogus'"),
+        err
+      )
+      assert(!err.contains("--to"), err)
+
+  // --- run: --edit's mutual exclusion with role flags/--force ---
+
+  test("run: --edit with a role flag is a usage error naming the conflict"):
+    withTempPath: path =>
+      assertEquals(
+        ConfigCli.run(
+          path,
+          planning = None,
+          coding = Some("codex"),
+          review = None,
+          force = false,
+          edit = Some("project"),
+          tty = true,
+          workDir = TempDirs.dir()
+        ),
+        ExitCodes.UsageError
+      )
+
+  test("run: --edit with --force is a usage error too"):
+    withTempPath: path =>
+      assertEquals(
+        ConfigCli.run(
+          path,
+          planning = None,
+          coding = None,
+          review = None,
+          force = true,
+          edit = Some("project"),
+          tty = true,
+          workDir = TempDirs.dir()
+        ),
+        ExitCodes.UsageError
+      )
+
+  test(
+    "run: --edit alone (no role flags) is not rejected by the conflict check"
+  ):
+    withTempPath: path =>
+      // tty = false so this doesn't actually spawn an editor — both this and
+      // the conflict case are UsageError, so the message is what proves it's
+      // the tty gate that fired here, not the conflict check.
+      val (_, err) = capturedBoth(
+        assertEquals(
+          ConfigCli.run(
+            path,
+            planning = None,
+            coding = None,
+            review = None,
+            force = false,
+            edit = Some("project"),
+            tty = false,
+            workDir = TempDirs.dir()
+          ),
+          ExitCodes.UsageError
+        )
+      )
+      assert(err.contains("needs a terminal"), err)
+      assert(!err.contains("can't be combined"), err)
+
+  test("run: no --edit delegates to runConfig unchanged"):
+    withTempPath: path =>
+      val out = captured(
+        assertEquals(
+          ConfigCli.run(
+            path,
+            planning = None,
+            coding = None,
+            review = None,
+            force = false,
+            edit = None,
+            tty = true,
+            workDir = TempDirs.dir()
+          ),
+          ExitCodes.Ok
+        )
+      )
+      assert(out.contains("planning: (not set)"), out)
 
   test("renderAgents: a set model pin renders as harness:model"):
     val text = ConfigCli.renderAgents(

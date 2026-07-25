@@ -272,17 +272,16 @@ private[shell] object Cli:
       @arg(doc = "hand-edit that tier's settings file instead: project|global")
       edit: Option[String] = None
   ): Int =
-    edit match
-      case Some(tier) =>
-        ConfigCli.runEdit(tier, isTty, os.pwd, GlobalSettings.default)
-      case None =>
-        ConfigCli.runConfig(
-          GlobalSettings.default,
-          planningAgent,
-          codingAgent,
-          reviewAgent,
-          force.value
-        )
+    ConfigCli.run(
+      GlobalSettings.default,
+      planningAgent,
+      codingAgent,
+      reviewAgent,
+      force.value,
+      edit,
+      isTty,
+      os.pwd
+    )
 
   @main(doc =
     "Clear discovered project stack settings so the next flow run re-detects them.\n" +

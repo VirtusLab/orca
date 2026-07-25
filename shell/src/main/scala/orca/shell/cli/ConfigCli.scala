@@ -12,6 +12,39 @@ import Cli.{actionFailure, complete, requireTty, usageFailure, withTerminal}
   */
 private[cli] object ConfigCli:
 
+  /** `config`'s full dispatch (ADR 0021 §10) — pulled out of the `@main` method
+    * so `--edit`'s mutual-exclusion check is unit-testable without a real
+    * console. `--edit` can't be combined with any role flag or `--force`:
+    * `runEdit` hands the whole file to the user's editor, so a role flag given
+    * alongside it would be silently ignored — worth a usage error rather than a
+    * surprise. Absent `--edit`, delegates to [[runConfig]] unchanged.
+    */
+  private[cli] def run(
+      globalSettingsPath: os.Path,
+      planning: Option[String],
+      coding: Option[String],
+      review: Option[String],
+      force: Boolean,
+      edit: Option[String],
+      tty: Boolean,
+      workDir: os.Path
+  ): Int =
+    val editConflictsWithFlags =
+      planning.isDefined || coding.isDefined || review.isDefined || force
+    edit match
+      case Some(_) if editConflictsWithFlags =>
+        complete(
+          Left(
+            usageFailure(
+              "--edit can't be combined with role flags — edit the file, " +
+                "or use the flags, not both"
+            )
+          )
+        )
+      case Some(tier) => runEdit(tier, tty, workDir, globalSettingsPath)
+      case None =>
+        runConfig(globalSettingsPath, planning, coding, review, force)
+
   /** `config`'s full behavior over an explicit settings `path` — pulled out of
     * the `@main` method so tests can point it at a temp file instead of the
     * real user-global settings file.
@@ -64,13 +97,14 @@ private[cli] object ConfigCli:
         Right(ExitCodes.Ok)
 
   /** `orca config --edit <tier>`'s behavior (ADR 0021 §10): tty-gate, parse
-    * `rawTier` the same way `edit`'s `--to` does
-    * ([[EditCli.parseCustomizeTier]]), create the settings file from its
-    * template if absent, then open it via [[EditAction.editInPlace]] — same
-    * exit-code convention as `orca edit` (the editor child's raw exit code,
-    * propagated regardless of whether the edited file re-parses). A malformed
-    * result after the edit is a warning to stderr, not a failure: the file is
-    * the user's to break, and the editor itself already exited cleanly.
+    * `rawTier` with the shared `project|global` grammar
+    * ([[EditCli.parseCustomizeTier]], naming `--edit` rather than `--to` in its
+    * error), create the settings file from its template if absent, then open it
+    * via [[EditAction.editInPlace]] — same exit-code convention as `orca edit`
+    * (the editor child's raw exit code, propagated regardless of whether the
+    * edited file re-parses). A malformed result after the edit is a warning to
+    * stderr, not a failure: the file is the user's to break, and the editor
+    * itself already exited cleanly.
     */
   private[cli] def runEdit(
       rawTier: String,
@@ -81,7 +115,10 @@ private[cli] object ConfigCli:
     complete:
       for
         _ <- requireTty("config", tty).left.map(usageFailure)
-        tier <- EditCli.parseCustomizeTier(rawTier).left.map(usageFailure)
+        tier <- EditCli
+          .parseCustomizeTier(rawTier, "--edit")
+          .left
+          .map(usageFailure)
       yield
         val path = SettingsEditAction.pathFor(tier, workDir, globalSettingsPath)
         SettingsEditAction.ensureExists(tier, path, workDir)
