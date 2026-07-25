@@ -5,6 +5,7 @@ import orca.settings.GlobalSettings
 import orca.shell.actions.{
   AuthorAction,
   AuthorParams,
+  ConfigSummary,
   EditAction,
   FlowResolution,
   RunAction,
@@ -68,7 +69,8 @@ object Main:
       val globalSettingsPath = GlobalSettings.default
       val wizard = Wizard(ui, PathProbe.resolves(_, os.pwd), globalSettingsPath)
       runWizardIfFirstRun(wizard, globalSettingsPath)
-      loop(ui, wizard, terminal, tty)
+      printConfigSummary(globalSettingsPath, os.pwd)
+      loop(ui, wizard, globalSettingsPath, terminal, tty)
     finally terminal.close()
 
   /** Runs the welcome wizard before the first menu when [[FirstRun.check]]
@@ -98,6 +100,7 @@ object Main:
   @tailrec private def loop(
       ui: ShellUi,
       wizard: Wizard,
+      globalSettingsPath: os.Path,
       terminal: Terminal,
       tty: Boolean
   ): Unit =
@@ -111,32 +114,48 @@ object Main:
       "orca shell",
       MainMenu.choices(continueDisabledReason, newestRunSessionCount)
     ) match
-      case UiOutcome.Cancelled               => ()
-      case UiOutcome.Selected(MenuItem.Exit) => ()
+      case UiOutcome.Cancelled                      => ()
+      case UiOutcome.Selected(MenuItem.Exit)        => ()
       case UiOutcome.Selected(MenuItem.Reconfigure) =>
-        wizard.run(reconfigure = true).discard
-        loop(ui, wizard, terminal, tty)
+        // Reprint the summary only when the wizard actually wrote new values
+        // (`run` returns false on cancel) — the lines would otherwise claim a
+        // change that didn't happen.
+        if wizard.run(reconfigure = true) then
+          printConfigSummary(globalSettingsPath, os.pwd)
+        loop(ui, wizard, globalSettingsPath, terminal, tty)
       case UiOutcome.Selected(MenuItem.RediscoverStack) =>
         rediscoverStack(ui, os.pwd)
-        loop(ui, wizard, terminal, tty)
+        loop(ui, wizard, globalSettingsPath, terminal, tty)
       case UiOutcome.Selected(MenuItem.ViewFlow) =>
         viewFlow(ui, tty)
-        loop(ui, wizard, terminal, tty)
+        loop(ui, wizard, globalSettingsPath, terminal, tty)
       case UiOutcome.Selected(MenuItem.EditFlow) =>
         editFlow(ui, terminal)
-        loop(ui, wizard, terminal, tty)
+        loop(ui, wizard, globalSettingsPath, terminal, tty)
       case UiOutcome.Selected(MenuItem.RunFlow) =>
         runFlow(ui, terminal)
-        loop(ui, wizard, terminal, tty)
+        loop(ui, wizard, globalSettingsPath, terminal, tty)
       case UiOutcome.Selected(MenuItem.CreateFlow) =>
         createNewFlow(ui, terminal)
-        loop(ui, wizard, terminal, tty)
+        loop(ui, wizard, globalSettingsPath, terminal, tty)
       case UiOutcome.Selected(MenuItem.ForkFlow) =>
         createForkFlow(ui, terminal)
-        loop(ui, wizard, terminal, tty)
+        loop(ui, wizard, globalSettingsPath, terminal, tty)
       case UiOutcome.Selected(MenuItem.ContinueSession) =>
         continueSession(ui, terminal, runs)
-        loop(ui, wizard, terminal, tty)
+        loop(ui, wizard, globalSettingsPath, terminal, tty)
+
+  /** The two-line startup configuration summary (ADR 0021 §4/§8,
+    * [[ConfigSummary]]) — printed once right after the banner (and after the
+    * first-run wizard, if it ran) and again after a completed Re-configure, so
+    * the user sees what they'd be reconfiguring before picking that menu item.
+    */
+  private[shell] def printConfigSummary(
+      globalSettingsPath: os.Path,
+      workDir: os.Path
+  ): Unit =
+    ShellOutput.info(ConfigSummary.agentsLine(globalSettingsPath, workDir))
+    ShellOutput.info(ConfigSummary.stackLine(workDir))
 
   /** Prints the chosen flow's source (highlighted when `tty`) and returns — the
     * menu redraws on the next loop iteration, so no pager is needed (ADR 0021

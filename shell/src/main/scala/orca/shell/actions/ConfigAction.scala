@@ -1,5 +1,6 @@
 package orca.shell.actions
 
+import orca.OrcaDir
 import orca.settings.{AgentSettings, SettingsFile, SettingsScope}
 import orca.shell.ui.ShellOutput
 
@@ -22,6 +23,23 @@ private[shell] object ConfigAction:
         .left
         .map(error =>
           s"the global settings file is malformed — ${error.message}"
+        )
+
+  /** Same shape as [[show]], reading the PROJECT settings file
+    * (`.orca/settings.properties` under `workDir`) instead — which may also
+    * carry stack keys, ignored here. [[AgentSettings.empty]] when the file
+    * doesn't exist. Left on a malformed file, naming the parse error.
+    */
+  def showProject(workDir: os.Path): Either[String, AgentSettings] =
+    val path = OrcaDir.settingsPath(workDir)
+    if !os.exists(path) then Right(AgentSettings.empty)
+    else
+      SettingsFile
+        .parse(os.read(path), SettingsScope.Project)
+        .map(_.agents)
+        .left
+        .map(error =>
+          s"the project settings file is malformed — ${error.message}"
         )
 
   /** Writes `agents` to the global settings file. The rewrite strategy gates on

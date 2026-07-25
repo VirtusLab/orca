@@ -710,3 +710,21 @@ class MainTest extends munit.FunSuite:
         .renderStackSettings(StackSettings.empty)
         .contains("no live commands")
     )
+
+  // --- printConfigSummary ---
+
+  test(
+    "printConfigSummary prints the agents line then the stack line, both shell-voice"
+  ):
+    val globalDir = TempDirs.dir()
+    val workDir = TempDirs.dir()
+    val out = captured(
+      Main.printConfigSummary(globalDir / "settings.properties", workDir)
+    )
+    assertEquals(
+      out.linesIterator.toList,
+      List(
+        "◆ agents: planning=claude, coding=claude, review=claude",
+        "◆ stack: not discovered yet — detected on the first flow run"
+      )
+    )
