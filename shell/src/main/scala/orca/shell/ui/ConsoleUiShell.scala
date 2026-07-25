@@ -64,6 +64,7 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
   lineReader.setVariable(LineReader.SECONDARY_PROMPT_PATTERN, "… ")
   ConsoleUiShell.registerInsertNewlineWidget(lineReader)
   ConsoleUiShell.registerKittyInterruptWidget(lineReader)
+  ConsoleUiShell.registerKittyEofWidget(lineReader)
 
   private def newConsolePrompt(): ConsolePrompt =
     val config = ConsolePrompt.UiConfig()
@@ -214,6 +215,14 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     *     [[ConsoleUiShell.registerKittyInterruptWidget]] binds it to the same
     *     [[UserInterruptException]] this read already catches, so both forms of
     *     Ctrl-C — raw byte or re-encoded — cancel identically.
+    *   - '''Ctrl-D on an empty buffer cancels, even re-encoded'''. Same
+    *     re-encoding, same fix shape: `LineReaderImpl`'s normal EOF check
+    *     compares the raw input byte against the terminal's `VEOF` control
+    *     char, so it never fires once the disambiguate flag re-encodes Ctrl-D
+    *     as a `CSI u` sequence instead of `0x04`.
+    *     [[ConsoleUiShell.registerKittyEofWidget]] binds that sequence to a
+    *     widget reproducing the same contract: [[EndOfFileException]] when the
+    *     buffer is empty, ordinary forward-delete otherwise.
     *
     * Ctrl-D on an empty buffer and Ctrl-C both cancel, exactly like
     * [[plainLineInput]] (`LineReaderImpl`'s own main loop throws
@@ -326,13 +335,15 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     * re-encodes ''every'' Ctrl+letter combination as a `CSI u` sequence rather
     * than its ordinary control byte — Enter, Tab and Backspace are the only
     * keys explicitly exempted (so a crashed program that left the flag pushed
-    * doesn't also strand the user unable to type `reset`). That includes
-    * Ctrl-C: a kitty-protocol terminal that honors this flag (again, VS Code's
-    * integrated terminal among them) stops sending the raw byte `0x03` for
-    * Ctrl-C for as long as this flag is pushed, so the kernel never raises
-    * `SIGINT` and [[inputMultiline]]'s read never sees the interrupt the usual
-    * way. [[ConsoleUiShell.registerKittyInterruptWidget]] binds that re-encoded
-    * sequence directly so Ctrl-C still cancels; see its scaladoc.
+    * doesn't also strand the user unable to type `reset`). That includes Ctrl-C
+    * and Ctrl-D: a kitty-protocol terminal that honors this flag (again, VS
+    * Code's integrated terminal among them) stops sending the raw bytes
+    * `0x03`/`0x04` for as long as this flag is pushed, so neither the kernel's
+    * `SIGINT` nor `LineReaderImpl`'s own `VEOF`-byte check ever fires —
+    * [[inputMultiline]]'s read would otherwise never see either interrupt.
+    * [[ConsoleUiShell.registerKittyInterruptWidget]] and
+    * [[ConsoleUiShell.registerKittyEofWidget]] bind those re-encoded sequences
+    * directly so both still work; see their scaladocs.
     *
     * `CSI > 1 u` ''pushes'' the flag onto the protocol's own flag stack; `CSI <
     * u` ''pops'' one level back off — so push-then-pop restores whatever the
@@ -388,6 +399,7 @@ private[ui] object ConsoleUiShell:
 
   private val insertNewlineWidgetName = "orca-insert-newline"
   private val kittyInterruptWidgetName = "orca-kitty-interrupt"
+  private val kittyEofWidgetName = "orca-kitty-eof"
 
   /** Registers a widget on `reader` that writes a literal `\n` into the buffer
     * instead of submitting, and binds it to Alt+Enter's and Shift+Enter's byte
@@ -457,3 +469,36 @@ private[ui] object ConsoleUiShell:
     )
     val mainKeyMap = reader.getKeyMaps.get(LineReader.MAIN)
     mainKeyMap.bind(Reference(kittyInterruptWidgetName), "[99;5u")
+
+  /** Registers a widget on `reader` that reproduces `LineReaderImpl`'s own
+    * Ctrl-D contract exactly, and binds it to the kitty keyboard protocol's
+    * CSI-u encoding of Ctrl-D: buffer empty → throw [[EndOfFileException]]
+    * (same outcome the raw byte gets via the `VEOF`-comparison check in
+    * `LineReaderImpl`'s main loop); buffer non-empty → delegate to
+    * `LineReader.DELETE_CHAR_OR_LIST`, the exact builtin widget the raw byte is
+    * bound to in the default keymap, via `callWidget` — so mid-text this
+    * behaves identically to plain Ctrl-D (deletes the character under the
+    * cursor) without this file re-implementing that logic, cursor-at-end
+    * included (pty-verified: with no completer configured here, that case is a
+    * harmless no-op, same as plain Ctrl-D's).
+    *
+    * Needed for the same reason as [[registerKittyInterruptWidget]]: once
+    * [[withKittyKeyboardProtocol]]'s pushed flag makes a kitty-protocol
+    * terminal re-encode Ctrl-D as this escape sequence instead of the raw byte
+    * `0x04`, the `VEOF`-comparison check never sees a `0x04` byte to compare,
+    * so `EndOfFileException` would otherwise never fire there — "Cancel via
+    * Ctrl-D on an empty prompt" would silently stop working on exactly the
+    * terminals this file already had to work around for Ctrl-C. Called once per
+    * `ConsoleUiShell` instance, from its constructor.
+    */
+  private[ui] def registerKittyEofWidget(reader: LineReader): Unit =
+    reader.getWidgets.put(
+      kittyEofWidgetName,
+      () =>
+        if reader.getBuffer.length() == 0 then throw EndOfFileException()
+        else
+          reader.callWidget(LineReader.DELETE_CHAR_OR_LIST)
+          true
+    )
+    val mainKeyMap = reader.getKeyMaps.get(LineReader.MAIN)
+    mainKeyMap.bind(Reference(kittyEofWidgetName), "[100;5u")

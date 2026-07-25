@@ -1,6 +1,7 @@
 package orca.shell.ui
 
 import org.jline.reader.{
+  EndOfFileException,
   LineReader,
   LineReaderBuilder,
   Reference,
@@ -192,4 +193,28 @@ class ConsoleUiShellTest extends munit.FunSuite:
 
       val widget = reader.getWidgets.get(bound.asInstanceOf[Reference].name())
       intercept[UserInterruptException](widget.apply())
+    finally terminal.close()
+
+  // The empty-buffer branch (throw EndOfFileException) is exercisable as a
+  // pure widget call. The non-empty branch delegates to
+  // `LineReader.callWidget`, which requires an in-progress `readLine()` call
+  // (it throws `IllegalStateException` otherwise) — so "mid-text deletes the
+  // character under the cursor" and "cursor at end of non-empty text" are
+  // pty-only, verified against a real read in the manual pty repro in the
+  // PR/report, matching plain Ctrl-D's own behavior exactly (delegation, not
+  // reimplementation, is what guarantees that match).
+  test(
+    "registerKittyEofWidget binds the kitty CSI-u Ctrl-D sequence to a widget that throws EndOfFileException on an empty buffer"
+  ):
+    val terminal = TerminalBuilder.builder().dumb(true).build()
+    try
+      val reader = LineReaderBuilder.builder().terminal(terminal).build()
+      ConsoleUiShell.registerKittyEofWidget(reader)
+      val mainKeyMap = reader.getKeyMaps.get(LineReader.MAIN)
+      val bound = mainKeyMap.getBound("[100;5u")
+      assert(bound.isInstanceOf[Reference], s"must be bound: $bound")
+
+      val widget = reader.getWidgets.get(bound.asInstanceOf[Reference].name())
+      assertEquals(reader.getBuffer.length(), 0, "buffer starts empty")
+      intercept[EndOfFileException](widget.apply())
     finally terminal.close()
