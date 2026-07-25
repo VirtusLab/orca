@@ -884,8 +884,8 @@ class WizardTest extends munit.FunSuite:
         s"intro must precede the first prompt, got:\n$output"
       )
       assert(
-        output.contains(path.toString),
-        s"expected the settings path in the intro, got:\n$output"
+        output.contains(s"Settings will be saved to $path."),
+        s"expected the future-tense save line (nothing's saved yet), got:\n$output"
       )
 
   test("reconfigure does not print the launch intro"):

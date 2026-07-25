@@ -3,6 +3,7 @@ package orca.shell.cli
 import mainargs.{Flag, ParserForMethods, Renderer, Util, arg, main}
 import org.jline.terminal.Terminal
 import orca.settings.GlobalSettings
+import orca.shell.run.LaunchResult
 import orca.shell.ui.ShellUi
 import orca.subprocess.TtyProbe
 
@@ -58,6 +59,15 @@ private[shell] object Cli:
         diagnostic(failure.message)
         failure.exitCode
       case Right(exit) => exit
+
+  /** A flow launch's exit code, propagated the way a wrapped subprocess's own
+    * status would be — shared by [[RunCli.run]] and [[AuthorCli]]'s launch
+    * (which now runs a flow too, since ADR 0021 §9's amendment).
+    */
+  private[cli] def exitCodeFor(result: LaunchResult): Int = result match
+    case LaunchResult.Ok           => ExitCodes.Ok
+    case LaunchResult.Failed(exit) => exit
+    case LaunchResult.Cancelled    => ExitCodes.SignalKilled
 
   /** Builds the shell's terminal, runs `body` over it, and always closes it —
     * the bracket every child-execing subcommand (run/edit/create/fork/continue/

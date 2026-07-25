@@ -482,10 +482,9 @@ The subcommand set mirrors every main-menu action, one short verb each, no
 `view <flow>`, `edit <flow>`, `create [name] --goal <text>`,
 `fork <source> [name] --changes <text>`, `continue [selector]`, `config`,
 `rediscover-stack`, `list`. Flags are shared by name across commands that mean
-the same thing (`--global`, `--harness`, `--yolo`/`--no-yolo`, `--json`,
-`--yes`). `create`/`fork` default to yolo ON (skip-approval mode) —
-`--no-yolo` opts out — matching the interactive confirm's own default and
-Orca's autonomous-by-default norm.
+the same thing (`--global`, `--json`, `--yes`). `create`/`fork` run the
+built-in authoring flow (§9) with the configured role agents — no
+harness/model/yolo flag exists for either.
 
 Both entry points call a shared `orca.shell.actions` package (`FlowResolution`,
 `RunAction`, `ViewAction`, `EditAction`, `AuthorAction`, `SessionAction`,

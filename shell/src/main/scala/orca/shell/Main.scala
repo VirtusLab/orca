@@ -20,7 +20,7 @@ import orca.shell.run.FallbackPolicy
 import orca.shell.sessions.{ManifestReader, RecordedRun, SessionPicker}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
-import orca.subprocess.PathProbe
+import orca.subprocess.{GitRepoProbe, PathProbe}
 import ox.discard
 
 import scala.annotation.tailrec
@@ -229,11 +229,16 @@ object Main:
     * point for [[createForkFlow]]. `private[shell]` so a scripted-UI test can
     * drive it directly.
     */
-  private[shell] def createNewFlow(ui: ShellUi, terminal: Terminal): Unit =
+  private[shell] def createNewFlow(
+      ui: ShellUi,
+      terminal: Terminal,
+      gitProbe: os.Path => Boolean = GitRepoProbe.isInsideWorkTree
+  ): Unit =
     val workDir = os.pwd
     val globalFlows = GlobalSettings.defaultFlows
     for
       tier <- pickTier(ui, "Where should the new flow be saved:", globalFlows)
+      _ <- requireGitRepoForGlobalTier(tier, workDir, gitProbe)
       goal <- promptDescription(ui, "Describe what the flow should do")
       target <- promptFlowTarget(
         ui,
@@ -254,13 +259,18 @@ object Main:
     * [[createNewFlow]]. `private[shell]` so a scripted-UI test can drive it
     * directly.
     */
-  private[shell] def createForkFlow(ui: ShellUi, terminal: Terminal): Unit =
+  private[shell] def createForkFlow(
+      ui: ShellUi,
+      terminal: Terminal,
+      gitProbe: os.Path => Boolean = GitRepoProbe.isInsideWorkTree
+  ): Unit =
     val workDir = os.pwd
     val globalFlows = GlobalSettings.defaultFlows
     for
       source <- selectFlow(ui, "Fork which flow:")
       changes <- promptDescription(ui, "Describe the changes for the fork")
       tier <- pickTier(ui, "Where should the fork be saved:", globalFlows)
+      _ <- requireGitRepoForGlobalTier(tier, workDir, gitProbe)
       target <- promptFlowTarget(
         ui,
         tier,
@@ -279,6 +289,22 @@ object Main:
           terminal
         )
         .discard
+
+  /** [[FlowAuthoring.requireGitRepoForGlobalTier]], reported and turned into an
+    * abort (`None`) rather than a re-prompt — a missing repo isn't something
+    * the user fixes by answering differently, so `createNewFlow`/
+    * `createForkFlow` stop right here instead of asking anything else.
+    */
+  private def requireGitRepoForGlobalTier(
+      tier: CreateTier,
+      workDir: os.Path,
+      gitProbe: os.Path => Boolean
+  ): Option[Unit] =
+    FlowAuthoring.requireGitRepoForGlobalTier(tier, workDir, gitProbe) match
+      case Left(message) =>
+        ShellOutput.error(message)
+        None
+      case Right(()) => Some(())
 
   /** The Project/Global target-tier picker, shared by new-flow authoring, fork
     * authoring, and customizing a built-in into a tier — same two choices every

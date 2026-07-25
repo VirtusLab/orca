@@ -3,8 +3,7 @@ package orca.shell.wizard
 import orca.agents.BackendTag
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 
-/** Model-selection machinery shared by the wizard's per-role model step
-  * ([[Wizard]]) and the authoring harness picker (`Main.selectAuthoringModel`):
+/** Model-selection machinery for the wizard's per-role model step ([[Wizard]]):
   * curated aliases for claude/codex, free text for every other harness,
   * current-pin promotion, and the blank/`-` free-text convention.
   */

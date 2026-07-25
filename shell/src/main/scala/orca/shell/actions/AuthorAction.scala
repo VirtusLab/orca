@@ -6,7 +6,7 @@ import orca.shell.ShellVersion
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
 import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
 import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher, LaunchResult}
-import orca.shell.ui.ShellUi
+import orca.shell.ui.{ShellOutput, ShellUi}
 
 /** Where the new/forked flow is saved (ADR 0021 §9) — the already-resolved
   * parameters `Main.createNewFlow`/`createForkFlow` gather via prompts before
@@ -71,7 +71,7 @@ private[shell] object AuthorAction:
       apiDir,
       ShellVersion.value
     )
-    launchAuthoringFlow(prompt, workDir, ui, terminal, launch)
+    launchAuthoringFlow(prompt, params, workDir, ui, terminal, launch)
 
   /** Fork-an-existing-flow authoring: extracts the bundled API material,
     * resolves the source flow to a readable path
@@ -104,7 +104,7 @@ private[shell] object AuthorAction:
       apiDir,
       ShellVersion.value
     )
-    launchAuthoringFlow(prompt, workDir, ui, terminal, launch)
+    launchAuthoringFlow(prompt, params, workDir, ui, terminal, launch)
 
   /** The tier's cache dir to extract the API material into: project flows under
     * `.orca/cache/`, global ones under `cache/` alongside the config-home
@@ -129,10 +129,12 @@ private[shell] object AuthorAction:
     * semantics apply: a project-tier target lands inside the flow's own branch
     * commits; a global-tier target is written outside the repo, so the branch
     * carries only orca's own bookkeeping and is cleaned up by `FlowLifecycle`'s
-    * existing throwaway-branch auto-delete.
+    * existing throwaway-branch auto-delete. [[reportOutcome]] then checks
+    * whether the target file actually exists, on a successful run only.
     */
   private def launchAuthoringFlow(
       prompt: String,
+      params: AuthorParams,
       workDir: os.Path,
       ui: ShellUi,
       terminal: Terminal,
@@ -141,7 +143,7 @@ private[shell] object AuthorAction:
     val flow =
       BuiltInFlows.extracted(sys.env.get, os.home, ShellVersion.value) /
         AuthoringFlowName
-    launch(
+    val result = launch(
       FallbackPolicy.Ask(ui),
       flow,
       prompt,
@@ -149,3 +151,29 @@ private[shell] object AuthorAction:
       FlowFlags(verbose = false, skipBranch = false),
       terminal
     )
+    reportOutcome(result, params)
+    result
+
+  /** Verifies the authoring flow actually did its job, since the write itself
+    * happens inside the flow's own coding session — never confirmed back to
+    * this caller — and a global-tier target in particular lands outside
+    * `workDir`, unverified by anything the flow run itself checked. Silent on
+    * [[LaunchResult.Failed]]/[[LaunchResult.Cancelled]]: those already report
+    * their own outcome, and neither makes any claim about the target file
+    * either way.
+    */
+  private def reportOutcome(result: LaunchResult, params: AuthorParams): Unit =
+    result match
+      case LaunchResult.Ok =>
+        val path = params.target.flowPath
+        if os.exists(path) then
+          val branchNote = params.tier match
+            case CreateTier.Project =>
+              " — its commits are on the current branch"
+            case CreateTier.Global => ""
+          ShellOutput.info(s"flow created at $path$branchNote")
+        else
+          ShellOutput.error(
+            s"the authoring flow finished, but $path was not written"
+          )
+      case LaunchResult.Failed(_) | LaunchResult.Cancelled => ()

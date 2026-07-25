@@ -41,6 +41,28 @@ private[shell] object FlowAuthoring:
   private val bundledNames =
     List("README.md", "implement.sc", "implement-interactive.sc")
 
+  /** Refuses Global-tier authoring from outside a git work tree (ADR 0021 §9
+    * amendment): the authoring flow always runs as a real orca flow at
+    * `workDir` — branch creation included — regardless of tier, so a
+    * Global-tier target (written outside the repo) can't paper over `workDir`
+    * itself not being a repo at all. Project-tier authoring needs no separate
+    * check here: its target already lives inside `workDir`, so a missing repo
+    * surfaces from the flow's own git calls either way. `probe` is injected
+    * (production: [[orca.subprocess.GitRepoProbe.isInsideWorkTree]]) so tests
+    * never spawn a real `git` process.
+    */
+  def requireGitRepoForGlobalTier(
+      tier: CreateTier,
+      workDir: os.Path,
+      probe: os.Path => Boolean
+  ): Either[String, Unit] =
+    Either.cond(
+      tier != CreateTier.Global || probe(workDir),
+      (),
+      "global flow authoring runs an orca flow and needs to be started from " +
+        "inside a git repository"
+    )
+
   /** Ensures a `.sc` suffix on a user-supplied filename. */
   def normalizedFileName(raw: String): String =
     if raw.endsWith(".sc") then raw else s"$raw.sc"

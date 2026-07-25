@@ -283,21 +283,13 @@ class CliTest extends munit.FunSuite:
   test("readTask: omitted + empty piped stdin is a usage error"):
     assert(RunCli.readTask(None, tty = false, () => "   \n").isLeft)
 
-  // --- LaunchResult -> exit code mapping ---
+  // --- LaunchResult -> exit code mapping (shared by RunCli and AuthorCli) ---
 
-  test("exitCodeFor maps Ok/Failed/Cancelled"):
-    assertEquals(RunCli.exitCodeFor(LaunchResult.Ok), 0)
-    assertEquals(RunCli.exitCodeFor(LaunchResult.Failed(3)), 3)
+  test("Cli.exitCodeFor maps Ok/Failed/Cancelled"):
+    assertEquals(Cli.exitCodeFor(LaunchResult.Ok), 0)
+    assertEquals(Cli.exitCodeFor(LaunchResult.Failed(3)), 3)
     assertEquals(
-      RunCli.exitCodeFor(LaunchResult.Cancelled),
-      ExitCodes.SignalKilled
-    )
-
-  test("AuthorCli.exitCodeFor maps Ok/Failed/Cancelled"):
-    assertEquals(AuthorCli.exitCodeFor(LaunchResult.Ok), 0)
-    assertEquals(AuthorCli.exitCodeFor(LaunchResult.Failed(3)), 3)
-    assertEquals(
-      AuthorCli.exitCodeFor(LaunchResult.Cancelled),
+      Cli.exitCodeFor(LaunchResult.Cancelled),
       ExitCodes.SignalKilled
     )
 
@@ -319,6 +311,35 @@ class CliTest extends munit.FunSuite:
       invoke("create", "--goal", "do a thing", "--global"),
       Right(2)
     )
+
+  // --- create/fork: Global tier needs a git repo (ADR 0021 §9 amendment) ---
+
+  test(
+    "AuthorCli.create: --global outside a git repo is a clean usage error, before any filename work"
+  ):
+    val result = AuthorCli.create(
+      name = None,
+      goal = "do a thing",
+      global = mainargs.Flag(true),
+      tty = true,
+      workDir = TempDirs.dir(),
+      gitProbe = _ => false
+    )
+    assertEquals(result, ExitCodes.UsageError)
+
+  test("AuthorCli.fork: --global outside a git repo is a clean usage error"):
+    val dir = TempDirs.dir()
+    os.write(dir / "source.sc", "// desc\nval a = 1\n")
+    val result = AuthorCli.fork(
+      source = "source.sc",
+      name = Some("out.sc"),
+      changes = "make it better",
+      global = mainargs.Flag(true),
+      tty = true,
+      workDir = dir,
+      gitProbe = _ => false
+    )
+    assertEquals(result, ExitCodes.UsageError)
 
   // --- create/fork filename guard: no path separators (security review) ---
 

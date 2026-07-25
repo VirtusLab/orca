@@ -1,7 +1,7 @@
 package orca.shell.cli
 
 import orca.shell.actions.{FlowResolution, RunAction}
-import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher, LaunchResult}
+import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher}
 
 /** `orca run`'s behavior (ADR 0021 §10): resolve the flow, read the task
   * (argument or piped stdin), then either the forced run ([[RunAction.run]]) or
@@ -53,9 +53,9 @@ private[cli] object RunCli:
                     terminal
                   )
               // propagates the flow child's raw exit code (LaunchResult.Failed's
-              // exit, via exitCodeFor) — run mirrors a wrapped subprocess's
+              // exit, via Cli.exitCodeFor) — run mirrors a wrapped subprocess's
               // status rather than the flat 0/1/2 usage-error convention.
-              exitCodeFor(result)
+              Cli.exitCodeFor(result)
 
   private def readAllStdin(): String =
     String(System.in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
@@ -88,8 +88,3 @@ private[cli] object RunCli:
           val piped = readStdin().trim
           if piped.isEmpty then Left("no task given, and stdin was empty")
           else Right(piped)
-
-  private[cli] def exitCodeFor(result: LaunchResult): Int = result match
-    case LaunchResult.Ok           => ExitCodes.Ok
-    case LaunchResult.Failed(exit) => exit
-    case LaunchResult.Cancelled    => ExitCodes.SignalKilled

@@ -667,6 +667,58 @@ class MainTest extends munit.FunSuite:
       assertEquals(ui.inputMultilineCount, 1)
       assertEquals(ui.inputCount, 1)
 
+  // --- createNewFlow / createForkFlow: Global tier needs a git repo ---
+
+  test(
+    "createNewFlow: choosing Global outside a git repo refuses before the goal prompt"
+  ):
+    withDumbTerminal: terminal =>
+      val ui = FlowScriptedUi(
+        selectScript = List(UiOutcome.Selected(CreateTier.Global))
+      )
+      val output =
+        captured(Main.createNewFlow(ui, terminal, gitProbe = _ => false))
+      assertEquals(ui.selectCount, 1)
+      assertEquals(ui.inputMultilineCount, 0)
+      assertEquals(ui.inputCount, 0)
+      assert(
+        output.contains("needs to be started from inside a git repository"),
+        output
+      )
+
+  test(
+    "createNewFlow: choosing Project ignores the git-repo guard entirely"
+  ):
+    withDumbTerminal: terminal =>
+      val ui = FlowScriptedUi(
+        selectScript = List(UiOutcome.Selected(CreateTier.Project)),
+        inputMultilineScript = List(UiOutcome.Cancelled)
+      )
+      Main.createNewFlow(ui, terminal, gitProbe = _ => false)
+      assertEquals(ui.selectCount, 1)
+      assertEquals(ui.inputMultilineCount, 1)
+
+  test(
+    "createForkFlow: choosing Global outside a git repo refuses before the filename prompt"
+  ):
+    withDumbTerminal: terminal =>
+      val ui = FlowScriptedUi(
+        selectScript = List(
+          UiOutcome.Selected(flow("implement.sc")),
+          UiOutcome.Selected(CreateTier.Global)
+        ),
+        inputMultilineScript = List(UiOutcome.Selected("add a retry step"))
+      )
+      val output =
+        captured(Main.createForkFlow(ui, terminal, gitProbe = _ => false))
+      assertEquals(ui.selectCount, 2)
+      assertEquals(ui.inputMultilineCount, 1)
+      assertEquals(ui.inputCount, 0)
+      assert(
+        output.contains("needs to be started from inside a git repository"),
+        output
+      )
+
   // --- rediscoverStack ---
 
   private def captured(body: => Unit): String =

@@ -85,7 +85,7 @@ private[shell] class Wizard(
       "Setting up Orca: choosing the agent (and model) used for each of the " +
         "planning, coding, and review roles."
     )
-    ShellOutput.info(s"Saved to $globalSettingsPath.")
+    ShellOutput.info(s"Settings will be saved to $globalSettingsPath.")
 
   /** Offers to rewrite a malformed global settings file from scratch via the
     * wizard (ADR 0021 §4). Declining leaves the file untouched and skips the
@@ -151,7 +151,7 @@ private[shell] class Wizard(
 private[shell] object Wizard:
 
   /** The `✓ found` / `not found on PATH` detection suffix shared by every
-    * harness picker's row label ([[Wizard.choiceFor]] and `Main.harnessLabel`).
+    * harness picker's row label ([[Wizard.choiceFor]]).
     */
   def pathStatus(found: Boolean): String =
     if found then "✓ found" else "not found on PATH"
@@ -161,9 +161,8 @@ private[shell] object Wizard:
     case Coding extends Role("Coding")
     case Review extends Role("Review")
 
-  /** Re-exported from [[ModelCatalog]] (also consumed by the authoring harness
-    * picker, `Main.selectAuthoringModel`) so existing `Wizard.ModelPick`/etc.
-    * call sites — including tests — need no change.
+  /** Re-exported from [[ModelCatalog]] so existing `Wizard.ModelPick`/etc. call
+    * sites — including tests — need no change.
     */
   private[wizard] type ModelPick = ModelCatalog.ModelPick
   private[wizard] val ModelPick: ModelCatalog.ModelPick.type =

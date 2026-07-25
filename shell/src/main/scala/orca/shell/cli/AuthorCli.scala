@@ -8,6 +8,7 @@ import orca.shell.actions.FlowResolution
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
 import orca.shell.run.LaunchResult
 import orca.shell.ui.{ShellOutput, ShellUi}
+import orca.subprocess.GitRepoProbe
 
 import Cli.{actionFailure, complete, requireNonBlank, requireTty, usageFailure}
 
@@ -26,7 +27,8 @@ private[cli] object AuthorCli:
       goal: String,
       global: Flag,
       tty: Boolean,
-      workDir: os.Path
+      workDir: os.Path,
+      gitProbe: os.Path => Boolean = GitRepoProbe.isInsideWorkTree
   ): Int =
     runAuthor(
       command = "create",
@@ -36,6 +38,7 @@ private[cli] object AuthorCli:
       name = name,
       global = global,
       workDir = workDir,
+      gitProbe = gitProbe,
       resolveSource = Right(()),
       defaultFileName = _ => FlowAuthoring.suggestFilenameForGoal(goal),
       launch = (_, params, ui, terminal) =>
@@ -48,7 +51,8 @@ private[cli] object AuthorCli:
       changes: String,
       global: Flag,
       tty: Boolean,
-      workDir: os.Path
+      workDir: os.Path,
+      gitProbe: os.Path => Boolean = GitRepoProbe.isInsideWorkTree
   ): Int =
     runAuthor(
       command = "fork",
@@ -58,6 +62,7 @@ private[cli] object AuthorCli:
       name = name,
       global = global,
       workDir = workDir,
+      gitProbe = gitProbe,
       resolveSource =
         FlowResolution.resolve(source, workDir).left.map(actionFailure),
       defaultFileName = src => FlowAuthoring.forkFilenameDefault(src.name),
@@ -70,7 +75,9 @@ private[cli] object AuthorCli:
     * resolved, matching the original order in which fork resolved its source
     * first; `defaultFileName` derives the filename default from it lazily, only
     * when no `name` was given; `launch` hands the prepared target to the
-    * matching authoring action.
+    * matching authoring action. `gitProbe` backs
+    * [[FlowAuthoring.requireGitRepoForGlobalTier]] — checked right after the
+    * tier is known, before the filename is ever resolved.
     */
   private def runAuthor[S](
       command: String,
@@ -80,6 +87,7 @@ private[cli] object AuthorCli:
       name: Option[String],
       global: Flag,
       workDir: os.Path,
+      gitProbe: os.Path => Boolean,
       resolveSource: => Either[CliFailure, S],
       defaultFileName: S => String,
       launch: (S, AuthorParams, ShellUi, Terminal) => LaunchResult
@@ -91,6 +99,10 @@ private[cli] object AuthorCli:
         _ <- requireNonBlank(blankArg, blankValue).left.map(usageFailure)
         source <- resolveSource
         tier = if global.value then CreateTier.Global else CreateTier.Project
+        _ <- FlowAuthoring
+          .requireGitRepoForGlobalTier(tier, workDir, gitProbe)
+          .left
+          .map(usageFailure)
         fileName = name.getOrElse(defaultFileName(source))
         _ <- validateFileName(fileName).left.map(usageFailure)
         target <- safePrepareTarget(tier, fileName, workDir, globalFlows).left
@@ -106,7 +118,7 @@ private[cli] object AuthorCli:
     ShellOutput.info(s"target flow: ${target.flowPath}")
     Cli.withTerminal: terminal =>
       val ui = ShellUi.make(terminal)
-      exitCodeFor(launch(source, params, ui, terminal))
+      Cli.exitCodeFor(launch(source, params, ui, terminal))
 
   /** Forwards to [[FlowAuthoring.validateFileName]] — the shared home also used
     * by the interactive shell's `Main.promptFlowTarget`, kept as a thin alias
@@ -125,11 +137,3 @@ private[cli] object AuthorCli:
       globalFlows: os.Path
   ): Either[String, CreateTarget] =
     FlowAuthoring.safePrepareTarget(tier, fileName, workDir, globalFlows)
-
-  /** Mirrors [[RunCli.exitCodeFor]]: the authoring flow's own outcome, the same
-    * way any other flow run's exit code is propagated.
-    */
-  private[cli] def exitCodeFor(result: LaunchResult): Int = result match
-    case LaunchResult.Ok           => ExitCodes.Ok
-    case LaunchResult.Failed(exit) => exit
-    case LaunchResult.Cancelled    => ExitCodes.SignalKilled
