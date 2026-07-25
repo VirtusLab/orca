@@ -3,6 +3,10 @@ package orca.shell.ui
 import org.jline.reader.{LineReader, LineReaderBuilder, Reference}
 import org.jline.terminal.Attributes
 import org.jline.terminal.TerminalBuilder
+import org.jline.terminal.impl.DumbTerminal
+
+import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
+import java.nio.charset.StandardCharsets
 
 class ConsoleUiShellTest extends munit.FunSuite:
 
@@ -42,6 +46,54 @@ class ConsoleUiShellTest extends munit.FunSuite:
       assertEquals(
         terminal.getAttributes.getLocalFlag(Attributes.LocalFlag.ISIG),
         before
+      )
+    finally terminal.close()
+
+  // The terminal actually distinguishing Shift+Enter because of this flag is
+  // only pty-verifiable (a real terminal emulator has to interpret the CSI
+  // sequence it's sent). What's a pure seam is the byte-level contract
+  // withKittyKeyboardProtocol owns: the push is written and flushed before
+  // body runs, and the pop follows once body returns — even if it throws —
+  // restoring the terminal's flag stack on every exit path, per the rigor
+  // requirement (submit/Ctrl-C/EOF/exception all reduce to "body completes or
+  // throws" from this method's point of view). A DumbTerminal wrapping a
+  // captured ByteArrayOutputStream is enough to observe exactly the bytes
+  // written, without a real tty.
+  test(
+    "withKittyKeyboardProtocol writes the push sequence before body runs, and the pop sequence after"
+  ):
+    val out = ByteArrayOutputStream()
+    val terminal = DumbTerminal(ByteArrayInputStream(Array.emptyByteArray), out)
+    try
+      val shell = ConsoleUiShell(terminal)
+      var duringBody = ""
+      shell.withKittyKeyboardProtocol:
+        duringBody = out.toString(StandardCharsets.UTF_8)
+      assertEquals(
+        duringBody,
+        ConsoleUiShell.KittyKeyboardProtocolPush,
+        "the push sequence must be written and flushed before body runs"
+      )
+      assertEquals(
+        out.toString(StandardCharsets.UTF_8),
+        ConsoleUiShell.KittyKeyboardProtocolPush + ConsoleUiShell.KittyKeyboardProtocolPop,
+        "the pop sequence must follow once withKittyKeyboardProtocol returns"
+      )
+    finally terminal.close()
+
+  test(
+    "withKittyKeyboardProtocol writes the pop sequence even when body throws"
+  ):
+    val out = ByteArrayOutputStream()
+    val terminal = DumbTerminal(ByteArrayInputStream(Array.emptyByteArray), out)
+    try
+      val shell = ConsoleUiShell(terminal)
+      val _ = intercept[RuntimeException]:
+        shell.withKittyKeyboardProtocol:
+          throw new RuntimeException("prompt body blew up")
+      assertEquals(
+        out.toString(StandardCharsets.UTF_8),
+        ConsoleUiShell.KittyKeyboardProtocolPush + ConsoleUiShell.KittyKeyboardProtocolPop
       )
     finally terminal.close()
 

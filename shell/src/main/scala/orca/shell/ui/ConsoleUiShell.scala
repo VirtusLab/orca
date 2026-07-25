@@ -187,7 +187,24 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     *     emulators and `tmux` do).
     *   - '''Shift+Enter / Alt+Enter insert a newline'''.
     *     [[ConsoleUiShell.registerInsertNewlineWidget]] binds a custom widget
-    *     for both — see its own scaladoc for exactly which byte sequences.
+    *     for both — see its own scaladoc for exactly which byte sequences. For
+    *     the duration of this read, [[withKittyKeyboardProtocol]] also
+    *     proactively requests the kitty keyboard protocol's "disambiguate
+    *     escape codes" flag, so terminals that support it but don't enable it
+    *     by default start sending the distinct Shift+Enter sequence too, rather
+    *     than the bare CR (indistinguishable from Enter) they'd otherwise send
+    *     — this notably includes VS Code's integrated terminal (its `xterm.js`
+    *     backend supports the protocol; this is the same mechanism Claude
+    *     Code's own CLI uses there), plus any kitty/WezTerm/ foot/Ghostty/xterm
+    *     session that hasn't already turned it on itself. xterm's older
+    *     `modifyOtherKeys` mode 2 was also tried as a wider-net fallback, but
+    *     pty-verified to re-encode ''every'' Ctrl+letter combination as an
+    *     escape sequence instead of its ordinary control byte (confirmed
+    *     broken: Ctrl-A, Ctrl-C, Ctrl-D all silently corrupted the buffer
+    *     instead of doing their normal jobs) — too broad a regression surface
+    *     to compensate for, so it is deliberately not requested. Terminals
+    *     supporting neither protocol are unaffected; Alt+Enter remains the
+    *     portable fallback that doesn't depend on terminal support.
     *
     * Ctrl-D on an empty buffer and Ctrl-C both cancel, exactly like
     * [[plainLineInput]] (`LineReaderImpl`'s own main loop throws
@@ -197,32 +214,33 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     * used to; Enter does that now).
     */
   def inputMultiline(prompt: String): UiOutcome[String] =
-    val writer = terminal.writer()
-    // Clear any stray bytes (e.g. a late coursier progress line) off the
-    // current line before painting, like the other prompt entry points.
-    print(ShellOutput.AnsiClearLine)
-    writer.println()
-    writer.println(
-      AttributedStringBuilder()
-        .style(AttributedStyle.DEFAULT.foreground(AttributedStyle.GREEN))
-        .append("? ")
-        .style(AttributedStyle.BOLD)
-        .append(prompt)
-        .append(":")
+    withKittyKeyboardProtocol:
+      val writer = terminal.writer()
+      // Clear any stray bytes (e.g. a late coursier progress line) off the
+      // current line before painting, like the other prompt entry points.
+      print(ShellOutput.AnsiClearLine)
+      writer.println()
+      writer.println(
+        AttributedStringBuilder()
+          .style(AttributedStyle.DEFAULT.foreground(AttributedStyle.GREEN))
+          .append("? ")
+          .style(AttributedStyle.BOLD)
+          .append(prompt)
+          .append(":")
+          .style(AttributedStyle.DEFAULT)
+          .toAnsi(terminal)
+      )
+      writer.flush()
+      val continuationPrompt = AttributedStringBuilder()
+        .style(AttributedStyle.DEFAULT.faint())
+        .append("… ")
         .style(AttributedStyle.DEFAULT)
         .toAnsi(terminal)
-    )
-    writer.flush()
-    val continuationPrompt = AttributedStringBuilder()
-      .style(AttributedStyle.DEFAULT.faint())
-      .append("… ")
-      .style(AttributedStyle.DEFAULT)
-      .toAnsi(terminal)
 
-    try UiOutcome.Selected(lineReader.readLine(continuationPrompt).trim)
-    catch
-      case _: UserInterruptException | _: EndOfFileException | _: IOError =>
-        UiOutcome.Cancelled
+      try UiOutcome.Selected(lineReader.readLine(continuationPrompt).trim)
+      catch
+        case _: UserInterruptException | _: EndOfFileException | _: IOError =>
+          UiOutcome.Cancelled
 
   /** Runs one prompt batch. ESC (an empty result map — ConsoleUI's own
     * cancel-to-empty-map behavior, enabled by `cancellableFirstPrompt`),
@@ -280,7 +298,64 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     try body
     finally terminal.setAttributes(original)
 
+  /** Proactively pushes the kitty keyboard protocol's "disambiguate escape
+    * codes" flag (value `1`, the mildest of the protocol's flags — it only adds
+    * distinct encodings for keys/modifier combinations that would otherwise be
+    * ambiguous or silent, like Shift+Enter; it does not change how ordinary
+    * characters or Ctrl+letter combinations are sent) for the duration of
+    * `body`, popped again in `finally` regardless of outcome (submit, Ctrl-C,
+    * EOF, or any other exception). Together with the bindings
+    * [[ConsoleUiShell.registerInsertNewlineWidget]] already installs, this is
+    * what makes kitty-protocol-''capable'' terminals that don't turn it on by
+    * default — including VS Code's integrated terminal — start sending the
+    * distinct Shift+Enter byte sequence those bindings expect, instead of the
+    * bare CR a plain Enter also sends. Terminals that already send that
+    * sequence natively (kitty, WezTerm, foot, Ghostty, recent xterm) simply see
+    * a flag they already had pushed, pushed again — harmless, and popped back
+    * to the same state. Terminals implementing the protocol not at all don't
+    * recognize either escape sequence and ignore them outright, so pushing
+    * unconditionally is safe.
+    *
+    * `CSI > 1 u` ''pushes'' the flag onto the protocol's own flag stack; `CSI <
+    * u` ''pops'' one level back off — so push-then-pop restores whatever the
+    * terminal's own stack held before this call, exactly, even if some outer
+    * code already pushed flags of its own.
+    *
+    * xterm's older `modifyOtherKeys` mode 2 was also considered as a wider-net
+    * fallback for terminals that support it but not the kitty protocol, but
+    * pty-verified (real terminal, not a unit test) to re-encode ''every''
+    * Ctrl+letter combination as a `CSI 27 ; 5 ; <ascii-of-letter> ~` escape
+    * sequence instead of its ordinary control byte — confirmed broken for
+    * Ctrl-A (cursor-to-line-start), Ctrl-C (interrupt), and Ctrl-D
+    * (EOF-or-delete): all three landed as literal garbage text in the buffer
+    * instead of doing their normal jobs, since `LineReaderImpl` has no
+    * keybinding for any of them (it relies on the terminal sending the
+    * traditional byte). Compensating would mean rebinding every emacs Ctrl
+    * combination the reader supports, not just the two or three this file
+    * happens to document — too broad a regression surface for the benefit, so
+    * `modifyOtherKeys` is deliberately never requested.
+    *
+    * Scoped to [[inputMultiline]]'s read only, not the whole shell: a
+    * `select`/`confirm` prompt has no use for a literal-newline key, so pushing
+    * this flag there would be pure risk (a leaked push on some other exit path)
+    * for no benefit.
+    */
+  private[ui] def withKittyKeyboardProtocol[A](body: => A): A =
+    val writer = terminal.writer()
+    writer.write(ConsoleUiShell.KittyKeyboardProtocolPush)
+    writer.flush()
+    try body
+    finally
+      writer.write(ConsoleUiShell.KittyKeyboardProtocolPop)
+      writer.flush()
+
 private[ui] object ConsoleUiShell:
+
+  // Requested by withKittyKeyboardProtocol around inputMultiline's read only;
+  // see that method's scaladoc for why the push/pop pair is safe to emit
+  // unconditionally and how it restores the terminal's prior flag stack.
+  private[ui] val KittyKeyboardProtocolPush = "[>1u"
+  private[ui] val KittyKeyboardProtocolPop = "[<u"
 
   /** `labels`, unchanged except duplicates get a `#<n>` suffix from their
     * second occurrence on — keeps every id unique so [[ConsoleUiShell.select]]
@@ -318,12 +393,20 @@ private[ui] object ConsoleUiShell:
     // with ESC. This is the portable fallback — it works in nearly every
     // terminal, the same convention Claude Code's own CLI relies on.
     mainKeyMap.bind(newline, "\r")
-    // Shift+Enter: the kitty keyboard protocol's CSI-u encoding (also xterm's
-    // `modifyOtherKeys` mode 2) — kitty, WezTerm, foot, Ghostty, recent
-    // xterm/VS Code all send this. The second binding is xterm's older
-    // `modifyOtherKeys` mode 1 encoding of the same key. Terminals
-    // implementing neither (GNOME Terminal/VTE, macOS Terminal.app, xterm
-    // with modifyOtherKeys off) send a plain CR for Shift+Enter —
+    // Shift+Enter: the kitty keyboard protocol's CSI-u encoding — kitty,
+    // WezTerm, foot, Ghostty, recent xterm, and VS Code's integrated terminal
+    // (xterm.js supports the protocol) all send this once the protocol's
+    // "disambiguate escape codes" flag is on. ConsoleUiShell.
+    // withKittyKeyboardProtocol proactively pushes that flag for the duration
+    // of inputMultiline's read, so terminals that support it but don't turn it
+    // on by default start sending this sequence too, instead of a bare CR
+    // (indistinguishable from Enter). The second binding below is xterm's
+    // `modifyOtherKeys` mode-2 encoding of the same key: kept for any terminal
+    // that already runs with that mode on for its own reasons, but this shell
+    // never requests it itself (see withKittyKeyboardProtocol's scaladoc: it
+    // was pty-verified to also re-encode, and thereby break, ordinary
+    // Ctrl+letter combinations like Ctrl-C/Ctrl-A/Ctrl-D). Terminals
+    // implementing neither still send a plain CR for Shift+Enter —
     // indistinguishable from Enter itself — which is exactly why Alt+Enter
     // above exists as a fallback that doesn't depend on terminal support.
     mainKeyMap.bind(newline, "[13;2u")
