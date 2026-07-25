@@ -293,8 +293,11 @@ log (`.orca/progress-<hash>.json`, where `<hash>` is derived from the prompt):
   pop`); create + checkout the feature branch; write and commit the progress log
   header. `--skip-branch` (`OrcaArgs.skipBranch`) binds the run to the CURRENT
   branch instead of creating one — for continuing work already planned on a
-  branch — refusing on a protected branch or a dirty tree (no auto-stash) rather
-  than creating one anyway.
+  branch — refusing on a protected branch or detached HEAD. On a FRESH
+  `--skip-branch` run a dirty tree is tolerated, not stashed: uncommitted or
+  untracked files (e.g. plan files left by a planning harness) stay in place for
+  the flow, and get swept into the first stage's commit. Resuming a
+  `--skip-branch` run still auto-stashes, same as normal mode.
 - **Resume:** the progress log lives at a branch-independent, prompt-derived path,
   so recovery finds it before any checkout. Its header is validated as untrusted
   input (branch must match orca naming rules, prompt hash must match), then the run

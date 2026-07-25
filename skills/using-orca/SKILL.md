@@ -34,6 +34,8 @@ Key flags:
 - `--skip-branch` — continue on the current branch instead of creating a
   new one. Use this when the current branch already has plan/context files
   the flow should pick up (e.g. it was planned with a harness first).
+  Uncommitted or untracked files are fine — no need to commit them first, the
+  flow leaves them in place and picks them up.
 - `--honor-pin` — run the flow's own pinned orca version instead of forcing
   this shell's.
 

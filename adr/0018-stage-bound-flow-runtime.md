@@ -353,10 +353,15 @@ the wrong branch.
   > current branch is protected (`main`/`master`/the repo's detected
   > default) or detached HEAD (`git.currentBranch()` reads back the literal
   > `"HEAD"`, which would otherwise commit into an unnamed, GC-eligible
-  > state) — the user must check out a feature branch themselves first —
-  > or when the tree is dirty: skip mode never auto-stashes (unlike R4),
-  > since the uncommitted state is likely the very context being handed off,
-  > and silently stashing it would be surprising. A reused branch name is
+  > state) — the user must check out a feature branch themselves first. A
+  > dirty tree is tolerated, not refused, on a FRESH skip-branch run (no
+  > resumable progress log yet): unlike R4, no auto-stash — the leftover
+  > files are likely the very hand-off context, so they stay in the working
+  > tree for the flow/agent, swept into the first stage's commit; one
+  > informational `Step` names the file count. Resuming an existing progress
+  > log still auto-stashes exactly as R4 does, since an interrupted stage's
+  > uncommitted partial work must not leak into the stage that re-runs. A
+  > reused branch name is
   > validated against a weaker git-ref-safety check
   > (`RecoveryCheck.isSafeGitRef`: no slug shape, but still rejects
   > `-`-prefixes, whitespace/control chars, glob metacharacters, `..`, a

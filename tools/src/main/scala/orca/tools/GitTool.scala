@@ -213,11 +213,16 @@ trait GitTool:
   def ensureClean(stashMessage: String)(using WorkspaceWrite): Boolean
 
   /** True when the working tree has uncommitted changes (`git status
-    * --porcelain`). READ-ONLY, unlike [[ensureClean]] — never stashes. Used by
-    * skip-branch mode, which refuses to run on a dirty tree rather than
-    * auto-stashing it (ADR 0018 amendment).
+    * --porcelain`). READ-ONLY, unlike [[ensureClean]] — never stashes.
     */
   def isDirty(): Boolean
+
+  /** The paths reported by `git status --porcelain` (modified, staged, and
+    * untracked), one per entry. READ-ONLY. Used by skip-branch mode's
+    * informational notice on a fresh run with a dirty tree (ADR 0018 amendment)
+    * — the count, not the parsed content, is what's shown.
+    */
+  def dirtyPaths(): List[String]
 
   /** Create a linked worktree at `path` on `branch`. If the branch already
     * exists it is checked out in the new worktree; otherwise it is created from
@@ -294,7 +299,13 @@ private[orca] class OsGitTool(
   private def branchExists(name: String): Boolean =
     git("branch", "--list", name).trim.nonEmpty
 
-  def isDirty(): Boolean = git("status", "--porcelain").trim.nonEmpty
+  def isDirty(): Boolean = dirtyPaths().nonEmpty
+
+  def dirtyPaths(): List[String] =
+    git("status", "--porcelain").linesIterator
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .toList
 
   def ensureClean(stashMessage: String)(using WorkspaceWrite): Boolean =
     val dirty = isDirty()

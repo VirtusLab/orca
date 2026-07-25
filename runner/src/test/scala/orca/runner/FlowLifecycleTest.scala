@@ -1800,44 +1800,207 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"abort message must name the unsafe ref: ${thrown.cause.getMessage}"
     )
 
+  /** `git stash list`, one entry per line, for asserting no/some stash was
+    * created.
+    */
+  private def stashList(workDir: os.Path): List[String] =
+    os.proc("git", "stash", "list")
+      .call(cwd = workDir)
+      .out
+      .text()
+      .linesIterator
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .toList
+
   test(
-    "skip-branch mode refuses a dirty working tree instead of auto-stashing"
+    "skip-branch mode, FRESH run: a MODIFIED tracked file stays dirty through the body and is swept into the stage commit"
+  ):
+    val workDir = GitRepo.seeded() // commits "seed.txt"
+    val prompt = "skip-branch-dirty-modified"
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("my-work")
+    os.write.over(workDir / "seed.txt", "modified in place")
+    val listener = new RecordingListener
+    var modifiedInBody = false
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        interaction = Some(interaction),
+        extraListeners = List(listener)
+      ):
+        val _ = stage("write code"):
+          modifiedInBody = os.read(workDir / "seed.txt") == "modified in place"
+          "done"
+    assert(
+      modifiedInBody,
+      "the modified file must still be dirty when the stage body runs — not stashed away"
+    )
+    assertEquals(
+      stashList(workDir),
+      Nil,
+      "a fresh skip-branch run must never stash"
+    )
+    assert(
+      !git.isDirty(),
+      "the modification must have been swept into a commit by run's end"
+    )
+    assertEquals(os.read(workDir / "seed.txt"), "modified in place")
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s.message }
+    assert(
+      steps.exists(_.contains("leaving 1 uncommitted/untracked file")),
+      s"expected the leftover-file notice: $steps"
+    )
+
+  test(
+    "skip-branch mode, FRESH run: an UNTRACKED file stays in the tree through the body and is swept into the stage commit"
   ):
     val workDir = GitRepo.seeded()
-    val prompt = "skip-branch-dirty"
+    val prompt = "skip-branch-dirty-untracked"
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("my-work")
+    os.write(workDir / "docs" / "plan.md", "plan notes", createFolders = true)
+    var presentInBody = false
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        interaction = Some(interaction)
+      ):
+        val _ = stage("write code"):
+          presentInBody = os.exists(workDir / "docs" / "plan.md")
+          "done"
+    assert(
+      presentInBody,
+      "the untracked file must still be present when the stage body runs"
+    )
+    assertEquals(
+      stashList(workDir),
+      Nil,
+      "a fresh skip-branch run must never stash"
+    )
+    val tracked =
+      os.proc("git", "ls-files")
+        .call(cwd = workDir)
+        .out
+        .text()
+        .linesIterator
+        .toSet
+    assert(
+      tracked.contains("docs/plan.md"),
+      "the leftover file must have been swept into a commit by run's end"
+    )
+
+  test(
+    "skip-branch mode, FRESH run: a modified file, an untracked file, and .orca-adjacent noise together — no crash, nothing stashed"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "skip-branch-dirty-mixed"
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("my-work")
+    os.write.over(workDir / "seed.txt", "modified in place")
+    os.write(workDir / "docs" / "plan.md", "plan notes", createFolders = true)
+    // Noise living right next to orca's own directory — must not confuse the
+    // dirty-file count or the discovery/log machinery.
+    os.write(
+      workDir / ".orca" / "cache" / "leftover.tmp",
+      "noise",
+      createFolders = true
+    )
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        interaction = Some(interaction)
+      ):
+        val _ = stage("write code")("done")
+    assertEquals(
+      stashList(workDir),
+      Nil,
+      "no stash entries may be created by a fresh skip-branch run"
+    )
+
+  test(
+    "skip-branch mode, RESUME with a dirty tree from an interrupted stage: still stashes, the stage re-runs clean"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "skip-branch-resume-dirty"
     val store = ProgressStore.default(workDir, prompt)
     val git = new OsGitTool(workDir)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     val _ = git.createBranch("my-work")
-    os.write(workDir / "uncommitted.txt", "plan notes")
-    val listener = new RecordingListener
-    val thrown = intercept[SurfacedFlowFailure]:
-      supervised:
-        val interaction = TerminalInteraction.start(
-          out = new PrintStream(new ByteArrayOutputStream()),
-          useColor = false,
-          animated = false
-        )
-        runFlow(
-          args = OrcaArgs(prompt, skipBranch = Flag(true)),
-          stackSettings = Some(StackSettings.empty),
-          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
-          workDir = workDir,
-          interaction = Some(interaction),
-          extraListeners = List(listener),
-          branchNaming = None,
-          returnToStartBranch = false,
-          progressStore = Some(store)
-        ):
-          val _ = stage("never-runs")("x")
-    assert(
-      thrown.cause.getMessage.contains("clean working tree"),
-      s"abort message must tell the user to commit/stash first: ${thrown.cause.getMessage}"
+    // A committed header, as if a prior run got this far before being killed.
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "my-work",
+        branch = "my-work",
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchCreated = false
+      )
     )
-    // Nothing was stashed — the uncommitted file is untouched, unlike normal
-    // mode's auto-stash.
-    assert(os.exists(workDir / "uncommitted.txt"))
-    assertEquals(os.read(workDir / "uncommitted.txt"), "plan notes")
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    // The interrupted stage's leftover: untracked, never committed.
+    os.write(workDir / "partial.txt", "half-finished work")
+    val listener = new RecordingListener
+    var sawPartialInBody = false
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        progressStore = Some(store),
+        interaction = Some(interaction),
+        extraListeners = List(listener)
+      ):
+        val _ = stage("task"):
+          sawPartialInBody = os.exists(workDir / "partial.txt")
+          "done"
+    assert(
+      !sawPartialInBody,
+      "resume must stash the interrupted stage's leftover, so the stage re-runs against a clean tree"
+    )
+    val stashes = stashList(workDir)
+    assert(
+      stashes.nonEmpty,
+      s"resume must still auto-stash a dirty tree: $stashes"
+    )
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s.message }
+    assert(
+      steps.exists(_.contains("stashed pending changes")),
+      s"a stash-recovery Step must be emitted on resume: $steps"
+    )
 
   test(
     "skip-branch mode: success teardown never deletes the reused branch, even with only orca commits"
