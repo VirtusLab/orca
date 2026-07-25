@@ -38,7 +38,13 @@ orca run implement.sc "add a rate limiter to /login"
 ```
 
 Useful flags: `--verbose`, `--skip-branch` (continue on the current branch
-instead of creating one), `--honor-pin`.
+instead of creating one), `--honor-pin` (run the flow's own pinned orca
+version instead of the shell's).
+
+In every mode, which agent (and model) handles the planning, coding, and
+review roles comes from `settings.properties` — written for you by the
+shell's first-run wizard or `orca config`, hand-editable too; see
+[Settings](#settings).
 
 Agents can load [`skills/using-orca`](skills/using-orca/SKILL.md) to know
 when and how to delegate here; see its installation section for Claude Code
@@ -326,15 +332,18 @@ Two files, both plain `key = value` lines, parsed once per run before setup:
   agent keys only. A relative or unset `XDG_CONFIG_HOME` falls back to
   `~/.config`; an absent global file is simply skipped.
 
-Per role key, precedence is: the `flow(planningAgent = ..., codingAgent =
-..., reviewAgent = ...)` programmatic override > the project file > the
-global file > the built-in default (claude, no model pin). Stack commands
-follow a separate chain (unchanged from ADR 0019):
-`reviewAndFixLoop(formatCommands = Use(...)/Off)` > `flow(stackSettings =
-Some(...))` > the project file > auto-discovery (which writes the file). An
-unreadable or malformed file — project or global — aborts the run before any
-tree mutation; the global file may contain ONLY agent keys, so a stack key
-there is also an error.
+Precedence, code always winning over files:
+
+- **Roles:** `flow(planningAgent = ...)` (and `codingAgent`/`reviewAgent`)
+  programmatic override > project file > global file > built-in default
+  (claude, no model pin).
+- **Stack commands:** `reviewAndFixLoop(formatCommands = Use(...)/Off)` >
+  `flow(stackSettings = Some(...))` > project file > auto-discovery (which
+  writes the file).
+
+An unreadable or malformed file — project or global — aborts the run before
+any tree mutation; the global file may contain ONLY agent keys, so a stack
+key there is also an error.
 
 **Stack commands.** Keys `format`, `lint`, and `test`. Each value is one shell
 command, run via `bash -c` in the flow's working directory; everything after
@@ -375,8 +384,12 @@ malformed project or global file still aborts the run either way. `setup`
 announces the resolved roles and where each came from:
 
 ```text
-agents: planning=claude (default), coding=codex:gpt-5-mini (project), review=claude (global)
+agents: planning=claude:claude-opus-5[1m] (default), coding=codex:gpt-5-mini (project), review=codex (global)
 ```
+
+(A role without a pin of its own shows the wired default's model when one
+exists — bare `claude` resolves to Opus — and stays bare where the harness's
+own configuration decides, as for `codex`.)
 
 **Auto-discovery.** Discovery runs when the project file is absent, or when
 it exists but names no stack line (live or commented) — a hand-written file
@@ -831,13 +844,18 @@ run:
 scala-cli run implement.sc -- "your task here"
 ```
 
+For a guided start, install [Orca Shell](#orca-shell) instead: its first-run
+wizard configures the role agents and models for you.
+
 ## Orca Shell
 
 Orca Shell is an interactive terminal front-end for the same flow scripts: a
-first-run wizard picks a harness for each of the planning/coding/review roles,
-then a menu lets you discover flows (project, global, and built-in), run one,
-view or edit its source, create a new flow (or fork an existing one) with the
-configured role agents' help, or continue a session left by a previous run.
+first-run wizard picks a harness and model for each of the
+planning/coding/review roles — writing the same global `settings.properties`
+described under [Settings](#settings) — then a menu lets you discover flows
+(project, global, and built-in), run one, view or edit its source, create a
+new flow (or fork an existing one) with the configured role agents' help, or
+continue a session left by a previous run.
 It launches flows the same way `scala-cli
 run` does — direct `scala-cli run flow.sc -- "task"` keeps working unchanged.
 
@@ -849,13 +867,13 @@ action non-interactively and exits.
 
 | Command | Key flags | Does |
 |---|---|---|
-| `orca run <flow> [task]` | `--verbose`, `--skip-branch`, `--honor-pin` | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
+| `orca run <flow> [task]` | `--verbose`, `--skip-branch`, `--honor-pin` (use the flow's own pinned orca version) | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
 | `orca view <flow>` | `--plain`, `--color` | print a flow's source (highlighted when stdout is a terminal) |
 | `orca edit <flow>` | `--to project\|global` | open a flow in `$VISUAL`/`$EDITOR`/vi (`--to` required to customize a built-in) |
 | `orca create [name]` | `--goal <text>` (required), `--global` | author a new flow, run as the built-in `implement-interactive.sc` flow with the configured role agents |
 | `orca fork <source> [name]` | `--changes <text>` (required), `--global` | fork an existing flow, the same way |
 | `orca continue [selector]` | `--list`, `--json` | resume a recorded harness session (no selector = newest); `selector` is an index or session name |
-| `orca config` | `--planning-agent h`, `--coding-agent h`, `--review-agent h` | show the configured role agents, or set any subset |
+| `orca config` | `--planning-agent`, `--coding-agent`, `--review-agent`, each taking `harness[:model]` | show the configured role agents, or set any subset |
 | `orca list` | `--json` | list discovered flows across the project/global/built-in tiers |
 | `orca rediscover-stack` | `--yes` | clear discovered stack settings so the next flow run re-detects them |
 
@@ -873,6 +891,7 @@ orca create rate-limit.sc --goal "add a token-bucket limiter"
 orca continue              # resume the last session
 orca continue --list
 orca config --coding-agent codex
+orca config --review-agent claude:sonnet
 orca view implement.sc
 ```
 
