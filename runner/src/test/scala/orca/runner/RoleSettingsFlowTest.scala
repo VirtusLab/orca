@@ -271,6 +271,48 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       s"expected exactly one per-role announcement, saw: ${steps.get()}"
     )
 
+  test("a project model pin is announced as harness:model"):
+    val workDir = GitRepo.seeded()
+    writeProject(workDir, "codingAgent = codex:gpt-5-mini\n")
+    val steps = new AtomicReference[List[String]](Nil)
+    driveFlow(
+      workDir,
+      stackSettings = Some(StackSettings.empty),
+      listeners = List(recordSteps(steps)),
+      wiring = wiringWith(claude = StubAgent.claude, codex = new StubCodex)
+    )(())
+    val announcements = steps.get().filter(_.startsWith("agents:"))
+    assertEquals(
+      announcements,
+      List(
+        "agents: planning=claude (default), coding=codex:gpt-5-mini (project), " +
+          "review=claude (default)"
+      ),
+      s"expected the pinned model in the coding segment: ${steps.get()}"
+    )
+
+  test(
+    "an unpinned role keeps the bare harness form, unchanged"
+  ):
+    val workDir = GitRepo.seeded()
+    writeProject(workDir, "codingAgent = codex\n")
+    val steps = new AtomicReference[List[String]](Nil)
+    driveFlow(
+      workDir,
+      stackSettings = Some(StackSettings.empty),
+      listeners = List(recordSteps(steps)),
+      wiring = wiringWith(claude = StubAgent.claude, codex = new StubCodex)
+    )(())
+    val announcements = steps.get().filter(_.startsWith("agents:"))
+    assertEquals(
+      announcements,
+      List(
+        "agents: planning=claude (default), coding=codex (project), " +
+          "review=claude (default)"
+      ),
+      s"an unset model must not render a `:` suffix: ${steps.get()}"
+    )
+
   test(
     "a symlinked project settings file aborts before any write or branch mutation"
   ):
