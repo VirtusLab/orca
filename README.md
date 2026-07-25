@@ -40,6 +40,10 @@ orca run implement.sc "add a rate limiter to /login"
 Useful flags: `--verbose`, `--skip-branch` (continue on the current branch
 instead of creating one), `--honor-pin`.
 
+Agents can load [`skills/using-orca`](skills/using-orca/SKILL.md) to know
+when and how to delegate here; see its installation section for Claude Code
+and other harnesses.
+
 **As a script**: run a flow directly with `scala-cli`, no install required —
 see [An example flow](#an-example-flow).
 
