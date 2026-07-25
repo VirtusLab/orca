@@ -108,7 +108,8 @@ class ScalaCliSmokeTest extends munit.FunSuite:
     "implement-enhanced.sc",
     "issue-pr-bugfix.sc",
     "issue-pr.sc",
-    "epic.sc"
+    "epic.sc",
+    "simple.sc"
   )
 
   /** Each flow script is a real-world consumer of the public API, so a rename

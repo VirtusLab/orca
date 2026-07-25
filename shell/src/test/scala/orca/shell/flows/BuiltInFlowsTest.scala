@@ -14,7 +14,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
   private def indexNames: List[String] =
     resourceText("index").linesIterator.filter(_.nonEmpty).toList
 
-  test("the generated index lists the six built-in flows"):
+  test("the generated index lists the built-in flows"):
     assertEquals(
       indexNames.sorted,
       List(
@@ -23,7 +23,8 @@ class BuiltInFlowsTest extends munit.FunSuite:
         "implement-interactive.sc",
         "implement.sc",
         "issue-pr-bugfix.sc",
-        "issue-pr.sc"
+        "issue-pr.sc",
+        "simple.sc"
       )
     )
 
@@ -90,7 +91,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
   test("extracted (release version) self-heals a half-populated leftover dir"):
     withTempHome: home =>
       // Simulates a process killed mid-extraction under the old
-      // existence-keyed logic: the dir exists but only has 2 of 6 files.
+      // existence-keyed logic: the dir exists but only has 2 of the files.
       val dir = home / ".cache" / "orca" / "shell" / "0.0.18" / "flows"
       os.makeDir.all(dir)
       val expectedNames = indexNames.sorted

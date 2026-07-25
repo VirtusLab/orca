@@ -2,7 +2,7 @@ package orca.shell.flows
 
 import orca.shell.ShellVersion
 
-/** Bundles the six built-in flows (ADR 0021 §7) as jar resources under
+/** Bundles the built-in flows (ADR 0021 §7) as jar resources under
   * `/orca/shell/flows/` (see build.sbt's resource generator) and extracts them
   * to a real path on disk so scala-cli can run them. A generated `index`
   * resource (newline-separated filenames) drives the listing, since jar
