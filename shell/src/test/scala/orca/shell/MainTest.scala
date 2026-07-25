@@ -55,30 +55,6 @@ private class RecordingSelectUi(outcome: UiOutcome[DiscoveredFlow])
   def inputMultiline(prompt: String): UiOutcome[String] =
     throw new UnsupportedOperationException("pickFlow doesn't input")
 
-/** Answers a queue of `input` outcomes in order; every other prompt is
-  * unsupported — [[Main.promptFlowTarget]] only ever calls `input`.
-  */
-private class InputQueueUi(inputs: List[UiOutcome[String]]) extends ShellUi:
-  private var pending = inputs
-  def select[A](
-      title: String,
-      choices: List[Choice[A]],
-      preselect: Option[A] = None
-  ): UiOutcome[A] =
-    throw new UnsupportedOperationException("promptFlowTarget doesn't select")
-  def confirm(question: String, default: Boolean): UiOutcome[Boolean] =
-    throw new UnsupportedOperationException(
-      "promptFlowTarget doesn't confirm"
-    )
-  def input(prompt: String, default: Option[String] = None): UiOutcome[String] =
-    val outcome = pending.head
-    pending = pending.tail
-    outcome
-  def inputMultiline(prompt: String): UiOutcome[String] =
-    throw new UnsupportedOperationException(
-      "promptFlowTarget doesn't input-multiline"
-    )
-
 /** Counts calls to `select`/`inputMultiline`/`input` and replays queued
   * outcomes for each — used to verify `Main.createNewFlow`/`createForkFlow`
   * stop asking anything the moment a prompt is cancelled, in particular that no
@@ -566,22 +542,6 @@ class MainTest extends munit.FunSuite:
       None
     )
 
-  // --- promptFlowTarget (F1: a `/` in the filename must re-prompt, not crash) ---
-
-  test(
-    "promptFlowTarget: a filename with a path separator re-prompts instead of crashing"
-  ):
-    val dir = TempDirs.dir()
-    val ui = InputQueueUi(
-      List(UiOutcome.Selected("sub/x"), UiOutcome.Selected("valid-name"))
-    )
-    val result =
-      Main.promptFlowTarget(ui, CreateTier.Project, dir, dir / "global", None)
-    assertEquals(
-      result.map(_.flowPath),
-      Some(dir / ".orca" / "flows" / "valid-name.sc")
-    )
-
   // --- createNewFlow / createForkFlow: cancelling stops immediately, with no
   // harness/model/yolo prompt following (authoring no longer has one — it
   // runs the built-in flow with the configured role agents automatically).
@@ -637,7 +597,7 @@ class MainTest extends munit.FunSuite:
       assertEquals(ui.inputCount, 0)
 
   test(
-    "createForkFlow: cancelling the tier prompt stops before the filename prompt"
+    "createForkFlow: cancelling the tier prompt is the last stop before authoring would launch"
   ):
     withDumbTerminal: terminal =>
       val ui = FlowScriptedUi(
@@ -649,75 +609,6 @@ class MainTest extends munit.FunSuite:
       assertEquals(ui.selectCount, 2)
       assertEquals(ui.inputMultilineCount, 1)
       assertEquals(ui.inputCount, 0)
-
-  test(
-    "createForkFlow: cancelling the filename prompt is the last stop before authoring would launch"
-  ):
-    withDumbTerminal: terminal =>
-      val ui = FlowScriptedUi(
-        selectScript = List(
-          UiOutcome.Selected(flow("implement.sc")),
-          UiOutcome.Selected(CreateTier.Project)
-        ),
-        inputMultilineScript = List(UiOutcome.Selected("add a retry step")),
-        inputScript = List(UiOutcome.Cancelled)
-      )
-      Main.createForkFlow(ui, terminal)
-      assertEquals(ui.selectCount, 2)
-      assertEquals(ui.inputMultilineCount, 1)
-      assertEquals(ui.inputCount, 1)
-
-  // --- createNewFlow / createForkFlow: Global tier needs a git repo ---
-
-  test(
-    "createNewFlow: choosing Global outside a git repo refuses before the goal prompt"
-  ):
-    withDumbTerminal: terminal =>
-      val ui = FlowScriptedUi(
-        selectScript = List(UiOutcome.Selected(CreateTier.Global))
-      )
-      val output =
-        captured(Main.createNewFlow(ui, terminal, gitProbe = _ => false))
-      assertEquals(ui.selectCount, 1)
-      assertEquals(ui.inputMultilineCount, 0)
-      assertEquals(ui.inputCount, 0)
-      assert(
-        output.contains("needs to be started from inside a git repository"),
-        output
-      )
-
-  test(
-    "createNewFlow: choosing Project ignores the git-repo guard entirely"
-  ):
-    withDumbTerminal: terminal =>
-      val ui = FlowScriptedUi(
-        selectScript = List(UiOutcome.Selected(CreateTier.Project)),
-        inputMultilineScript = List(UiOutcome.Cancelled)
-      )
-      Main.createNewFlow(ui, terminal, gitProbe = _ => false)
-      assertEquals(ui.selectCount, 1)
-      assertEquals(ui.inputMultilineCount, 1)
-
-  test(
-    "createForkFlow: choosing Global outside a git repo refuses before the filename prompt"
-  ):
-    withDumbTerminal: terminal =>
-      val ui = FlowScriptedUi(
-        selectScript = List(
-          UiOutcome.Selected(flow("implement.sc")),
-          UiOutcome.Selected(CreateTier.Global)
-        ),
-        inputMultilineScript = List(UiOutcome.Selected("add a retry step"))
-      )
-      val output =
-        captured(Main.createForkFlow(ui, terminal, gitProbe = _ => false))
-      assertEquals(ui.selectCount, 2)
-      assertEquals(ui.inputMultilineCount, 1)
-      assertEquals(ui.inputCount, 0)
-      assert(
-        output.contains("needs to be started from inside a git repository"),
-        output
-      )
 
   // --- rediscoverStack ---
 

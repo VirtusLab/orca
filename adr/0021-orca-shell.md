@@ -453,18 +453,20 @@ included only as a last-resort fallback line.
 > `--no-yolo`. The wizard's model UX (`ModelCatalog`) is unaffected — it's
 > still how the wizard (§4) picks each role's model.
 >
-> The flow always launches with `workDir` = the project repo the shell was
-> invoked from (`os.pwd`), same as any other flow run — never the
-> harness-workspace `cwd` the old raw session launch used. The target tier
-> still governs where the new/forked file itself lands: a project-tier target
-> is inside that repo, so it lands in the run's own branch commits like any
-> other stage's edit. A global-tier target is written outside the repo
-> entirely, so the branch ends up carrying only orca's own progress-log
-> bookkeeping (no repo diff at all) — exactly the case
-> `FlowLifecycle.finishBranch`'s existing throwaway-branch check
-> (`diffBranchExcludingOrca` against the start branch is blank) already
-> deletes automatically once the run succeeds, restoring the start branch. No
-> new cleanup logic is needed for this.
+> **Amendment (2026-07-25, second).** The authoring flow runs in a throwaway
+> sandbox (`AuthoringSandbox`) — a temp dir with a fresh git repo, a local
+> commit identity, and a pre-committed settings file whose commented-out stack
+> lines keep stack discovery from running (a flow script has no project stack)
+> — never in the user's repository. Authoring therefore works from any
+> directory, never stashes or commits the user's tree, and leaves no branches
+> behind; the flow writes the file at the sandbox root and, on success, the
+> shell copies it out to the target tier and deletes the sandbox (a failed
+> run keeps it, with a notice, for inspection). Trade-off: an interrupted
+> authoring run is not resumable via `orca continue` — its session manifest
+> lives in the sandbox. The filename is auto-derived (goal slug /
+> `<source>-fork.sc`), uniquified on collision, and never prompted for; the
+> CLI's optional `name` argument still allows an explicit choice (validated,
+> collision-refused).
 
 ### 10. Command-line interface
 

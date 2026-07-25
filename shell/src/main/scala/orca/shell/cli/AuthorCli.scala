@@ -8,17 +8,19 @@ import orca.shell.actions.FlowResolution
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
 import orca.shell.run.LaunchResult
 import orca.shell.ui.{ShellOutput, ShellUi}
-import orca.subprocess.GitRepoProbe
 
 import Cli.{actionFailure, complete, requireNonBlank, requireTty, usageFailure}
 
 /** `orca create` and `orca fork`'s behavior (ADR 0021 §10/§9): the shared
   * author pipeline both drive — tty-gate, non-blank guard, tier resolution,
-  * filename validation, target preparation, then the authoring flow launch. The
-  * configured role agents (and their model pins) do the writing automatically,
-  * so there's nothing else to resolve from flags. Create and fork differ only
-  * in what they resolve up front (nothing vs. the source flow), the default
-  * filename, and which [[AuthorAction]] method launches the flow.
+  * target resolution, then the sandboxed authoring flow launch. The configured
+  * role agents (and their model pins) do the writing automatically, and the run
+  * happens in a throwaway sandbox — never the caller's directory — so there's
+  * nothing else to resolve from flags. An explicit `name` is validated and
+  * refused on collision; an omitted one is auto-derived and uniquified. Create
+  * and fork differ only in what they resolve up front (nothing vs. the source
+  * flow), the default filename, and which [[AuthorAction]] method launches the
+  * flow.
   */
 private[cli] object AuthorCli:
 
@@ -27,8 +29,7 @@ private[cli] object AuthorCli:
       goal: String,
       global: Flag,
       tty: Boolean,
-      workDir: os.Path,
-      gitProbe: os.Path => Boolean = GitRepoProbe.isInsideWorkTree
+      workDir: os.Path
   ): Int =
     runAuthor(
       command = "create",
@@ -38,11 +39,10 @@ private[cli] object AuthorCli:
       name = name,
       global = global,
       workDir = workDir,
-      gitProbe = gitProbe,
       resolveSource = Right(()),
       defaultFileName = _ => FlowAuthoring.suggestFilenameForGoal(goal),
       launch = (_, params, ui, terminal) =>
-        AuthorAction.create(goal, params, workDir, ui, terminal)
+        AuthorAction.create(goal, params, ui, terminal)
     )
 
   def fork(
@@ -51,8 +51,7 @@ private[cli] object AuthorCli:
       changes: String,
       global: Flag,
       tty: Boolean,
-      workDir: os.Path,
-      gitProbe: os.Path => Boolean = GitRepoProbe.isInsideWorkTree
+      workDir: os.Path
   ): Int =
     runAuthor(
       command = "fork",
@@ -62,22 +61,18 @@ private[cli] object AuthorCli:
       name = name,
       global = global,
       workDir = workDir,
-      gitProbe = gitProbe,
       resolveSource =
         FlowResolution.resolve(source, workDir).left.map(actionFailure),
       defaultFileName = src => FlowAuthoring.forkFilenameDefault(src.name),
       launch = (src, params, ui, terminal) =>
-        AuthorAction.fork(src, changes, params, workDir, ui, terminal)
+        AuthorAction.fork(src, changes, params, ui, terminal)
     )
 
   /** The pipeline `create` and `fork` share (ADR 0021 §9). `resolveSource`
     * yields the fork's source flow (or `()` for create) before the tier flag is
-    * resolved, matching the original order in which fork resolved its source
-    * first; `defaultFileName` derives the filename default from it lazily, only
+    * resolved; `defaultFileName` derives the auto filename from it lazily, only
     * when no `name` was given; `launch` hands the prepared target to the
-    * matching authoring action. `gitProbe` backs
-    * [[FlowAuthoring.requireGitRepoForGlobalTier]] — checked right after the
-    * tier is known, before the filename is ever resolved.
+    * matching authoring action.
     */
   private def runAuthor[S](
       command: String,
@@ -87,7 +82,6 @@ private[cli] object AuthorCli:
       name: Option[String],
       global: Flag,
       workDir: os.Path,
-      gitProbe: os.Path => Boolean,
       resolveSource: => Either[CliFailure, S],
       defaultFileName: S => String,
       launch: (S, AuthorParams, ShellUi, Terminal) => LaunchResult
@@ -99,15 +93,42 @@ private[cli] object AuthorCli:
         _ <- requireNonBlank(blankArg, blankValue).left.map(usageFailure)
         source <- resolveSource
         tier = if global.value then CreateTier.Global else CreateTier.Project
-        _ <- FlowAuthoring
-          .requireGitRepoForGlobalTier(tier, workDir, gitProbe)
-          .left
-          .map(usageFailure)
-        fileName = name.getOrElse(defaultFileName(source))
-        _ <- validateFileName(fileName).left.map(usageFailure)
-        target <- safePrepareTarget(tier, fileName, workDir, globalFlows).left
-          .map(actionFailure)
+        target <- resolveTarget(
+          tier,
+          name,
+          defaultFileName(source),
+          workDir,
+          globalFlows
+        )
       yield launchAuthoring(target, AuthorParams(tier, target), source, launch)
+
+  /** An explicit `name` goes through validation + collision refusal (the caller
+    * chose it — silently renaming would be surprising); an omitted one is
+    * auto-derived and uniquified via [[FlowAuthoring.prepareAutoTarget]], which
+    * never fails.
+    */
+  private def resolveTarget(
+      tier: CreateTier,
+      name: Option[String],
+      autoName: String,
+      workDir: os.Path,
+      globalFlows: os.Path
+  ): Either[CliFailure, CreateTarget] =
+    name match
+      case Some(explicit) =>
+        for
+          _ <- validateFileName(explicit).left.map(usageFailure)
+          target <- safePrepareTarget(
+            tier,
+            explicit,
+            workDir,
+            globalFlows
+          ).left.map(actionFailure)
+        yield target
+      case None =>
+        Right(
+          FlowAuthoring.prepareAutoTarget(tier, autoName, workDir, globalFlows)
+        )
 
   private def launchAuthoring[S](
       target: CreateTarget,
@@ -120,9 +141,8 @@ private[cli] object AuthorCli:
       val ui = ShellUi.make(terminal)
       Cli.exitCodeFor(launch(source, params, ui, terminal))
 
-  /** Forwards to [[FlowAuthoring.validateFileName]] — the shared home also used
-    * by the interactive shell's `Main.promptFlowTarget`, kept as a thin alias
-    * here since existing call sites/tests spell it `AuthorCli.*`.
+  /** Forwards to [[FlowAuthoring.validateFileName]], kept as a thin alias since
+    * existing call sites/tests spell it `AuthorCli.*`.
     */
   private[cli] def validateFileName(fileName: String): Either[String, Unit] =
     FlowAuthoring.validateFileName(fileName)

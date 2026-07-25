@@ -41,28 +41,6 @@ private[shell] object FlowAuthoring:
   private val bundledNames =
     List("README.md", "implement.sc", "implement-interactive.sc")
 
-  /** Refuses Global-tier authoring from outside a git work tree (ADR 0021 §9
-    * amendment): the authoring flow always runs as a real orca flow at
-    * `workDir` — branch creation included — regardless of tier, so a
-    * Global-tier target (written outside the repo) can't paper over `workDir`
-    * itself not being a repo at all. Project-tier authoring needs no separate
-    * check here: its target already lives inside `workDir`, so a missing repo
-    * surfaces from the flow's own git calls either way. `probe` is injected
-    * (production: [[orca.subprocess.GitRepoProbe.isInsideWorkTree]]) so tests
-    * never spawn a real `git` process.
-    */
-  def requireGitRepoForGlobalTier(
-      tier: CreateTier,
-      workDir: os.Path,
-      probe: os.Path => Boolean
-  ): Either[String, Unit] =
-    Either.cond(
-      tier != CreateTier.Global || probe(workDir),
-      (),
-      "global flow authoring runs an orca flow and needs to be started from " +
-        "inside a git repository"
-    )
-
   /** Ensures a `.sc` suffix on a user-supplied filename. */
   def normalizedFileName(raw: String): String =
     if raw.endsWith(".sc") then raw else s"$raw.sc"
@@ -289,6 +267,25 @@ private[shell] object FlowAuthoring:
     if os.exists(target.flowPath) then
       Left(s"${target.flowPath} already exists — pick a different name")
     else Right(target)
+
+  /** [[prepareTarget]] with an auto-derived, collision-free filename (ADR 0021
+    * §9): keeps `baseName` when the target is free, else appends `-2`, `-3`, …
+    * before the `.sc` suffix. Authoring never asks for a filename, so a taken
+    * name is uniquified rather than refused.
+    */
+  def prepareAutoTarget(
+      tier: CreateTier,
+      baseName: String,
+      workDir: os.Path,
+      globalFlows: os.Path
+  ): CreateTarget =
+    val normalized = normalizedFileName(baseName)
+    val stem = normalized.stripSuffix(".sc")
+    LazyList
+      .from(1)
+      .map(n => if n == 1 then normalized else s"$stem-$n.sc")
+      .flatMap(name => prepareTarget(tier, name, workDir, globalFlows).toOption)
+      .head
 
   /** A flow filename is documented as a bare filename, not a path — rejects one
     * containing a path separator (`../escape.sc`, `sub/dir.sc`) with a clean

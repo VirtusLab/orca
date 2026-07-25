@@ -191,8 +191,9 @@ private[shell] object Cli:
     EditCli.run(flow, to, isTty, os.pwd)
 
   @main(doc =
-    "Author a new flow: runs the built-in implement-interactive.sc flow with " +
-      "the goal as its task, using the configured role agents. --goal is required.\n" +
+    "Author a new flow: runs the built-in implement-interactive.sc flow in an " +
+      "isolated sandbox, using the configured role agents. --goal is required; " +
+      "the filename is derived from it when omitted.\n" +
       """Example: orca create --goal "summarize a PR's review threads""""
   )
   def create(
@@ -212,9 +213,9 @@ private[shell] object Cli:
 
   @main(doc =
     "Fork an existing flow: runs the built-in implement-interactive.sc flow " +
-      "with the changes as its task, using the configured role agents. " +
-      "--changes is required.\n" +
-      """Example: orca fork implement.sc my-variant --changes "add a retry step""""
+      "in an isolated sandbox, using the configured role agents. --changes is " +
+      "required; the filename defaults to <source>-fork.sc.\n" +
+      """Example: orca fork implement.sc --changes "add a retry step""""
   )
   def fork(
       @arg(positional = true, doc = "source flow name or path")

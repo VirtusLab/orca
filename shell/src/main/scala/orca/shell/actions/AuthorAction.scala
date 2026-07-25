@@ -3,27 +3,30 @@ package orca.shell.actions
 import org.jline.terminal.Terminal
 import orca.OrcaDir
 import orca.shell.ShellVersion
-import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
+import orca.shell.create.{
+  AuthoringSandbox,
+  CreateTarget,
+  CreateTier,
+  FlowAuthoring
+}
 import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
 import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher, LaunchResult}
 import orca.shell.ui.{ShellOutput, ShellUi}
 
 /** Where the new/forked flow is saved (ADR 0021 §9) — the already-resolved
-  * parameters `Main.createNewFlow`/`createForkFlow` gather via prompts before
-  * calling into [[AuthorAction]].
+  * parameters `Main.createNewFlow`/`createForkFlow` gather before calling into
+  * [[AuthorAction]].
   */
 private[shell] case class AuthorParams(tier: CreateTier, target: CreateTarget)
 
 /** Authors a new or forked flow by running the built-in
   * `implement-interactive.sc` flow with an authoring task as its prompt (ADR
   * 0021 §9): the configured planning/coding/review agents — and their model
-  * pins — do the writing, exactly as they would for any other flow run, so
-  * there's no separate harness/model/yolo choice here. Extracts the bundled API
-  * material, builds the authoring prompt (`FlowAuthoring.initialPrompt`/
-  * `forkPrompt`), and launches the flow via [[FlowLauncher.runAnnounced]] — the
-  * same forced-version/fallback path `Main.runFlow`/[[RunAction]] use. The
-  * prompting that produces `goal`/`changes`/`params` lives in
-  * `Main.createNewFlow`/`createForkFlow`.
+  * pins — do the writing, exactly as they would for any other flow run. The run
+  * happens inside a throwaway [[AuthoringSandbox]], never the user's
+  * repository: the flow writes the file at the sandbox root, and on success
+  * [[AuthorAction]] copies it out to the real tier. The prompting that produces
+  * `goal`/`changes`/`params` lives in `Main.createNewFlow`/`createForkFlow`.
   */
 private[shell] object AuthorAction:
 
@@ -49,93 +52,82 @@ private[shell] object AuthorAction:
         Terminal
     ) => LaunchResult
 
-  /** New-flow authoring: extracts the bundled API material into the tier's
-    * cache dir, builds [[FlowAuthoring.initialPrompt]], and runs it as the
-    * authoring flow's task.
+  /** New-flow authoring: sets up the sandbox, extracts the bundled API material
+    * into its cache, builds [[FlowAuthoring.initialPrompt]] against the
+    * sandbox-local target, and runs it as the authoring flow's task.
     */
   def create(
       goal: String,
       params: AuthorParams,
-      workDir: os.Path,
       ui: ShellUi,
       terminal: Terminal,
       launch: FlowLaunch = FlowLauncher.runAnnounced
   ): LaunchResult =
+    val sandbox = AuthoringSandbox.create()
     val apiDir = FlowAuthoring.extractApiMaterial(
-      cacheBaseFor(params.tier, workDir, params.target),
+      OrcaDir.ensureCache(sandbox),
       ShellVersion.value
     )
     val prompt = FlowAuthoring.initialPrompt(
       goal,
-      params.target.flowPath,
+      sandboxTarget(sandbox, params),
       apiDir,
       ShellVersion.value
     )
-    launchAuthoringFlow(prompt, params, workDir, ui, terminal, launch)
+    launchAuthoringFlow(prompt, sandbox, params, ui, terminal, launch)
 
-  /** Fork-an-existing-flow authoring: extracts the bundled API material,
-    * resolves the source flow to a readable path
-    * ([[FlowAuthoring.resolveForkSource]]), builds
-    * [[FlowAuthoring.forkPrompt]], and runs it as the authoring flow's task.
+  /** Fork-an-existing-flow authoring: sets up the sandbox, copies the source
+    * flow beside the extracted API material
+    * ([[FlowAuthoring.resolveForkSource]] — nothing is ever inside the sandbox,
+    * so the copy branch always runs), builds [[FlowAuthoring.forkPrompt]]
+    * against the sandbox-local target, and runs it as the authoring flow's
+    * task.
     */
   def fork(
       source: DiscoveredFlow,
       changes: String,
       params: AuthorParams,
-      workDir: os.Path,
       ui: ShellUi,
       terminal: Terminal,
       launch: FlowLaunch = FlowLauncher.runAnnounced
   ): LaunchResult =
+    val sandbox = AuthoringSandbox.create()
     val apiDir = FlowAuthoring.extractApiMaterial(
-      cacheBaseFor(params.tier, workDir, params.target),
+      OrcaDir.ensureCache(sandbox),
       ShellVersion.value
     )
     val sourcePath = FlowAuthoring.resolveForkSource(
       source.path,
       source.name,
-      params.target.cwd,
+      sandbox,
       apiDir
     )
     val prompt = FlowAuthoring.forkPrompt(
       changes,
       sourcePath,
-      params.target.flowPath,
+      sandboxTarget(sandbox, params),
       apiDir,
       ShellVersion.value
     )
-    launchAuthoringFlow(prompt, params, workDir, ui, terminal, launch)
+    launchAuthoringFlow(prompt, sandbox, params, ui, terminal, launch)
 
-  /** The tier's cache dir to extract the API material into: project flows under
-    * `.orca/cache/`, global ones under `cache/` alongside the config-home
-    * `orca/` dir (ADR 0021 §9) — shared by [[create]] and [[fork]].
+  /** Where the flow writes the authored file: the sandbox root, under the real
+    * target's filename — visible in the sandbox flow's stage commits, copied
+    * out by [[finishAuthoring]] on success.
     */
-  private def cacheBaseFor(
-      tier: CreateTier,
-      workDir: os.Path,
-      target: CreateTarget
-  ): os.Path =
-    tier match
-      case CreateTier.Project => OrcaDir.ensureCache(workDir)
-      case CreateTier.Global =>
-        val cache = target.cwd / "cache"
-        os.makeDir.all(cache)
-        cache
+  private def sandboxTarget(sandbox: os.Path, params: AuthorParams): os.Path =
+    sandbox / params.target.flowPath.last
 
   /** Runs the built-in authoring flow ([[AuthoringFlowName]], resolved from the
     * built-in tier) with `prompt` as its task, via
     * [[FlowLauncher.runAnnounced]] — same launch path, forced-version/fallback
-    * semantics, and tty-inherited terminal as "Run a flow". Normal branch
-    * semantics apply: a project-tier target lands inside the flow's own branch
-    * commits; a global-tier target is written outside the repo, so the branch
-    * carries only orca's own bookkeeping and is cleaned up by `FlowLifecycle`'s
-    * existing throwaway-branch auto-delete. [[reportOutcome]] then checks
-    * whether the target file actually exists, on a successful run only.
+    * semantics, and tty-inherited terminal as "Run a flow" — with the SANDBOX
+    * as the working directory, then hands the outcome to [[finishAuthoring]].
     */
   private def launchAuthoringFlow(
       prompt: String,
+      sandbox: os.Path,
       params: AuthorParams,
-      workDir: os.Path,
       ui: ShellUi,
       terminal: Terminal,
       launch: FlowLaunch
@@ -147,33 +139,46 @@ private[shell] object AuthorAction:
       FallbackPolicy.Ask(ui),
       flow,
       prompt,
-      workDir,
+      sandbox,
       FlowFlags(verbose = false, skipBranch = false),
       terminal
     )
-    reportOutcome(result, params)
+    finishAuthoring(result, sandbox, params)
     result
 
-  /** Verifies the authoring flow actually did its job, since the write itself
-    * happens inside the flow's own coding session — never confirmed back to
-    * this caller — and a global-tier target in particular lands outside
-    * `workDir`, unverified by anything the flow run itself checked. Silent on
-    * [[LaunchResult.Failed]]/[[LaunchResult.Cancelled]]: those already report
-    * their own outcome, and neither makes any claim about the target file
-    * either way.
+  /** Copies the authored file out of the sandbox and disposes of it: on
+    * [[LaunchResult.Ok]] with the file present, the copy lands at the real
+    * tier's target (already reserved collision-free) and the sandbox is
+    * deleted; Ok with the file missing is reported as an error. A failed run
+    * keeps the sandbox — with a notice — so the partial work is inspectable; a
+    * cancelled one is cleaned up silently.
     */
-  private def reportOutcome(result: LaunchResult, params: AuthorParams): Unit =
+  private def finishAuthoring(
+      result: LaunchResult,
+      sandbox: os.Path,
+      params: AuthorParams
+  ): Unit =
     result match
       case LaunchResult.Ok =>
-        val path = params.target.flowPath
-        if os.exists(path) then
-          val branchNote = params.tier match
-            case CreateTier.Project =>
-              " — its commits are on the current branch"
-            case CreateTier.Global => ""
-          ShellOutput.info(s"flow created at $path$branchNote")
-        else
+        val authored = sandboxTarget(sandbox, params)
+        val target = params.target.flowPath
+        if !os.exists(authored) then
           ShellOutput.error(
-            s"the authoring flow finished, but $path was not written"
+            s"the authoring flow finished, but ${authored.last} was not written"
           )
-      case LaunchResult.Failed(_) | LaunchResult.Cancelled => ()
+          AuthoringSandbox.delete(sandbox)
+        else if os.exists(target) then
+          // Keep the sandbox: it holds the only copy of the authored flow.
+          ShellOutput.error(
+            s"$target appeared during the authoring run — the flow is at $authored"
+          )
+        else
+          os.copy(authored, target, createFolders = true)
+          ShellOutput.info(s"flow created at $target")
+          AuthoringSandbox.delete(sandbox)
+      case LaunchResult.Failed(_) =>
+        ShellOutput.info(
+          s"authoring workspace kept at $sandbox for inspection"
+        )
+      case LaunchResult.Cancelled =>
+        AuthoringSandbox.delete(sandbox)

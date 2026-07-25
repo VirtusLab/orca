@@ -20,7 +20,7 @@ import orca.shell.run.FallbackPolicy
 import orca.shell.sessions.{ManifestReader, RecordedRun, SessionPicker}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
-import orca.subprocess.{GitRepoProbe, PathProbe}
+import orca.subprocess.PathProbe
 import ox.discard
 
 import scala.annotation.tailrec
@@ -218,93 +218,60 @@ object Main:
       case UiOutcome.Cancelled   => None
       case UiOutcome.Selected(v) => Some(v)
 
-  /** New-flow authoring: tier → goal → filename (defaulted from the goal's
-    * [[suggestFilenameForGoal]] slug), then hands off to
-    * [[AuthorAction.create]] — which runs the built-in
-    * `implement-interactive.sc` flow with the authoring prompt as its task, so
-    * the configured planning/coding/review agents (and their model pins) do the
-    * writing, same as any other flow run. Cancelling any prompt, or a filename
-    * collision, aborts back to the menu without launching anything. Reachable
-    * via [[MenuItem.CreateFlow]]; [[MenuItem.ForkFlow]] is the sibling entry
-    * point for [[createForkFlow]]. `private[shell]` so a scripted-UI test can
-    * drive it directly.
+  /** New-flow authoring: tier → goal, filename auto-derived from the goal's
+    * [[FlowAuthoring.suggestFilenameForGoal]] slug (uniquified on collision —
+    * never prompted for), then hands off to [[AuthorAction.create]] — which
+    * runs the built-in `implement-interactive.sc` flow in a throwaway
+    * [[orca.shell.create.AuthoringSandbox]], so the configured
+    * planning/coding/review agents (and their model pins) do the writing
+    * without ever touching the user's repository. Cancelling any prompt aborts
+    * back to the menu without launching anything. Reachable via
+    * [[MenuItem.CreateFlow]]; [[MenuItem.ForkFlow]] is the sibling entry point
+    * for [[createForkFlow]]. `private[shell]` so a scripted-UI test can drive
+    * it directly.
     */
-  private[shell] def createNewFlow(
-      ui: ShellUi,
-      terminal: Terminal,
-      gitProbe: os.Path => Boolean = GitRepoProbe.isInsideWorkTree
-  ): Unit =
+  private[shell] def createNewFlow(ui: ShellUi, terminal: Terminal): Unit =
     val workDir = os.pwd
     val globalFlows = GlobalSettings.defaultFlows
     for
       tier <- pickTier(ui, "Where should the new flow be saved:", globalFlows)
-      _ <- requireGitRepoForGlobalTier(tier, workDir, gitProbe)
       goal <- promptDescription(ui, "Describe what the flow should do")
-      target <- promptFlowTarget(
-        ui,
-        tier,
-        workDir,
-        globalFlows,
-        default = Some(FlowAuthoring.suggestFilenameForGoal(goal))
-      )
     do
+      val target = FlowAuthoring.prepareAutoTarget(
+        tier,
+        FlowAuthoring.suggestFilenameForGoal(goal),
+        workDir,
+        globalFlows
+      )
       AuthorAction
-        .create(goal, AuthorParams(tier, target), workDir, ui, terminal)
+        .create(goal, AuthorParams(tier, target), ui, terminal)
         .discard
 
   /** Fork-an-existing-flow authoring: pick the source flow from every tier
     * (same rows View/Edit use) → describe the changes → tier for the fork's
-    * target → filename (defaulted from [[FlowAuthoring.forkFilenameDefault]]),
-    * then hands off to [[AuthorAction.fork]] — same flow-based launch as
+    * target; filename auto-derived from [[FlowAuthoring.forkFilenameDefault]]
+    * (uniquified on collision — never prompted for). Hands off to
+    * [[AuthorAction.fork]] — same sandboxed flow-based launch as
     * [[createNewFlow]]. `private[shell]` so a scripted-UI test can drive it
     * directly.
     */
-  private[shell] def createForkFlow(
-      ui: ShellUi,
-      terminal: Terminal,
-      gitProbe: os.Path => Boolean = GitRepoProbe.isInsideWorkTree
-  ): Unit =
+  private[shell] def createForkFlow(ui: ShellUi, terminal: Terminal): Unit =
     val workDir = os.pwd
     val globalFlows = GlobalSettings.defaultFlows
     for
       source <- selectFlow(ui, "Fork which flow:")
       changes <- promptDescription(ui, "Describe the changes for the fork")
       tier <- pickTier(ui, "Where should the fork be saved:", globalFlows)
-      _ <- requireGitRepoForGlobalTier(tier, workDir, gitProbe)
-      target <- promptFlowTarget(
-        ui,
-        tier,
-        workDir,
-        globalFlows,
-        default = Some(FlowAuthoring.forkFilenameDefault(source.name))
-      )
     do
+      val target = FlowAuthoring.prepareAutoTarget(
+        tier,
+        FlowAuthoring.forkFilenameDefault(source.name),
+        workDir,
+        globalFlows
+      )
       AuthorAction
-        .fork(
-          source,
-          changes,
-          AuthorParams(tier, target),
-          workDir,
-          ui,
-          terminal
-        )
+        .fork(source, changes, AuthorParams(tier, target), ui, terminal)
         .discard
-
-  /** [[FlowAuthoring.requireGitRepoForGlobalTier]], reported and turned into an
-    * abort (`None`) rather than a re-prompt — a missing repo isn't something
-    * the user fixes by answering differently, so `createNewFlow`/
-    * `createForkFlow` stop right here instead of asking anything else.
-    */
-  private def requireGitRepoForGlobalTier(
-      tier: CreateTier,
-      workDir: os.Path,
-      gitProbe: os.Path => Boolean
-  ): Option[Unit] =
-    FlowAuthoring.requireGitRepoForGlobalTier(tier, workDir, gitProbe) match
-      case Left(message) =>
-        ShellOutput.error(message)
-        None
-      case Right(()) => Some(())
 
   /** The Project/Global target-tier picker, shared by new-flow authoring, fork
     * authoring, and customizing a built-in into a tier — same two choices every
@@ -324,50 +291,6 @@ object Main:
     ) match
       case UiOutcome.Cancelled      => None
       case UiOutcome.Selected(tier) => Some(tier)
-
-  /** Prompts for the flow's filename (pre-filled with `default`, e.g. the
-    * goal's suggested slug or the fork's `-fork.sc` suggestion — either way
-    * editable, per `ui.input`'s default-hint path) and resolves it to a target
-    * path via [[FlowAuthoring.validateFileName]] +
-    * [[FlowAuthoring.safePrepareTarget]] — the same guard `AuthorCli`'s
-    * `create`/`fork` use — re-prompting with the same `default` on an invalid
-    * name or a collision (printing the reason first) rather than aborting the
-    * whole create-flow attempt, or (before this guard existed) crashing the
-    * shell on a name like `sub/x` that os-lib rejects with a raw exception. The
-    * harness writes the flow file itself, so an existing file at the target
-    * path is never overwritten.
-    */
-  @tailrec private[shell] def promptFlowTarget(
-      ui: ShellUi,
-      tier: CreateTier,
-      workDir: os.Path,
-      globalFlows: os.Path,
-      default: Option[String]
-  ): Option[CreateTarget] =
-    ui.input("Flow filename:", default) match
-      case UiOutcome.Cancelled => None
-      case UiOutcome.Selected(rawName) =>
-        prepareValidTarget(tier, rawName, workDir, globalFlows) match
-          case Left(message) =>
-            ShellOutput.error(message)
-            promptFlowTarget(ui, tier, workDir, globalFlows, default)
-          case Right(target) => Some(target)
-
-  private def prepareValidTarget(
-      tier: CreateTier,
-      rawName: String,
-      workDir: os.Path,
-      globalFlows: os.Path
-  ): Either[String, CreateTarget] =
-    for
-      _ <- FlowAuthoring.validateFileName(rawName)
-      target <- FlowAuthoring.safePrepareTarget(
-        tier,
-        rawName,
-        workDir,
-        globalFlows
-      )
-    yield target
 
   /** Prompts for a multi-line description (the new flow's goal, or the fork's
     * described changes), re-prompting on blank input — mirrors [[promptTask]]'s

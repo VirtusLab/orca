@@ -376,48 +376,29 @@ class FlowAuthoringTest extends munit.FunSuite:
     assert(text.contains("  add a rate limit"))
     assert(text.contains("  and log rejected requests"))
 
-  // --- requireGitRepoForGlobalTier ---
-
-  private val anyPath = os.root / "somewhere"
-
-  test("requireGitRepoForGlobalTier: Project tier never checks the probe"):
-    assertEquals(
-      FlowAuthoring.requireGitRepoForGlobalTier(
-        CreateTier.Project,
-        anyPath,
-        _ => false
-      ),
-      Right(())
-    )
-
-  test(
-    "requireGitRepoForGlobalTier: Global tier inside a git repo passes"
-  ):
-    assertEquals(
-      FlowAuthoring.requireGitRepoForGlobalTier(
-        CreateTier.Global,
-        anyPath,
-        _ => true
-      ),
-      Right(())
-    )
-
-  test(
-    "requireGitRepoForGlobalTier: Global tier outside a git repo is refused with a clear message"
-  ):
-    assertEquals(
-      FlowAuthoring.requireGitRepoForGlobalTier(
-        CreateTier.Global,
-        anyPath,
-        _ => false
-      ),
-      Left(
-        "global flow authoring runs an orca flow and needs to be started " +
-          "from inside a git repository"
-      )
-    )
-
   // --- resolveTarget / prepareTarget ---
+
+  test("prepareAutoTarget: a free name is used as-is"):
+    val dir = TempDirs.dir()
+    val target = FlowAuthoring.prepareAutoTarget(
+      CreateTier.Project,
+      "my-flow",
+      dir,
+      dir / "global"
+    )
+    assertEquals(target.flowPath, dir / ".orca" / "flows" / "my-flow.sc")
+
+  test("prepareAutoTarget: a taken name is uniquified with -2, -3, …"):
+    val dir = TempDirs.dir()
+    os.write(dir / ".orca" / "flows" / "my-flow.sc", "", createFolders = true)
+    os.write(dir / ".orca" / "flows" / "my-flow-2.sc", "")
+    val target = FlowAuthoring.prepareAutoTarget(
+      CreateTier.Project,
+      "my-flow.sc",
+      dir,
+      dir / "global"
+    )
+    assertEquals(target.flowPath, dir / ".orca" / "flows" / "my-flow-3.sc")
 
   test("normalizedFileName adds a .sc suffix when missing"):
     assertEquals(FlowAuthoring.normalizedFileName("my-flow"), "my-flow.sc")

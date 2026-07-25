@@ -27,13 +27,14 @@ private object NoPromptUi extends ShellUi:
     throw new UnsupportedOperationException("AuthorAction doesn't input")
 
 /** Records every [[AuthorAction.FlowLaunch]]-shaped call it receives instead of
-  * actually spawning `scala-cli` — stands in for [[FlowLauncher.runAnnounced]]
-  * the way [[orca.shell.create.FlowAuthoring.suggestFilename]]'s `runner`
-  * parameter stands in for a real subprocess. Always returns `result`,
-  * regardless of the target file — tests that want the "file present/absent"
-  * distinction write (or don't write) it themselves before asserting.
+  * actually spawning `scala-cli`. `onLaunch` runs with the sandbox (the call's
+  * `workDir`) mid-"run" — the seam where a test writes the authored file, or
+  * snapshots sandbox state that [[AuthorAction]] deletes afterwards.
   */
-private class RecordingLaunch(result: LaunchResult = LaunchResult.Ok):
+private class RecordingLaunch(
+    result: LaunchResult = LaunchResult.Ok,
+    onLaunch: os.Path => Unit = _ => ()
+):
   case class Call(
       fallback: FallbackPolicy,
       flow: os.Path,
@@ -45,6 +46,7 @@ private class RecordingLaunch(result: LaunchResult = LaunchResult.Ok):
   val fn: AuthorAction.FlowLaunch =
     (fallback, flow, task, workDir, flags, _) =>
       calls = calls :+ Call(fallback, flow, task, workDir, flags)
+      onLaunch(workDir)
       result
 
 class AuthorActionTest extends munit.FunSuite:
@@ -63,19 +65,45 @@ class AuthorActionTest extends munit.FunSuite:
     Console.withOut(new java.io.PrintStream(buffer))(body)
     buffer.toString
 
+  private def projectTarget(name: String): CreateTarget =
+    val workDir = TempDirs.dir()
+    CreateTarget(workDir / ".orca" / "flows" / name, workDir)
+
+  private def forkSource(workDir: os.Path): DiscoveredFlow =
+    val sourcePath = workDir / ".orca" / "flows" / "implement.sc"
+    os.write(sourcePath, "// desc\n", createFolders = true)
+    DiscoveredFlow(
+      name = "implement.sc",
+      description = None,
+      origin = FlowOrigin.Project,
+      path = sourcePath,
+      shadows = Nil
+    )
+
   test(
-    "create: launches the built-in implement-interactive.sc flow with the initial prompt as task, in workDir"
+    "create: launches the built-in implement-interactive.sc flow in a sandbox git repo, task targeting the sandbox"
   ):
     withTerminal: terminal =>
-      val workDir = TempDirs.dir()
-      val target =
-        CreateTarget(workDir / ".orca" / "flows" / "new.sc", workDir)
-      val recording = RecordingLaunch()
+      val target = projectTarget("new.sc")
+      // Snapshot sandbox state mid-launch: AuthorAction disposes of the
+      // sandbox before returning, so nothing is observable afterwards.
+      var sandboxState = Option.empty[(Boolean, Boolean, String)]
+      val recording = RecordingLaunch(onLaunch =
+        sandbox =>
+          sandboxState = Some(
+            (
+              os.isDir(sandbox / ".git"),
+              os.isDir(
+                sandbox / ".orca" / "cache" / s"orca-api-${ShellVersion.value}"
+              ),
+              os.read(sandbox / ".orca" / "settings.properties")
+            )
+          )
+      )
 
       val result = AuthorAction.create(
         "sync issues nightly",
         AuthorParams(CreateTier.Project, target),
-        workDir,
         NoPromptUi,
         terminal,
         recording.fn
@@ -85,38 +113,37 @@ class AuthorActionTest extends munit.FunSuite:
       assertEquals(recording.calls.size, 1)
       val call = recording.calls.head
       assertEquals(call.flow, builtInFlow)
-      assertEquals(call.workDir, workDir)
       assertEquals(call.flags, FlowFlags(verbose = false, skipBranch = false))
       assertEquals(call.fallback, FallbackPolicy.Ask(NoPromptUi))
       assert(call.task.contains("sync issues nightly"), call.task)
-      assert(call.task.contains(target.flowPath.toString), call.task)
+      // The prompt targets the sandbox-local file, never the real tier path.
+      assert(call.task.contains((call.workDir / "new.sc").toString), call.task)
+      assert(!call.task.contains(target.flowPath.toString), call.task)
+      val (isGitRepo, hasApiMaterial, settings) = sandboxState.get
+      assert(isGitRepo, "sandbox must be an initialized git repo")
+      assert(hasApiMaterial, "API material must be extracted in the sandbox")
+      assert(settings.contains("# format ="), settings)
+      assert(settings.contains("# lint ="), settings)
+      assert(settings.contains("# test ="), settings)
 
   test(
-    "fork: launches the built-in flow with the fork prompt (source + changes) as task"
+    "fork: copies the source beside the API material and targets the sandbox-local fork file"
   ):
     withTerminal: terminal =>
-      val workDir = TempDirs.dir()
-      val sourcePath = workDir / ".orca" / "flows" / "implement.sc"
-      os.write(sourcePath, "// desc\n", createFolders = true)
-      val source = DiscoveredFlow(
-        name = "implement.sc",
-        description = None,
-        origin = FlowOrigin.Project,
-        path = sourcePath,
-        shadows = Nil
+      val target = projectTarget("implement-fork.sc")
+      val source = forkSource(target.cwd)
+      var taskSourcePathExisted = false
+      val recording = RecordingLaunch(onLaunch = sandbox =>
+        val copied =
+          sandbox / ".orca" / "cache" / s"orca-api-${ShellVersion.value}" /
+            "implement.sc"
+        taskSourcePathExisted = os.isFile(copied)
       )
-      val target =
-        CreateTarget(
-          workDir / ".orca" / "flows" / "implement-fork.sc",
-          workDir
-        )
-      val recording = RecordingLaunch()
 
       val result = AuthorAction.fork(
         source,
         "add a retry step",
         AuthorParams(CreateTier.Project, target),
-        workDir,
         NoPromptUi,
         terminal,
         recording.fn
@@ -125,154 +152,95 @@ class AuthorActionTest extends munit.FunSuite:
       assertEquals(result, LaunchResult.Ok)
       val call = recording.calls.head
       assertEquals(call.flow, builtInFlow)
-      assertEquals(call.workDir, workDir)
       assert(call.task.contains("add a retry step"), call.task)
-      assert(call.task.contains(sourcePath.toString), call.task)
-      assert(call.task.contains(target.flowPath.toString), call.task)
+      assert(
+        call.task.contains((call.workDir / "implement-fork.sc").toString),
+        call.task
+      )
+      assert(
+        taskSourcePathExisted,
+        "the fork source must be copied into the sandbox's API-material dir"
+      )
 
-  test("create: a global-tier target extracts API material under cwd/cache"):
+  test(
+    "create: Ok with the authored file present copies it to the real target and deletes the sandbox"
+  ):
     withTerminal: terminal =>
-      val workDir = TempDirs.dir()
-      val globalFlows = TempDirs.dir() / "flows"
-      val configOrca = globalFlows / os.up
-      val target = CreateTarget(globalFlows / "new.sc", configOrca)
+      val target = projectTarget("new.sc")
+      val recording = RecordingLaunch(onLaunch =
+        sandbox => os.write(sandbox / "new.sc", "// a flow\n")
+      )
+
+      val output = captured:
+        val result = AuthorAction.create(
+          "sync issues nightly",
+          AuthorParams(CreateTier.Project, target),
+          NoPromptUi,
+          terminal,
+          recording.fn
+        )
+        assertEquals(result, LaunchResult.Ok)
+
+      assertEquals(os.read(target.flowPath), "// a flow\n")
+      assert(!os.exists(recording.calls.head.workDir), "sandbox must be gone")
+      assert(output.contains(s"flow created at ${target.flowPath}"), output)
+
+  test(
+    "create: Ok with the authored file absent warns clearly instead of silently succeeding"
+  ):
+    withTerminal: terminal =>
+      val target = projectTarget("new.sc")
       val recording = RecordingLaunch()
 
-      val _ = AuthorAction.create(
-        "sync issues nightly",
-        AuthorParams(CreateTier.Global, target),
-        workDir,
-        NoPromptUi,
-        terminal,
-        recording.fn
-      )
-
-      assert(
-        os.isDir(configOrca / "cache" / s"orca-api-${ShellVersion.value}"),
-        "expected the API material extracted under the global tier's cwd/cache"
-      )
-      // The flow itself still launches from workDir (the actual repo), not
-      // the global tier's config-home directory.
-      assertEquals(recording.calls.head.workDir, workDir)
-
-  // --- post-run notice: verifies the target file, since the write itself
-  // happens inside the flow's own coding session, never confirmed back here ---
-
-  test(
-    "create: Ok with the target file present notices its path and the current branch (project tier)"
-  ):
-    withTerminal: terminal =>
-      val workDir = TempDirs.dir()
-      val target = CreateTarget(workDir / ".orca" / "flows" / "new.sc", workDir)
-      os.write(target.flowPath, "// a flow\n", createFolders = true)
-
       val output = captured:
         val result = AuthorAction.create(
           "sync issues nightly",
           AuthorParams(CreateTier.Project, target),
-          workDir,
           NoPromptUi,
           terminal,
-          RecordingLaunch().fn
-        )
-        assertEquals(result, LaunchResult.Ok)
-
-      assert(output.contains(s"flow created at ${target.flowPath}"), output)
-      assert(output.contains("current branch"), output)
-
-  test(
-    "create: Ok with a global-tier target present notices its path without a branch claim"
-  ):
-    withTerminal: terminal =>
-      val workDir = TempDirs.dir()
-      val globalFlows = TempDirs.dir() / "flows"
-      val target = CreateTarget(globalFlows / "new.sc", globalFlows / os.up)
-      os.write(target.flowPath, "// a flow\n", createFolders = true)
-
-      val output = captured:
-        val result = AuthorAction.create(
-          "sync issues nightly",
-          AuthorParams(CreateTier.Global, target),
-          workDir,
-          NoPromptUi,
-          terminal,
-          RecordingLaunch().fn
-        )
-        assertEquals(result, LaunchResult.Ok)
-
-      assert(output.contains(s"flow created at ${target.flowPath}"), output)
-      assert(!output.contains("branch"), output)
-
-  test(
-    "fork: Ok with the target file absent warns clearly, naming the path, instead of silently succeeding"
-  ):
-    withTerminal: terminal =>
-      val workDir = TempDirs.dir()
-      val sourcePath = workDir / ".orca" / "flows" / "implement.sc"
-      os.write(sourcePath, "// desc\n", createFolders = true)
-      val source = DiscoveredFlow(
-        name = "implement.sc",
-        description = None,
-        origin = FlowOrigin.Project,
-        path = sourcePath,
-        shadows = Nil
-      )
-      val target =
-        CreateTarget(workDir / ".orca" / "flows" / "implement-fork.sc", workDir)
-
-      val output = captured:
-        val result = AuthorAction.fork(
-          source,
-          "add a retry step",
-          AuthorParams(CreateTier.Project, target),
-          workDir,
-          NoPromptUi,
-          terminal,
-          RecordingLaunch().fn
+          recording.fn
         )
         assertEquals(result, LaunchResult.Ok)
 
       assert(!os.exists(target.flowPath))
-      assert(
-        output.contains(s"${target.flowPath} was not written"),
-        output
-      )
+      assert(!os.exists(recording.calls.head.workDir), "sandbox must be gone")
+      assert(output.contains("new.sc was not written"), output)
 
-  test("create: Failed makes no existence claim about the target file"):
+  test("create: Failed keeps the sandbox for inspection and says where it is"):
     withTerminal: terminal =>
-      val workDir = TempDirs.dir()
-      val target = CreateTarget(workDir / ".orca" / "flows" / "new.sc", workDir)
+      val target = projectTarget("new.sc")
+      val recording = RecordingLaunch(LaunchResult.Failed(1))
 
       val output = captured:
         val result = AuthorAction.create(
           "sync issues nightly",
           AuthorParams(CreateTier.Project, target),
-          workDir,
           NoPromptUi,
           terminal,
-          RecordingLaunch(LaunchResult.Failed(1)).fn
+          recording.fn
         )
         assertEquals(result, LaunchResult.Failed(1))
 
-      assert(!output.contains("flow created"), output)
-      assert(!output.contains("was not written"), output)
+      val sandbox = recording.calls.head.workDir
+      assert(os.isDir(sandbox), "sandbox must be kept after a failure")
+      assert(output.contains(sandbox.toString), output)
+      os.remove.all(sandbox)
 
-  test("create: Cancelled makes no existence claim about the target file"):
+  test("create: Cancelled deletes the sandbox and makes no claims"):
     withTerminal: terminal =>
-      val workDir = TempDirs.dir()
-      val target = CreateTarget(workDir / ".orca" / "flows" / "new.sc", workDir)
-      os.write(target.flowPath, "// a flow\n", createFolders = true)
+      val target = projectTarget("new.sc")
+      val recording = RecordingLaunch(LaunchResult.Cancelled)
 
       val output = captured:
         val result = AuthorAction.create(
           "sync issues nightly",
           AuthorParams(CreateTier.Project, target),
-          workDir,
           NoPromptUi,
           terminal,
-          RecordingLaunch(LaunchResult.Cancelled).fn
+          recording.fn
         )
         assertEquals(result, LaunchResult.Cancelled)
 
+      assert(!os.exists(recording.calls.head.workDir), "sandbox must be gone")
       assert(!output.contains("flow created"), output)
       assert(!output.contains("was not written"), output)
