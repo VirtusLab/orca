@@ -1860,6 +1860,24 @@ class FlowLifecycleTest extends munit.FunSuite:
       steps.exists(_.contains("leaving 1 uncommitted/untracked file")),
       s"expected the leftover-file notice: $steps"
     )
+    // Pin WHICH commit the leftover lands in: the header commit (HEAD~2,
+    // before the stage commit and the final log-removal commit) must carry
+    // ONLY the progress log; `seed.txt`'s modification must reach the branch
+    // via the first stage's own `add -A` commit (HEAD~1), not the header's.
+    val progressRelPath =
+      s".orca/progress-${ProgressStore.hashPrompt(prompt)}.json"
+    assertEquals(commitMessage(workDir, "HEAD~2"), "orca: progress log")
+    assertEquals(
+      commitFiles(workDir, "HEAD~2"),
+      List(progressRelPath),
+      "the header commit must carry ONLY the progress log"
+    )
+    assertEquals(commitMessage(workDir, "HEAD~1"), "stage: write code")
+    assertEquals(
+      commitFiles(workDir, "HEAD~1"),
+      List(progressRelPath, "seed.txt"),
+      "the first stage commit must carry the leftover modification"
+    )
 
   test(
     "skip-branch mode, FRESH run: an UNTRACKED file stays in the tree through the body and is swept into the stage commit"
@@ -1906,6 +1924,22 @@ class FlowLifecycleTest extends munit.FunSuite:
     assert(
       tracked.contains("docs/plan.md"),
       "the leftover file must have been swept into a commit by run's end"
+    )
+    // Pin WHICH commit: the header (HEAD~2) carries ONLY the progress log;
+    // `docs/plan.md` reaches the branch via the first stage's commit (HEAD~1).
+    val progressRelPath =
+      s".orca/progress-${ProgressStore.hashPrompt(prompt)}.json"
+    assertEquals(commitMessage(workDir, "HEAD~2"), "orca: progress log")
+    assertEquals(
+      commitFiles(workDir, "HEAD~2"),
+      List(progressRelPath),
+      "the header commit must carry ONLY the progress log"
+    )
+    assertEquals(commitMessage(workDir, "HEAD~1"), "stage: write code")
+    assertEquals(
+      commitFiles(workDir, "HEAD~1"),
+      List(progressRelPath, "docs/plan.md"),
+      "the first stage commit must carry the leftover untracked file"
     )
 
   test(
@@ -2117,6 +2151,64 @@ class FlowLifecycleTest extends munit.FunSuite:
       git.currentBranch(),
       "main",
       "success teardown returns to the header's recorded start branch"
+    )
+
+  test(
+    "normal mode, RESUME with a tracked-but-modified (JSON-broken) progress log: the stash reverts it to committed content first, so resume proceeds rather than misreading it as corrupt"
+  ):
+    // Regression for the skip-branch dirty-tree change: `setup` must decide
+    // fresh-vs-resume from the log's last COMMITTED content in every mode,
+    // never a dirty read — otherwise a user's broken in-progress edit to the
+    // (tracked) log file could flip a resumable run to "Corrupt → fresh",
+    // discarding already-recorded progress.
+    val workDir = GitRepo.seeded()
+    val prompt = "resume-dirty-json-break"
+    val store = ProgressStore.default(workDir, prompt)
+    val invocations = new AtomicInteger(0)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val git = new OsGitTool(workDir)
+    val _ = git.createBranch("feat/resume-dirty-json-break")
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/resume-dirty-json-break",
+        promptHash = ProgressStore.hashPrompt(prompt)
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    store.appendEntry(
+      StageEntry("resumable-stage#0", "resumable-stage", RawJson("\"ok\""))
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("stage: resumable-stage")
+    // An uncommitted edit that breaks the JSON — a broken hand-edit or a torn
+    // write, left dirty in the already-tracked log file.
+    os.write.over(store.path, "not json {{{")
+
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        progressStore = Some(store),
+        interaction = Some(interaction)
+      ):
+        val _ = stage("resumable-stage"):
+          invocations.incrementAndGet()
+          "ok"
+
+    assertEquals(
+      invocations.get(),
+      0,
+      "resume must read the stashed-clean committed log, not treat the " +
+        "dirty JSON-break as corrupt and re-run the already-recorded stage"
     )
 
   test(

@@ -238,17 +238,24 @@ object FlowLifecycle:
     * `WorkspaceWrite`, and branch-name resolution with a runtime-minted
     * `InStage` — setup is privileged, predating any user stage.
     *
-    * Cleanliness policy (ADR 0018 amendment): the fresh-vs-resume distinction
-    * (`store.loadDetailed()`, read once, ahead of any stash) gates it. A FRESH
+    * Cleanliness policy (ADR 0018 amendment): only skip-branch mode needs the
+    * fresh-vs-resume distinction to decide whether to stash, so only there is
+    * `store.loadDetailed()` peeked at pre-stash (a throwaway read, gating the
+    * branch below only — not reused for the actual routing decision). A FRESH
     * skip-branch run tolerates a dirty tree outright — no stash, no refusal,
     * one informational `Step` naming the file count — since the leftover files
     * are likely the very hand-off context the flow is meant to act on. Every
     * other case (resume, or normal branch-creating mode either way)
     * auto-stashes as before: a resumed run's interrupted stage may have left
     * uncommitted partial work that must not leak into the stage that re-runs.
+    * Normal mode never peeks pre-stash, so its behaviour is unchanged.
     *
     * The progress header is untrusted input on load (the log is human-visible
-    * and pushable), so a resumed run:
+    * and pushable), so the AUTHORITATIVE read — at the `binding` match below —
+    * always runs after the cleanliness decision (stash or tolerate), never
+    * before: a tracked-but-dirty log must be classified from its last COMMITTED
+    * content, never a possibly-broken in-progress edit, in every mode. On top
+    * of that, a resumed run:
     *   - Snapshots the log file before the cleanliness decision and restores it
     *     if a stash removed it, so the header is always readable.
     *   - Validates the header before any destructive action (safe refs,
@@ -289,27 +296,36 @@ object FlowLifecycle:
     // Snapshot the log file before any stash, restore it after if the stash
     // removed it — so an uncommitted/untracked log is still readable below.
     val snapshot = snapshotLog(store.path)
-    // The fresh-vs-resume split gates the cleanliness policy just below, so
-    // it's read once, here, ahead of any stash. Reading the store never
-    // mutates, and the header (unlike entries/sessions) is never rewritten
-    // after its first commit, so a dirty tree can't change this
-    // classification — safe to decide from before the stash.
-    val loadResult = store.loadDetailed()
-    val isResume = loadResult.isInstanceOf[ProgressStore.LoadResult.Loaded]
-    // Skip-branch mode's amended policy (ADR 0018 amendment): a FRESH run
-    // tolerates a dirty tree outright — no stash, no refusal — since the
-    // leftover files are likely the very hand-off context the flow is meant to
-    // act on; one informational Step names the count. A RESUME still
-    // auto-stashes, same as normal mode: an interrupted stage's uncommitted
-    // partial work must not leak into the stage that re-runs.
-    if args.skipBranch.value && !isResume then
-      val dirty = git.dirtyPaths()
-      if dirty.nonEmpty then
-        emit(
-          OrcaEvent.Step(
-            s"leaving ${dirty.size} uncommitted/untracked file(s) in place for the flow"
+    // Skip-branch mode's amended policy (ADR 0018 amendment) needs the
+    // fresh-vs-resume distinction to decide whether to stash at all, so ONLY
+    // in that mode is the store peeked at before the stash — a throwaway
+    // read, used solely to pick a branch below; the authoritative read (used
+    // for the actual routing decision) is `store.loadDetailed()` at the
+    // `binding` match further down, which in EVERY case runs after the
+    // cleanliness decision below. That ordering matters: a tracked-but-dirty
+    // log must be classified from its committed content, not a possibly
+    // broken in-progress edit, so normal mode never peeks pre-stash at all —
+    // this preserves normal mode's behaviour byte-for-byte.
+    if args.skipBranch.value then
+      val isResume =
+        store.loadDetailed().isInstanceOf[ProgressStore.LoadResult.Loaded]
+      if isResume then
+        // A RESUME still auto-stashes, same as normal mode: an interrupted
+        // stage's uncommitted partial work must not leak into the stage that
+        // re-runs.
+        val _ = git.ensureClean("orca: starting flow")
+      else
+        // A FRESH run tolerates a dirty tree outright — no stash, no
+        // refusal — since the leftover files are likely the very hand-off
+        // context the flow is meant to act on; one informational Step names
+        // the count.
+        val dirty = git.dirtyPaths()
+        if dirty.nonEmpty then
+          emit(
+            OrcaEvent.Step(
+              s"leaving ${dirty.size} uncommitted/untracked file(s) in place for the flow"
+            )
           )
-        )
     else
       val _ = git.ensureClean("orca: starting flow")
     restoreLogIfMissing(store.path, snapshot)
@@ -353,7 +369,7 @@ object FlowLifecycle:
         .defaultBranch()
         .map(_.toLowerCase(java.util.Locale.ROOT))
     val binding: BranchBinding =
-      loadResult match
+      store.loadDetailed() match
         case ProgressStore.LoadResult.Corrupt(reason) =>
           // The log file exists but didn't parse. Start fresh (no sane way to
           // resume from unparseable data), but loudly — the user may have
@@ -563,11 +579,15 @@ object FlowLifecycle:
         )
 
   /** Fresh run: resolve + create the branch (returned to the caller), then
-    * commit the header so it is the branch's first commit. Shared by the
-    * absent-log case and the corrupt-log case (which warns, then falls through
-    * to the same fresh start). Needs both tokens: `InStage` because branch-name
-    * resolution may call the cheap model, `WorkspaceWrite` for the git
-    * checkout/commit and header write.
+    * commit the header so it is the branch's first commit. The header commit is
+    * pathspec-scoped to just the progress-log file (`commitStaged`, after a
+    * `forceAdd` to punch through a gitignored `.orca/`) — never `add -A` — so a
+    * dirty tree left in place by skip-branch mode reaches the branch only via
+    * the first stage's own commit, not this one. Shared by the absent-log case
+    * and the corrupt-log case (which warns, then falls through to the same
+    * fresh start). Needs both tokens: `InStage` because branch-name resolution
+    * may call the cheap model, `WorkspaceWrite` for the git checkout/commit and
+    * header write.
     *
     * The resolved name is minted into a [[FeatureBranch]] before it reaches
     * git: a name colliding with a protected branch is refused and falls back to
@@ -638,8 +658,12 @@ object FlowLifecycle:
         branchCreated = !args.skipBranch.value
       )
     )
+    // `commitStaged` (not `commit`, which would `add -A`): the header commit
+    // must carry ONLY the progress log. Any leftover files in the tree
+    // (skip-branch mode's tolerated dirty tree) stay uncommitted here and
+    // reach the branch only via the first stage's own `add -A` commit.
     git.forceAdd(store.path)
-    val _ = git.commit("orca: progress log")
+    git.commitStaged(store.path, "orca: progress log")
     branch
 
   /** Give the just-discovered settings file its own commit (ADR 0019), so the
