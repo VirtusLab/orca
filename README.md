@@ -34,10 +34,11 @@ non-interactively to implement a task, e.g. from CI or as a sub-task of
 another agent:
 
 ```bash
-orca run implement.sc "add a rate limiter to /login" --verbose --skip-branch --honor-pin
+orca run implement.sc "add a rate limiter to /login"
 ```
 
-An installable agent skill for this workflow is planned.
+Useful flags: `--verbose`, `--skip-branch` (continue on the current branch
+instead of creating one), `--honor-pin`.
 
 **As a script**: run a flow directly with `scala-cli`, no install required —
 see [An example flow](#an-example-flow).
