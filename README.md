@@ -628,7 +628,8 @@ the base agent, so continuations have write access), or `.value` it and get a
 fresh, durable implementer session via `agent.session("implementer", seed =
 plan.brief)` — the chat does not survive a crash/resume, so every shipped
 example takes `.value`. Destructure positionally when you want both:
-`val Sessioned(chat, plan) = Plan.autonomous.from(...)`.
+`val Sessioned(chat, plan) = Plan.autonomous.from(...)` — `chat` here is the
+ephemeral one (in-run only), not a durable session.
 
 From a `Sessioned[B, Plan]`, an optional `.reviewed(agent)` step refines the plan
 before implementing — the planner critiques its own draft, producing an improved
