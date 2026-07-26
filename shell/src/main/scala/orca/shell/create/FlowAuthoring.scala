@@ -228,6 +228,21 @@ private[shell] object FlowAuthoring:
     val mutedOut = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
     Console.withOut(mutedOut)(proc.destroy(shutdownGracePeriod = 0))
 
+  /** The directory associated with `tier` (see [[CreateTier]]'s scaladoc):
+    * `workDir` for Project, `globalFlows`'s parent for Global. Shared by
+    * [[resolveTarget]] and `AuthorAction`'s edit-by-agent overwrite path, which
+    * needs the same cwd to judge fork-source proximity ([[resolveForkSource]])
+    * when the target IS the source's own path.
+    */
+  def tierCwd(
+      tier: CreateTier,
+      workDir: os.Path,
+      globalFlows: os.Path
+  ): os.Path =
+    tier match
+      case CreateTier.Project => workDir
+      case CreateTier.Global  => globalFlows / os.up
+
   /** Pure path arithmetic for the tier choice (ADR 0021 §9) — no I/O, so
     * unit-testable without touching a real filesystem. `globalFlows` is
     * `GlobalSettings.defaultFlows` (or a test double), matching
@@ -241,12 +256,11 @@ private[shell] object FlowAuthoring:
       globalFlows: os.Path
   ): CreateTarget =
     val name = normalizedFileName(fileName)
+    val cwd = tierCwd(tier, workDir, globalFlows)
     tier match
       case CreateTier.Project =>
-        CreateTarget(OrcaDir.flowsPath(workDir) / name, workDir)
-      case CreateTier.Global =>
-        val configOrca = globalFlows / os.up
-        CreateTarget(globalFlows / name, configOrca)
+        CreateTarget(OrcaDir.flowsPath(workDir) / name, cwd)
+      case CreateTier.Global => CreateTarget(globalFlows / name, cwd)
 
   /** [[resolveTarget]] plus the side effects the menu wiring needs before
     * launching: ensuring the tier's flows dir exists, then refusing on a
@@ -377,6 +391,26 @@ private[shell] object FlowAuthoring:
     * — so the prompt's own `scala-cli compile` instruction stays honest on a
     * local build.
     */
+  /** The exact `//> using` header lines a new flow file starts with (the
+    * "3.8.4"/`21` literals are kept in lockstep with `V.scala` in
+    * `project/Dependencies.scala` by hand — `updateDocs` only rewrites
+    * `.md`/`.sc` files, so this text is invisible to it). Non-release builds (a
+    * dynver snapshot, or the bare `"dev"`) add `//> using repository ivy2Local`
+    * right after the dep pin — the same treatment `BuiltInFlows`/`_seed_lib.sh
+    * --local` apply — so `scala-cli compile` resolves against the local build
+    * instead of failing against Maven Central. Shared by [[initialPrompt]]
+    * (states it as an instruction to the authoring agent) and [[skeletonFlow]]
+    * (writes it verbatim), so a hand-written skeleton and an agent-authored
+    * file pin the same way.
+    */
+  private def versionPinLines(orcaVersion: String): String =
+    val ivy2LocalLine =
+      if ShellVersion.isRelease(orcaVersion) then ""
+      else "\n//> using repository ivy2Local"
+    s"""//> using scala 3.8.4
+       |//> using dep "org.virtuslab::orca:$orcaVersion"$ivy2LocalLine
+       |//> using jvm 21""".stripMargin
+
   def initialPrompt(
       goal: String,
       targetPath: os.Path,
@@ -386,17 +420,11 @@ private[shell] object FlowAuthoring:
     val readme = apiDir / "README.md"
     val example1 = apiDir / "implement.sc"
     val example2 = apiDir / "implement-interactive.sc"
-    val ivy2LocalLine =
-      if ShellVersion.isRelease(orcaVersion) then ""
-      else "\n//> using repository ivy2Local"
     // The goal now comes from a multiline prompt (inputMultiline), so it's
     // indented as its own block rather than trailing "Goal: " on one line —
     // keeps a multi-paragraph goal visually distinct from the rest of the
     // prompt instead of running the first line on with the label.
     val indentedGoal = indentBlock(goal)
-    // The "3.8.4" literal in the header below is kept in lockstep with
-    // V.scala in project/Dependencies.scala by hand — updateDocs only
-    // rewrites .md/.sc files, so this prompt text is invisible to it.
     s"""Write a new Orca flow at $targetPath.
        |
        |Goal:
@@ -404,9 +432,7 @@ private[shell] object FlowAuthoring:
        |
        |Start the file with this exact header (the pinned version matches the
        |orca release this flow was launched from):
-       |//> using scala 3.8.4
-       |//> using dep "org.virtuslab::orca:$orcaVersion"$ivy2LocalLine
-       |//> using jvm 21
+       |${versionPinLines(orcaVersion)}
        |
        |Line 1 of the file must be a `//` comment giving a one-line description
        |of the flow — the shell's flow listing uses it as the description.
@@ -511,4 +537,20 @@ private[shell] object FlowAuthoring:
        |Last resort, only if the local README above is somehow missing: the
        |tag-pinned reference is at
        |https://raw.githubusercontent.com/VirtusLab/orca/v$orcaVersion/README.md
+       |""".stripMargin
+
+  /** A hand-authored flow's starting point (ADR 0021 §9 amendment,
+    * Create+hand): [[versionPinLines]] under a placeholder line-1 description
+    * (the [[initialPrompt]] convention the shell's flow listing reads), the
+    * bare `import orca.{*, given}`, and an empty `flow(OrcaArgs(args)):` body
+    * with a TODO — the minimum that compiles, left for the user to fill in.
+    */
+  def skeletonFlow(orcaVersion: String): String =
+    s"""// TODO: describe what this flow does
+       |${versionPinLines(orcaVersion)}
+       |
+       |import orca.{*, given}
+       |
+       |flow(OrcaArgs(args)):
+       |  // TODO: implement the flow
        |""".stripMargin

@@ -186,6 +186,60 @@ class AuthorActionTest extends munit.FunSuite:
       assert(output.contains(s"flow created at ${target.flowPath}"), output)
 
   test(
+    "fork: overwrite=false with a pre-existing target refuses instead of overwriting it"
+  ):
+    // Target == source's own path (forkSource's fixed "implement.sc", pointed
+    // at by a same-named target) — the shape edit-by-agent produces, minus
+    // the overwrite flag.
+    withTerminal: terminal =>
+      val target = projectTarget("implement.sc")
+      val source = forkSource(target.cwd)
+      val recording = RecordingLaunch(onLaunch =
+        sandbox => os.write(sandbox / "implement.sc", "// edited\n")
+      )
+
+      val output = captured:
+        val result = AuthorAction.fork(
+          source,
+          "add a retry step",
+          AuthorParams(CreateTier.Project, target),
+          NoPromptUi,
+          terminal,
+          recording.fn
+        )
+        assertEquals(result, LaunchResult.Ok)
+
+      assertEquals(os.read(target.flowPath), "// desc\n")
+      assert(os.isDir(recording.calls.head.workDir), "sandbox must be kept")
+      assert(output.contains("appeared during the authoring run"), output)
+      os.remove.all(recording.calls.head.workDir)
+
+  test(
+    "fork: overwrite=true copies over a pre-existing target (edit-by-agent)"
+  ):
+    withTerminal: terminal =>
+      val target = projectTarget("implement.sc")
+      val source = forkSource(target.cwd)
+      val recording = RecordingLaunch(onLaunch =
+        sandbox => os.write(sandbox / "implement.sc", "// edited\n")
+      )
+
+      val output = captured:
+        val result = AuthorAction.fork(
+          source,
+          "add a retry step",
+          AuthorParams(CreateTier.Project, target, overwrite = true),
+          NoPromptUi,
+          terminal,
+          recording.fn
+        )
+        assertEquals(result, LaunchResult.Ok)
+
+      assertEquals(os.read(target.flowPath), "// edited\n")
+      assert(!os.exists(recording.calls.head.workDir), "sandbox must be gone")
+      assert(output.contains(s"flow updated at ${target.flowPath}"), output)
+
+  test(
     "create: Ok with the authored file absent warns clearly instead of silently succeeding"
   ):
     withTerminal: terminal =>

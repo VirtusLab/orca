@@ -486,3 +486,45 @@ class FlowAuthoringTest extends munit.FunSuite:
       case Left(message) => assert(message.contains("already exists"))
       case Right(path) =>
         fail(s"expected a collision refusal, got Right($path)")
+
+  // --- tierCwd ---
+
+  test("tierCwd (Project) is workDir"):
+    val workDir = os.root / "repo"
+    assertEquals(
+      FlowAuthoring.tierCwd(CreateTier.Project, workDir, os.root / "flows"),
+      workDir
+    )
+
+  test("tierCwd (Global) is the global flows dir's parent"):
+    val globalFlows = os.root / "home" / "u" / ".config" / "orca" / "flows"
+    assertEquals(
+      FlowAuthoring.tierCwd(CreateTier.Global, os.root / "repo", globalFlows),
+      os.root / "home" / "u" / ".config" / "orca"
+    )
+
+  // --- skeletonFlow ---
+
+  test("skeletonFlow states the same version pins as initialPrompt"):
+    val skeleton = FlowAuthoring.skeletonFlow("0.0.18")
+    assert(skeleton.contains("//> using scala 3.8.4"))
+    assert(skeleton.contains("""//> using dep "org.virtuslab::orca:0.0.18""""))
+    assert(skeleton.contains("//> using jvm 21"))
+
+  test("skeletonFlow (dev version) injects ivy2Local, matching initialPrompt"):
+    assert(FlowAuthoring.skeletonFlow("dev").contains("ivy2Local"))
+
+  test("skeletonFlow (release version) has no ivy2Local repository line"):
+    assert(!FlowAuthoring.skeletonFlow("0.0.18").contains("ivy2Local"))
+
+  test("skeletonFlow's line 1 is the description placeholder"):
+    val lines = FlowAuthoring.skeletonFlow("0.0.18").linesIterator.toList
+    assertEquals(lines.head, "// TODO: describe what this flow does")
+
+  test(
+    "skeletonFlow imports the API and has an empty flow(...) body with a TODO"
+  ):
+    val skeleton = FlowAuthoring.skeletonFlow("0.0.18")
+    assert(skeleton.contains("import orca.{*, given}"))
+    assert(skeleton.contains("flow(OrcaArgs(args)):"))
+    assert(skeleton.contains("// TODO: implement the flow"))

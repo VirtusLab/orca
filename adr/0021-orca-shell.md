@@ -321,6 +321,18 @@ failure (§9).
 > authors it" now means running the built-in authoring flow with the fork
 > prompt as its task.
 
+> **Amendment (2026-07-26).** Edit gains the same hand-vs-agent mode prompt as
+> §9's Create/Fork, asked right after picking the flow. Hand is this section's
+> path, unchanged. Agent describes the changes and runs them through the same
+> sandboxed authoring flow as Create/Fork, targeting the flow's own path with
+> an overwrite flag (`AuthorParams.overwrite`) so a successful run copies the
+> result back over the original instead of being refused as a collision — an
+> edit overwrites. A built-in source is never overwritten directly: it's
+> customized into a tier first (this section's own picker), and the agent's
+> changes land on that copy. The CLI's `edit` stays hand-only (unchanged); the
+> hand/agent split is menu-only, the same asymmetry §9's amendment notes for
+> Create/Fork.
+
 ### 7. Built-in flows
 
 `examples/*.sc` (implement, implement-interactive, implement-enhanced, epic,
@@ -489,6 +501,17 @@ included only as a last-resort fallback line.
 > `simple.sc` runs no plan stage and a single review round (`maxIterations =
 > 1`) against one custom all-round reviewer (not the full `allReviewers`
 > roster), built on the configured review agent.
+
+> **Amendment (2026-07-26).** Create and Fork gain a hand-vs-agent mode
+> prompt — mode first for Create (it decides whether a filename or a goal
+> comes next), after source+tier for Fork. Agent is this section's path,
+> unchanged. Hand skips the harness entirely: Create writes a minimal
+> compiling skeleton (version-pinned header, a description placeholder, the
+> bare API import, an empty `flow(OrcaArgs(args)):` body) at a prompted
+> filename; Fork copies the source straight to the auto-derived target — both
+> then open the result in the editor (§6's machinery). The CLI's
+> `create`/`fork` stay agent-only (unchanged) — the hand/agent split is
+> menu-only.
 
 ### 10. Command-line interface
 

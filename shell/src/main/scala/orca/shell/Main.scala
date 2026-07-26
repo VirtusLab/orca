@@ -17,7 +17,7 @@ import orca.shell.actions.{
 }
 import orca.shell.cli.{Cli, CliHelp}
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
-import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
+import orca.shell.flows.{DiscoveredFlow, FlowEditor, FlowOrigin}
 import orca.shell.run.FallbackPolicy
 import orca.shell.sessions.{ManifestReader, RecordedRun, SessionPicker}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
@@ -169,30 +169,127 @@ object Main:
     selectFlow(ui, "View which flow?").foreach: flow =>
       println(ViewAction.render(flow, tty))
 
-  /** Opens the chosen flow in `$VISUAL`/`$EDITOR`/`vi`. Project and global
-    * flows are edited in place ([[EditAction.editInPlace]]); a built-in is
-    * never edited in its cache copy, so [[pickTier]] plus
-    * [[EditAction.customizeThenEdit]] copy it into a tier first.
+  /** Edit-a-flow: pick the flow, then ask how (ADR 0021 §6 amendment) —
+    * [[editFlowByHand]] is today's original path unchanged; [[editFlowByAgent]]
+    * is the new one. `spawnEditor` is injectable, like [[editSettings]]'s own
+    * seam, so a test can fake the editor exiting instead of spawning a real
+    * subprocess; `workDir`/`globalFlows` are likewise explicit (rather than
+    * reading `os.pwd`/[[GlobalSettings.defaultFlows]] internally), so a test
+    * can point the built-in-customize branch at temp dirs. `private[shell]` so
+    * a scripted-UI test can drive it directly.
     */
-  private def editFlow(ui: ShellUi, terminal: Terminal): Unit =
+  private[shell] def editFlow(
+      ui: ShellUi,
+      terminal: Terminal,
+      workDir: os.Path = os.pwd,
+      globalFlows: os.Path = GlobalSettings.defaultFlows,
+      spawnEditor: (Terminal, os.Path) => Int = EditAction.editInPlace
+  ): Unit =
     selectFlow(ui, "Edit which flow?").foreach: flow =>
-      if flow.origin != FlowOrigin.BuiltIn then
-        EditAction.editInPlace(terminal, flow.path).discard
-      else
-        pickTier(
-          ui,
-          s"'${flow.name}' is built-in — customize it into:",
-          GlobalSettings.defaultFlows
-        ).foreach: tier =>
-          EditAction.customizeThenEdit(
-            terminal,
-            flow,
-            tier,
-            os.pwd,
-            GlobalSettings.defaultFlows
-          ) match
+      pickChangeMode(ui).foreach:
+        case ChangeMode.Hand =>
+          editFlowByHand(ui, terminal, flow, workDir, globalFlows, spawnEditor)
+        case ChangeMode.Agent =>
+          editFlowByAgent(ui, terminal, flow, workDir, globalFlows)
+
+  /** Opens the chosen flow in `$VISUAL`/`$EDITOR`/`vi`. Project and global
+    * flows are edited in place; a built-in is never edited in its cache copy,
+    * so [[pickTier]] plus [[FlowEditor.customizeTarget]] copy it into a tier
+    * first.
+    */
+  private def editFlowByHand(
+      ui: ShellUi,
+      terminal: Terminal,
+      flow: DiscoveredFlow,
+      workDir: os.Path,
+      globalFlows: os.Path,
+      spawnEditor: (Terminal, os.Path) => Int
+  ): Unit =
+    if flow.origin != FlowOrigin.BuiltIn then
+      spawnEditor(terminal, flow.path).discard
+    else
+      pickTier(ui, builtInCustomizeTitle(flow), globalFlows).foreach: tier =>
+        FlowEditor.customizeTarget(flow, tier, workDir, globalFlows) match
+          case Left(message) => ShellOutput.error(message)
+          case Right(path)   => spawnEditor(terminal, path).discard
+
+  /** Edit-a-flow, agent mode (ADR 0021 §6/§9 amendment): describes the change,
+    * runs it through [[AuthorAction.fork]]-style sandboxed authoring with
+    * `target = the flow's own path` and `overwrite = true`, so success copies
+    * the agent's result back OVER the original — an edit overwrites. A built-in
+    * source is never overwritten directly (there's nothing to overwrite): it's
+    * customized into a tier first, same picker as [[editFlowByHand]], and the
+    * agent's changes land on that new copy instead.
+    */
+  private def editFlowByAgent(
+      ui: ShellUi,
+      terminal: Terminal,
+      flow: DiscoveredFlow,
+      workDir: os.Path,
+      globalFlows: os.Path
+  ): Unit =
+    flow.origin match
+      case FlowOrigin.BuiltIn =>
+        pickTier(ui, builtInCustomizeTitle(flow), globalFlows).foreach: tier =>
+          FlowEditor.customizeTarget(flow, tier, workDir, globalFlows) match
             case Left(message) => ShellOutput.error(message)
-            case Right(_)      => ()
+            case Right(targetPath) =>
+              editByAgent(
+                ui,
+                terminal,
+                flow.copy(path = targetPath),
+                tier,
+                workDir,
+                globalFlows
+              )
+      case FlowOrigin.Project =>
+        editByAgent(
+          ui,
+          terminal,
+          flow,
+          CreateTier.Project,
+          workDir,
+          globalFlows
+        )
+      case FlowOrigin.Global =>
+        editByAgent(ui, terminal, flow, CreateTier.Global, workDir, globalFlows)
+
+  /** Prompts for the changes and runs the overwrite-in-place authoring flow
+    * against `flow`'s own path — shared by both [[editFlowByAgent]] branches
+    * once the tier and (for a built-in source) the customized copy are
+    * resolved.
+    */
+  private def editByAgent(
+      ui: ShellUi,
+      terminal: Terminal,
+      flow: DiscoveredFlow,
+      tier: CreateTier,
+      workDir: os.Path,
+      globalFlows: os.Path
+  ): Unit =
+    promptDescription(ui, "Describe the changes for the edit").foreach:
+      changes =>
+        val target =
+          CreateTarget(
+            flow.path,
+            FlowAuthoring.tierCwd(tier, workDir, globalFlows)
+          )
+        AuthorAction
+          .fork(
+            flow,
+            changes,
+            AuthorParams(tier, target, overwrite = true),
+            ui,
+            terminal
+          )
+          .discard
+
+  /** The customize-tier picker's title, shared by [[editFlowByHand]] and
+    * [[editFlowByAgent]]'s built-in branch — same wording either way, since
+    * both mean "copy this built-in into a tier before touching it".
+    */
+  private def builtInCustomizeTitle(flow: DiscoveredFlow): String =
+    s"'${flow.name}' is built-in — customize it into:"
 
   /** "Edit settings": tier prompt, create the file from its template if absent
     * ([[SettingsEditAction.ensureExists]]), open it via the same editor-spawn
@@ -286,21 +383,98 @@ object Main:
       case UiOutcome.Cancelled   => None
       case UiOutcome.Selected(v) => Some(v)
 
-  /** New-flow authoring: tier → goal, filename auto-derived from the goal's
-    * [[FlowAuthoring.suggestFilenameForGoal]] slug (uniquified on collision —
-    * never prompted for), then hands off to [[AuthorAction.create]] — which
-    * runs the built-in `simple.sc` flow in a throwaway
-    * [[orca.shell.create.AuthoringSandbox]], so the configured
+  /** "How should the changes be made?" (ADR 0021 §6/§9 amendment) —
+    * [[MainMenu.modeChoices]]'s hand-vs-agent prompt, shared by Edit/Create/
+    * Fork.
+    */
+  private def pickChangeMode(ui: ShellUi): Option[ChangeMode] =
+    ui.select("How should the changes be made?", MainMenu.modeChoices) match
+      case UiOutcome.Cancelled      => None
+      case UiOutcome.Selected(mode) => Some(mode)
+
+  /** New-flow authoring: mode FIRST — it decides whether a goal (agent) or a
+    * filename (hand) comes next. Reachable via [[MenuItem.CreateFlow]];
+    * [[MenuItem.ForkFlow]] is the sibling entry point for [[createForkFlow]].
+    * `private[shell]` so a scripted-UI test can drive it directly.
+    */
+  private[shell] def createNewFlow(
+      ui: ShellUi,
+      terminal: Terminal,
+      workDir: os.Path = os.pwd,
+      globalFlows: os.Path = GlobalSettings.defaultFlows,
+      spawnEditor: (Terminal, os.Path) => Int = EditAction.editInPlace
+  ): Unit =
+    pickChangeMode(ui).foreach:
+      case ChangeMode.Hand =>
+        createNewFlowByHand(ui, terminal, workDir, globalFlows, spawnEditor)
+      case ChangeMode.Agent =>
+        createNewFlowByAgent(ui, terminal, workDir, globalFlows)
+
+  /** Create+hand (ADR 0021 §9 amendment): tier, then a filename (there's no
+    * goal to slug a default from), then a minimal compiling
+    * [[FlowAuthoring.skeletonFlow]] is written and opened in the editor —
+    * `spawnEditor` injectable like [[editSettings]]'s own seam.
+    */
+  private def createNewFlowByHand(
+      ui: ShellUi,
+      terminal: Terminal,
+      workDir: os.Path,
+      globalFlows: os.Path,
+      spawnEditor: (Terminal, os.Path) => Int
+  ): Unit =
+    for
+      tier <- pickTier(ui, "Where should the new flow be saved:", globalFlows)
+      target <- promptNewFlowFilename(ui, tier, workDir, globalFlows)
+    do
+      os.write.over(
+        target.flowPath,
+        FlowAuthoring.skeletonFlow(ShellVersion.value)
+      )
+      spawnEditor(terminal, target.flowPath).discard
+
+  /** Prompts for the new flow's filename, defaulted to `new-flow.sc` and
+    * validated/collision-refused the same way the CLI's explicit `name`
+    * argument is ([[FlowAuthoring.validateFileName]] +
+    * [[FlowAuthoring.safePrepareTarget]]) — re-prompting on either problem
+    * rather than aborting, since a taken or invalid name is easy to fix without
+    * starting the whole flow over.
+    */
+  @tailrec private def promptNewFlowFilename(
+      ui: ShellUi,
+      tier: CreateTier,
+      workDir: os.Path,
+      globalFlows: os.Path
+  ): Option[CreateTarget] =
+    ui.input("Filename for the new flow", default = Some("new-flow.sc")) match
+      case UiOutcome.Cancelled => None
+      case UiOutcome.Selected(name) =>
+        val prepared =
+          for
+            _ <- FlowAuthoring.validateFileName(name)
+            target <- FlowAuthoring
+              .safePrepareTarget(tier, name, workDir, globalFlows)
+          yield target
+        prepared match
+          case Left(message) =>
+            ShellOutput.error(message)
+            promptNewFlowFilename(ui, tier, workDir, globalFlows)
+          case Right(target) => Some(target)
+
+  /** Create+agent: today's original path, unchanged — tier → goal, filename
+    * auto-derived from the goal's [[FlowAuthoring.suggestFilenameForGoal]] slug
+    * (uniquified on collision — never prompted for), then hands off to
+    * [[AuthorAction.create]] — which runs the built-in `simple.sc` flow in a
+    * throwaway [[orca.shell.create.AuthoringSandbox]], so the configured
     * planning/coding/review agents (and their model pins) do the writing
     * without ever touching the user's repository. Cancelling any prompt aborts
-    * back to the menu without launching anything. Reachable via
-    * [[MenuItem.CreateFlow]]; [[MenuItem.ForkFlow]] is the sibling entry point
-    * for [[createForkFlow]]. `private[shell]` so a scripted-UI test can drive
-    * it directly.
+    * back to the menu without launching anything.
     */
-  private[shell] def createNewFlow(ui: ShellUi, terminal: Terminal): Unit =
-    val workDir = os.pwd
-    val globalFlows = GlobalSettings.defaultFlows
+  private def createNewFlowByAgent(
+      ui: ShellUi,
+      terminal: Terminal,
+      workDir: os.Path,
+      globalFlows: os.Path
+  ): Unit =
     for
       tier <- pickTier(ui, "Where should the new flow be saved:", globalFlows)
       goal <- promptDescription(ui, "Describe what the flow should do")
@@ -315,31 +489,83 @@ object Main:
         .create(goal, AuthorParams(tier, target), ui, terminal)
         .discard
 
-  /** Fork-an-existing-flow authoring: pick the source flow from every tier
-    * (same rows View/Edit use) → describe the changes → tier for the fork's
-    * target; filename auto-derived from [[FlowAuthoring.forkFilenameDefault]]
-    * (uniquified on collision — never prompted for). Hands off to
-    * [[AuthorAction.fork]] — same sandboxed flow-based launch as
-    * [[createNewFlow]]. `private[shell]` so a scripted-UI test can drive it
-    * directly.
+  /** Fork-an-existing-flow: pick the source flow from every tier (same rows
+    * View/Edit use) → tier for the fork's target → mode (ADR 0021 §6/§9
+    * amendment) → hand or agent. `private[shell]` so a scripted-UI test can
+    * drive it directly.
     */
-  private[shell] def createForkFlow(ui: ShellUi, terminal: Terminal): Unit =
-    val workDir = os.pwd
-    val globalFlows = GlobalSettings.defaultFlows
+  private[shell] def createForkFlow(
+      ui: ShellUi,
+      terminal: Terminal,
+      workDir: os.Path = os.pwd,
+      globalFlows: os.Path = GlobalSettings.defaultFlows,
+      spawnEditor: (Terminal, os.Path) => Int = EditAction.editInPlace
+  ): Unit =
     for
       source <- selectFlow(ui, "Fork which flow?")
-      changes <- promptDescription(ui, "Describe the changes for the fork")
       tier <- pickTier(ui, "Where should the fork be saved:", globalFlows)
+      mode <- pickChangeMode(ui)
     do
-      val target = FlowAuthoring.prepareAutoTarget(
-        tier,
-        FlowAuthoring.forkFilenameDefault(source.name),
-        workDir,
-        globalFlows
-      )
-      AuthorAction
-        .fork(source, changes, AuthorParams(tier, target), ui, terminal)
-        .discard
+      mode match
+        case ChangeMode.Hand =>
+          forkFlowByHand(
+            terminal,
+            source,
+            tier,
+            workDir,
+            globalFlows,
+            spawnEditor
+          )
+        case ChangeMode.Agent =>
+          forkFlowByAgent(ui, terminal, source, tier, workDir, globalFlows)
+
+  /** Fork+hand (ADR 0021 §9 amendment): copies the source straight to the
+    * fork's auto-derived target (same [[FlowAuthoring.forkFilenameDefault]]/
+    * [[FlowAuthoring.prepareAutoTarget]] as the agent path), then opens the
+    * copy in the editor — no goal/changes prompt, since there's no agent to
+    * describe them to. `spawnEditor` injectable like [[editSettings]]'s own
+    * seam.
+    */
+  private def forkFlowByHand(
+      terminal: Terminal,
+      source: DiscoveredFlow,
+      tier: CreateTier,
+      workDir: os.Path,
+      globalFlows: os.Path,
+      spawnEditor: (Terminal, os.Path) => Int
+  ): Unit =
+    val target = FlowAuthoring.prepareAutoTarget(
+      tier,
+      FlowAuthoring.forkFilenameDefault(source.name),
+      workDir,
+      globalFlows
+    )
+    os.copy(source.path, target.flowPath, createFolders = true)
+    spawnEditor(terminal, target.flowPath).discard
+
+  /** Fork+agent: today's original path, unchanged — describe the changes, then
+    * hands off to [[AuthorAction.fork]] — same sandboxed flow-based launch as
+    * [[createNewFlowByAgent]].
+    */
+  private def forkFlowByAgent(
+      ui: ShellUi,
+      terminal: Terminal,
+      source: DiscoveredFlow,
+      tier: CreateTier,
+      workDir: os.Path,
+      globalFlows: os.Path
+  ): Unit =
+    promptDescription(ui, "Describe the changes for the fork").foreach:
+      changes =>
+        val target = FlowAuthoring.prepareAutoTarget(
+          tier,
+          FlowAuthoring.forkFilenameDefault(source.name),
+          workDir,
+          globalFlows
+        )
+        AuthorAction
+          .fork(source, changes, AuthorParams(tier, target), ui, terminal)
+          .discard
 
   /** The Project/Global target-tier picker, shared by new-flow authoring, fork
     * authoring, and customizing a built-in into a tier — same two choices every

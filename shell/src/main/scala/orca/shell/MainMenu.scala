@@ -9,6 +9,14 @@ private[shell] enum MenuItem:
   case RunFlow, ViewFlow, EditFlow, CreateFlow, ForkFlow, ContinueSession,
     Reconfigure, EditSettings, RediscoverStack, Exit
 
+/** How Edit/Create/Fork make their changes (ADR 0021 §6/§9 amendment): asked
+  * via [[MainMenu.modeChoices]] after the action's WHAT is established (which
+  * flow to edit; source+tier to fork; nothing yet for create, where the mode
+  * decides whether a goal or a filename comes next).
+  */
+private[shell] enum ChangeMode:
+  case Hand, Agent
+
 private[shell] object MainMenu:
 
   /** Fixed ADR §3 order; `continueDisabledReason` non-None renders the item
@@ -27,12 +35,18 @@ private[shell] object MainMenu:
     List(
       Choice(MenuItem.RunFlow, "Run a flow"),
       Choice(MenuItem.ViewFlow, "View a flow"),
-      Choice(MenuItem.EditFlow, "Edit a flow"),
+      Choice(
+        MenuItem.EditFlow,
+        "Edit a flow — by hand, or an agent makes the changes"
+      ),
       Choice(
         MenuItem.CreateFlow,
-        "Create a new flow — describe it, an agent writes it"
+        "Create a new flow — by hand, or an agent writes it"
       ),
-      Choice(MenuItem.ForkFlow, "Fork a flow — an agent edits a copy"),
+      Choice(
+        MenuItem.ForkFlow,
+        "Fork a flow — by hand, or an agent adapts the copy"
+      ),
       Choice(
         MenuItem.ContinueSession,
         continueLabel,
@@ -52,3 +66,14 @@ private[shell] object MainMenu:
       ),
       Choice(MenuItem.Exit, "Exit")
     )
+
+  /** "How should the changes be made?" — the two-row hand-vs-agent prompt
+    * shared by Edit/Create/Fork (ADR 0021 §6/§9 amendment).
+    */
+  val modeChoices: List[Choice[ChangeMode]] = List(
+    Choice(ChangeMode.Hand, "By hand — open in your editor"),
+    Choice(
+      ChangeMode.Agent,
+      "With an agent — describe the changes and let it work"
+    )
+  )
