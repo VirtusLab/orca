@@ -16,6 +16,7 @@ import orca.agents.{BackendTag, Agent, SessionId, WireSessionId}
 import orca.events.OrcaEvent
 import orca.util.TextUtil
 import orca.progress.{
+  BranchMode,
   FeatureBranch,
   ProgressHeader,
   ProgressStore,
@@ -208,16 +209,16 @@ object FlowLifecycle:
     * can never reach this field — "delete/checkout an unvalidated name" is
     * unrepresentable here.
     *
-    * `branchCreated` (mirrors [[ProgressHeader.branchCreated]]) gates
-    * [[finishBranch]]'s throwaway auto-delete: `false` in skip-branch mode,
-    * where orca bound to a pre-existing branch rather than minting one.
+    * `branchMode` (mirrors [[ProgressHeader.branchMode]]) gates
+    * [[finishBranch]]'s throwaway auto-delete: `Reused` blocks it, since orca
+    * bound to a pre-existing branch rather than minting one.
     */
   private[orca] case class FlowSetup(
       store: ProgressStore,
       featureBranch: FeatureBranch,
       startBranch: String,
       stackSettings: StackSettings,
-      branchCreated: Boolean
+      branchMode: BranchMode
   )
 
   /** The branch half of [[FlowSetup]] (FP2), resolved by whichever of
@@ -227,7 +228,7 @@ object FlowLifecycle:
   private[orca] case class BranchBinding(
       featureBranch: FeatureBranch,
       startBranch: String,
-      branchCreated: Boolean
+      branchMode: BranchMode
   )
 
   /** Bind the run to a branch + progress log before the body runs (ADR 0018
@@ -446,14 +447,14 @@ object FlowLifecycle:
           BranchBinding(
             featureBranch,
             header.startingBranch,
-            header.branchCreated
+            header.branchMode
           )
     FlowSetup(
       store,
       binding.featureBranch,
       binding.startBranch,
       stackSettings,
-      binding.branchCreated
+      binding.branchMode
     )
 
   /** Outcome of the pre-`ensureClean` stack read: either the resolved values,
@@ -656,7 +657,8 @@ object FlowLifecycle:
         startingBranch = startBranch,
         branch = branch.value,
         promptHash = ProgressStore.hashPrompt(args.userPrompt),
-        branchCreated = !args.skipBranch.value
+        branchMode =
+          if args.skipBranch.value then BranchMode.Reused else BranchMode.Created
       )
     )
     // `commitStaged` (not `commit`, which would `add -A`): the header commit
@@ -850,14 +852,15 @@ object FlowLifecycle:
     * branch (the default) or return to the starting branch (PR flows).
     * Best-effort and success-path-only; never deletes start/protected branches.
     *
-    * The throwaway-delete is additionally gated on `setup.branchCreated`: a
-    * branch orca did not create (skip-branch mode) must never be deleted, even
-    * if a tampered header's `startingBranch` is crafted to name some existing
-    * branch that happens to diff-blank against the feature branch — that
-    * `startingBranch` cross-check doesn't otherwise exist (unlike `branch`'s
-    * R30 check against the actual current branch). Residual, accepted: with
-    * `branchCreated = false`, `returnToStartBranch` can still `checkout` a
-    * tampered `startingBranch` — navigation only, never destructive.
+    * The throwaway-delete is additionally gated on `setup.branchMode`: a
+    * branch orca did not create (`Reused`, skip-branch mode) must never be
+    * deleted, even if a tampered header's `startingBranch` is crafted to name
+    * some existing branch that happens to diff-blank against the feature
+    * branch — that `startingBranch` cross-check doesn't otherwise exist
+    * (unlike `branch`'s R30 check against the actual current branch).
+    * Residual, accepted: with `branchMode = Reused`, `returnToStartBranch` can
+    * still `checkout` a tampered `startingBranch` — navigation only, never
+    * destructive.
     */
   private def finishBranch(
       git: GitTool,
@@ -865,7 +868,7 @@ object FlowLifecycle:
       returnToStartBranch: Boolean
   )(using WorkspaceWrite): Unit =
     val throwaway =
-      setup.branchCreated &&
+      setup.branchMode == BranchMode.Created &&
         setup.featureBranch.value != setup.startBranch &&
         git
           .diffBranchExcludingOrca(setup.startBranch, setup.featureBranch.value)

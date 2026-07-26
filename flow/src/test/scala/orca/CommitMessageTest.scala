@@ -129,7 +129,12 @@ class CommitMessageTest extends munit.FunSuite:
     val store = ProgressStore.default(dir, "p")
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(
-      orca.progress.ProgressHeader("main", "feat/test", "deadbeef")
+      orca.progress.ProgressHeader(
+        "main",
+        "feat/test",
+        "deadbeef",
+        orca.progress.BranchMode.Created
+      )
     )
     body(new FlowControlWithAgent(agentStub, git, store, dir), dir)
 

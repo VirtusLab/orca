@@ -8,22 +8,26 @@ import orca.agents.{JsonData, given}
 import orca.util.RawJson
 import sttp.tapir.Schema
 
-/** Header capturing the git context in which the progress log was started.
-  *
-  * `branchCreated` records whether orca minted `branch` itself (`true`, the
-  * ordinary case) or bound to a pre-existing branch without creating it
-  * (`false` — skip-branch mode, ADR 0018 amendment). Gates the throwaway-branch
-  * auto-delete (`FlowLifecycle.finishBranch`): a branch orca never created must
-  * never be deleted, even if a tampered header's `startingBranch` is crafted to
-  * make it look throwaway. Defaults to `true` so a header from before this
-  * field existed — necessarily orca-minted, skip mode being newer — decodes
-  * correctly with no log migration needed.
+/** Whether orca minted [[ProgressHeader.branch]] itself or bound to a
+  * pre-existing one. Gates the throwaway-branch auto-delete
+  * (`FlowLifecycle.finishBranch`): a branch orca never created must never be
+  * deleted, even if a tampered header's `startingBranch` is crafted to make it
+  * look throwaway.
   */
+enum BranchMode derives JsonData:
+  /** Orca minted `branch` itself — the ordinary case. */
+  case Created
+  /** Orca bound to a pre-existing branch without creating it (skip-branch
+    * mode, ADR 0018 amendment).
+    */
+  case Reused
+
+/** Header capturing the git context in which the progress log was started. */
 case class ProgressHeader(
     startingBranch: String,
     branch: String,
     promptHash: String,
-    branchCreated: Boolean = true
+    branchMode: BranchMode
 ) derives JsonData
 
 /** A single stage's outcome, stored as an already-serialised JSON subtree.

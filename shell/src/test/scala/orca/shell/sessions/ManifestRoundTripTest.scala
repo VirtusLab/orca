@@ -2,7 +2,7 @@ package orca.shell.sessions
 
 import orca.WorkspaceWrite
 import orca.events.OrcaEvent
-import orca.progress.{ProgressHeader, ProgressStore, SessionRecord}
+import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.runner.{RunManifestWriter, RunOutcome}
 import orca.testkit.TempDirs
 import ox.channels.BufferCapacity
@@ -29,7 +29,8 @@ class ManifestRoundTripTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "main",
-        promptHash = "abc"
+        promptHash = "abc",
+        branchMode = BranchMode.Created
       )
     )
     store.upsertSession(

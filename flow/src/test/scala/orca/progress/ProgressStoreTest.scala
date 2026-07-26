@@ -13,7 +13,8 @@ class ProgressStoreTest extends FunSuite:
   private val header = ProgressHeader(
     startingBranch = "main",
     branch = "feat/some-feature",
-    promptHash = "abc123def456"
+    promptHash = "abc123def456",
+    branchMode = BranchMode.Created
   )
 
   test("writeHeader then load returns the header with empty entries"):

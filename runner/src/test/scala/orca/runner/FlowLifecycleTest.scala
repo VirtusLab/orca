@@ -33,6 +33,7 @@ import orca.agents.{
 }
 import orca.backend.{IdScheme, SessionSupport}
 import orca.progress.{
+  BranchMode,
   FeatureBranch,
   ProgressHeader,
   ProgressStore,
@@ -107,7 +108,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/lifecycle-failure",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -170,7 +172,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/lifecycle-resume",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -417,7 +420,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/merged-hazard",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -839,7 +843,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/discover-resume",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -1138,7 +1143,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/rehydrate-targeted",
-        promptHash = ProgressStore.hashPrompt("rehydrate-targeted")
+        promptHash = ProgressStore.hashPrompt("rehydrate-targeted"),
+        branchMode = BranchMode.Created
       )
     )
     sessions.foreach(store.upsertSession)
@@ -1161,7 +1167,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/rehydrate-feature",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -1782,7 +1789,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "HEAD",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -1994,7 +2002,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         startingBranch = "my-work",
         branch = "my-work",
         promptHash = ProgressStore.hashPrompt(prompt),
-        branchCreated = false
+        branchMode = BranchMode.Reused
       )
     )
     git.forceAdd(store.path)
@@ -2067,13 +2075,13 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(branchNames(workDir), Set("main", "my-empty-work"))
 
   test(
-    "teardownSuccess: branchCreated = false blocks the throwaway auto-delete even when the diff is blank"
+    "teardownSuccess: branchMode = Reused blocks the throwaway auto-delete even when the diff is blank"
   ):
     // Direct FlowSetup construction simulates the hazard finding 3 closes: a
     // tampered header's `startingBranch` (unlike `branch`, never cross-checked
     // against anything) could name an existing branch that happens to
     // diff-blank against the feature branch — which is exactly R5's throwaway
-    // signature. `branchCreated = false` (skip-branch mode) must block the
+    // signature. `branchMode = Reused` (skip-branch mode) must block the
     // delete regardless of what `startingBranch` claims.
     val workDir = GitRepo.seeded() // "main"
     val git = new OsGitTool(workDir)
@@ -2087,7 +2095,7 @@ class FlowLifecycleTest extends munit.FunSuite:
       featureBranch = featureBranch,
       startBranch = "main",
       stackSettings = StackSettings.empty,
-      branchCreated = false
+      branchMode = BranchMode.Reused
     )
     FlowLifecycle.teardownSuccess(git, setup, returnToStartBranch = false)
     assert(
@@ -2113,7 +2121,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "Feature/JIRA-123",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -2172,7 +2181,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/resume-dirty-json-break",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -2226,7 +2236,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/surfaced-tampered",
-        promptHash = "deadbeefcafe"
+        promptHash = "deadbeefcafe",
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -2268,7 +2279,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "master",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -2304,7 +2316,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/surfaced-rehydrate",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)

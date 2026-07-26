@@ -17,7 +17,7 @@ import orca.agents.{
   ToolSet
 }
 import orca.tools.{DiffMode, GitHubTool, GitTool, OsGitTool, PrHandle}
-import orca.progress.{ProgressHeader, ProgressStore}
+import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
 import orca.testkit.GitRepo
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 
@@ -138,7 +138,9 @@ class OpenPrFromBranchTest extends FunSuite:
     val dir = GitRepo.seeded()
     val store = ProgressStore.default(dir, "p")
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    store.writeHeader(ProgressHeader("main", "feat/test", "deadbeef"))
+    store.writeHeader(
+      ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
+    )
     val recordingGit = new RecordingGit(new OsGitTool(dir), calls)
     given FlowControl = new PrTestControl(
       new EventDispatcher(List(listener)),

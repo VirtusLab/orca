@@ -4,7 +4,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.OrcaDir
 import orca.WorkspaceWrite
 import orca.events.OrcaEvent
-import orca.progress.{ProgressHeader, ProgressStore, SessionRecord}
+import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.testkit.TempDirs
 import ox.channels.BufferCapacity
 import ox.supervised
@@ -166,7 +166,8 @@ class RunManifestWriterTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "main",
-        promptHash = "abc"
+        promptHash = "abc",
+        branchMode = BranchMode.Created
       )
     )
     store.upsertSession(
