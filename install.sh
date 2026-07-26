@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs the `orca` shell shim (ADR 0021 §1) into ~/.local/bin.
+# Installs the `orca` shell shim into ~/.local/bin.
 #
 #   curl -fsSL https://raw.githubusercontent.com/VirtusLab/orca/master/install.sh | bash
 #
@@ -9,7 +9,7 @@
 # is missing, this script bootstraps it via its official installer first.
 set -eu
 
-marker="# orca-shell-shim (ADR 0021 §1) - safe to overwrite"
+marker="# orca-shell shim - safe to overwrite"
 bin_dir="${HOME}/.local/bin"
 bin_path="${bin_dir}/orca"
 
