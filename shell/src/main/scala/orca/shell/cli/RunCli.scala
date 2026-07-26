@@ -86,5 +86,9 @@ private[cli] object RunCli:
           )
         else
           val piped = readStdin().trim
-          if piped.isEmpty then Left("no task given, and stdin was empty")
+          if piped.isEmpty then
+            Left(
+              "no task given, and stdin was empty — pass the task as an " +
+                "argument, or pipe non-empty input"
+            )
           else Right(piped)
