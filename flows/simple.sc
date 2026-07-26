@@ -33,11 +33,10 @@ val review = Reviewer(
   name = "review",
   description = "single all-round pass",
   systemPrompt =
-    """You are the only reviewer, in the only review round. Check whether the
-      |change correctly and completely implements the task, look for real
-      |bugs or missed edge cases, judge the clarity of what was written, and
-      |flag unnecessary complexity worth removing. Report only issues worth
-      |fixing — no nitpicks or style opinions.""".stripMargin
+    """Check whether the change correctly and completely implements the task,
+      |look for real bugs or missed edge cases, judge the clarity of what was
+      |written, and flag unnecessary complexity worth removing. Report only
+      |issues worth fixing — no nitpicks or style opinions.""".stripMargin
 )
 
 flow(OrcaArgs(args)):
