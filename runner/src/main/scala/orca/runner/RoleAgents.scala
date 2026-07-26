@@ -112,17 +112,41 @@ private[orca] object RoleAgents:
     )
 
   /** One role's resolved agent plus the provenance the announcement reads.
-    * `spec` is the winning project/global [[AgentSpec]] (the model-pin source),
-    * absent for an override or the built-in default; `foreign` is true only
-    * when an override escaped the wired set.
+    * `harness`/`model` are precomputed at resolution time (the only place that
+    * knows whether a settings [[AgentSpec]] won or the agent's own defaults
+    * apply), so announcing is pure formatting. `foreign` is true only when an
+    * override escaped the wired set.
     */
   private case class RoleChoice(
       label: String,
       agent: Agent[?],
       source: RoleSource,
-      spec: Option[AgentSpec],
+      harness: String,
+      model: Option[String],
       foreign: Boolean
   )
+
+  /** The `harness`/`model` pair an announcement shows for one role. The harness
+    * comes from the winning [[AgentSpec]] when there is one (project/global),
+    * otherwise from the resolved agent's backend tag (an override shows its
+    * backend's harness; the built-in default resolves to claude). The model
+    * shown is whichever settings never override: a settings pin wins outright
+    * (that's what the user asked for); absent a pin, the resolved agent's OWN
+    * configured model (e.g. claude's wired Opus1M default) is shown instead of
+    * staying silent — codex/pi, which pin no default, stay bare.
+    */
+  private def harnessAndModel(
+      agent: Agent[?],
+      spec: Option[AgentSpec]
+  ): (String, Option[String]) =
+    spec match
+      case Some(s) => (AgentSpec.harnessNameFor(s.backend), s.model)
+      case None =>
+        val harness =
+          agent.backendTag
+            .flatMap(AgentSpec.harnessNameFor.get)
+            .getOrElse("claude")
+        (harness, agent.configuredModel.map(_.name))
 
   private def resolveOne(
       label: String,
@@ -134,11 +158,13 @@ private[orca] object RoleAgents:
     overrideSelect match
       case Some(select) =>
         val agent = select(agents)
+        val (harness, model) = harnessAndModel(agent, None)
         RoleChoice(
           label,
           agent,
           RoleSource.Override,
-          spec = None,
+          harness,
+          model,
           foreign = !agents.isWiredBackend(agent)
         )
       case None =>
@@ -146,43 +172,25 @@ private[orca] object RoleAgents:
           .map((RoleSource.Project, _))
           .orElse(globalSpec.map((RoleSource.Global, _))) match
           case Some((source, spec)) =>
-            RoleChoice(
-              label,
-              one(Some(spec), agents),
-              source,
-              Some(spec),
-              foreign = false
-            )
+            val agent = one(Some(spec), agents)
+            val (harness, model) = harnessAndModel(agent, Some(spec))
+            RoleChoice(label, agent, source, harness, model, foreign = false)
           case None =>
+            val (harness, model) = harnessAndModel(agents.claude, None)
             RoleChoice(
               label,
               agents.claude,
               RoleSource.Default,
-              spec = None,
+              harness,
+              model,
               foreign = false
             )
 
-  /** One role's announcement segment, `label=harness[:model] (source)`. The
-    * harness comes from the winning [[AgentSpec]] when there is one
-    * (project/global), otherwise from the resolved agent's backend tag (an
-    * override shows its backend's harness; the built-in default resolves to
-    * claude). The model shown is whichever settings never override: a settings
-    * pin wins outright (that's what the user asked for); absent a pin, the
-    * resolved agent's OWN configured model (e.g. claude's wired Opus1M default)
-    * is shown instead of staying silent — codex/pi, which pin no default, stay
-    * bare. The `(source)` label is driven purely by the [[RoleSource]].
+  /** One role's announcement segment, `label=harness[:model] (source)` — pure
+    * formatting of [[RoleChoice]]'s precomputed fields.
     */
   private def announce(c: RoleChoice): String =
-    val harness = c.spec match
-      case Some(spec) => AgentSpec.harnessNameFor(spec.backend)
-      case None =>
-        c.agent.backendTag
-          .flatMap(AgentSpec.harnessNameFor.get)
-          .getOrElse("claude")
-    val model = c.spec match
-      case Some(spec) => spec.model
-      case None       => c.agent.configuredModel.map(_.name)
-    s"${c.label}=$harness${model.map(":" + _).getOrElse("")} (${sourceLabel(c.source)})"
+    s"${c.label}=${c.harness}${c.model.map(":" + _).getOrElse("")} (${sourceLabel(c.source)})"
 
   private def sourceLabel(source: RoleSource): String =
     source match
