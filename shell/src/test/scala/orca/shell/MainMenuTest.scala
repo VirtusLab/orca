@@ -82,7 +82,7 @@ class MainMenuTest extends munit.FunSuite:
     )
     assertEquals(
       byValue(MenuItem.RediscoverStack),
-      "Re-detect project stack (format/lint/test) on the next flow run"
+      "Clear stack settings (format/lint/test) — re-detected on the next flow run"
     )
 
   test("EditSettings label names both tiers it can open"):

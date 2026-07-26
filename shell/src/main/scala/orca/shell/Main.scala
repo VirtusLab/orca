@@ -476,12 +476,13 @@ object Main:
       s"${flow.name} — $description [${flow.origin.originLabel}]$shadows"
     Choice(flow, label)
 
-  /** "Re-detect project stack (format/lint/test) on the next flow run" (ADR
-    * 0021 §8/§4): [[StackAction.status]] does the guarded read/parse (a missing
-    * file, or one with no stack lines already, is a no-op with a one-line
-    * explanation; an unparseable file aborts instead of being surgically edited
-    * blind); on a live status [[StackAction.clearIfConfirmed]] renders it,
-    * confirms, and calls [[StackAction.clear]] — which strips the stack lines
+  /** "Clear stack settings (format/lint/test) — re-detected on the next flow
+    * run" (ADR 0021 §8/§4): [[StackAction.status]] does the guarded read/parse
+    * (a missing file, or one with no stack lines already, is a no-op with a
+    * one-line explanation; an unparseable file aborts instead of being
+    * surgically edited blind); on a live status
+    * [[StackAction.clearIfConfirmed]] renders it, confirms, and calls
+    * [[StackAction.clear]] — which strips the stack lines
     * ([[SettingsFile.stripStackLines]]) so the next flow run's own
     * `hasStackLines`-driven check (`FlowLifecycle.readSettings`) fires
     * discovery again. `workDir` is explicit (rather than reading `os.pwd`

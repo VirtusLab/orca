@@ -48,7 +48,7 @@ private[shell] object MainMenu:
       ),
       Choice(
         MenuItem.RediscoverStack,
-        "Re-detect project stack (format/lint/test) on the next flow run"
+        "Clear stack settings (format/lint/test) — re-detected on the next flow run"
       ),
       Choice(MenuItem.Exit, "Exit")
     )
