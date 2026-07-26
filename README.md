@@ -359,19 +359,24 @@ key there is also an error.
 command, run via `bash -c` in the flow's working directory; everything after
 the first `=` is command text (`lint = FOO=bar cargo check` works). Repeating
 a key appends — the task's commands run in file order, so a multi-stack repo
-lists one line per stack half. A `#` line is a comment; discovery places each
-command's evidence as its own `#` line directly above the `key = command`
-line. A missing or commented-out key means the task is disabled (its gate is
-skipped). A typical discovered project file:
+lists one line per stack half. A key's value may also be the literal `off`,
+which explicitly disables that task; a missing key has the same runtime
+effect (the gate is skipped) but, unlike `off`, does not count as
+"configured" — see Auto-discovery below. A `#` line is a comment and carries
+no meaning to the parser: discovery places each command's evidence (or, for
+a disabled task, its reason) as its own `#` line directly above the
+`key = value` line, but a comment is purely informative — commenting out a
+line is the same as deleting it. A typical discovered project file:
 
 ```properties
 # orca settings — edit freely, commit with the project.
-# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.
+# format/lint/test: a value of `off` disables explicitly; comments are inert. Delete a live stack line (or the whole file) to re-run auto-discovery.
 # Cargo.toml; via rustfmt
 format = cargo fmt
 # Cargo.toml
 lint = cargo check --tests
-# test =   (no test config found)
+# no test config found
+test = off
 ```
 
 **Agent keys.** `planningAgent`, `codingAgent`, and `reviewAgent`, valid in
@@ -402,14 +407,15 @@ exists — bare `claude` resolves to Opus — and stays bare where the harness's
 own configuration decides, as for `codex`.)
 
 **Auto-discovery.** Discovery runs when the project file is absent, or when
-it exists but names no stack line (live or commented) — a hand-written file
-containing only agent keys still triggers it, appending the discovered stack
-entries below the existing content rather than overwriting it, so agent lines
-are never touched. Delete the stack lines (or the whole file) to re-run
-discovery. When it runs (and no `flow(stackSettings = ...)` override is
-passed), the first run spends one cheap-model, read-only agent call
-inspecting the repo, then writes the file and announces every guess in the
-event log:
+it exists but has no LIVE stack line — a hand-written file containing only
+agent keys (or only commented-out stack examples) still triggers it,
+appending the discovered stack entries below the existing content rather
+than overwriting it, so agent lines are never touched. Delete a live stack
+line (or the whole file) to re-run discovery; a commented-out one does
+nothing, since comments are inert. When it runs (and no
+`flow(stackSettings = ...)` override is passed), the first run spends one
+cheap-model, read-only agent call inspecting the repo, then writes the file
+and announces every guess in the event log:
 
 ```text
 no .orca/settings.properties — discovering how to format, lint & test this project
@@ -427,10 +433,11 @@ make no model call.
 
 Every discovered command cites the file that evidences it, and two checks run
 before the file is written: the command's executable must be on `PATH`, and the
-cited evidence file must exist. A command failing either is demoted to a
-commented line with its reason (`# lint = just check   (just: not found on
-PATH)`), never run silently. A discovery failure (backend unavailable, invalid
-output) aborts the run rather than writing a "gates off" file.
+cited evidence file must exist. A command failing either is demoted to a live
+`key = off` line with the rejected command and reason as an informative
+comment above (`# just check: just: not found on PATH` / `lint = off`), never
+run silently. A discovery failure (backend unavailable, invalid output) aborts
+the run rather than writing a "gates off" file.
 
 `.orca/` is committed by default: settings and the progress log ride the
 branch, while scratch lives under `.orca/cache/`, which writes its own

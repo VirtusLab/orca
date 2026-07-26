@@ -396,3 +396,21 @@ Precedence, end to end: `reviewAndFixLoop(formatCommands = Use(...)/Off)` >
 > the "file exists ⇒ discovery already ran" invariant with "stack lines exist
 > ⇒ discovery already ran" — the settings file can now also carry agent-only
 > content that names no stack command.
+
+> **Amendment (2026-07-26).** Comments were found to carry real semantics: a
+> hand-written commented-out template (e.g. from "Edit settings") satisfied
+> "stack lines exist" and silently disarmed discovery forever, with no live
+> line to show for it. Comments are now purely decorative — `hasStackLines`
+> (§ Auto-discovery's trigger, refined by ADR 0020 §7) counts only LIVE
+> `key = value` lines. A stack key gains one recognized value, `off`, which
+> explicitly disables that gate: same runtime effect as the key being absent
+> (`StackSettings` still resolves to an empty list either way — no `Off` vs
+> `Absent` distinction was needed, since the discovery trigger reads the raw
+> file text, not `StackSettings`), but — being a live line — it counts as
+> "configured" and does not re-trigger discovery. Discovery's own write
+> changes to match: a task left unset or demoted is now written as a live
+> `key = off` line, with its evidence/reason as an informative `#` comment
+> immediately above (was: the whole entry commented out). Templates that mean
+> to suppress discovery (the authoring sandbox) now write live `off` lines;
+> templates that mean to leave discovery armed (the "Edit settings" starter)
+> keep their stack examples commented and add no live line.

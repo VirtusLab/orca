@@ -226,11 +226,12 @@ commands and role agents are unrelated settings, and reusing Re-configure
 would force an extra sub-menu layer onto its existing, simple "re-run the
 wizard" behavior): the shell has no `Agent`/`InStage` plumbing to invoke
 `StackDiscovery` itself, so it doesn't try to. Instead it surgically strips
-every stack line (`format`/`lint`/`test`, live or `#`-commented) from
-`{workDir}/.orca/settings.properties` via `SettingsFile.stripStackLines` — a
-new helper that reuses `hasStackLines`'s own line predicate, so it can never
-disagree with `FlowLifecycle.readSettings`'s re-discovery trigger — leaving
-role-agent keys, blank lines, and unrelated comments untouched. That trigger
+every LIVE stack line (`format`/`lint`/`test`, including an explicit `off`)
+from `{workDir}/.orca/settings.properties` via `SettingsFile.stripStackLines`
+— a new helper that reuses `hasStackLines`'s own line predicate, so it can
+never disagree with `FlowLifecycle.readSettings`'s re-discovery trigger —
+leaving role-agent keys, blank lines, and comments (inert, ADR 0019 amendment
+2026-07-26) untouched. That trigger
 already re-runs discovery whenever the file names no stack key at all, so the
 strip alone is enough: no new discovery path is added. The action reads the
 project file passively (no `.orca` creation on a bare view), guards the write
@@ -428,7 +429,10 @@ coding agent (`claude -p`/`codex exec`/`gemini -p`/`opencode run`/`pi -p`,
 whichever is print-mode for that CLI) turning the goal into a kebab-case slug,
 sanitized hard and bounded by a short timeout; a slow, absent, or unreachable
 agent degrades to a local word-based slug instead, and either way the
-suggestion is shown as an editable default, never written unconfirmed. Then
+suggestion is shown as an editable default, never written unconfirmed. Fork's
+target filename is suggested the same way, grounded in the source's name and
+description plus the described changes instead of a fresh goal, and degrading
+to `<source>-fork.sc` on the same conditions. Then
 pick a harness (default: the configured coding agent) and confirm running it
 without approval prompts ("yolo mode", feedback item 11, default yes) — mapped
 per backend to claude's `--dangerously-skip-permissions`, codex's
@@ -480,9 +484,10 @@ included only as a last-resort fallback line.
 >
 > **Amendment (2026-07-25, second).** The authoring flow runs in a throwaway
 > sandbox (`AuthoringSandbox`) — a temp dir with a fresh git repo, a local
-> commit identity, and a pre-committed settings file whose commented-out stack
-> lines keep stack discovery from running (a flow script has no project stack)
-> — never in the user's repository. Authoring therefore works from any
+> commit identity, and a pre-committed settings file with every stack key
+> explicitly `off` (live lines — ADR 0019 amendment 2026-07-26; a comment
+> would not do) so stack discovery never runs (a flow script has no project
+> stack) — never in the user's repository. Authoring therefore works from any
 > directory, never stashes or commits the user's tree, and leaves no branches
 > behind; the flow writes the file at the sandbox root and, on success, the
 > shell copies it out to the target tier and deletes the sandbox (a failed
