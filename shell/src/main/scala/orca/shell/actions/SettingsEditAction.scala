@@ -25,14 +25,34 @@ private[shell] object SettingsEditAction:
       case CreateTier.Project => OrcaDir.settingsPath(workDir)
       case CreateTier.Global  => globalSettingsPath
 
+  /** A fresh project settings file's full starter content:
+    * [[SettingsFile.Header]] (so the "delete the stack lines to re-run
+    * auto-discovery" re-arm path is documented on the file itself) plus every
+    * key commented out with a fill-in-blank example. The commented
+    * `format`/`lint`/`test` lines count as "stack configured"
+    * ([[SettingsFile.hasStackLines]]) — same convention discovery's own written
+    * output uses — so this template disarms auto-discovery exactly like a
+    * hand-written one would; deleting those lines (the Header's own
+    * instruction) re-arms it.
+    */
+  private[shell] val ProjectTemplate: String =
+    SettingsFile.Header + "\n\n" +
+      "# Stack commands — one shell command per key; repeat a key to append.\n" +
+      "# format = cargo fmt\n" +
+      "# lint = cargo check --tests\n" +
+      "# test = cargo test\n" +
+      "\n" +
+      "# Role agents — harness[:model]; harness: claude|codex|opencode|pi|gemini.\n" +
+      "# planningAgent = claude:fable\n" +
+      "# codingAgent = claude:opus\n" +
+      "# reviewAgent = claude:opus\n"
+
   /** Creates `path` from its tier's standard template if it doesn't already
     * exist yet — never touches a present file, malformed or not, since the
     * editor is about to give the user a chance to fix it themselves. Global:
     * [[ConfigAction.set]]'s own fresh-render write path with no roles set
     * ([[SettingsFile.renderGlobal]]) — the canonical write already used by the
-    * wizard and `orca config`. Project: [[SettingsFile.Header]] with an empty
-    * body ([[SettingsFile.render]] of no entries) — deliberately no stack
-    * lines, so discovery stays armed for the next flow run — guarded by
+    * wizard and `orca config`. Project: [[ProjectTemplate]] — guarded by
     * [[OrcaDir]] the same way every other `.orca` write is.
     */
   def ensureExists(tier: CreateTier, path: os.Path, workDir: os.Path): Unit =
@@ -43,7 +63,7 @@ private[shell] object SettingsEditAction:
         OrcaDir.assertNoOrcaSymlinks(workDir, path)
         if !os.exists(path) then
           OrcaDir.ensureRoot(workDir).discard
-          os.write.over(path, SettingsFile.render(Nil), createFolders = true)
+          os.write.over(path, ProjectTemplate, createFolders = true)
 
   /** Re-parses `tier`'s settings file after the editor exits, reusing
     * [[ConfigAction.show]]/[[ConfigAction.showProject]] so the malformed-file

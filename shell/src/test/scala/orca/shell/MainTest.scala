@@ -4,7 +4,7 @@ import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.StackSettings
 import orca.runner.{ManifestSession, RunManifest}
 import orca.settings.SettingsFile
-import orca.shell.actions.StackAction
+import orca.shell.actions.{SettingsEditAction, StackAction}
 import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
@@ -649,7 +649,7 @@ class MainTest extends munit.FunSuite:
       )
       val expected = workDir / ".orca" / "settings.properties"
       assertEquals(editedPath, Some(expected))
-      assertEquals(os.read(expected), SettingsFile.render(Nil))
+      assertEquals(os.read(expected), SettingsEditAction.ProjectTemplate)
 
   test(
     "editSettings: Global — an absent file is created from the template before the editor opens it"

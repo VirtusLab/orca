@@ -1,6 +1,6 @@
 package orca.shell.actions
 
-import orca.settings.SettingsFile
+import orca.settings.{SettingsFile, SettingsScope}
 import orca.shell.create.CreateTier
 import orca.testkit.TempDirs
 
@@ -30,14 +30,48 @@ class SettingsEditActionTest extends munit.FunSuite:
   // --- ensureExists ---
 
   test(
-    "ensureExists: Project creates the header-only template, with no stack lines"
+    "ensureExists: Project creates the full commented template, and it parses clean"
   ):
     withDirs: (workDir, _) =>
       val path =
         SettingsEditAction.pathFor(CreateTier.Project, workDir, os.root)
       SettingsEditAction.ensureExists(CreateTier.Project, path, workDir)
-      assertEquals(os.read(path), SettingsFile.render(Nil))
-      assert(!SettingsFile.hasStackLines(os.read(path)))
+      val content = os.read(path)
+      assertEquals(content, SettingsEditAction.ProjectTemplate)
+      assert(
+        SettingsFile.parse(content, SettingsScope.Project).isRight,
+        s"template must parse clean: $content"
+      )
+
+  test(
+    "ensureExists: Project template's commented stack lines still count as configured"
+  ):
+    withDirs: (workDir, _) =>
+      val path =
+        SettingsEditAction.pathFor(CreateTier.Project, workDir, os.root)
+      SettingsEditAction.ensureExists(CreateTier.Project, path, workDir)
+      // Commented stack lines disarm auto-discovery (same convention
+      // discovery's own written output uses) — the template must self-arm
+      // the same way, not leave discovery running on every flow launch.
+      assert(SettingsFile.hasStackLines(os.read(path)))
+
+  test(
+    "ensureExists: Project template guides both stack commands and role agents"
+  ):
+    withDirs: (workDir, _) =>
+      val path =
+        SettingsEditAction.pathFor(CreateTier.Project, workDir, os.root)
+      SettingsEditAction.ensureExists(CreateTier.Project, path, workDir)
+      val content = os.read(path)
+      assert(content.contains("Stack commands"), content)
+      assert(content.contains("Role agents"), content)
+      assert(
+        content.contains(
+          "Delete the stack lines (format/lint/test, commented ones too) to " +
+            "re-run auto-discovery"
+        ),
+        content
+      )
 
   test("ensureExists: Global creates a header-only file with no role lines"):
     withDirs: (workDir, globalPath) =>
