@@ -11,7 +11,7 @@ import orca.backend.{
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
-import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
+import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item, ItemStatus}
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
@@ -174,7 +174,7 @@ private[codex] class CodexConversation(
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
           toolName = Some("bash"),
-          ok = exitCode.contains(0) && status == "completed",
+          ok = exitCode.contains(0) && status.isCompleted,
           content = output
         )
       )
@@ -182,7 +182,7 @@ private[codex] class CodexConversation(
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
           toolName = Some("file_change"),
-          ok = status == "completed",
+          ok = status.isCompleted,
           content = changes.map(c => s"${c.kind} ${c.path}").mkString("\n")
         )
       )
@@ -194,7 +194,7 @@ private[codex] class CodexConversation(
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
           toolName = Some(mcpToolName(server, tool)),
-          ok = status == "completed",
+          ok = status.isCompleted,
           content = result.getOrElse("")
         )
       )

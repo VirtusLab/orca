@@ -38,9 +38,13 @@ private[codex] enum Item:
       command: String,
       output: String,
       exitCode: Option[Int],
-      status: String
+      status: ItemStatus
   )
-  case FileChange(id: String, changes: List[FileChangeDetail], status: String)
+  case FileChange(
+      id: String,
+      changes: List[FileChangeDetail],
+      status: ItemStatus
+  )
 
   /** Codex's MCP tool-call item. `server` is the configured MCP server name
     * (from `mcp_servers.<server>.url` in the config); `tool` is the bare slug
@@ -54,11 +58,30 @@ private[codex] enum Item:
       tool: String,
       arguments: String,
       result: Option[String],
-      status: String
+      status: ItemStatus
   )
   case Other(itemType: String, id: String)
 
 private[codex] case class FileChangeDetail(path: String, kind: String)
+
+/** Outcome of an item's wire `status` field, decoded once so every item kind
+  * (`command_execution`, `file_change`, `mcp_tool_call`) agrees on what counts
+  * as done. `"completed"` is the only documented success token (ADR 0007); any
+  * other value — a genuine failure status (`"failed"`), or a missing one —
+  * collapses to [[Unknown]], carrying the raw text (empty when missing) for
+  * diagnostics.
+  */
+private[codex] enum ItemStatus:
+  case Completed
+  case Unknown(raw: String)
+
+private[codex] object ItemStatus:
+  def of(raw: Option[String]): ItemStatus = raw match
+    case Some("completed") => Completed
+    case Some(other)       => Unknown(other)
+    case None              => Unknown("")
+
+  extension (s: ItemStatus) def isCompleted: Boolean = s == Completed
 
 private[codex] object InboundEvent:
 
@@ -111,7 +134,7 @@ private[codex] object InboundEvent:
           command = item.command.getOrElse(""),
           output = item.aggregated_output.getOrElse(""),
           exitCode = item.exit_code,
-          status = item.status.getOrElse("")
+          status = ItemStatus.of(item.status)
         )
       case "file_change" =>
         Item.FileChange(
@@ -119,7 +142,7 @@ private[codex] object InboundEvent:
           changes = item.changes
             .getOrElse(Nil)
             .map(c => FileChangeDetail(c.path, c.kind)),
-          status = item.status.getOrElse("")
+          status = ItemStatus.of(item.status)
         )
       case "mcp_tool_call" =>
         Item.McpToolCall(
@@ -130,7 +153,7 @@ private[codex] object InboundEvent:
           // Item.started carries `result: null`; only item.completed has a
           // real value. Treat absence/null as "in-flight" → None.
           result = item.result.flatMap(renderMcpResultText),
-          status = item.status.getOrElse("")
+          status = ItemStatus.of(item.status)
         )
       case other =>
         Item.Other(other, item.id)

@@ -208,6 +208,55 @@ class CodexConversationTest extends munit.FunSuite:
     assertEquals(toolResult.ok, false)
     val _ = conv.awaitResult()
 
+  convTest(
+    "file_change with an unrecognized status (not completed/failed) yields ok=false"
+  ):
+    // Any status other than the documented "completed" collapses to
+    // ItemStatus.Unknown, regardless of whether it's a known failure token
+    // ("failed") or something the driver has never seen before.
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout(
+      """{"type":"thread.started","thread_id":"thr-unknown"}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_9","type":"file_change","changes":[{"path":"/x/y.txt","kind":"update"}],"status":"cancelled"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val toolResult = conv.events.toList
+      .collectFirst { case r: ConversationEvent.ToolResult => r }
+      .getOrElse(fail("expected a ToolResult"))
+    assertEquals(toolResult.ok, false)
+    val _ = conv.awaitResult()
+
+  convTest("file_change with a missing status yields ok=false, not completed"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout(
+      """{"type":"thread.started","thread_id":"thr-missing"}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_9","type":"file_change","changes":[{"path":"/x/y.txt","kind":"update"}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val toolResult = conv.events.toList
+      .collectFirst { case r: ConversationEvent.ToolResult => r }
+      .getOrElse(fail("expected a ToolResult"))
+    assertEquals(toolResult.ok, false)
+    val _ = conv.awaitResult()
+
   convTest("file_change items become file_change tool calls and results"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)
