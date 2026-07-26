@@ -32,12 +32,21 @@ import scala.annotation.tailrec
   * ConsoleUI's single-choice list prompt has no non-selectable-item support in
   * its public API — `ListItem.isSelectable()` is hardcoded `true`, and
   * `ListPromptBuilder` exposes no way to add a `Separator`; only the checkbox
-  * prompt's items carry a disabled flag (jar-verified against
-  * `jline-console-ui` 3.30.15). Disabled choices are therefore rendered with
-  * their reason folded into the label and, if picked anyway, the prompt simply
-  * re-runs — same "not a valid answer" re-prompt `NumberedUi` uses. The same
-  * absence rules out honoring `preselect`'s starting cursor position; it is a
-  * no-op here.
+  * prompt's items carry a disabled flag, and even that flag's dimmed
+  * `unavailable()` render branch is gated behind `isSelectable() == false` in
+  * `AbstractPrompt`'s shared row renderer — unreachable for a `ListItem` since
+  * its `isSelectable()` can't be overridden (jar-verified against
+  * `jline-console-ui` 3.30.15). Per-item ANSI styling can't be hacked in
+  * either: `ListItemBuilder.text` takes a plain `String`, and
+  * `AttributedStringBuilder.append(CharSequence)` copies it as literal
+  * characters rather than parsing embedded escapes, so raw ANSI bytes would
+  * just corrupt the row's column-width bookkeeping instead of dimming it.
+  * Disabled choices are therefore rendered with their reason folded into the
+  * label (same text both backends use), and picking one anyway prints
+  * [[Choice.disabledSelectionMessage]] via [[ShellOutput.error]] before the
+  * prompt re-runs — an explained refusal, not a silent one. The same
+  * list-item absence rules out honoring `preselect`'s starting cursor
+  * position; it is a no-op here.
   *
   * A fresh `ConsolePrompt` is built for every top-level `select`/`confirm`/
   * `input` call rather than reused across the shell's lifetime: `ConsolePrompt`
@@ -79,7 +88,6 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
       choices: List[Choice[A]],
       preselect: Option[A] = None
   ): UiOutcome[A] =
-    val consolePrompt = newConsolePrompt()
     // ConsoleUI's post-answer summary line prints the item's id verbatim
     // (`ListResult.getDisplayResult` falls back to `getResult`, i.e. the
     // selected id), not its displayed text — an id of `index.toString` echoed
@@ -88,7 +96,13 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     // defensively since ids must be unique (labels are unique in practice for
     // every menu/flow/harness list this renders today).
     val ids = ConsoleUiShell.uniqueIds(choices.map(_.renderedLabel))
+    // A fresh ConsolePrompt per retry, not just per top-level call: picking a
+    // disabled row prints its reason (below) before looping back here, and a
+    // reused Display's stale bookkeeping (see the class doc) would then move
+    // the cursor to redraw over that freshly printed line instead of below
+    // it, clipping it.
     @tailrec def loop(): UiOutcome[A] =
+      val consolePrompt = newConsolePrompt()
       val builder = consolePrompt.getPromptBuilder
       val list = builder.createListPrompt().name("select").message(title)
       choices.zip(ids).foreach { case (choice, id) =>
@@ -101,7 +115,10 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
           val selectedId =
             results.get("select").asInstanceOf[ListResult].getSelectedId
           val chosen = choices(ids.indexOf(selectedId))
-          if chosen.isEnabled then UiOutcome.Selected(chosen.value) else loop()
+          if chosen.isEnabled then UiOutcome.Selected(chosen.value)
+          else
+            ShellOutput.error(chosen.disabledSelectionMessage)
+            loop()
 
     loop()
 

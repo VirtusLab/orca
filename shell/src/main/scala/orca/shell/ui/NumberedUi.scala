@@ -31,7 +31,10 @@ private[ui] final class NumberedUi(in: BufferedReader, out: PrintStream)
           line.trim.toIntOption.flatMap(n => choices.lift(n - 1)) match
             case Some(choice) if choice.isEnabled =>
               UiOutcome.Selected(choice.value)
-            case _ =>
+            case Some(disabled) =>
+              out.println(disabled.disabledSelectionMessage)
+              loop()
+            case None =>
               out.println("Not a valid choice, try again.")
               loop()
 

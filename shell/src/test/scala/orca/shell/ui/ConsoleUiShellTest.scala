@@ -5,6 +5,13 @@ import org.jline.terminal.TerminalBuilder
 
 class ConsoleUiShellTest extends munit.FunSuite:
 
+  // `select`'s disabled-row rejection (print the reason, then re-run the
+  // ConsoleUI prompt) has no pure seam: it lives inside the `loop()` that
+  // drives a real `ConsolePrompt`/`Display` against a terminal, same as the
+  // Ctrl-C fix below — pty-verified instead (tmux session: disabled row shows
+  // its "(unavailable: ...)" suffix, picking it prints
+  // `Choice.disabledSelectionMessage` above the re-rendered menu).
+
   // The Ctrl-C-cancels-instead-of-killing-the-shell fix itself is only
   // pty-verifiable (jline's SIGINT/ISIG plumbing needs a real tty to exercise
   // end to end — see the manual pty repro in the PR/report), but

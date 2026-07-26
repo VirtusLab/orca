@@ -42,6 +42,13 @@ class NumberedUiTest extends munit.FunSuite:
     val (ui, _) = uiOf("2\n1\n")
     assertEquals(ui.select("Pick one", choices), UiOutcome.Selected(1))
 
+  test("select prints the disabled reason, not the generic garbage message"):
+    val (ui, out) = uiOf("2\n1\n")
+    val _ = ui.select("Pick one", choices)
+    val rendered = out.toString
+    assert(rendered.contains("'Second' is unavailable: no manifests"))
+    assert(!rendered.contains("Not a valid choice"))
+
   test("select returns Cancelled on EOF"):
     val (ui, _) = uiOf("")
     assertEquals(ui.select("Pick one", choices), UiOutcome.Cancelled)

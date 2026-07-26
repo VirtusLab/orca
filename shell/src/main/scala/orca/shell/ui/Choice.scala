@@ -18,3 +18,13 @@ case class Choice[A](
     */
   def renderedLabel: String =
     disabledReason.fold(label)(reason => s"$label (unavailable: $reason)")
+
+  /** What both UI backends print when the user picks this choice despite it
+    * being disabled, before re-prompting — the explained-refusal that replaces
+    * a silent re-render. Only meaningful when `!isEnabled`; falls back to a
+    * generic message if called without a reason set.
+    */
+  def disabledSelectionMessage: String =
+    disabledReason.fold(s"'$label' is unavailable.")(reason =>
+      s"'$label' is unavailable: $reason"
+    )

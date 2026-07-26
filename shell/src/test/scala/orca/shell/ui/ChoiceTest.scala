@@ -18,3 +18,13 @@ class ChoiceTest extends munit.FunSuite:
       Choice(1, "First", disabledReason = Some("no manifests")).renderedLabel,
       "First (unavailable: no manifests)"
     )
+
+  test("disabledSelectionMessage names the choice and states its reason"):
+    assertEquals(
+      Choice(1, "First", disabledReason = Some("no manifests"))
+        .disabledSelectionMessage,
+      "'First' is unavailable: no manifests"
+    )
+
+  test("disabledSelectionMessage falls back to a generic message with no reason"):
+    assertEquals(Choice(1, "First").disabledSelectionMessage, "'First' is unavailable.")
