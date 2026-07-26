@@ -57,8 +57,8 @@ shell's first-run wizard or `orca config`, hand-editable too; see
 
 Agents can load [`skills/using-orca`](skills/using-orca/SKILL.md) to know
 when and how to delegate here — installable as a Claude Code plugin, a Pi
-package, or by symlinking into any harness's skills directory; see its
-installation section for specifics.
+package, or by symlinking into any harness's skills directory; see [its
+README](skills/using-orca/README.md) for specifics.
 
 **As a script**: run a flow directly with `scala-cli`, no install required —
 see [An example flow](#an-example-flow).
