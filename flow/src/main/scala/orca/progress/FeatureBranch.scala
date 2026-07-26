@@ -11,11 +11,8 @@ package orca.progress
   * (skip-branch mode) — so the guarantee holds regardless of which one minted
   * `name`.
   *
-  * Every place orca binds itself to a feature branch mints one through
-  * [[resolve]] or [[resolveReused]]: `FlowLifecycle`'s fresh-run arm and its
-  * resume arm ([[RecoveryCheck.validateHeader]], checking an untrusted
-  * persisted header). One pair of constructors, one home for the
-  * protected-branch check.
+  * [[resolve]]/[[resolveReused]] are the only constructors — one pair, one home
+  * for the protected-branch check.
   *
   * Takes `protectedBranches: Set[String]` rather than a `GitTool` so it stays
   * pure and unit-testable without a repo fixture, and the git layer stays

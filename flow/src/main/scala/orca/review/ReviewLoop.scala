@@ -529,9 +529,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // Two-phase selection: run the selector's gated effects (e.g. the agentDriven
     // picker LLM call) ONCE here, at loop start, inside this stage. `selectRound`
     // is the resulting pure per-iteration narrowing, passed to `evaluate` so it
-    // stays a function of its inputs. Pass `ctx`/`ev` explicitly: the
-    // more-specific `fc: FlowControl` in scope would otherwise be picked for
-    // `prepare`'s `using FlowContext` and its root capability rejected.
+    // stays a function of its inputs. `ctx`/`ev` passed explicitly for the same
+    // given-priority reason as the constructor call above (ADR 0018 §6 — see
+    // `reviewAndFixLoop`).
     val selectRound: List[ReviewBatch] -> List[RosterEntry[?]] =
       reviewerSelection.prepare(roster, taskTitle, changedFiles)(using ctx, ev)
     @scala.annotation.tailrec

@@ -62,25 +62,18 @@ object RecoveryCheck:
     * caller (`FlowLifecycle.setup`'s resume arm) can bind `FlowSetup` to a
     * typed branch without a second, redundant resolve call.
     *
-    *   - `branch` and `startingBranch` must pass [[isSafeReusedRef]] — the
-    *     weaker check, not [[isSafeBranchRef]]'s strict slug shape: `branch`
-    *     may be a reused current branch from a skip-branch run (ADR 0018
-    *     amendment), and `startingBranch` is always a pre-existing,
-    *     orca-never-minted branch. A minted slug name always passes the weaker
-    *     check too, so this doesn't loosen validation for the common case.
-    *   - `branch` must not be a protected branch (`startingBranch` may be) —
-    *     delegated to [[FeatureBranch.resolveReused]], which unions
-    *     `protectedBranches` with the `main`/`master` floor.
-    *   - `promptHash` must equal the recomputed hash of the current prompt.
-    *
-    * `protectedBranches` lets the runtime pass the repo's ACTUAL default branch
-    * (e.g. `trunk`/`develop`), so a tampered header naming it as a feature
-    * branch is refused — not just `main`/`master`. Compared case-insensitively.
+    * Checks, in order: `startingBranch` passes [[isSafeReusedRef]] (the weaker
+    * shape check — `branch` may be a reused current branch, ADR 0018 amendment,
+    * so a strict slug check would reject it); `branch` passes the same check
+    * and isn't protected, via [[FeatureBranch.resolveReused]] (unions
+    * `protectedBranches` — the repo's actual default branch — with the
+    * `main`/`master` floor, case-insensitively); `promptHash` matches the
+    * recomputed hash of the current prompt.
     *
     * The caller separately cross-checks `branch` against the actual current
-    * branch (R30) — that check, combined with `isSafeReusedRef` here, is what
-    * makes a reused non-slug branch name safe to accept: it must both look like
-    * a safe ref AND be the branch we're already sitting on.
+    * branch (R30) — combined with `isSafeReusedRef` here, that's what makes a
+    * reused non-slug branch name safe to accept: it must both look like a safe
+    * ref AND be the branch we're already sitting on.
     */
   def validateHeader(
       header: ProgressHeader,

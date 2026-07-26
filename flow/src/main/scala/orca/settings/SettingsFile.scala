@@ -338,20 +338,35 @@ private[orca] object SettingsFile:
   def hasStackLines(content: String): Boolean =
     content.linesIterator.exists(isLiveStackKeyLine)
 
-  /** `content` with every LIVE `format`/`lint`/`test` line removed — the
-    * surgical edit behind the shell's "re-discover project stack settings"
-    * action (ADR 0021 §4/§8). Reuses [[isLiveStackKeyLine]] so this can never
-    * disagree with [[hasStackLines]] about which physical lines are stack
-    * lines; the result always satisfies `!hasStackLines(result)`. For each
-    * removed line, the contiguous run of `#`-comment lines immediately above it
-    * — [[renderEntry]]'s evidence/reason citation, for every entry kind — is
-    * dropped too, stopping at a blank line, [[Header]]'s two lines, or the
-    * previous live line (that comment run belongs to a different entry). A
-    * comment that merely mentions a stack key — hand-written documentation, a
-    * commented-out example — is never a removal target: comments are inert, so
-    * this leaves them exactly where the user put them. Every other line — agent
-    * keys, blank lines, unrelated comments, [[Header]], ordering — passes
-    * through with its original line terminator untouched.
+  /** Index set of the contiguous `#`-comment lines directly above `index` in
+    * `lines` — [[renderEntry]]'s evidence/reason citation for the live line at
+    * `index`. Stops at a blank line, one of [[Header]]'s lines, or a previous
+    * live line (that comment run belongs to a different entry), so a
+    * hand-written comment merely mentioning a stack key is never swept in.
+    */
+  private def evidenceAbove(
+      lines: IndexedSeq[String],
+      headerLines: Set[String],
+      index: Int
+  ): Set[Int] =
+    def bare(line: String): String = line.stripLineEnd
+    val evidence = scala.collection.mutable.Set.empty[Int]
+    var j = index - 1
+    while j >= 0 && bare(lines(j)).trim.startsWith("#") &&
+      !headerLines(bare(lines(j)))
+    do
+      evidence += j
+      j -= 1
+    evidence.toSet
+
+  /** `content` with every LIVE `format`/`lint`/`test` line removed, plus each
+    * one's evidence comment block (see [[evidenceAbove]]) — the surgical edit
+    * behind the shell's "re-discover project stack settings" action (ADR 0021
+    * §4/§8). Reuses [[isLiveStackKeyLine]] so this can never disagree with
+    * [[hasStackLines]]: the result always satisfies `!hasStackLines(result)`.
+    * Everything else — agent keys, blank lines, unrelated/hand-written
+    * comments, [[Header]], ordering — passes through with its original line
+    * terminator untouched.
     */
   private[orca] def stripStackLines(content: String): String =
     val lines = content.linesWithSeparators.toIndexedSeq
@@ -359,16 +374,7 @@ private[orca] object SettingsFile:
     val headerLines = Header.linesIterator.toSet
     val liveIdx =
       lines.indices.filter(i => isLiveStackKeyLine(bare(lines(i)))).toSet
-
-    val evidenceIdx = scala.collection.mutable.Set.empty[Int]
-    for i <- lines.indices if liveIdx(i) do
-      var j = i - 1
-      while j >= 0 && bare(lines(j)).trim.startsWith("#") &&
-        !headerLines(bare(lines(j)))
-      do
-        evidenceIdx += j
-        j -= 1
-
+    val evidenceIdx = liveIdx.flatMap(evidenceAbove(lines, headerLines, _))
     val toRemove = liveIdx ++ evidenceIdx
     lines.zipWithIndex.collect {
       case (line, i) if !toRemove(i) => line
