@@ -240,6 +240,14 @@ private[terminal] object ConversationRenderer:
     * only opened when an approval prompt fires — non-interactive sessions never
     * allocate one.
     *
+    * Entry is multi-line, sharing [[MultilineLineReader]] with the shell's own
+    * task/goal/fork prompt (`orca.shell.ui.ConsoleUiShell.inputMultiline`): the
+    * reader gets its widgets registered once at construction, and `ask` wraps
+    * the read in the kitty-protocol bracket so Shift+Enter/Ctrl-C/Ctrl-D are
+    * recognized on terminals that need it. The `Interrupted` mapping below is
+    * unaffected — the kitty widgets throw the same exceptions this catch
+    * already handles.
+    *
     * Limitation: process-scoped and its lazy terminal cannot re-initialize
     * after `close()`, so a second `flow(...)` in the same JVM that fires a
     * prompt is unsupported. Inject a custom [[Prompter]] for embedded/multi-run
@@ -255,14 +263,23 @@ private[terminal] object ConversationRenderer:
       opened = true
       t
     private lazy val reader: LineReader =
-      LineReaderBuilder.builder().terminal(terminal).build()
+      val r = LineReaderBuilder.builder().terminal(terminal).build()
+      // Continuation lines of a multi-line answer (a paste, or a literal
+      // newline from MultilineLineReader.registerInsertNewlineWidget) get the
+      // same minimal "… " marker as the shell's own multiline prompt, rather
+      // than jline's default (which repeats the primary prompt's full text).
+      r.setVariable(LineReader.SECONDARY_PROMPT_PATTERN, "… ")
+      MultilineLineReader.registerAll(r)
+      r
 
     def ask(prompt: String): PromptOutcome =
       // Ctrl-C (UserInterrupt) and Ctrl-D / closed-stdin (EndOfFile, also hit by
       // a headless run reaching an ask-user prompt with no tty) both mean "the
       // user isn't answering": map both to Interrupted rather than let
       // EndOfFileException escape as a message-less stage failure.
-      try PromptOutcome.Answer(reader.readLine(prompt))
+      try
+        MultilineLineReader.withKittyKeyboardProtocol(terminal):
+          PromptOutcome.Answer(reader.readLine(prompt))
       catch
         case _: (UserInterruptException | EndOfFileException) =>
           PromptOutcome.Interrupted

@@ -158,6 +158,12 @@ ConsoleUI's `e`/`y` scroll bindings — there are no vi `j`/`k` bindings.
 Runner-up cue4s was rejected on source-verified grounds (session-scoped raw
 mode, POSIX Ctrl-C kills the JVM, JNA dependency); recheck at its 1.0.
 
+The task/goal/fork prompt reads multi-line: Enter submits, Alt+Enter or
+Shift+Enter inserts a literal newline, and a paste with embedded newlines
+lands intact — `runner`'s `MultilineLineReader` owns the shared JLine widgets
+and kitty-keyboard-protocol handling, reused as-is by the runner's own
+ask-user prompts during a flow.
+
 The main menu, in fixed order: Run a flow · View a flow · Edit a flow ·
 Create a new flow · Continue a session · Re-configure · Exit. Unavailable
 items (continue with no manifests, §8) render disabled with the reason, not
