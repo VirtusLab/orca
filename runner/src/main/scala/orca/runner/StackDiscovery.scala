@@ -76,6 +76,11 @@ private[runner] object StackDiscovery:
     * Returns the surviving settings and the full entry list for the caller to
     * render and write.
     *
+    * `existingContent` is `FlowLifecycle`'s already-read settings-file content
+    * (`None` for an absent/blank file, `Some` for a present-but-stack-silent
+    * one) — passed through only to pick the accurate opening `Step` wording
+    * ([[startMessage]]), not otherwise consulted here.
+    *
     * Deliberately catch-free (ADR 0019): a discovery failure propagates and
     * aborts the run as an ordinary surfaced setup failure, rather than being
     * degraded to writing an all-commented file — under the frozen-file
@@ -85,11 +90,10 @@ private[runner] object StackDiscovery:
   def discover(
       agent: Agent[?],
       workDir: os.Path,
-      emit: OrcaEvent => Unit
+      emit: OrcaEvent => Unit,
+      existingContent: Option[String]
   )(using InStage): (StackSettings, List[SettingsEntry]) =
-    emit(
-      OrcaEvent.Step("no .orca/settings.properties — running stack discovery")
-    )
+    emit(OrcaEvent.Step(startMessage(existingContent)))
     val result = agent.cheap.withReadOnly
       .resultAs[StackDiscoveryReply]
       .autonomous
@@ -103,6 +107,17 @@ private[runner] object StackDiscovery:
     narrateEntries(entries, emit)
     warnDisabledGates(settings, emit)
     (settings, entries)
+
+  /** The opening `Step`'s wording, naming why discovery is running: absent (or
+    * blank) file vs. a present file that simply names no stack line yet — the
+    * two cases `FlowLifecycle.readSettings` funnels into `NeedsDiscovery`, told
+    * apart by whether it captured any `existingContent`.
+    */
+  private[runner] def startMessage(existingContent: Option[String]): String =
+    val purpose = "discovering how to format, lint & test this project"
+    existingContent match
+      case None    => s"no .orca/settings.properties — $purpose"
+      case Some(_) => s".orca/settings.properties has no stack lines — $purpose"
 
   /** Narrate every command/demotion entry as its own `Step` event. Unset tasks
     * surface through [[warnDisabledGates]] instead.

@@ -402,7 +402,7 @@ inspecting the repo, then writes the file and announces every guess in the
 event log:
 
 ```text
-no .orca/settings.properties — running stack discovery
+no .orca/settings.properties — discovering how to format, lint & test this project
   format = cargo fmt   # Cargo.toml; via rustfmt
   lint = cargo check --tests   # Cargo.toml
 warning: stack settings: no test command — gate disabled

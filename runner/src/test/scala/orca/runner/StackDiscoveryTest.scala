@@ -312,4 +312,18 @@ class StackDiscoveryTest extends munit.FunSuite:
     assert(!StackDiscovery.evidenceExists("../escape.txt", dir))
     assert(!StackDiscovery.evidenceExists("/etc/passwd", dir))
 
+  test("startMessage: absent/blank file names the missing file"):
+    assertEquals(
+      StackDiscovery.startMessage(None),
+      "no .orca/settings.properties — discovering how to format, lint & " +
+        "test this project"
+    )
+
+  test("startMessage: a present stack-silent file names the file, not absence"):
+    assertEquals(
+      StackDiscovery.startMessage(Some("codingAgent = codex\n")),
+      ".orca/settings.properties has no stack lines — discovering how to " +
+        "format, lint & test this project"
+    )
+
 end StackDiscoveryTest

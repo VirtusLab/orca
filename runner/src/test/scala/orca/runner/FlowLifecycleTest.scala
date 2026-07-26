@@ -773,7 +773,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     assert(
       steps.contains(
-        "no .orca/settings.properties — running stack discovery"
+        "no .orca/settings.properties — discovering how to format, lint & test this project"
       ),
       s"expected the running-discovery Step, got: $steps"
     )

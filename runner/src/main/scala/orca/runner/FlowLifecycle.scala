@@ -339,7 +339,8 @@ object FlowLifecycle:
     val (stackSettings, discovered) = resolution match
       case SettingsResolution.Resolved(settings) => (settings, false)
       case SettingsResolution.NeedsDiscovery(existingContent) =>
-        val (settings, entries) = StackDiscovery.discover(agent, workDir, emit)
+        val (settings, entries) =
+          StackDiscovery.discover(agent, workDir, emit, existingContent)
         // Absent file → write the whole rendered file. An agents-only
         // hand-written file (content captured pre-stash) → append the stack
         // entries below the untouched agent lines, so discovery never clobbers
