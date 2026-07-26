@@ -10,8 +10,11 @@ import orca.subprocess.QuietProc
 import scala.util.Try
 import scala.util.control.NonFatal
 
-/** Resumes a recorded harness session (ADR 0021 §8). The picker that produces
-  * `selection` lives in `Main.continueSession`.
+/** Resumes a recorded harness session (ADR 0021 §8): reattaches to a harness's
+  * own conversation via its CLI resume flag ([[ResumeCommand]]). Not to be
+  * confused with a flow's crash/resume (stage replay from the progress log, ADR
+  * 0018 §2.4/§2.5) — that resumes a run, this resumes a chat. The picker that
+  * produces `selection` lives in `Main.continueSession`.
   */
 private[shell] object SessionAction:
 

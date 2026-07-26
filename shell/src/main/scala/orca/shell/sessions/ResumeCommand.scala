@@ -4,7 +4,12 @@ import orca.agents.BackendTag
 import orca.runner.manifest.ManifestSession
 import orca.settings.AgentSpec
 
-/** Per-harness interactive resume argv (ADR 0021 §8's resume table). */
+/** Per-harness interactive resume argv (ADR 0021 §8's resume table). This is
+  * harness-session REATTACH — exec'ing the harness CLI's own resume flag
+  * against a recorded wire id so its conversation continues — distinct from a
+  * flow's own crash/resume (stage replay from the progress log, ADR 0018
+  * §2.4/§2.5): that resumes a RUN, this resumes a CHAT.
+  */
 private[shell] object ResumeCommand:
 
   /** Left = not resumable, checkable without a live harness call: an
