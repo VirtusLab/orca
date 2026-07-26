@@ -399,7 +399,12 @@ object FlowLifecycle:
             discovered,
             emit
           )
-          BranchBinding(branch, startBranch, !args.skipBranch.value)
+          BranchBinding(
+            branch,
+            startBranch,
+            if args.skipBranch.value then BranchMode.Reused
+            else BranchMode.Created
+          )
         case ProgressStore.LoadResult.Absent =>
           val branch = freshRun(
             args,
@@ -413,7 +418,12 @@ object FlowLifecycle:
             discovered,
             emit
           )
-          BranchBinding(branch, startBranch, !args.skipBranch.value)
+          BranchBinding(
+            branch,
+            startBranch,
+            if args.skipBranch.value then BranchMode.Reused
+            else BranchMode.Created
+          )
         case ProgressStore.LoadResult.Loaded(progressLog) =>
           val header = progressLog.header
           // Validate the untrusted header before any destructive action, against
@@ -658,7 +668,8 @@ object FlowLifecycle:
         branch = branch.value,
         promptHash = ProgressStore.hashPrompt(args.userPrompt),
         branchMode =
-          if args.skipBranch.value then BranchMode.Reused else BranchMode.Created
+          if args.skipBranch.value then BranchMode.Reused
+          else BranchMode.Created
       )
     )
     // `commitStaged` (not `commit`, which would `add -A`): the header commit
@@ -852,14 +863,14 @@ object FlowLifecycle:
     * branch (the default) or return to the starting branch (PR flows).
     * Best-effort and success-path-only; never deletes start/protected branches.
     *
-    * The throwaway-delete is additionally gated on `setup.branchMode`: a
-    * branch orca did not create (`Reused`, skip-branch mode) must never be
-    * deleted, even if a tampered header's `startingBranch` is crafted to name
-    * some existing branch that happens to diff-blank against the feature
-    * branch — that `startingBranch` cross-check doesn't otherwise exist
-    * (unlike `branch`'s R30 check against the actual current branch).
-    * Residual, accepted: with `branchMode = Reused`, `returnToStartBranch` can
-    * still `checkout` a tampered `startingBranch` — navigation only, never
+    * The throwaway-delete is additionally gated on `setup.branchMode`: a branch
+    * orca did not create (`Reused`, skip-branch mode) must never be deleted,
+    * even if a tampered header's `startingBranch` is crafted to name some
+    * existing branch that happens to diff-blank against the feature branch —
+    * that `startingBranch` cross-check doesn't otherwise exist (unlike
+    * `branch`'s R30 check against the actual current branch). Residual,
+    * accepted: with `branchMode = Reused`, `returnToStartBranch` can still
+    * `checkout` a tampered `startingBranch` — navigation only, never
     * destructive.
     */
   private def finishBranch(

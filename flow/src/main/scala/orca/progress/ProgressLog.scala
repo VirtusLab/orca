@@ -17,8 +17,9 @@ import sttp.tapir.Schema
 enum BranchMode derives JsonData:
   /** Orca minted `branch` itself — the ordinary case. */
   case Created
-  /** Orca bound to a pre-existing branch without creating it (skip-branch
-    * mode, ADR 0018 amendment).
+
+  /** Orca bound to a pre-existing branch without creating it (skip-branch mode,
+    * ADR 0018 amendment).
     */
   case Reused
 

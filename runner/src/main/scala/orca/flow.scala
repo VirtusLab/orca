@@ -48,6 +48,19 @@ import ox.{Ox, supervised}
 
 import scala.util.control.NonFatal
 
+/** Outcome of the flow body, as `flow` tracks it across the try/catch/finally
+  * below. One ADT rather than two independent booleans, which would admit "both
+  * true" — impossible here, but also unable to express the one state that
+  * matters: `Running`, never advanced to a terminal case. That is what a fatal
+  * throwable (OOM, StackOverflow) escaping the `NonFatal` catch leaves behind:
+  * the exit-code check below treats only `Failed` as exit 1 (so `Running` exits
+  * 0, matching prior behavior), while the manifest write below maps anything
+  * but `Succeeded` to `RunOutcome.Failed` — an honest "failed" report even
+  * though no catch ran.
+  */
+private enum FlowOutcome:
+  case Running, Succeeded, Failed
+
 /** Entry point for flow scripts. Takes the parsed CLI args (required) plus any
   * number of overrides, then runs the body, providing the `FlowContext` as a
   * given.
@@ -145,16 +158,9 @@ def flow(
   // Tally token usage and print the summary on exit (success or failure).
   val costTracker = new CostTracker(pricing)
   // `try/finally` so the cost summary always lands — even when a fatal
-  // throwable (OOM, StackOverflow) escapes the NonFatal catch below.
-  var failed = false
-  // Positive success capture, kept separate from `failed`: set ONLY when
-  // `runFlow` returns normally. `failed` still drives the exit code; `succeeded`
-  // drives the manifest outcome. They aren't complements — an escaping fatal
-  // throwable (OOM, StackOverflow) runs neither the `succeeded = true` line nor
-  // the catch, so `failed` stays false (no exit 1, matching today) while
-  // `succeeded` stays false, yielding an honest manifest outcome of "failed"
-  // rather than a false "succeeded".
-  var succeeded = false
+  // throwable (OOM, StackOverflow) escapes the NonFatal catch below. See
+  // `FlowOutcome`'s scaladoc for why this is one ADT, not two booleans.
+  var outcome = FlowOutcome.Running
   // The manifest writer's actor fork lives in this scope, spanning its
   // construction through `finish`; `System.exit` below stays OUTSIDE it. A
   // nested `flow()` call gets its own scope and writer.
@@ -196,20 +202,21 @@ def flow(
             prompts = prompts
           )
         )(body)
-        succeeded = true
+        outcome = FlowOutcome.Succeeded
       catch
         // A `SurfacedFlowFailure` marks a failure already reported to the user's
         // event surface by the phase that raised it; only the exit code remains.
-        case _: SurfacedFlowFailure => failed = true
+        case _: SurfacedFlowFailure => outcome = FlowOutcome.Failed
         // Backstop for any other NonFatal — a pre-dispatcher failure (agent
         // factory, TerminalInteraction start) has no event surface, so print it
         // to stderr rather than exit 1 in silence.
         case NonFatal(e) =>
-          failed = true
+          outcome = FlowOutcome.Failed
           System.err.println(s"[orca] ${TextUtil.throwableMessage(e)}")
     finally
       manifestWriter.finish(
-        if succeeded then RunOutcome.Succeeded else RunOutcome.Failed
+        if outcome == FlowOutcome.Succeeded then RunOutcome.Succeeded
+        else RunOutcome.Failed
       )
       costTracker.printSummary()
       orcaLog.finish()
@@ -218,7 +225,7 @@ def flow(
   // leaving the outer branch checked out and `.orca/flow.lock` behind (the next
   // run self-heals by stealing the dead-PID lock). Accepted cost of the
   // exit-based CLI contract.
-  if failed then System.exit(1)
+  if outcome == FlowOutcome.Failed then System.exit(1)
 
 /** Exit-free flow lifecycle: builds the interaction and wired agents, resolves
   * the three role agents from settings, runs setup, constructs the context,
