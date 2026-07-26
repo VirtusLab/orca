@@ -1,0 +1,14 @@
+{
+  "name": "orca-skills",
+  "owner": {
+    "name": "VirtusLab",
+    "url": "https://github.com/VirtusLab/orca"
+  },
+  "plugins": [
+    {
+      "name": "using-orca",
+      "source": "./skills/using-orca",
+      "description": "Delegate a well-defined implementation task to Orca's autonomous plan-code-review flow."
+    }
+  ]
+}
