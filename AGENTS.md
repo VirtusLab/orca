@@ -301,6 +301,10 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
 - Never carry back-compat machinery — no defaulting-old-shape codec configs,
   no dual parse paths, no fixture tests pinned to a prior wire format. Change
   the shape and update every call site instead.
+- One deliberate exception: `ProgressLog`/`SessionRecord`'s tolerant decoding
+  (documented at its definition) exists so a mid-run resume survives an orca
+  upgrade — an in-flight run's log written by an older orca must still load.
+  That live-data tolerance stays; don't "fix" it under this rule.
 - Comments (see Code style above) never narrate this either: no "was
   previously", "renamed from", "kept for compat" — state what the field/type
   means now, not its history.
