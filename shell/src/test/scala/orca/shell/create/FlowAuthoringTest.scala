@@ -378,6 +378,53 @@ class FlowAuthoringTest extends munit.FunSuite:
     assert(text.contains("  add a rate limit"))
     assert(text.contains("  and log rejected requests"))
 
+  // --- editPrompt (edit-by-agent's task — same tail as forkPrompt, distinct
+  // opening: worded as an edit, since that's the action the user picked) ---
+
+  private def edit: String =
+    FlowAuthoring.editPrompt(
+      "add a rate limit",
+      targetPath / os.up / "implement.sc",
+      targetPath,
+      apiDir,
+      "0.0.18"
+    )
+
+  test("editPrompt states the source path, the changes, and the target path"):
+    assert(edit.contains("add a rate limit"))
+    assert(edit.contains(targetPath.toString))
+    assert(edit.contains((targetPath / os.up / "implement.sc").toString))
+
+  test(
+    "editPrompt is worded as an edit, not a fork — no 'Create'/'by copying'"
+  ):
+    assert(edit.contains("Edit the Orca flow"))
+    assert(!edit.contains("Create the Orca flow"))
+    assert(!edit.contains("by copying"))
+
+  test("editPrompt points at the extracted README and both examples"):
+    assert(edit.contains((apiDir / "README.md").toString))
+    assert(edit.contains((apiDir / "implement.sc").toString))
+    assert(edit.contains((apiDir / "implement-interactive.sc").toString))
+
+  test("editPrompt states the compile-check line"):
+    assert(edit.contains(s"scala-cli compile $targetPath"))
+
+  test("editPrompt states the runtime-vs-compile-time rules caveat"):
+    assert(edit.contains("enforced at runtime"))
+
+  test("editPrompt indents a multi-line change description as its own block"):
+    val multilineChanges = "add a rate limit\nand log rejected requests"
+    val text = FlowAuthoring.editPrompt(
+      multilineChanges,
+      targetPath / os.up / "implement.sc",
+      targetPath,
+      apiDir,
+      "0.0.18"
+    )
+    assert(text.contains("  add a rate limit"))
+    assert(text.contains("  and log rejected requests"))
+
   // --- resolveTarget / prepareTarget ---
 
   test("prepareAutoTarget: a free name is used as-is"):
@@ -522,9 +569,23 @@ class FlowAuthoringTest extends munit.FunSuite:
     assertEquals(lines.head, "// TODO: describe what this flow does")
 
   test(
-    "skeletonFlow imports the API and has an empty flow(...) body with a TODO"
+    "skeletonFlow imports the API and has a flow(...) body with a TODO"
   ):
     val skeleton = FlowAuthoring.skeletonFlow("0.0.18")
     assert(skeleton.contains("import orca.{*, given}"))
     assert(skeleton.contains("flow(OrcaArgs(args)):"))
     assert(skeleton.contains("// TODO: implement the flow"))
+
+  test(
+    "skeletonFlow's flow(...) body has a real statement, not just a comment — a comment-only indented block is a Scala 3 syntax error"
+  ):
+    val skeleton = FlowAuthoring.skeletonFlow("0.0.18")
+    val bodyLines = skeleton.linesIterator
+      .dropWhile(!_.contains("flow(OrcaArgs(args)):"))
+      .drop(1)
+      .takeWhile(_.trim.nonEmpty)
+      .toList
+    assert(
+      bodyLines.exists(line => !line.trim.startsWith("//")),
+      s"expected a non-comment statement in the flow body, got: $bodyLines"
+    )

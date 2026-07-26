@@ -240,6 +240,40 @@ class AuthorActionTest extends munit.FunSuite:
       assert(output.contains(s"flow updated at ${target.flowPath}"), output)
 
   test(
+    "fork: overwrite picks editPrompt's wording, plain fork picks forkPrompt's"
+  ):
+    withTerminal: terminal =>
+      val plainTarget = projectTarget("implement-fork.sc")
+      val plainSource = forkSource(plainTarget.cwd)
+      val plainRecording = RecordingLaunch()
+      val _ = AuthorAction.fork(
+        plainSource,
+        "add a retry step",
+        AuthorParams(CreateTier.Project, plainTarget),
+        NoPromptUi,
+        terminal,
+        plainRecording.fn
+      )
+      val plainTask = plainRecording.calls.head.task
+      assert(plainTask.contains("Create the Orca flow"), plainTask)
+      assert(!plainTask.contains("Edit the Orca flow"), plainTask)
+
+      val editTarget = projectTarget("implement.sc")
+      val editSource = forkSource(editTarget.cwd)
+      val editRecording = RecordingLaunch()
+      val _ = AuthorAction.fork(
+        editSource,
+        "add a retry step",
+        AuthorParams(CreateTier.Project, editTarget, overwrite = true),
+        NoPromptUi,
+        terminal,
+        editRecording.fn
+      )
+      val editTask = editRecording.calls.head.task
+      assert(editTask.contains("Edit the Orca flow"), editTask)
+      assert(!editTask.contains("Create the Orca flow"), editTask)
+
+  test(
     "create: Ok with the authored file absent warns clearly instead of silently succeeding"
   ):
     withTerminal: terminal =>

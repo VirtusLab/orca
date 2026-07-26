@@ -147,7 +147,7 @@ reports what it found (surfaced as flow events, like the other setup notes,
 so non-terminal interactions see it too):
 
 ```
-[orca] no .orca/settings.properties — running stack discovery
+[orca] no .orca/settings.properties — discovering how to format, lint & test this project
 [orca]   format = cargo fmt              # Cargo.toml (rustfmt ships with the toolchain)
 [orca]   lint   = cargo check --tests    # compiles main+test code, runs nothing
 [orca]   test   = cargo test             # Cargo.toml; CI runs it in .github/workflows/ci.yml

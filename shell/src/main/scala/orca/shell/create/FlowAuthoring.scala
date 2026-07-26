@@ -231,8 +231,11 @@ private[shell] object FlowAuthoring:
   /** The directory associated with `tier` (see [[CreateTier]]'s scaladoc):
     * `workDir` for Project, `globalFlows`'s parent for Global. Shared by
     * [[resolveTarget]] and `AuthorAction`'s edit-by-agent overwrite path, which
-    * needs the same cwd to judge fork-source proximity ([[resolveForkSource]])
-    * when the target IS the source's own path.
+    * uses it only to build a well-formed `CreateTarget.cwd` — the same shape
+    * every other tier target carries — for its `overwrite`d `CreateTarget`.
+    * `AuthorAction.fork` resolves the fork source against the SANDBOX, not this
+    * value, so no [[resolveForkSource]] proximity check is wired through it
+    * here.
     */
   def tierCwd(
       tier: CreateTier,
@@ -492,18 +495,15 @@ private[shell] object FlowAuthoring:
       if !os.exists(copy) then os.copy(sourcePath, copy, replaceExisting = true)
       copy
 
-  /** The authoring task for a fork (ADR 0021 §9): states the source path and
-    * the described changes as one indivisible step (create the target by
-    * copying the source and applying the changes — not two separate
-    * deliverables, since there's no planner here to split them and no reviewer
-    * should treat the copy as its own reviewable unit), and otherwise mirrors
-    * [[initialPrompt]]'s API-reference pointers, compile-check step, and
-    * runtime-rules caveat. `sourcePath` is whatever [[resolveForkSource]]
-    * resolved.
+  /** The shared tail of the fork/edit authoring task — API-reference pointers,
+    * the compile-check step, the runtime-rules caveat, and the last-resort
+    * README URL — appended after `opening` states what to do and to which
+    * paths. Shared by [[forkPrompt]] and [[editPrompt]] so the two prompts,
+    * which differ only in how they describe the action (copy-then-change vs.
+    * edit-in-place), can't drift on everything else.
     */
-  def forkPrompt(
-      changes: String,
-      sourcePath: os.Path,
+  private def changePrompt(
+      opening: String,
       targetPath: os.Path,
       apiDir: os.Path,
       orcaVersion: String
@@ -511,15 +511,7 @@ private[shell] object FlowAuthoring:
     val readme = apiDir / "README.md"
     val example1 = apiDir / "implement.sc"
     val example2 = apiDir / "implement-interactive.sc"
-    val indentedChanges = indentBlock(changes)
-    s"""Create the Orca flow at $targetPath by copying $sourcePath and
-       |applying these changes:
-       |$indentedChanges
-       |
-       |Keep the copied file's existing version-pinned header (`//> using
-       |scala`/`//> using dep`/`//> using jvm`) and its line-1 `//`
-       |one-line-description convention — update the description line only if
-       |the fork's behavior changes enough to make the original one wrong.
+    s"""$opening
        |
        |The Orca API reference is at $readme — read it if the changes need API
        |surface the source doesn't already use. Two example flows are at
@@ -539,11 +531,67 @@ private[shell] object FlowAuthoring:
        |https://raw.githubusercontent.com/VirtusLab/orca/v$orcaVersion/README.md
        |""".stripMargin
 
+  /** The authoring task for a fork (ADR 0021 §9): states the source path and
+    * the described changes as one indivisible step (create the target by
+    * copying the source and applying the changes — not two separate
+    * deliverables, since there's no planner here to split them and no reviewer
+    * should treat the copy as its own reviewable unit). `sourcePath` is
+    * whatever [[resolveForkSource]] resolved. The rest — API pointers,
+    * compile-check, caveat — is [[changePrompt]]'s shared tail.
+    */
+  def forkPrompt(
+      changes: String,
+      sourcePath: os.Path,
+      targetPath: os.Path,
+      apiDir: os.Path,
+      orcaVersion: String
+  ): String =
+    val indentedChanges = indentBlock(changes)
+    val opening =
+      s"""Create the Orca flow at $targetPath by copying $sourcePath and
+         |applying these changes:
+         |$indentedChanges
+         |
+         |Keep the copied file's existing version-pinned header (`//> using
+         |scala`/`//> using dep`/`//> using jvm`) and its line-1 `//`
+         |one-line-description convention — update the description line only if
+         |the fork's behavior changes enough to make the original one wrong.""".stripMargin
+    changePrompt(opening, targetPath, apiDir, orcaVersion)
+
+  /** The authoring task for edit-by-agent (ADR 0021 §6/§9 amendment):
+    * `targetPath` is a sandbox copy of `sourcePath` (the flow's own real path)
+    * that gets copied back OVER the original on success — worded as an edit,
+    * not a fork, since the user picked "Edit a flow"; [[forkPrompt]]'s "create
+    * by copying" framing would misdescribe what they asked for even though the
+    * underlying mechanics (copy, then apply changes) are the same. The rest —
+    * API pointers, compile-check, caveat — is [[changePrompt]]'s shared tail.
+    */
+  def editPrompt(
+      changes: String,
+      sourcePath: os.Path,
+      targetPath: os.Path,
+      apiDir: os.Path,
+      orcaVersion: String
+  ): String =
+    val indentedChanges = indentBlock(changes)
+    val opening =
+      s"""Edit the Orca flow: apply these changes to $targetPath, which is a
+         |copy of $sourcePath:
+         |$indentedChanges
+         |
+         |Keep the file's existing version-pinned header (`//> using
+         |scala`/`//> using dep`/`//> using jvm`) and its line-1 `//`
+         |one-line-description convention — update the description line only if
+         |these changes make the original one wrong.""".stripMargin
+    changePrompt(opening, targetPath, apiDir, orcaVersion)
+
   /** A hand-authored flow's starting point (ADR 0021 §9 amendment,
     * Create+hand): [[versionPinLines]] under a placeholder line-1 description
     * (the [[initialPrompt]] convention the shell's flow listing reads), the
-    * bare `import orca.{*, given}`, and an empty `flow(OrcaArgs(args)):` body
-    * with a TODO — the minimum that compiles, left for the user to fill in.
+    * bare `import orca.{*, given}`, and a `flow(OrcaArgs(args)):` body with a
+    * TODO comment plus `()` — the minimum that compiles (a comment alone is not
+    * a statement, so the indented block needs a real expression too), left for
+    * the user to fill in.
     */
   def skeletonFlow(orcaVersion: String): String =
     s"""// TODO: describe what this flow does
@@ -553,4 +601,5 @@ private[shell] object FlowAuthoring:
        |
        |flow(OrcaArgs(args)):
        |  // TODO: implement the flow
+       |  ()
        |""".stripMargin

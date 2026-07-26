@@ -86,12 +86,14 @@ private[shell] object AuthorAction:
     )
     launchAuthoringFlow(prompt, sandbox, params, ui, terminal, launch)
 
-  /** Fork-an-existing-flow authoring: sets up the sandbox, copies the source
-    * flow beside the extracted API material
-    * ([[FlowAuthoring.resolveForkSource]] — nothing is ever inside the sandbox,
-    * so the copy branch always runs), builds [[FlowAuthoring.forkPrompt]]
-    * against the sandbox-local target, and runs it as the authoring flow's
-    * task.
+  /** Fork-an-existing-flow authoring (also the edit-by-agent path, `params.
+    * overwrite`): sets up the sandbox, copies the source flow beside the
+    * extracted API material ([[FlowAuthoring.resolveForkSource]] — nothing is
+    * ever inside the sandbox, so the copy branch always runs), builds the
+    * authoring task against the sandbox-local target —
+    * [[FlowAuthoring.editPrompt]] when `params.overwrite` (worded as an edit,
+    * since that's what the user asked for), [[FlowAuthoring.forkPrompt]]
+    * otherwise — and runs it as the authoring flow's task.
     */
   def fork(
       source: DiscoveredFlow,
@@ -112,13 +114,12 @@ private[shell] object AuthorAction:
       sandbox,
       apiDir
     )
-    val prompt = FlowAuthoring.forkPrompt(
-      changes,
-      sourcePath,
-      sandboxTarget(sandbox, params),
-      apiDir,
-      ShellVersion.value
-    )
+    val target = sandboxTarget(sandbox, params)
+    val buildPrompt =
+      if params.overwrite then FlowAuthoring.editPrompt
+      else FlowAuthoring.forkPrompt
+    val prompt =
+      buildPrompt(changes, sourcePath, target, apiDir, ShellVersion.value)
     launchAuthoringFlow(prompt, sandbox, params, ui, terminal, launch)
 
   /** Where the flow writes the authored file: the sandbox root, under the real
