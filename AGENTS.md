@@ -289,6 +289,22 @@ with a test pinning the observed wire shape.
   inline.
 - Tests target exactly one scenario each.
 
+### Versioning (0.x)
+
+Orca is 0.x: no backwards compatibility is owed anywhere.
+
+- No default values on domain or persisted fields (case classes that travel
+  through `JsonData`, progress-log/manifest types, config records). Every
+  call site passes them explicitly — a default silently papers over a call
+  site that forgot the field, which is exactly the bug class this rule
+  catches.
+- Never carry back-compat machinery — no defaulting-old-shape codec configs,
+  no dual parse paths, no fixture tests pinned to a prior wire format. Change
+  the shape and update every call site instead.
+- Comments (see Code style above) never narrate this either: no "was
+  previously", "renamed from", "kept for compat" — state what the field/type
+  means now, not its history.
+
 ### Library
 
 - Tool event sinks take `OrcaListener` (default `OrcaListener.noop`).
