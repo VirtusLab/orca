@@ -14,6 +14,7 @@ class OpencodeApiTest extends munit.FunSuite:
       parts = List(MessagePart("text", "do it")),
       model = Some(ModelRef("openai", "gpt-4o-mini")),
       system = Some("be brief"),
+      agent = None,
       tools = Some(Map("question" -> false)),
       format =
         Some(OutputFormat("json_schema", RawJson("""{"type":"object"}""")))
@@ -30,7 +31,11 @@ class OpencodeApiTest extends munit.FunSuite:
   test("MessageBody omits absent optional fields"):
     val body = MessageBody(
       parts = List(MessagePart("text", "hi")),
-      model = Some(ModelRef("openai", "gpt-4o-mini"))
+      model = Some(ModelRef("openai", "gpt-4o-mini")),
+      system = None,
+      agent = None,
+      tools = None,
+      format = None
     )
     val json = writeToString(body)
     assert(!json.contains("system"), json)

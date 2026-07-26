@@ -49,6 +49,9 @@ private[opencode] object OpencodeArgs:
       parts = List(MessagePart("text", prompt)),
       model = config.model.map(toModelRef),
       system = SystemPromptComposer.combine(config),
+      // orca never targets a specific opencode agent profile — omitted so the
+      // server's default applies.
+      agent = None,
       tools = toolFlags(config, mode),
       format = outputSchema.map(s => OutputFormat("json_schema", RawJson(s)))
     )
