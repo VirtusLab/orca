@@ -81,11 +81,21 @@ private[orca] case class ParsedSettings(
   * non-space char is `#`), `key = value` with the value taken verbatim
   * (trimmed) after the first `=` — no comment stripping, so a `#` inside the
   * value is command text. Repeated stack keys append in file order, repeated
-  * agent keys are rejected, an empty value is equivalent to omitting the key.
+  * agent keys are rejected, an empty value is equivalent to omitting the key. A
+  * stack key's value may also be the literal `off`, which explicitly disables
+  * that gate (same runtime effect as omitting the key, but — unlike a comment —
+  * a LIVE line, so it still counts toward [[SettingsFile.hasStackLines]]).
   * Hand-rolled rather than `java.util.Properties`, whose backslash/unicode
   * escape handling would mangle shell commands (ADR 0019).
   */
 private[orca] object SettingsFile:
+
+  /** The one stack-key value with special meaning: explicitly disables that
+    * gate. Never a real shell command — the exact spelling is chosen so it
+    * reads unambiguously in the file; a project that genuinely has a command
+    * named `off` is not a concern (ADR 0019 amendment).
+    */
+  private val Off: String = "off"
 
   /** Left = a [[SettingsError]] naming the offending line (and, for an unknown
     * key, the valid keys). `scope` gates the stack keys (`format`/`lint`/
@@ -130,6 +140,12 @@ private[orca] object SettingsFile:
                   case stackKey: StackKey =>
                     if scope == SettingsScope.UserGlobal then
                       Left(SettingsError.NotAllowedInGlobal(number, rawKey))
+                    else if value == Off then
+                      // Explicit disable: same runtime effect as the key being
+                      // absent (an empty command list), but — unlike absence —
+                      // this is a LIVE line, so `hasStackLines` still sees the
+                      // key as configured and does not re-trigger discovery.
+                      Right(acc)
                     else
                       Right(
                         acc.copy(stack = append(acc.stack, stackKey, value))
@@ -162,12 +178,15 @@ private[orca] object SettingsFile:
           Right(acc.copy(agents = agents))
 
   /** The header comment lines [[render]] places at the top of every settings
-    * file.
+    * file. Comments carry no meaning to the parser — only a LIVE
+    * `format`/`lint`/`test` line (including an explicit `= off`) counts as
+    * "configured" and keeps auto-discovery from running.
     */
   val Header: String =
     "# orca settings — edit freely, commit with the project.\n" +
-      "# Delete the stack lines (format/lint/test, commented ones too) to " +
-      "re-run auto-discovery."
+      "# format/lint/test: a value of `off` disables explicitly; comments " +
+      "are inert. Delete a live stack line (or the whole file) to re-run " +
+      "auto-discovery."
 
   /** The full settings-file text for `entries` under [[Header]],
     * newline-terminated. A [[SettingsEntry.Command]]'s comment renders as one
@@ -268,12 +287,16 @@ private[orca] object SettingsFile:
               .mkString("", "\n", "\n") + commandLine
           case None => commandLine
       case SettingsEntry.Unset(key, reason) =>
-        s"# $key =   (${collapseWhitespace(reason)})"
+        // A live `off` line, not a comment: an unset task must still count as
+        // "configured" so discovery doesn't re-run over the same absence
+        // every time. The reason is purely informative, one `#` line above.
+        s"# ${collapseWhitespace(reason)}\n$key = $Off"
       case SettingsEntry.Demoted(key, command, reason) =>
-        // Collapse both parts: the whole entry must stay one physical `#` line
-        // or the tail would parse as live commands.
-        s"# $key = ${collapseWhitespace(command)}   " +
-          s"(${collapseWhitespace(reason)})"
+        // Same live-`off` shape as Unset; the rejected command is folded into
+        // the informative comment (collapsed to stay one physical line) so a
+        // reviewer sees what was tried and why it didn't survive.
+        s"# ${collapseWhitespace(command)}: ${collapseWhitespace(reason)}\n" +
+          s"$key = $Off"
 
   private def collapseNewlines(s: String): String =
     TextUtil.collapseNewlines(s)
@@ -295,69 +318,75 @@ private[orca] object SettingsFile:
     * verbatim-but-trimmed value (so commands containing `=` — e.g. `FOO=bar
     * cargo check` — survive intact). `None` when the line has no `=`. The
     * single definition of "which key does this line name", shared by
-    * [[parseLine]] and [[hasStackLines]] so the discovery gate and the parser
-    * can't disagree about whether a line is a live stack key.
+    * [[parseLine]], [[isLiveStackKeyLine]], and [[liveAgentKey]] so the
+    * discovery gate and the parser can't disagree about whether a line is a
+    * live stack key.
     */
   private def splitAssignment(line: String): Option[(String, String)] =
     line.indexOf('=') match
       case -1 => None
       case eq => Some((line.take(eq).trim, line.drop(eq + 1).trim))
 
-  /** True when any line of `content` names a stack key — live or commented. The
-    * discovery trigger (ADR 0020): a discovery-written file always carries at
-    * least commented stack lines, so only a hand-written file with no stack
-    * content re-triggers discovery. Reuses [[splitAssignment]] (after stripping
-    * a leading `#`) rather than a second regex, so it can't disagree with the
-    * parser about what a stack key is.
+  /** True when any LIVE (non-comment) line of `content` assigns a stack key —
+    * including an explicit `key = off`. The discovery trigger: comments carry
+    * no meaning to the parser, so only a genuinely live stack assignment counts
+    * as "configured" — a file with nothing but commented examples (or
+    * commented-out former stack lines) still re-triggers discovery. Reuses
+    * [[splitAssignment]] so this can't disagree with the parser about what a
+    * live stack key is.
     */
   def hasStackLines(content: String): Boolean =
-    content.linesIterator.exists(namesStackKey)
+    content.linesIterator.exists(isLiveStackKeyLine)
 
-  /** `content` with every stack line (live or `#`-commented `format`/`lint`/
-    * `test`) removed — the surgical edit behind the shell's "re-discover
-    * project stack settings" action (ADR 0021 §4/§8). Reuses [[namesStackKey]]
-    * so this can never disagree with [[hasStackLines]] about which physical
-    * lines are stack lines; the result always satisfies
-    * `!hasStackLines(result)`. For each LIVE (non-commented) stack line, the
-    * contiguous run of `#`-comment lines immediately above it — discovery's
-    * evidence citation, [[renderEntry]]'s `Command` shape — is dropped too,
-    * stopping at a blank line, a non-comment line, [[Header]]'s two lines, or
-    * another stack line (that comment run belongs to a different entry). A
-    * `Demoted`/`Unset` line is a single self-contained `#` line and needs no
-    * such lookback; it's removed directly by matching [[namesStackKey]] like
-    * any live line. Every other line — agent keys, blank lines, unrelated
-    * comments, [[Header]], ordering — passes through with its original line
-    * terminator untouched.
+  /** `content` with every LIVE `format`/`lint`/`test` line removed — the
+    * surgical edit behind the shell's "re-discover project stack settings"
+    * action (ADR 0021 §4/§8). Reuses [[isLiveStackKeyLine]] so this can never
+    * disagree with [[hasStackLines]] about which physical lines are stack
+    * lines; the result always satisfies `!hasStackLines(result)`. For each
+    * removed line, the contiguous run of `#`-comment lines immediately above it
+    * — [[renderEntry]]'s evidence/reason citation, for every entry kind — is
+    * dropped too, stopping at a blank line, [[Header]]'s two lines, or the
+    * previous live line (that comment run belongs to a different entry). A
+    * comment that merely mentions a stack key — hand-written documentation, a
+    * commented-out example — is never a removal target: comments are inert, so
+    * this leaves them exactly where the user put them. Every other line — agent
+    * keys, blank lines, unrelated comments, [[Header]], ordering — passes
+    * through with its original line terminator untouched.
     */
   private[orca] def stripStackLines(content: String): String =
     val lines = content.linesWithSeparators.toIndexedSeq
     def bare(line: String): String = line.stripLineEnd
     val headerLines = Header.linesIterator.toSet
-    val stackIdx =
-      lines.indices.filter(i => namesStackKey(bare(lines(i)))).toSet
-    def isLiveStackLine(i: Int): Boolean =
-      stackIdx(i) && !bare(lines(i)).trim.startsWith("#")
+    val liveIdx =
+      lines.indices.filter(i => isLiveStackKeyLine(bare(lines(i)))).toSet
 
     val evidenceIdx = scala.collection.mutable.Set.empty[Int]
-    for i <- lines.indices if isLiveStackLine(i) do
+    for i <- lines.indices if liveIdx(i) do
       var j = i - 1
       while j >= 0 && bare(lines(j)).trim.startsWith("#") &&
-        !headerLines(bare(lines(j))) && !stackIdx(j)
+        !headerLines(bare(lines(j)))
       do
         evidenceIdx += j
         j -= 1
 
-    val toRemove = stackIdx ++ evidenceIdx
+    val toRemove = liveIdx ++ evidenceIdx
     lines.zipWithIndex.collect {
       case (line, i) if !toRemove(i) => line
     }.mkString
 
-  private def namesStackKey(line: String): Boolean =
-    val uncommented = line.trim.stripPrefix("#")
-    splitAssignment(uncommented) match
-      case Some((rawKey, _)) =>
-        SettingKey.fromRaw(rawKey) match
-          case Some(_: StackKey) => true
-          case Some(_: AgentKey) => false
-          case None              => false
-      case None => false
+  /** True when `line` is a LIVE (non-comment, non-blank) `format`/`lint`/
+    * `test` assignment (any value, including `off`). The single definition of
+    * "is this a live stack key line", shared by [[hasStackLines]] and
+    * [[stripStackLines]] so the discovery trigger and the strip can't disagree.
+    */
+  private def isLiveStackKeyLine(line: String): Boolean =
+    val trimmed = line.trim
+    if trimmed.isEmpty || trimmed.startsWith("#") then false
+    else
+      splitAssignment(trimmed) match
+        case Some((rawKey, _)) =>
+          SettingKey.fromRaw(rawKey) match
+            case Some(_: StackKey) => true
+            case Some(_: AgentKey) => false
+            case None              => false
+        case None => false

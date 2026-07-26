@@ -14,19 +14,24 @@ private[orca] enum SettingsEntry:
     */
   case Command(key: String, command: String, comment: Option[String])
 
-  /** Rendered commented-out, so the task stays unset and the line is invisible
-    * to the parser:
+  /** Rendered as a LIVE `key = off` line — the task stays disabled, but the
+    * assignment still counts as "configured" so discovery doesn't re-run over
+    * the same absence next time. `reason` is purely informative, one `#` line
+    * above:
     * {{{
-    * # key =   (reason)
+    * # reason
+    * key = off
     * }}}
     */
   case Unset(key: String, reason: String)
 
   /** A discovered command that failed a mechanical check (ADR 0019), rendered
-    * commented-out with the failure reason — invisible to the parser, but the
-    * command stays visible for the user to fix and un-comment:
+    * as the same LIVE `key = off` line as [[Unset]] — the rejected command and
+    * failure reason are folded into the informative comment above, so a
+    * reviewer sees what was tried and can fix it by hand:
     * {{{
-    * # key = command   (reason)
+    * # command: reason
+    * key = off
     * }}}
     */
   case Demoted(key: String, command: String, reason: String)

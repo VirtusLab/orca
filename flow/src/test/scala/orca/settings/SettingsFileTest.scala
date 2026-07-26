@@ -78,6 +78,27 @@ class SettingsFileTest extends FunSuite:
       Right(StackSettings(test = List("cargo test")))
     )
 
+  test("parse treats a stack key's value of `off` as explicitly disabled"):
+    assertEquals(
+      SettingsFile
+        .parse(
+          "format = off\nlint = off\ntest = off\n",
+          SettingsScope.Project
+        )
+        .map(_.stack),
+      Right(StackSettings.empty),
+      "`off` must not join the command list — same runtime effect as absent"
+    )
+
+  test("parse never lets `off` join the command list alongside a real one"):
+    assertEquals(
+      SettingsFile
+        .parse("format = cargo fmt\nformat = off\n", SettingsScope.Project)
+        .map(_.stack.format),
+      Right(List("cargo fmt")),
+      "off must not appear as a literal shell command in the resolved settings"
+    )
+
   test("parse appends repeated keys in file order"):
     assertEquals(
       SettingsFile
@@ -231,13 +252,17 @@ class SettingsFileTest extends FunSuite:
   test("hasStackLines is true for a live stack key"):
     assert(SettingsFile.hasStackLines("format = cargo fmt"))
 
-  test("hasStackLines is true for a commented-out unset stack key"):
-    assert(SettingsFile.hasStackLines("# format =   (no formatter found)"))
+  test("hasStackLines is true for a live, explicitly disabled stack key"):
+    assert(SettingsFile.hasStackLines("format = off"))
 
-  test("hasStackLines is true for a commented-out demoted stack key"):
+  test(
+    "hasStackLines is false for a commented-out stack key (comments are inert)"
+  ):
+    assert(!SettingsFile.hasStackLines("# format =   (no formatter found)"))
     assert(
-      SettingsFile.hasStackLines("# lint = just check   (just: not found)")
+      !SettingsFile.hasStackLines("# lint = just check   (just: not found)")
     )
+    assert(!SettingsFile.hasStackLines("# format = cargo fmt"))
 
   test("hasStackLines is false for a file naming only agent keys"):
     val content =
@@ -293,12 +318,13 @@ class SettingsFileTest extends FunSuite:
     assertEquals(
       SettingsFile.render(entries),
       """# orca settings — edit freely, commit with the project.
-        |# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.
+        |# format/lint/test: a value of `off` disables explicitly; comments are inert. Delete a live stack line (or the whole file) to re-run auto-discovery.
         |# Cargo.toml (rustfmt ships with the toolchain)
         |format = cargo fmt
         |# compiles main+test code, runs nothing
         |lint = cargo check --tests
-        |# test =   (no test evidence found)
+        |# no test evidence found
+        |test = off
         |""".stripMargin
     )
 
@@ -313,23 +339,28 @@ class SettingsFileTest extends FunSuite:
       )
     )
     assert(
-      rendered.endsWith("\n# lint = just check   (just: not found on PATH)\n"),
-      s"a demoted entry must render as a commented-out command with its " +
-        s"reason, whitespace runs collapsed, got: $rendered"
+      rendered.endsWith(
+        "\n# just check: just: not found on PATH\nlint = off\n"
+      ),
+      s"a demoted entry must render as a live `off` line with its command " +
+        s"and reason folded into the comment above, whitespace runs " +
+        s"collapsed, got: $rendered"
     )
 
   test(
-    "stripStackLines drops live and commented stack lines plus their " +
-      "evidence comments, keeping the header, agent keys, and user comments"
+    "stripStackLines drops every live stack line (including explicit off) " +
+      "plus its evidence comment, keeping the header, agent keys, and user " +
+      "comments"
   ):
     val content =
       """# orca settings — edit freely, commit with the project.
-        |# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.
+        |# format/lint/test: a value of `off` disables explicitly; comments are inert. Delete a live stack line (or the whole file) to re-run auto-discovery.
         |# Cargo.toml (rustfmt ships with the toolchain)
         |format = cargo fmt
         |# compiles main+test code, runs nothing
         |lint = cargo check --tests
-        |# test =   (no test evidence found)
+        |# no test evidence found
+        |test = off
         |# a user note about coding agent
         |codingAgent = codex
         |# just a regular comment
@@ -338,13 +369,24 @@ class SettingsFileTest extends FunSuite:
     assertEquals(
       stripped,
       """# orca settings — edit freely, commit with the project.
-        |# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.
+        |# format/lint/test: a value of `off` disables explicitly; comments are inert. Delete a live stack line (or the whole file) to re-run auto-discovery.
         |# a user note about coding agent
         |codingAgent = codex
         |# just a regular comment
         |""".stripMargin
     )
     assert(!SettingsFile.hasStackLines(stripped))
+
+  test(
+    "stripStackLines leaves a commented-out stack-key example untouched " +
+      "(comments are inert, never a removal target)"
+  ):
+    val content =
+      """# orca settings — edit freely, commit with the project.
+        |# format = cargo fmt
+        |codingAgent = codex
+        |""".stripMargin
+    assertEquals(SettingsFile.stripStackLines(content), content)
 
   test("stripStackLines leaves a file with no stack lines unchanged"):
     val content =
@@ -385,4 +427,34 @@ class SettingsFileTest extends FunSuite:
     assertEquals(
       SettingsFile.parse(rendered, SettingsScope.Project).map(_.stack),
       Right(StackSettings(format = List("cargo fmt")))
+    )
+
+  test("Header documents `off` and that comments are inert"):
+    assert(
+      SettingsFile.Header.contains("`off`"),
+      s"the header must mention off: ${SettingsFile.Header}"
+    )
+    assert(
+      SettingsFile.Header.contains("comments"),
+      s"the header must say comments are inert: ${SettingsFile.Header}"
+    )
+
+  test(
+    "a fully-unset discovery render does not re-trigger discovery " +
+      "(every task becomes a live `off` line)"
+  ):
+    val rendered = SettingsFile.render(
+      List(
+        SettingsEntry.Unset("format", "no formatter found"),
+        SettingsEntry.Demoted("lint", "just check", "just: not found"),
+        SettingsEntry.Unset("test", "no test evidence found")
+      )
+    )
+    assert(
+      SettingsFile.hasStackLines(rendered),
+      s"discovery's own written output must count as configured, got: $rendered"
+    )
+    assertEquals(
+      SettingsFile.parse(rendered, SettingsScope.Project).map(_.stack),
+      Right(StackSettings.empty)
     )
