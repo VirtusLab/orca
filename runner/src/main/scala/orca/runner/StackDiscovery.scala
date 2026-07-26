@@ -68,24 +68,18 @@ private[runner] object StackDiscovery:
   private[runner] val Prompt: String =
     PromptResource.load("/orca/runner/prompts/stack-discovery.md")
 
-  /** Run discovery end to end: announce it, ask `agent`'s cheap tier (read-only
-    * — the agent inspects the repo with its own tools; nothing is inlined into
-    * the prompt) for a [[StackDiscoveryResult]], apply the two mechanical
-    * checks against `workDir`, and narrate every resulting command/demotion
-    * line — plus a warning per task left with no commands — as `Step` events.
-    * Returns the surviving settings and the full entry list for the caller to
-    * render and write.
+  /** Run discovery end to end (ADR 0019 § Auto-discovery). The cheap-tier agent
+    * run is read-only — it inspects the repo with its own tools; nothing is
+    * inlined into the prompt.
     *
     * `existingContent` is `FlowLifecycle`'s already-read settings-file content
-    * (`None` for an absent/blank file, `Some` for a present-but-stack-silent
-    * one) — passed through only to pick the accurate opening `Step` wording
-    * ([[startMessage]]), not otherwise consulted here.
+    * — passed through only to pick the accurate opening `Step` wording
+    * ([[startMessage]]).
     *
-    * Deliberately catch-free (ADR 0019): a discovery failure propagates and
-    * aborts the run as an ordinary surfaced setup failure, rather than being
-    * degraded to writing an all-commented file — under the frozen-file
-    * semantics that would turn a transient outage into a permanently recorded
-    * "gates off".
+    * Deliberately catch-free: a discovery failure propagates and aborts the run
+    * as an ordinary surfaced setup failure, rather than degrading to an
+    * all-commented file — under the frozen-file semantics that would turn a
+    * transient outage into a permanently recorded "gates off".
     */
   def discover(
       agent: Agent[?],

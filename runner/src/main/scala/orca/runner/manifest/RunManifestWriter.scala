@@ -26,40 +26,18 @@ private[orca] enum RunOutcome:
 /** Always-attached listener (like [[LoggingListener]]) that writes the per-run
   * session manifest ([[RunManifest]], ADR 0021 §8) to
   * `.orca/cache/runs/<startedAt-epoch-ms>-<pid>.json`. Rewrites the whole file
-  * atomically (the `ProgressStore.writeLog` temp+move idiom,
-  * `ProgressStore.scala:150-176`) on every stage transition and
-  * `SessionCommitted`, so a crashed run still leaves its sessions on disk with
-  * `outcome: "running"` and a dead `pid` — the shell treats that as "crashed,
-  * but still offers its sessions".
+  * atomically (the `ProgressStore.writeLog` temp+move idiom) on every stage
+  * transition and `SessionCommitted`, so a crashed run still leaves its
+  * sessions on disk with `outcome: "running"` and a dead `pid` — the shell
+  * treats that as "crashed, but still offers its sessions".
   *
-  * `flowName` comes from `ORCA_FLOW_NAME`, read by the caller (`flow()`), not
-  * here — the flow script's own filename is genuinely unavailable inside the
-  * library: `runFlow` never sees the `.sc` path, only the parsed `OrcaArgs`.
-  * The shell sets the env var before exec'ing the flow subprocess
-  * (`FlowLauncher.childEnv`, `shell`); a flow launched outside the shell
-  * (`scala-cli run` directly) leaves it unset, so its manifest's `flow` is
-  * `None`.
+  * `flowName` comes from `ORCA_FLOW_NAME`, set by the shell before exec'ing the
+  * flow subprocess (`FlowLauncher.childEnv`); `runFlow` never sees the `.sc`
+  * path itself, so a flow launched outside the shell leaves it unset and the
+  * manifest's `flow` is `None`.
   *
-  * THREAD-SAFETY: [[OrcaListener]]s receive events from parallel agent forks,
-  * and this listener's update ends in a file write — so, unlike
-  * [[orca.events.CostTracker]]'s lock-free `AtomicReference.updateAndGet`, it
-  * can't be a pure retryable CAS. Production ([[RunManifestWriter.start]])
-  * serialises every event on an Ox actor that owns a single
-  * [[RunManifestWriterState]]: `onEvent` is a `tell` (fire-and-forget — the
-  * dispatcher blocks on file I/O only if the mailbox fills, bounded by
-  * `BufferCapacity`; manifest events fire per stage/session, not per token, so
-  * in practice it never does — and the mailbox preserves the order of events
-  * from a single emitting thread) and `finish` is an `ask` (the final write
-  * must land before `flow()` moves on to the cost summary). Every write inside
-  * the actor is guarded, so a transient failure can't quarantine the writer for
-  * the rest of the run.
-  *
-  * The manifest file only comes into existence on the first `SessionCommitted`
-  * — stage events before that update the in-memory stage stack (so the stage a
-  * first session lands in is stamped correctly) but write nothing, and
-  * `finish()` no-ops if no session ever committed: a run that never commits a
-  * session leaves no manifest — a session-less run offers nothing to continue
-  * (ADR 0021 §8).
+  * Thread-safety and the lazy-creation gate are covered on
+  * [[RunManifestWriterState]], which owns the actual mutable state.
   */
 private[orca] trait RunManifestWriter extends OrcaListener:
   /** Finalizes the manifest: `outcome` and `finishedAt`, then a last write.
@@ -95,9 +73,19 @@ private class ActorRunManifestWriter(actor: ActorRef[RunManifestWriterState])
   def onEvent(event: OrcaEvent): Unit = actor.tell(_.onEvent(event))
   def finish(outcome: RunOutcome): Unit = actor.ask(_.finish(outcome))
 
-/** Mutable manifest-building state. Not thread-safe in isolation; production
-  * wraps it via [[ActorRunManifestWriter]], which serialises every call onto
-  * one thread. Tests construct this directly and drive events synchronously.
+/** Mutable manifest-building state — not thread-safe in isolation.
+  * [[ActorRunManifestWriter]] serialises every call onto one actor thread:
+  * `onEvent` is a `tell` (fire-and-forget; manifest events fire per
+  * stage/session, not per token, so the bounded mailbox never actually blocks)
+  * and `finish` is an `ask` (its write must land before `flow()` moves on to
+  * the cost summary). Every write is guarded internally ([[safeWrite]]) so a
+  * transient failure can't quarantine the writer or throw out of a `tell`'s
+  * handler. Tests construct this directly and drive events synchronously.
+  *
+  * The manifest file only comes into existence on the first `SessionCommitted`
+  * — earlier stage events just update the in-memory stage stack (so the first
+  * session is stamped with the right stage) — and `finish()` no-ops if none
+  * ever committed: a session-less run offers nothing to continue (ADR 0021 §8).
   */
 private[runner] class RunManifestWriterState(
     workDir: os.Path,
@@ -238,12 +226,8 @@ private[runner] class RunManifestWriterState(
   /** `clientId` joined against every `progress-*.json` under `.orca/` —
     * `SessionRecord`s only exist for durable `agent.session(name, seed)`
     * sessions, so a match means `clientId` came from one; the record's `name`
-    * is the manifest's `sessionName`. `None` for a plain one-shot call — and, a
-    * known gap, for an interactive call too (`AgentCall.runInteractiveOnce`
-    * mints a fresh `SessionId` that never touches a `FlowSession`), so
-    * interactive sessions currently report `kind: "oneShot"` (a gap for the ADR
-    * to absorb: `SessionCommitted` carries nothing that distinguishes
-    * interactive from autonomous).
+    * becomes the manifest's `sessionName`. `None` for a one-shot call, and
+    * currently also for an interactive one — see [[SessionKind]]'s scaladoc.
     */
   private def durableSessionName(clientId: String): Option[String] =
     progressLogFiles.iterator
@@ -330,8 +314,7 @@ private[runner] class RunManifestWriterState(
   * `clientId` to a `SessionRecord` in the progress log (an `agent.session(...)`
   * call), `OneShot` otherwise. `Interactive` is reserved and currently unused:
   * `SessionCommitted` carries nothing that distinguishes an interactive call
-  * from an autonomous one, so interactive calls land as `OneShot` today (see
-  * [[RunManifestWriterState.durableSessionName]]).
+  * from an autonomous one, so interactive calls land as `OneShot` today.
   */
 private enum SessionKind(val wireValue: String):
   case Durable extends SessionKind(RunManifest.KindDurable)

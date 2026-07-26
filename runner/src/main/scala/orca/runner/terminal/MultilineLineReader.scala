@@ -91,18 +91,13 @@ private[orca] object MultilineLineReader:
     mainKeyMap.bind(Reference(kittyInterruptWidgetName), "\u001b[99;5u")
 
   /** Registers a widget on `reader` that reproduces `LineReaderImpl`'s own
-    * Ctrl-D contract exactly, bound to the kitty keyboard protocol's CSI-u
-    * encoding of Ctrl-D: buffer empty → throw [[EndOfFileException]] (same
-    * outcome the raw byte gets via the `VEOF`-comparison check in
-    * `LineReaderImpl`'s main loop); buffer non-empty → delegate to
-    * `LineReader.DELETE_CHAR_OR_LIST`, the exact builtin widget the raw byte is
-    * bound to in the default keymap, via `callWidget` — so mid-text this
-    * behaves identically to plain Ctrl-D (deletes the character under the
-    * cursor) without reimplementing that logic, cursor-at-end included
-    * (pty-verified: with no completer configured, that case is a harmless
-    * no-op, same as plain Ctrl-D's). See [[withKittyKeyboardProtocol]] for why
-    * this escape sequence needs its own binding at all, the same reason as
-    * [[registerKittyInterruptWidget]].
+    * Ctrl-D contract, bound to the kitty protocol's CSI-u encoding of Ctrl-D:
+    * empty buffer → throw [[EndOfFileException]] (same as the raw `VEOF` byte);
+    * non-empty → delegate to `LineReader.DELETE_CHAR_OR_LIST` via `callWidget`,
+    * the exact builtin the raw byte is bound to — so mid-text this matches
+    * plain Ctrl-D exactly, without reimplementing it (pty-verified:
+    * cursor-at-end is a harmless no-op with no completer configured). See
+    * [[withKittyKeyboardProtocol]] for why this sequence needs its own binding.
     */
   private[orca] def registerKittyEofWidget(reader: LineReader): Unit =
     reader.getWidgets.put(
@@ -116,56 +111,35 @@ private[orca] object MultilineLineReader:
     val mainKeyMap = reader.getKeyMaps.get(LineReader.MAIN)
     mainKeyMap.bind(Reference(kittyEofWidgetName), "\u001b[100;5u")
 
-  /** Proactively pushes the kitty keyboard protocol's "disambiguate escape
-    * codes" flag (value `1`) on `terminal` for the duration of `body`, popped
-    * again in `finally` regardless of outcome (submit, Ctrl-C, EOF, or any
-    * other exception). This is what makes kitty-protocol-''capable'' terminals
-    * that don't turn it on by default — including VS Code's integrated terminal
-    * — start sending the distinct Shift+Enter byte sequence
-    * [[registerInsertNewlineWidget]] binds, instead of the bare CR a plain
-    * Enter also sends. Terminals that already send that sequence natively
-    * (kitty, WezTerm, foot, Ghostty, recent xterm) simply see a flag they
-    * already had pushed, pushed again — harmless, and popped back to the same
-    * state. Terminals implementing the protocol not at all don't recognize
-    * either escape sequence and ignore them outright, so pushing
-    * unconditionally is safe.
+  /** Pushes the kitty keyboard protocol's "disambiguate escape codes" flag
+    * (`CSI > 1 u`) on `terminal` for `body`'s duration, popping it (`CSI < u`)
+    * in `finally` regardless of outcome. Push/pop is a stack operation, so this
+    * restores whatever flag state the terminal held before the call, even under
+    * nested pushes. Safe to call unconditionally: terminals that already send
+    * the kitty sequences natively see a redundant push/pop; terminals that
+    * don't implement the protocol at all ignore both sequences.
     *
-    * This flag is not as narrow as it sounds: per the kitty spec, it also
-    * re-encodes ''every'' Ctrl+letter combination as a `CSI u` sequence rather
-    * than its ordinary control byte — Enter, Tab and Backspace are the only
-    * keys explicitly exempted (so a crashed program that left the flag pushed
-    * doesn't also strand the user unable to type `reset`). That includes Ctrl-C
-    * and Ctrl-D: a kitty-protocol terminal that honors this flag (again, VS
-    * Code's integrated terminal among them) stops sending the raw bytes
-    * `0x03`/`0x04` for as long as this flag is pushed, so neither the kernel's
-    * `SIGINT` nor `LineReaderImpl`'s own `VEOF`-byte check ever fires — a
-    * multiline read would otherwise never see either interrupt.
-    * [[registerKittyInterruptWidget]] and [[registerKittyEofWidget]] bind those
-    * re-encoded sequences directly so both still work; see their scaladocs.
+    * This is what makes kitty-capable-but-inert terminals (including VS Code's
+    * integrated terminal) start sending [[registerInsertNewlineWidget]]'s
+    * Shift+Enter sequence instead of a bare CR.
     *
-    * `CSI > 1 u` ''pushes'' the flag onto the protocol's own flag stack; `CSI <
-    * u` ''pops'' one level back off — so push-then-pop restores whatever the
-    * terminal's own stack held before this call, exactly, even if some outer
-    * code already pushed flags of its own.
+    * The flag is broader than the name suggests: it re-encodes EVERY
+    * Ctrl+letter combination as `CSI u` (Enter/Tab/Backspace exempted, so a
+    * crashed program with the flag stuck doesn't strand the user unable to type
+    * `reset`) — including Ctrl-C/Ctrl-D, which stop delivering `SIGINT`/the raw
+    * `VEOF` byte while the flag is pushed. [[registerKittyInterruptWidget]] and
+    * [[registerKittyEofWidget]] bind the re-encoded sequences directly so both
+    * still work.
     *
-    * xterm's older `modifyOtherKeys` mode 2 was also considered as a wider-net
-    * fallback for terminals that support it but not the kitty protocol, but
-    * pty-verified (real terminal, not a unit test) to re-encode ''every''
-    * Ctrl+letter combination as a `CSI 27 ; 5 ; <ascii-of-letter> ~` escape
-    * sequence instead of its ordinary control byte — confirmed broken for
-    * Ctrl-A (cursor-to-line-start), Ctrl-C (interrupt), and Ctrl-D
-    * (EOF-or-delete): all three landed as literal garbage text in the buffer
-    * instead of doing their normal jobs, since `LineReaderImpl` has no
-    * keybinding for any of them (it relies on the terminal sending the
-    * traditional byte). Compensating would mean rebinding every emacs Ctrl
-    * combination the reader supports, not just the two or three documented here
-    * — too broad a regression surface for the benefit, so `modifyOtherKeys` is
-    * deliberately never requested.
+    * xterm's older `modifyOtherKeys` mode 2 was also tried as a wider-net
+    * fallback, but pty-verified to mangle Ctrl-A/C/D into literal garbage text
+    * (no keybinding exists for the resulting escape sequences) — rebinding
+    * every affected combination was too broad a regression surface for the
+    * benefit, so it's deliberately never requested.
     *
-    * Scoped to a single multiline read, not the caller's whole lifetime: a
-    * `select`/`confirm` prompt (ConsoleUI) has no use for a literal-newline
-    * key, so pushing this flag there would be pure risk (a leaked push on some
-    * other exit path) for no benefit.
+    * Scoped to one multiline read, not the caller's whole lifetime: a
+    * `select`/`confirm` prompt has no use for a literal-newline key, so pushing
+    * this flag there would be pure risk for no benefit.
     */
   private[orca] def withKittyKeyboardProtocol[A](terminal: Terminal)(
       body: => A

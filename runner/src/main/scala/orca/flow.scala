@@ -47,15 +47,12 @@ import ox.{Ox, supervised}
 
 import scala.util.control.NonFatal
 
-/** Outcome of the flow body, as `flow` tracks it across the try/catch/finally
-  * below. One ADT rather than two independent booleans, which would admit "both
-  * true" — impossible here, but also unable to express the one state that
-  * matters: `Running`, never advanced to a terminal case. That is what a fatal
-  * throwable (OOM, StackOverflow) escaping the `NonFatal` catch leaves behind:
-  * the exit-code check below treats only `Failed` as exit 1 (so `Running` exits
-  * 0, matching prior behavior), while the manifest write below maps anything
-  * but `Succeeded` to `RunOutcome.Failed` — an honest "failed" report even
-  * though no catch ran.
+/** Outcome of the flow body, tracked across the try/catch/finally below. One
+  * ADT rather than two booleans (which would admit "both true", impossible
+  * here, but couldn't express `Running` — what's left when a fatal throwable,
+  * e.g. OOM, escapes the `NonFatal` catch). The exit-code check treats only
+  * `Failed` as exit 1; the manifest write maps anything but `Succeeded` to
+  * `RunOutcome.Failed` — an honest "failed" report even when no catch ran.
   */
 private enum FlowOutcome:
   case Running, Succeeded, Failed
@@ -164,11 +161,9 @@ def flow(
   // construction through `finish`; `System.exit` below stays OUTSIDE it. A
   // nested `flow()` call gets its own scope and writer.
   supervised:
-    // Per-run session manifest (ADR 0021 §8): always attached, like
-    // LoggingListener. `flow` comes from `ORCA_FLOW_NAME` — the flow script's
-    // own path is unknown inside the library, so the shell sets this env var
-    // before exec'ing the flow subprocess; a flow run outside the shell
-    // leaves it unset, so `flow` is `None`.
+    // Per-run session manifest (ADR 0021 §8), always attached like
+    // LoggingListener; see RunManifestWriter's scaladoc for `flowName`'s
+    // ORCA_FLOW_NAME sourcing.
     val manifestWriter = RunManifestWriter.start(
       workDir,
       OrcaBanner.version,

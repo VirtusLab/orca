@@ -32,12 +32,10 @@ import ox.either.orThrow
 
 import scala.util.control.NonFatal
 
-/** Marker that a flow failure has ALREADY been reported to the user's event
-  * surface. Thrown by the `surfaced` brackets after they report `cause`, so
-  * `flow()` may discard it without re-reporting. The contract is the whole
-  * point of the type: any other `NonFatal` exception escaping `runFlow`
-  * unwrapped means a code path that was NOT bracketed — an unsurfaced failure
-  * `flow()` prints to stderr as a backstop rather than exiting silently.
+/** Marker that a failure was already reported to the event surface (thrown by
+  * `surfaced` after reporting), so `flow()` discards it without re-reporting.
+  * Any OTHER `NonFatal` escaping `runFlow` means an un-bracketed code path;
+  * `flow()` prints it to stderr as a backstop.
   */
 private[orca] final case class SurfacedFlowFailure(cause: Throwable)
     extends RuntimeException(cause)
@@ -48,22 +46,18 @@ private[orca] final case class SurfacedFlowFailure(cause: Throwable)
   */
 object FlowLifecycle:
 
-  /** The context-bound phases of one run, in mandated order: session
-    * rehydration → body → disjoint success/failure teardown (ADR 0018
-    * §2.4/§2.5). [[setup]] (branch + log binding) is not a phase here —
-    * `runFlow` runs it before constructing the context, so `flowSetup`'s
-    * resolved stack settings arrive as a constructor input.
+  /** One run's phases, in mandated order: session rehydration → body → disjoint
+    * success/failure teardown (ADR 0018 §2.4/§2.5). [[setup]] (branch + log
+    * binding) already ran in `runFlow` before the context was built, so its
+    * resolved settings arrive here as a constructor input, not a phase.
     *
-    * Rehydration and the body run inside the `surfaced` bracket, which reports
-    * the error, logs, and rethrows a [[SurfacedFlowFailure]] so `flow()` never
-    * exits without an explanation; the body phase additionally runs
+    * Rehydration and the body run inside `surfaced`, which reports, logs, and
+    * rethrows [[SurfacedFlowFailure]]; the body phase also runs
     * `teardownFailure` on the way out. `teardownSuccess` runs OUTSIDE
-    * `surfaced` deliberately: it is already internally best-effort, and a
-    * bracket meant for reporting failures would convert a cosmetic teardown
-    * failure into a reported, failed successful run.
-    *
-    * The failure and success teardowns are structurally disjoint — the body
-    * catch rethrows, so success teardown is unreachable on a body failure.
+    * `surfaced` — it's already best-effort, and wrapping it would turn a
+    * cosmetic teardown failure into a reported failure on a successful run.
+    * Since the body's catch rethrows, success teardown is unreachable after a
+    * body failure — the two teardowns are structurally disjoint.
     */
   private[orca] def run(
       ctx: DefaultFlowContext[?, ?, ?],
@@ -72,11 +66,9 @@ object FlowLifecycle:
       debug: Boolean
   )(body: FlowControl ?=> Unit): Unit =
     val log = LoggerFactory.getLogger("orca.flow")
-    // Report/log/wrap bracket for every phase that can fail. Reports once
-    // (reusing the context's reported-set so it never double-prints a failure
-    // a nested stage already surfaced), logs, prints the stack under
-    // `--verbose`/debug, then throws `SurfacedFlowFailure`. Carries no teardown
-    // side effect — `teardownFailure` is the body phase's job alone (below).
+    // `ctx.reportOnce` dedups against a nested stage that already surfaced this
+    // failure. `teardownFailure` is NOT called here — it's the body phase's job
+    // alone (below).
     def surfaced[T](op: => T): T =
       try op
       catch
@@ -95,17 +87,12 @@ object FlowLifecycle:
     try surfaced(body(using ctx))
     catch
       case f @ SurfacedFlowFailure(e) =>
-        // `e` was already reported by `surfaced`. Discard the failed stage's
-        // partial edits; if the reset itself fails, attach it as suppressed so
-        // it travels with `e` rather than masking the original failure. Since
-        // `e` was already reported before this reset ran, log and print the
-        // suppressed failure here too, and emit a user-visible `Step` so the
-        // user knows the tree may still hold the failed run's partial edits.
+        // `e` was already reported by `surfaced`. If the reset itself fails, attach
+        // it as suppressed (rather than replacing `e`), and log/print it too.
         //
-        // The reset itself (`teardownFailure` -> `git.resetHard()`) also emits
-        // its own "Discarded uncommitted changes" Step — on its own that reads
-        // as unexplained data loss, so this one names WHY it's about to
-        // happen, right before it does.
+        // This Step names WHY the reset is about to discard changes — `resetHard`
+        // itself also emits its own "Discarded uncommitted changes" Step, which
+        // alone would read as unexplained data loss.
         ctx.emit(
           OrcaEvent.Step(
             "recovering from the failure — discarding uncommitted changes " +
@@ -210,14 +197,11 @@ object FlowLifecycle:
         )
       )
 
-  /** Outcome of [[setup]]: the resolved progress store, the feature branch the
-    * run is bound to, the starting branch to restore on success, the resolved
-    * stack settings (ADR 0019), and whether orca created `featureBranch`
-    * itself.
+  /** Outcome of [[setup]] (ADR 0019 stack settings included).
     *
     * `featureBranch` is a [[FeatureBranch]], not a bare `String`: both arms of
-    * `setup` construct one via [[FeatureBranch.resolve]], so a protected name
-    * can never reach this field — "delete/checkout an unvalidated name" is
+    * `setup` construct it via [[FeatureBranch.resolve]], so a protected name
+    * can never reach this field — an unvalidated delete/checkout target is
     * unrepresentable here.
     *
     * `branchMode` (mirrors [[ProgressHeader.branchMode]]) gates
@@ -309,16 +293,6 @@ object FlowLifecycle:
     val snapshot = snapshotLog(store.path)
     val session =
       SetupSession(args, agent, git, workDir, branchNaming, store, emit)
-    // Skip-branch mode's amended policy (ADR 0018 amendment) needs the
-    // fresh-vs-resume distinction to decide whether to stash at all, so ONLY
-    // in that mode does `applyCleanlinessPolicy` peek the store before the
-    // stash — a throwaway read, used solely to pick a branch there; the
-    // AUTHORITATIVE read (used for the actual routing decision) is
-    // `bindBranch`'s `store.loadDetailed()` below, which in EVERY case runs
-    // after the cleanliness decision. That ordering matters: a
-    // tracked-but-dirty log must be classified from its committed content, not
-    // a possibly broken in-progress edit, so normal mode never peeks pre-stash
-    // at all — this preserves normal mode's behaviour byte-for-byte.
     session.applyCleanlinessPolicy()
     restoreLogIfMissing(store.path, snapshot)
     // Discovery (ADR 0019) is sequenced after the cleanliness decision (whose
@@ -361,15 +335,12 @@ object FlowLifecycle:
       emit: OrcaEvent => Unit
   ):
 
-    /** Cleanliness policy (ADR 0018 amendment): stash the tree before the run,
-      * unless skip-branch mode is FRESH (no progress log to resume yet), which
-      * tolerates a dirty tree outright — no stash, no refusal, one
-      * informational `Step` naming the file count — since the leftover files
-      * are likely the very hand-off context the flow is meant to act on. A
-      * RESUME under skip-branch mode still auto-stashes, same as normal mode:
-      * an interrupted stage's uncommitted partial work must not leak into the
-      * stage that re-runs. Normal mode always stashes, never peeking the store
-      * first — see [[setup]]'s call site for why only this mode's peek is safe.
+    /** Cleanliness policy (ADR 0018 amendment) — see [[setup]]'s doc for why
+      * only this mode peeks the store pre-stash. Skip-branch + fresh: tolerate
+      * a dirty tree (no stash, one informational `Step` naming the file count)
+      * — the leftover files are likely the flow's own hand-off context. Every
+      * other case (resume, or normal mode either way) auto-stashes, since an
+      * interrupted stage's uncommitted work must not leak into the re-run.
       */
     def applyCleanlinessPolicy()(using WorkspaceWrite): Unit =
       if args.skipBranch.value then
@@ -388,12 +359,11 @@ object FlowLifecycle:
       else
         val _ = git.ensureClean("orca: starting flow")
 
-    /** Bind the run to a branch + progress log: resume onto the header's branch
-      * when a valid log is found, warn and start fresh from a corrupt one, or
+    /** Bind the run to a branch + progress log — resume onto the header's
+      * branch for a valid log, warn and start fresh from a corrupt one, or
       * start fresh when none exists. This is the AUTHORITATIVE
-      * `store.loadDetailed()` read — always after the cleanliness decision, in
-      * every mode — so the log is classified from its last COMMITTED content,
-      * never a possibly-broken in-progress edit.
+      * `store.loadDetailed()` read; see [[setup]]'s doc for why it always runs
+      * after the cleanliness decision.
       */
     def bindBranch(
         startBranch: String,
@@ -457,19 +427,15 @@ object FlowLifecycle:
         else BranchMode.Created
       )
 
-    /** Resume onto the header's already-existing branch. The untrusted header
-      * is validated against the protected set before any destructive action — a
-      * parseable-but-invalid header is a hard abort, not a silent fresh start —
-      * and R30 cross-checks that the current branch is the one the header
-      * names: a log that surfaced on a branch it does not name (e.g. carried
-      * along by a merge) aborts rather than resuming against the wrong branch.
-      * The returned binding's start branch is the header's recorded
-      * `startingBranch` (the ORIGINAL branch at first run), not this run's
-      * pre-cleanliness `startBranch` — so a return-to-start goes to that
-      * original branch, not the re-run's current feature branch. A
-      * just-discovered settings file gets its dedicated commit right here (ADR
-      * 0019): the branch already exists, so this arm has no header commit that
-      * would otherwise sweep it in.
+    /** Resume onto the header's existing branch. Validates the untrusted header
+      * against the protected set before any destructive action — invalid is a
+      * hard abort, not a silent fresh start — and checks the current branch
+      * matches the one the header names (R30): a log surfaced on the wrong
+      * branch (e.g. carried by a merge) aborts rather than resuming there.
+      * Returns the header's recorded `startingBranch` (the ORIGINAL branch),
+      * not this run's pre-cleanliness `startBranch`, so return-to-start lands
+      * correctly. A just-discovered settings file gets its own commit here (ADR
+      * 0019): this arm creates no branch, so nothing else would commit it.
       */
     private def resumeBinding(
         header: ProgressHeader,
@@ -487,8 +453,6 @@ object FlowLifecycle:
               s"refusing to resume: progress log header failed validation ($reason)"
             )
           case Right(featureBranch) => featureBranch
-      // Only resume in place. If the log surfaced on a branch it does not
-      // name, it was likely carried here by a merge — abort, don't replay.
       val current = git.currentBranch()
       if current != header.branch then
         throw new OrcaFlowException(
@@ -660,31 +624,24 @@ object FlowLifecycle:
           s"invalid settings at $path: ${err.message}"
         )
 
-  /** Fresh run: resolve + create the branch (returned to the caller), then
-    * commit the header so it is the branch's first commit. The header commit is
-    * pathspec-scoped to just the progress-log file (`commitStaged`, after a
-    * `forceAdd` to punch through a gitignored `.orca/`) — never `add -A` — so a
-    * dirty tree left in place by skip-branch mode reaches the branch only via
-    * the first stage's own commit, not this one. Shared by the absent-log case
-    * and the corrupt-log case (which warns, then falls through to the same
-    * fresh start). Needs both tokens: `InStage` because branch-name resolution
-    * may call the cheap model, `WorkspaceWrite` for the git checkout/commit and
-    * header write.
+  /** Fresh run: resolve + create the branch, then commit the header as the
+    * branch's first commit. The commit is pathspec-scoped to just the
+    * progress-log file (`forceAdd` + `commitStaged`, never `add -A`), so a
+    * dirty tree left by skip-branch mode reaches the branch only via the first
+    * stage's own commit. Shared by the absent-log and corrupt-log arms of
+    * [[bindBranch]]. Needs `InStage` (branch-name resolution may call the cheap
+    * model) and `WorkspaceWrite` (the git writes).
     *
-    * The resolved name is minted into a [[FeatureBranch]] before it reaches
-    * git: a name colliding with a protected branch is refused and falls back to
-    * a deterministic `flowFallbackName` (same prompt → same fallback, so a
-    * resumed run still finds the branch), loudly, rather than aborting —
-    * unattended runs must not flip between success and failure because the
-    * cheap model's summary phrased itself as "main" this time.
+    * The resolved name is minted into a [[FeatureBranch]] before reaching git:
+    * a protected-name collision falls back to a deterministic
+    * `flowFallbackName` (same prompt → same fallback, so a resumed run still
+    * finds the branch) rather than aborting — an unattended run must not flip
+    * between success and failure because the cheap model phrased its summary as
+    * "main" this time. [[createFreshBranch]] applies the same policy to a
+    * git-level collision.
     *
-    * [[createFreshBranch]] then applies the same "never silently adopt" policy
-    * to a git-level `BranchAlreadyExists` collision: an unrelated pre-existing
-    * branch must never be silently checked out and carried into this run.
-    *
-    * `args.skipBranch` (ADR 0018 amendment) skips all of the above: the run
-    * binds to `startBranch` verbatim instead, via [[reuseCurrentBranch]] — no
-    * branch is created, so no fallback/collision handling applies either.
+    * `args.skipBranch` skips all of this: the run binds to `startBranch`
+    * verbatim via [[reuseCurrentBranch]] instead.
     */
   private def freshRun(
       args: OrcaArgs,
@@ -742,10 +699,6 @@ object FlowLifecycle:
           else BranchMode.Created
       )
     )
-    // `commitStaged` (not `commit`, which would `add -A`): the header commit
-    // must carry ONLY the progress log. Any leftover files in the tree
-    // (skip-branch mode's tolerated dirty tree) stay uncommitted here and
-    // reach the branch only via the first stage's own `add -A` commit.
     git.forceAdd(store.path)
     git.commitStaged(store.path, "orca: progress log")
     branch
