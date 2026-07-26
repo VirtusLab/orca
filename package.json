@@ -1,8 +1,0 @@
-{
-  "name": "orca-skills",
-  "version": "0.1.0",
-  "keywords": ["pi-package"],
-  "pi": {
-    "skills": ["./skills"]
-  }
-}

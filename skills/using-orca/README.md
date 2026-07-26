@@ -8,8 +8,8 @@ implementation tasks to Orca. Install it into your harness:
   `.claude-plugin/marketplace.json`, `skills/using-orca/.claude-plugin/plugin.json`).
   Or copy/symlink this directory to `~/.claude/skills/using-orca` (personal)
   or `<project>/.claude/skills/using-orca` (project) — no manifest needed.
-- **Pi**: `pi install git:github.com/VirtusLab/orca` (package metadata in the
-  repo-root `package.json`). Or copy/symlink to
+- **Pi**: `pi install git:github.com/VirtusLab/orca` (pi auto-discovers the
+  `skills/` directory; no manifest needed). Or copy/symlink to
   `~/.pi/agent/skills/using-orca` (personal) or `<project>/.agents/skills/using-orca`
   (project).
 - **OpenCode**: copy/symlink to `~/.config/opencode/skills/using-orca`

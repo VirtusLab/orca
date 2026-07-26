@@ -22,15 +22,16 @@ You can use Orca to orchestrate development in any language and ecosystem.
 Orca assumes that it has configured, logged-in access to Claude, Codex,
 OpenCode, or Pi (depending which backend you use), as well as `gh` and `git`.
 
-Install with one command — it also bootstraps `scala-cli` if you don't have
-it already:
+Install with one command — it installs `scala-cli` (via its official
+installer) if you don't have it already, and writes the `orca` executable to
+`~/.local/bin/orca`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/VirtusLab/orca/master/install.sh | bash
 ```
 
-See [Orca Shell](#orca-shell) for what this installs and the full
-command-line reference.
+See [Orca Shell](#orca-shell) for the details and the full command-line
+reference.
 
 ## Three ways to work with Orca
 
@@ -924,12 +925,19 @@ Install it with:
 curl -fsSL https://raw.githubusercontent.com/VirtusLab/orca/master/install.sh | bash
 ```
 
-This writes a small shim to `~/.local/bin/orca` that always resolves to the
-latest release, so it never needs a version bump; add `~/.local/bin` to your
-`PATH` if the installer says it isn't there yet, then run `orca`. If
-`scala-cli` isn't already installed, the script bootstraps it via its
-official installer, so this is the only command you need to run — scala-cli
-then manages its own JVM.
+The script does exactly two things:
+
+1. If `scala-cli` isn't on your `PATH`, it downloads and runs scala-cli's
+   official installer (which places scala-cli in its own versioned location
+   and updates your shell profile; scala-cli then manages its own JVM).
+2. It writes the `orca` executable to `~/.local/bin/orca` — a ~5-line
+   launcher script that runs the latest released `orca-shell` via
+   `scala-cli`. Nothing else is downloaded at install time; the artifacts
+   are fetched on the first `orca` run, and the launcher never needs a
+   version bump.
+
+Add `~/.local/bin` to your `PATH` if the installer says it isn't there yet,
+then run `orca`.
 
 To avoid installing anything, or to pin a version (e.g. in CI), run the shell
 directly instead. The pinned form works from the first release that includes
