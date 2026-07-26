@@ -1,15 +1,17 @@
 package orca.shell.actions
 
+import orca.runner.RoleAgents
 import orca.settings.AgentSpec
 
 /** The startup configuration summary (ADR 0021 §4/§8): two lines printed right
   * after the banner, and again after Re-configure, so the user sees what they'd
-  * be reconfiguring without running a flow. [[agentsLine]] mirrors the
-  * project-over-global role precedence a flow run applies
-  * (`orca.runner.RoleAgents.resolveAll`), minus its live-agent default-model
-  * fallback — no agent is built just to print this line, so an unset role
-  * always shows bare `claude` here, even though a real run might additionally
-  * show that backend's own configured default model.
+  * be reconfiguring without running a flow. [[agentsLine]] resolves each role
+  * via the SAME precedence a flow run applies
+  * ([[RoleAgents.projectOverGlobal]], also used by `RoleAgents.resolveOne`),
+  * minus its live-agent default-model fallback — no agent is built just to
+  * print this line, so an unset role always shows bare `claude` here, even
+  * though a real run might additionally show that backend's own configured
+  * default model.
   */
 private[shell] object ConfigSummary:
 
@@ -26,11 +28,19 @@ private[shell] object ConfigSummary:
       case (Left(error), _) => s"agents: $error"
       case (_, Left(error)) => s"agents: $error"
       case (Right(global), Right(project)) =>
-        val effective = project.orElse(global)
         val roles = List(
-          "planning" -> effective.planning,
-          "coding" -> effective.coding,
-          "review" -> effective.review
+          "planning" -> RoleAgents.projectOverGlobal(
+            project.planning,
+            global.planning
+          ),
+          "coding" -> RoleAgents.projectOverGlobal(
+            project.coding,
+            global.coding
+          ),
+          "review" -> RoleAgents.projectOverGlobal(
+            project.review,
+            global.review
+          )
         )
         "agents: " +
           roles.map((role, spec) => s"$role=${renderSpec(spec)}").mkString(", ")

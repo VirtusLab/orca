@@ -1,7 +1,16 @@
 package orca.runner
 
 import orca.AgentSet
-import orca.agents.{Agent, BackendTag, Model}
+import orca.agents.{
+  Agent,
+  BackendTag,
+  ClaudeAgent,
+  CodexAgent,
+  GeminiAgent,
+  Model,
+  OpencodeAgent,
+  PiAgent
+}
 import orca.settings.{AgentSettings, AgentSpec}
 
 /** The three role agents resolved for one run — every field an existentially
@@ -42,6 +51,19 @@ private[orca] case class RoleResolution(
 )
 
 private[orca] object RoleAgents:
+  /** Project-over-global precedence (ADR 0020 §10) for one role's
+    * [[AgentSpec]]: the project file's entry wins outright when present, else
+    * the global file's, else unset. The ONE place this decision is made —
+    * shared by [[resolveOne]] (a full run, which folds a programmatic override
+    * in ahead of this) and [[orca.shell.actions.ConfigSummary.agentsLine]] (a
+    * static display with no override to apply) — so the summary can never show
+    * a different winner than a real run would resolve.
+    */
+  private[orca] def projectOverGlobal(
+      projectSpec: Option[AgentSpec],
+      globalSpec: Option[AgentSpec]
+  ): Option[AgentSpec] = projectSpec.orElse(globalSpec)
+
   /** Resolve the three role agents against the run's wired set — every role
     * shares a wired backend, so events and close() behave exactly as for the
     * wired five. An unset role defaults to claude with no model pin.
@@ -168,10 +190,11 @@ private[orca] object RoleAgents:
           foreign = !agents.isWiredBackend(agent)
         )
       case None =>
-        projectSpec
-          .map((RoleSource.Project, _))
-          .orElse(globalSpec.map((RoleSource.Global, _))) match
-          case Some((source, spec)) =>
+        projectOverGlobal(projectSpec, globalSpec) match
+          case Some(spec) =>
+            val source =
+              if projectSpec.isDefined then RoleSource.Project
+              else RoleSource.Global
             val agent = one(Some(spec), agents)
             val (harness, model) = harnessAndModel(agent, Some(spec))
             RoleChoice(label, agent, source, harness, model, foreign = false)
@@ -209,18 +232,34 @@ private[orca] object RoleAgents:
         "— events may not reach the terminal/cost tracker"
     )
 
+  /** Resolves `spec` against `agents`: no spec is bare claude, a spec with no
+    * model pin is that tag's wired agent as-is (via [[AgentSet.agentFor]] — the
+    * single place a [[BackendTag]] maps to one of the five wired agents), a
+    * spec with a model pin applies it via that agent's own `withModel`.
+    *
+    * The tag match below is NOT a second "which agent" decision — `agent` is
+    * already the one `agentFor` picked — it exists only because each concrete
+    * `*Agent` trait's `withModel` has a different signature (`OpencodeAgent`'s
+    * takes a raw `provider/model` string, the rest a [[Model]]), so the cast
+    * recovering that concrete type is unavoidable. The cast is safe by
+    * construction: `agent` came from `agentFor(tag)` for this SAME `tag`.
+    */
   private def one(spec: Option[AgentSpec], agents: WiredAgents): Agent[?] =
     spec match
       case None => agents.claude
       case Some(AgentSpec(tag, model)) =>
-        tag match
-          case BackendTag.ClaudeCode =>
-            model.fold(agents.claude)(m => agents.claude.withModel(Model(m)))
-          case BackendTag.Codex =>
-            model.fold(agents.codex)(m => agents.codex.withModel(Model(m)))
-          case BackendTag.Opencode =>
-            model.fold(agents.opencode)(m => agents.opencode.withModel(m))
-          case BackendTag.Pi =>
-            model.fold(agents.pi)(m => agents.pi.withModel(Model(m)))
-          case BackendTag.Gemini =>
-            model.fold(agents.gemini)(m => agents.gemini.withModel(Model(m)))
+        val agent = agents.agentFor(tag)
+        model match
+          case None => agent
+          case Some(m) =>
+            tag match
+              case BackendTag.ClaudeCode =>
+                agent.asInstanceOf[ClaudeAgent].withModel(Model(m))
+              case BackendTag.Codex =>
+                agent.asInstanceOf[CodexAgent].withModel(Model(m))
+              case BackendTag.Opencode =>
+                agent.asInstanceOf[OpencodeAgent].withModel(m)
+              case BackendTag.Pi =>
+                agent.asInstanceOf[PiAgent].withModel(Model(m))
+              case BackendTag.Gemini =>
+                agent.asInstanceOf[GeminiAgent].withModel(Model(m))

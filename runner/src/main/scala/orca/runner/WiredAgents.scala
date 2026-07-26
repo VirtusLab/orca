@@ -32,19 +32,12 @@ private[orca] final class WiredAgents(
     val gemini: GeminiAgent
 ) extends AgentSet:
 
-  /** The five wired agents keyed by backend tag, derived from the constructor
-    * vals. Written as a match over `BackendTag.values` (not a literal
-    * `Map(...)`) so the exhaustiveness checker flags a sixth `BackendTag` case
-    * this map hasn't been taught about.
+  /** The five wired agents keyed by backend tag, derived from
+    * [[AgentSet.agentFor]] — the single place the tag-to-agent mapping is
+    * written out — rather than restating it here.
     */
   private val byTag: Map[BackendTag, Agent[?]] =
-    BackendTag.values.map {
-      case BackendTag.ClaudeCode => BackendTag.ClaudeCode -> claude
-      case BackendTag.Codex      => BackendTag.Codex -> codex
-      case BackendTag.Opencode   => BackendTag.Opencode -> opencode
-      case BackendTag.Pi         => BackendTag.Pi -> pi
-      case BackendTag.Gemini     => BackendTag.Gemini -> gemini
-    }.toMap
+    BackendTag.values.map(t => t -> agentFor(t)).toMap
 
   /** Every wired agent (unordered — both close fan-outs are order-independent).
     */
