@@ -752,11 +752,13 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(
       os.read(OrcaDir.settingsPath(workDir)),
       """# orca settings — edit freely, commit with the project.
-        |# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.
+        |# format/lint/test: a value of `off` disables explicitly; comments are inert. Delete a live stack line (or the whole file) to re-run auto-discovery.
         |# seed.txt; seeded fixture
         |format = echo fmt
-        |# lint =   (no lint config found)
-        |# test =   (no evidence found)
+        |# no lint config found
+        |lint = off
+        |# no evidence found
+        |test = off
         |""".stripMargin
     )
     // The dedicated settings commit sits immediately before the header commit
@@ -808,10 +810,11 @@ class FlowLifecycleTest extends munit.FunSuite:
     val content = os.read(OrcaDir.settingsPath(workDir))
     assert(
       content.contains(
-        "# lint = definitely-not-a-cmd-xyz check   " +
-          "(definitely-not-a-cmd-xyz: not found on PATH)"
+        "# definitely-not-a-cmd-xyz check: " +
+          "definitely-not-a-cmd-xyz: not found on PATH\nlint = off"
       ),
-      s"the demoted command must be a commented-out line with its reason: $content"
+      s"the demoted command must be a live `off` line with its reason " +
+        s"as the comment above: $content"
     )
     // The written file parses to only the surviving commands, matching the run's.
     assertEquals(
@@ -968,7 +971,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     assert(!stageRan, "setup aborts before any stage can run")
 
   test(
-    "discovery: an all-unset result writes an all-commented file, warns per gate, and yields empty settings"
+    "discovery: an all-unset result writes an all-`off` file, warns per gate, and yields empty settings"
   ):
     val workDir = GitRepo.seeded()
     val canned = StackDiscoveryResult(
@@ -982,15 +985,22 @@ class FlowLifecycleTest extends munit.FunSuite:
       "discover-all-unset"
     )
     assertEquals(setup.stackSettings, StackSettings.empty)
+    val content = os.read(OrcaDir.settingsPath(workDir))
     assertEquals(
-      os.read(OrcaDir.settingsPath(workDir)),
+      content,
       """# orca settings — edit freely, commit with the project.
-        |# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.
-        |# format =   (no formatter config found)
-        |# lint =   (no evidence found)
-        |# test =   (no test directory found)
+        |# format/lint/test: a value of `off` disables explicitly; comments are inert. Delete a live stack line (or the whole file) to re-run auto-discovery.
+        |# no formatter config found
+        |format = off
+        |# no evidence found
+        |lint = off
+        |# no test directory found
+        |test = off
         |""".stripMargin
     )
+    // Discovery's own written output must not re-trigger discovery: every
+    // gate is a live `off` line, not an inert comment.
+    assert(orca.settings.SettingsFile.hasStackLines(content))
     val warnings = steps.filter(_.contains("gate disabled"))
     assertEquals(
       warnings,

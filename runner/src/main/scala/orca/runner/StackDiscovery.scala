@@ -137,13 +137,14 @@ private[runner] object StackDiscovery:
       case SettingsEntry.Demoted(key, command, reason) =>
         emit(
           OrcaEvent.Step(
-            s"  # $key = ${collapse(command)}   (${collapse(reason)})"
+            s"  $key = off   # ${collapse(command)}: ${collapse(reason)}"
           )
         )
       case SettingsEntry.Unset(_, _) => ()
 
   /** Emit a warning `Step` for each task that ended up with no commands — its
-    * gate is disabled until the settings file gains a live line.
+    * gate stays disabled (the file now carries a live `key = off` line for it)
+    * until the user hand-edits in a real command.
     */
   private def warnDisabledGates(
       settings: StackSettings,
@@ -206,9 +207,10 @@ private[runner] object StackDiscovery:
     *
     * Per command: passing both checks → a [[SettingsEntry.Command]] carrying
     * its evidence as the comment, and the command joins the returned settings;
-    * failing one → a [[SettingsEntry.Demoted]] with the reason. A task that
-    * proposed no commands becomes [[SettingsEntry.Unset]]; a task whose every
-    * command was demoted is documented by the demoted lines themselves.
+    * failing one → a [[SettingsEntry.Demoted]] with the reason (rendered as a
+    * live `key = off` line — see [[SettingsEntry]]). A task that proposed no
+    * commands becomes [[SettingsEntry.Unset]]; a task whose every command was
+    * demoted is documented by the demoted lines themselves.
     */
   def toEntries(
       result: StackDiscoveryResult,

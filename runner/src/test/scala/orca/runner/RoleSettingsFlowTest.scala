@@ -223,15 +223,16 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     )
 
   test(
-    "a discovery-written file with only commented stack lines does not re-trigger discovery"
+    "a discovery-written file with a live `off` line does not re-trigger discovery"
   ):
     val workDir = GitRepo.seeded()
-    // All stack lines commented (as a discovery-written file leaves them) makes
+    // A live `format = off` (discovery's own shape for an unset task) makes
     // `hasStackLines` true, so discovery must not run again — the plain codex
-    // stub would throw if it did.
+    // stub would throw if it did. A merely-commented example would NOT count
+    // (comments are inert) — this pins the live-line case specifically.
     writeProject(
       workDir,
-      "codingAgent = codex\n# format =   (no formatter found)\n"
+      "codingAgent = codex\nformat = off\n"
     )
     val codex = new StubCodex
     var coding: Option[Agent[?]] = None
