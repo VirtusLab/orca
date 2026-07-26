@@ -26,12 +26,11 @@ enum UiOutcome[+A]:
   */
 trait ShellUi:
   /** Presents `choices` and returns the picked value, or
-    * [[UiOutcome.Cancelled]] on ESC/Ctrl-C/EOF. Invariant both backends
-    * uphold for a disabled choice (`disabledReason` set,
-    * [[Choice.isEnabled]] false): it is never returned from `select` even if
-    * picked — the backend prints [[Choice.disabledSelectionMessage]] and
-    * re-prompts instead, so a disabled row can be looked at and read, never
-    * acted on silently.
+    * [[UiOutcome.Cancelled]] on ESC/Ctrl-C/EOF. Invariant both backends uphold
+    * for a disabled choice (`disabledReason` set, [[Choice.isEnabled]] false):
+    * it is never returned from `select` even if picked — the backend prints
+    * [[Choice.disabledSelectionMessage]] and re-prompts instead, so a disabled
+    * row can be looked at and read, never acted on silently.
     */
   def select[A](
       title: String,

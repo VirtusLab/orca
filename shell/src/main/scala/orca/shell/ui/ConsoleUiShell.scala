@@ -44,9 +44,9 @@ import scala.annotation.tailrec
   * Disabled choices are therefore rendered with their reason folded into the
   * label (same text both backends use), and picking one anyway prints
   * [[Choice.disabledSelectionMessage]] via [[ShellOutput.error]] before the
-  * prompt re-runs — an explained refusal, not a silent one. The same
-  * list-item absence rules out honoring `preselect`'s starting cursor
-  * position; it is a no-op here.
+  * prompt re-runs — an explained refusal, not a silent one. The same list-item
+  * absence rules out honoring `preselect`'s starting cursor position; it is a
+  * no-op here.
   *
   * A fresh `ConsolePrompt` is built for every top-level `select`/`confirm`/
   * `input` call rather than reused across the shell's lifetime: `ConsolePrompt`
