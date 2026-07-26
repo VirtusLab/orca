@@ -105,13 +105,24 @@ class ConfigSummaryTest extends munit.FunSuite:
         "stack: format=cargo fmt, lint=cargo check --tests, test=cargo test"
       )
 
-  test("stackLine: a disabled/missing key renders off"):
+  test("stackLine: a key absent from an otherwise-live file renders off"):
     withDirs: (_, workDir) =>
       os.makeDir.all(workDir / ".orca")
       os.write(
         workDir / ".orca" / "settings.properties",
-        "format = cargo fmt\nlint = cargo check --tests\n" +
-          "# test =   (disabled by the user)\n"
+        "format = cargo fmt\nlint = cargo check --tests\n"
+      )
+      assertEquals(
+        ConfigSummary.stackLine(workDir),
+        "stack: format=cargo fmt, lint=cargo check --tests, test=off"
+      )
+
+  test("stackLine: a key explicitly disabled with `off` also renders off"):
+    withDirs: (_, workDir) =>
+      os.makeDir.all(workDir / ".orca")
+      os.write(
+        workDir / ".orca" / "settings.properties",
+        "format = cargo fmt\nlint = cargo check --tests\ntest = off\n"
       )
       assertEquals(
         ConfigSummary.stackLine(workDir),

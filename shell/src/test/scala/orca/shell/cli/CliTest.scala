@@ -3,7 +3,7 @@ package orca.shell.cli
 import mainargs.ParserForMethods
 import orca.agents.BackendTag
 import orca.runner.manifest.{ManifestSession, RunManifest}
-import orca.settings.{AgentSettings, AgentSpec}
+import orca.settings.{AgentSettings, AgentSpec, SettingsFile}
 import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
 import orca.shell.run.LaunchResult
@@ -395,6 +395,39 @@ class CliTest extends munit.FunSuite:
       Right(dir / ".orca" / "flows" / "x.sc")
     )
 
+  // --- resolveTarget: an explicit --name never forces the (possibly
+  // agent-backed) auto-name suggestion, since it's by-name and only the
+  // `None` branch ever touches it ---
+
+  test("resolveTarget: an explicit name never evaluates autoName"):
+    val dir = TempDirs.dir()
+    val result = AuthorCli.resolveTarget(
+      CreateTier.Project,
+      Some("explicit.sc"),
+      throw new RuntimeException("autoName must not be evaluated"),
+      dir,
+      dir / "global"
+    )
+    assertEquals(
+      result.map(_.flowPath),
+      Right(dir / ".orca" / "flows" / "explicit.sc")
+    )
+
+  test("resolveTarget: no name falls through to autoName"):
+    val dir = TempDirs.dir()
+    val result =
+      AuthorCli.resolveTarget(
+        CreateTier.Project,
+        None,
+        "suggested.sc",
+        dir,
+        dir / "global"
+      )
+    assertEquals(
+      result.map(_.flowPath),
+      Right(dir / ".orca" / "flows" / "suggested.sc")
+    )
+
   // --- config: partial merge over an explicit settings path ---
 
   private def withTempPath(body: os.Path => Unit): Unit =
@@ -610,10 +643,7 @@ class CliTest extends munit.FunSuite:
     val dir = TempDirs.dir()
     os.makeDir.all(dir / ".orca")
     val path = dir / ".orca" / "settings.properties"
-    val content =
-      "# orca settings — edit freely, commit with the project.\n" +
-        "# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.\n" +
-        "format = cargo fmt\n"
+    val content = SettingsFile.Header + "\nformat = cargo fmt\n"
     os.write.over(path, content)
     assertEquals(
       StackCli.runRediscoverStack(dir, yes = false, tty = false),
@@ -627,16 +657,13 @@ class CliTest extends munit.FunSuite:
     val dir = TempDirs.dir()
     os.makeDir.all(dir / ".orca")
     val path = dir / ".orca" / "settings.properties"
-    val content =
-      "# orca settings — edit freely, commit with the project.\n" +
-        "# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.\n" +
-        "format = cargo fmt\n"
+    val content = SettingsFile.Header + "\nformat = cargo fmt\n"
     os.write.over(path, content)
     assertEquals(
       StackCli.runRediscoverStack(dir, yes = true, tty = false),
       ExitCodes.Ok
     )
-    assert(!orca.settings.SettingsFile.hasStackLines(os.read(path)))
+    assert(!SettingsFile.hasStackLines(os.read(path)))
 
   // --- list --json shape ---
 

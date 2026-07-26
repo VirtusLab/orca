@@ -44,16 +44,17 @@ class SettingsEditActionTest extends munit.FunSuite:
       )
 
   test(
-    "ensureExists: Project template's commented stack lines still count as configured"
+    "ensureExists: an untouched Project template leaves discovery armed " +
+      "(its stack examples are commented, not live)"
   ):
     withDirs: (workDir, _) =>
       val path =
         SettingsEditAction.pathFor(CreateTier.Project, workDir, os.root)
       SettingsEditAction.ensureExists(CreateTier.Project, path, workDir)
-      // Commented stack lines disarm auto-discovery (same convention
-      // discovery's own written output uses) — the template must self-arm
-      // the same way, not leave discovery running on every flow launch.
-      assert(SettingsFile.hasStackLines(os.read(path)))
+      // Comments are inert (ADR 0019 amendment): a commented example does
+      // NOT count as "configured", so exiting the editor without touching the
+      // template still lets the first flow run auto-discover the stack.
+      assert(!SettingsFile.hasStackLines(os.read(path)))
 
   test(
     "ensureExists: Project template guides both stack commands and role agents"
@@ -67,8 +68,7 @@ class SettingsEditActionTest extends munit.FunSuite:
       assert(content.contains("Role agents"), content)
       assert(
         content.contains(
-          "Delete the stack lines (format/lint/test, commented ones too) to " +
-            "re-run auto-discovery"
+          "a value of `off` disables explicitly; comments are inert"
         ),
         content
       )

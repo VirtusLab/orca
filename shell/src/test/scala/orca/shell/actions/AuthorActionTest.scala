@@ -122,9 +122,9 @@ class AuthorActionTest extends munit.FunSuite:
       val (isGitRepo, hasApiMaterial, settings) = sandboxState.get
       assert(isGitRepo, "sandbox must be an initialized git repo")
       assert(hasApiMaterial, "API material must be extracted in the sandbox")
-      assert(settings.contains("# format ="), settings)
-      assert(settings.contains("# lint ="), settings)
-      assert(settings.contains("# test ="), settings)
+      assert(settings.contains("format = off"), settings)
+      assert(settings.contains("lint = off"), settings)
+      assert(settings.contains("test = off"), settings)
 
   test(
     "fork: copies the source beside the API material and targets the sandbox-local fork file"

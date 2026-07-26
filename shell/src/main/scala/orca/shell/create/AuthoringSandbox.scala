@@ -3,20 +3,21 @@ package orca.shell.create
 /** A throwaway git workspace for one authoring run (ADR 0021 §9): the authoring
   * flow runs here instead of in the user's repository, so authoring works from
   * any directory, never stashes or commits the user's tree, and leaves no
-  * branches behind. A pre-committed settings file whose commented stack lines
-  * count as "stack configured" (`SettingsFile.hasStackLines`) keeps stack
-  * discovery from ever running — a flow script has no project stack to
-  * discover. On success the authored file is copied out to the real tier and
-  * the sandbox deleted; after a failure it is kept for inspection.
+  * branches behind. A pre-committed settings file with every stack key
+  * explicitly `off` counts as "stack configured" (`SettingsFile.hasStackLines`
+  * only sees LIVE lines — a comment would not do) and keeps stack discovery
+  * from ever running — a flow script has no project stack to discover. On
+  * success the authored file is copied out to the real tier and the sandbox
+  * deleted; after a failure it is kept for inspection.
   */
 private[shell] object AuthoringSandbox:
 
   private[create] val SettingsContents: String =
-    """# orca authoring sandbox — a flow script has no project stack; every gate
-      |# is disabled, and these commented lines keep stack discovery off.
-      |# format =   (authoring sandbox)
-      |# lint =   (authoring sandbox)
-      |# test =   (authoring sandbox)
+    """# orca authoring sandbox — a flow script has no project stack; every
+      |# gate is explicitly disabled.
+      |format = off
+      |lint = off
+      |test = off
       |""".stripMargin
 
   /** Creates the sandbox: a fresh temp dir, `git init` with a local identity

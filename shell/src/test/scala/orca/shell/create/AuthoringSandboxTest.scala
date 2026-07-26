@@ -1,6 +1,7 @@
 package orca.shell.create
 
-import orca.settings.SettingsFile
+import orca.StackSettings
+import orca.settings.{SettingsFile, SettingsScope}
 
 class AuthoringSandboxTest extends munit.FunSuite:
 
@@ -30,7 +31,12 @@ class AuthoringSandboxTest extends munit.FunSuite:
       val settings = os.read(sandbox / ".orca" / "settings.properties")
       assert(
         SettingsFile.hasStackLines(settings),
-        s"commented stack lines must satisfy the discovery trigger:\n$settings"
+        s"live `off` lines must satisfy the discovery trigger:\n$settings"
+      )
+      assertEquals(
+        SettingsFile.parse(settings, SettingsScope.Project).map(_.stack),
+        Right(StackSettings.empty),
+        "off must not parse as a literal command for any gate"
       )
     finally AuthoringSandbox.delete(sandbox)
 

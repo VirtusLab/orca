@@ -1042,11 +1042,9 @@ class MainTest extends munit.FunSuite:
     val dir = TempDirs.dir()
     os.makeDir.all(dir / ".orca")
     val path = dir / ".orca" / "settings.properties"
-    val content =
-      "# orca settings — edit freely, commit with the project.\n" +
-        "# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.\n" +
-        "format = cargo fmt\n" +
-        "codingAgent = codex\n"
+    val content = SettingsFile.Header + "\n" +
+      "format = cargo fmt\n" +
+      "codingAgent = codex\n"
     os.write.over(path, content)
     Main.rediscoverStack(ConfirmOnlyUi(UiOutcome.Selected(true)), dir)
     val rewritten = os.read(path)

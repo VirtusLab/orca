@@ -93,14 +93,13 @@ private[shell] object StackAction:
 
   /** ` format: <cmd>` per line for each non-empty [[StackSettings]] key, in
     * format/lint/test order — display only for [[clearIfConfirmed]]'s confirm
-    * prompt; a key with only demoted/unset (commented) lines and no live
-    * command shows nothing here even though it still counts for
+    * prompt; a key left explicitly `off` (or never discovered) shows nothing
+    * here even though `off` still counts as a live line for
     * [[SettingsFile.hasStackLines]].
     */
   def renderStackSettings(stack: StackSettings): String =
     val rows =
       List("format" -> stack.format, "lint" -> stack.lint, "test" -> stack.test)
         .flatMap((key, commands) => commands.map(cmd => s"  $key: $cmd"))
-    if rows.isEmpty then
-      "  (no live commands — only commented-out/unset stack lines on file)"
+    if rows.isEmpty then "  (no live commands — every stack key is off)"
     else rows.mkString("\n")
