@@ -30,8 +30,7 @@ class ReviewFixFlowTest extends munit.FunSuite:
       confidence = confidence,
       title = Title(desc),
       description = desc,
-      file = None,
-      line = None,
+      location = None,
       suggestion = None
     )
 

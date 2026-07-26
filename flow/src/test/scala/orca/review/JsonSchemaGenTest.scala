@@ -20,8 +20,7 @@ class JsonSchemaGenTest extends munit.FunSuite:
         |  "confidence":0.8,
         |  "title":"Hello",
         |  "description":"hello",
-        |  "file":null,
-        |  "line":null,
+        |  "location":null,
         |  "suggestion":null
         |}]}""".stripMargin
     val errors = compiledSchema.validate(sample, InputFormat.JSON)
@@ -34,8 +33,7 @@ class JsonSchemaGenTest extends munit.FunSuite:
         |  "confidence":0.5,
         |  "title":"x",
         |  "description":"x",
-        |  "file":null,
-        |  "line":null,
+        |  "location":null,
         |  "suggestion":null
         |}]}""".stripMargin
     val errors = compiledSchema.validate(invalid, InputFormat.JSON)
@@ -50,8 +48,7 @@ class JsonSchemaGenTest extends munit.FunSuite:
         |  "confidence":0.5,
         |  "title":"x",
         |  "description":"x",
-        |  "file":null,
-        |  "line":null
+        |  "location":null
         |}]}""".stripMargin
     val errors = compiledSchema.validate(invalid, InputFormat.JSON)
     assert(

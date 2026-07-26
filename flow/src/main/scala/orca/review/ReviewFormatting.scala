@@ -20,10 +20,9 @@ private[review] def formatIssue(issue: ReviewIssue): String =
     maxWidth = 74,
     continuation = "  "
   )
-  val location = (issue.file, issue.line) match
-    case (Some(f), Some(l)) => Some(s"    at $f:$l")
-    case (Some(f), None)    => Some(s"    at $f")
-    case _                  => None
+  val location = issue.location.map:
+    case Location(f, Some(l)) => s"    at $f:$l"
+    case Location(f, None)    => s"    at $f"
   val suggestion = issue.suggestion.map: s =>
     TextWrap.wrap(s"    suggestion: $s", maxWidth = 74, continuation = "      ")
   List(Some(header), location, suggestion).flatten.mkString("\n")

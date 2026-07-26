@@ -18,8 +18,7 @@ class FixLoopTest extends munit.FunSuite:
       confidence = 1.0,
       title = Title(title),
       description = title,
-      file = None,
-      line = None,
+      location = None,
       suggestion = None
     )
 
@@ -124,8 +123,7 @@ class FixLoopTest extends munit.FunSuite:
       confidence = 0.9,
       title = Title("Unbounded growth in `processBatch`"),
       description = "Unbounded growth in `processBatch`",
-      file = Some("src/main/Foo.scala"),
-      line = Some(42),
+      location = Some(Location("src/main/Foo.scala", Some(42))),
       suggestion = Some("stream batches instead of buffering")
     )
     val rendered = formatIssue(real)
@@ -138,4 +136,23 @@ class FixLoopTest extends munit.FunSuite:
     assert(
       rendered.contains("suggestion: stream batches"),
       s"missing suggestion: $rendered"
+    )
+
+  test("formatIssue renders a file-only location with no trailing line"):
+    // BB8: file and line used to be independent Options, so (None, Some(l))
+    // silently dropped the line. Location makes that combination
+    // unrepresentable; this pins the still-valid file-without-line case.
+    val fileOnly = ReviewIssue(
+      severity = Severity.Info,
+      confidence = 0.5,
+      title = Title("Nit"),
+      description = "Nit",
+      location = Some(Location("src/main/Foo.scala", None)),
+      suggestion = None
+    )
+    val rendered = formatIssue(fileOnly)
+    assert(
+      rendered.contains("at src/main/Foo.scala") &&
+        !rendered.contains("src/main/Foo.scala:"),
+      s"expected a file-only location with no line; got: $rendered"
     )

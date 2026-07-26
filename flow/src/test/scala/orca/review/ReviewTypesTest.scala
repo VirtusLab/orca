@@ -16,8 +16,7 @@ class ReviewTypesTest extends munit.FunSuite:
           confidence = 0.95,
           title = Title("Null pointer risk"),
           description = "null pointer risk",
-          file = Some("Foo.scala"),
-          line = Some(42),
+          location = Some(Location("Foo.scala", Some(42))),
           suggestion = Some("add a null check")
         ),
         ReviewIssue(
@@ -25,8 +24,7 @@ class ReviewTypesTest extends munit.FunSuite:
           confidence = 0.4,
           title = Title("Stylistic nitpick"),
           description = "stylistic nitpick",
-          file = None,
-          line = None,
+          location = None,
           suggestion = None
         )
       )
