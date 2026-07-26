@@ -291,62 +291,225 @@ object FlowLifecycle:
   ): FlowSetup =
     given InStage = RuntimeInStage.token()
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
-    val log = LoggerFactory.getLogger("orca.flow")
     warnIfSettingsIgnored(git, stackOverridden, emit)
     val startBranch = git.currentBranch()
     // Snapshot the log file before any stash, restore it after if the stash
     // removed it — so an uncommitted/untracked log is still readable below.
     val snapshot = snapshotLog(store.path)
+    val session =
+      SetupSession(args, agent, git, workDir, branchNaming, store, emit)
     // Skip-branch mode's amended policy (ADR 0018 amendment) needs the
     // fresh-vs-resume distinction to decide whether to stash at all, so ONLY
-    // in that mode is the store peeked at before the stash — a throwaway
-    // read, used solely to pick a branch below; the authoritative read (used
-    // for the actual routing decision) is `store.loadDetailed()` at the
-    // `binding` match further down, which in EVERY case runs after the
-    // cleanliness decision below. That ordering matters: a tracked-but-dirty
-    // log must be classified from its committed content, not a possibly
-    // broken in-progress edit, so normal mode never peeks pre-stash at all —
-    // this preserves normal mode's behaviour byte-for-byte.
-    if args.skipBranch.value then
-      val isResume =
-        store.loadDetailed().isInstanceOf[ProgressStore.LoadResult.Loaded]
-      if isResume then
-        // A RESUME still auto-stashes, same as normal mode: an interrupted
-        // stage's uncommitted partial work must not leak into the stage that
-        // re-runs.
-        val _ = git.ensureClean("orca: starting flow")
-      else
-        // A FRESH run tolerates a dirty tree outright — no stash, no
-        // refusal — since the leftover files are likely the very hand-off
-        // context the flow is meant to act on; one informational Step names
-        // the count.
-        val dirty = git.dirtyPaths()
-        if dirty.nonEmpty then
-          emit(
-            OrcaEvent.Step(
-              s"leaving ${dirty.size} uncommitted/untracked file(s) in place for the flow"
-            )
-          )
-    else
-      val _ = git.ensureClean("orca: starting flow")
+    // in that mode does `applyCleanlinessPolicy` peek the store before the
+    // stash — a throwaway read, used solely to pick a branch there; the
+    // AUTHORITATIVE read (used for the actual routing decision) is
+    // `bindBranch`'s `store.loadDetailed()` below, which in EVERY case runs
+    // after the cleanliness decision. That ordering matters: a
+    // tracked-but-dirty log must be classified from its committed content, not
+    // a possibly broken in-progress edit, so normal mode never peeks pre-stash
+    // at all — this preserves normal mode's behaviour byte-for-byte.
+    session.applyCleanlinessPolicy()
     restoreLogIfMissing(store.path, snapshot)
     // Discovery (ADR 0019) is sequenced after the cleanliness decision (whose
     // stash, when it runs, would sweep a just-written untracked file straight
     // back out of the tree). When it runs, the written file gets its own commit
     // (`commitDiscoveredSettings`, below), so no later `add -A` sweep carries
     // it under an unrelated message. `discovered` flags that the write
-    // happened, gating those commits. A discovery failure aborts setup as a
-    // surfaced failure (no degrade-to-empty-file — see [[StackDiscovery]]).
-    val (stackSettings, discovered) = resolution match
+    // happened, gating those commits.
+    val (stackSettings, discovered) =
+      resolveStackSettings(agent, workDir, resolution, emit)
+    // The protected set both binding arms enforce: the always-protected floor
+    // (`main`/`master`) plus the repo's detected default branch (best-effort;
+    // failed detection falls back to just the floor). Computed once so the
+    // fresh and resume arms apply the identical policy from the identical set.
+    val protectedBranches =
+      RecoveryCheck.alwaysProtected ++ git
+        .defaultBranch()
+        .map(_.toLowerCase(java.util.Locale.ROOT))
+    val binding = session.bindBranch(startBranch, protectedBranches, discovered)
+    FlowSetup(
+      store,
+      binding.featureBranch,
+      binding.startBranch,
+      stackSettings,
+      binding.branchMode
+    )
+
+  /** [[setup]]'s fixed inputs — the coding-role agent, git, workDir, the
+    * progress store, the emit sink — shared by the cleanliness-policy and
+    * branch-binding steps below, so each reads as `session.xxx(...)` rather
+    * than repeating the same handful of parameters at every call site.
+    */
+  private final class SetupSession(
+      args: OrcaArgs,
+      agent: Agent[?],
+      git: GitTool,
+      workDir: os.Path,
+      branchNaming: Option[BranchNamingStrategy],
+      store: ProgressStore,
+      emit: OrcaEvent => Unit
+  ):
+
+    /** Cleanliness policy (ADR 0018 amendment): stash the tree before the run,
+      * unless skip-branch mode is FRESH (no progress log to resume yet), which
+      * tolerates a dirty tree outright — no stash, no refusal, one
+      * informational `Step` naming the file count — since the leftover files
+      * are likely the very hand-off context the flow is meant to act on. A
+      * RESUME under skip-branch mode still auto-stashes, same as normal mode:
+      * an interrupted stage's uncommitted partial work must not leak into the
+      * stage that re-runs. Normal mode always stashes, never peeking the store
+      * first — see [[setup]]'s call site for why only this mode's peek is safe.
+      */
+    def applyCleanlinessPolicy()(using WorkspaceWrite): Unit =
+      if args.skipBranch.value then
+        val isResume =
+          store.loadDetailed().isInstanceOf[ProgressStore.LoadResult.Loaded]
+        if isResume then
+          val _ = git.ensureClean("orca: starting flow")
+        else
+          val dirty = git.dirtyPaths()
+          if dirty.nonEmpty then
+            emit(
+              OrcaEvent.Step(
+                s"leaving ${dirty.size} uncommitted/untracked file(s) in place for the flow"
+              )
+            )
+      else
+        val _ = git.ensureClean("orca: starting flow")
+
+    /** Bind the run to a branch + progress log: resume onto the header's branch
+      * when a valid log is found, warn and start fresh from a corrupt one, or
+      * start fresh when none exists. This is the AUTHORITATIVE
+      * `store.loadDetailed()` read — always after the cleanliness decision, in
+      * every mode — so the log is classified from its last COMMITTED content,
+      * never a possibly-broken in-progress edit.
+      */
+    def bindBranch(
+        startBranch: String,
+        protectedBranches: Set[String],
+        discovered: Boolean
+    )(using InStage, WorkspaceWrite): BranchBinding =
+      store.loadDetailed() match
+        case ProgressStore.LoadResult.Corrupt(reason) =>
+          warnCorruptLog(reason)
+          freshBinding(startBranch, protectedBranches, discovered)
+        case ProgressStore.LoadResult.Absent =>
+          freshBinding(startBranch, protectedBranches, discovered)
+        case ProgressStore.LoadResult.Loaded(progressLog) =>
+          resumeBinding(progressLog.header, protectedBranches, discovered)
+
+    /** The log file exists but didn't parse. No sane way to resume from
+      * unparseable data, so this warns loudly — distinguishing a corrupt log
+      * from a genuinely absent one — before [[bindBranch]] falls through to the
+      * same fresh start its absent arm takes. The `emit(Step)` reaches both the
+      * terminal renderer and custom Interaction listeners (e.g. Slack); the
+      * logger keeps the DEBUG trace.
+      */
+    private def warnCorruptLog(reason: String): Unit =
+      val log = LoggerFactory.getLogger("orca.flow")
+      log.warn(
+        s"progress log at ${store.path} is corrupt ($reason); starting fresh"
+      )
+      emit(
+        OrcaEvent.Step(
+          s"progress log at ${store.path} is corrupt ($reason); " +
+            "starting fresh — the previous run's stages will re-run"
+        )
+      )
+
+    /** Shared by [[bindBranch]]'s corrupt-log and absent-log arms: resolve +
+      * create a fresh branch via [[freshRun]], then mint [[BranchMode]] from
+      * `args.skipBranch` (skip-branch mode never creates a branch, so it reads
+      * as `Reused`).
+      */
+    private def freshBinding(
+        startBranch: String,
+        protectedBranches: Set[String],
+        discovered: Boolean
+    )(using InStage, WorkspaceWrite): BranchBinding =
+      val branch = freshRun(
+        args,
+        agent,
+        git,
+        workDir,
+        branchNaming,
+        store,
+        startBranch,
+        protectedBranches,
+        discovered,
+        emit
+      )
+      BranchBinding(
+        branch,
+        startBranch,
+        if args.skipBranch.value then BranchMode.Reused
+        else BranchMode.Created
+      )
+
+    /** Resume onto the header's already-existing branch. The untrusted header
+      * is validated against the protected set before any destructive action — a
+      * parseable-but-invalid header is a hard abort, not a silent fresh start —
+      * and R30 cross-checks that the current branch is the one the header
+      * names: a log that surfaced on a branch it does not name (e.g. carried
+      * along by a merge) aborts rather than resuming against the wrong branch.
+      * The returned binding's start branch is the header's recorded
+      * `startingBranch` (the ORIGINAL branch at first run), not this run's
+      * pre-cleanliness `startBranch` — so a return-to-start goes to that
+      * original branch, not the re-run's current feature branch. A
+      * just-discovered settings file gets its dedicated commit right here (ADR
+      * 0019): the branch already exists, so this arm has no header commit that
+      * would otherwise sweep it in.
+      */
+    private def resumeBinding(
+        header: ProgressHeader,
+        protectedBranches: Set[String],
+        discovered: Boolean
+    )(using WorkspaceWrite): BranchBinding =
+      val featureBranch =
+        RecoveryCheck.validateHeader(
+          header,
+          args.userPrompt,
+          protectedBranches
+        ) match
+          case Left(reason) =>
+            throw new OrcaFlowException(
+              s"refusing to resume: progress log header failed validation ($reason)"
+            )
+          case Right(featureBranch) => featureBranch
+      // Only resume in place. If the log surfaced on a branch it does not
+      // name, it was likely carried here by a merge — abort, don't replay.
+      val current = git.currentBranch()
+      if current != header.branch then
+        throw new OrcaFlowException(
+          s"progress log for branch '${header.branch}' found while on " +
+            s"'$current' — was it merged? aborting rather than resuming " +
+            "against the wrong branch"
+        )
+      if discovered then commitDiscoveredSettings(git, workDir)
+      BranchBinding(featureBranch, header.startingBranch, header.branchMode)
+
+  /** Resolve the stack settings for the run (ADR 0019 §7): pass through
+    * `resolution`'s already-resolved settings, or run [[StackDiscovery]] and
+    * write the settings file when discovery is needed — the whole rendered file
+    * for an absent one, or the discovered entries appended below an agents-only
+    * hand-written file's untouched agent lines (ADR 0020 §7). `os.write.over`
+    * because a stash upstream may already have swept an untracked file out of
+    * the tree. The returned `discovered` flag is `true` only when this call
+    * wrote the file, gating its dedicated commit later in [[setup]]. A
+    * discovery failure aborts as a surfaced failure — no degrade-to-empty-file
+    * (see [[StackDiscovery]]).
+    */
+  private def resolveStackSettings(
+      agent: Agent[?],
+      workDir: os.Path,
+      resolution: SettingsResolution,
+      emit: OrcaEvent => Unit
+  )(using InStage): (StackSettings, Boolean) =
+    resolution match
       case SettingsResolution.Resolved(settings) => (settings, false)
       case SettingsResolution.NeedsDiscovery(existingContent) =>
         val (settings, entries) =
           StackDiscovery.discover(agent, workDir, emit, existingContent)
-        // Absent file → write the whole rendered file. An agents-only
-        // hand-written file (content captured pre-stash) → append the stack
-        // entries below the untouched agent lines, so discovery never clobbers
-        // agent keys (ADR 0020 §7). `os.write.over` because the stash may have
-        // already swept an untracked file out of the tree.
         val fileText = existingContent match
           case None => SettingsFile.render(entries)
           case Some(content) =>
@@ -362,110 +525,6 @@ object FlowLifecycle:
           )
         )
         (settings, true)
-    // The protected set both arms enforce: the always-protected floor
-    // (`main`/`master`) plus the repo's detected default branch (best-effort;
-    // failed detection falls back to just the floor). Computed once so the
-    // fresh and resume arms apply the identical policy from the identical set.
-    val protectedBranches =
-      RecoveryCheck.alwaysProtected ++ git
-        .defaultBranch()
-        .map(_.toLowerCase(java.util.Locale.ROOT))
-    val binding: BranchBinding =
-      store.loadDetailed() match
-        case ProgressStore.LoadResult.Corrupt(reason) =>
-          // The log file exists but didn't parse. Start fresh (no sane way to
-          // resume from unparseable data), but loudly — the user may have
-          // expected a resume, so this must be distinguishable from a first run.
-          // The `emit(Step)` reaches both the terminal renderer and custom
-          // Interaction listeners (e.g. Slack); the logger keeps the DEBUG trace.
-          log.warn(
-            s"progress log at ${store.path} is corrupt ($reason); starting fresh"
-          )
-          emit(
-            OrcaEvent.Step(
-              s"progress log at ${store.path} is corrupt ($reason); " +
-                "starting fresh — the previous run's stages will re-run"
-            )
-          )
-          val branch = freshRun(
-            args,
-            agent,
-            git,
-            workDir,
-            branchNaming,
-            store,
-            startBranch,
-            protectedBranches,
-            discovered,
-            emit
-          )
-          BranchBinding(
-            branch,
-            startBranch,
-            if args.skipBranch.value then BranchMode.Reused
-            else BranchMode.Created
-          )
-        case ProgressStore.LoadResult.Absent =>
-          val branch = freshRun(
-            args,
-            agent,
-            git,
-            workDir,
-            branchNaming,
-            store,
-            startBranch,
-            protectedBranches,
-            discovered,
-            emit
-          )
-          BranchBinding(
-            branch,
-            startBranch,
-            if args.skipBranch.value then BranchMode.Reused
-            else BranchMode.Created
-          )
-        case ProgressStore.LoadResult.Loaded(progressLog) =>
-          val header = progressLog.header
-          // Validate the untrusted header before any destructive action, against
-          // the same protected set — a tampered header naming e.g. `trunk` as a
-          // feature branch is refused too.
-          val featureBranch =
-            RecoveryCheck.validateHeader(
-              header,
-              args.userPrompt,
-              protectedBranches
-            ) match
-              case Left(reason) =>
-                throw new OrcaFlowException(
-                  s"refusing to resume: progress log header failed validation ($reason)"
-                )
-              case Right(featureBranch) => featureBranch
-          // Only resume in place. If the log surfaced on a branch it does not
-          // name, it was likely carried here by a merge — abort, don't replay.
-          val current = git.currentBranch()
-          if current != header.branch then
-            throw new OrcaFlowException(
-              s"progress log for branch '${header.branch}' found while on " +
-                s"'$current' — was it merged? aborting rather than resuming " +
-                "against the wrong branch"
-            )
-          // The recorded start branch (where a return-to-start goes) is the
-          // original one, not this feature branch. The branch already exists, so
-          // a just-discovered settings file gets its dedicated commit right here
-          // (ADR 0019) — this arm has no header commit that would sweep it in.
-          if discovered then commitDiscoveredSettings(git, workDir)
-          BranchBinding(
-            featureBranch,
-            header.startingBranch,
-            header.branchMode
-          )
-    FlowSetup(
-      store,
-      binding.featureBranch,
-      binding.startBranch,
-      stackSettings,
-      binding.branchMode
-    )
 
   /** Outcome of the pre-`ensureClean` stack read: either the resolved values,
     * or the marker that auto-discovery must run. `NeedsDiscovery` carries the
