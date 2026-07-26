@@ -87,7 +87,7 @@ enum OrcaEvent:
     * once per (harness, clientId, wireId) commit; listeners dedup on a resumed
     * session's later turns. `harness` is the backend's wire name — the one
     * string the persisted manifest also calls `harness`
-    * ([[orca.runner.ManifestSession]]). `wireId` is the persistable id
+    * ([[orca.runner.manifest.ManifestSession]]). `wireId` is the persistable id
     * ([[orca.agents.Agent.resumeWireId]]) — `None` for backends whose sessions
     * don't survive the run (pi), so a non-resumable commit still fires
     * accurately.

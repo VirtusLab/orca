@@ -1,6 +1,6 @@
 package orca.shell.actions
 
-import orca.runner.{ManifestSession, RunManifest}
+import orca.runner.manifest.{ManifestSession, RunManifest}
 import orca.shell.sessions.SessionSelection
 import orca.testkit.TempDirs
 

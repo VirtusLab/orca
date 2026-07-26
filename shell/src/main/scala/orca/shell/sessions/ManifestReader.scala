@@ -2,7 +2,7 @@ package orca.shell.sessions
 
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.OrcaDir
-import orca.runner.RunManifest
+import orca.runner.manifest.RunManifest
 
 import java.time.Instant
 import scala.util.Try

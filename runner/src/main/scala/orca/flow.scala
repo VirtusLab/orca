@@ -30,11 +30,10 @@ import orca.runner.{
   OrcaLog,
   RoleAgents,
   RoleOverrides,
-  RunManifestWriter,
-  RunOutcome,
   SurfacedFlowFailure,
   WiredAgents
 }
+import orca.runner.manifest.{RunManifestWriter, RunOutcome}
 import orca.settings.GlobalSettings
 import orca.runner.terminal.TerminalInteraction
 import orca.subprocess.OsProcCliRunner

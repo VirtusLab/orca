@@ -1,7 +1,7 @@
 package orca.shell.sessions
 
 import orca.agents.BackendTag
-import orca.runner.ManifestSession
+import orca.runner.manifest.ManifestSession
 import orca.settings.AgentSpec
 
 /** Per-harness interactive resume argv (ADR 0021 §8's resume table). */

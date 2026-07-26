@@ -2,7 +2,7 @@ package orca.shell.cli
 
 import mainargs.ParserForMethods
 import orca.agents.BackendTag
-import orca.runner.{ManifestSession, RunManifest}
+import orca.runner.manifest.{ManifestSession, RunManifest}
 import orca.settings.{AgentSettings, AgentSpec}
 import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}

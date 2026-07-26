@@ -1,4 +1,4 @@
-package orca.runner
+package orca.runner.manifest
 
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,

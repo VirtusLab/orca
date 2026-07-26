@@ -2,7 +2,7 @@ package orca.shell
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.StackSettings
-import orca.runner.{ManifestSession, RunManifest}
+import orca.runner.manifest.{ManifestSession, RunManifest}
 import orca.settings.SettingsFile
 import orca.shell.actions.{SettingsEditAction, StackAction}
 import orca.shell.create.CreateTier

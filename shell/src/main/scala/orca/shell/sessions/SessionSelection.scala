@@ -1,6 +1,6 @@
 package orca.shell.sessions
 
-import orca.runner.{ManifestSession, RunManifest}
+import orca.runner.manifest.{ManifestSession, RunManifest}
 
 /** One prior run's manifest paired with the session picked to resume —
   * everything [[orca.shell.actions.SessionAction.resume]] needs (the harness

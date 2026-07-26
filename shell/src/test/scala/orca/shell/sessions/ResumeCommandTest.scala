@@ -1,7 +1,7 @@
 package orca.shell.sessions
 
 import orca.agents.BackendTag
-import orca.runner.ManifestSession
+import orca.runner.manifest.ManifestSession
 
 class ResumeCommandTest extends munit.FunSuite:
 

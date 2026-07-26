@@ -3,7 +3,7 @@ package orca.shell.sessions
 import orca.WorkspaceWrite
 import orca.events.OrcaEvent
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
-import orca.runner.{RunManifestWriter, RunOutcome}
+import orca.runner.manifest.{RunManifestWriter, RunOutcome}
 import orca.testkit.TempDirs
 import ox.channels.BufferCapacity
 import ox.supervised

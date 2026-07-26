@@ -1,7 +1,7 @@
 package orca.shell.sessions
 
 import orca.agents.BackendTag
-import orca.runner.{ManifestSession, RunManifest}
+import orca.runner.manifest.{ManifestSession, RunManifest}
 import orca.settings.AgentSpec
 import orca.shell.ui.Choice
 
