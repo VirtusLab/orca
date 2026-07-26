@@ -101,6 +101,17 @@ object FlowLifecycle:
         // `e` was already reported before this reset ran, log and print the
         // suppressed failure here too, and emit a user-visible `Step` so the
         // user knows the tree may still hold the failed run's partial edits.
+        //
+        // The reset itself (`teardownFailure` -> `git.resetHard()`) also emits
+        // its own "Discarded uncommitted changes" Step — on its own that reads
+        // as unexplained data loss, so this one names WHY it's about to
+        // happen, right before it does.
+        ctx.emit(
+          OrcaEvent.Step(
+            "recovering from the failure — discarding uncommitted changes " +
+              "so a re-run resumes from the last completed stage"
+          )
+        )
         try teardownFailure(ctx.git)
         catch
           case NonFatal(t) =>

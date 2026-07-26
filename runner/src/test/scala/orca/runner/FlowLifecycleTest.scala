@@ -2410,6 +2410,29 @@ class FlowLifecycleTest extends munit.FunSuite:
       s"a Step warning about the failed reset must be emitted: $steps"
     )
 
+  test(
+    "a body failure emits an explanatory Step before the reset --hard teardown runs"
+  ):
+    // DC1: the reset's own Step ("Discarded uncommitted changes") reads as
+    // unexplained data loss on its own — FlowLifecycle.run must emit a
+    // preceding Step naming WHY the reset is about to happen (recovery, not
+    // loss) whenever a body failure triggers failure teardown.
+    val workDir = GitRepo.seeded()
+    val prompt = "explains-reset-teardown"
+    val store = ProgressStore.default(workDir, prompt)
+    val listener = new RecordingListener
+    val _ = intercept[SurfacedFlowFailure]:
+      runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
+        val _ = stage[String]("crash"):
+          throw new RuntimeException("boom body")
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s }
+    assert(
+      steps.exists(
+        _.message.contains("recovering from the failure")
+      ),
+      s"expected an explanatory Step ahead of the reset: $steps"
+    )
+
   // --- flow() reentrancy/concurrency guards --------------------------------
 
   test(
