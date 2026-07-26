@@ -80,8 +80,11 @@ enum OrcaEvent:
 
   case Error(message: String)
 
-  /** Fires when a session's first turn commits — its wire id, if any, is known
-    * by then (ADR 0021 §8). Once per (harness, clientId, wireId) commit;
+  /** Fires once [[orca.backend.SessionSupport]] commits a session's
+    * client→wire id mapping ([[orca.backend.SessionSupport.commit]] /
+    * `commitAfterDrain`) — unrelated to a git commit; "commits" here means the
+    * mapping becomes durable enough for a later call to resume against it
+    * (ADR 0021 §8). Fires once per (harness, clientId, wireId) commit;
     * listeners dedup on a resumed session's later turns. `harness` is the
     * backend's wire name — the one string the persisted manifest also calls
     * `harness` ([[orca.runner.ManifestSession]]). `wireId` is the persistable
