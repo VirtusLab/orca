@@ -90,12 +90,13 @@ private[shell] object FlowAuthoring:
     * pi's `-p`/`--print`.
     */
   def slugArgv(backend: BackendTag, prompt: String): Seq[String] =
+    val binary = AgentSpec.harnessNameFor(backend)
     backend match
-      case BackendTag.ClaudeCode => Seq("claude", "-p", prompt)
-      case BackendTag.Codex      => Seq("codex", "exec", prompt)
-      case BackendTag.Pi         => Seq("pi", "-p", prompt)
-      case BackendTag.Gemini     => Seq("gemini", "-p", prompt)
-      case BackendTag.Opencode   => Seq("opencode", "run", prompt)
+      case BackendTag.ClaudeCode => Seq(binary, "-p", prompt)
+      case BackendTag.Codex      => Seq(binary, "exec", prompt)
+      case BackendTag.Pi         => Seq(binary, "-p", prompt)
+      case BackendTag.Gemini     => Seq(binary, "-p", prompt)
+      case BackendTag.Opencode   => Seq(binary, "run", prompt)
 
   /** The cheap slug-suggestion prompt: asks for nothing but a bare filename, so
     * [[sanitizeSlug]] has the best chance of a clean answer to sanitize.
