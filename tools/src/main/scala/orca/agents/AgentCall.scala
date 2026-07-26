@@ -208,9 +208,58 @@ class DefaultAgentCall[B <: BackendTag, O](
 
     // Carries a parse failure into the next attempt's corrective prompt. Local
     // contract: written only in the `MalformedAgentOutputException` catch below,
-    // read only at the top of the next `retry` iteration, which re-executes the
-    // block sequentially — never concurrently.
+    // read only at the top of the next `attemptOnce` call, which `retry`
+    // re-executes sequentially — never concurrently.
     var lastFailure: Option[FailedAttempt] = None
+
+    /** One attempt: build this iteration's prompt (the initial one, or a
+      * corrective re-prompt carrying the prior parse failure), run the turn,
+      * and parse its output as `O`. A `MalformedAgentOutputException` records
+      * itself as `lastFailure` for the next call before rethrowing, so `retry`
+      * can drive a corrective re-prompt loop around repeated calls to this.
+      */
+    def attemptOnce(): O =
+      val promptText = lastFailure match
+        case Some(f) =>
+          val corrective = prompts.retry(f.response, f.parserError)
+          if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(corrective))
+          corrective
+        case None => initialPrompt
+      val result = backend.runAutonomous(
+        promptText,
+        session,
+        effective,
+        events,
+        outputSchema = Some(outputSchema)
+      )
+      // Fire as soon as the backend drain commits — before the fallible
+      // parse below — so a session that later exhausts its retries (parse
+      // keeps failing) or throws on a subsequent attempt still gets
+      // announced as durably resumable (ADR 0021 §8). Every attempt on this
+      // session re-fires with the same payload; listeners dedup on
+      // (backend, clientId, wireId) per the event's scaladoc.
+      emitSessionCommitted(session)
+      events.onEvent(
+        OrcaEvent.TokensUsed(
+          agentName,
+          result.model.orElse(effective.model),
+          result.usage,
+          agentRole
+        )
+      )
+      try
+        val parsed = ResponseParser.parse[O](result.output)
+        emitStructuredResult(result.output, parsed)
+        parsed
+      catch
+        case e: MalformedAgentOutputException =>
+          lastFailure = Some(
+            FailedAttempt(
+              response = e.rawOutput,
+              parserError = e.shortCause
+            )
+          )
+          throw e
 
     val retryConfig = RetryConfig(
       effective.retrySchedule,
@@ -219,49 +268,7 @@ class DefaultAgentCall[B <: BackendTag, O](
       )
     )
 
-    try
-      retry(retryConfig):
-        val promptText = lastFailure match
-          case Some(f) =>
-            val corrective = prompts.retry(f.response, f.parserError)
-            if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(corrective))
-            corrective
-          case None => initialPrompt
-        val result = backend.runAutonomous(
-          promptText,
-          session,
-          effective,
-          events,
-          outputSchema = Some(outputSchema)
-        )
-        // Fire as soon as the backend drain commits — before the fallible
-        // parse below — so a session that later exhausts its retries (parse
-        // keeps failing) or throws on a subsequent attempt still gets
-        // announced as durably resumable (ADR 0021 §8). Every attempt on this
-        // session re-fires with the same payload; listeners dedup on
-        // (backend, clientId, wireId) per the event's scaladoc.
-        emitSessionCommitted(session)
-        events.onEvent(
-          OrcaEvent.TokensUsed(
-            agentName,
-            result.model.orElse(effective.model),
-            result.usage,
-            agentRole
-          )
-        )
-        try
-          val parsed = ResponseParser.parse[O](result.output)
-          emitStructuredResult(result.output, parsed)
-          parsed
-        catch
-          case e: MalformedAgentOutputException =>
-            lastFailure = Some(
-              FailedAttempt(
-                response = e.rawOutput,
-                parserError = e.shortCause
-              )
-            )
-            throw e
+    try retry(retryConfig)(attemptOnce())
     catch
       // Attribute the failure: name the agent and this turn's input size, so
       // "Prompt is too long" becomes actionable. The session's accumulated
