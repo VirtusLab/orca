@@ -152,11 +152,8 @@ class DefaultAgentCall[B <: BackendTag, O](
       runInteractiveOnce(input, config, session)
 
   /** Emit a `StructuredResult` event carrying the raw payload and the
-    * `Announce[O]`-derived summary. `summary` is tri-state (see
-    * [[orca.events.OrcaEvent.StructuredResult]]): text from a specific
-    * `Announce[O]`; `Some("")` when a specific instance deliberately says
-    * nothing; `None` when none exists — renderers then fall back to the raw
-    * payload so the result stays visible.
+    * `Announce[O]`-derived summary — tri-state per
+    * [[orca.events.OrcaEvent.StructuredResult]].
     */
   private def emitStructuredResult(raw: String, value: O): Unit =
     val summary = announce match

@@ -15,14 +15,10 @@ import ox.{Ox, supervised}
   *
   * This covers the payload arriving as streamed PROSE only. A backend whose
   * structured payload arrives as a tool call instead (claude's `--json-schema`
-  * exit call) never streams it as prose in the first place — there is nothing
-  * for `TurnBuffer` to withhold — so its `StructuredResult.raw` is the sole
-  * carrier. Whether THAT gets echoed is a separate contract: a domain type with
-  * no `Announce` instance renders `raw` under the same `●` glyph as genuine
-  * prose (ADR 0008), so a type whose call site already narrates the outcome
-  * (e.g. `FixOutcome`) must supply a silencing `Announce[O] = Announce.from(_
-  * \=> "")` (ADR 0009) — no amount of `TurnBuffer` withholding substitutes for
-  * that.
+  * exit call) never streams it as prose — there is nothing for `TurnBuffer` to
+  * withhold, so `StructuredResult.raw` is the sole carrier. Whether that raw
+  * payload gets echoed is `Announce[O]`'s contract (ADR 0008/0009), not this
+  * drain's.
   *
   * Interactive-only events that reach this drain are handled explicitly to
   * avoid blocking the subprocess: `ApproveTool` is auto-denied and
@@ -206,10 +202,6 @@ private[orca] object Conversations:
     * `ApproveTool`/`UserQuestion` prompt is never stuck waiting behind a
     * withheld turn (which would deadlock: the subprocess blocks on the
     * response, and nothing but a later event would ever release it).
-    *
-    * Shared here (rather than special-cased per `Interaction` implementation)
-    * so every `Interaction` — not just the terminal one — gets the same
-    * suppression `drive` would otherwise have to reimplement itself.
     */
   def withholdInteractiveProse[B <: BackendTag](
       conv: Conversation[B],

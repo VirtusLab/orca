@@ -62,9 +62,7 @@ private[gemini] class GeminiConversation(
     */
   private val askUserEchoes = new orca.backend.AskUserEchoes
 
-  // No `start()`: the base spawns its reader / stderr / ask-user forks lazily
-  // on first touch of the conversation surface, after this subclass's fields
-  // are initialised.
+  // No `start()` — see `ForkedConversation.ensureStarted`'s lazy fork spawn.
 
   // --- Reader hooks ---
 

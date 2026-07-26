@@ -174,12 +174,11 @@ trait GitTool:
     * §2.5).
     *
     * '''`reset --hard` does NOT remove untracked files''' — a failed stage's
-    * newly created files survive in the working tree. They aren't lost: the
-    * next run's start-of-run `ensureClean` stashes the dirty tree (`git stash
-    * push -u`), sweeping them into that stash alongside any genuine user WIP.
-    * Deleting leftovers at teardown would need a scoped clean of run-touched
-    * paths (blanket `git clean -fd` would also delete pre-existing untracked
-    * user files) — an intentionally separate decision, not made here.
+    * newly created files survive in the working tree. They're swept later, into
+    * the next run's `ensureClean` stash (`git stash push -u`), alongside any
+    * genuine user WIP. A scoped clean here would risk deleting pre-existing
+    * untracked files too (blanket `git clean -fd`), so that cleanup is
+    * deliberately left to `ensureClean`, not done here.
     */
   def resetHard()(using WorkspaceWrite): Unit
 
@@ -453,7 +452,6 @@ private[orca] class OsGitTool(
     )
 
   def diff(): String =
-    // vs HEAD: show both staged and unstaged changes since the last commit.
     git("diff", "HEAD")
 
   def diffVsBase(base: String, mode: DiffMode): String =
@@ -609,16 +607,14 @@ private[orca] object OsGitTool:
   // a wording tweak across git versions doesn't reclassify a recoverable
   // failure as fatal.
 
-  /** True when `git push` stderr indicates the remote branch moved on
-    * (`non-fast-forward` / `fetch first`) — resolvable by fetching and
-    * rebasing, unlike [[isRemoteDeclined]].
+  /** True when `git push` stderr indicates the remote branch moved on — see
+    * [[PushFailure.NonFastForward]] for the recovery semantics.
     */
   private[tools] def isNonFastForward(stderr: String): Boolean =
     stderr.contains("non-fast-forward") || stderr.contains("fetch first")
 
   /** True when `git push` stderr indicates the remote refused the push by
-    * policy — a server-side hook, branch protection, or a required review (e.g.
-    * GitHub's `GH006`). Rebasing will not make this push succeed.
+    * policy — see [[PushFailure.RemoteDeclined]] for why rebasing won't help.
     */
   private[tools] def isRemoteDeclined(stderr: String): Boolean =
     stderr.contains("hook declined") ||
@@ -626,8 +622,7 @@ private[orca] object OsGitTool:
       stderr.contains("protected branch")
 
   /** True when `git worktree add` stderr indicates the target path or branch is
-    * already a worktree (`… already exists` / `… is already checked out`) — the
-    * recoverable case.
+    * already a worktree — the recoverable case (see [[addWorktree]]).
     */
   private[tools] def isWorktreeAlreadyPresent(stderr: String): Boolean =
     stderr.contains("already exists") || stderr.contains("already checked out")
