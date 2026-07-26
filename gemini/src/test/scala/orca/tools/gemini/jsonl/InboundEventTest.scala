@@ -65,8 +65,29 @@ class InboundEventTest extends munit.FunSuite:
     InboundEvent.parse(line) match
       case InboundEvent.ToolResult(id, status, output) =>
         assertEquals(id, "b-1")
-        assertEquals(status, "success")
+        assertEquals(status, ToolStatus.Success)
         assertEquals(output, "file1\nfile2")
+      case other => fail(s"expected ToolResult, got $other")
+
+  test("tool_result with a non-success status decodes to Failure(raw)"):
+    val line =
+      """{"type":"tool_result","tool_id":"b-1","status":"error","output":"boom"}"""
+    InboundEvent.parse(line) match
+      case InboundEvent.ToolResult(_, status, _) =>
+        assertEquals(status, ToolStatus.Failure("error"))
+      case other => fail(s"expected ToolResult, got $other")
+
+  test(
+    "tool_result with a missing status decodes to Failure(\"\"), not Success"
+  ):
+    // status is a required field on the real wire (verified against the
+    // gemini-cli source, ADR 0015); this pins the defensive fallback for the
+    // never-observed missing case.
+    val line = """{"type":"tool_result","tool_id":"b-1","output":"boom"}"""
+    InboundEvent.parse(line) match
+      case InboundEvent.ToolResult(_, status, _) =>
+        assertEquals(status, ToolStatus.Failure(""))
+        assert(!status.isSuccess)
       case other => fail(s"expected ToolResult, got $other")
 
   test("parses an error event"):
@@ -80,10 +101,21 @@ class InboundEventTest extends munit.FunSuite:
       """{"type":"result","status":"success","stats":{"total_tokens":100,"input_tokens":50,"output_tokens":50,"duration_ms":1200,"tool_calls":1}}"""
     InboundEvent.parse(line) match
       case InboundEvent.Result(usage, status) =>
-        assertEquals(status, "success")
+        assertEquals(status, ToolStatus.Success)
         assertEquals(usage.inputTokens, 50L)
         assertEquals(usage.outputTokens, 50L)
         assertEquals(usage.cost, None)
+      case other => fail(s"expected Result, got $other")
+
+  test("result with a missing status decodes to Failure(\"\"), not Success"):
+    // Mirrors the tool_result case: status is required on the real wire
+    // (ADR 0015), so a missing value is treated as a failure defensively.
+    val line =
+      """{"type":"result","stats":{"input_tokens":1,"output_tokens":1}}"""
+    InboundEvent.parse(line) match
+      case InboundEvent.Result(_, status) =>
+        assertEquals(status, ToolStatus.Failure(""))
+        assert(!status.isSuccess)
       case other => fail(s"expected Result, got $other")
 
   test("result maps the wire `cached` field into cachedInputTokens"):
