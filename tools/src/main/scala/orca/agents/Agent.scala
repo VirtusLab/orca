@@ -36,7 +36,9 @@ trait Agent[B <: BackendTag]:
     * `OrcaEvent.TokensUsed` alongside [[name]]. The review loop sets
     * `Some("reviewer")` via [[withRole]] so `CostTracker` can subtotal reviewer
     * spend without baking a prefix into [[name]] (the identity a
-    * session/selector keys off). Defaults to `None`.
+    * session/selector keys off). Defaults to `None`. Unrelated to the wire
+    * `role` field on a chat message (gemini's `Role`, pi's message role) — this
+    * is a cost-attribution tag, not part of the conversation payload.
     */
   def role: Option[String] = None
 
