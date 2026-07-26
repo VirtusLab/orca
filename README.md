@@ -22,6 +22,16 @@ You can use Orca to orchestrate development in any language and ecosystem.
 Orca assumes that it has configured, logged-in access to Claude, Codex,
 OpenCode, or Pi (depending which backend you use), as well as `gh` and `git`.
 
+Install with one command — it also bootstraps `scala-cli` if you don't have
+it already:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/VirtusLab/orca/master/install.sh | bash
+```
+
+See [Orca Shell](#orca-shell) for what this installs and the full
+command-line reference.
+
 ## Three ways to work with Orca
 
 **Interactively**: install the CLI, run `orca`, pick a flow (`implement.sc`
@@ -38,8 +48,7 @@ orca run implement.sc "add a rate limiter to /login"
 ```
 
 Useful flags: `--verbose`, `--skip-branch` (continue on the current branch
-instead of creating one), `--honor-pin` (run the flow's own pinned orca
-version instead of the shell's).
+instead of creating one).
 
 In every mode, which agent (and model) handles the planning, coding, and
 review roles comes from `settings.properties` — written for you by the
