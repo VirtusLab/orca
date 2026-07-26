@@ -88,17 +88,9 @@ private[claude] class ClaudeConversation(
       initModel = model
     case InboundMessage.AssistantTurn(content) => handleAssistantTurn(content)
     case InboundMessage.UserTurn(content)      => handleUserTurn(content)
-    case InboundMessage.Result(
-          _,
-          sid,
-          output,
-          structured,
-          usage,
-          isError,
-          model
-        ) =>
-      if isError then handleResultError(output)
-      else handleResult(sid, output, structured, usage, model)
+    case result: InboundMessage.Result =>
+      if result.isError then handleResultError(result.output)
+      else handleResult(result)
     case InboundMessage.ControlRequest(reqId, body) =>
       handleControlRequest(reqId, body)
     case InboundMessage.StreamEvent(payload) =>
@@ -173,20 +165,19 @@ private[claude] class ClaudeConversation(
         )
       case _ => ()
 
-  private def handleResult(
-      sid: String,
-      output: Option[String],
-      structured: Option[String],
-      usage: Usage,
-      model: Option[String]
-  ): Unit =
+  /** Takes the whole [[InboundMessage.Result]] product (not its `output`/
+    * `structuredOutput` fields unpacked positionally) — those two are
+    * same-typed `Option[String]` siblings, easy to swap by accident at a call
+    * site.
+    */
+  private def handleResult(result: InboundMessage.Result): Unit =
     settleSuccess(
-      wireId = sid,
-      output = structured.orElse(output).getOrElse(""),
-      usage = usage,
+      wireId = result.sessionId,
+      output = result.structuredOutput.orElse(result.output).getOrElse(""),
+      usage = result.usage,
       // Fall back to the model claude announced in system.init when the
       // result message omits it.
-      modelId = model.orElse(initModel)
+      modelId = result.model.orElse(initModel)
     )
 
   /** Claude sets `is_error: true` for out-of-band failures (API errors, rate
