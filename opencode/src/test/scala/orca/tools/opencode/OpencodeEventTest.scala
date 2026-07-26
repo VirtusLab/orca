@@ -22,7 +22,13 @@ class OpencodeEventTest extends munit.FunSuite:
     )
     assertEquals(
       e,
-      OpencodeEvent.ToolFinished("ses_A", "prt_9", "bash", ok = true, "hi\n")
+      OpencodeEvent.ToolFinished(
+        Some("ses_A"),
+        Some("prt_9"),
+        "bash",
+        ok = true,
+        "hi\n"
+      )
     )
 
   test("message.part.updated(tool running) → ToolStarted with input"):
@@ -32,8 +38,8 @@ class OpencodeEventTest extends munit.FunSuite:
     assertEquals(
       e,
       OpencodeEvent.ToolStarted(
-        "ses_A",
-        "prt_9",
+        Some("ses_A"),
+        Some("prt_9"),
         "bash",
         """{"command":"echo hi"}"""
       )
@@ -45,7 +51,29 @@ class OpencodeEventTest extends munit.FunSuite:
     )
     assertEquals(
       e,
-      OpencodeEvent.ToolFinished("ses_A", "prt_9", "bash", ok = false, "nope")
+      OpencodeEvent.ToolFinished(
+        Some("ses_A"),
+        Some("prt_9"),
+        "bash",
+        ok = false,
+        "nope"
+      )
+    )
+
+  test(
+    "message.part.updated(tool running, no id/sessionID) → ToolStarted keeps None, not \"\""
+  ):
+    val e = OpencodeEvent.parse(
+      """{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"bash","state":{"status":"running","input":{"command":"echo hi"}}}}}"""
+    )
+    assertEquals(
+      e,
+      OpencodeEvent.ToolStarted(
+        None,
+        None,
+        "bash",
+        """{"command":"echo hi"}"""
+      )
     )
 
   test("message.part.updated(non-tool part) → Ignored"):

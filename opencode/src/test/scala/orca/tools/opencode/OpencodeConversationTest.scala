@@ -146,6 +146,31 @@ class OpencodeConversationTest extends munit.FunSuite:
       )
     )
 
+  convTest(
+    "two id-less tool parts both surface (BB5: no longer collide on a coerced \"\" key)"
+  ):
+    // Neither part carries an `id`; under the old `getOrElse("")` coercion
+    // both keyed to the same "" entry in `startedTools`, so the second
+    // AssistantToolCall was wrongly suppressed as a dupe of the first.
+    val (conv, _) = conversation(
+      List(
+        data(
+          """{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"bash","state":{"status":"running","input":{"command":"echo hi"}},"sessionID":"ses_A"}}}"""
+        ),
+        data(
+          """{"type":"message.part.updated","properties":{"part":{"type":"tool","tool":"read","state":{"status":"running","input":{"path":"f.txt"}},"sessionID":"ses_A"}}}"""
+        ),
+        data(
+          """{"type":"message.updated","properties":{"info":{"role":"assistant","sessionID":"ses_A","finish":"tool-calls"}}}"""
+        ),
+        data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
+      )
+    )
+    val toolCalls = conv.events.toList.collect {
+      case c: ConversationEvent.AssistantToolCall => c.toolName
+    }
+    assertEquals(toolCalls, List("bash", "read"))
+
   convTest("events for other sessions are dropped"):
     val (conv, _) = conversation(
       List(

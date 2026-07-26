@@ -24,13 +24,23 @@ private[opencode] enum OpencodeEvent:
   /** A tool part reached `running` — its full `input` is known. Emitted on
     * every `running` frame for a part, so the same `partId` can repeat as the
     * input accrues; the consumer dedups per `partId` before rendering.
+    * `session`/`partId` are `None` when the frame omits them — never coerced to
+    * `""`, since two id-less parts sharing a coerced `""` key would otherwise
+    * wrongly dedup against each other.
     */
-  case ToolStarted(session: String, partId: String, tool: String, input: String)
+  case ToolStarted(
+      session: Option[String],
+      partId: Option[String],
+      tool: String,
+      input: String
+  )
 
-  /** A tool part reached `completed`/`error`. */
+  /** A tool part reached `completed`/`error`. See [[ToolStarted]] for why
+    * `session`/`partId` stay `Option`.
+    */
   case ToolFinished(
-      session: String,
-      partId: String,
+      session: Option[String],
+      partId: Option[String],
       tool: String,
       ok: Boolean,
       output: String
@@ -57,8 +67,8 @@ private[opencode] enum OpencodeEvent:
   def sessionId: Option[String] = this match
     case TextDelta(s, _)             => Some(s)
     case ReasoningDelta(s, _)        => Some(s)
-    case ToolStarted(s, _, _, _)     => Some(s)
-    case ToolFinished(s, _, _, _, _) => Some(s)
+    case ToolStarted(s, _, _, _)     => s
+    case ToolFinished(s, _, _, _, _) => s
     case MessageUpdated(s, _)        => Some(s)
     case QuestionAsked(r)            => Some(r.sessionID)
     case PermissionAsked(r)          => Some(r.sessionID)
@@ -105,10 +115,11 @@ private[opencode] object OpencodeEvent:
     if part.`type` != "tool" then Ignored
     else
       // `properties.sessionID` is the reliable session source; fall back to the
-      // part's own copy on frames that omit it.
-      val session = props.sessionID.orElse(part.sessionID).getOrElse("")
+      // part's own copy on frames that omit it. Neither this nor `part.id` is
+      // coerced to "" — see [[OpencodeEvent.ToolStarted]].
+      val session = props.sessionID.orElse(part.sessionID)
       val tool = part.tool.getOrElse("")
-      val partId = part.id.getOrElse("")
+      val partId = part.id
       part.state.flatMap(_.status) match
         case Some("running") =>
           ToolStarted(

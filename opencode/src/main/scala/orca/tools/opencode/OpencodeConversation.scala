@@ -98,11 +98,17 @@ private[opencode] class OpencodeConversation(
     case OpencodeEvent.ReasoningDelta(_, delta) =>
       eventQueue.enqueue(ConversationEvent.AssistantThinkingDelta(delta))
     case OpencodeEvent.ToolStarted(_, partId, tool, input) =>
-      // A tool part repeats `running` frames; surface the call once per part.
-      if !turnState.startedTools.contains(partId) then
-        turnState =
-          turnState.copy(startedTools = turnState.startedTools + partId)
-        eventQueue.enqueue(ConversationEvent.AssistantToolCall(tool, input))
+      // A tool part repeats `running` frames; surface the call once per part,
+      // keyed by its id. A part with no id (protocol drift) can't be deduped
+      // against — surface every frame rather than risk a coerced "" key
+      // wrongly colliding two distinct id-less parts (BB5).
+      partId match
+        case Some(id) if turnState.startedTools.contains(id) => ()
+        case Some(id) =>
+          turnState = turnState.copy(startedTools = turnState.startedTools + id)
+          eventQueue.enqueue(ConversationEvent.AssistantToolCall(tool, input))
+        case None =>
+          eventQueue.enqueue(ConversationEvent.AssistantToolCall(tool, input))
     case OpencodeEvent.ToolFinished(_, _, tool, ok, output) =>
       eventQueue.enqueue(ConversationEvent.ToolResult(Some(tool), ok, output))
     case OpencodeEvent.MessageUpdated(_, info) =>
