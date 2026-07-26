@@ -68,12 +68,14 @@ private[shell] object MainMenu:
     )
 
   /** "How should the changes be made?" — the two-row hand-vs-agent prompt
-    * shared by Edit/Create/Fork (ADR 0021 §6/§9 amendment).
+    * shared by Edit/Create/Fork (ADR 0021 §6/§9 amendment). Agent first: it is
+    * the default choice (the interactive select has no cursor preselection, so
+    * first position IS the default).
     */
   val modeChoices: List[Choice[ChangeMode]] = List(
-    Choice(ChangeMode.Hand, "By hand — open in your editor"),
     Choice(
       ChangeMode.Agent,
       "With an agent — describe the changes and let it work"
-    )
+    ),
+    Choice(ChangeMode.Hand, "By hand — open in your editor")
   )

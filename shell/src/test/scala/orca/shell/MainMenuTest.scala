@@ -76,16 +76,16 @@ class MainMenuTest extends munit.FunSuite:
       "Fork a flow — by hand, or an agent adapts the copy"
     )
 
-  test("modeChoices offers hand and agent, in that order"):
+  test("modeChoices offers agent first — the default — then hand"):
     assertEquals(
       MainMenu.modeChoices.map(_.value),
-      List(ChangeMode.Hand, ChangeMode.Agent)
+      List(ChangeMode.Agent, ChangeMode.Hand)
     )
     assertEquals(
       MainMenu.modeChoices.map(_.label),
       List(
-        "By hand — open in your editor",
-        "With an agent — describe the changes and let it work"
+        "With an agent — describe the changes and let it work",
+        "By hand — open in your editor"
       )
     )
 
