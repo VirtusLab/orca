@@ -289,6 +289,33 @@ with a test pinning the observed wire shape.
   inline.
 - Tests target exactly one scenario each.
 
+### Review-derived rules
+
+Distilled from recurring review findings; violations keep reappearing without
+them.
+
+- A domain mode is an enum, never a `Boolean` or a raw string compared to
+  literals; two flags/Options whose combinations include impossible states are
+  one ADT.
+- Three-plus same-typed adjacent parameters (or two whose swap compiles) get
+  named arguments at every call site, or a small case class.
+- A wire field's absence semantics is decided ONCE, at decode — never
+  re-defaulted per call site. Parse protocol strings into enums at the
+  boundary (`Unknown(raw)` for unrecognized values); match exhaustively
+  downstream.
+- One decision, one home: when the same mapping/derivation appears in a second
+  place, extract it. Display/summary code consumes the production resolver —
+  it never mirrors the rule with its own copy.
+- Code that generates code (templates, skeletons, prompts claiming
+  compilability) is tested by actually compiling/executing the artifact —
+  substring assertions don't count.
+- Terminal escape sequences are written with explicit unicode escapes (backslash-u001b), never
+  raw embedded bytes; when moving such code, compare with `cat -A` — ordinary
+  diffs render the sequences invisibly.
+- Every user-facing refusal names the next action; every destructive-looking
+  automatic operation (stash, reset, delete) states its purpose in the same
+  breath.
+
 ### Versioning (0.x)
 
 Orca is 0.x: no backwards compatibility is owed anywhere.
