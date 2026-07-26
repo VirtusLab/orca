@@ -13,7 +13,6 @@ class ResumeCommandTest extends munit.FunSuite:
     ManifestSession(
       harness = harness,
       wireId = wireId,
-      resumable = wireId.isDefined,
       reason = reason,
       agent = "agent",
       role = None,

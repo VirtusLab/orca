@@ -1,6 +1,7 @@
 package orca.shell.sessions
 
 import orca.OrcaFlowException
+import orca.runner.manifest.RunManifest
 import orca.testkit.TempDirs
 
 class ManifestReaderTest extends munit.FunSuite:
@@ -15,7 +16,7 @@ class ManifestReaderTest extends munit.FunSuite:
       workDir: os.Path,
       name: String,
       startedAt: String,
-      manifestVersion: Int = 1,
+      manifestVersion: Int = RunManifest.SupportedVersion,
       pid: Long = 111,
       outcome: String = "succeeded"
   ): Unit =
@@ -65,7 +66,7 @@ class ManifestReaderTest extends munit.FunSuite:
       workDir,
       "future.json",
       startedAt = "2026-07-18T10:00:00Z",
-      manifestVersion = 2
+      manifestVersion = RunManifest.SupportedVersion + 1
     )
     val (runs, warnings) = ManifestReader.list(workDir, alwaysDead)
     assertEquals(runs, Nil)

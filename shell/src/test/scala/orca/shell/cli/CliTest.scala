@@ -321,6 +321,17 @@ class CliTest extends munit.FunSuite:
   test("readTask: omitted + empty piped stdin is a usage error"):
     assert(RunCli.readTask(None, tty = false, () => "   \n").isLeft)
 
+  test(
+    "readTask: omitted + empty piped stdin names the next action, like the tty message does"
+  ):
+    assertEquals(
+      RunCli.readTask(None, tty = false, () => "   \n"),
+      Left(
+        "no task given, and stdin was empty — pass the task as an " +
+          "argument, or pipe non-empty input"
+      )
+    )
+
   // --- LaunchResult -> exit code mapping (shared by RunCli and AuthorCli) ---
 
   test("Cli.exitCodeFor maps Ok/Failed/Cancelled"):
@@ -677,6 +688,7 @@ class CliTest extends munit.FunSuite:
       sessions: List[ManifestSession]
   ): RunManifest =
     RunManifest(
+      manifestVersion = RunManifest.SupportedVersion,
       orcaVersion = "0.0.test",
       flow = Some("a-flow.sc"),
       workDir = workDir,
@@ -696,7 +708,6 @@ class CliTest extends munit.FunSuite:
     ManifestSession(
       harness = "ClaudeCode",
       wireId = wireId,
-      resumable = wireId.isDefined,
       reason = reason,
       agent = "main",
       role = None,
@@ -802,7 +813,6 @@ class CliTest extends munit.FunSuite:
     ManifestSession(
       harness = "ClaudeCode",
       wireId = Some("uuid"),
-      resumable = true,
       reason = None,
       agent = agent,
       role = None,
@@ -881,8 +891,8 @@ class CliTest extends munit.FunSuite:
 
   private def writeFutureManifest(dir: os.Path): Unit =
     val json =
-      """{
-        |  "manifestVersion": 2,
+      s"""{
+        |  "manifestVersion": ${RunManifest.SupportedVersion + 1},
         |  "orcaVersion": "0.0.test",
         |  "workDir": "/work",
         |  "pid": 1,
@@ -909,7 +919,12 @@ class CliTest extends munit.FunSuite:
       )
     )
     assertEquals(out.trim, "[]")
-    assert(err.contains("manifestVersion 2 is newer"), err)
+    assert(
+      err.contains(
+        s"manifestVersion ${RunManifest.SupportedVersion + 1} is newer"
+      ),
+      err
+    )
 
   private def writeCrashedManifest(dir: os.Path): Unit =
     val json =

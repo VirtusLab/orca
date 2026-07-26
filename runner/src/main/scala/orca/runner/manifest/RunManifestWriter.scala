@@ -217,7 +217,6 @@ private[runner] class RunManifestWriterState(
     val session = ManifestSession(
       harness = harness,
       wireId = wireId,
-      resumable = wireId.isDefined,
       reason =
         if wireId.isEmpty then Some(s"$harness sessions do not survive the run")
         else None,
@@ -278,6 +277,7 @@ private[runner] class RunManifestWriterState(
     */
   private def write(): Unit =
     val manifest = RunManifest(
+      manifestVersion = RunManifest.SupportedVersion,
       orcaVersion = orcaVersion,
       flow = flowName,
       workDir = workDir.toString,

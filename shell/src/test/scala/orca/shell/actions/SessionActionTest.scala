@@ -10,7 +10,6 @@ class SessionActionTest extends munit.FunSuite:
     ManifestSession(
       harness = "ClaudeCode",
       wireId = Some("uuid"),
-      resumable = true,
       reason = None,
       agent = "main",
       role = None,
@@ -23,6 +22,7 @@ class SessionActionTest extends munit.FunSuite:
 
   private def manifest(s: ManifestSession): RunManifest =
     RunManifest(
+      manifestVersion = RunManifest.SupportedVersion,
       orcaVersion = "0.0.test",
       flow = Some("a-flow.sc"),
       workDir = "/work",
