@@ -735,6 +735,86 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStderr()
     val _ = conv.events.toList
 
+  convTest(
+    "turn.failed surfaces codex's own message via AgentTurnFailed, not a bare exit code"
+  ):
+    // Reproduces the real failure: an invalid/unsupported model produces an
+    // `error` event followed by `turn.failed`, then the process exits 1.
+    // Before the fix, both events collapsed to `Unknown` and the turn only
+    // failed later from the bare exit code, with no diagnostic text.
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-tf"}""")
+    process.enqueueStdout("""{"type":"turn.started"}""")
+    process.enqueueStdout(
+      """{"type":"error","message":"The 'gpt-5.6-terra' model requires a newer version of Codex."}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.failed","error":{"message":"The 'gpt-5.6-terra' model requires a newer version of Codex."}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val _ = conv.events.toList
+    val ex = intercept[orca.AgentTurnFailed](conv.awaitResult())
+    assert(
+      ex.getMessage.contains(
+        "The 'gpt-5.6-terra' model requires a newer version of Codex."
+      ),
+      s"expected codex's own error text in the failure message; got: ${ex.getMessage}"
+    )
+
+  convTest(
+    "a bare exit after `error` with no `turn.failed` still surfaces codex's message"
+  ):
+    // Defense in depth: if codex ever exits without emitting `turn.failed`
+    // (e.g. a crash right after reporting the error), the last `error`
+    // message is still folded into the exit-code failure via diagnosticContext.
+    val process = new FakePipedCliProcess(initiallyAlive = false)
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-e2"}""")
+    process.enqueueStdout(
+      """{"type":"error","message":"rate limit exceeded"}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val _ = conv.events.toList
+    val ex = intercept[orca.OrcaFlowException](conv.awaitResult())
+    assert(
+      ex.getMessage.contains("rate limit exceeded"),
+      s"expected the error event's message folded into the exit failure; got: ${ex.getMessage}"
+    )
+
+  convTest("`error` alone (no turn.failed) surfaces as a live Error event"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-e3"}""")
+    process.enqueueStdout(
+      """{"type":"error","message":"transient hiccup"}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assert(
+      events.exists {
+        case ConversationEvent.Error(msg) => msg.contains("transient hiccup")
+        case _                            => false
+      },
+      s"expected the error event surfaced as ConversationEvent.Error; got: $events"
+    )
+    val _ = conv.awaitResult()
+
   convTest("unknown top-level events are ignored without surfacing"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)

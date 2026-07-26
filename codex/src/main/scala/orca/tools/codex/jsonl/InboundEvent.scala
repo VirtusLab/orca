@@ -24,6 +24,19 @@ private[codex] enum InboundEvent:
   case TurnCompleted(usage: Usage)
   case ItemStarted(item: Item)
   case ItemCompleted(item: Item)
+
+  /** A protocol-level error surfaced mid-turn (e.g. an invalid model name or a
+    * provider-side rejection). Informational on its own — codex typically
+    * follows it with [[TurnFailed]], which is what actually ends the turn.
+    */
+  case Error(message: String)
+
+  /** Terminal failure event replacing `turn.completed` when the turn didn't
+    * succeed — carries the same diagnostic text as a preceding [[Error]], if
+    * any, but is the one the driver treats as authoritative since it's always
+    * followed by the process exiting non-zero.
+    */
+  case TurnFailed(message: String)
   case Unknown(rawType: String)
 
 /** A unit of work codex announces during a turn. `agent_message` is the model's
@@ -96,6 +109,8 @@ private[codex] object InboundEvent:
       case "turn.completed" => parseTurnCompleted(line)
       case "item.started"   => ItemStarted(parseItem(line))
       case "item.completed" => ItemCompleted(parseItem(line))
+      case "error"          => parseError(line)
+      case "turn.failed"    => parseTurnFailed(line)
       case other            => Unknown(other)
 
   private def parseThreadStarted(line: String): InboundEvent =
@@ -119,6 +134,14 @@ private[codex] object InboundEvent:
         cost = None
       )
     )
+
+  private def parseError(line: String): InboundEvent =
+    val wire = readFromString[ErrorWire](line)
+    Error(wire.message.getOrElse(""))
+
+  private def parseTurnFailed(line: String): InboundEvent =
+    val wire = readFromString[TurnFailedWire](line)
+    TurnFailed(wire.error.flatMap(_.message).getOrElse(""))
 
   private def parseItem(line: String): Item =
     val wire = readFromString[ItemWire](line)
@@ -203,6 +226,15 @@ private[codex] object InboundEvent:
   ) derives ConfiguredJsonValueCodec
 
   private case class TurnCompletedWire(usage: Option[UsageWire] = None)
+      derives ConfiguredJsonValueCodec
+
+  private case class ErrorWire(message: Option[String] = None)
+      derives ConfiguredJsonValueCodec
+
+  private case class TurnFailedErrorWire(message: Option[String] = None)
+      derives ConfiguredJsonValueCodec
+
+  private case class TurnFailedWire(error: Option[TurnFailedErrorWire] = None)
       derives ConfiguredJsonValueCodec
 
   private case class FileChangeWire(path: String, kind: String)

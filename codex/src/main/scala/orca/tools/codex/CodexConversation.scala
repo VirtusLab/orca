@@ -1,5 +1,6 @@
 package orca.tools.codex
 
+import orca.AgentTurnFailed
 import orca.agents.{BackendTag, Model}
 import orca.events.{Usage}
 import orca.backend.ConversationEvent
@@ -70,6 +71,13 @@ private[codex] class CodexConversation(
     */
   private var lastAgentMessage: String = ""
 
+  /** The last protocol-level error/turn-failure message seen (reader-thread-
+    * confined), folded into [[diagnosticContext]] so a bare process exit after
+    * one of these events still carries codex's own explanation rather than just
+    * an exit code — see [[handleTurnFailed]].
+    */
+  private var lastProtocolError: Option[String] = None
+
   /** MCP item ids whose `AssistantToolCall` echo we drop — the host-side bridge
     * has already surfaced the corresponding `UserQuestion`, so rendering the
     * tool call (and its `item.completed` answer echo) on top would be noise.
@@ -113,6 +121,18 @@ private[codex] class CodexConversation(
   override protected def terminalMessageNoun: String =
     "a turn.completed event"
 
+  /** Folds [[lastProtocolError]] (a codex `error`/`turn.failed` message) ahead
+    * of [[StderrPipeline]]'s stderr-derived context, so any exit path —
+    * including a bare process exit with no `turn.failed` event — carries
+    * codex's own explanation instead of just an exit code.
+    */
+  override protected def diagnosticContext: Option[String] =
+    val protocolCtx = lastProtocolError.map(m => s"codex error:\n    $m")
+    (protocolCtx, super.diagnosticContext) match
+      case (Some(p), Some(s)) => Some(s"$p\n    $s")
+      case (Some(p), None)    => Some(p)
+      case (None, other)      => other
+
   // --- Per-event dispatch ---
 
   private def handle(event: InboundEvent): Unit = event match
@@ -123,6 +143,8 @@ private[codex] class CodexConversation(
     case InboundEvent.TurnCompleted(usage) => handleTurnCompleted(usage)
     case InboundEvent.ItemStarted(item)    => handleItemStarted(item)
     case InboundEvent.ItemCompleted(item)  => handleItemCompleted(item)
+    case InboundEvent.Error(message)       => handleError(message)
+    case InboundEvent.TurnFailed(message)  => handleTurnFailed(message)
     case InboundEvent.Unknown(_)           =>
       // Forward-compat: codex may add new top-level event types; drop
       // them silently rather than rendering ✖.
@@ -217,6 +239,25 @@ private[codex] class CodexConversation(
       // resume) so the turn's tokens are priced, not attributed to `(unknown)`.
       modelId = model.orElse(configuredModel.map(_.name))
     )
+
+  /** Mid-turn protocol error (e.g. an invalid model, a provider-side
+    * rejection). Not terminal by itself — codex normally follows it with a
+    * `turn.failed` event ([[handleTurnFailed]]) — but stashed either way so a
+    * bare process exit without a `turn.failed` still surfaces it via
+    * [[diagnosticContext]].
+    */
+  private def handleError(message: String): Unit =
+    lastProtocolError = Some(message)
+    eventQueue.enqueue(ConversationEvent.Error(s"codex: $message"))
+
+  /** `turn.failed` replaces `turn.completed` when the turn didn't succeed —
+    * fail the conversation immediately with codex's own message rather than
+    * waiting for the process to exit and falling back to the bare "exited with
+    * code N" diagnostic.
+    */
+  private def handleTurnFailed(message: String): Unit =
+    lastProtocolError = Some(message)
+    failWith(new AgentTurnFailed(appendContext(s"codex turn failed: $message")))
 
   private def toWire(c: FileChangeDetail): FileChangeWire =
     FileChangeWire(c.path, c.kind)
