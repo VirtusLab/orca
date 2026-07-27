@@ -486,6 +486,7 @@ object Main:
         workDir,
         globalFlows
       )
+      ShellOutput.info(s"filename: ${target.flowPath.last}")
       AuthorAction
         .create(goal, AuthorParams(tier, target), ui, terminal)
         .discard
@@ -571,6 +572,7 @@ object Main:
           workDir,
           globalFlows
         )
+        ShellOutput.info(s"filename: ${target.flowPath.last}")
         AuthorAction
           .fork(source, changes, AuthorParams(tier, target), ui, terminal)
           .discard
