@@ -3,16 +3,16 @@ package orca.shell.cli
 import orca.shell.actions.{StackAction, StackStatus}
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
 
-/** `orca rediscover-stack`'s behavior (ADR 0021 §10/§8): clear the project's
+/** `orca clear-stack`'s behavior (ADR 0021 §10/§8): clear the project's
   * discovered stack settings so the next flow run re-detects them, confirming
   * first (or requiring `--yes` off a terminal).
   */
 private[cli] object StackCli:
 
-  /** `rediscover-stack`'s full behavior over an explicit `workDir`/`tty` (test
+  /** `clear-stack`'s full behavior over an explicit `workDir`/`tty` (test
     * seam).
     */
-  private[cli] def runRediscoverStack(
+  private[cli] def runClearStack(
       workDir: os.Path,
       yes: Boolean,
       tty: Boolean

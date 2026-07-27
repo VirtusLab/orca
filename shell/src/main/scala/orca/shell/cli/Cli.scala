@@ -74,7 +74,7 @@ private[shell] object Cli:
 
   /** Builds the shell's terminal, runs `body` over it, and always closes it —
     * the bracket every child-execing subcommand (run/edit/create/fork/continue/
-    * rediscover-stack) shares.
+    * clear-stack) shares.
     */
   private[cli] def withTerminal[A](body: Terminal => A): A =
     val terminal = ShellUi.buildTerminal()
@@ -281,14 +281,14 @@ private[shell] object Cli:
     )
 
   @main(doc =
-    "Clear discovered project stack settings so the next flow run re-detects them.\n" +
-      "Example: orca rediscover-stack --yes"
+    "Clear stack settings (format/lint/test) so the next flow run re-detects them.\n" +
+      "Example: orca clear-stack --yes"
   )
-  def rediscoverStack(
+  def clearStack(
       @arg(doc = "skip the confirmation (required off a terminal)")
       yes: Flag = Flag()
   ): Int =
-    StackCli.runRediscoverStack(os.pwd, yes.value, isTty)
+    StackCli.runClearStack(os.pwd, yes.value, isTty)
 
   @main(doc =
     "List discovered flows across the project/global/built-in tiers.\n" +

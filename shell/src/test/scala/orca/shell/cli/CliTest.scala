@@ -255,8 +255,11 @@ class CliTest extends munit.FunSuite:
       Right(2)
     )
 
-  test("rediscover-stack: --yes parses"):
-    assert(parses("rediscover-stack", "--yes"))
+  test("clear-stack: --yes parses"):
+    assert(parses("clear-stack", "--yes"))
+
+  test("clear-stack: the old rediscover-stack name is no longer recognized"):
+    assert(!parses("rediscover-stack", "--yes"))
 
   test("list: no flags parses"):
     assert(parses("list"))
@@ -275,7 +278,7 @@ class CliTest extends munit.FunSuite:
         "fork",
         "continue",
         "config",
-        "rediscover-stack",
+        "clear-stack",
         "list"
       )
     )
@@ -644,19 +647,19 @@ class CliTest extends munit.FunSuite:
     )
     assert(text.contains("coding: claude:sonnet"), text)
 
-  // --- rediscover-stack: --yes required off a terminal ---
+  // --- clear-stack: --yes required off a terminal ---
 
   test(
-    "runRediscoverStack: no stack lines is a no-op, exit 0, no tty/--yes needed"
+    "runClearStack: no stack lines is a no-op, exit 0, no tty/--yes needed"
   ):
     val dir = TempDirs.dir()
     assertEquals(
-      StackCli.runRediscoverStack(dir, yes = false, tty = false),
+      StackCli.runClearStack(dir, yes = false, tty = false),
       ExitCodes.Ok
     )
 
   test(
-    "runRediscoverStack: stack lines present, off-tty, no --yes -> usage error, untouched"
+    "runClearStack: stack lines present, off-tty, no --yes -> usage error, untouched"
   ):
     val dir = TempDirs.dir()
     os.makeDir.all(dir / ".orca")
@@ -664,13 +667,13 @@ class CliTest extends munit.FunSuite:
     val content = SettingsFile.Header + "\nformat = cargo fmt\n"
     os.write.over(path, content)
     assertEquals(
-      StackCli.runRediscoverStack(dir, yes = false, tty = false),
+      StackCli.runClearStack(dir, yes = false, tty = false),
       ExitCodes.UsageError
     )
     assertEquals(os.read(path), content)
 
   test(
-    "runRediscoverStack: stack lines present, --yes clears without needing a tty"
+    "runClearStack: stack lines present, --yes clears without needing a tty"
   ):
     val dir = TempDirs.dir()
     os.makeDir.all(dir / ".orca")
@@ -678,7 +681,7 @@ class CliTest extends munit.FunSuite:
     val content = SettingsFile.Header + "\nformat = cargo fmt\n"
     os.write.over(path, content)
     assertEquals(
-      StackCli.runRediscoverStack(dir, yes = true, tty = false),
+      StackCli.runClearStack(dir, yes = true, tty = false),
       ExitCodes.Ok
     )
     assert(!SettingsFile.hasStackLines(os.read(path)))

@@ -567,7 +567,7 @@ The subcommand set mirrors every main-menu action, one short verb each, no
 `-flow` suffix (the domain object *is* the flow): `run <flow> [task]`,
 `view <flow>`, `edit <flow>`, `create "<goal>" [--name]`,
 `fork <source> "<changes>" [--name]`, `continue [selector]`, `config`,
-`rediscover-stack`, `list`. Flags are shared by name across commands that mean
+`clear-stack`, `list`. Flags are shared by name across commands that mean
 the same thing (`--global`, `--json`, `--yes`). `create`/`fork` run the
 built-in authoring flow (§9) with the configured role agents — no
 harness/model/yolo flag exists for either.
@@ -595,7 +595,7 @@ interactive child (a harness session, `$EDITOR`) and so require a real
 terminal; off a tty they fail cleanly with a one-line stderr error and exit 2
 before constructing any UI — the interactive stack (ConsoleUI, JLine) NPEs if
 built off-tty, so the gate runs before any `Terminal`/`ShellUi` is
-constructed. `run`, `view`, `list`, `config`, `rediscover-stack` (without
+constructed. `run`, `view`, `list`, `config`, `clear-stack` (without
 `--yes`, which then requires a tty), `--help`, and `--version` all work with
 no terminal, piped in or out.
 

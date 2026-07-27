@@ -25,7 +25,7 @@ private[shell] object CliHelp:
        |  continue [session]         resume a recorded harness session (--list to see them)
        |  list                       list discovered flows across all tiers
        |  config                     show or set role agents (--planning-agent/--coding-agent/--review-agent), or --edit project|global to hand-edit the file
-       |  rediscover-stack           clear discovered stack settings (--yes to confirm)
+       |  clear-stack                clear stack settings (format/lint/test) — re-detected on the next flow run (--yes to confirm)
        |
        |Examples:
        |  orca run implement.sc "add pagination to the user list"
