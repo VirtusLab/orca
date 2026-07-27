@@ -111,18 +111,12 @@ object Main:
   ): Unit =
     val (runs, warnings) = ManifestReader.list(os.pwd, ManifestReader.pidAlive)
     warnings.foreach(ShellOutput.info)
-    val continueDisabledReason =
-      if runs.nonEmpty then None else Some("no sessions recorded yet")
-    val newestRunSessionCount =
-      runs.headOption.fold(0)(_.manifest.sessions.size)
+    val continueSessionCount =
+      runs.headOption.map(_.manifest.sessions.size)
     val resumeOffer = ResumeDetector.detect(os.pwd)
     ui.select(
       "orca shell",
-      MainMenu.choices(
-        continueDisabledReason,
-        newestRunSessionCount,
-        resumeOffer
-      )
+      MainMenu.choices(continueSessionCount, resumeOffer)
     ) match
       case UiOutcome.Cancelled                      => ()
       case UiOutcome.Selected(MenuItem.Exit)        => ()

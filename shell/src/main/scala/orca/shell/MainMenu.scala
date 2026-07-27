@@ -21,25 +21,22 @@ private[shell] enum ChangeMode:
 
 private[shell] object MainMenu:
 
-  /** Fixed ADR §3 order; `continueDisabledReason` non-None renders the item
-    * disabled, dropping `newestRunSessionCount` from its label — the count is
-    * only meaningful once there's a run to report it for. Enabled, the label
-    * names the newest run's own session count (the picker below it still lists
-    * every run's sessions, older ones included).
-    *
-    * `resumeOffer`, when `Some`, inserts `ResumeRun` right after `RunFlow` —
-    * unlike `ContinueSession`'s always-shown-but-disabled treatment, this item
-    * is ABSENT (not disabled) when there's no interrupted run to offer (ADR
-    * 0021 §3 amendment 2026-07-27).
+  /** Fixed ADR §3 order. Conditional items are ABSENT when inapplicable, never
+    * shown disabled: `resumeOffer` non-None inserts `ResumeRun` right after
+    * `RunFlow`, and `continueSessionCount` non-None (the newest run's session
+    * count; the picker below still lists every run's sessions) inserts
+    * `ContinueSession` (ADR 0021 §3/§8 amendments 2026-07-27).
     */
   def choices(
-      continueDisabledReason: Option[String],
-      newestRunSessionCount: Int,
+      continueSessionCount: Option[Int],
       resumeOffer: Option[InterruptedRun] = None
   ): List[Choice[MenuItem]] =
-    val continueLabel = continueDisabledReason.fold(
-      s"Continue a session from the last flow run ($newestRunSessionCount session(s))"
-    )(_ => "Continue a session")
+    val continueChoice = continueSessionCount.map(count =>
+      Choice(
+        MenuItem.ContinueSession,
+        s"Continue a session from the last flow run ($count session(s))"
+      )
+    )
     val resumeChoice =
       resumeOffer.map(run => Choice(MenuItem.ResumeRun, resumeLabel(run)))
     List(
@@ -57,12 +54,8 @@ private[shell] object MainMenu:
       Choice(
         MenuItem.ForkFlow,
         "Fork a flow — by hand, or an agent adapts the copy"
-      ),
-      Choice(
-        MenuItem.ContinueSession,
-        continueLabel,
-        disabledReason = continueDisabledReason
-      ),
+      )
+    ) ++ continueChoice.toList ++ List(
       Choice(
         MenuItem.Reconfigure,
         "Re-configure — pick the agents & models for planning/coding/review"

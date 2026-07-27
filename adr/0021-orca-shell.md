@@ -107,7 +107,7 @@ shows its description and prompts for the task text, appended after `--`
 (FlowLauncher's argv supports a verbose flag; v1's menu does not yet expose
 it) — the same argv a direct
 `scala-cli run flow.sc -- "task"` gets. Started outside a project, the shell
-still works: the project tier lists nothing, continue-session is disabled
+still works: the project tier lists nothing, continue-session is absent
 until a manifest exists, and built-in/global flows remain listed — a flow
 launched in a non-repo directory fails with the flow's own existing clear
 error; the shell adds no pre-check.
@@ -165,9 +165,11 @@ and kitty-keyboard-protocol handling, reused as-is by the runner's own
 ask-user prompts during a flow.
 
 The main menu, in fixed order: Run a flow · View a flow · Edit a flow ·
-Create a new flow · Continue a session · Re-configure · Exit. Unavailable
-items (continue with no manifests, §8) render disabled with the reason, not
-hidden.
+Create a new flow · Continue a session · Re-configure · Exit.
+
+> **Amendment (2026-07-27).** Inapplicable items are absent, not shown
+> disabled: Continue a session appears only once a manifest exists (§8),
+> matching Resume interrupted run's presence rule.
 
 Shell-voice output — the lines the shell prints on its own behalf, as opposed
 to prompts or a flow child's own output — carries a single `◆` glyph
@@ -418,7 +420,7 @@ in place when picked (research 08 items 7+8: the naive one-row-per-manifest-
 session listing floods the picker with same-named one-shot calls — Plan-stage
 runs, reviewer-selection picks, reviewer `chat()` turns — since only durable
 `agent.session(...)` calls carry a distinguishing `sessionName`). It is
-disabled with a hint when no manifests exist — including the version-skew
+absent when no manifests exist — including the version-skew
 case where the flow ran under a pre-manifest orca pin (§2's fallback path).
 Resume execs
 the harness's own interactive UI from the manifest's `workDir`

@@ -4,9 +4,11 @@ import orca.shell.resume.InterruptedRun
 
 class MainMenuTest extends munit.FunSuite:
 
-  test("choices(None) yields the 10 ADR-order items, all enabled"):
+  test(
+    "choices(Some(count)) yields the 10 ADR-order items, all enabled"
+  ):
     val values = MainMenu
-      .choices(continueDisabledReason = None, newestRunSessionCount = 2)
+      .choices(continueSessionCount = Some(2))
       .map(_.value)
     assertEquals(
       values,
@@ -25,28 +27,18 @@ class MainMenuTest extends munit.FunSuite:
     )
     assert(
       MainMenu
-        .choices(continueDisabledReason = None, newestRunSessionCount = 2)
+        .choices(continueSessionCount = Some(2))
         .forall(_.disabledReason.isEmpty)
     )
 
-  test("choices(Some(reason)) disables only ContinueSession, with that reason"):
-    val reason = "no sessions recorded yet"
-    val choices = MainMenu
-      .choices(continueDisabledReason = Some(reason), newestRunSessionCount = 0)
-    val byValue = choices.map(c => c.value -> c.disabledReason).toMap
-    assertEquals(byValue(MenuItem.ContinueSession), Some(reason))
-    // ResumeRun is ABSENT (not present-but-enabled) with no resumeOffer given
-    // — excluded here rather than asserted, since it isn't in `byValue` at all.
-    for
-      item <- MenuItem.values
-      if item != MenuItem.ContinueSession && item != MenuItem.ResumeRun
-    do assertEquals(byValue(item), None, s"$item should stay enabled")
+  test("choices(None) has no ContinueSession item"):
+    val choices = MainMenu.choices(continueSessionCount = None)
+    assert(!choices.exists(_.value == MenuItem.ContinueSession))
 
   test(
-    "choices(None) labels ContinueSession with the newest run's session count"
+    "choices(Some(count)) labels ContinueSession with the newest run's session count"
   ):
-    val choices = MainMenu
-      .choices(continueDisabledReason = None, newestRunSessionCount = 3)
+    val choices = MainMenu.choices(continueSessionCount = Some(3))
     val label =
       choices.find(_.value == MenuItem.ContinueSession).get.label
     assertEquals(
@@ -54,20 +46,11 @@ class MainMenuTest extends munit.FunSuite:
       "Continue a session from the last flow run (3 session(s))"
     )
 
-  test("choices(Some(reason)) keeps the plain ContinueSession label"):
-    val choices = MainMenu.choices(
-      continueDisabledReason = Some("no sessions recorded yet"),
-      newestRunSessionCount = 5
-    )
-    val label =
-      choices.find(_.value == MenuItem.ContinueSession).get.label
-    assertEquals(label, "Continue a session")
-
   test(
     "EditFlow/CreateFlow/ForkFlow labels name both hand and agent modes"
   ):
     val choices = MainMenu
-      .choices(continueDisabledReason = None, newestRunSessionCount = 0)
+      .choices(continueSessionCount = None)
     val byValue = choices.map(c => c.value -> c.label).toMap
     assertEquals(
       byValue(MenuItem.EditFlow),
@@ -99,7 +82,7 @@ class MainMenuTest extends munit.FunSuite:
     "Reconfigure/RediscoverStack labels say what they reconfigure/re-detect"
   ):
     val choices = MainMenu
-      .choices(continueDisabledReason = None, newestRunSessionCount = 0)
+      .choices(continueSessionCount = None)
     val byValue = choices.map(c => c.value -> c.label).toMap
     assertEquals(
       byValue(MenuItem.Reconfigure),
@@ -112,7 +95,7 @@ class MainMenuTest extends munit.FunSuite:
 
   test("choices(resumeOffer = None) has no ResumeRun item"):
     val choices = MainMenu
-      .choices(continueDisabledReason = None, newestRunSessionCount = 0)
+      .choices(continueSessionCount = None)
     assert(!choices.exists(_.value == MenuItem.ResumeRun))
 
   test(
@@ -123,8 +106,7 @@ class MainMenuTest extends munit.FunSuite:
       userPrompt = "fix the flaky integration test in the payments module"
     )
     val choices = MainMenu.choices(
-      continueDisabledReason = None,
-      newestRunSessionCount = 0,
+      continueSessionCount = None,
       resumeOffer = Some(run)
     )
     assertEquals(
@@ -144,8 +126,7 @@ class MainMenuTest extends munit.FunSuite:
       userPrompt = "safe\u001b[31m text\u0007"
     )
     val choices = MainMenu.choices(
-      continueDisabledReason = None,
-      newestRunSessionCount = 0,
+      continueSessionCount = None,
       resumeOffer = Some(run)
     )
     val label = choices.find(_.value == MenuItem.ResumeRun).get.label
@@ -159,8 +140,7 @@ class MainMenuTest extends munit.FunSuite:
       userPrompt = "line one\nline two"
     )
     val choices = MainMenu.choices(
-      continueDisabledReason = None,
-      newestRunSessionCount = 0,
+      continueSessionCount = None,
       resumeOffer = Some(run)
     )
     assertEquals(
@@ -172,12 +152,11 @@ class MainMenuTest extends munit.FunSuite:
     "choices(resumeOffer = Some(...)) leaves every other item's label alone"
   ):
     val withOffer = MainMenu.choices(
-      continueDisabledReason = None,
-      newestRunSessionCount = 0,
+      continueSessionCount = None,
       resumeOffer = Some(InterruptedRun("a.sc", "short task"))
     )
     val without = MainMenu
-      .choices(continueDisabledReason = None, newestRunSessionCount = 0)
+      .choices(continueSessionCount = None)
     assertEquals(
       withOffer.filterNot(_.value == MenuItem.ResumeRun).map(_.label),
       without.map(_.label)
@@ -185,7 +164,7 @@ class MainMenuTest extends munit.FunSuite:
 
   test("EditSettings label names both tiers it can open"):
     val choices = MainMenu
-      .choices(continueDisabledReason = None, newestRunSessionCount = 0)
+      .choices(continueSessionCount = None)
     val byValue = choices.map(c => c.value -> c.label).toMap
     assertEquals(
       byValue(MenuItem.EditSettings),
