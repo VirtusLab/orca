@@ -127,9 +127,10 @@ private[shell] object FlowAuthoring:
       changes: String
   ): String =
     val description = sourceDescription.getOrElse("(no description)")
-    s"""Suggest a short lowercase-kebab-case filename (letters, digits, and
-       |hyphens only, no file extension, no explanation) for a fork of an
-       |existing script.
+    s"""Suggest a short lowercase-kebab-case descriptor (1-3 words; letters,
+       |digits, and hyphens only; no file extension, no explanation) for the
+       |change a fork makes to an existing script. The descriptor will be
+       |appended to the source script's filename.
        |
        |Source script: $sourceName
        |Source description: $description
@@ -137,7 +138,7 @@ private[shell] object FlowAuthoring:
        |Changes made in the fork:
        |$changes
        |
-       |Reply with ONLY the filename, nothing else.""".stripMargin
+       |Reply with ONLY the descriptor, nothing else.""".stripMargin
 
   private val maxSlugLength = 50
 
@@ -248,13 +249,14 @@ private[shell] object FlowAuthoring:
   def suggestFilenameForGoal(goal: String): String =
     suggestFilename(configuredCodingAgent(GlobalSettings.default), goal)
 
-  /** The fork target's filename suggestion (the cheap slug prompt, ADR 0021 §9
-    * amendment): same never-blocks contract as [[suggestFilenameForGoal]], but
-    * over [[forkSlugPrompt]] — grounded in the source's name/description and
-    * the described changes — falling back to [[forkFilenameDefault]] instead of
-    * [[localFilenameSlug]]. `timeoutMillis`/`runner` are exposed (unlike
-    * [[suggestFilenameForGoal]]) so tests can stub the harness call without a
-    * real subprocess or global settings file.
+  /** The fork target's filename: `<source-stem>-<descriptor>.sc`, where the
+    * descriptor is the cheap harness call's answer to [[forkSlugPrompt]]. The
+    * source's identity is guaranteed structurally — the composition always
+    * starts from the source's own stem, so the reply can only ever shape the
+    * suffix (a reply that repeats the stem is deduplicated). Same never-blocks
+    * contract as [[suggestFilenameForGoal]]; an unusable or slow reply falls
+    * back to [[forkFilenameDefault]]. `timeoutMillis`/`runner` are exposed so
+    * tests can stub the harness call.
     */
   def suggestFilenameForFork(
       sourceName: String,
@@ -263,13 +265,23 @@ private[shell] object FlowAuthoring:
       timeoutMillis: Long = slugTimeoutMillis,
       runner: (Seq[String], Long) => Option[String] = runSlugProc
   ): String =
-    runSlugSuggestion(
-      configuredCodingAgent(GlobalSettings.default),
-      forkSlugPrompt(sourceName, sourceDescription, changes),
-      forkFilenameDefault(sourceName),
-      timeoutMillis,
-      runner
-    )
+    val stem = toKebab(sourceName.stripSuffix(".sc"))
+    val descriptor = runner(
+      slugArgv(
+        configuredCodingAgent(GlobalSettings.default),
+        forkSlugPrompt(sourceName, sourceDescription, changes)
+      ),
+      timeoutMillis
+    ).toList
+      .flatMap(_.linesIterator.map(_.trim))
+      .filter(_.nonEmpty)
+      .lastOption
+      .map(reply => toKebab(reply.stripSuffix(".sc")))
+      .map(_.stripPrefix(stem).stripPrefix("-"))
+      .filter(d => d.nonEmpty && d != "fork")
+    descriptor match
+      case Some(d) => sanitizeSlug(s"$stem-$d")
+      case None    => forkFilenameDefault(sourceName)
 
   /** Runs `argv` to completion within `timeoutMillis`, returning its stdout on
     * a zero exit; `None` on a timeout (the process is killed rather than left

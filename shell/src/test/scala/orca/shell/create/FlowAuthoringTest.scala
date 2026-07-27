@@ -282,7 +282,7 @@ class FlowAuthoringTest extends munit.FunSuite:
   // --- forkSlugPrompt ---
 
   test(
-    "forkSlugPrompt states the source name, description, and changes, and asks for the filename only"
+    "forkSlugPrompt states the source name, description, and changes, and asks for the descriptor only"
   ):
     val text = FlowAuthoring.forkSlugPrompt(
       "implement-interactive.sc",
@@ -294,7 +294,7 @@ class FlowAuthoringTest extends munit.FunSuite:
       text.contains("Implements a task interactively, pausing for user review")
     )
     assert(text.contains("review the plan"))
-    assert(text.contains("Reply with ONLY the filename"))
+    assert(text.contains("Reply with ONLY the descriptor"))
 
   test(
     "forkSlugPrompt states a placeholder when the source has no description"
@@ -305,17 +305,45 @@ class FlowAuthoringTest extends munit.FunSuite:
   // --- suggestFilenameForFork ---
 
   test(
-    "suggestFilenameForFork sanitizes the harness's last non-blank output line"
+    "suggestFilenameForFork composes <source-stem>-<descriptor>.sc from the reply"
   ):
     val runner: (Seq[String], Long) => Option[String] =
-      (_, _) => Some("Sure, how about: implement-plan-review\n")
+      (_, _) => Some("plan-review\n")
     val result = FlowAuthoring.suggestFilenameForFork(
       "implement-interactive.sc",
       Some("Implements a task interactively"),
       "review the plan",
       runner = runner
     )
-    assertEquals(result, "sure-how-about-implement-plan-review.sc")
+    assertEquals(result, "implement-interactive-plan-review.sc")
+
+  test(
+    "suggestFilenameForFork keeps the source stem even when the reply repeats it"
+  ):
+    val runner: (Seq[String], Long) => Option[String] =
+      (_, _) => Some("implement-interactive-plan-review")
+    val result = FlowAuthoring.suggestFilenameForFork(
+      "implement-interactive.sc",
+      None,
+      "review the plan",
+      runner = runner
+    )
+    assertEquals(result, "implement-interactive-plan-review.sc")
+
+  test(
+    "suggestFilenameForFork falls back when the reply is just 'fork'"
+  ):
+    val runner: (Seq[String], Long) => Option[String] = (_, _) => Some("fork")
+    val result = FlowAuthoring.suggestFilenameForFork(
+      "implement-interactive.sc",
+      None,
+      "review the plan",
+      runner = runner
+    )
+    assertEquals(
+      result,
+      FlowAuthoring.forkFilenameDefault("implement-interactive.sc")
+    )
 
   test(
     "suggestFilenameForFork falls back to forkFilenameDefault when the harness is unreachable/times out"
