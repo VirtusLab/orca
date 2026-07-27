@@ -65,7 +65,7 @@ private[shell] object BuiltInFlows:
     *
     * Cached per JVM process ([[extractedCache]]), keyed by `dir` — a repeat
     * call with the same arguments (every picker open in one shell process) only
-    * extracts/rewrites once instead of on every call (P1).
+    * extracts/rewrites once instead of on every call.
     */
   def extracted(
       env: String => Option[String],

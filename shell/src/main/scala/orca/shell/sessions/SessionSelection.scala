@@ -10,10 +10,9 @@ import orca.runner.manifest.{ManifestSession, RunManifest}
   * display — resuming still offers a crashed run's sessions (ADR 0021 §8), but
   * the notice should say so.
   *
-  * Lives in `sessions` (not `actions`, where it started) so [[SessionPicker]]
-  * can construct it without `sessions` depending back on `actions`, which —
-  * with `actions/SessionAction` already reaching into `sessions/ResumeCommand`
-  * — would otherwise be a package cycle.
+  * Lives in `sessions` so [[SessionPicker]] can construct it without `sessions`
+  * depending back on `actions`, which — with `actions/SessionAction` already
+  * reaching into `sessions/ResumeCommand` — would otherwise be a package cycle.
   */
 private[shell] case class SessionSelection(
     manifest: RunManifest,

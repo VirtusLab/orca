@@ -12,12 +12,11 @@ import Cli.{actionFailure, complete, requireTty, usageFailure, withTerminal}
   */
 private[cli] object ConfigCli:
 
-  /** `config`'s full dispatch (ADR 0021 §10) — pulled out of the `@main` method
-    * so `--edit`'s mutual-exclusion check is unit-testable without a real
-    * console. `--edit` can't be combined with any role flag or `--force`:
-    * `runEdit` hands the whole file to the user's editor, so a role flag given
-    * alongside it would be silently ignored — worth a usage error rather than a
-    * surprise. Absent `--edit`, delegates to [[runConfig]] unchanged.
+  /** `config`'s full dispatch (ADR 0021 §10; test seam). `--edit` can't be
+    * combined with any role flag or `--force`: `runEdit` hands the whole file
+    * to the user's editor, so a role flag given alongside it would be silently
+    * ignored — worth a usage error rather than a surprise. Absent `--edit`,
+    * delegates to [[runConfig]] unchanged.
     */
   private[cli] def run(
       globalSettingsPath: os.Path,
@@ -45,10 +44,7 @@ private[cli] object ConfigCli:
       case None =>
         runConfig(globalSettingsPath, planning, coding, review, force)
 
-  /** `config`'s full behavior over an explicit settings `path` — pulled out of
-    * the `@main` method so tests can point it at a temp file instead of the
-    * real user-global settings file.
-    */
+  /** `config`'s full behavior over an explicit settings `path` (test seam). */
   private[cli] def runConfig(
       path: os.Path,
       planning: Option[String],

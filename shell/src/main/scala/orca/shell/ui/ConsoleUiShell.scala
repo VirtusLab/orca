@@ -29,38 +29,22 @@ import scala.annotation.tailrec
   * tty — construct only via `ShellUi.make`, which gates on it; ConsoleUI NPEs
   * on non-tty stdin otherwise.
   *
-  * ConsoleUI's single-choice list prompt has no non-selectable-item support in
-  * its public API — `ListItem.isSelectable()` is hardcoded `true`, and
-  * `ListPromptBuilder` exposes no way to add a `Separator`; only the checkbox
-  * prompt's items carry a disabled flag, and even that flag's dimmed
-  * `unavailable()` render branch is gated behind `isSelectable() == false` in
-  * `AbstractPrompt`'s shared row renderer — unreachable for a `ListItem` since
-  * its `isSelectable()` can't be overridden (jar-verified against
-  * `jline-console-ui` 3.30.15). Per-item ANSI styling can't be hacked in
-  * either: `ListItemBuilder.text` takes a plain `String`, and
-  * `AttributedStringBuilder.append(CharSequence)` copies it as literal
-  * characters rather than parsing embedded escapes, so raw ANSI bytes would
-  * just corrupt the row's column-width bookkeeping instead of dimming it.
-  * Disabled choices are therefore rendered with their reason folded into the
-  * label (same text both backends use), and picking one anyway prints
-  * [[Choice.disabledSelectionMessage]] via [[ShellOutput.error]] before the
-  * prompt re-runs — an explained refusal, not a silent one. The same list-item
-  * absence rules out honoring `preselect`'s starting cursor position; it is a
-  * no-op here.
+  * ConsoleUI's single-choice list prompt has no non-selectable-item support,
+  * and no way to apply per-item ANSI styling either (verified against
+  * `jline-console-ui` 3.30.15). Disabled choices are therefore rendered with
+  * their reason folded into the label (same text both backends use), and
+  * picking one anyway prints [[Choice.disabledSelectionMessage]] via
+  * [[ShellOutput.error]] before the prompt re-runs — an explained refusal, not
+  * a silent one. The same list-item absence rules out honoring `preselect`'s
+  * starting cursor position; it is a no-op here.
   *
   * A fresh `ConsolePrompt` is built for every top-level `select`/`confirm`/
-  * `input` call rather than reused across the shell's lifetime: `ConsolePrompt`
-  * owns a `Display` that tracks the terminal cursor purely by bookkeeping (its
-  * own prior renders), with no way to re-sync it to wherever the cursor
-  * actually is. Sharing one `Display` across independent calls left that
-  * bookkeeping stale the moment anything else touched the terminal — including
-  * a plain `println` between prompts, or even just the previous call's own
-  * closing single-line render — so the next prompt silently overwrote the
-  * previous prompt's already-finalized answer line instead of drawing below it
-  * (reproduced live: a completed prompt's echoed answer vanished under the next
-  * prompt's message). A new `ConsolePrompt` starts with an empty render
-  * history, so its first `Display.update` correctly treats wherever the real
-  * cursor already sits as its own starting point.
+  * `input` call rather than reused across the shell's lifetime:
+  * `ConsolePrompt`'s `Display` tracks the cursor via its own render history
+  * with no resync — sharing one across calls let any intervening output (even a
+  * `println`) leave it stale, so the next prompt overwrote the previous answer
+  * line instead of drawing below it (reproduced live). A fresh instance starts
+  * with empty history.
   */
 private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
 
@@ -199,10 +183,8 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     *     embedded newlines included — never mistaken for a keypress.
     *   - Shift+Enter or Alt+Enter insert a literal newline instead of
     *     submitting ([[MultilineLineReader.registerInsertNewlineWidget]]).
-    *   - Ctrl-C cancels; Ctrl-D cancels only on an empty buffer (otherwise
-    *     ordinary forward-delete, same as [[plainLineInput]] — so Ctrl-D can no
-    *     longer "finish" a multi-line entry the way it used to; Enter does that
-    *     now).
+    *   - Ctrl-C cancels; Ctrl-D cancels only on an empty buffer, otherwise
+    *     ordinary forward-delete (same as [[plainLineInput]]).
     *
     * The Shift+Enter/Ctrl-C/Ctrl-D bindings above only reach this read because
     * [[MultilineLineReader.withKittyKeyboardProtocol]] wraps it — see that
@@ -264,27 +246,21 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
   /** Disables the terminal's `ISIG` local flag for the duration of `body`
     * (restored in `finally`, regardless of outcome).
     *
-    * `ConsolePrompt.open()` only calls jline's `Terminal.enterRawMode()`, which
+    * `ConsolePrompt.open()` calls jline's `Terminal.enterRawMode()`, which
     * turns off `ICANON`/`ECHO`/`IEXTEN` but deliberately leaves `ISIG`
     * untouched (verified against the jline 3.30.15 `AbstractTerminal` source).
     * With `ISIG` on, the kernel's tty driver intercepts Ctrl-C itself and
-    * raises a real `SIGINT` — the byte `0x03` never reaches jline's
-    * `BindingReader`, so `AbstractPrompt`'s own `ctrl('C')` keymap binding
-    * (which throws `UserInterruptException` — jar-verified) never fires. Since
-    * this shell's `Terminal` is built via a plain
-    * `TerminalBuilder.builder()...build()` ([[ShellUi.buildTerminal]]) with no
-    * `signalHandler` override, its registered `SIGINT` disposition is jline's
-    * own default, `SIG_DFL` — so the signal falls through to the JVM's default
-    * handling (process termination), which is the RC-130 kill this fixes.
+    * raises a real `SIGINT` before the byte ever reaches jline — and since this
+    * shell's `Terminal` installs no signal handler ([[ShellUi.buildTerminal]]),
+    * that SIGINT falls through to the JVM's default handling, killing the
+    * process (the kill this fixes).
     *
     * The plain-`LineReader` paths ([[plainLineInput]], [[inputMultiline]])
-    * don't need this: `LineReaderImpl.readLine()` installs its own
-    * `terminal.handle(Signal.INT, ...)` for the duration of the read (also
-    * jar-verified), converting a delivered `SIGINT` into an interrupt of the
-    * reading thread regardless of `ISIG`. `ConsolePrompt`'s prompts read via a
-    * raw `BindingReader` instead and install no such signal hook, so they need
-    * Ctrl-C to arrive as an ordinary byte instead — hence turning `ISIG` off
-    * here rather than installing a signal handler.
+    * don't need this: `LineReaderImpl.readLine()` installs its own SIGINT
+    * handler for the duration of the read (jar-verified), converting a
+    * delivered signal into an interrupt of the reading thread regardless of
+    * `ISIG`. `ConsolePrompt`'s prompts read via a raw `BindingReader` with no
+    * such hook, so they need Ctrl-C to arrive as an ordinary byte instead.
     */
   private[ui] def withIsigDisabled[A](body: => A): A =
     val original = terminal.getAttributes

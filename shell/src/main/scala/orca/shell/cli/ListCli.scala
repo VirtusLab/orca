@@ -7,10 +7,7 @@ import orca.shell.actions.FlowResolution
   */
 private[cli] object ListCli:
 
-  /** `list`'s full behavior over an explicit `workDir` — pulled out of the
-    * `@main` method so tests can point it at a temp project instead of the real
-    * `os.pwd`.
-    */
+  /** `list`'s full behavior over an explicit `workDir` (test seam). */
   private[cli] def runList(workDir: os.Path, json: Boolean): Int =
     FlowResolution.list(workDir) match
       case Left(message) =>

@@ -27,7 +27,10 @@ private[cli] case class CliFailure(message: String, exitCode: Int)
   * than calling `sys.exit` itself — [[orca.shell.Main.main]] is the only place
   * that exits, once [[dispatch]] has returned. The handlers hand off to the
   * `actions/` layer the interactive menu also calls, so behavior matches
-  * `Main`'s prompting flows exactly, minus the prompts.
+  * `Main`'s prompting flows exactly, minus the prompts. Each handler's
+  * pulled-out method takes explicit `workDir`/`tty` params instead of reading
+  * `os.pwd`/console state directly, so tests never touch the real filesystem or
+  * console.
   */
 private[shell] object Cli:
 

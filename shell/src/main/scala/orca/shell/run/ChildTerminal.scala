@@ -26,10 +26,8 @@ import sun.misc.{Signal, SignalHandler}
   * default SIGINT disposition would kill the shell too without a handler
   * installed here (verified empirically — the shell process exits on Ctrl-C
   * without this bracket). Ignoring the signal for the bracket's duration and
-  * restoring the previous handler afterward (the same pattern as sbt's
-  * `Signals.withHandler` around `run`/`console`, and git blocking
-  * SIGINT/SIGQUIT around the editor/pager) lets Ctrl-C kill only the child; the
-  * shell's own prompt handling resumes right after.
+  * restoring the previous handler afterward lets Ctrl-C kill only the child;
+  * the shell's own prompt handling resumes right after.
   */
 private[shell] object ChildTerminal:
 

@@ -22,9 +22,8 @@ private[shell] enum FallbackPolicy:
   case Refuse(hint: String)
 
 /** The flow-script argv flags every [[FlowLauncher]] launch path threads
-  * through (S1/FP1): bundled instead of two adjacent same-typed positional
-  * Booleans, which a call site could silently transpose without a compile
-  * error.
+  * through: bundled instead of two adjacent same-typed positional Booleans,
+  * which a call site could silently transpose without a compile error.
   */
 private[shell] case class FlowFlags(verbose: Boolean, skipBranch: Boolean)
 

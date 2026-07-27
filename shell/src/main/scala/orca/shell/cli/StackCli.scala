@@ -9,9 +9,8 @@ import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
   */
 private[cli] object StackCli:
 
-  /** `rediscover-stack`'s full behavior over an explicit `workDir` — pulled out
-    * of the `@main` method so tests can point it at a temp project instead of
-    * the real `os.pwd`, and inject `tty` instead of a real console.
+  /** `rediscover-stack`'s full behavior over an explicit `workDir`/`tty` (test
+    * seam).
     */
   private[cli] def runRediscoverStack(
       workDir: os.Path,

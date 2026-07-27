@@ -11,10 +11,9 @@ import Cli.{actionFailure, complete, requireTty, usageFailure, withTerminal}
   */
 private[cli] object ContinueCli:
 
-  /** `continue`'s full behavior over an explicit `workDir`/`tty` — pulled out
-    * of the `@main` method so tests can point it at a temp project (seeded with
-    * `.orca/cache/runs/` manifests) and simulate either a terminal or a pipe
-    * without touching the real console.
+  /** `continue`'s full behavior over an explicit `workDir`/`tty` (test seam) —
+    * tests seed `workDir` with `.orca/cache/runs/` manifests and simulate
+    * either a terminal or a pipe via `tty`.
     */
   private[cli] def runContinue(
       workDir: os.Path,

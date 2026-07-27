@@ -3,9 +3,8 @@ package orca.shell.ui
 /** The shell's own voice (ADR 0021 §3): every message the shell prints on its
   * own behalf — outside of [[ConsoleUiShell]]/[[NumberedUi]]'s `? ` prompts and
   * outside of a flow child's own output — carries this one glyph, distinct from
-  * the runner's glyph family (`⏺`/`●`/`▶`/`▸`, see
-  * `orca.runner.terminal.TerminalEventListener`) so shell voice is never
-  * mistaken for flow-runtime output.
+  * the runner's glyph family (`⏺`/`●`/`▶`/`▸`) so shell voice is never mistaken
+  * for flow-runtime output.
   */
 object ShellOutput:
 
@@ -19,16 +18,12 @@ object ShellOutput:
     */
   val AnsiClearLine = "[2K\r"
 
-  /** ANSI erase-from-cursor-to-end-of-screen (`ESC[0J`). scala-cli/coursier's
-    * download progress can render several lines at once, and its last redraw
-    * leaves the cursor at the TOP of that block without erasing it —
-    * [[AnsiClearLine]] only wipes the current line, so the lines below survive
-    * underneath whatever paints next. `print`ed once, right after the banner
-    * and only on a real tty, so the first menu/wizard paint starts on a blank
-    * area instead of leaving stale tails where its (shorter) lines don't fully
-    * cover the old ones. Not reused mid-session: any later stale byte is
-    * single-line ([[AnsiClearLine]]'s case), and clearing to end-of-screen
-    * there would also erase a flow's own output.
+  /** ANSI erase-from-cursor-to-end-of-screen (`ESC[0J`). Used once, right after
+    * the banner and only on a real tty: coursier's download progress can leave
+    * multiple stale lines below the cursor that [[AnsiClearLine]] (single-line)
+    * can't reach. Not reused later in the session — a later stale byte is
+    * single-line, and clearing to end-of-screen there would also erase a flow's
+    * own output.
     */
   val AnsiClearBelow = "[0J"
 

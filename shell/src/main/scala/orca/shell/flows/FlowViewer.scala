@@ -7,9 +7,9 @@ private[shell] object FlowViewer:
   private val nanorcResource = "classpath:/orca/shell/scala.nanorc"
 
   /** `source` unchanged when `highlight` is false (piped output stays
-    * byte-identical); Scala-syntax-highlighted, ANSI-escaped when true. The
-    * caller decides: a plain pipe passes false, but `--color` can force true
-    * even on a pipe. Builds a fresh [[SyntaxHighlighter]] per call — it carries
+    * byte-identical); Scala-syntax-highlighted, ANSI-escaped when true —
+    * caller-decided (a plain pipe passes false, `--color` can force true even
+    * on a pipe). Builds a fresh [[SyntaxHighlighter]] per call — it carries
     * mutable multi-line-rule state, so reuse across calls would leak between
     * unrelated renders.
     *
