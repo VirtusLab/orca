@@ -87,16 +87,20 @@ private[shell] object FlowAuthoring:
     * slug-suggestion call ([[suggestFilename]]), verified against each
     * installed CLI's `--help`: claude's `-p`/`--print`, codex's `exec`
     * subcommand, gemini's `-p`/`--prompt`, opencode's `run` subcommand, and
-    * pi's `-p`/`--print`.
+    * pi's `-p`/`--print`. Claude gets `--model haiku` — a slug needs the
+    * cheapest tier, and the user's default (often opus) would double the
+    * latency; the other CLIs keep their own configured default, since their
+    * cheap-model names are provider- or install-specific.
     */
   def slugArgv(backend: BackendTag, prompt: String): Seq[String] =
     val binary = AgentSpec.harnessNameFor(backend)
     backend match
-      case BackendTag.ClaudeCode => Seq(binary, "-p", prompt)
-      case BackendTag.Codex      => Seq(binary, "exec", prompt)
-      case BackendTag.Pi         => Seq(binary, "-p", prompt)
-      case BackendTag.Gemini     => Seq(binary, "-p", prompt)
-      case BackendTag.Opencode   => Seq(binary, "run", prompt)
+      case BackendTag.ClaudeCode =>
+        Seq(binary, "-p", "--model", "haiku", prompt)
+      case BackendTag.Codex    => Seq(binary, "exec", prompt)
+      case BackendTag.Pi       => Seq(binary, "-p", prompt)
+      case BackendTag.Gemini   => Seq(binary, "-p", prompt)
+      case BackendTag.Opencode => Seq(binary, "run", prompt)
 
   /** The cheap slug-suggestion prompt: asks for nothing but a bare filename, so
     * [[sanitizeSlug]] has the best chance of a clean answer to sanitize.
@@ -159,7 +163,9 @@ private[shell] object FlowAuthoring:
       else stripped
     if bounded.isEmpty then "new-flow.sc" else normalizedFileName(bounded)
 
-  private val slugTimeoutMillis = 4000L
+  // A real `claude -p --model haiku` call measures ~11s cold; 4s guaranteed
+  // the local fallback always won.
+  private val slugTimeoutMillis = 20000L
 
   /** Shared engine behind [[suggestFilename]] and [[suggestFilenameForFork]]:
     * runs `backend` non-interactively on `prompt` (via [[slugArgv]]) with a

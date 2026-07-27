@@ -479,6 +479,7 @@ object Main:
       tier <- pickTier(ui, "Where should the new flow be saved:", globalFlows)
       goal <- promptDescription(ui, "Describe what the flow should do")
     do
+      ShellOutput.info("picking a filename…")
       val target = FlowAuthoring.prepareAutoTarget(
         tier,
         FlowAuthoring.suggestFilenameForGoal(goal),
@@ -559,6 +560,7 @@ object Main:
   ): Unit =
     promptDescription(ui, "Describe the changes for the fork").foreach:
       changes =>
+        ShellOutput.info("picking a filename…")
         val target = FlowAuthoring.prepareAutoTarget(
           tier,
           FlowAuthoring.suggestFilenameForFork(

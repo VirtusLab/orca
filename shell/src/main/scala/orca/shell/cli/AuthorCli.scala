@@ -132,6 +132,7 @@ private[cli] object AuthorCli:
           ).left.map(actionFailure)
         yield target
       case None =>
+        ShellOutput.info("picking a filename…")
         Right(
           FlowAuthoring.prepareAutoTarget(tier, autoName, workDir, globalFlows)
         )

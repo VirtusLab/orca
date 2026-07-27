@@ -167,10 +167,10 @@ class FlowAuthoringTest extends munit.FunSuite:
 
   // --- slugArgv ---
 
-  test("slugArgv: claude uses -p/--print"):
+  test("slugArgv: claude uses -p with the cheap haiku model"):
     assertEquals(
       FlowAuthoring.slugArgv(BackendTag.ClaudeCode, "suggest a name"),
-      Seq("claude", "-p", "suggest a name")
+      Seq("claude", "-p", "--model", "haiku", "suggest a name")
     )
 
   test("slugArgv: codex uses the exec subcommand"):
