@@ -1,13 +1,15 @@
 package orca.shell
 
+import orca.shell.resume.InterruptedRun
 import orca.shell.ui.Choice
 
 /** Main menu selection (ADR 0021 §3, `ForkFlow` added §6/§9, `RediscoverStack`
-  * added §8, `EditSettings` added §4).
+  * added §8, `EditSettings` added §4, `ResumeRun` added §3 amendment
+  * 2026-07-27).
   */
 private[shell] enum MenuItem:
-  case RunFlow, ViewFlow, EditFlow, CreateFlow, ForkFlow, ContinueSession,
-    Reconfigure, EditSettings, RediscoverStack, Exit
+  case RunFlow, ResumeRun, ViewFlow, EditFlow, CreateFlow, ForkFlow,
+    ContinueSession, Reconfigure, EditSettings, RediscoverStack, Exit
 
 /** How Edit/Create/Fork make their changes (ADR 0021 §6/§9 amendment): asked
   * via [[MainMenu.modeChoices]] after the action's WHAT is established (which
@@ -24,16 +26,25 @@ private[shell] object MainMenu:
     * only meaningful once there's a run to report it for. Enabled, the label
     * names the newest run's own session count (the picker below it still lists
     * every run's sessions, older ones included).
+    *
+    * `resumeOffer`, when `Some`, inserts `ResumeRun` right after `RunFlow` —
+    * unlike `ContinueSession`'s always-shown-but-disabled treatment, this item
+    * is ABSENT (not disabled) when there's no interrupted run to offer (ADR
+    * 0021 §3 amendment 2026-07-27).
     */
   def choices(
       continueDisabledReason: Option[String],
-      newestRunSessionCount: Int
+      newestRunSessionCount: Int,
+      resumeOffer: Option[InterruptedRun] = None
   ): List[Choice[MenuItem]] =
     val continueLabel = continueDisabledReason.fold(
       s"Continue a session from the last flow run ($newestRunSessionCount session(s))"
     )(_ => "Continue a session")
+    val resumeChoice =
+      resumeOffer.map(run => Choice(MenuItem.ResumeRun, resumeLabel(run)))
     List(
-      Choice(MenuItem.RunFlow, "Run a flow"),
+      Choice(MenuItem.RunFlow, "Run a flow")
+    ) ++ resumeChoice.toList ++ List(
       Choice(MenuItem.ViewFlow, "View a flow"),
       Choice(
         MenuItem.EditFlow,
@@ -79,3 +90,15 @@ private[shell] object MainMenu:
     ),
     Choice(ChangeMode.Hand, "By hand — open in your editor")
   )
+
+  /** `"Resume interrupted run — <flow>: <first ~40 chars of task>…"`. */
+  private def resumeLabel(run: InterruptedRun): String =
+    s"Resume interrupted run — ${run.flowName}: ${taskPreview(run.userPrompt)}"
+
+  /** The task text flattened to one line (a multi-line task is common —
+    * `Main.promptTask` reads multi-line) and clipped to ~40 chars, for a menu
+    * label that fits on one row.
+    */
+  private def taskPreview(task: String): String =
+    val flattened = task.strip().replaceAll("\\s+", " ")
+    s"${flattened.take(40)}…"

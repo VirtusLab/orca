@@ -7,6 +7,8 @@ import orca.settings.SettingsFile
 import orca.shell.actions.{SettingsEditAction, StackAction}
 import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
+import orca.shell.resume.InterruptedRun
+import orca.shell.run.LaunchResult
 import orca.shell.sessions.{RecordedRun, SessionPicker, SessionSelection}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
 import orca.testkit.TempDirs
@@ -882,6 +884,63 @@ class MainTest extends munit.FunSuite:
       val expected = workDir / ".orca" / "flows" / "implement-fork.sc"
       assertEquals(spawned, Some(expected))
       assertEquals(os.read(expected), "// source content\n")
+
+  // --- resumeInterruptedRun ---
+  //
+  // `runAction` is injected (AuthorAction-style seam) so these never spawn a
+  // real `scala-cli` subprocess; the recorded call's flow+task is what the
+  // resume offer promises: byte-identical to what's stored on `InterruptedRun`.
+
+  test(
+    "resumeInterruptedRun: resolves the recorded flow name and launches with the recorded task, verbatim"
+  ):
+    withDumbTerminal: terminal =>
+      val workDir = TempDirs.dir()
+      os.write(
+        workDir / ".orca" / "flows" / "resume-flow.sc",
+        "// x\n",
+        createFolders = true
+      )
+      val run = InterruptedRun(
+        flowName = "resume-flow.sc",
+        userPrompt = "fix the flaky test\nwith detail"
+      )
+      var recorded: Option[(String, String)] = None
+      Main.resumeInterruptedRun(
+        FlowScriptedUi(),
+        terminal,
+        run,
+        workDir,
+        runAction = (flow, task, _, _, _) =>
+          recorded = Some(flow.name -> task)
+          LaunchResult.Ok
+      )
+      assertEquals(
+        recorded,
+        Some("resume-flow.sc" -> "fix the flaky test\nwith detail")
+      )
+
+  test(
+    "resumeInterruptedRun: an unresolvable flow name reports an error and never launches"
+  ):
+    withDumbTerminal: terminal =>
+      val workDir = TempDirs.dir()
+      val run = InterruptedRun(flowName = "no-such-flow.sc", userPrompt = "x")
+      var launched = false
+      val out = captured(
+        Main.resumeInterruptedRun(
+          FlowScriptedUi(),
+          terminal,
+          run,
+          workDir,
+          runAction = (_, _, _, _, _) => { launched = true; LaunchResult.Ok }
+        )
+      )
+      assert(
+        !launched,
+        "runAction must not run when the flow can't be resolved"
+      )
+      assert(out.contains("no-such-flow.sc"), out)
 
   // --- editSettings ---
   //

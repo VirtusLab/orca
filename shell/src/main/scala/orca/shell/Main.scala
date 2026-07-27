@@ -18,7 +18,8 @@ import orca.shell.actions.{
 import orca.shell.cli.{Cli, CliHelp}
 import orca.shell.create.{CreateTarget, CreateTier, FlowAuthoring}
 import orca.shell.flows.{DiscoveredFlow, FlowEditor, FlowOrigin}
-import orca.shell.run.FallbackPolicy
+import orca.shell.resume.{InterruptedRun, ResumeDetector}
+import orca.shell.run.{FallbackPolicy, LaunchResult}
 import orca.shell.sessions.{ManifestReader, RecordedRun, SessionPicker}
 import orca.shell.ui.{Choice, ShellOutput, ShellUi, UiOutcome}
 import orca.shell.wizard.{FirstRun, FirstRunStatus, Wizard}
@@ -97,6 +98,9 @@ object Main:
     * cancelled (Ctrl-C / EOF). Continue a session re-reads `.orca/cache/runs/`
     * on every redraw (ADR 0021 §8) — a flow run started from this same menu can
     * only have just finished, so the freshest listing is worth the re-read.
+    * `ResumeDetector.detect` is likewise re-evaluated every redraw (ADR 0021 §3
+    * amendment) — cheap (one dir listing plus one small file read) and
+    * consistent with Continue's own re-read.
     */
   @tailrec private def loop(
       ui: ShellUi,
@@ -111,9 +115,14 @@ object Main:
       if runs.nonEmpty then None else Some("no sessions recorded yet")
     val newestRunSessionCount =
       runs.headOption.fold(0)(_.manifest.sessions.size)
+    val resumeOffer = ResumeDetector.detect(os.pwd)
     ui.select(
       "orca shell",
-      MainMenu.choices(continueDisabledReason, newestRunSessionCount)
+      MainMenu.choices(
+        continueDisabledReason,
+        newestRunSessionCount,
+        resumeOffer
+      )
     ) match
       case UiOutcome.Cancelled                      => ()
       case UiOutcome.Selected(MenuItem.Exit)        => ()
@@ -123,6 +132,12 @@ object Main:
         // change that didn't happen.
         if wizard.run(reconfigure = true) then
           printConfigSummary(globalSettingsPath, os.pwd)
+        loop(ui, wizard, globalSettingsPath, terminal, tty)
+      case UiOutcome.Selected(MenuItem.ResumeRun) =>
+        // Only ever selectable when `resumeOffer` is `Some` — the item is
+        // absent from the menu otherwise (`MainMenu.choices`); `.foreach` is
+        // defensive, not a real branch.
+        resumeOffer.foreach(run => resumeInterruptedRun(ui, terminal, run))
         loop(ui, wizard, globalSettingsPath, terminal, tty)
       case UiOutcome.Selected(MenuItem.EditSettings) =>
         editSettings(ui, terminal, globalSettingsPath)
@@ -354,6 +369,41 @@ object Main:
         fallback = FallbackPolicy.Ask(ui)
       )
       RunAction.run(flow, task, opts, os.pwd, terminal).discard
+
+  /** Resumes `run` (ADR 0021 §3 amendment): resolves its recorded flow name
+    * against the current catalog and launches it with the recorded task text
+    * verbatim — no re-prompting, so the text stays byte-identical to what the
+    * interrupted run started with (the progress log's resume check keys on a
+    * hash of it). Runs through the exact same launch path "Run a flow" uses
+    * ([[RunAction.run]]/[[orca.shell.run.FlowLauncher]]): no branch prompt —
+    * the resume happens on the current branch by design, and a resumed log's
+    * `bindBranch` (`FlowLifecycle`) ignores `skipBranch` entirely, so the
+    * default `RunOptions` is exactly as correct here as any other value would
+    * be. `runAction` is injectable, [[AuthorAction]]-style, so a test can
+    * record the call instead of spawning a real subprocess.
+    */
+  private[shell] def resumeInterruptedRun(
+      ui: ShellUi,
+      terminal: Terminal,
+      run: InterruptedRun,
+      workDir: os.Path = os.pwd,
+      runAction: (
+          DiscoveredFlow,
+          String,
+          RunAction.RunOptions,
+          os.Path,
+          Terminal
+      ) => LaunchResult = RunAction.run
+  ): Unit =
+    FlowResolution.resolve(run.flowName, workDir) match
+      case Left(message) => ShellOutput.error(message)
+      case Right(flow) =>
+        val opts =
+          RunAction.RunOptions(
+            verbose = false,
+            fallback = FallbackPolicy.Ask(ui)
+          )
+        runAction(flow, run.userPrompt, opts, workDir, terminal).discard
 
   /** Prompts for the flow's task text, re-prompting on blank input — an empty
     * `userPrompt` reaches the flow's agent directly (branch naming, the coding

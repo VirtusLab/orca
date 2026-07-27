@@ -174,6 +174,20 @@ to prompts or a flow child's own output — carries a single `◆` glyph
 (`ShellOutput.info`/`error`/`section`), distinguishing it from the flow
 runtime's own glyph family (`⏺`/`●`/`▶`/`▸`).
 
+> **Amendment (2026-07-27).** "Resume interrupted run" is inserted right after
+> "Run a flow", shown only when `.orca/progress-<hash>.json` is present on the
+> current branch — failure teardown (ADR 0018) keeps the log and stays on the
+> branch, so its mere presence IS the detection signal, re-checked on every
+> menu redraw. Selecting it relaunches the recorded flow with the recorded
+> task text verbatim, through the same path "Run a flow" uses, no
+> re-prompting — the byte-identical text a resume needs, since the log's
+> resume check keys on a hash of it. Unlike Continue, the item is ABSENT
+> (not disabled) when there's nothing to offer: no log, an unparseable one, or
+> one whose header doesn't record a flow name (a run started outside the
+> shell) — the simpler choice over a partial pick-the-flow-and-prefill
+> fallback. Multiple unfinished logs (different prompts, one branch) offer
+> only the newest by mtime.
+
 ### 4. Welcome wizard and settings
 
 First run = the global settings file (`$XDG_CONFIG_HOME/orca/settings.properties`,
