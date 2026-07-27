@@ -282,6 +282,11 @@ object FlowLifecycle:
       // gating the gitignored-settings migration warning.
       stackOverridden: Boolean,
       store: ProgressStore,
+      // `ORCA_FLOW_NAME`, threaded down from `flow()` rather than read here —
+      // stamped into a freshly-written header (`freshRun`) so the shell's
+      // "Resume interrupted run" offer (ADR 0021 §3 amendment) knows which
+      // flow script to relaunch. `None` for a run started outside the shell.
+      flowName: Option[String] = None,
       emit: OrcaEvent => Unit
   ): FlowSetup =
     given InStage = RuntimeInStage.token()
@@ -292,7 +297,16 @@ object FlowLifecycle:
     // removed it — so an uncommitted/untracked log is still readable below.
     val snapshot = snapshotLog(store.path)
     val session =
-      SetupSession(args, agent, git, workDir, branchNaming, store, emit)
+      SetupSession(
+        args,
+        agent,
+        git,
+        workDir,
+        branchNaming,
+        store,
+        flowName,
+        emit
+      )
     session.applyCleanlinessPolicy()
     restoreLogIfMissing(store.path, snapshot)
     // Discovery (ADR 0019) is sequenced after the cleanliness decision (whose
@@ -332,6 +346,7 @@ object FlowLifecycle:
       workDir: os.Path,
       branchNaming: Option[BranchNamingStrategy],
       store: ProgressStore,
+      flowName: Option[String],
       emit: OrcaEvent => Unit
   ):
 
@@ -418,6 +433,7 @@ object FlowLifecycle:
         startBranch,
         protectedBranches,
         discovered,
+        flowName,
         emit
       )
       BranchBinding(
@@ -653,6 +669,7 @@ object FlowLifecycle:
       startBranch: String,
       protectedBranches: Set[String],
       discovered: Boolean,
+      flowName: Option[String],
       emit: OrcaEvent => Unit
   )(using InStage, WorkspaceWrite): FeatureBranch =
     val branch =
@@ -696,7 +713,9 @@ object FlowLifecycle:
         promptHash = ProgressStore.hashPrompt(args.userPrompt),
         branchMode =
           if args.skipBranch.value then BranchMode.Reused
-          else BranchMode.Created
+          else BranchMode.Created,
+        userPrompt = Some(args.userPrompt),
+        flowName = flowName
       )
     )
     git.forceAdd(store.path)

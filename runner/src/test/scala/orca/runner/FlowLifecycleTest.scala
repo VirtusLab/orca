@@ -622,6 +622,51 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
+    "setup: a fresh run's header records userPrompt and the given flowName"
+  ):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    os.write(
+      OrcaDir.settingsPath(workDir),
+      "format = echo fmt\n",
+      createFolders = true
+    )
+    assert(git.commit("add stack settings").isRight)
+    val prompt = "resume-header-fields"
+    val store = ProgressStore.default(workDir, prompt)
+    val _ = FlowLifecycle.setup(
+      args = OrcaArgs(prompt),
+      agent = StubAgent.claude,
+      git = git,
+      workDir = workDir,
+      branchNaming = None,
+      resolution =
+        FlowLifecycle.readSettings(workDir, noGlobalSettings, None).stack,
+      stackOverridden = false,
+      store = store,
+      flowName = Some("implement.sc"),
+      emit = _ => ()
+    )
+    val loaded = store.load()
+    assertEquals(loaded.map(_.header.userPrompt), Some(Some(prompt)))
+    assertEquals(loaded.map(_.header.flowName), Some(Some("implement.sc")))
+
+  test(
+    "setup: a fresh run's header has flowName = None when not given (a run outside the shell)"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "no-flow-name"
+    val store = ProgressStore.default(workDir, prompt)
+    val _ = setupForSettings(
+      workDir,
+      settingsOverride = Some(StackSettings.empty),
+      prompt = prompt
+    )
+    val loaded = store.load()
+    assertEquals(loaded.map(_.header.flowName), Some(None))
+
+  test(
     "setup: an UNTRACKED settings file in a dirty tree is read before the stash sweeps it"
   ):
     // The read happens pre-`ensureClean`: the stash sweeps the untracked file

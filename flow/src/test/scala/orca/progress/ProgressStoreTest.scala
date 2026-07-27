@@ -217,6 +217,13 @@ class ProgressStoreTest extends FunSuite:
       s"expected the caller name in the message; got: ${ex.getMessage}"
     )
 
+  test("at(workDir, path) reads back a header written via that same path"):
+    val workDir = TempDirs.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    store.writeHeader(header)
+    val rediscovered = ProgressStore.at(workDir, store.path)
+    assertEquals(rediscovered.load(), Some(ProgressLog(header, Nil)))
+
   test("default path is <workDir>/.orca/progress-<12hexchars>.json"):
     val workDir = TempDirs.dir()
     val store = ProgressStore.default(workDir, "test prompt")

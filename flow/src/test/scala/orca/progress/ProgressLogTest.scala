@@ -140,6 +140,36 @@ class ProgressLogTest extends FunSuite:
     assertEquals(decoded.sessions, Nil)
     assertEquals(decoded.header.branch, "feat/old")
 
+  test("ProgressHeader round-trips userPrompt/flowName when set"):
+    val log = ProgressLog(
+      header = ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/resume",
+        promptHash = "abc123def456",
+        branchMode = BranchMode.Created,
+        userPrompt = Some("fix the flaky test"),
+        flowName = Some("implement.sc")
+      ),
+      entries = Nil
+    )
+    assertEquals(roundTrip(log), log)
+    assertEquals(roundTrip(log).header.userPrompt, Some("fix the flaky test"))
+    assertEquals(roundTrip(log).header.flowName, Some("implement.sc"))
+
+  test(
+    "ProgressHeader JSON without userPrompt/flowName keys decodes both to None (old-format log)"
+  ):
+    // A header persisted before these fields existed — tolerated the same way
+    // SessionRecord's own optional fields are (ProgressLog's documented
+    // tolerant decoding), so an in-flight run survives an orca upgrade.
+    val json =
+      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc","branchMode":{"type":"Created"}},""" +
+        """"entries":[]}"""
+    val codec = summon[JsonData[ProgressLog]].codec
+    val decoded = readFromString[ProgressLog](json)(using codec)
+    assertEquals(decoded.header.userPrompt, None)
+    assertEquals(decoded.header.flowName, None)
+
   test("ProgressHeader round-trips branchMode = Reused (skip-branch mode)"):
     val log = ProgressLog(
       header = ProgressHeader(

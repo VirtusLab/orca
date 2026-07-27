@@ -160,6 +160,10 @@ def flow(
   // The manifest writer's actor fork lives in this scope, spanning its
   // construction through `finish`; `System.exit` below stays OUTSIDE it. A
   // nested `flow()` call gets its own scope and writer.
+  // Read once and threaded explicitly from here down (RunManifestWriter,
+  // and the progress header via `runFlow`/`FlowLifecycle.setup`) rather than
+  // re-read with `sys.env` at each site.
+  val flowName = sys.env.get("ORCA_FLOW_NAME")
   supervised:
     // Per-run session manifest (ADR 0021 §8), always attached like
     // LoggingListener; see RunManifestWriter's scaladoc for `flowName`'s
@@ -167,7 +171,7 @@ def flow(
     val manifestWriter = RunManifestWriter.start(
       workDir,
       OrcaBanner.version,
-      sys.env.get("ORCA_FLOW_NAME"),
+      flowName,
       () => java.time.Instant.now()
     )
     try
@@ -184,6 +188,7 @@ def flow(
           reviewAgent = reviewAgent,
           returnToStartBranch = returnToStartBranch,
           progressStore = progressStore,
+          flowName = flowName,
           wiring = FlowWiring(
             claude = claude,
             codex = codex,
@@ -250,6 +255,11 @@ private[orca] def runFlow(
     returnToStartBranch: Boolean,
     progressStore: Option[ProgressStore],
     globalSettingsPath: os.Path = GlobalSettings.default,
+    // `ORCA_FLOW_NAME`, forwarded into a freshly-written progress header (see
+    // `FlowLifecycle.setup`'s own scaladoc) — `flow()` passes its real
+    // `sys.env` reading; `None` for every other caller (tests, a nested
+    // `flow()` invocation with nothing of its own to report).
+    flowName: Option[String] = None,
     wiring: FlowWiring = FlowWiring()
 )(body: FlowControl ?=> Unit): Unit =
   val debug = OrcaDebug.enabled || args.verbose.value
@@ -309,6 +319,7 @@ private[orca] def runFlow(
             ghTool = ghTool,
             fsTool = fsTool,
             store = store,
+            flowName = flowName,
             debug = debug
           )
           // `ctx.close()` runs here, BEFORE the `supervised` scope joins its
@@ -358,6 +369,7 @@ private def buildContext(
     ghTool: GitHubTool,
     fsTool: FsTool,
     store: ProgressStore,
+    flowName: Option[String],
     debug: Boolean
 ): (DefaultFlowContext[?, ?, ?], FlowLifecycle.FlowSetup) =
   val log = LoggerFactory.getLogger("orca.flow")
@@ -411,7 +423,8 @@ private def buildContext(
         settingsRead.stack,
         stackOverridden = stackSettings.isDefined,
         store,
-        dispatcher.onEvent
+        flowName = flowName,
+        emit = dispatcher.onEvent
       )
     )
     // Open the three runtime `Agent[?]` roles into their own backend tags so
