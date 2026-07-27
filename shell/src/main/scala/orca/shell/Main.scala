@@ -543,9 +543,11 @@ object Main:
     os.copy(source.path, target.flowPath, createFolders = true)
     spawnEditor(terminal, target.flowPath).discard
 
-  /** Fork+agent: today's original path, unchanged — describe the changes, then
-    * hands off to [[AuthorAction.fork]] — same sandboxed flow-based launch as
-    * [[createNewFlowByAgent]].
+  /** Fork+agent: describe the changes, filename auto-derived from the source's
+    * name/description and the described changes via
+    * [[FlowAuthoring.suggestFilenameForFork]] (uniquified on collision — never
+    * prompted for), then hands off to [[AuthorAction.fork]] — same sandboxed
+    * flow-based launch as [[createNewFlowByAgent]].
     */
   private def forkFlowByAgent(
       ui: ShellUi,
@@ -559,7 +561,11 @@ object Main:
       changes =>
         val target = FlowAuthoring.prepareAutoTarget(
           tier,
-          FlowAuthoring.forkFilenameDefault(source.name),
+          FlowAuthoring.suggestFilenameForFork(
+            source.name,
+            source.description,
+            changes
+          ),
           workDir,
           globalFlows
         )

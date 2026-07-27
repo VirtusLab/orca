@@ -279,6 +279,96 @@ class FlowAuthoringTest extends munit.FunSuite:
       )
     )
 
+  // --- forkSlugPrompt ---
+
+  test(
+    "forkSlugPrompt states the source name, description, and changes, and asks for the filename only"
+  ):
+    val text = FlowAuthoring.forkSlugPrompt(
+      "implement-interactive.sc",
+      Some("Implements a task interactively, pausing for user review"),
+      "review the plan"
+    )
+    assert(text.contains("implement-interactive.sc"))
+    assert(
+      text.contains("Implements a task interactively, pausing for user review")
+    )
+    assert(text.contains("review the plan"))
+    assert(text.contains("Reply with ONLY the filename"))
+
+  test(
+    "forkSlugPrompt states a placeholder when the source has no description"
+  ):
+    val text = FlowAuthoring.forkSlugPrompt("implement.sc", None, "add logging")
+    assert(text.contains("(no description)"))
+
+  // --- suggestFilenameForFork ---
+
+  test(
+    "suggestFilenameForFork sanitizes the harness's last non-blank output line"
+  ):
+    val runner: (Seq[String], Long) => Option[String] =
+      (_, _) => Some("Sure, how about: implement-plan-review\n")
+    val result = FlowAuthoring.suggestFilenameForFork(
+      "implement-interactive.sc",
+      Some("Implements a task interactively"),
+      "review the plan",
+      runner = runner
+    )
+    assertEquals(result, "sure-how-about-implement-plan-review.sc")
+
+  test(
+    "suggestFilenameForFork falls back to forkFilenameDefault when the harness is unreachable/times out"
+  ):
+    val runner: (Seq[String], Long) => Option[String] = (_, _) => None
+    val result = FlowAuthoring.suggestFilenameForFork(
+      "implement-interactive.sc",
+      Some("Implements a task interactively"),
+      "review the plan",
+      runner = runner
+    )
+    assertEquals(
+      result,
+      FlowAuthoring.forkFilenameDefault("implement-interactive.sc")
+    )
+
+  test(
+    "suggestFilenameForFork falls back to forkFilenameDefault when the harness reply sanitizes to nothing"
+  ):
+    val runner: (Seq[String], Long) => Option[String] =
+      (_, _) => Some("   !!! ... ???  ")
+    val result = FlowAuthoring.suggestFilenameForFork(
+      "implement-interactive.sc",
+      None,
+      "review the plan",
+      runner = runner
+    )
+    assertEquals(
+      result,
+      FlowAuthoring.forkFilenameDefault("implement-interactive.sc")
+    )
+
+  test(
+    "suggestFilenameForFork passes forkSlugPrompt's text through to the runner"
+  ):
+    var seenPrompt: String = ""
+    val runner: (Seq[String], Long) => Option[String] =
+      (argv, _) => { seenPrompt = argv.last; Some("my-fork") }
+    val _ = FlowAuthoring.suggestFilenameForFork(
+      "implement-interactive.sc",
+      Some("desc"),
+      "review the plan",
+      runner = runner
+    )
+    assertEquals(
+      seenPrompt,
+      FlowAuthoring.forkSlugPrompt(
+        "implement-interactive.sc",
+        Some("desc"),
+        "review the plan"
+      )
+    )
+
   // --- forkFilenameDefault ---
 
   test("forkFilenameDefault strips .sc and appends -fork.sc"):

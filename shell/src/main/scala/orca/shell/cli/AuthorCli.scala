@@ -63,7 +63,9 @@ private[cli] object AuthorCli:
       workDir = workDir,
       resolveSource =
         FlowResolution.resolve(source, workDir).left.map(actionFailure),
-      defaultFileName = src => FlowAuthoring.forkFilenameDefault(src.name),
+      defaultFileName = src =>
+        FlowAuthoring
+          .suggestFilenameForFork(src.name, src.description, changes),
       launch = (src, params, ui, terminal) =>
         AuthorAction.fork(src, changes, params, ui, terminal)
     )
@@ -105,12 +107,16 @@ private[cli] object AuthorCli:
   /** An explicit `name` goes through validation + collision refusal (the caller
     * chose it — silently renaming would be surprising); an omitted one is
     * auto-derived and uniquified via [[FlowAuthoring.prepareAutoTarget]], which
-    * never fails.
+    * never fails. `autoName` is by-name so an explicit `name` never triggers
+    * the (possibly agent-backed, multi-second) suggestion call at all — not
+    * just discards its result. `private[cli]` (like [[validateFileName]]/
+    * [[safePrepareTarget]]) so a test can verify that by-name laziness without
+    * going through [[runAuthor]]'s tty gate and real terminal.
     */
-  private def resolveTarget(
+  private[cli] def resolveTarget(
       tier: CreateTier,
       name: Option[String],
-      autoName: String,
+      autoName: => String,
       workDir: os.Path,
       globalFlows: os.Path
   ): Either[CliFailure, CreateTarget] =

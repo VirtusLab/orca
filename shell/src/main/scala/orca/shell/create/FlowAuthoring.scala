@@ -109,6 +109,32 @@ private[shell] object FlowAuthoring:
        |
        |Reply with ONLY the filename, nothing else.""".stripMargin
 
+  /** [[slugPrompt]]'s fork counterpart: the same bare-filename ask, grounded in
+    * the source flow's name and one-line description plus the user's described
+    * changes, so the suggestion names what the FORK does differently rather
+    * than restating the source's own goal. `sourceDescription` is whatever the
+    * caller already read off the source file (e.g. `DiscoveredFlow.description`
+    * — [[orca.shell.flows.FlowDescription]]'s line-1 `//` convention), not
+    * re-read here.
+    */
+  def forkSlugPrompt(
+      sourceName: String,
+      sourceDescription: Option[String],
+      changes: String
+  ): String =
+    val description = sourceDescription.getOrElse("(no description)")
+    s"""Suggest a short lowercase-kebab-case filename (letters, digits, and
+       |hyphens only, no file extension, no explanation) for a fork of an
+       |existing script.
+       |
+       |Source script: $sourceName
+       |Source description: $description
+       |
+       |Changes made in the fork:
+       |$changes
+       |
+       |Reply with ONLY the filename, nothing else.""".stripMargin
+
   private val maxSlugLength = 50
 
   private def toKebab(text: String): String =
@@ -135,17 +161,37 @@ private[shell] object FlowAuthoring:
 
   private val slugTimeoutMillis = 4000L
 
-  /** Best-effort filename suggestion for a new flow — the "cheap slug prompt":
-    * runs `backend` non-interactively on [[slugPrompt]] (via [[slugArgv]]) with
-    * a short timeout, sanitizes its last non-blank output line through
-    * [[sanitizeSlug]], and falls back to [[localFilenameSlug]]'s local
-    * word-based derivation whenever the harness is unreachable, too slow, exits
-    * non-zero, or replies with nothing [[sanitizeSlug]] can turn into more than
-    * `new-flow.sc`. This is a nicety layered on top of a fully-working local
-    * fallback, never something the caller blocks on indefinitely. `runner` is
-    * injected for testing — a stub returning canned stdout, or `None` to
-    * simulate an unreachable/timed-out harness — and defaults to a real,
-    * timeout-bounded [[os.proc]] spawn ([[runSlugProc]]).
+  /** Shared engine behind [[suggestFilename]] and [[suggestFilenameForFork]]:
+    * runs `backend` non-interactively on `prompt` (via [[slugArgv]]) with a
+    * short timeout, sanitizes its last non-blank output line through
+    * [[sanitizeSlug]], and falls back to `fallback` whenever the harness is
+    * unreachable, too slow, exits non-zero, or replies with nothing
+    * [[sanitizeSlug]] can turn into more than `new-flow.sc`. This is a nicety
+    * layered on top of a fully-working local fallback, never something the
+    * caller blocks on indefinitely. `runner` is injected for testing — a stub
+    * returning canned stdout, or `None` to simulate an unreachable/timed-out
+    * harness — and defaults to a real, timeout-bounded [[os.proc]] spawn
+    * ([[runSlugProc]]).
+    */
+  private def runSlugSuggestion(
+      backend: BackendTag,
+      prompt: String,
+      fallback: => String,
+      timeoutMillis: Long,
+      runner: (Seq[String], Long) => Option[String]
+  ): String =
+    val lastLine =
+      runner(slugArgv(backend, prompt), timeoutMillis).toList
+        .flatMap(_.linesIterator.map(_.trim))
+        .filter(_.nonEmpty)
+        .lastOption
+    lastLine.map(sanitizeSlug) match
+      case Some(slug) if slug != "new-flow.sc" => slug
+      case _                                   => fallback
+
+  /** Best-effort filename suggestion for a new flow — the "cheap slug prompt"
+    * ([[runSlugSuggestion]]) over [[slugPrompt]], falling back to
+    * [[localFilenameSlug]]'s local word-based derivation.
     */
   def suggestFilename(
       backend: BackendTag,
@@ -153,14 +199,13 @@ private[shell] object FlowAuthoring:
       timeoutMillis: Long = slugTimeoutMillis,
       runner: (Seq[String], Long) => Option[String] = runSlugProc
   ): String =
-    val lastLine =
-      runner(slugArgv(backend, slugPrompt(goal)), timeoutMillis).toList
-        .flatMap(_.linesIterator.map(_.trim))
-        .filter(_.nonEmpty)
-        .lastOption
-    lastLine.map(sanitizeSlug) match
-      case Some(slug) if slug != "new-flow.sc" => slug
-      case _                                   => localFilenameSlug(goal)
+    runSlugSuggestion(
+      backend,
+      slugPrompt(goal),
+      localFilenameSlug(goal),
+      timeoutMillis,
+      runner
+    )
 
   /** The configured coding-role agent spec (harness + model pin) from the
     * global settings file, `None` when it's absent or unparseable. Backs
@@ -178,9 +223,10 @@ private[shell] object FlowAuthoring:
 
   /** The configured coding-role harness, falling back to claude when the global
     * settings file is absent or unparseable — the same fallback the wizard uses
-    * for an undetected default. Used by [[suggestFilenameForGoal]]'s slug call
-    * — the cheap filename suggestion always runs on the configured coding
-    * agent, not a harness choice (authoring itself no longer has one).
+    * for an undetected default. Used by [[suggestFilenameForGoal]]'s and
+    * [[suggestFilenameForFork]]'s slug calls — the cheap filename suggestion
+    * always runs on the configured coding agent, not a harness choice
+    * (authoring itself no longer has one).
     */
   def configuredCodingAgent(globalSettingsPath: os.Path): BackendTag =
     configuredCodingAgentSpec(globalSettingsPath)
@@ -195,6 +241,29 @@ private[shell] object FlowAuthoring:
     */
   def suggestFilenameForGoal(goal: String): String =
     suggestFilename(configuredCodingAgent(GlobalSettings.default), goal)
+
+  /** The fork target's filename suggestion (the cheap slug prompt, ADR 0021 §9
+    * amendment): same never-blocks contract as [[suggestFilenameForGoal]], but
+    * over [[forkSlugPrompt]] — grounded in the source's name/description and
+    * the described changes — falling back to [[forkFilenameDefault]] instead of
+    * [[localFilenameSlug]]. `timeoutMillis`/`runner` are exposed (unlike
+    * [[suggestFilenameForGoal]]) so tests can stub the harness call without a
+    * real subprocess or global settings file.
+    */
+  def suggestFilenameForFork(
+      sourceName: String,
+      sourceDescription: Option[String],
+      changes: String,
+      timeoutMillis: Long = slugTimeoutMillis,
+      runner: (Seq[String], Long) => Option[String] = runSlugProc
+  ): String =
+    runSlugSuggestion(
+      configuredCodingAgent(GlobalSettings.default),
+      forkSlugPrompt(sourceName, sourceDescription, changes),
+      forkFilenameDefault(sourceName),
+      timeoutMillis,
+      runner
+    )
 
   /** Runs `argv` to completion within `timeoutMillis`, returning its stdout on
     * a zero exit; `None` on a timeout (the process is killed rather than left
