@@ -142,6 +142,53 @@ class CodexConversationTest extends munit.FunSuite:
     assertEquals(result.output, "final answer")
 
   convTest(
+    "structured mode coalesces a commentary agent_message across a tool " +
+      "call into the same turn as the final one"
+  ):
+    // Reproduces the reported `●` leak: codex sometimes emits an early
+    // "commentary" agent_message — here identical to the eventual answer —
+    // before running a tool, then the genuine final agent_message. Per-item
+    // turn closing (as non-structured mode still does) would make the
+    // withholding buffer treat the commentary message as an already-finished
+    // "previous" turn and echo it as prose once the final turn closed. In
+    // structured mode both must collapse into ONE turn so nothing echoes.
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(
+      process,
+      outputSchema = Some("""{"type":"object"}""")
+    )
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-c"}""")
+    process.enqueueStdout("""{"type":"turn.started"}""")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"issues\":[]}"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"ls","aggregated_output":"","exit_code":null,"status":"in_progress"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"ls","aggregated_output":"f.txt\n","exit_code":0,"status":"completed"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"{\"issues\":[]}"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assertEquals(
+      events.count(_ == ConversationEvent.AssistantTurnEnd),
+      1,
+      s"expected the commentary + final agent_message to share one turn; got: $events"
+    )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+    val Right(result) = conv.awaitResult(): @unchecked
+    assertEquals(result.output, """{"issues":[]}""")
+
+  convTest(
     "command_execution items become AssistantToolCall + ToolResult events"
   ):
     val process = new FakePipedCliProcess()

@@ -414,6 +414,31 @@ class ConversationsTest extends munit.FunSuite:
       List(OrcaEvent.AssistantMessage("planning..."))
     )
 
+  test(
+    "structured mode: a tool call inside the sole turn doesn't defeat the " +
+      "withhold"
+  ):
+    // A single completed turn (activity opened by a tool call, closed once by
+    // the trailing AssistantTurnEnd) must stay withheld regardless of what
+    // kind of activity preceded the text delta — the one-turn delay only
+    // ever concerns TURN COUNT, not the shape of a turn's activity.
+    val recorder = new RecordingListener
+    val conv = new ScriptedConversation(
+      List(
+        ConversationEvent.AssistantToolCall("bash", """{"command":"ls"}"""),
+        ConversationEvent.ToolResult(Some("bash"), true, "file1\nfile2"),
+        ConversationEvent.AssistantTextDelta("""{"issues":[]}"""),
+        ConversationEvent.AssistantTurnEnd
+      ),
+      Right(sampleResult),
+      outputSchema = Some("""{"type":"object"}""")
+    )
+    val _ = supervised(Conversations.drainAutonomous(conv, recorder))
+    assertEquals(
+      recorder.events,
+      List(OrcaEvent.ToolUse("bash", """{"command":"ls"}"""))
+    )
+
   test("two back-to-back turns flush independently"):
     // Pins the textBuf.clear() inside the AssistantTurnEnd case so the
     // second turn doesn't carry the first turn's text.
