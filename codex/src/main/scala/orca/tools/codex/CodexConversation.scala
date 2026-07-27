@@ -202,7 +202,11 @@ private[codex] class CodexConversation(
       // prose — the JSON payload leaking as `●` prose right before the
       // structured-result summary. Non-structured calls keep closing per item
       // so live multi-message narration (e.g. "I'll edit X." … "Updated X.")
-      // still streams progressively.
+      // still streams progressively. Deliberate tradeoff: the single coalesced
+      // turn is always the buffer's last, so a structured codex call shows NO
+      // intermediate agent prose at all — the wire can't distinguish genuine
+      // narration from payload drafts, and suppressing both is the only way to
+      // guarantee the payload never leaks.
       if outputSchema.isEmpty then
         eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
     case Item.Reasoning(_, text) if text.nonEmpty =>
