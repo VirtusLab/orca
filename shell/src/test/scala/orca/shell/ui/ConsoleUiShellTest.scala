@@ -68,3 +68,22 @@ class ConsoleUiShellTest extends munit.FunSuite:
       ConsoleUiShell.uniqueIds(List("a", "b", "a", "b", "b")),
       List("a", "b", "a#1", "b#1", "b#2")
     )
+
+  // The WINCH signal itself (and whether ConsoleUI's stale-size repaint
+  // actually corrupts the screen) needs a real resized tty — pty-verified
+  // instead (see the report). ResizeTracker's own mark/reset/query state
+  // machine is the pure seam that split off from that: it doesn't touch a
+  // terminal at all.
+  test("ResizeTracker starts unresized"):
+    assertEquals(ConsoleUiShell.ResizeTracker().wasResized, false)
+
+  test("ResizeTracker.wasResized is true after markResized"):
+    val tracker = ConsoleUiShell.ResizeTracker()
+    tracker.markResized()
+    assertEquals(tracker.wasResized, true)
+
+  test("ResizeTracker.reset clears a prior markResized"):
+    val tracker = ConsoleUiShell.ResizeTracker()
+    tracker.markResized()
+    tracker.reset()
+    assertEquals(tracker.wasResized, false)

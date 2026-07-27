@@ -27,6 +27,16 @@ object ShellOutput:
     */
   val AnsiClearBelow = "[0J"
 
+  /** ANSI home-cursor (`ESC[H`) plus erase-entire-screen (`ESC[2J`), as one
+    * `print`ed sequence. Used by [[ConsoleUiShell]] to wipe a prompt block left
+    * corrupted by a mid-prompt terminal resize (see
+    * [[ConsoleUiShell.ResizeTracker]]): unlike [[AnsiClearBelow]], this doesn't
+    * depend on the cursor already sitting above the garbage — ConsoleUI itself
+    * may leave the cursor at the wrong row after such a resize, so only an
+    * absolute home-then-clear reliably reaches it.
+    */
+  val AnsiClearScreen = "[H[2J"
+
   /** A plain shell-voice line: outcomes, hints, notices. */
   def info(msg: String): Unit = println(s"$Glyph $msg")
 

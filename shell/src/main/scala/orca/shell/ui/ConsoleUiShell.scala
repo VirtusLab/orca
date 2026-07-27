@@ -22,6 +22,7 @@ import orca.runner.terminal.MultilineLineReader
 import ox.discard
 
 import java.io.IOError
+import java.util.concurrent.atomic.AtomicBoolean
 import scala.annotation.tailrec
 
 /** ConsoleUI-backed [[ShellUi]]: arrow-key prompts over
@@ -57,6 +58,26 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
   // line.
   lineReader.setVariable(LineReader.SECONDARY_PROMPT_PATTERN, "… ")
   MultilineLineReader.registerAll(lineReader)
+
+  // ConsoleUI's own prompt loop (behind select/confirm/input's ConsolePrompt)
+  // reads the terminal size once via AbstractPrompt.resetDisplay() when a
+  // prompt's execute() starts, then repaints from that cached Size on every
+  // keystroke without ever re-reading it (jar-verified against 3.30.15's
+  // AbstractPrompt/ListChoicePrompt: resetDisplay() runs only at the top of
+  // execute(), refreshDisplay() always reuses the field it set). A WINCH
+  // arriving mid-prompt is invisible to that loop, so the next repaint paints
+  // at the old width/height — pty-reproduced live as duplicated/overlapping
+  // rows. ConsoleUI's execute() is a private, opaque loop with no hook to
+  // force a mid-prompt redraw, so the corrupted block stays on screen for the
+  // rest of that prompt's lifetime; resizeTracker only lets runOrCancelled
+  // clear it once the prompt returns, so the *next* prompt (a fresh
+  // ConsolePrompt reading the current size) paints onto a clean screen
+  // instead of stacking under the leftover corruption. plainLineInput/
+  // inputMultiline need no such handling: LineReaderImpl installs its own
+  // WINCH handler for the duration of readLine() and redraws correctly on
+  // its own (jar-verified).
+  private val resizeTracker = ConsoleUiShell.ResizeTracker()
+  terminal.handle(Terminal.Signal.WINCH, _ => resizeTracker.markResized())
 
   private def newConsolePrompt(): ConsolePrompt =
     val config = ConsolePrompt.UiConfig()
@@ -230,6 +251,7 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
       consolePrompt: ConsolePrompt,
       elements: java.util.List[PromptableElementIF]
   ): UiOutcome[java.util.Map[String, PromptResultItemIF]] =
+    resizeTracker.reset()
     try
       // A late byte from some other writer (coursier's fetch-progress
       // renderer on a fresh-cache run) can still be sitting on the current line
@@ -242,6 +264,11 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     catch
       case _: UserInterruptException | _: EndOfFileException | _: IOError =>
         UiOutcome.Cancelled
+    finally
+      // See resizeTracker's scaladoc: this call's own render may already be
+      // corrupted (nothing to do about that here), but wiping the whole
+      // screen now stops that corruption from surviving into the next prompt.
+      if resizeTracker.wasResized then print(ShellOutput.AnsiClearScreen)
 
   /** Disables the terminal's `ISIG` local flag for the duration of `body`
     * (restored in `finally`, regardless of outcome).
@@ -271,6 +298,19 @@ private[ui] final class ConsoleUiShell(terminal: Terminal) extends ShellUi:
     finally terminal.setAttributes(original)
 
 private[ui] object ConsoleUiShell:
+
+  /** Whether a `Terminal.Signal.WINCH` fired since [[reset]] — the seam between
+    * the terminal signal (needs a real resized tty to trigger) and
+    * [[ConsoleUiShell.runOrCancelled]]'s decision to wipe the screen (pure once
+    * the flag's value is known). [[markResized]] runs on the signal dispatch
+    * thread while [[reset]]/[[wasResized]] run on the prompt thread, so the
+    * flag is an `AtomicBoolean`.
+    */
+  private[ui] final class ResizeTracker:
+    private val flagged = AtomicBoolean(false)
+    def markResized(): Unit = flagged.set(true)
+    def reset(): Unit = flagged.set(false)
+    def wasResized: Boolean = flagged.get()
 
   /** `labels`, unchanged except duplicates get a `#<n>` suffix from their
     * second occurrence on — keeps every id unique so [[ConsoleUiShell.select]]
