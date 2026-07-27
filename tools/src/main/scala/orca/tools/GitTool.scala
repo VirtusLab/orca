@@ -483,7 +483,7 @@ private[orca] class OsGitTool(
     */
   private def untrackedPaths(): List[String] =
     git("status", "--porcelain", "--untracked-files=all", "-z")
-      .split(' ')
+      .split('\u0000')
       .toList
       .filter(_.startsWith("?? "))
       .map(_.stripPrefix("?? "))
