@@ -138,6 +138,19 @@ class MainMenuTest extends munit.FunSuite:
       )
     )
 
+  test("choices(resumeOffer = Some(...)) label drops control characters"):
+    val run = InterruptedRun(
+      flowName = "fix.sc",
+      userPrompt = "safe\u001b[31m text\u0007"
+    )
+    val choices = MainMenu.choices(
+      continueDisabledReason = None,
+      newestRunSessionCount = 0,
+      resumeOffer = Some(run)
+    )
+    val label = choices.find(_.value == MenuItem.ResumeRun).get.label
+    assert(!label.exists(_.isControl), label)
+
   test(
     "choices(resumeOffer = Some(...)) label flattens a multi-line task and always ends in an ellipsis"
   ):

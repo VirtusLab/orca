@@ -42,9 +42,19 @@ private[shell] object ResumeDetector:
 
   private def fromHeader(header: ProgressHeader): Option[InterruptedRun] =
     for
-      flowName <- header.flowName
+      flowName <- header.flowName.filter(isBareFlowFilename)
       userPrompt <- header.userPrompt
     yield InterruptedRun(flowName, userPrompt)
+
+  /** The header is committed repo content, and `flowName` later reaches
+    * `FlowResolution.resolve`, which treats path-like refs as literal paths — a
+    * forged `../x.sc` or absolute path would escape the flow tiers. A
+    * legitimate header only ever holds `flow.last` (a bare `.sc` filename), so
+    * anything else drops the offer.
+    */
+  private def isBareFlowFilename(name: String): Boolean =
+    name.endsWith(".sc") && !name.contains('/') && !name.contains('\\') &&
+      !name.startsWith("-") && !name.startsWith(".")
 
   /** Every `.orca/progress-<hash>.json` file, guarded like other `.orca` reads:
     * a symlinked `.orca` (or no `.orca` at all) yields no candidates, and an

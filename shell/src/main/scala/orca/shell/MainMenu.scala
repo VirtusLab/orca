@@ -96,9 +96,10 @@ private[shell] object MainMenu:
     s"Resume interrupted run — ${run.flowName}: ${taskPreview(run.userPrompt)}"
 
   /** The task text flattened to one line (a multi-line task is common —
-    * `Main.promptTask` reads multi-line) and clipped to ~40 chars, for a menu
-    * label that fits on one row.
+    * `Main.promptTask` reads multi-line), stripped of control characters (the
+    * text comes from a committed header, and a stray escape byte would corrupt
+    * the menu row), and clipped to ~40 chars.
     */
   private def taskPreview(task: String): String =
-    val flattened = task.strip().replaceAll("\\s+", " ")
+    val flattened = task.strip().replaceAll("\\s+", " ").filterNot(_.isControl)
     s"${flattened.take(40)}…"

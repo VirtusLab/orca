@@ -47,6 +47,17 @@ class ResumeDetectorTest extends munit.FunSuite:
       .writeHeader(header(flowName = None))
     assertEquals(ResumeDetector.detect(workDir), None)
 
+  test(
+    "detect drops a flowName that isn't a bare .sc filename (forged header)"
+  ):
+    List("../../evil.sc", "/abs/evil.sc", "sub/x.sc", "-flag.sc", "x.txt")
+      .foreach: forged =>
+        val workDir = TempDirs.dir()
+        ProgressStore
+          .default(workDir, "fix the flaky test")
+          .writeHeader(header(flowName = Some(forged)))
+        assertEquals(ResumeDetector.detect(workDir), None, forged)
+
   test("detect is None for an old-format log missing userPrompt"):
     val workDir = TempDirs.dir()
     ProgressStore
