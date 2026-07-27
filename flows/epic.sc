@@ -1,6 +1,6 @@
 // Run a multi-task epic: plan, implement per task, cross-agent review, docs.
 //> using scala 3.8.4
-//> using dep "org.virtuslab::orca:0.0.17"
+//> using dep "org.virtuslab::orca:0.1.0"
 //> using jvm 21
 
 /** Run an epic: a multi-task workstream with cross-agent review.

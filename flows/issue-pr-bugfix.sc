@@ -1,6 +1,6 @@
 // Triage a Scala bug report; reproduce with a failing test, fix, open a PR.
 //> using scala 3.8.4
-//> using dep "org.virtuslab::orca:0.0.17"
+//> using dep "org.virtuslab::orca:0.1.0"
 //> using jvm 21
 
 /** Bug-report → fix flow for Scala projects, autonomous.
