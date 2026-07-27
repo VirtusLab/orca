@@ -455,6 +455,72 @@ class OsGitToolTest extends munit.FunSuite:
         "diff should mention the changed file"
       )
 
+  test("reviewDiff includes a new untracked file as a new-file diff"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      os.write(dir / "new.txt", "brand new content")
+      val diff = git.reviewDiff()
+      assert(diff.contains("new.txt"), diff)
+      assert(diff.contains("+brand new content"), diff)
+
+  test("reviewDiff includes a tracked file's modification"):
+    withRepo: (git, dir) =>
+      os.write(dir / "file.txt", "first")
+      git.commit("initial").orThrow
+      os.write.over(dir / "file.txt", "second")
+      val diff = git.reviewDiff()
+      assert(diff.contains("-first"), diff)
+      assert(diff.contains("+second"), diff)
+
+  test("reviewDiff excludes a modified tracked .orca/ file"):
+    withRepo: (git, dir) =>
+      os.makeDir(dir / ".orca")
+      os.write(dir / ".orca" / "progress-x.json", "{}")
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      os.write.over(dir / ".orca" / "progress-x.json", "{\"a\":1}")
+      val diff = git.reviewDiff()
+      assert(!diff.contains("progress-x.json"), diff)
+
+  test("reviewDiff excludes a new untracked .orca/ file"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      os.makeDir(dir / ".orca")
+      os.write(dir / ".orca" / "progress-new.json", "{}")
+      val diff = git.reviewDiff()
+      assert(!diff.contains("progress-new.json"), diff)
+
+  test("reviewDiff includes an untracked file inside a new directory"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      os.makeDir(dir / "newdir")
+      os.write(dir / "newdir" / "inner.sc", "val x = 1")
+      val diff = git.reviewDiff()
+      assert(diff.contains("newdir/inner.sc"), diff)
+
+  test("reviewDiff includes an untracked file whose name has spaces"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      os.write(dir / "my new file.txt", "hello")
+      val diff = git.reviewDiff()
+      assert(diff.contains("my new file.txt"), diff)
+
+  test("reviewDiff composes a tracked modification with an untracked file"):
+    withRepo: (git, dir) =>
+      os.write(dir / "tracked.txt", "old")
+      git.commit("seed").orThrow
+      os.write.over(dir / "tracked.txt", "new")
+      os.write(dir / "untracked.txt", "fresh")
+      val diff = git.reviewDiff()
+      assert(diff.contains("-old"), diff)
+      assert(diff.contains("+new"), diff)
+      assert(diff.contains("untracked.txt"), diff)
+      assert(diff.contains("+fresh"), diff)
+
   test("commit on a corrupted repo throws with status + fsck diagnostics"):
     // Integration check that the formatter is wired into the commit path:
     // corrupt the index so `git add -A` fails, then confirm the thrown message

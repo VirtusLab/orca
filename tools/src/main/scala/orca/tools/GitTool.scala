@@ -182,8 +182,24 @@ trait GitTool:
     */
   def resetHard()(using WorkspaceWrite): Unit
 
-  /** All changes since the last commit (staged and unstaged). */
+  /** All changes since the last commit (staged and unstaged). Tracked files
+    * only — an untracked file (nothing to diff against) is invisible here, and
+    * `.orca/` bookkeeping is included if it happens to be tracked and dirty.
+    * Fine for this method's one caller (a commit-message draft taken before the
+    * progress log is written, by construction never seeing `.orca/` churn). A
+    * reviewer-facing consumer needing untracked files surfaced and `.orca/`
+    * always excluded wants [[reviewDiff]] instead.
+    */
   def diff(): String
+
+  /** The working-tree change set a reviewer should see: tracked changes since
+    * the last commit (staged and unstaged, as in [[diff]]) excluding `.orca/`
+    * bookkeeping, PLUS each untracked non-`.orca/` file rendered as a new-file
+    * diff (`git diff --no-index` against `/dev/null`) — so a freshly-created
+    * file is visible even though it has no tracked history to diff against.
+    * Read-only: untracked files are diffed, never staged.
+    */
+  def reviewDiff(): String
 
   /** Diff of the current branch vs `base`.
     *
@@ -453,6 +469,37 @@ private[orca] class OsGitTool(
 
   def diff(): String =
     git("diff", "HEAD")
+
+  def reviewDiff(): String =
+    val tracked = git("diff", "HEAD", "--", ".", ":(exclude).orca/*")
+    val untracked = untrackedPaths().map(untrackedFileDiff)
+    (tracked :: untracked).mkString
+
+  /** Untracked, non-`.orca/` paths from `git status --porcelain`.
+    * `--untracked-files=all` recurses into untracked directories so every file
+    * inside is listed individually — the default mode lists only the directory.
+    * `-z` NUL-delimits records so a path containing a space or newline parses
+    * unambiguously.
+    */
+  private def untrackedPaths(): List[String] =
+    git("status", "--porcelain", "--untracked-files=all", "-z")
+      .split(' ')
+      .toList
+      .filter(_.startsWith("?? "))
+      .map(_.stripPrefix("?? "))
+      .filterNot(p => p == ".orca" || p.startsWith(".orca/"))
+
+  /** Render an untracked file as a new-file unified diff, without staging it
+    * (`add -N` would mutate the index — this doesn't). `git diff --no-index`
+    * exits 1 when the two sides differ, which is the expected outcome for any
+    * real file against `/dev/null`; only exit codes above 1 signal a genuine
+    * error.
+    */
+  private def untrackedFileDiff(relPath: String): String =
+    val result =
+      gitProc(Seq("git", "diff", "--no-index", "--", "/dev/null", relPath))
+    if result.exitCode <= 1 then result.out.text()
+    else fail(s"git diff --no-index -- /dev/null $relPath", result)
 
   def diffVsBase(base: String, mode: DiffMode): String =
     val spec = mode match
