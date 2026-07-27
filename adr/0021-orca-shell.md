@@ -543,6 +543,15 @@ included only as a last-resort fallback line.
 > `create`/`fork` stay agent-only (unchanged) — the hand/agent split is
 > menu-only.
 
+> **Amendment (2026-07-27).** After copying the authored file out of the
+> sandbox, the Project tier gets a scoped `git add`/`commit -- <path>` into
+> the user's own repo (`FlowCommit`) — otherwise the new file sat untracked in
+> `.orca/flows/` until a later run's `ensureClean` swept it into a stash. The
+> commit is skipped, with a "commit it yourself" hint, when: the tier is
+> Global (no repo to commit into), `cwd` isn't inside a git work tree, HEAD is
+> unborn, or the commit fails for any reason — a commit hiccup never fails the
+> authoring result.
+
 ### 10. Command-line interface
 
 `orca` with no args starts the interactive shell unchanged (§§3–9); any argv

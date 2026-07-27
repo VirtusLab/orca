@@ -7,7 +7,8 @@ import orca.shell.create.{
   AuthoringSandbox,
   CreateTarget,
   CreateTier,
-  FlowAuthoring
+  FlowAuthoring,
+  FlowCommit
 }
 import orca.shell.flows.{BuiltInFlows, DiscoveredFlow}
 import orca.shell.run.{FallbackPolicy, FlowFlags, FlowLauncher, LaunchResult}
@@ -194,8 +195,8 @@ private[shell] object AuthorAction:
             createFolders = true,
             replaceExisting = params.overwrite
           )
-          val verb = if params.overwrite then "updated" else "created"
-          ShellOutput.info(s"flow $verb at $target")
+          val committed = tryCommit(target, params)
+          ShellOutput.info(successNotice(target, params.overwrite, committed))
           AuthoringSandbox.delete(sandbox)
       case LaunchResult.Failed(_) =>
         ShellOutput.info(
@@ -203,3 +204,35 @@ private[shell] object AuthorAction:
         )
       case LaunchResult.Cancelled =>
         AuthoringSandbox.delete(sandbox)
+
+  /** Commits `target` into the Project tier's repo (ADR 0021 §9 amendment) —
+    * skipped outright for the Global tier, which has no repo to commit into.
+    * [[FlowCommit.commitScoped]] itself declines (without failing anything)
+    * when `params.target.cwd` isn't inside a git work tree or HEAD is unborn,
+    * so this stays a plain tier gate.
+    */
+  private def tryCommit(target: os.Path, params: AuthorParams): Boolean =
+    params.tier == CreateTier.Project &&
+      FlowCommit.commitScoped(
+        target,
+        params.target.cwd,
+        commitMessage(target.last, params.overwrite)
+      )
+
+  private def commitMessage(fileName: String, overwrite: Boolean): String =
+    val verb = if overwrite then "update" else "add"
+    s"orca: $verb flow $fileName"
+
+  /** The finishing notice: names what happened to the copied-out file (created
+    * vs. updated) and, when [[tryCommit]] didn't commit it, appends a one-line
+    * hint rather than silently leaving the user to notice its absence from `git
+    * log`.
+    */
+  private def successNotice(
+      target: os.Path,
+      overwrite: Boolean,
+      committed: Boolean
+  ): String =
+    val verb = if overwrite then "updated" else "created"
+    if committed then s"flow $verb and committed at $target"
+    else s"flow $verb at $target — commit it yourself to track it"

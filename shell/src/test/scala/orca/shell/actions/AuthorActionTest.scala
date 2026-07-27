@@ -6,7 +6,7 @@ import orca.shell.create.{CreateTarget, CreateTier}
 import orca.shell.flows.{BuiltInFlows, DiscoveredFlow, FlowOrigin}
 import orca.shell.run.{FallbackPolicy, FlowFlags, LaunchResult}
 import orca.shell.ui.{Choice, ShellUi, UiOutcome}
-import orca.testkit.TempDirs
+import orca.testkit.{GitRepo, TempDirs}
 
 /** A [[ShellUi]] that fails loudly on any prompt — [[AuthorAction]] never
   * prompts directly, only threads `ui` through to [[FallbackPolicy.Ask]] for
@@ -68,6 +68,24 @@ class AuthorActionTest extends munit.FunSuite:
   private def projectTarget(name: String): CreateTarget =
     val workDir = TempDirs.dir()
     CreateTarget(workDir / ".orca" / "flows" / name, workDir)
+
+  /** Like [[projectTarget]], but rooted at an already-created `workDir` — used
+    * by the commit tests, which need `workDir` to be a real git repo
+    * ([[GitRepo]]) rather than a bare temp dir.
+    */
+  private def projectTargetIn(workDir: os.Path, name: String): CreateTarget =
+    CreateTarget(workDir / ".orca" / "flows" / name, workDir)
+
+  private def lastCommitMessage(repo: os.Path): String =
+    os.proc("git", "log", "-1", "--pretty=%s").call(cwd = repo).out.text().trim
+
+  private def commitCount(repo: os.Path): Int =
+    os.proc("git", "rev-list", "--count", "HEAD")
+      .call(cwd = repo)
+      .out
+      .text()
+      .trim
+      .toInt
 
   private def forkSource(workDir: os.Path): DiscoveredFlow =
     val sourcePath = workDir / ".orca" / "flows" / "implement.sc"
@@ -238,6 +256,119 @@ class AuthorActionTest extends munit.FunSuite:
       assertEquals(os.read(target.flowPath), "// edited\n")
       assert(!os.exists(recording.calls.head.workDir), "sandbox must be gone")
       assert(output.contains(s"flow updated at ${target.flowPath}"), output)
+
+  test(
+    "create: Project tier with a git repo commits the flow, leaving unrelated staged content staged"
+  ):
+    withTerminal: terminal =>
+      val repo = GitRepo.seeded()
+      val target = projectTargetIn(repo, "new.sc")
+      os.write(repo / "unrelated.txt", "wip\n")
+      val _ = os.proc("git", "add", "--", "unrelated.txt").call(cwd = repo)
+      val recording = RecordingLaunch(onLaunch =
+        sandbox => os.write(sandbox / "new.sc", "// a flow\n")
+      )
+
+      val output = captured:
+        val result = AuthorAction.create(
+          "sync issues nightly",
+          AuthorParams(CreateTier.Project, target),
+          NoPromptUi,
+          terminal,
+          recording.fn
+        )
+        assertEquals(result, LaunchResult.Ok)
+
+      assert(
+        output.contains(s"flow created and committed at ${target.flowPath}"),
+        output
+      )
+      assertEquals(lastCommitMessage(repo), "orca: add flow new.sc")
+      val status =
+        os.proc("git", "status", "--porcelain").call(cwd = repo).out.text()
+      assert(
+        status.linesIterator.exists(l =>
+          l.trim.startsWith("A") && l.contains("unrelated.txt")
+        ),
+        s"the unrelated staged file must remain staged, not swept into the flow's commit:\n$status"
+      )
+
+  test("create: Global tier never attempts a commit"):
+    withTerminal: terminal =>
+      // A real repo, deliberately — proves the Global tier is skipped by its
+      // own tier check, not merely because there happens to be no repo.
+      val repo = GitRepo.seeded()
+      val globalFlows = repo / "flows"
+      val target = CreateTarget(globalFlows / "new.sc", globalFlows / os.up)
+      val before = commitCount(repo)
+      val recording = RecordingLaunch(onLaunch =
+        sandbox => os.write(sandbox / "new.sc", "// a flow\n")
+      )
+
+      val output = captured:
+        val result = AuthorAction.create(
+          "sync issues nightly",
+          AuthorParams(CreateTier.Global, target),
+          NoPromptUi,
+          terminal,
+          recording.fn
+        )
+        assertEquals(result, LaunchResult.Ok)
+
+      assertEquals(commitCount(repo), before, "no new commit must appear")
+      assert(output.contains(s"flow created at ${target.flowPath}"), output)
+      assert(output.contains("commit it yourself"), output)
+
+  test(
+    "create: Project tier outside a git work tree skips the commit with a hint"
+  ):
+    withTerminal: terminal =>
+      val target = projectTarget("new.sc") // plain TempDirs.dir(), not a repo
+      val recording = RecordingLaunch(onLaunch =
+        sandbox => os.write(sandbox / "new.sc", "// a flow\n")
+      )
+
+      val output = captured:
+        val result = AuthorAction.create(
+          "sync issues nightly",
+          AuthorParams(CreateTier.Project, target),
+          NoPromptUi,
+          terminal,
+          recording.fn
+        )
+        assertEquals(result, LaunchResult.Ok)
+
+      assert(output.contains(s"flow created at ${target.flowPath}"), output)
+      assert(output.contains("commit it yourself"), output)
+
+  test(
+    "fork: overwrite=true commits with an 'update' message into the Project tier's repo"
+  ):
+    withTerminal: terminal =>
+      val repo = GitRepo.seeded()
+      val target = projectTargetIn(repo, "implement.sc")
+      val source = forkSource(repo)
+      val recording = RecordingLaunch(onLaunch =
+        sandbox => os.write(sandbox / "implement.sc", "// edited\n")
+      )
+
+      val output = captured:
+        val result = AuthorAction.fork(
+          source,
+          "add a retry step",
+          AuthorParams(CreateTier.Project, target, overwrite = true),
+          NoPromptUi,
+          terminal,
+          recording.fn
+        )
+        assertEquals(result, LaunchResult.Ok)
+
+      assertEquals(os.read(target.flowPath), "// edited\n")
+      assert(
+        output.contains(s"flow updated and committed at ${target.flowPath}"),
+        output
+      )
+      assertEquals(lastCommitMessage(repo), "orca: update flow implement.sc")
 
   test(
     "fork: overwrite picks editPrompt's wording, plain fork picks forkPrompt's"
