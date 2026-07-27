@@ -20,8 +20,8 @@ private[shell] object CliHelp:
        |  run <flow> [task]        run a flow (task from stdin when piped)
        |  view <flow>              print a flow's source
        |  edit <flow>              open a flow in $$EDITOR (built-ins: --to project|global)
-       |  create [name]            author a new flow with a coding agent (--goal required)
-       |  fork <source> [name]     fork an existing flow (--changes required)
+       |  create [name]            an agent writes a new flow in a sandbox (--goal required; name auto-derived, --global for the global tier)
+       |  fork <source> [name]     an agent adapts a copy of an existing flow (--changes required; same options as create)
        |  continue [session]       resume a recorded harness session (--list to see them)
        |  list                     list discovered flows across all tiers
        |  config                   show or set role agents (--planning-agent/--coding-agent/--review-agent), or --edit project|global to hand-edit the file
