@@ -930,7 +930,7 @@ The script does exactly two things:
 1. If `scala-cli` isn't on your `PATH`, it downloads and runs scala-cli's
    official installer (which places scala-cli in its own versioned location
    and updates your shell profile; scala-cli then manages its own JVM).
-2. It writes the `orca` executable to `~/.local/bin/orca` — a ~5-line
+2. It writes the `orca` executable to `~/.local/bin/orca` — a short
    launcher script that runs the latest released `orca-shell` via
    `scala-cli`. Nothing else is downloaded at install time; the artifacts
    are fetched on the first `orca` run, and the launcher never needs a
@@ -941,10 +941,12 @@ then run `orca`.
 
 To avoid installing anything, or to pin a version (e.g. in CI), run the shell
 directly instead. The pinned form works from the first release that includes
-the shell; the version below always tracks the latest release:
+the shell; the version below always tracks the latest release. `--workspace`
+keeps scala-cli's own build metadata out of the current directory (it lands
+under the given directory instead):
 
 ```bash
-scala-cli run --jvm 21 --quiet --dep "org.virtuslab::orca-shell:0.0.17" --main-class orca.shell.Main
+scala-cli run --workspace "${XDG_CACHE_HOME:-$HOME/.cache}/orca/shell/workspace" --jvm 21 --quiet --dep "org.virtuslab::orca-shell:0.0.17" --main-class orca.shell.Main
 ```
 
 ## Documentation

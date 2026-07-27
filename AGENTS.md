@@ -385,15 +385,18 @@ Every save rebuilds the affected module and refreshes `~/.ivy2/local`.
 
 After `sbt publishLocal`, run the shell from the local artifact instead of
 the released one. Isolate the config and cache dirs so your real
-`~/.config/orca` and wizard state stay untouched:
+`~/.config/orca` and wizard state stay untouched; `--workspace` keeps
+scala-cli's own `.scala-build`/`.bsp` for this no-input `--dep`+`--main-class`
+invocation out of `/tmp/orca-dev/project`, the same fix the `orca` shim
+applies (`install.sh`).
 
 ```bash
 version="$(sbt -batch -error "print shell/version" | tail -1)"
-mkdir -p /tmp/orca-dev/project /tmp/orca-dev/xdg/{config,cache}
+mkdir -p /tmp/orca-dev/project /tmp/orca-dev/xdg/{config,cache} /tmp/orca-dev/workspace
 cd /tmp/orca-dev/project && git init -q 2>/dev/null; true
 
 XDG_CONFIG_HOME=/tmp/orca-dev/xdg/config XDG_CACHE_HOME=/tmp/orca-dev/xdg/cache \
-  scala-cli run --jvm 21 --quiet \
+  scala-cli run --workspace /tmp/orca-dev/workspace --jvm 21 --quiet \
     --dep "org.virtuslab::orca-shell:$version" \
     --repository ivy2local \
     --main-class orca.shell.Main
@@ -404,7 +407,7 @@ the headless CLI, append the subcommand after `--`:
 
 ```bash
 XDG_CONFIG_HOME=... XDG_CACHE_HOME=... \
-  scala-cli run --jvm 21 --quiet \
+  scala-cli run --workspace /tmp/orca-dev/workspace --jvm 21 --quiet \
     --dep "org.virtuslab::orca-shell:$version" \
     --repository ivy2local \
     --main-class orca.shell.Main -- run implement.sc "your task"

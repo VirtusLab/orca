@@ -73,6 +73,15 @@ later as a convenience.
 All modules release under one dynver version, so shell version = orca
 version with no extra plumbing.
 
+> **Amendment (2026-07-27).** The shim additionally passes `--workspace
+> "${XDG_CACHE_HOME:-$HOME/.cache}/orca/shell/workspace"` (created with
+> `mkdir -p` first): without it, this no-input `--dep`+`--main-class`
+> invocation wrote `.bsp/scala-cli.json` and `.scala-build/` into whatever
+> directory `orca` was launched from — the user's project — where a later
+> run's `ensureClean` auto-stash (§2) would sweep it up alongside real
+> changes. The README/AGENTS.md recipes that quote the invocation carry the
+> same flag.
+
 ### 2. Flow execution: supervised subprocess, shell-forced orca version
 
 **The shell runs a selected flow as a `scala-cli run` child process that

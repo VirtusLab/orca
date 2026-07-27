@@ -3,7 +3,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/VirtusLab/orca/master/install.sh | bash
 #
-# The shim is a ~5-line script that hands off to `scala-cli run` against the
+# The shim is a short script that hands off to `scala-cli run` against the
 # `latest.release` of `orca-shell` — nothing is downloaded or compiled here,
 # so re-running this script never needs a version bump. If scala-cli itself
 # is missing, this script bootstraps it via its official installer first.
@@ -56,7 +56,9 @@ mkdir -p "$bin_dir"
 cat > "$bin_path" <<EOF
 #!/usr/bin/env bash
 $marker
-exec scala-cli run --jvm 21 --quiet \\
+workspace="\${XDG_CACHE_HOME:-\$HOME/.cache}/orca/shell/workspace"
+mkdir -p "\$workspace"
+exec scala-cli run --workspace "\$workspace" --jvm 21 --quiet \\
   --dep "org.virtuslab::orca-shell:latest.release" \\
   --main-class orca.shell.Main -- "\$@"
 EOF
