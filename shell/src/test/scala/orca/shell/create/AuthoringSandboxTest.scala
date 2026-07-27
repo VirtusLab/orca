@@ -44,3 +44,31 @@ class AuthoringSandboxTest extends munit.FunSuite:
     val sandbox = AuthoringSandbox.create()
     AuthoringSandbox.delete(sandbox)
     assert(!os.exists(sandbox))
+
+  test(
+    "create: scala-cli workspace droppings are ignored — invisible to status"
+  ):
+    val sandbox = AuthoringSandbox.create()
+    try
+      val tracked = os
+        .proc("git", "ls-files")
+        .call(cwd = sandbox)
+        .out
+        .text()
+      assert(
+        tracked.linesIterator.contains(".gitignore"),
+        s"the sandbox .gitignore must be committed:\n$tracked"
+      )
+      os.write(sandbox / ".bsp" / "scala-cli.json", "{}", createFolders = true)
+      os.write(
+        sandbox / ".scala-build" / "ide-inputs.json",
+        "{}",
+        createFolders = true
+      )
+      val status = os
+        .proc("git", "status", "--porcelain", "--untracked-files=all")
+        .call(cwd = sandbox)
+        .out
+        .text()
+      assertEquals(status.trim, "", status)
+    finally AuthoringSandbox.delete(sandbox)

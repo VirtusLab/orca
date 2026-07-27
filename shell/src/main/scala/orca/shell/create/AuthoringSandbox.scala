@@ -20,16 +20,27 @@ private[shell] object AuthoringSandbox:
       |test = off
       |""".stripMargin
 
+  /** Ignores the workspace metadata the coding agent's own `scala-cli compile`
+    * (the prompt's verification step) drops beside the flow — kept out of
+    * reviewer diffs and stage commits alike.
+    */
+  private[create] val GitignoreContents: String =
+    """.bsp/
+      |.scala-build/
+      |.metals/
+      |""".stripMargin
+
   /** Creates the sandbox: a fresh temp dir, `git init` with a local identity
-    * (no dependence on the user's global git config), and the settings file
-    * committed as the root commit — so the flow starts on a clean tree with a
-    * commit for its branch machinery to build on.
+    * (no dependence on the user's global git config), and the `.gitignore` +
+    * settings file committed as the root commit — so the flow starts on a clean
+    * tree with a commit for its branch machinery to build on.
     */
   def create(): os.Path =
     val dir = os.temp.dir(prefix = "orca-authoring-")
     git(dir, "init", "--quiet")
     git(dir, "config", "user.name", "orca")
     git(dir, "config", "user.email", "orca@authoring.invalid")
+    os.write(dir / ".gitignore", GitignoreContents)
     os.makeDir.all(dir / ".orca")
     os.write(dir / ".orca" / "settings.properties", SettingsContents)
     git(dir, "add", "-A")
