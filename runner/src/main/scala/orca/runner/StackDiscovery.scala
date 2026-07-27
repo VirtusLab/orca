@@ -4,6 +4,7 @@ import orca.{InStage, StackSettings}
 import orca.agents.{Agent, Announce, JsonData, given}
 import orca.events.OrcaEvent
 import orca.settings.{SettingsEntry, StackKey}
+import orca.subprocess.PathProbe
 import orca.util.{PromptResource, TextUtil}
 
 /** One command the discovery agent proposes for a task, with the repo-relative
@@ -67,28 +68,26 @@ private[runner] object StackDiscovery:
   private[runner] val Prompt: String =
     PromptResource.load("/orca/runner/prompts/stack-discovery.md")
 
-  /** Run discovery end to end: announce it, ask `agent`'s cheap tier (read-only
-    * — the agent inspects the repo with its own tools; nothing is inlined into
-    * the prompt) for a [[StackDiscoveryResult]], apply the two mechanical
-    * checks against `workDir`, and narrate every resulting command/demotion
-    * line — plus a warning per task left with no commands — as `Step` events.
-    * Returns the surviving settings and the full entry list for the caller to
-    * render and write.
+  /** Run discovery end to end (ADR 0019 § Auto-discovery). The cheap-tier agent
+    * run is read-only — it inspects the repo with its own tools; nothing is
+    * inlined into the prompt.
     *
-    * Deliberately catch-free (ADR 0019): a discovery failure propagates and
-    * aborts the run as an ordinary surfaced setup failure, rather than being
-    * degraded to writing an all-commented file — under the frozen-file
-    * semantics that would turn a transient outage into a permanently recorded
-    * "gates off".
+    * `existingContent` is `FlowLifecycle`'s already-read settings-file content
+    * — passed through only to pick the accurate opening `Step` wording
+    * ([[startMessage]]).
+    *
+    * Deliberately catch-free: a discovery failure propagates and aborts the run
+    * as an ordinary surfaced setup failure, rather than degrading to an
+    * all-commented file — under the frozen-file semantics that would turn a
+    * transient outage into a permanently recorded "gates off".
     */
   def discover(
       agent: Agent[?],
       workDir: os.Path,
-      emit: OrcaEvent => Unit
+      emit: OrcaEvent => Unit,
+      existingContent: Option[String]
   )(using InStage): (StackSettings, List[SettingsEntry]) =
-    emit(
-      OrcaEvent.Step("no .orca/settings.properties — running stack discovery")
-    )
+    emit(OrcaEvent.Step(startMessage(existingContent)))
     val result = agent.cheap.withReadOnly
       .resultAs[StackDiscoveryReply]
       .autonomous
@@ -102,6 +101,17 @@ private[runner] object StackDiscovery:
     narrateEntries(entries, emit)
     warnDisabledGates(settings, emit)
     (settings, entries)
+
+  /** The opening `Step`'s wording, naming why discovery is running: absent (or
+    * blank) file vs. a present file that simply names no stack line yet — the
+    * two cases `FlowLifecycle.readSettings` funnels into `NeedsDiscovery`, told
+    * apart by whether it captured any `existingContent`.
+    */
+  private[runner] def startMessage(existingContent: Option[String]): String =
+    val purpose = "discovering how to format, lint & test this project"
+    existingContent match
+      case None    => s"no .orca/settings.properties — $purpose"
+      case Some(_) => s".orca/settings.properties has no stack lines — $purpose"
 
   /** Narrate every command/demotion entry as its own `Step` event. Unset tasks
     * surface through [[warnDisabledGates]] instead.
@@ -121,13 +131,14 @@ private[runner] object StackDiscovery:
       case SettingsEntry.Demoted(key, command, reason) =>
         emit(
           OrcaEvent.Step(
-            s"  # $key = ${collapse(command)}   (${collapse(reason)})"
+            s"  $key = off   # ${collapse(command)}: ${collapse(reason)}"
           )
         )
       case SettingsEntry.Unset(_, _) => ()
 
   /** Emit a warning `Step` for each task that ended up with no commands — its
-    * gate is disabled until the settings file gains a live line.
+    * gate stays disabled (the file now carries a live `key = off` line for it)
+    * until the user hand-edits in a real command.
     */
   private def warnDisabledGates(
       settings: StackSettings,
@@ -157,12 +168,9 @@ private[runner] object StackDiscovery:
 
   /** First mechanical check (ADR 0019): `None` = resolvable, `Some(reason)` =
     * demote. Strips leading `VAR=` assignment tokens, then resolves the first
-    * remaining word via `bash -c 'command -v'` (builtins included, the same
-    * environment stage-time `bash -c` inherits). The word is passed as an
-    * ARGUMENT (`"$1"`), never interpolated into the script text, so shell
-    * metacharacters in an agent-proposed command cannot execute here. cwd is
-    * `workDir`, so a repo-relative path like `./script.sh` resolves as it will
-    * at stage time.
+    * remaining word via [[PathProbe]] (builtins included, the same environment
+    * stage-time `bash -c` inherits). cwd is `workDir`, so a repo-relative path
+    * like `./script.sh` resolves as it will at stage time.
     */
   private[runner] def unresolvedReason(
       command: String,
@@ -175,15 +183,7 @@ private[runner] object StackDiscovery:
     words.dropWhile(w => AssignmentToken.findPrefixOf(w).isDefined) match
       case Nil => Some("empty command")
       case word :: _ =>
-        val probe = os
-          .proc("bash", "-c", """command -v -- "$1"""", "bash", word)
-          .call(
-            cwd = workDir,
-            check = false,
-            stdout = os.Pipe,
-            stderr = os.Pipe
-          )
-        if probe.exitCode == 0 then None
+        if PathProbe.resolves(word, workDir) then None
         else Some(s"$word: not found on PATH")
 
   /** Second mechanical check (ADR 0019): the cited evidence file must exist
@@ -201,9 +201,10 @@ private[runner] object StackDiscovery:
     *
     * Per command: passing both checks → a [[SettingsEntry.Command]] carrying
     * its evidence as the comment, and the command joins the returned settings;
-    * failing one → a [[SettingsEntry.Demoted]] with the reason. A task that
-    * proposed no commands becomes [[SettingsEntry.Unset]]; a task whose every
-    * command was demoted is documented by the demoted lines themselves.
+    * failing one → a [[SettingsEntry.Demoted]] with the reason (rendered as a
+    * live `key = off` line — see [[SettingsEntry]]). A task that proposed no
+    * commands becomes [[SettingsEntry.Unset]]; a task whose every command was
+    * demoted is documented by the demoted lines themselves.
     */
   def toEntries(
       result: StackDiscoveryResult,

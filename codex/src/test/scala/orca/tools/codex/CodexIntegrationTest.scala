@@ -1,10 +1,13 @@
 package orca.tools.codex
 
+import orca.AgentTurnFailed
 import orca.agents.{
   AutoApprove,
   BackendTag,
   AgentConfig,
+  Model,
   SessionId,
+  ToolSet,
   WireSessionId
 }
 import orca.backend.{ConversationEvent, SupervisedBackend}
@@ -115,6 +118,85 @@ class CodexIntegrationTest extends munit.FunSuite:
         assert(
           events.contains(ConversationEvent.AssistantTurnEnd),
           s"expected an AssistantTurnEnd; got: $events"
+        )
+      finally conversation.cancel()
+
+  test(
+    "a reviewer-shaped turn (read-only, systemPrompt, pinned model) succeeds with a valid model"
+  ):
+    // Same shape `buildReviewers` drives: ReadOnly tools + a systemPrompt,
+    // model pinned via AgentConfig rather than left to codex's default.
+    withBackend(): backend =>
+      val result = backend.runAutonomous(
+        prompt = "Reply with the single word: READY.",
+        session = fresh,
+        config = AgentConfig(
+          model = Some(Model("gpt-5.5")),
+          systemPrompt = Some("You are a terse reviewer."),
+          tools = ToolSet.ReadOnly
+        )
+      )
+      assert(
+        result.output.toUpperCase.contains("READY"),
+        s"expected output to contain READY, got: ${result.output}"
+      )
+
+  test(
+    "an invalid/unsupported model pin surfaces codex's own explanation, not a bare exit code"
+  ):
+    // Regression test for the fork-flow failure: a reviewer configured with a
+    // model name this codex build doesn't support used to fail with the
+    // bare, undiagnosable "codex exited with code 1". It must now name the
+    // actual problem, taken from codex's own `turn.failed` event.
+    withBackend(): backend =>
+      val ex = intercept[AgentTurnFailed]:
+        val _ = backend.runAutonomous(
+          prompt = "Reply with the single word: READY.",
+          session = fresh,
+          config = AgentConfig(
+            model = Some(Model("gpt-5.6-terra")),
+            systemPrompt = Some("You are a terse reviewer."),
+            tools = ToolSet.ReadOnly
+          )
+        )
+      assert(
+        !ex.getMessage.trim.endsWith("exited with code 1"),
+        s"expected codex's own explanation folded in, not a bare exit code; got: ${ex.getMessage}"
+      )
+
+  test(
+    "structured call with a tool call before the answer produces exactly " +
+      "one turn (regression for the `●` JSON leak)"
+  ):
+    // Reproduces the reported bug live: codex, when told to run a tool before
+    // answering under `--output-schema`, sometimes emits an early "commentary"
+    // agent_message (often identical to the eventual answer) before the tool
+    // call, then the genuine final one. Before the fix, CodexConversation
+    // closed a turn per agent_message, so the commentary message surfaced as
+    // its own finished turn and got echoed as `AssistantMessage` prose by
+    // `Conversations`' withholding buffer once the final turn closed.
+    val workDir = TempDirs.dir()
+    os.write(workDir / "marker.txt", "orca-codex-marker")
+    withBackend(workDir): backend =>
+      val conversation = backend.runInteractive(
+        prompt =
+          "You MUST run the shell command `cat marker.txt` first, then " +
+            "respond with JSON only (no commentary): {\"issues\":[]}",
+        session = fresh,
+        displayPrompt = "structured tool-then-answer",
+        config = unsandboxed.copy(model = Some(Model("gpt-5.4-mini"))),
+        outputSchema = Some(
+          """{"type":"object","properties":{"issues":{"type":"array","items":{"type":"string"}}},"required":["issues"],"additionalProperties":false}"""
+        )
+      )
+      try
+        val events = conversation.events.toList
+        val _ = conversation.awaitResult()
+        assertEquals(
+          events.count(_ == ConversationEvent.AssistantTurnEnd),
+          1,
+          s"expected every agent_message in this structured call to share " +
+            s"one turn; got: $events"
         )
       finally conversation.cancel()
 

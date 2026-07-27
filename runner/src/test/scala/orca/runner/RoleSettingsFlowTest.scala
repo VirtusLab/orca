@@ -223,15 +223,16 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     )
 
   test(
-    "a discovery-written file with only commented stack lines does not re-trigger discovery"
+    "a discovery-written file with a live `off` line does not re-trigger discovery"
   ):
     val workDir = GitRepo.seeded()
-    // All stack lines commented (as a discovery-written file leaves them) makes
+    // A live `format = off` (discovery's own shape for an unset task) makes
     // `hasStackLines` true, so discovery must not run again — the plain codex
-    // stub would throw if it did.
+    // stub would throw if it did. A merely-commented example would not count —
+    // this pins the live-line case specifically.
     writeProject(
       workDir,
-      "codingAgent = codex\n# format =   (no formatter found)\n"
+      "codingAgent = codex\nformat = off\n"
     )
     val codex = new StubCodex
     var coding: Option[Agent[?]] = None
@@ -269,6 +270,71 @@ class RoleSettingsFlowTest extends munit.FunSuite:
           "review=gemini (global)"
       ),
       s"expected exactly one per-role announcement, saw: ${steps.get()}"
+    )
+
+  test("a project model pin is announced as harness:model"):
+    val workDir = GitRepo.seeded()
+    writeProject(workDir, "codingAgent = codex:gpt-5-mini\n")
+    val steps = new AtomicReference[List[String]](Nil)
+    driveFlow(
+      workDir,
+      stackSettings = Some(StackSettings.empty),
+      listeners = List(recordSteps(steps)),
+      wiring = wiringWith(claude = StubAgent.claude, codex = new StubCodex)
+    )(())
+    val announcements = steps.get().filter(_.startsWith("agents:"))
+    assertEquals(
+      announcements,
+      List(
+        "agents: planning=claude (default), coding=codex:gpt-5-mini (project), " +
+          "review=claude (default)"
+      ),
+      s"expected the pinned model in the coding segment: ${steps.get()}"
+    )
+
+  test(
+    "an unpinned role keeps the bare harness form, unchanged"
+  ):
+    val workDir = GitRepo.seeded()
+    writeProject(workDir, "codingAgent = codex\n")
+    val steps = new AtomicReference[List[String]](Nil)
+    driveFlow(
+      workDir,
+      stackSettings = Some(StackSettings.empty),
+      listeners = List(recordSteps(steps)),
+      wiring = wiringWith(claude = StubAgent.claude, codex = new StubCodex)
+    )(())
+    val announcements = steps.get().filter(_.startsWith("agents:"))
+    assertEquals(
+      announcements,
+      List(
+        "agents: planning=claude (default), coding=codex (project), " +
+          "review=claude (default)"
+      ),
+      s"an unset model must not render a `:` suffix: ${steps.get()}"
+    )
+
+  test(
+    "the wired claude's own configured default model is announced when unpinned"
+  ):
+    val workDir = GitRepo.seeded()
+    writeProject(workDir, "codingAgent = codex\n")
+    val steps = new AtomicReference[List[String]](Nil)
+    driveFlow(
+      workDir,
+      stackSettings = Some(StackSettings.empty),
+      listeners = List(recordSteps(steps)),
+      wiring =
+        wiringWith(claude = new DefaultModelClaude, codex = new StubCodex)
+    )(())
+    val announcements = steps.get().filter(_.startsWith("agents:"))
+    assertEquals(
+      announcements,
+      List(
+        "agents: planning=claude:claude-opus-5[1m] (default), " +
+          "coding=codex (project), review=claude:claude-opus-5[1m] (default)"
+      ),
+      s"expected the wired default model for the unpinned roles: ${steps.get()}"
     )
 
   test(
@@ -467,6 +533,14 @@ class RoleSettingsFlowTest extends munit.FunSuite:
       startBranch,
       "the malformed-file abort must precede any branch mutation"
     )
+
+  /** A `ClaudeAgent` stub whose `configuredModel` mirrors the real wired
+    * default (claude's Opus1M pin), exercising the announcement's
+    * show-the-wired-default-model path end to end.
+    */
+  private class DefaultModelClaude extends StubClaudeAgent("claude"):
+    override private[orca] def configuredModel: Option[Model] =
+      Some(Model("claude-opus-5[1m]"))
 
   /** A `CodexAgent` stub: every builder returns `this`, every call throws. */
   private class StubCodex extends CodexAgent:

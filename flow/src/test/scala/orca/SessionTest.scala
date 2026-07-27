@@ -13,7 +13,7 @@ import orca.agents.{
   SessionId,
   ToolSet
 }
-import orca.progress.{ProgressHeader, ProgressStore, SessionRecord}
+import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.tools.OsGitTool
 import orca.testkit.TempDirs
 
@@ -40,7 +40,7 @@ class SessionTest extends FunSuite:
     val store = ProgressStore.default(dir, prompt)
     given WorkspaceWrite = WorkspaceWrite.unsafe
     store.writeHeader(
-      ProgressHeader("main", "feat/test", "deadbeef")
+      ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
     )
     (store, dir)
 

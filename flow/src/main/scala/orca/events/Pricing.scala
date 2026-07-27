@@ -106,37 +106,127 @@ object Pricing:
       // --- Anthropic ---
       // Claude reports `total_cost_usd` from the CLI, so these are mostly
       // safety nets for sessions that didn't surface the field.
-      Model("claude-fable-5") -> ModelPricing(10, 1.00, 50),
+      Model("claude-fable-5") -> ModelPricing(
+        inputUsdPerMillion = 10,
+        cachedInputUsdPerMillion = 1.00,
+        outputUsdPerMillion = 50
+      ),
       // `[1m]` is the CLI's 1M-context spelling of the same model at the same
       // price; the suffix isn't a date, so `lookup` won't bridge it — hence its
       // own row.
-      Model("claude-opus-4-8") -> ModelPricing(5, 0.50, 25),
-      Model("claude-opus-4-8[1m]") -> ModelPricing(5, 0.50, 25),
-      Model("claude-opus-4-7") -> ModelPricing(5, 0.50, 25),
-      Model("claude-opus-4-6") -> ModelPricing(5, 0.50, 25),
-      Model("claude-opus-4-5") -> ModelPricing(5, 0.50, 25),
-      Model("claude-opus-4-1") -> ModelPricing(15, 1.50, 75),
+      Model("claude-opus-5") -> ModelPricing(
+        inputUsdPerMillion = 5,
+        cachedInputUsdPerMillion = 0.50,
+        outputUsdPerMillion = 25
+      ),
+      Model("claude-opus-5[1m]") -> ModelPricing(
+        inputUsdPerMillion = 5,
+        cachedInputUsdPerMillion = 0.50,
+        outputUsdPerMillion = 25
+      ),
+      Model("claude-opus-4-8") -> ModelPricing(
+        inputUsdPerMillion = 5,
+        cachedInputUsdPerMillion = 0.50,
+        outputUsdPerMillion = 25
+      ),
+      Model("claude-opus-4-8[1m]") -> ModelPricing(
+        inputUsdPerMillion = 5,
+        cachedInputUsdPerMillion = 0.50,
+        outputUsdPerMillion = 25
+      ),
+      Model("claude-opus-4-7") -> ModelPricing(
+        inputUsdPerMillion = 5,
+        cachedInputUsdPerMillion = 0.50,
+        outputUsdPerMillion = 25
+      ),
+      Model("claude-opus-4-6") -> ModelPricing(
+        inputUsdPerMillion = 5,
+        cachedInputUsdPerMillion = 0.50,
+        outputUsdPerMillion = 25
+      ),
+      Model("claude-opus-4-5") -> ModelPricing(
+        inputUsdPerMillion = 5,
+        cachedInputUsdPerMillion = 0.50,
+        outputUsdPerMillion = 25
+      ),
+      Model("claude-opus-4-1") -> ModelPricing(
+        inputUsdPerMillion = 15,
+        cachedInputUsdPerMillion = 1.50,
+        outputUsdPerMillion = 75
+      ),
       // Sticker price; an introductory $2/$10 applies through 2026-08-31, so
       // estimates until then are slightly conservative.
-      Model("claude-sonnet-5") -> ModelPricing(3, 0.30, 15),
-      Model("claude-sonnet-4-6") -> ModelPricing(3, 0.30, 15),
-      Model("claude-sonnet-4-5") -> ModelPricing(3, 0.30, 15),
-      Model("claude-haiku-4-5") -> ModelPricing(1, 0.10, 5),
+      Model("claude-sonnet-5") -> ModelPricing(
+        inputUsdPerMillion = 3,
+        cachedInputUsdPerMillion = 0.30,
+        outputUsdPerMillion = 15
+      ),
+      Model("claude-sonnet-4-6") -> ModelPricing(
+        inputUsdPerMillion = 3,
+        cachedInputUsdPerMillion = 0.30,
+        outputUsdPerMillion = 15
+      ),
+      Model("claude-sonnet-4-5") -> ModelPricing(
+        inputUsdPerMillion = 3,
+        cachedInputUsdPerMillion = 0.30,
+        outputUsdPerMillion = 15
+      ),
+      Model("claude-haiku-4-5") -> ModelPricing(
+        inputUsdPerMillion = 1,
+        cachedInputUsdPerMillion = 0.10,
+        outputUsdPerMillion = 5
+      ),
       // --- OpenAI (codex, opencode) ---
-      Model("gpt-5.6-sol") -> ModelPricing(5, 0.50, 30),
-      Model("gpt-5.6-terra") -> ModelPricing(2.50, 0.25, 15),
-      Model("gpt-5.6-luna") -> ModelPricing(1, 0.10, 6),
-      Model("gpt-5") -> ModelPricing(1.25, 0.125, 10),
-      Model("gpt-5-mini") -> ModelPricing(0.25, 0.025, 2),
-      Model("gpt-5-nano") -> ModelPricing(0.05, 0.005, 0.40),
+      Model("gpt-5.6-sol") -> ModelPricing(
+        inputUsdPerMillion = 5,
+        cachedInputUsdPerMillion = 0.50,
+        outputUsdPerMillion = 30
+      ),
+      Model("gpt-5.6-terra") -> ModelPricing(
+        inputUsdPerMillion = 2.50,
+        cachedInputUsdPerMillion = 0.25,
+        outputUsdPerMillion = 15
+      ),
+      Model("gpt-5.6-luna") -> ModelPricing(
+        inputUsdPerMillion = 1,
+        cachedInputUsdPerMillion = 0.10,
+        outputUsdPerMillion = 6
+      ),
+      Model("gpt-5") -> ModelPricing(
+        inputUsdPerMillion = 1.25,
+        cachedInputUsdPerMillion = 0.125,
+        outputUsdPerMillion = 10
+      ),
+      Model("gpt-5-mini") -> ModelPricing(
+        inputUsdPerMillion = 0.25,
+        cachedInputUsdPerMillion = 0.025,
+        outputUsdPerMillion = 2
+      ),
+      Model("gpt-5-nano") -> ModelPricing(
+        inputUsdPerMillion = 0.05,
+        cachedInputUsdPerMillion = 0.005,
+        outputUsdPerMillion = 0.40
+      ),
       // codex CLI 0.125.x default
-      Model("gpt-5.4-mini") -> ModelPricing(0.25, 0.025, 2),
+      Model("gpt-5.4-mini") -> ModelPricing(
+        inputUsdPerMillion = 0.25,
+        cachedInputUsdPerMillion = 0.025,
+        outputUsdPerMillion = 2
+      ),
       // Gemini (paid tier). 2.5 Pro is tiered on prompt size; these are the
       // ≤200k-token rates (the common case) — prompts above 200k bill more
       // ($2.50 in / $15 out). gemini emits no cost on the wire, so these
       // table rates × token counts are the only cost signal.
-      Model("gemini-2.5-pro") -> ModelPricing(1.25, 0.31, 10),
-      Model("gemini-2.5-flash") -> ModelPricing(0.30, 0.075, 2.50)
+      Model("gemini-2.5-pro") -> ModelPricing(
+        inputUsdPerMillion = 1.25,
+        cachedInputUsdPerMillion = 0.31,
+        outputUsdPerMillion = 10
+      ),
+      Model("gemini-2.5-flash") -> ModelPricing(
+        inputUsdPerMillion = 0.30,
+        cachedInputUsdPerMillion = 0.075,
+        outputUsdPerMillion = 2.50
+      )
     ),
     lastUpdated = LocalDate.of(2026, 7, 11)
   )

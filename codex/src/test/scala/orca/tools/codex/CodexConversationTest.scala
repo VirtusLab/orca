@@ -142,6 +142,53 @@ class CodexConversationTest extends munit.FunSuite:
     assertEquals(result.output, "final answer")
 
   convTest(
+    "structured mode coalesces a commentary agent_message across a tool " +
+      "call into the same turn as the final one"
+  ):
+    // Reproduces the reported `●` leak: codex sometimes emits an early
+    // "commentary" agent_message — here identical to the eventual answer —
+    // before running a tool, then the genuine final agent_message. Per-item
+    // turn closing (as non-structured mode still does) would make the
+    // withholding buffer treat the commentary message as an already-finished
+    // "previous" turn and echo it as prose once the final turn closed. In
+    // structured mode both must collapse into ONE turn so nothing echoes.
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(
+      process,
+      outputSchema = Some("""{"type":"object"}""")
+    )
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-c"}""")
+    process.enqueueStdout("""{"type":"turn.started"}""")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"{\"issues\":[]}"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"ls","aggregated_output":"","exit_code":null,"status":"in_progress"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"ls","aggregated_output":"f.txt\n","exit_code":0,"status":"completed"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"{\"issues\":[]}"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assertEquals(
+      events.count(_ == ConversationEvent.AssistantTurnEnd),
+      1,
+      s"expected the commentary + final agent_message to share one turn; got: $events"
+    )
+    ConversationEventConformance.assertGrammar(events, completedNormally = true)
+    val Right(result) = conv.awaitResult(): @unchecked
+    assertEquals(result.output, """{"issues":[]}""")
+
+  convTest(
     "command_execution items become AssistantToolCall + ToolResult events"
   ):
     val process = new FakePipedCliProcess()
@@ -204,6 +251,55 @@ class CodexConversationTest extends munit.FunSuite:
       .collectFirst { case r: ConversationEvent.ToolResult =>
         r
       }
+      .getOrElse(fail("expected a ToolResult"))
+    assertEquals(toolResult.ok, false)
+    val _ = conv.awaitResult()
+
+  convTest(
+    "file_change with an unrecognized status (not completed/failed) yields ok=false"
+  ):
+    // Any status other than the documented "completed" collapses to
+    // ItemStatus.Unknown, regardless of whether it's a known failure token
+    // ("failed") or something the driver has never seen before.
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout(
+      """{"type":"thread.started","thread_id":"thr-unknown"}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_9","type":"file_change","changes":[{"path":"/x/y.txt","kind":"update"}],"status":"cancelled"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val toolResult = conv.events.toList
+      .collectFirst { case r: ConversationEvent.ToolResult => r }
+      .getOrElse(fail("expected a ToolResult"))
+    assertEquals(toolResult.ok, false)
+    val _ = conv.awaitResult()
+
+  convTest("file_change with a missing status yields ok=false, not completed"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout(
+      """{"type":"thread.started","thread_id":"thr-missing"}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_9","type":"file_change","changes":[{"path":"/x/y.txt","kind":"update"}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val toolResult = conv.events.toList
+      .collectFirst { case r: ConversationEvent.ToolResult => r }
       .getOrElse(fail("expected a ToolResult"))
     assertEquals(toolResult.ok, false)
     val _ = conv.awaitResult()
@@ -685,6 +781,86 @@ class CodexConversationTest extends munit.FunSuite:
     process.closeStdout()
     process.closeStderr()
     val _ = conv.events.toList
+
+  convTest(
+    "turn.failed surfaces codex's own message via AgentTurnFailed, not a bare exit code"
+  ):
+    // Reproduces the real failure: an invalid/unsupported model produces an
+    // `error` event followed by `turn.failed`, then the process exits 1.
+    // Before the fix, both events collapsed to `Unknown` and the turn only
+    // failed later from the bare exit code, with no diagnostic text.
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-tf"}""")
+    process.enqueueStdout("""{"type":"turn.started"}""")
+    process.enqueueStdout(
+      """{"type":"error","message":"The 'gpt-5.6-terra' model requires a newer version of Codex."}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.failed","error":{"message":"The 'gpt-5.6-terra' model requires a newer version of Codex."}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val _ = conv.events.toList
+    val ex = intercept[orca.AgentTurnFailed](conv.awaitResult())
+    assert(
+      ex.getMessage.contains(
+        "The 'gpt-5.6-terra' model requires a newer version of Codex."
+      ),
+      s"expected codex's own error text in the failure message; got: ${ex.getMessage}"
+    )
+
+  convTest(
+    "a bare exit after `error` with no `turn.failed` still surfaces codex's message"
+  ):
+    // Defense in depth: if codex ever exits without emitting `turn.failed`
+    // (e.g. a crash right after reporting the error), the last `error`
+    // message is still folded into the exit-code failure via diagnosticContext.
+    val process = new FakePipedCliProcess(initiallyAlive = false)
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-e2"}""")
+    process.enqueueStdout(
+      """{"type":"error","message":"rate limit exceeded"}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val _ = conv.events.toList
+    val ex = intercept[orca.OrcaFlowException](conv.awaitResult())
+    assert(
+      ex.getMessage.contains("rate limit exceeded"),
+      s"expected the error event's message folded into the exit failure; got: ${ex.getMessage}"
+    )
+
+  convTest("`error` alone (no turn.failed) surfaces as a live Error event"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-e3"}""")
+    process.enqueueStdout(
+      """{"type":"error","message":"transient hiccup"}"""
+    )
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":0,"output_tokens":0,"cached_input_tokens":0,"reasoning_output_tokens":0}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    assert(
+      events.exists {
+        case ConversationEvent.Error(msg) => msg.contains("transient hiccup")
+        case _                            => false
+      },
+      s"expected the error event surfaced as ConversationEvent.Error; got: $events"
+    )
+    val _ = conv.awaitResult()
 
   convTest("unknown top-level events are ignored without surfacing"):
     val process = new FakePipedCliProcess()

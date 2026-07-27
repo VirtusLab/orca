@@ -24,6 +24,19 @@ private[codex] enum InboundEvent:
   case TurnCompleted(usage: Usage)
   case ItemStarted(item: Item)
   case ItemCompleted(item: Item)
+
+  /** A protocol-level error surfaced mid-turn (e.g. an invalid model name or a
+    * provider-side rejection). Informational on its own — codex typically
+    * follows it with [[TurnFailed]], which is what actually ends the turn.
+    */
+  case Error(message: String)
+
+  /** Terminal failure event replacing `turn.completed` when the turn didn't
+    * succeed — carries the same diagnostic text as a preceding [[Error]], if
+    * any, but is the one the driver treats as authoritative since it's always
+    * followed by the process exiting non-zero.
+    */
+  case TurnFailed(message: String)
   case Unknown(rawType: String)
 
 /** A unit of work codex announces during a turn. `agent_message` is the model's
@@ -38,9 +51,13 @@ private[codex] enum Item:
       command: String,
       output: String,
       exitCode: Option[Int],
-      status: String
+      status: ItemStatus
   )
-  case FileChange(id: String, changes: List[FileChangeDetail], status: String)
+  case FileChange(
+      id: String,
+      changes: List[FileChangeDetail],
+      status: ItemStatus
+  )
 
   /** Codex's MCP tool-call item. `server` is the configured MCP server name
     * (from `mcp_servers.<server>.url` in the config); `tool` is the bare slug
@@ -54,11 +71,30 @@ private[codex] enum Item:
       tool: String,
       arguments: String,
       result: Option[String],
-      status: String
+      status: ItemStatus
   )
   case Other(itemType: String, id: String)
 
 private[codex] case class FileChangeDetail(path: String, kind: String)
+
+/** Outcome of an item's wire `status` field, decoded once so every item kind
+  * (`command_execution`, `file_change`, `mcp_tool_call`) agrees on what counts
+  * as done. `"completed"` is the only documented success token (ADR 0007); any
+  * other value — a genuine failure status (`"failed"`), or a missing one —
+  * collapses to [[Unknown]], carrying the raw text (empty when missing) for
+  * diagnostics.
+  */
+private[codex] enum ItemStatus:
+  case Completed
+  case Unknown(raw: String)
+
+private[codex] object ItemStatus:
+  def of(raw: Option[String]): ItemStatus = raw match
+    case Some("completed") => Completed
+    case Some(other)       => Unknown(other)
+    case None              => Unknown("")
+
+  extension (s: ItemStatus) def isCompleted: Boolean = s == Completed
 
 private[codex] object InboundEvent:
 
@@ -73,6 +109,8 @@ private[codex] object InboundEvent:
       case "turn.completed" => parseTurnCompleted(line)
       case "item.started"   => ItemStarted(parseItem(line))
       case "item.completed" => ItemCompleted(parseItem(line))
+      case "error"          => parseError(line)
+      case "turn.failed"    => parseTurnFailed(line)
       case other            => Unknown(other)
 
   private def parseThreadStarted(line: String): InboundEvent =
@@ -97,6 +135,14 @@ private[codex] object InboundEvent:
       )
     )
 
+  private def parseError(line: String): InboundEvent =
+    val wire = readFromString[ErrorWire](line)
+    Error(wire.message.getOrElse(""))
+
+  private def parseTurnFailed(line: String): InboundEvent =
+    val wire = readFromString[TurnFailedWire](line)
+    TurnFailed(wire.error.flatMap(_.message).getOrElse(""))
+
   private def parseItem(line: String): Item =
     val wire = readFromString[ItemWire](line)
     val item = wire.item
@@ -111,7 +157,7 @@ private[codex] object InboundEvent:
           command = item.command.getOrElse(""),
           output = item.aggregated_output.getOrElse(""),
           exitCode = item.exit_code,
-          status = item.status.getOrElse("")
+          status = ItemStatus.of(item.status)
         )
       case "file_change" =>
         Item.FileChange(
@@ -119,7 +165,7 @@ private[codex] object InboundEvent:
           changes = item.changes
             .getOrElse(Nil)
             .map(c => FileChangeDetail(c.path, c.kind)),
-          status = item.status.getOrElse("")
+          status = ItemStatus.of(item.status)
         )
       case "mcp_tool_call" =>
         Item.McpToolCall(
@@ -130,7 +176,7 @@ private[codex] object InboundEvent:
           // Item.started carries `result: null`; only item.completed has a
           // real value. Treat absence/null as "in-flight" → None.
           result = item.result.flatMap(renderMcpResultText),
-          status = item.status.getOrElse("")
+          status = ItemStatus.of(item.status)
         )
       case other =>
         Item.Other(other, item.id)
@@ -180,6 +226,15 @@ private[codex] object InboundEvent:
   ) derives ConfiguredJsonValueCodec
 
   private case class TurnCompletedWire(usage: Option[UsageWire] = None)
+      derives ConfiguredJsonValueCodec
+
+  private case class ErrorWire(message: Option[String] = None)
+      derives ConfiguredJsonValueCodec
+
+  private case class TurnFailedErrorWire(message: Option[String] = None)
+      derives ConfiguredJsonValueCodec
+
+  private case class TurnFailedWire(error: Option[TurnFailedErrorWire] = None)
       derives ConfiguredJsonValueCodec
 
   private case class FileChangeWire(path: String, kind: String)

@@ -47,11 +47,10 @@ object OutsideStage:
   * wire-id persistence: they are in-run only and never write back to the log,
   * so on crash/resume the durable side finds nothing recorded for them.
   *
-  * The handle is a plain immutable value: mint it once at the flow-body top
-  * level (minting inside a stage is rejected — see `agent.session`) and close
-  * over it into any later `stage(...)`. Only the capabilities its methods
-  * require ([[InStage]], [[WorkspaceWrite]]) are stage-scoped — the handle
-  * itself carries no stage affinity.
+  * The handle is a plain immutable value with no stage affinity of its own —
+  * only the capabilities its methods require ([[InStage]], [[WorkspaceWrite]])
+  * are stage-scoped. Mint it via `agent.session` (outside-stage only — see
+  * there) and close over it into any later `stage(...)`.
   */
 final class FlowSession[B <: BackendTag] private[orca] (
     private[orca] val agent: Agent[B],
@@ -185,62 +184,104 @@ extension [B <: BackendTag](agent: Agent[B])
           "via the FlowSession handle (session.run / session.resultAs[...].run)."
       )
     val occ = fc.nextSessionOccurrence(name)
-    val id = fc.progressStore
-      .load()
-      .flatMap(
-        _.sessions.find(r => r.name == name && r.occurrence == occ)
-      ) match
-      case Some(recorded) =>
-        val currentTag = agent.backendTag.map(_.wireName)
-        recorded.backend match
-          case Some(recordedTag) if currentTag != Some(recordedTag) =>
-            // Backend swapped between runs: `recorded.id` is meaningful only in
-            // the old backend's registry, so mint fresh rather than reuse it.
-            // Checked before the seed-diff warning below so a tag mismatch
-            // surfaces the ONLY warning — a seed-diff warning here would falsely
-            // claim the (never-applied) edited seed is being reused.
-            fc.emit(
-              OrcaEvent.Step(
-                s"warning: session '$name' #$occ was minted on " +
-                  s"$recordedTag; this agent is " +
-                  s"${currentTag.getOrElse("untagged")} — minting fresh"
-              )
-            )
-            mintSession(agent, name, occ, seed)
-          case _ =>
-            // Tags match (or the record predates tagging). The recorded id is
-            // log-sourced and untrusted: parse it rather than resume against a
-            // value that could carry a path/regex/URL injection downstream; a
-            // parse failure mints fresh like the tag-mismatch case.
-            SessionId.parse[B](recorded.id) match
-              case Some(validId) =>
-                // The only branch that genuinely reuses the recorded session,
-                // so the only one where a seed-diff warning is honest. A
-                // recorded seed differing from this call's means the seed was
-                // edited between runs; the session is reused either way (re-seed
-                // is the safe fallback, ADR 0018 §2.6) — surface the divergence
-                // rather than resume silently.
-                if recorded.seed != seed then
-                  fc.emit(
-                    OrcaEvent.Step(
-                      s"warning: session '$name' #$occ recorded seed differs " +
-                        "for this name — the seed was edited; reusing the " +
-                        "recorded session"
-                    )
-                  )
-                validId
-              case None =>
-                fc.emit(
-                  OrcaEvent.Step(
-                    s"warning: session '$name' #$occ has an invalid recorded " +
-                      "id — minting fresh"
-                  )
-                )
-                mintSession(agent, name, occ, seed)
-      case None =>
-        // First run.
-        mintSession(agent, name, occ, seed)
-    new FlowSession(agent, id)
+    new FlowSession(agent, resolveSessionId(agent, name, occ, seed))
+
+/** The reuse-or-mint decision behind `agent.session(name, seed)`: look up any
+  * session already recorded at `(name, occurrence)` and either reuse it
+  * (backend tag matches, recorded id parses) or mint a fresh one — on a backend
+  * swap, a corrupt/mismatched recorded id, or no record at all. See `session`'s
+  * scaladoc for the reuse contract each branch upholds.
+  */
+private def resolveSessionId[B <: BackendTag](
+    agent: Agent[B],
+    name: String,
+    occurrence: Int,
+    seed: String
+)(using fc: FlowControl): SessionId[B] =
+  fc.progressStore
+    .load()
+    .flatMap(
+      _.sessions.find(r => r.name == name && r.occurrence == occurrence)
+    ) match
+    case Some(recorded) => reuseOrMint(agent, name, occurrence, seed, recorded)
+    case None           => mintSession(agent, name, occurrence, seed)
+
+/** Backend-tag mismatch is checked before the seed diff so a swapped backend
+  * reports exactly one warning (a seed-diff warning here would falsely claim
+  * the never-applied edited seed is being reused).
+  */
+private def reuseOrMint[B <: BackendTag](
+    agent: Agent[B],
+    name: String,
+    occurrence: Int,
+    seed: String,
+    recorded: SessionRecord
+)(using fc: FlowControl): SessionId[B] =
+  val currentTag = agent.backendTag.map(_.wireName)
+  recorded.backend match
+    case Some(recordedTag) if currentTag != Some(recordedTag) =>
+      // Backend swapped between runs: `recorded.id` is meaningful only in the
+      // old backend's registry, so mint fresh rather than reuse it.
+      warnBackendSwap(fc, name, occurrence, recordedTag, currentTag)
+      mintSession(agent, name, occurrence, seed)
+    case _ =>
+      // Tags match (or the record predates tagging). The recorded id is
+      // log-sourced and untrusted: parse it rather than resume against a
+      // value that could carry a path/regex/URL injection downstream; a
+      // parse failure mints fresh like the tag-mismatch case.
+      SessionId.parse[B](recorded.id) match
+        case Some(validId) =>
+          // Reuse is the safe fallback (ADR 0018 §2.6): a recorded seed
+          // differing from this call's means the seed was edited between
+          // runs, but the session is reused either way — surface the
+          // divergence rather than resume silently.
+          warnIfSeedDiffers(fc, name, occurrence, recorded.seed, seed)
+          validId
+        case None =>
+          warnInvalidRecordedId(fc, name, occurrence)
+          mintSession(agent, name, occurrence, seed)
+
+private def warnBackendSwap(
+    fc: FlowControl,
+    name: String,
+    occurrence: Int,
+    recordedTag: String,
+    currentTag: Option[String]
+): Unit =
+  fc.emit(
+    OrcaEvent.Step(
+      s"warning: session '$name' #$occurrence was minted on " +
+        s"$recordedTag; this agent is " +
+        s"${currentTag.getOrElse("untagged")} — minting fresh"
+    )
+  )
+
+private def warnIfSeedDiffers(
+    fc: FlowControl,
+    name: String,
+    occurrence: Int,
+    recordedSeed: String,
+    seed: String
+): Unit =
+  if recordedSeed != seed then
+    fc.emit(
+      OrcaEvent.Step(
+        s"warning: session '$name' #$occurrence recorded seed differs " +
+          "for this name — the seed was edited; reusing the recorded session"
+      )
+    )
+
+private def warnInvalidRecordedId(
+    fc: FlowControl,
+    name: String,
+    occurrence: Int
+): Unit =
+  fc.emit(
+    OrcaEvent.Step(
+      s"warning: session '$name' #$occurrence has an invalid recorded id " +
+        "— minting fresh"
+    )
+  )
 
 /** Mint a fresh session id, record `(name, occurrence, id, seed, backend)` in
   * the progress log (replacing any existing record at the same key — see

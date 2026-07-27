@@ -10,7 +10,7 @@ import orca.agents.{
   OpencodeAgent,
   PiAgent
 }
-import orca.progress.{ProgressHeader, ProgressStore}
+import orca.progress.{BranchMode, ProgressHeader, ProgressStore}
 import orca.testkit.GitRepo
 import orca.tools.FsTool
 import orca.tools.GitTool
@@ -121,7 +121,9 @@ object TestFlowControl:
     val git = new OsGitTool(dir)
     val store = ProgressStore.default(dir, userPrompt)
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    store.writeHeader(ProgressHeader("main", "feat/test", "deadbeef"))
+    store.writeHeader(
+      ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
+    )
     (
       new TestFlowControl(
         dispatcher,

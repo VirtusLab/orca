@@ -178,6 +178,61 @@ lazy val runner = (project in file("runner"))
     libraryDependencies ++= Seq(ox, mainargs, jline, fansi, jsoniterMacros)
   )
 
+lazy val shell = (project in file("shell"))
+  .dependsOn(runner, tools % "test->test")
+  .settings(commonSettings)
+  .settings(
+    name := "orca-shell",
+    Compile / mainClass := Some("orca.shell.Main"),
+    // mainargs backs the non-interactive CLI subcommands (ADR 0021 §10,
+    // cli/Cli.scala); already on the classpath transitively via `runner`, but
+    // declared explicitly since shell uses it directly.
+    libraryDependencies ++= Seq(osLib, jsoniter, jsoniterMacros, ox, jline, jlineConsoleUi, fansi, mainargs),
+    // ChildTerminal's SIGINT test mutates process-global JVM signal state
+    // (`sun.misc.Signal.handle` on INT). Fork so that state never lives in
+    // the sbt/Bloop daemon's own JVM, and serialize so no concurrently
+    // running suite observes the temporarily-ignored handler — the same
+    // isolation runner uses for its process-global lock and logger state.
+    Test / fork := true,
+    Test / parallelExecution := false,
+    // Bundles the top-level flows/*.sc scripts as jar resources under
+    // orca/shell/flows/ (ADR 0021 §7), so `BuiltInFlows` can extract them to a
+    // real path at runtime. Jar resources aren't listable, hence the
+    // generated `index` sidecar (newline-separated filenames).
+    Compile / resourceGenerators += Def.task {
+      val srcDir = (ThisBuild / baseDirectory).value / "flows"
+      val outDir = (Compile / resourceManaged).value / "orca" / "shell" / "flows"
+      IO.createDirectory(outDir)
+      val flowFiles = IO.listFiles(srcDir).filter(_.getName.endsWith(".sc")).sortBy(_.getName)
+      val copied = flowFiles.map { f =>
+        val target = outDir / f.getName
+        IO.copyFile(f, target)
+        target
+      }
+      val indexFile = outDir / "index"
+      IO.write(indexFile, flowFiles.map(_.getName).mkString("\n"))
+      copied.toSeq :+ indexFile
+    }.taskValue,
+    // Bundles the README plus two example flows as jar resources under
+    // orca/shell/api/ (ADR 0021 §9), so `CreateFlow` can extract them into the
+    // authoring harness's workspace as its API reference material.
+    Compile / resourceGenerators += Def.task {
+      val base = (ThisBuild / baseDirectory).value
+      val outDir = (Compile / resourceManaged).value / "orca" / "shell" / "api"
+      IO.createDirectory(outDir)
+      val sources = List(
+        base / "README.md",
+        base / "flows" / "implement.sc",
+        base / "flows" / "implement-interactive.sc"
+      )
+      sources.map { f =>
+        val target = outDir / f.getName
+        IO.copyFile(f, target)
+        target
+      }
+    }.taskValue
+  )
+
 lazy val orcaRoot = (project in file("."))
   .settings(commonSettings)
   .settings(
@@ -203,7 +258,8 @@ lazy val orcaRoot = (project in file("."))
         List(
           file("README.md"),
           file("AGENTS.md"),
-          file("examples")
+          file("examples"),
+          file("flows")
         )
       )
       (sbtCoords ++ scalaCliCoords).distinct
@@ -213,4 +269,4 @@ lazy val orcaRoot = (project in file("."))
     // invoke each of them (they'd noisily warn about missing `doc`/`docs`).
     updateDocs / aggregate := false
   )
-  .aggregate(tools, flow, claude, codex, opencode, pi, gemini, runner)
+  .aggregate(tools, flow, claude, codex, opencode, pi, gemini, runner, shell)

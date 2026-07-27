@@ -32,9 +32,17 @@ import orca.agents.{
   ToolSet
 }
 import orca.backend.{IdScheme, SessionSupport}
-import orca.progress.{ProgressHeader, ProgressStore, SessionRecord, StageEntry}
+import orca.progress.{
+  BranchMode,
+  FeatureBranch,
+  ProgressHeader,
+  ProgressStore,
+  SessionRecord,
+  StageEntry
+}
 import orca.runner.terminal.TerminalInteraction
 import orca.tools.{FsTool, GitHubTool, GitTool, OsGitTool}
+import mainargs.Flag
 import ox.supervised
 
 import java.io.{ByteArrayOutputStream, PrintStream}
@@ -100,7 +108,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/lifecycle-failure",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -163,7 +172,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/lifecycle-resume",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -410,7 +420,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/merged-hazard",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -611,6 +622,51 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
 
   test(
+    "setup: a fresh run's header records userPrompt and the given flowName"
+  ):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    os.write(
+      OrcaDir.settingsPath(workDir),
+      "format = echo fmt\n",
+      createFolders = true
+    )
+    assert(git.commit("add stack settings").isRight)
+    val prompt = "resume-header-fields"
+    val store = ProgressStore.default(workDir, prompt)
+    val _ = FlowLifecycle.setup(
+      args = OrcaArgs(prompt),
+      agent = StubAgent.claude,
+      git = git,
+      workDir = workDir,
+      branchNaming = None,
+      resolution =
+        FlowLifecycle.readSettings(workDir, noGlobalSettings, None).stack,
+      stackOverridden = false,
+      store = store,
+      flowName = Some("implement.sc"),
+      emit = _ => ()
+    )
+    val loaded = store.load()
+    assertEquals(loaded.map(_.header.userPrompt), Some(Some(prompt)))
+    assertEquals(loaded.map(_.header.flowName), Some(Some("implement.sc")))
+
+  test(
+    "setup: a fresh run's header has flowName = None when not given (a run outside the shell)"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "no-flow-name"
+    val store = ProgressStore.default(workDir, prompt)
+    val _ = setupForSettings(
+      workDir,
+      settingsOverride = Some(StackSettings.empty),
+      prompt = prompt
+    )
+    val loaded = store.load()
+    assertEquals(loaded.map(_.header.flowName), Some(None))
+
+  test(
     "setup: an UNTRACKED settings file in a dirty tree is read before the stash sweeps it"
   ):
     // The read happens pre-`ensureClean`: the stash sweeps the untracked file
@@ -741,11 +797,14 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(
       os.read(OrcaDir.settingsPath(workDir)),
       """# orca settings — edit freely, commit with the project.
-        |# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.
+        |# format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
+        |# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
         |# seed.txt; seeded fixture
         |format = echo fmt
-        |# lint =   (no lint config found)
-        |# test =   (no evidence found)
+        |# no lint config found
+        |lint = off
+        |# no evidence found
+        |test = off
         |""".stripMargin
     )
     // The dedicated settings commit sits immediately before the header commit
@@ -766,7 +825,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     )
     assert(
       steps.contains(
-        "no .orca/settings.properties — running stack discovery"
+        "no .orca/settings.properties — discovering how to format, lint & test this project"
       ),
       s"expected the running-discovery Step, got: $steps"
     )
@@ -797,10 +856,11 @@ class FlowLifecycleTest extends munit.FunSuite:
     val content = os.read(OrcaDir.settingsPath(workDir))
     assert(
       content.contains(
-        "# lint = definitely-not-a-cmd-xyz check   " +
-          "(definitely-not-a-cmd-xyz: not found on PATH)"
+        "# definitely-not-a-cmd-xyz check: " +
+          "definitely-not-a-cmd-xyz: not found on PATH\nlint = off"
       ),
-      s"the demoted command must be a commented-out line with its reason: $content"
+      s"the demoted command must be a live `off` line with its reason " +
+        s"as the comment above: $content"
     )
     // The written file parses to only the surviving commands, matching the run's.
     assertEquals(
@@ -832,7 +892,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/discover-resume",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -956,7 +1017,7 @@ class FlowLifecycleTest extends munit.FunSuite:
     assert(!stageRan, "setup aborts before any stage can run")
 
   test(
-    "discovery: an all-unset result writes an all-commented file, warns per gate, and yields empty settings"
+    "discovery: an all-unset result writes an all-`off` file, warns per gate, and yields empty settings"
   ):
     val workDir = GitRepo.seeded()
     val canned = StackDiscoveryResult(
@@ -970,15 +1031,23 @@ class FlowLifecycleTest extends munit.FunSuite:
       "discover-all-unset"
     )
     assertEquals(setup.stackSettings, StackSettings.empty)
+    val content = os.read(OrcaDir.settingsPath(workDir))
     assertEquals(
-      os.read(OrcaDir.settingsPath(workDir)),
+      content,
       """# orca settings — edit freely, commit with the project.
-        |# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.
-        |# format =   (no formatter config found)
-        |# lint =   (no evidence found)
-        |# test =   (no test directory found)
+        |# format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
+        |# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
+        |# no formatter config found
+        |format = off
+        |# no evidence found
+        |lint = off
+        |# no test directory found
+        |test = off
         |""".stripMargin
     )
+    // Discovery's own written output must not re-trigger discovery: every
+    // gate is a live `off` line, not a comment.
+    assert(orca.settings.SettingsFile.hasStackLines(content))
     val warnings = steps.filter(_.contains("gate disabled"))
     assertEquals(
       warnings,
@@ -1131,7 +1200,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/rehydrate-targeted",
-        promptHash = ProgressStore.hashPrompt("rehydrate-targeted")
+        promptHash = ProgressStore.hashPrompt("rehydrate-targeted"),
+        branchMode = BranchMode.Created
       )
     )
     sessions.foreach(store.upsertSession)
@@ -1154,7 +1224,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/rehydrate-feature",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -1634,6 +1705,579 @@ class FlowLifecycleTest extends munit.FunSuite:
     // The repo must not have been left on the colliding branch.
     assertEquals(git.currentBranch(), "main")
 
+  // --- skip-branch mode (ADR 0018 amendment) ---
+
+  private def branchNames(workDir: os.Path): Set[String] =
+    os.proc("git", "branch", "--format=%(refname:short)")
+      .call(cwd = workDir)
+      .out
+      .text()
+      .linesIterator
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .toSet
+
+  test(
+    "skip-branch mode on a non-default branch: no new branch is created, header commit lands there"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "skip-branch-reuse"
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("my-work")
+    val branchesBefore = branchNames(workDir)
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        interaction = Some(interaction)
+      ):
+        val _ = stage("write code"):
+          os.write(workDir / "code.txt", "real code")
+          "done"
+    assertEquals(
+      git.currentBranch(),
+      "my-work",
+      "the run must stay bound to the reused current branch"
+    )
+    assertEquals(
+      branchNames(workDir),
+      branchesBefore,
+      "skip-branch mode must not create any new branch"
+    )
+    val log = git.log(5).map(_.message)
+    assert(
+      log.exists(_.contains("progress log")),
+      s"the header commit must still land, on the reused branch: $log"
+    )
+
+  test("skip-branch mode refuses to bind to a protected branch"):
+    val workDir = GitRepo.seeded() // starts on "main"
+    val prompt = "skip-branch-protected"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    val listener = new RecordingListener
+    val thrown = intercept[SurfacedFlowFailure]:
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        runFlow(
+          args = OrcaArgs(prompt, skipBranch = Flag(true)),
+          stackSettings = Some(StackSettings.empty),
+          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = List(listener),
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = Some(store)
+        ):
+          val _ = stage("never-runs")("x")
+    assert(
+      thrown.cause.getMessage.contains("protected") &&
+        thrown.cause.getMessage.contains("main"),
+      s"abort message must name the protected current branch: ${thrown.cause.getMessage}"
+    )
+    assertEquals(git.currentBranch(), "main")
+
+  test("skip-branch mode refuses on detached HEAD"):
+    // `git rev-parse --abbrev-ref HEAD` reads back the literal string "HEAD"
+    // when detached. Binding a skip-branch run to that would commit into an
+    // unnamed, GC-eligible state, and make the resume-side R30 cross-check
+    // vacuous (every detached state reads as "HEAD").
+    val workDir = GitRepo.seeded()
+    val prompt = "skip-branch-detached"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    val head =
+      os.proc("git", "rev-parse", "HEAD").call(cwd = workDir).out.text().trim
+    val _ = os.proc("git", "checkout", "--detach", head).call(cwd = workDir)
+    assertEquals(git.currentBranch(), "HEAD")
+    val listener = new RecordingListener
+    val thrown = intercept[SurfacedFlowFailure]:
+      supervised:
+        val interaction = TerminalInteraction.start(
+          out = new PrintStream(new ByteArrayOutputStream()),
+          useColor = false,
+          animated = false
+        )
+        runFlow(
+          args = OrcaArgs(prompt, skipBranch = Flag(true)),
+          stackSettings = Some(StackSettings.empty),
+          wiring = FlowWiring(claude = Some(_ => StubAgent.claude)),
+          workDir = workDir,
+          interaction = Some(interaction),
+          extraListeners = List(listener),
+          branchNaming = None,
+          returnToStartBranch = false,
+          progressStore = Some(store)
+        ):
+          val _ = stage("never-runs")("x")
+    assert(
+      thrown.cause.getMessage.contains("detached HEAD"),
+      s"abort message must name detached HEAD: ${thrown.cause.getMessage}"
+    )
+
+  test(
+    "resume refuses a header naming the literal branch \"HEAD\" (hostile header, not just a valid detached read-back)"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "resume-head-header"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    // Detach HEAD so `git.currentBranch()` also reads back "HEAD" — the
+    // header's claimed branch must still be rejected on its own, independent
+    // of the current-branch cross-check.
+    val head =
+      os.proc("git", "rev-parse", "HEAD").call(cwd = workDir).out.text().trim
+    val _ = os.proc("git", "checkout", "--detach", head).call(cwd = workDir)
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "HEAD",
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    val listener = new RecordingListener
+    val thrown = intercept[SurfacedFlowFailure]:
+      runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
+        val _ = stage("never-runs")("x")
+    assert(
+      thrown.cause.getMessage.contains("refusing to resume"),
+      s"the refusal message must reach the user: ${thrown.cause.getMessage}"
+    )
+    assert(
+      thrown.cause.getMessage.contains("not a safe ref"),
+      s"abort message must name the unsafe ref: ${thrown.cause.getMessage}"
+    )
+
+  /** `git stash list`, one entry per line, for asserting no/some stash was
+    * created.
+    */
+  private def stashList(workDir: os.Path): List[String] =
+    os.proc("git", "stash", "list")
+      .call(cwd = workDir)
+      .out
+      .text()
+      .linesIterator
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .toList
+
+  test(
+    "skip-branch mode, FRESH run: a MODIFIED tracked file stays dirty through the body and is swept into the stage commit"
+  ):
+    val workDir = GitRepo.seeded() // commits "seed.txt"
+    val prompt = "skip-branch-dirty-modified"
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("my-work")
+    os.write.over(workDir / "seed.txt", "modified in place")
+    val listener = new RecordingListener
+    var modifiedInBody = false
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        interaction = Some(interaction),
+        extraListeners = List(listener)
+      ):
+        val _ = stage("write code"):
+          modifiedInBody = os.read(workDir / "seed.txt") == "modified in place"
+          "done"
+    assert(
+      modifiedInBody,
+      "the modified file must still be dirty when the stage body runs — not stashed away"
+    )
+    assertEquals(
+      stashList(workDir),
+      Nil,
+      "a fresh skip-branch run must never stash"
+    )
+    assert(
+      !git.isDirty(),
+      "the modification must have been swept into a commit by run's end"
+    )
+    assertEquals(os.read(workDir / "seed.txt"), "modified in place")
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s.message }
+    assert(
+      steps.exists(_.contains("leaving 1 uncommitted/untracked file")),
+      s"expected the leftover-file notice: $steps"
+    )
+    // Pin WHICH commit the leftover lands in: the header commit (HEAD~2,
+    // before the stage commit and the final log-removal commit) must carry
+    // ONLY the progress log; `seed.txt`'s modification must reach the branch
+    // via the first stage's own `add -A` commit (HEAD~1), not the header's.
+    val progressRelPath =
+      s".orca/progress-${ProgressStore.hashPrompt(prompt)}.json"
+    assertEquals(commitMessage(workDir, "HEAD~2"), "orca: progress log")
+    assertEquals(
+      commitFiles(workDir, "HEAD~2"),
+      List(progressRelPath),
+      "the header commit must carry ONLY the progress log"
+    )
+    assertEquals(commitMessage(workDir, "HEAD~1"), "stage: write code")
+    assertEquals(
+      commitFiles(workDir, "HEAD~1"),
+      List(progressRelPath, "seed.txt"),
+      "the first stage commit must carry the leftover modification"
+    )
+
+  test(
+    "skip-branch mode, FRESH run: an UNTRACKED file stays in the tree through the body and is swept into the stage commit"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "skip-branch-dirty-untracked"
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("my-work")
+    os.write(workDir / "docs" / "plan.md", "plan notes", createFolders = true)
+    var presentInBody = false
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        interaction = Some(interaction)
+      ):
+        val _ = stage("write code"):
+          presentInBody = os.exists(workDir / "docs" / "plan.md")
+          "done"
+    assert(
+      presentInBody,
+      "the untracked file must still be present when the stage body runs"
+    )
+    assertEquals(
+      stashList(workDir),
+      Nil,
+      "a fresh skip-branch run must never stash"
+    )
+    val tracked =
+      os.proc("git", "ls-files")
+        .call(cwd = workDir)
+        .out
+        .text()
+        .linesIterator
+        .toSet
+    assert(
+      tracked.contains("docs/plan.md"),
+      "the leftover file must have been swept into a commit by run's end"
+    )
+    // Pin WHICH commit: the header (HEAD~2) carries ONLY the progress log;
+    // `docs/plan.md` reaches the branch via the first stage's commit (HEAD~1).
+    val progressRelPath =
+      s".orca/progress-${ProgressStore.hashPrompt(prompt)}.json"
+    assertEquals(commitMessage(workDir, "HEAD~2"), "orca: progress log")
+    assertEquals(
+      commitFiles(workDir, "HEAD~2"),
+      List(progressRelPath),
+      "the header commit must carry ONLY the progress log"
+    )
+    assertEquals(commitMessage(workDir, "HEAD~1"), "stage: write code")
+    assertEquals(
+      commitFiles(workDir, "HEAD~1"),
+      List(progressRelPath, "docs/plan.md"),
+      "the first stage commit must carry the leftover untracked file"
+    )
+
+  test(
+    "skip-branch mode, FRESH run: a modified file, an untracked file, and .orca-adjacent noise together — no crash, nothing stashed"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "skip-branch-dirty-mixed"
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("my-work")
+    os.write.over(workDir / "seed.txt", "modified in place")
+    os.write(workDir / "docs" / "plan.md", "plan notes", createFolders = true)
+    // Noise living right next to orca's own directory — must not confuse the
+    // dirty-file count or the discovery/log machinery.
+    os.write(
+      workDir / ".orca" / "cache" / "leftover.tmp",
+      "noise",
+      createFolders = true
+    )
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        interaction = Some(interaction)
+      ):
+        val _ = stage("write code")("done")
+    assertEquals(
+      stashList(workDir),
+      Nil,
+      "no stash entries may be created by a fresh skip-branch run"
+    )
+
+  test(
+    "skip-branch mode, RESUME with a dirty tree from an interrupted stage: still stashes, the stage re-runs clean"
+  ):
+    val workDir = GitRepo.seeded()
+    val prompt = "skip-branch-resume-dirty"
+    val store = ProgressStore.default(workDir, prompt)
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("my-work")
+    // A committed header, as if a prior run got this far before being killed.
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "my-work",
+        branch = "my-work",
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Reused
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    // The interrupted stage's leftover: untracked, never committed.
+    os.write(workDir / "partial.txt", "half-finished work")
+    val listener = new RecordingListener
+    var sawPartialInBody = false
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        progressStore = Some(store),
+        interaction = Some(interaction),
+        extraListeners = List(listener)
+      ):
+        val _ = stage("task"):
+          sawPartialInBody = os.exists(workDir / "partial.txt")
+          "done"
+    assert(
+      !sawPartialInBody,
+      "resume must stash the interrupted stage's leftover, so the stage re-runs against a clean tree"
+    )
+    val stashes = stashList(workDir)
+    assert(
+      stashes.nonEmpty,
+      s"resume must still auto-stash a dirty tree: $stashes"
+    )
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s.message }
+    assert(
+      steps.exists(_.contains("stashed pending changes")),
+      s"a stash-recovery Step must be emitted on resume: $steps"
+    )
+
+  test(
+    "skip-branch mode: success teardown never deletes the reused branch, even with only orca commits"
+  ):
+    // Mirrors R5 (throwaway-branch auto-delete on a normal fresh run), but the
+    // reused branch must survive: `featureBranch == startBranch` always holds
+    // in skip mode, so the throwaway check (which compares the two) can never
+    // fire.
+    val workDir = GitRepo.seeded()
+    val prompt = "skip-branch-throwaway"
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("my-empty-work")
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt, skipBranch = Flag(true)),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        interaction = Some(interaction)
+      ):
+        // body does nothing — no code changes, only orca's own commits land
+        summon[orca.FlowContext].emit(OrcaEvent.Step("no-op"))
+    assertEquals(git.currentBranch(), "my-empty-work")
+    assertEquals(branchNames(workDir), Set("main", "my-empty-work"))
+
+  test(
+    "teardownSuccess: branchMode = Reused blocks the throwaway auto-delete even when the diff is blank"
+  ):
+    // Direct FlowSetup construction simulates the hazard finding 3 closes: a
+    // tampered header's `startingBranch` (unlike `branch`, never cross-checked
+    // against anything) could name an existing branch that happens to
+    // diff-blank against the feature branch — which is exactly R5's throwaway
+    // signature. `branchMode = Reused` (skip-branch mode) must block the
+    // delete regardless of what `startingBranch` claims.
+    val workDir = GitRepo.seeded() // "main"
+    val git = new OsGitTool(workDir)
+    val store = ProgressStore.default(workDir, "gated-delete")
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch("reused-branch") // diff-blank vs "main"
+    val featureBranch =
+      FeatureBranch.resolveReused("reused-branch", Set.empty).toOption.get
+    val setup = FlowLifecycle.FlowSetup(
+      store = store,
+      featureBranch = featureBranch,
+      startBranch = "main",
+      stackSettings = StackSettings.empty,
+      branchMode = BranchMode.Reused
+    )
+    FlowLifecycle.teardownSuccess(git, setup, returnToStartBranch = false)
+    assert(
+      branchNames(workDir).contains("reused-branch"),
+      "the reused branch must survive teardown when orca did not create it"
+    )
+
+  test(
+    "resume after a skip-branch run on a mixed-case/slashed branch name works"
+  ):
+    // Before the ADR-0018 amendment, `validateHeader` required the strict
+    // minted-name slug shape for EVERY header.branch, which would reject
+    // "Feature/JIRA-123" outright. The weaker `isSafeReusedRef` check now accepts
+    // it, since it also equals the current branch (R30's cross-check).
+    val workDir = GitRepo.seeded()
+    val prompt = "skip-branch-resume"
+    val store = ProgressStore.default(workDir, prompt)
+    val invocations = new AtomicInteger(0)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val git = new OsGitTool(workDir)
+    val _ = git.createBranch("Feature/JIRA-123")
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "Feature/JIRA-123",
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    store.appendEntry(
+      StageEntry("resumable-stage#0", "resumable-stage", RawJson("\"ok\""))
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("stage: resumable-stage")
+
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        progressStore = Some(store),
+        interaction = Some(interaction)
+      ):
+        val _ = stage("resumable-stage"):
+          invocations.incrementAndGet()
+          "ok"
+
+    assertEquals(
+      invocations.get(),
+      0,
+      "resumed run must not re-run the already-recorded stage"
+    )
+    assertEquals(
+      git.currentBranch(),
+      "main",
+      "success teardown returns to the header's recorded start branch"
+    )
+
+  test(
+    "normal mode, RESUME with a tracked-but-modified (JSON-broken) progress log: the stash reverts it to committed content first, so resume proceeds rather than misreading it as corrupt"
+  ):
+    // Regression for the skip-branch dirty-tree change: `setup` must decide
+    // fresh-vs-resume from the log's last COMMITTED content in every mode,
+    // never a dirty read — otherwise a user's broken in-progress edit to the
+    // (tracked) log file could flip a resumable run to "Corrupt → fresh",
+    // discarding already-recorded progress.
+    val workDir = GitRepo.seeded()
+    val prompt = "resume-dirty-json-break"
+    val store = ProgressStore.default(workDir, prompt)
+    val invocations = new AtomicInteger(0)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val git = new OsGitTool(workDir)
+    val _ = git.createBranch("feat/resume-dirty-json-break")
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/resume-dirty-json-break",
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
+      )
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("orca: progress log")
+    store.appendEntry(
+      StageEntry("resumable-stage#0", "resumable-stage", RawJson("\"ok\""))
+    )
+    git.forceAdd(store.path)
+    val _ = git.commit("stage: resumable-stage")
+    // An uncommitted edit that breaks the JSON — a broken hand-edit or a torn
+    // write, left dirty in the already-tracked log file.
+    os.write.over(store.path, "not json {{{")
+
+    supervised:
+      val interaction = TerminalInteraction.start(
+        out = new PrintStream(new ByteArrayOutputStream()),
+        useColor = false,
+        animated = false
+      )
+      flow(
+        args = OrcaArgs(prompt),
+        stackSettings = Some(StackSettings.empty),
+        claude = Some(_ => StubAgent.claude),
+        workDir = workDir,
+        progressStore = Some(store),
+        interaction = Some(interaction)
+      ):
+        val _ = stage("resumable-stage"):
+          invocations.incrementAndGet()
+          "ok"
+
+    assertEquals(
+      invocations.get(),
+      0,
+      "resume must read the stashed-clean committed log, not treat the " +
+        "dirty JSON-break as corrupt and re-run the already-recorded stage"
+    )
+
   test(
     "surfaced: a setup resume-refusal reaches the user as one Error and escapes as SurfacedFlowFailure"
   ):
@@ -1649,7 +2293,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/surfaced-tampered",
-        promptHash = "deadbeefcafe"
+        promptHash = "deadbeefcafe",
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -1691,7 +2336,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "master",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -1727,7 +2373,8 @@ class FlowLifecycleTest extends munit.FunSuite:
       ProgressHeader(
         startingBranch = "main",
         branch = "feat/surfaced-rehydrate",
-        promptHash = ProgressStore.hashPrompt(prompt)
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created
       )
     )
     git.forceAdd(store.path)
@@ -1818,6 +2465,29 @@ class FlowLifecycleTest extends munit.FunSuite:
     assert(
       steps.exists(_.message.contains("workspace reset failed")),
       s"a Step warning about the failed reset must be emitted: $steps"
+    )
+
+  test(
+    "a body failure emits an explanatory Step before the reset --hard teardown runs"
+  ):
+    // DC1: the reset's own Step ("Discarded uncommitted changes") reads as
+    // unexplained data loss on its own — FlowLifecycle.run must emit a
+    // preceding Step naming WHY the reset is about to happen (recovery, not
+    // loss) whenever a body failure triggers failure teardown.
+    val workDir = GitRepo.seeded()
+    val prompt = "explains-reset-teardown"
+    val store = ProgressStore.default(workDir, prompt)
+    val listener = new RecordingListener
+    val _ = intercept[SurfacedFlowFailure]:
+      runFlowForTest(workDir, prompt, store, extraListeners = List(listener)):
+        val _ = stage[String]("crash"):
+          throw new RuntimeException("boom body")
+    val steps = listener.events.collect { case s: OrcaEvent.Step => s }
+    assert(
+      steps.exists(
+        _.message.contains("recovering from the failure")
+      ),
+      s"expected an explanatory Step ahead of the reset: $steps"
     )
 
   // --- flow() reentrancy/concurrency guards --------------------------------

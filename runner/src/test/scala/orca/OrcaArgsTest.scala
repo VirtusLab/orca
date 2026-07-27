@@ -23,6 +23,18 @@ class OrcaArgsTest extends munit.FunSuite:
     assertEquals(result.userPrompt, "do the thing")
     assertEquals(result.verbose.value, true)
 
+  test("--skip-branch flag sets skipBranch = true; absent defaults to false"):
+    val result = OrcaArgs
+      .parse(Seq("--skip-branch", "do the thing"))
+      .toOption
+      .getOrElse(fail("expected successful parse"))
+    assertEquals(result.userPrompt, "do the thing")
+    assertEquals(result.skipBranch.value, true)
+    assertEquals(
+      OrcaArgs.parse(Seq("do the thing")).map(_.skipBranch.value),
+      Right(false)
+    )
+
   test("unknown flags yield a Left with an error message"):
     OrcaArgs.parse(Seq("--nonexistent")) match
       case Left(msg) => assert(msg.nonEmpty)

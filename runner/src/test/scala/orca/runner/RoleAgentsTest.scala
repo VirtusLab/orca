@@ -119,6 +119,39 @@ class RoleAgentsTest extends munit.FunSuite:
     )
     assertEquals(resolution.foreignWarnings, Nil)
 
+  test(
+    "resolveAll shows the wired agent's own configured model when no settings pin it"
+  ):
+    val wired = wiredAgents(claude = new DefaultModelClaude)
+    val resolution = RoleAgents.resolveAll(
+      project = AgentSettings.empty,
+      global = AgentSettings.empty,
+      overrides = RoleOverrides(None, None, None),
+      agents = wired,
+      onRoleResolved = _ => ()
+    )
+    assert(
+      resolution.announcement.contains(
+        "planning=claude:claude-opus-5[1m] (default)"
+      ),
+      s"expected the wired default model in the segment: ${resolution.announcement}"
+    )
+
+  test(
+    "resolveAll stays bare when neither settings nor the wired agent pin a model"
+  ):
+    val resolution = RoleAgents.resolveAll(
+      project = AgentSettings(coding = Some(AgentSpec(BackendTag.Codex, None))),
+      global = AgentSettings.empty,
+      overrides = RoleOverrides(None, None, None),
+      agents = wiredAgents(),
+      onRoleResolved = _ => ()
+    )
+    assert(
+      resolution.announcement.contains("coding=codex (project)"),
+      s"codex's no-default-model config must stay bare: ${resolution.announcement}"
+    )
+
   test("resolveAll renders a project model pin as harness:model"):
     val resolution = RoleAgents.resolveAll(
       project = AgentSettings(coding =
@@ -132,6 +165,26 @@ class RoleAgentsTest extends munit.FunSuite:
     assert(
       resolution.announcement.contains("coding=codex:gpt-5-mini (project)"),
       s"expected the pinned model in the segment: ${resolution.announcement}"
+    )
+
+  test(
+    "a project model pin wins over the wired agent's own configured model"
+  ):
+    val resolution = RoleAgents.resolveAll(
+      project = AgentSettings(planning =
+        Some(AgentSpec(BackendTag.ClaudeCode, Some("claude-haiku-4-5")))
+      ),
+      global = AgentSettings.empty,
+      overrides = RoleOverrides(None, None, None),
+      agents = wiredAgents(claude = new DefaultModelClaude),
+      onRoleResolved = _ => ()
+    )
+    assert(
+      resolution.announcement.contains(
+        "planning=claude:claude-haiku-4-5 (project)"
+      ),
+      s"the settings pin must not be shadowed by the wired default: " +
+        resolution.announcement
     )
 
   test(
@@ -225,6 +278,15 @@ class RoleAgentsTest extends munit.FunSuite:
     def resultAs[O: JsonData: Announce]
         : AgentCall[BackendTag.Opencode.type, O] =
       throw new UnsupportedOperationException
+
+  /** A `ClaudeAgent` stub whose `configuredModel` mirrors the real wired
+    * default (claude's Opus1M pin) — [[StubClaudeAgent]]'s bare default has
+    * none, so the announcement's "show the wired default model" path needs this
+    * to be exercised.
+    */
+  private class DefaultModelClaude extends StubClaudeAgent("claude"):
+    override private[orca] def configuredModel: Option[Model] =
+      Some(Model("claude-opus-5[1m]"))
 
   private object NoopCodex extends CodexAgent:
     val name = "noop-codex"

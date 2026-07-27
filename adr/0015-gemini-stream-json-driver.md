@@ -105,7 +105,13 @@ Concretely:
   - `tool_use` → `AssistantToolCall(tool_name, parameters)`; the
     `tool_id → tool_name` map lets the later `tool_result` (which carries
     only the id) be keyed by name.
-  - `tool_result` → `ToolResult(name, ok = status == "success", output)`.
+  - `tool_result` → `ToolResult(name, ok = status.isSuccess, output)`, where
+    `status` is decoded once into a `ToolStatus` (success/failure) shared by
+    `tool_result` and `result` — verified against the CLI's
+    `packages/core/src/output` source: `status` is a required field on both
+    event types, so a missing value can't occur on the real wire, but if
+    protocol drift ever produced one it's treated as a failure, not silently
+    as success.
   - `error` → `ConversationEvent.Error`.
   - `result` → emit `AssistantTurnEnd`, then finalise `AgentResult` with the
     accumulated answer + usage.

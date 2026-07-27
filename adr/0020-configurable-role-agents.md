@@ -168,10 +168,10 @@ had only one reason to exist. Once the file can also carry agent-only
 content, a hand-written `codingAgent = codex` file with no stack lines would,
 under that invariant, silently disable every format/lint/test gate forever.
 The trigger is replaced: discovery runs when the project file is absent, OR
-when `SettingsFile.hasStackLines(content)` is false — no line, live or
-`#`-commented, names a stack key (`format`/`lint`/`test`). A
-discovery-written file always contains at least commented stack lines (e.g.
-`# format =   (no formatter config found)` for a task left unset), so
+when `SettingsFile.hasStackLines(content)` is false — no LIVE line names a
+stack key (`format`/`lint`/`test`); a commented line never counts (ADR 0019
+amendment 2026-07-26). A discovery-written file always contains at least one
+live stack line (a real command, or `key = off` for a task left unset), so
 ADR 0019's frozen-file semantics hold exactly as before for any file
 discovery has touched; only a genuinely stack-silent hand-written file
 re-triggers it.

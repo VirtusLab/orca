@@ -24,6 +24,11 @@ import scala.util.control.NonFatal
   *
   * Parameterized by the concrete `BackendTag` so session ids and results carry
   * the backend identity at the type level.
+  *
+  * Several members below (`withRole`, `withCheapModel`, `withSelfManagedGit`,
+  * …) default to a safe no-op `this`; `BaseAgent`-derived tools override every
+  * one, and a custom `Agent` implementation must too, or the corresponding
+  * feature is silently dropped.
   */
 trait Agent[B <: BackendTag]:
   /** Label for this agent in the event stream (the `agent` axis of
@@ -36,7 +41,9 @@ trait Agent[B <: BackendTag]:
     * `OrcaEvent.TokensUsed` alongside [[name]]. The review loop sets
     * `Some("reviewer")` via [[withRole]] so `CostTracker` can subtotal reviewer
     * spend without baking a prefix into [[name]] (the identity a
-    * session/selector keys off). Defaults to `None`.
+    * session/selector keys off). Defaults to `None`. Unrelated to the wire
+    * `role` field on a chat message (gemini's `Role`, pi's message role) — this
+    * is a cost-attribution tag, not part of the conversation payload.
     */
   def role: Option[String] = None
 
@@ -90,8 +97,7 @@ trait Agent[B <: BackendTag]:
 
   /** Return a sibling tool tagged with `role` (see [[role]]) for the event
     * stream — used by the review loop to tag a reviewer's run without renaming
-    * it. No-op default (returns `this`); `BaseAgent`-derived tools override it,
-    * and a custom `Agent` wanting role-tagged `TokensUsed` events must too.
+    * it.
     */
   def withRole(role: String): Agent[B] = this
 
@@ -130,17 +136,13 @@ trait Agent[B <: BackendTag]:
   /** Pin the model that [[cheap]] resolves to, overriding the backend default.
     * Lets a flow specify both a leading and a cheap model, e.g.
     * `_.opencode.anthropicSonnet.withCheapModel(Model("anthropic/claude-haiku-4-5"))`.
-    * No-op default (returns `this`, dropping the pin); `BaseAgent`-derived
-    * tools override it, and a custom `Agent` must too or the pin is silently
-    * ignored.
     */
   def withCheapModel(model: Model): Agent[B] = this
 
   /** Best-effort one-line reply from the cheap model, for the runtime's own
-    * incidental text (branch naming, default commit messages). Returns the
-    * first non-blank, non-fence line trimmed, or `fallback` if the reply is
-    * empty or the call fails for any non-fatal reason. Never throws: these
-    * calls must never break a flow.
+    * incidental text (branch naming, default commit messages). Never throws — a
+    * failure here must not break a flow, so any non-fatal error yields
+    * `fallback`.
     */
   private[orca] def cheapOneShot(prompt: String, fallback: => String)(using
       InStage
@@ -169,11 +171,6 @@ trait Agent[B <: BackendTag]:
     * git" rule the runtime otherwise injects (don't `git commit`/`push`/branch;
     * leave edits in the working tree). Use only for a flow that genuinely wants
     * the agent to drive git.
-    *
-    * No-op default (returns `this`), deliberately fail-safe: a custom `Agent`
-    * that forgets to wire it keeps the safe runtime-owns-git behaviour rather
-    * than silently granting the escape hatch. `BaseAgent`-derived tools
-    * override it to flip the flag.
     */
   def withSelfManagedGit: Agent[B] = this
 
@@ -192,22 +189,28 @@ trait Agent[B <: BackendTag]:
     */
   private[orca] def backendTag: Option[BackendTag] = None
 
-  /** An opaque token identifying this tool's underlying backend INSTANCE (not
-    * just its runtime tag/type), or `None` for tools without a backend.
-    * Independently-built backends of the same kind get different tokens even
-    * though [[backendTag]] can't tell them apart; `copyTool`-derived siblings
-    * (`_.claude.opus`, `.withReadOnly`, …) share the SAME token, sharing the
-    * SAME backend object. [[orca.runner.DefaultFlowContext]] uses this to tell
-    * a selector-derived sibling of a wired agent (safe) apart from an agent
-    * built against a genuinely different backend (foreign — event-blind, leaked
-    * past `close()`), which a plain `Agent eq Agent` check couldn't.
-    * `BaseAgent` overrides it to the shared `AgentBackend.closedFlag`
-    * reference.
+  /** The model this tool's NEXT call will run, if pinned — either by the wiring
+    * default (e.g. claude's Opus1M) or a `withModel`/tier accessor. `None` for
+    * a backend that picks its own model (codex/pi defaults) or a tool without a
+    * backend. The role-agents announcement reads this to show a resolved
+    * default model the settings layer never pinned.
+    */
+  private[orca] def configuredModel: Option[Model] = None
+
+  /** An opaque token identifying this tool's underlying backend INSTANCE, or
+    * `None` for tools without a backend. `copyTool`-derived siblings
+    * (`_.claude.opus`, `.withReadOnly`, …) share the same token because they
+    * share the same backend object; independently-built backends of the same
+    * kind get different tokens even though [[backendTag]] can't tell them
+    * apart. [[orca.runner.DefaultFlowContext]] uses this to distinguish a
+    * selector-derived sibling of a wired agent (safe) from a foreign agent
+    * (event-blind, leaked past `close()`) — a plain `Agent eq Agent` check
+    * can't, since the wrappers differ. `BaseAgent` overrides it to the shared
+    * `AgentBackend.closedFlag` reference.
     *
-    * Compared by REFERENCE (`eq`), never `==`: a token with structural equality
-    * would false-positive two independently-built backends into looking wired
-    * together. Implementations must mint an identity-unique token per backend
-    * instance.
+    * Compared by REFERENCE (`eq`), never `==`: structural equality would
+    * false-positive two independently-built backends as the same one.
+    * Implementations must mint a unique token per backend instance.
     */
   private[orca] def backendIdentity: Option[AnyRef] = None
 

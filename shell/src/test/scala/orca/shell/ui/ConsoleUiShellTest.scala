@@ -1,0 +1,89 @@
+package orca.shell.ui
+
+import org.jline.terminal.Attributes
+import org.jline.terminal.TerminalBuilder
+
+class ConsoleUiShellTest extends munit.FunSuite:
+
+  // `select`'s disabled-row rejection (print the reason, then re-run the
+  // ConsoleUI prompt) has no pure seam: it lives inside the `loop()` that
+  // drives a real `ConsolePrompt`/`Display` against a terminal, same as the
+  // Ctrl-C fix below — pty-verified instead (tmux session: disabled row shows
+  // its "(unavailable: ...)" suffix, picking it prints
+  // `Choice.disabledSelectionMessage` above the re-rendered menu).
+
+  // The Ctrl-C-cancels-instead-of-killing-the-shell fix itself is only
+  // pty-verifiable (jline's SIGINT/ISIG plumbing needs a real tty to exercise
+  // end to end — see the manual pty repro in the PR/report), but
+  // `withIsigDisabled`'s own save/mutate/restore contract doesn't: a `dumb`
+  // terminal (no real tty) is enough to check ISIG is off during `body` and
+  // restored after, mirroring `ChildTerminalTest`'s attribute-restore test.
+  test("withIsigDisabled turns ISIG off during body and restores it after"):
+    val terminal = TerminalBuilder.builder().dumb(true).build()
+    try
+      val shell = ConsoleUiShell(terminal)
+      val before =
+        terminal.getAttributes.getLocalFlag(Attributes.LocalFlag.ISIG)
+      var duringBody = true
+      shell.withIsigDisabled:
+        duringBody =
+          terminal.getAttributes.getLocalFlag(Attributes.LocalFlag.ISIG)
+      assertEquals(duringBody, false, "ISIG must be off while body runs")
+      assertEquals(
+        terminal.getAttributes.getLocalFlag(Attributes.LocalFlag.ISIG),
+        before,
+        "ISIG must be restored to its prior value once withIsigDisabled returns"
+      )
+    finally terminal.close()
+
+  test("withIsigDisabled restores ISIG even when body throws"):
+    val terminal = TerminalBuilder.builder().dumb(true).build()
+    try
+      val shell = ConsoleUiShell(terminal)
+      val before =
+        terminal.getAttributes.getLocalFlag(Attributes.LocalFlag.ISIG)
+      val _ = intercept[RuntimeException]:
+        shell.withIsigDisabled:
+          throw new RuntimeException("prompt body blew up")
+      assertEquals(
+        terminal.getAttributes.getLocalFlag(Attributes.LocalFlag.ISIG),
+        before
+      )
+    finally terminal.close()
+
+  test("uniqueIds leaves already-unique labels untouched"):
+    assertEquals(
+      ConsoleUiShell.uniqueIds(List("claude", "codex", "gemini")),
+      List("claude", "codex", "gemini")
+    )
+
+  test("uniqueIds suffixes every repeat of a duplicate label with a counter"):
+    assertEquals(
+      ConsoleUiShell.uniqueIds(List("claude", "claude", "codex", "claude")),
+      List("claude", "claude#1", "codex", "claude#2")
+    )
+
+  test("uniqueIds keeps distinct duplicate groups independent"):
+    assertEquals(
+      ConsoleUiShell.uniqueIds(List("a", "b", "a", "b", "b")),
+      List("a", "b", "a#1", "b#1", "b#2")
+    )
+
+  // The WINCH signal itself (and whether ConsoleUI's stale-size repaint
+  // actually corrupts the screen) needs a real resized tty — pty-verified
+  // instead (see the report). ResizeTracker's own mark/reset/query state
+  // machine is the pure seam that split off from that: it doesn't touch a
+  // terminal at all.
+  test("ResizeTracker starts unresized"):
+    assertEquals(ConsoleUiShell.ResizeTracker().wasResized, false)
+
+  test("ResizeTracker.wasResized is true after markResized"):
+    val tracker = ConsoleUiShell.ResizeTracker()
+    tracker.markResized()
+    assertEquals(tracker.wasResized, true)
+
+  test("ResizeTracker.reset clears a prior markResized"):
+    val tracker = ConsoleUiShell.ResizeTracker()
+    tracker.markResized()
+    tracker.reset()
+    assertEquals(tracker.wasResized, false)

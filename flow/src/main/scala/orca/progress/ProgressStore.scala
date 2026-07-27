@@ -74,6 +74,13 @@ object ProgressStore:
       OrcaDir.progressPath(workDir, hashPrompt(userPrompt))
     )
 
+  /** Store for an already-known log path — e.g. one discovered by scanning
+    * `.orca/` for `progress-*.json` files (the shell's interrupted-run
+    * detection) rather than derived from a fresh prompt via [[default]].
+    */
+  def at(workDir: os.Path, path: os.Path): ProgressStore =
+    OsProgressStore(workDir, path)
+
   /** First 6 bytes of SHA-256(userPrompt) rendered as 12 hex chars.
     * Package-private so the flow lifecycle can stamp the same hash into the
     * progress header (ADR 0018 §2.4).

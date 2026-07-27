@@ -18,7 +18,13 @@ import orca.agents.{
   ToolSet,
   onWire
 }
-import orca.progress.{ProgressHeader, ProgressStore, StageEntry, SessionRecord}
+import orca.progress.{
+  BranchMode,
+  ProgressHeader,
+  ProgressStore,
+  StageEntry,
+  SessionRecord
+}
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.testkit.TempDirs
 import orca.util.RawJson
@@ -199,7 +205,9 @@ class FlowSessionTest extends FunSuite:
     val dir = TempDirs.dir()
     val store = ProgressStore.default(dir, "p")
     given WorkspaceWrite = WorkspaceWrite.unsafe
-    store.writeHeader(ProgressHeader("main", "feat/test", "deadbeef"))
+    store.writeHeader(
+      ProgressHeader("main", "feat/test", "deadbeef", BranchMode.Created)
+    )
     for record <- sessions do store.upsertSession(record)
     for stageName <- completedStages do
       store.appendEntry(

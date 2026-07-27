@@ -18,10 +18,10 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SEED_DIR="$SCRIPT_DIR/test-project"
-# Flow scripts live in `examples/` (two levels up) so the test-project folders
-# stay free of orca-runtime artefacts. Resolved relative to this script so a
-# checkout in any location still works.
-FLOWS_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# Flow scripts live in the top-level `flows/` (three levels up) so the
+# test-project folders stay free of orca-runtime artefacts. Resolved relative
+# to this script so a checkout in any location still works.
+FLOWS_DIR="$(cd "$SCRIPT_DIR/../../../flows" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 # shellcheck source=../_seed_lib.sh

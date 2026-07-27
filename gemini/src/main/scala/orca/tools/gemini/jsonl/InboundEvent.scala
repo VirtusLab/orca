@@ -15,15 +15,36 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 private[gemini] enum Role:
   case User, Assistant, Unknown
 
+/** Outcome of a `tool_result`/`result` event's wire `status` field, decoded
+  * once here so both handlers agree on what counts as success. gemini's
+  * stream-json schema declares `status` as a required `success|error` field on
+  * both event types (verified against the CLI's `packages/core/src/output`
+  * source — see ADR 0015), so a genuinely *missing* status can't happen on the
+  * real wire; [[Failure]]'s `raw` is `""` in that never-observed case, and
+  * treating it as a failure (not silently as success) is the safer default if
+  * protocol drift ever produced one.
+  */
+private[gemini] enum ToolStatus:
+  case Success
+  case Failure(raw: String)
+
+private[gemini] object ToolStatus:
+  def of(status: Option[String]): ToolStatus = status match
+    case Some("success") => Success
+    case Some(other)     => Failure(other)
+    case None            => Failure("")
+
+  extension (s: ToolStatus) def isSuccess: Boolean = s == Success
+
 /** One event parsed off gemini's stdout under `-p <prompt> --output-format
   * stream-json` (shape in
   * [[../../../adr/0015-gemini-stream-json-driver.md ADR 0015]]). Each variant
   * carries only the fields the driver inspects. Unknown top-level types
   * collapse to [[Unknown]] so protocol drift doesn't crash the pipeline. Most
-  * wire fields default so a renamed/missing key degrades gracefully; the two
+  * wire fields default so a renamed/missing key degrades gracefully; the
   * identity-critical exceptions are `init`'s `session_id` (required — a missing
-  * key throws rather than becoming `Init("")`) and `message`'s `role` (typed
-  * via [[Role]]).
+  * key throws rather than becoming `Init("")`), `message`'s `role` (typed via
+  * [[Role]]), and `tool_result`/`result`'s `status` (typed via [[ToolStatus]]).
   */
 private[gemini] enum InboundEvent:
   /** First event in a session — the session id (drives `--resume`) and, when
@@ -37,13 +58,13 @@ private[gemini] enum InboundEvent:
     */
   case Message(role: Role, content: String)
   case ToolUse(toolName: String, toolId: String, parameters: String)
-  case ToolResult(toolId: String, status: String, output: String)
+  case ToolResult(toolId: String, status: ToolStatus, output: String)
   case Error(message: String)
 
   /** Final event — aggregated token stats (mapped to [[Usage]]) and the
-    * terminal status string.
+    * terminal [[ToolStatus]].
     */
-  case Result(usage: Usage, status: String)
+  case Result(usage: Usage, status: ToolStatus)
   case Unknown(rawType: String)
 
 private[gemini] object InboundEvent:
@@ -91,7 +112,7 @@ private[gemini] object InboundEvent:
     val w = readFromString[ToolResultWire](line)
     ToolResult(
       toolId = w.tool_id.getOrElse(""),
-      status = w.status.getOrElse(""),
+      status = ToolStatus.of(w.status),
       output = w.output.getOrElse("")
     )
 
@@ -111,7 +132,7 @@ private[gemini] object InboundEvent:
         // `cached_input_tokens`).
         cachedInputTokens = s.cached.orElse(s.cached_input_tokens).getOrElse(0L)
       ),
-      status = w.status.getOrElse("")
+      status = ToolStatus.of(w.status)
     )
 
   // --- Wire shapes ---

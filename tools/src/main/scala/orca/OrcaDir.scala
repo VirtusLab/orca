@@ -58,6 +58,41 @@ private[orca] object OrcaDir:
     writeIfAbsent(cache / "CACHEDIR.TAG", cachedirTagContents)
     cache
 
+  /** `<workDir>/.orca/cache/runs/`, idempotently ensured. Holds per-run session
+    * manifests written by `RunManifestWriter` (ADR 0021 §8); a trivial sibling
+    * of [[ensureCache]] since it lives inside the already-guarded cache dir.
+    */
+  def cacheRunsPath(workDir: os.Path): os.Path =
+    val runs = ensureCache(workDir) / "runs"
+    os.makeDir.all(runs)
+    runs
+
+  /** `<workDir>/.orca/cache/runs`, passively — the read-side counterpart to
+    * [[cacheRunsPath]] for the shell's manifest listing (ADR 0021 §8), which
+    * must not create `.orca` as a side effect of reading it.
+    */
+  def runsPath(workDir: os.Path): os.Path = root(workDir) / "cache" / "runs"
+
+  /** `<workDir>/.orca/flows` — project-tier flow scripts (ADR 0021 §5),
+    * committed like the rest of `.orca`'s root.
+    */
+  def flowsPath(workDir: os.Path): os.Path = root(workDir) / "flows"
+
+  /** Idempotently ensure `.orca/flows/` exists and return it. */
+  def ensureFlows(workDir: os.Path): os.Path =
+    val flows = flowsPath(workDir)
+    abortIfOrcaComponentSymlink(workDir, flows)
+    flows.tap(os.makeDir.all(_))
+
+  /** Read-only counterpart to [[abortIfOrcaComponentSymlink]], for callers that
+    * only need to verify before reading (e.g. flow discovery) and must not
+    * create `.orca` as a side effect. A no-op when `.orca` doesn't exist yet —
+    * there is nothing to guard, and discovery already tolerates a missing tier
+    * directory.
+    */
+  private[orca] def assertNoOrcaSymlinks(workDir: os.Path, dir: os.Path): Unit =
+    if os.exists(root(workDir)) then abortIfOrcaComponentSymlink(workDir, dir)
+
   /** Refuse if `.orca` — or any orca-created directory from it down to `dir`
     * (inclusive) — is a symlink, before any `os.makeDir.all`/write through it.
     * A committed symlink at any component (git mode 120000) would redirect

@@ -44,8 +44,10 @@ private[orca] object AgentSpec:
             harnessNames.keys.toList.sorted.mkString(", ")
         )
 
-/** The agent keys of one settings file; [[orElse]] layers a file over a
-  * fallback per role (project over user-global).
+/** The agent keys of one settings file; [[orElse]] layers one set over a
+  * fallback per role — `ConfigCli` uses it to merge flag overrides over the
+  * existing file. The project-over-global settings precedence itself lives in
+  * `RoleAgents`, its single home.
   */
 private[orca] case class AgentSettings(
     planning: Option[AgentSpec] = None,

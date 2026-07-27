@@ -1,7 +1,7 @@
 package orca.agents
 
 import orca.AgentTurnFailed
-import orca.backend.{Interaction, AgentBackend}
+import orca.backend.{Conversations, Interaction, AgentBackend}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.util.JsonSchemaGen
 import ox.resilience.{ResultPolicy, RetryConfig, retry}
@@ -152,17 +152,31 @@ class DefaultAgentCall[B <: BackendTag, O](
       runInteractiveOnce(input, config, session)
 
   /** Emit a `StructuredResult` event carrying the raw payload and the
-    * `Announce[O]`-derived summary. `summary` is tri-state (see
-    * [[orca.events.OrcaEvent.StructuredResult]]): text from a specific
-    * `Announce[O]`; `Some("")` when a specific instance deliberately says
-    * nothing; `None` when none exists — renderers then fall back to the raw
-    * payload so the result stays visible.
+    * `Announce[O]`-derived summary — tri-state per
+    * [[orca.events.OrcaEvent.StructuredResult]].
     */
   private def emitStructuredResult(raw: String, value: O): Unit =
     val summary = announce match
       case _: Announce.NoSpecific[?] => None
       case specific                  => specific.message(value).orElse(Some(""))
     events.onEvent(OrcaEvent.StructuredResult(raw, summary))
+
+  /** Fires once a session's first turn commits (ADR 0021 §8). Read
+    * `backend.sessions.persistableWireId` directly (rather than through
+    * `Agent.resumeWireId`, which needs an `Agent` instance this class doesn't
+    * hold) — the same underlying lookup a `BaseAgent`-backed tool's
+    * `resumeWireId` resolves to.
+    */
+  private def emitSessionCommitted(session: SessionId[B]): Unit =
+    events.onEvent(
+      OrcaEvent.SessionCommitted(
+        backend.tag.wireName,
+        session.value,
+        backend.sessions.persistableWireId(session).map(_.value),
+        agentName,
+        agentRole
+      )
+    )
 
   /** THE retry policy — the only place that decides whether an autonomous-turn
     * failure gets retried: parse failures (corrective re-prompt, same session
@@ -191,9 +205,58 @@ class DefaultAgentCall[B <: BackendTag, O](
 
     // Carries a parse failure into the next attempt's corrective prompt. Local
     // contract: written only in the `MalformedAgentOutputException` catch below,
-    // read only at the top of the next `retry` iteration, which re-executes the
-    // block sequentially — never concurrently.
+    // read only at the top of the next `attemptOnce` call, which `retry`
+    // re-executes sequentially — never concurrently.
     var lastFailure: Option[FailedAttempt] = None
+
+    /** One attempt: build this iteration's prompt (the initial one, or a
+      * corrective re-prompt carrying the prior parse failure), run the turn,
+      * and parse its output as `O`. A `MalformedAgentOutputException` records
+      * itself as `lastFailure` for the next call before rethrowing, so `retry`
+      * can drive a corrective re-prompt loop around repeated calls to this.
+      */
+    def attemptOnce(): O =
+      val promptText = lastFailure match
+        case Some(f) =>
+          val corrective = prompts.retry(f.response, f.parserError)
+          if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(corrective))
+          corrective
+        case None => initialPrompt
+      val result = backend.runAutonomous(
+        promptText,
+        session,
+        effective,
+        events,
+        outputSchema = Some(outputSchema)
+      )
+      // Fire as soon as the backend drain commits — before the fallible
+      // parse below — so a session that later exhausts its retries (parse
+      // keeps failing) or throws on a subsequent attempt still gets
+      // announced as durably resumable (ADR 0021 §8). Every attempt on this
+      // session re-fires with the same payload; listeners dedup on
+      // (backend, clientId, wireId) per the event's scaladoc.
+      emitSessionCommitted(session)
+      events.onEvent(
+        OrcaEvent.TokensUsed(
+          agentName,
+          result.model.orElse(effective.model),
+          result.usage,
+          agentRole
+        )
+      )
+      try
+        val parsed = ResponseParser.parse[O](result.output)
+        emitStructuredResult(result.output, parsed)
+        parsed
+      catch
+        case e: MalformedAgentOutputException =>
+          lastFailure = Some(
+            FailedAttempt(
+              response = e.rawOutput,
+              parserError = e.shortCause
+            )
+          )
+          throw e
 
     val retryConfig = RetryConfig(
       effective.retrySchedule,
@@ -202,42 +265,7 @@ class DefaultAgentCall[B <: BackendTag, O](
       )
     )
 
-    try
-      retry(retryConfig):
-        val promptText = lastFailure match
-          case Some(f) =>
-            val corrective = prompts.retry(f.response, f.parserError)
-            if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(corrective))
-            corrective
-          case None => initialPrompt
-        val result = backend.runAutonomous(
-          promptText,
-          session,
-          effective,
-          events,
-          outputSchema = Some(outputSchema)
-        )
-        events.onEvent(
-          OrcaEvent.TokensUsed(
-            agentName,
-            result.model.orElse(effective.model),
-            result.usage,
-            agentRole
-          )
-        )
-        try
-          val parsed = ResponseParser.parse[O](result.output)
-          emitStructuredResult(result.output, parsed)
-          parsed
-        catch
-          case e: MalformedAgentOutputException =>
-            lastFailure = Some(
-              FailedAttempt(
-                response = e.rawOutput,
-                parserError = e.shortCause
-              )
-            )
-            throw e
+    try retry(retryConfig)(attemptOnce())
     catch
       // Attribute the failure: name the agent and this turn's input size, so
       // "Prompt is too long" becomes actionable. The session's accumulated
@@ -268,19 +296,27 @@ class DefaultAgentCall[B <: BackendTag, O](
     // leaks the subprocess/forks. On cancel `drive` throws, skipping the
     // register / TokensUsed bookkeeping below.
     val result = ox.supervised:
-      val conversation = backend.runInteractive(
+      val rawConversation = backend.runInteractive(
         prompt,
         session,
         displayPrompt = serialized,
         effective,
         Some(outputSchema)
       )(using summon[ox.Ox])
+      // Withhold the closing structured-payload turn from every `Interaction`
+      // impl uniformly (parallel to `Conversations.TurnBuffer` on the
+      // autonomous drain) rather than leaving each renderer to reinvent it.
+      val conversation = Conversations.withholdInteractiveProse(
+        rawConversation,
+        events
+      )
       try interaction.drive(conversation)
       finally conversation.cancel()
     // Codex mints its server thread id inside the drain (not at spawn); surface
     // it back so a follow-up call with the same `session` resumes the right
     // thread. No-op for backends whose session id IS the client UUID (claude).
     backend.sessions.register(session, result.wireId)
+    emitSessionCommitted(session)
     // Normal path only: on mid-session cancel `drive` throws before this line,
     // and the wire protocols don't always carry partial usage, so there's
     // nothing authoritative to emit at cancel time.

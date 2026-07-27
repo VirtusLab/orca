@@ -213,12 +213,15 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
     */
   @volatile private var stderrFork: Option[Fork[Unit]] = None
 
-  /** Start the reader / stderr / ask-user forks on first touch of the surface;
-    * a no-op thereafter. The auxiliary workers are forked (and [[stderrFork]]
-    * published) before the reader, so the drain handle is visible to the
-    * reader's finalize before the reader consumes stdout. The consumer is
-    * single-threaded ([[events]] then [[awaitResult]] on the same thread), so
-    * the check-then-start needs no lock.
+  /** Start the reader / stderr / ask-user forks on first touch of the surface
+    * ([[events]] / [[awaitResult]]); a no-op thereafter. Deliberately no
+    * separate `start()`: this runs after every subclass's own field
+    * initializers have finished, so a subclass never sees `handleLine` called
+    * against half-built state. The auxiliary workers are forked (and
+    * [[stderrFork]] published) before the reader, so the drain handle is
+    * visible to the reader's finalize before the reader consumes stdout. The
+    * consumer is single-threaded ([[events]] then [[awaitResult]] on the same
+    * thread), so the check-then-start needs no lock.
     */
   private def ensureStarted()(using Ox): Workers =
     workers.getOrElse:

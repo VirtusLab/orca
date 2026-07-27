@@ -191,7 +191,7 @@ accessors set provider-qualified ids, split in `OpencodeArgs` into
 `{providerID, modelID}`. Since OpenCode is the **multi-provider** backend, the tool
 ships accessors for more than one family:
 
-- Anthropic: `anthropicOpus` → `anthropic/claude-opus-4-8`, `anthropicSonnet` →
+- Anthropic: `anthropicOpus` → `anthropic/claude-opus-5`, `anthropicSonnet` →
   `anthropic/claude-sonnet-5`, `anthropicHaiku` → `anthropic/claude-haiku-4-5`.
 - OpenAI: `openaiSol` → `openai/gpt-5.6-sol`, `openaiTerra` →
   `openai/gpt-5.6-terra`, `openaiLuna` → `openai/gpt-5.6-luna` (exact pinned ids

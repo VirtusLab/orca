@@ -82,7 +82,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
     val b = new RecordingBackend
     assertEquals(
       modelOf(toolWith(b).anthropicOpus, b),
-      Some("anthropic/claude-opus-4-8")
+      Some("anthropic/claude-opus-5")
     )
     assertEquals(
       modelOf(toolWith(b).anthropicSonnet, b),
@@ -115,7 +115,7 @@ class DefaultOpencodeAgentTest extends munit.FunSuite:
     assertEquals(b.lastConfig.map(_.tools), Some(ToolSet.ReadOnly))
     assertEquals(
       b.lastConfig.flatMap(_.model).map(_.name),
-      Some("anthropic/claude-opus-4-8")
+      Some("anthropic/claude-opus-5")
     )
 
   test("withName renames without touching config"):

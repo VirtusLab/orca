@@ -21,7 +21,6 @@ class ConversationRendererTest extends munit.FunSuite:
 
   private def renderer(
       out: ByteArrayOutputStream,
-      structuredMode: Boolean = false,
       prompter: Prompter = ScriptedPrompter(Nil)
   ): ConversationRenderer =
     val ps = new PrintStream(out)
@@ -33,7 +32,6 @@ class ConversationRendererTest extends munit.FunSuite:
       useColor = false,
       output = terminalOutput,
       currentIndent = () => "",
-      structuredMode = structuredMode,
       prompter = prompter
     )
 
@@ -105,63 +103,29 @@ class ConversationRendererTest extends munit.FunSuite:
       s"the full body must not be dumped: $bodyLines"
     )
 
-  test("non-structured mode: assistant text flushes verbatim at TurnEnd"):
-    // Off the structured-output path the renderer streams the agent's output as
-    // `●` prose, JSON-shaped or not.
-    val buf = new ByteArrayOutputStream()
-    val conv = new ScriptedConversation(
-      List(
-        ConversationEvent.AssistantTextDelta("""{"tasks":[{"id":1}]}"""),
-        ConversationEvent.AssistantTurnEnd
-      ),
-      Right(sampleResult)
-    )
-    val _ = supervised(renderer(buf).render(conv))
-    assert(
-      buf.toString.contains("tasks"),
-      s"JSON payload should be rendered verbatim; got: ${buf.toString}"
-    )
-
   test(
-    "structured mode: assistant text is suppressed (StructuredResult takes over)"
+    "assistant prose (deltas + TurnEnd) is never rendered here — AgentCall withholds it upstream and TerminalEventListener renders it"
   ):
-    // With an `outputSchema` the agent's final text is the structured payload;
-    // suppressing it lets the listener pick the canonical render via
-    // `OrcaEvent.StructuredResult` (raw or summary, never both).
-    val buf = new ByteArrayOutputStream()
-    val conv = new ScriptedConversation(
-      List(
-        ConversationEvent.AssistantTextDelta("""{"tasks":[{"id":1}]}"""),
-        ConversationEvent.AssistantTurnEnd
-      ),
-      Right(sampleResult)
-    )
-    val _ = supervised(renderer(buf, structuredMode = true).render(conv))
-    assert(
-      !buf.toString.contains("tasks"),
-      s"structured-mode renderer should not render the JSON payload; got: ${buf.toString}"
-    )
-
-  test(
-    "AssistantThinkingDelta is never rendered (12.6: showThinking deleted, dead in production)"
-  ):
+    // `Conversations.withholdInteractiveProse` strips these before `drive` ever
+    // sees them in production; this pins that a renderer driven directly
+    // against a raw stream (as this test does) still doesn't double-render.
     val buf = new ByteArrayOutputStream()
     val conv = new ScriptedConversation(
       List(
         ConversationEvent.AssistantThinkingDelta("inner monologue"),
-        ConversationEvent.AssistantTextDelta("visible answer"),
+        ConversationEvent.AssistantTextDelta("""{"tasks":[{"id":1}]}"""),
         ConversationEvent.AssistantTurnEnd
       ),
       Right(sampleResult)
     )
     val _ = supervised(renderer(buf).render(conv))
     assert(
-      !buf.toString.contains("inner monologue"),
-      s"expected no thinking output; got: ${buf.toString}"
+      !buf.toString.contains("tasks"),
+      s"assistant text must not be rendered by this renderer; got: ${buf.toString}"
     )
     assert(
-      buf.toString.contains("visible answer"),
-      s"expected the assistant text to still render normally; got: ${buf.toString}"
+      !buf.toString.contains("inner monologue"),
+      s"expected no thinking output; got: ${buf.toString}"
     )
 
   test("AssistantToolCall renders the name and a summarised input"):

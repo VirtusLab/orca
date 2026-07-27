@@ -11,7 +11,7 @@ import orca.backend.{
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
-import orca.tools.gemini.jsonl.{InboundEvent, Role}
+import orca.tools.gemini.jsonl.{InboundEvent, Role, ToolStatus}
 
 /** Drives a `gemini -p <prompt> --output-format stream-json` session to
   * completion. Boilerplate lives in [[orca.backend.ForkedConversation]]; this
@@ -62,9 +62,7 @@ private[gemini] class GeminiConversation(
     */
   private val askUserEchoes = new orca.backend.AskUserEchoes
 
-  // No `start()`: the base spawns its reader / stderr / ask-user forks lazily
-  // on first touch of the conversation surface, after this subclass's fields
-  // are initialised.
+  // No `start()` — see `ForkedConversation.ensureStarted`'s lazy fork spawn.
 
   // --- Reader hooks ---
 
@@ -103,28 +101,31 @@ private[gemini] class GeminiConversation(
       // silently rather than rendering an error.
       ()
 
-  /** Settle the conversation outcome at the terminal `result` event.
-    * `"success"` (and an empty/absent status) is success; any other non-empty
+  /** Settle the conversation outcome at the terminal `result` event. Only an
+    * explicit `"success"` is success ([[ToolStatus.isSuccess]]); any other
     * status is a failed turn that must NOT be reported as success even though
     * gemini exited 0 — tagged `AgentTurnFailed` so the autonomous retry loop
     * doesn't reopen the now-registered session id.
     */
-  private def handleResult(usage: Usage, status: String): Unit =
-    if status.nonEmpty && status != "success" then
-      // Fold in the buffered stderr (the real reason — quota, auth, …) so the
-      // exception carries it even for a noop listener.
-      failWith(
-        new AgentTurnFailed(
-          appendContext(s"gemini turn ended with status '$status'")
+  private def handleResult(usage: Usage, status: ToolStatus): Unit =
+    status match
+      case ToolStatus.Success =>
+        settleSuccess(
+          wireId = sessionId,
+          output = answer.toString,
+          usage = usage,
+          modelId = model
         )
-      )
-    else
-      settleSuccess(
-        wireId = sessionId,
-        output = answer.toString,
-        usage = usage,
-        modelId = model
-      )
+      case ToolStatus.Failure(raw) =>
+        // Fold in the buffered stderr (the real reason — quota, auth, …) so
+        // the exception carries it even for a noop listener.
+        val description =
+          if raw.isEmpty then "a missing status" else s"status '$raw'"
+        failWith(
+          new AgentTurnFailed(
+            appendContext(s"gemini turn ended with $description")
+          )
+        )
 
   /** A `user`-role message is the prompt echo, so it's dropped.
     * [[Role.Assistant]] (any present role other than `"user"`) is agent output.
@@ -153,7 +154,7 @@ private[gemini] class GeminiConversation(
 
   private def handleToolResult(
       id: String,
-      status: String,
+      status: ToolStatus,
       output: String
   ): Unit =
     if askUserEchoes.consume(id) then ()
@@ -161,7 +162,7 @@ private[gemini] class GeminiConversation(
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
           toolName = Some(toolNames.getOrElse(id, id)),
-          ok = status == "success",
+          ok = status.isSuccess,
           content = output
         )
       )

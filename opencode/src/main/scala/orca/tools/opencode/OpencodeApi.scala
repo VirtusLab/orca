@@ -31,14 +31,18 @@ private[opencode] object OpencodeApi:
   case class OutputFormat(`type`: String, schema: RawJson)
       derives ConfiguredJsonValueCodec
 
-  /** Body of `POST /session/{id}/prompt_async` (and `…/message`). */
+  /** Body of `POST /session/{id}/prompt_async` (and `…/message`). No field
+    * defaults — a write shape is exact (see the file header); `tools` in
+    * particular is the write-capability gate, so a call site must decide it
+    * explicitly rather than a forgotten field silently sending unrestricted.
+    */
   case class MessageBody(
       parts: List[MessagePart],
-      model: Option[ModelRef] = None,
-      system: Option[String] = None,
-      agent: Option[String] = None,
-      tools: Option[Map[String, Boolean]] = None,
-      format: Option[OutputFormat] = None
+      model: Option[ModelRef],
+      system: Option[String],
+      agent: Option[String],
+      tools: Option[Map[String, Boolean]],
+      format: Option[OutputFormat]
   ) derives ConfiguredJsonValueCodec
 
   /** Body of `POST /session`. */

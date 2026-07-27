@@ -1,15 +1,15 @@
 # Working on Orca
 
-Internals and conventions for hacking on the library itself, for both
-human contributors and AI assistants. End-user documentation lives in
+Internals, architecture, and coding conventions for hacking on the library
+itself. Build/test commands and the recipes for running a locally modified
+orca live in [CONTRIBUTING.md](CONTRIBUTING.md); end-user documentation in
 the [README](README.md).
 
 Orca is implemented in Scala 3 on top of [Ox](https://ox.softwaremill.com/)
 for structured concurrency, [tapir](https://tapir.softwaremill.com/) for
 JSON Schema derivation, and
 [jsoniter-scala](https://github.com/plokhotnyuk/jsoniter-scala) for codec
-generation. **sbt 1.12+** is needed in addition to the runtime requirements
-listed in the README.
+generation.
 
 ## Project layout
 
@@ -19,7 +19,8 @@ orca/
 ├── tools/      # tool traits + os-backed impls (git/gh/fs), LLM SPI + session durability, InStage, events, subprocess
 ├── flow/       # stage/display/fail + FlowContext/FlowControl; orca.{plan,review,pr,progress}
 ├── claude/ codex/ gemini/ opencode/ pi/   # one module per coding-agent backend
-└── runner/     # flow() entry, DefaultFlowContext, FlowLifecycle, terminal UI
+├── runner/     # flow() entry, DefaultFlowContext, FlowLifecycle, terminal UI
+└── shell/      # `orca-shell`, the `orca` CLI's interactive front-end (ADR 0021)
 ```
 
 Dependency graph:
@@ -29,7 +30,8 @@ tools   (standalone)
   ├── flow                          → tools
   ├── claude / codex / gemini /
   │     opencode / pi               → tools
-  └── runner                        → tools + flow + all five backends
+  ├── runner                        → tools + flow + all five backends
+  └── shell                         → runner (published `orca`)
 ```
 
 The runner module owns the `flow` entry point (`package orca`) and wires
@@ -181,47 +183,14 @@ most easily broken:
   still see every event and the flow itself always survives; see
   `EventDispatcher`.
 
-## Build and test
+## Testing approach
 
-```bash
-sbt compile                             # build every module
-sbt test                                # unit tests across all modules
-sbt "flow/test"                         # scope to one module
-sbt "flow/testOnly orca.FixLoopTest"    # scope to one suite
-```
-
-Extra Scala 3 warnings are enabled (`-Wunused:all`, `-Wvalue-discard`,
-`-Wnonunit-statement`). They aren't fatal — fix them before committing
-rather than relying on the compiler to block.
-
-### Formatting
-
-```bash
-sbt scalafmtAll                         # reformat every source in place
-sbt scalafmtCheckAll                    # fail if anything would reformat
-```
-
-### Integration tests (gated)
-
-Some tests shell out to real external tools and skip by default:
-
-```bash
-ORCA_INTEGRATION=1 sbt test
-ORCA_INTEGRATION=1 sbt "claude/testOnly orca.tools.claude.ClaudeIntegrationTest"
-ORCA_INTEGRATION=1 sbt "tools/testOnly orca.tools.OsGitHubIntegrationTest"
-ORCA_INTEGRATION=1 sbt "runner/testOnly orca.runner.terminal.ScalaCliSmokeTest"
-```
-
-| Suite | Needs |
-|---|---|
-| `{Claude,Codex,Gemini,Opencode,Pi}IntegrationTest` (one per `orca.tools.<backend>`) | that backend's CLI authenticated |
-| `OsGitHubIntegrationTest` | `gh` authenticated |
-| `ScalaCliSmokeTest` | `scala-cli`; runs `sbt publishLocal` internally |
-
-Unit tests use in-memory fakes (`StubCliRunner` / `SpawnStubCliRunner`,
-`FakeAgent`, `FakePipedCliProcess`, `TestFlowContext` / `TestFlowControl`) and
-the shared `orca.testkit.GitRepo` temp-repo fixture (published via `tools %
-test->test`) — no network, no real filesystem outside `os.temp.dir()`.
+Build/test/format commands and the gated integration suites are in
+[CONTRIBUTING.md](CONTRIBUTING.md). Unit tests use in-memory fakes
+(`StubCliRunner` / `SpawnStubCliRunner`, `FakeAgent`, `FakePipedCliProcess`,
+`TestFlowContext` / `TestFlowControl`) and the shared `orca.testkit.GitRepo`
+temp-repo fixture (published via `tools % test->test`) — no network, no real
+filesystem outside `os.temp.dir()`.
 
 ### Debugging backend breakage
 
@@ -287,6 +256,53 @@ with a test pinning the observed wire shape.
   inline.
 - Tests target exactly one scenario each.
 
+### Review-derived rules
+
+Distilled from recurring review findings; violations keep reappearing without
+them.
+
+- A domain mode is an enum, never a `Boolean` or a raw string compared to
+  literals; two flags/Options whose combinations include impossible states are
+  one ADT.
+- Three-plus same-typed adjacent parameters (or two whose swap compiles) get
+  named arguments at every call site, or a small case class.
+- A wire field's absence semantics is decided ONCE, at decode — never
+  re-defaulted per call site. Parse protocol strings into enums at the
+  boundary (`Unknown(raw)` for unrecognized values); match exhaustively
+  downstream.
+- One decision, one home: when the same mapping/derivation appears in a second
+  place, extract it. Display/summary code consumes the production resolver —
+  it never mirrors the rule with its own copy.
+- Code that generates code (templates, skeletons, prompts claiming
+  compilability) is tested by actually compiling/executing the artifact —
+  substring assertions don't count.
+- Terminal escape sequences are written with explicit unicode escapes (backslash-u001b), never
+  raw embedded bytes; when moving such code, compare with `cat -A` — ordinary
+  diffs render the sequences invisibly.
+- Every user-facing refusal names the next action; every destructive-looking
+  automatic operation (stash, reset, delete) states its purpose in the same
+  breath.
+
+### Versioning (0.x)
+
+Orca is 0.x: no backwards compatibility is owed anywhere.
+
+- No default values on domain or persisted fields (case classes that travel
+  through `JsonData`, progress-log/manifest types, config records). Every
+  call site passes them explicitly — a default silently papers over a call
+  site that forgot the field, which is exactly the bug class this rule
+  catches.
+- Never carry back-compat machinery — no defaulting-old-shape codec configs,
+  no dual parse paths, no fixture tests pinned to a prior wire format. Change
+  the shape and update every call site instead.
+- One deliberate exception: `ProgressLog`/`SessionRecord`'s tolerant decoding
+  (documented at its definition) exists so a mid-run resume survives an orca
+  upgrade — an in-flight run's log written by an older orca must still load.
+  That live-data tolerance stays; don't "fix" it under this rule.
+- Comments (see Code style above) never narrate this either: no "was
+  previously", "renamed from", "kept for compat" — state what the field/type
+  means now, not its history.
+
 ### Library
 
 - Tool event sinks take `OrcaListener` (default `OrcaListener.noop`).
@@ -312,22 +328,10 @@ with a test pinning the observed wire shape.
 The `direct-style-scala` plugin codifies the Scala-style bullets; re-reading
 its chapters before a non-trivial change is recommended.
 
-## Publishing locally
+## Publishing and local testing
 
-```bash
-sbt publishLocal
-```
-
-Installs `org.virtuslab::orca:0.0.17` plus its transitive modules
-(`orca-tools`, `orca-flow`, and the five backends
-`orca-{claude,codex,gemini,opencode,pi}`) into `~/.ivy2/local` so a flow script
-with `//> using repository ivy2Local` can resolve them.
-
-For an iteration loop while hacking on Orca itself, run sbt in one
-terminal with a `~` watch-and-publish:
-
-```bash
-sbt "~publishLocal"
-```
-
-Every save rebuilds the affected module and refreshes `~/.ivy2/local`.
+See [CONTRIBUTING.md](CONTRIBUTING.md): `sbt publishLocal` (with a
+`~publishLocal` watch loop) installs the modules into `~/.ivy2/local`, and
+its "Testing the `orca` CLI with local changes" section has the isolated
+scratch-project recipe for running a locally built shell, interactively and
+headless.

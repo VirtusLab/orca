@@ -119,6 +119,17 @@ trait GitTool:
     */
   def commitOnly(path: os.Path, message: String)(using WorkspaceWrite): Unit
 
+  /** Commit exactly `path`, assuming the caller already staged it (typically
+    * via [[forceAdd]]) — unlike [[commitOnly]], this does no `add` of its own.
+    * Scoped by the same commit pathspec, so nothing else staged or dirty leaks
+    * in. Needed wherever the path must be force-staged to punch through
+    * `.gitignore`: a plain `git add` on an already-staged-but-not-yet-tracked
+    * ignored path still refuses without `-f`, so [[commitOnly]]'s own add would
+    * fail there. Used for the progress-log header commit (ADR 0018 R8), which
+    * must land even under a gitignored `.orca/`.
+    */
+  def commitStaged(path: os.Path, message: String)(using WorkspaceWrite): Unit
+
   /** Force-stage `path` (`git add -f`), bypassing `.gitignore`. The stage
     * runtime uses this to stage its progress-log file even when the project
     * gitignores `.orca/`, so the log travels with the branch (ADR 0018 §2.1).
@@ -163,17 +174,32 @@ trait GitTool:
     * §2.5).
     *
     * '''`reset --hard` does NOT remove untracked files''' — a failed stage's
-    * newly created files survive in the working tree. They aren't lost: the
-    * next run's start-of-run `ensureClean` stashes the dirty tree (`git stash
-    * push -u`), sweeping them into that stash alongside any genuine user WIP.
-    * Deleting leftovers at teardown would need a scoped clean of run-touched
-    * paths (blanket `git clean -fd` would also delete pre-existing untracked
-    * user files) — an intentionally separate decision, not made here.
+    * newly created files survive in the working tree. They're swept later, into
+    * the next run's `ensureClean` stash (`git stash push -u`), alongside any
+    * genuine user WIP. A scoped clean here would risk deleting pre-existing
+    * untracked files too (blanket `git clean -fd`), so that cleanup is
+    * deliberately left to `ensureClean`, not done here.
     */
   def resetHard()(using WorkspaceWrite): Unit
 
-  /** All changes since the last commit (staged and unstaged). */
+  /** All changes since the last commit (staged and unstaged). Tracked files
+    * only — an untracked file (nothing to diff against) is invisible here, and
+    * `.orca/` bookkeeping is included if it happens to be tracked and dirty.
+    * Fine for this method's one caller (a commit-message draft taken before the
+    * progress log is written, by construction never seeing `.orca/` churn). A
+    * reviewer-facing consumer needing untracked files surfaced and `.orca/`
+    * always excluded wants [[reviewDiff]] instead.
+    */
   def diff(): String
+
+  /** The working-tree change set a reviewer should see: tracked changes since
+    * the last commit (staged and unstaged, as in [[diff]]) excluding `.orca/`
+    * bookkeeping, PLUS each untracked non-`.orca/` file rendered as a new-file
+    * diff (`git diff --no-index` against `/dev/null`) — so a freshly-created
+    * file is visible even though it has no tracked history to diff against.
+    * Read-only: untracked files are diffed, never staged.
+    */
+  def reviewDiff(): String
 
   /** Diff of the current branch vs `base`.
     *
@@ -211,6 +237,18 @@ trait GitTool:
     * clean.
     */
   def ensureClean(stashMessage: String)(using WorkspaceWrite): Boolean
+
+  /** True when the working tree has uncommitted changes (`git status
+    * --porcelain`). READ-ONLY, unlike [[ensureClean]] — never stashes.
+    */
+  def isDirty(): Boolean
+
+  /** The paths reported by `git status --porcelain` (modified, staged, and
+    * untracked), one per entry. READ-ONLY. Used by skip-branch mode's
+    * informational notice on a fresh run with a dirty tree (ADR 0018 amendment)
+    * — the count, not the parsed content, is what's shown.
+    */
+  def dirtyPaths(): List[String]
 
   /** Create a linked worktree at `path` on `branch`. If the branch already
     * exists it is checked out in the new worktree; otherwise it is created from
@@ -287,8 +325,18 @@ private[orca] class OsGitTool(
   private def branchExists(name: String): Boolean =
     git("branch", "--list", name).trim.nonEmpty
 
+  def isDirty(): Boolean = dirtyPaths().nonEmpty
+
+  def dirtyPaths(): List[String] =
+    // One porcelain line per path, except a rename ("R  old -> new"), which
+    // is one line covering two paths — fine for an informational count.
+    git("status", "--porcelain").linesIterator
+      .map(_.trim)
+      .filter(_.nonEmpty)
+      .toList
+
   def ensureClean(stashMessage: String)(using WorkspaceWrite): Boolean =
-    val dirty = git("status", "--porcelain").trim.nonEmpty
+    val dirty = isDirty()
     if dirty then
       val _ = git("stash", "push", "-u", "-m", stashMessage)
       events.onEvent(
@@ -313,6 +361,10 @@ private[orca] class OsGitTool(
 
   def commitOnly(path: os.Path, message: String)(using WorkspaceWrite): Unit =
     val _ = git("add", "--", path.toString)
+    val _ = git("commit", "-m", message, "--", path.toString)
+    events.onEvent(OrcaEvent.Step(s"Committed: $message"))
+
+  def commitStaged(path: os.Path, message: String)(using WorkspaceWrite): Unit =
     val _ = git("commit", "-m", message, "--", path.toString)
     events.onEvent(OrcaEvent.Step(s"Committed: $message"))
 
@@ -416,8 +468,38 @@ private[orca] class OsGitTool(
     )
 
   def diff(): String =
-    // vs HEAD: show both staged and unstaged changes since the last commit.
     git("diff", "HEAD")
+
+  def reviewDiff(): String =
+    val tracked = git("diff", "HEAD", "--", ".", ":(exclude).orca/*")
+    val untracked = untrackedPaths().map(untrackedFileDiff)
+    (tracked :: untracked).mkString
+
+  /** Untracked, non-`.orca/` paths from `git status --porcelain`.
+    * `--untracked-files=all` recurses into untracked directories so every file
+    * inside is listed individually — the default mode lists only the directory.
+    * `-z` NUL-delimits records so a path containing a space or newline parses
+    * unambiguously.
+    */
+  private def untrackedPaths(): List[String] =
+    git("status", "--porcelain", "--untracked-files=all", "-z")
+      .split('\u0000')
+      .toList
+      .filter(_.startsWith("?? "))
+      .map(_.stripPrefix("?? "))
+      .filterNot(p => p == ".orca" || p.startsWith(".orca/"))
+
+  /** Render an untracked file as a new-file unified diff, without staging it
+    * (`add -N` would mutate the index — this doesn't). `git diff --no-index`
+    * exits 1 when the two sides differ, which is the expected outcome for any
+    * real file against `/dev/null`; only exit codes above 1 signal a genuine
+    * error.
+    */
+  private def untrackedFileDiff(relPath: String): String =
+    val result =
+      gitProc(Seq("git", "diff", "--no-index", "--", "/dev/null", relPath))
+    if result.exitCode <= 1 then result.out.text()
+    else fail(s"git diff --no-index -- /dev/null $relPath", result)
 
   def diffVsBase(base: String, mode: DiffMode): String =
     val spec = mode match
@@ -572,16 +654,14 @@ private[orca] object OsGitTool:
   // a wording tweak across git versions doesn't reclassify a recoverable
   // failure as fatal.
 
-  /** True when `git push` stderr indicates the remote branch moved on
-    * (`non-fast-forward` / `fetch first`) — resolvable by fetching and
-    * rebasing, unlike [[isRemoteDeclined]].
+  /** True when `git push` stderr indicates the remote branch moved on — see
+    * [[PushFailure.NonFastForward]] for the recovery semantics.
     */
   private[tools] def isNonFastForward(stderr: String): Boolean =
     stderr.contains("non-fast-forward") || stderr.contains("fetch first")
 
   /** True when `git push` stderr indicates the remote refused the push by
-    * policy — a server-side hook, branch protection, or a required review (e.g.
-    * GitHub's `GH006`). Rebasing will not make this push succeed.
+    * policy — see [[PushFailure.RemoteDeclined]] for why rebasing won't help.
     */
   private[tools] def isRemoteDeclined(stderr: String): Boolean =
     stderr.contains("hook declined") ||
@@ -589,8 +669,7 @@ private[orca] object OsGitTool:
       stderr.contains("protected branch")
 
   /** True when `git worktree add` stderr indicates the target path or branch is
-    * already a worktree (`… already exists` / `… is already checked out`) — the
-    * recoverable case.
+    * already a worktree — the recoverable case (see [[addWorktree]]).
     */
   private[tools] def isWorktreeAlreadyPresent(stderr: String): Boolean =
     stderr.contains("already exists") || stderr.contains("already checked out")

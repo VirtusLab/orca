@@ -215,12 +215,13 @@ def reviewAndFixLoop[B <: BackendTag](
     maxIterations: Int = 10,
     fixInstructions: String = ReviewLoopPrompts.Fix,
     /** Override the diff handed to each reviewer in its initial prompt.
-      * Defaults to `ctx.git.diff()` re-sampled at the start of every iteration,
-      * so a reviewer joining the active set on iteration N sees the working
-      * tree including earlier fixes. Reviewers with an existing session resume
-      * it and don't get the diff again. Pass `Some(...)` to pin the diff
-      * (tests, or when the change set is already committed and `git.diff()`
-      * would be empty).
+      * Defaults to `ctx.git.reviewDiff()` re-sampled at the start of every
+      * iteration, so a reviewer joining the active set on iteration N sees the
+      * working tree including earlier fixes — tracked changes plus any
+      * newly-created files, `.orca/` bookkeeping excluded. Reviewers with an
+      * existing session resume it and don't get the diff again. Pass
+      * `Some(...)` to pin the diff (tests, or when the change set is already
+      * committed and `git.reviewDiff()` would be empty).
       */
     initialDiff: Option[String] = None
 )(using
@@ -317,7 +318,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   // A constant override skips the git call; the default samples the diff fresh
   // each iteration so a newly-active reviewer sees the latest, not the
   // loop-start one.
-  private def sampleDiff(): String = initialDiff.getOrElse(ctx.git.diff())
+  private def sampleDiff(): String =
+    initialDiff.getOrElse(ctx.git.reviewDiff())
 
   // Loop-constant context handed to the selector on every iteration: the task's
   // title plus the file paths from the diff at loop entry. Sampled here so each
@@ -529,9 +531,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // Two-phase selection: run the selector's gated effects (e.g. the agentDriven
     // picker LLM call) ONCE here, at loop start, inside this stage. `selectRound`
     // is the resulting pure per-iteration narrowing, passed to `evaluate` so it
-    // stays a function of its inputs. Pass `ctx`/`ev` explicitly: the
-    // more-specific `fc: FlowControl` in scope would otherwise be picked for
-    // `prepare`'s `using FlowContext` and its root capability rejected.
+    // stays a function of its inputs. `ctx`/`ev` passed explicitly for the same
+    // given-priority reason as the constructor call above (ADR 0018 §6 — see
+    // `reviewAndFixLoop`).
     val selectRound: List[ReviewBatch] -> List[RosterEntry[?]] =
       reviewerSelection.prepare(roster, taskTitle, changedFiles)(using ctx, ev)
     @scala.annotation.tailrec

@@ -7,7 +7,9 @@ case class OrcaArgs(
     @arg(positional = true, doc = "task description")
     userPrompt: String = "",
     @arg(doc = "verbose logging")
-    verbose: Flag = Flag()
+    verbose: Flag = Flag(),
+    @arg(doc = "run on the current branch instead of creating a new one")
+    skipBranch: Flag = Flag()
 )
 
 object OrcaArgs:

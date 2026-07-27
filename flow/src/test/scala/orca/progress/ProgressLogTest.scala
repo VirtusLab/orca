@@ -19,7 +19,8 @@ class ProgressLogTest extends FunSuite:
       header = ProgressHeader(
         startingBranch = "main",
         branch = "feat/my-feature",
-        promptHash = "abc123def456"
+        promptHash = "abc123def456",
+        branchMode = BranchMode.Created
       ),
       entries = List(
         StageEntry(
@@ -41,7 +42,8 @@ class ProgressLogTest extends FunSuite:
       header = ProgressHeader(
         startingBranch = "main",
         branch = "feat/sessions",
-        promptHash = "abc123def456"
+        promptHash = "abc123def456",
+        branchMode = BranchMode.Created
       ),
       entries = List(
         StageEntry(
@@ -69,7 +71,8 @@ class ProgressLogTest extends FunSuite:
 
   test("SessionRecord round-trips with resumeWireId = Some(...)"):
     val log = ProgressLog(
-      header = ProgressHeader("main", "feat/server", "abc123"),
+      header =
+        ProgressHeader("main", "feat/server", "abc123", BranchMode.Created),
       entries = Nil,
       sessions = List(
         SessionRecord(
@@ -85,7 +88,8 @@ class ProgressLogTest extends FunSuite:
 
   test("SessionRecord round-trips with backend = Some(...)"):
     val log = ProgressLog(
-      header = ProgressHeader("main", "feat/tagged", "abc123"),
+      header =
+        ProgressHeader("main", "feat/tagged", "abc123", BranchMode.Created),
       entries = Nil,
       sessions = List(
         SessionRecord(
@@ -106,7 +110,7 @@ class ProgressLogTest extends FunSuite:
     // A record persisted before a run learns the wire id carries neither
     // field; both are optional in the codec and default to None.
     val json =
-      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc"},""" +
+      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc","branchMode":{"type":"Created"}},""" +
         """"entries":[],"sessions":[{"name":"s","occurrence":0,"id":"u","seed":"s"}]}"""
     val codec = summon[JsonData[ProgressLog]].codec
     val decoded = readFromString[ProgressLog](json)(using codec)
@@ -118,7 +122,7 @@ class ProgressLogTest extends FunSuite:
     // decoding fails (and the run starts a fresh log) rather than silently
     // colliding every record on a default key.
     val json =
-      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc"},""" +
+      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc","branchMode":{"type":"Created"}},""" +
         """"entries":[],"sessions":[{"index":0,"id":"u","seed":"s"}]}"""
     val codec = summon[JsonData[ProgressLog]].codec
     val _ = intercept[JsonReaderException](
@@ -130,8 +134,51 @@ class ProgressLogTest extends FunSuite:
   ):
     // JSON produced by the old format (before sessions field existed)
     val oldJson =
-      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc123"},"entries":[]}"""
+      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc123","branchMode":{"type":"Created"}},"entries":[]}"""
     val codec = summon[JsonData[ProgressLog]].codec
     val decoded = readFromString[ProgressLog](oldJson)(using codec)
     assertEquals(decoded.sessions, Nil)
     assertEquals(decoded.header.branch, "feat/old")
+
+  test("ProgressHeader round-trips userPrompt/flowName when set"):
+    val log = ProgressLog(
+      header = ProgressHeader(
+        startingBranch = "main",
+        branch = "feat/resume",
+        promptHash = "abc123def456",
+        branchMode = BranchMode.Created,
+        userPrompt = Some("fix the flaky test"),
+        flowName = Some("implement.sc")
+      ),
+      entries = Nil
+    )
+    assertEquals(roundTrip(log), log)
+    assertEquals(roundTrip(log).header.userPrompt, Some("fix the flaky test"))
+    assertEquals(roundTrip(log).header.flowName, Some("implement.sc"))
+
+  test(
+    "ProgressHeader JSON without userPrompt/flowName keys decodes both to None (old-format log)"
+  ):
+    // A header persisted before these fields existed — tolerated the same way
+    // SessionRecord's own optional fields are (ProgressLog's documented
+    // tolerant decoding), so an in-flight run survives an orca upgrade.
+    val json =
+      """{"header":{"startingBranch":"main","branch":"feat/old","promptHash":"abc","branchMode":{"type":"Created"}},""" +
+        """"entries":[]}"""
+    val codec = summon[JsonData[ProgressLog]].codec
+    val decoded = readFromString[ProgressLog](json)(using codec)
+    assertEquals(decoded.header.userPrompt, None)
+    assertEquals(decoded.header.flowName, None)
+
+  test("ProgressHeader round-trips branchMode = Reused (skip-branch mode)"):
+    val log = ProgressLog(
+      header = ProgressHeader(
+        startingBranch = "my-work",
+        branch = "my-work",
+        promptHash = "abc123def456",
+        branchMode = BranchMode.Reused
+      ),
+      entries = Nil
+    )
+    assertEquals(roundTrip(log), log)
+    assertEquals(roundTrip(log).header.branchMode, BranchMode.Reused)

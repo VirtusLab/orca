@@ -1,3 +1,4 @@
+// Plan a prompt into tasks and implement each with a review-and-fix loop.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.0.17"
 //> using jvm 21

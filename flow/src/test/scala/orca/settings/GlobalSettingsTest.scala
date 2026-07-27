@@ -40,3 +40,15 @@ class GlobalSettingsTest extends FunSuite:
       ),
       home / ".config" / "orca" / "settings.properties"
     )
+
+  test("flowsPath uses $XDG_CONFIG_HOME/orca/flows when set"):
+    assertEquals(
+      GlobalSettings.flowsPath(Map("XDG_CONFIG_HOME" -> "/tmp/xdg").get, home),
+      os.Path("/tmp/xdg") / "orca" / "flows"
+    )
+
+  test("flowsPath falls back to ~/.config/orca/flows when unset"):
+    assertEquals(
+      GlobalSettings.flowsPath(Map.empty.get, home),
+      home / ".config" / "orca" / "flows"
+    )

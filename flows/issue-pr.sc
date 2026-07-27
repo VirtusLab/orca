@@ -1,3 +1,4 @@
+// Turn a GitHub issue (owner/repo#N) into an implemented, opened PR.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.0.17"
 //> using jvm 21

@@ -1,7 +1,13 @@
 package orca.review
 
-import orca.agents.JsonData
+import orca.agents.{JsonData, given}
 import orca.plan.Title
+
+/** Where a [[ReviewIssue]] points in the diff. `line` narrows further within
+  * `file` when the reviewer names one — a line without a file isn't a
+  * representable location, so the two can no longer appear independently.
+  */
+case class Location(file: String, line: Option[Int]) derives JsonData
 
 /** A single review finding. `title` is the one-line user-facing label (rendered
   * in the event log under `▶`); `description` is the longer form fed back to
@@ -13,7 +19,6 @@ case class ReviewIssue(
     confidence: Double,
     title: Title,
     description: String,
-    file: Option[String],
-    line: Option[Int],
+    location: Option[Location],
     suggestion: Option[String]
 ) derives JsonData

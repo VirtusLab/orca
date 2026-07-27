@@ -1,3 +1,4 @@
+// Plan interactively, asking clarifying questions, then implement the tasks.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.0.17"
 //> using jvm 21

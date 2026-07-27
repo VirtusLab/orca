@@ -22,6 +22,52 @@ You can use Orca to orchestrate development in any language and ecosystem.
 Orca assumes that it has configured, logged-in access to Claude, Codex,
 OpenCode, or Pi (depending which backend you use), as well as `gh` and `git`.
 
+Install with one command — it installs `scala-cli` (via its official
+installer) if you don't have it already, and writes the `orca` executable to
+`~/.local/bin/orca`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/VirtusLab/orca/master/install.sh | bash
+```
+
+See [Orca Shell](#orca-shell) for the details and the full command-line
+reference.
+
+## Three ways to work with Orca
+
+**Interactively**: install the CLI, run `orca`, pick a flow (`implement.sc`
+comes first in the list) and enter your task. Non-interactively, use `orca run
+<flow> "<task>"`. See [Orca Shell](#orca-shell) for installation and the full
+command-line reference.
+
+**Driven by an agent (headless)**: a coding agent or harness invokes the CLI
+non-interactively to implement a task, e.g. from CI or as a sub-task of
+another agent:
+
+```bash
+orca run implement.sc "add a rate limiter to /login"
+```
+
+Useful flags: `--verbose`, `--skip-branch` (continue on the current branch
+instead of creating one).
+
+In every mode, which agent (and model) handles the planning, coding, and
+review roles comes from `settings.properties` — written for you by the
+shell's first-run wizard or `orca config`, hand-editable too; see
+[Settings](#settings).
+
+Agents can load [`skills/using-orca`](skills/using-orca/SKILL.md) to know
+when and how to delegate here — installable as a Claude Code plugin, a Pi
+package, or by symlinking into any harness's skills directory; see [its
+README](skills/using-orca/README.md) for specifics.
+
+**As a script**: run a flow directly with `scala-cli`, no install required —
+see [An example flow](#an-example-flow).
+
+```bash
+scala-cli run implement.sc -- "add a rate limiter to /login"
+```
+
 ## An example flow
 
 Save this as `implement.sc` and run it with your task:
@@ -93,7 +139,7 @@ There are two runnable examples under [`examples/runnable/`](examples/runnable/)
   planner can ask clarifying questions via `ask_user`).
 
 More flow scripts — `epic.sc`, `issue-pr.sc`, `issue-pr-bugfix.sc`,
-`implement-enhanced.sc` — live in [`examples/`](examples/); run them against
+`implement-enhanced.sc` — live in [`flows/`](flows/); run them against
 your own git repo.
 
 For convenient editing of Orca flow scripts, with code-completion, you can try
@@ -119,7 +165,7 @@ backend's model accessors and backend-specific extras:
 | `opencode` | `anthropicOpus`/`anthropicSonnet`/`anthropicHaiku`, `openaiSol`/`openaiTerra`/`openaiLuna`, `cheap` (provider-matched: openai→luna, else anthropicHaiku), `withModel(providerModel)` / `withModel(provider, modelId)` | [OpenCode](https://opencode.ai) coding/reviewing agent, driven over HTTP+SSE against a headless `opencode serve` (started lazily, shared for the run; sessions survive it — see [Sessions](#sessions)). Spans providers, so models are provider-qualified: use an accessor (`opencode.openaiLuna`) or `opencode.withModel("openai/gpt-5-mini")` / `opencode.withModel("ollama", "llama3.1")`. Inherits the user's configured `opencode` providers/auth. |
 | `pi` | `withModel(Model)` | [Pi](https://pi.dev/) coding agent backend, driven through `pi --mode rpc`. Pi handles provider/model selection through its own CLI configuration; pin a model with `pi.withModel(Model("provider/model"))`. Interactive calls can ask clarifying questions via Orca's `ask_user` bridge. |
 | `gemini` | `flash`, `cheap` (→ flash), `withModel(Model)` | Google Gemini CLI coding/reviewing agent, driven via `gemini --output-format stream-json`. Bare `gemini` pins **Gemini 2.5 Pro**; use `gemini.flash` for cheaper one-shot calls. Structured output is prompt-enforced (Gemini has no schema flag); `withReadOnly` maps to `--approval-mode plan`. See [ADR 0015](adr/0015-gemini-stream-json-driver.md). |
-| `git` | `createBranch`, `checkout`, `ensureClean`, `commit`, `forceAdd`, `push`, `currentBranch`, `diff`, `diffVsBase`, `defaultBase`, `log`, `resetHard`, `deleteBranch`, `addWorktree`, `removeWorktree`, `listWorktrees`, `diffBranchExcludingOrca` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushFailure` — `NonFastForward`/`RemoteDeclined` — `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `resetHard`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. |
+| `git` | `createBranch`, `checkout`, `ensureClean`, `commit`, `forceAdd`, `push`, `currentBranch`, `diff`, `reviewDiff`, `diffVsBase`, `defaultBase`, `log`, `resetHard`, `deleteBranch`, `addWorktree`, `removeWorktree`, `listWorktrees`, `diffBranchExcludingOrca` | Git operations against the working tree. Recoverable failures (`BranchAlreadyExists`, `BranchNotFound`, `NothingToCommit`, `PushFailure` — `NonFastForward`/`RemoteDeclined` — `WorktreeAddFailed`, `WorktreeNotFound`) surface as `Either`; `.orThrow` converts a `Left` back to an exception when the case is unexpected. `forceAdd`, `resetHard`, `deleteBranch` are used by the flow runtime for bookkeeping and teardown. `reviewDiff` is `diff` plus untracked new files, `.orca/` bookkeeping excluded — what `reviewAndFixLoop` hands reviewers. |
 | `gh` | `createPr`, `updatePr`, `readIssue`, `readIssueComments`, `readPrComments`, `writeComment(pr, body)` / `writeComment(issue, body)`, `upsertComment(pr, marker, body)` / `upsertComment(issue, marker, body)`, `buildStatus`, `waitForBuild` | GitHub PR + CI integration via the `gh` CLI. `createPr` is idempotent by branch (returns the existing PR if one is open); `upsertComment` finds a prior comment carrying `marker` and edits it in place (see [Authoring rules](#authoring-rules) for the re-run pattern). `updatePr` replaces a PR's title + body. `waitForBuild` returns `Either[BuildWaitFailed, …]`. |
 | `fs` | `read`, `write`, `list` | Working-tree file I/O. `read` returns `Option[String]` so a missing file is a branch point, not an exception. |
 
@@ -127,7 +173,7 @@ The runtime owns git: every write-capable agent turn is told not to commit,
 push, or switch branches — it edits the working tree, and the flow
 commits/branches/pushes via `git.*`. This keeps `reviewAndFixLoop`'s diff-based
 reviewer selection working (a self-committing agent would leave an empty
-`git.diff()`). Opt out per-tool with `claude.withSelfManagedGit` (mirrors
+`git.reviewDiff()`). Opt out per-tool with `claude.withSelfManagedGit` (mirrors
 `withReadOnly`).
 
 For the LLM interfaces, `resultAs[O]` defines the shape of the structured
@@ -262,7 +308,13 @@ log (`.orca/progress-<hash>.json`, where `<hash>` is derived from the prompt):
 
 - **Start:** stash a dirty working tree with a warning (recover with `git stash
   pop`); create + checkout the feature branch; write and commit the progress log
-  header.
+  header. `--skip-branch` (`OrcaArgs.skipBranch`) binds the run to the CURRENT
+  branch instead of creating one — for continuing work already planned on a
+  branch — refusing on a protected branch or detached HEAD. On a FRESH
+  `--skip-branch` run a dirty tree is tolerated, not stashed: uncommitted or
+  untracked files (e.g. plan files left by a planning harness) stay in place for
+  the flow, and get swept into the first stage's commit. Resuming a
+  `--skip-branch` run still auto-stashes, same as normal mode.
 - **Resume:** the progress log lives at a branch-independent, prompt-derived path,
   so recovery finds it before any checkout. Its header is validated as untrusted
   input (branch must match orca naming rules, prompt hash must match), then the run
@@ -291,33 +343,42 @@ Two files, both plain `key = value` lines, parsed once per run before setup:
   agent keys only. A relative or unset `XDG_CONFIG_HOME` falls back to
   `~/.config`; an absent global file is simply skipped.
 
-Per role key, precedence is: the `flow(planningAgent = ..., codingAgent =
-..., reviewAgent = ...)` programmatic override > the project file > the
-global file > the built-in default (claude, no model pin). Stack commands
-follow a separate chain (unchanged from ADR 0019):
-`reviewAndFixLoop(formatCommands = Use(...)/Off)` > `flow(stackSettings =
-Some(...))` > the project file > auto-discovery (which writes the file). An
-unreadable or malformed file — project or global — aborts the run before any
-tree mutation; the global file may contain ONLY agent keys, so a stack key
-there is also an error.
+Precedence, code always winning over files:
+
+- **Roles:** `flow(planningAgent = ...)` (and `codingAgent`/`reviewAgent`)
+  programmatic override > project file > global file > built-in default
+  (claude, no model pin).
+- **Stack commands:** `reviewAndFixLoop(formatCommands = Use(...)/Off)` >
+  `flow(stackSettings = Some(...))` > project file > auto-discovery (which
+  writes the file).
+
+An unreadable or malformed file — project or global — aborts the run before
+any tree mutation; the global file may contain ONLY agent keys, so a stack
+key there is also an error.
 
 **Stack commands.** Keys `format`, `lint`, and `test`. Each value is one shell
 command, run via `bash -c` in the flow's working directory; everything after
 the first `=` is command text (`lint = FOO=bar cargo check` works). Repeating
 a key appends — the task's commands run in file order, so a multi-stack repo
-lists one line per stack half. A `#` line is a comment; discovery places each
-command's evidence as its own `#` line directly above the `key = command`
-line. A missing or commented-out key means the task is disabled (its gate is
-skipped). A typical discovered project file:
+lists one line per stack half. A key's value may also be the literal `off`,
+which explicitly disables that task; a missing key has the same runtime
+effect (the gate is skipped) but, unlike `off`, does not count as
+"configured" — see Auto-discovery below. A `#` line is a comment and carries
+no meaning to the parser: discovery places each command's evidence (or, for
+a disabled task, its reason) as its own `#` line directly above the
+`key = value` line, but a comment is purely informative — commenting out a
+line is the same as deleting it. A typical discovered project file:
 
 ```properties
 # orca settings — edit freely, commit with the project.
-# Delete the stack lines (format/lint/test, commented ones too) to re-run auto-discovery.
+# format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
+# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
 # Cargo.toml; via rustfmt
 format = cargo fmt
 # Cargo.toml
 lint = cargo check --tests
-# test =   (no test config found)
+# no test config found
+test = off
 ```
 
 **Agent keys.** `planningAgent`, `codingAgent`, and `reviewAgent`, valid in
@@ -340,21 +401,25 @@ malformed project or global file still aborts the run either way. `setup`
 announces the resolved roles and where each came from:
 
 ```text
-agents: planning=claude (default), coding=codex:gpt-5-mini (project), review=claude (global)
+agents: planning=claude:claude-opus-5[1m] (default), coding=codex:gpt-5-mini (project), review=codex (global)
 ```
 
+(A role without a pin of its own shows the wired default's model when one
+exists — bare `claude` resolves to Opus — and stays bare where the harness's
+own configuration decides, as for `codex`.)
+
 **Auto-discovery.** Discovery runs when the project file is absent, or when
-it exists but names no stack line (live or commented) — a hand-written file
-containing only agent keys still triggers it, appending the discovered stack
-entries below the existing content rather than overwriting it, so agent lines
-are never touched. Delete the stack lines (or the whole file) to re-run
-discovery. When it runs (and no `flow(stackSettings = ...)` override is
-passed), the first run spends one cheap-model, read-only agent call
-inspecting the repo, then writes the file and announces every guess in the
-event log:
+it exists but has no LIVE stack line — a hand-written file containing only
+agent keys (or only commented-out stack examples) still triggers it,
+appending the discovered stack entries below the existing content rather
+than overwriting it, so agent lines are never touched. Delete the stack
+lines (or the whole file) to re-run discovery. When it runs (and no
+`flow(stackSettings = ...)` override is passed), the first run spends one
+cheap-model, read-only agent call inspecting the repo, then writes the file
+and announces every guess in the event log:
 
 ```text
-no .orca/settings.properties — running stack discovery
+no .orca/settings.properties — discovering how to format, lint & test this project
   format = cargo fmt   # Cargo.toml; via rustfmt
   lint = cargo check --tests   # Cargo.toml
 warning: stack settings: no test command — gate disabled
@@ -369,10 +434,11 @@ make no model call.
 
 Every discovered command cites the file that evidences it, and two checks run
 before the file is written: the command's executable must be on `PATH`, and the
-cited evidence file must exist. A command failing either is demoted to a
-commented line with its reason (`# lint = just check   (just: not found on
-PATH)`), never run silently. A discovery failure (backend unavailable, invalid
-output) aborts the run rather than writing a "gates off" file.
+cited evidence file must exist. A command failing either is demoted to a live
+`key = off` line with the rejected command and reason as an informative
+comment above (`# just check: just: not found on PATH` / `lint = off`), never
+run silently. A discovery failure (backend unavailable, invalid output) aborts
+the run rather than writing a "gates off" file.
 
 `.orca/` is committed by default: settings and the progress log ride the
 branch, while scratch lives under `.orca/cache/`, which writes its own
@@ -570,7 +636,8 @@ the base agent, so continuations have write access), or `.value` it and get a
 fresh, durable implementer session via `agent.session("implementer", seed =
 plan.brief)` — the chat does not survive a crash/resume, so every shipped
 example takes `.value`. Destructure positionally when you want both:
-`val Sessioned(chat, plan) = Plan.autonomous.from(...)`.
+`val Sessioned(chat, plan) = Plan.autonomous.from(...)` — `chat` here is the
+ephemeral one (in-run only), not a durable session.
 
 From a `Sessioned[B, Plan]`, an optional `.reviewed(agent)` step refines the plan
 before implementing — the planner critiques its own draft, producing an improved
@@ -796,14 +863,102 @@ run:
 scala-cli run implement.sc -- "your task here"
 ```
 
+For a guided start, install [Orca Shell](#orca-shell) instead: its first-run
+wizard configures the role agents and models for you.
+
+## Orca Shell
+
+Orca Shell is an interactive terminal front-end for the same flow scripts: a
+first-run wizard picks a harness and model for each of the
+planning/coding/review roles — writing the same global `settings.properties`
+described under [Settings](#settings) — then a menu lets you discover flows
+(project, global, and built-in), run one, view or edit its source, create a
+new flow (or fork an existing one) with the configured role agents' help, or
+continue a session left by a previous run.
+It launches flows the same way `scala-cli
+run` does — direct `scala-cli run flow.sc -- "task"` keeps working unchanged.
+
+### Command-line usage
+
+Every action in the interactive menu also has a scriptable subcommand — `orca`
+with no arguments starts the interactive shell; `orca <command> ...` runs one
+action non-interactively and exits.
+
+| Command | Key flags | Does |
+|---|---|---|
+| `orca run <flow> [task]` | `--verbose`, `--skip-branch`, `--honor-pin` (use the flow's own pinned orca version) | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
+| `orca view <flow>` | `--plain`, `--color` | print a flow's source (highlighted when stdout is a terminal) |
+| `orca edit <flow>` | `--to project\|global` | open a flow in `$VISUAL`/`$EDITOR`/vi (`--to` required to customize a built-in) |
+| `orca create "<goal>"` | `--name <file>`, `--global` | author a new flow: the built-in `simple.sc` flow writes it in an isolated sandbox with the configured role agents; `--name` is auto-derived when omitted |
+| `orca fork <source> "<changes>"` | `--name <file>`, `--global` | fork an existing flow, the same way |
+| `orca continue [selector]` | `--list`, `--json` | resume a recorded harness session (no selector = newest); `selector` is an index or session name |
+| `orca config` | `--planning-agent`, `--coding-agent`, `--review-agent`, each taking `harness[:model]`; or `--edit project\|global` | show the configured role agents, set any subset, or hand-edit that tier's settings file in `$VISUAL`/`$EDITOR`/vi (created from its template if absent) |
+| `orca list` | `--json` | list discovered flows across the project/global/built-in tiers |
+| `orca clear-stack` | `--yes` | clear discovered stack settings so the next flow run re-detects them |
+
+`create`, `fork`, `edit`, `continue`'s resume, and `config --edit` each need a
+real terminal and error cleanly if run without one; `run`, `view`, `list`,
+`config` (without `--edit`), and `clear-stack --yes` work fine piped or
+in CI.
+
+Examples:
+
+```bash
+orca run implement.sc "add a rate limiter to /login"
+echo "add a rate limiter" | orca run implement.sc
+orca list --json | jq -r '.[].name'
+orca create "add a token-bucket limiter" --name rate-limit.sc
+orca continue              # resume the last session
+orca continue --list
+orca config --coding-agent codex
+orca config --review-agent claude:sonnet
+orca view implement.sc
+```
+
+Run `orca --help` for the full command list, or `orca <command> --help` for a
+command's own flags. Exit codes: 0 success, 1 action failure, 2 usage error —
+`orca run` propagates the flow's own exit code, which makes it CI-friendly.
+
+Install it with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/VirtusLab/orca/master/install.sh | bash
+```
+
+The script does exactly two things:
+
+1. If `scala-cli` isn't on your `PATH`, it downloads and runs scala-cli's
+   official installer (which places scala-cli in its own versioned location
+   and updates your shell profile; scala-cli then manages its own JVM).
+2. It writes the `orca` executable to `~/.local/bin/orca` — a short
+   launcher script that runs the latest released `orca-shell` via
+   `scala-cli`. Nothing else is downloaded at install time; the artifacts
+   are fetched on the first `orca` run, and the launcher never needs a
+   version bump.
+
+Add `~/.local/bin` to your `PATH` if the installer says it isn't there yet,
+then run `orca`.
+
+To avoid installing anything, or to pin a version (e.g. in CI), run the shell
+directly instead. The pinned form works from the first release that includes
+the shell; the version below always tracks the latest release. `--workspace`
+keeps scala-cli's own build metadata out of the current directory (it lands
+under the given directory instead):
+
+```bash
+scala-cli run --workspace "${XDG_CACHE_HOME:-$HOME/.cache}/orca/shell/workspace" --jvm 21 --quiet --dep "org.virtuslab::orca-shell:0.0.17" --main-class orca.shell.Main
+```
+
 ## Documentation
 
 - [`adr/`](adr/) — architecture decision records. [ADR
   0018](adr/0018-stage-bound-flow-runtime.md) describes the current stage-bound
   runtime; the ADR index covers module layout, backends, the flow DSL, and
   reviewers.
-- [`AGENTS.md`](AGENTS.md) — internals, conventions, build/test recipes; the
-  same file AI assistants pick up.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — building, testing, and running a
+  locally modified orca.
+- [`AGENTS.md`](AGENTS.md) — internals, architecture, and coding
+  conventions; the same file AI assistants pick up.
 
 ## License
 

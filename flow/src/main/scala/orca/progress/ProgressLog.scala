@@ -8,11 +8,41 @@ import orca.agents.{JsonData, given}
 import orca.util.RawJson
 import sttp.tapir.Schema
 
-/** Header capturing the git context in which the progress log was started. */
+/** Whether orca minted [[ProgressHeader.branch]] itself or bound to a
+  * pre-existing one. Gates the throwaway-branch auto-delete
+  * (`FlowLifecycle.finishBranch`): a branch orca never created must never be
+  * deleted, even if a tampered header's `startingBranch` is crafted to make it
+  * look throwaway.
+  */
+enum BranchMode derives JsonData:
+  /** Orca minted `branch` itself — the ordinary case. */
+  case Created
+
+  /** Orca bound to a pre-existing branch without creating it (skip-branch mode,
+    * ADR 0018 amendment).
+    */
+  case Reused
+
+/** Header capturing the git context in which the progress log was started.
+  *
+  * `userPrompt`/`flowName` back the shell's "Resume interrupted run" offer (ADR
+  * 0021 §3 amendment): the log otherwise records only `promptHash`, not the
+  * prompt text itself, so a byte-identical re-run needs it spelled out here.
+  * Both are `Option` with a `None` default under the SAME tolerant- decoding
+  * exception as [[SessionRecord]]'s own optional fields (see [[ProgressLog]]'s
+  * codec) — a log written before this field existed decodes with both `None`,
+  * and the resume offer simply doesn't apply to it (an old in-flight run across
+  * an orca upgrade still resumes; it just isn't one-keystroke). `flowName` is
+  * separately `None` for a run started outside the shell (no `ORCA_FLOW_NAME`
+  * to record) even on a freshly written header.
+  */
 case class ProgressHeader(
     startingBranch: String,
     branch: String,
-    promptHash: String
+    promptHash: String,
+    branchMode: BranchMode,
+    userPrompt: Option[String] = None,
+    flowName: Option[String] = None
 ) derives JsonData
 
 /** A single stage's outcome, stored as an already-serialised JSON subtree.

@@ -13,7 +13,8 @@ class ProgressStoreTest extends FunSuite:
   private val header = ProgressHeader(
     startingBranch = "main",
     branch = "feat/some-feature",
-    promptHash = "abc123def456"
+    promptHash = "abc123def456",
+    branchMode = BranchMode.Created
   )
 
   test("writeHeader then load returns the header with empty entries"):
@@ -215,6 +216,13 @@ class ProgressStoreTest extends FunSuite:
       ex.getMessage.contains("upsertSession"),
       s"expected the caller name in the message; got: ${ex.getMessage}"
     )
+
+  test("at(workDir, path) reads back a header written via that same path"):
+    val workDir = TempDirs.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    store.writeHeader(header)
+    val rediscovered = ProgressStore.at(workDir, store.path)
+    assertEquals(rediscovered.load(), Some(ProgressLog(header, Nil)))
 
   test("default path is <workDir>/.orca/progress-<12hexchars>.json"):
     val workDir = TempDirs.dir()

@@ -9,7 +9,7 @@ object Dependencies {
     val sttpApispec = "0.11.10"
     val ox = "1.0.5"
     val mainargs = "0.7.6"
-    val jline = "3.28.0"
+    val jline = "3.30.15"
     val fansi = "0.5.0"
     val munit = "1.1.1"
     val munitScalacheck = "1.3.0"
@@ -34,6 +34,14 @@ object Dependencies {
   val mainargs = "com.lihaoyi" %% "mainargs" % V.mainargs
   val jline = "org.jline" % "jline" % V.jline
   val fansi = "com.lihaoyi" %% "fansi" % V.fansi
+
+  // The org.jline:jline bundle jar already contains the reader, terminal,
+  // builtins (SyntaxHighlighter, Less) and style classes; console-ui's modular
+  // transitives would duplicate them, so exclude everything org.jline.
+  val jlineConsoleUi =
+    ("org.jline" % "jline-console-ui" % V.jline).excludeAll(
+      ExclusionRule(organization = "org.jline")
+    )
 
   val munit = "org.scalameta" %% "munit" % V.munit % Test
   // Versioned independently of munit since 1.1.0 (own repo); 1.3.0 pulls munit

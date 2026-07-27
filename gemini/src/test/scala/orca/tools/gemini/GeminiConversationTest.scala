@@ -411,9 +411,14 @@ class GeminiConversationTest extends munit.FunSuite:
       s"expected the failing status in the message; got: ${ex.getMessage}"
     )
 
-  convTest("a result event with no status is treated as success"):
-    // The status field is optional; an absent/empty status is success, not a
-    // failed turn.
+  convTest(
+    "a result event with no status fails the turn, not silently success"
+  ):
+    // BB1: gemini's `status` is a required success|error field on the real
+    // wire (verified against the CLI source, ADR 0015) — a missing value
+    // can't happen in practice, but this pins the defensive fallback: treat
+    // it as a failure, matching tool_result's handling below, rather than
+    // silently reporting success.
     val process = new FakePipedCliProcess()
     val conv = new GeminiConversation(process)
 
@@ -428,8 +433,35 @@ class GeminiConversationTest extends munit.FunSuite:
     process.closeStderr()
 
     val _ = conv.events.toList
-    val Right(r) = conv.awaitResult(): @unchecked
-    assertEquals(r.output, "done")
+    val ex = intercept[orca.AgentTurnFailed](conv.awaitResult())
+    assert(
+      ex.getMessage.contains("missing status"),
+      s"expected the missing-status message; got: ${ex.getMessage}"
+    )
+
+  convTest("a tool_result with no status yields ok=false, same as result"):
+    // The other half of BB1's pinned case: a missing tool_result status is
+    // also treated as failure, via the same ToolStatus decode.
+    val process = new FakePipedCliProcess()
+    val conv = new GeminiConversation(process)
+
+    process.enqueueStdout("""{"type":"init","session_id":"s"}""")
+    process.enqueueStdout(
+      """{"type":"tool_use","tool_name":"Bash","tool_id":"b1","parameters":{}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"tool_result","tool_id":"b1","output":"boom"}"""
+    )
+    process.enqueueStdout(result())
+    process.closeStdout()
+    process.closeStderr()
+
+    val events = conv.events.toList
+    val tr = events
+      .collectFirst { case r: ConversationEvent.ToolResult => r }
+      .getOrElse(fail("expected a ToolResult"))
+    assertEquals(tr.ok, false)
+    val _ = conv.awaitResult()
 
   convTest("interleaved tool calls are each keyed back to their own name"):
     // Two tool calls complete out of order (B before A); each tool_result,

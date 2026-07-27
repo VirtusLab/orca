@@ -1,5 +1,6 @@
 package orca.tools.codex
 
+import orca.AgentTurnFailed
 import orca.agents.{BackendTag, Model}
 import orca.events.{Usage}
 import orca.backend.ConversationEvent
@@ -11,7 +12,7 @@ import orca.backend.{
 }
 import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
 import orca.subprocess.PipedCliProcess
-import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item}
+import orca.tools.codex.jsonl.{FileChangeDetail, InboundEvent, Item, ItemStatus}
 
 import com.github.plokhotnyuk.jsoniter_scala.core.writeToString
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
@@ -23,7 +24,10 @@ import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
   * Notable parity gaps vs. claude (deliberate, driven by codex's JSONL protocol
   * — see ADR 0007):
   *   - codex emits whole `agent_message` items, not per-token deltas; each
-  *     becomes one `AssistantTextDelta` + one `AssistantTurnEnd`.
+  *     becomes one `AssistantTextDelta`. Non-structured calls close a turn
+  *     (`AssistantTurnEnd`) after every item; structured calls instead coalesce
+  *     every `agent_message` into a single turn closed at `turn.completed` —
+  *     see [[handleItemCompleted]].
   *   - codex doesn't negotiate tool approvals over the wire; `autoApprove` is
   *     pre-baked into spawn args. `ApproveTool` is never emitted here.
   *   - `codex exec` is one-shot; multi-turn happens via `codex exec resume` on
@@ -70,6 +74,13 @@ private[codex] class CodexConversation(
     */
   private var lastAgentMessage: String = ""
 
+  /** The last protocol-level error/turn-failure message seen (reader-thread-
+    * confined), folded into [[diagnosticContext]] so a bare process exit after
+    * one of these events still carries codex's own explanation rather than just
+    * an exit code — see [[handleTurnFailed]].
+    */
+  private var lastProtocolError: Option[String] = None
+
   /** MCP item ids whose `AssistantToolCall` echo we drop — the host-side bridge
     * has already surfaced the corresponding `UserQuestion`, so rendering the
     * tool call (and its `item.completed` answer echo) on top would be noise.
@@ -77,9 +88,7 @@ private[codex] class CodexConversation(
     */
   private val askUserEchoes = new orca.backend.AskUserEchoes
 
-  // No `start()`: the base spawns its reader / stderr / ask-user forks lazily
-  // on first touch of the conversation surface, after this subclass's fields
-  // are initialised.
+  // No `start()` — see `ForkedConversation.ensureStarted`'s lazy fork spawn.
 
   // --- Reader hooks ---
 
@@ -113,6 +122,18 @@ private[codex] class CodexConversation(
   override protected def terminalMessageNoun: String =
     "a turn.completed event"
 
+  /** Folds [[lastProtocolError]] (a codex `error`/`turn.failed` message) ahead
+    * of [[StderrPipeline]]'s stderr-derived context, so any exit path —
+    * including a bare process exit with no `turn.failed` event — carries
+    * codex's own explanation instead of just an exit code.
+    */
+  override protected def diagnosticContext: Option[String] =
+    val protocolCtx = lastProtocolError.map(m => s"codex error:\n    $m")
+    (protocolCtx, super.diagnosticContext) match
+      case (Some(p), Some(s)) => Some(s"$p\n    $s")
+      case (Some(p), None)    => Some(p)
+      case (None, other)      => other
+
   // --- Per-event dispatch ---
 
   private def handle(event: InboundEvent): Unit = event match
@@ -123,6 +144,8 @@ private[codex] class CodexConversation(
     case InboundEvent.TurnCompleted(usage) => handleTurnCompleted(usage)
     case InboundEvent.ItemStarted(item)    => handleItemStarted(item)
     case InboundEvent.ItemCompleted(item)  => handleItemCompleted(item)
+    case InboundEvent.Error(message)       => handleError(message)
+    case InboundEvent.TurnFailed(message)  => handleTurnFailed(message)
     case InboundEvent.Unknown(_)           =>
       // Forward-compat: codex may add new top-level event types; drop
       // them silently rather than rendering ✖.
@@ -166,7 +189,26 @@ private[codex] class CodexConversation(
     case Item.AgentMessage(_, text) =>
       lastAgentMessage = text
       eventQueue.enqueue(ConversationEvent.AssistantTextDelta(text))
-      eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
+      // Structured calls: codex sometimes emits an early "commentary"
+      // agent_message — often a verbatim draft of the eventual answer —
+      // before finishing its tool calls, then a genuine final one; the wire
+      // item shape carries no phase/channel field distinguishing the two
+      // (ADR 0007). Leaving the turn open here coalesces every agent_message
+      // of the call into ONE ConversationEvent-level turn, closed exactly
+      // once by ForkedConversation's turn.completed safety net
+      // (`succeedWith`'s `closeOpenTurn`). Without this, the withholding
+      // buffer's one-real-turn-per-payload assumption sees the early draft as
+      // a distinct, already-finished turn and echoes it as `AssistantMessage`
+      // prose — the JSON payload leaking as `●` prose right before the
+      // structured-result summary. Non-structured calls keep closing per item
+      // so live multi-message narration (e.g. "I'll edit X." … "Updated X.")
+      // still streams progressively. Deliberate tradeoff: the single coalesced
+      // turn is always the buffer's last, so a structured codex call shows NO
+      // intermediate agent prose at all — the wire can't distinguish genuine
+      // narration from payload drafts, and suppressing both is the only way to
+      // guarantee the payload never leaks.
+      if outputSchema.isEmpty then
+        eventQueue.enqueue(ConversationEvent.AssistantTurnEnd)
     case Item.Reasoning(_, text) if text.nonEmpty =>
       eventQueue.enqueue(ConversationEvent.AssistantThinkingDelta(text))
     case Item.Reasoning(_, _) => ()
@@ -174,7 +216,7 @@ private[codex] class CodexConversation(
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
           toolName = Some("bash"),
-          ok = exitCode.contains(0) && status == "completed",
+          ok = exitCode.contains(0) && status.isCompleted,
           content = output
         )
       )
@@ -182,7 +224,7 @@ private[codex] class CodexConversation(
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
           toolName = Some("file_change"),
-          ok = status == "completed",
+          ok = status.isCompleted,
           content = changes.map(c => s"${c.kind} ${c.path}").mkString("\n")
         )
       )
@@ -194,7 +236,7 @@ private[codex] class CodexConversation(
       eventQueue.enqueue(
         ConversationEvent.ToolResult(
           toolName = Some(mcpToolName(server, tool)),
-          ok = status == "completed",
+          ok = status.isCompleted,
           content = result.getOrElse("")
         )
       )
@@ -217,6 +259,25 @@ private[codex] class CodexConversation(
       // resume) so the turn's tokens are priced, not attributed to `(unknown)`.
       modelId = model.orElse(configuredModel.map(_.name))
     )
+
+  /** Mid-turn protocol error (e.g. an invalid model, a provider-side
+    * rejection). Not terminal by itself — codex normally follows it with a
+    * `turn.failed` event ([[handleTurnFailed]]) — but stashed either way so a
+    * bare process exit without a `turn.failed` still surfaces it via
+    * [[diagnosticContext]].
+    */
+  private def handleError(message: String): Unit =
+    lastProtocolError = Some(message)
+    eventQueue.enqueue(ConversationEvent.Error(s"codex: $message"))
+
+  /** `turn.failed` replaces `turn.completed` when the turn didn't succeed —
+    * fail the conversation immediately with codex's own message rather than
+    * waiting for the process to exit and falling back to the bare "exited with
+    * code N" diagnostic.
+    */
+  private def handleTurnFailed(message: String): Unit =
+    lastProtocolError = Some(message)
+    failWith(new AgentTurnFailed(appendContext(s"codex turn failed: $message")))
 
   private def toWire(c: FileChangeDetail): FileChangeWire =
     FileChangeWire(c.path, c.kind)
