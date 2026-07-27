@@ -67,17 +67,27 @@ private[shell] object BuiltInFlows:
     * call with the same arguments (every picker open in one shell process) only
     * extracts/rewrites once instead of on every call.
     */
+  /** `$XDG_CACHE_HOME` (default `home / ".cache"`) — the per-user cache root
+    * shared by [[extracted]] and, via [[orca.shell.run.FlowLauncher]], the
+    * flow-subprocess `--workspace` directory. Exposed at `private[shell]`
+    * rather than duplicated so both agree on the same env/home handling.
+    */
+  private[shell] def cacheHome(
+      env: String => Option[String],
+      home: os.Path
+  ): os.Path =
+    env("XDG_CACHE_HOME")
+      // `os.Path` accepts only absolute paths, so a relative, empty, or
+      // root-climbing value throws and falls back — no separate pre-filter.
+      .flatMap(v => scala.util.Try(os.Path(v)).toOption)
+      .getOrElse(home / ".cache")
+
   def extracted(
       env: String => Option[String],
       home: os.Path,
       version: String
   ): os.Path =
-    val cacheHome = env("XDG_CACHE_HOME")
-      // `os.Path` accepts only absolute paths, so a relative, empty, or
-      // root-climbing value throws and falls back — no separate pre-filter.
-      .flatMap(v => scala.util.Try(os.Path(v)).toOption)
-      .getOrElse(home / ".cache")
-    val dir = cacheHome / "orca" / "shell" / version / "flows"
+    val dir = cacheHome(env, home) / "orca" / "shell" / version / "flows"
 
     extractedCache.computeIfAbsent(
       dir,

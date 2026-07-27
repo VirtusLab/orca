@@ -3,13 +3,15 @@ package orca.shell.run
 class FlowLauncherTest extends munit.FunSuite:
 
   private val flow = os.root / "home" / "u" / "flow.sc"
+  private val workspaceDir = os.root / "home" / "u" / ".cache" / "workspace"
 
-  test("argv forces --dep with a release version, before --"):
+  test("argv forces --dep with a release version, before --workspace/--"):
     val result = FlowLauncher.argv(
       flow,
       Some("0.0.18"),
       "do the thing",
-      FlowFlags(verbose = false, skipBranch = false)
+      FlowFlags(verbose = false, skipBranch = false),
+      workspaceDir
     )
     assertEquals(
       result,
@@ -19,6 +21,8 @@ class FlowLauncherTest extends munit.FunSuite:
         flow.toString,
         "--dep",
         "org.virtuslab::orca:0.0.18",
+        "--workspace",
+        workspaceDir.toString,
         "--",
         "do the thing"
       )
@@ -29,11 +33,20 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       None,
       "do the thing",
-      FlowFlags(verbose = false, skipBranch = false)
+      FlowFlags(verbose = false, skipBranch = false),
+      workspaceDir
     )
     assertEquals(
       result,
-      Seq("scala-cli", "run", flow.toString, "--", "do the thing")
+      Seq(
+        "scala-cli",
+        "run",
+        flow.toString,
+        "--workspace",
+        workspaceDir.toString,
+        "--",
+        "do the thing"
+      )
     )
 
   test(
@@ -43,7 +56,8 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       Some("0.0.18"),
       "do the thing",
-      FlowFlags(verbose = true, skipBranch = false)
+      FlowFlags(verbose = true, skipBranch = false),
+      workspaceDir
     )
     assertEquals(
       result,
@@ -53,6 +67,8 @@ class FlowLauncherTest extends munit.FunSuite:
         flow.toString,
         "--dep",
         "org.virtuslab::orca:0.0.18",
+        "--workspace",
+        workspaceDir.toString,
         "--",
         "do the thing",
         "--verbose"
@@ -70,7 +86,8 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       Some("0.0.18"),
       "do the thing",
-      FlowFlags(verbose = false, skipBranch = true)
+      FlowFlags(verbose = false, skipBranch = true),
+      workspaceDir
     )
     assertEquals(
       result,
@@ -80,6 +97,8 @@ class FlowLauncherTest extends munit.FunSuite:
         flow.toString,
         "--dep",
         "org.virtuslab::orca:0.0.18",
+        "--workspace",
+        workspaceDir.toString,
         "--",
         "do the thing",
         "--skip-branch"
@@ -95,7 +114,8 @@ class FlowLauncherTest extends munit.FunSuite:
       flow,
       None,
       "do the thing",
-      FlowFlags(verbose = true, skipBranch = true)
+      FlowFlags(verbose = true, skipBranch = true),
+      workspaceDir
     )
     assertEquals(
       result,
@@ -103,6 +123,8 @@ class FlowLauncherTest extends munit.FunSuite:
         "scala-cli",
         "run",
         flow.toString,
+        "--workspace",
+        workspaceDir.toString,
         "--",
         "do the thing",
         "--verbose",
@@ -116,10 +138,11 @@ class FlowLauncherTest extends munit.FunSuite:
       spacedFlow,
       None,
       "task",
-      FlowFlags(verbose = false, skipBranch = false)
+      FlowFlags(verbose = false, skipBranch = false),
+      workspaceDir
     )
     assertEquals(result(2), spacedFlow.toString)
-    assertEquals(result.length, 5)
+    assertEquals(result.length, 7)
 
   test(
     "argv rejects a blank task — Main.promptTask should have re-prompted before this is ever called"
@@ -129,7 +152,8 @@ class FlowLauncherTest extends munit.FunSuite:
         flow,
         None,
         "   ",
-        FlowFlags(verbose = false, skipBranch = false)
+        FlowFlags(verbose = false, skipBranch = false),
+        workspaceDir
       )
     )
 

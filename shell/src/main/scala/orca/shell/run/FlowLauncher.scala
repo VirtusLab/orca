@@ -2,6 +2,7 @@ package orca.shell.run
 
 import org.jline.terminal.Terminal
 import orca.shell.ShellVersion
+import orca.shell.flows.BuiltInFlows
 import orca.shell.ui.{ShellOutput, ShellUi, UiOutcome}
 import orca.subprocess.QuietProc
 
@@ -45,11 +46,16 @@ private[shell] object FlowLauncher:
       .map(v => Seq("--dep", s"$orgAndArtifact:$v"))
       .getOrElse(Seq.empty)
 
-  /** `scala-cli run <flow> [--dep ...] -- <task> [--verbose] [--skip-branch]`.
-    * `--verbose`/`--skip-branch` are flow-script arguments (parsed by the
-    * flow's own `OrcaArgs`, whose flags are spelled `--verbose`/
-    * `--skip-branch`), so they land after `--` alongside the task text, not
-    * before it.
+  /** `scala-cli run <flow> [--dep ...] --workspace <dir> -- <task> [--verbose]
+    * [--skip-branch]`. `--verbose`/`--skip-branch` are flow-script arguments
+    * (parsed by the flow's own `OrcaArgs`, whose flags are spelled
+    * `--verbose`/`--skip-branch`), so they land after `--` alongside the task
+    * text, not before it. `--workspace` relocates scala-cli's own
+    * `.scala-build`/`.bsp` build metadata to `workspaceDir`
+    * ([[resolveWorkspaceDir]]) instead of next to `flow` — load-bearing for a
+    * Project-tier flow, whose script lives inside the user's own repo
+    * (`<repo>/.orca/flows/<name>.sc`), same pollution class the `orca` shim's
+    * own `--workspace` fixes (ADR 0021 §1 amendment).
     *
     * Requires `task` to be non-blank — `Main.promptTask` re-prompts on blank
     * input before this is ever called, so an empty task here means a caller
@@ -59,7 +65,8 @@ private[shell] object FlowLauncher:
       flow: os.Path,
       orcaVersion: Option[String],
       task: String,
-      flags: FlowFlags
+      flags: FlowFlags,
+      workspaceDir: os.Path
   ): Seq[String] =
     require(
       task.trim.nonEmpty,
@@ -69,15 +76,24 @@ private[shell] object FlowLauncher:
     val skipBranchArgs =
       if flags.skipBranch then Seq("--skip-branch") else Seq.empty
     Seq("scala-cli", "run", flow.toString) ++ depArgs(orcaVersion) ++ Seq(
-      "--",
-      task
-    ) ++ verboseArgs ++ skipBranchArgs
+      "--workspace",
+      workspaceDir.toString
+    ) ++ Seq("--", task) ++ verboseArgs ++ skipBranchArgs
 
+  /** The compile probe's argv — same `--workspace` treatment as [[argv]], and
+    * for the same reason: without it, the probe (run whenever the forced
+    * version fails) would write its own `.scala-build` next to `flow` too.
+    */
   private def compileArgv(
       flow: os.Path,
-      orcaVersion: Option[String]
+      orcaVersion: Option[String],
+      workspaceDir: os.Path
   ): Seq[String] =
-    Seq("scala-cli", "compile", flow.toString) ++ depArgs(orcaVersion)
+    Seq(
+      "scala-cli",
+      "compile",
+      flow.toString
+    ) ++ depArgs(orcaVersion) ++ Seq("--workspace", workspaceDir.toString)
 
   /** What to do once the forced run has finished: `compileExit` is `None` when
     * no probe ran (there was nothing forced to blame — either the run
@@ -148,6 +164,17 @@ private[shell] object FlowLauncher:
     */
   private[run] def childEnv(flow: os.Path): Map[String, String] =
     Map("ORCA_FLOW_NAME" -> flow.last)
+
+  /** `$XDG_CACHE_HOME/orca/shell/workspace` (created with `mkdir -p` before
+    * every spawn) — [[argv]]/[[compileArgv]]'s `--workspace` target, using
+    * [[BuiltInFlows.cacheHome]]'s env/home handling so this agrees with the
+    * built-in flows' own cache directory rather than re-deriving it.
+    */
+  private def resolveWorkspaceDir(): os.Path =
+    val dir = BuiltInFlows.cacheHome(sys.env.get, os.home) /
+      "orca" / "shell" / "workspace"
+    os.makeDir.all(dir)
+    dir
 
   /** `env` is added onto the inherited environment (os-lib's `ProcessBuilder`
     * starts from the parent's own env), not a replacement of it.
@@ -234,7 +261,7 @@ private[shell] object FlowLauncher:
       ChildTerminal.withChild(terminal)(
         toLaunchResult(
           spawnInherited(
-            argv(flow, None, task, flags),
+            argv(flow, None, task, flags, resolveWorkspaceDir()),
             workDir,
             childEnv(flow)
           )
@@ -264,13 +291,16 @@ private[shell] object FlowLauncher:
     val shellVersion = ShellVersion.value
     val forcedVersion =
       if ShellVersion.isRelease(shellVersion) then Some(shellVersion) else None
+    val workspaceDir = resolveWorkspaceDir()
     val forcedExit = spawnInherited(
-      argv(flow, forcedVersion, task, flags),
+      argv(flow, forcedVersion, task, flags, workspaceDir),
       workDir,
       childEnv(flow)
     )
     val compileProbe = () =>
-      QuietProc.call(compileArgv(flow, forcedVersion), cwd = workDir).exitCode
+      QuietProc
+        .call(compileArgv(flow, forcedVersion, workspaceDir), cwd = workDir)
+        .exitCode
     resolveNextAction(forcedExit, forcedVersion.isDefined, compileProbe) match
       case NextAction.Succeed             => LaunchResult.Ok
       case NextAction.ReportFailure(exit) => LaunchResult.Failed(exit)
@@ -283,7 +313,7 @@ private[shell] object FlowLauncher:
                 announced(s"pin-honoring re-run of ${flow.last}", flow.last)(
                   toLaunchResult(
                     spawnInherited(
-                      argv(flow, None, task, flags),
+                      argv(flow, None, task, flags, workspaceDir),
                       workDir,
                       childEnv(flow)
                     )
