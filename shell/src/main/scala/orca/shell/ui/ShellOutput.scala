@@ -16,7 +16,7 @@ object ShellOutput:
     * progress renderer emits a bare `\r` (no line clear) before handing control
     * to the shell, so the cursor can sit mid-line over stale text otherwise.
     */
-  val AnsiClearLine = "[2K\r"
+  val AnsiClearLine = "\u001b[2K\r"
 
   /** ANSI erase-from-cursor-to-end-of-screen (`ESC[0J`). Used once, right after
     * the banner and only on a real tty: coursier's download progress can leave
@@ -25,7 +25,7 @@ object ShellOutput:
     * single-line, and clearing to end-of-screen there would also erase a flow's
     * own output.
     */
-  val AnsiClearBelow = "[0J"
+  val AnsiClearBelow = "\u001b[0J"
 
   /** ANSI home-cursor (`ESC[H`) plus erase-entire-screen (`ESC[2J`), as one
     * `print`ed sequence. Used by [[ConsoleUiShell]] to wipe a prompt block left
@@ -35,7 +35,7 @@ object ShellOutput:
     * may leave the cursor at the wrong row after such a resize, so only an
     * absolute home-then-clear reliably reaches it.
     */
-  val AnsiClearScreen = "[H[2J"
+  val AnsiClearScreen = "\u001b[H\u001b[2J"
 
   /** A plain shell-voice line: outcomes, hints, notices. */
   def info(msg: String): Unit = println(s"$Glyph $msg")
