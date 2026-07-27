@@ -256,7 +256,7 @@ class SettingsFileTest extends FunSuite:
     assert(SettingsFile.hasStackLines("format = off"))
 
   test(
-    "hasStackLines is false for a commented-out stack key (comments are inert)"
+    "hasStackLines ignores commented-out stack keys"
   ):
     assert(!SettingsFile.hasStackLines("# format =   (no formatter found)"))
     assert(
@@ -318,7 +318,8 @@ class SettingsFileTest extends FunSuite:
     assertEquals(
       SettingsFile.render(entries),
       """# orca settings — edit freely, commit with the project.
-        |# format/lint/test: a value of `off` disables explicitly; comments are inert. Delete a live stack line (or the whole file) to re-run auto-discovery.
+        |# format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
+        |# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
         |# Cargo.toml (rustfmt ships with the toolchain)
         |format = cargo fmt
         |# compiles main+test code, runs nothing
@@ -354,7 +355,8 @@ class SettingsFileTest extends FunSuite:
   ):
     val content =
       """# orca settings — edit freely, commit with the project.
-        |# format/lint/test: a value of `off` disables explicitly; comments are inert. Delete a live stack line (or the whole file) to re-run auto-discovery.
+        |# format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
+        |# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
         |# Cargo.toml (rustfmt ships with the toolchain)
         |format = cargo fmt
         |# compiles main+test code, runs nothing
@@ -369,7 +371,8 @@ class SettingsFileTest extends FunSuite:
     assertEquals(
       stripped,
       """# orca settings — edit freely, commit with the project.
-        |# format/lint/test: a value of `off` disables explicitly; comments are inert. Delete a live stack line (or the whole file) to re-run auto-discovery.
+        |# format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
+        |# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
         |# a user note about coding agent
         |codingAgent = codex
         |# just a regular comment
@@ -429,14 +432,14 @@ class SettingsFileTest extends FunSuite:
       Right(StackSettings(format = List("cargo fmt")))
     )
 
-  test("Header documents `off` and that comments are inert"):
+  test("Header documents `off` and the role-agent precedence"):
     assert(
       SettingsFile.Header.contains("`off`"),
       s"the header must mention off: ${SettingsFile.Header}"
     )
     assert(
-      SettingsFile.Header.contains("comments"),
-      s"the header must say comments are inert: ${SettingsFile.Header}"
+      SettingsFile.Header.contains("override the global settings file"),
+      s"the header must state the precedence: ${SettingsFile.Header}"
     )
 
   test(

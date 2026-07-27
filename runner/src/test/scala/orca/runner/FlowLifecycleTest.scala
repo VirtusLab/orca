@@ -752,7 +752,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(
       os.read(OrcaDir.settingsPath(workDir)),
       """# orca settings — edit freely, commit with the project.
-        |# format/lint/test: a value of `off` disables explicitly; comments are inert. Delete a live stack line (or the whole file) to re-run auto-discovery.
+        |# format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
+        |# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
         |# seed.txt; seeded fixture
         |format = echo fmt
         |# no lint config found
@@ -989,7 +990,8 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(
       content,
       """# orca settings — edit freely, commit with the project.
-        |# format/lint/test: a value of `off` disables explicitly; comments are inert. Delete a live stack line (or the whole file) to re-run auto-discovery.
+        |# format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
+        |# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
         |# no formatter config found
         |format = off
         |# no evidence found
@@ -999,7 +1001,7 @@ class FlowLifecycleTest extends munit.FunSuite:
         |""".stripMargin
     )
     // Discovery's own written output must not re-trigger discovery: every
-    // gate is a live `off` line, not an inert comment.
+    // gate is a live `off` line, not a comment.
     assert(orca.settings.SettingsFile.hasStackLines(content))
     val warnings = steps.filter(_.contains("gate disabled"))
     assertEquals(

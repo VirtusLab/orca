@@ -177,16 +177,18 @@ private[orca] object SettingsFile:
             case AgentKey.ReviewAgent => acc.agents.copy(review = Some(spec))
           Right(acc.copy(agents = agents))
 
-  /** The header comment lines [[render]] places at the top of every settings
-    * file. Comments carry no meaning to the parser — only a LIVE
-    * `format`/`lint`/`test` line (including an explicit `= off`) counts as
-    * "configured" and keeps auto-discovery from running.
+  /** The header comment lines [[render]] places at the top of every project
+    * settings file. Only a live `format`/`lint`/`test` line (including an
+    * explicit `= off`) counts as "configured" and keeps auto-discovery from
+    * running.
     */
   val Header: String =
     "# orca settings — edit freely, commit with the project.\n" +
-      "# format/lint/test: a value of `off` disables explicitly; comments " +
-      "are inert. Delete a live stack line (or the whole file) to re-run " +
-      "auto-discovery."
+      "# format/lint/test: one shell command per key; `off` disables the " +
+      "gate. Delete the stack lines (or the whole file) to re-run " +
+      "auto-discovery.\n" +
+      "# planningAgent/codingAgent/reviewAgent (harness[:model]): override " +
+      "the global settings file; a flow's own code overrides both."
 
   /** The full settings-file text for `entries` under [[Header]],
     * newline-terminated. A [[SettingsEntry.Command]]'s comment renders as one

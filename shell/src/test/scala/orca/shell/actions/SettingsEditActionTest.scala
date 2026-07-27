@@ -51,9 +51,9 @@ class SettingsEditActionTest extends munit.FunSuite:
       val path =
         SettingsEditAction.pathFor(CreateTier.Project, workDir, os.root)
       SettingsEditAction.ensureExists(CreateTier.Project, path, workDir)
-      // Comments are inert (ADR 0019 amendment): a commented example does
-      // NOT count as "configured", so exiting the editor without touching the
-      // template still lets the first flow run auto-discover the stack.
+      // A commented example does not count as "configured", so exiting the
+      // editor without touching the template still lets the first flow run
+      // auto-discover the stack.
       assert(!SettingsFile.hasStackLines(os.read(path)))
 
   test(
@@ -67,9 +67,7 @@ class SettingsEditActionTest extends munit.FunSuite:
       assert(content.contains("Stack commands"), content)
       assert(content.contains("Role agents"), content)
       assert(
-        content.contains(
-          "a value of `off` disables explicitly; comments are inert"
-        ),
+        content.contains("one shell command per key; `off` disables the gate"),
         content
       )
 

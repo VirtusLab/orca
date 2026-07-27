@@ -228,8 +228,8 @@ class RoleSettingsFlowTest extends munit.FunSuite:
     val workDir = GitRepo.seeded()
     // A live `format = off` (discovery's own shape for an unset task) makes
     // `hasStackLines` true, so discovery must not run again — the plain codex
-    // stub would throw if it did. A merely-commented example would NOT count
-    // (comments are inert) — this pins the live-line case specifically.
+    // stub would throw if it did. A merely-commented example would not count —
+    // this pins the live-line case specifically.
     writeProject(
       workDir,
       "codingAgent = codex\nformat = off\n"

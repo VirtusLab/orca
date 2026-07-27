@@ -371,7 +371,8 @@ line is the same as deleting it. A typical discovered project file:
 
 ```properties
 # orca settings — edit freely, commit with the project.
-# format/lint/test: a value of `off` disables explicitly; comments are inert. Delete a live stack line (or the whole file) to re-run auto-discovery.
+# format/lint/test: one shell command per key; `off` disables the gate. Delete the stack lines (or the whole file) to re-run auto-discovery.
+# planningAgent/codingAgent/reviewAgent (harness[:model]): override the global settings file; a flow's own code overrides both.
 # Cargo.toml; via rustfmt
 format = cargo fmt
 # Cargo.toml
@@ -411,9 +412,8 @@ own configuration decides, as for `codex`.)
 it exists but has no LIVE stack line — a hand-written file containing only
 agent keys (or only commented-out stack examples) still triggers it,
 appending the discovered stack entries below the existing content rather
-than overwriting it, so agent lines are never touched. Delete a live stack
-line (or the whole file) to re-run discovery; a commented-out one does
-nothing, since comments are inert. When it runs (and no
+than overwriting it, so agent lines are never touched. Delete the stack
+lines (or the whole file) to re-run discovery. When it runs (and no
 `flow(stackSettings = ...)` override is passed), the first run spends one
 cheap-model, read-only agent call inspecting the repo, then writes the file
 and announces every guess in the event log:
