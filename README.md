@@ -889,8 +889,8 @@ action non-interactively and exits.
 | `orca run <flow> [task]` | `--verbose`, `--skip-branch`, `--honor-pin` (use the flow's own pinned orca version) | run a flow, propagating its exit code; task is read from stdin when omitted and piped |
 | `orca view <flow>` | `--plain`, `--color` | print a flow's source (highlighted when stdout is a terminal) |
 | `orca edit <flow>` | `--to project\|global` | open a flow in `$VISUAL`/`$EDITOR`/vi (`--to` required to customize a built-in) |
-| `orca create [name]` | `--goal <text>` (required), `--global` | author a new flow: the built-in `simple.sc` flow writes it in an isolated sandbox with the configured role agents; `name` is auto-derived when omitted |
-| `orca fork <source> [name]` | `--changes <text>` (required), `--global` | fork an existing flow, the same way |
+| `orca create "<goal>"` | `--name <file>`, `--global` | author a new flow: the built-in `simple.sc` flow writes it in an isolated sandbox with the configured role agents; `--name` is auto-derived when omitted |
+| `orca fork <source> "<changes>"` | `--name <file>`, `--global` | fork an existing flow, the same way |
 | `orca continue [selector]` | `--list`, `--json` | resume a recorded harness session (no selector = newest); `selector` is an index or session name |
 | `orca config` | `--planning-agent`, `--coding-agent`, `--review-agent`, each taking `harness[:model]`; or `--edit project\|global` | show the configured role agents, set any subset, or hand-edit that tier's settings file in `$VISUAL`/`$EDITOR`/vi (created from its template if absent) |
 | `orca list` | `--json` | list discovered flows across the project/global/built-in tiers |
@@ -907,7 +907,7 @@ Examples:
 orca run implement.sc "add a rate limiter to /login"
 echo "add a rate limiter" | orca run implement.sc
 orca list --json | jq -r '.[].name'
-orca create rate-limit.sc --goal "add a token-bucket limiter"
+orca create "add a token-bucket limiter" --name rate-limit.sc
 orca continue              # resume the last session
 orca continue --list
 orca config --coding-agent codex

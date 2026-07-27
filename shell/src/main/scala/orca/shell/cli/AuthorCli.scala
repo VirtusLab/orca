@@ -25,8 +25,8 @@ import Cli.{actionFailure, complete, requireNonBlank, requireTty, usageFailure}
 private[cli] object AuthorCli:
 
   def create(
-      name: Option[String],
       goal: String,
+      name: Option[String],
       global: Flag,
       tty: Boolean,
       workDir: os.Path
@@ -47,8 +47,8 @@ private[cli] object AuthorCli:
 
   def fork(
       source: String,
-      name: Option[String],
       changes: String,
+      name: Option[String],
       global: Flag,
       tty: Boolean,
       workDir: os.Path

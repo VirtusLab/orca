@@ -150,40 +150,58 @@ class CliTest extends munit.FunSuite:
       Left("--edit must be 'project' or 'global', got 'bogus'")
     )
 
-  test("create: missing the required --goal is a usage error"):
+  test("create: missing the required goal positional is a usage error"):
     assert(!parses("create"))
 
   test(
-    "create: --goal present parses; off-tty the method itself refuses with exit 2"
+    "create: the goal positional parses; off-tty the method itself refuses with exit 2"
   ):
-    assertEquals(invoke("create", "--goal", "do a thing"), Right(2))
+    assertEquals(invoke("create", "do a thing"), Right(2))
 
-  test("fork: missing the required --changes is a usage error"):
-    assert(!parses("fork", "source.sc"))
-
-  test(
-    "fork: --changes present parses; off-tty the method itself refuses with exit 2"
-  ):
+  test("create: --name parses alongside the goal positional"):
     assertEquals(
-      invoke("fork", "source.sc", "--changes", "make it better"),
+      invoke("create", "do a thing", "--name", "custom.sc"),
       Right(2)
     )
 
-  // requireNonBlank backs create/fork's --goal/--changes guard; the tty gate
-  // (already covered above) runs before it, so exercising the guard itself
-  // — rather than the full argv path, which always hits the tty gate first
-  // off-tty — is what actually proves it rejects blank input.
+  test("create: the old --goal flag is no longer recognized"):
+    assert(!parses("create", "--goal", "do a thing"))
+
+  test("fork: missing the required changes positional is a usage error"):
+    assert(!parses("fork", "source.sc"))
+
+  test(
+    "fork: source and changes positionals parse; off-tty the method itself refuses with exit 2"
+  ):
+    assertEquals(
+      invoke("fork", "source.sc", "make it better"),
+      Right(2)
+    )
+
+  test("fork: --name parses alongside the source/changes positionals"):
+    assertEquals(
+      invoke("fork", "source.sc", "make it better", "--name", "custom.sc"),
+      Right(2)
+    )
+
+  test("fork: the old --changes flag is no longer recognized"):
+    assert(!parses("fork", "source.sc", "--changes", "make it better"))
+
+  // requireNonBlank backs create/fork's goal/changes positional guard; the
+  // tty gate (already covered above) runs before it, so exercising the guard
+  // itself — rather than the full argv path, which always hits the tty gate
+  // first off-tty — is what actually proves it rejects blank input.
 
   test("requireNonBlank: a non-blank value passes"):
     assertEquals(Cli.requireNonBlank("goal", "do a thing"), Right(()))
 
-  test("requireNonBlank: an empty value is a usage error naming the flag"):
-    assertEquals(Cli.requireNonBlank("goal", ""), Left("--goal can't be empty"))
+  test("requireNonBlank: an empty value is a usage error naming the argument"):
+    assertEquals(Cli.requireNonBlank("goal", ""), Left("goal can't be empty"))
 
   test("requireNonBlank: a whitespace-only value is a usage error"):
     assertEquals(
       Cli.requireNonBlank("changes", "   "),
-      Left("--changes can't be empty")
+      Left("changes can't be empty")
     )
 
   test(
@@ -345,19 +363,19 @@ class CliTest extends munit.FunSuite:
   // --- create/fork: --harness/--yolo/--no-yolo are gone (ADR 0021 §9 amendment) ---
 
   test("create: --harness is no longer a recognized flag"):
-    assert(!parses("create", "--goal", "do a thing", "--harness", "claude"))
+    assert(!parses("create", "do a thing", "--harness", "claude"))
 
   test("create: --yolo is no longer a recognized flag"):
-    assert(!parses("create", "--goal", "do a thing", "--yolo"))
+    assert(!parses("create", "do a thing", "--yolo"))
 
   test("fork: --no-yolo is no longer a recognized flag"):
     assert(
-      !parses("fork", "source.sc", "--changes", "make it better", "--no-yolo")
+      !parses("fork", "source.sc", "make it better", "--no-yolo")
     )
 
   test("create: --global still parses (fails later, off-tty)"):
     assertEquals(
-      invoke("create", "--goal", "do a thing", "--global"),
+      invoke("create", "do a thing", "--global"),
       Right(2)
     )
 

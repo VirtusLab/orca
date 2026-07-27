@@ -565,8 +565,8 @@ stderr, exit 2. Built with mainargs (already an `runner` dependency, ADR
 
 The subcommand set mirrors every main-menu action, one short verb each, no
 `-flow` suffix (the domain object *is* the flow): `run <flow> [task]`,
-`view <flow>`, `edit <flow>`, `create [name] --goal <text>`,
-`fork <source> [name] --changes <text>`, `continue [selector]`, `config`,
+`view <flow>`, `edit <flow>`, `create "<goal>" [--name]`,
+`fork <source> "<changes>" [--name]`, `continue [selector]`, `config`,
 `rediscover-stack`, `list`. Flags are shared by name across commands that mean
 the same thing (`--global`, `--json`, `--yes`). `create`/`fork` run the
 built-in authoring flow (§9) with the configured role agents — no
@@ -586,8 +586,8 @@ CLI hygiene: results/data go to stdout (`view`'s source, `list`/`continue
 failure, 2 usage error (unknown subcommand, bad/missing args, missing tty),
 except `run`, `edit`, and `continue`'s resume, which wrap a subprocess and so
 propagate its raw exit code instead (130 on signal) — mirroring the child's
-status, not the flat convention. A missing required flag (`--goal`,
-`--changes`) is always a hard error, never a tty prompt-fallback: a
+status, not the flat convention. A missing required positional (`create`'s
+goal, `fork`'s changes) is always a hard error, never a tty prompt-fallback: a
 subcommand's behavior must not depend on where it runs.
 
 `create`, `fork`, `edit`, and `continue`'s resume each exec or hand off to an

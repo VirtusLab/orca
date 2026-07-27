@@ -195,47 +195,41 @@ private[shell] object Cli:
 
   @main(doc =
     "Author a new flow: runs the built-in simple.sc flow in an " +
-      "isolated sandbox, using the configured role agents. --goal is required; " +
-      "the filename is derived from it when omitted.\n" +
-      """Example: orca create --goal "summarize a PR's review threads""""
+      "isolated sandbox, using the configured role agents. The goal is " +
+      "required; the filename is derived from it when omitted.\n" +
+      """Example: orca create "summarize a PR's review threads""""
   )
   def create(
-      @arg(
-        positional = true,
-        doc = "flow filename (default: suggested from --goal)"
-      )
-      name: Option[String] = None,
-      @arg(doc = "what the flow should do")
+      @arg(positional = true, doc = "what the flow should do")
       goal: String,
+      @arg(doc = "flow filename (default: suggested from the goal)")
+      name: Option[String] = None,
       @arg(doc =
         "save under the global flows directory instead of the project's"
       )
       global: Flag = Flag()
   ): Int =
-    AuthorCli.create(name, goal, global, isTty, os.pwd)
+    AuthorCli.create(goal, name, global, isTty, os.pwd)
 
   @main(doc =
     "Fork an existing flow: runs the built-in simple.sc flow " +
-      "in an isolated sandbox, using the configured role agents. --changes is " +
-      "required; the filename defaults to <source>-fork.sc.\n" +
-      """Example: orca fork implement.sc --changes "add a retry step""""
+      "in an isolated sandbox, using the configured role agents. The changes " +
+      "are required; the filename defaults to <source>-fork.sc.\n" +
+      """Example: orca fork implement.sc "add a retry step""""
   )
   def fork(
       @arg(positional = true, doc = "source flow name or path")
       source: String,
-      @arg(
-        positional = true,
-        doc = "fork's filename (default: <source>-fork.sc)"
-      )
-      name: Option[String] = None,
-      @arg(doc = "the changes to make")
+      @arg(positional = true, doc = "the changes to make")
       changes: String,
+      @arg(doc = "fork's filename (default: <source>-fork.sc)")
+      name: Option[String] = None,
       @arg(doc =
         "save the fork under the global flows directory instead of the project's"
       )
       global: Flag = Flag()
   ): Int =
-    AuthorCli.fork(source, name, changes, global, isTty, os.pwd)
+    AuthorCli.fork(source, changes, name, global, isTty, os.pwd)
 
   @main(doc =
     "Resume a recorded harness session. No selector resumes the newest one.\n" +
@@ -331,14 +325,14 @@ private[shell] object Cli:
       s"`orca $command` needs a terminal; run it interactively"
     )
 
-  /** Rejects a blank/whitespace-only `value` (`--goal`/`--changes`) with a
-    * usage error — the interactive path's `promptDescription` already
-    * re-prompts on blank rather than passing a degenerate description to the
-    * harness, and `create`/`fork` need the same guard since they have no prompt
-    * to re-ask.
+  /** Rejects a blank/whitespace-only `value` (`create`'s goal / `fork`'s
+    * changes positional) with a usage error — the interactive path's
+    * `promptDescription` already re-prompts on blank rather than passing a
+    * degenerate description to the harness, and `create`/`fork` need the same
+    * guard since they have no prompt to re-ask.
     */
   private[cli] def requireNonBlank(
       argName: String,
       value: String
   ): Either[String, Unit] =
-    Either.cond(!value.isBlank, (), s"--$argName can't be empty")
+    Either.cond(!value.isBlank, (), s"$argName can't be empty")
