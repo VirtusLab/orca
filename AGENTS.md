@@ -380,3 +380,37 @@ sbt "~publishLocal"
 ```
 
 Every save rebuilds the affected module and refreshes `~/.ivy2/local`.
+
+### Testing the `orca` CLI with local changes
+
+After `sbt publishLocal`, run the shell from the local artifact instead of
+the released one. Isolate the config and cache dirs so your real
+`~/.config/orca` and wizard state stay untouched:
+
+```bash
+version="$(sbt -batch -error "print shell/version" | tail -1)"
+mkdir -p /tmp/orca-dev/project /tmp/orca-dev/xdg/{config,cache}
+cd /tmp/orca-dev/project && git init -q 2>/dev/null; true
+
+XDG_CONFIG_HOME=/tmp/orca-dev/xdg/config XDG_CACHE_HOME=/tmp/orca-dev/xdg/cache \
+  scala-cli run --jvm 21 --quiet \
+    --dep "org.virtuslab::orca-shell:$version" \
+    --repository ivy2local \
+    --main-class orca.shell.Main
+```
+
+That starts the interactive shell (first run goes through the wizard). For
+the headless CLI, append the subcommand after `--`:
+
+```bash
+XDG_CONFIG_HOME=... XDG_CACHE_HOME=... \
+  scala-cli run --jvm 21 --quiet \
+    --dep "org.virtuslab::orca-shell:$version" \
+    --repository ivy2local \
+    --main-class orca.shell.Main -- run implement.sc "your task"
+```
+
+A dev (non-release) version automatically rewrites the built-in flows' orca
+dep pin to `$version` and adds `ivy2Local`, so the flows a run launches also
+resolve your local build. Drop the `XDG_*` overrides to test against your
+real configuration instead; state persists across runs either way.
