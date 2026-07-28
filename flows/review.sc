@@ -40,10 +40,9 @@
   */
 
 import orca.{*, given}
-import orca.review.{Location, Severity}
 
 /** Where the resolver leaves the diff. Fixed rather than per-prompt so a resume
-  * finds the same file.
+  * finds the same file; removed once the report is out.
   */
 val DiffPath: String = ".orca/review.diff"
 
@@ -112,6 +111,11 @@ flow(OrcaArgs(args)):
         orcaCommentMarker(userPrompt, "review"),
         report
       )
+
+  // The diff is scratch, and this flow should leave the tree as it found it. A
+  // failed run keeps the file deliberately: the resolve stage is skipped on
+  // resume, so the reviewers re-read this same path.
+  os.remove.all(os.pwd / os.RelPath(DiffPath))
 
 // ============================== flow helpers ==============================
 
