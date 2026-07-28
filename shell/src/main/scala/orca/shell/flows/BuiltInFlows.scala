@@ -30,8 +30,11 @@ private[shell] object BuiltInFlows:
         orcaDepModule
       )}:[^"]+"$$""".r
 
-  /** The bundled flows' filenames, from the generated index resource. */
-  private def names: List[String] =
+  /** The bundled flows' filenames, from the generated index resource. Visible
+    * to the package so `BuiltInFlowsCompileTest` can register one test per
+    * flow without extracting first.
+    */
+  private[flows] def names: List[String] =
     resourceText("index").linesIterator.filter(_.nonEmpty).toList
 
   private def resourceText(name: String): String =

@@ -29,21 +29,28 @@ Some tests shell out to real external tools and skip by default:
 ORCA_INTEGRATION=1 sbt test
 ORCA_INTEGRATION=1 sbt "claude/testOnly orca.tools.claude.ClaudeIntegrationTest"
 ORCA_INTEGRATION=1 sbt "tools/testOnly orca.tools.OsGitHubIntegrationTest"
-ORCA_INTEGRATION=1 sbt "runner/testOnly orca.runner.scalacli.FlowScriptsCompileTest"
+ORCA_INTEGRATION=1 sbt publishLocal "shell/testOnly *BuiltInFlowsCompileTest"
+ORCA_INTEGRATION=1 sbt publishLocal "runner/testOnly *ScalaCliSmokeTest"
 ```
 
 | Suite | Needs |
 |---|---|
 | `{Claude,Codex,Gemini,Opencode,Pi}IntegrationTest` (one per `orca.tools.<backend>`) | that backend's CLI authenticated |
 | `OsGitHubIntegrationTest` | `gh` authenticated |
-| `FlowScriptsCompileTest` | `scala-cli`; runs `sbt publishLocal` internally |
+| `BuiltInFlowsCompileTest`, `FlowAuthoringSmokeTest` | `scala-cli`, and a `publishLocal` in the same sbt invocation |
 | `ScalaCliSmokeTest` | the above, plus `claude` authenticated — it starts a real flow |
 
-`FlowScriptsCompileTest` is the only one CI runs (its own `flow-scripts` job),
-being the only one needing no credentials. It compiles every `flows/` script
-against the working tree's build — each staged into a temp dir with its dep pin
-rewritten to the just-published version plus `//> using repository ivy2Local` —
-so an API change that breaks the flows fails CI instead of shipping.
+The three scala-cli suites link a script against the local Ivy cache, so they
+need `publishLocal` in the *same* sbt invocation: the build injects that run's
+dynver version as `-Dorca.build.version` into the forked test JVM, which is what
+the scripts pin.
+
+`BuiltInFlowsCompileTest` is the only one CI runs (its own `flow-scripts` job),
+being the only one needing no credentials. It compiles every built-in flow as
+`BuiltInFlows` stages them for a dev build — pin rewritten to the just-published
+version, `//> using repository ivy2Local` inserted — so an API change that
+breaks the flows fails CI instead of shipping. On a release version there is no
+rewrite (the flows resolve from Maven Central), so it skips itself.
 
 ## Publishing locally
 

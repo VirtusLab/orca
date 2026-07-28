@@ -2,14 +2,16 @@ package orca.runner.scalacli
 
 import orca.testkit.GitRepo
 
-/** Runs a minimal flow script against the library as
-  * [[LocalPublication.published]] just built it — the end-to-end counterpart to
-  * [[FlowScriptsCompileTest]]: it checks that a published artifact actually
-  * starts a flow, not just that it type-checks.
+/** Runs a minimal flow script against the locally published library — the
+  * end-to-end counterpart to `orca.shell.flows.BuiltInFlowsCompileTest`: it
+  * checks that a published artifact actually starts a flow, not just that it
+  * type-checks.
   *
-  * Gated on `ORCA_INTEGRATION`, and unlike [[FlowScriptsCompileTest]] it stays
-  * out of CI: starting a flow names the branch with the cheap model, so this
-  * needs an authenticated `claude` and spends tokens.
+  * Needs the library in the local Ivy cache under `orca.build.version`, so run
+  * it in one sbt session with the publish: `ORCA_INTEGRATION=1 sbt publishLocal
+  * "runner/testOnly *ScalaCliSmokeTest"`. Stays out of CI even then: starting a
+  * flow names the branch with the cheap model, so it needs an authenticated
+  * `claude` and spends tokens.
   */
 class ScalaCliSmokeTest extends munit.FunSuite:
 
@@ -27,6 +29,13 @@ class ScalaCliSmokeTest extends munit.FunSuite:
   // the published library's TASTy won't parse under an older scala-cli pin.
   private val scalaVersion = "3.8.4"
 
+  private val version: String = sys.props.getOrElse(
+    "orca.build.version",
+    sys.error(
+      "-Dorca.build.version unset — see buildVersionProperty in build.sbt"
+    )
+  )
+
   test(
     "scala-cli runs a minimal script that links against the published library"
   ):
@@ -34,7 +43,6 @@ class ScalaCliSmokeTest extends munit.FunSuite:
     // against — the starting point `create-test-project.sh` also seeds.
     val scriptDir = GitRepo.seeded()
     val script = scriptDir / "hello.sc"
-    val version = LocalPublication.published.version
     os.write(
       script,
       s"""//> using scala $scalaVersion

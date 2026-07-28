@@ -18,6 +18,14 @@ ThisBuild / scalacOptions ++= Seq(
 
 ThisBuild / javacOptions ++= Seq("--release", "21")
 
+// The scala-cli suites link a script against a locally published build, so they
+// need the dynver version the sibling `publishLocal` produced. Forked test JVMs
+// read it from this property (`sys.props`), which keeps the two in step by
+// construction: `sbt publishLocal "<module>/testOnly ..."` publishes and injects
+// the same `version.value`.
+lazy val buildVersionProperty =
+  Def.setting("-Dorca.build.version=" + version.value)
+
 lazy val commonSettings = commonSmlBuildSettings ++ ossPublishSettings ++ Seq(
   organization := "org.virtuslab",
   versionScheme := Some("semver-spec"),
@@ -175,6 +183,7 @@ lazy val runner = (project in file("runner"))
     // water down the exact single-process semantics the guard exists to
     // enforce.
     Test / parallelExecution := false,
+    Test / javaOptions += buildVersionProperty.value,
     libraryDependencies ++= Seq(ox, mainargs, jline, fansi, jsoniterMacros)
   )
 
@@ -195,6 +204,7 @@ lazy val shell = (project in file("shell"))
     // isolation runner uses for its process-global lock and logger state.
     Test / fork := true,
     Test / parallelExecution := false,
+    Test / javaOptions += buildVersionProperty.value,
     // Bundles the top-level flows/*.sc scripts as jar resources under
     // orca/shell/flows/ (ADR 0021 §7), so `BuiltInFlows` can extract them to a
     // real path at runtime. Jar resources aren't listable, hence the

@@ -8,7 +8,7 @@ on:
 
 # The `test` job runs the unit suites only. The integration suites gated on
 # `ORCA_INTEGRATION=1` need an authenticated `claude`/`gh` and stay skipped —
-# except `FlowScriptsCompileTest`, which needs only scala-cli and gets its own
+# except `BuiltInFlowsCompileTest`, which needs only scala-cli and gets its own
 # `flow-scripts` job, with the env var scoped to that one `testOnly`. Run the
 # rest locally with `ORCA_INTEGRATION=1 sbt test`.
 #
@@ -33,10 +33,11 @@ jobs:
       - uses: coursier/cache-action@v6
       - run: sbt +test
 
-  # Compiles every `flows/` script against a locally published build, so an API
+  # Compiles every built-in flow against a locally published build, so an API
   # change that breaks the flows fails here instead of shipping. Independent of
   # `test` so the fast unit job isn't held up by the publishLocal + scala-cli
-  # round-trip.
+  # round-trip. One sbt invocation: the test reads the version `publishLocal`
+  # just used from a system property the build injects.
   flow-scripts:
     runs-on: ubuntu-latest
     steps:
@@ -54,7 +55,7 @@ jobs:
           java-version: '21'
       - uses: sbt/setup-sbt@v1
       - uses: coursier/cache-action@v6
-      - run: sbt "runner/testOnly *FlowScriptsCompileTest"
+      - run: sbt publishLocal "shell/testOnly *BuiltInFlowsCompileTest"
         env:
           ORCA_INTEGRATION: '1'
 
