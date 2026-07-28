@@ -39,7 +39,8 @@
   * The review loop's format and lint commands come from
   * `.orca/settings.properties`, auto-discovered on first run.
   *
-  * Requires `claude` and `gh` both authenticated.
+  * Requires `gh` authenticated, and the backend the settings name for the
+  * planning/coding/review roles logged in (`claude` unless changed).
   */
 
 import orca.{*, given}

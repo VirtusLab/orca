@@ -53,9 +53,12 @@
   * The review loop's format and lint commands come from
   * `.orca/settings.properties`, auto-discovered on first run.
   *
-  * Requires `claude` and `gh` authenticated; the target repo must have a CI
-  * workflow that runs its test suite, since a red build is what confirms the
-  * reproduction.
+  * Requires `gh` authenticated, and the backend the settings name for the
+  * planning/coding/review roles logged in — plus `claude` whatever they say,
+  * since the reproduction checks below pin `claude.sonnet`.
+  *
+  * The target repo must have a CI workflow that runs its test suite: a red
+  * build is what confirms the reproduction.
   */
 
 import orca.{*, given}
