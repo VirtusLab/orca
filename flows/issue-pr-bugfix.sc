@@ -1,14 +1,19 @@
-// Bug report (owner/repo#N) → reproduce with a failing test, fix, PR.
+// Bug report (owner/repo#N) → repro test, fix, PR — or a triage comment.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.0"
 //> using jvm 21
 
-/** Bug-report → fix flow, autonomous and stack-agnostic.
+/** Bug-report → fix flow, autonomous.
   *
   * The bug-report counterpart of `issue-pr.sc`: where that flow assesses an
   * issue and plans straight into an implementation, this one insists on a
   * reproduction first — a failing test that CI confirms is red — and only then
   * fixes it.
+  *
+  * Three outcomes, decided by triage: a comment saying it isn't a bug; a
+  * comment with reproduction steps when it is one but no test can show it; or
+  * a PR carrying the failing test and the fix that makes it pass. Only the
+  * third writes any code.
   *
   * Given a `<owner>/<repo>#<number>` reference to an issue, the flow:
   *
@@ -46,8 +51,7 @@
   * ```
   *
   * The review loop's format and lint commands come from
-  * `.orca/settings.properties`, auto-discovered on first run — the script
-  * itself stays stack-agnostic.
+  * `.orca/settings.properties`, auto-discovered on first run.
   *
   * Requires `claude` and `gh` authenticated; the target repo must have a CI
   * workflow that runs its test suite, since a red build is what confirms the

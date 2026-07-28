@@ -1,4 +1,4 @@
-// GitHub issue (owner/repo#N) → assess, plan, implement, open a PR.
+// GitHub issue (owner/repo#N) → assess, plan, implement, PR — or reject.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.0"
 //> using jvm 21
@@ -8,6 +8,10 @@
   * Takes any issue — a feature request, a change, a bug — and goes straight
   * from assessment to a plan. For a bug report where a reproduction should come
   * first, `issue-pr-bugfix.sc` writes a CI-verified failing test before fixing.
+  *
+  * Two outcomes, decided by the assessment: a comment on the issue explaining
+  * why it was rejected, or a PR implementing it. Only the second writes any
+  * code.
   *
   * Given a `<owner>/<repo>#<number>` reference (the user's prompt), the flow:
   *
@@ -33,8 +37,7 @@
   * ```
   *
   * The review loop's format and lint commands come from
-  * `.orca/settings.properties`, auto-discovered on first run — the script
-  * itself stays stack-agnostic.
+  * `.orca/settings.properties`, auto-discovered on first run.
   *
   * Requires `claude` and `gh` both authenticated.
   */
