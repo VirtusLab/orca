@@ -1,4 +1,4 @@
-// Plan (with a self-review pass), implement per task, then open a PR.
+// Plan (self-reviewed), implement per task, update docs, then open a PR.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.0"
 //> using jvm 21
@@ -26,6 +26,8 @@
   *
   * On success the flow:
   *
+  *   1. Updates the project's docs (README, doc-comments) from what the tasks
+  *      changed, as its own stage and commit — so the docs land in the PR.
   *   1. Pushes the feature branch.
   *   1. Opens a PR with a haiku-generated title + description from the full
   *      branch diff. A human picks the PR up from there.
@@ -74,6 +76,16 @@ flow(OrcaArgs(args), returnToStartBranch = true):
         task = task.title.value
       )
       // one commit per task: code + progress entry
+
+  // Docs pass on the implementer session — it already carries the brief and
+  // every task's context. A separate stage from the task loop, so it commits on
+  // its own and the push below stays a LATER stage than the edits it pushes
+  // (ADR 0018 §3.2 R8).
+  stage("Update documentation"):
+    session.run(
+      "All tasks done. Update project docs (README, doc-comments) based " +
+        "on the changes made. Only update what's affected — no new sections."
+    )
 
   // Push the branch and open the PR from the full branch diff. openPrFromBranch
   // is the push → summarise → create tail as three resume-safe stages;

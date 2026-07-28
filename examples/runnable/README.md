@@ -10,7 +10,7 @@ the `.sc` files in [`flows/`](../../flows/) — alongside it.
 | [01-simple](01-simple/) | One-shot planning + coding for small tasks. Autonomous planner; the plan is in memory — no resume, no on-disk state. |
 | [02-interactive](02-interactive/) | Same shape as 01, but the planner can ask clarifying questions via the `ask_user` MCP tool. Use when the prompt is open-ended. |
 
-The other flow scripts in [`flows/`](../../flows/) (`epic.sc`, `issue-pr.sc`,
+The other flow scripts in [`flows/`](../../flows/) (`issue-pr.sc`,
 `issue-pr-bugfix.sc`, `implement-enhanced.sc`) have no seed harness — run them
 against your own git repo.
 
