@@ -138,7 +138,7 @@ There are two runnable examples under [`examples/runnable/`](examples/runnable/)
 * [02-interactive](examples/runnable/02-interactive/) (same shape as 01, but the
   planner can ask clarifying questions via `ask_user`).
 
-More flow scripts — `epic.sc`, `issue-pr.sc`, `issue-pr-bugfix.sc`,
+More flow scripts — `issue-pr.sc`, `issue-pr-bugfix.sc`,
 `implement-enhanced.sc` — live in [`flows/`](flows/); run them against
 your own git repo.
 
@@ -205,8 +205,8 @@ There are two ways to drive a model in a flow:
   body.
 - **A specific agent + model — `claude.opus`, `codex.mini`, `opencode.openaiLuna`.**
   Use a concrete accessor when you want a particular backend or tier
-  regardless of settings — `epic.sc` pins claude to implement and codex to
-  review, for instance. The tier accessors (`.opus`/`.sonnet`/…) live on the
+  regardless of settings — `issue-pr-bugfix.sc` pins `claude.sonnet` for its
+  two reproduction-check sub-stages, for instance. The tier accessors (`.opus`/`.sonnet`/…) live on the
   concrete agents, not on the role accessors — so `codingAgent.opus` won't
   compile; that's the cue to name the backend. Pin any other model with
   `withModel(Model("…"))`. Don't mix the two for one session (a `SessionId`
