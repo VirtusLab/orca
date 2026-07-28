@@ -53,6 +53,41 @@ class SessionActionTest extends munit.FunSuite:
       "resuming session 'newest' [claude], stage 'Task: fix a bug', in /work"
     )
 
+  private def piSession(wireId: Option[String]): ManifestSession =
+    session().copy(harness = "Pi", wireId = wireId)
+
+  private def piDir(workDir: os.Path, id: String): os.Path =
+    workDir / ".orca" / "cache" / "pi-sessions" / id
+
+  test("piSessionDir resolves a session dir that still holds a transcript"):
+    val workDir = TempDirs.dir()
+    val dir = piDir(workDir, "a-session")
+    os.write(dir / "session.jsonl", "{}\n", createFolders = true)
+    assertEquals(
+      SessionAction.piSessionDir(piSession(Some("a-session")), workDir),
+      Right(dir)
+    )
+
+  test(
+    "piSessionDir reports a pruned or never-written session, naming the dir"
+  ):
+    val workDir = TempDirs.dir()
+    val Left(reason) =
+      SessionAction.piSessionDir(
+        piSession(Some("a-session")),
+        workDir
+      ): @unchecked
+    assert(reason.contains(piDir(workDir, "a-session").toString), reason)
+
+  test("piSessionDir reports an id that isn't a directory name separately"):
+    val workDir = TempDirs.dir()
+    val Left(reason) =
+      SessionAction.piSessionDir(
+        piSession(Some("../../etc")),
+        workDir
+      ): @unchecked
+    assert(reason.contains("not a directory name"), reason)
+
   test("validatedWorkDir accepts a path that's still a directory"):
     val dir = TempDirs.dir()
     assertEquals(SessionAction.validatedWorkDir(dir.toString), Right(dir))

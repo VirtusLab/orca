@@ -52,12 +52,11 @@ private[shell] object SessionPicker:
     * `expanded` reveals both collapsed groups in place, sorted the same as the
     * primary rows (newest `lastActiveAt` first). Disabling a row previews only
     * what [[ResumeCommand.staticGate]] can tell without a live harness call: an
-    * unrecognised harness, a wireId-less session, or a pi session (durable in
-    * the manifest, but shell reattach isn't wired up — `ResumeCommand`'s
-    * `piNotWired`). Gemini's real resumability needs `gemini --list-sessions`
-    * (deferred to selection, in [[orca.shell.actions.SessionAction.resume]]) —
-    * `staticGate` passes any gemini session with a wireId, leaving its row
-    * enabled pending that later check.
+    * unrecognised harness, or a wireId-less session. The checks that need the
+    * manifest's `workDir` or a live call — gemini's `gemini --list-sessions`
+    * index, pi's session dir — are deferred to selection, in
+    * [[orca.shell.actions.SessionAction.resume]], so those rows stay enabled
+    * pending that later check.
     */
   private[shell] def sessionRows(
       runs: List[RecordedRun],

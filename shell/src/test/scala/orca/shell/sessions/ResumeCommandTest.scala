@@ -2,6 +2,7 @@ package orca.shell.sessions
 
 import orca.agents.BackendTag
 import orca.runner.manifest.ManifestSession
+import orca.testkit.TempDirs
 
 class ResumeCommandTest extends munit.FunSuite:
 
@@ -34,21 +35,24 @@ class ResumeCommandTest extends munit.FunSuite:
   test("codex resumes via `codex resume <thread-id>`"):
     val id = "7f9f1234-5678-4abc-9def-000000000002"
     assertEquals(
-      ResumeCommand.build(session("Codex", Some(id)), geminiIndex = None),
+      ResumeCommand
+        .build(session("Codex", Some(id)), geminiIndex = None),
       Right(Seq("codex", "resume", id))
     )
 
   test("opencode resumes via `opencode --session <ses_...>`"):
     val id = "ses_abc123"
     assertEquals(
-      ResumeCommand.build(session("Opencode", Some(id)), geminiIndex = None),
+      ResumeCommand
+        .build(session("Opencode", Some(id)), geminiIndex = None),
       Right(Seq("opencode", "--session", id))
     )
 
   test("gemini resumes via `gemini --resume <index>` once the index is known"):
     val uuid = "aaaa1234-5678-4abc-9def-000000000003"
     assertEquals(
-      ResumeCommand.build(session("Gemini", Some(uuid)), geminiIndex = Some(3)),
+      ResumeCommand
+        .build(session("Gemini", Some(uuid)), geminiIndex = Some(3)),
       Right(Seq("gemini", "--resume", "3"))
     )
 
@@ -65,11 +69,24 @@ class ResumeCommandTest extends munit.FunSuite:
       Left(reason)
     )
 
-  test("a pi session carries a wireId but the shell cannot exec it yet"):
-    val uuid = "aaaa1234-5678-4abc-9def-000000000004"
+  test("pi resumes via `pi --session-dir <dir> --continue`"):
+    val dir = TempDirs.dir() / ".orca" / "cache" / "pi-sessions" / "a-session"
     assertEquals(
-      ResumeCommand.build(session("Pi", Some(uuid)), geminiIndex = None),
-      Left("resuming a pi chat from the shell is not supported yet")
+      ResumeCommand.build(
+        session("Pi", Some("a-session")),
+        piSessionDir = Right(dir)
+      ),
+      Right(Seq("pi", "--session-dir", dir.toString, "--continue"))
+    )
+
+  test("pi is not resumable, with the caller's reason, when its dir is gone"):
+    val reason = "no pi transcript at /gone — pruned, cleaned, or never written"
+    assertEquals(
+      ResumeCommand.build(
+        session("Pi", Some("a-session")),
+        piSessionDir = Left(reason)
+      ),
+      Left(reason)
     )
 
   test(
@@ -118,6 +135,14 @@ class ResumeCommandTest extends munit.FunSuite:
     assertEquals(
       ResumeCommand.staticGate(session("ClaudeCode", Some("uuid"))),
       Right(BackendTag.ClaudeCode)
+    )
+
+  test(
+    "staticGate: pi with a wireId is Right, deferring the session-dir check to build"
+  ):
+    assertEquals(
+      ResumeCommand.staticGate(session("Pi", Some("uuid"))),
+      Right(BackendTag.Pi)
     )
 
   test(

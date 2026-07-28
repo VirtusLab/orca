@@ -14,12 +14,13 @@ private[shell] object ResumeCommand:
 
   /** Left = not resumable, checkable without a live harness call: an
     * unrecognised `harness` string, or a wireId-less session — one whose
-    * backend keeps nothing durable, or that never committed a turn (the
-    * manifest's stored `reason` is used when set, else a generic fallback).
-    * `Right` carries the recognised [[BackendTag]] but doesn't mean "definitely
-    * resumable" — gemini's row still needs [[build]]'s live index lookup. Used
-    * both by [[build]] itself and by the shell's session-list preview (which
-    * has no `geminiIndex` yet).
+    * backend keeps nothing durable, that never committed a turn, or a pi row
+    * recorded before pi's sessions became durable (the manifest's stored
+    * `reason` is used when set, else a generic fallback). `Right` carries the
+    * recognised [[BackendTag]] but doesn't mean "definitely resumable" —
+    * gemini's row still needs [[build]]'s live index lookup, and pi's its
+    * session-dir check. Used both by [[build]] itself and by the shell's
+    * session-list preview (which has no `geminiIndex` yet).
     */
   private def wireIdAndTag(
       s: ManifestSession
@@ -31,34 +32,36 @@ private[shell] object ResumeCommand:
         Left(s.reason.getOrElse(s"${s.harness} session has no resumable id"))
       case (Some(wireId), Some(tag)) => Right((wireId, tag))
 
-  /** Pi's session dirs are durable (`.orca/cache/pi-sessions/<id>/`), so a
-    * manifest row does carry a wire id; exec'ing `pi --session-dir …
-    * --continue` from the shell is simply not wired up yet. Stated once so the
-    * preview and [[build]] agree on it.
-    */
-  private val piNotWired =
-    "resuming a pi chat from the shell is not supported yet"
-
   /** The static (no-live-call) half of [[build]]'s resumability check, exposed
     * for the shell's session-list preview.
     */
   def staticGate(s: ManifestSession): Either[String, BackendTag] =
-    wireIdAndTag(s).flatMap: (_, tag) =>
-      if tag == BackendTag.Pi then Left(piNotWired) else Right(tag)
+    wireIdAndTag(s).map(_._2)
 
-  /** Left = not resumable: [[staticGate]]'s checks, plus gemini when
-    * `geminiIndex` is `None` (gemini resumes interactively by index, not by
-    * uuid — the caller resolves the index by matching the session's wireId
-    * against `gemini --list-sessions` output and passes it in). Binary names
-    * come from [[AgentSpec.harnessNameFor]] (the settings-file spelling —
-    * `claude`, `codex`, …), not the manifest's [[BackendTag.wireName]]. Also
-    * rejects a blank wireId or one starting with `-` — passed straight into an
-    * argv slot, such a value could otherwise be parsed as a flag by the harness
-    * CLI.
+  /** Placeholder for a row whose harness isn't pi — only the pi branch of
+    * [[build]] reads `piSessionDir`, so nothing else can surface this.
+    */
+  private[shell] val PiDirUnresolved: Either[String, os.Path] =
+    Left("no pi session dir was resolved for this session")
+
+  /** Left = not resumable: [[staticGate]]'s checks, plus whatever the caller's
+    * live lookups reported — gemini's `geminiIndex` (it resumes by index, not
+    * by uuid, so the caller matches the session's wireId against `gemini
+    * --list-sessions`) and pi's `piSessionDir` (its transcripts live on disk;
+    * [[orca.shell.actions.SessionAction.piSessionDir]] resolves the path or
+    * says why it can't). Both are resolved outside so this stays a pure argv
+    * builder, and each is read only by its own branch.
+    *
+    * Binary names come from [[AgentSpec.harnessNameFor]] (the settings-file
+    * spelling — `claude`, `codex`, …), not the manifest's
+    * [[BackendTag.wireName]]. Also rejects a blank wireId or one starting with
+    * `-` — passed straight into an argv slot, such a value could otherwise be
+    * parsed as a flag by the harness CLI.
     */
   def build(
       s: ManifestSession,
-      geminiIndex: Option[Int]
+      geminiIndex: Option[Int] = None,
+      piSessionDir: Either[String, os.Path] = PiDirUnresolved
   ): Either[String, Seq[String]] =
     wireIdAndTag(s).flatMap: (wireId, tag) =>
       if wireId.isBlank || wireId.startsWith("-") then
@@ -80,7 +83,11 @@ private[shell] object ResumeCommand:
                     s"no matching session found via `$binary --list-sessions`"
                   )
                 )
-          case BackendTag.Pi => Left(piNotWired)
+          case BackendTag.Pi =>
+            // An absolute --session-dir, so the argv doesn't depend on the
+            // child's cwd matching the manifest's workDir.
+            piSessionDir.map: dir =>
+              Seq(binary, "--session-dir", dir.toString, "--continue")
 
   // Matches one `--list-sessions` entry line: "  N. <title> (<time>) [<id>]".
   private val entryLine = raw"^\s*(\d+)\.\s.*\[(.+)\]\s*$$".r

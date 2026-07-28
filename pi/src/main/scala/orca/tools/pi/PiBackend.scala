@@ -73,20 +73,16 @@ private[orca] class PiBackend(
   val sessions: SessionSupport[BackendTag.Pi.type] =
     SessionSupport.durable(IdScheme.ClientClaimed, hasTranscript)
 
-  /** Does Pi's session dir for `id` hold a transcript to `--continue` from, and
-    * is it young enough to still be there after the next prune? Applying the
-    * retention cutoff here too means a dir another process is about to prune
-    * reports absent now, rather than after the runtime committed to resuming
-    * it.
-    *
-    * At least one `*.jsonl`, not exactly one: a first turn that failed after Pi
-    * seeded the dir is retried fresh and seeds a second file. `--continue`
-    * picks the most recent, which is the one the retry wrote.
+  /** Does [[PiSessionStore]] still hold a transcript for `id`, young enough to
+    * survive the next prune? Applying the retention cutoff on top of the
+    * store's own check means a dir another process is about to prune reports
+    * absent now, rather than after the runtime committed to resuming it.
     */
   private def hasTranscript(id: String): Boolean =
-    val dir = sessionsBase / id
-    os.isDir(dir) && touchedSince(dir, cutoff()) &&
-    os.list.stream(dir).exists(_.last.endsWith(".jsonl"))
+    PiSessionStore
+      .dirFor(workDir, id)
+      .exists: dir =>
+        PiSessionStore.hasTranscript(dir) && touchedSince(dir, cutoff())
 
   /** The session dir root, created on first use. `lazy` because naming the dir
     * must stay effect-free (see [[sessionsBase]]) — only spawning creates.
