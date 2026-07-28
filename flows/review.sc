@@ -12,7 +12,7 @@
   *
   *   1. Narrows the shipped reviewer roster to the ones whose `files:` pattern
   *      matches the changed paths, then has a cheap-tier agent pick from what's
-  *      left — the same two-step narrowing `reviewAndFixLoop` does by default.
+  *      left.
   *   1. Runs the picked reviewers concurrently, each returning a structured
   *      `ReviewResult`.
   *   1. Prints every finding grouped by severity, and within a severity split
@@ -21,16 +21,13 @@
   *      `upsertComment`, so a re-run replaces its previous report rather than
   *      stacking a second one.
   *
-  * Reviewers are read-only by construction (`buildReviewers`), which on most
-  * backends means no shell — they cannot fetch a PR or run `git diff`
-  * themselves. Hence the resolver stage: it runs with full tools, writes the
-  * unified diff to `.orca/review.diff`, and returns only metadata, so the diff
-  * never passes through a model's output. Each reviewer then reads that file
-  * itself and explores the repo around it.
+  * The reviewers are read-only — no shell, so they cannot fetch a PR or run
+  * `git diff` themselves. Hence the resolver stage: it has full tools, writes
+  * the unified diff to a file, and returns only metadata; each reviewer then
+  * reads that file and explores the repo around it.
   *
-  * Nothing here fixes anything — for the review-then-fix loop, use
-  * `implement.sc` or `simple.sc`, which drive `reviewAndFixLoop` against a
-  * coder session.
+  * Nothing here fixes anything — for review-then-fix, use `implement.sc` or
+  * `simple.sc`.
   *
   * ```bash
   * scala-cli run review.sc -- "acme/widgets#42"
@@ -38,18 +35,15 @@
   * git diff | orca run review.sc
   * ```
   *
-  * Requires `claude` logged in, and `gh` authenticated when the target is a PR.
+  * Requires the backend the settings name for the review role logged in
+  * (`claude` unless changed), and `gh` authenticated when the target is a PR.
   */
 
 import orca.{*, given}
-// Deliberately NOT in the `orca.*` export wildcard, though both are reachable
-// from the exported `ReviewIssue`: the type of its `severity`, and of its
-// `location`. Imported by name here rather than worked around.
 import orca.review.{Location, Severity}
 
 /** Where the resolver leaves the diff. Fixed rather than per-prompt so a resume
-  * finds the same file; `.orca/` is the run-scoped scratch directory, excluded
-  * from stage commits.
+  * finds the same file.
   */
 val DiffPath: String = ".orca/review.diff"
 
@@ -65,8 +59,7 @@ case class ReviewTarget(
 
 /** Single-property envelope around [[ReviewTarget]]: a cheap-tier model handed
   * a multi-property result schema tends to stuff everything under the first
-  * property, so the payload is nested one level (the `StackDiscoveryReply`
-  * shape). Same reason [[PickedReviewers]] carries a single list.
+  * property. Same reason [[PickedReviewers]] carries a single list.
   */
 case class ResolvedTarget(target: ReviewTarget) derives JsonData
 
@@ -79,8 +72,7 @@ case class ReviewerFindings(reviewer: String, issues: List[ReviewIssue])
 case class AllFindings(byReviewer: List[ReviewerFindings]) derives JsonData
 
 /** Findings at or above this are listed first within their severity; the rest
-  * follow under a divider. `reviewAndFixLoop` uses the same 0.7 as its cutoff
-  * for what reaches the fixer — here nothing is dropped, only ordered.
+  * follow under a divider. Nothing is dropped, only ordered.
   */
 val ConfidentAt: Double = 0.7
 
@@ -101,9 +93,8 @@ flow(OrcaArgs(args)):
       reviewAgent,
       ReviewerPrompts.all.filter(r => picked.names.contains(r.name))
     )
-    // Ephemeral one-shot turns, so they are legal inside a fork; the durable
-    // session doors are not (see `Par`). Results come back in completion order,
-    // which is why each is paired with its reviewer's name here.
+    // Results come back in completion order, hence the pairing with the
+    // reviewer's name.
     AllFindings(Par.mapUnordered(4)(agents): a =>
       ReviewerFindings(
         a.name,
@@ -125,9 +116,8 @@ flow(OrcaArgs(args)):
 // ============================== flow helpers ==============================
 
 /** Work out what the prompt refers to and leave its unified diff at
-  * [[DiffPath]]. Full tools (unlike the reviewers) so it can reach git, `gh`,
-  * and a shell redirect; the diff is written to disk rather than returned so it
-  * never costs output tokens.
+  * [[DiffPath]]. Written to disk rather than returned, so the diff never costs
+  * output tokens.
   */
 def resolveTarget()(using FlowContext, InStage): ResolvedTarget =
   reviewAgent.cheap
@@ -195,10 +185,9 @@ def pickReviewers(target: ReviewTarget)(using
     case Nil      => candidates
     case selected => selected
 
-/** What each reviewer is asked. Mirrors the review loop's framing — scope the
-  * findings to the change, and report severity, confidence, location and a
-  * suggested fix — but points at the diff on disk, since a read-only reviewer
-  * has no shell to produce one.
+/** What each reviewer is asked: findings scoped to the change, with severity,
+  * confidence, location and a suggested fix — reading the diff off disk, since
+  * a read-only reviewer cannot produce one.
   */
 def reviewPrompt(target: ReviewTarget): String =
   s"""Under review: ${target.summary}

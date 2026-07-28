@@ -16,10 +16,6 @@ import orca.{*, given}
 // failure, referenced by name in `flows/implement-enhanced.sc`. Pinning it
 // here keeps the "import it explicitly" requirement honest.
 import orca.tools.PrAlreadyExists
-// Same deal for a review report's two types: reachable from the exported
-// `ReviewIssue`, but not exported themselves — `flows/review.sc` imports both
-// by name, so this file does too.
-import orca.review.{Location, Severity}
 import orca.agents.AgentConfig
 
 import scala.util.matching.Regex
@@ -175,8 +171,7 @@ object FlowCanary:
   /** `flows/review.sc`: reviewers run for their findings alone, with no coder
     * session and no fix loop. Pins the roster's file filters, a parallel
     * fan-out of structured `ReviewResult` turns over built reviewers, and
-    * reading a finding's severity and location — the two types a report has to
-    * name, both reachable only by side import.
+    * reading a finding's severity and location.
     */
   def reviewOnlyShape(): Unit =
     flow(OrcaArgs()):
