@@ -31,8 +31,8 @@ private[shell] object BuiltInFlows:
       )}:[^"]+"$$""".r
 
   /** The bundled flows' filenames, from the generated index resource. Visible
-    * to the package so `BuiltInFlowsCompileTest` can register one test per
-    * flow without extracting first.
+    * to the package so `BuiltInFlowsCompileTest` can register one test per flow
+    * without extracting first.
     */
   private[flows] def names: List[String] =
     resourceText("index").linesIterator.filter(_.nonEmpty).toList
