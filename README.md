@@ -205,8 +205,10 @@ There are two ways to drive a model in a flow:
   body.
 - **A specific agent + model — `claude.opus`, `codex.mini`, `opencode.openaiLuna`.**
   Use a concrete accessor when you want a particular backend or tier
-  regardless of settings — `issue-pr-bugfix.sc` pins `claude.sonnet` for its
-  two reproduction-check sub-stages, for instance. The tier accessors (`.opus`/`.sonnet`/…) live on the
+  regardless of settings — say `claude.opus` for a step that must have the
+  strongest model even where the coding role is a cheaper backend. None of the
+  shipped flows do this; they all follow the roles. The tier accessors
+  (`.opus`/`.sonnet`/…) live on the
   concrete agents, not on the role accessors — so `codingAgent.opus` won't
   compile; that's the cue to name the backend. Pin any other model with
   `withModel(Model("…"))`. Don't mix the two for one session (a `SessionId`
