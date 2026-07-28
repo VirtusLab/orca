@@ -15,17 +15,13 @@
   *
   * Given a `<owner>/<repo>#<number>` reference (the user's prompt), the flow:
   *
-  *   1. Reads the issue from GitHub (title, body, author) — outside any stage,
-  *      since it is a pure read.
+  *   1. Reads the issue from GitHub.
   *   1. Skeptically assesses the report against the repo (claims, missing
   *      detail, duplicates, scope) and either proceeds with a plan or rejects.
-  *   1. On rejection: posts the agent's reply on the issue. The throwaway
-  *      branch (no code committed) is auto-deleted by the runtime on exit.
-  *   1. On proceed: runs the per-task implement + review-and-fix loop. The
-  *      task list and progress live in the stage log; a re-run resumes from
-  *      the first incomplete stage.
-  *   1. Pushes the branch, folds the diff into a PR title + description via
-  *      haiku (`summarisePr`), and opens the PR via `gh` (idempotent by branch).
+  *   1. On rejection: posts the agent's reply on the issue.
+  *   1. On proceed: runs the per-task implement + review-and-fix loop.
+  *   1. Pushes the branch and opens a PR with a cheap-model-generated title
+  *      and description.
   *
   * The feature branch is named deterministically from the issue number
   * (`fix/issue-<n>`), so a re-run after a crash lands on the same branch.
@@ -36,8 +32,8 @@
   * scala-cli run issue-pr.sc -- "acme/widgets#42"
   * ```
   *
-  * Requires `gh` authenticated, and the backend the settings name for the
-  * planning/coding/review roles logged in (`claude` unless changed).
+  * Requires `gh` authenticated, and the configured role agents logged in
+  * (`claude` by default).
   */
 
 import orca.{*, given}
@@ -47,15 +43,12 @@ import orca.{*, given}
 val orcaArgs = OrcaArgs(args)
 val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
-// returnToStartBranch: this flow opens a PR, so switch back to the starting
-// branch afterward (ready for the next task) rather than staying on the feature
-// branch — which is the default for no-PR flows like implement.sc.
+// Opens a PR, so return to the starting branch afterward.
 flow(
   orcaArgs,
   branchNaming = Some(BranchNamingStrategy.issue(issueHandle)),
   returnToStartBranch = true
 ):
-  // Pure read — outside any stage (reads don't need InStage).
   val issue = gh.readIssue(issueHandle)
 
   val issuePayload =
@@ -82,23 +75,17 @@ flow(
       )
 
   maybePlan.foreach: plan =>
-    // Get-or-create the implementer session on the coding role, seeded with
-    // the plan brief (replayed on resume if the session is lost).
     val session = codingAgent.session("implementer", seed = plan.brief)
 
     for task <- plan.tasks do
-      stage(s"Task: ${task.title}"):    // skipped on resume if already done
+      stage(s"Task: ${task.title}"):
         session.run(task.description)
         reviewAndFixLoop(
           coderSession = session,
           reviewers = allReviewers(reviewAgent),
           task = task.title.value
         )
-        // one commit per task: code + progress entry
 
-    // Push → summarise → create, as three resume-safe stages. The summariser
-    // sees the branch-vs-base diff (git.diff() vs HEAD would be empty here,
-    // since every task is already committed); the body appends the issue closer.
     openPrFromBranch(
       summarisingAgent = codingAgent.cheap,
       body = summary =>

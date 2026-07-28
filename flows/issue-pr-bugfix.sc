@@ -17,30 +17,24 @@
   *
   * Given a `<owner>/<repo>#<number>` reference to an issue, the flow:
   *
-  *   1. Reads the issue from GitHub (pure read, outside any stage).
+  *   1. Reads the issue from GitHub.
   *   1. Triages: actually a bug? can a unit test reproduce it?
-  *      - Not a bug → posts the verdict on the issue. The throwaway branch (no
-  *        code committed) is auto-deleted by the runtime on exit.
+  *      - Not a bug → posts the verdict on the issue.
   *      - Bug, but not testable → posts reproduction steps on the issue and
-  *        stops (no PR for docs-only repros). Same branch cleanup.
-  *   1. For a testable bug:
-  *      a. "Write failing test" stage: writes and commits the test. b. "Push +
-  *         open tentative PR" stage: pushes the committed test, then opens a PR
-  *         (`gh.createPr` is idempotent by branch). These are two separate
-  *         stages because a stage commits only on completion — a push in the
-  *         same stage as the edit would push nothing (ADR 0018 §3.2 R8).
-  *   1. Waits for CI to go red (pure polling read, outside a stage). Fails
-  *      loudly on green — the reproduction is wrong.
+  *        stops (no PR for docs-only repros).
+  *   1. For a testable bug: writes and commits the failing test, then pushes
+  *      it and opens a tentative PR.
+  *   1. Waits for CI to go red. Fails loudly on green — the reproduction is
+  *      wrong.
   *   1. Confirms the failure matches the report.
-  *   1. Plans + implements the fix on the same branch (each task a stage).
-  *   1. "Push fix + finalise PR" stage: pushes the fix and regenerates the PR
-  *      title + description from the full branch diff.
+  *   1. Plans + implements the fix on the same branch.
+  *   1. Pushes the fix and regenerates the PR title + description from the
+  *      full branch diff.
   *
   * The feature branch is named deterministically from the issue number
   * (`fix/issue-<n>`), so a re-run after a crash lands on the same branch.
-  * Resume is stage-log based — each completed stage is skipped on a re-run.
   *
-  * The flow reads top-to-bottom below; the per-step helper methods it calls
+  * The flow reads top-to-bottom below; the per-step helpers
   * (`confirmReproductionMatches`, `planAndImplementFix`, `prSummary`) are
   * defined at the bottom of the file.
   *
@@ -50,8 +44,8 @@
   * scala-cli run issue-pr-bugfix.sc -- "acme/widgets#42"
   * ```
   *
-  * Requires `gh` authenticated, and the backend the settings name for the
-  * planning/coding/review roles logged in (`claude` unless changed).
+  * Requires `gh` authenticated, and the configured role agents logged in
+  * (`claude` by default).
   *
   * The target repo must have a CI workflow that runs its test suite: a red
   * build is what confirms the reproduction.
@@ -67,14 +61,12 @@ val issueHandle = IssueHandle.parseOrThrow(orcaArgs.userPrompt)
 
 val CiTimeout = 30.minutes
 
-// Opens a PR, so return to the starting branch afterward (the default is to
-// stay on the feature branch, for no-PR flows).
+// Opens a PR, so return to the starting branch afterward.
 flow(
   orcaArgs,
   branchNaming = Some(BranchNamingStrategy.issue(issueHandle)),
   returnToStartBranch = true
 ):
-  // Pure read — outside any stage (reads don't need InStage).
   val issue = gh.readIssue(issueHandle)
 
   val issuePayload =
@@ -83,14 +75,10 @@ flow(
        |
        |${issue.body}""".stripMargin
 
-  // Get-or-create the implementer session on the coding role before the
-  // triage stage (pure: reserves the session id, no LLM call). The seed
-  // primes it on first use and is replayed if the backend session is lost on
-  // resume.
   val session = codingAgent.session("fixer", seed = issue.body)
 
   val triage: Triage = stage("Triage"):
-    // Autonomous triage, read-only (read/grep to verify the report).
+    // Read-only: the triager reads/greps to verify the report, changes nothing.
     Plan.autonomous.triage(issuePayload, planningAgent).value
 
   triage match
@@ -113,7 +101,6 @@ flow(
         )
 
     case Triage.Testable(summary, _, failingTestPath) =>
-      // Write failing test: committed by the stage.
       stage("Write failing test"):
         session.run(
           s"""Write the failing unit test at `$failingTestPath`. It MUST
@@ -122,14 +109,9 @@ flow(
              |verify.""".stripMargin
         )
 
-      // Push + open PR: a SEPARATE stage from the edit above.
-      // Authoring rule (ADR 0018 §3.2 R8): a stage commits only on completion,
-      // so a push in the same stage as the edit would push nothing — the push
-      // must be in a later stage than the code that produced it.
+      // A later stage than the edit above, so the test commit exists to push.
       val pr = stage("Push + open tentative PR"):
         git.push().orThrow
-        // gh.createPr is idempotent by head branch (R24): if the branch already
-        // has an open PR, the existing handle is returned.
         gh.createPr(
           title = summary,
           body = s"""Failing test only — fix pending.
@@ -137,7 +119,6 @@ flow(
                     |Closes ${issueHandle.shortRef}.""".stripMargin
         ).orThrow
 
-      // `waitForBuild` is a pure polling read — outside any stage.
       if gh.waitForBuild(pr, CiTimeout).orThrow.outcome == BuildOutcome.Success
       then
         fail(
@@ -148,7 +129,7 @@ flow(
       confirmReproductionMatches(pr, issue)
       planAndImplementFix(session)
 
-      // Push fix + update PR: again a LATER stage than the task edits above.
+      // Again later than the task edits above, so the fix commits exist.
       stage("Push fix + finalise PR"):
         git.push().orThrow
         val finalSum = prSummary(
@@ -165,10 +146,6 @@ flow(
         )
 
 // ============================ pipeline helpers ============================
-// One def per step of the testable-bug pipeline; the `Testable` branch above
-// reads as their sequence. Defined below the flow so the high-level logic comes
-// first; each takes a `using` flow capability plus the `issue` / `session` it
-// needs.
 
 /** PR title + body from the full branch diff, with issue context and a
   * phase-specific `note`. Used for both the tentative (test-only) and final
@@ -236,14 +213,10 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
     if !verdict.matches then
       fail(s"Reproduction doesn't match the report: ${verdict.explanation}")
 
-/** Plan + implement the fix on the same branch. The plan always carries a
-  * brief (no separate `.briefed` step); `taskPrompt` prepends it to each task.
-  * Implementation reuses the triage `session`.
+/** Plan + implement the fix on the same branch, reusing the triage `session`.
   *
-  * `[B <: BackendTag]` carries the coding agent's backend so the `session`
-  * threads through the reviewers and `session.run`; it's read off the
-  * `session` argument, letting the helper accept a session for whichever
-  * backend the settings named.
+  * `[B <: BackendTag]` is read off the `session` argument, so the helper
+  * accepts a session for whichever backend the settings named.
   */
 def planAndImplementFix[B <: BackendTag](
     session: FlowSession[B]
@@ -260,7 +233,7 @@ def planAndImplementFix[B <: BackendTag](
       .value
 
   for task <- fixPlan.tasks do
-    stage(s"Task: ${task.title}"): // skipped on resume if already done
+    stage(s"Task: ${task.title}"):
       session.run(fixPlan.taskPrompt(task))
       // Don't gate this loop on the tests: the branch carries a deliberately
       // failing one until the last fix task lands.
@@ -269,4 +242,3 @@ def planAndImplementFix[B <: BackendTag](
         reviewers = allReviewers(reviewAgent),
         task = task.title.value
       )
-      // one commit per task: code + progress entry

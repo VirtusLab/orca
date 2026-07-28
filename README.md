@@ -183,10 +183,8 @@ backend's model accessors and backend-specific extras:
 
 The runtime owns git: every write-capable agent turn is told not to commit,
 push, or switch branches — it edits the working tree, and the flow
-commits/branches/pushes via `git.*`. This keeps `reviewAndFixLoop`'s diff-based
-reviewer selection working (a self-committing agent would leave an empty
-`git.reviewDiff()`). Opt out per-tool with `claude.withSelfManagedGit` (mirrors
-`withReadOnly`).
+commits/branches/pushes via `git.*`. Opt out per-tool with
+`claude.withSelfManagedGit`.
 
 For the LLM interfaces, `resultAs[O]` defines the shape of the structured
 output. The `O` type needs a `JsonData[O]` (provided by `derives JsonData` on a
@@ -194,8 +192,7 @@ case class) for schema generation and deserialization. Additionally, you might
 define an `Announce[O]` so that a friendly summary is printed in the event log,
 instead of a raw json.
 
-A minimal Pi-backed flow looks the same; Pi reads your normal Pi configuration
-and is driven through RPC mode under the hood:
+A minimal Pi-backed flow looks the same; Pi reads your normal Pi configuration:
 
 ```scala
 flow(OrcaArgs(args)):
@@ -232,10 +229,8 @@ which tools exist at all:
 val reviewer = claude.withReadOnly
 
 // NetworkOnly — reads plus read-only network (web + GitHub), for planners that
-// must read an issue/PR. Hard no-edit on claude (command-scoped `--allowedTools`,
-// configurable via `claude.withNetworkTools(...)`), gemini (scoped `web_fetch`),
-// and opencode (web); on pi/codex network needs a writable shell, so there the
-// no-edit guarantee is prompt-only. See ADR 0016.
+// must read an issue/PR. The no-edit guarantee is hard on claude, gemini and
+// opencode, prompt-only on pi/codex (ADR 0016).
 val planner = claude.withNetworkOnly
 
 // Full (the default) — write-capable.
@@ -322,12 +317,10 @@ Each `flow(...)` run is bound to exactly one feature branch and one progress log
   untracked files (e.g. plan files left by a planning harness) stay in place for
   the flow, and get swept into the first stage's commit. Resuming a
   `--skip-branch` run still auto-stashes, same as normal mode.
-- **Resume:** the progress log lives at a branch-independent, prompt-derived
-  path, so recovery finds it before any checkout. Its header is validated as
-  untrusted input (branch must match orca naming rules, prompt hash must match),
-  then the run resumes from the first incomplete stage. A corrupt or truncated
-  progress log is detected at startup — orca warns and starts fresh (previous
-  stages re-run) rather than silently mis-resuming.
+- **Resume:** a re-run with the same prompt finds the progress log and resumes
+  from the first incomplete stage. A corrupt or truncated progress log is
+  detected at startup — orca warns and starts fresh (previous stages re-run)
+  rather than silently mis-resuming.
 - **Success teardown:** remove the progress-log file in a final commit. A
   throwaway feature branch (no substantive changes vs the starting branch) is
   deleted and HEAD returns to the starting branch. Otherwise the feature branch
@@ -346,10 +339,8 @@ Two files, both plain `key = value` lines, parsed once per run before setup:
   settings: the stack commands (`format`/`lint`/`test`) and, per role, which
   agent to use.
 - **`$XDG_CONFIG_HOME/orca/settings.properties`**, defaulting to
-  `~/.config/orca/settings.properties` (the XDG Base Directory spec — the
-  `gh`/`git` CLI convention, followed on macOS too) — a per-user default, agent
-  keys only. A relative or unset `XDG_CONFIG_HOME` falls back to `~/.config`; an
-  absent global file is simply skipped.
+  `~/.config/orca/settings.properties` (also on macOS) — a per-user default,
+  agent keys only. An absent global file is simply skipped.
 
 Precedence, code always winning over files:
 
@@ -371,11 +362,8 @@ appends — the task's commands run in file order, so a multi-stack repo lists o
 line per stack half. A key's value may also be the literal `off`, which
 explicitly disables that task; a missing key has the same runtime effect (the
 gate is skipped) but, unlike `off`, does not count as "configured" — see
-Auto-discovery below. A `#` line is a comment and carries no meaning to the
-parser: discovery places each command's evidence (or, for a disabled task, its
-reason) as its own `#` line directly above the `key = value` line, but a comment
-is purely informative — commenting out a line is the same as deleting it. A
-typical discovered project file:
+Auto-discovery below. `#` lines are comments; commenting out a line is the same
+as deleting it. A typical discovered project file:
 
 ```properties
 # orca settings — edit freely, commit with the project.
@@ -412,17 +400,10 @@ resolved roles and where each came from:
 agents: planning=claude:claude-opus-5[1m] (default), coding=codex:gpt-5-mini (project), review=codex (global)
 ```
 
-(A role without a pin of its own shows the wired default's model when one exists
-— bare `claude` resolves to Opus — and stays bare where the harness's own
-configuration decides, as for `codex`.)
-
-**Auto-discovery.** Discovery runs when the project file is absent, or when it
-exists but has no LIVE stack line — a hand-written file containing only agent
-keys (or only commented-out stack examples) still triggers it, appending the
-discovered stack entries below the existing content rather than overwriting it,
-so agent lines are never touched. Delete the stack lines (or the whole file) to
-re-run discovery. When it runs (and no `flow(stackSettings = ...)` override is
-passed), the first run spends one cheap-model, read-only agent call inspecting
+**Auto-discovery.** Discovery runs when the project file is absent or has no
+stack line; discovered entries are appended below any existing content, so
+agent lines are never touched. Delete the stack lines (or the whole file) to
+re-run it. Discovery spends one cheap-model, read-only agent call inspecting
 the repo, then writes the file and announces every guess in the event log:
 
 ```text
@@ -478,14 +459,11 @@ exists only on the ephemeral rungs — a live human steering a turn can't be
 replayed from a seed, so durable interactive sessions don't exist by
 construction.
 
-- **Durable — `agent.session(name, seed)`.** A get-or-create keyed by `name`
-  (plus occurrence, to disambiguate duplicates of the same name), recorded in
-  the progress log with no LLM call, returning a `FlowSession` handle that
-  survives crash/resume. The same `name` resumes the same session; reordering
-  *other* `session(...)` calls between runs doesn't re-key it. On resume the
-  recorded session is reused — with a warning if this call's seed differs,
-  rather than silently resuming the wrong one. Callable only outside a stage
-  (the compiler rejects an in-stage mint); its runs happen inside stages, on the
+- **Durable — `agent.session(name, seed)`.** A get-or-create keyed by `name`,
+  returning a `FlowSession` handle that survives crash/resume: the same `name`
+  resumes the same session (with a warning if this call's seed differs, rather
+  than silently resuming the wrong one). Callable only outside a stage (the
+  compiler rejects an in-stage mint); its runs happen inside stages, on the
   flow thread.
 - **Ephemeral — `agent.chat()`.** A `Chat` handle continuing one conversation
   across `.run` calls *within this run only* — no seeding, no persistence. Runs
@@ -506,25 +484,20 @@ val chats = Par.mapUnordered(4)(reviewers): r =>
 ```
 
 The `seed` is the essential context to rebuild the agent — typically the **plan
-brief**, or the issue body when there is no brief. `FlowSession.run` (and
-`resultAs[O].run`) primes a fresh session with it on first use, and re-seeds if
-the backend lost the conversation on resume (with a warning: history is gone,
-only the seed plus a progress preamble naming completed stages are rebuilt); a
-live session just continues with its full history. Opencode sessions survive a
-process restart — opencode keeps them in its own on-disk store — but the uniform
-fallback (re-seed) covers any backend whose store isn't reachable.
+brief**, or the issue body when there is no brief. A fresh session is primed
+with it on first use; if the backend lost the conversation on resume, the
+session is re-seeded (with a warning: history is gone, only the seed plus a
+preamble naming completed stages are rebuilt), while a live session just
+continues with its full history.
 
 `agent.cheap` returns the backend's cheap/fast variant (claude → haiku, codex →
 mini, gemini → flash, opencode → anthropicHaiku, others → self) — used by the
 runtime for branch naming and default commit messages.
 
-**Backend swaps across runs.** A recorded session is tagged with the backend
-that minted it. If a settings edit changes a role's agent between runs (e.g.
-`codingAgent = codex` becomes `codingAgent = claude`), the next run finds a
-session recorded under the old backend: rather than resume it against the new,
-unrelated backend, orca mints a fresh session and warns (`warning: session
-'<name>' #<n> was minted on <old>; this agent is <new> — minting fresh`) — the
-same re-seed fallback that already covers a lost backend conversation.
+**Backend swaps across runs.** If a settings edit changes a role's agent
+between runs (e.g. `codingAgent = codex` becomes `codingAgent = claude`), a
+session recorded under the old backend isn't resumed against the new one —
+orca mints a fresh session from the seed and warns.
 
 ## Authoring rules
 
@@ -635,13 +608,11 @@ splits `autonomous` / `interactive`:
 
 Every cell returns `Sessioned[B, <result>]` — the result paired with the
 (ephemeral) `Chat` that produced it. Continue that conversation in-run
-(`chat.run(task)` — the planning turn ran restricted, but the chat is bound to
-the base agent, so continuations have write access), or `.value` it and get a
+(`chat.run(task)`; continuations have write access), or `.value` it and start a
 fresh, durable implementer session via `agent.session("implementer", seed =
 plan.brief)` — the chat does not survive a crash/resume, so every shipped
-example takes `.value`. Destructure positionally when you want both: `val
-Sessioned(chat, plan) = Plan.autonomous.from(...)` — `chat` here is the
-ephemeral one (in-run only), not a durable session.
+example takes `.value`. Destructure when you want both: `val Sessioned(chat,
+plan) = Plan.autonomous.from(...)`.
 
 From a `Sessioned[B, Plan]`, an optional `.reviewed(agent)` step refines the
 plan before implementing — the planner critiques its own draft, producing an

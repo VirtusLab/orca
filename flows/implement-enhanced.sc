@@ -6,88 +6,56 @@
 /** Autonomous planning + coding flow that lands the work on its own branch and
   * opens a pull request.
   *
-  * Same backbone as `implement.sc` (autonomous planning → per-task implement
-  * + review-and-fix loop), enhanced with a self-review pass on the plan:
-  *
-  *   1. **`.reviewed(planningAgent)`** — the planner critiques its own draft and
-  *      returns an improved plan (missing/duplicated tasks, ordering, vague
-  *      descriptions, steps that don't fit the code). Runs read-only on the
-  *      planning session; no extra exploration cost.
-  *
-  * In addition, the plan always carries a `brief` — a codebase summary the
-  * planner writes as part of its structured output. It seeds the implementer
-  * session so the cold-starting coding agents don't re-discover what the
-  * planner already learned.
-  *
-  * The flow runtime handles the feature branch automatically: it creates a
-  * branch from the prompt, commits progress to the stage log, and returns to
-  * the starting branch on success. Resume is stage-log based — a re-run with
-  * the same prompt continues from the first incomplete stage.
+  * Same backbone as `implement.sc` (autonomous planning → per-task implement +
+  * review-and-fix loop), with a self-review pass on the plan: the planner
+  * critiques its own draft and returns an improved one (missing or duplicated
+  * tasks, ordering, vague descriptions, steps that don't fit the code).
   *
   * On success the flow:
   *
   *   1. Updates the project's docs (README, doc-comments) from what the tasks
   *      changed, as its own stage and commit — so the docs land in the PR.
   *   1. Pushes the feature branch.
-  *   1. Opens a PR with a haiku-generated title + description from the full
-  *      branch diff. A human picks the PR up from there.
+  *   1. Opens a PR with a cheap-model-generated title + description from the
+  *      full branch diff. A human picks the PR up from there.
   *
   * ```bash
   * scala-cli run implement-enhanced.sc -- "Add a multiply function to the calculator crate"
   * ```
   *
-  * The review loop's format and lint commands come from
-  * `.orca/settings.properties`, auto-discovered on first run — the script
-  * itself stays stack-agnostic.
-  *
-  * Requires `claude` logged in, `cargo` on PATH, and `gh` authenticated.
+  * Requires the configured role agents logged in (`claude` by default) and
+  * `gh` authenticated.
   */
 
 import orca.{*, given}
 
 // Opens a PR at the end, so return to the starting branch afterward (the
-// default is to stay on the feature branch, for no-PR flows like implement.sc).
-// Roles come from settings.properties, default claude for everything.
+// default is to stay on the feature branch, for no-PR flows).
 flow(OrcaArgs(args), returnToStartBranch = true):
-  // Plan → review, all on one read-only planner session. The Plan structured
-  // output always includes a brief, which seeds the implementer session below.
   val plan = stage("Plan"):
     Plan.autonomous
       .from(userPrompt, planningAgent)
       .reviewed(planningAgent)
       .value
 
-  // Get-or-create the implementer session on the coding role, seeded with the
-  // plan brief so the agent has codebase context from the start (replayed on
-  // resume if lost).
   val session = codingAgent.session("implementer", seed = plan.brief)
 
   for task <- plan.tasks do
-    stage(s"Task: ${task.title}"):      // skipped on resume if already done
-      // The session seed already carries the brief, so send only the task
-      // description here — session.run re-prepends the seed on first use / resume.
+    stage(s"Task: ${task.title}"):
       session.run(task.description)
-      // reviewerSelection defaults to agentDriven(reviewAgent.cheap); format
-      // and lint default to the project's stack settings
-      // (`.orca/settings.properties`).
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(reviewAgent),
         task = task.title.value
       )
-      // one commit per task: code + progress entry
 
   // Docs pass on the implementer session — it already carries the brief and
-  // every task's context. A separate stage from the task loop, so it commits on
-  // its own and the push below stays a LATER stage than the edits it pushes
-  // (ADR 0018 §3.2 R8).
+  // every task's context. Its own stage, so the docs commit exists before the
+  // push below.
   stage("Update documentation"):
     session.run(
       "All tasks done. Update project docs (README, doc-comments) based " +
         "on the changes made. Only update what's affected — no new sections."
     )
 
-  // Push the branch and open the PR from the full branch diff. openPrFromBranch
-  // is the push → summarise → create tail as three resume-safe stages;
-  // gh.createPr is idempotent by head branch (R24), so a re-run reuses the PR.
   openPrFromBranch(summarisingAgent = codingAgent.cheap)
