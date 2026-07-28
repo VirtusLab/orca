@@ -109,6 +109,7 @@ class ScalaCliSmokeTest extends munit.FunSuite:
     "issue-pr-bugfix.sc",
     "issue-pr.sc",
     "epic.sc",
+    "review.sc",
     "simple.sc"
   )
 
