@@ -125,10 +125,9 @@ most easily broken:
   orca's per-run `opencode serve` process, so a fresh server spawned after a
   kill/restart resumes a committed `resumeWireId` the same way the file-probed
   backends do, live-verified 2026-07-08) — and the `IdScheme`: `ClientClaimed`
-  (claude/pi —
-  the client id IS the wire id, put on the wire at spawn) or `ServerMinted`
-  (codex/gemini/opencode — the server mints the wire id, learned from the
-  protocol and registered after the turn). `Agent` derives `willContinue` /
+  (claude/pi — the client id IS the wire id, put on the wire at spawn) or
+  `ServerMinted` (codex/gemini/opencode — the server mints the wire id, learned
+  from the protocol and registered after the turn). `Agent` derives `willContinue` /
   `resumeWireId` / `registerResumeWireId` as `final` methods over the single
   `sessionSupport` hook, so a concrete tool can't wire one session operation
   while silently defaulting the others — that half-wiring is unrepresentable.

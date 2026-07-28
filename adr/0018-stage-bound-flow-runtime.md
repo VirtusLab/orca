@@ -541,9 +541,9 @@ strategy and the progress store are overridable (R21).
   `stage`'s persistence path, where it would get neither the wire-map nor the
   seed-lookup a `SessionRecord` provides. On resume, whether the *live* backend
   conversation can be continued is decided by a **non-destructive existence probe**
-  (`AgentBackend.sessionExists(id)`) rather than guessed: most backends expose one (an
-  on-disk session file, a list command, or a `GET`). If the probe is
-  absent or says gone, resume falls back to re-seed (R23).
+  (`AgentBackend.sessionExists(id)`) rather than guessed: a backend exposes one where it
+  can (an on-disk session file, a list command, or a `GET`) — today every backend does.
+  If the probe is absent or says gone, resume falls back to re-seed (R23).
 - **R23** — A session is obtained via a get-or-create (`agent.session`) whose id is
   recorded in the log, so a retry reuses it rather than minting a second. A flow
   attaches a `seed` — the essential context to rebuild the agent if its backend
@@ -623,19 +623,22 @@ list output and opencode's directory-scoping should be pinned when the probes la
 >   independently-overridable `sessionExists`/`resumeWireId`/`registerSession` hooks
 >   this section describes; see AGENTS.md's "Sessions" section for the current model.
 
-> **Amendment (2026-07-28).** Pi is durable too, so the table above no longer has a
-> probe-less row. Its `--session-dir` moved from a `deleteOnExit` temp dir to
-> `<workDir>/.orca/cache/pi-sessions/<session id>/`, and the probe is "that dir holds
-> at least one `*.jsonl`" — at least one, because a first turn that fails after pi
-> seeded the dir is retried fresh and seeds a second file, and `--continue` picks the
-> most recent. Consequence: pi rows in the run manifest now carry a wire id.
+> **Amendment (2026-07-28).** Pi is durable too: the table above no longer has a
+> probe-less row, and the 2026-07-06 amendment's `Ephemeral(registry)` (pi) tagging no
+> longer holds — every backend is `durable(scheme, probe)`, with `ephemeral` kept as a
+> supported shape that has no user today. Pi's `--session-dir` moved from a
+> `deleteOnExit` temp dir to `<workDir>/.orca/cache/pi-sessions/<session id>/`, and the
+> probe is "that dir holds at least one `*.jsonl`" — at least one, because a first turn
+> that fails after pi seeded the dir is retried fresh and seeds a second file, and
+> `--continue` picks the most recent. Consequence: pi rows in the run manifest now
+> carry a wire id.
 > Accepted as-is: pi migrates older session-file versions on load, so a dir written by
 > an earlier pi is upgraded rather than rejected. Retention: pi doesn't prune the dir
 > orca points it at, so the backend does — when the runtime builds it, before any probe
-> can run, it best-effort deletes session dirs untouched for 30 days (matching claude's own
-> transcript retention). Pruning a session is not a lost turn: the probe then reports
-> absence and the runtime re-seeds. The probe applies the same cutoff, so a dir another
-> process is about to prune already reads as absent.
+> can run, it best-effort deletes session dirs untouched for 30 days (matching claude's
+> own transcript retention). Pruning a session is not a lost turn: the probe then
+> reports absence and the runtime re-seeds, and the probe applies the same cutoff, so a
+> dir another process is about to prune already reads as absent.
 
 ### 2.7 External-effect idempotency
 

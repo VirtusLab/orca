@@ -389,10 +389,11 @@ a new event, emitted at the Agent layer — `BaseAgent`'s autonomous
 interactive `sessions.register` — carrying
 `(backend wireName, clientId, persistableWireId, agent name, agent role)`.
 The backend commit door can't produce it (no agent/role context there), and
-`persistableWireId` (not the raw drained wire id) makes pi's non-resumable
-temp-dir sessions report as such for free. The event is named
+`persistableWireId` (not the raw drained wire id) means any backend whose sessions
+aren't durably resumable reports as such for free — no backend is in that shape
+today, but the SPI still allows one. The event is named
 `SessionCommitted`: it fires when a session's first turn commits — accurate
-also for entries that commit but are not resumable (pi). A
+also for entries that commit but are not resumable. A
 runner-side listener (always attached, like `LoggingListener`) maintains the
 stage stack from stage events, joins durable-session names from the progress
 log by `clientId`, and writes the manifest.
@@ -442,7 +443,11 @@ resume is global, but the resumed context still references that directory):
 | codex | `codex resume <thread-id>` | medium-high — exec→TUI crossover empirically checked during implementation |
 | opencode | `opencode --session <ses_…>` | high — TUI shares `opencode serve`'s store |
 | gemini | `gemini --list-sessions` → match uuid → `gemini --resume <index>` | medium — `--resume` takes latest/index, not uuid |
-| pi | greyed out: "pi sessions are deleted with the run's temp dir" | future: move `--session-dir` under `.orca/cache/` |
+| pi | `pi --session-dir <workDir>/.orca/cache/pi-sessions/<id> --continue` | medium-high — orca writes the dir itself; inferred from pi's `--continue` semantics, not yet live-verified interactively |
+
+> **Amendment (2026-07-28).** Pi is now durable (ADR 0018 §2.6); resume checks the
+> session dir still holds a `*.jsonl` (pruned at 30 days) and reports "no pi transcript
+> at \<dir\>" when it doesn't, before the argv is built.
 
 ### 9. Creating a new flow with a harness
 
@@ -627,7 +632,6 @@ terminal — giving the user a beat to Ctrl-C even with no selector typed.
 - A directory picker — the shell operates on the cwd it was launched from.
 - An in-shell pager for view-a-flow — v1 prints the highlighted source;
   jline's `Less` (already on the classpath) is the upgrade path (§6).
-- pi session continuation (feasible later via a `--session-dir` move).
 - Live streaming of a running flow's typed events into shell-owned UI — the
   child owns the terminal while it runs.
 
