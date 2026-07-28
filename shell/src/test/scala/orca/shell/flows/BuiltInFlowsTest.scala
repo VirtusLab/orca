@@ -18,7 +18,6 @@ class BuiltInFlowsTest extends munit.FunSuite:
     assertEquals(
       indexNames.sorted,
       List(
-        "epic.sc",
         "implement-enhanced.sc",
         "implement-interactive.sc",
         "implement.sc",
@@ -65,7 +64,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
     withTempHome: home =>
       val runningVersion = "0.0.18+5-abc123"
       val dir = BuiltInFlows.extracted(Map.empty.get, home, runningVersion)
-      val content = os.read(dir / "epic.sc")
+      val content = os.read(dir / "issue-pr.sc")
       val lines = content.linesIterator.toList
       val depLineIdx = lines.indexWhere(_.startsWith("//> using dep "))
       assert(depLineIdx >= 0, "expected a using-dep line")
