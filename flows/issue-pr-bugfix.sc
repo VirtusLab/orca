@@ -1,12 +1,21 @@
-// Triage a Scala bug report; reproduce with a failing test, fix, open a PR.
+// Bug report (owner/repo#N) → repro test, fix, PR — or a triage comment.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.0"
 //> using jvm 21
 
-/** Bug-report → fix flow for Scala projects, autonomous.
+/** Bug-report → fix flow, autonomous.
   *
-  * Given a `<owner>/<repo>#<number>` reference to a Scala-project issue, the
-  * flow:
+  * The bug-report counterpart of `issue-pr.sc`: where that flow assesses an
+  * issue and plans straight into an implementation, this one insists on a
+  * reproduction first — a failing test that CI confirms is red — and only then
+  * fixes it.
+  *
+  * Three outcomes, decided by triage: a comment saying it isn't a bug; a
+  * comment with reproduction steps when it is one but no test can show it; or
+  * a PR carrying the failing test and the fix that makes it pass. Only the
+  * third writes any code.
+  *
+  * Given a `<owner>/<repo>#<number>` reference to an issue, the flow:
   *
   *   1. Reads the issue from GitHub (pure read, outside any stage).
   *   1. Triages: actually a bug? can a unit test reproduce it?
@@ -41,12 +50,11 @@
   * scala-cli run issue-pr-bugfix.sc -- "acme/widgets#42"
   * ```
   *
-  * The review loop's format commands come from `.orca/settings.properties`,
-  * auto-discovered on first run; the lint gate is pinned explicitly below to
-  * demonstrate the per-call override.
+  * Requires `gh` authenticated, and the backend the settings name for the
+  * planning/coding/review roles logged in (`claude` unless changed).
   *
-  * Requires `claude` and `gh` authenticated; target repo must have a CI
-  * workflow that runs `sbt test`.
+  * The target repo must have a CI workflow that runs its test suite: a red
+  * build is what confirms the reproduction.
   */
 
 import orca.{*, given}
@@ -110,7 +118,8 @@ flow(
         session.run(
           s"""Write the failing unit test at `$failingTestPath`. It MUST
              |fail on the current code — that's how we confirm the bug.
-             |Run `sbt test` locally if you can to verify.""".stripMargin
+             |Run the project's test suite locally if you can to
+             |verify.""".stripMargin
         )
 
       // Push + open PR: a SEPARATE stage from the edit above.
@@ -181,14 +190,17 @@ def prSummary(note: String, issue: Issue)(using
     )
   )
 
-/** Confirm the CI failure matches the original report. Each sub-stage is a
-  * one-shot sonnet call — fresh session, no seed needed.
+/** Confirm the CI failure matches the original report. Both sub-stages are
+  * one-shot calls on the coding role — fresh session, no seed needed. The
+  * excerpt-picking is cheap-tier work; the verdict is not, since a wrong
+  * "matches" lets a bogus reproduction through and a wrong "doesn't" aborts a
+  * sound one.
   */
 def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
     FlowControl
 ): Unit =
   stage("Post focused failure comment"):
-    val failureSummary = claude.sonnet.run(
+    val failureSummary = codingAgent.cheap.run(
       s"""CI went red on PR ${pr.shortRef} (${pr.url}). Inspect the
          |failed run via `gh` — start with:
          |
@@ -208,7 +220,7 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
 
   stage("Verify failure matches the report"):
     val verdict =
-      claude.sonnet
+      codingAgent
         .resultAs[BugReportMatch]
         .autonomous
         .run(
@@ -250,16 +262,11 @@ def planAndImplementFix[B <: BackendTag](
   for task <- fixPlan.tasks do
     stage(s"Task: ${task.title}"): // skipped on resume if already done
       session.run(fixPlan.taskPrompt(task))
-      // reviewerSelection defaults to agentDriven — a picker LLM on
-      // reviewAgent's cheap tier. Format defaults to the project's stack
-      // settings (`.orca/settings.properties`).
+      // Don't gate this loop on the tests: the branch carries a deliberately
+      // failing one until the last fix task lands.
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(reviewAgent),
-        task = task.title.value,
-        // An explicit override beats the settings file: pin the lint gate to
-        // a compile (main + test) — a cheap sanity check; the failing test
-        // runs in CI and correctness is the reviewers' job.
-        lint = Configured.Use(Lint(List("sbt Test/compile"), codingAgent.cheap))
+        task = task.title.value
       )
       // one commit per task: code + progress entry

@@ -1,9 +1,17 @@
-// Turn a GitHub issue (owner/repo#N) into an implemented, opened PR.
+// GitHub issue (owner/repo#N) → assess, plan, implement, PR — or reject.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.0"
 //> using jvm 21
 
 /** GitHub-issue → PR flow, fully autonomous.
+  *
+  * Takes any issue — a feature request, a change, a bug — and goes straight
+  * from assessment to a plan. For a bug report where a reproduction should come
+  * first, `issue-pr-bugfix.sc` writes a CI-verified failing test before fixing.
+  *
+  * Two outcomes, decided by the assessment: a comment on the issue explaining
+  * why it was rejected, or a PR implementing it. Only the second writes any
+  * code.
   *
   * Given a `<owner>/<repo>#<number>` reference (the user's prompt), the flow:
   *
@@ -28,11 +36,8 @@
   * scala-cli run issue-pr.sc -- "acme/widgets#42"
   * ```
   *
-  * The review loop's format and lint commands come from
-  * `.orca/settings.properties`, auto-discovered on first run — the script
-  * itself stays stack-agnostic.
-  *
-  * Requires `claude` and `gh` both authenticated.
+  * Requires `gh` authenticated, and the backend the settings name for the
+  * planning/coding/review roles logged in (`claude` unless changed).
   */
 
 import orca.{*, given}
@@ -84,10 +89,6 @@ flow(
     for task <- plan.tasks do
       stage(s"Task: ${task.title}"):    // skipped on resume if already done
         session.run(task.description)
-        // reviewerSelection defaults to agentDriven(reviewAgent.cheap); pass
-        // `ReviewerSelector.allEveryRound` to run every reviewer instead.
-        // Format and lint default to the project's stack settings
-        // (`.orca/settings.properties`).
         reviewAndFixLoop(
           coderSession = session,
           reviewers = allReviewers(reviewAgent),

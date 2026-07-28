@@ -435,10 +435,12 @@ object FlowCanary:
         val _ = codingAgent.run(userPrompt)
         val _: Agent[?] = reviewAgent
 
-  /** `epic.sc`: cross-backend review — claude implements, codex reviews.
-    * Exercises the `allReviewers(codex)` shape and `claude.opus` planning.
+  /** Cross-backend review — claude implements, codex reviews — pinned with
+    * concrete accessors instead of the role ones. Exercises the
+    * `allReviewers(codex)` shape, `claude.opus` planning, and a docs stage
+    * reusing the implementer session (`flows/implement-enhanced.sc`).
     */
-  def epicFlowShape(): Unit =
+  def crossBackendReviewShape(): Unit =
     flow(OrcaArgs()):
       val plan: Plan = stage("Plan"):
         Plan.autonomous.from(userPrompt, claude.opus).value
