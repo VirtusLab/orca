@@ -1,9 +1,13 @@
-// Turn a GitHub issue (owner/repo#N) into an implemented, opened PR.
+// GitHub issue (owner/repo#N) → assess, plan, implement, open a PR.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.0"
 //> using jvm 21
 
 /** GitHub-issue → PR flow, fully autonomous.
+  *
+  * Takes any issue — a feature request, a change, a bug — and goes straight
+  * from assessment to a plan. For a bug report where a reproduction should come
+  * first, `issue-pr-bugfix.sc` writes a CI-verified failing test before fixing.
   *
   * Given a `<owner>/<repo>#<number>` reference (the user's prompt), the flow:
   *

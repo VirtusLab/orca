@@ -1,12 +1,16 @@
-// Triage a Scala bug report; reproduce with a failing test, fix, open a PR.
+// Bug report (owner/repo#N) → reproduce with a failing test, fix, PR.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.0"
 //> using jvm 21
 
-/** Bug-report → fix flow for Scala projects, autonomous.
+/** Bug-report → fix flow, autonomous and stack-agnostic.
   *
-  * Given a `<owner>/<repo>#<number>` reference to a Scala-project issue, the
-  * flow:
+  * The bug-report counterpart of `issue-pr.sc`: where that flow assesses an
+  * issue and plans straight into an implementation, this one insists on a
+  * reproduction first — a failing test that CI confirms is red — and only then
+  * fixes it.
+  *
+  * Given a `<owner>/<repo>#<number>` reference to an issue, the flow:
   *
   *   1. Reads the issue from GitHub (pure read, outside any stage).
   *   1. Triages: actually a bug? can a unit test reproduce it?
@@ -41,12 +45,13 @@
   * scala-cli run issue-pr-bugfix.sc -- "acme/widgets#42"
   * ```
   *
-  * The review loop's format commands come from `.orca/settings.properties`,
-  * auto-discovered on first run; the lint gate is pinned explicitly below to
-  * demonstrate the per-call override.
+  * The review loop's format and lint commands come from
+  * `.orca/settings.properties`, auto-discovered on first run — the script
+  * itself stays stack-agnostic.
   *
-  * Requires `claude` and `gh` authenticated; target repo must have a CI
-  * workflow that runs `sbt test`.
+  * Requires `claude` and `gh` authenticated; the target repo must have a CI
+  * workflow that runs its test suite, since a red build is what confirms the
+  * reproduction.
   */
 
 import orca.{*, given}
@@ -110,7 +115,8 @@ flow(
         session.run(
           s"""Write the failing unit test at `$failingTestPath`. It MUST
              |fail on the current code — that's how we confirm the bug.
-             |Run `sbt test` locally if you can to verify.""".stripMargin
+             |Run the project's test suite locally if you can to
+             |verify.""".stripMargin
         )
 
       // Push + open PR: a SEPARATE stage from the edit above.
@@ -251,15 +257,16 @@ def planAndImplementFix[B <: BackendTag](
     stage(s"Task: ${task.title}"): // skipped on resume if already done
       session.run(fixPlan.taskPrompt(task))
       // reviewerSelection defaults to agentDriven — a picker LLM on
-      // reviewAgent's cheap tier. Format defaults to the project's stack
-      // settings (`.orca/settings.properties`).
+      // reviewAgent's cheap tier. Format and lint default to the project's
+      // stack settings (`.orca/settings.properties`). Don't override lint with
+      // the test command here: until the last fix task lands, the branch
+      // carries a deliberately failing test, so a test-running gate would fail
+      // every round. A discovered lint command never runs tests (ADR 0019),
+      // which is exactly the cheap sanity check this flow wants — the failing
+      // test runs in CI, and correctness is the reviewers' job.
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(reviewAgent),
-        task = task.title.value,
-        // An explicit override beats the settings file: pin the lint gate to
-        // a compile (main + test) — a cheap sanity check; the failing test
-        // runs in CI and correctness is the reviewers' job.
-        lint = Configured.Use(Lint(List("sbt Test/compile"), codingAgent.cheap))
+        task = task.title.value
       )
       // one commit per task: code + progress entry
