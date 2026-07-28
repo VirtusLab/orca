@@ -1,5 +1,6 @@
 package orca.tools.pi
 
+import orca.OrcaDir
 import orca.backend.SystemPromptComposer
 import orca.events.Usage
 import orca.agents.{
@@ -13,6 +14,8 @@ import orca.agents.{
 }
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 import orca.testkit.TempDirs
+
+import java.time.Instant
 
 class PiBackendTest extends munit.FunSuite:
 
@@ -258,3 +261,119 @@ class PiBackendTest extends munit.FunSuite:
   test("persistableWireId is the claimed client id once the session commits"):
     val (backend, _) = committedSession()
     assertEquals(backend.sessions.persistableWireId(sid), Some(sid.onWire))
+
+  // ── retention prune ────────────────────────────────────────────────────────
+
+  /** Fixed "now" for every prune test, so ages are exact rather than raced
+    * against the wall clock.
+    */
+  private val now = Instant.parse("2026-07-28T12:00:00Z")
+
+  /** The prune's exact boundary: a dir stamped here is kept, one stamped a
+    * millisecond earlier is deleted.
+    */
+  private val cutoff = now.minus(PiBackend.Retention)
+
+  /** A leftover session dir stamped `at`, holding one transcript stamped the
+    * same unless `withTranscript` is false (an empty dir — pi crashed before
+    * seeding one) — the shapes the prune inspects.
+    */
+  private def sessionDirStamped(
+      workDir: os.Path,
+      name: String,
+      at: Instant,
+      withTranscript: Boolean = true
+  ): os.Path =
+    val dir = OrcaDir.piSessionsPath(workDir) / name
+    os.makeDir.all(dir)
+    if withTranscript then
+      os.write(dir / "session.jsonl", "{}\n")
+      os.mtime.set(dir / "session.jsonl", at.toEpochMilli): Unit
+    os.mtime.set(dir, at.toEpochMilli): Unit
+    dir
+
+  /** A backend on `workDir` reading the fixed [[now]], built the runtime's way
+    * — so it prunes before it is handed back.
+    */
+  private def backendAt(workDir: os.Path): PiBackend =
+    PiBackend.create(new SpawnStubCliRunner(Nil), workDir, () => now)
+
+  test("a session dir untouched since before the cutoff is pruned"):
+    val workDir = TempDirs.dir()
+    val stale = sessionDirStamped(workDir, "stale", cutoff.minusMillis(1))
+    val _ = backendAt(workDir)
+    assert(!os.exists(stale))
+
+  test("a session dir touched at the cutoff is kept"):
+    val workDir = TempDirs.dir()
+    val recent = sessionDirStamped(workDir, "recent", cutoff)
+    val _ = backendAt(workDir)
+    assert(os.exists(recent))
+
+  test("an empty session dir is judged by its own mtime"):
+    // With nothing inside to date it, only the dir's own stamp decides — so
+    // both outcomes are needed to show the empty listing isn't what does it.
+    val workDir = TempDirs.dir()
+    val abandoned =
+      sessionDirStamped(
+        workDir,
+        "abandoned",
+        cutoff.minusMillis(1),
+        withTranscript = false
+      )
+    val seeding =
+      sessionDirStamped(workDir, "seeding", now, withTranscript = false)
+    val _ = backendAt(workDir)
+    assert(!os.exists(abandoned))
+    assert(os.exists(seeding))
+
+  test("an old dir whose transcript was appended after the cutoff is kept"):
+    // Appending to an existing file leaves the directory's own mtime at
+    // creation time, so freshness must come from the files too.
+    val workDir = TempDirs.dir()
+    val used = sessionDirStamped(workDir, "long-running", cutoff.minusMillis(1))
+    os.mtime.set(used / "session.jsonl", now.toEpochMilli): Unit
+    val _ = backendAt(workDir)
+    assert(os.exists(used))
+
+  test("a stale session is pruned before the probe can call it resumable"):
+    // The runtime's order on resume: construct, rehydrate the recorded wire id,
+    // probe. The probe must not promise a transcript the prune has taken —
+    // reporting absence is what makes the runtime re-seed the turn.
+    val workDir = TempDirs.dir()
+    val dir =
+      sessionDirStamped(workDir, SessionId.value(sid), cutoff.minusMillis(1))
+    val backend = backendAt(workDir)
+    backend.sessions.register(sid, sid.onWire)
+    assert(!os.exists(dir))
+    assert(!backend.sessions.willContinue(sid))
+
+  test("the probe reports absent for a session dir already past the cutoff"):
+    // Planted after construction, so the prune can't be what removes it: the
+    // probe's own cutoff is what must report absence — the same answer another
+    // process's prune would force a moment later.
+    val workDir = TempDirs.dir()
+    val backend = backendAt(workDir)
+    val _ =
+      sessionDirStamped(workDir, SessionId.value(sid), cutoff.minusMillis(1))
+    backend.sessions.register(sid, sid.onWire)
+    assert(!backend.sessions.willContinue(sid))
+
+  test("a stale dir the prune trips over is skipped, sparing the rest"):
+    val stale = cutoff.minusMillis(1)
+    val workDir = TempDirs.dir()
+    val broken = sessionDirStamped(workDir, "a-broken", stale)
+    // A dangling link: reading its mtime follows the link and throws, which is
+    // the failure the per-candidate guard has to absorb. Re-stamped afterwards,
+    // since adding an entry bumps the directory's own mtime.
+    os.symlink(broken / "broken.jsonl", broken / "nowhere")
+    os.mtime.set(broken, stale.toEpochMilli): Unit
+    // Siblings that all sort after it, so a missing per-candidate guard is
+    // caught rather than raced: the prune walks in sorted order, and one
+    // escaping throw would abort the scan before any of them.
+    val siblings = List("b", "c", "d").map(sessionDirStamped(workDir, _, stale))
+
+    val _ = backendAt(workDir)
+
+    assert(os.exists(broken))
+    siblings.foreach(dir => assert(!os.exists(dir), dir))

@@ -630,9 +630,12 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > seeded the dir is retried fresh and seeds a second file, and `--continue` picks the
 > most recent. Consequence: pi rows in the run manifest now carry a wire id.
 > Accepted as-is: pi migrates older session-file versions on load, so a dir written by
-> an earlier pi is upgraded rather than rejected. Retention is unbounded as shipped —
-> nothing prunes these dirs yet, unlike claude's own 30-day transcript prune; a
-> best-effort age-based prune is the intended follow-up.
+> an earlier pi is upgraded rather than rejected. Retention: pi doesn't prune the dir
+> orca points it at, so the backend does — when the runtime builds it, before any probe
+> can run, it best-effort deletes session dirs untouched for 30 days (matching claude's own
+> transcript retention). Pruning a session is not a lost turn: the probe then reports
+> absence and the runtime re-seeds. The probe applies the same cutoff, so a dir another
+> process is about to prune already reads as absent.
 
 ### 2.7 External-effect idempotency
 
