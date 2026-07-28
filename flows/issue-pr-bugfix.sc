@@ -54,8 +54,7 @@
   * `.orca/settings.properties`, auto-discovered on first run.
   *
   * Requires `gh` authenticated, and the backend the settings name for the
-  * planning/coding/review roles logged in — plus `claude` whatever they say,
-  * since the reproduction checks below pin `claude.sonnet`.
+  * planning/coding/review roles logged in (`claude` unless changed).
   *
   * The target repo must have a CI workflow that runs its test suite: a red
   * build is what confirms the reproduction.
@@ -194,14 +193,17 @@ def prSummary(note: String, issue: Issue)(using
     )
   )
 
-/** Confirm the CI failure matches the original report. Each sub-stage is a
-  * one-shot sonnet call — fresh session, no seed needed.
+/** Confirm the CI failure matches the original report. Both sub-stages are
+  * one-shot calls on the coding role — fresh session, no seed needed. The
+  * excerpt-picking is cheap-tier work; the verdict is not, since a wrong
+  * "matches" lets a bogus reproduction through and a wrong "doesn't" aborts a
+  * sound one.
   */
 def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
     FlowControl
 ): Unit =
   stage("Post focused failure comment"):
-    val failureSummary = claude.sonnet.run(
+    val failureSummary = codingAgent.cheap.run(
       s"""CI went red on PR ${pr.shortRef} (${pr.url}). Inspect the
          |failed run via `gh` — start with:
          |
@@ -221,7 +223,7 @@ def confirmReproductionMatches(pr: PrHandle, issue: Issue)(using
 
   stage("Verify failure matches the report"):
     val verdict =
-      claude.sonnet
+      codingAgent
         .resultAs[BugReportMatch]
         .autonomous
         .run(
