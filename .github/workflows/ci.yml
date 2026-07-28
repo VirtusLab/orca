@@ -6,10 +6,11 @@ on:
     tags: [v*]
   pull_request:
 
-# CI runs the unit suites only — integration tests gated on
-# `ORCA_INTEGRATION=1` (Claude / GitHub / scala-cli round-trips) are
-# skipped. Run them locally with `ORCA_INTEGRATION=1 sbt test` when you
-# need the cross-process coverage.
+# The `test` job runs the unit suites only. The integration suites gated on
+# `ORCA_INTEGRATION=1` need an authenticated `claude`/`gh` and stay skipped —
+# except `FlowScriptsCompileTest`, which needs only scala-cli and gets its own
+# `flow-scripts` job, with the env var scoped to that one `testOnly`. Run the
+# rest locally with `ORCA_INTEGRATION=1 sbt test`.
 #
 # Publish runs inline (rather than reusing
 # softwaremill/github-actions-workflows) because `secrets: inherit` only
@@ -31,6 +32,27 @@ jobs:
       - uses: sbt/setup-sbt@v1
       - uses: coursier/cache-action@v6
       - run: sbt +test
+
+  # Compiles every `flows/` script against a locally published build, so an API
+  # change that breaks the flows fails here instead of shipping. Independent of
+  # `test` so the fast unit job isn't held up by the publishLocal + scala-cli
+  # round-trip.
+  flow-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # dynver derives the published version from git history
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: sbt/setup-sbt@v1
+      - uses: coursier/cache-action@v6
+      - uses: VirtusLab/scala-cli-setup@v1
+      - run: sbt "runner/testOnly *FlowScriptsCompileTest"
+        env:
+          ORCA_INTEGRATION: '1'
 
   publish:
     needs: [test]

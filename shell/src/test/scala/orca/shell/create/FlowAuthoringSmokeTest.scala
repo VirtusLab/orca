@@ -3,14 +3,14 @@ package orca.shell.create
 import orca.testkit.TempDirs
 
 /** Compile-checks [[FlowAuthoring.skeletonFlow]]'s generated content via a real
-  * `scala-cli` — the same kind of gap `ScalaCliSmokeTest` (runner module)
+  * `scala-cli` — the same kind of gap `FlowScriptsCompileTest` (runner module)
   * closes for the built-in flow scripts under `flows/`: sbt's own compile never
   * sees generated shell-authored text, so a Scala 3 syntax regression (e.g. a
   * comment-only `flow(...):` body) would otherwise only surface once a user
   * actually picked Create+hand. Gated on `ORCA_INTEGRATION` for the same reason
-  * `ScalaCliSmokeTest` is: shells out to a real sbt `publishLocal` + `scala-cli
-  * compile`. Self-contained rather than sharing that test's `Published` fixture
-  * — `runner`'s test sources aren't owned by this task.
+  * that suite is: shells out to a real sbt `publishLocal` + `scala-cli
+  * compile`. It publishes on its own rather than reusing runner's
+  * `LocalPublication` — that lives in another module's test sources.
   */
 class FlowAuthoringSmokeTest extends munit.FunSuite:
 

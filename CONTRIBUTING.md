@@ -29,14 +29,21 @@ Some tests shell out to real external tools and skip by default:
 ORCA_INTEGRATION=1 sbt test
 ORCA_INTEGRATION=1 sbt "claude/testOnly orca.tools.claude.ClaudeIntegrationTest"
 ORCA_INTEGRATION=1 sbt "tools/testOnly orca.tools.OsGitHubIntegrationTest"
-ORCA_INTEGRATION=1 sbt "runner/testOnly orca.runner.terminal.ScalaCliSmokeTest"
+ORCA_INTEGRATION=1 sbt "runner/testOnly orca.runner.scalacli.FlowScriptsCompileTest"
 ```
 
 | Suite | Needs |
 |---|---|
 | `{Claude,Codex,Gemini,Opencode,Pi}IntegrationTest` (one per `orca.tools.<backend>`) | that backend's CLI authenticated |
 | `OsGitHubIntegrationTest` | `gh` authenticated |
-| `ScalaCliSmokeTest` | `scala-cli`; runs `sbt publishLocal` internally |
+| `FlowScriptsCompileTest` | `scala-cli`; runs `sbt publishLocal` internally |
+| `ScalaCliSmokeTest` | the above, plus `claude` authenticated — it starts a real flow |
+
+`FlowScriptsCompileTest` is the only one CI runs (its own `flow-scripts` job),
+being the only one needing no credentials. It compiles every `flows/` script
+against the working tree's build — each staged into a temp dir with its dep pin
+rewritten to the just-published version plus `//> using repository ivy2Local` —
+so an API change that breaks the flows fails CI instead of shipping.
 
 ## Publishing locally
 
