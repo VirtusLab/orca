@@ -150,8 +150,9 @@ There are two runnable examples under
 * [02-interactive](examples/runnable/02-interactive/) (same shape as 01, but the
   planner can ask clarifying questions via `ask_user`).
 
-More flow scripts — `issue-pr.sc`, `issue-pr-bugfix.sc`, `implement-enhanced.sc`
-— live in [`flows/`](flows/); run them against your own git repo.
+More flow scripts — `issue-pr.sc`, `issue-pr-bugfix.sc`,
+`implement-enhanced.sc`, `review.sc` — live in [`flows/`](flows/); run them
+against your own git repo.
 
 For convenient editing of Orca flow scripts, with code-completion, you can try
 the [Metals](https://scalameta.org/metals/) VSCode extension.

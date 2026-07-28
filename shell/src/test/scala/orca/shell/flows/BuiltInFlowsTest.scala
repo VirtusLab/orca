@@ -23,6 +23,7 @@ class BuiltInFlowsTest extends munit.FunSuite:
         "implement.sc",
         "issue-pr-bugfix.sc",
         "issue-pr.sc",
+        "review.sc",
         "simple.sc"
       )
     )

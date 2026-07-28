@@ -49,7 +49,8 @@ export orca.pr.{openPrFromBranch, orcaCommentMarker, summarisePr, PrSummary}
 // Reviewer-customisation surface: compose your own `List[Reviewer]` and
 // `buildReviewers` it into the agents `reviewAndFixLoop` takes. IgnoredIssue(s)
 // is the result type of fixLoop/reviewAndFixLoop; Lint is constructed at the
-// call site for reviewAndFixLoop's `lint` parameter.
+// call site for reviewAndFixLoop's `lint` parameter. Severity and Location are
+// ReviewIssue's field types — needed by any flow that consumes findings.
 export orca.review.{
   allReviewers,
   buildReviewers,
@@ -61,13 +62,15 @@ export orca.review.{
   IgnoredIssue,
   IgnoredIssues,
   Lint,
+  Location,
   Reviewer,
   ReviewerPrompts,
   ReviewBatch,
   ReviewerSelector,
   ReviewIssue,
   ReviewResult,
-  RosterEntry
+  RosterEntry,
+  Severity
 }
 // PushFailure is the Left of GitTool.push's Either; BuildWaitFailed the same
 // for GitHubTool.waitForBuild.
