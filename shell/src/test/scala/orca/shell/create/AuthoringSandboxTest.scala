@@ -1,14 +1,15 @@
 package orca.shell.create
 
-import orca.StackSettings
 import orca.settings.{SettingsFile, SettingsScope}
 
 class AuthoringSandboxTest extends munit.FunSuite:
 
+  private val flowName = "flow.sc"
+
   test(
     "create: an initialized git repo with a clean tree and a root commit"
   ):
-    val sandbox = AuthoringSandbox.create()
+    val sandbox = AuthoringSandbox.create(flowName)
     try
       assert(os.isDir(sandbox / ".git"))
       val status = os
@@ -26,29 +27,43 @@ class AuthoringSandboxTest extends munit.FunSuite:
     finally AuthoringSandbox.delete(sandbox)
 
   test("create: the settings file suppresses stack discovery"):
-    val sandbox = AuthoringSandbox.create()
+    val sandbox = AuthoringSandbox.create(flowName)
     try
       val settings = os.read(sandbox / ".orca" / "settings.properties")
       assert(
         SettingsFile.hasStackLines(settings),
-        s"live `off` lines must satisfy the discovery trigger:\n$settings"
-      )
-      assertEquals(
-        SettingsFile.parse(settings, SettingsScope.Project).map(_.stack),
-        Right(StackSettings.empty),
-        "off must not parse as a literal command for any gate"
+        s"live stack lines must satisfy the discovery trigger:\n$settings"
       )
     finally AuthoringSandbox.delete(sandbox)
 
+  test("create: lint compiles the flow file; format and test stay off"):
+    val sandbox = AuthoringSandbox.create(flowName)
+    try
+      val settings = os.read(sandbox / ".orca" / "settings.properties")
+      val stack = SettingsFile
+        .parse(settings, SettingsScope.Project)
+        .fold(e => fail(e.message), _.stack)
+      assertEquals(stack.lint, List("scala-cli compile 'flow.sc'"))
+      assertEquals(stack.format, Nil)
+      assertEquals(stack.test, Nil)
+    finally AuthoringSandbox.delete(sandbox)
+
+  test("settingsContents: a quote in the filename survives shell quoting"):
+    val contents = AuthoringSandbox.settingsContents("it's.sc")
+    val stack = SettingsFile
+      .parse(contents, SettingsScope.Project)
+      .fold(e => fail(e.message), _.stack)
+    assertEquals(stack.lint, List("scala-cli compile 'it'\\''s.sc'"))
+
   test("delete removes the sandbox"):
-    val sandbox = AuthoringSandbox.create()
+    val sandbox = AuthoringSandbox.create(flowName)
     AuthoringSandbox.delete(sandbox)
     assert(!os.exists(sandbox))
 
   test(
     "create: scala-cli workspace droppings are ignored — invisible to status"
   ):
-    val sandbox = AuthoringSandbox.create()
+    val sandbox = AuthoringSandbox.create(flowName)
     try
       val tracked = os
         .proc("git", "ls-files")

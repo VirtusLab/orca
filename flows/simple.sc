@@ -1,4 +1,4 @@
-// Implement a task directly — no planning stage — with a single review round.
+// Implement a task directly — no planning stage — with up to three review rounds.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.1"
 //> using jvm 21
@@ -43,5 +43,5 @@ flow(OrcaArgs(args)):
       reviewers = buildReviewers(reviewAgent, List(review)),
       reviewerSelection = ReviewerSelector.allEveryRound,
       task = userPrompt,
-      maxIterations = 1
+      maxIterations = 3
     )

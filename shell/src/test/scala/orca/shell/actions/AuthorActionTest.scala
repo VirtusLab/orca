@@ -141,7 +141,7 @@ class AuthorActionTest extends munit.FunSuite:
       assert(isGitRepo, "sandbox must be an initialized git repo")
       assert(hasApiMaterial, "API material must be extracted in the sandbox")
       assert(settings.contains("format = off"), settings)
-      assert(settings.contains("lint = off"), settings)
+      assert(settings.contains("lint = scala-cli compile 'new.sc'"), settings)
       assert(settings.contains("test = off"), settings)
 
   test(

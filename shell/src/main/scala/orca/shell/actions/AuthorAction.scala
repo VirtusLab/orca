@@ -74,7 +74,7 @@ private[shell] object AuthorAction:
       terminal: Terminal,
       launch: FlowLaunch = FlowLauncher.runAnnounced
   ): LaunchResult =
-    val sandbox = AuthoringSandbox.create()
+    val sandbox = AuthoringSandbox.create(params.target.flowPath.last)
     val apiDir = FlowAuthoring.extractApiMaterial(
       OrcaDir.ensureCache(sandbox),
       ShellVersion.value
@@ -104,7 +104,7 @@ private[shell] object AuthorAction:
       terminal: Terminal,
       launch: FlowLaunch = FlowLauncher.runAnnounced
   ): LaunchResult =
-    val sandbox = AuthoringSandbox.create()
+    val sandbox = AuthoringSandbox.create(params.target.flowPath.last)
     val apiDir = FlowAuthoring.extractApiMaterial(
       OrcaDir.ensureCache(sandbox),
       ShellVersion.value

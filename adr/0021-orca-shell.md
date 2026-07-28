@@ -552,6 +552,16 @@ included only as a last-resort fallback line.
 > unborn, or the commit fails for any reason — a commit hiccup never fails the
 > authoring result.
 
+> **Amendment (2026-07-28).** The sandbox settings file now sets `lint =
+> scala-cli compile <flow-file>` (format/test stay `off`): the prompt's
+> compile-verify instruction was only agent-honored, so a script the agent
+> never compiled could land committed but broken. The review loop's lint gate
+> makes the check mechanical, and `simple.sc` moved to `maxIterations = 3` so
+> a compile failure found by the gate gets fixed *and re-verified*. The loop's
+> result still isn't a hard gate — a flow that ends with findings ignored
+> still exits Ok and is copied out; accepted, since the sandbox lint is
+> feedback machinery, not an acceptance test.
+
 ### 10. Command-line interface
 
 `orca` with no args starts the interactive shell unchanged (§§3–9); any argv
