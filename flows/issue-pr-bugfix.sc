@@ -50,9 +50,6 @@
   * scala-cli run issue-pr-bugfix.sc -- "acme/widgets#42"
   * ```
   *
-  * The review loop's format and lint commands come from
-  * `.orca/settings.properties`, auto-discovered on first run.
-  *
   * Requires `gh` authenticated, and the backend the settings name for the
   * planning/coding/review roles logged in (`claude` unless changed).
   *
@@ -265,14 +262,8 @@ def planAndImplementFix[B <: BackendTag](
   for task <- fixPlan.tasks do
     stage(s"Task: ${task.title}"): // skipped on resume if already done
       session.run(fixPlan.taskPrompt(task))
-      // reviewerSelection defaults to agentDriven — a picker LLM on
-      // reviewAgent's cheap tier. Format and lint default to the project's
-      // stack settings (`.orca/settings.properties`). Don't override lint with
-      // the test command here: until the last fix task lands, the branch
-      // carries a deliberately failing test, so a test-running gate would fail
-      // every round. A discovered lint command never runs tests (ADR 0019),
-      // which is exactly the cheap sanity check this flow wants — the failing
-      // test runs in CI, and correctness is the reviewers' job.
+      // Don't gate this loop on the tests: the branch carries a deliberately
+      // failing one until the last fix task lands.
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(reviewAgent),

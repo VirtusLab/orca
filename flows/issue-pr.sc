@@ -36,9 +36,6 @@
   * scala-cli run issue-pr.sc -- "acme/widgets#42"
   * ```
   *
-  * The review loop's format and lint commands come from
-  * `.orca/settings.properties`, auto-discovered on first run.
-  *
   * Requires `gh` authenticated, and the backend the settings name for the
   * planning/coding/review roles logged in (`claude` unless changed).
   */
@@ -92,10 +89,6 @@ flow(
     for task <- plan.tasks do
       stage(s"Task: ${task.title}"):    // skipped on resume if already done
         session.run(task.description)
-        // reviewerSelection defaults to agentDriven(reviewAgent.cheap); pass
-        // `ReviewerSelector.allEveryRound` to run every reviewer instead.
-        // Format and lint default to the project's stack settings
-        // (`.orca/settings.properties`).
         reviewAndFixLoop(
           coderSession = session,
           reviewers = allReviewers(reviewAgent),
