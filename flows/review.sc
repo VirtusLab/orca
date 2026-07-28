@@ -35,8 +35,8 @@
   * git diff | orca run review.sc
   * ```
   *
-  * Requires the backend the settings name for the review role logged in
-  * (`claude` unless changed), and `gh` authenticated when the target is a PR.
+  * Requires the configured role agents logged in (`claude` by default), and
+  * `gh` authenticated when the target is a PR.
   */
 
 import orca.{*, given}
