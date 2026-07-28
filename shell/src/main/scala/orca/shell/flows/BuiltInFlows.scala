@@ -11,12 +11,15 @@ import orca.shell.ShellVersion
 private[shell] object BuiltInFlows:
   private val resourcePrefix = "/orca/shell/flows/"
 
-  // Per-process memo of [[extracted]]'s result, keyed by the extraction target
-  // dir (a pure function of the env/home/version arguments) — a non-release
-  // build otherwise re-extracts and rewrites every flow on EVERY call (every
-  // picker open), even though nothing in the process's own env/home/version
-  // ever changes between them. `computeIfAbsent` keeps the first extraction for
-  // a given key atomic even under concurrent callers.
+  // Per-process memo of [[extracted]]'s result. The non-release path
+  // re-materializes on every call, and callers reach `extracted` on every flow
+  // listing (every picker open); once per process is as often as that can
+  // matter, since a process's version and flow resources are both fixed at
+  // startup. Keyed by the target dir — a total function of the env/home/version
+  // arguments — so a call with different arguments gets its own extraction
+  // rather than the first one's, keeping `extracted` reusable across homes and
+  // versions within one process. `computeIfAbsent` keeps the first extraction
+  // for a given key atomic under concurrent callers.
   private val extractedCache =
     new java.util.concurrent.ConcurrentHashMap[os.Path, os.Path]()
 
@@ -37,36 +40,6 @@ private[shell] object BuiltInFlows:
       new String(stream.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8)
     finally stream.close()
 
-  /** Extracts the built-in flows to
-    * `$XDG_CACHE_HOME/orca/shell/<version>/flows` (default `~/.cache/...`,
-    * mirroring `GlobalSettings.path`'s env handling: a relative, empty, or
-    * root-climbing `XDG_CACHE_HOME` falls back like an unset one). Returns that
-    * directory.
-    *
-    * A release-looking `version` (`ShellVersion.isRelease`) extracts once,
-    * keyed by the directory being *complete* — present with every indexed flow
-    * file — not merely existing; a second call is then a no-op, since a
-    * release's flows are immutable for that version. Any other version (a dev
-    * snapshot or `"dev"` itself) always re-extracts and rewrites each flow's
-    * `//> using dep "org.virtuslab::orca:X"` line to the running `version`,
-    * inserting `//> using repository ivy2Local` right after it — the same
-    * treatment `_seed_lib.sh --local` applies, so built-ins resolve against a
-    * locally published build instead of a not-yet-released Maven Central
-    * artifact.
-    *
-    * Both paths write through [[materialize]], which stages every file in a
-    * temp sibling directory and swaps it into place with an atomic move —
-    * `ProgressStore.writeLog`'s temp-file-then-`os.move` idiom, applied to a
-    * directory. A process killed mid-extraction (OOM, `kill -9`, disk full) can
-    * therefore only ever leave the temp directory (never looked at again)
-    * half-written, never `dir` itself; combined with the completeness check, a
-    * legacy half-populated `dir` left by the old existence-keyed logic is
-    * treated as absent and self-heals on the next call.
-    *
-    * Cached per JVM process ([[extractedCache]]), keyed by `dir` — a repeat
-    * call with the same arguments (every picker open in one shell process) only
-    * extracts/rewrites once instead of on every call.
-    */
   /** `$XDG_CACHE_HOME` (default `home / ".cache"`) — the per-user cache root
     * shared by [[extracted]] and, via [[orca.shell.run.FlowLauncher]], the
     * flow-subprocess `--workspace` directory. Exposed at `private[shell]`
@@ -82,6 +55,39 @@ private[shell] object BuiltInFlows:
       .flatMap(v => scala.util.Try(os.Path(v)).toOption)
       .getOrElse(home / ".cache")
 
+  /** Extracts the built-in flows to
+    * `$XDG_CACHE_HOME/orca/shell/<version>/flows` (default `~/.cache/...`,
+    * mirroring `GlobalSettings.path`'s env handling: a relative, empty, or
+    * root-climbing `XDG_CACHE_HOME` falls back like an unset one). Returns that
+    * directory.
+    *
+    * A release-looking `version` (`ShellVersion.isRelease`) extracts once,
+    * keyed by the directory being *complete* — present with every indexed flow
+    * file — not merely existing; a second call is then a no-op, since a
+    * release's flows are immutable for that version. Any other version always
+    * re-extracts and rewrites each flow's `//> using dep
+    * "org.virtuslab::orca:X"` line to the running `version`, inserting `//>
+    * using repository ivy2Local` right after it — the same treatment
+    * `_seed_lib.sh --local` applies, so built-ins resolve against a locally
+    * published build instead of a not-yet-released Maven Central artifact. It
+    * can't reuse the release path's completeness key: a non-release version
+    * string doesn't identify its flow content, since `"dev"` (an `sbt run` or
+    * test build) is shared by every build, and a dynver snapshot's dirty
+    * timestamp is minute-granular, so republishing within a minute reuses it.
+    *
+    * Both paths write through [[materialize]], which stages every file in a
+    * temp sibling directory and swaps it into place with an atomic move —
+    * `ProgressStore.writeLog`'s temp-file-then-`os.move` idiom, applied to a
+    * directory. A process killed mid-extraction (OOM, `kill -9`, disk full) can
+    * therefore only ever leave the temp directory (never looked at again)
+    * half-written, never `dir` itself; combined with the completeness check, a
+    * legacy half-populated `dir` left by the old existence-keyed logic is
+    * treated as absent and self-heals on the next call.
+    *
+    * Memoized per process ([[extractedCache]]): repeat calls with the same
+    * env/home/version — every picker open in one shell process — reuse the
+    * first call's extraction.
+    */
   def extracted(
       env: String => Option[String],
       home: os.Path,
