@@ -13,12 +13,13 @@ import orca.settings.AgentSpec
 private[shell] object ResumeCommand:
 
   /** Left = not resumable, checkable without a live harness call: an
-    * unrecognised `harness` string, or a wireId-less session (pi always, since
-    * its sessions never survive the run — the manifest's stored `reason` is
-    * used when set, else a generic fallback). `Right` carries the recognised
-    * [[BackendTag]] but doesn't mean "definitely resumable" — gemini's row
-    * still needs [[build]]'s live index lookup. Used both by [[build]] itself
-    * and by the shell's session-list preview (which has no `geminiIndex` yet).
+    * unrecognised `harness` string, or a wireId-less session — one whose
+    * backend keeps nothing durable, or that never committed a turn (the
+    * manifest's stored `reason` is used when set, else a generic fallback).
+    * `Right` carries the recognised [[BackendTag]] but doesn't mean "definitely
+    * resumable" — gemini's row still needs [[build]]'s live index lookup. Used
+    * both by [[build]] itself and by the shell's session-list preview (which
+    * has no `geminiIndex` yet).
     */
   private def wireIdAndTag(
       s: ManifestSession
@@ -30,11 +31,20 @@ private[shell] object ResumeCommand:
         Left(s.reason.getOrElse(s"${s.harness} session has no resumable id"))
       case (Some(wireId), Some(tag)) => Right((wireId, tag))
 
+  /** Pi's session dirs are durable (`.orca/cache/pi-sessions/<id>/`), so a
+    * manifest row does carry a wire id; exec'ing `pi --session-dir …
+    * --continue` from the shell is simply not wired up yet. Stated once so the
+    * preview and [[build]] agree on it.
+    */
+  private val piNotWired =
+    "resuming a pi chat from the shell is not supported yet"
+
   /** The static (no-live-call) half of [[build]]'s resumability check, exposed
     * for the shell's session-list preview.
     */
   def staticGate(s: ManifestSession): Either[String, BackendTag] =
-    wireIdAndTag(s).map(_._2)
+    wireIdAndTag(s).flatMap: (_, tag) =>
+      if tag == BackendTag.Pi then Left(piNotWired) else Right(tag)
 
   /** Left = not resumable: [[staticGate]]'s checks, plus gemini when
     * `geminiIndex` is `None` (gemini resumes interactively by index, not by
@@ -70,8 +80,7 @@ private[shell] object ResumeCommand:
                     s"no matching session found via `$binary --list-sessions`"
                   )
                 )
-          case BackendTag.Pi =>
-            Left(s.reason.getOrElse("pi sessions are not resumable"))
+          case BackendTag.Pi => Left(piNotWired)
 
   // Matches one `--list-sessions` entry line: "  N. <title> (<time>) [<id>]".
   private val entryLine = raw"^\s*(\d+)\.\s.*\[(.+)\]\s*$$".r

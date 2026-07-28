@@ -117,13 +117,15 @@ most easily broken:
 
 - **Sessions.** `AgentBackend.sessions: SessionSupport[B]` is one final class
   built from two per-backend choices: durability —
-  `SessionSupport.ephemeral(scheme)` (pi — nothing survives a process restart)
-  or `SessionSupport.durable(scheme, probe)` (claude/codex/gemini/opencode —
-  sessions outlive the process, including across a restart; opencode persists
-  sessions in its own global on-disk store independent of orca's per-run
-  `opencode serve` process, so a fresh server spawned after a kill/restart
-  resumes a committed `resumeWireId` the same way the file-probed backends do,
-  live-verified 2026-07-08) — and the `IdScheme`: `ClientClaimed` (claude/pi —
+  `SessionSupport.ephemeral(scheme)` (nothing survives a process restart; no
+  backend uses it today) or `SessionSupport.durable(scheme, probe)` (all
+  backends — sessions outlive the process, including across a restart; pi's
+  live in `.orca/cache/pi-sessions/<id>/` and are probed for a `*.jsonl`;
+  opencode persists sessions in its own global on-disk store independent of
+  orca's per-run `opencode serve` process, so a fresh server spawned after a
+  kill/restart resumes a committed `resumeWireId` the same way the file-probed
+  backends do, live-verified 2026-07-08) — and the `IdScheme`: `ClientClaimed`
+  (claude/pi —
   the client id IS the wire id, put on the wire at spawn) or `ServerMinted`
   (codex/gemini/opencode — the server mints the wire id, learned from the
   protocol and registered after the turn). `Agent` derives `willContinue` /

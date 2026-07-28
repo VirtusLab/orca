@@ -542,7 +542,7 @@ strategy and the progress store are overridable (R21).
   seed-lookup a `SessionRecord` provides. On resume, whether the *live* backend
   conversation can be continued is decided by a **non-destructive existence probe**
   (`AgentBackend.sessionExists(id)`) rather than guessed: most backends expose one (an
-  on-disk session file, a list command, or a `GET`), pi does not. If the probe is
+  on-disk session file, a list command, or a `GET`). If the probe is
   absent or says gone, resume falls back to re-seed (R23).
 - **R23** — A session is obtained via a get-or-create (`agent.session`) whose id is
   recorded in the log, so a retry reuses it rather than minting a second. A flow
@@ -594,10 +594,10 @@ then probed:
 | codex    | on-disk `find ~/.codex/sessions -name "rollout-*-<id>.jsonl"` (global)   |
 | gemini   | `gemini --list-sessions` (project-scoped)                               |
 | opencode | `GET /session/<id>` → 200 vs 404 (durable across server restarts)        |
-| pi       | none — sessions live in a `deleteOnExit` temp dir, gone across runs      |
+| pi       | on-disk `<workDir>/.orca/cache/pi-sessions/<id>/*.jsonl` (workDir-scoped) |
 
 If the probe confirms the session, orca continues it; if it returns absent (or the
-backend has no probe — pi), it re-mints and re-seeds. **Re-seed stays the guaranteed
+backend has no probe), it re-mints and re-seeds. **Re-seed stays the guaranteed
 fallback**; the probe only makes "continue the live session" a deterministic decision
 rather than a hope. *Implementation notes:* this needs (a) the persisted id/map —
 today's `SessionRegistry` is in-memory and not rehydrated from the log; and (b) a
@@ -622,6 +622,17 @@ list output and opencode's directory-scoping should be pinned when the probes la
 >   `Durable(registry, probe)` (claude/codex/gemini/opencode) — rather than the three
 >   independently-overridable `sessionExists`/`resumeWireId`/`registerSession` hooks
 >   this section describes; see AGENTS.md's "Sessions" section for the current model.
+
+> **Amendment (2026-07-28).** Pi is durable too, so the table above no longer has a
+> probe-less row. Its `--session-dir` moved from a `deleteOnExit` temp dir to
+> `<workDir>/.orca/cache/pi-sessions/<session id>/`, and the probe is "that dir holds
+> at least one `*.jsonl`" — at least one, because a first turn that fails after pi
+> seeded the dir is retried fresh and seeds a second file, and `--continue` picks the
+> most recent. Consequence: pi rows in the run manifest now carry a wire id.
+> Accepted as-is: pi migrates older session-file versions on load, so a dir written by
+> an earlier pi is upgraded rather than rejected. Retention is unbounded as shipped —
+> nothing prunes these dirs yet, unlike claude's own 30-day transcript prune; a
+> best-effort age-based prune is the intended follow-up.
 
 ### 2.7 External-effect idempotency
 
@@ -872,9 +883,8 @@ alongside.
   only the seed (e.g. the plan), so a long implementer session resumes materially
   "dumber" — the seed must carry enough for the remaining tasks to stand alone.
 - **Cross-backend live-session resume is non-uniform.** A non-destructive existence
-  probe exists for claude/codex/gemini/opencode (on-disk file, `--list-sessions`,
-  `GET /session/<id>`) but **not pi** (`deleteOnExit` temp dir), so pi always
-  re-seeds. Even where a probe exists it needs the persisted id/map (today's
+  probe exists for every backend (on-disk file, `--list-sessions`,
+  `GET /session/<id>`), but it needs the persisted id/map (today's
   `SessionRegistry` is in-memory) and carries caveats — claude is cwd-scoped + 30-day
   pruned, gemini's id↔file is fuzzy (use the list, not the file), opencode is
   project-scoped. So live continuation is a per-backend optimization gated on the

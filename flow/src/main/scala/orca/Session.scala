@@ -343,14 +343,14 @@ private def effectivePrompt[B <: BackendTag](
     composePrimedPrompt(preamble, seed, text)
 
 /** After a run, persist the backend's now-learned resume wire id (durable
-  * backends only — pi returns `None`), so a resumed run can rehydrate the map
-  * and probe the right session. Also self-heals [[SessionRecord.backend]] from
-  * `None` (an untagged record) to `agent`'s current tag, on the very run that
-  * just proved this `agent` owns it, rather than waiting for a second
-  * `session(...)` call. Upserts only when the learned wire id or the healed tag
-  * differs from what is recorded, so a no-op run writes nothing. Takes the
-  * [[WorkspaceWrite]] token explicitly to keep these writes flow-thread-only
-  * (ADR 0018 §6).
+  * backends only — one without a probe returns `None`), so a resumed run can
+  * rehydrate the map and probe the right session. Also self-heals
+  * [[SessionRecord.backend]] from `None` (an untagged record) to `agent`'s
+  * current tag, on the very run that just proved this `agent` owns it, rather
+  * than waiting for a second `session(...)` call. Upserts only when the learned
+  * wire id or the healed tag differs from what is recorded, so a no-op run
+  * writes nothing. Takes the [[WorkspaceWrite]] token explicitly to keep these
+  * writes flow-thread-only (ADR 0018 §6).
   */
 private def persistResumeWireId[B <: BackendTag](
     agent: Agent[B],

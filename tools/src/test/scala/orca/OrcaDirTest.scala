@@ -93,3 +93,22 @@ class OrcaDirTest extends munit.FunSuite:
     val wd = TempDirs.dir()
     assertEquals(OrcaDir.runsPath(wd), wd / ".orca" / "cache" / "runs")
     assert(!os.exists(wd / ".orca"))
+
+  test(
+    "ensurePiSessions creates .orca/cache/pi-sessions, including the cache markers"
+  ):
+    val wd = TempDirs.dir()
+    val sessions = OrcaDir.ensurePiSessions(wd)
+    assertEquals(sessions, wd / ".orca" / "cache" / "pi-sessions")
+    assert(os.isDir(sessions))
+    assert(os.exists(wd / ".orca" / "cache" / ".gitignore"))
+
+  test(
+    "piSessionsPath points at .orca/cache/pi-sessions without creating anything"
+  ):
+    val wd = TempDirs.dir()
+    assertEquals(
+      OrcaDir.piSessionsPath(wd),
+      wd / ".orca" / "cache" / "pi-sessions"
+    )
+    assert(!os.exists(wd / ".orca"))

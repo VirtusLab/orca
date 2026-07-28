@@ -117,9 +117,9 @@ class FlowSessionTest extends FunSuite:
     def capturedPrompts: List[String] = _capturedPrompts.reverse
 
     /** The durability capability the stub exposes. `ephemeral = true` builds a
-      * pi-shaped `SessionSupport.ephemeral` (a STABLE instance, so an
-      * in-process claim persists across runs); otherwise the durable probe
-      * fixture whose `willContinue`/`resumeWireId` are driven by
+      * `SessionSupport.ephemeral` (a STABLE instance, so an in-process claim
+      * persists across runs); otherwise the durable probe fixture whose
+      * `willContinue`/`resumeWireId` are driven by
       * `existsResult`/`learnedWireId`.
       */
     private val support: SessionSupport[BackendTag.ClaudeCode.type] =
@@ -131,14 +131,14 @@ class FlowSessionTest extends FunSuite:
 
     /** Drives `willContinue` (via the mapping-gated probe) and `resumeWireId` —
       * `learnedWireId` mirrors a server-id backend's persist path,
-      * `None`/`ephemeral` mirrors pi.
+      * `None`/`ephemeral` a backend with nothing durable to resume.
       */
     override private[orca] def sessionSupport
         : Option[SessionSupport[BackendTag.ClaudeCode.type]] =
       Some(support)
 
     /** Record the prompt and, for the ephemeral shape, claim the id — a real
-      * ephemeral backend (pi) records the claim after a clean turn (via
+      * ephemeral backend records the claim after a clean turn (via
       * `Conversations.drainAndCommit`), so `willContinue` flips true on the
       * next in-process run. `register` is the stable log-skip door and the id
       * is a safe UUID, so it commits.
@@ -465,12 +465,12 @@ class FlowSessionTest extends FunSuite:
     )
 
   test(
-    "pi-shaped Ephemeral session: a second in-process run does NOT re-prime"
+    "Ephemeral session: a second in-process run does NOT re-prime"
   ):
-    // pi is ephemeral: it has no durable transcript to probe, so an
+    // An ephemeral backend has no durable transcript to probe, so an
     // exists-based probe would re-seed every task of a loop;
     // `willContinue` reads the in-process claim, so a live continuation runs the
-    // prompt verbatim. The stub claims the id after each run (as pi's
+    // prompt verbatim. The stub claims the id after each run (as a real
     // drainAndCommit does), so the SECOND run must NOT re-inject seed/preamble.
     val seed = "You are a planning agent."
     val fc = makeControl(
@@ -580,7 +580,7 @@ class FlowSessionTest extends FunSuite:
   test(
     "run leaves resumeWireId None when the backend reports no wire id"
   ):
-    // pi: ephemeral sessions, resumeWireId returns None.
+    // Ephemeral sessions: resumeWireId returns None.
     val fc = makeControl(
       sessions = List(
         SessionRecord(

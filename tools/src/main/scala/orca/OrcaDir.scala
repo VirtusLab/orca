@@ -67,6 +67,22 @@ private[orca] object OrcaDir:
     os.makeDir.all(runs)
     runs
 
+  /** `<workDir>/.orca/cache/pi-sessions`, passively. Holds one child directory
+    * per orca session id, each pi's own `--session-dir` transcript store;
+    * living in the cache is what lets a pi chat be resumed after the run that
+    * created it. Passive like [[runsPath]], for the read side (pi's existence
+    * probe) — only [[ensurePiSessions]] creates.
+    */
+  def piSessionsPath(workDir: os.Path): os.Path =
+    root(workDir) / "cache" / "pi-sessions"
+
+  /** Idempotently ensure `.orca/cache/pi-sessions/` exists and return it, for
+    * the write side (spawning pi at a session dir under it).
+    */
+  def ensurePiSessions(workDir: os.Path): os.Path =
+    val _ = ensureCache(workDir)
+    piSessionsPath(workDir).tap(os.makeDir.all(_))
+
   /** `<workDir>/.orca/cache/runs`, passively — the read-side counterpart to
     * [[cacheRunsPath]] for the shell's manifest listing (ADR 0021 §8), which
     * must not create `.orca` as a side effect of reading it.

@@ -124,7 +124,7 @@ class SessionSupportTest extends munit.FunSuite:
   test(
     "willContinue (ephemeral) reads the in-process claim (false before, true after)"
   ):
-    // An ephemeral backend (pi) keeps no durable transcript to probe — but a
+    // An ephemeral backend keeps no durable transcript to probe — but a
     // committed in-process claim IS a live continuation, and the CLI is
     // genuinely told to continue. Answering from a durable probe here would
     // re-seed every turn of a live conversation.

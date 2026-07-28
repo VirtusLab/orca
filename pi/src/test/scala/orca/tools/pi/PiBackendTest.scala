@@ -19,6 +19,14 @@ class PiBackendTest extends munit.FunSuite:
   private def sid: SessionId[BackendTag.Pi.type] =
     SessionId[BackendTag.Pi.type]("00000000-0000-0000-0000-000000000000")
 
+  /** A backend on a throwaway `workDir` — Pi's session dirs live under
+    * `<workDir>/.orca/cache/pi-sessions/`, so the `os.pwd` default would write
+    * them into the repo. Tests that assert on the working dir itself construct
+    * the backend directly with their own.
+    */
+  private def backendWith(runner: SpawnStubCliRunner): PiBackend =
+    new PiBackend(runner, workDir = TempDirs.dir())
+
   private def successfulProcess(
       message: String = "hello",
       inputTokens: Long = 1L,
@@ -55,9 +63,13 @@ class PiBackendTest extends munit.FunSuite:
     assertEquals(call.cwd, workDir)
     assertEquals(call.pipeStderr, true)
     assert(call.args.containsSlice(Seq("pi", "--mode", "rpc")), call.args)
-    // A fresh session opens a dir named for the session id, without --continue.
+    // A fresh session opens a durable dir named for the session id, without
+    // --continue.
     val dir = call.args(call.args.indexOf("--session-dir") + 1)
-    assert(dir.endsWith(SessionId.value(sid)), dir)
+    assertEquals(
+      os.Path(dir),
+      workDir / ".orca" / "cache" / "pi-sessions" / SessionId.value(sid)
+    )
     assert(!call.args.contains("--continue"), call.args)
     assert(process.writes.exists(_.contains("\"type\":\"prompt\"")))
     assert(process.writes.exists(_.contains("do it")))
@@ -65,7 +77,7 @@ class PiBackendTest extends munit.FunSuite:
   test("a second turn on the same session resumes with --continue"):
     val runner =
       new SpawnStubCliRunner(List(successfulProcess(), successfulProcess()))
-    val backend = new PiBackend(runner)
+    val backend = backendWith(runner)
 
     val _ = backend.runAutonomous("one", sid, AgentConfig())
     val _ = backend.runAutonomous("two", sid, AgentConfig())
@@ -82,7 +94,7 @@ class PiBackendTest extends munit.FunSuite:
     failing.closeStdout() // EOF before agent_end → the turn fails
     failing.closeStderr()
     val runner = new SpawnStubCliRunner(List(failing, successfulProcess()))
-    val backend = new PiBackend(runner)
+    val backend = backendWith(runner)
 
     val _ = intercept[Exception](
       backend.runAutonomous("one", sid, AgentConfig())
@@ -97,7 +109,7 @@ class PiBackendTest extends munit.FunSuite:
   test("model and autonomous read-only config map to Pi flags"):
     val process = successfulProcess()
     val runner = new SpawnStubCliRunner(List(process))
-    val backend = new PiBackend(runner)
+    val backend = backendWith(runner)
 
     val _ = backend.runAutonomous(
       "q",
@@ -116,7 +128,7 @@ class PiBackendTest extends munit.FunSuite:
   test("interactive read-only config includes ask_user extension and tool"):
     val process = successfulProcess()
     val runner = new SpawnStubCliRunner(List(process))
-    val backend = new PiBackend(runner)
+    val backend = backendWith(runner)
 
     // The conversation forks its workers into the surrounding Ox scope, so it
     // must be created AND consumed within the same `supervised` block.
@@ -146,7 +158,7 @@ class PiBackendTest extends munit.FunSuite:
   ):
     val process = new FakePipedCliProcess()
     val runner = new SpawnStubCliRunner(List(process))
-    val backend = new PiBackend(runner)
+    val backend = backendWith(runner)
 
     // The conversation forks its workers into the surrounding Ox scope, so it
     // must be created AND consumed within the same `supervised` block.
@@ -184,7 +196,7 @@ class PiBackendTest extends munit.FunSuite:
   test("self-managed git suppresses the runtime git rule"):
     val process = successfulProcess()
     val runner = new SpawnStubCliRunner(List(process))
-    val backend = new PiBackend(runner)
+    val backend = backendWith(runner)
 
     val _ = backend.runAutonomous(
       "q",
@@ -195,6 +207,54 @@ class PiBackendTest extends munit.FunSuite:
     val args = runner.calls.head
     assert(!args.contains("--append-system-prompt"), args)
 
-  test("willContinue always returns false (Pi has no server-side probe)"):
-    val backend = new PiBackend(new SpawnStubCliRunner(Nil))
+  /** Run one successful turn (which commits the session) and return the backend
+    * plus the session dir Pi was pointed at. The stub never spawns Pi, so that
+    * dir does not exist until a test creates it — which is what lets the probe
+    * cases below be set up by hand.
+    */
+  private def committedSession(): (PiBackend, os.Path) =
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    val backend = backendWith(runner)
+    val _ = backend.runAutonomous("one", sid, AgentConfig())
+    val args = runner.spawnCalls.head.args
+    (backend, os.Path(args(args.indexOf("--session-dir") + 1)))
+
+  test("constructing a backend does not create .orca"):
+    val workDir = TempDirs.dir()
+    val _ = new PiBackend(new SpawnStubCliRunner(Nil), workDir = workDir)
+    assert(!os.exists(workDir / ".orca"))
+
+  test("willContinue is false before a turn commits the session"):
+    val backend = backendWith(new SpawnStubCliRunner(Nil))
     assert(!backend.sessions.willContinue(sid))
+
+  test("probing a rehydrated session does not create .orca"):
+    // The read path (a wire id replayed from the progress log, then probed)
+    // must stay effect-free — only spawning pi creates the session dirs.
+    val workDir = TempDirs.dir()
+    val backend = new PiBackend(new SpawnStubCliRunner(Nil), workDir = workDir)
+    backend.sessions.register(sid, sid.onWire)
+    assert(!backend.sessions.willContinue(sid))
+    assert(!os.exists(workDir / ".orca"))
+
+  test(
+    "willContinue is true when the committed session dir holds a transcript"
+  ):
+    val (backend, dir) = committedSession()
+    os.write(dir / "session.jsonl", "{}\n", createFolders = true)
+    assert(backend.sessions.willContinue(sid))
+
+  test("willContinue is false when the committed session dir is gone"):
+    val (backend, _) = committedSession()
+    assert(!backend.sessions.willContinue(sid))
+
+  test(
+    "willContinue is false when the committed session dir has no transcript"
+  ):
+    val (backend, dir) = committedSession()
+    os.makeDir.all(dir)
+    assert(!backend.sessions.willContinue(sid))
+
+  test("persistableWireId is the claimed client id once the session commits"):
+    val (backend, _) = committedSession()
+    assertEquals(backend.sessions.persistableWireId(sid), Some(sid.onWire))

@@ -27,7 +27,7 @@ enum Dispatch[B <: BackendTag]:
 enum IdScheme:
   /** The caller-allocated client id IS the wire id: the CLI creates the session
     * under it and resumes against it (claude's `--session-id <uuid>` →
-    * `--resume <uuid>`; pi's `--session <id>`).
+    * `--resume <uuid>`; pi's per-id `--session-dir` → `--continue`).
     */
   case ClientClaimed
 
@@ -173,9 +173,10 @@ object SessionSupport:
   ): SessionSupport[B] =
     new SessionSupport(scheme, Some(probe))
 
-  /** Sessions live only for the process lifetime (pi's `deleteOnExit` session
-    * dirs). Fresh-vs-resume is tracked within the run, but nothing is durably
-    * resumable, so [[SessionSupport.persistableWireId]] always reports absence.
+  /** Sessions live only for the process lifetime — no on-disk transcript or
+    * server-side thread survives it. Fresh-vs-resume is tracked within the run,
+    * but nothing is durably resumable, so [[SessionSupport.persistableWireId]]
+    * always reports absence.
     */
   def ephemeral[B <: BackendTag](scheme: IdScheme): SessionSupport[B] =
     new SessionSupport(scheme, None)

@@ -65,13 +65,11 @@ class ResumeCommandTest extends munit.FunSuite:
       Left(reason)
     )
 
-  test("pi is never resumable, reporting the manifest's stored reason"):
-    val reason =
-      "pi sessions are deleted when the run's temp dir is reclaimed"
+  test("a pi session carries a wireId but the shell cannot exec it yet"):
+    val uuid = "aaaa1234-5678-4abc-9def-000000000004"
     assertEquals(
-      ResumeCommand
-        .build(session("Pi", None, reason = Some(reason)), geminiIndex = None),
-      Left(reason)
+      ResumeCommand.build(session("Pi", Some(uuid)), geminiIndex = None),
+      Left("resuming a pi chat from the shell is not supported yet")
     )
 
   test(

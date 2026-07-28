@@ -1,5 +1,6 @@
 package orca.tools.pi
 
+import orca.OrcaDir
 import orca.events.OrcaListener
 import orca.agents.{
   AutoApprove,
@@ -45,19 +46,35 @@ private[orca] class PiBackend(
     override val workDir: os.Path = os.pwd
 ) extends AgentBackend[BackendTag.Pi.type]:
 
-  // One session dir per Orca session id gives caller-stable continuity.
-  // Fresh-vs-resume is committed only after a successful turn, so a retried
-  // open-failure starts fresh rather than `--continue`-ing a dir Pi never made.
-  private val sessionsBase: os.Path =
-    os.temp.dir(prefix = "orca-pi-sessions-", deleteOnExit = true)
+  // One session dir per Orca session id gives caller-stable continuity. Within
+  // a run, fresh-vs-resume is committed only after a successful turn, so a
+  // retried open-failure starts fresh. Across runs the mapping is rehydrated
+  // from the progress log and `--continue` is dispatched against the recorded
+  // id; whether that dir still holds a transcript is what `hasTranscript`
+  // answers, and the runtime re-seeds when it says no.
+  //
+  // Passive path: naming the dir must not create `.orca` (under the `os.pwd`
+  // default that would be the wrong tree, and the probe is a read path) — the
+  // spawn path ensures it.
+  private val sessionsBase: os.Path = OrcaDir.piSessionsPath(workDir)
 
-  /** Ephemeral: Pi's sessions live in a `deleteOnExit` temp dir, so
-    * fresh-vs-resume is tracked only within a live process
-    * ([[IdScheme.ClientClaimed]]) with nothing durable to persist or probe — pi
-    * always re-seeds across runs (ADR 0018 §2.6).
+  /** Durable: each session's transcript lives under
+    * `.orca/cache/pi-sessions/<session id>/` and outlives the run, so the
+    * claimed id ([[IdScheme.ClientClaimed]]) is worth persisting and existence
+    * is a best-effort on-disk probe (ADR 0018 §2.6).
     */
   val sessions: SessionSupport[BackendTag.Pi.type] =
-    SessionSupport.ephemeral(IdScheme.ClientClaimed)
+    SessionSupport.durable(IdScheme.ClientClaimed, hasTranscript)
+
+  /** Does Pi's session dir for `id` hold a transcript to `--continue` from?
+    *
+    * At least one `*.jsonl`, not exactly one: a first turn that failed after Pi
+    * seeded the dir is retried fresh and seeds a second file. `--continue`
+    * picks the most recent, which is the one the retry wrote.
+    */
+  private def hasTranscript(id: String): Boolean =
+    val dir = sessionsBase / id
+    os.isDir(dir) && os.list.stream(dir).exists(_.last.endsWith(".jsonl"))
 
   val tag: BackendTag.Pi.type = BackendTag.Pi
 
@@ -135,7 +152,11 @@ private[orca] class PiBackend(
         case Dispatch.Resume(_) => true
         case Dispatch.Fresh(_)  => false
       val args = PiArgs.rpc(
-        sessionDir = sessionsBase / SessionId.value(session),
+        // The one place the session dir is created: Pi seeds its transcript
+        // inside `<base>/<session id>`, so the base must exist by spawn time.
+        sessionDir = OrcaDir.ensurePiSessions(workDir) / SessionId.value(
+          session
+        ),
         resume = resume,
         config = config,
         systemPromptFile = systemPromptFile.map(_.file),
