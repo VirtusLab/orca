@@ -44,6 +44,7 @@ import orca.runner.terminal.TerminalInteraction
 import orca.tools.{FsTool, GitHubTool, GitTool, OsGitTool}
 import mainargs.Flag
 import ox.supervised
+import ox.either.orThrow
 
 import java.io.{ByteArrayOutputStream, PrintStream}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
@@ -2159,6 +2160,104 @@ class FlowLifecycleTest extends munit.FunSuite:
       branchNames(workDir).contains("reused-branch"),
       "the reused branch must survive teardown when orca did not create it"
     )
+
+  private val TeardownPushBranch = "teardown-push-branch"
+
+  /** Fixture for the teardown push gate: the repo, its bare local-path origin,
+    * and the setup teardown expects. The progress log is written but NOT
+    * committed, and the branch is NOT pushed — the gate turns on the order of
+    * those two steps, so each test drives them itself via [[commitLog]] and
+    * `git.push()`.
+    */
+  private case class TeardownPushRepo(
+      git: OsGitTool,
+      remote: os.Path,
+      setup: FlowLifecycle.FlowSetup,
+      logRelPath: os.SubPath
+  ):
+    /** Commit the progress log, force-staged as the runtime does, so it lands
+      * in history even under a gitignored `.orca/`.
+      */
+    def commitLog()(using WorkspaceWrite): Unit =
+      git.forceAdd(setup.store.path)
+      git.commitStaged(setup.store.path, "orca: progress log")
+
+  /** A bare local-path remote needs no credentials, so these tests exercise the
+    * real push without a network round-trip.
+    */
+  private def teardownPushFixture(): TeardownPushRepo =
+    val workDir = GitRepo.seeded() // "main"
+    val git = new OsGitTool(workDir)
+    val store = ProgressStore.default(workDir, "teardown-push")
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val _ = git.createBranch(TeardownPushBranch)
+    os.write.over(store.path, "# progress\n", createFolders = true)
+    val remote = TempDirs.dir() / "remote.git"
+    val _ =
+      os.proc("git", "init", "--bare", remote.toString).call(cwd = workDir)
+    val _ = os
+      .proc("git", "remote", "add", "origin", remote.toString)
+      .call(cwd = workDir)
+    val setup = FlowLifecycle.FlowSetup(
+      store = store,
+      featureBranch = FeatureBranch
+        .resolveReused(TeardownPushBranch, Set.empty)
+        .toOption
+        .get,
+      startBranch = "main",
+      stackSettings = StackSettings.empty,
+      branchMode = BranchMode.Reused
+    )
+    TeardownPushRepo(git, remote, setup, store.path.subRelativeTo(workDir))
+
+  private def remoteRefs(remote: os.Path): String =
+    os.proc("git", "for-each-ref", "--format=%(refname)")
+      .call(cwd = remote)
+      .out
+      .text()
+
+  private def remoteTip(remote: os.Path): String =
+    os.proc("git", "rev-parse", TeardownPushBranch)
+      .call(cwd = remote)
+      .out
+      .text()
+
+  private def remoteFiles(remote: os.Path): String =
+    os.proc("git", "ls-tree", "-r", "--name-only", TeardownPushBranch)
+      .call(cwd = remote)
+      .out
+      .text()
+
+  test("teardownSuccess pushes the progress-log removal to a pushed branch"):
+    val repo = teardownPushFixture()
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    repo.commitLog()
+    repo.git.push().orThrow
+    FlowLifecycle
+      .teardownSuccess(repo.git, repo.setup, returnToStartBranch = false)
+    val files = remoteFiles(repo.remote)
+    assert(!files.linesIterator.contains(repo.logRelPath.toString), files)
+
+  test("teardownSuccess pushes nothing when the branch has no upstream"):
+    val repo = teardownPushFixture()
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    repo.commitLog()
+    FlowLifecycle
+      .teardownSuccess(repo.git, repo.setup, returnToStartBranch = false)
+    assertEquals(remoteRefs(repo.remote).trim, "")
+
+  test("teardownSuccess pushes nothing when the upstream never got the log"):
+    // The discriminating case: the branch has an upstream (a --skip-branch run
+    // can inherit one), but the log was only ever committed locally — so the
+    // run never published it, and teardown must not push the local commits.
+    val repo = teardownPushFixture()
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    repo.git.push().orThrow
+    val before = remoteTip(repo.remote)
+    repo.commitLog()
+    FlowLifecycle
+      .teardownSuccess(repo.git, repo.setup, returnToStartBranch = false)
+    assertEquals(remoteTip(repo.remote), before)
 
   test(
     "resume after a skip-branch run on a mixed-case/slashed branch name works"

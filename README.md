@@ -141,7 +141,7 @@ computing: which stages have completed, and with what results, is tracked in a
 progress file committed alongside the modified code, making commits the unit of
 atomicity — the progress log can't drift from the changes in the repository.
 When the flow is done, the progress log is removed from the branch in one last
-commit.
+commit, which is pushed too if the flow had already pushed the branch.
 
 There are two runnable examples under
 [`examples/runnable/`](examples/runnable/):
@@ -321,7 +321,8 @@ Each `flow(...)` run is bound to exactly one feature branch and one progress log
   from the first incomplete stage. A corrupt or truncated progress log is
   detected at startup — orca warns and starts fresh (previous stages re-run)
   rather than silently mis-resuming.
-- **Success teardown:** remove the progress-log file in a final commit. A
+- **Success teardown:** remove the progress-log file in a final commit, and push
+  it when the remote branch still carries the log (i.e. the flow pushed). A
   throwaway feature branch (no substantive changes vs the starting branch) is
   deleted and HEAD returns to the starting branch. Otherwise the feature branch
   is kept and HEAD **stays on it by default** (so you end on the work); pass
