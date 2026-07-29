@@ -73,14 +73,17 @@ class CliFailurePredicatesTest extends munit.FunSuite:
       )
     )
 
-  test("isNoCommitsToPr matches the must-first-push message"):
-    assert(
-      OsGitHubTool.isNoCommitsToPr(
-        "Must first push the current branch to a remote"
-      )
-    )
+  test("isBranchNotPushed matches the must-first-push abort"):
+    // Verbatim non-interactive gh output when it doesn't consider the current
+    // branch pushed (no remote tracking ref whose hash matches local HEAD).
+    val combined =
+      "aborted: you must first push the current branch to a remote, " +
+        "or use the --head flag"
+    assert(OsGitHubTool.isBranchNotPushed(combined))
+    assert(!OsGitHubTool.isNoCommitsToPr(combined))
 
   test("the gh predicates do not match an unrelated failure"):
     val combined = "error: could not resolve to a repository"
     assert(!OsGitHubTool.isPrAlreadyExists(combined))
     assert(!OsGitHubTool.isNoCommitsToPr(combined))
+    assert(!OsGitHubTool.isBranchNotPushed(combined))

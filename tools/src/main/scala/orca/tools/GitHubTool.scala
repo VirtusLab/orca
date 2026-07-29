@@ -103,7 +103,19 @@ final class PrAlreadyExists
 
 final class NoCommitsToPr
     extends PrCreateFailed(
-      "no commits to open a pull request from — push the branch first"
+      "no commits between the base branch and the pushed branch — nothing to " +
+        "open a pull request from"
+    )
+
+/** gh refused because it does not consider the current branch pushed. With
+  * `--head` passed explicitly by [[GitHubTool.createPr]] this should not occur;
+  * kept distinct from [[NoCommitsToPr]] so the diagnostic stays truthful — the
+  * branch may well be pushed, just with local-only commits on top.
+  */
+final class BranchNotPushed
+    extends PrCreateFailed(
+      "gh does not consider the current branch pushed — push the branch " +
+        "(including any local-only commits) first"
     )
 
 /** Common parent for recoverable [[GitHubTool.waitForBuild]] failure modes:
@@ -246,7 +258,26 @@ private[orca] class OsGitHubTool(
     // already has a PR" / "no commits to push" cases from genuine system
     // failures, so this uses `runGhResult` (raw result) rather than
     // `ghRead`/`ghMutate` (which abort on non-zero exit).
-    val result = runGhResult("pr", "create", "--title", title, "--body", body)
+    //
+    // `--head` is passed explicitly: gh's own head detection only accepts a
+    // remote tracking ref whose hash equals local HEAD's, and non-interactive
+    // gh aborts when none matches. A flow stage that pushes and then commits
+    // its progress log leaves HEAD ahead of the pushed ref, so detection would
+    // wrongly conclude the branch isn't pushed. Naming the branch creates the
+    // PR from the pushed ref regardless of local-only commits on top. Bare
+    // branch name (no `owner:` prefix) — like [[findOpenPr]], this assumes the
+    // head branch lives in the same repo the PR targets, not a fork.
+    val head = currentBranchGit()
+    val result = runGhResult(
+      "pr",
+      "create",
+      "--title",
+      title,
+      "--body",
+      body,
+      "--head",
+      head
+    )
     if result.exitCode == 0 then
       val output = result.stdout.trim
       PrUrlPattern.findFirstMatchIn(output) match
@@ -263,13 +294,15 @@ private[orca] class OsGitHubTool(
       if OsGitHubTool.isPrAlreadyExists(combined) then
         // Look up the existing open PR rather than failing — crash-safe for
         // flows that may re-enter a "push + open PR" stage.
-        findOpenPr(currentBranchGit()) match
+        findOpenPr(head) match
           case Some(pr) =>
             events.onEvent(OrcaEvent.Step(s"Reusing existing PR: ${pr.url}"))
             Right(pr)
           case None => Left(new PrAlreadyExists)
       else if OsGitHubTool.isNoCommitsToPr(combined) then
         Left(new NoCommitsToPr)
+      else if OsGitHubTool.isBranchNotPushed(combined) then
+        Left(new BranchNotPushed)
       else fail("gh pr create", result)
 
   /** Resolve the current branch name via `git rev-parse --abbrev-ref HEAD`.
@@ -564,12 +597,18 @@ private[orca] object OsGitHubTool:
   private[tools] def isPrAlreadyExists(combined: String): Boolean =
     combined.toLowerCase.contains("already exists")
 
-  /** True when `gh pr create` reported there is nothing to open a PR from (no
-    * commits ahead of base, or branch not pushed).
+  /** True when `gh pr create` reported no commits between the base and head
+    * branches — the pushed branch has nothing on top of base.
     */
   private[tools] def isNoCommitsToPr(combined: String): Boolean =
-    val lower = combined.toLowerCase
-    lower.contains("no commits") || lower.contains("must first push")
+    combined.toLowerCase.contains("no commits")
+
+  /** True when non-interactive `gh pr create` aborted because it does not
+    * consider the current branch pushed — it found no remote tracking ref whose
+    * hash matches local HEAD.
+    */
+  private[tools] def isBranchNotPushed(combined: String): Boolean =
+    combined.toLowerCase.contains("must first push")
 
   private val StatusCompleted = "COMPLETED"
   private val SuccessfulConclusions = Set("SUCCESS", "NEUTRAL", "SKIPPED")

@@ -67,20 +67,34 @@ class OsGitHubToolTest extends munit.FunSuite:
 
   private val samplePr = PrHandle("acme", "widgets", 42)
 
-  test("createPr parses the PR URL returned by gh"):
-    val (cli, gh) = stubGh(
+  /** Responses for a `createPr` call: the leading `git rev-parse` resolving the
+    * head branch (`feat`), then the given `gh pr create` result, then any
+    * further responses (e.g. `gh pr list` on the already-exists path).
+    */
+  private def createPrRunner(
+      createResult: CliResult,
+      rest: CliResult*
+  ): SequencedCliRunner =
+    new SequencedCliRunner(
+      CliResult(0, "feat\n", "") +: createResult +: rest.toList
+    )
+
+  test("createPr passes the current branch as --head and parses the PR URL"):
+    val cli = createPrRunner(
       CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
     )
+    val gh = new OsGitHubTool(cli)
     val pr = gh.createPr("feat: hi", "hello").orThrow
     assertEquals(pr, samplePr)
-    val args = cli.lastCall.getOrElse(fail("expected a call")).args
+    val args = cli.calls.last.args
     assert(args.containsSlice(Seq("gh", "pr", "create")))
     assert(args.containsSlice(Seq("--title", "feat: hi")))
     assert(args.containsSlice(Seq("--body", "hello")))
+    assert(args.containsSlice(Seq("--head", "feat")))
 
   test("createPr emits a Step event with the opened PR URL"):
     val listener = new CapturingListener
-    val cli = new StubCliRunner(
+    val cli = createPrRunner(
       CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
     )
     val gh = new OsGitHubTool(cli, events = listener)
@@ -91,31 +105,48 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
 
   test("createPr throws when gh output does not contain a PR URL"):
-    val (_, gh) = stubGh(CliResult(0, "no url here", ""))
+    val gh = new OsGitHubTool(createPrRunner(CliResult(0, "no url here", "")))
     val _ = intercept[OrcaFlowException](gh.createPr("t", "b"))
 
   test(
     "createPr returns Left(PrAlreadyExists) when gh reports a duplicate and no open PR is found"
   ):
-    // gh pr create reports duplicate; git rev-parse gives branch name; gh pr list
-    // returns empty → fallback Left(PrAlreadyExists).
-    val cli = new SequencedCliRunner(
-      List(
-        CliResult(1, "", "a pull request for branch 'feat' already exists"),
-        CliResult(0, "feat\n", ""), // git rev-parse
-        CliResult(0, "[]", "") // gh pr list — no open PR
-      )
+    // git rev-parse gives the branch name; gh pr create reports duplicate;
+    // gh pr list returns empty → fallback Left(PrAlreadyExists).
+    val cli = createPrRunner(
+      CliResult(1, "", "a pull request for branch 'feat' already exists"),
+      CliResult(0, "[]", "") // gh pr list — no open PR
     )
     val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[PrAlreadyExists]))
 
   test(
-    "createPr returns Left(NoCommitsToPr) when the branch has nothing to push"
+    "createPr returns Left(NoCommitsToPr) when the pushed branch has no commits vs base"
   ):
-    val (_, gh) = stubGh(
-      CliResult(1, "", "must first push the current branch")
+    val gh = new OsGitHubTool(
+      createPrRunner(
+        CliResult(
+          1,
+          "",
+          "pull request create failed: No commits between main and feat"
+        )
+      )
     )
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[NoCommitsToPr]))
+
+  test(
+    "createPr returns Left(BranchNotPushed) when gh does not consider the branch pushed"
+  ):
+    val gh = new OsGitHubTool(
+      createPrRunner(
+        CliResult(
+          1,
+          "",
+          "aborted: you must first push the current branch to a remote"
+        )
+      )
+    )
+    assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[BranchNotPushed]))
 
   test("readPrComments maps gh api JSON into Comment values"):
     val json =
@@ -446,18 +477,15 @@ class OsGitHubToolTest extends munit.FunSuite:
   test(
     "createPr returns Right(existing PR) and emits 'Reusing existing PR' when gh reports 'already exists'"
   ):
-    // Call 1: gh pr create exits 1 with "already exists"
-    // Call 2: git rev-parse to get the current branch name
+    // Call 1: git rev-parse to get the current branch name
+    // Call 2: gh pr create exits 1 with "already exists"
     // Call 3: gh pr list returns JSON with the existing PR
     val prListJson =
       """[{"number":42,"url":"https://github.com/acme/widgets/pull/42"}]"""
     val listener = new CapturingListener
-    val cli = new SequencedCliRunner(
-      List(
-        CliResult(1, "", "a pull request for branch 'feat' already exists"),
-        CliResult(0, "feat\n", ""), // git rev-parse
-        CliResult(0, prListJson, "") // gh pr list
-      )
+    val cli = createPrRunner(
+      CliResult(1, "", "a pull request for branch 'feat' already exists"),
+      CliResult(0, prListJson, "") // gh pr list
     )
     val gh = new OsGitHubTool(
       cli,
@@ -493,12 +521,9 @@ class OsGitHubToolTest extends munit.FunSuite:
     // credential/passphrase prompt on this path could hang the flow.
     val prListJson =
       """[{"number":42,"url":"https://github.com/acme/widgets/pull/42"}]"""
-    val cli = new SequencedCliRunner(
-      List(
-        CliResult(1, "", "a pull request for branch 'feat' already exists"),
-        CliResult(0, "feat\n", ""), // git rev-parse
-        CliResult(0, prListJson, "") // gh pr list
-      )
+    val cli = createPrRunner(
+      CliResult(1, "", "a pull request for branch 'feat' already exists"),
+      CliResult(0, prListJson, "") // gh pr list
     )
     val gh = new OsGitHubTool(
       cli,
