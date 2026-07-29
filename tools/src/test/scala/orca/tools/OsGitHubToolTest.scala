@@ -67,20 +67,45 @@ class OsGitHubToolTest extends munit.FunSuite:
 
   private val samplePr = PrHandle("acme", "widgets", 42)
 
-  test("createPr parses the PR URL returned by gh"):
-    val (cli, gh) = stubGh(
+  /** Responses for a `createPr` call: the leading `git rev-parse` resolving the
+    * head branch (`feat`), then the given `gh pr create` result, then any
+    * further responses (e.g. `gh pr list` on the already-exists path).
+    */
+  private def createPrRunner(
+      createResult: CliResult,
+      rest: CliResult*
+  ): SequencedCliRunner =
+    new SequencedCliRunner(
+      CliResult(0, "feat\n", "") +: createResult +: rest.toList
+    )
+
+  test("createPr resolves the current branch and passes it as --head"):
+    val cli = createPrRunner(
       CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
     )
-    val pr = gh.createPr("feat: hi", "hello").orThrow
-    assertEquals(pr, samplePr)
-    val args = cli.lastCall.getOrElse(fail("expected a call")).args
+    val gh = new OsGitHubTool(cli)
+    val _ = gh.createPr("feat: hi", "hello").orThrow
+    // gh must be given the branch rev-parse resolved, so pin the order.
+    assertEquals(
+      cli.calls.map(_.args.take(2)),
+      List(Seq("git", "rev-parse"), Seq("gh", "pr"))
+    )
+    val args = cli.calls.last.args
     assert(args.containsSlice(Seq("gh", "pr", "create")))
     assert(args.containsSlice(Seq("--title", "feat: hi")))
     assert(args.containsSlice(Seq("--body", "hello")))
+    assert(args.containsSlice(Seq("--head", "feat")))
+
+  test("createPr parses the PR URL returned by gh"):
+    val cli = createPrRunner(
+      CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
+    )
+    val gh = new OsGitHubTool(cli)
+    assertEquals(gh.createPr("feat: hi", "hello").orThrow, samplePr)
 
   test("createPr emits a Step event with the opened PR URL"):
     val listener = new CapturingListener
-    val cli = new StubCliRunner(
+    val cli = createPrRunner(
       CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
     )
     val gh = new OsGitHubTool(cli, events = listener)
@@ -91,31 +116,60 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
 
   test("createPr throws when gh output does not contain a PR URL"):
-    val (_, gh) = stubGh(CliResult(0, "no url here", ""))
+    val gh = new OsGitHubTool(createPrRunner(CliResult(0, "no url here", "")))
     val _ = intercept[OrcaFlowException](gh.createPr("t", "b"))
 
   test(
     "createPr returns Left(PrAlreadyExists) when gh reports a duplicate and no open PR is found"
   ):
-    // gh pr create reports duplicate; git rev-parse gives branch name; gh pr list
-    // returns empty → fallback Left(PrAlreadyExists).
-    val cli = new SequencedCliRunner(
-      List(
-        CliResult(1, "", "a pull request for branch 'feat' already exists"),
-        CliResult(0, "feat\n", ""), // git rev-parse
-        CliResult(0, "[]", "") // gh pr list — no open PR
-      )
+    // git rev-parse gives the branch name; gh pr create reports duplicate;
+    // gh pr list returns empty → fallback Left(PrAlreadyExists).
+    val cli = createPrRunner(
+      CliResult(1, "", "a pull request for branch 'feat' already exists"),
+      CliResult(0, "[]", "") // gh pr list — no open PR
     )
     val gh = new OsGitHubTool(cli, readRetry = Schedule.immediate)
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[PrAlreadyExists]))
 
   test(
-    "createPr returns Left(NoCommitsToPr) when the branch has nothing to push"
+    "createPr returns Left(NoCommitsToPr) when the pushed branch has no commits vs base"
   ):
-    val (_, gh) = stubGh(
-      CliResult(1, "", "must first push the current branch")
+    val gh = new OsGitHubTool(
+      createPrRunner(
+        CliResult(
+          1,
+          "",
+          "pull request create failed: No commits between main and feat"
+        )
+      )
     )
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[NoCommitsToPr]))
+
+  test(
+    "createPr returns Left(BranchNotPushed) — not NoCommitsToPr — when the head branch is missing remotely"
+  ):
+    // GitHub's validation error for an unpushed --head branch also contains
+    // "no commits"; it must classify as the missing branch, not an empty diff.
+    val gh = new OsGitHubTool(
+      createPrRunner(
+        CliResult(
+          1,
+          "",
+          "GraphQL: Head sha can't be blank, No commits between main and feat, " +
+            "Head ref must be a branch (createPullRequest)"
+        )
+      )
+    )
+    assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[BranchNotPushed]))
+
+  test("createPr throws when not on a branch (detached HEAD)"):
+    // rev-parse prints the literal "HEAD" when detached; the guard rejects it
+    // rather than passing it to --head (it also rejects a blank name, which
+    // would silently re-enable gh's own head detection).
+    val cli = new SequencedCliRunner(List(CliResult(0, "HEAD\n", "")))
+    val gh = new OsGitHubTool(cli)
+    val e = intercept[OrcaFlowException](gh.createPr("t", "b"))
+    assert(e.getMessage.contains("not on a branch"), e.getMessage)
 
   test("readPrComments maps gh api JSON into Comment values"):
     val json =
@@ -446,18 +500,15 @@ class OsGitHubToolTest extends munit.FunSuite:
   test(
     "createPr returns Right(existing PR) and emits 'Reusing existing PR' when gh reports 'already exists'"
   ):
-    // Call 1: gh pr create exits 1 with "already exists"
-    // Call 2: git rev-parse to get the current branch name
+    // Call 1: git rev-parse to get the current branch name
+    // Call 2: gh pr create exits 1 with "already exists"
     // Call 3: gh pr list returns JSON with the existing PR
     val prListJson =
       """[{"number":42,"url":"https://github.com/acme/widgets/pull/42"}]"""
     val listener = new CapturingListener
-    val cli = new SequencedCliRunner(
-      List(
-        CliResult(1, "", "a pull request for branch 'feat' already exists"),
-        CliResult(0, "feat\n", ""), // git rev-parse
-        CliResult(0, prListJson, "") // gh pr list
-      )
+    val cli = createPrRunner(
+      CliResult(1, "", "a pull request for branch 'feat' already exists"),
+      CliResult(0, prListJson, "") // gh pr list
     )
     val gh = new OsGitHubTool(
       cli,
@@ -467,12 +518,6 @@ class OsGitHubToolTest extends munit.FunSuite:
     val pr = gh.createPr("feat: hi", "hello").orThrow
     assertEquals(pr, samplePr)
     val callArgs = cli.calls.map(_.args)
-    assert(
-      callArgs.exists(
-        _.containsSlice(Seq("git", "rev-parse", "--abbrev-ref", "HEAD"))
-      ),
-      s"expected git rev-parse in calls but got: $callArgs"
-    )
     assert(
       callArgs.exists(a =>
         a.containsSlice(
@@ -487,29 +532,17 @@ class OsGitHubToolTest extends munit.FunSuite:
         case _                   => false
     )
 
-  test("currentBranchGit carries OsGitTool.nonInteractiveEnv"):
-    // The git rev-parse in the PR-reuse fallback must carry the same
-    // non-interactive env as every other git invocation — otherwise a stalled
-    // credential/passphrase prompt on this path could hang the flow.
-    val prListJson =
-      """[{"number":42,"url":"https://github.com/acme/widgets/pull/42"}]"""
-    val cli = new SequencedCliRunner(
-      List(
-        CliResult(1, "", "a pull request for branch 'feat' already exists"),
-        CliResult(0, "feat\n", ""), // git rev-parse
-        CliResult(0, prListJson, "") // gh pr list
-      )
+  test("the --head rev-parse carries OsGitTool.nonInteractiveEnv"):
+    // The git rev-parse resolving --head must carry the same non-interactive
+    // env as every other git invocation — otherwise a stalled
+    // credential/passphrase prompt could hang the flow.
+    val cli = createPrRunner(
+      CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
     )
-    val gh = new OsGitHubTool(
-      cli,
-      readRetry = Schedule.immediate
-    )
+    val gh = new OsGitHubTool(cli)
     val _ = gh.createPr("feat: hi", "hello").orThrow
-    val revParseCall = cli.calls
-      .find(
-        _.args.containsSlice(Seq("git", "rev-parse", "--abbrev-ref", "HEAD"))
-      )
-      .getOrElse(fail("expected a git rev-parse call"))
+    val revParseCall =
+      cli.calls.headOption.getOrElse(fail("expected a git rev-parse call"))
     assertEquals(revParseCall.env.get("GIT_TERMINAL_PROMPT"), Some("0"))
     assert(
       revParseCall.env
