@@ -168,9 +168,13 @@ class ReviewAndFixTest extends munit.FunSuite:
   private def control: FlowControl =
     ReviewLoopFixture.control(new EventDispatcher(Nil))
 
-  private def issue(desc: String, confidence: Double = 1.0): ReviewIssue =
+  private def issue(
+      desc: String,
+      confidence: Double = 1.0,
+      severity: Severity = Severity.Warning
+  ): ReviewIssue =
     ReviewIssue(
-      severity = Severity.Warning,
+      severity = severity,
       confidence = confidence,
       title = Title(desc),
       description = desc,
@@ -194,34 +198,65 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(result, IgnoredIssues(Nil))
 
-  test("filters issues below the confidence threshold"):
+  test("a caller-supplied gate drops issues below its bar"):
     given FlowControl = control
-    // Reviewer reports two issues every round; only the high-confidence one
-    // survives the threshold and reaches the coder, which ignores it without
-    // a fix. With `fixed` empty the loop halts after one round.
-    val noisyIssue = issue("flaky", confidence = 0.3)
-    val realIssue = issue("real bug", confidence = 0.95)
+    // The gate's warning bar sits above the reported confidence, so nothing
+    // reaches the fixer: the round finds no issues and the loop halts. The
+    // coder is scripted with no outputs, so it throws if the loop calls it —
+    // making "the issue was dropped" an assertion, not an absence.
     val reviewer = new FakeAgent(
       name = "loud",
-      outputs = List(ReviewResult(List(noisyIssue, realIssue)))
-    )
-    val coder = new FakeAgent(
-      name = "coder",
-      outputs =
-        List(FixOutcome(Nil, List(IgnoredIssue(Title("real bug"), "accepted"))))
+      outputs = List(ReviewResult(List(issue("flaky", confidence = 0.95))))
     )
     val result = reviewAndFixLoop(
-      coderSession = ReviewLoopFixture.coderSession(coder),
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
       reviewers = List(reviewer),
       task = "build the widget",
-      confidenceThreshold = 0.7,
+      confidenceGate =
+        ConfidenceGate(critical = 0.99, warning = 0.99, info = 0.99),
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
-    assertEquals(
-      result.issues,
-      List(IgnoredIssue(Title("real bug"), "accepted"))
+    assertEquals(result, IgnoredIssues(Nil))
+
+  test("the default gate admits a confidence by severity"):
+    // Two confidence bands, each separating a pair of default bars: 0.65 clears
+    // Critical (0.5) and Warning (0.6) but not Info (0.8), while 0.5 clears only
+    // Critical — which also pins the bar as inclusive (>=, not >). Asserted on
+    // what the fixer was actually handed, which is also what the loop displays.
+    given FlowControl = control
+    val reviewer = new FakeAgent(
+      name = "mixed",
+      outputs = List(
+        ReviewResult(
+          List(
+            issue("crit-finding", 0.65, severity = Severity.Critical),
+            issue("warn-finding", 0.65, severity = Severity.Warning),
+            issue("info-finding", 0.65, severity = Severity.Info),
+            issue("crit-low", 0.5, severity = Severity.Critical),
+            issue("warn-low", 0.5, severity = Severity.Warning)
+          )
+        )
+      )
     )
+    val coder = new SeedProbingCoder(
+      existsResult = true,
+      fixOutcome = FixOutcome(Nil, Nil)
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "build the widget",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    val fixPrompt =
+      coder.capturedFixPrompt.getOrElse(fail("the fix turn never ran"))
+    assert(fixPrompt.contains("crit-finding"), fixPrompt)
+    assert(fixPrompt.contains("warn-finding"), fixPrompt)
+    assert(!fixPrompt.contains("info-finding"), fixPrompt)
+    assert(fixPrompt.contains("crit-low"), fixPrompt)
+    assert(!fixPrompt.contains("warn-low"), fixPrompt)
 
   test("runs multiple reviewers and merges their issues"):
     given FlowControl = control

@@ -164,12 +164,13 @@ private object ReviewLoopState:
   val empty: ReviewLoopState = ReviewLoopState(Nil, Nil)
 
 /** Run reviewers in parallel against `task`, gather per-reviewer outcomes, hand
-  * any issues above `confidenceThreshold` to the coder through `coderSession`'s
-  * seeded, structured door, and loop. `reviewerSelection` decides which
-  * reviewers run each iteration; the default ([[ReviewerSelector.agentDriven]])
-  * runs a picker LLM on the review-role agent's cheap tier. Pass
-  * `ReviewerSelector.allEveryRound` to skip selection, or
-  * `ReviewerSelector.agentDriven(...)` to point the picker at a specific model.
+  * any issues admitted by `confidenceGate` to the coder through
+  * `coderSession`'s seeded, structured door, and loop. `reviewerSelection`
+  * decides which reviewers run each iteration; the default
+  * ([[ReviewerSelector.agentDriven]]) runs a picker LLM on the review-role
+  * agent's cheap tier. Pass `ReviewerSelector.allEveryRound` to skip selection,
+  * or `ReviewerSelector.agentDriven(...)` to point the picker at a specific
+  * model.
   *
   * The default picker resolves `reviewAgent`'s cheap variant; a backend with no
   * separate cheap tier (`.cheap` returns `this`, e.g. pi) simply runs the
@@ -211,7 +212,11 @@ def reviewAndFixLoop[B <: BackendTag](
       * linting, `Configured.Use(Lint(...))` overrides the settings.
       */
     lint: Configured[Lint] = Configured.FromSettings,
-    confidenceThreshold: Double = 0.7,
+    /** Per-severity minimum confidence a finding must carry to be shown and
+      * handed to the fixer; everything below is dropped. See [[ConfidenceGate]]
+      * for why the bar varies by severity.
+      */
+    confidenceGate: ConfidenceGate = ConfidenceGate.default,
     maxIterations: Int = 10,
     fixInstructions: String = ReviewLoopPrompts.Fix,
     /** Override the diff handed to each reviewer in its initial prompt.
@@ -260,7 +265,7 @@ def reviewAndFixLoop[B <: BackendTag](
       task = task,
       formatCommands = resolvedFormat,
       lint = resolvedLint,
-      confidenceThreshold = confidenceThreshold,
+      confidenceGate = confidenceGate,
       maxIterations = maxIterations,
       fixInstructions = fixInstructions,
       initialDiff = initialDiff
@@ -286,7 +291,7 @@ private[review] case class ReviewLoopConfig[B <: BackendTag](
     task: String,
     formatCommands: List[String],
     lint: Option[Lint],
-    confidenceThreshold: Double,
+    confidenceGate: ConfidenceGate,
     maxIterations: Int,
     fixInstructions: String,
     initialDiff: Option[String]
@@ -329,9 +334,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     ReviewLoop.extractChangedFiles(sampleDiff())
 
   private def filterByConfidence(result: ReviewResult): ReviewResult =
-    ReviewResult(issues =
-      result.issues.filter(_.confidence >= confidenceThreshold)
-    )
+    ReviewResult(issues = result.issues.filter(confidenceGate.admits))
 
   /** Run one reviewer against an immutable sessions snapshot. Returns the
     * review result plus, on a reviewer's first call, the new [[SessionEntry]]
