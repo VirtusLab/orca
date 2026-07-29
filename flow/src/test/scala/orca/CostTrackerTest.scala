@@ -178,11 +178,49 @@ class CostTrackerTest extends munit.FunSuite:
     )
     val out = tracker.summary
     assert(out.contains("claude: 10 in, 5 out ($0.1000)"), out)
-    assert(out.contains("performance: 1000000 in, 0 out ($1.0000*)"), out)
+    assert(out.contains("performance: 1M in, 0 out ($1.0000*)"), out)
     // Mixed → aggregate is estimated → prefix shifts; asterisk on the
     // amount drops since the word already says it.
     assert(out.contains("Estimated total: $1.1000"), out)
     assert(!out.contains("Estimated total: $1.1000*"), out)
+
+  test("summary renders token counts compactly"):
+    val cases = List(
+      999L -> "999",
+      1000L -> "1K", // boundary; whole values drop the ".0"
+      103_800L -> "103.8K",
+      3_200_000L -> "3.2M",
+      999_950L -> "1M" // rounds up into the next unit
+    )
+    cases.foreach: (n, expected) =>
+      val tracker = new CostTracker(pricing = testTable)
+      tracker.onEvent(tokens("claude", Some("opus"), Usage(n, 0L, None)))
+      assert(
+        tracker.summary.contains(s"claude: $expected in"),
+        tracker.summary
+      )
+
+  test("summary compacts the cached and reasoning parentheticals too"):
+    val tracker = new CostTracker(pricing = testTable)
+    tracker.onEvent(
+      tokens(
+        "claude",
+        Some("opus"),
+        Usage(
+          inputTokens = 50_000L,
+          outputTokens = 12_500L,
+          cost = None,
+          cachedInputTokens = 40_000L,
+          reasoningOutputTokens = 1_200L
+        )
+      )
+    )
+    assert(
+      tracker.summary.contains(
+        "claude: 50K in (40K cached), 12.5K out (1.2K reasoning)"
+      ),
+      tracker.summary
+    )
 
   test("summary lists By agent lines alphabetically by their rendered label"):
     // Sorting on the raw agent name would slot an unprefixed agent between
