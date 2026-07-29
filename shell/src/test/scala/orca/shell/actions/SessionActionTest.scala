@@ -3,6 +3,7 @@ package orca.shell.actions
 import orca.runner.manifest.{ManifestSession, RunManifest}
 import orca.shell.sessions.SessionSelection
 import orca.testkit.TempDirs
+import orca.tools.pi.PiSessionStore
 
 class SessionActionTest extends munit.FunSuite:
 
@@ -53,18 +54,19 @@ class SessionActionTest extends munit.FunSuite:
       "resuming session 'newest' [claude], stage 'Task: fix a bug', in /work"
     )
 
-  private def piSession(wireId: Option[String]): ManifestSession =
-    session().copy(harness = "Pi", wireId = wireId)
-
   private def piDir(workDir: os.Path, id: String): os.Path =
-    workDir / ".orca" / "cache" / "pi-sessions" / id
+    PiSessionStore.dirFor(workDir, id).get
 
   test("piSessionDir resolves a session dir that still holds a transcript"):
     val workDir = TempDirs.dir()
     val dir = piDir(workDir, "a-session")
-    os.write(dir / "session.jsonl", "{}\n", createFolders = true)
+    os.write(
+      dir / "session.jsonl",
+      s"""{"type":"session","id":"a-session","cwd":"$workDir"}""" + "\n",
+      createFolders = true
+    )
     assertEquals(
-      SessionAction.piSessionDir(piSession(Some("a-session")), workDir),
+      SessionAction.piSessionDir("a-session", workDir),
       Right(dir)
     )
 
@@ -73,19 +75,13 @@ class SessionActionTest extends munit.FunSuite:
   ):
     val workDir = TempDirs.dir()
     val Left(reason) =
-      SessionAction.piSessionDir(
-        piSession(Some("a-session")),
-        workDir
-      ): @unchecked
+      SessionAction.piSessionDir("a-session", workDir): @unchecked
     assert(reason.contains(piDir(workDir, "a-session").toString), reason)
 
   test("piSessionDir reports an id that isn't a directory name separately"):
     val workDir = TempDirs.dir()
     val Left(reason) =
-      SessionAction.piSessionDir(
-        piSession(Some("../../etc")),
-        workDir
-      ): @unchecked
+      SessionAction.piSessionDir("../../etc", workDir): @unchecked
     assert(reason.contains("not a directory name"), reason)
 
   test("validatedWorkDir accepts a path that's still a directory"):

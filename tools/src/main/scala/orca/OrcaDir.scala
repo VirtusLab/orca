@@ -81,7 +81,9 @@ private[orca] object OrcaDir:
     */
   def ensurePiSessions(workDir: os.Path): os.Path =
     val _ = ensureCache(workDir)
-    piSessionsPath(workDir).tap(os.makeDir.all(_))
+    val sessions = piSessionsPath(workDir)
+    abortIfOrcaComponentSymlink(workDir, sessions)
+    sessions.tap(os.makeDir.all(_))
 
   /** `<workDir>/.orca/cache/runs`, passively — the read-side counterpart to
     * [[cacheRunsPath]] for the shell's manifest listing (ADR 0021 §8), which

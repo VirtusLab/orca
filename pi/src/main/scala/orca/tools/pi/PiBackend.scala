@@ -28,7 +28,6 @@ import orca.subprocess.CliRunner
 import ox.Ox
 
 import java.time.Instant
-import scala.util.control.NonFatal
 
 /** Pi backend driven through `pi --mode rpc` JSONL over stdio.
   *
@@ -41,14 +40,14 @@ import scala.util.control.NonFatal
   * per-session `--session-dir` that Pi seeds on the first turn and `--continue`
   * resumes on later ones.
   */
-private[orca] class PiBackend(
+private[orca] class PiBackend private[pi] (
     cli: CliRunner,
     /** Working directory every spawn runs in. The `os.pwd` default serves test
       * construction; the runtime passes the flow's real `workDir`.
       */
     override val workDir: os.Path = os.pwd,
     /** Wall clock for the session-cache retention cutoff (see
-      * [[PiBackend.Retention]]).
+      * [[PiSessionStore.Retention]]).
       */
     clock: () => Instant = () => Instant.now()
 ) extends AgentBackend[BackendTag.Pi.type]:
@@ -57,13 +56,8 @@ private[orca] class PiBackend(
   // a run, fresh-vs-resume is committed only after a successful turn, so a
   // retried open-failure starts fresh. Across runs the mapping is rehydrated
   // from the progress log and `--continue` is dispatched against the recorded
-  // id; whether that dir still holds a transcript is what `hasTranscript`
-  // answers, and the runtime re-seeds when it says no.
-  //
-  // Passive path: naming the dir must not create `.orca` (under the `os.pwd`
-  // default that would be the wrong tree, and the probe is a read path) — the
-  // spawn path ensures it.
-  private val sessionsBase: os.Path = OrcaDir.piSessionsPath(workDir)
+  // id; whether that dir is still resumable is what `hasTranscript` answers,
+  // and the runtime re-seeds when it says no.
 
   /** Durable: each session's transcript lives under
     * `.orca/cache/pi-sessions/<session id>/` and outlives the run, so the
@@ -73,58 +67,12 @@ private[orca] class PiBackend(
   val sessions: SessionSupport[BackendTag.Pi.type] =
     SessionSupport.durable(IdScheme.ClientClaimed, hasTranscript)
 
-  /** Does [[PiSessionStore]] still hold a transcript for `id`, young enough to
-    * survive the next prune? Applying the retention cutoff on top of the
-    * store's own check means a dir another process is about to prune reports
-    * absent now, rather than after the runtime committed to resuming it.
-    */
+  // A read path: probing must not create `.orca` (under the `os.pwd` default
+  // that would be the wrong tree) — only the spawn path creates.
   private def hasTranscript(id: String): Boolean =
     PiSessionStore
       .dirFor(workDir, id)
-      .exists: dir =>
-        PiSessionStore.hasTranscript(dir) && touchedSince(dir, cutoff())
-
-  /** The session dir root, created on first use. `lazy` because naming the dir
-    * must stay effect-free (see [[sessionsBase]]) — only spawning creates.
-    */
-  private lazy val ensuredSessionsBase: os.Path =
-    OrcaDir.ensurePiSessions(workDir)
-
-  private def cutoff(): Instant = clock().minus(PiBackend.Retention)
-
-  /** Delete session dirs untouched since `cutoff()`. Pi prunes its own default
-    * session store but not the dir orca points it at, so without this the cache
-    * grows by one dir per session forever. Run by [[PiBackend.create]] before
-    * the backend is handed out, so no probe can call a doomed dir resumable.
-    *
-    * Fully best-effort — the listing and each candidate are guarded separately
-    * — because a cache that can't be pruned (a race with another run, a
-    * read-only dir) must not fail the backend it belongs to.
-    */
-  private def pruneSessionCache(): Unit =
-    if os.exists(sessionsBase) then
-      val stale = cutoff()
-      try
-        // Sorted (`os.list`, not `os.list.stream`): one small array of session
-        // dirs, in exchange for a prune order that doesn't depend on readdir.
-        os.list(sessionsBase)
-          .foreach: dir =>
-            try
-              if os.isDir(dir) && !touchedSince(dir, stale) then
-                os.remove.all(dir)
-            catch case NonFatal(_) => ()
-      catch case NonFatal(_) => ()
-
-  /** Was `dir` — or any file in it — modified at or after `cutoff`? Its own
-    * mtime is not enough: appending to an existing transcript doesn't bump the
-    * containing directory's mtime, so a long-lived chat would otherwise look
-    * untouched since the turn that created it. Checked dir-first so a fresh dir
-    * costs one stat and a stale scan stops at the first fresh file.
-    */
-  private def touchedSince(dir: os.Path, cutoff: Instant): Boolean =
-    def touched(p: os.Path) =
-      !Instant.ofEpochMilli(os.mtime(p)).isBefore(cutoff)
-    touched(dir) || os.list.stream(dir).exists(touched)
+      .exists(dir => PiSessionStore.resumable(dir, workDir, clock()))
 
   val tag: BackendTag.Pi.type = BackendTag.Pi
 
@@ -204,7 +152,9 @@ private[orca] class PiBackend(
       val args = PiArgs.rpc(
         // The one place the session dir is created: Pi seeds its transcript
         // inside `<base>/<session id>`, so the base must exist by spawn time.
-        sessionDir = ensuredSessionsBase / SessionId.value(session),
+        // Ensured per spawn, so a cache deleted mid-run is recreated.
+        sessionDir =
+          OrcaDir.ensurePiSessions(workDir) / SessionId.value(session),
         resume = resume,
         config = config,
         systemPromptFile = systemPromptFile.map(_.file),
@@ -241,23 +191,24 @@ private[orca] class PiBackend(
       extends AutoCloseable:
     def close(): Unit = os.remove.all(dir)
 
-private[pi] object PiBackend:
-  /** How long an untouched session dir survives in `.orca/cache/pi-sessions`,
-    * matching claude's own transcript retention. A pruned session is not a lost
-    * turn: the probe then reports absence and the runtime re-seeds.
-    */
-  private[pi] val Retention: java.time.Duration = java.time.Duration.ofDays(30)
-
+private[orca] object PiBackend:
   /** The runtime's door: builds a backend and prunes its session cache before
     * handing it out, so no probe can call a dir the next prune would take
-    * resumable. The bare constructor stays effect-free, for
-    * construct-to-inspect uses (enforcement tables, arg wiring).
+    * resumable. The bare constructor stays effect-free because constructing
+    * with the `os.pwd` default must not prune the repo's own cache — that's
+    * what [[forInspection]] exists for.
     */
-  private[pi] def create(
+  private[orca] def create(
       cli: CliRunner,
       workDir: os.Path,
       clock: () => Instant = () => Instant.now()
   ): PiBackend =
     val backend = new PiBackend(cli, workDir, clock)
-    backend.pruneSessionCache()
+    PiSessionStore.prune(workDir, clock())
     backend
+
+  /** A backend built only to be inspected (enforcement tables, arg wiring),
+    * never spawned or probed: no workDir, no prune, no disk effects.
+    */
+  private[orca] def forInspection(cli: CliRunner): PiBackend =
+    new PiBackend(cli)

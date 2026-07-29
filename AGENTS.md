@@ -120,7 +120,9 @@ most easily broken:
   `SessionSupport.ephemeral(scheme)` (nothing survives a process restart; no
   backend uses it today) or `SessionSupport.durable(scheme, probe)` (all
   backends — sessions outlive the process, including across a restart; pi's
-  live in `.orca/cache/pi-sessions/<id>/` and are probed for a `*.jsonl`;
+  live in `.orca/cache/pi-sessions/<id>/` and are probed for a `*.jsonl` whose
+  transcript header pi's `--continue` accepts for the workDir, within the
+  30-day retention (`PiSessionStore.resumable`, shared with the shell's resume);
   opencode persists sessions in its own global on-disk store independent of
   orca's per-run `opencode serve` process, so a fresh server spawned after a
   kill/restart resumes a committed `resumeWireId` the same way the file-probed

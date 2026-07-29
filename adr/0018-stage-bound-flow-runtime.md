@@ -628,17 +628,20 @@ list output and opencode's directory-scoping should be pinned when the probes la
 > longer holds — every backend is `durable(scheme, probe)`, with `ephemeral` kept as a
 > supported shape that has no user today. Pi's `--session-dir` moved from a
 > `deleteOnExit` temp dir to `<workDir>/.orca/cache/pi-sessions/<session id>/`, and the
-> probe is "that dir holds at least one `*.jsonl`" — at least one, because a first turn
-> that fails after pi seeded the dir is retried fresh and seeds a second file, and
-> `--continue` picks the most recent. Consequence: pi rows in the run manifest now
-> carry a wire id.
+> probe is "some `*.jsonl` in that dir carries a transcript header pi's `--continue`
+> accepts" — `type: "session"` with a `cwd` resolving to the workDir, matching pi's own
+> filter, so orca never promises a resume pi would silently start empty; some, not
+> exactly one, because a first turn that fails after pi seeded the dir is retried fresh
+> and seeds a second file, and `--continue` picks the most recent. Consequence: pi rows
+> in the run manifest now carry a wire id.
 > Accepted as-is: pi migrates older session-file versions on load, so a dir written by
 > an earlier pi is upgraded rather than rejected. Retention: pi doesn't prune the dir
-> orca points it at, so the backend does — when the runtime builds it, before any probe
-> can run, it best-effort deletes session dirs untouched for 30 days (matching claude's
-> own transcript retention). Pruning a session is not a lost turn: the probe then
-> reports absence and the runtime re-seeds, and the probe applies the same cutoff, so a
-> dir another process is about to prune already reads as absent.
+> orca points it at, so orca's session store (`PiSessionStore`, which also owns the
+> probe predicate) does — when the runtime builds the backend, before any probe can
+> run, it best-effort deletes session dirs untouched for 30 days (matching claude's own
+> transcript retention). Pruning a session is not a lost turn: the probe then reports
+> absence and the runtime re-seeds, and the probe applies the same cutoff, so a dir
+> another process is about to prune already reads as absent.
 
 ### 2.7 External-effect idempotency
 

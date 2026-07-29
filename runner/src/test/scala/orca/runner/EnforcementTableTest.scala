@@ -34,7 +34,7 @@ class EnforcementTableTest extends munit.FunSuite:
         "codex" -> new CodexBackend(cli),
         "gemini" -> new GeminiBackend(cli),
         "opencode" -> OpencodeBackend(cli, TempDirs.dir()),
-        "pi" -> new PiBackend(cli)
+        "pi" -> PiBackend.forInspection(cli)
       )
       def get(name: String): AgentBackend[?] =
         backends.collectFirst { case (n, b) if n == name => b }.get

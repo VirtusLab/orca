@@ -21,7 +21,7 @@ class PiIntegrationTest extends munit.FunSuite:
     SessionId.fresh[BackendTag.Pi.type]
 
   test("RPC autonomous prompt returns requested literal output"):
-    val backend = new PiBackend(OsProcCliRunner, workDir = TempDirs.dir())
+    val backend = PiBackend.create(OsProcCliRunner, workDir = TempDirs.dir())
     val result = backend.runAutonomous(
       prompt = "Reply with the single word: READY",
       session = fresh,
@@ -37,15 +37,17 @@ class PiIntegrationTest extends munit.FunSuite:
     val session = fresh
     val config = AgentConfig().copy(tools = ToolSet.ReadOnly)
 
-    val _ = new PiBackend(OsProcCliRunner, workDir = workDir).runAutonomous(
-      prompt = "Remember the word BANANA. Reply with the single word: OK",
-      session = session,
-      config = config
-    )
+    val _ = PiBackend
+      .create(OsProcCliRunner, workDir = workDir)
+      .runAutonomous(
+        prompt = "Remember the word BANANA. Reply with the single word: OK",
+        session = session,
+        config = config
+      )
 
     // A second instance stands in for the next orca run: the wire id comes back
     // from the run manifest, and only Pi's on-disk session dir carries context.
-    val next = new PiBackend(OsProcCliRunner, workDir = workDir)
+    val next = PiBackend.create(OsProcCliRunner, workDir = workDir)
     next.sessions.register(session, session.onWire)
     assert(next.sessions.willContinue(session))
 

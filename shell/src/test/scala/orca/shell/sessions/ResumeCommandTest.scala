@@ -2,7 +2,6 @@ package orca.shell.sessions
 
 import orca.agents.BackendTag
 import orca.runner.manifest.ManifestSession
-import orca.testkit.TempDirs
 
 class ResumeCommandTest extends munit.FunSuite:
 
@@ -24,35 +23,42 @@ class ResumeCommandTest extends munit.FunSuite:
       lastActiveAt = "2026-07-18T10:00:00Z"
     )
 
+  /** [[ResumeCommand.build]] with lookup stubs that fail the test if invoked —
+    * each test overrides only the lookup its harness actually reads.
+    */
+  private def build(
+      s: ManifestSession,
+      geminiIndex: String => Option[Int] = _ => fail("gemini lookup invoked"),
+      piSessionDir: String => Either[String, os.Path] = _ =>
+        fail("pi lookup invoked")
+  ): Either[String, Seq[String]] =
+    ResumeCommand.build(s, geminiIndex, piSessionDir)
+
   test("claude resumes via `claude --resume <uuid>`"):
     val uuid = "6f0f1234-5678-4abc-9def-000000000001"
     assertEquals(
-      ResumeCommand
-        .build(session("ClaudeCode", Some(uuid)), geminiIndex = None),
+      build(session("ClaudeCode", Some(uuid))),
       Right(Seq("claude", "--resume", uuid))
     )
 
   test("codex resumes via `codex resume <thread-id>`"):
     val id = "7f9f1234-5678-4abc-9def-000000000002"
     assertEquals(
-      ResumeCommand
-        .build(session("Codex", Some(id)), geminiIndex = None),
+      build(session("Codex", Some(id))),
       Right(Seq("codex", "resume", id))
     )
 
   test("opencode resumes via `opencode --session <ses_...>`"):
     val id = "ses_abc123"
     assertEquals(
-      ResumeCommand
-        .build(session("Opencode", Some(id)), geminiIndex = None),
+      build(session("Opencode", Some(id))),
       Right(Seq("opencode", "--session", id))
     )
 
   test("gemini resumes via `gemini --resume <index>` once the index is known"):
     val uuid = "aaaa1234-5678-4abc-9def-000000000003"
     assertEquals(
-      ResumeCommand
-        .build(session("Gemini", Some(uuid)), geminiIndex = Some(3)),
+      build(session("Gemini", Some(uuid)), geminiIndex = _ => Some(3)),
       Right(Seq("gemini", "--resume", "3"))
     )
 
@@ -62,30 +68,24 @@ class ResumeCommandTest extends munit.FunSuite:
     val reason = "no matching session found via `gemini --list-sessions`"
     val uuid = "aaaa1234-5678-4abc-9def-000000000003"
     assertEquals(
-      ResumeCommand.build(
+      build(
         session("Gemini", Some(uuid), reason = Some(reason)),
-        geminiIndex = None
+        geminiIndex = _ => None
       ),
       Left(reason)
     )
 
   test("pi resumes via `pi --session-dir <dir> --continue`"):
-    val dir = TempDirs.dir() / ".orca" / "cache" / "pi-sessions" / "a-session"
+    val dir = os.root / "work" / ".orca" / "cache" / "pi-sessions" / "a-session"
     assertEquals(
-      ResumeCommand.build(
-        session("Pi", Some("a-session")),
-        piSessionDir = Right(dir)
-      ),
+      build(session("Pi", Some("a-session")), piSessionDir = _ => Right(dir)),
       Right(Seq("pi", "--session-dir", dir.toString, "--continue"))
     )
 
   test("pi is not resumable, with the caller's reason, when its dir is gone"):
     val reason = "no pi transcript at /gone — pruned, cleaned, or never written"
     assertEquals(
-      ResumeCommand.build(
-        session("Pi", Some("a-session")),
-        piSessionDir = Left(reason)
-      ),
+      build(session("Pi", Some("a-session")), piSessionDir = _ => Left(reason)),
       Left(reason)
     )
 
@@ -94,55 +94,28 @@ class ResumeCommandTest extends munit.FunSuite:
   ):
     val reason = "crashed before the first turn committed"
     assertEquals(
-      ResumeCommand.build(
-        session("ClaudeCode", None, reason = Some(reason)),
-        geminiIndex = None
-      ),
+      build(session("ClaudeCode", None, reason = Some(reason))),
       Left(reason)
     )
 
   test(
     "a wireId-less session with no stored reason still reports Left with some message"
   ):
-    assert(
-      ResumeCommand
-        .build(session("ClaudeCode", None), geminiIndex = None)
-        .isLeft
-    )
+    assert(build(session("ClaudeCode", None)).isLeft)
 
   test("a wireId starting with `-` is rejected rather than passed as argv"):
-    assert(
-      ResumeCommand
-        .build(session("ClaudeCode", Some("-rf")), geminiIndex = None)
-        .isLeft
-    )
+    assert(build(session("ClaudeCode", Some("-rf"))).isLeft)
 
   test("a blank wireId is rejected rather than passed as argv"):
-    assert(
-      ResumeCommand
-        .build(session("ClaudeCode", Some("   ")), geminiIndex = None)
-        .isLeft
-    )
+    assert(build(session("ClaudeCode", Some("   "))).isLeft)
 
   test("an unrecognised harness string is not resumable"):
-    assert(
-      ResumeCommand
-        .build(session("SomeFutureHarness", Some("id")), geminiIndex = None)
-        .isLeft
-    )
+    assert(build(session("SomeFutureHarness", Some("id"))).isLeft)
 
   test("staticGate: a recognised harness with a wireId is Right with its tag"):
     assertEquals(
       ResumeCommand.staticGate(session("ClaudeCode", Some("uuid"))),
       Right(BackendTag.ClaudeCode)
-    )
-
-  test(
-    "staticGate: pi with a wireId is Right, deferring the session-dir check to build"
-  ):
-    assertEquals(
-      ResumeCommand.staticGate(session("Pi", Some("uuid"))),
-      Right(BackendTag.Pi)
     )
 
   test(

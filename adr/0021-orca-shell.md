@@ -445,9 +445,11 @@ resume is global, but the resumed context still references that directory):
 | gemini | `gemini --list-sessions` → match uuid → `gemini --resume <index>` | medium — `--resume` takes latest/index, not uuid |
 | pi | `pi --session-dir <workDir>/.orca/cache/pi-sessions/<id> --continue` | medium-high — orca writes the dir itself; inferred from pi's `--continue` semantics, not yet live-verified interactively |
 
-> **Amendment (2026-07-28).** Pi is now durable (ADR 0018 §2.6); resume checks the
-> session dir still holds a `*.jsonl` (pruned at 30 days) and reports "no pi transcript
-> at \<dir\>" when it doesn't, before the argv is built.
+> **Amendment (2026-07-28).** Pi is now durable (ADR 0018 §2.6); before the argv is
+> built, resume applies the same resumability predicate as the backend's own probe
+> (`PiSessionStore.resumable`: a `*.jsonl` whose transcript header matches the
+> checkout, within the 30-day retention) and reports "no resumable pi transcript at
+> \<dir\>" when it fails.
 
 ### 9. Creating a new flow with a harness
 

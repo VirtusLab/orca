@@ -103,6 +103,14 @@ class OrcaDirTest extends munit.FunSuite:
     assert(os.isDir(sessions))
     assert(os.exists(wd / ".orca" / "cache" / ".gitignore"))
 
+  test("ensurePiSessions aborts on a symlinked .orca/cache/pi-sessions"):
+    val wd = TempDirs.dir()
+    val outside = TempDirs.dir() / "outside-sessions"
+    os.makeDir.all(outside)
+    OrcaDir.ensureCache(wd).discard
+    os.symlink(OrcaDir.piSessionsPath(wd), outside)
+    intercept[OrcaFlowException](OrcaDir.ensurePiSessions(wd)).discard
+
   test(
     "piSessionsPath points at .orca/cache/pi-sessions without creating anything"
   ):

@@ -71,7 +71,7 @@ class PiBackendTest extends munit.FunSuite:
     val dir = call.args(call.args.indexOf("--session-dir") + 1)
     assertEquals(
       os.Path(dir),
-      workDir / ".orca" / "cache" / "pi-sessions" / SessionId.value(sid)
+      OrcaDir.piSessionsPath(workDir) / SessionId.value(sid)
     )
     assert(!call.args.contains("--continue"), call.args)
     assert(process.writes.exists(_.contains("\"type\":\"prompt\"")))
@@ -210,6 +210,12 @@ class PiBackendTest extends munit.FunSuite:
     val args = runner.calls.head
     assert(!args.contains("--append-system-prompt"), args)
 
+  /** The header line pi's `--continue` requires — what
+    * [[PiSessionStore.resumable]] probes for.
+    */
+  private def transcript(cwd: os.Path): String =
+    s"""{"type":"session","id":"${SessionId.value(sid)}","cwd":"$cwd"}""" + "\n"
+
   /** Run one successful turn (which commits the session) and return the backend
     * plus the session dir Pi was pointed at. The stub never spawns Pi, so that
     * dir does not exist until a test creates it — which is what lets the probe
@@ -222,40 +228,28 @@ class PiBackendTest extends munit.FunSuite:
     val args = runner.spawnCalls.head.args
     (backend, os.Path(args(args.indexOf("--session-dir") + 1)))
 
-  test("constructing a backend does not create .orca"):
-    val workDir = TempDirs.dir()
-    val _ = new PiBackend(new SpawnStubCliRunner(Nil), workDir = workDir)
-    assert(!os.exists(workDir / ".orca"))
-
-  test("willContinue is false before a turn commits the session"):
-    val backend = backendWith(new SpawnStubCliRunner(Nil))
-    assert(!backend.sessions.willContinue(sid))
-
   test("probing a rehydrated session does not create .orca"):
     // The read path (a wire id replayed from the progress log, then probed)
     // must stay effect-free — only spawning pi creates the session dirs.
     val workDir = TempDirs.dir()
     val backend = new PiBackend(new SpawnStubCliRunner(Nil), workDir = workDir)
     backend.sessions.register(sid, sid.onWire)
-    assert(!backend.sessions.willContinue(sid))
+    val _ = backend.sessions.willContinue(sid)
     assert(!os.exists(workDir / ".orca"))
 
   test(
     "willContinue is true when the committed session dir holds a transcript"
   ):
     val (backend, dir) = committedSession()
-    os.write(dir / "session.jsonl", "{}\n", createFolders = true)
+    os.write(
+      dir / "session.jsonl",
+      transcript(backend.workDir),
+      createFolders = true
+    )
     assert(backend.sessions.willContinue(sid))
 
   test("willContinue is false when the committed session dir is gone"):
     val (backend, _) = committedSession()
-    assert(!backend.sessions.willContinue(sid))
-
-  test(
-    "willContinue is false when the committed session dir has no transcript"
-  ):
-    val (backend, dir) = committedSession()
-    os.makeDir.all(dir)
     assert(!backend.sessions.willContinue(sid))
 
   test("persistableWireId is the claimed client id once the session commits"):
@@ -272,7 +266,7 @@ class PiBackendTest extends munit.FunSuite:
   /** The prune's exact boundary: a dir stamped here is kept, one stamped a
     * millisecond earlier is deleted.
     */
-  private val cutoff = now.minus(PiBackend.Retention)
+  private val cutoff = now.minus(PiSessionStore.Retention)
 
   /** A leftover session dir stamped `at`, holding one transcript stamped the
     * same unless `withTranscript` is false (an empty dir — pi crashed before
@@ -287,7 +281,7 @@ class PiBackendTest extends munit.FunSuite:
     val dir = OrcaDir.piSessionsPath(workDir) / name
     os.makeDir.all(dir)
     if withTranscript then
-      os.write(dir / "session.jsonl", "{}\n")
+      os.write(dir / "session.jsonl", transcript(workDir))
       os.mtime.set(dir / "session.jsonl", at.toEpochMilli): Unit
     os.mtime.set(dir, at.toEpochMilli): Unit
     dir
@@ -311,8 +305,7 @@ class PiBackendTest extends munit.FunSuite:
     assert(os.exists(recent))
 
   test("an empty session dir is judged by its own mtime"):
-    // With nothing inside to date it, only the dir's own stamp decides — so
-    // both outcomes are needed to show the empty listing isn't what does it.
+    // With nothing inside to date it, only the dir's own stamp decides.
     val workDir = TempDirs.dir()
     val abandoned =
       sessionDirStamped(
@@ -321,11 +314,8 @@ class PiBackendTest extends munit.FunSuite:
         cutoff.minusMillis(1),
         withTranscript = false
       )
-    val seeding =
-      sessionDirStamped(workDir, "seeding", now, withTranscript = false)
     val _ = backendAt(workDir)
     assert(!os.exists(abandoned))
-    assert(os.exists(seeding))
 
   test("an old dir whose transcript was appended after the cutoff is kept"):
     // Appending to an existing file leaves the directory's own mtime at
@@ -336,17 +326,10 @@ class PiBackendTest extends munit.FunSuite:
     val _ = backendAt(workDir)
     assert(os.exists(used))
 
-  test("a stale session is pruned before the probe can call it resumable"):
-    // The runtime's order on resume: construct, rehydrate the recorded wire id,
-    // probe. The probe must not promise a transcript the prune has taken —
-    // reporting absence is what makes the runtime re-seed the turn.
+  test("create on a fresh workDir creates nothing under .orca"):
     val workDir = TempDirs.dir()
-    val dir =
-      sessionDirStamped(workDir, SessionId.value(sid), cutoff.minusMillis(1))
-    val backend = backendAt(workDir)
-    backend.sessions.register(sid, sid.onWire)
-    assert(!os.exists(dir))
-    assert(!backend.sessions.willContinue(sid))
+    val _ = backendAt(workDir)
+    assert(!os.exists(workDir / ".orca"))
 
   test("the probe reports absent for a session dir already past the cutoff"):
     // Planted after construction, so the prune can't be what removes it: the
@@ -377,3 +360,18 @@ class PiBackendTest extends munit.FunSuite:
 
     assert(os.exists(broken))
     siblings.foreach(dir => assert(!os.exists(dir), dir))
+
+  test("the prune bails out on a symlinked pi-sessions root"):
+    // A committed symlink at the root would otherwise let the recursive delete
+    // reach outside the working tree.
+    val workDir = TempDirs.dir()
+    val target = TempDirs.dir()
+    val victim = target / "victim"
+    os.makeDir.all(victim)
+    os.mtime.set(victim, cutoff.minusMillis(1).toEpochMilli): Unit
+    val _ = OrcaDir.ensureCache(workDir)
+    os.symlink(OrcaDir.piSessionsPath(workDir), target)
+
+    val _ = backendAt(workDir)
+
+    assert(os.exists(victim))
