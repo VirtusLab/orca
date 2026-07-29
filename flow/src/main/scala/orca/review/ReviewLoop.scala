@@ -410,7 +410,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         .resultAs[ReviewResult]
         .autonomous
         .run(
-          ReviewLoopPrompts.initialReview(task, currentDiff),
+          ReviewLoopPrompts.initialReview(task, currentDiff, confidenceGate),
           emitPrompt = false
         )
     (result, Some(SessionEntry(e, chat)))
