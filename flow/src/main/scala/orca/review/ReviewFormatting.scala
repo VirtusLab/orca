@@ -30,14 +30,23 @@ private[review] def formatIssue(issue: ReviewIssue): String =
 /** Format a reviewer's outcome as a `▶`-step body — heading line names the
   * reviewer + issue count, then bulleted issue details indented under it. Clean
   * reviews collapse to a single "<name>: 0 issues" line.
+  *
+  * `result` holds only what cleared the confidence gate; `droppedCount` is how
+  * many of that reviewer's findings it held back, noted in the heading so a
+  * quiet reviewer isn't confused with a gated-out one. Those findings are
+  * recorded by name in the loop's `IgnoredIssues`, not here.
   */
 private[review] def formatReviewerOutcome(
     reviewerName: String,
-    result: ReviewResult
+    result: ReviewResult,
+    droppedCount: Int
 ): String =
-  if result.issues.isEmpty then s"$reviewerName: 0 issues"
+  val gated =
+    if droppedCount == 0 then ""
+    else s" ($droppedCount below the confidence gate)"
+  if result.issues.isEmpty then s"$reviewerName: 0 issues$gated"
   else
     val header =
-      s"$reviewerName: ${TextUtil.pluralize(result.issues.size, "issue")}"
+      s"$reviewerName: ${TextUtil.pluralize(result.issues.size, "issue")}$gated"
     val bullets = result.issues.map(formatIssue).mkString("\n")
     s"$header\n$bullets"
