@@ -868,11 +868,12 @@ object FlowLifecycle:
         log.debug(s"teardownSuccess: $what failed (cosmetic, swallowed)", e)
 
   /** Successful teardown (ADR 0018 §2.5): remove the progress-log file in a
-    * final commit so a merged branch is clean, then hand off to
+    * final commit so a merged branch is clean, push that commit when the branch
+    * was already published with the log on it, then hand off to
     * [[finishBranch]] for where HEAD lands.
     *
-    * Errors during log removal, the cleanup commit, or the branch handoff are
-    * cosmetic on an already-successful run — every leg runs through
+    * Errors during log removal, the cleanup commit, the push, or the branch
+    * handoff are cosmetic on an already-successful run — every leg runs through
     * [[bestEffort]]. A missing progress-log file (the ordinary "already
     * removed" case) stays fully silent; every other failure is debug-logged.
     */
@@ -894,6 +895,13 @@ object FlowLifecycle:
       // run already succeeded and the progress file is gone from the tree.
       bestEffort("commit progress-log removal"):
         val _ = git.commit("orca: remove progress log")
+      // Gated on the remote still carrying the log, not on the commit leg
+      // succeeding: a resumed teardown hits NothingToCommit yet may still owe
+      // the remote a push. The gate is also what keeps this from publishing
+      // anything the run didn't — a reused branch that had an upstream before
+      // the run only has the log upstream if this run pushed it there.
+      bestEffort("push progress-log removal"):
+        if git.upstreamHas(setup.store.path) then git.push().orThrow
     finally
       bestEffort("branch handoff"):
         finishBranch(git, setup, returnToStartBranch)

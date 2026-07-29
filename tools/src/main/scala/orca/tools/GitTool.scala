@@ -167,6 +167,16 @@ trait GitTool:
     */
   def defaultBranch(): Option[String]
 
+  /** True when the current branch has an upstream and `path` (relativized
+    * against the working directory) is present in the upstream's tree — a
+    * directory, and the working directory itself, count as present just as a
+    * file does. READ-ONLY. Best-effort: `false` whenever the probe cannot
+    * answer (no upstream, no remote, `path` outside the working directory, any
+    * git error) — callers use this only to gate cosmetic work, never for
+    * decisions that must be right.
+    */
+  def upstreamHas(path: os.Path): Boolean
+
   /** Discard all uncommitted changes, resetting the working tree and index to
     * `HEAD` (`git reset --hard`). Used by the flow failure teardown to drop a
     * failed stage's partial edits while keeping the committed history (and the
@@ -460,6 +470,22 @@ private[orca] class OsGitTool(
         Some(result.out.text().trim.stripPrefix("origin/")).filter(_.nonEmpty)
       else None
     catch case NonFatal(_) => None
+
+  def upstreamHas(path: os.Path): Boolean =
+    // `cat-file -e <rev>:<path>` exits 0 only when that path resolves to an
+    // object in the revision's tree. Both misses collapse to a non-zero exit:
+    // `@{upstream}` failing to resolve (no upstream configured, no remote) and
+    // the path being absent from the upstream tree. `subRelativeTo` throws when
+    // `path` lies outside the working directory, which the catch absorbs. The
+    // `./` prefix is what makes the path cwd-relative (git documents that form
+    // explicitly): a bare `<rev>:<path>` is resolved against the repo root,
+    // which differs from `workDir` whenever the tool points at a subdirectory.
+    try
+      val relPath = path.subRelativeTo(workDir)
+      gitProc(
+        Seq("git", "cat-file", "-e", s"@{upstream}:./$relPath")
+      ).exitCode == 0
+    catch case NonFatal(_) => false
 
   def resetHard()(using WorkspaceWrite): Unit =
     val _ = git("reset", "--hard")

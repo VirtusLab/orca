@@ -393,7 +393,10 @@ the wrong branch.
   warning, so the flow begins clean.
 - **R5** — On **successful** exit the progress-log file is removed in a final
   commit, and a feature branch left with no changes other than the progress log is
-  deleted (throwaway-branch cleanup). On a **failure** exit the feature branch and
+  deleted (throwaway-branch cleanup). That removal commit is also pushed, but only
+  when the branch's upstream still contains the progress log — proof the flow
+  itself published it — so teardown never pushes work the run wasn't asked to
+  publish. On a **failure** exit the feature branch and
   its committed log are kept intact so the next run can resume; only the failed
   stage's uncommitted *tracked* partial edits are discarded (it re-runs on
   resume) — teardown is `git reset --hard`, which does not remove *untracked*
@@ -658,7 +661,10 @@ list output and opencode's directory-scoping should be pinned when the probes la
 - **R26** — A *merged* PR must not contain the progress log: the final cleanup
   commit (R5) removes it, so a clean branch merges clean. While a PR is open
   mid-flow the file is present in the pushed history; this is accepted as a known
-  limitation (§5) rather than rewriting history on every push.
+  limitation (§5) rather than rewriting history on every push. The remote is
+  brought in line by the gated teardown push (R5), which completes a publication
+  the flow already made and so leaves R6's "no runtime-imposed terminal push"
+  intact.
 
 **Design.**
 

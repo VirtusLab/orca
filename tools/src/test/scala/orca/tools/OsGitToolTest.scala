@@ -328,6 +328,56 @@ class OsGitToolTest extends munit.FunSuite:
         .text()
       assert(refs.contains("refs/heads/main"), refs)
 
+  /** Give `dir` a bare local-path origin — no credentials needed — and push the
+    * current branch so it has an upstream.
+    */
+  private def pushToLocalRemote(git: OsGitTool, dir: os.Path): Unit =
+    val remote = TempDirs.dir() / "remote.git"
+    val _ = os.proc("git", "init", "--bare", remote.toString).call(cwd = dir)
+    val _ =
+      os.proc("git", "remote", "add", "origin", remote.toString).call(cwd = dir)
+    git.push().orThrow
+
+  test("upstreamHas is false when the branch has no upstream"):
+    withRepo: (git, dir) =>
+      os.write(dir / "f.txt", "x")
+      git.commit("seed").orThrow
+      assert(!git.upstreamHas(dir / "f.txt"))
+
+  test("upstreamHas is true for a file present in the upstream tree"):
+    withRepo: (git, dir) =>
+      os.write(dir / "f.txt", "x")
+      git.commit("seed").orThrow
+      pushToLocalRemote(git, dir)
+      assert(git.upstreamHas(dir / "f.txt"))
+
+  test("upstreamHas is false for a file absent from the upstream tree"):
+    withRepo: (git, dir) =>
+      os.write(dir / "f.txt", "x")
+      git.commit("seed").orThrow
+      pushToLocalRemote(git, dir)
+      // Committed after the push, so it exists locally but not upstream.
+      os.write(dir / "later.txt", "y")
+      git.commit("later").orThrow
+      assert(!git.upstreamHas(dir / "later.txt"))
+
+  test("upstreamHas is false for a path outside the working directory"):
+    withRepo: (git, dir) =>
+      os.write(dir / "f.txt", "x")
+      git.commit("seed").orThrow
+      pushToLocalRemote(git, dir)
+      assert(!git.upstreamHas(TempDirs.dir() / "outside.txt"))
+
+  test("upstreamHas resolves paths against a subdirectory working directory"):
+    withRepo: (git, dir) =>
+      os.write(dir / "nested" / "f.txt", "x", createFolders = true)
+      git.commit("seed").orThrow
+      pushToLocalRemote(git, dir)
+      // Paths are cwd-relative, so a tool rooted at `nested` must see its own
+      // `f.txt` — not miss it by looking for `f.txt` at the repo root.
+      val nestedGit = new OsGitTool(dir / "nested")
+      assert(nestedGit.upstreamHas(dir / "nested" / "f.txt"))
+
   test("nonInteractiveEnv disables git and ssh interactive prompts"):
     val env = OsGitTool.nonInteractiveEnv
     assertEquals(env.get("GIT_TERMINAL_PROMPT"), Some("0"))
