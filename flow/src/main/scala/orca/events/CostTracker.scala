@@ -118,9 +118,11 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
     * call carried a [[orca.agents.Agent.role]] tag) by-role — each sorted
     * alphabetically by its rendered label. Each by-agent line is prefixed with
     * that agent's role when it has one (e.g. `reviewer: performance`). Cache
-    * hits and reasoning tokens are shown parenthetically when non-zero, and
-    * cost (when known) is appended as `$X.XXXX`; an asterisk marks an estimated
-    * figure, with a trailing legend line when any estimate is present.
+    * hits and reasoning tokens are shown parenthetically when non-zero. Token
+    * counts are rendered compactly (`1K`, `103.8K`, `3.2M`) from 1000 up; cost
+    * (when known) stays exact and is appended as `$X.XXXX`, with an asterisk
+    * marking an estimated figure and a trailing legend line when any estimate
+    * is present.
     *
     * Empty string when no `TokensUsed` events have been observed.
     */
@@ -191,13 +193,33 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
   private def formatUsage(usage: Usage): String =
     val cached =
       if usage.cachedInputTokens > 0 then
-        s" (${usage.cachedInputTokens} cached)"
+        s" (${formatCount(usage.cachedInputTokens)} cached)"
       else ""
     val reasoning =
       if usage.reasoningOutputTokens > 0 then
-        s" (${usage.reasoningOutputTokens} reasoning)"
+        s" (${formatCount(usage.reasoningOutputTokens)} reasoning)"
       else ""
-    s"${usage.inputTokens} in$cached, ${usage.outputTokens} out$reasoning"
+    val in = formatCount(usage.inputTokens)
+    val out = formatCount(usage.outputTokens)
+    s"$in in$cached, $out out$reasoning"
+
+  /** Render a token count compactly: plain digits below 1000, from 1000 up one
+    * decimal place with a K/M/B suffix and no trailing `.0` — `1K`, `103.8K`,
+    * `3.2M`. Halves round up.
+    */
+  private def formatCount(n: Long): String =
+    if n < 1000 then n.toString
+    else
+      val units = List(1_000L -> "K", 1_000_000L -> "M", 1_000_000_000L -> "B")
+      def mantissa(unit: Long): BigDecimal =
+        (BigDecimal(n) / unit).setScale(1, BigDecimal.RoundingMode.HALF_UP)
+      // Ascending scan for the first unit whose *rounded* mantissa stays under
+      // 1000: rounding up carries 999,950 to "1000.0K", which belongs one unit
+      // higher as "1M". `getOrElse` covers counts past the largest unit.
+      val (unit, suffix) =
+        units.find((u, _) => mantissa(u) < 1000).getOrElse(units.last)
+      // Scale is fixed at 1, so a plain suffix strip turns "2.0" into "2".
+      s"${mantissa(unit).toString.stripSuffix(".0")}$suffix"
 
   private def formatAmount(c: Cost): String =
     val rounded = c.amount.setScale(4, BigDecimal.RoundingMode.HALF_UP)
