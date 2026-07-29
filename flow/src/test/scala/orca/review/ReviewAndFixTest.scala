@@ -168,9 +168,13 @@ class ReviewAndFixTest extends munit.FunSuite:
   private def control: FlowControl =
     ReviewLoopFixture.control(new EventDispatcher(Nil))
 
-  private def issue(desc: String, confidence: Double = 1.0): ReviewIssue =
+  private def issue(
+      desc: String,
+      confidence: Double = 1.0,
+      severity: Severity = Severity.Warning
+  ): ReviewIssue =
     ReviewIssue(
-      severity = Severity.Warning,
+      severity = severity,
       confidence = confidence,
       title = Title(desc),
       description = desc,
@@ -194,34 +198,254 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(result, IgnoredIssues(Nil))
 
-  test("filters issues below the confidence threshold"):
+  test("a gate-dropped finding is recorded as ignored, not deleted"):
     given FlowControl = control
-    // Reviewer reports two issues every round; only the high-confidence one
-    // survives the threshold and reaches the coder, which ignores it without
-    // a fix. With `fixed` empty the loop halts after one round.
-    val noisyIssue = issue("flaky", confidence = 0.3)
-    val realIssue = issue("real bug", confidence = 0.95)
+    // The caller's bars sit above the reported confidence, so nothing reaches
+    // the fixer: the coder is scripted with no outputs and throws if called.
+    // The reviewer-ran assertion makes "dropped by the gate" distinguishable
+    // from "never produced"; the finding comes back with the bar it missed.
     val reviewer = new FakeAgent(
       name = "loud",
-      outputs = List(ReviewResult(List(noisyIssue, realIssue)))
+      outputs = List(ReviewResult(List(issue("flaky", confidence = 0.95))))
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = "build the widget",
+      confidenceGate =
+        ConfidenceGate(critical = 0.99, warning = 0.99, info = 0.99),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    assert(reviewer.seenSessions.nonEmpty, "the reviewer must run")
+    assertEquals(
+      result.issues,
+      List(
+        IgnoredIssue(
+          Title("flaky"),
+          "below the Warning confidence gate (0.95 < 0.99)"
+        )
+      )
+    )
+
+  test("a finding re-reported every round is recorded once"):
+    given FlowControl = control
+    // Reviewer sessions persist, so the sub-threshold "flaky" comes back in
+    // round two as well. Only the final round's gate rejects are folded in, so
+    // it must appear exactly once — not once per round.
+    val flaky = issue("flaky", confidence = 0.3)
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(
+        ReviewResult(List(flaky, issue("real bug", confidence = 0.95))),
+        ReviewResult(List(flaky))
+      )
     )
     val coder = new FakeAgent(
       name = "coder",
-      outputs =
-        List(FixOutcome(Nil, List(IgnoredIssue(Title("real bug"), "accepted"))))
+      outputs = List(FixOutcome(List(Title("real bug")), Nil))
     )
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(reviewer),
       task = "build the widget",
-      confidenceThreshold = 0.7,
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    assertEquals(result.issues.map(_.title), List(Title("flaky")))
+
+  test("the clean-round message names what the gate held back"):
+    // Termination honesty: a round whose only findings were gated out must not
+    // report a bare "No review comments".
+    val steps = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val listener: OrcaListener = (e: OrcaEvent) =>
+      e match
+        case OrcaEvent.Step(msg) => steps.add(msg): Unit
+        case _                   => ()
+    given FlowControl =
+      ReviewLoopFixture.control(new EventDispatcher(List(listener)))
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(ReviewResult(List(issue("flaky", confidence = 0.3))))
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = "build the widget",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    val emitted = steps.toArray.toList.map(_.toString)
+    assert(
+      emitted.exists(
+        _ == "No issues above the confidence gate; 1 sub-threshold finding recorded as ignored"
+      ),
+      emitted.mkString("\n")
+    )
+
+  test("the fixer-bailout exit records both unaccounted and gated issues"):
+    given FlowControl = control
+    // The fix prompt requires every issue in `fixed` or `ignored`; when one is
+    // in neither and the fixer reports no fixes, it is still open, so the loop
+    // halts with it named. The same exit folds in the gate's rejects.
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(
+        ReviewResult(
+          List(
+            issue("real bug", confidence = 0.95),
+            issue("flaky", confidence = 0.3)
+          )
+        )
+      )
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(Nil, Nil))
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "build the widget",
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("")
     )
     assertEquals(
       result.issues,
-      List(IgnoredIssue(Title("real bug"), "accepted"))
+      List(
+        IgnoredIssue(Title("real bug"), "fixer reported no fixes"),
+        IgnoredIssue(
+          Title("flaky"),
+          "below the Warning confidence gate (0.3 < 0.6)"
+        )
+      )
     )
+
+  test("the cap exit records both the cap reason and the gated issues"):
+    given FlowControl = control
+    // The fixer always claims a fix, so only the cap stops the loop; the gate
+    // reject riding along every round must still come back exactly once.
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List.fill(2)(
+        ReviewResult(
+          List(
+            issue("stubborn", confidence = 0.95),
+            issue("flaky", confidence = 0.3)
+          )
+        )
+      )
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(List(Title("stubborn")), Nil))
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "build the widget",
+      maxIterations = 1,
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    assertEquals(
+      result.issues,
+      List(
+        IgnoredIssue(Title("stubborn"), "max iterations (1) reached"),
+        IgnoredIssue(
+          Title("flaky"),
+          "below the Warning confidence gate (0.3 < 0.6)"
+        )
+      )
+    )
+
+  test("a gate reject survives its reviewer leaving the active set"):
+    given FlowControl = control
+    // "x" reports only a sub-threshold finding and is then dropped from the
+    // active set, so its reject is never re-reported. Keeping the last-seen set
+    // per reviewer is what makes it survive to the result.
+    val rosterX = new FakeAgent(
+      name = "x",
+      outputs = List(ReviewResult(List(issue("flaky", confidence = 0.3))))
+    )
+    val rosterY = new FakeAgent(
+      name = "y",
+      outputs = List(
+        ReviewResult(List(issue("real bug", confidence = 0.95))),
+        ReviewResult.empty
+      )
+    )
+    val firstRoundOnlyX = new ReviewerSelector:
+      def prepare(
+          all: List[RosterEntry[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using FlowContext, orca.InStage) =
+        history => if history.isEmpty then all else all.filter(_.name == "y")
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(List(Title("real bug")), Nil))
+    )
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(rosterX, rosterY),
+      reviewerSelection = firstRoundOnlyX,
+      task = "build the widget",
+      initialDiff = Some("")
+    )
+    assertEquals(
+      rosterX.seenSessions.size,
+      1,
+      "x must run only the first round"
+    )
+    assertEquals(
+      result.issues,
+      List(
+        IgnoredIssue(
+          Title("flaky"),
+          "below the Warning confidence gate (0.3 < 0.6)"
+        )
+      )
+    )
+
+  test("the default gate admits a confidence by severity"):
+    // Two confidence bands, each separating a pair of default bars: 0.65 clears
+    // Critical (0.5) and Warning (0.6) but not Info (0.8), while 0.5 clears only
+    // Critical — which also pins the bar as inclusive (>=, not >). Asserted on
+    // what the fixer was actually handed, which is also what the loop displays.
+    given FlowControl = control
+    val reviewer = new FakeAgent(
+      name = "mixed",
+      outputs = List(
+        ReviewResult(
+          List(
+            issue("crit-finding", 0.65, severity = Severity.Critical),
+            issue("warn-finding", 0.65, severity = Severity.Warning),
+            issue("info-finding", 0.65, severity = Severity.Info),
+            issue("crit-low", 0.5, severity = Severity.Critical),
+            issue("warn-low", 0.5, severity = Severity.Warning)
+          )
+        )
+      )
+    )
+    val coder = new SeedProbingCoder(
+      existsResult = true,
+      fixOutcome = FixOutcome(Nil, Nil)
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "build the widget",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    val fixPrompt =
+      coder.capturedFixPrompt.getOrElse(fail("the fix turn never ran"))
+    assert(fixPrompt.contains("crit-finding"), fixPrompt)
+    assert(fixPrompt.contains("warn-finding"), fixPrompt)
+    assert(!fixPrompt.contains("info-finding"), fixPrompt)
+    assert(fixPrompt.contains("crit-low"), fixPrompt)
+    assert(!fixPrompt.contains("warn-low"), fixPrompt)
 
   test("runs multiple reviewers and merges their issues"):
     given FlowControl = control
@@ -658,6 +882,34 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(
       result.issues,
       List(IgnoredIssue(Title("lint-found"), "accepted"))
+    )
+
+  test("the lint summariser's gate rejects are recorded too"):
+    given FlowControl = control
+    // The gate applies to the lint agent on the same terms as a reviewer, and
+    // its rejects are carried on their own slot in the loop state. `echo` emits
+    // output so `lint` doesn't short-circuit before calling the summariser.
+    val summariser = new FakeAgent(
+      name = "summariser",
+      outputs = List(ReviewResult(List(issue("lint-nit", confidence = 0.3))))
+    )
+    val reviewer = new FakeAgent("quiet", outputs = List(ReviewResult.empty))
+    val result = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = "lint gate",
+      lint = Configured.Use(Lint(List("echo lint-output"), summariser)),
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    assertEquals(
+      result.issues,
+      List(
+        IgnoredIssue(
+          Title("lint-nit"),
+          "below the Warning confidence gate (0.3 < 0.6)"
+        )
+      )
     )
 
   test("FromSettings + empty settings: no format, no lint (≡ omission)"):

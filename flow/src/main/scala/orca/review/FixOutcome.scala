@@ -5,8 +5,10 @@ import orca.plan.Title
 
 /** What the fixing agent reports back per iteration: the titles of issues it
   * actually fixed in the code, and the issues it chose not to fix along with a
-  * reason. The prompt requires every input issue to land in exactly one list;
-  * any title showing up in neither is silently dropped by the loop.
+  * reason. The prompt requires every input issue to land in exactly one list; a
+  * title showing up in neither is still open, so when `fixed` is empty (the
+  * loop's halt condition) `reviewAndFixLoop` records it as ignored with a
+  * "fixer reported no fixes" reason rather than dropping it.
   */
 case class FixOutcome(
     fixed: List[Title],

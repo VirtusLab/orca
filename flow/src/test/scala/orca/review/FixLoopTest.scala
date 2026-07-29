@@ -138,6 +138,22 @@ class FixLoopTest extends munit.FunSuite:
       s"missing suggestion: $rendered"
     )
 
+  test("formatReviewerOutcome notes gate rejects on a clean review"):
+    // A reviewer whose findings were all gated out must not read as quiet.
+    assertEquals(
+      formatReviewerOutcome("loud", ReviewResult.empty, 3),
+      "loud: 0 issues (3 below the confidence gate)"
+    )
+
+  test("formatReviewerOutcome notes gate rejects in the heading above bullets"):
+    val rendered =
+      formatReviewerOutcome("loud", ReviewResult(List(issue("x"))), 1)
+    assertEquals(
+      rendered.linesIterator.next(),
+      "loud: 1 issue (1 below the confidence gate)"
+    )
+    assert(rendered.contains("- [Warning] x"), rendered)
+
   test("formatIssue renders a file-only location with no trailing line"):
     // BB8: file and line used to be independent Options, so (None, Some(l))
     // silently dropped the line. Location makes that combination

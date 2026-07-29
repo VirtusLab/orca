@@ -628,7 +628,7 @@ Review utilities, available via `import orca.review.*`:
 | Method | Use |
 |---|---|
 | `lint(commands, agent, instructions?)` | Run shell lint commands (in order, each via `bash -c`; every one runs even if an earlier one fails) and have `agent` summarise their labelled, concatenated output as a `ReviewResult`. Short output is inlined into the prompt; anything larger is written to a file under `.orca/cache/` for the agent to read, so unbounded output can't overflow the context. |
-| `reviewAndFixLoop(coderSession, reviewers, task, ..., formatCommands?, lint?, fixInstructions?)` | Run reviewers against `task`, collect findings above the confidence threshold, hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Halts when reviewers come back clean, the fixer marks every remaining issue as won't-fix, or the iteration cap is reached. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#settings), see below. |
+| `reviewAndFixLoop(coderSession, reviewers, task, ..., formatCommands?, lint?, confidenceGate?, fixInstructions?)` | Run reviewers against `task`, collect the findings admitted by `confidenceGate: ConfidenceGate` (a per-severity minimum confidence; see below), hand them to the `coderSession` (a `FlowSession`) to fix, re-evaluate. Halts when reviewers come back clean, the fixer reports no fixes, or the iteration cap is reached. Whatever is still open at that point — issues the fixer didn't account for, plus the last round's gated-out findings — comes back in the returned `IgnoredIssues` with a reason. `formatCommands: Configured[List[String]]` runs before each review round; `lint: Configured[Lint]` runs alongside the reviewers each round — both default to the project's [stack settings](#settings), see below. |
 | `allReviewers(base)` | All eight canonical reviewer agents (code-functionality, test, readability, code-structure, simplicity, performance, security, scala-fp) layered on top of `base`. |
 | `minimalReviewers(base)` | Universally-applicable subset (code-functionality, readability, test). Pair with the default LLM-driven selector when the full set is overkill. |
 | `fixLoop(evaluate, fix, ...)` | Lower-level primitive `reviewAndFixLoop` is built on. |
@@ -760,6 +760,10 @@ results.
 - **`orca.review.ReviewIssue` / `ReviewResult`** — what reviewer agents return.
   Issues carry severity, confidence, a `title` (shown), and a long `description`
   (sent to the fixer).
+- **`orca.review.ConfidenceGate(critical, warning, info)`** — the minimum
+  confidence a `ReviewIssue` needs to reach the fixer, per severity;
+  `ConfidenceGate.default` is `(0.5, 0.6, 0.8)`. See the type for why the bar
+  varies by severity. Gated-out findings are reported as ignored, not deleted.
 - **`orca.review.FixOutcome(fixed, ignored)`** — what the fix step returns: the
   titles of issues actually fixed in code, plus titles + reasons for issues set
   aside (environmental, out of scope, false positive). The loop re-evaluates iff

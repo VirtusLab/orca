@@ -50,15 +50,22 @@ object ReviewLoopPrompts:
   /** Initial reviewer call: pin the agent to the supplied diff so it doesn't
     * fan out across the whole project. The same prompt template is used for
     * every reviewer; the reviewer's identity comes from its system prompt.
+    *
+    * `gate` is rendered into the prompt's confidence section, so reviewers are
+    * told the actual bars their findings are measured against rather than a
+    * hardcoded guess at them.
     */
-  def initialReview(task: String, diff: String): String =
+  def initialReview(task: String, diff: String, gate: ConfidenceGate): String =
     val diffBlock =
       if diff.trim.isEmpty then "(no diff captured — review the working tree)"
       else s"```diff\n$diff\n```"
     PromptResource.render(
       InitialReviewTemplate,
       "task" -> task,
-      "diffBlock" -> diffBlock
+      "diffBlock" -> diffBlock,
+      "criticalBar" -> gate.critical.toString,
+      "warningBar" -> gate.warning.toString,
+      "infoBar" -> gate.info.toString
     )
 
   /** Continuation prompt for a reviewer's session on iterations after the

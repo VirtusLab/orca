@@ -79,14 +79,23 @@ object ReviewerSelector:
     * a custom map (keyed by bare slug) when overriding the default set. If the
     * picker would see all-empty descriptions, a one-time `Step` warning fires.
     *
+    * The picker is handed the task title, the changed file names and those
+    * descriptions, and runs under [[orca.agents.ToolSet.ReadOnly]] in the
+    * flow's work dir. That gates edits everywhere but not the shell — codex's
+    * read-only sandbox still runs commands, claude's plan mode doesn't — so the
+    * default brief tells it to open the changed files rather than judge by
+    * their paths, to use `git diff HEAD` only if the shell happens to be there,
+    * and to include a reviewer whenever it is unsure.
+    *
     * `filePatterns` is a code-side pre-filter applied before the LLM call:
     * reviewers whose pattern doesn't match any of the iteration's
     * `changedFiles` are dropped, so the picker can't pick them. The default
     * ([[ReviewerPrompts.filePatternsBySlug]]) constrains only reviewers that
     * declared a `files:` frontmatter entry.
     *
-    * Pick a cheap model (e.g. `claude.haiku`); the request is small. Override
-    * `instructions` to retune the selection brief.
+    * Pick a cheap model (e.g. `claude.haiku`) — the decision is small, though
+    * the agent does open a few files to make it. Override `instructions` to
+    * retune the selection brief.
     */
   def agentDriven: ReviewerSelector = new ReviewerSelector:
     def prepare(
