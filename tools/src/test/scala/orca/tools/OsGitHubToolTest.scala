@@ -85,12 +85,13 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
     val gh = new OsGitHubTool(cli)
     val _ = gh.createPr("feat: hi", "hello").orThrow
-    // The whole fix rests on rev-parse running before gh, so pin the order.
+    // gh must be given the branch rev-parse resolved, so pin the order.
     assertEquals(
       cli.calls.map(_.args.take(2)),
       List(Seq("git", "rev-parse"), Seq("gh", "pr"))
     )
-    val args = cli.calls.lastOption.getOrElse(fail("expected a call")).args
+    val args = cli.calls.last.args
+    assert(args.containsSlice(Seq("gh", "pr", "create")))
     assert(args.containsSlice(Seq("--title", "feat: hi")))
     assert(args.containsSlice(Seq("--body", "hello")))
     assert(args.containsSlice(Seq("--head", "feat")))
@@ -147,8 +148,8 @@ class OsGitHubToolTest extends munit.FunSuite:
   test(
     "createPr returns Left(BranchNotPushed) — not NoCommitsToPr — when the head branch is missing remotely"
   ):
-    // The 422 for an unpushed --head branch also contains "no commits"; this
-    // pins the classification order in createPr.
+    // GitHub's validation error for an unpushed --head branch also contains
+    // "no commits"; it must classify as the missing branch, not an empty diff.
     val gh = new OsGitHubTool(
       createPrRunner(
         CliResult(
@@ -162,9 +163,9 @@ class OsGitHubToolTest extends munit.FunSuite:
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[BranchNotPushed]))
 
   test("createPr throws when not on a branch (detached HEAD)"):
-    // rev-parse prints the literal "HEAD" when detached. It must not reach
-    // --head — nor may a blank value, which would silently re-enable gh's own
-    // head detection and reinstate the local-commits-ahead bug.
+    // rev-parse prints the literal "HEAD" when detached; the guard rejects it
+    // rather than passing it to --head (it also rejects a blank name, which
+    // would silently re-enable gh's own head detection).
     val cli = new SequencedCliRunner(List(CliResult(0, "HEAD\n", "")))
     val gh = new OsGitHubTool(cli)
     val e = intercept[OrcaFlowException](gh.createPr("t", "b"))
@@ -531,7 +532,7 @@ class OsGitHubToolTest extends munit.FunSuite:
         case _                   => false
     )
 
-  test("currentBranchGit carries OsGitTool.nonInteractiveEnv"):
+  test("the --head rev-parse carries OsGitTool.nonInteractiveEnv"):
     // The git rev-parse resolving --head must carry the same non-interactive
     // env as every other git invocation — otherwise a stalled
     // credential/passphrase prompt could hang the flow.

@@ -107,14 +107,14 @@ final class NoCommitsToPr
         "open a pull request from"
     )
 
-/** gh refused to create the PR because the head branch is not on the remote —
-  * e.g. a resumed flow that skipped its already-recorded push stage. Distinct
-  * from [[NoCommitsToPr]], where the branch is pushed but carries nothing on
-  * top of base.
+/** The head branch is not on the remote — e.g. a resumed flow that skipped its
+  * already-recorded push stage. Distinct from [[NoCommitsToPr]], where the
+  * branch is pushed but carries nothing on top of base.
   */
 final class BranchNotPushed
     extends PrCreateFailed(
-      "the head branch is not on the remote — push the branch first"
+      "the head branch is not on the remote — push the branch first (fork " +
+        "clones are unsupported)"
     )
 
 /** Common parent for recoverable [[GitHubTool.waitForBuild]] failure modes:
@@ -146,10 +146,11 @@ final class NoChecksConfigured(grace: FiniteDuration)
   * writes PR comments, and polls GitHub's check-run status.
   */
 trait GitHubTool:
-  /** Open a PR for the current branch, named explicitly as the head and assumed
-    * to live in the repo the PR targets (fork clones are unsupported). gh
-    * refusals with a recovery path come back as `Left`s; throws when the
-    * current branch cannot be resolved (detached HEAD) and on system failures
+  /** Open a PR from the current branch as it exists on the remote: the branch
+    * must already be pushed to the repo the PR targets (fork clones are
+    * unsupported), and commits made locally after the last push are not
+    * included. Refusals with a recovery path come back as `Left`s; throws on
+    * detached HEAD, on gh output carrying no PR URL, and on system failures
     * (auth, network).
     */
   def createPr(title: String, body: String)(using
@@ -267,8 +268,7 @@ private[orca] class OsGitHubTool(
     // `--head` is passed explicitly: gh's own detection requires a remote ref
     // whose hash equals local HEAD's, so a stage that pushes and then commits
     // its progress log would be misread as "branch not pushed". Bare branch
-    // name, no `owner:` prefix — like `findOpenPr`, this assumes the head
-    // branch lives in the repo the PR targets, not a fork.
+    // name, no `owner:` prefix, matching `findOpenPr`.
     val head = headBranchForPr()
     val result = runGhResult(
       "pr",
@@ -301,38 +301,31 @@ private[orca] class OsGitHubTool(
             events.onEvent(OrcaEvent.Step(s"Reusing existing PR: ${pr.url}"))
             Right(pr)
           case None => Left(new PrAlreadyExists)
-      // The missing-head-branch 422 also contains "no commits", so
-      // isBranchNotPushed must be tested before isNoCommitsToPr.
       else if OsGitHubTool.isBranchNotPushed(combined) then
         Left(new BranchNotPushed)
       else if OsGitHubTool.isNoCommitsToPr(combined) then
         Left(new NoCommitsToPr)
       else fail("gh pr create", result)
 
-  /** The current branch name for `--head`. Throws on detached HEAD (rev-parse
-    * yields the literal `HEAD`) or a blank name — passing `--head ""` would
-    * silently re-enable gh's own head detection.
+  /** The current branch name for `--head`, via `git rev-parse --abbrev-ref
+    * HEAD` (carrying [[OsGitTool.nonInteractiveEnv]] so an ssh/credential
+    * prompt can't hang a flow). Throws on detached HEAD (rev-parse yields the
+    * literal `HEAD`) and on a blank name, which would silently re-enable gh's
+    * own head detection.
     */
   private def headBranchForPr(): String =
-    val head = currentBranchGit()
-    if head.isEmpty || head == "HEAD" then
-      throw OrcaFlowException(
-        s"cannot open a PR: not on a branch (git rev-parse gave '$head')"
-      )
-    head
-
-  /** Resolve the current branch name via `git rev-parse --abbrev-ref HEAD`.
-    * Carries [[OsGitTool.nonInteractiveEnv]] so an ssh/credential prompt can't
-    * hang a flow.
-    */
-  private def currentBranchGit(): String =
     val result = cli.run(
       Seq("git", "rev-parse", "--abbrev-ref", "HEAD"),
       env = OsGitTool.nonInteractiveEnv,
       cwd = workDir
     )
-    if result.exitCode == 0 then result.stdout.trim
-    else fail("git rev-parse", result)
+    if result.exitCode != 0 then fail("git rev-parse", result)
+    val head = result.stdout.trim
+    if head.isEmpty || head == "HEAD" then
+      throw OrcaFlowException(
+        s"cannot open a PR: not on a branch (git rev-parse gave '$head')"
+      )
+    head
 
   /** Find the first open PR whose head branch matches `head`, or `None`.
     * Head-only matching suffices: a branch has at most one open PR per base,
@@ -614,22 +607,22 @@ private[orca] object OsGitHubTool:
     combined.toLowerCase.contains("already exists")
 
   /** True when `gh pr create` reported no commits between the base and head
-    * branches — the pushed branch has nothing on top of base.
+    * branches — the branch is pushed but carries nothing on top of base.
+    * Excludes the missing-head-branch validation error, whose text also says
+    * "no commits", so the two predicates stay disjoint.
     */
   private[tools] def isNoCommitsToPr(combined: String): Boolean =
-    combined.toLowerCase.contains("no commits")
+    combined.toLowerCase.contains("no commits") && !isBranchNotPushed(combined)
 
   /** True when `gh pr create` failed because the head branch is not on the
-    * remote: the API 422 for a `--head` naming a branch GitHub doesn't have, or
-    * gh's own abort when its head detection finds no pushed ref. The 422 text
-    * also contains "no commits", so callers must test this predicate before
-    * [[isNoCommitsToPr]].
+    * remote: GitHub's createPullRequest validation error for a `--head` naming
+    * a branch it doesn't have. Both fragments come from the same error — either
+    * suffices; two are kept as insurance against upstream rewording.
     */
   private[tools] def isBranchNotPushed(combined: String): Boolean =
     val lower = combined.toLowerCase
     lower.contains("head ref must be a branch") ||
-    lower.contains("head sha can't be blank") ||
-    lower.contains("must first push")
+    lower.contains("head sha can't be blank")
 
   private val StatusCompleted = "COMPLETED"
   private val SuccessfulConclusions = Set("SUCCESS", "NEUTRAL", "SKIPPED")

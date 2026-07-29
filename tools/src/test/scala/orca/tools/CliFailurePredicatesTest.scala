@@ -73,26 +73,17 @@ class CliFailurePredicatesTest extends munit.FunSuite:
       )
     )
 
-  test("isBranchNotPushed matches the must-first-push abort"):
-    // Verbatim non-interactive gh output when it doesn't consider the current
-    // branch pushed (no remote tracking ref whose hash matches local HEAD).
-    val combined =
-      "aborted: you must first push the current branch to a remote, " +
-        "or use the --head flag"
-    assert(OsGitHubTool.isBranchNotPushed(combined))
-    assert(!OsGitHubTool.isNoCommitsToPr(combined))
-
   test(
-    "isBranchNotPushed matches the 422 for a --head branch missing remotely"
+    "isBranchNotPushed matches the validation error for a missing --head branch"
   ):
-    // Verbatim GitHub API response when `--head` names a branch that was never
-    // pushed. It also contains "no commits" — which is why createPr must test
-    // isBranchNotPushed before isNoCommitsToPr.
+    // Verbatim GitHub API response (HTTP 422) when `--head` names a branch
+    // that was never pushed.
     val combined =
       "pull request create failed: GraphQL: Head sha can't be blank, " +
         "Base sha can't be blank, No commits between main and feat, " +
         "Head ref must be a branch (createPullRequest)"
     assert(OsGitHubTool.isBranchNotPushed(combined))
+    assert(!OsGitHubTool.isNoCommitsToPr(combined))
 
   test("the gh predicates do not match an unrelated failure"):
     val combined = "error: could not resolve to a repository"
