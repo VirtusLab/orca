@@ -188,7 +188,10 @@ lazy val runner = (project in file("runner"))
   )
 
 lazy val shell = (project in file("shell"))
-  .dependsOn(runner, tools % "test->test")
+  // `pi` is already on the classpath transitively via `runner`, but declared
+  // explicitly since shell reads pi's session store (`PiSessionStore`) to build
+  // the resume argv for a recorded pi chat (ADR 0021 §8).
+  .dependsOn(runner, pi, tools % "test->test")
   .settings(commonSettings)
   .settings(
     name := "orca-shell",

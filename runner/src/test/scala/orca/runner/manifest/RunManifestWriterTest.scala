@@ -12,8 +12,8 @@ import ox.supervised
 import java.time.Instant
 
 /** Unit tests for [[RunManifestWriter]]: upsert semantics, stage stamping,
-  * pi-shaped non-resumability, pruning, atomic writes, and thread-safety. Uses
-  * plain temp workDirs (no git needed — the writer only touches
+  * wireId-less non-resumability, pruning, atomic writes, and thread-safety.
+  * Uses plain temp workDirs (no git needed — the writer only touches
   * `.orca/cache/runs/` and reads `.orca/progress-*.json`).
   *
   * Single-scenario tests drive [[RunManifestWriterState]] directly and
@@ -146,17 +146,20 @@ class RunManifestWriterTest extends munit.FunSuite:
     val outerSession = manifest.sessions.find(_.harness == "codex").get
     assertEquals(outerSession.stage, Some("outer"))
 
-  test("pi-shaped event (wireId None) is not resumable and carries a reason"):
+  test("an event without a wireId is not resumable and carries a reason"):
     val workDir = TempDirs.dir()
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
     writer.onEvent(
-      OrcaEvent.SessionCommitted("pi", "client-1", None, "pi", None)
+      OrcaEvent.SessionCommitted("someharness", "client-1", None, "some", None)
     )
     val session = soleManifest(workDir).sessions.head
     assertEquals(session.wireId, None)
     assertEquals(session.resumable, false)
-    assertEquals(session.reason, Some("pi sessions do not survive the run"))
+    assertEquals(
+      session.reason,
+      Some("someharness sessions do not survive the run")
+    )
 
   test("kind: durable when clientId joins a SessionRecord, oneShot otherwise"):
     val workDir = TempDirs.dir()

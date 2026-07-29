@@ -3,6 +3,7 @@ package orca.shell.actions
 import orca.runner.manifest.{ManifestSession, RunManifest}
 import orca.shell.sessions.SessionSelection
 import orca.testkit.TempDirs
+import orca.tools.pi.PiSessionStore
 
 class SessionActionTest extends munit.FunSuite:
 
@@ -52,6 +53,36 @@ class SessionActionTest extends munit.FunSuite:
       ),
       "resuming session 'newest' [claude], stage 'Task: fix a bug', in /work"
     )
+
+  private def piDir(workDir: os.Path, id: String): os.Path =
+    PiSessionStore.dirFor(workDir, id).get
+
+  test("piSessionDir resolves a session dir that still holds a transcript"):
+    val workDir = TempDirs.dir()
+    val dir = piDir(workDir, "a-session")
+    os.write(
+      dir / "session.jsonl",
+      s"""{"type":"session","id":"a-session","cwd":"$workDir"}""" + "\n",
+      createFolders = true
+    )
+    assertEquals(
+      SessionAction.piSessionDir("a-session", workDir),
+      Right(dir)
+    )
+
+  test(
+    "piSessionDir reports a pruned or never-written session, naming the dir"
+  ):
+    val workDir = TempDirs.dir()
+    val Left(reason) =
+      SessionAction.piSessionDir("a-session", workDir): @unchecked
+    assert(reason.contains(piDir(workDir, "a-session").toString), reason)
+
+  test("piSessionDir reports an id that isn't a directory name separately"):
+    val workDir = TempDirs.dir()
+    val Left(reason) =
+      SessionAction.piSessionDir("../../etc", workDir): @unchecked
+    assert(reason.contains("not a directory name"), reason)
 
   test("validatedWorkDir accepts a path that's still a directory"):
     val dir = TempDirs.dir()

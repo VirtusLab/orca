@@ -13,7 +13,7 @@ object PiAgents:
   /** The default pi agent for a run: standard config. */
   def default(wiring: AgentWiring): PiAgent =
     new DefaultPiAgent(
-      backend = new PiBackend(OsProcCliRunner, workDir = wiring.workDir),
+      backend = PiBackend.create(OsProcCliRunner, wiring.workDir),
       config = AgentConfig(),
       prompts = wiring.prompts,
       events = wiring.events,

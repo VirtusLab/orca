@@ -1,5 +1,6 @@
 package orca.tools.pi
 
+import orca.OrcaDir
 import orca.events.OrcaListener
 import orca.agents.{
   AutoApprove,
@@ -26,6 +27,8 @@ import orca.subprocess.CliRunner
 
 import ox.Ox
 
+import java.time.Instant
+
 /** Pi backend driven through `pi --mode rpc` JSONL over stdio.
   *
   * Pi exposes no HTTP server and its SDK is Node-only, so a subprocess is the
@@ -37,27 +40,39 @@ import ox.Ox
   * per-session `--session-dir` that Pi seeds on the first turn and `--continue`
   * resumes on later ones.
   */
-private[orca] class PiBackend(
+private[orca] class PiBackend private[pi] (
     cli: CliRunner,
     /** Working directory every spawn runs in. The `os.pwd` default serves test
       * construction; the runtime passes the flow's real `workDir`.
       */
-    override val workDir: os.Path = os.pwd
+    override val workDir: os.Path = os.pwd,
+    /** Wall clock for the session-cache retention cutoff (see
+      * [[PiSessionStore.Retention]]).
+      */
+    clock: () => Instant = () => Instant.now()
 ) extends AgentBackend[BackendTag.Pi.type]:
 
-  // One session dir per Orca session id gives caller-stable continuity.
-  // Fresh-vs-resume is committed only after a successful turn, so a retried
-  // open-failure starts fresh rather than `--continue`-ing a dir Pi never made.
-  private val sessionsBase: os.Path =
-    os.temp.dir(prefix = "orca-pi-sessions-", deleteOnExit = true)
+  // One session dir per Orca session id gives caller-stable continuity. Within
+  // a run, fresh-vs-resume is committed only after a successful turn, so a
+  // retried open-failure starts fresh. Across runs the mapping is rehydrated
+  // from the progress log and `--continue` is dispatched against the recorded
+  // id; whether that dir is still resumable is what `hasTranscript` answers,
+  // and the runtime re-seeds when it says no.
 
-  /** Ephemeral: Pi's sessions live in a `deleteOnExit` temp dir, so
-    * fresh-vs-resume is tracked only within a live process
-    * ([[IdScheme.ClientClaimed]]) with nothing durable to persist or probe — pi
-    * always re-seeds across runs (ADR 0018 §2.6).
+  /** Durable: each session's transcript lives under
+    * `.orca/cache/pi-sessions/<session id>/` and outlives the run, so the
+    * claimed id ([[IdScheme.ClientClaimed]]) is worth persisting and existence
+    * is a best-effort on-disk probe (ADR 0018 §2.6).
     */
   val sessions: SessionSupport[BackendTag.Pi.type] =
-    SessionSupport.ephemeral(IdScheme.ClientClaimed)
+    SessionSupport.durable(IdScheme.ClientClaimed, hasTranscript)
+
+  // A read path: probing must not create `.orca` (under the `os.pwd` default
+  // that would be the wrong tree) — only the spawn path creates.
+  private def hasTranscript(id: String): Boolean =
+    PiSessionStore
+      .dirFor(workDir, id)
+      .exists(dir => PiSessionStore.resumable(dir, workDir, clock()))
 
   val tag: BackendTag.Pi.type = BackendTag.Pi
 
@@ -135,7 +150,11 @@ private[orca] class PiBackend(
         case Dispatch.Resume(_) => true
         case Dispatch.Fresh(_)  => false
       val args = PiArgs.rpc(
-        sessionDir = sessionsBase / SessionId.value(session),
+        // The one place the session dir is created: Pi seeds its transcript
+        // inside `<base>/<session id>`, so the base must exist by spawn time.
+        // Ensured per spawn, so a cache deleted mid-run is recreated.
+        sessionDir =
+          OrcaDir.ensurePiSessions(workDir) / SessionId.value(session),
         resume = resume,
         config = config,
         systemPromptFile = systemPromptFile.map(_.file),
@@ -171,3 +190,25 @@ private[orca] class PiBackend(
   private case class TempFileResource(dir: os.Path, file: os.Path)
       extends AutoCloseable:
     def close(): Unit = os.remove.all(dir)
+
+private[orca] object PiBackend:
+  /** The runtime's door: builds a backend and prunes its session cache before
+    * handing it out, so no probe can call a dir the next prune would take
+    * resumable. The bare constructor stays effect-free because constructing
+    * with the `os.pwd` default must not prune the repo's own cache — that's
+    * what [[forInspection]] exists for.
+    */
+  private[orca] def create(
+      cli: CliRunner,
+      workDir: os.Path,
+      clock: () => Instant = () => Instant.now()
+  ): PiBackend =
+    val backend = new PiBackend(cli, workDir, clock)
+    PiSessionStore.prune(workDir, clock())
+    backend
+
+  /** A backend built only to be inspected (enforcement tables, arg wiring),
+    * never spawned or probed: no workDir, no prune, no disk effects.
+    */
+  private[orca] def forInspection(cli: CliRunner): PiBackend =
+    new PiBackend(cli)

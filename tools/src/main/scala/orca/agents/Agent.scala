@@ -225,9 +225,10 @@ trait Agent[B <: BackendTag]:
 
   /** The [[WireSessionId]] to resume `client` ([[SessionId]], orca's stable
     * handle) against, or `None` if unknown or not durably resumable — equal to
-    * `client` where the client id IS the wire id (claude), a learned
-    * server-thread id for codex/gemini/opencode, `None` for pi (ephemeral). The
-    * flow runtime reads this after a run to persist it into the progress log.
+    * `client` where the client id IS the wire id (claude, pi), a learned
+    * server-thread id for codex/gemini/opencode, `None` for a backend whose
+    * sessions don't outlive the run. The flow runtime reads this after a run to
+    * persist it into the progress log.
     */
   final def resumeWireId(client: SessionId[B]): Option[WireSessionId[B]] =
     sessionSupport.flatMap(_.persistableWireId(client))

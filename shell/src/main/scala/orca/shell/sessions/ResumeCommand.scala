@@ -13,12 +13,13 @@ import orca.settings.AgentSpec
 private[shell] object ResumeCommand:
 
   /** Left = not resumable, checkable without a live harness call: an
-    * unrecognised `harness` string, or a wireId-less session (pi always, since
-    * its sessions never survive the run — the manifest's stored `reason` is
-    * used when set, else a generic fallback). `Right` carries the recognised
-    * [[BackendTag]] but doesn't mean "definitely resumable" — gemini's row
-    * still needs [[build]]'s live index lookup. Used both by [[build]] itself
-    * and by the shell's session-list preview (which has no `geminiIndex` yet).
+    * unrecognised `harness` string, or a wireId-less session — one whose
+    * backend keeps nothing durable, or that never committed a turn (the
+    * manifest's stored `reason` is used when set, else a generic fallback).
+    * `Right` carries the recognised [[BackendTag]] but doesn't mean "definitely
+    * resumable" — gemini's row still needs [[build]]'s live index lookup, and
+    * pi's its session-dir check. Used both by [[build]] itself and by the
+    * shell's session-list preview (which runs no live lookups).
     */
   private def wireIdAndTag(
       s: ManifestSession
@@ -36,19 +37,25 @@ private[shell] object ResumeCommand:
   def staticGate(s: ManifestSession): Either[String, BackendTag] =
     wireIdAndTag(s).map(_._2)
 
-  /** Left = not resumable: [[staticGate]]'s checks, plus gemini when
-    * `geminiIndex` is `None` (gemini resumes interactively by index, not by
-    * uuid — the caller resolves the index by matching the session's wireId
-    * against `gemini --list-sessions` output and passes it in). Binary names
-    * come from [[AgentSpec.harnessNameFor]] (the settings-file spelling —
-    * `claude`, `codex`, …), not the manifest's [[BackendTag.wireName]]. Also
-    * rejects a blank wireId or one starting with `-` — passed straight into an
-    * argv slot, such a value could otherwise be parsed as a flag by the harness
-    * CLI.
+  /** Left = not resumable: [[staticGate]]'s checks, plus whatever the caller's
+    * live lookups report — gemini's `geminiIndex` (it resumes by index, not by
+    * uuid, so the caller matches the wire id against `gemini --list-sessions`)
+    * and pi's `piSessionDir` (its transcripts live on disk;
+    * [[orca.shell.actions.SessionAction.piSessionDir]] resolves the path or
+    * says why it can't). Each lookup is a function invoked only by its own
+    * harness's branch, with the already-validated wire id — a non-applicable
+    * lookup is never called, so it can't be mistaken for a failed one.
+    *
+    * Binary names come from [[AgentSpec.harnessNameFor]] (the settings-file
+    * spelling — `claude`, `codex`, …), not the manifest's
+    * [[BackendTag.wireName]]. Also rejects a blank wireId or one starting with
+    * `-` — passed straight into an argv slot, such a value could otherwise be
+    * parsed as a flag by the harness CLI.
     */
   def build(
       s: ManifestSession,
-      geminiIndex: Option[Int]
+      geminiIndex: String => Option[Int],
+      piSessionDir: String => Either[String, os.Path]
   ): Either[String, Seq[String]] =
     wireIdAndTag(s).flatMap: (wireId, tag) =>
       if wireId.isBlank || wireId.startsWith("-") then
@@ -61,7 +68,7 @@ private[shell] object ResumeCommand:
           case BackendTag.Codex    => Right(Seq(binary, "resume", wireId))
           case BackendTag.Opencode => Right(Seq(binary, "--session", wireId))
           case BackendTag.Gemini =>
-            geminiIndex match
+            geminiIndex(wireId) match
               case Some(index) =>
                 Right(Seq(binary, "--resume", index.toString))
               case None =>
@@ -71,7 +78,10 @@ private[shell] object ResumeCommand:
                   )
                 )
           case BackendTag.Pi =>
-            Left(s.reason.getOrElse("pi sessions are not resumable"))
+            // An absolute --session-dir, so the argv doesn't depend on the
+            // child's cwd matching the manifest's workDir.
+            piSessionDir(wireId).map: dir =>
+              Seq(binary, "--session-dir", dir.toString, "--continue")
 
   // Matches one `--list-sessions` entry line: "  N. <title> (<time>) [<id>]".
   private val entryLine = raw"^\s*(\d+)\.\s.*\[(.+)\]\s*$$".r
