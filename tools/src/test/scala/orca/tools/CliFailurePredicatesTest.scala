@@ -82,6 +82,18 @@ class CliFailurePredicatesTest extends munit.FunSuite:
     assert(OsGitHubTool.isBranchNotPushed(combined))
     assert(!OsGitHubTool.isNoCommitsToPr(combined))
 
+  test(
+    "isBranchNotPushed matches the 422 for a --head branch missing remotely"
+  ):
+    // Verbatim GitHub API response when `--head` names a branch that was never
+    // pushed. It also contains "no commits" — which is why createPr must test
+    // isBranchNotPushed before isNoCommitsToPr.
+    val combined =
+      "pull request create failed: GraphQL: Head sha can't be blank, " +
+        "Base sha can't be blank, No commits between main and feat, " +
+        "Head ref must be a branch (createPullRequest)"
+    assert(OsGitHubTool.isBranchNotPushed(combined))
+
   test("the gh predicates do not match an unrelated failure"):
     val combined = "error: could not resolve to a repository"
     assert(!OsGitHubTool.isPrAlreadyExists(combined))

@@ -79,18 +79,28 @@ class OsGitHubToolTest extends munit.FunSuite:
       CliResult(0, "feat\n", "") +: createResult +: rest.toList
     )
 
-  test("createPr passes the current branch as --head and parses the PR URL"):
+  test("createPr resolves the current branch and passes it as --head"):
     val cli = createPrRunner(
       CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
     )
     val gh = new OsGitHubTool(cli)
-    val pr = gh.createPr("feat: hi", "hello").orThrow
-    assertEquals(pr, samplePr)
-    val args = cli.calls.last.args
-    assert(args.containsSlice(Seq("gh", "pr", "create")))
+    val _ = gh.createPr("feat: hi", "hello").orThrow
+    // The whole fix rests on rev-parse running before gh, so pin the order.
+    assertEquals(
+      cli.calls.map(_.args.take(2)),
+      List(Seq("git", "rev-parse"), Seq("gh", "pr"))
+    )
+    val args = cli.calls.lastOption.getOrElse(fail("expected a call")).args
     assert(args.containsSlice(Seq("--title", "feat: hi")))
     assert(args.containsSlice(Seq("--body", "hello")))
     assert(args.containsSlice(Seq("--head", "feat")))
+
+  test("createPr parses the PR URL returned by gh"):
+    val cli = createPrRunner(
+      CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
+    )
+    val gh = new OsGitHubTool(cli)
+    assertEquals(gh.createPr("feat: hi", "hello").orThrow, samplePr)
 
   test("createPr emits a Step event with the opened PR URL"):
     val listener = new CapturingListener
@@ -135,18 +145,30 @@ class OsGitHubToolTest extends munit.FunSuite:
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[NoCommitsToPr]))
 
   test(
-    "createPr returns Left(BranchNotPushed) when gh does not consider the branch pushed"
+    "createPr returns Left(BranchNotPushed) — not NoCommitsToPr — when the head branch is missing remotely"
   ):
+    // The 422 for an unpushed --head branch also contains "no commits"; this
+    // pins the classification order in createPr.
     val gh = new OsGitHubTool(
       createPrRunner(
         CliResult(
           1,
           "",
-          "aborted: you must first push the current branch to a remote"
+          "GraphQL: Head sha can't be blank, No commits between main and feat, " +
+            "Head ref must be a branch (createPullRequest)"
         )
       )
     )
     assert(gh.createPr("t", "b").left.exists(_.isInstanceOf[BranchNotPushed]))
+
+  test("createPr throws when not on a branch (detached HEAD)"):
+    // rev-parse prints the literal "HEAD" when detached. It must not reach
+    // --head — nor may a blank value, which would silently re-enable gh's own
+    // head detection and reinstate the local-commits-ahead bug.
+    val cli = new SequencedCliRunner(List(CliResult(0, "HEAD\n", "")))
+    val gh = new OsGitHubTool(cli)
+    val e = intercept[OrcaFlowException](gh.createPr("t", "b"))
+    assert(e.getMessage.contains("not on a branch"), e.getMessage)
 
   test("readPrComments maps gh api JSON into Comment values"):
     val json =
@@ -496,12 +518,6 @@ class OsGitHubToolTest extends munit.FunSuite:
     assertEquals(pr, samplePr)
     val callArgs = cli.calls.map(_.args)
     assert(
-      callArgs.exists(
-        _.containsSlice(Seq("git", "rev-parse", "--abbrev-ref", "HEAD"))
-      ),
-      s"expected git rev-parse in calls but got: $callArgs"
-    )
-    assert(
       callArgs.exists(a =>
         a.containsSlice(
           Seq("gh", "pr", "list", "--head", "feat", "--state", "open")
@@ -516,25 +532,16 @@ class OsGitHubToolTest extends munit.FunSuite:
     )
 
   test("currentBranchGit carries OsGitTool.nonInteractiveEnv"):
-    // The git rev-parse in the PR-reuse fallback must carry the same
-    // non-interactive env as every other git invocation — otherwise a stalled
-    // credential/passphrase prompt on this path could hang the flow.
-    val prListJson =
-      """[{"number":42,"url":"https://github.com/acme/widgets/pull/42"}]"""
+    // The git rev-parse resolving --head must carry the same non-interactive
+    // env as every other git invocation — otherwise a stalled
+    // credential/passphrase prompt could hang the flow.
     val cli = createPrRunner(
-      CliResult(1, "", "a pull request for branch 'feat' already exists"),
-      CliResult(0, prListJson, "") // gh pr list
+      CliResult(0, "https://github.com/acme/widgets/pull/42\n", "")
     )
-    val gh = new OsGitHubTool(
-      cli,
-      readRetry = Schedule.immediate
-    )
+    val gh = new OsGitHubTool(cli)
     val _ = gh.createPr("feat: hi", "hello").orThrow
-    val revParseCall = cli.calls
-      .find(
-        _.args.containsSlice(Seq("git", "rev-parse", "--abbrev-ref", "HEAD"))
-      )
-      .getOrElse(fail("expected a git rev-parse call"))
+    val revParseCall =
+      cli.calls.headOption.getOrElse(fail("expected a git rev-parse call"))
     assertEquals(revParseCall.env.get("GIT_TERMINAL_PROMPT"), Some("0"))
     assert(
       revParseCall.env
