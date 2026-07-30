@@ -15,7 +15,8 @@
   * a PR carrying the failing test and the fix that makes it pass. Only the
   * third writes any code.
   *
-  * Given a `<owner>/<repo>#<number>` reference to an issue, the flow:
+  * Given a `<owner>/<repo>#<number>` reference to an issue, or its GitHub URL,
+  * the flow:
   *
   *   1. Reads the issue from GitHub.
   *   1. Triages: actually a bug? can a unit test reproduce it?
@@ -42,6 +43,7 @@
   *
   * ```bash
   * scala-cli run issue-pr-bugfix.sc -- "acme/widgets#42"
+  * scala-cli run issue-pr-bugfix.sc -- "https://github.com/acme/widgets/issues/42"
   * ```
   *
   * Requires `gh` authenticated, and the configured role agents logged in

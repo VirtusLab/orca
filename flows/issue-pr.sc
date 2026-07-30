@@ -13,7 +13,8 @@
   * why it was rejected, or a PR implementing it. Only the second writes any
   * code.
   *
-  * Given a `<owner>/<repo>#<number>` reference (the user's prompt), the flow:
+  * Given a `<owner>/<repo>#<number>` reference or a GitHub issue URL (the
+  * user's prompt), the flow:
   *
   *   1. Reads the issue from GitHub.
   *   1. Skeptically assesses the report against the repo (claims, missing
@@ -26,10 +27,11 @@
   * The feature branch is named deterministically from the issue number
   * (`fix/issue-<n>`), so a re-run after a crash lands on the same branch.
   *
-  * Usage — pass `<owner>/<repo>#<number>`:
+  * Usage — pass `<owner>/<repo>#<number>` or the issue's URL:
   *
   * ```bash
   * scala-cli run issue-pr.sc -- "acme/widgets#42"
+  * scala-cli run issue-pr.sc -- "https://github.com/acme/widgets/issues/42"
   * ```
   *
   * Requires `gh` authenticated, and the configured role agents logged in

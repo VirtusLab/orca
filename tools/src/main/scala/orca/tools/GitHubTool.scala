@@ -26,18 +26,48 @@ case class IssueHandle(owner: String, repo: String, number: Int):
   def shortRef: String = s"$owner/$repo#$number"
 
 object IssueHandle:
-  private val ShortRefPattern =
-    """\s*([^/\s]+)/([^#\s]+)#(\d+)\s*""".r
+  // Owner and repo are restricted to GitHub's own name charsets rather than
+  // "anything but a separator": both are spliced into `gh api` request paths,
+  // so `?`, `#` and `..` must not survive parsing.
+  private val Owner = """[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"""
+  // Dots are legal in repo names (`foo.github.io`), but a segment of *only*
+  // dots is not a repo — it's `.`/`..` path traversal, so require at least one
+  // non-dot character. Anchor-free, since this is spliced mid-pattern.
+  private val Repo = """[A-Za-z0-9._-]*[A-Za-z0-9_-][A-Za-z0-9._-]*"""
 
-  /** Parse the canonical `<owner>/<repo>#<number>` short-form (surrounding
-    * whitespace tolerated).
+  private val ShortRefPattern =
+    s"""\\s*($Owner)/($Repo)#(\\d+)\\s*""".r
+
+  /** Bare browser URL for an issue or a PR — no trailing path segment, query
+    * string or fragment, and a lowercase host. The `pull` alternative matters
+    * because PR refs are parsed through `IssueHandle` too (GitHub numbers
+    * issues and PRs from one sequence).
+    */
+  private val UrlPattern =
+    s"""\\s*(?:https?://)?(?:www\\.)?github\\.com/($Owner)/($Repo)/(?:issues|pull)/(\\d+)/?\\s*""".r
+
+  /** Matches a digit string that fits in an `Int`, so an out-of-range issue
+    * number falls through to the malformed-input branch instead of throwing.
+    */
+  private object IssueNumber:
+    def unapply(s: String): Option[Int] = s.toIntOption
+
+  /** Parse the canonical `<owner>/<repo>#<number>` short-form, or a GitHub
+    * browser URL — `https://github.com/<owner>/<repo>/issues/<number>` and the
+    * `/pull/` equivalent (scheme, `www.` and trailing slash all optional).
+    * Surrounding whitespace is tolerated in either form.
     */
   def parse(s: String): Either[String, IssueHandle] =
     s match
-      case ShortRefPattern(owner, repo, number) =>
-        Right(IssueHandle(owner, repo, number.toInt))
+      case ShortRefPattern(owner, repo, IssueNumber(number)) =>
+        Right(IssueHandle(owner, repo, number))
+      case UrlPattern(owner, repo, IssueNumber(number)) =>
+        Right(IssueHandle(owner, repo, number))
       case _ =>
-        Left(s"expected '<owner>/<repo>#<number>', got: '$s'")
+        Left(
+          s"expected '<owner>/<repo>#<number>' or " +
+            s"'https://github.com/<owner>/<repo>/{issues,pull}/<number>', got: '$s'"
+        )
 
   /** Same as [[parse]] but throws [[OrcaFlowException]] on malformed input, so
     * the message bubbles up through the stage error path.
