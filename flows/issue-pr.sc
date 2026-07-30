@@ -1,4 +1,4 @@
-// GitHub issue (owner/repo#N) → assess, plan, implement, PR — or reject.
+// GitHub issue (owner/repo#N or URL) → assess, plan, implement, PR — or reject.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.2"
 //> using jvm 21
@@ -27,12 +27,17 @@
   * The feature branch is named deterministically from the issue number
   * (`fix/issue-<n>`), so a re-run after a crash lands on the same branch.
   *
-  * Usage — pass `<owner>/<repo>#<number>` or the issue's URL:
+  * Usage — pass `<owner>/<repo>#<number>` or the issue's github.com URL (no
+  * query string or `#...` anchor):
   *
   * ```bash
   * scala-cli run issue-pr.sc -- "acme/widgets#42"
   * scala-cli run issue-pr.sc -- "https://github.com/acme/widgets/issues/42"
   * ```
+  *
+  * Use the same form on re-runs: the progress log and the issue-comment marker
+  * are keyed on the prompt text, so switching between the two starts a fresh
+  * run and can post a duplicate comment.
   *
   * Requires `gh` authenticated, and the configured role agents logged in
   * (`claude` by default).
