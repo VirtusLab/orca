@@ -1,4 +1,4 @@
-// Bug report (owner/repo#N) → repro test, fix, PR — or a triage comment.
+// Bug report (owner/repo#N or URL) → repro test, fix, PR — or a triage comment.
 //> using scala 3.8.4
 //> using dep "org.virtuslab::orca:0.1.2"
 //> using jvm 21
@@ -15,7 +15,8 @@
   * a PR carrying the failing test and the fix that makes it pass. Only the
   * third writes any code.
   *
-  * Given a `<owner>/<repo>#<number>` reference to an issue, the flow:
+  * Given a `<owner>/<repo>#<number>` reference to an issue, or its GitHub URL,
+  * the flow:
   *
   *   1. Reads the issue from GitHub.
   *   1. Triages: actually a bug? can a unit test reproduce it?
@@ -38,11 +39,17 @@
   * (`confirmReproductionMatches`, `planAndImplementFix`, `prSummary`) are
   * defined at the bottom of the file.
   *
-  * Usage:
+  * Usage — pass `<owner>/<repo>#<number>` or the issue's github.com URL (no
+  * query string or `#...` anchor):
   *
   * ```bash
   * scala-cli run issue-pr-bugfix.sc -- "acme/widgets#42"
+  * scala-cli run issue-pr-bugfix.sc -- "https://github.com/acme/widgets/issues/42"
   * ```
+  *
+  * Use the same form on re-runs: the progress log and the issue-comment marker
+  * are keyed on the prompt text, so switching between the two starts a fresh
+  * run and can post a duplicate comment.
   *
   * Requires `gh` authenticated, and the configured role agents logged in
   * (`claude` by default).
