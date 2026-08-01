@@ -1,7 +1,7 @@
 package orca.review
 
 import orca.{FlowContext, TestFlowContext}
-import orca.events.EventDispatcher
+import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.agents.{
   AgentInput,
   Announce,
@@ -84,6 +84,24 @@ class ReviewerSelectorTest extends munit.FunSuite:
   private val filePatterns =
     Map("scala-fp" -> """\.scala$""".r)
 
+  private def reported(e: RosterEntry[?]): ReviewBatch =
+    ReviewBatch(
+      List(
+        e -> ReviewResult(
+          List(
+            ReviewIssue(
+              severity = Severity.Warning,
+              confidence = 1.0,
+              title = Title("found something"),
+              description = "found something",
+              location = None,
+              suggestion = None
+            )
+          )
+        )
+      )
+    )
+
   test("file-pattern reviewers are dropped before the picker sees them"):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val picker = new RecordingPicker(
@@ -155,6 +173,51 @@ class ReviewerSelectorTest extends munit.FunSuite:
       List("scala-fp", "generic")
     )
 
+  test("an empty diff keeps file-pattern reviewers eligible"):
+    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
+    val picker = new RecordingPicker(
+      SelectedReviewers(List("scala-fp")),
+      captured
+    )
+    val selector = ReviewerSelector.agentDriven(
+      agent = picker,
+      filePatterns = filePatterns
+    )
+    // No changed files means the diff didn't say which files changed, not that
+    // none did: the pre-filter is skipped, so scala-fp reaches the picker.
+    val picked = selector.prepare(all, Title("any"), Nil)(Nil)
+    assertEquals(
+      captured.get().map(_.availableReviewers.map(_.name)),
+      Some(List("scala-fp", "generic"))
+    )
+    assertEquals(picked.map(_.name), List("scala-fp"))
+
+  test("an empty diff announces the skipped file-pattern filter"):
+    val steps = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+    val listener: OrcaListener = (e: OrcaEvent) =>
+      e match
+        case OrcaEvent.Step(msg) => steps.add(msg): Unit
+        case _                   => ()
+    val listening: FlowContext =
+      new TestFlowContext(new EventDispatcher(List(listener)))
+    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
+    val selector = ReviewerSelector.agentDriven(
+      agent =
+        new RecordingPicker(SelectedReviewers(List("scala-fp")), captured),
+      filePatterns = filePatterns
+    )
+    val _ = selector.prepare(all, Title("any"), Nil)(using
+      listening,
+      summon[orca.InStage]
+    )(Nil)
+    assertEquals(
+      steps.toArray.toList.map(_.toString),
+      List(
+        "reviewer selection: no changed files to match against; keeping " +
+          "1 file-gated reviewer(s) eligible (scala-fp)"
+      )
+    )
+
   test("selector skips the picker LLM entirely when no reviewer is eligible"):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val picker = new RecordingPicker(
@@ -212,3 +275,31 @@ class ReviewerSelectorTest extends munit.FunSuite:
     val _ = selector.prepare(all, Title("loop-1"), List("a.scala"))(Nil)
     val _ = selector.prepare(all, Title("loop-2"), List("b.scala"))(Nil)
     assertEquals(calls.get(), 2)
+
+  test("narrowing re-runs only the reviewers that reported last round"):
+    val selector = ReviewerSelector.narrowingAcrossRounds(
+      ReviewerSelector.allEveryRound,
+      filePatterns
+    )
+    // A Rust change, so scala-fp has no file claim on the round: only its
+    // silence in round one decides it.
+    val selectRound = selector.prepare(all, Title("any"), List("src/lib.rs"))
+    assertEquals(selectRound(Nil).map(_.name), List("scala-fp", "generic"))
+    assertEquals(
+      selectRound(List(reported(generic))).map(_.name),
+      List("generic")
+    )
+
+  test("narrowing keeps a file-pattern reviewer whose files are in the diff"):
+    val selector = ReviewerSelector.narrowingAcrossRounds(
+      ReviewerSelector.allEveryRound,
+      filePatterns
+    )
+    val selectRound =
+      selector.prepare(all, Title("any"), List("src/main/scala/Foo.scala"))
+    // Neither reviewer reported last round; scala-fp stays on because the
+    // fixer keeps editing files it owns.
+    assertEquals(
+      selectRound(List(ReviewBatch(Nil))).map(_.name),
+      List("scala-fp")
+    )

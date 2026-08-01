@@ -653,14 +653,22 @@ settings behaves exactly like `Off`. A script that omits `lint` gets a lint gate
 whenever the target project's settings define one; for format-only, pass `lint =
 Configured.Off`.
 
-`reviewAndFixLoop`'s `reviewerSelection` defaults to
-`ReviewerSelector.agentDriven` — a picker LLM on `reviewAgent`'s cheap tier sees
-each reviewer's description plus the changed file paths and narrows the supplied
-list per task. Point the picker at a specific model
-(`ReviewerSelector.agentDriven(claude.haiku)`), pass
-`ReviewerSelector.allEveryRound` to run every reviewer every iteration, or
-`ReviewerSelector.onlyPreviouslyReporting` to re-run only the reviewers that
-found something last round.
+`reviewAndFixLoop`'s `reviewerSelection` defaults to `ReviewerSelector.default`,
+which narrows in two steps:
+
+- **Round one:** a picker LLM on `reviewAgent`'s cheap tier sees each reviewer's
+  description plus the changed file paths and narrows the supplied list per task
+  (`ReviewerSelector.agentDriven`).
+- **Every later round:** only the reviewers that reported an issue in the
+  previous round re-run, plus any whose `files:` pattern matches the change set
+  (`ReviewerSelector.narrowingAcrossRounds`). A reviewer that goes quiet stops
+  costing a turn per round; the trade-off is that it won't see the fixes made
+  after it stopped.
+
+Pass `ReviewerSelector.allEveryRound` to run every reviewer every iteration
+(no picker, no narrowing), `ReviewerSelector.agentDriven(claude.haiku)` to pick
+with a specific model and replay that pick every round, or
+`ReviewerSelector.onlyPreviouslyReporting` to skip the picker but still narrow.
 
 To swap or extend the reviewer set, compose your own `List[Reviewer]` from
 `ReviewerPrompts` (the shipped entries, `ReviewerPrompts.all`/`.minimal`, and/or

@@ -191,10 +191,11 @@ private case class RoundOutcome(
   * any issues admitted by `confidenceGate` to the coder through
   * `coderSession`'s seeded, structured door, and loop. `reviewerSelection`
   * decides which reviewers run each iteration; the default
-  * ([[ReviewerSelector.agentDriven]]) runs a picker LLM on the review-role
-  * agent's cheap tier. Pass `ReviewerSelector.allEveryRound` to skip selection,
-  * or `ReviewerSelector.agentDriven(...)` to point the picker at a specific
-  * model.
+  * ([[ReviewerSelector.default]]) runs a picker LLM on the review-role agent's
+  * cheap tier for round one, then narrows to the reviewers that reported last
+  * round plus the file-pattern ones. Pass `ReviewerSelector.allEveryRound` to
+  * skip selection and narrowing, or `ReviewerSelector.agentDriven(...)` to
+  * point the picker at a specific model.
   *
   * The default picker resolves `reviewAgent`'s cheap variant; a backend with no
   * separate cheap tier (`.cheap` returns `this`, e.g. pi) simply runs the
@@ -219,12 +220,13 @@ def reviewAndFixLoop[B <: BackendTag](
     coderSession: FlowSession[B],
     reviewers: List[Agent[?]],
     task: String,
-    /** Which reviewers run each iteration. Default runs a picker LLM on the
-      * review-role agent's cheap tier; [[ReviewerSelector.allEveryRound]] skips
-      * selection, [[ReviewerSelector.agentDriven]]`(...)` picks a specific
-      * model.
+    /** Which reviewers run each iteration. Default picks with a LLM on the
+      * review-role agent's cheap tier and narrows the picked set on every later
+      * round ([[ReviewerSelector.default]]); [[ReviewerSelector.allEveryRound]]
+      * runs the whole roster every round,
+      * [[ReviewerSelector.agentDriven]]`(...)` picks with a specific model.
       */
-    reviewerSelection: ReviewerSelector = ReviewerSelector.agentDriven,
+    reviewerSelection: ReviewerSelector = ReviewerSelector.default,
     /** Shell commands run in order before each review round so reviewers and
       * the lint see formatted code and the committed tree stays formatted. Each
       * runs via `bash -c` in `ctx.workDir`, exit status ignored. The default

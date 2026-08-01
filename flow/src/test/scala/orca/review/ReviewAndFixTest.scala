@@ -359,11 +359,11 @@ class ReviewAndFixTest extends munit.FunSuite:
       )
     )
 
-  test("a gate reject survives its reviewer leaving the active set"):
-    given FlowControl = control
-    // "x" reports only a sub-threshold finding and is then dropped from the
-    // active set, so its reject is never re-reported. Keeping the last-seen set
-    // per reviewer is what makes it survive to the result.
+  test("a gate reject survives its reviewer being narrowed out"):
+    // "x" reports only a sub-threshold finding, so the default narrowing counts
+    // it as quiet and drops it from round two — its reject is never re-reported.
+    // Keeping the last-seen set per reviewer is what makes it survive to the
+    // result.
     val rosterX = new FakeAgent(
       name = "x",
       outputs = List(ReviewResult(List(issue("flaky", confidence = 0.3))))
@@ -375,21 +375,18 @@ class ReviewAndFixTest extends munit.FunSuite:
         ReviewResult.empty
       )
     )
-    val firstRoundOnlyX = new ReviewerSelector:
-      def prepare(
-          all: List[RosterEntry[?]],
-          taskTitle: Title,
-          changedFiles: List[String]
-      )(using FlowContext, orca.InStage) =
-        history => if history.isEmpty then all else all.filter(_.name == "y")
     val coder = new FakeAgent(
       name = "coder",
-      outputs = List(FixOutcome(List(Title("real bug")), Nil))
+      outputs = List(
+        SelectedReviewers(List("x", "y")),
+        FixOutcome(List(Title("real bug")), Nil)
+      )
     )
+    given FlowControl =
+      ReviewLoopFixture.control(new EventDispatcher(Nil), lead = Some(coder))
     val result = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
       reviewers = List(rosterX, rosterY),
-      reviewerSelection = firstRoundOnlyX,
       task = "build the widget",
       initialDiff = Some("")
     )
@@ -630,6 +627,38 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerY.seenSessions.isEmpty,
       "the default picker must narrow out the unpicked reviewer"
     )
+
+  test("the default selection drops a reviewer that reported nothing"):
+    // Three evaluation rounds (two fix attempts, then the cap). "quiet" reports
+    // nothing in round one, so the default narrowing drops it: it must open
+    // exactly one session, and its single scripted output would run dry —
+    // throwing — if the loop called it again.
+    val quiet =
+      new FakeAgent(name = "quiet", outputs = List(ReviewResult.empty))
+    val loud = new FakeAgent(
+      name = "loud",
+      outputs =
+        List.fill(3)(ReviewResult(List(issue("stubborn", confidence = 0.95))))
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        SelectedReviewers(List("quiet", "loud")),
+        FixOutcome(List(Title("stubborn")), Nil),
+        FixOutcome(List(Title("stubborn")), Nil)
+      )
+    )
+    given FlowControl =
+      ReviewLoopFixture.control(new EventDispatcher(Nil), lead = Some(coder))
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(quiet, loud),
+      task = "narrowing check",
+      maxIterations = 2,
+      initialDiff = Some("")
+    )
+    assertEquals(quiet.seenSessions.size, 1)
+    assertEquals(loud.seenSessions.size, 3)
 
   test(
     "explicit allEveryRound reviewerSelection skips the LLM picker entirely"
