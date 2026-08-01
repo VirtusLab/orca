@@ -133,7 +133,7 @@ class MainMenuTest extends munit.FunSuite:
     assert(!label.exists(_.isControl), label)
 
   test(
-    "choices(resumeOffer = Some(...)) label flattens a multi-line task and always ends in an ellipsis"
+    "choices(resumeOffer = Some(...)) label flattens a multi-line task"
   ):
     val run = InterruptedRun(
       flowName = "fix.sc",
@@ -145,7 +145,7 @@ class MainMenuTest extends munit.FunSuite:
     )
     assertEquals(
       choices.find(_.value == MenuItem.ResumeRun).map(_.label),
-      Some("Resume interrupted run — fix.sc: line one line two…")
+      Some("Resume interrupted run — fix.sc: line one line two")
     )
 
   test(

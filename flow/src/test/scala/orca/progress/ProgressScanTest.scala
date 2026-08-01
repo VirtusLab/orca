@@ -49,6 +49,27 @@ class ProgressScanTest extends FunSuite:
     os.symlink(workDir / ".orca", real / ".orca")
     assertEquals(ProgressScan.progressLogPaths(workDir), Nil)
 
+  test("progressLogPaths skips a directory named like a log"):
+    // Only files are candidates; a same-named directory must cost itself, not
+    // the readable log beside it (an empty scan reads as "no runs in flight").
+    val workDir = TempDirs.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    store.writeHeader(header)
+    os.makeDir.all(workDir / ".orca" / "progress-000000000000.json")
+    assertEquals(ProgressScan.progressLogPaths(workDir), List(store.path))
+
+  test("progressLogs pairs every readable log with its header"):
+    val workDir = TempDirs.dir()
+    val store = ProgressStore.default(workDir, "my prompt")
+    store.writeHeader(header)
+    val corrupt = ProgressStore.default(workDir, "corrupt prompt")
+    corrupt.writeHeader(header)
+    os.write.over(corrupt.path, "not json {{{")
+    assertEquals(
+      ProgressScan.progressLogs(workDir),
+      List(ScannedProgressLog(store.path, header))
+    )
+
   test("progressLogPaths lists every log, not just one"):
     val workDir = TempDirs.dir()
     val one = ProgressStore.default(workDir, "one")

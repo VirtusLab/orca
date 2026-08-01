@@ -19,9 +19,11 @@ import orca.progress.{
   BranchMode,
   FeatureBranch,
   ProgressHeader,
+  ProgressScan,
   ProgressStore,
   ProtectedBranchRefused,
   RecoveryCheck,
+  ScannedProgressLog,
   SessionRecord,
   UnsafeBranchRefRefused
 }
@@ -234,6 +236,10 @@ object FlowLifecycle:
     * `WorkspaceWrite`, and branch-name resolution with a runtime-minted
     * `InStage` — setup is privileged, predating any user stage.
     *
+    * Before any of that — and before any tree mutation — a fresh run refuses to
+    * start on a branch another run's progress log already claims; see
+    * [[abortIfBranchBusy]].
+    *
     * Cleanliness policy (ADR 0018 amendment): only skip-branch mode needs the
     * fresh-vs-resume distinction to decide whether to stash, so only there is
     * `store.loadDetailed()` peeked at pre-stash (a throwaway read, gating the
@@ -293,6 +299,7 @@ object FlowLifecycle:
     given WorkspaceWrite = RuntimeInStage.workspaceToken()
     warnIfSettingsIgnored(git, stackOverridden, emit)
     val startBranch = git.currentBranch()
+    abortIfBranchBusy(store, workDir, startBranch)
     // Snapshot the log file before any stash, restore it after if the stash
     // removed it — so an uncommitted/untracked log is still readable below.
     val snapshot = snapshotLog(store.path)
@@ -333,6 +340,91 @@ object FlowLifecycle:
       stackSettings,
       binding.branchMode
     )
+
+  /** Refuse to start a NEW run on a branch that another run's progress log
+    * already claims (ADR 0018 §2.5, R1 amendment).
+    *
+    * Logs are prompt-keyed, so a differently worded task finds this run's own
+    * log `Absent` and would otherwise start fresh on whatever branch is checked
+    * out — silently sharing it with an interrupted run whose stages are
+    * half-done. A log naming the current branch IS such a run: failure teardown
+    * keeps the log and stays on the branch, success teardown deletes it.
+    *
+    * Skipped when this run's own log loads: that is a legitimate resume of the
+    * same prompt, and the branch its header names is its own (validated
+    * downstream by `bindBranch`) — so other logs naming the branch don't turn a
+    * resume into a conflict.
+    *
+    * Runs before the cleanliness policy, so an abort leaves the tree and branch
+    * exactly as the user left them. Reading foreign logs pre-stash can pick up
+    * uncommitted content, which is fine here: this check only ever refuses,
+    * unlike `bindBranch`'s authoritative post-stash read.
+    */
+  private def abortIfBranchBusy(
+      store: ProgressStore,
+      workDir: os.Path,
+      startBranch: String
+  ): Unit =
+    val ownLogLoads =
+      store.loadDetailed().isInstanceOf[ProgressStore.LoadResult.Loaded]
+    if !ownLogLoads then
+      busyBranchLog(store.path, workDir, startBranch).foreach: log =>
+        throw new OrcaFlowException(
+          branchBusyMessage(log, workDir, startBranch)
+        )
+
+  /** The newest by mtime of the OTHER progress logs naming `startBranch` —
+    * newest-wins like the shell's resume offer, since several logs (different
+    * prompts) can name one branch. Corrupt logs are already dropped by the
+    * scan; a scan failure (`.orca` unreadable, or removed mid-listing) yields
+    * `None` rather than propagating, since this guard-rail must not fail a run
+    * that is otherwise fine.
+    */
+  private def busyBranchLog(
+      ownPath: os.Path,
+      workDir: os.Path,
+      startBranch: String
+  ): Option[ScannedProgressLog] =
+    try
+      ProgressScan
+        .progressLogs(workDir)
+        .filter(l => l.path != ownPath && l.header.branch == startBranch)
+        .maxByOption(l => os.mtime(l.path))
+    catch case NonFatal(_) => None
+
+  /** Identifies the run being refused — its recorded task and flow, plus the
+    * log's own path, which is both how the user reads the full task text back
+    * and what they delete to abandon the run — and lists every way out.
+    *
+    * The task is header content, committed and hand-editable, so it reaches the
+    * terminal through [[TextUtil.onelinePreview]]: sanitized, and clipped so a
+    * long task can't bury the guidance after it. The shell's menu item is only
+    * offered when the header carries BOTH a flow name and the task text, since
+    * that is exactly when it appears (`ResumeDetector.fromHeader`) — pointing
+    * at it otherwise sends the user hunting for a row that isn't there.
+    */
+  private def branchBusyMessage(
+      log: ScannedProgressLog,
+      workDir: os.Path,
+      startBranch: String
+  ): String =
+    val header = log.header
+    val task = header.userPrompt
+      .map(TextUtil.onelinePreview(_, 60))
+      .getOrElse("(not recorded)")
+    val flow = header.flowName
+      .map(name => s", flow: ${TextUtil.onelinePreview(name, 40)}")
+      .getOrElse("")
+    val logPath = log.path.relativeTo(workDir)
+    val resumeRoute =
+      if header.flowName.isDefined && header.userPrompt.isDefined then
+        "resume it (\"Resume interrupted run\" in the orca shell, or re-run " +
+          "its flow with the identical task text)"
+      else "resume it by re-running its flow with the identical task text"
+    s"branch '$startBranch' already has an unfinished orca run on it " +
+      s"(task: $task$flow, log: $logPath) — $resumeRoute, abandon it by " +
+      s"deleting $logPath, or switch to a different branch before starting " +
+      "a new run"
 
   /** [[setup]]'s fixed inputs — the coding-role agent, git, workDir, the
     * progress store, the emit sink — shared by the cleanliness-policy and

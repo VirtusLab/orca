@@ -2,6 +2,7 @@ package orca.shell
 
 import orca.shell.resume.InterruptedRun
 import orca.shell.ui.Choice
+import orca.util.TextUtil
 
 /** Main menu selection (ADR 0021 §3, `ForkFlow` added §6/§9, `RediscoverStack`
   * added §8, `EditSettings` added §4, `ResumeRun` added §3 amendment
@@ -84,15 +85,11 @@ private[shell] object MainMenu:
     Choice(ChangeMode.Hand, "By hand — open in your editor")
   )
 
-  /** `"Resume interrupted run — <flow>: <first ~40 chars of task>…"`. */
-  private def resumeLabel(run: InterruptedRun): String =
-    s"Resume interrupted run — ${run.flowName}: ${taskPreview(run.userPrompt)}"
-
-  /** The task text flattened to one line (a multi-line task is common —
-    * `Main.promptTask` reads multi-line), stripped of control characters (the
-    * text comes from a committed header, and a stray escape byte would corrupt
-    * the menu row), and clipped to ~40 chars.
+  /** `"Resume interrupted run — <flow>: <first ~40 chars of task>"`. The task
+    * comes from a committed header and is often multi-line (`Main.promptTask`
+    * reads multi-line), so it reaches the menu row through
+    * [[TextUtil.onelinePreview]].
     */
-  private def taskPreview(task: String): String =
-    val flattened = task.strip().replaceAll("\\s+", " ").filterNot(_.isControl)
-    s"${flattened.take(40)}…"
+  private def resumeLabel(run: InterruptedRun): String =
+    val task = TextUtil.onelinePreview(run.userPrompt, 40)
+    s"Resume interrupted run — ${run.flowName}: $task"
