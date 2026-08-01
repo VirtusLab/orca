@@ -492,6 +492,229 @@ class FlowLifecycleTest extends munit.FunSuite:
     assertEquals(loaded.get.header.branch, setup.featureBranch.value)
     assertEquals(loaded.get.entries, Nil)
 
+  // --- refusing a fresh run on a branch another run claims (R1 amendment) ---
+
+  /** Writes a FOREIGN progress log — a different prompt, hence a different file
+    * from the run under test — whose header names `branch`, exactly as a run
+    * interrupted on that branch leaves behind.
+    */
+  private def writeForeignLog(
+      workDir: os.Path,
+      branch: String,
+      // `prompt` keys the log file (so two foreign logs can coexist);
+      // `userPrompt` is the task text the header records. A real run records
+      // the same string for both — tests that vary one pass both.
+      prompt: String = "the other task",
+      userPrompt: Option[String] = Some("the other task"),
+      flowName: Option[String] = Some("implement.sc")
+  ): ProgressStore =
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val store = ProgressStore.default(workDir, prompt)
+    store.writeHeader(
+      ProgressHeader(
+        startingBranch = "main",
+        branch = branch,
+        promptHash = ProgressStore.hashPrompt(prompt),
+        branchMode = BranchMode.Created,
+        userPrompt = userPrompt,
+        flowName = flowName
+      )
+    )
+    store
+
+  private def setupFresh(workDir: os.Path): FlowLifecycle.FlowSetup =
+    setupForSettings(workDir, Some(StackSettings.empty), "a brand new task")
+
+  test(
+    "setup: a FRESH run refuses to start on a branch another run's log claims"
+  ):
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    val startBranch = git.currentBranch()
+    val _ = writeForeignLog(workDir, branch = startBranch)
+    // Dirty on purpose: the refusal must land before the cleanliness policy,
+    // so the tree is left exactly as it was — no stash, nothing swept.
+    os.write.append(workDir / "seed.txt", " edited")
+
+    val thrown = intercept[orca.OrcaFlowException](setupFresh(workDir): Unit)
+    assert(
+      thrown.getMessage.contains(startBranch) &&
+        thrown.getMessage.contains("the other task"),
+      s"the refusal must name the branch and the interrupted task: ${thrown.getMessage}"
+    )
+    // Flow name and task text both recorded: the shell row can be offered, and
+    // abandoning must be spelled as a git removal (a plain `rm` is undone by
+    // the next run's stash restore, since the log is committed).
+    assert(thrown.getMessage.contains("orca shell"), thrown.getMessage)
+    assert(thrown.getMessage.contains("git rm"), thrown.getMessage)
+    assertEquals(git.currentBranch(), startBranch)
+    assertEquals(stashList(workDir), Nil)
+    assert(os.read(workDir / "seed.txt").endsWith("edited"))
+
+  test("setup: skip-branch mode refuses on a claimed branch just the same"):
+    // The check sits ahead of every mode decision; skip-branch would otherwise
+    // bind straight onto the branch the interrupted run is using.
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    assert(git.createBranch("my-work").isRight)
+    val _ = writeForeignLog(workDir, branch = "my-work")
+    val thrown = intercept[orca.OrcaFlowException]:
+      val _ = FlowLifecycle.setup(
+        args = OrcaArgs("a brand new task", skipBranch = Flag(true)),
+        agent = StubAgent.claude,
+        git = git,
+        workDir = workDir,
+        branchNaming = None,
+        resolution = FlowLifecycle
+          .readSettings(workDir, noGlobalSettings, Some(StackSettings.empty))
+          .stack,
+        stackOverridden = true,
+        store = ProgressStore.default(workDir, "a brand new task"),
+        emit = _ => ()
+      )
+    assert(thrown.getMessage.contains("my-work"), thrown.getMessage)
+
+  test(
+    "setup: the refused run's task and flow are sanitized and clipped before they are printed"
+  ):
+    // The header is committed, hand-editable content: a stray escape byte must
+    // not reach the terminal, a multi-line task must not break the message
+    // apart, and a long one must not bury the guidance after it.
+    val workDir = GitRepo.seeded()
+    val startBranch = new OsGitTool(workDir).currentBranch()
+    val esc = 27.toChar
+    val _ = writeForeignLog(
+      workDir,
+      branch = startBranch,
+      userPrompt = Some(s"line one$esc[31m\nline two " + "x" * 80),
+      flowName = Some(s"impl$esc[31mement.sc")
+    )
+    val message =
+      intercept[orca.OrcaFlowException](setupFresh(workDir): Unit).getMessage
+    assert(!message.exists(_.isControl), message)
+    assert(message.contains("line one[31m line two"), message)
+    assert(
+      message.contains("x" * 30) && !message.contains("x" * 60),
+      s"a long task must be clipped: $message"
+    )
+    assert(message.contains("…"), message)
+    assert(message.contains("impl[31mement.sc"), message)
+
+  test(
+    "setup: with several logs claiming the branch, the refusal names the newest"
+  ):
+    // The message tells the user to delete the log it names, so it must name
+    // the one they'd actually resume — newest by mtime, as the shell's resume
+    // offer picks.
+    val workDir = GitRepo.seeded()
+    val startBranch = new OsGitTool(workDir).currentBranch()
+    val older = writeForeignLog(
+      workDir,
+      startBranch,
+      prompt = "older task",
+      userPrompt = Some("older task")
+    )
+    // The newer log is the CLI-run shape: a task recorded, no flow name (no
+    // ORCA_FLOW_NAME outside the shell), so it also covers what the message
+    // can and can't say for such a header.
+    val newer = writeForeignLog(
+      workDir,
+      startBranch,
+      prompt = "newer task",
+      userPrompt = Some("newer task"),
+      flowName = None
+    )
+    // Force a distinguishable mtime order regardless of write-speed timing.
+    val _ = os.mtime.set(older.path, System.currentTimeMillis() - 60000)
+
+    val message =
+      intercept[orca.OrcaFlowException](setupFresh(workDir): Unit).getMessage
+    assert(
+      message.contains("newer task") &&
+        message.contains(newer.path.relativeTo(workDir).toString),
+      s"the newest claiming log must be the one reported: $message"
+    )
+    assert(
+      !message.contains(", flow:") && !message.contains("orca shell"),
+      s"an unrecorded flow name is neither named nor implied: $message"
+    )
+    assert(
+      !message.contains("older task") &&
+        !message.contains(older.path.relativeTo(workDir).toString),
+      s"only the newest log is reported: $message"
+    )
+
+  test(
+    "setup: a log with no recorded task still refuses, naming it unrecorded"
+  ):
+    val workDir = GitRepo.seeded()
+    val startBranch = new OsGitTool(workDir).currentBranch()
+    val foreign = writeForeignLog(
+      workDir,
+      branch = startBranch,
+      userPrompt = None,
+      flowName = None
+    )
+    val thrown = intercept[orca.OrcaFlowException](setupFresh(workDir): Unit)
+    assert(
+      thrown.getMessage.contains("(not recorded)"),
+      s"a pre-feature log has no task text to quote: ${thrown.getMessage}"
+    )
+    // With no task text to quote, the log path is the only way to the run:
+    // read the rest of it there, or remove it to abandon the run.
+    assert(
+      thrown.getMessage.contains(foreign.path.relativeTo(workDir).toString),
+      s"the message must name the log file: ${thrown.getMessage}"
+    )
+    // The shell can't offer a row for a header missing both fields, so the
+    // message must not send the user looking for one — and there is no flow
+    // name to name either. The re-run route is still offered.
+    assert(!thrown.getMessage.contains("orca shell"), thrown.getMessage)
+    assert(!thrown.getMessage.contains(", flow:"), thrown.getMessage)
+    assert(thrown.getMessage.contains("re-running its flow"), thrown.getMessage)
+
+  test("setup: a log naming a DIFFERENT branch leaves a fresh run alone"):
+    val workDir = GitRepo.seeded()
+    val startBranch = new OsGitTool(workDir).currentBranch()
+    val _ = writeForeignLog(workDir, branch = "feat/elsewhere")
+    assertNotEquals(setupFresh(workDir).featureBranch.value, startBranch)
+
+  test("setup: a CORRUPT foreign log never refuses — it claims no branch"):
+    val workDir = GitRepo.seeded()
+    val startBranch = new OsGitTool(workDir).currentBranch()
+    val foreign = writeForeignLog(workDir, branch = startBranch)
+    os.write.over(foreign.path, "not json {{{")
+    assertNotEquals(setupFresh(workDir).featureBranch.value, startBranch)
+
+  test(
+    "setup: a resume of the same prompt proceeds, even with a foreign log on its branch"
+  ):
+    // The run's OWN log naming the current branch is the legitimate resume
+    // case, not a conflict — and a second log naming that branch doesn't turn
+    // it into one.
+    val workDir = GitRepo.seeded()
+    val git = new OsGitTool(workDir)
+    val prompt = "resume-me"
+    given WorkspaceWrite = WorkspaceWrite.unsafe
+    val startBranch = git.currentBranch()
+    assert(git.createBranch("feat/resume-me").isRight)
+    ProgressStore
+      .default(workDir, prompt)
+      .writeHeader(
+        ProgressHeader(
+          startingBranch = startBranch,
+          branch = "feat/resume-me",
+          promptHash = ProgressStore.hashPrompt(prompt),
+          branchMode = BranchMode.Created
+        )
+      )
+    val _ = writeForeignLog(workDir, branch = "feat/resume-me")
+
+    val setup = setupForSettings(workDir, Some(StackSettings.empty), prompt)
+    assertEquals(setup.featureBranch.value, "feat/resume-me")
+    assertEquals(setup.startBranch, startBranch)
+
   // The ADR-0019 gitignored-settings warning message.
   private val settingsIgnoredWarning =
     "stack settings at .orca/settings.properties are gitignored — remove the " +

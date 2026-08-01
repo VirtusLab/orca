@@ -23,11 +23,9 @@ class ResumeDetectorTest extends munit.FunSuite:
       flowName = flowName
     )
 
-  test("detect is None when .orca doesn't exist"):
-    val workDir = TempDirs.dir()
-    assertEquals(ResumeDetector.detect(workDir), None)
-
-  test("detect is None when .orca exists but has no progress log"):
+  // The scan's own guards (symlinked log file, symlinked or missing `.orca`)
+  // belong to ProgressScanTest, which owns that logic.
+  test("detect is None when the scan finds no progress log"):
     val workDir = TempDirs.dir()
     os.makeDir.all(workDir / ".orca")
     assertEquals(ResumeDetector.detect(workDir), None)
@@ -70,23 +68,6 @@ class ResumeDetectorTest extends munit.FunSuite:
     val store = ProgressStore.default(workDir, "fix the flaky test")
     store.writeHeader(header())
     os.write.over(store.path, "not json {{{")
-    assertEquals(ResumeDetector.detect(workDir), None)
-
-  test("detect is None for a symlinked progress log file"):
-    val workDir = TempDirs.dir()
-    val store = ProgressStore.default(workDir, "fix the flaky test")
-    store.writeHeader(header())
-    val outside = TempDirs.dir() / "elsewhere.json"
-    os.write.over(outside, "{}")
-    val _ = os.remove(store.path)
-    os.symlink(store.path, outside)
-    assertEquals(ResumeDetector.detect(workDir), None)
-
-  test("detect is None when .orca itself is a symlink"):
-    val workDir = TempDirs.dir()
-    val real = TempDirs.dir()
-    ProgressStore.default(real, "fix the flaky test").writeHeader(header())
-    os.symlink(workDir / ".orca", real)
     assertEquals(ResumeDetector.detect(workDir), None)
 
   test("detect picks the newest of multiple unfinished logs by mtime"):

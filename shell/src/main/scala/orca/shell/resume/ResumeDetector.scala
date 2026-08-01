@@ -1,7 +1,6 @@
 package orca.shell.resume
 
-import orca.OrcaDir
-import orca.progress.{ProgressHeader, ProgressStore}
+import orca.progress.{ProgressHeader, ProgressScan, ProgressStore}
 
 /** An unfinished flow run, byte-identically relaunchable: the flow script's
   * filename and the exact task text that started it (ADR 0021 §3 amendment).
@@ -18,9 +17,8 @@ private[shell] case class InterruptedRun(flowName: String, userPrompt: String)
 private[shell] object ResumeDetector:
 
   /** The newest unfinished progress log's flow+task, or `None` when there is
-    * nothing to offer: no `.orca` dir, no matching file, a symlinked file or
-    * `.orca` itself (excluded rather than followed, the same committed-symlink
-    * threat model other `.orca` reads guard against), a corrupt/unparseable
+    * nothing to offer: nothing found by the scan (see
+    * [[orca.progress.ProgressScan]] for what it skips), a corrupt/unparseable
     * log, or a log whose header predates this feature (no recorded flow name
     * and/or task text — it still resumes on its own terms via the normal
     * fresh/resume path, per `ProgressLog`'s documented tolerant decoding; this
@@ -56,21 +54,9 @@ private[shell] object ResumeDetector:
     name.endsWith(".sc") && !name.contains('/') && !name.contains('\\') &&
       !name.startsWith("-") && !name.startsWith(".")
 
-  /** Every `.orca/progress-<hash>.json` file, guarded like other `.orca` reads:
-    * a symlinked `.orca` (or no `.orca` at all) yields no candidates, and an
-    * individual symlinked log file is excluded rather than followed — a
-    * committed symlink could otherwise redirect the read outside the working
-    * tree. Picks the newest by mtime: with multiple unfinished logs (different
-    * prompts, one branch — possible), only the newest is ever offered; nothing
-    * else about the others is surfaced.
+  /** The newest by mtime of the scanned progress logs: with multiple unfinished
+    * logs (different prompts, one branch — possible), only the newest is ever
+    * offered; nothing else about the others is surfaced.
     */
   private def newestProgressLogPath(workDir: os.Path): Option[os.Path] =
-    val root = OrcaDir.rootPath(workDir)
-    if os.isLink(root) || !os.isDir(root) then None
-    else
-      os.list(root)
-        .filter(p => !os.isLink(p) && isProgressLogName(p.last))
-        .maxByOption(os.mtime(_))
-
-  private def isProgressLogName(name: String): Boolean =
-    name.matches("progress-[0-9a-f]{12}\\.json")
+    ProgressScan.progressLogPaths(workDir).maxByOption(os.mtime(_))

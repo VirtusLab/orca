@@ -332,6 +332,22 @@ the wrong branch.
 **Requirements.**
 - **R1** — Each `flow(...)` run is bound to exactly one feature branch and one
   progress log.
+
+  > **Amendment (2026-08-01).** R1 now holds across runs too. A FRESH run (its
+  > own prompt-keyed log absent or corrupt) refuses to start when any OTHER
+  > `.orca/progress-*.json` header names the branch it would run on: such a log
+  > is by definition an unfinished run on that branch (failure teardown keeps
+  > the log and stays put, success teardown deletes it — R5). Logs are
+  > prompt-keyed (R18), so without this a differently worded task starts fresh
+  > on top of the interrupted run's half-done branch. The refusal
+  > (`OrcaFlowException`) names the branch, the interrupted run's recorded task
+  > and flow — both sanitized, since the header is committed, hand-editable
+  > content — and the log's path, then points at the three ways out: resume
+  > that run, abandon it by deleting the log, or switch branches. It
+  > runs before the stash (R4) so an abort leaves the tree untouched, applies
+  > in skip-branch mode too, and never fires on a resume of the same prompt.
+  > Corrupt logs and logs naming another branch are ignored; with several
+  > matches the newest by mtime is reported.
 - **R2** — The feature branch is created up-front, before the body runs, from the
   current HEAD, via a pluggable `BranchNamingStrategy`. Built-ins cover the common
   cases **safely**: **deterministic** ones derive a git-ref-safe name from structured

@@ -21,6 +21,20 @@ private[orca] object TextUtil:
   /** Collapse every whitespace run (including newlines) to a single space. */
   def collapseWhitespace(s: String): String = s.replaceAll("""\s+""", " ")
 
+  /** One-line preview of text that will be printed to a terminal: stripped,
+    * whitespace collapsed, control characters dropped, and clipped to `maxLen`
+    * with a trailing `…` only when clipping actually happened.
+    *
+    * Used for text read back from a progress-log header — committed,
+    * hand-editable content, so a stray escape byte would otherwise corrupt the
+    * menu row or error message it lands in — and to keep a long task from
+    * burying the text around it.
+    */
+  def onelinePreview(text: String, maxLen: Int): String =
+    val flattened = collapseWhitespace(text.strip()).filterNot(_.isControl)
+    if flattened.length > maxLen then s"${flattened.take(maxLen)}…"
+    else flattened
+
   /** Collapse each newline run (with adjacent whitespace) to a single space,
     * leaving other whitespace intact. Enforces the settings-file
     * one-physical-line contract for command lines, so the executed command and
