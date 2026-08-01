@@ -105,7 +105,11 @@ class BaseAgentTest extends munit.FunSuite:
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
     val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
     val tool = new StubTool(new NoisyBackend, listener = listener)
-    val reply = tool.cheapOneShot("name this branch", fallback = "fb")
+    val reply = tool.cheapOneShot(
+      purpose = "branch name",
+      prompt = "name this branch",
+      fallback = "fb"
+    )
     assertEquals(reply, "short-label")
     val events = seen.get()
     assert(
@@ -123,6 +127,68 @@ class BaseAgentTest extends munit.FunSuite:
     assert(
       events.exists(_.isInstanceOf[OrcaEvent.TokensUsed]),
       s"cost accounting must still flow on a quiet turn: $events"
+    )
+
+  // A one-shot that fails is best-effort by design, but the fallback must not
+  // be silent: the user needs to know which incidental agent failed, why, and
+  // that orca carried on with the default.
+  test("a failing cheapOneShot returns its fallback and reports the purpose"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(
+      new FailingBackend(new RuntimeException("Prompt is too long")),
+      listener = listener
+    )
+    val reply = tool.cheapOneShot(
+      purpose = "commit message",
+      prompt = "summarise this diff",
+      fallback = "stage: build"
+    )
+    assertEquals(reply, "stage: build")
+    val steps = seen.get().collect { case OrcaEvent.Step(m) => m }
+    assertEquals(
+      steps,
+      List(
+        "commit message agent failed (Prompt is too long) — " +
+          "using the default commit message instead"
+      )
+    )
+
+  // Cheap models routinely narrate before answering and fence the answer; the
+  // narration line must not become the commit message / branch label.
+  test("cheapOneShot prefers a fenced answer over the narration above it"):
+    val tool = new StubTool(
+      new ScriptedDrainBackend(
+        "Looking at this diff, the main changes are:\n\n```\nShow branch in menu\n```\n"
+      ),
+      prompts = DefaultPrompts
+    )
+    val reply = tool.cheapOneShot(
+      purpose = "commit message",
+      prompt = "summarise this diff",
+      fallback = "stage: build"
+    )
+    assertEquals(reply, "Show branch in menu")
+
+  // A turn that failed after the model ran still spent tokens; the success path
+  // is the only other TokensUsed emitter, so without this the failed turn is
+  // invisible in the run's cost summary.
+  test("a turn failing with reported usage still emits TokensUsed"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val spent = Usage(120L, 8L, Some(BigDecimal("0.0031")))
+    val tool = new StubTool(
+      new FailingBackend(
+        new orca.AgentTurnFailed("claude session failed", usage = Some(spent))
+      ),
+      listener = listener
+    )
+    val _ = intercept[orca.AgentTurnFailed](tool.run("prompt"))
+    assertEquals(
+      seen.get().collect { case t: OrcaEvent.TokensUsed => t.usage },
+      List(spent)
     )
 
   // The manifest writer (ADR 0021 §8) needs the wire id known after the
@@ -388,6 +454,35 @@ class BaseAgentTest extends munit.FunSuite:
         "out",
         Usage.empty
       )
+    def runInteractive(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        displayPrompt: String,
+        config: AgentConfig,
+        outputSchema: Option[String]
+    )(using ox.Ox): Conversation[BackendTag.Pi.type] =
+      throw new UnsupportedOperationException
+    val sessions: SessionSupport[BackendTag.Pi.type] =
+      SessionSupport.ephemeral(IdScheme.ClientClaimed)
+    val tag: BackendTag.Pi.type = BackendTag.Pi
+    def enforcement(tools: ToolSet, autoApprove: AutoApprove): Enforcement =
+      Enforcement.Ignored
+    def structuredOutputMode: StructuredOutputMode =
+      StructuredOutputMode.RawText
+
+  /** Fails every turn with `error`, so the fallback/accounting paths around a
+    * failed `runAutonomous` can be exercised without a live backend.
+    */
+  private class FailingBackend(error: Throwable)
+      extends AgentBackend[BackendTag.Pi.type]:
+    val workDir: os.Path = os.pwd
+    def runAutonomous(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        config: AgentConfig,
+        events: OrcaListener,
+        outputSchema: Option[String]
+    ): AgentResult[BackendTag.Pi.type] = throw error
     def runInteractive(
         prompt: String,
         session: SessionId[BackendTag.Pi.type],

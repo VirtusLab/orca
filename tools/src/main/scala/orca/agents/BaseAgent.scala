@@ -1,6 +1,6 @@
 package orca.agents
 
-import orca.OrcaFlowException
+import orca.{AgentTurnFailed, OrcaFlowException}
 import orca.backend.{Interaction, AgentBackend, AgentResult}
 import orca.events.{OrcaEvent, OrcaListener}
 
@@ -72,6 +72,9 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
 
   override private[orca] def backendTag: Option[BackendTag] = Some(backend.tag)
 
+  override private[orca] def emitEvent(event: OrcaEvent): Unit =
+    events.onEvent(event)
+
   override private[orca] def configuredModel: Option[Model] = config.model
 
   override private[orca] def backendIdentity: Option[AnyRef] = Some(
@@ -107,7 +110,8 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         val effective = effectiveConfig(callConfig)
         if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
         val result =
-          backend.runAutonomous(prompt, session, effective, events)
+          runAccountingForFailure(effective):
+            backend.runAutonomous(prompt, session, effective, events)
         emitTokens(effective, result)
         emitSessionCommitted(session)
         result.output
@@ -127,7 +131,13 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         case _: OrcaEvent.AssistantMessage | _: OrcaEvent.ToolUse => ()
         case other => events.onEvent(other)
     val result =
-      backend.runAutonomous(prompt, SessionId.fresh[B], effective, quietEvents)
+      runAccountingForFailure(effective):
+        backend.runAutonomous(
+          prompt,
+          SessionId.fresh[B],
+          effective,
+          quietEvents
+        )
     emitTokens(effective, result)
     result.output
 
@@ -142,6 +152,24 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       agentName = name,
       agentRole = role
     )
+
+  /** Run a backend turn, emitting the spend of a turn that fails after the
+    * model already ran ([[AgentTurnFailed.usage]]) before re-raising —
+    * otherwise only the success path reports tokens and a failed turn is
+    * invisible in the cost summary. The failure frame carries no model id, so
+    * the bucket key is whatever the caller pinned.
+    */
+  private def runAccountingForFailure(
+      effective: AgentConfig
+  )(turn: => AgentResult[B]): AgentResult[B] =
+    try turn
+    catch
+      case e: AgentTurnFailed =>
+        e.usage.foreach: usage =>
+          events.onEvent(
+            OrcaEvent.TokensUsed(name, effective.model, usage, role)
+          )
+        throw e
 
   /** `model` prefers the response-reported model (most precise), falling back
     * to whatever the caller pinned in config, `None` when neither is known.

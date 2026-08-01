@@ -41,7 +41,16 @@ class OrcaInteractiveCancelled(
   * `cause` is optional so `getCause` still reaches the original exception
   * (stack trace, exact type) for `--verbose`/debug inspection rather than being
   * flattened into the message string.
+  *
+  * `usage` carries what the turn spent before failing, when the backend reports
+  * it on the terminal error frame (claude's `result` message does). Without it
+  * a failed turn's tokens would never reach `OrcaEvent.TokensUsed` — the
+  * success path is the only other emitter — and the run's cost summary would
+  * understate spend. `None` for backends whose failure frame carries no usage.
   */
-class AgentTurnFailed(message: String, cause: Throwable | Null = null)
-    extends OrcaFlowException(message):
+class AgentTurnFailed(
+    message: String,
+    cause: Throwable | Null = null,
+    val usage: Option[orca.events.Usage] = None
+) extends OrcaFlowException(message):
   if cause != null then initCause(cause): Unit
