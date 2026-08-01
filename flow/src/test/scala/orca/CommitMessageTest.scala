@@ -16,6 +16,8 @@ import orca.progress.ProgressStore
 import orca.testkit.GitRepo
 import orca.tools.{GitTool, OsGitTool}
 
+import java.util.concurrent.ConcurrentLinkedQueue
+
 /** Tests for the agent-generated commit-message path in `recordAndCommit`: wire
   * a real temp repo and a stubbed LLM, then assert the message in `git log`
   * after a stage runs.
@@ -26,13 +28,14 @@ class CommitMessageTest extends munit.FunSuite:
   // Stubs
   // --------------------------------------------------------------------------
 
-  /** Agent stub whose `autonomous.run` returns a fixed reply. Models both the
-    * cheap (via `cheap`) and the full tool — the commit-message path calls
-    * `fc.cheapOneShot`, which runs the lead's `cheap`, so `cheap` must also
-    * return this stub.
+  /** Agent stub whose `autonomous.run` records the prompt it was given and
+    * returns a fixed reply. Models both the cheap (via `cheap`) and the full
+    * tool — the commit-message path calls `fc.cheapOneShot`, which runs the
+    * lead's `cheap`, so `cheap` must also return this stub.
     */
   private def stubbedAgent(
-      reply: String
+      reply: String,
+      prompts: ConcurrentLinkedQueue[String] = ConcurrentLinkedQueue[String]()
   ): Agent[BackendTag.ClaudeCode.type] =
     new Agent[BackendTag.ClaudeCode.type]:
       val name: String = "stubbed"
@@ -47,6 +50,7 @@ class CommitMessageTest extends munit.FunSuite:
           )(using
               orca.InStage
           ): String =
+            prompts.add(prompt): Unit
             reply
       def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
       def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
@@ -177,9 +181,8 @@ class CommitMessageTest extends munit.FunSuite:
       assertEquals(lastCommitMessage(dir), "stage: write file")
 
   test("stage with explicit commitMessage uses it verbatim (no agent call)"):
-    // The explicit message path must not touch the LLM — use throwingAgent to
-    // prove it.
-    withCtx(throwingAgent): (ctx, dir) =>
+    val prompts = ConcurrentLinkedQueue[String]()
+    withCtx(stubbedAgent("should not appear", prompts)): (ctx, dir) =>
       given FlowControl = ctx
       val _ = stage[String](
         "write file",
@@ -188,6 +191,23 @@ class CommitMessageTest extends munit.FunSuite:
         os.write.over(dir / "seed.txt", "modified by stage")
         "done"
       assertEquals(lastCommitMessage(dir), "explicit: my message")
+      assert(prompts.isEmpty, "the explicit-message path must not call a model")
+
+  test("a large stage diff reaches the model bounded, with the --stat summary"):
+    val prompts = ConcurrentLinkedQueue[String]()
+    withCtx(stubbedAgent("Rewrite seed file", prompts)): (ctx, dir) =>
+      given FlowControl = ctx
+      val _ = stage("write file"):
+        os.write.over(
+          dir / "seed.txt",
+          (1 to 20000).map(i => s"line $i").mkString("\n")
+        )
+        "done"
+      val prompt = prompts.poll()
+      // The head plus the stat, both capped by `InlineThreshold`; the slack
+      // covers the prompt's own wording and the truncation markers.
+      assert(clue(prompt.length) < CommitDiff.InlineThreshold + 512)
+      assert(prompt.contains("file changed"), "the --stat summary is missing")
 
   test(
     "stage with no commitMessage and blank agent reply falls back to stage:<name>"

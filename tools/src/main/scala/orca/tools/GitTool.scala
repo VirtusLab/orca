@@ -202,6 +202,13 @@ trait GitTool:
     */
   def diff(): String
 
+  /** `--stat` summary of the same change set as [[diff]]: one line per changed
+    * file with its insertion/deletion counts, then the totals line. Describes
+    * which files a change touched without carrying any hunk, so it can be sent
+    * to a model when the full diff is too large to be worth its tokens.
+    */
+  def diffStat(): String
+
   /** The working-tree change set a reviewer should see: tracked changes since
     * the last commit (staged and unstaged, as in [[diff]]) excluding `.orca/`
     * bookkeeping, PLUS each untracked non-`.orca/` file rendered as a new-file
@@ -495,6 +502,9 @@ private[orca] class OsGitTool(
 
   def diff(): String =
     git("diff", "HEAD")
+
+  def diffStat(): String =
+    git("diff", "--stat", "HEAD")
 
   def reviewDiff(): String =
     val tracked = git("diff", "HEAD", "--", ".", ":(exclude).orca/*")
