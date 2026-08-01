@@ -118,11 +118,13 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
     * call carried a [[orca.agents.Agent.role]] tag) by-role — each sorted
     * alphabetically by its rendered label. Each by-agent line is prefixed with
     * that agent's role when it has one (e.g. `reviewer: performance`). Cache
-    * hits and reasoning tokens are shown parenthetically when non-zero. Token
-    * counts are rendered compactly (`1K`, `103.8K`, `3.2M`) from 1000 up; cost
-    * (when known) stays exact and is appended as `$X.XXXX`, with an asterisk
-    * marking an estimated figure and a trailing legend line when any estimate
-    * is present.
+    * reads, cache writes and reasoning tokens are shown parenthetically when
+    * non-zero — writes routinely outweigh everything else on a cache-heavy run,
+    * so they get their own figure rather than being merged into the reads.
+    * Token counts are rendered compactly (`1K`, `103.8K`, `3.2M`) from 1000 up;
+    * cost (when known) stays exact and is appended as `$X.XXXX`, with an
+    * asterisk marking an estimated figure and a trailing legend line when any
+    * estimate is present.
     *
     * Empty string when no `TokensUsed` events have been observed.
     */
@@ -190,11 +192,22 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
     val tokens = formatUsage(usage)
     cost.fold(tokens)(c => s"$tokens (${formatCost(c)})")
 
+  /** Cache reads and cache writes share one parenthetical after the input
+    * count, each part dropped when zero. They are named rather than merged
+    * because a write bills above base input and a read far below it, so the two
+    * numbers pull the cost in opposite directions.
+    */
   private def formatUsage(usage: Usage): String =
+    val cacheParts = List(
+      Option.when(usage.cachedInputTokens > 0)(
+        s"${formatCount(usage.cachedInputTokens)} cache read"
+      ),
+      Option.when(usage.cacheWriteInputTokens > 0)(
+        s"${formatCount(usage.cacheWriteInputTokens)} cache write"
+      )
+    ).flatten
     val cached =
-      if usage.cachedInputTokens > 0 then
-        s" (${formatCount(usage.cachedInputTokens)} cached)"
-      else ""
+      if cacheParts.isEmpty then "" else cacheParts.mkString(" (", ", ", ")")
     val reasoning =
       if usage.reasoningOutputTokens > 0 then
         s" (${formatCount(usage.reasoningOutputTokens)} reasoning)"

@@ -125,7 +125,8 @@ private[codex] object InboundEvent:
         // In codex's wire shape `input_tokens` is the total billed input
         // (cached + non-cached), and `output_tokens` is the total output
         // (visible + reasoning) — `cached_input_tokens` and
-        // `reasoning_output_tokens` are sub-breakdowns. Keep both axes.
+        // `reasoning_output_tokens` are sub-breakdowns. Keep both axes. There
+        // is no cache-creation counter, so `cacheWriteInputTokens` stays zero.
         inputTokens = u.input_tokens.getOrElse(0L),
         cachedInputTokens = u.cached_input_tokens.getOrElse(0L),
         outputTokens = u.output_tokens.getOrElse(0L),

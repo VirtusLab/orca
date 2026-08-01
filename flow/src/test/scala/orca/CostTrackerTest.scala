@@ -23,15 +23,23 @@ class CostTrackerTest extends munit.FunSuite:
     OrcaEvent.TokensUsed(agent, model.map(Model.apply), u, role)
 
   // Tiny price list so token math gives round dollar figures: a model at
-  // $1/M input means 1,000,000 input tokens = $1. `cachedInputUsdPerMillion`
-  // is intentionally distinct from `inputUsdPerMillion` so tests can tell
-  // the two rates apart.
+  // $1/M input means 1,000,000 input tokens = $1. Each of the four rates is
+  // intentionally distinct so a test can tell which one was applied — the
+  // cache-write rate is the one-hour tier, 2× input.
   private val testTable = PriceList(
     table = Map(
-      Model("opus") -> ModelPricing(1, BigDecimal("0.10"), 5),
-      Model("haiku") -> ModelPricing(1, BigDecimal("0.10"), 5)
+      Model("opus") -> ModelPricing(1, BigDecimal("0.10"), 5, 2),
+      Model("haiku") -> ModelPricing(1, BigDecimal("0.10"), 5, 2)
     ),
     lastUpdated = LocalDate.of(2026, 1, 15)
+  )
+
+  /** The same table with the five-minute cache-write tier (1.25× input). */
+  private val fiveMinuteWriteTable = PriceList(
+    table = testTable.table.view
+      .mapValues(_.copy(cacheWriteUsdPerMillion = BigDecimal("1.25")))
+      .toMap,
+    lastUpdated = testTable.lastUpdated
   )
 
   test("starts at zero and ignores non-TokensUsed events"):
@@ -85,7 +93,9 @@ class CostTrackerTest extends munit.FunSuite:
 
   test("estimate bills cached input at the cached rate, not the input rate"):
     val tracker = new CostTracker(pricing = testTable)
-    // 1M input total, 800k of which are cached:
+    // A backend that reports one undifferentiated cache number (codex,
+    // gemini) leaves the write axis at zero, so nothing is billed twice:
+    // 1M input total, 800k of which are cache reads:
     //   200k billable @ $1/M  = $0.20
     //   800k cached   @ $0.10/M = $0.08
     //   no output             = $0
@@ -104,6 +114,60 @@ class CostTrackerTest extends munit.FunSuite:
       )
     )
     assertEquals(tracker.perAgentCost("claude").amount, BigDecimal("0.28"))
+
+  test("estimate bills cache writes at their own rate, above base input"):
+    // 1M input total: 600k cache reads, 300k cache writes, 100k fresh.
+    //   100k fresh @ $1/M    = $0.10
+    //   600k read  @ $0.10/M = $0.06
+    //   300k write @ the tier's rate
+    // Folding writes into reads (what the old single axis did) would bill
+    // 900k @ $0.10/M = $0.09 and understate the turn by more than half.
+    val cases = List(
+      testTable -> BigDecimal("0.76"), // 300k @ $2/M   (1h tier)  = $0.60
+      fiveMinuteWriteTable -> BigDecimal("0.535") // 300k @ $1.25/M = $0.375
+    )
+    cases.foreach: (table, expected) =>
+      val tracker = new CostTracker(pricing = table)
+      tracker.onEvent(
+        tokens(
+          "claude",
+          Some("opus"),
+          Usage(
+            inputTokens = 1_000_000L,
+            outputTokens = 0L,
+            cost = None,
+            cachedInputTokens = 600_000L,
+            cacheWriteInputTokens = 300_000L
+          )
+        )
+      )
+      assertEquals(tracker.perAgentCost("claude").amount, expected)
+
+  test("a reported cost wins, and reads and writes still show separately"):
+    val tracker = new CostTracker(pricing = testTable)
+    tracker.onEvent(
+      tokens(
+        "claude",
+        Some("opus"),
+        Usage(
+          inputTokens = 1_000_000L,
+          outputTokens = 0L,
+          cost = Some(BigDecimal("0.42")),
+          cachedInputTokens = 600_000L,
+          cacheWriteInputTokens = 300_000L
+        )
+      )
+    )
+    assertEquals(
+      tracker.perAgentCost("claude"),
+      Cost(BigDecimal("0.42"), estimated = false)
+    )
+    assert(
+      tracker.summary.contains(
+        "claude: 1M in (600K cache read, 300K cache write), 0 out ($0.4200)"
+      ),
+      tracker.summary
+    )
 
   test("estimate ignores reasoning tokens (already inside output)"):
     val tracker = new CostTracker(pricing = testTable)
@@ -200,7 +264,7 @@ class CostTrackerTest extends munit.FunSuite:
         tracker.summary
       )
 
-  test("summary compacts the cached and reasoning parentheticals too"):
+  test("summary compacts the cache and reasoning parentheticals too"):
     val tracker = new CostTracker(pricing = testTable)
     tracker.onEvent(
       tokens(
@@ -211,14 +275,35 @@ class CostTrackerTest extends munit.FunSuite:
           outputTokens = 12_500L,
           cost = None,
           cachedInputTokens = 40_000L,
-          reasoningOutputTokens = 1_200L
+          reasoningOutputTokens = 1_200L,
+          cacheWriteInputTokens = 5_000L
         )
       )
     )
     assert(
       tracker.summary.contains(
-        "claude: 50K in (40K cached), 12.5K out (1.2K reasoning)"
+        "claude: 50K in (40K cache read, 5K cache write), " +
+          "12.5K out (1.2K reasoning)"
       ),
+      tracker.summary
+    )
+
+  test("summary drops the cache-write part when a backend reports no writes"):
+    val tracker = new CostTracker(pricing = testTable)
+    tracker.onEvent(
+      tokens(
+        "codex",
+        Some("opus"),
+        Usage(
+          inputTokens = 50_000L,
+          outputTokens = 100L,
+          cost = None,
+          cachedInputTokens = 40_000L
+        )
+      )
+    )
+    assert(
+      tracker.summary.contains("codex: 50K in (40K cache read), 100 out"),
       tracker.summary
     )
 

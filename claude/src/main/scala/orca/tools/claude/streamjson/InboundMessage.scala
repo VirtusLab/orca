@@ -74,20 +74,21 @@ private[claude] object InboundMessage:
     val u = wire.usage.getOrElse(UsageWire())
     // Claude Code splits input across `input_tokens` (new this turn),
     // `cache_creation_input_tokens`, and `cache_read_input_tokens` — three
-    // separate categories, so the billed total is their sum, with
-    // cached = creation + read.
-    val cached = u.cache_creation_input_tokens.getOrElse(0L) +
-      u.cache_read_input_tokens.getOrElse(0L)
+    // separate categories billed at three different rates, so the total input
+    // is their sum and creation/read stay on their own axes.
+    val cacheWrite = u.cache_creation_input_tokens.getOrElse(0L)
+    val cacheRead = u.cache_read_input_tokens.getOrElse(0L)
     Result(
       subtype = wire.subtype,
       sessionId = wire.session_id,
       output = wire.result,
       structuredOutput = wire.structured_output.map(_.value),
       usage = Usage(
-        inputTokens = u.input_tokens.getOrElse(0L) + cached,
+        inputTokens = u.input_tokens.getOrElse(0L) + cacheWrite + cacheRead,
         outputTokens = u.output_tokens.getOrElse(0L),
         cost = wire.total_cost_usd,
-        cachedInputTokens = cached
+        cachedInputTokens = cacheRead,
+        cacheWriteInputTokens = cacheWrite
       ),
       isError = wire.is_error.getOrElse(false),
       model = wire.model

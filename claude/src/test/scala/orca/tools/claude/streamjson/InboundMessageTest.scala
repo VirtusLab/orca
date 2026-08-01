@@ -39,6 +39,22 @@ class InboundMessageTest extends munit.FunSuite:
     assertEquals(r.usage, Usage(10L, 20L, Some(BigDecimal("0.003"))))
     assertEquals(r.isError, false)
 
+  test("result keeps cache creation and cache reads on separate axes"):
+    val msg = InboundMessage.parse(
+      """{"type":"result","subtype":"success","session_id":"sid-1","usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":300,"cache_read_input_tokens":4000},"total_cost_usd":0.5}"""
+    )
+    assertEquals(
+      msg.asInstanceOf[InboundMessage.Result].usage,
+      Usage(
+        // All three input categories are billed, so they sum into the total.
+        inputTokens = 4310L,
+        outputTokens = 20L,
+        cost = Some(BigDecimal("0.5")),
+        cachedInputTokens = 4000L,
+        cacheWriteInputTokens = 300L
+      )
+    )
+
   test("result surfaces the resolved model id when present"):
     val msg = InboundMessage.parse(
       """{"type":"result","subtype":"success","session_id":"sid-1","model":"claude-opus-4-7"}"""

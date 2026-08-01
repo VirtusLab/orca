@@ -129,7 +129,8 @@ private[gemini] object InboundEvent:
         outputTokens = s.output_tokens.getOrElse(0L),
         cost = None, // gemini doesn't emit cost on the wire
         // cache sub-count is `cached` (older/forward shapes use
-        // `cached_input_tokens`).
+        // `cached_input_tokens`). There is no cache-creation counter, so
+        // `cacheWriteInputTokens` stays zero.
         cachedInputTokens = s.cached.orElse(s.cached_input_tokens).getOrElse(0L)
       ),
       status = ToolStatus.of(w.status)

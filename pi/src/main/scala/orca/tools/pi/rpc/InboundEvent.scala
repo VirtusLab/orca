@@ -192,12 +192,16 @@ private[pi] object InboundEvent:
       cacheWrite: Option[Long] = None,
       cost: Option[CostWire] = None
   ) derives ConfiguredJsonValueCodec:
+    // pi's `input` is the total billed prompt; `cacheRead`/`cacheWrite` are
+    // sub-breakdowns of it, and they bill at different rates, so each keeps
+    // its own axis.
     def toUsage: Usage =
       Usage(
         inputTokens = input.getOrElse(0L),
         outputTokens = output.getOrElse(0L),
         cost = cost.flatMap(_.total),
-        cachedInputTokens = cacheRead.getOrElse(0L) + cacheWrite.getOrElse(0L)
+        cachedInputTokens = cacheRead.getOrElse(0L),
+        cacheWriteInputTokens = cacheWrite.getOrElse(0L)
       )
 
   private case class CostWire(total: Option[BigDecimal] = None)
