@@ -1,6 +1,6 @@
 package orca.shell.actions
 
-import orca.testkit.TempDirs
+import orca.testkit.{GitRepo, TempDirs}
 
 class ConfigSummaryTest extends munit.FunSuite:
 
@@ -140,3 +140,23 @@ class ConfigSummaryTest extends munit.FunSuite:
         ConfigSummary.stackLine(workDir).contains("invalid settings"),
         ConfigSummary.stackLine(workDir)
       )
+
+  // --- branchLine ---
+
+  test("branchLine: names the checked-out branch"):
+    val workDir = GitRepo.seeded()
+    assertEquals(ConfigSummary.branchLine(workDir), Some("branch: main"))
+
+  test("branchLine: outside a git repo there is no line"):
+    assertEquals(ConfigSummary.branchLine(TempDirs.dir()), None)
+
+  test("branchLine: a detached HEAD is named as such, not as a branch"):
+    val workDir = GitRepo.seeded()
+    val head =
+      os.proc("git", "rev-parse", "HEAD").call(cwd = workDir).out.trim()
+    val _ =
+      os.proc("git", "checkout", head).call(cwd = workDir, stderr = os.Pipe)
+    assertEquals(
+      ConfigSummary.branchLine(workDir),
+      Some("branch: (detached HEAD)")
+    )

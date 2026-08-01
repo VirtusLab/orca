@@ -199,6 +199,14 @@ runtime's own glyph family (`⏺`/`●`/`▶`/`▸`).
 > fallback. Multiple unfinished logs (different prompts, one branch) offer
 > only the newest by mtime.
 
+> **Amendment (2026-08-01).** A `branch: <name>` line prints directly above
+> the menu prompt, re-read on every redraw (like Continue's manifest listing
+> and the resume check) so it stays true after a flow run switches branches —
+> which is why it lives in the menu loop rather than the startup config
+> summary (§4). Best-effort: outside a git repo, or if git fails, the line is
+> omitted; a detached HEAD renders `(detached HEAD)` rather than git's literal
+> `HEAD`.
+
 ### 4. Welcome wizard and settings
 
 First run = the global settings file (`$XDG_CONFIG_HOME/orca/settings.properties`,

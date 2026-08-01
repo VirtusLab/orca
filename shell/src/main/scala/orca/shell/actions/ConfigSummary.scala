@@ -12,6 +12,9 @@ import orca.settings.AgentSpec
   * print this line, so an unset role always shows bare `claude` here, even
   * though a real run might additionally show that backend's own configured
   * default model.
+  *
+  * [[branchLine]] is NOT part of that summary: `Main.loop` prints it once per
+  * redraw, so it stays true after a flow run switches branches.
   */
 private[shell] object ConfigSummary:
 
@@ -44,6 +47,26 @@ private[shell] object ConfigSummary:
         )
         "agents: " +
           roles.map((role, spec) => s"$role=${renderSpec(spec)}").mkString(", ")
+
+  /** `branch: <name>` for the repo at `workDir`, or `None` when there is no
+    * branch to name — `workDir` isn't a git repo, or git failed for any other
+    * reason. Best-effort like the other lines here: the menu must still paint.
+    *
+    * Detached HEAD (git reports the literal `HEAD`) renders as `branch:
+    * (detached HEAD)` rather than a name no `git checkout` would accept.
+    */
+  def branchLine(workDir: os.Path): Option[String] =
+    val result = scala.util.Try(
+      os.proc("git", "rev-parse", "--abbrev-ref", "HEAD")
+        .call(cwd = workDir, check = false, stderr = os.Pipe)
+    )
+    result.toOption
+      .filter(_.exitCode == 0)
+      .map(_.out.trim())
+      .filter(_.nonEmpty)
+      .map:
+        case "HEAD" => "branch: (detached HEAD)"
+        case name   => s"branch: $name"
 
   private def renderSpec(spec: Option[AgentSpec]): String =
     spec.fold("claude"): s =>

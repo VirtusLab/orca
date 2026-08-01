@@ -100,7 +100,10 @@ object Main:
     * only have just finished, so the freshest listing is worth the re-read.
     * `ResumeDetector.detect` is likewise re-evaluated every redraw (ADR 0021 §3
     * amendment) — cheap (one dir listing plus one small file read) and
-    * consistent with Continue's own re-read.
+    * consistent with Continue's own re-read. The `branch:` line
+    * ([[ConfigSummary.branchLine]]) is printed here for the same reason: a flow
+    * run started from this menu can leave HEAD on a new branch, so it is
+    * re-read per redraw rather than printed once with the startup summary.
     */
   @tailrec private def loop(
       ui: ShellUi,
@@ -114,6 +117,7 @@ object Main:
     val continueSessionCount =
       runs.headOption.map(_.manifest.sessions.size)
     val resumeOffer = ResumeDetector.detect(os.pwd)
+    ConfigSummary.branchLine(os.pwd).foreach(ShellOutput.info)
     ui.select(
       "orca shell",
       MainMenu.choices(continueSessionCount, resumeOffer)

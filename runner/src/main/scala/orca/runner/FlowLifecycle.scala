@@ -250,7 +250,14 @@ object FlowLifecycle:
     * other case (resume, or normal branch-creating mode either way)
     * auto-stashes as before: a resumed run's interrupted stage may have left
     * uncommitted partial work that must not leak into the stage that re-runs.
-    * Normal mode never peeks pre-stash, so its behaviour is unchanged.
+    * Normal mode's stash decision needs no peek, so it is unchanged.
+    *
+    * [[abortIfBranchBusy]] also reads the own log pre-stash, in every mode. A
+    * pre-stash read can see a dirty working copy, which is why neither peek
+    * routes fresh-vs-resume — that stays with the post-stash authoritative read
+    * below. The busy check only ever refuses, and a dirty own log reads at
+    * worst as `Corrupt`, which it treats like `Absent`: no resumable run of
+    * mine here, so another run's claim on this branch still stands.
     *
     * The progress header is untrusted input on load (the log is human-visible
     * and pushable), so the AUTHORITATIVE read — at the `binding` match below —
@@ -398,10 +405,15 @@ object FlowLifecycle:
     *
     * The task is header content, committed and hand-editable, so it reaches the
     * terminal through [[TextUtil.onelinePreview]]: sanitized, and clipped so a
-    * long task can't bury the guidance after it. The shell's menu item is only
-    * offered when the header carries BOTH a flow name and the task text, since
-    * that is exactly when it appears (`ResumeDetector.fromHeader`) — pointing
-    * at it otherwise sends the user hunting for a row that isn't there.
+    * long task can't bury the guidance after it.
+    *
+    * The shell's menu row is mentioned as a possibility, not a promise, and
+    * only when the header carries both a flow name and the task text — the
+    * shell needs both to offer the row at all, but applies further conditions
+    * of its own (`ResumeDetector`), so the always-available re-run route is
+    * given either way. Abandoning is spelled as a git removal: the log is
+    * committed on the branch, so a plain `rm` is undone by the next run's
+    * auto-stash restore.
     */
   private def branchBusyMessage(
       log: ScannedProgressLog,
@@ -416,15 +428,15 @@ object FlowLifecycle:
       .map(name => s", flow: ${TextUtil.onelinePreview(name, 40)}")
       .getOrElse("")
     val logPath = log.path.relativeTo(workDir)
-    val resumeRoute =
+    val shellRoute =
       if header.flowName.isDefined && header.userPrompt.isDefined then
-        "resume it (\"Resume interrupted run\" in the orca shell, or re-run " +
-          "its flow with the identical task text)"
-      else "resume it by re-running its flow with the identical task text"
+        ", which the orca shell may also offer as \"Resume interrupted run\""
+      else ""
     s"branch '$startBranch' already has an unfinished orca run on it " +
-      s"(task: $task$flow, log: $logPath) — $resumeRoute, abandon it by " +
-      s"deleting $logPath, or switch to a different branch before starting " +
-      "a new run"
+      s"(task: $task$flow, log: $logPath) — resume it by re-running its flow " +
+      s"with the identical task text$shellRoute, abandon it by removing its " +
+      s"log (git rm $logPath && git commit -m \"abandon orca run\"), or " +
+      "switch to a different branch before starting a new run"
 
   /** [[setup]]'s fixed inputs — the coding-role agent, git, workDir, the
     * progress store, the emit sink — shared by the cleanliness-policy and
