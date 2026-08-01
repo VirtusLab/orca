@@ -1,8 +1,7 @@
 package orca.tools.claude
 
 import orca.agents.{AutoApprove, BackendTag, AgentConfig}
-import orca.events.{Usage}
-import orca.{OrcaFlowException}
+import orca.AgentTurnFailed
 import orca.backend.{ApprovalDecision, ConversationEvent}
 import orca.backend.{ForkedConversation, StreamSource}
 import orca.subprocess.PipedCliProcess
@@ -89,7 +88,7 @@ private[claude] class ClaudeConversation(
     case InboundMessage.AssistantTurn(content) => handleAssistantTurn(content)
     case InboundMessage.UserTurn(content)      => handleUserTurn(content)
     case result: InboundMessage.Result =>
-      if result.isError then handleResultError(result.output)
+      if result.isError then handleResultError(result)
       else handleResult(result)
     case InboundMessage.ControlRequest(reqId, body) =>
       handleControlRequest(reqId, body)
@@ -173,12 +172,20 @@ private[claude] class ClaudeConversation(
   private def handleResult(result: InboundMessage.Result): Unit =
     settleSuccess(
       wireId = result.sessionId,
-      output = result.structuredOutput.orElse(result.output).getOrElse(""),
+      output = resultBody(result).getOrElse(""),
       usage = result.usage,
       // Fall back to the model claude announced in system.init when the
       // result message omits it.
       modelId = result.model.orElse(initModel)
     )
+
+  /** The result message's payload: the `--json-schema` validated value when the
+    * session ran structured, else the free-form reply; `None` when the message
+    * carries neither (or only an empty one). Shared by the success and error
+    * paths so the two can't drift on which field is the body.
+    */
+  private def resultBody(result: InboundMessage.Result): Option[String] =
+    result.structuredOutput.orElse(result.output).filter(_.nonEmpty)
 
   /** Claude sets `is_error: true` for out-of-band failures (API errors, rate
     * limits, auth) at the CLI boundary rather than inside a turn. Treat these
@@ -186,15 +193,31 @@ private[claude] class ClaudeConversation(
     * parser, which might otherwise accept a `{"type":"error",...}` payload as
     * valid output. `failWith` carries the full message; the in-stream `Error`
     * event is short if the body already streamed as part of a turn.
+    *
+    * An empty body is the case that most needs diagnosing — a resume that
+    * replays a queued pseudo-turn, an exhausted turn budget — and there the
+    * reason lives only in `subtype`, so it stands in for the message rather
+    * than leaving a bare "claude reported is_error". `AgentTurnFailed` (not a
+    * plain `OrcaFlowException`) because the turn ran and the wire session is
+    * already locked: `awaitResult` would classify it as such anyway, and
+    * settling it here is what lets the failed turn's `usage` reach the cost
+    * summary.
     */
-  private def handleResultError(output: Option[String]): Unit =
-    val message =
-      output.filter(_.nonEmpty).getOrElse("claude reported is_error")
+  private def handleResultError(result: InboundMessage.Result): Unit =
+    val message = resultBody(result).getOrElse(
+      s"claude reported is_error (subtype ${result.subtype})"
+    )
     val displayed =
       if deltasSinceLastFullTurn then "session failed (see message above)"
       else message
     eventQueue.enqueue(ConversationEvent.Error(displayed))
-    failWith(new OrcaFlowException(s"claude session failed: $message"))
+    failWith(
+      new AgentTurnFailed(
+        s"claude session failed (subtype ${result.subtype}, " +
+          s"session ${result.sessionId}): $message",
+        usage = Some(result.usage)
+      )
+    )
 
   private def handleControlRequest(
       requestId: String,

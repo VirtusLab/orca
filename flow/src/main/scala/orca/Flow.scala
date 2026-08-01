@@ -144,8 +144,9 @@ private def recordAndCommit[T: JsonData](
   * captured before the progress file is force-added, so it reflects only code
   * changes the stage body produced. Falls back to `"stage: <name>"` when the
   * diff is empty, the agent returns blank, or any `NonFatal` is thrown —
-  * committing must never break. Only called when the caller supplied no
-  * explicit `commitMessage`.
+  * committing must never break, though `cheapOneShot` announces the fallback
+  * rather than hiding it. Only called when the caller supplied no explicit
+  * `commitMessage`.
   */
 private def defaultCommitMessage(
     name: String
@@ -160,8 +161,10 @@ private def defaultCommitMessage(
   if diff.isBlank then fallback
   else
     fc.codingAgent.cheapOneShot(
-      s"Write a concise one-line git commit message (imperative mood, ≤72 chars) for this diff:\n\n$diff",
-      fallback
+      purpose = "commit message",
+      prompt =
+        s"Write a concise one-line git commit message (imperative mood, ≤72 chars) for this diff:\n\n$diff",
+      fallback = fallback
     )
 
 private def formatMalformedOutput(

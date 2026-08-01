@@ -2,7 +2,7 @@ package orca.tools.claude
 
 import orca.agents.{AutoApprove, AgentConfig}
 import orca.events.{Usage}
-import orca.{OrcaFlowException, OrcaInteractiveCancelled}
+import orca.{AgentTurnFailed, OrcaFlowException, OrcaInteractiveCancelled}
 import orca.backend.{
   ApprovalDecision,
   ConversationEvent,
@@ -120,6 +120,50 @@ class ClaudeConversationTest extends munit.FunSuite:
     ConversationEventConformance.assertGrammar(events, completedNormally = true)
     val failure = intercept[OrcaFlowException](conv.awaitResult())
     assert(failure.getMessage.contains("rate limited"))
+
+  // The empty-body case is where the CLI puts the whole reason in `subtype`
+  // (a resume replaying a queued pseudo-turn, an exhausted turn budget, …), so
+  // it must stand in for the message rather than leaving a bare marker.
+  convTest("is_error with an empty body names the result subtype"):
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, AgentConfig())
+
+    process.enqueueStdout(
+      """{"type":"result","subtype":"error_max_turns","session_id":"sid-empty","is_error":true}"""
+    )
+    process.closeStdout()
+
+    val errors = conv.events.toList.collect {
+      case ConversationEvent.Error(msg) => msg
+    }
+    assertEquals(
+      errors,
+      List("claude reported is_error (subtype error_max_turns)")
+    )
+    val failure = intercept[OrcaFlowException](conv.awaitResult())
+    assertEquals(
+      failure.getMessage,
+      "claude session failed (subtype error_max_turns, session sid-empty): " +
+        "claude reported is_error (subtype error_max_turns)"
+    )
+
+  // The failing turn's tokens are on the wire in the same `result` frame; the
+  // exception is the only way they can still reach the run's cost summary.
+  convTest("is_error carries the result's usage on the thrown failure"):
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, AgentConfig())
+
+    process.enqueueStdout(
+      """{"type":"result","subtype":"error_during_execution","session_id":"sid-cost","is_error":true,"usage":{"input_tokens":11,"output_tokens":3,"cache_read_input_tokens":7},"total_cost_usd":0.25}"""
+    )
+    process.closeStdout()
+
+    val _ = conv.events.toList
+    val failure = intercept[AgentTurnFailed](conv.awaitResult())
+    assertEquals(
+      failure.usage,
+      Some(Usage(18L, 3L, Some(BigDecimal("0.25")), 7L))
+    )
 
   convTest(
     "is_error after a tool-only turn (no assistant text) surfaces the full error body"

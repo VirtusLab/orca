@@ -80,8 +80,9 @@ object BranchNamingStrategy:
   /** Prompt-shortening strategy: asks `agent.cheap` for a 3–6 word lowercase
     * branch label, then slugs it. Falls back to `slug(userPrompt)` on any
     * failure (LLM throws, empty/blank result) so branch naming can never break
-    * the flow. Non-deterministic — computed once and persisted in the header;
-    * never recomputed on resume.
+    * the flow — `cheapOneShot` announces the fallback rather than hiding it.
+    * Non-deterministic — computed once and persisted in the header; never
+    * recomputed on resume.
     */
   val shortenPrompt: BranchNamingStrategy =
     new BranchNamingStrategy:
@@ -90,7 +91,9 @@ object BranchNamingStrategy:
         // userPrompt fallback both produce a valid ref.
         slug(
           agent.cheapOneShot(
-            s"Reply with ONLY a 3–6 word lowercase branch label (hyphen-separated, no other punctuation) that summarises this task:\n\n$userPrompt",
+            purpose = "branch name",
+            prompt =
+              s"Reply with ONLY a 3–6 word lowercase branch label (hyphen-separated, no other punctuation) that summarises this task:\n\n$userPrompt",
             fallback = userPrompt
           )
         )

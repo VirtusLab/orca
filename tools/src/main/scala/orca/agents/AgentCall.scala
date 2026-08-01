@@ -222,13 +222,31 @@ class DefaultAgentCall[B <: BackendTag, O](
           if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(corrective))
           corrective
         case None => initialPrompt
-      val result = backend.runAutonomous(
-        promptText,
-        session,
-        effective,
-        events,
-        outputSchema = Some(outputSchema)
-      )
+      val result =
+        try
+          backend.runAutonomous(
+            promptText,
+            session,
+            effective,
+            events,
+            outputSchema = Some(outputSchema)
+          )
+        catch
+          // A turn that failed after the model ran still spent tokens; the
+          // success path below is the only other emitter, so without this they
+          // never reach the cost summary. Fires at most once per call —
+          // `AgentTurnFailed` is never retried.
+          case e: AgentTurnFailed =>
+            e.usage.foreach: usage =>
+              events.onEvent(
+                OrcaEvent.TokensUsed(
+                  agentName,
+                  effective.model,
+                  usage,
+                  agentRole
+                )
+              )
+            throw e
       // Fire as soon as the backend drain commits — before the fallible
       // parse below — so a session that later exhausts its retries (parse
       // keeps failing) or throws on a subsequent attempt still gets
@@ -274,7 +292,8 @@ class DefaultAgentCall[B <: BackendTag, O](
         throw new AgentTurnFailed(
           s"agent '$agentName' turn failed " +
             s"(this turn's input ≈${serialized.length} chars): ${e.getMessage}",
-          e
+          e,
+          e.usage
         )
 
   /** Interactive variant. No retry: the user is steering the session and a

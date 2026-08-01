@@ -1,8 +1,13 @@
 package orca.agents
 
 import orca.InStage
+import orca.events.OrcaEvent
+import orca.util.TextUtil
+import org.slf4j.LoggerFactory
 
 import scala.util.control.NonFatal
+
+private val log = LoggerFactory.getLogger("orca.agents")
 
 /** An LLM adapter usable from flow scripts — the handle you call from a
   * `flow(...)` block (`claude`, `codex`, etc.). Three rungs, by how long the
@@ -143,19 +148,59 @@ trait Agent[B <: BackendTag]:
     * incidental text (branch naming, default commit messages). Never throws — a
     * failure here must not break a flow, so any non-fatal error yields
     * `fallback`.
+    *
+    * Falling back is always announced, never silent: `purpose` is the noun
+    * phrase naming what this one-shot was for ("commit message", "branch name")
+    * and appears both in the WARN log line and in the `Step` event that tells
+    * the user orca carried on with the default.
     */
-  private[orca] def cheapOneShot(prompt: String, fallback: => String)(using
-      InStage
-  ): String =
+  private[orca] def cheapOneShot(
+      purpose: String,
+      prompt: String,
+      fallback: => String
+  )(using InStage): String =
     try
-      val text = cheap.withReadOnly.quietTextTurn(prompt)
-      val firstLine = text.linesIterator
-        .map(_.trim)
-        .filterNot(_.startsWith("```"))
-        .find(_.nonEmpty)
-        .getOrElse("")
-      if firstLine.isBlank then fallback else firstLine
-    catch case NonFatal(_) => fallback
+      val line = Agent.payloadLine(cheap.withReadOnly.quietTextTurn(prompt))
+      if line.isBlank then
+        reportFallback(
+          purpose = purpose,
+          reason = "the model replied with nothing usable",
+          cause = None
+        )
+        fallback
+      else line
+    catch
+      case NonFatal(e) =>
+        reportFallback(
+          purpose = purpose,
+          reason = TextUtil.throwableMessage(e, firstLineOnly = true),
+          cause = Some(e)
+        )
+        fallback
+
+  /** Announce a [[cheapOneShot]] fallback on both channels: WARN in the log
+    * (with the throwable, when there is one, so the stack survives) and a
+    * `Step` for the user, so the default value never appears unexplained.
+    */
+  private def reportFallback(
+      purpose: String,
+      reason: String,
+      cause: Option[Throwable]
+  ): Unit =
+    cause match
+      case Some(e) => log.warn(s"$purpose one-shot failed: $reason", e)
+      case None    => log.warn("{} one-shot failed: {}", purpose, reason)
+    emitEvent(
+      OrcaEvent.Step(
+        s"$purpose agent failed ($reason) — using the default $purpose instead"
+      )
+    )
+
+  /** Publish an event on this agent's sink. No-op by default (tools without a
+    * backend have no sink); `BaseAgent` routes it to the run's listener, which
+    * is what makes [[cheapOneShot]]'s fallback visible to the user.
+    */
+  private[orca] def emitEvent(event: OrcaEvent): Unit = ()
 
   /** One autonomous text turn with the streaming display suppressed: no `▸`
     * prompt echo and — on `BaseAgent`-derived tools, which override this — no
@@ -249,6 +294,26 @@ trait Agent[B <: BackendTag]:
     * no-op default. The runtime calls this from `DefaultFlowContext.close()`.
     */
   private[orca] def close(): Unit = ()
+
+private[orca] object Agent:
+
+  /** The single line to use from a cheap model's reply to a [[cheapOneShot]]
+    * prompt. A fenced block, when the reply has one, wins over the surrounding
+    * prose: cheap models routinely narrate first ("Looking at this diff, the
+    * main changes are:") and put the actual answer inside the fence, so reading
+    * top-down would take the narration. Falls back to the first non-empty,
+    * non-fence line, and to `""` when the reply holds neither.
+    */
+  def payloadLine(text: String): String =
+    val lines = text.linesIterator.map(_.trim).toList
+    val fenced = lines
+      .dropWhile(!_.startsWith("```"))
+      .drop(1)
+      .takeWhile(!_.startsWith("```"))
+    fenced
+      .find(_.nonEmpty)
+      .orElse(lines.find(l => l.nonEmpty && !l.startsWith("```")))
+      .getOrElse("")
 
 /** Bare `claude` runs Opus with the 1M-token context window (the long-lived
   * implementer); the accessors below pin a specific tier, e.g.
