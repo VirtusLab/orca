@@ -197,18 +197,41 @@ class PiBackendTest extends munit.FunSuite:
       assert(!os.exists(extensionFile))
 
   test("self-managed git suppresses the runtime git rule"):
-    val process = successfulProcess()
+    // Interactive, not autonomous: the prompt file is deleted once a turn
+    // finishes, so it can only be read while the conversation is live. The turn
+    // still carries a system prompt — the background-work rule is not gated on
+    // this flag — so the assertion is on the text, not on the flag's absence.
+    val process = new FakePipedCliProcess()
     val runner = new SpawnStubCliRunner(List(process))
     val backend = backendWith(runner)
 
-    val _ = backend.runAutonomous(
-      "q",
-      sid,
-      AgentConfig().copy(selfManagedGit = true)
-    )
+    ox.supervised:
+      val conv = backend.runInteractive(
+        "q",
+        sid,
+        displayPrompt = "q",
+        AgentConfig().copy(selfManagedGit = true),
+        outputSchema = None
+      )
 
-    val args = runner.calls.head
-    assert(!args.contains("--append-system-prompt"), args)
+      val args = runner.calls.head
+      val promptFile = args(args.indexOf("--append-system-prompt") + 1)
+      val promptText = os.read(os.Path(promptFile))
+      assert(
+        !promptText.contains(SystemPromptComposer.RuntimeOwnsGit),
+        promptText
+      )
+      assert(
+        promptText.contains(SystemPromptComposer.NoBackgroundWork),
+        promptText
+      )
+
+      process.enqueueStdout(
+        """{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}"""
+      )
+      process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
+      val _ = conv.events.toList
+      val _ = conv.awaitResult()
 
   /** The header line pi's `--continue` requires — what
     * [[PiSessionStore.resumable]] probes for.

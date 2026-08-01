@@ -70,10 +70,16 @@ class OpencodeArgsTest extends munit.FunSuite:
       None
     )
 
-  test("message carries the composed system prompt (RuntimeOwnsGit rule)"):
+  test("message carries the composed system prompt (standing rules)"):
     val body =
       OpencodeArgs.message(AgentConfig(), "hi", None, interactive)
-    assertEquals(body.system, Some(SystemPromptComposer.RuntimeOwnsGit))
+    assertEquals(
+      body.system,
+      Some(
+        s"${SystemPromptComposer.RuntimeOwnsGit}\n\n" +
+          SystemPromptComposer.NoBackgroundWork
+      )
+    )
 
   test("structured turn sets format=json_schema with the schema verbatim"):
     val body = OpencodeArgs.message(
