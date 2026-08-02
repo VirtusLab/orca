@@ -32,7 +32,13 @@ private[orca] case class ManifestSession(
   def resumable: Boolean = wireId.isDefined
 
 /** The persisted projection of [[orca.events.Usage]]'s token axes, sharing its
-  * normalisation contract.
+  * normalisation contract — including that cache reads and cache writes are
+  * disjoint sub-portions of `inputTokens`, carried separately because they bill
+  * at opposite ends of base input.
+  *
+  * The field names are `Usage`'s, verbatim, and so are the JSON keys: every
+  * axis persisted here has to be traceable to the one it mirrors, or the two
+  * drift and a reader silently reports the wrong money.
   *
   * Deliberately carries no money, unlike `Usage`: `Usage.cost` is only the
   * portion backends reported, and an unlabelled figure next to a resolved
@@ -41,7 +47,8 @@ private[orca] case class ManifestSession(
 private[orca] case class ManifestUsage(
     inputTokens: Long,
     outputTokens: Long,
-    cachedInputTokens: Long,
+    cacheReadInputTokens: Long,
+    cacheWriteInputTokens: Long,
     reasoningOutputTokens: Long
 )
 
@@ -51,7 +58,8 @@ private[orca] object ManifestUsage:
   def of(usage: Usage): ManifestUsage = ManifestUsage(
     inputTokens = usage.inputTokens,
     outputTokens = usage.outputTokens,
-    cachedInputTokens = usage.cachedInputTokens,
+    cacheReadInputTokens = usage.cacheReadInputTokens,
+    cacheWriteInputTokens = usage.cacheWriteInputTokens,
     reasoningOutputTokens = usage.reasoningOutputTokens
   )
 
