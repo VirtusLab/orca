@@ -18,6 +18,13 @@ ThisBuild / scalacOptions ++= Seq(
 
 ThisBuild / javacOptions ++= Seq("--release", "21")
 
+// Makes sbt-git answer its read-only queries with the `git` CLI instead of the
+// bundled JGit, which reads a linked worktree's `.git` *file* as a bare repo and
+// aborts project load with NoWorkTreeException — without this, sbt does not
+// start at all inside a `git worktree`. Version derivation is unaffected: it
+// comes from sbt-dynver, which shells out to `git` either way.
+useReadableConsoleGit
+
 // The scala-cli suites link a script against a locally published build, so they
 // need the dynver version the sibling `publishLocal` produced. Forked test JVMs
 // read it from this property (`sys.props`), which keeps the two in step by
