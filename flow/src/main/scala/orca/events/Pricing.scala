@@ -56,6 +56,22 @@ object Pricing:
     */
   private val DateSuffix: Regex = """^-\d{8}$""".r
 
+  /** Resolve one call's cost: the figure the backend reported if there is one,
+    * an [[estimate]] from `table` otherwise, `None` when neither is available.
+    *
+    * The single home for the reported-vs-estimated decision — every consumer
+    * (the cost summary, the run manifest) reads it from here so no two of them
+    * can disagree about which calls were priced rather than billed.
+    */
+  def resolve(
+      table: PricingTable,
+      model: Option[Model],
+      usage: Usage
+  ): Option[Cost] =
+    usage.cost
+      .map(amount => Cost(amount, estimated = false))
+      .orElse(estimate(table, model, usage).map(Cost(_, estimated = true)))
+
   /** Compute an estimated cost for one call from `usage` and the price for
     * `model`. Returns `None` when `model` is missing or absent from `table`.
     *

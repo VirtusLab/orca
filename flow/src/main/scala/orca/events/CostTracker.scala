@@ -66,22 +66,9 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
 
   def onEvent(event: OrcaEvent): Unit = event match
     case OrcaEvent.TokensUsed(agent, model, usage, role) =>
-      val cost = costFor(model, usage)
+      val cost = Pricing.resolve(pricing.table, model, usage)
       val _ = state.updateAndGet(_.record(agent, model, usage, cost, role))
     case _ => ()
-
-  /** Resolve a per-call cost: the reported figure if the backend supplied one,
-    * otherwise an estimate from the pricing table. `None` when neither is
-    * available (no `total_cost_usd` and no table entry for the model).
-    */
-  private def costFor(model: Option[Model], usage: Usage): Option[Cost] =
-    usage.cost
-      .map(amount => Cost(amount, estimated = false))
-      .orElse(
-        Pricing
-          .estimate(pricing.table, model, usage)
-          .map(amount => Cost(amount, estimated = true))
-      )
 
   /** Usage accumulated across every call, regardless of axis. */
   def total: Usage =

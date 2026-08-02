@@ -6,7 +6,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.{
 }
 import orca.OrcaDir
 import orca.agents.JsonData
-import orca.events.{OrcaEvent, OrcaListener}
+import orca.events.{OrcaEvent, OrcaListener, PriceList, Pricing}
 import orca.progress.ProgressLog
 import org.slf4j.LoggerFactory
 import ox.Ox
@@ -29,7 +29,9 @@ private[orca] enum RunOutcome:
   * atomically (the `ProgressStore.writeLog` temp+move idiom) on every stage
   * transition and `SessionCommitted`, so a crashed run still leaves its
   * sessions on disk with `outcome: "running"` and a dead `pid` — the shell
-  * treats that as "crashed, but still offers its sessions".
+  * treats that as "crashed, but still offers its sessions". `TokensUsed`
+  * accumulates into the manifest's cost section and per-turn log without
+  * triggering a write of its own.
   *
   * `flowName` comes from `ORCA_FLOW_NAME`, set by the shell before exec'ing the
   * flow subprocess (`FlowLauncher.childEnv`); `runFlow` never sees the `.sc`
@@ -57,10 +59,11 @@ private[orca] object RunManifestWriter:
       workDir: os.Path,
       orcaVersion: String,
       flowName: Option[String],
+      pricing: PriceList,
       clock: () => Instant
   )(using Ox, BufferCapacity): RunManifestWriter =
     val state =
-      new RunManifestWriterState(workDir, orcaVersion, flowName, clock)
+      new RunManifestWriterState(workDir, orcaVersion, flowName, pricing, clock)
     new ActorRunManifestWriter(Actor.create(state))
 
 /** Actor-backed [[RunManifestWriter]]. `onEvent` is a `tell`; `finish` is an
@@ -83,14 +86,16 @@ private class ActorRunManifestWriter(actor: ActorRef[RunManifestWriterState])
   * handler. Tests construct this directly and drive events synchronously.
   *
   * The manifest file only comes into existence on the first `SessionCommitted`
-  * — earlier stage events just update the in-memory stage stack (so the first
-  * session is stamped with the right stage) — and `finish()` no-ops if none
-  * ever committed: a session-less run offers nothing to continue (ADR 0021 §8).
+  * — earlier stage and token events just update the in-memory stage stack and
+  * cost accumulator (so the first session is stamped with the right stage, and
+  * no token spend is lost) — and `finish()` no-ops if none ever committed: a
+  * session-less run offers nothing to continue (ADR 0021 §8).
   */
 private[runner] class RunManifestWriterState(
     workDir: os.Path,
     orcaVersion: String,
     flowName: Option[String],
+    pricing: PriceList,
     clock: () => Instant
 ) extends RunManifestWriter:
 
@@ -132,6 +137,7 @@ private[runner] class RunManifestWriterState(
   private case class State(
       stageStack: List[String] = Nil,
       entries: List[Entry] = Nil,
+      cost: CostAccumulator = CostAccumulator(),
       outcome: Outcome = Outcome.Running,
       finishedAt: Option[Instant] = None,
       prunedOnce: Boolean = false
@@ -157,6 +163,21 @@ private[runner] class RunManifestWriterState(
         upsertSession(harness, clientId, wireId, agent, role)
       )
       safeWrite()
+    // Accumulate only: a turn fires far more often than a stage or session
+    // event, and every write rewrites the whole file. The next stage/session
+    // event or `finish` carries the accumulated figures to disk.
+    case OrcaEvent.TokensUsed(agent, model, usage, role) =>
+      val turn = ManifestTurn(
+        at = clock().toString,
+        agent = agent,
+        role = role,
+        stage = state.stageStack.headOption,
+        promptTokens = usage.inputTokens
+      )
+      state = state.copy(cost =
+        state.cost
+          .record(turn, usage, Pricing.resolve(pricing.table, model, usage))
+      )
     case _ => ()
 
   /** Whether a `SessionCommitted` has ever landed — the manifest file's
@@ -269,7 +290,9 @@ private[runner] class RunManifestWriterState(
       startedAt = startedAt.toString,
       finishedAt = state.finishedAt.map(_.toString),
       outcome = state.outcome.wireValue,
-      sessions = state.entries.map(_.session)
+      sessions = state.entries.map(_.session),
+      cost = state.cost.summarise,
+      turns = state.cost.turns.toList
     )
     val dir = manifestPath / os.up
     val tmp = os.temp(

@@ -3,7 +3,8 @@ package orca.runner.manifest
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.OrcaDir
 import orca.WorkspaceWrite
-import orca.events.OrcaEvent
+import orca.agents.Model
+import orca.events.{CostTracker, OrcaEvent, PriceList, Pricing, Usage}
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.testkit.TempDirs
 import ox.channels.BufferCapacity
@@ -30,9 +31,10 @@ class RunManifestWriterTest extends munit.FunSuite:
   private def newWriter(
       workDir: os.Path,
       clock: () => Instant,
-      flowName: Option[String] = None
+      flowName: Option[String] = None,
+      pricing: PriceList = Pricing.default
   ): RunManifestWriterState =
-    new RunManifestWriterState(workDir, "0.0.test", flowName, clock)
+    new RunManifestWriterState(workDir, "0.0.test", flowName, pricing, clock)
 
   private def manifestFiles(workDir: os.Path): List[os.Path] =
     os.list(OrcaDir.cacheRunsPath(workDir)).filter(_.ext == "json").toList
@@ -326,6 +328,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         workDir,
         "0.0.test",
         None,
+        Pricing.default,
         () => Instant.now()
       )
       val threads = (0 until 2).map: t =>
@@ -416,3 +419,95 @@ class RunManifestWriterTest extends munit.FunSuite:
     val manifest = soleManifest(workDir)
     assertEquals(manifest.flow, Some("review-pr.sc"))
     assertEquals(manifest.workDir, workDir.toString)
+
+  test("cost section agrees with CostTracker fed the same events"):
+    val workDir = TempDirs.dir()
+    val writer =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    val tracker = CostTracker(Pricing.default)
+    // One reported cost and one that has to be estimated from the table, so
+    // the run total is flagged as an estimate rather than quoted as billed.
+    val events = List(
+      OrcaEvent
+        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None),
+      OrcaEvent.TokensUsed(
+        agent = "claude",
+        model = Some(Model("claude-sonnet-5")),
+        usage = Usage(
+          inputTokens = 120_000,
+          outputTokens = 900,
+          cost = None,
+          cachedInputTokens = 107_000
+        ),
+        role = None
+      ),
+      OrcaEvent.TokensUsed(
+        agent = "reviewer",
+        model = Some(Model("claude-haiku-4-5")),
+        usage = Usage(
+          inputTokens = 5_000,
+          outputTokens = 100,
+          cost = Some(BigDecimal("0.0123"))
+        ),
+        role = Some("reviewer")
+      )
+    )
+    events.foreach: e =>
+      writer.onEvent(e)
+      tracker.onEvent(e)
+    writer.finish(RunOutcome.Succeeded)
+
+    val cost = soleManifest(workDir).cost
+    assertEquals(cost.total, ManifestUsage.of(tracker.total))
+    assertEquals(cost.cost, tracker.totalCost.map(ManifestCost.of))
+    assertEquals(cost.cost.map(_.estimated), Some(true))
+    assertEquals(
+      cost.byAgent.map(_.key),
+      List(Some("claude"), Some("reviewer"))
+    )
+    assertEquals(
+      cost.byRole.map(s => (s.key, s.usage.inputTokens)),
+      List((None, 120_000L), (Some("reviewer"), 5_000L))
+    )
+    assertEquals(cost.byStage.map(_.key), List(None))
+
+  test("per-turn log records prompt size, stage, and a zero-API-call turn"):
+    val workDir = TempDirs.dir()
+    val writer =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    writer.onEvent(OrcaEvent.StageStarted("code"))
+    writer.onEvent(
+      OrcaEvent
+        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+    )
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, Usage(107_000, 500, None), None)
+    )
+    // The CLI answering from leftover session state: no request went out, so
+    // every counter is zero.
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, Usage(0, 0, None), None)
+    )
+    writer.finish(RunOutcome.Succeeded)
+
+    val turns = soleManifest(workDir).turns
+    assertEquals(turns.map(_.promptTokens), List(107_000L, 0L))
+    assertEquals(turns.map(_.apiCall), List(true, false))
+    assertEquals(turns.map(_.stage), List(Some("code"), Some("code")))
+
+  test("a failed write is swallowed and does not stop the next one"):
+    val workDir = TempDirs.dir()
+    val writer =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    // A plain file where the runs directory belongs: every write into it fails.
+    val runsDir = OrcaDir.cacheRunsPath(workDir)
+    os.remove.all(runsDir)
+    os.write(runsDir, "not a directory")
+    writer.onEvent(
+      OrcaEvent
+        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+    )
+    os.remove(runsDir): Unit
+    os.makeDir.all(runsDir)
+    writer.finish(RunOutcome.Succeeded)
+    assertEquals(soleManifest(workDir).outcome, "succeeded")
