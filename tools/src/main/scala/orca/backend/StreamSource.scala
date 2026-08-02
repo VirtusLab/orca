@@ -31,11 +31,12 @@ private[orca] trait StreamSource:
     */
   def interrupt(): Unit
 
-  /** Guaranteed backstop after [[interrupt]]: SIGKILL the subprocess / close
-    * the connection so [[lines]] always terminates even if the graceful
-    * interrupt didn't take. Default delegates to [[interrupt]] (sufficient for
-    * sources whose interrupt already hard-closes); the subprocess source
-    * overrides it. Must tolerate calls from any thread and more than once.
+  /** Guaranteed backstop after [[interrupt]]: SIGKILL the subprocess and every
+    * descendant it left running / close the connection, so [[lines]] always
+    * terminates even if the graceful interrupt didn't take. Default delegates
+    * to [[interrupt]] (sufficient for sources whose interrupt already
+    * hard-closes); the subprocess source overrides it. Must tolerate calls from
+    * any thread and more than once.
     */
   def destroyForcibly(): Unit = interrupt()
 
@@ -53,5 +54,10 @@ private[orca] object StreamSource:
       def lines: Iterator[String] = process.stdoutLines
       def errorLines: Iterator[String] = process.stderrLines
       def interrupt(): Unit = process.sendSigInt()
-      override def destroyForcibly(): Unit = process.destroyForcibly()
+      // Tree, not PID: a coding-agent CLI spawns its own children (shell tool
+      // calls, MCP servers, a build it backgrounded), which inherit the stdout
+      // pipe write-end. A root-only kill would orphan that work into the next
+      // stage and can leave the reader waiting for EOF. Work the agent
+      // deliberately detached stays out of reach either way.
+      override def destroyForcibly(): Unit = process.destroyForciblyTree()
       def tryExitCode: Option[Int] = process.tryExitCode
