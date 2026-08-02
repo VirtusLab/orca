@@ -19,9 +19,9 @@ import orca.tools.claude.streamjson.{
   * Boilerplate (reader fork, event queue, outcome lifecycle, stderr drain)
   * lives in [[ForkedConversation]]; this class supplies the claude-specific
   * protocol translation: NDJSON → [[InboundMessage]] → `ConversationEvent`s,
-  * plus auto-approve policy for tools listed in `config.autoApprove`. Outbound
-  * writes (user turns, tool-approval responses) happen on the channel's thread
-  * via `writeOutbound`.
+  * plus auto-approve policy for tools listed in `config.autoApprove`. The
+  * opening user turn is written by the backend; the only outbound write here is
+  * a tool-approval response, via `writeOutbound`.
   */
 private[claude] class ClaudeConversation(
     process: PipedCliProcess,
@@ -281,5 +281,10 @@ private[claude] class ClaudeConversation(
       case ApprovalDecision.Deny(reason)  => ControlDecision.Deny(reason)
     writeOutbound(OutboundMessage.ControlResponse(requestId, controlDecision))
 
+  // Unreachable today: stdin is closed right after the opening turn
+  // (ClaudeBackend.openConversation), so a write here would throw — and claude
+  // 2.1.220 exposes no flag routing `can_use_tool` over stdio, so
+  // handleControlRequest's approval arm never fires. Serving it would mean
+  // keeping stdin open for the turn.
   private def writeOutbound(msg: OutboundMessage): Unit =
     process.writeLine(OutboundMessage.toJson(msg))

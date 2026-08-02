@@ -62,11 +62,10 @@ class FakePipedCliProcessTest extends munit.FunSuite:
     assertEquals(p.stdoutLines.toList, List("out-1", "out-2"))
     assertEquals(p.stderrLines.toList, List("err-1"))
 
-  test("writes after closeStdin are still recorded — test fake is lenient"):
+  test("writeLine after closeStdin throws, as a real process does"):
     val p = new FakePipedCliProcess()
     p.closeStdin()
-    p.writeLine("should-still-record")
-    assertEquals(p.writes, List("should-still-record"))
+    intercept[java.io.IOException](p.writeLine("too-late"))
 
   test("tryExitCode reports None while alive, Some after sigInt"):
     val p = new FakePipedCliProcess()

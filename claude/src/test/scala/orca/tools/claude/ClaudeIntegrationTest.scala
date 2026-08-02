@@ -7,7 +7,7 @@ import orca.agents.{
   SessionId,
   WireSessionId
 }
-import orca.backend.{ApprovalDecision, ConversationEvent, SupervisedBackend}
+import orca.backend.{ConversationEvent, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
 import orca.testkit.TempDirs
 
@@ -109,14 +109,11 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       finally conversation.cancel()
 
   test(
-    "ApproveTool fires for a tool call when autoApprove is empty; denying shuts the session cleanly"
+    "an unapproved tool is refused by the CLI, not negotiated over stdin"
   ):
     withBackend: backend =>
-      // This test assumes claude CLI routes tool-approval through the
-      // control_request subchannel when the caller's permission mode
-      // doesn't pre-authorise. If the installed CLI doesn't expose this
-      // path, the driver simply won't see an ApproveTool event — the
-      // test will then fail with a clearer signal than a silent gap.
+      // A future CLI that revives the `can_use_tool` subchannel fails here
+      // first — see `ClaudeConversation.writeOutbound`.
       val conversation = backend.runInteractive(
         prompt = "Read the file at /etc/hostname and reply with its contents.",
         session = fresh,
@@ -125,19 +122,18 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         outputSchema = None
       )
       try
-        val firstFew = conversation.events.take(10).toList
-        val approval = firstFew.collectFirst {
-          case evt: ConversationEvent.ApproveTool => evt
-        }
-        approval match
-          case Some(ConversationEvent.ApproveTool(name, _, respond)) =>
-            assert(name.nonEmpty)
-            respond(ApprovalDecision.Deny(Some("test denies all tools")))
-            // Drain remaining events and confirm the session finishes.
-            conversation.events.foreach(_ => ())
-            val _ = conversation.awaitResult()
-          case None =>
-            fail(
-              s"no ApproveTool event in first 10 events — CLI may not route tool approvals through stdio: $firstFew"
-            )
+        // Wide window: with `--include-partial-messages` a chatty preamble
+        // easily pushes the tool_result past the first handful of events.
+        val firstFew = conversation.events.take(40).toList
+        assert(
+          !firstFew.exists(_.isInstanceOf[ConversationEvent.ApproveTool]),
+          s"claude routed a tool approval over stdio; stdin is closed at spawn, so the response would throw: $firstFew"
+        )
+        assert(
+          firstFew.exists:
+            case ConversationEvent.ToolResult(_, ok, _) => !ok
+            case _                                      => false
+          ,
+          s"expected the refused Read to surface as a failed tool_result: $firstFew"
+        )
       finally conversation.cancel()

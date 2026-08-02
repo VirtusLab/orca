@@ -267,6 +267,30 @@ class PiConversationTest extends munit.FunSuite:
     val _ = conv.awaitResult()
 
   convTest(
+    "an extension_ui_request buffered behind agent_end is dropped, not surfaced as a parse error"
+  ):
+    val process = new FakePipedCliProcess()
+    val conv = new PiConversation(process, sid)
+
+    process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
+    // Already in the pipe when agent_end closed stdin, so the reader still
+    // handles it and its cancel reply lands on a closed stream.
+    process.enqueueStdout(
+      """{"type":"extension_ui_request","id":"ui-late","title":"hm"}"""
+    )
+    process.closeStdout()
+
+    val events = conv.events.toList
+    assert(
+      !events.exists:
+        case ConversationEvent.Error(m) => m.contains("Failed to parse")
+        case _                          => false
+      ,
+      events
+    )
+    val _ = conv.awaitResult()
+
+  convTest(
     "message_end without content surfaces the error, not a parse failure"
   ):
     val process = new FakePipedCliProcess()

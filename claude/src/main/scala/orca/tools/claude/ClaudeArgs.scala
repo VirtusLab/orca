@@ -132,9 +132,10 @@ private[claude] object ClaudeArgs:
         config.autoApprove match
           case AutoApprove.All =>
             Seq("--permission-mode", "bypassPermissions")
-          // Default permission mode — nothing pre-approved except the listed
-          // tools. Edits are not implicitly approved; in autonomous mode an
-          // unlisted tool's prompt is auto-denied by the drain.
+          // Default permission mode — only the listed tools are pre-approved
+          // (none at all in the empty arm), edits included. The CLI refuses an
+          // unlisted tool itself and reports a failed `tool_result`; it does
+          // not prompt over stdio (pinned by `ClaudeIntegrationTest`).
           case AutoApprove.Only(tools) if tools.isEmpty => Seq.empty
           case AutoApprove.Only(tools) =>
             Seq("--allowedTools", tools.toSeq.sorted.mkString(","))

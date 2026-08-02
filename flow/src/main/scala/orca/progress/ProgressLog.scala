@@ -70,10 +70,9 @@ case class StageEntry(id: String, name: String, resultJson: RawJson)
   * the live backend conversation (same `wireId` notion as
   * [[orca.backend.Dispatch]]). Its value depends on the backend:
   *   - codex/gemini/opencode: a backend-minted server-thread id (≠ `id`);
-  *   - claude: equal to `id` itself — claude's sessions are durable on disk, so
-  *     recording it re-claims the session (`--resume`) on a resumed run;
-  *   - pi: `None` — pi's sessions live in a `deleteOnExit` temp dir, so a
-  *     resumed run always re-seeds.
+  *   - claude/pi: equal to `id` itself — both claim the id client-side and keep
+  *     a durable transcript, so recording it re-claims the session (`--resume`
+  *     / `--continue`) on a resumed run.
   *
   * Persisted so a resumed run can rehydrate the in-memory map, resume against
   * the right wire id, and reuse the same [[orca.agents.SessionId]] rather than
