@@ -55,13 +55,18 @@ object OsProcCliRunner extends CliRunner:
         // lines as ConversationEvent.Errors.
         stderr = if pipeStderr then os.Pipe else os.Inherit
       )
-    new OsPipedSubProcess(sub, pipeStderr, Some(cookie))
+    new OsPipedSubProcess(sub, pipeStderr, cookie)
 
+/** Takes the cookie unwrapped: a process orca actually spawned always carries
+  * one, so it cannot be constructed without it.
+  */
 private final class OsPipedSubProcess(
     sub: os.SubProcess,
     stderrPiped: Boolean,
-    override val envCookie: Option[EnvCookie]
+    cookie: EnvCookie
 ) extends PipedCliProcess:
+
+  def envCookie: Option[EnvCookie] = Some(cookie)
 
   // Memoised so repeated calls return the same iterator, avoiding a second
   // `BufferedReader` leak against the pipe.

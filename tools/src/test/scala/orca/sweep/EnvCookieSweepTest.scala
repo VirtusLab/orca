@@ -7,8 +7,8 @@ import java.util.concurrent.atomic.AtomicReference
 
 class EnvCookieSweepTest extends munit.FunSuite:
 
-  /** The sweep reads `/proc`; elsewhere it reports itself unavailable and these
-    * tests have nothing to assert.
+  /** The sweep reads `/proc`; elsewhere it is inert and these tests have
+    * nothing to assert.
     */
   private def onLinux(name: String)(body: => Any): Unit =
     if EnvCookieSweep.supported then test(name)(body)

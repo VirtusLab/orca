@@ -323,7 +323,7 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   `/proc/*/environ` for it and REPORTS what is still running — the backstop for
   work an agent detached from orca's process tree, which no parent-link
   teardown can reach. Report-only unless `ORCA_SWEEP_KILL=1`; Linux only, and
-  it says so rather than finding nothing elsewhere.
+  silently inert elsewhere (nothing to act on, so nothing is said).
 - Any filesystem write under `.orca/` **must** go through
   `OrcaDir.ensureRoot`/`ensureCache`, which refuse a symlinked `.orca` or
   `.orca/cache` component (`OrcaDir.abortIfOrcaComponentSymlink`) before

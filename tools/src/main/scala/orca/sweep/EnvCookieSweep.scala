@@ -7,7 +7,6 @@ import ox.{discard, sleep}
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
-import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.duration.*
 import scala.jdk.StreamConverters.*
 import scala.util.control.NonFatal
@@ -22,8 +21,10 @@ import scala.util.control.NonFatal
   * kill it.
   *
   * '''Linux only.''' The scan reads `/proc/<pid>/environ`. No equivalent has
-  * been verified on macOS, so a run there says the sweep is unavailable rather
-  * than silently finding nothing.
+  * been verified on macOS, so [[sweep]] there finds nothing and the whole
+  * feature is silently inert — deliberately, since a user on a platform it
+  * cannot support has nothing to act on. A sweep that appears to do nothing on
+  * a Mac is working as intended, not broken.
   */
 private[orca] object EnvCookieSweep:
 
@@ -49,21 +50,16 @@ private[orca] object EnvCookieSweep:
     */
   private val SettleDelay: FiniteDuration = 250.millis
 
-  /** Latches the one-time "cannot look here" notice: the sweep runs at every
-    * turn boundary, and a static platform fact repeated per turn is noise.
-    */
-  private val unsupportedAnnounced = new AtomicBoolean(false)
-
   /** Sweep for `cookie` and announce what still carries it. Runs in the
     * teardown `finally` of every turn, so it is total: a failure is logged and
     * swallowed rather than left to mask the turn's own outcome. `None` — a
-    * conversation with no process of its own — is a no-op.
+    * conversation with no process of its own — is a no-op, as is a platform
+    * [[sweep]] cannot scan.
     */
   def afterTurn(cookie: Option[EnvCookie], events: OrcaListener): Unit =
     cookie.foreach: c =>
       try
-        if !supported then announceUnsupported(events)
-        else if sweep(c).nonEmpty then
+        if sweep(c).nonEmpty then
           sleep(SettleDelay)
           val settled = sweep(c)
           if settled.nonEmpty then announce(settled, events)
@@ -113,14 +109,6 @@ private[orca] object EnvCookieSweep:
           "ORCA_SWEEP_KILL=1 to have orca reap it"
     log.warn(message)
     events.onEvent(OrcaEvent.Step(message))
-
-  private def announceUnsupported(events: OrcaListener): Unit =
-    if unsupportedAnnounced.compareAndSet(false, true) then
-      val message =
-        "Cannot tell whether agent work outlived a turn: this platform has no " +
-          "/proc, and orca reads process environments nowhere else"
-      log.warn(message)
-      events.onEvent(OrcaEvent.Step(message))
 
   /** The command is unreadable for a process that exited between the scan and
     * this call.

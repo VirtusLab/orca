@@ -1,5 +1,7 @@
 package orca.subprocess
 
+import orca.sweep.EnvCookie
+
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.atomic.{
   AtomicBoolean,
@@ -48,6 +50,11 @@ class FakePipedCliProcess(
   def waitForExit(): Int = 0
 
   def tryExitCode: Option[Int] = if alive.get() then None else Some(0)
+
+  /** No OS process, so nothing to sweep for — and a cookie here would make
+    * every fake-driven turn pay for a real `/proc` scan.
+    */
+  def envCookie: Option[EnvCookie] = None
 
   def writeLine(line: String): Unit =
     val _ = stdinLines.updateAndGet(ls => line :: ls)
