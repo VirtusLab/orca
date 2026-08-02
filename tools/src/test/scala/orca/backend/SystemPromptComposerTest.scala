@@ -50,6 +50,15 @@ class SystemPromptComposerTest extends munit.FunSuite:
     )
     assertEquals(out, None)
 
+  test("foldIntoPrompt keeps a user-prompt line that starts with `|`"):
+    // Diffs, lint output and review issues all reach codex/gemini through here,
+    // and every one of them can start a line with `|`.
+    val out = SystemPromptComposer.foldIntoPrompt(
+      AgentConfig(),
+      userPrompt = "review this:\n |context with pipe"
+    )
+    assert(out.endsWith("review this:\n |context with pipe"), out)
+
   test("joins config + hint + git rule with blank lines, in order"):
     // Backends rely on the blank-line separator so the agent reads distinct paragraphs.
     val out = SystemPromptComposer.combine(

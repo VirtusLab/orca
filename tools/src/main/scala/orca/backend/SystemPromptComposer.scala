@@ -49,10 +49,10 @@ private[orca] object SystemPromptComposer:
       extraHint: Option[String] = None
   ): String =
     combine(config, extraHint) match
-      case None => userPrompt
+      case None       => userPrompt
       case Some(text) =>
-        s"""System guidance:
-           |$text
-           |
-           |User request:
-           |$userPrompt""".stripMargin
+        // Plain concatenation, never a `stripMargin` block: it runs over the
+        // interpolated result, so it would eat the leading `|` of every
+        // `userPrompt` line carrying one — diffs, lint output and review issues
+        // all reach these backends this way.
+        s"System guidance:\n$text\n\nUser request:\n$userPrompt"

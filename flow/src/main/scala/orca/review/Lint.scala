@@ -72,18 +72,13 @@ def lint(
         "`$ <command>   (exit <status>)`. A zero status usually means that " +
         "command succeeded with nothing to report — return an empty result " +
         "when no block carries anything actionable"
+    // Plain concatenation, never a `stripMargin` block: it runs over the
+    // interpolated result, so it would eat the leading `|` of every lint line
+    // carrying one — which compiler diagnostics, ASCII tables and markdown in
+    // the captured output routinely produce.
+    val promptHead = s"$instructions\n\n$statusHint.\n\n"
     if combined.length <= Lint.InlineLintThreshold then
-      summarise(
-        s"""$instructions
-           |
-           |$statusHint.
-           |
-           |The blocks are:
-           |
-           |```
-           |$combined
-           |```""".stripMargin
-      )
+      summarise(promptHead + s"The blocks are:\n\n```\n$combined\n```")
     else
       // Spill to a file under the working tree (NOT `/tmp`, so a sandboxed
       // agent that denies reads outside its worktree can reach it).
@@ -102,12 +97,8 @@ def lint(
         )
       try
         summarise(
-          s"""$instructions
-             |
-             |$statusHint.
-             |
-             |The blocks are in `$outputFile`
-             |(the file may be large — read it in parts if needed).""".stripMargin
+          promptHead + s"The blocks are in `$outputFile`\n" +
+            "(the file may be large — read it in parts if needed)."
         )
       finally
         val _ = os.remove(outputFile)
