@@ -155,9 +155,10 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 >   `prepare(all, taskTitle, changedFiles)(using FlowContext, InStage): List[ReviewBatch] -> List[RosterEntry[?]]`
 >   (note `->`, capture checking's pure-arrow type, not `=>`). `prepare` runs
 >   once per loop, inside the loop's own stage, so any gated effect (e.g.
->   `agentDriven`'s picker LLM call) is hoisted there; the arrow it returns is
->   checked to capture nothing — it may only narrow over the `history` argument
->   passed to it each round.
+>   `agentDriven`'s picker LLM call) is hoisted there. The arrow may not capture
+>   `InStage`, so a round cannot drive an LLM; it narrows over the `history`
+>   argument it is passed each round and may announce that decision
+>   (`ctx.emit`), nothing more.
 > - **Session recovery pairs entry and session existentially, replacing
 >   `Untyped`/`.as`.** `SessionEntry[B <: BackendTag]` (`RosterEntry[B]`,
 >   `SessionId[B]`) binds the reviewer's backend tag once, at first run; a
@@ -176,3 +177,29 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 > `SessionEntry`, `reviewWithSession`, `ReviewFixLoop.evaluate`) for the
 > current implementation. The `resolveAgainstRoster` symbol referenced by the
 > 2026-07-06 amendment above no longer exists.
+
+> **Amendment (2026-08-02).** The shipped selection default composes two
+> selectors instead of one. `ReviewerSelector.default` is
+> `narrowingAcrossRounds(agentDriven)`: `agentDriven` picks the set once, at
+> loop start, and the wrapper narrows that pick every later round to the
+> reviewers that reported an issue in the previous round. The wrapper only ever
+> FILTERS its base's per-round result, so the "empty selection is an honest
+> stop" property above is untouched — an empty pick stays empty, and a reviewer
+> the base excluded is never re-admitted.
+>
+> Two rules bound the change:
+> - **Narrowing never empties a non-empty set.** Reviewer silence alone ends
+>   the loop, but a lint gate keeps it iterating through silence while the
+>   fixer edits; without a floor the narrowed set is absorbing and later rounds
+>   run zero reviewers. When narrowing would leave none, the base's pick runs
+>   again and a `Step` says so. The floor falls back to the base's own pick —
+>   never to `all` — so the loop still runs exactly what the selector returned.
+> - **A `files:` pattern gates eligibility only, and only positively.** The
+>   pattern's purpose in this ADR is to keep a language-specific reviewer off
+>   changes it cannot speak to; it is not a priority signal, so it grants no
+>   exemption from narrowing — a quiet `scala-fp` is dropped like any other
+>   quiet reviewer. And an empty change set means the diff didn't say which
+>   files changed (it is also empty once the work under review is committed),
+>   not that nothing changed: every reviewer stays eligible, since dropping one
+>   there removes it from the whole review and nothing downstream can put it
+>   back.

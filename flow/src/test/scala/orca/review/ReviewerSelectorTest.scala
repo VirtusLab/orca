@@ -1,7 +1,7 @@
 package orca.review
 
 import orca.{FlowContext, TestFlowContext}
-import orca.events.EventDispatcher
+import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.agents.{
   AgentInput,
   Announce,
@@ -84,6 +84,35 @@ class ReviewerSelectorTest extends munit.FunSuite:
   private val filePatterns =
     Map("scala-fp" -> """\.scala$""".r)
 
+  /** Collects the `Step`s emitted through its own [[FlowContext]]. */
+  private class StepCapture:
+    private val steps = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+    private val listener: OrcaListener = (e: OrcaEvent) =>
+      e match
+        case OrcaEvent.Step(msg) => steps.add(msg): Unit
+        case _                   => ()
+    val ctx: FlowContext =
+      new TestFlowContext(new EventDispatcher(List(listener)))
+    def messages: List[String] = steps.toArray.toList.map(_.toString)
+
+  private def reported(e: RosterEntry[?]): ReviewBatch =
+    ReviewBatch(
+      List(
+        e -> ReviewResult(
+          List(
+            ReviewIssue(
+              severity = Severity.Warning,
+              confidence = 1.0,
+              title = Title("found something"),
+              description = "found something",
+              location = None,
+              suggestion = None
+            )
+          )
+        )
+      )
+    )
+
   test("file-pattern reviewers are dropped before the picker sees them"):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val picker = new RecordingPicker(
@@ -155,6 +184,45 @@ class ReviewerSelectorTest extends munit.FunSuite:
       List("scala-fp", "generic")
     )
 
+  test("an empty diff keeps file-pattern reviewers eligible"):
+    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
+    val picker = new RecordingPicker(
+      SelectedReviewers(List("scala-fp")),
+      captured
+    )
+    val selector = ReviewerSelector.agentDriven(
+      agent = picker,
+      filePatterns = filePatterns
+    )
+    // No changed files means the diff didn't say which files changed, not that
+    // none did: the pre-filter is skipped, so scala-fp reaches the picker.
+    val picked = selector.prepare(all, Title("any"), Nil)(Nil)
+    assertEquals(
+      captured.get().map(_.availableReviewers.map(_.name)),
+      Some(List("scala-fp", "generic"))
+    )
+    assertEquals(picked.map(_.name), List("scala-fp"))
+
+  test("an empty diff announces the skipped file-pattern filter"):
+    val capture = new StepCapture
+    val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
+    val selector = ReviewerSelector.agentDriven(
+      agent =
+        new RecordingPicker(SelectedReviewers(List("scala-fp")), captured),
+      filePatterns = filePatterns
+    )
+    val _ = selector.prepare(all, Title("any"), Nil)(using
+      capture.ctx,
+      summon[orca.InStage]
+    )(Nil)
+    assert(
+      capture.messages.exists(m =>
+        m.startsWith("reviewer selection: no changed files") &&
+          m.endsWith("(scala-fp)")
+      ),
+      capture.messages.mkString("\n")
+    )
+
   test("selector skips the picker LLM entirely when no reviewer is eligible"):
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val picker = new RecordingPicker(
@@ -212,3 +280,75 @@ class ReviewerSelectorTest extends munit.FunSuite:
     val _ = selector.prepare(all, Title("loop-1"), List("a.scala"))(Nil)
     val _ = selector.prepare(all, Title("loop-2"), List("b.scala"))(Nil)
     assertEquals(calls.get(), 2)
+
+  test("narrowing re-runs only the reviewers that reported last round"):
+    val selector =
+      ReviewerSelector.narrowingAcrossRounds(ReviewerSelector.allEveryRound)
+    val selectRound = selector.prepare(all, Title("any"), List("src/lib.rs"))
+    assertEquals(selectRound(Nil).map(_.name), List("scala-fp", "generic"))
+    assertEquals(
+      selectRound(List(reported(scalaFp))).map(_.name),
+      List("scala-fp")
+    )
+
+  test("narrowing never empties the active set"):
+    val capture = new StepCapture
+    val selector =
+      ReviewerSelector.narrowingAcrossRounds(ReviewerSelector.allEveryRound)
+    val selectRound = selector.prepare(all, Title("any"), List("src/lib.rs"))(
+      using
+      capture.ctx,
+      summon[orca.InStage]
+    )
+    // Nobody reported. A lint gate can keep the fix loop iterating through
+    // that, so the round must not run zero reviewers.
+    assertEquals(
+      selectRound(List(ReviewBatch(Nil))).map(_.name),
+      List("scala-fp", "generic")
+    )
+    assert(
+      capture.messages.exists(
+        _.startsWith("reviewer selection: nothing was reported last round")
+      ),
+      capture.messages.mkString("\n")
+    )
+
+  test("narrowing never resurrects a reviewer the base selector excluded"):
+    // `generic` is excluded by the base and never reported, so the only route
+    // back into the round would be narrowing consulting something other than
+    // `base`'s own result.
+    val basePicksScalaFp = new ReviewerSelector:
+      def prepare(
+          all: List[RosterEntry[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using FlowContext, orca.InStage) =
+        _ => all.filter(_.name == "scala-fp")
+    val selectRound = ReviewerSelector
+      .narrowingAcrossRounds(basePicksScalaFp)
+      .prepare(all, Title("any"), List("notes.txt"))
+    assertEquals(
+      selectRound(List(reported(scalaFp))).map(_.name),
+      List("scala-fp")
+    )
+
+  test("a base selector that picks nobody keeps picking nobody"):
+    val capture = new StepCapture
+    val picksNobody = new ReviewerSelector:
+      def prepare(
+          all: List[RosterEntry[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using FlowContext, orca.InStage) =
+        _ => Nil
+    val selectRound = ReviewerSelector
+      .narrowingAcrossRounds(picksNobody)
+      .prepare(all, Title("any"), List("notes.txt"))(using
+        capture.ctx,
+        summon[orca.InStage]
+      )
+    // The floor exists to stop NARROWING emptying the set, never to overrule a
+    // selector that decided nobody should review this — so no fallback, and no
+    // "re-running all 0 reviewer(s)" announcement either.
+    assertEquals(selectRound(List(ReviewBatch(Nil))), Nil)
+    assertEquals(capture.messages, Nil)
