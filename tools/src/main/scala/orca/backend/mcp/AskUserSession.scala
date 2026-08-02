@@ -7,8 +7,8 @@ import scala.util.control.NonFatal
 
 /** One-conversation ask-user wiring: the host-side [[AskUserBridge]], the
   * Netty-backed [[AskUserMcpServer]], and any backend-specific `extras` (e.g.
-  * claude's `.orca-mcp-<port>.json` config file deletion). The framework closes
-  * it after the read loop drains.
+  * claude's `mcp-<port>.json` config file deletion). The framework closes it
+  * after the read loop drains.
   *
   * Close-order: bridge first (errors any in-flight `ask` so blocked handlers
   * exit before the binding tears down), then server, then extras. Each close is

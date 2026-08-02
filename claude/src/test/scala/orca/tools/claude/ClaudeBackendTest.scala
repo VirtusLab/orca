@@ -13,7 +13,7 @@ import orca.agents.{
 import orca.events.OrcaListener
 import orca.{OrcaFlowException}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
-import orca.testkit.TempDirs
+import orca.testkit.{GitRepo, TempDirs}
 
 class ClaudeBackendTest extends munit.FunSuite:
 
@@ -77,6 +77,19 @@ class ClaudeBackendTest extends munit.FunSuite:
       assert(args.containsSlice(Seq("--output-format", "stream-json")))
       // No ask_user MCP on the autonomous path.
       assert(!args.contains("--mcp-config"), args)
+
+  test("an MCP config left behind by a hard kill can't reach a commit"):
+    // A hard kill skips the deletion resource, so the file survives into the
+    // next stage's `git add -A`.
+    val repo = GitRepo.seeded()
+    os.write(ClaudeBackend.mcpConfigPath(repo, port = 45123), "{}")
+    val _ = os.proc("git", "add", "-A").call(cwd = repo)
+    val staged =
+      os.proc("git", "diff", "--cached", "--name-only")
+        .call(cwd = repo)
+        .out
+        .text()
+    assertEquals(staged, "", "the MCP config must be unstageable")
 
   test("NetworkOnly autonomous call pre-approves the default network tools"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))

@@ -2,6 +2,7 @@ package orca.tools.claude
 
 import java.util.concurrent.atomic.AtomicBoolean
 
+import orca.OrcaDir
 import orca.events.OrcaListener
 import orca.agents.{
   AutoApprove,
@@ -156,11 +157,11 @@ private[orca] class ClaudeBackend(
     * for EOF and start producing output.
     *
     * `Interactive` mode wires the MCP `ask_user` tool: stand up an
-    * [[AskUserMcpServer]] on an ephemeral port, write a workDir-local
-    * `.orca-mcp-<port>.json`, point claude at it via `--mcp-config`, and
-    * auto-approve the tool. `Autonomous` skips all of that: those calls have no
-    * renderer to drive the prompt, so exposing the tool would let the agent
-    * deadlock the call.
+    * [[AskUserMcpServer]] on an ephemeral port, write its config at
+    * [[ClaudeBackend.mcpConfigPath]], point claude at it via `--mcp-config`,
+    * and auto-approve the tool. `Autonomous` skips all of that: those calls
+    * have no renderer to drive the prompt, so exposing the tool would let the
+    * agent deadlock the call.
     *
     * The MCP server (when present) is a session resource closed from
     * `onFinalize` after the read loop drains. If anything between resource
@@ -183,7 +184,9 @@ private[orca] class ClaudeBackend(
         AskUserSession.allocate: server =>
           writeMcpConfig(server, workDir)
           List(
-            SubprocessSpawn.deleteFileResource(mcpConfigPath(server, workDir))
+            SubprocessSpawn.deleteFileResource(
+              ClaudeBackend.mcpConfigPath(workDir, server.port)
+            )
           )
     SubprocessSpawn.open("claude stream-json", askUser.toList) {
       val systemPromptFile =
@@ -204,7 +207,8 @@ private[orca] class ClaudeBackend(
         systemPromptFile,
         dispatch = sessions.dispatchFor(session),
         outputSchema,
-        mcpConfig = askUser.map(r => mcpConfigPath(r.server, workDir)),
+        mcpConfig =
+          askUser.map(r => ClaudeBackend.mcpConfigPath(workDir, r.server.port)),
         networkTools = networkTools
       )
       cli.spawnPiped(args, cwd = workDir)
@@ -222,16 +226,7 @@ private[orca] class ClaudeBackend(
       )
     }
 
-  /** Path of the workDir-local MCP config file advertising the host's MCP
-    * server. Named with the bound port so two interactive conversations sharing
-    * a `workDir` don't overwrite each other's config.
-    */
-  private def mcpConfigPath(
-      server: AskUserMcpServer,
-      workDir: os.Path
-  ): os.Path = workDir / s".orca-mcp-${server.port}.json"
-
-  /** Write the MCP config file at [[mcpConfigPath]].
+  /** Write the MCP config file at [[ClaudeBackend.mcpConfigPath]].
     *
     * The `timeout` field extends claude's per-server tool-call timeout from its
     * 60s default to [[AskUserMcpServer.ToolTimeout]]. Without it, claude gives
@@ -246,8 +241,13 @@ private[orca] class ClaudeBackend(
       workDir: os.Path
   ): Unit =
     val timeoutMs = AskUserMcpServer.ToolTimeout.toMillis
-    os.write.over(
-      mcpConfigPath(server, workDir),
+    val path = ClaudeBackend.mcpConfigPath(workDir, server.port)
+    // Recreate rather than overwrite: `os.write` (CREATE_NEW) refuses an
+    // existing symlink at the leaf, which `os.write.over` would follow. The
+    // removal also clears a same-port leftover from an earlier hard kill.
+    val _ = os.remove(path)
+    os.write(
+      path,
       s"""{"mcpServers":{"${AskUserMcpServer.ServerName}":{"type":"http","url":"${server.url}","timeout":$timeoutMs}}}"""
     )
 
@@ -267,6 +267,20 @@ private[orca] class ClaudeBackend(
         os.temp(prefix = "orca-system-prompt-", suffix = ".md", contents = text)
 
 object ClaudeBackend:
+
+  /** Path of the MCP config file advertising the host's `ask_user` server,
+    * ensuring its directory. Named with the bound port so two interactive
+    * conversations sharing a `workDir` don't overwrite each other's config.
+    *
+    * It lives under `.orca/cache/` rather than at the workDir root because a
+    * hard kill skips the deletion resource that removes it, and a leftover at
+    * the root is swept into the next stage's `git add -A` — orca committing its
+    * own scratch file to the user's repository. The cache self-ignores (ADR
+    * 0019), so a leftover there is inert. Still inside the working tree, so a
+    * sandboxed claude that denies reads outside its worktree can read it.
+    */
+  private[claude] def mcpConfigPath(workDir: os.Path, port: Int): os.Path =
+    OrcaDir.ensureCache(workDir) / s"mcp-$port.json"
 
   /** Derives the project-directory slug that claude uses under
     * `~/.claude/projects/`: replaces every `/` in the absolute path with `-`.
