@@ -1,6 +1,6 @@
 package orca.shell.actions
 
-import orca.runner.manifest.{ManifestSession, RunManifest}
+import orca.runner.manifest.{ManifestCostSummary, ManifestSession, RunManifest}
 import orca.shell.sessions.SessionSelection
 import orca.testkit.TempDirs
 import orca.tools.pi.PiSessionStore
@@ -31,7 +31,9 @@ class SessionActionTest extends munit.FunSuite:
       startedAt = "2026-07-18T09:00:00Z",
       finishedAt = None,
       outcome = "succeeded",
-      sessions = List(s)
+      sessions = List(s),
+      cost = ManifestCostSummary.empty,
+      turns = Nil
     )
 
   test("identityNotice: names the session, harness, and workDir"):

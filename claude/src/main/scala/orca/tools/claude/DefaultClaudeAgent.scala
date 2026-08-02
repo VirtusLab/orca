@@ -27,7 +27,7 @@ private[orca] class DefaultClaudeAgent(
     )
     with ClaudeAgent:
 
-  def haiku: ClaudeAgent = withModel(Model("claude-haiku-4-5"))
+  def haiku: ClaudeAgent = withModel(DefaultClaudeAgent.Haiku)
   def sonnet: ClaudeAgent = withModel(Model("claude-sonnet-5"))
   def opus: ClaudeAgent = withModel(DefaultClaudeAgent.Opus1M)
   def fable: ClaudeAgent = withModel(DefaultClaudeAgent.Fable)
@@ -64,6 +64,13 @@ private[orca] class DefaultClaudeAgent(
     )
 
 private[orca] object DefaultClaudeAgent:
+  /** The cheap tier. Spelled out rather than the `haiku` alias, which plan mode
+    * mis-resolves — see `ClaudeArgs.modelArgs`. That rewrite covers a
+    * `claude:haiku` pin too, so neither spelling tracks a new haiku generation:
+    * this constant is the one place to bump when one ships.
+    */
+  val Haiku: Model = Model("claude-haiku-4-5")
+
   /** The default coding model: Opus with the 1M-token context window, via the
     * `[1m]` model-alias suffix. The main implementer session is long-lived and
     * accumulates context across tasks, so 1M keeps it from overflowing ("Prompt

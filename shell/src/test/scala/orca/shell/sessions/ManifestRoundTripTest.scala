@@ -1,7 +1,7 @@
 package orca.shell.sessions
 
 import orca.WorkspaceWrite
-import orca.events.OrcaEvent
+import orca.events.{OrcaEvent, Pricing, Usage}
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.runner.manifest.{RunManifestWriter, RunOutcome}
 import orca.testkit.TempDirs
@@ -43,6 +43,7 @@ class ManifestRoundTripTest extends munit.FunSuite:
         workDir,
         "0.0.test",
         Some("a-flow.sc"),
+        Pricing.default,
         () => Instant.now()
       )
       writer.onEvent(OrcaEvent.StageStarted("code"))
@@ -53,6 +54,14 @@ class ManifestRoundTripTest extends munit.FunSuite:
           Some("wire-1"),
           "claude",
           None
+        )
+      )
+      writer.onEvent(
+        OrcaEvent.TokensUsed(
+          "claude",
+          None,
+          Usage(1_000, 200, Some(BigDecimal("0.5"))),
+          Some("reviewer")
         )
       )
       writer.finish(RunOutcome.Succeeded)
@@ -67,3 +76,7 @@ class ManifestRoundTripTest extends munit.FunSuite:
     assertEquals(session.resumable, true)
     assertEquals(session.sessionName, Some("coder"))
     assertEquals(session.stage, Some("code"))
+    val cost = runs.head.manifest.cost
+    assertEquals(cost.total.inputTokens, 1_000L)
+    assertEquals(cost.byRole.map(_.key), List(Some("reviewer")))
+    assertEquals(runs.head.manifest.turns.map(_.promptTokens), List(1_000L))

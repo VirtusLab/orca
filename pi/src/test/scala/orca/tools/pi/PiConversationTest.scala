@@ -47,7 +47,17 @@ class PiConversationTest extends munit.FunSuite:
     assertEquals(result.wireId, wire)
     assertEquals(result.output, "hello")
     assertEquals(result.model.map(_.name), Some("anthropic/claude-sonnet"))
-    assertEquals(result.usage, Usage(10L, 3L, Some(BigDecimal("0.01")), 3L))
+    assertEquals(
+      result.usage,
+      Usage(
+        // pi's `input` counts only the fresh prompt, so the total is 10+1+2.
+        inputTokens = 13L,
+        outputTokens = 3L,
+        cost = Some(BigDecimal("0.01")),
+        cacheReadInputTokens = 1L,
+        cacheWriteInputTokens = 2L
+      )
+    )
     assertEquals(process.sigIntCount, 1)
     assert(process.isStdinClosed)
 
@@ -164,7 +174,17 @@ class PiConversationTest extends munit.FunSuite:
     assertEquals(events.count(_ == ConversationEvent.AssistantTurnEnd), 1)
     val Right(result) = conv.awaitResult(): @unchecked
     assertEquals(result.output, "second")
-    assertEquals(result.usage, Usage(5L, 7L, None, 9L))
+    assertEquals(
+      result.usage,
+      Usage(
+        // (1 fresh + 3 read) + (4 fresh + 6 write)
+        inputTokens = 14L,
+        outputTokens = 7L,
+        cost = None,
+        cacheReadInputTokens = 3L,
+        cacheWriteInputTokens = 6L
+      )
+    )
 
   convTest("failed prompt response fails the conversation"):
     val process = new FakePipedCliProcess()
