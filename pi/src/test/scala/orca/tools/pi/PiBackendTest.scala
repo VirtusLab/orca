@@ -127,6 +127,9 @@ class PiBackendTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--model", "anthropic/claude-sonnet")), args)
     assert(args.containsSlice(Seq("--tools", "read,grep,find,ls")), args)
     assert(!args.contains("--extension"), args)
+    // A read-only autonomous turn composes no system prompt at all, so the
+    // interactive-only ask_user hint can't have leaked onto this path.
+    assert(!args.contains("--append-system-prompt"), args)
 
   test("interactive read-only config includes ask_user extension and tool"):
     val process = successfulProcess()
@@ -157,7 +160,7 @@ class PiBackendTest extends munit.FunSuite:
       val _ = conv.awaitResult()
 
   test(
-    "interactive system prompt file contains configured prompt, hint, and git rule"
+    "interactive system prompt file contains configured prompt, hint, and standing rules"
   ):
     val process = new FakePipedCliProcess()
     val runner = new SpawnStubCliRunner(List(process))
@@ -183,6 +186,12 @@ class PiBackendTest extends munit.FunSuite:
         promptText.contains(SystemPromptComposer.RuntimeOwnsGit),
         promptText
       )
+      assert(
+        promptText.contains(
+          SystemPromptComposer.BackgroundWorkAbandonedAtTurnEnd
+        ),
+        promptText
+      )
 
       val extensionFile = os.Path(args(args.indexOf("--extension") + 1))
       assert(os.exists(extensionFile))
@@ -198,9 +207,9 @@ class PiBackendTest extends munit.FunSuite:
 
   test("self-managed git suppresses the runtime git rule"):
     // Interactive, not autonomous: the prompt file is deleted once a turn
-    // finishes, so it can only be read while the conversation is live. The turn
-    // still carries a system prompt — the background-work rule is not gated on
-    // this flag — so the assertion is on the text, not on the flag's absence.
+    // finishes, so it can only be read while the conversation is live. The flag
+    // no longer empties the composed prompt (the background rule isn't gated on
+    // it), so the assertion is on the text, not on the flag's absence.
     val process = new FakePipedCliProcess()
     val runner = new SpawnStubCliRunner(List(process))
     val backend = backendWith(runner)
@@ -219,10 +228,6 @@ class PiBackendTest extends munit.FunSuite:
       val promptText = os.read(os.Path(promptFile))
       assert(
         !promptText.contains(SystemPromptComposer.RuntimeOwnsGit),
-        promptText
-      )
-      assert(
-        promptText.contains(SystemPromptComposer.NoBackgroundWork),
         promptText
       )
 

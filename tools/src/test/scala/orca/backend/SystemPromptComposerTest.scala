@@ -5,15 +5,16 @@ import orca.agents.{AgentConfig, ToolSet}
 class SystemPromptComposerTest extends munit.FunSuite:
 
   private val gitRule = SystemPromptComposer.RuntimeOwnsGit
-  private val backgroundRule = SystemPromptComposer.NoBackgroundWork
+  private val backgroundRule =
+    SystemPromptComposer.BackgroundWorkAbandonedAtTurnEnd
 
   test("write-capable turn with nothing else gets both standing rules"):
     val out = SystemPromptComposer.combine(AgentConfig(), None)
     assertEquals(out, Some(s"$gitRule\n\n$backgroundRule"))
 
   test("read-only turn with neither config nor hint returns None"):
-    // Read-only turns can't commit, and they read and report rather than run
-    // builds, so neither standing rule applies; nothing else to compose.
+    // Read-only turns can't commit, and aren't asked to run builds, so neither
+    // standing rule applies; nothing else to compose.
     val out = SystemPromptComposer.combine(
       AgentConfig().copy(tools = ToolSet.ReadOnly),
       None

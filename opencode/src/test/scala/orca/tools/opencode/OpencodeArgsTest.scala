@@ -70,16 +70,12 @@ class OpencodeArgsTest extends munit.FunSuite:
       None
     )
 
-  test("message carries the composed system prompt (standing rules)"):
+  test("message carries the composed system prompt"):
+    // What opencode owns is that the composed prompt reaches `system` — the
+    // composition itself is `SystemPromptComposerTest`'s.
     val body =
       OpencodeArgs.message(AgentConfig(), "hi", None, interactive)
-    assertEquals(
-      body.system,
-      Some(
-        s"${SystemPromptComposer.RuntimeOwnsGit}\n\n" +
-          SystemPromptComposer.NoBackgroundWork
-      )
-    )
+    assertEquals(body.system, SystemPromptComposer.combine(AgentConfig()))
 
   test("structured turn sets format=json_schema with the schema verbatim"):
     val body = OpencodeArgs.message(
