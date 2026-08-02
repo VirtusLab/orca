@@ -192,29 +192,33 @@ trait GitTool:
     */
   def resetHard()(using WorkspaceWrite): Unit
 
-  /** All changes since the last commit (staged and unstaged). Tracked files
-    * only — an untracked file (nothing to diff against) is invisible here, and
-    * `.orca/` bookkeeping is included if it happens to be tracked and dirty.
-    * Fine for this method's one caller (a commit-message draft taken before the
-    * progress log is written, by construction never seeing `.orca/` churn). A
-    * reviewer-facing consumer needing untracked files surfaced and `.orca/`
-    * always excluded wants [[reviewDiff]] instead.
+  /** All changes since the last commit (staged and unstaged), excluding
+    * `.orca/` bookkeeping. Tracked files only — an untracked file (nothing to
+    * diff against) is invisible here. A reviewer-facing consumer that also
+    * needs untracked files surfaced wants [[reviewDiff]] instead.
+    *
+    * The `.orca/` exclusion is load-bearing, not tidiness: once a stage has
+    * committed the progress log the file is tracked, and later stage bodies
+    * rewrite it mid-flight (persisting session ids). Its compact one-line JSON
+    * then shows up as a pair of very long -/+ lines that sort ahead of the real
+    * change.
     */
   def diff(): String
 
   /** `--stat` summary of the same change set as [[diff]]: one line per changed
     * file with its insertion/deletion counts, then the totals line. Describes
     * which files a change touched without carrying any hunk, so it can be sent
-    * to a model when the full diff is too large to be worth its tokens.
+    * to a model when the full diff is too large to be worth its tokens. Paths
+    * are printed in full — git's default stat width elides leading directories
+    * (`.../orca/tools/GitTool.scala`), which defeats the point of naming files.
     */
   def diffStat(): String
 
-  /** The working-tree change set a reviewer should see: tracked changes since
-    * the last commit (staged and unstaged, as in [[diff]]) excluding `.orca/`
-    * bookkeeping, PLUS each untracked non-`.orca/` file rendered as a new-file
-    * diff (`git diff --no-index` against `/dev/null`) — so a freshly-created
-    * file is visible even though it has no tracked history to diff against.
-    * Read-only: untracked files are diffed, never staged.
+  /** The working-tree change set a reviewer should see: everything [[diff]]
+    * reports, PLUS each untracked non-`.orca/` file rendered as a new-file diff
+    * (`git diff --no-index` against `/dev/null`) — so a freshly-created file is
+    * visible even though it has no tracked history to diff against. Read-only:
+    * untracked files are diffed, never staged.
     */
   def reviewDiff(): String
 
@@ -501,15 +505,16 @@ private[orca] class OsGitTool(
     )
 
   def diff(): String =
-    git("diff", "HEAD")
+    git("diff", "HEAD", "--", ".", ":(exclude).orca/*")
 
+  // `--stat=<width>` widens the stat line so the name column holds a full path;
+  // 200 clears any path this side of pathological.
   def diffStat(): String =
-    git("diff", "--stat", "HEAD")
+    git("diff", "--stat=200", "HEAD", "--", ".", ":(exclude).orca/*")
 
   def reviewDiff(): String =
-    val tracked = git("diff", "HEAD", "--", ".", ":(exclude).orca/*")
     val untracked = untrackedPaths().map(untrackedFileDiff)
-    (tracked :: untracked).mkString
+    (diff() :: untracked).mkString
 
   /** Untracked, non-`.orca/` paths from `git status --porcelain`.
     * `--untracked-files=all` recurses into untracked directories so every file

@@ -12,7 +12,7 @@ import orca.agents.{
   SessionId,
   ToolSet
 }
-import orca.progress.ProgressStore
+import orca.progress.{ProgressStore, SessionRecord}
 import orca.testkit.GitRepo
 import orca.tools.{GitTool, OsGitTool}
 
@@ -145,6 +145,12 @@ class CommitMessageTest extends munit.FunSuite:
   private def lastCommitMessage(dir: os.Path): String =
     os.proc("git", "log", "-1", "--pretty=%s").call(cwd = dir).out.text().trim
 
+  /** The next prompt the stub was given, failing the test rather than returning
+    * `null` when the commit path never reached the model.
+    */
+  private def nextPrompt(prompts: ConcurrentLinkedQueue[String]): String =
+    Option(prompts.poll()).getOrElse(fail("no prompt reached the agent"))
+
   // --------------------------------------------------------------------------
   // Tests
   // --------------------------------------------------------------------------
@@ -203,11 +209,43 @@ class CommitMessageTest extends munit.FunSuite:
           (1 to 20000).map(i => s"line $i").mkString("\n")
         )
         "done"
-      val prompt = prompts.poll()
-      // The head plus the stat, both capped by `InlineThreshold`; the slack
-      // covers the prompt's own wording and the truncation markers.
+      val prompt = nextPrompt(prompts)
+      // Bounded, but not to a bare stat: the budget is spent on the diff head,
+      // which reaches a few hundred lines in and stops well before the end.
       assert(clue(prompt.length) < CommitDiff.InlineThreshold + 512)
+      assert(clue(prompt.length) > CommitDiff.InlineThreshold)
       assert(prompt.contains("file changed"), "the --stat summary is missing")
+      assert(prompt.contains("\n+line 300\n"), "the diff head is missing")
+      assert(!prompt.contains("+line 5000"), "the diff was not truncated")
+      assert(prompt.contains("…(truncated)"), "the cut went unmarked")
+
+  test("a later stage's prompt excludes the .orca progress log"):
+    val prompts = ConcurrentLinkedQueue[String]()
+    withCtx(stubbedAgent("Update seed", prompts)): (ctx, dir) =>
+      given FlowControl = ctx
+      val _ = stage("first"):
+        os.write.over(dir / "seed.txt", "first change")
+        "done"
+      val _ = stage("second"):
+        os.write.over(dir / "seed.txt", "second change")
+        // What the runtime does mid-body once a session learns its wire id:
+        // rewrite the progress log, which the first stage already committed —
+        // so from here on it is a tracked file the stage diff would carry.
+        ctx.progressStore.upsertSession(
+          SessionRecord(
+            name = "s",
+            occurrence = 1,
+            id = "sid",
+            seed = "seed",
+            resumeWireId = Some("wire"),
+            backend = None
+          )
+        )
+        "done"
+      val _ = nextPrompt(prompts)
+      val second = nextPrompt(prompts)
+      assert(!second.contains(".orca"), second)
+      assert(second.contains("seed.txt"), "the real change is missing")
 
   test(
     "stage with no commitMessage and blank agent reply falls back to stage:<name>"

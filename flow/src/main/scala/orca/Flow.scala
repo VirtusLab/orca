@@ -126,8 +126,6 @@ private def recordAndCommit[T: JsonData](
   // progress-store append + git force-add/commit below.
   given InStage = RuntimeInStage.token()
   given WorkspaceWrite = RuntimeInStage.workspaceToken()
-  // Capture the code diff BEFORE force-adding the progress file so the LLM
-  // sees only the body's substantive changes, not the orca bookkeeping.
   val message =
     commitMessage.map(_(result)).getOrElse(defaultCommitMessage(name))
   fc.progressStore.appendEntry(StageEntry(id, name, RawJson(resultJson)))
@@ -142,12 +140,12 @@ private def recordAndCommit[T: JsonData](
 /** Generate a commit message from the current working-tree changes via the
   * coding-role agent's cheap model (`fc.codingAgent.cheapOneShot`), which is
   * sent the bounded summary built by [[CommitDiff.payload]] rather than the
-  * whole diff. The changes are read before the progress file is force-added, so
-  * they reflect only code the stage body produced. Falls back to `"stage:
-  * <name>"` when there is nothing to describe, the agent returns blank, or any
-  * `NonFatal` is thrown — committing must never break, though `cheapOneShot`
-  * announces the fallback rather than hiding it. Only called when the caller
-  * supplied no explicit `commitMessage`.
+  * whole diff. Both git reads exclude `.orca/`, so the model sees the change
+  * set the commit is about rather than orca's bookkeeping. Falls back to
+  * `"stage: <name>"` when there is nothing to describe, the agent returns
+  * blank, or any `NonFatal` is thrown — committing must never break, though
+  * `cheapOneShot` announces the fallback rather than hiding it. Only called
+  * when the caller supplied no explicit `commitMessage`.
   */
 private def defaultCommitMessage(
     name: String
@@ -167,39 +165,6 @@ private def defaultCommitMessage(
         s"Write a concise one-line git commit message (imperative mood, ≤72 chars) for this change:\n\n$payload",
       fallback = fallback
     )
-
-/** The bounded description of a stage's working-tree changes that
-  * [[defaultCommitMessage]] sends to the cheap model.
-  */
-private[orca] object CommitDiff:
-  /** Max chars of change text inlined into the commit-message prompt. Sized as
-    * `orca.review.Lint.InlineLintThreshold` is: a typical stage's changes fit
-    * whole, while a large stage sends a head instead of paying for every hunk
-    * to get one line back.
-    */
-  val InlineThreshold: Int = 8 * 1024
-
-  private val TruncationMarker: String = "\n…(truncated)"
-
-  /** `git diff --stat` output followed by as much of the diff as the remaining
-    * [[InlineThreshold]] budget allows; `""` when there is nothing to describe.
-    * The stat goes first because it names every changed file, which a truncated
-    * diff head does not. Truncation is marked so the model reads a cut-off hunk
-    * as partial rather than as the whole change.
-    */
-  def payload(stat: String, diff: String): String =
-    if diff.isBlank then ""
-    else
-      val boundedStat = bounded(stat, InlineThreshold)
-      s"""Files changed:
-         |$boundedStat
-         |
-         |Diff:
-         |${bounded(diff, InlineThreshold - boundedStat.length)}""".stripMargin
-
-  private def bounded(text: String, maxChars: Int): String =
-    if text.length <= maxChars then text
-    else text.take(maxChars.max(0)) + TruncationMarker
 
 private def formatMalformedOutput(
     stage: String,
