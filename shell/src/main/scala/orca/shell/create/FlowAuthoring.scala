@@ -108,10 +108,8 @@ private[shell] object FlowAuthoring:
   def slugPrompt(goal: String): String =
     s"""Suggest a short lowercase-kebab-case filename (letters, digits, and
        |hyphens only, no file extension, no explanation) for a script whose
-       |goal is:
-       |$goal
-       |
-       |Reply with ONLY the filename, nothing else.""".stripMargin
+       |goal is:""".stripMargin + "\n" + goal +
+      "\n\nReply with ONLY the filename, nothing else."
 
   /** [[slugPrompt]]'s fork counterpart: the same bare-filename ask, grounded in
     * the source flow's name and one-line description plus the user's described
@@ -135,10 +133,8 @@ private[shell] object FlowAuthoring:
        |Source script: $sourceName
        |Source description: $description
        |
-       |Changes made in the fork:
-       |$changes
-       |
-       |Reply with ONLY the descriptor, nothing else.""".stripMargin
+       |Changes made in the fork:""".stripMargin + "\n" + changes +
+      "\n\nReply with ONLY the descriptor, nothing else."
 
   private val maxSlugLength = 50
 
@@ -503,40 +499,38 @@ private[shell] object FlowAuthoring:
     // indented as its own block rather than trailing "Goal: " on one line —
     // keeps a multi-paragraph goal visually distinct from the rest of the
     // prompt instead of running the first line on with the label.
-    val indentedGoal = indentBlock(goal)
-    s"""Write a new Orca flow at $targetPath.
-       |
-       |Goal:
-       |$indentedGoal
-       |
-       |Start the file with this exact header (the pinned version matches the
-       |orca release this flow was launched from):
-       |${versionPinLines(orcaVersion)}
-       |
-       |Line 1 of the file must be a `//` comment giving a one-line description
-       |of the flow — the shell's flow listing uses it as the description.
-       |
-       |The Orca API reference is at $readme — read it before writing the
-       |flow. Two example flows are at $example1 and $example2; start from
-       |whichever is closer to the goal.
-       |
-       |After writing the file, verify it with `scala-cli compile $targetPath`
-       |and fix errors until it compiles.
-       |
-       |Caveat: some authoring rules (fork-boundary captures, stage
-       |push-after-commit ordering, no concurrent stages) are enforced at runtime,
-       |not by the compiler — a script can compile and still violate them.
-       |Follow the README's Authoring rules section beyond what the compiler
-       |catches.
-       |
-       |Last resort, only if the local README above is somehow missing: the
-       |tag-pinned reference is at
-       |https://raw.githubusercontent.com/VirtusLab/orca/v$orcaVersion/README.md
-       |""".stripMargin
+    s"Write a new Orca flow at $targetPath.\n\nGoal:\n" + indentBlock(goal) +
+      "\n\n" +
+      s"""Start the file with this exact header (the pinned version matches the
+         |orca release this flow was launched from):
+         |${versionPinLines(orcaVersion)}
+         |
+         |Line 1 of the file must be a `//` comment giving a one-line description
+         |of the flow — the shell's flow listing uses it as the description.
+         |
+         |The Orca API reference is at $readme — read it before writing the
+         |flow. Two example flows are at $example1 and $example2; start from
+         |whichever is closer to the goal.
+         |
+         |After writing the file, verify it with `scala-cli compile $targetPath`
+         |and fix errors until it compiles.
+         |
+         |Caveat: some authoring rules (fork-boundary captures, stage
+         |push-after-commit ordering, no concurrent stages) are enforced at runtime,
+         |not by the compiler — a script can compile and still violate them.
+         |Follow the README's Authoring rules section beyond what the compiler
+         |catches.
+         |
+         |Last resort, only if the local README above is somehow missing: the
+         |tag-pinned reference is at
+         |https://raw.githubusercontent.com/VirtusLab/orca/v$orcaVersion/README.md
+         |""".stripMargin
 
   /** Two-space-indents every line of `text` — the shared block-quoting used by
     * [[initialPrompt]]'s goal and [[forkPrompt]]'s change description, both of
-    * which come from `inputMultiline` and so may be several lines long.
+    * which come from `inputMultiline` and so may be several lines long. Callers
+    * concatenate the result: interpolating it into a `stripMargin` block would
+    * eat the leading `|` of a table or margin block the user typed.
     */
   private def indentBlock(text: String): String =
     text.linesIterator.map(line => s"  $line").mkString("\n")
@@ -587,25 +581,26 @@ private[shell] object FlowAuthoring:
     val readme = apiDir / "README.md"
     val example1 = apiDir / "implement.sc"
     val example2 = apiDir / "implement-interactive.sc"
-    s"""$opening
-       |
-       |The Orca API reference is at $readme — read it if the changes need API
-       |surface the source doesn't already use. Two example flows are at
-       |$example1 and $example2.
-       |
-       |After writing the file, verify it with `scala-cli compile $targetPath`
-       |and fix errors until it compiles.
-       |
-       |Caveat: some authoring rules (fork-boundary captures, stage
-       |push-after-commit ordering, no concurrent stages) are enforced at runtime,
-       |not by the compiler — a script can compile and still violate them.
-       |Follow the README's Authoring rules section beyond what the compiler
-       |catches.
-       |
-       |Last resort, only if the local README above is somehow missing: the
-       |tag-pinned reference is at
-       |https://raw.githubusercontent.com/VirtusLab/orca/v$orcaVersion/README.md
-       |""".stripMargin
+    // `opening` already carries the user's typed changes: interpolating it here
+    // would run a second `stripMargin` pass over that text.
+    opening + "\n\n" +
+      s"""The Orca API reference is at $readme — read it if the changes need API
+         |surface the source doesn't already use. Two example flows are at
+         |$example1 and $example2.
+         |
+         |After writing the file, verify it with `scala-cli compile $targetPath`
+         |and fix errors until it compiles.
+         |
+         |Caveat: some authoring rules (fork-boundary captures, stage
+         |push-after-commit ordering, no concurrent stages) are enforced at runtime,
+         |not by the compiler — a script can compile and still violate them.
+         |Follow the README's Authoring rules section beyond what the compiler
+         |catches.
+         |
+         |Last resort, only if the local README above is somehow missing: the
+         |tag-pinned reference is at
+         |https://raw.githubusercontent.com/VirtusLab/orca/v$orcaVersion/README.md
+         |""".stripMargin
 
   /** The authoring task for a fork (ADR 0021 §9): states the source path and
     * the described changes as one indivisible step (create the target by
@@ -622,13 +617,11 @@ private[shell] object FlowAuthoring:
       apiDir: os.Path,
       orcaVersion: String
   ): String =
-    val indentedChanges = indentBlock(changes)
     val opening =
       s"""Create the Orca flow at $targetPath by copying $sourcePath and
-         |applying these changes:
-         |$indentedChanges
-         |
-         |Keep the copied file's existing version-pinned header (`//> using
+         |applying these changes:""".stripMargin +
+        "\n" + indentBlock(changes) + "\n\n" +
+        """Keep the copied file's existing version-pinned header (`//> using
          |scala`/`//> using dep`/`//> using jvm`) and its line-1 `//`
          |one-line-description convention — update the description line only if
          |the fork's behavior changes enough to make the original one wrong.""".stripMargin
@@ -649,13 +642,11 @@ private[shell] object FlowAuthoring:
       apiDir: os.Path,
       orcaVersion: String
   ): String =
-    val indentedChanges = indentBlock(changes)
     val opening =
       s"""Edit the Orca flow: apply these changes to $targetPath, which is a
-         |copy of $sourcePath:
-         |$indentedChanges
-         |
-         |Keep the file's existing version-pinned header (`//> using
+         |copy of $sourcePath:""".stripMargin +
+        "\n" + indentBlock(changes) + "\n\n" +
+        """Keep the file's existing version-pinned header (`//> using
          |scala`/`//> using dep`/`//> using jvm`) and its line-1 `//`
          |one-line-description convention — update the description line only if
          |these changes make the original one wrong.""".stripMargin

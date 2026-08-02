@@ -79,6 +79,15 @@ class FlowAuthoringTest extends munit.FunSuite:
     assert(text.contains("  sync issues nightly"))
     assert(text.contains("  and also close stale ones"))
 
+  test("initialPrompt keeps a goal line that starts with `|`"):
+    val text = FlowAuthoring.initialPrompt(
+      "compare the modes:\n| mode | effect |",
+      targetPath,
+      apiDir,
+      "0.0.18"
+    )
+    assert(text.contains("\n  | mode | effect |"), text)
+
   test("initialPrompt states the verbatim version-pinned header"):
     assert(prompt.contains("//> using scala 3.8.4"))
     assert(prompt.contains("""//> using dep "org.virtuslab::orca:0.0.18""""))
@@ -204,6 +213,10 @@ class FlowAuthoringTest extends munit.FunSuite:
     assert(text.contains("sync issues nightly"))
     assert(text.contains("Reply with ONLY the filename"))
 
+  test("slugPrompt keeps a goal line that starts with `|`"):
+    val text = FlowAuthoring.slugPrompt("compare:\n| mode | effect |")
+    assert(text.contains("\n| mode | effect |"), text)
+
   // --- sanitizeSlug ---
 
   test("sanitizeSlug kebab-cases junk (mixed case, punctuation, spaces)"):
@@ -301,6 +314,11 @@ class FlowAuthoringTest extends munit.FunSuite:
   ):
     val text = FlowAuthoring.forkSlugPrompt("implement.sc", None, "add logging")
     assert(text.contains("(no description)"))
+
+  test("forkSlugPrompt keeps a changes line that starts with `|`"):
+    val text =
+      FlowAuthoring.forkSlugPrompt("implement.sc", None, "cover:\n| a | b |")
+    assert(text.contains("\n| a | b |"), text)
 
   // --- suggestFilenameForFork ---
 
@@ -496,6 +514,16 @@ class FlowAuthoringTest extends munit.FunSuite:
     assert(text.contains("  add a rate limit"))
     assert(text.contains("  and log rejected requests"))
 
+  test("forkPrompt keeps a changes line that starts with `|`"):
+    val text = FlowAuthoring.forkPrompt(
+      "reword the header to:\n  |//> using jvm 21",
+      targetPath / os.up / "implement.sc",
+      targetPath,
+      apiDir,
+      "0.0.18"
+    )
+    assert(text.contains("\n    |//> using jvm 21"), text)
+
   // --- editPrompt (edit-by-agent's task — same tail as forkPrompt, distinct
   // opening: worded as an edit, since that's the action the user picked) ---
 
@@ -542,6 +570,16 @@ class FlowAuthoringTest extends munit.FunSuite:
     )
     assert(text.contains("  add a rate limit"))
     assert(text.contains("  and log rejected requests"))
+
+  test("editPrompt keeps a changes line that starts with `|`"):
+    val text = FlowAuthoring.editPrompt(
+      "cover these cases:\n| input | expected |",
+      targetPath / os.up / "implement.sc",
+      targetPath,
+      apiDir,
+      "0.0.18"
+    )
+    assert(text.contains("\n  | input | expected |"), text)
 
   // --- resolveTarget / prepareTarget ---
 
