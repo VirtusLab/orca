@@ -328,8 +328,7 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   first. The check is lstat/no-follow and runs at the earliest `.orca` touch
   (`FlowLock.acquireWorkdir` → `ensureCache`), ahead of any mutation.
 
-The `direct-style-scala` plugin codifies the Scala-style bullets; re-reading
-its chapters before a non-trivial change is recommended.
+The Scala-style bullets are distilled from the `direct-style-scala` plugin.
 
 ## Publishing and local testing
 
