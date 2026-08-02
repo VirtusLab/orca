@@ -2,6 +2,7 @@ package orca.subprocess
 
 import org.slf4j.LoggerFactory
 
+import java.util.concurrent.atomic.AtomicReference
 import scala.jdk.CollectionConverters.given
 
 /** Runs external commands via os-lib. `check = false` is intentional — callers
@@ -69,7 +70,23 @@ private final class OsPipedSubProcess(
     if stderrPiped then sub.stderr.buffered.lines().iterator().asScala
     else Iterator.empty
 
+  /** Descendants that were alive when the root was signalled. Signalling the
+    * root can make it exit, at which point its children are reparented to init
+    * and drop out of the root's `descendants()` walk — so a later tree kill
+    * would silently miss exactly the processes it exists to reap. Killing a
+    * remembered `ProcessHandle` cannot hit an unrelated process that recycled
+    * the pid: the JDK signals only if the pid still has the start time the
+    * handle was taken with.
+    */
+  private val signalledDescendants =
+    new AtomicReference[List[ProcessHandle]](Nil)
+
+  // Signals the root PID only, deliberately: a spawned child inherits the JVM's
+  // process group (`ProcessBuilder` does not setsid), so `kill -INT -<pgid>`
+  // would signal orca itself. Descendants are covered by `destroyForciblyTree`,
+  // which walks parent→child links instead of the group.
   def sendSigInt(): Unit =
+    val _ = signalledDescendants.updateAndGet(_ ++ liveDescendants())
     val _ = QuietProc.call(Seq("kill", "-INT", sub.wrapped.pid.toString))
 
   def isAlive: Boolean = sub.isAlive()
@@ -78,17 +95,19 @@ private final class OsPipedSubProcess(
     val _ = sub.wrapped.destroyForcibly()
 
   override def destroyForciblyTree(): Unit =
-    // Descendants first, then the root: a launch wrapper that forked the real
-    // child leaves it holding the inherited stdout/stderr pipe write-ends, so
-    // killing only the root PID would never EOF a blocked drain.
-    // `descendants()` is a best-effort snapshot of live parent→child linkage; it
-    // catches a wrapper that stays alive as the worker's parent (the `ollama
-    // launch` case), but NOT one that double-forks and exits, reparenting the
-    // worker to init — that would need a process-group kill or a recorded worker
-    // PID. No current launcher does that.
-    val handle = sub.wrapped.toHandle
-    handle.descendants().forEach(h => { val _ = h.destroyForcibly() })
-    val _ = handle.destroyForcibly()
+    // Descendants first, then the root: a child that outlives its parent holds
+    // the inherited stdout/stderr pipe write-ends, so killing only the root PID
+    // would never EOF a blocked drain.
+    // Reachability is best-effort — an already-orphaned process that double-
+    // forked and got reparented to init (`nohup … &`, `setsid`) appears in
+    // neither the walk nor the snapshot, and would need a dedicated process
+    // group at spawn to catch.
+    (liveDescendants() ++ signalledDescendants.get())
+      .foreach(h => { val _ = h.destroyForcibly() })
+    val _ = sub.wrapped.toHandle.destroyForcibly()
+
+  private def liveDescendants(): List[ProcessHandle] =
+    sub.wrapped.toHandle.descendants().toList.asScala.toList
 
   def waitForExit(): Int =
     val _ = sub.join()
