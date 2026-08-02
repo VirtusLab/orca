@@ -385,7 +385,9 @@ files, single-valued (a repeated agent key is an error). Value grammar:
 `harness` is one of `claude`, `codex`, `opencode`, `pi`, `gemini` (an
 unrecognised name is an error naming the valid set). The model part is passed
 **verbatim** to the harness's `withModel` — orca does not normalise or validate
-model ids — for example:
+model ids, except that claude's bare `haiku` alias is sent as
+`claude-haiku-4-5`, since the CLI serves Sonnet for the alias on the read-only
+turns reviewers use. For example:
 
 ```properties
 planningAgent = claude:opus

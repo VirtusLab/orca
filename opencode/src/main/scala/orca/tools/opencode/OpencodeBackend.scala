@@ -49,9 +49,9 @@ private[opencode] trait OpencodeServerHandle:
   * lazy.
   *
   * A turn relies on the server emitting a terminal
-  * `session.idle`/`session.error` (or closing the SSE stream); there is no
-  * per-turn timeout at this layer, so the flow's own timeout is the backstop
-  * for a server that wedges mid-turn.
+  * `session.idle`/`session.error` (or closing the SSE stream). There is no
+  * per-turn timeout at this layer, nor at any other — a server that wedges
+  * mid-turn wedges the flow until the run is cancelled.
   */
 private[orca] object OpencodeBackend:
   /** Build the backend with its server fixed at construction. orca flows run in

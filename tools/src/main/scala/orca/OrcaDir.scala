@@ -58,13 +58,19 @@ private[orca] object OrcaDir:
     abortIfOrcaComponentSymlink(workDir, r)
     r.tap(os.makeDir.all(_))
 
+  /** `<workDir>/.orca/cache`, passively — for callers that only need the path
+    * (a file to delete, an argument to hand a subprocess) and must not create
+    * anything. [[ensureCache]] is the write-side counterpart.
+    */
+  def cachePath(workDir: os.Path): os.Path = root(workDir) / "cache"
+
   /** Idempotently ensure `.orca/cache/` exists, writing its self-ignoring
     * `.gitignore` and `CACHEDIR.TAG` before returning so nothing lands in the
     * dir before the exclusion is in place. Markers are written only when
     * absent, so repeated calls do not churn mtimes.
     */
   def ensureCache(workDir: os.Path): os.Path =
-    val cache = root(workDir) / "cache"
+    val cache = cachePath(workDir)
     abortIfOrcaComponentSymlink(workDir, cache)
     os.makeDir.all(cache)
     writeIfAbsent(cache / ".gitignore", gitignoreContents)
@@ -87,7 +93,7 @@ private[orca] object OrcaDir:
     * probe) — only [[ensurePiSessions]] creates.
     */
   def piSessionsPath(workDir: os.Path): os.Path =
-    root(workDir) / "cache" / "pi-sessions"
+    cachePath(workDir) / "pi-sessions"
 
   /** Idempotently ensure `.orca/cache/pi-sessions/` exists and return it, for
     * the write side (spawning pi at a session dir under it).
@@ -102,7 +108,7 @@ private[orca] object OrcaDir:
     * [[cacheRunsPath]] for the shell's manifest listing (ADR 0021 §8), which
     * must not create `.orca` as a side effect of reading it.
     */
-  def runsPath(workDir: os.Path): os.Path = root(workDir) / "cache" / "runs"
+  def runsPath(workDir: os.Path): os.Path = cachePath(workDir) / "runs"
 
   /** `<workDir>/.orca/flows` — project-tier flow scripts (ADR 0021 §5),
     * committed like the rest of `.orca`'s root.

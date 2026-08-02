@@ -128,6 +128,29 @@ class PiBackendTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--tools", "read,grep,find,ls")), args)
     assert(!args.contains("--extension"), args)
 
+  test("an autonomous turn's system prompt carries no ask_user hint"):
+    // The hint and the ask_user extension share one `mode.isInteractive` gate,
+    // so an autonomous turn must get neither. Read at spawn time: the prompt
+    // file is gone once the turn finishes.
+    var promptText: Option[String] = None
+    val runner = new SpawnStubCliRunner(
+      List(successfulProcess()),
+      onSpawn = args => promptText = Some(readSystemPrompt(args))
+    )
+
+    val _ = backendWith(runner).runAutonomous("q", sid, AgentConfig())
+
+    // The positive half matters: a prompt that never composed at all would
+    // satisfy "carries no hint" too.
+    assert(
+      promptText.exists(_.contains(SystemPromptComposer.RuntimeOwnsGit)),
+      promptText
+    )
+    assert(
+      promptText.exists(!_.contains(PiAskUserExtension.Hint)),
+      promptText
+    )
+
   test("interactive read-only config includes ask_user extension and tool"):
     val process = successfulProcess()
     val runner = new SpawnStubCliRunner(List(process))
@@ -157,7 +180,7 @@ class PiBackendTest extends munit.FunSuite:
       val _ = conv.awaitResult()
 
   test(
-    "interactive system prompt file contains configured prompt, hint, and git rule"
+    "interactive system prompt file contains configured prompt, hint, and standing rules"
   ):
     val process = new FakePipedCliProcess()
     val runner = new SpawnStubCliRunner(List(process))
@@ -175,15 +198,19 @@ class PiBackendTest extends munit.FunSuite:
       )
 
       val args = runner.calls.head
-      val promptFile = args(args.indexOf("--append-system-prompt") + 1)
-      val promptText = os.read(os.Path(promptFile))
+      val promptText = readSystemPrompt(args)
       assert(promptText.contains("be terse"), promptText)
       assert(promptText.contains(PiAskUserExtension.Hint), promptText)
+      // One standing rule is enough: they reach the file in a single write, and
+      // which rules compose is `SystemPromptComposerTest`'s.
       assert(
-        promptText.contains(SystemPromptComposer.RuntimeOwnsGit),
+        promptText.contains(
+          SystemPromptComposer.BackgroundWorkAbandonedAtTurnEnd
+        ),
         promptText
       )
 
+      val promptFile = os.Path(args(args.indexOf("--append-system-prompt") + 1))
       val extensionFile = os.Path(args(args.indexOf("--extension") + 1))
       assert(os.exists(extensionFile))
 
@@ -193,22 +220,16 @@ class PiBackendTest extends munit.FunSuite:
       process.enqueueStdout("""{"type":"agent_end","messages":[]}""")
       val _ = conv.events.toList
       val _ = conv.awaitResult()
-      assert(!os.exists(os.Path(promptFile)))
+      assert(!os.exists(promptFile))
       assert(!os.exists(extensionFile))
 
-  test("self-managed git suppresses the runtime git rule"):
-    val process = successfulProcess()
-    val runner = new SpawnStubCliRunner(List(process))
-    val backend = backendWith(runner)
-
-    val _ = backend.runAutonomous(
-      "q",
-      sid,
-      AgentConfig().copy(selfManagedGit = true)
-    )
-
-    val args = runner.calls.head
-    assert(!args.contains("--append-system-prompt"), args)
+  /** Read the file `--append-system-prompt` points at, failing on a missing
+    * flag rather than reading whatever argument happens to sit at index 0.
+    */
+  private def readSystemPrompt(args: List[String]): String =
+    val idx = args.indexOf("--append-system-prompt")
+    require(idx >= 0, s"no --append-system-prompt in $args")
+    os.read(os.Path(args(idx + 1)))
 
   /** The header line pi's `--continue` requires — what
     * [[PiSessionStore.resumable]] probes for.

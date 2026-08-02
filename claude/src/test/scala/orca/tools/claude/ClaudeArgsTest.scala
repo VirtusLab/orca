@@ -44,6 +44,17 @@ class ClaudeArgsTest extends munit.FunSuite:
   test("model flag is absent when AgentConfig.model is None"):
     assert(!streamJson(AgentConfig()).contains("--model"))
 
+  test("the `haiku` alias — what `claude:haiku` pins — is sent qualified"):
+    // Plan mode serves claude-sonnet-5 for the bare alias — see
+    // ClaudeArgs.modelArgs.
+    val args = streamJson(AgentConfig(model = Some(Model("haiku"))))
+    assert(args.containsSlice(Seq("--model", "claude-haiku-4-5")), args)
+
+  test("the `sonnet` alias is left bare"):
+    // Guards against generalising the rewrite to aliases the CLI resolves fine.
+    val args = streamJson(AgentConfig(model = Some(Model("sonnet"))))
+    assert(args.containsSlice(Seq("--model", "sonnet")), args)
+
   test("system-prompt-file flag is emitted when a file is supplied"):
     val file = os.temp(contents = "content")
     val args = ClaudeArgs.streamJson(

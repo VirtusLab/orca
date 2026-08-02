@@ -28,7 +28,20 @@ class ManifestReaderTest extends munit.FunSuite:
          |  "pid": $pid,
          |  "startedAt": "$startedAt",
          |  "outcome": "$outcome",
-         |  "sessions": []
+         |  "sessions": [],
+         |  "cost": {
+         |    "total": {
+         |      "inputTokens": 0,
+         |      "outputTokens": 0,
+         |      "cacheReadInputTokens": 0,
+         |      "cacheWriteInputTokens": 0,
+         |      "reasoningOutputTokens": 0
+         |    },
+         |    "byRole": [],
+         |    "byAgent": [],
+         |    "byStage": []
+         |  },
+         |  "turns": []
          |}""".stripMargin
     os.write(runsDir(workDir) / name, json, createFolders = true)
 
@@ -59,7 +72,37 @@ class ManifestReaderTest extends munit.FunSuite:
     )
 
   test(
-    "list skips a manifestVersion newer than this shell understands, warning by filename"
+    "an older manifest is skipped by version, leaving the current one listed"
+  ):
+    val workDir = TempDirs.dir()
+    // A verbatim v2 manifest: it also lacks v3's `cost`/`turns`, so this only
+    // passes if the version is checked before the body is decoded.
+    os.write(
+      runsDir(workDir) / "v2.json",
+      """{
+        |  "manifestVersion": 2,
+        |  "orcaVersion": "0.0.test",
+        |  "workDir": "/work",
+        |  "pid": 111,
+        |  "startedAt": "2026-07-18T10:00:00Z",
+        |  "outcome": "succeeded",
+        |  "sessions": []
+        |}""".stripMargin,
+      createFolders = true
+    )
+    writeManifest(workDir, "current.json", startedAt = "2026-07-18T11:00:00Z")
+    val (runs, warnings) = ManifestReader.list(workDir, alwaysDead)
+    assertEquals(runs.map(_.manifest.startedAt), List("2026-07-18T11:00:00Z"))
+    assertEquals(warnings.size, 1)
+    assert(
+      warnings.head.contains("v2.json") && warnings.head.contains(
+        "manifestVersion 2"
+      ),
+      s"expected the filename and version in the warning, got: ${warnings.head}"
+    )
+
+  test(
+    "list skips a manifestVersion newer than this build writes, warning by filename"
   ):
     val workDir = TempDirs.dir()
     writeManifest(
