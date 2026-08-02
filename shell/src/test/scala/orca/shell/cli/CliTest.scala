@@ -948,18 +948,6 @@ class CliTest extends munit.FunSuite:
         |  "pid": 1,
         |  "startedAt": "2026-07-18T09:00:00Z",
         |  "outcome": "succeeded",
-        |  "cost": {
-        |    "total": {
-        |      "inputTokens": 0,
-        |      "outputTokens": 0,
-        |      "cachedInputTokens": 0,
-        |      "reasoningOutputTokens": 0
-        |    },
-        |    "byRole": [],
-        |    "byAgent": [],
-        |    "byStage": []
-        |  },
-        |  "turns": [],
         |  "sessions": []
         |}""".stripMargin
     os.write(

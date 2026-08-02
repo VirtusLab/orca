@@ -4,7 +4,7 @@ import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.OrcaDir
 import orca.WorkspaceWrite
 import orca.agents.Model
-import orca.events.{CostTracker, OrcaEvent, PriceList, Pricing, Usage}
+import orca.events.{Cost, OrcaEvent, PriceList, Pricing, Usage}
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.testkit.TempDirs
 import ox.channels.BufferCapacity
@@ -420,16 +420,17 @@ class RunManifestWriterTest extends munit.FunSuite:
     assertEquals(manifest.flow, Some("review-pr.sc"))
     assertEquals(manifest.workDir, workDir.toString)
 
-  test("cost section agrees with CostTracker fed the same events"):
+  test("cost section totals the run and breaks it down on all three axes"):
     val workDir = TempDirs.dir()
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
-    val tracker = CostTracker(Pricing.default)
-    // One reported cost and one that has to be estimated from the table, so
-    // the run total is flagged as an estimate rather than quoted as billed.
-    val events = List(
+    writer.onEvent(
       OrcaEvent
-        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None),
+        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+    )
+    // One call the table has to price and one the backend reported, so the run
+    // total is a mix.
+    writer.onEvent(
       OrcaEvent.TokensUsed(
         agent = "claude",
         model = Some(Model("claude-sonnet-5")),
@@ -440,7 +441,9 @@ class RunManifestWriterTest extends munit.FunSuite:
           cachedInputTokens = 107_000
         ),
         role = None
-      ),
+      )
+    )
+    writer.onEvent(
       OrcaEvent.TokensUsed(
         agent = "reviewer",
         model = Some(Model("claude-haiku-4-5")),
@@ -452,26 +455,36 @@ class RunManifestWriterTest extends munit.FunSuite:
         role = Some("reviewer")
       )
     )
-    events.foreach: e =>
-      writer.onEvent(e)
-      tracker.onEvent(e)
     writer.finish(RunOutcome.Succeeded)
 
     val cost = soleManifest(workDir).cost
-    assertEquals(cost.total, ManifestUsage.of(tracker.total))
-    assertEquals(cost.cost, tracker.totalCost.map(ManifestCost.of))
-    assertEquals(cost.cost.map(_.estimated), Some(true))
     assertEquals(
-      cost.byAgent.map(_.key),
-      List(Some("claude"), Some("reviewer"))
+      cost.total,
+      ManifestUsage(
+        inputTokens = 125_000,
+        outputTokens = 1_000,
+        cachedInputTokens = 107_000,
+        reasoningOutputTokens = 0
+      )
+    )
+    // 13k uncached at $3/M + 107k cached at $0.30/M + 900 out at $15/M =
+    // $0.0846, plus the reported $0.0123. `estimated` survives the addition,
+    // so the run total can't be read as a billed figure.
+    assertEquals(cost.cost, Some(Cost(BigDecimal("0.0969"), estimated = true)))
+    assertEquals(
+      cost.byAgent.map(s => (s.key, s.usage.inputTokens)),
+      List((Some("claude"), 120_000L), (Some("reviewer"), 5_000L))
     )
     assertEquals(
       cost.byRole.map(s => (s.key, s.usage.inputTokens)),
       List((None, 120_000L), (Some("reviewer"), 5_000L))
     )
-    assertEquals(cost.byStage.map(_.key), List(None))
+    assertEquals(
+      cost.byStage.map(s => (s.key, s.usage.inputTokens)),
+      List((None, 125_000L))
+    )
 
-  test("per-turn log records prompt size, stage, and a zero-API-call turn"):
+  test("per-turn log records each turn's identity, stage and prompt size"):
     val workDir = TempDirs.dir()
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
@@ -483,17 +496,41 @@ class RunManifestWriterTest extends munit.FunSuite:
     writer.onEvent(
       OrcaEvent.TokensUsed("claude", None, Usage(107_000, 500, None), None)
     )
+    // Closing the stage between the two turns pins that the stage is stamped
+    // when a turn is recorded, not when the manifest is later written.
+    writer.onEvent(OrcaEvent.StageCompleted("code"))
     // The CLI answering from leftover session state: no request went out, so
     // every counter is zero.
     writer.onEvent(
-      OrcaEvent.TokensUsed("claude", None, Usage(0, 0, None), None)
+      OrcaEvent.TokensUsed(
+        "reviewer",
+        None,
+        Usage(0, 0, None),
+        Some("reviewer")
+      )
     )
     writer.finish(RunOutcome.Succeeded)
 
     val turns = soleManifest(workDir).turns
-    assertEquals(turns.map(_.promptTokens), List(107_000L, 0L))
-    assertEquals(turns.map(_.apiCall), List(true, false))
-    assertEquals(turns.map(_.stage), List(Some("code"), Some("code")))
+    assertEquals(
+      turns,
+      List(
+        ManifestTurn(
+          at = "2026-07-18T10:00:00Z",
+          agent = "claude",
+          role = None,
+          stage = Some("code"),
+          promptTokens = 107_000
+        ),
+        ManifestTurn(
+          at = "2026-07-18T10:00:00Z",
+          agent = "reviewer",
+          role = Some("reviewer"),
+          stage = None,
+          promptTokens = 0
+        )
+      )
+    )
 
   test("a failed write is swallowed and does not stop the next one"):
     val workDir = TempDirs.dir()

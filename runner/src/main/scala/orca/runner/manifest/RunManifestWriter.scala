@@ -29,9 +29,7 @@ private[orca] enum RunOutcome:
   * atomically (the `ProgressStore.writeLog` temp+move idiom) on every stage
   * transition and `SessionCommitted`, so a crashed run still leaves its
   * sessions on disk with `outcome: "running"` and a dead `pid` — the shell
-  * treats that as "crashed, but still offers its sessions". `TokensUsed`
-  * accumulates into the manifest's cost section and per-turn log without
-  * triggering a write of its own.
+  * treats that as "crashed, but still offers its sessions".
   *
   * `flowName` comes from `ORCA_FLOW_NAME`, set by the shell before exec'ing the
   * flow subprocess (`FlowLauncher.childEnv`); `runFlow` never sees the `.sc`
@@ -78,12 +76,13 @@ private class ActorRunManifestWriter(actor: ActorRef[RunManifestWriterState])
 
 /** Mutable manifest-building state — not thread-safe in isolation.
   * [[ActorRunManifestWriter]] serialises every call onto one actor thread:
-  * `onEvent` is a `tell` (fire-and-forget; manifest events fire per
-  * stage/session, not per token, so the bounded mailbox never actually blocks)
-  * and `finish` is an `ask` (its write must land before `flow()` moves on to
-  * the cost summary). Every write is guarded internally ([[safeWrite]]) so a
-  * transient failure can't quarantine the writer or throw out of a `tell`'s
-  * handler. Tests construct this directly and drive events synchronously.
+  * `onEvent` is a `tell` (fire-and-forget, though a full mailbox blocks the
+  * emitter — turns arrive seconds apart and only stage/session events write, so
+  * the queue drains far faster than it fills) and `finish` is an `ask` (its
+  * write must land before `flow()` moves on to the cost summary). Every write
+  * is guarded internally ([[safeWrite]]) so a transient failure can't
+  * quarantine the writer or throw out of a `tell`'s handler. Tests construct
+  * this directly and drive events synchronously.
   *
   * The manifest file only comes into existence on the first `SessionCommitted`
   * — earlier stage and token events just update the in-memory stage stack and
@@ -164,8 +163,7 @@ private[runner] class RunManifestWriterState(
       )
       safeWrite()
     // Accumulate only: a turn fires far more often than a stage or session
-    // event, and every write rewrites the whole file. The next stage/session
-    // event or `finish` carries the accumulated figures to disk.
+    // event, and every write rewrites the whole file.
     case OrcaEvent.TokensUsed(agent, model, usage, role) =>
       val turn = ManifestTurn(
         at = clock().toString,

@@ -74,8 +74,7 @@ private[shell] object ManifestReader:
 
   /** The version is read on its own, before the full decode, so a manifest
     * written by another build is skipped by version rather than surfacing
-    * whichever field its schema happens to disagree about first. Schema drift
-    * in either direction lands on the same message.
+    * whichever field its schema happens to disagree about first.
     */
   private def readManifest(file: os.Path): Either[String, RunManifest] =
     try
@@ -88,9 +87,9 @@ private[shell] object ManifestReader:
       else Right(readFromString[RunManifest](text)(using RunManifest.codec))
     catch case NonFatal(e) => Left(s"skipping $file: ${e.getMessage}")
 
-  /** Just enough of a manifest to gate on. The default (unlike
-    * [[RunManifest.codec]]) skips unknown fields, which is the whole point: it
-    * must decode a manifest of any schema version.
+  /** Just enough of a manifest to gate on: declaring one field is what lets
+    * this decode a manifest of any schema version, since everything else is
+    * then an unknown field, which jsoniter skips.
     */
   private case class SchemaVersion(manifestVersion: Int)
 

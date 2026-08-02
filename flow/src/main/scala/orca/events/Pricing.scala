@@ -58,10 +58,7 @@ object Pricing:
 
   /** Resolve one call's cost: the figure the backend reported if there is one,
     * an [[estimate]] from `table` otherwise, `None` when neither is available.
-    *
-    * The single home for the reported-vs-estimated decision — every consumer
-    * (the cost summary, the run manifest) reads it from here so no two of them
-    * can disagree about which calls were priced rather than billed.
+    * The single home for the reported-vs-estimated decision.
     */
   def resolve(
       table: PricingTable,
