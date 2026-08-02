@@ -186,8 +186,13 @@ class CostTrackerTest extends munit.FunSuite:
     assert(
       age <= 183,
       s"the shipped pricing table was last checked ${age} days ago " +
-        s"(${Pricing.default.lastUpdated}). Re-check every row against the " +
-        "provider pricing pages, then bump `lastUpdated`."
+        s"(${Pricing.default.lastUpdated}), past the 183-day limit.\n" +
+        "To fix: re-check every row in `Pricing.default` " +
+        "(flow/src/main/scala/orca/events/Pricing.scala) against the provider " +
+        "pricing pages, correct any that moved, then set `lastUpdated` to " +
+        "today.\nThis fires on elapsed time, not on a code change — an old " +
+        "tag or commit built long after its release fails here with nothing " +
+        "wrong in the code, and needs no fix unless you are shipping from it."
     )
 
   test("shipped table reproduces a captured turn's reported cost"):
