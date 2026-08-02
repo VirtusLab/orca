@@ -90,9 +90,8 @@ class ReviewChangeSetTest extends munit.FunSuite:
 
   test("a resumed reviewer sees an edit the fixer committed"):
     val (ctx, dir) = stagingControl()
-    // The reviewer runs both rounds, so round two RESUMES its session. Its own
-    // `git diff HEAD` would be empty once the fixer commits, so the change set
-    // has to arrive in the prompt.
+    // The reviewer runs both rounds, so round two resumes its session — and its
+    // own `git diff HEAD` is empty once the fixer commits.
     val reviewer = new FakeAgent(
       "r",
       outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
@@ -110,7 +109,9 @@ class ReviewChangeSetTest extends munit.FunSuite:
         task = "build the widget",
         reviewerSelection = ReviewerSelector.allEveryRound
       )
-    val resumePrompt = reviewer.seenPrompts.lift(1).getOrElse(fail("one round"))
+    val resumePrompt = reviewer.seenPrompts
+      .lift(1)
+      .getOrElse(fail("the reviewer ran once; no resume happened"))
     assert(resumePrompt.contains("fixed.scala"), resumePrompt)
 
   test("reviewer selection sees the files of work the agent committed"):

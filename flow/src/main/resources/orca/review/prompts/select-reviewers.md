@@ -6,7 +6,7 @@ about whether the code inside it parses untrusted input or drops a database
 table. You have read-only file access, so open the changed files and see what
 they do before excluding a reviewer. You may have no shell, so don't depend on
 running commands; in particular `git diff HEAD` is not the change set being
-reviewed — it is empty once the work has been committed. An empty changed-file
+reviewed — it does not show work that has been committed. An empty changed-file
 list means the change set could not be described, not that nothing changed.
 
 When you are unsure whether a reviewer applies, include it — a needless review

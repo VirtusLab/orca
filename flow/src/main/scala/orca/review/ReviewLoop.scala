@@ -255,15 +255,15 @@ def reviewAndFixLoop[B <: BackendTag](
     confidenceGate: ConfidenceGate = ConfidenceGate.default,
     maxIterations: Int = 10,
     fixInstructions: String = ReviewLoopPrompts.Fix,
-    /** Override the diff handed to each reviewer in its initial prompt, and the
-      * changed-file list the selector is given.
+    /** Override the diff handed to each reviewer, and the changed-file list the
+      * selector is given.
       *
       * The default samples everything the enclosing stage has produced —
       * `ctx.git.reviewDiff(fc.stageBaseCommit)`, tracked changes plus
       * newly-created files, `.orca/` bookkeeping excluded — re-sampled at the
-      * start of every iteration and sent to every reviewer that runs, resumed
-      * ones included, so each round's reviewers see the fixer's edits whether
-      * or not it committed them.
+      * start of every iteration and sent to every reviewer that runs, so each
+      * round's reviewers see the fixer's edits whether or not it committed
+      * them.
       *
       * Pass `Some(...)` to pin the diff instead of sampling it — what the tests
       * use to skip the git call.
@@ -397,7 +397,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * shared-state side effects — so the caller can run many in parallel.
     *
     * `stored` is the reviewer's existing [[SessionEntry]] (found by entry
-    * identity), if any; `currentDiff` frames the call either way.
+    * identity), if any.
     */
   private def reviewWithSession(
       e: RosterEntry[?],
@@ -408,10 +408,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       case Some(se) => (resumeReview(se, currentDiff), None)
       case None     => firstReview(e, currentDiff)
 
-  /** Resume a reviewer's existing session, re-stating the change set as it now
-    * stands so the fixer's edits are visible without the reviewer
-    * reconstructing them. The run carries the `reviewer` cost role
-    * ([[ReviewerPrompts.Role]]) so the `TokensUsed` breakdown can subtotal
+  /** Resume a reviewer's existing session. The run carries the `reviewer` cost
+    * role ([[ReviewerPrompts.Role]]) so the `TokensUsed` breakdown can subtotal
     * reviewer spend, without renaming the entry's identity.
     */
   private def resumeReview[B <: BackendTag](
@@ -479,11 +477,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   ) =
     def storedFor(e: RosterEntry[?]): Option[SessionEntry[?]] =
       currentState.sessions.find(_.entry eq e)
-    // Sampled whenever a reviewer runs, resumed ones included: a resumed
-    // reviewer that isn't handed the change set falls back to its own
+    // A resumed reviewer that isn't handed the change set falls back to its own
     // `git diff HEAD`, which is empty as soon as the fixer commits — and an
-    // empty diff reads as "nothing changed", so it reports clean without having
-    // seen the fix. Only the lint needs no diff, hence the empty-`active` skip.
+    // empty diff reads as "nothing changed", so it reports clean without seeing
+    // the fix.
     val currentDiff = if active.isEmpty then "" else sampleDiff()
 
     val reviewerTasks: List[() => AgentOutcome] = active.map: e =>
