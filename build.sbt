@@ -22,7 +22,8 @@ ThisBuild / javacOptions ++= Seq("--release", "21")
 // bundled JGit, which reads a linked worktree's `.git` *file* as a bare repo and
 // aborts project load with NoWorkTreeException — without this, sbt does not
 // start at all inside a `git worktree`. Version derivation is unaffected: it
-// comes from sbt-dynver, which shells out to `git` either way.
+// comes from sbt-dynver (sbt-git's `GitVersioning` is not enabled), which shells
+// out to `git` either way.
 useReadableConsoleGit
 
 // The scala-cli suites link a script against a locally published build, so they

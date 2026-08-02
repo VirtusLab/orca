@@ -23,7 +23,10 @@ save.
 
 The build also loads from a linked `git worktree`: `build.sbt` enables
 sbt-git's `useReadableConsoleGit`, without which project load dies in JGit
-with `NoWorkTreeException`. Don't remove it.
+with `NoWorkTreeException`. Don't remove it. In exchange, project load now
+needs a usable `git` on the PATH — with git missing, or refusing the
+repository (a `safe.directory` complaint under a bind mount, say), sbt fails
+to load rather than carrying on with a fallback version.
 
 ## Integration tests (gated)
 
