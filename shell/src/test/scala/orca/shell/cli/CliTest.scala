@@ -989,7 +989,8 @@ class CliTest extends munit.FunSuite:
         |    "total": {
         |      "inputTokens": 0,
         |      "outputTokens": 0,
-        |      "cachedInputTokens": 0,
+        |      "cacheReadInputTokens": 0,
+        |      "cacheWriteInputTokens": 0,
         |      "reasoningOutputTokens": 0
         |    },
         |    "byRole": [],
@@ -1054,7 +1055,8 @@ class CliTest extends munit.FunSuite:
         |    "total": {
         |      "inputTokens": 0,
         |      "outputTokens": 0,
-        |      "cachedInputTokens": 0,
+        |      "cacheReadInputTokens": 0,
+        |      "cacheWriteInputTokens": 0,
         |      "reasoningOutputTokens": 0
         |    },
         |    "byRole": [],
