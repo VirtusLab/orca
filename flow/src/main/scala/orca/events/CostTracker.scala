@@ -118,11 +118,11 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
     * call carried a [[orca.agents.Agent.role]] tag) by-role — each sorted
     * alphabetically by its rendered label. Each by-agent line is prefixed with
     * that agent's role when it has one (e.g. `reviewer: performance`). Cache
-    * hits and reasoning tokens are shown parenthetically when non-zero. Token
-    * counts are rendered compactly (`1K`, `103.8K`, `3.2M`) from 1000 up; cost
-    * (when known) stays exact and is appended as `$X.XXXX`, with an asterisk
-    * marking an estimated figure and a trailing legend line when any estimate
-    * is present.
+    * reads, cache writes and reasoning tokens are shown parenthetically when
+    * non-zero. Token counts are rendered compactly (`1K`, `103.8K`, `3.2M`)
+    * from 1000 up; cost (when known) stays exact and is appended as `$X.XXXX`,
+    * with an asterisk marking an estimated figure and a trailing legend line
+    * when any estimate is present.
     *
     * Empty string when no `TokensUsed` events have been observed.
     */
@@ -190,18 +190,27 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
     val tokens = formatUsage(usage)
     cost.fold(tokens)(c => s"$tokens (${formatCost(c)})")
 
+  /** Cache reads and cache writes share one parenthetical after the input
+    * count, each part dropped when zero.
+    */
   private def formatUsage(usage: Usage): String =
-    val cached =
-      if usage.cachedInputTokens > 0 then
-        s" (${formatCount(usage.cachedInputTokens)} cached)"
-      else ""
+    val cacheParts = List(
+      Option.when(usage.cacheReadInputTokens > 0)(
+        s"${formatCount(usage.cacheReadInputTokens)} cache read"
+      ),
+      Option.when(usage.cacheWriteInputTokens > 0)(
+        s"${formatCount(usage.cacheWriteInputTokens)} cache write"
+      )
+    ).flatten
+    val cache =
+      if cacheParts.isEmpty then "" else cacheParts.mkString(" (", ", ", ")")
     val reasoning =
       if usage.reasoningOutputTokens > 0 then
         s" (${formatCount(usage.reasoningOutputTokens)} reasoning)"
       else ""
     val in = formatCount(usage.inputTokens)
     val out = formatCount(usage.outputTokens)
-    s"$in in$cached, $out out$reasoning"
+    s"$in in$cache, $out out$reasoning"
 
   /** Render a token count compactly: plain digits below 1000, from 1000 up one
     * decimal place with a K/M/B suffix and no trailing `.0` — `1K`, `103.8K`,

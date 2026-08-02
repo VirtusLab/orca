@@ -118,14 +118,17 @@ class InboundEventTest extends munit.FunSuite:
         assert(!status.isSuccess)
       case other => fail(s"expected Result, got $other")
 
-  test("result maps the wire `cached` field into cachedInputTokens"):
+  test("result maps the wire `cached` field into cacheReadInputTokens"):
     // gemini 0.45.2 spells the cache sub-count `cached` (not
     // `cached_input_tokens`) inside stats.
     val line =
       """{"type":"result","status":"success","stats":{"input_tokens":9954,"output_tokens":1,"cached":120}}"""
     InboundEvent.parse(line) match
       case InboundEvent.Result(usage, _) =>
-        assertEquals(usage.cachedInputTokens, 120L)
+        assertEquals(usage.cacheReadInputTokens, 120L)
+        // gemini has no cache-creation counter: the read count must not leak
+        // onto the write axis, which would double-bill it at the write rate.
+        assertEquals(usage.cacheWriteInputTokens, 0L)
       case other => fail(s"expected Result, got $other")
 
   test("result falls back to `cached_input_tokens` when `cached` is absent"):
@@ -133,7 +136,7 @@ class InboundEventTest extends munit.FunSuite:
       """{"type":"result","status":"success","stats":{"input_tokens":9,"output_tokens":1,"cached_input_tokens":77}}"""
     InboundEvent.parse(line) match
       case InboundEvent.Result(usage, _) =>
-        assertEquals(usage.cachedInputTokens, 77L)
+        assertEquals(usage.cacheReadInputTokens, 77L)
       case other => fail(s"expected Result, got $other")
 
   test("result prefers `cached` over `cached_input_tokens` when both present"):
@@ -141,7 +144,7 @@ class InboundEventTest extends munit.FunSuite:
       """{"type":"result","status":"success","stats":{"input_tokens":9,"output_tokens":1,"cached":120,"cached_input_tokens":77}}"""
     InboundEvent.parse(line) match
       case InboundEvent.Result(usage, _) =>
-        assertEquals(usage.cachedInputTokens, 120L)
+        assertEquals(usage.cacheReadInputTokens, 120L)
       case other => fail(s"expected Result, got $other")
 
   test("result tolerates missing stats"):
