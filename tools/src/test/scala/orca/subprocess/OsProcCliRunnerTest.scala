@@ -1,5 +1,6 @@
 package orca.subprocess
 
+import orca.sweep.EnvCookie
 import orca.testkit.ProcessProbe.{alive, awaitDead, awaitTrue}
 import orca.testkit.TempDirs
 import ox.discard
@@ -138,3 +139,23 @@ class OsProcCliRunnerTest extends munit.FunSuite:
       Some(0),
       "the recorded exit code must survive a post-exit tree kill"
     )
+
+  /** Injecting the cookie must not strip the environment the CLI would
+    * otherwise inherit, nor the caller's own additions.
+    */
+  test("spawnPiped adds its cookie to the inherited environment"):
+    val home = sys.env.getOrElse("HOME", "")
+    assume(home.nonEmpty, "needs an inherited variable to check against")
+    val proc = OsProcCliRunner.spawnPiped(
+      Seq("bash", "-c", s"""echo "$$${EnvCookie.VarName}|$$HOME|$$EXTRA""""),
+      env = Map("EXTRA" -> "from-caller"),
+      cwd = os.pwd,
+      pipeStderr = false
+    )
+    try
+      val cookie = proc.envCookie.getOrElse(fail("no cookie was injected"))
+      assertEquals(
+        proc.stdoutLines.next(),
+        s"${cookie.value}|$home|from-caller"
+      )
+    finally proc.destroyForciblyTree()

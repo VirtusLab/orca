@@ -330,7 +330,9 @@ class DefaultAgentCall[B <: BackendTag, O](
         events
       )
       try interaction.drive(conversation)
-      finally conversation.cancel()
+      finally
+        conversation.cancel()
+        orca.sweep.EnvCookieSweep.afterTurn(conversation.envCookie, events)
     // Codex mints its server thread id inside the drain (not at spawn); surface
     // it back so a follow-up call with the same `session` resumes the right
     // thread. No-op for backends whose session id IS the client UUID (claude).

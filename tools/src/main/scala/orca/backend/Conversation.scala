@@ -1,6 +1,7 @@
 package orca.backend
 
 import orca.agents.{BackendTag}
+import orca.sweep.EnvCookie
 import orca.{OrcaInteractiveCancelled}
 
 import ox.Ox
@@ -64,3 +65,12 @@ trait Conversation[B <: BackendTag]:
     * `Left(OrcaInteractiveCancelled)`. Calling `cancel` twice is a no-op.
     */
   def cancel(): Unit
+
+  /** Cookie carried by the OS process backing this conversation, if there is
+    * one; the turn's teardown sweeps for it ([[orca.sweep.EnvCookieSweep]]).
+    * Defaults to `None` for the many conversation doubles that drive no
+    * process. A driver over a real one forwards its [[StreamSource.envCookie]],
+    * and a decorator must forward whatever it wraps — leaving the default in
+    * either place silently opts those turns out of the sweep.
+    */
+  def envCookie: Option[EnvCookie] = None

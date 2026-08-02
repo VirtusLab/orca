@@ -1,6 +1,7 @@
 package orca.backend
 
 import orca.subprocess.PipedCliProcess
+import orca.sweep.EnvCookie
 
 /** The line-oriented source a [[orca.backend.ForkedConversation]] drives: a
   * primary line stream, an optional secondary diagnostic stream, a way to stop
@@ -47,6 +48,17 @@ private[orca] trait StreamSource:
     */
   def tryExitCode: Option[Int]
 
+  /** The cookie of the subprocess this source drives. Defaults to `None`
+    * because most sources have no process of their own — OpenCode's SSE
+    * connection, whose work runs in a per-run server process rather than a
+    * per-turn one, so a per-turn sweep would name the server itself. A source
+    * that DOES drive a spawned process must forward its
+    * [[orca.subprocess.PipedCliProcess.envCookie]]; leaving the default there
+    * silently opts that backend's turns out of the sweep. Today
+    * [[StreamSource.fromProcess]] is the only such source.
+    */
+  def envCookie: Option[EnvCookie] = None
+
 private[orca] object StreamSource:
   /** Adapt a spawned subprocess: stdout/stderr lines, SIGINT, and exit code. */
   def fromProcess(process: PipedCliProcess): StreamSource =
@@ -61,3 +73,4 @@ private[orca] object StreamSource:
       // deliberately detached stays out of reach either way.
       override def destroyForcibly(): Unit = process.destroyForciblyTree()
       def tryExitCode: Option[Int] = process.tryExitCode
+      override def envCookie: Option[EnvCookie] = process.envCookie

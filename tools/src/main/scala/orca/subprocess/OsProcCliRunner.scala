@@ -1,5 +1,7 @@
 package orca.subprocess
 
+import orca.sweep.EnvCookie
+
 import org.slf4j.LoggerFactory
 import ox.discard
 
@@ -36,11 +38,15 @@ object OsProcCliRunner extends CliRunner:
       pipeStderr: Boolean
   ): PipedCliProcess =
     log.debug("spawn: {} (cwd={})", args.mkString(" "), cwd)
+    // os-lib applies `env` on top of the inherited environment (replacing it
+    // only with `propagateEnv = false`), so this adds one variable and changes
+    // nothing else the CLI sees.
+    val cookie = EnvCookie.mint()
     val sub = os
       .proc(args)
       .spawn(
         cwd = cwd,
-        env = env,
+        env = env + (EnvCookie.VarName -> cookie.value),
         stdin = os.Pipe,
         stdout = os.Pipe,
         // Inherit by default: piping risks a buffer-fill hang when the child
@@ -49,12 +55,18 @@ object OsProcCliRunner extends CliRunner:
         // lines as ConversationEvent.Errors.
         stderr = if pipeStderr then os.Pipe else os.Inherit
       )
-    new OsPipedSubProcess(sub, pipeStderr)
+    new OsPipedSubProcess(sub, pipeStderr, cookie)
 
+/** Takes the cookie unwrapped: a process orca actually spawned always carries
+  * one, so it cannot be constructed without it.
+  */
 private final class OsPipedSubProcess(
     sub: os.SubProcess,
-    stderrPiped: Boolean
+    stderrPiped: Boolean,
+    cookie: EnvCookie
 ) extends PipedCliProcess:
+
+  def envCookie: Option[EnvCookie] = Some(cookie)
 
   // Memoised so repeated calls return the same iterator, avoiding a second
   // `BufferedReader` leak against the pipe.
