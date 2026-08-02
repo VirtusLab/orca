@@ -1,3 +1,5 @@
 /target
+# a library crate, so the lockfile stays uncommitted (Rust convention)
+/Cargo.lock
 .scala-build/
 .bsp/
