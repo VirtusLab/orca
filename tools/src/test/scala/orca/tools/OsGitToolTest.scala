@@ -632,6 +632,30 @@ class OsGitToolTest extends munit.FunSuite:
       val diff = git.reviewDiff()
       assert(diff.contains("newdir/inner.sc"), diff)
 
+  test("reviewDiff names an untracked symlink to a directory, and carries on"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      os.makeDir(dir / "realdir")
+      os.symlink(dir / "linkdir", dir / "realdir")
+      os.write(dir / "new.txt", "brand new content")
+      val diff = git.reviewDiff()
+      assert(diff.contains("# skipped linkdir"), diff)
+      assert(diff.contains("+brand new content"), diff)
+
+  // Guards how narrow the skip above is, not the abort it fixes: widening it to
+  // every symlink would silently replace this diff with a skip line.
+  test(
+    "reviewDiff renders an untracked symlink to a file as a mode-120000 diff"
+  ):
+    withRepo: (git, dir) =>
+      os.write(dir / "target.txt", "target contents")
+      git.commit("seed").orThrow
+      os.symlink(dir / "linkfile", dir / "target.txt")
+      val diff = git.reviewDiff()
+      assert(diff.contains("+++ b/linkfile"), diff)
+      assert(diff.contains("new file mode 120000"), diff)
+
   test("reviewDiff includes an untracked file whose name has spaces"):
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "seed")
