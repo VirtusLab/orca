@@ -2,7 +2,7 @@ package orca.shell
 
 import org.jline.terminal.{Terminal, TerminalBuilder}
 import orca.StackSettings
-import orca.runner.manifest.{ManifestSession, RunManifest}
+import orca.runner.manifest.{ManifestCostSummary, ManifestSession, RunManifest}
 import orca.settings.SettingsFile
 import orca.shell.actions.{SettingsEditAction, StackAction}
 import orca.shell.create.CreateTier
@@ -118,7 +118,9 @@ class MainTest extends munit.FunSuite:
       startedAt = startedAt,
       finishedAt = None,
       outcome = "succeeded",
-      sessions = sessions
+      sessions = sessions,
+      cost = ManifestCostSummary.empty,
+      turns = Nil
     )
 
   private def durable(

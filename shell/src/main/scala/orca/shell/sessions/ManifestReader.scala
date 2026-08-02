@@ -1,6 +1,10 @@
 package orca.shell.sessions
 
-import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
+import com.github.plokhotnyuk.jsoniter_scala.core.{
+  JsonValueCodec,
+  readFromString
+}
+import com.github.plokhotnyuk.jsoniter_scala.macros.JsonCodecMaker
 import orca.OrcaDir
 import orca.runner.manifest.RunManifest
 
@@ -19,8 +23,8 @@ private[shell] case class RecordedRun(manifest: RunManifest, crashed: Boolean)
   */
 private[shell] object ManifestReader:
 
-  /** Newest-first by `startedAt`. Skips a file whose `manifestVersion` is newer
-    * than this shell understands, or whose `startedAt` doesn't parse as an
+  /** Newest-first by `startedAt`. Skips a file whose `manifestVersion` isn't
+    * the one this build writes, or whose `startedAt` doesn't parse as an
     * `Instant` (a hand-edited or corrupt file — the writer always produces a
     * well-formed one), collecting a notice naming the file into the returned
     * warnings rather than guessing at an unknown schema or ordering it by a
@@ -52,12 +56,6 @@ private[shell] object ManifestReader:
               readManifest(file) match
                 case Left(warning) => (runs, warning :: warnings)
                 case Right(manifest)
-                    if manifest.manifestVersion > RunManifest.SupportedVersion =>
-                  (
-                    runs,
-                    s"skipping $file: manifestVersion ${manifest.manifestVersion} is newer than this shell understands" :: warnings
-                  )
-                case Right(manifest)
                     if Try(Instant.parse(manifest.startedAt)).isFailure =>
                   (
                     runs,
@@ -74,10 +72,29 @@ private[shell] object ManifestReader:
         warnings.reverse
       )
 
+  /** The version is read on its own, before the full decode, so a manifest
+    * written by another build is skipped by version rather than surfacing
+    * whichever field its schema happens to disagree about first.
+    */
   private def readManifest(file: os.Path): Either[String, RunManifest] =
     try
-      Right(readFromString[RunManifest](os.read(file))(using RunManifest.codec))
+      val text = os.read(file)
+      val version = readFromString[SchemaVersion](text).manifestVersion
+      if version != RunManifest.SupportedVersion then
+        Left(
+          s"skipping $file: manifestVersion $version, this build reads ${RunManifest.SupportedVersion}"
+        )
+      else Right(readFromString[RunManifest](text)(using RunManifest.codec))
     catch case NonFatal(e) => Left(s"skipping $file: ${e.getMessage}")
+
+  /** Just enough of a manifest to gate on: declaring one field is what lets
+    * this decode a manifest of any schema version, since everything else is
+    * then an unknown field, which jsoniter skips.
+    */
+  private case class SchemaVersion(manifestVersion: Int)
+
+  private given schemaVersionCodec: JsonValueCodec[SchemaVersion] =
+    JsonCodecMaker.make
 
   /** The production value of [[list]]'s `pidAlive` parameter (ADR 0021 §8):
     * `ProcessHandle.of` finds nothing for a pid that's been reaped — treated as

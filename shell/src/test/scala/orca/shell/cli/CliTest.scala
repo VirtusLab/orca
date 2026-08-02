@@ -2,7 +2,7 @@ package orca.shell.cli
 
 import mainargs.ParserForMethods
 import orca.agents.BackendTag
-import orca.runner.manifest.{ManifestSession, RunManifest}
+import orca.runner.manifest.{ManifestCostSummary, ManifestSession, RunManifest}
 import orca.settings.{AgentSettings, AgentSpec, SettingsFile}
 import orca.shell.create.CreateTier
 import orca.shell.flows.{DiscoveredFlow, FlowOrigin}
@@ -744,7 +744,9 @@ class CliTest extends munit.FunSuite:
       startedAt = startedAt,
       finishedAt = None,
       outcome = "succeeded",
-      sessions = sessions
+      sessions = sessions,
+      cost = ManifestCostSummary.empty,
+      turns = Nil
     )
 
   private def durable(
@@ -969,24 +971,35 @@ class CliTest extends munit.FunSuite:
     assertEquals(out.trim, "[]")
     assert(
       err.contains(
-        s"manifestVersion ${RunManifest.SupportedVersion + 1} is newer"
+        s"manifestVersion ${RunManifest.SupportedVersion + 1}, this build reads"
       ),
       err
     )
 
   private def writeCrashedManifest(dir: os.Path): Unit =
     val json =
-      """{
-        |  "manifestVersion": 1,
+      s"""{
+        |  "manifestVersion": ${RunManifest.SupportedVersion},
         |  "orcaVersion": "0.0.test",
         |  "workDir": "/work",
         |  "pid": 999999,
         |  "startedAt": "2026-07-18T09:00:00Z",
         |  "outcome": "running",
+        |  "cost": {
+        |    "total": {
+        |      "inputTokens": 0,
+        |      "outputTokens": 0,
+        |      "cachedInputTokens": 0,
+        |      "reasoningOutputTokens": 0
+        |    },
+        |    "byRole": [],
+        |    "byAgent": [],
+        |    "byStage": []
+        |  },
+        |  "turns": [],
         |  "sessions": [{
         |    "harness": "ClaudeCode",
         |    "wireId": "uuid",
-        |    "resumable": true,
         |    "agent": "main",
         |    "sessionName": "main",
         |    "kind": "durable",
@@ -1031,16 +1044,27 @@ class CliTest extends munit.FunSuite:
     val goneWorkDir = (dir / "gone").toString
     val json =
       s"""{
-        |  "manifestVersion": 1,
+        |  "manifestVersion": ${RunManifest.SupportedVersion},
         |  "orcaVersion": "0.0.test",
         |  "workDir": "$goneWorkDir",
         |  "pid": 1,
         |  "startedAt": "2026-07-18T09:00:00Z",
         |  "outcome": "succeeded",
+        |  "cost": {
+        |    "total": {
+        |      "inputTokens": 0,
+        |      "outputTokens": 0,
+        |      "cachedInputTokens": 0,
+        |      "reasoningOutputTokens": 0
+        |    },
+        |    "byRole": [],
+        |    "byAgent": [],
+        |    "byStage": []
+        |  },
+        |  "turns": [],
         |  "sessions": [{
         |    "harness": "ClaudeCode",
         |    "wireId": "uuid",
-        |    "resumable": true,
         |    "agent": "main",
         |    "stage": "Task: fix a bug",
         |    "sessionName": "main",
