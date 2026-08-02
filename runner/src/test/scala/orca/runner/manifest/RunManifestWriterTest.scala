@@ -438,7 +438,8 @@ class RunManifestWriterTest extends munit.FunSuite:
           inputTokens = 120_000,
           outputTokens = 900,
           cost = None,
-          cachedInputTokens = 107_000
+          cacheReadInputTokens = 107_000,
+          cacheWriteInputTokens = 8_000
         ),
         role = None
       )
@@ -463,14 +464,15 @@ class RunManifestWriterTest extends munit.FunSuite:
       ManifestUsage(
         inputTokens = 125_000,
         outputTokens = 1_000,
-        cachedInputTokens = 107_000,
+        cacheReadInputTokens = 107_000,
+        cacheWriteInputTokens = 8_000,
         reasoningOutputTokens = 0
       )
     )
-    // 13k uncached at $3/M + 107k cached at $0.30/M + 900 out at $15/M =
-    // $0.0846, plus the reported $0.0123. `estimated` survives the addition,
-    // so the run total can't be read as a billed figure.
-    assertEquals(cost.cost, Some(Cost(BigDecimal("0.0969"), estimated = true)))
+    // 5k fresh at $3/M + 107k cache-read at $0.30/M + 8k cache-write at $6/M +
+    // 900 out at $15/M = $0.1086, plus the reported $0.0123. `estimated`
+    // survives the addition, so the run total can't be read as a billed figure.
+    assertEquals(cost.cost, Some(Cost(BigDecimal("0.1209"), estimated = true)))
     assertEquals(
       cost.byAgent.map(s => (s.key, s.usage.inputTokens)),
       List((Some("claude"), 120_000L), (Some("reviewer"), 5_000L))
