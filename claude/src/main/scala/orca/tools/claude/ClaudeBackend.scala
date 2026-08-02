@@ -241,10 +241,12 @@ private[orca] class ClaudeBackend(
       workDir: os.Path
   ): Unit =
     val timeoutMs = AskUserMcpServer.ToolTimeout.toMillis
+    val _ = OrcaDir.ensureCache(workDir)
     val path = ClaudeBackend.mcpConfigPath(workDir, server.port)
-    // Recreate rather than overwrite: `os.write` (CREATE_NEW) refuses an
-    // existing symlink at the leaf, which `os.write.over` would follow. The
-    // removal also clears a same-port leftover from an earlier hard kill.
+    // `os.write` is CREATE_NEW — it refuses a leaf symlink, which
+    // `os.write.over` would follow — so a same-port leftover from an earlier
+    // hard kill has to be removed first. `os.remove` unlinks a symlink rather
+    // than following it.
     val _ = os.remove(path)
     os.write(
       path,
@@ -268,19 +270,17 @@ private[orca] class ClaudeBackend(
 
 object ClaudeBackend:
 
-  /** Path of the MCP config file advertising the host's `ask_user` server,
-    * ensuring its directory. Named with the bound port so two interactive
-    * conversations sharing a `workDir` don't overwrite each other's config.
+  /** Path of the MCP config file advertising the host's `ask_user` server.
+    * Named with the bound port so two interactive conversations sharing a
+    * `workDir` don't overwrite each other's config.
     *
-    * It lives under `.orca/cache/` rather than at the workDir root because a
-    * hard kill skips the deletion resource that removes it, and a leftover at
-    * the root is swept into the next stage's `git add -A` — orca committing its
-    * own scratch file to the user's repository. The cache self-ignores (ADR
-    * 0019), so a leftover there is inert. Still inside the working tree, so a
+    * Under the self-ignoring `.orca/cache/` rather than at the workDir root: a
+    * hard kill skips the deletion resource, and a leftover at the root is swept
+    * into the next stage's `git add -A`. Still inside the working tree, so a
     * sandboxed claude that denies reads outside its worktree can read it.
     */
   private[claude] def mcpConfigPath(workDir: os.Path, port: Int): os.Path =
-    OrcaDir.ensureCache(workDir) / s"mcp-$port.json"
+    OrcaDir.cachePath(workDir) / s"mcp-$port.json"
 
   /** Derives the project-directory slug that claude uses under
     * `~/.claude/projects/`: replaces every `/` in the absolute path with `-`.

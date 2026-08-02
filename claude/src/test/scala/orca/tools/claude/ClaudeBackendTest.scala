@@ -79,9 +79,8 @@ class ClaudeBackendTest extends munit.FunSuite:
       assert(!args.contains("--mcp-config"), args)
 
   test("an MCP config left behind by a hard kill can't reach a commit"):
-    // A hard kill skips the deletion resource, so the file survives into the
-    // next stage's `git add -A`.
     val repo = GitRepo.seeded()
+    val _ = orca.OrcaDir.ensureCache(repo)
     os.write(ClaudeBackend.mcpConfigPath(repo, port = 45123), "{}")
     val _ = os.proc("git", "add", "-A").call(cwd = repo)
     val staged =

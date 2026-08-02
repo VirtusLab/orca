@@ -20,9 +20,9 @@ All `.orca/` writes route through `tools/src/main/scala/orca/OrcaDir.scala`
 | `.orca/cache/flow.lock` | `runner/.../FlowLock.scala` | no (in cache) |
 | `.orca/cache/lint-*.txt` | `flow/.../review/Lint.scala` (spilled lint output) | no (in cache) |
 
-Not in `.orca/`: claude's transient MCP config is `.orca-mcp-<port>.json` in
-the *workDir root* (`ClaudeBackend`, ClaudeBackend.scala:232), so it is
-irrelevant here. `GitTool`
+Claude's transient MCP config, `.orca/cache/mcp-<port>.json`
+(`ClaudeBackend.mcpConfigPath`), is in the cache, so it is ignored like the
+rest of it. `GitTool`
 excludes `.orca/*` from review diffs via pathspec `:(exclude).orca/*` — a
 flows subdirectory would automatically be excluded from review diffs too,
 which is the right behaviour (a flow script is orchestration bookkeeping, not
