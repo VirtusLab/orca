@@ -528,24 +528,26 @@ class ReviewAndFixTest extends munit.FunSuite:
       s"reviewer must reuse one session across iterations; got ${reviewerSessions.map(SessionId.value)}"
     )
 
-  test("the lint summariser is called with the same session id on every round"):
-    // The gate's summariser is minted once per loop and resumed thereafter, so
-    // only the first round pays the cold prefix.
+  test("a lint summariser that reports nothing is resumed on later rounds"):
     given FlowControl = control
-    val quiet =
-      new FakeAgent(name = "quiet", outputs = List.fill(3)(ReviewResult.empty))
+    // A reviewer, not the lint, keeps the loop iterating; the lint runs every
+    // round and finds nothing, so its conversation holds no finding to repeat
+    // and carries forward.
+    val loud = new FakeAgent(
+      name = "loud",
+      outputs = List.fill(3)(ReviewResult(List(issue("never ends"))))
+    )
     val summariser = new FakeAgent(
       name = "summariser",
-      outputs =
-        List.fill(3)(ReviewResult(List(issue("lint-found", confidence = 0.95))))
+      outputs = List.fill(3)(ReviewResult.empty)
     )
     val coder = new FakeAgent(
       name = "coder",
-      outputs = List.fill(2)(FixOutcome(List(Title("lint-found")), Nil))
+      outputs = List.fill(2)(FixOutcome(List(Title("never ends")), Nil))
     )
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
-      reviewers = List(quiet),
+      reviewers = List(loud),
       task = "warm lint",
       reviewerSelection = ReviewerSelector.allEveryRound,
       // `echo` emits output so `lint` doesn't short-circuit before calling the
@@ -555,14 +557,45 @@ class ReviewAndFixTest extends munit.FunSuite:
       initialDiff = Some("")
     )
     val lintSessions = summariser.seenSessions
-    assert(
-      lintSessions.size >= 2,
-      s"expected ≥ 2 lint summariser calls, got $lintSessions"
-    )
+    assertEquals(lintSessions.size, 3)
     assertEquals(
       lintSessions.distinct.size,
       1,
-      s"the lint summariser must reuse one session across rounds; got ${lintSessions
+      s"a silent lint summariser must reuse one session; got ${lintSessions
+          .map(SessionId.value)}"
+    )
+
+  test("a lint summariser that reports findings is not resumed"):
+    given FlowControl = control
+    // The stale-findings guard: once the summariser has reported, its
+    // conversation could repeat those findings on a later round whose commands
+    // no longer show them, so the next round starts a fresh one.
+    val quiet =
+      new FakeAgent(name = "quiet", outputs = List.fill(2)(ReviewResult.empty))
+    val summariser = new FakeAgent(
+      name = "summariser",
+      outputs =
+        List.fill(2)(ReviewResult(List(issue("lint-found", confidence = 0.95))))
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(List(Title("lint-found")), Nil))
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(quiet),
+      task = "reporting lint",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      lint = Configured.Use(Lint(List("echo lint-output"), summariser)),
+      maxIterations = 1,
+      initialDiff = Some("")
+    )
+    val lintSessions = summariser.seenSessions
+    assertEquals(lintSessions.size, 2)
+    assertEquals(
+      lintSessions.distinct.size,
+      2,
+      s"a reporting lint summariser must not be resumed; got ${lintSessions
           .map(SessionId.value)}"
     )
 

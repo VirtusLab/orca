@@ -47,9 +47,8 @@ private case class LintRun(command: String, exitCode: Int, output: String):
   * The LLM is invoked read-only: the agent may verify a lint claim against the
   * sources it references but must not edit.
   *
-  * Each call summarises on a fresh conversation. To run the gate repeatedly
-  * without re-paying the cold prefix every time, mint one
-  * [[Lint.summariserChat]] and pass it to the overload below.
+  * Each call summarises on a fresh conversation; to reuse one across calls,
+  * pass a [[Lint.summariserChat]] to the overload below.
   */
 def lint(
     commands: List[String],
@@ -63,10 +62,12 @@ def lint(
   * running the gate several times over one stage, where resuming costs a
   * fraction of rebuilding the prefix.
   *
-  * Same contract as [[lint]] above, including the short-circuit, which is what
-  * makes resuming safe: a round whose commands are all silent and successful
-  * returns `ReviewResult.empty` without a turn, so a conversation carrying an
-  * earlier round's findings is never asked to judge a clean one.
+  * A conversation that has already reported findings is NOT safe to reuse: it
+  * can repeat them on a later call whose commands no longer show them. Most
+  * linters print on success (`sbt compile` writes `[success] …`), so the
+  * silent-and-successful short-circuit does not cover this — the caller must
+  * decide when to stop reusing. `reviewAndFixLoop` drops the conversation after
+  * any round in which the summariser reported.
   */
 def lint(
     commands: List[String],
@@ -93,7 +94,7 @@ def lint(
         "`$ <command>   (exit <status>)`. A zero status usually means that " +
         "command succeeded with nothing to report — return an empty result " +
         "when no block carries anything actionable. The blocks are this run's " +
-        "output and supersede any earlier one: judge only what they show"
+        "output and supersede any earlier ones"
     // No `stripMargin`: compiler diagnostics, tables and markdown in the
     // captured output start lines with `|`, which it would eat.
     val promptHead = s"$instructions\n\n$statusHint.\n\n"
@@ -128,9 +129,9 @@ def lint(
 // inaccessible outside the package despite the class being public.
 // `InlineLintThreshold` stays package-private on its own member below.
 object Lint:
-  /** The conversation the [[lint]] overload taking a [[Chat]] summarises into,
-    * pinned read-only so a reused summariser keeps the same no-edit guarantee a
-    * per-call one has.
+  /** The read-only conversation for the [[lint]] overload taking a [[Chat]]:
+    * the summariser may verify a claim against the sources it references but
+    * must not edit.
     */
   def summariserChat(agent: Agent[?]): Chat[?] =
     agent.withReadOnly.chat()

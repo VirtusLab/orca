@@ -154,8 +154,16 @@ private case class SessionEntry[B <: BackendTag](
 /** All cross-iteration state for `reviewAndFixLoop`, in one immutable record.
   * `history` is consulted by [[ReviewerSelector]]; `sessions` holds one
   * [[SessionEntry]] per reviewer that has run at least once, looked up by entry
-  * identity (`eq`); `lintChat` is the gate's summariser conversation, minted on
-  * the first round that has a gate and resumed by every later one.
+  * identity (`eq`).
+  *
+  * `lintChat` is the lint gate's summariser conversation, carried so later
+  * rounds resume rather than rebuild the prompt prefix — but ONLY while it has
+  * reported nothing. A round in which the summariser reported findings drops
+  * it, so the next round starts fresh: a conversation holding findings could
+  * repeat them on a later round whose commands no longer show them, and a
+  * phantom finding costs a fix turn and lands in the recorded
+  * [[IgnoredIssues]]. Resuming a conversation that has only ever said "nothing
+  * actionable" carries no such finding to repeat.
   *
   * `gateRejects`/`lintGateRejects` hold each agent's LAST-SEEN gate rejects,
   * replaced wholesale whenever that agent runs again and retained when it
@@ -386,6 +394,13 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   private val changedFiles: List[String] =
     ReviewLoop.extractChangedFiles(sampleDiff())
 
+  /** Did this agent report anything at all — whether or not the gate admitted
+    * it? What decides whether a lint summariser's conversation is safe to
+    * resume (see [[ReviewLoopState]]).
+    */
+  private def reported(gated: GatedIssues): Boolean =
+    gated.kept.issues.nonEmpty || gated.dropped.nonEmpty
+
   /** Split one agent's findings on the confidence gate. Rejects are kept, not
     * discarded: the loop records the final round's in its [[IgnoredIssues]].
     */
@@ -485,30 +500,28 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         val (result, newSession) = reviewWithSession(e, stored, currentDiff)
         AgentOutcome.Reviewer(e, applyGate(result), newSession)
 
-    // The gate's summariser conversation: minted on the first round that has a
-    // gate, resumed by every later one, so only round one pays the cold prefix.
-    // Minted here rather than inside the fork below because the next state must
-    // carry it even on a round that short-circuits before any turn; the mint
-    // itself reserves an id and contacts nothing.
-    val lintSummariser: Option[Chat[?]] = config.lint.map: l =>
-      currentState.lintChat.getOrElse:
+    // The gate and the conversation its summary runs on, paired so neither can
+    // go missing without the other. Minted outside the fork below so the next
+    // state carries the conversation even on a round that short-circuits before
+    // any turn; the mint reserves an id and contacts nothing.
+    val lintRound: Option[(Lint, Chat[?])] = config.lint.map: l =>
+      val summariser = currentState.lintChat.getOrElse:
         // Group lint tokens under the same `reviewer` cost role as the
         // reviewers, under the bare identity "lint"; the tagged copy stays
         // local to this loop.
         Lint.summariserChat(
           l.agent.withName("lint").withRole(ReviewerPrompts.Role)
         )
+      (l, summariser)
 
     val lintTaskOpt: Option[() => AgentOutcome] =
-      config.lint
-        .zip(lintSummariser)
-        .map: (l, summariser) =>
-          () =>
-            AgentOutcome.Lint(
-              applyGate(
-                lint(l.commands, summariser, ReviewLoopPrompts.SummariseLint)
-              )
+      lintRound.map: (l, summariser) =>
+        () =>
+          AgentOutcome.Lint(
+            applyGate(
+              lint(l.commands, summariser, ReviewLoopPrompts.SummariseLint)
             )
+          )
 
     // The explicit type application is CC-forced: it widens both lists' element
     // type to `() => AgentOutcome` so their capture sets unify into the single
@@ -561,7 +574,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       val nextState = ReviewLoopState(
         history = ReviewBatch(reviewerOutcomes) :: currentState.history,
         sessions = newSessions,
-        lintChat = lintSummariser,
+        lintChat =
+          if lintGated.exists(reported) then None else lintRound.map(_._2),
         gateRejects = retained ++ thisRound,
         lintGateRejects =
           lintGated.map(_.dropped).getOrElse(currentState.lintGateRejects)
