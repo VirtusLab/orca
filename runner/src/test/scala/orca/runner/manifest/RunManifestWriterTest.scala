@@ -429,7 +429,10 @@ class RunManifestWriterTest extends munit.FunSuite:
         .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
     )
     // One call the table has to price and one the backend reported, so the run
-    // total is a mix.
+    // total is a mix. The priced call's cache-read and cache-write figures are
+    // deliberately non-zero and unequal: they are what pins that both axes
+    // survive the ManifestUsage projection, and that a write is billed at the
+    // write rate rather than folded into base input.
     writer.onEvent(
       OrcaEvent.TokensUsed(
         agent = "claude",
