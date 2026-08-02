@@ -98,8 +98,7 @@ private[orca] object SystemPromptComposer:
       userPrompt: String,
       extraHint: Option[String] = None
   ): String =
-    s"""System guidance:
-       |${composeAll(config, extraHint)}
-       |
-       |User request:
-       |$userPrompt""".stripMargin
+    // No `stripMargin`: `userPrompt` carries the diffs, lint output and review
+    // issues that start lines with `|`, which it would eat.
+    s"System guidance:\n${composeAll(config, extraHint)}\n\n" +
+      s"User request:\n$userPrompt"
