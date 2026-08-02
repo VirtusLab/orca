@@ -18,7 +18,7 @@ private[review] object FixRequest:
   given AgentInput[FixRequest] with
     def serialize(r: FixRequest): String =
       val formatted = r.issues.map(formatIssue).mkString("\n")
-      s"""${r.instructions}
-         |
-         |Issues to fix:
-         |$formatted""".stripMargin
+      // No `stripMargin`: `formatIssue` wraps a reviewer's suggestion with its
+      // own line breaks and indents preserved, so a quoted table or margin
+      // block would arrive with its leading `|` eaten.
+      s"${r.instructions}\n\nIssues to fix:\n$formatted"

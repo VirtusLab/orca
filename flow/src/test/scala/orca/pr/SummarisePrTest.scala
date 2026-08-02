@@ -54,8 +54,6 @@ class SummarisePrTest extends munit.FunSuite:
   test("the diff keeps a line whose first non-blank character is `|`"):
     given FlowContext = new TestFlowContext(new EventDispatcher(Nil))
     val agent = new CapturingSummariser()
-    // A diff context line is `" " + source`, so every `stripMargin` block and
-    // markdown table in the branch produces one of these.
     val _ = summarisePr(agent, diff = "+first line\n |context with pipe")
     assert(
       agent.captured.contains("\n |context with pipe"),

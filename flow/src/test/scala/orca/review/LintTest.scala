@@ -100,12 +100,10 @@ class LintTest extends munit.FunSuite:
     given FlowContext = ctx
     val mock = new CapturingAgent(expected)
     val _ = lint(List("""printf 'plain\n |marked\n'"""), mock)
-    // Scala compiler diagnostics, ASCII tables and markdown all start
-    // continuation lines with `|`. The preceding line is part of the assertion
-    // because the block's label line quotes the command, where the same text
-    // appears with a literal `\n` rather than a real newline.
+    // The leading newline is load-bearing: the block's label line quotes the
+    // command, where ` |marked` also appears — but preceded by a literal `\n`.
     assert(
-      mock.captured.contains("plain\n |marked"),
+      mock.captured.contains("\n |marked"),
       s"the `|` line must reach the summariser intact, got: ${mock.captured}"
     )
 

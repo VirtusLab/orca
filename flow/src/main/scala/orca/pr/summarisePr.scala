@@ -30,10 +30,8 @@ def summarisePr(
     instructions: String = PrPrompts.Summarise
 )(using @unused ctx: FlowContext, ev: InStage): PrSummary =
   val contextBlock = context.fold("")(c => s"$c\n\n")
-  // Plain concatenation, never a `stripMargin` block: it runs over the
-  // interpolated result, so it would eat the leading `|` of every diff line
-  // carrying one — and a context line is `" " + source`, which every
-  // `stripMargin` block and markdown table in a repo produces.
+  // No `stripMargin`: a diff context line is `" " + source`, so it would eat
+  // the leading `|` of every margin block and markdown table in the branch.
   val prompt =
     s"$instructions\n\n${contextBlock}Branch diff (vs base):\n\n" +
       s"```diff\n$diff\n```"

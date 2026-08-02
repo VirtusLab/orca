@@ -72,10 +72,8 @@ def lint(
         "`$ <command>   (exit <status>)`. A zero status usually means that " +
         "command succeeded with nothing to report — return an empty result " +
         "when no block carries anything actionable"
-    // Plain concatenation, never a `stripMargin` block: it runs over the
-    // interpolated result, so it would eat the leading `|` of every lint line
-    // carrying one — which compiler diagnostics, ASCII tables and markdown in
-    // the captured output routinely produce.
+    // No `stripMargin`: compiler diagnostics, tables and markdown in the
+    // captured output start lines with `|`, which it would eat.
     val promptHead = s"$instructions\n\n$statusHint.\n\n"
     if combined.length <= Lint.InlineLintThreshold then
       summarise(promptHead + s"The blocks are:\n\n```\n$combined\n```")

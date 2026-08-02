@@ -51,8 +51,6 @@ private[orca] object SystemPromptComposer:
     combine(config, extraHint) match
       case None       => userPrompt
       case Some(text) =>
-        // Plain concatenation, never a `stripMargin` block: it runs over the
-        // interpolated result, so it would eat the leading `|` of every
-        // `userPrompt` line carrying one — diffs, lint output and review issues
-        // all reach these backends this way.
+        // No `stripMargin`: `userPrompt` carries the diffs, lint output and
+        // review issues that start lines with `|`, which it would eat.
         s"System guidance:\n$text\n\nUser request:\n$userPrompt"
