@@ -284,9 +284,11 @@ private[shell] object FlowAuthoring:
       case None    => forkFilenameDefault(sourceName)
 
   /** Runs `argv` to completion within `timeoutMillis`, returning its stdout on
-    * a zero exit; `None` on a timeout (the process is killed rather than left
-    * running), a non-zero exit, or any failure to even start (a missing binary
-    * throws from `os.proc`'s spawn). [[suggestFilename]]'s production runner.
+    * a zero exit; `None` on a timeout (the process tree is killed — os-lib's
+    * `destroy` recurses into `children()`, so the agent CLI's own subprocesses
+    * go with it — rather than left running), a non-zero exit, or any failure to
+    * even start (a missing binary throws from `os.proc`'s spawn).
+    * [[suggestFilename]]'s production runner.
     */
   private def runSlugProc(
       argv: Seq[String],
@@ -299,11 +301,7 @@ private[shell] object FlowAuthoring:
         if proc.waitFor(timeoutMillis) && proc.exitCode() == 0 then
           Some(proc.stdout.text())
         else None
-      finally
-        // `shutdownGracePeriod = 0` is the non-deprecated spelling of
-        // `destroyForcibly()`; os-lib's destroy is recursive, so the agent
-        // CLI's own children go with it.
-        if proc.isAlive() then proc.destroy(shutdownGracePeriod = 0)
+      finally if proc.isAlive() then proc.destroy(shutdownGracePeriod = 0)
     catch case NonFatal(_) => None
 
   /** The directory associated with `tier` (see [[CreateTier]]'s scaladoc):
