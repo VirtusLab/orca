@@ -25,11 +25,10 @@ object ReviewLoopFixture:
     * `dispatcher`, so the loop's `emit`s reach the suite's listeners and the
     * fix turn's `progressStore.load()` works. Serves as the `given FlowControl`
     * for a `reviewAndFixLoop` call. `lead` wires the context's lead agent —
-    * needed by the default `ReviewerSelector.agentDriven`, which resolves its
-    * picker as `ctx.reviewAgent.cheap`, and by `Configured.FromSettings` lint
-    * resolution (`Lint(stackSettings.lint, ctx.reviewAgent.cheap)`).
-    * `stackSettings` seeds the context's resolved settings for the
-    * `FromSettings` tests.
+    * needed by `ReviewerSelector.default`, whose picker resolves as
+    * `ctx.reviewAgent.cheap`, and by `Configured.FromSettings` lint resolution
+    * (`Lint(stackSettings.lint, ctx.reviewAgent.cheap)`). `stackSettings` seeds
+    * the context's resolved settings for the `FromSettings` tests.
     */
   def control(
       dispatcher: EventDispatcher,

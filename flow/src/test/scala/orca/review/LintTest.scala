@@ -96,6 +96,17 @@ class LintTest extends munit.FunSuite:
       s"small output must not spill to a file, got: ${mock.captured}"
     )
 
+  test("lint output keeps a line whose first non-blank character is `|`"):
+    given FlowContext = ctx
+    val mock = new CapturingAgent(expected)
+    val _ = lint(List("""printf 'plain\n |marked\n'"""), mock)
+    // The leading newline is load-bearing: the block's label line quotes the
+    // command, where ` |marked` also appears — but preceded by a literal `\n`.
+    assert(
+      mock.captured.contains("\n |marked"),
+      s"the `|` line must reach the summariser intact, got: ${mock.captured}"
+    )
+
   test("lint labels each command's block, blank line between blocks"):
     given FlowContext = ctx
     val mock = new CapturingAgent(expected)

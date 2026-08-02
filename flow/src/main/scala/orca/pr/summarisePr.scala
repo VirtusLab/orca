@@ -30,12 +30,9 @@ def summarisePr(
     instructions: String = PrPrompts.Summarise
 )(using @unused ctx: FlowContext, ev: InStage): PrSummary =
   val contextBlock = context.fold("")(c => s"$c\n\n")
+  // No `stripMargin`: a diff context line is `" " + source`, so it would eat
+  // the leading `|` of every margin block and markdown table in the branch.
   val prompt =
-    s"""$instructions
-       |
-       |${contextBlock}Branch diff (vs base):
-       |
-       |```diff
-       |$diff
-       |```""".stripMargin
+    s"$instructions\n\n${contextBlock}Branch diff (vs base):\n\n" +
+      s"```diff\n$diff\n```"
   agent.resultAs[PrSummary].autonomous.run(prompt, emitPrompt = false)
