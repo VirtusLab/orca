@@ -237,6 +237,9 @@ trait GitTool:
     * (`git diff --no-index` against `/dev/null`) — so a freshly-created file is
     * visible even though it has no tracked history to diff against. Read-only:
     * untracked files are diffed, never staged.
+    *
+    * An untracked symlink to a directory is one `--no-index` can't render; it
+    * appears as a line naming the path rather than being dropped silently.
     */
   def reviewDiff(): String
 
@@ -592,13 +595,26 @@ private[orca] class OsGitTool(
     * file against `/dev/null` — and when it cannot read the path at all, so
     * stderr rather than the exit code tells the two apart. Reporting the second
     * as success would return an empty diff for a file that does have contents.
+    *
+    * A symlink to a directory is named rather than diffed: `--no-index` walks
+    * into it and pairs `/dev/null` with a path inside (`error: Could not access
+    * 'link/null'`), which takes the failure branch above. Symlinks to a file or
+    * to nothing diff fine, as mode 120000 carrying the link target, not the
+    * target's contents.
     */
   private def untrackedFileDiff(relPath: String): String =
-    val result =
-      gitProc(Seq("git", "diff", "--no-index", "--", "/dev/null", relPath))
-    val differs = result.exitCode == 1 && result.err.text().isEmpty
-    if result.exitCode == 0 || differs then result.out.text()
-    else fail(s"git diff --no-index -- /dev/null $relPath", result)
+    if isSymlinkToDirectory(relPath) then
+      s"# skipped $relPath: symlink to a directory\n"
+    else
+      val result =
+        gitProc(Seq("git", "diff", "--no-index", "--", "/dev/null", relPath))
+      val differs = result.exitCode == 1 && result.err.text().isEmpty
+      if result.exitCode == 0 || differs then result.out.text()
+      else fail(s"git diff --no-index -- /dev/null $relPath", result)
+
+  private def isSymlinkToDirectory(relPath: String): Boolean =
+    val path = workDir / os.RelPath(relPath)
+    os.isLink(path) && os.isDir(path)
 
   def diffVsBase(base: String, mode: DiffMode): String =
     val spec = mode match
