@@ -69,7 +69,7 @@ class OpencodeConversationTest extends munit.FunSuite:
           """{"type":"message.part.delta","properties":{"sessionID":"ses_A","field":"text","delta":"lo"}}"""
         ),
         data(
-          """{"type":"message.updated","properties":{"info":{"role":"assistant","sessionID":"ses_A","tokens":{"input":10,"output":2,"reasoning":0,"cache":{"read":1,"write":0}},"modelID":"gpt-4o-mini","finish":"stop"}}}"""
+          """{"type":"message.updated","properties":{"info":{"role":"assistant","sessionID":"ses_A","tokens":{"input":10,"output":2,"reasoning":0,"cache":{"read":1,"write":3}},"modelID":"gpt-4o-mini","finish":"stop"}}}"""
         ),
         data("""{"type":"session.idle","properties":{"sessionID":"ses_A"}}""")
       )
@@ -88,9 +88,10 @@ class OpencodeConversationTest extends munit.FunSuite:
     assertEquals(result.output, "Hello")
     assertEquals(
       result.usage.inputTokens,
-      11L
+      14L
     ) // input + cache.read + cache.write
-    assertEquals(result.usage.cachedInputTokens, 1L)
+    assertEquals(result.usage.cacheReadInputTokens, 1L)
+    assertEquals(result.usage.cacheWriteInputTokens, 3L)
     assertEquals(result.usage.outputTokens, 2L)
     assertEquals(result.model.map(_.name), Some("gpt-4o-mini"))
 

@@ -45,7 +45,7 @@ the spawned `claude` subprocess via `.mcp.json` + `--mcp-config`.
   the Netty binding.
 
 - **`ClaudeBackend.openConversation`** — builds the bridge + server,
-  writes `.orca-mcp-<port>.json` to `workDir` (port-suffixed so
+  writes `<workDir>/.orca/cache/mcp-<port>.json` (port-suffixed so
   concurrent conversations sharing a workdir don't collide), passes
   `--mcp-config` to claude, and hands the bridge to
   `ClaudeConversation`. Adds the MCP tool name (`mcp__orca__ask_user`)

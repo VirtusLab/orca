@@ -43,7 +43,7 @@ means an exception or hang, never adversarial behaviour.
 | 11 | `opencode serve` subprocess | `opencode/src/main/scala/orca/tools/opencode/OpencodeServer.scala` | Yes (`ctx.close()` tree-destroys it in the body's `finally`) | SAFE |
 | 12 | Per-run instances: `EventDispatcher`, `CostTracker`, `SessionSupport` maps, `StageFrames`, `TerminalOutput`, conversations, `AgentBackend.closedFlag` | various (see §B) | Yes (all die with the run/Ox scope) | SAFE |
 | 13 | Immutable statics: `Pricing.default`, prompt resources, jsoniter codecs, `OrcaBanner`, `OrcaArgs` parser, backend constants | various (see §C) | n/a | SAFE |
-| 14 | Cross-run **on-disk** state: progress log, gemini `settings.json` merge, claude `.orca-mcp-*.json`, opencode global session store | various (see §D) | Mostly; crash leaves documented residue | SAFE / noted |
+| 14 | Cross-run **on-disk** state: progress log, gemini `settings.json` merge, claude `.orca/cache/mcp-*.json`, opencode global session store | various (see §D) | Mostly; crash leaves documented residue | SAFE / noted |
 | 15 | Non-findings: no shutdown hooks (beyond #7), no signal handlers registered by orca, no `System.setProperty`, no `Console`/`System.setOut` redirection, no global executors | — | — | SAFE |
 
 ## A. Process-global mutable state
@@ -386,10 +386,10 @@ concerns:
   ADR 0015); the next run's merge overwrites the entry with its live URL, so
   it self-corrects — but that next run's "restore" then re-instates the
   polluted version. Known, accepted; no worse in a shell.
-- **claude `.orca-mcp-<port>.json`** — `ClaudeBackend.scala:229–232`:
-  workdir-local, port-named (no cross-run collision), deleted via a finalize
-  resource (`ClaudeBackend.scala:184–186`); a crash leaves a harmless
-  untracked file.
+- **claude `.orca/cache/mcp-<port>.json`** — `ClaudeBackend.mcpConfigPath`:
+  in the self-ignoring cache, port-named (no cross-run collision), deleted via
+  a finalize resource; a crash leaves an ignored file that no commit can pick
+  up.
 - **`flow.lock`** — see #4.
 - **opencode global session store** — durable machine-global by design
   (`OpencodeServer.scala` scaladoc, `SessionSupport.durable`); the shell's

@@ -58,9 +58,14 @@ private[orca] trait StderrPipeline[B <: BackendTag]
     val _ = stderrBuffer.updateAndGet(appendBounded(_, line))
 
   /** Wait for the stderr drain so trailing lines reach the queue before the
-    * failure outcome is computed. No timeout needed: `destroyForcibly` (and a
-    * real process's exit) always EOFs the stderr stream, so the drain fork
-    * terminates. `None` means workers never started (nothing to wait for).
+    * failure outcome is computed. `None` means workers never started (nothing
+    * to wait for).
+    *
+    * The join is unbounded and ends only at stderr EOF, which needs every
+    * inherited write-end closed — including any the agent's own descendants
+    * hold. The tree kill that closes those runs in the conversation's
+    * `cancel()`, which on the autonomous path is downstream of this finalize,
+    * so it cannot rescue a stall here.
     */
   override protected def onFinalize(): Unit =
     stderrDrainFork.foreach(_.join())
