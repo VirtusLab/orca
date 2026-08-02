@@ -528,6 +528,44 @@ class ReviewAndFixTest extends munit.FunSuite:
       s"reviewer must reuse one session across iterations; got ${reviewerSessions.map(SessionId.value)}"
     )
 
+  test("the lint summariser is called with the same session id on every round"):
+    // The gate's summariser is minted once per loop and resumed thereafter, so
+    // only the first round pays the cold prefix.
+    given FlowControl = control
+    val quiet =
+      new FakeAgent(name = "quiet", outputs = List.fill(3)(ReviewResult.empty))
+    val summariser = new FakeAgent(
+      name = "summariser",
+      outputs =
+        List.fill(3)(ReviewResult(List(issue("lint-found", confidence = 0.95))))
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List.fill(2)(FixOutcome(List(Title("lint-found")), Nil))
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(quiet),
+      task = "warm lint",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      // `echo` emits output so `lint` doesn't short-circuit before calling the
+      // summariser.
+      lint = Configured.Use(Lint(List("echo lint-output"), summariser)),
+      maxIterations = 2,
+      initialDiff = Some("")
+    )
+    val lintSessions = summariser.seenSessions
+    assert(
+      lintSessions.size >= 2,
+      s"expected ≥ 2 lint summariser calls, got $lintSessions"
+    )
+    assertEquals(
+      lintSessions.distinct.size,
+      1,
+      s"the lint summariser must reuse one session across rounds; got ${lintSessions
+          .map(SessionId.value)}"
+    )
+
   test("initialDiff is embedded in the reviewer's first prompt"):
     given FlowControl = control
     val captureReviewer =

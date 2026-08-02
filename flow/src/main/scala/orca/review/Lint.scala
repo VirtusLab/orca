@@ -6,7 +6,7 @@ import language.experimental.captureChecking
 import language.experimental.separationChecking
 
 import orca.{FlowContext, InStage, OrcaDir}
-import orca.agents.Agent
+import orca.agents.{Agent, Chat}
 
 /** The lint gate run alongside the reviewers each round: `commands` (each run
   * via `bash -c`, in order) and the `agent` that summarises their concatenated
@@ -46,11 +46,32 @@ private case class LintRun(command: String, exitCode: Int, output: String):
   *
   * The LLM is invoked read-only: the agent may verify a lint claim against the
   * sources it references but must not edit.
+  *
+  * Each call summarises on a fresh conversation. To run the gate repeatedly
+  * without re-paying the cold prefix every time, mint one
+  * [[Lint.summariserChat]] and pass it to the overload below.
   */
 def lint(
     commands: List[String],
     agent: Agent[?],
     instructions: String = ReviewLoopPrompts.SummariseLint
+)(using ctx: FlowContext, ev: InStage): ReviewResult =
+  lint(commands, Lint.summariserChat(agent), instructions)
+
+/** [[lint]] against an existing summariser conversation
+  * ([[Lint.summariserChat]]) rather than a fresh one per call — for a caller
+  * running the gate several times over one stage, where resuming costs a
+  * fraction of rebuilding the prefix.
+  *
+  * Same contract as [[lint]] above, including the short-circuit, which is what
+  * makes resuming safe: a round whose commands are all silent and successful
+  * returns `ReviewResult.empty` without a turn, so a conversation carrying an
+  * earlier round's findings is never asked to judge a clean one.
+  */
+def lint(
+    commands: List[String],
+    summariser: Chat[?],
+    instructions: String
 )(using ctx: FlowContext, ev: InStage): ReviewResult =
   val runs = commands.map: command =>
     val proc = os
@@ -62,7 +83,7 @@ def lint(
   if allClean then ReviewResult.empty
   else
     def summarise(prompt: String): ReviewResult =
-      agent.withReadOnly
+      summariser
         .resultAs[ReviewResult]
         .autonomous
         .run(prompt, emitPrompt = false)
@@ -71,7 +92,8 @@ def lint(
       "Each command's combined stdout+stderr is a block headed " +
         "`$ <command>   (exit <status>)`. A zero status usually means that " +
         "command succeeded with nothing to report — return an empty result " +
-        "when no block carries anything actionable"
+        "when no block carries anything actionable. The blocks are this run's " +
+        "output and supersede any earlier one: judge only what they show"
     // No `stripMargin`: compiler diagnostics, tables and markdown in the
     // captured output start lines with `|`, which it would eat.
     val promptHead = s"$instructions\n\n$statusHint.\n\n"
@@ -106,6 +128,13 @@ def lint(
 // inaccessible outside the package despite the class being public.
 // `InlineLintThreshold` stays package-private on its own member below.
 object Lint:
+  /** The conversation the [[lint]] overload taking a [[Chat]] summarises into,
+    * pinned read-only so a reused summariser keeps the same no-edit guarantee a
+    * per-call one has.
+    */
+  def summariserChat(agent: Agent[?]): Chat[?] =
+    agent.withReadOnly.chat()
+
   /** Max combined lint-output length (chars) inlined into the summariser
     * prompt; larger output spills to a file (see [[lint]]). Sized so a typical
     * lint failure inlines — keeping the gate working under sandboxed agents

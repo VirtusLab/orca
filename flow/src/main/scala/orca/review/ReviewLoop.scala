@@ -154,7 +154,8 @@ private case class SessionEntry[B <: BackendTag](
 /** All cross-iteration state for `reviewAndFixLoop`, in one immutable record.
   * `history` is consulted by [[ReviewerSelector]]; `sessions` holds one
   * [[SessionEntry]] per reviewer that has run at least once, looked up by entry
-  * identity (`eq`).
+  * identity (`eq`); `lintChat` is the gate's summariser conversation, minted on
+  * the first round that has a gate and resumed by every later one.
   *
   * `gateRejects`/`lintGateRejects` hold each agent's LAST-SEEN gate rejects,
   * replaced wholesale whenever that agent runs again and retained when it
@@ -166,11 +167,12 @@ private case class SessionEntry[B <: BackendTag](
 private case class ReviewLoopState(
     history: List[ReviewBatch],
     sessions: List[SessionEntry[?]],
+    lintChat: Option[Chat[?]],
     gateRejects: List[(RosterEntry[?], List[ReviewIssue])],
     lintGateRejects: List[ReviewIssue]
 )
 private object ReviewLoopState:
-  val empty: ReviewLoopState = ReviewLoopState(Nil, Nil, Nil, Nil)
+  val empty: ReviewLoopState = ReviewLoopState(Nil, Nil, None, Nil, Nil)
 
 /** One agent's findings split on the [[ConfidenceGate]]: `kept` goes to the
   * fixer and the display, `dropped` is recorded rather than fixed.
@@ -483,15 +485,30 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         val (result, newSession) = reviewWithSession(e, stored, currentDiff)
         AgentOutcome.Reviewer(e, applyGate(result), newSession)
 
+    // The gate's summariser conversation: minted on the first round that has a
+    // gate, resumed by every later one, so only round one pays the cold prefix.
+    // Minted here rather than inside the fork below because the next state must
+    // carry it even on a round that short-circuits before any turn; the mint
+    // itself reserves an id and contacts nothing.
+    val lintSummariser: Option[Chat[?]] = config.lint.map: l =>
+      currentState.lintChat.getOrElse:
+        // Group lint tokens under the same `reviewer` cost role as the
+        // reviewers, under the bare identity "lint"; the tagged copy stays
+        // local to this loop.
+        Lint.summariserChat(
+          l.agent.withName("lint").withRole(ReviewerPrompts.Role)
+        )
+
     val lintTaskOpt: Option[() => AgentOutcome] =
-      config.lint.map: l =>
-        () =>
-          // Group lint tokens under the same `reviewer` cost role as the
-          // reviewers, under the bare identity "lint"; the tagged copy stays
-          // local to this call.
-          val labelled =
-            l.agent.withName("lint").withRole(ReviewerPrompts.Role)
-          AgentOutcome.Lint(applyGate(lint(l.commands, labelled)))
+      config.lint
+        .zip(lintSummariser)
+        .map: (l, summariser) =>
+          () =>
+            AgentOutcome.Lint(
+              applyGate(
+                lint(l.commands, summariser, ReviewLoopPrompts.SummariseLint)
+              )
+            )
 
     // The explicit type application is CC-forced: it widens both lists' element
     // type to `() => AgentOutcome` so their capture sets unify into the single
@@ -544,6 +561,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       val nextState = ReviewLoopState(
         history = ReviewBatch(reviewerOutcomes) :: currentState.history,
         sessions = newSessions,
+        lintChat = lintSummariser,
         gateRejects = retained ++ thisRound,
         lintGateRejects =
           lintGated.map(_.dropped).getOrElse(currentState.lintGateRejects)

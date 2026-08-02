@@ -185,6 +185,24 @@ class LintTest extends munit.FunSuite:
       "LLM should not be called when no command produced output or failed"
     )
 
+  test("a clean round on a reused summariser never reaches the LLM"):
+    // The stale-findings guard: a conversation that already holds a dirty
+    // round's findings must not be asked to judge a clean one, or it can
+    // re-report them from memory. The short-circuit is what prevents it.
+    given FlowContext = ctx
+    val mock = new CapturingAgent(expected)
+    val summariser = Lint.summariserChat(mock)
+    val _ =
+      lint(List("echo DIRTY"), summariser, ReviewLoopPrompts.SummariseLint)
+    mock.captured = ""
+    val clean = lint(List("true"), summariser, ReviewLoopPrompts.SummariseLint)
+    assertEquals(clean, ReviewResult.empty)
+    assertEquals(
+      mock.captured,
+      "",
+      "a silent, successful round must not consult the warm summariser"
+    )
+
   test("lint with no commands is a no-op: empty result, no LLM call"):
     given FlowContext = ctx
     val mock = new CapturingAgent(ReviewResult.empty)
