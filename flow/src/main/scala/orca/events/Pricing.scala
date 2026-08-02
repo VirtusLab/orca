@@ -13,7 +13,8 @@ import scala.util.matching.Regex
   *     by cache lifetime — Anthropic charges 1.25× base input at the
   *     five-minute TTL and 2× at the one-hour one — this is a single rate,
   *     because the CLI picks the TTL per request and orca never sees which tier
-  *     a given write used. Set it to the tier your CLI requests.
+  *     a given write used. The shipped rates follow the tier the CLI in front
+  *     of them actually requests; set your own accordingly.
   *   - `output` covers reasoning tokens too — both Anthropic and OpenAI bill
   *     reasoning at the output rate.
   *
@@ -124,16 +125,19 @@ object Pricing:
       // --- Anthropic ---
       // Claude reports `total_cost_usd` from the CLI, so these are mostly
       // safety nets for sessions that didn't surface the field. Cache-write
-      // rates are the published five-minute-TTL column, which is the API
-      // default and what pi requests unless PI_CACHE_RETENTION=long. A CLI
-      // that asks for `ttl: "1h"` instead bills 2× base input (Opus $10,
-      // Sonnet 5 $4, Haiku $2, Fable $20) — override the table for that
-      // traffic.
+      // rates are the one-hour-TTL tier (2× base input): Claude Code requests
+      // `ttl: "1h"`, and the CLI's own usage breakdown confirms it — across
+      // measured runs every cache-creation token landed in
+      // `cache_creation.ephemeral_1h_input_tokens` and none in the 5m bucket.
+      // A backend that asks for the five-minute TTL instead (pi's default,
+      // unless PI_CACHE_RETENTION=long) bills 1.25× — $6.25 Opus, $3.75
+      // Sonnet, $1.25 Haiku, $12.50 Fable — so override the table for
+      // pi-heavy use.
       Model("claude-fable-5") -> ModelPricing(
         inputUsdPerMillion = 10,
         cachedInputUsdPerMillion = 1.00,
         outputUsdPerMillion = 50,
-        cacheWriteUsdPerMillion = 12.50
+        cacheWriteUsdPerMillion = 20
       ),
       // `[1m]` is the CLI's 1M-context spelling of the same model at the same
       // price; the suffix isn't a date, so `lookup` won't bridge it — hence its
@@ -142,75 +146,79 @@ object Pricing:
         inputUsdPerMillion = 5,
         cachedInputUsdPerMillion = 0.50,
         outputUsdPerMillion = 25,
-        cacheWriteUsdPerMillion = 6.25
+        cacheWriteUsdPerMillion = 10
       ),
       Model("claude-opus-5[1m]") -> ModelPricing(
         inputUsdPerMillion = 5,
         cachedInputUsdPerMillion = 0.50,
         outputUsdPerMillion = 25,
-        cacheWriteUsdPerMillion = 6.25
+        cacheWriteUsdPerMillion = 10
       ),
       Model("claude-opus-4-8") -> ModelPricing(
         inputUsdPerMillion = 5,
         cachedInputUsdPerMillion = 0.50,
         outputUsdPerMillion = 25,
-        cacheWriteUsdPerMillion = 6.25
+        cacheWriteUsdPerMillion = 10
       ),
       Model("claude-opus-4-8[1m]") -> ModelPricing(
         inputUsdPerMillion = 5,
         cachedInputUsdPerMillion = 0.50,
         outputUsdPerMillion = 25,
-        cacheWriteUsdPerMillion = 6.25
+        cacheWriteUsdPerMillion = 10
       ),
       Model("claude-opus-4-7") -> ModelPricing(
         inputUsdPerMillion = 5,
         cachedInputUsdPerMillion = 0.50,
         outputUsdPerMillion = 25,
-        cacheWriteUsdPerMillion = 6.25
+        cacheWriteUsdPerMillion = 10
       ),
       Model("claude-opus-4-6") -> ModelPricing(
         inputUsdPerMillion = 5,
         cachedInputUsdPerMillion = 0.50,
         outputUsdPerMillion = 25,
-        cacheWriteUsdPerMillion = 6.25
+        cacheWriteUsdPerMillion = 10
       ),
       Model("claude-opus-4-5") -> ModelPricing(
         inputUsdPerMillion = 5,
         cachedInputUsdPerMillion = 0.50,
         outputUsdPerMillion = 25,
-        cacheWriteUsdPerMillion = 6.25
+        cacheWriteUsdPerMillion = 10
       ),
       Model("claude-opus-4-1") -> ModelPricing(
         inputUsdPerMillion = 15,
         cachedInputUsdPerMillion = 1.50,
         outputUsdPerMillion = 75,
-        cacheWriteUsdPerMillion = 18.75
+        cacheWriteUsdPerMillion = 30
       ),
-      // Introductory pricing, in effect through 2026-08-31. From 2026-09-01
-      // the sticker rates apply: $3 in / $0.30 read / $3.75 write / $15 out.
+      // Sticker rates, deliberately, even though Anthropic publishes an
+      // introductory $2/$10 through 2026-08-31: the CLI computes the
+      // `total_cost_usd` it reports at sticker, matching these rates exactly
+      // on every measured Sonnet 5 turn and never the introductory ones. A
+      // summary mixes reported and estimated figures, so the table follows
+      // the number users reconcile against.
       Model("claude-sonnet-5") -> ModelPricing(
-        inputUsdPerMillion = 2,
-        cachedInputUsdPerMillion = 0.20,
-        outputUsdPerMillion = 10,
-        cacheWriteUsdPerMillion = 2.50
+        inputUsdPerMillion = 3,
+        cachedInputUsdPerMillion = 0.30,
+        outputUsdPerMillion = 15,
+        cacheWriteUsdPerMillion = 6
       ),
       Model("claude-sonnet-4-6") -> ModelPricing(
         inputUsdPerMillion = 3,
         cachedInputUsdPerMillion = 0.30,
         outputUsdPerMillion = 15,
-        cacheWriteUsdPerMillion = 3.75
+        cacheWriteUsdPerMillion = 6
       ),
       Model("claude-sonnet-4-5") -> ModelPricing(
         inputUsdPerMillion = 3,
         cachedInputUsdPerMillion = 0.30,
         outputUsdPerMillion = 15,
-        cacheWriteUsdPerMillion = 3.75
+        cacheWriteUsdPerMillion = 6
       ),
       Model("claude-haiku-4-5") -> ModelPricing(
         inputUsdPerMillion = 1,
         cachedInputUsdPerMillion = 0.10,
         outputUsdPerMillion = 5,
-        cacheWriteUsdPerMillion = 1.25
+        cacheWriteUsdPerMillion = 2
       ),
       // --- OpenAI (codex, opencode) ---
       // The GPT-5.6 family prices cache writes separately, at 1.25× input;

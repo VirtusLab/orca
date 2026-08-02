@@ -27,8 +27,10 @@ breaking changes ship in minor releases; this file is where they are announced.
   (`50K in (40K cache read, 5K cache write)`), since a write bills above base
   input and a read far below it.
 - The shipped price list was re-checked against provider pricing pages on
-  2026-08-02, correcting stale OpenAI and Gemini rows and picking up Claude
-  Sonnet 5's introductory pricing (in effect through 2026-08-31).
+  2026-08-02, correcting stale OpenAI and Gemini rows. Anthropic cache writes
+  are priced at the one-hour TTL tier, which is what Claude Code requests;
+  Claude Sonnet 5 keeps its sticker rates, which is what the CLI computes its
+  reported cost at.
 - The pi adapter now counts a turn's cache reads and writes towards its input
   total. pi reports only the fresh prompt in `input`, so cached turns
   previously under-reported prompt size and were billed as if no fresh input
