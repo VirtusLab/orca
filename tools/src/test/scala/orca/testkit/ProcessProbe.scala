@@ -9,12 +9,15 @@ object ProcessProbe:
     val handle = ProcessHandle.of(pid)
     handle.isPresent && handle.get.isAlive
 
-  /** Polls until `pid` is gone, up to `timeoutMillis`; returns whether it died.
-    * A kill is asynchronous — the signal is delivered before the process is
-    * reaped — so a same-instant `alive` check would be flaky in either
-    * direction.
+  /** Polls `condition` until it holds, up to `timeoutMillis`; returns whether
+    * it ever did. Process teardown is asynchronous — a signal is delivered
+    * before the process is reaped — so a same-instant check would be flaky in
+    * either direction.
     */
-  def awaitDead(pid: Long, timeoutMillis: Long = 5000): Boolean =
+  def awaitTrue(condition: => Boolean, timeoutMillis: Long = 5000): Boolean =
     val deadline = System.currentTimeMillis + timeoutMillis
-    while alive(pid) && System.currentTimeMillis < deadline do Thread.sleep(20)
-    !alive(pid)
+    while !condition && System.currentTimeMillis < deadline do Thread.sleep(20)
+    condition
+
+  def awaitDead(pid: Long, timeoutMillis: Long = 5000): Boolean =
+    awaitTrue(!alive(pid), timeoutMillis)

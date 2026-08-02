@@ -267,11 +267,15 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
       // interrupt/destroy below always runs regardless (idle teardown is
       // harmless there).
       if !isSettled then onCancelRequested()
-      // Escalation: a graceful SIGINT to the agent process itself, giving it
-      // the chance to flush its session, then the forcible backstop, which for
-      // a subprocess source kills the whole process tree. So the
-      // non-interruptible reader's `source.lines` always reaches EOF, the scope
-      // join never hangs, and work the agent spawned doesn't outlive the turn.
+      // Escalation: SIGINT the agent process, then the forcible backstop, which
+      // for a subprocess source kills the whole process tree — so work the agent
+      // spawned doesn't outlive the turn. The two are back-to-back, with no
+      // grace window for the SIGINT: this same path runs in the routine
+      // `finally` of every turn, where the process has already exited.
+      // The destroy also unblocks a reader stuck on a pipe a descendant still
+      // holds open, but only where cancel runs CONCURRENTLY with that reader (a
+      // Ctrl-C at an interactive prompt); the autonomous drain calls cancel only
+      // after the reader has already finished.
       // Both are no-ops on the happy path. The `finalized` guard means the
       // reader, if it got there first, isn't re-run.
       source.interrupt()

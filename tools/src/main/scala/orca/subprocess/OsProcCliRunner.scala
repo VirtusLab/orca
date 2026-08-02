@@ -1,6 +1,7 @@
 package orca.subprocess
 
 import org.slf4j.LoggerFactory
+import ox.discard
 
 import java.util.concurrent.atomic.AtomicReference
 import scala.jdk.CollectionConverters.given
@@ -77,17 +78,35 @@ private final class OsPipedSubProcess(
     * remembered `ProcessHandle` cannot hit an unrelated process that recycled
     * the pid: the JDK signals only if the pid still has the start time the
     * handle was taken with.
+    *
+    * The snapshot only ever fills when orca signals a root that is still alive
+    * — a turn that settles, or a cancel. A root that exited on its own (an
+    * agent crash, a clean exit with no terminal message) was never signalled,
+    * so nothing was recorded and a descendant that redirected its own stdio
+    * survives. Covering that too needs a process group established at spawn,
+    * not parent→child links.
     */
-  private val signalledDescendants =
-    new AtomicReference[List[ProcessHandle]](Nil)
+  private val signalledDescendants: AtomicReference[List[ProcessHandle]] =
+    new AtomicReference(Nil)
 
   // Signals the root PID only, deliberately: a spawned child inherits the JVM's
   // process group (`ProcessBuilder` does not setsid), so `kill -INT -<pgid>`
   // would signal orca itself. Descendants are covered by `destroyForciblyTree`,
   // which walks parent→child links instead of the group.
   def sendSigInt(): Unit =
-    val _ = signalledDescendants.updateAndGet(_ ++ liveDescendants())
-    val _ = QuietProc.call(Seq("kill", "-INT", sub.wrapped.pid.toString))
+    // Walked outside the CAS: `updateAndGet` may retry its function, and an OS
+    // process walk is neither cheap nor idempotent enough to re-run.
+    val toRemember = liveDescendants()
+    signalledDescendants
+      .updateAndGet(prev => (prev ++ toRemember).distinct)
+      .discard
+    // Narrows (does not close) the window where the pid has been recycled by an
+    // unrelated process — unlike the ProcessHandle path, a shelled-out `kill`
+    // has no start-time check to protect it. SIGINT rather than
+    // `ProcessHandle.destroy`'s SIGTERM because that is the signal agent CLIs
+    // treat as "user interrupted me".
+    if sub.isAlive() then
+      QuietProc.call(Seq("kill", "-INT", sub.wrapped.pid.toString)).discard
 
   def isAlive: Boolean = sub.isAlive()
 
@@ -97,17 +116,25 @@ private final class OsPipedSubProcess(
   override def destroyForciblyTree(): Unit =
     // Descendants first, then the root: a child that outlives its parent holds
     // the inherited stdout/stderr pipe write-ends, so killing only the root PID
-    // would never EOF a blocked drain.
-    // Reachability is best-effort — an already-orphaned process that double-
-    // forked and got reparented to init (`nohup … &`, `setsid`) appears in
-    // neither the walk nor the snapshot, and would need a dedicated process
-    // group at spawn to catch.
-    (liveDescendants() ++ signalledDescendants.get())
-      .foreach(h => { val _ = h.destroyForcibly() })
-    val _ = sub.wrapped.toHandle.destroyForcibly()
+    // can leave a drain still waiting for EOF (the JDK closes our read end when
+    // the root exits, but that runs under the stream's own monitor, which a
+    // reader blocked mid-read may hold).
+    // Remembered handles are re-expanded rather than killed flat: by now the
+    // root is usually gone, so they are the only reachable branch of the tree,
+    // and each may have spawned children since the snapshot was taken.
+    // Reachability is best-effort throughout — a process that double-forked and
+    // got reparented to init (`nohup … &`, `setsid`) appears in neither the walk
+    // nor the snapshot, and would need a dedicated process group at spawn.
+    val remembered =
+      signalledDescendants.get().flatMap(h => h +: descendantsOf(h))
+    (liveDescendants() ++ remembered).foreach(_.destroyForcibly().discard)
+    sub.wrapped.toHandle.destroyForcibly().discard
 
   private def liveDescendants(): List[ProcessHandle] =
-    sub.wrapped.toHandle.descendants().toList.asScala.toList
+    descendantsOf(sub.wrapped.toHandle)
+
+  private def descendantsOf(handle: ProcessHandle): List[ProcessHandle] =
+    handle.descendants().iterator().asScala.toList
 
   def waitForExit(): Int =
     val _ = sub.join()

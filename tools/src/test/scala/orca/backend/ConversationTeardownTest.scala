@@ -28,8 +28,10 @@ class ConversationTeardownTest extends munit.FunSuite:
   test("cancel kills work the agent process spawned, not just its own PID"):
     supervised:
       // Stands in for an agent that backgrounded a build: the `sleep` inherits
-      // the stdout pipe and outlives nothing but its parent, which `wait` keeps
-      // alive so the descendant is reachable at kill time.
+      // the stdout pipe, and `wait` keeps the shell alive until the SIGINT, so
+      // the descendant is recorded by the signal-time snapshot. It is normally
+      // NOT reachable by the time the forcible step runs — the shell dies within
+      // milliseconds of the signal and the `sleep` is reparented to init.
       val process = OsProcCliRunner.spawnPiped(
         Seq("bash", "-c", "sleep 30 & echo $!; wait"),
         env = Map.empty,
