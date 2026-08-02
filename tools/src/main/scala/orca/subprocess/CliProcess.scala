@@ -1,5 +1,7 @@
 package orca.subprocess
 
+import orca.sweep.EnvCookie
+
 trait CliProcess:
   def sendSigInt(): Unit
   def isAlive: Boolean
@@ -44,3 +46,10 @@ trait PipedCliProcess extends CliProcess:
     * The reader fork uses this to tell a clean EOF from a crash.
     */
   def tryExitCode: Option[Int]
+
+  /** Cookie put in this process's environment at spawn. Everything it forks
+    * inherits it, including anything it detaches from orca's process tree, so
+    * [[orca.sweep.EnvCookieSweep]] can find those once the turn is over. `None`
+    * for a process orca did not spawn itself (test fakes).
+    */
+  def envCookie: Option[EnvCookie] = None

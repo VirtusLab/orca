@@ -1,5 +1,7 @@
 package orca.subprocess
 
+import orca.sweep.EnvCookie
+
 class OsProcCliRunnerTest extends munit.FunSuite:
 
   private def alive(pid: Long): Boolean =
@@ -34,3 +36,23 @@ class OsProcCliRunnerTest extends munit.FunSuite:
       awaitDead(childPid),
       "tree kill must terminate the forked descendant"
     )
+
+  /** The spawn's cookie must reach the child ON TOP OF the environment it would
+    * have inherited anyway — os-lib augments rather than replaces, and the
+    * sweep would be useless if adding the cookie stripped the CLI's own
+    * configuration.
+    */
+  test("spawnPiped adds its cookie to the inherited environment"):
+    val proc = OsProcCliRunner.spawnPiped(
+      Seq("bash", "-c", s"""echo "$$${EnvCookie.VarName}|$$HOME|$$EXTRA""""),
+      env = Map("EXTRA" -> "from-caller"),
+      cwd = os.pwd,
+      pipeStderr = false
+    )
+    try
+      val cookie = proc.envCookie.getOrElse(fail("no cookie was injected"))
+      assertEquals(
+        proc.stdoutLines.next(),
+        s"${cookie.value}|${sys.env("HOME")}|from-caller"
+      )
+    finally proc.destroyForciblyTree()

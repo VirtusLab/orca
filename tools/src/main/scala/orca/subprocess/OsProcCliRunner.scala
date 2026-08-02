@@ -1,5 +1,7 @@
 package orca.subprocess
 
+import orca.sweep.EnvCookie
+
 import org.slf4j.LoggerFactory
 
 import scala.jdk.CollectionConverters.given
@@ -34,11 +36,16 @@ object OsProcCliRunner extends CliRunner:
       pipeStderr: Boolean
   ): PipedCliProcess =
     log.debug("spawn: {} (cwd={})", args.mkString(" "), cwd)
+    // Minted per spawn so anything the child leaves running names the turn that
+    // started it. os-lib's `env` is applied on top of the inherited
+    // environment (it replaces it only with `propagateEnv = false`), so this
+    // adds one variable and changes nothing else the CLI sees.
+    val cookie = EnvCookie.mint()
     val sub = os
       .proc(args)
       .spawn(
         cwd = cwd,
-        env = env,
+        env = env + (EnvCookie.VarName -> cookie.value),
         stdin = os.Pipe,
         stdout = os.Pipe,
         // Inherit by default: piping risks a buffer-fill hang when the child
@@ -47,11 +54,12 @@ object OsProcCliRunner extends CliRunner:
         // lines as ConversationEvent.Errors.
         stderr = if pipeStderr then os.Pipe else os.Inherit
       )
-    new OsPipedSubProcess(sub, pipeStderr)
+    new OsPipedSubProcess(sub, pipeStderr, Some(cookie))
 
 private final class OsPipedSubProcess(
     sub: os.SubProcess,
-    stderrPiped: Boolean
+    stderrPiped: Boolean,
+    override val envCookie: Option[EnvCookie]
 ) extends PipedCliProcess:
 
   // Memoised so repeated calls return the same iterator, avoiding a second

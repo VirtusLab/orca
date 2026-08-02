@@ -259,6 +259,8 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
           e
         )
 
+  override def envCookie: Option[orca.sweep.EnvCookie] = source.envCookie
+
   def cancel(): Unit =
     if cancelled.compareAndSet(false, true) then
       // Only a turn that hasn't settled yet is a GENUINE cancel; a turn already

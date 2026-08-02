@@ -1,6 +1,7 @@
 package orca.backend
 
 import orca.agents.{BackendTag}
+import orca.sweep.EnvCookie
 import orca.{OrcaInteractiveCancelled}
 
 import ox.Ox
@@ -64,3 +65,9 @@ trait Conversation[B <: BackendTag]:
     * `Left(OrcaInteractiveCancelled)`. Calling `cancel` twice is a no-op.
     */
   def cancel(): Unit
+
+  /** Cookie carried by the OS process backing this conversation, if there is
+    * one. The turn's teardown sweeps for it to find work the agent detached
+    * from orca's process tree ([[orca.sweep.EnvCookieSweep]]).
+    */
+  def envCookie: Option[EnvCookie] = None

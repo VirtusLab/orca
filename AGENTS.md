@@ -16,7 +16,7 @@ generation.
 ```
 orca/
 ├── build.sbt / project/
-├── tools/      # tool traits + os-backed impls (git/gh/fs), LLM SPI + session durability, InStage, events, subprocess
+├── tools/      # tool traits + os-backed impls (git/gh/fs), LLM SPI + session durability, InStage, events, subprocess, sweep
 ├── flow/       # stage/display/fail + FlowContext/FlowControl; orca.{plan,review,pr,progress}
 ├── claude/ codex/ gemini/ opencode/ pi/   # one module per coding-agent backend
 ├── runner/     # flow() entry, DefaultFlowContext, FlowLifecycle, terminal UI
@@ -47,7 +47,8 @@ backend-agnostic role accessors (ADR 0020) — `stage`/`display`/`fail`,
 `JsonData`, `OrcaArgs`). Implementations live in
 focused subpackages: `orca.tools` (os-backed git/gh/fs impls + their traits),
 `orca.agents` + `orca.backend` (LLM SPI, `SessionSupport`,
-conversation driver), `orca.subprocess` (subprocess shim), `orca.events`
+conversation driver), `orca.subprocess` (subprocess shim), `orca.sweep`
+(finds agent work that outlived a turn), `orca.events`
 (event bus), one `orca.tools.<backend>` per coding agent, and `orca.runner` /
 `orca.runner.terminal` (wiring + terminal UI). The flow module adds
 `orca.{plan,review,pr,progress}`.
@@ -317,6 +318,13 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   or a `CliRunner`. os-lib defaults `os.proc(...).call(...)`'s `stderr` to
   `Inherit`, which lets subprocess output bypass the renderer's StatusBar
   and tear the spinner row.
+- Every `spawnPiped` child carries a unique `ORCA_TURN_COOKIE`
+  (`orca.sweep.EnvCookie`), which `fork`/`exec` copy unconditionally. At turn
+  teardown `EnvCookieSweep` scans `/proc/*/environ` for it and REPORTS what is
+  still running — the backstop for work an agent detached from orca's process
+  tree, which no parent-link teardown can reach. Report-only unless
+  `ORCA_SWEEP_KILL=1`; Linux only, and it says so rather than finding nothing
+  elsewhere.
 - Any filesystem write under `.orca/` **must** go through
   `OrcaDir.ensureRoot`/`ensureCache`, which refuse a symlinked `.orca` or
   `.orca/cache` component (`OrcaDir.abortIfOrcaComponentSymlink`) before

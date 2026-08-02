@@ -2,6 +2,7 @@ package orca.backend
 
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.agents.{BackendTag, SessionId}
+import orca.sweep.{EnvCookie, EnvCookieSweep}
 
 import ox.{Ox, supervised}
 
@@ -176,6 +177,10 @@ private[orca] object Conversations:
     * cancel before the scope joins (load-bearing on failure paths —
     * `drainAndCommit` does not tear down). `open` runs inside the scope so the
     * conversation's forks bind to it.
+    *
+    * The cancel reaches only what is still linked to the agent process; the
+    * sweep that follows it reports whatever the agent detached from orca's
+    * process tree and so survived.
     */
   def runAutonomous[B <: BackendTag](
       session: SessionId[B],
@@ -185,7 +190,9 @@ private[orca] object Conversations:
     supervised:
       val conv = open
       try drainAndCommit(conv, session, sessions, events)
-      finally conv.cancel()
+      finally
+        conv.cancel()
+        EnvCookieSweep.afterTurn(conv.envCookie, events)
 
   /** Interactive counterpart to the autonomous drain's `TurnBuffer`: wraps a
     * live [[Conversation]] so its assistant PROSE (text deltas + the turn
@@ -211,6 +218,7 @@ private[orca] object Conversations:
       def outputSchema: Option[String] = conv.outputSchema
       def canAskUser: Boolean = conv.canAskUser
       def cancel(): Unit = conv.cancel()
+      override def envCookie: Option[EnvCookie] = conv.envCookie
       def awaitResult()(using Ox) = conv.awaitResult()
       def events(using Ox): Iterator[ConversationEvent] =
         ProseWithholdingIterator(
