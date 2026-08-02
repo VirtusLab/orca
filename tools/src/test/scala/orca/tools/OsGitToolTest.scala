@@ -523,6 +523,21 @@ class OsGitToolTest extends munit.FunSuite:
       assert(diff.contains("-first"), diff)
       assert(diff.contains("+second"), diff)
 
+  test("reviewDiff since a base commit reports work committed after it"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      val base = git.headCommit()
+      os.write(dir / "committed.txt", "already committed")
+      git.commit("agent committed its own work").orThrow
+      assert(git.reviewDiff().isEmpty, "precondition: nothing left uncommitted")
+      val diff = git.reviewDiff(base)
+      assert(diff.contains("+already committed"), diff)
+
+  test("headCommit is empty in a repository with no commits"):
+    withRepo: (git, _) =>
+      assertEquals(git.headCommit(), None)
+
   test("diffStat names the changed file and its counts"):
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "one\n")

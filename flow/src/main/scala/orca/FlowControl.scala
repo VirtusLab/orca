@@ -40,12 +40,22 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
 
   /** Open a stage named `name` and return its full path id (e.g.
     * `outer#0/inner#0`). Called once by `stage` before the resume lookup; must
-    * be balanced by [[exitStage]]. See [[StageFrames]] for the protocol.
+    * be balanced by [[exitStage]]. `baseCommit` is the commit the stage starts
+    * from, read back by [[stageBaseCommit]]. See [[StageFrames]] for the
+    * protocol.
     */
-  def enterStage(name: String): String
+  def enterStage(name: String, baseCommit: Option[String]): String
 
   /** Pop the frame opened by the matching [[enterStage]]. */
   def exitStage(): Unit
+
+  /** The commit the innermost open stage started from, as recorded by
+    * [[enterStage]] — the baseline for the change set that stage has produced,
+    * whether or not it has since been committed. `None` outside any stage, and
+    * when the stage began with nothing to point at (a repository with no
+    * commits).
+    */
+  def stageBaseCommit: Option[String]
 
   /** Whether execution is currently inside a stage body (any stage frame open).
     * Gates `agent.session(...)` to the flow-body top level.

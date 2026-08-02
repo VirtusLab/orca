@@ -248,14 +248,18 @@ def reviewAndFixLoop[B <: BackendTag](
     confidenceGate: ConfidenceGate = ConfidenceGate.default,
     maxIterations: Int = 10,
     fixInstructions: String = ReviewLoopPrompts.Fix,
-    /** Override the diff handed to each reviewer in its initial prompt.
-      * Defaults to `ctx.git.reviewDiff()` re-sampled at the start of every
-      * iteration, so a reviewer joining the active set on iteration N sees the
-      * working tree including earlier fixes — tracked changes plus any
-      * newly-created files, `.orca/` bookkeeping excluded. Reviewers with an
-      * existing session resume it and don't get the diff again. Pass
-      * `Some(...)` to pin the diff (tests, or when the change set is already
-      * committed and `git.reviewDiff()` would be empty).
+    /** Override the diff handed to each reviewer in its initial prompt, and the
+      * changed-file list the selector is given.
+      *
+      * The default samples everything the enclosing stage has produced —
+      * `ctx.git.reviewDiff(fc.stageBaseCommit)`, tracked changes plus
+      * newly-created files, `.orca/` bookkeeping excluded — re-sampled at the
+      * start of every iteration, so a reviewer joining the active set on
+      * iteration N sees the earlier fixes too. Reviewers with an existing
+      * session resume it and don't get the diff again.
+      *
+      * Pass `Some(...)` to pin the diff instead, when the caller knows the
+      * change set better than the stage baseline does.
       */
     initialDiff: Option[String] = None
 )(using
@@ -280,6 +284,10 @@ def reviewAndFixLoop[B <: BackendTag](
       )
     case Configured.Off    => None
     case Configured.Use(l) => Some(l)
+  // Read from `fc` here, at loop entry, for the same reason: the fan-out
+  // closures may then carry the plain commit hash rather than the exclusive
+  // capability it came from.
+  val reviewBase: Option[String] = fc.stageBaseCommit
   // `ctx` (pure [[FlowContext]]) is what the fan-out closures may capture;
   // `fc`/`ws` (exclusive capabilities) are handed only to `run()`, so the durable
   // fix turn reaches the [[FlowSession]] door without those tokens landing in the
@@ -297,7 +305,8 @@ def reviewAndFixLoop[B <: BackendTag](
       confidenceGate = confidenceGate,
       maxIterations = maxIterations,
       fixInstructions = fixInstructions,
-      initialDiff = initialDiff
+      initialDiff = initialDiff,
+      reviewBase = reviewBase
     )
   )(using ctx, ev).run()(using fc, ws)
 
@@ -323,7 +332,11 @@ private[review] case class ReviewLoopConfig[B <: BackendTag](
     confidenceGate: ConfidenceGate,
     maxIterations: Int,
     fixInstructions: String,
-    initialDiff: Option[String]
+    initialDiff: Option[String],
+    /** The commit the enclosing stage started from — see
+      * [[ReviewFixLoop.sampleDiff]].
+      */
+    reviewBase: Option[String]
 )
 
 /** Implementation of [[reviewAndFixLoop]]: one instance per invocation holds
@@ -349,11 +362,18 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   // The roster, wrapped once as identity-keyed handles (see [[RosterEntry]]).
   private val roster: List[RosterEntry[?]] = reviewers.map(RosterEntry.wrap)
 
-  // A constant override skips the git call; the default samples the diff fresh
-  // each iteration so a newly-active reviewer sees the latest, not the
-  // loop-start one.
+  /** The change set under review: everything the enclosing stage has produced
+    * since `reviewBase`, so work the coding agent committed itself counts too —
+    * against HEAD it would read as empty and every reviewer would be handed
+    * nothing. A constant `initialDiff` override skips the git call; otherwise
+    * the sample is fresh each iteration, so a newly-active reviewer sees the
+    * fixer's later edits and not just the loop-start state.
+    *
+    * With no `reviewBase` (no enclosing stage, or a repository with no commits)
+    * this falls back to the uncommitted-work-only view.
+    */
   private def sampleDiff(): String =
-    initialDiff.getOrElse(ctx.git.reviewDiff())
+    initialDiff.getOrElse(ctx.git.reviewDiff(reviewBase))
 
   // Loop-constant context handed to the selector on every iteration: the task's
   // title plus the file paths from the diff at loop entry. Sampled here so each

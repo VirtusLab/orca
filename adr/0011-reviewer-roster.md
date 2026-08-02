@@ -176,3 +176,27 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 > `SessionEntry`, `reviewWithSession`, `ReviewFixLoop.evaluate`) for the
 > current implementation. The `resolveAgainstRoster` symbol referenced by the
 > 2026-07-06 amendment above no longer exists.
+
+> **Amendment (2026-08-02).** Selection and review run against **the change set
+> the enclosing stage has produced**, not against `git diff HEAD`. Nothing
+> forbids a coding agent from committing its own work, and agents do; once they
+> have, a HEAD-relative diff is empty, so the selector saw `changedFiles = Nil`
+> and every reviewer was prompted with "(no diff captured — review the working
+> tree)" and had to rediscover the change set by hand, every round.
+>
+> The baseline is the commit HEAD pointed at when the stage began, recorded by
+> `enterStage` and read back as `FlowControl.stageBaseCommit`; the loop samples
+> `git.reviewDiff(stageBaseCommit)` — tracked changes since that commit plus
+> untracked file contents, `.orca/` excluded. It is the stage, not the branch,
+> that bounds the change set: a branch-wide base (`git.defaultBase()`) would
+> pull in every earlier task of a multi-task plan. With no baseline — no
+> enclosing stage, or a repository with no commits — the loop falls back to the
+> working-tree-only view.
+>
+> Re-selection is NOT re-run per round. `prepare`'s pick stays a once-per-loop
+> LLM call (the picker is the cost this ADR exists to bound), and per-round
+> narrowing over `history` — who reported last round — remains the signal the
+> arrow narrows on. What the baseline changes is that the once-computed
+> `changedFiles` is now the task's real file set rather than empty, and that
+> each round's re-sample carries the fixer's later edits, committed or not, to a
+> reviewer joining that round.
