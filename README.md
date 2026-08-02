@@ -932,8 +932,6 @@ scala-cli run --workspace "${XDG_CACHE_HOME:-$HOME/.cache}/orca/shell/workspace"
   0018](adr/0018-stage-bound-flow-runtime.md) describes the current stage-bound
   runtime; the ADR index covers module layout, backends, the flow DSL, and
   reviewers.
-- [`CHANGELOG.md`](CHANGELOG.md) — notable changes per release; breaking
-  changes are announced here.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — building, testing, and running a
   locally modified orca.
 - [`AGENTS.md`](AGENTS.md) — internals, architecture, and coding conventions;
