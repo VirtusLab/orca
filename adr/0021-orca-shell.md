@@ -409,7 +409,8 @@ log by `clientId`, and writes the manifest.
 **Manifest**: one JSON file per run at
 `.orca/cache/runs/<startedAt>-<pid>.json` (self-gitignored cache; at most
 one writer per workdir thanks to `FlowLock`), schema v1 per research 08 §4:
-`manifestVersion` (hard gate — newer than the shell understands ⇒ skip with
+`manifestVersion` (hard gate, checked before the body is decoded — any
+version other than the one the build writes ⇒ skip with
 a message), `orcaVersion`, `flow` (populated from the `ORCA_FLOW_NAME` env
 var the shell sets before exec'ing the child — the flow's filename is
 unknowable in-library; `None` for direct `scala-cli run` invocations),

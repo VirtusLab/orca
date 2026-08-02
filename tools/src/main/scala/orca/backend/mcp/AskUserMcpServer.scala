@@ -24,7 +24,7 @@ private[mcp] case class AskUserInput(question: String) derives Codec, Schema
   */
 private[orca] class AskUserMcpServer private[mcp] (
     /** The bound port. Useful when the caller wants to disambiguate per-server
-      * artefacts (e.g. claude's `.orca-mcp-$port.json` config file).
+      * artefacts (e.g. claude's `mcp-$port.json` config file).
       */
     val port: Int,
     stopFn: () => Unit

@@ -3,7 +3,8 @@ package orca.runner.manifest
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.OrcaDir
 import orca.WorkspaceWrite
-import orca.events.OrcaEvent
+import orca.agents.Model
+import orca.events.{Cost, OrcaEvent, PriceList, Pricing, Usage}
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.testkit.TempDirs
 import ox.channels.BufferCapacity
@@ -30,9 +31,10 @@ class RunManifestWriterTest extends munit.FunSuite:
   private def newWriter(
       workDir: os.Path,
       clock: () => Instant,
-      flowName: Option[String] = None
+      flowName: Option[String] = None,
+      pricing: PriceList = Pricing.default
   ): RunManifestWriterState =
-    new RunManifestWriterState(workDir, "0.0.test", flowName, clock)
+    new RunManifestWriterState(workDir, "0.0.test", flowName, pricing, clock)
 
   private def manifestFiles(workDir: os.Path): List[os.Path] =
     os.list(OrcaDir.cacheRunsPath(workDir)).filter(_.ext == "json").toList
@@ -326,6 +328,7 @@ class RunManifestWriterTest extends munit.FunSuite:
         workDir,
         "0.0.test",
         None,
+        Pricing.default,
         () => Instant.now()
       )
       val threads = (0 until 2).map: t =>
@@ -416,3 +419,137 @@ class RunManifestWriterTest extends munit.FunSuite:
     val manifest = soleManifest(workDir)
     assertEquals(manifest.flow, Some("review-pr.sc"))
     assertEquals(manifest.workDir, workDir.toString)
+
+  test("cost section totals the run and breaks it down on all three axes"):
+    val workDir = TempDirs.dir()
+    val writer =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    writer.onEvent(
+      OrcaEvent
+        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+    )
+    // One call the table has to price and one the backend reported, so the run
+    // total is a mix. The priced call's cache-read and cache-write figures are
+    // deliberately non-zero and unequal: they are what pins that both axes
+    // survive the ManifestUsage projection, and that a write is billed at the
+    // write rate rather than folded into base input.
+    writer.onEvent(
+      OrcaEvent.TokensUsed(
+        agent = "claude",
+        model = Some(Model("claude-sonnet-5")),
+        usage = Usage(
+          inputTokens = 120_000,
+          outputTokens = 900,
+          cost = None,
+          cacheReadInputTokens = 107_000,
+          cacheWriteInputTokens = 8_000
+        ),
+        role = None
+      )
+    )
+    writer.onEvent(
+      OrcaEvent.TokensUsed(
+        agent = "reviewer",
+        model = Some(Model("claude-haiku-4-5")),
+        usage = Usage(
+          inputTokens = 5_000,
+          outputTokens = 100,
+          cost = Some(BigDecimal("0.0123"))
+        ),
+        role = Some("reviewer")
+      )
+    )
+    writer.finish(RunOutcome.Succeeded)
+
+    val cost = soleManifest(workDir).cost
+    assertEquals(
+      cost.total,
+      ManifestUsage(
+        inputTokens = 125_000,
+        outputTokens = 1_000,
+        cacheReadInputTokens = 107_000,
+        cacheWriteInputTokens = 8_000,
+        reasoningOutputTokens = 0
+      )
+    )
+    // 5k fresh at $3/M + 107k cache-read at $0.30/M + 8k cache-write at $6/M +
+    // 900 out at $15/M = $0.1086, plus the reported $0.0123. `estimated`
+    // survives the addition, so the run total can't be read as a billed figure.
+    assertEquals(cost.cost, Some(Cost(BigDecimal("0.1209"), estimated = true)))
+    assertEquals(
+      cost.byAgent.map(s => (s.key, s.usage.inputTokens)),
+      List((Some("claude"), 120_000L), (Some("reviewer"), 5_000L))
+    )
+    assertEquals(
+      cost.byRole.map(s => (s.key, s.usage.inputTokens)),
+      List((None, 120_000L), (Some("reviewer"), 5_000L))
+    )
+    assertEquals(
+      cost.byStage.map(s => (s.key, s.usage.inputTokens)),
+      List((None, 125_000L))
+    )
+
+  test("per-turn log records each turn's identity, stage and prompt size"):
+    val workDir = TempDirs.dir()
+    val writer =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    writer.onEvent(OrcaEvent.StageStarted("code"))
+    writer.onEvent(
+      OrcaEvent
+        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+    )
+    writer.onEvent(
+      OrcaEvent.TokensUsed("claude", None, Usage(107_000, 500, None), None)
+    )
+    // Closing the stage between the two turns pins that the stage is stamped
+    // when a turn is recorded, not when the manifest is later written.
+    writer.onEvent(OrcaEvent.StageCompleted("code"))
+    // The CLI answering from leftover session state: no request went out, so
+    // every counter is zero.
+    writer.onEvent(
+      OrcaEvent.TokensUsed(
+        "reviewer",
+        None,
+        Usage(0, 0, None),
+        Some("reviewer")
+      )
+    )
+    writer.finish(RunOutcome.Succeeded)
+
+    val turns = soleManifest(workDir).turns
+    assertEquals(
+      turns,
+      List(
+        ManifestTurn(
+          at = "2026-07-18T10:00:00Z",
+          agent = "claude",
+          role = None,
+          stage = Some("code"),
+          promptTokens = 107_000
+        ),
+        ManifestTurn(
+          at = "2026-07-18T10:00:00Z",
+          agent = "reviewer",
+          role = Some("reviewer"),
+          stage = None,
+          promptTokens = 0
+        )
+      )
+    )
+
+  test("a failed write is swallowed and does not stop the next one"):
+    val workDir = TempDirs.dir()
+    val writer =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    // A plain file where the runs directory belongs: every write into it fails.
+    val runsDir = OrcaDir.cacheRunsPath(workDir)
+    os.remove.all(runsDir)
+    os.write(runsDir, "not a directory")
+    writer.onEvent(
+      OrcaEvent
+        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+    )
+    os.remove(runsDir): Unit
+    os.makeDir.all(runsDir)
+    writer.finish(RunOutcome.Succeeded)
+    assertEquals(soleManifest(workDir).outcome, "succeeded")

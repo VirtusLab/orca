@@ -15,12 +15,17 @@ trait CliProcess:
     */
   def destroyForcibly(): Unit
 
-  /** Forcibly terminate this process AND any descendants. Defaults to just this
-    * process; override where a launch wrapper (e.g. `ollama launch opencode`)
-    * forks the real process, which inherits the stdout/stderr pipe fds: a
-    * single-PID kill would orphan it, leaving those write-ends open so a reader
-    * blocked on the pipe never sees EOF. Same call-anywhere / idempotent
-    * contract as [[destroyForcibly]].
+  /** Forcibly terminate this process AND every descendant still reachable from
+    * it — the teardown every caller driving a real, spawned process wants. Two
+    * reasons a single-PID kill isn't enough: a surviving descendant holds the
+    * inherited stdout/stderr pipe write-ends, so a reader blocked on the pipe
+    * can be left waiting for EOF; and it keeps running after the turn that
+    * started it, free to hold a build lock or write into the working tree the
+    * flow is about to commit. A descendant that detached itself into its own
+    * session is out of reach — see the OS-backed implementation.
+    *
+    * Defaults to just this process, which is what fakes with no real children
+    * want. Same call-anywhere / idempotent contract as [[destroyForcibly]].
     */
   def destroyForciblyTree(): Unit = destroyForcibly()
 

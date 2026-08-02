@@ -172,6 +172,7 @@ def flow(
       workDir,
       OrcaBanner.version,
       flowName,
+      pricing,
       () => java.time.Instant.now()
     )
     try

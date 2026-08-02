@@ -3,7 +3,9 @@ package orca.subprocess
 import orca.sweep.EnvCookie
 
 import org.slf4j.LoggerFactory
+import ox.discard
 
+import java.util.concurrent.atomic.AtomicReference
 import scala.jdk.CollectionConverters.given
 
 /** Runs external commands via os-lib. `check = false` is intentional — callers
@@ -76,8 +78,41 @@ private final class OsPipedSubProcess(
     if stderrPiped then sub.stderr.buffered.lines().iterator().asScala
     else Iterator.empty
 
+  /** Descendants that were alive when the root was signalled. Signalling the
+    * root can make it exit, at which point its children are reparented to init
+    * and drop out of the root's `descendants()` walk — so a later tree kill
+    * would silently miss exactly the processes it exists to reap. Killing a
+    * remembered `ProcessHandle` cannot hit an unrelated process that recycled
+    * the pid: the JDK signals only if the pid still has the start time the
+    * handle was taken with.
+    *
+    * The snapshot only ever fills when orca signals a root that is still alive
+    * — a turn that settles, or a cancel. A root that exited on its own (an
+    * agent crash, a clean exit with no terminal message) was never signalled,
+    * so nothing was recorded and a descendant that redirected its own stdio
+    * survives.
+    */
+  private val signalledDescendants: AtomicReference[List[ProcessHandle]] =
+    new AtomicReference(Nil)
+
+  // Signals the root PID only, deliberately: a spawned child inherits the JVM's
+  // process group (`ProcessBuilder` does not setsid), so `kill -INT -<pgid>`
+  // would signal orca itself. Descendants are covered by `destroyForciblyTree`,
+  // which walks parent→child links instead of the group.
   def sendSigInt(): Unit =
-    val _ = QuietProc.call(Seq("kill", "-INT", sub.wrapped.pid.toString))
+    // Walked outside the CAS: `updateAndGet` may retry its function, and an OS
+    // process walk is neither cheap nor idempotent enough to re-run.
+    val toRemember = liveDescendants()
+    signalledDescendants
+      .updateAndGet(prev => (prev ++ toRemember).distinct)
+      .discard
+    // Narrows (does not close) the window where the pid has been recycled by an
+    // unrelated process — unlike the ProcessHandle path, a shelled-out `kill`
+    // has no start-time check to protect it. SIGINT rather than
+    // `ProcessHandle.destroy`'s SIGTERM because that is the signal agent CLIs
+    // treat as "user interrupted me".
+    if sub.isAlive() then
+      QuietProc.call(Seq("kill", "-INT", sub.wrapped.pid.toString)).discard
 
   def isAlive: Boolean = sub.isAlive()
 
@@ -85,17 +120,32 @@ private final class OsPipedSubProcess(
     val _ = sub.wrapped.destroyForcibly()
 
   override def destroyForciblyTree(): Unit =
-    // Descendants first, then the root: a launch wrapper that forked the real
-    // child leaves it holding the inherited stdout/stderr pipe write-ends, so
-    // killing only the root PID would never EOF a blocked drain.
-    // `descendants()` is a best-effort snapshot of live parent→child linkage; it
-    // catches a wrapper that stays alive as the worker's parent (the `ollama
-    // launch` case), but NOT one that double-forks and exits, reparenting the
-    // worker to init — that would need a process-group kill or a recorded worker
-    // PID. No current launcher does that.
-    val handle = sub.wrapped.toHandle
-    handle.descendants().forEach(h => { val _ = h.destroyForcibly() })
-    val _ = handle.destroyForcibly()
+    // Descendants first, then the root: a child that outlives its parent holds
+    // the inherited stdout/stderr pipe write-ends, so killing only the root PID
+    // can leave a drain still waiting for EOF (the JDK closes our read end when
+    // the root exits, but that runs under the stream's own monitor, which a
+    // reader blocked mid-read may hold).
+    // Remembered handles are re-expanded rather than killed flat: by now the
+    // root is usually gone, so they are the only reachable branch of the tree,
+    // and each may have spawned children since the snapshot was taken.
+    // Reachability is best-effort throughout — a process that detached itself
+    // (`nohup … &`, `setsid`) appears in neither the walk nor the snapshot. A
+    // process group established here would not extend to it either: every agent
+    // CLI runs its tool calls in a session of their own, so orca's group never
+    // contains them (measured: a claude bash tool call's session id is its own
+    // pid). Reaching a detached process needs a marker it carries — e.g. a
+    // per-turn cookie injected into the environment and swept at teardown — or
+    // an OS-level container such as a cgroup scope.
+    val remembered =
+      signalledDescendants.get().flatMap(h => h +: descendantsOf(h))
+    (liveDescendants() ++ remembered).foreach(_.destroyForcibly().discard)
+    sub.wrapped.toHandle.destroyForcibly().discard
+
+  private def liveDescendants(): List[ProcessHandle] =
+    descendantsOf(sub.wrapped.toHandle)
+
+  private def descendantsOf(handle: ProcessHandle): List[ProcessHandle] =
+    handle.descendants().iterator().asScala.toList
 
   def waitForExit(): Int =
     val _ = sub.join()

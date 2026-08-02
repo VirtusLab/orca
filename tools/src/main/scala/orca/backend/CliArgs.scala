@@ -15,9 +15,9 @@ private[orca] object CliArgs:
   def flag[A](name: String, opt: Option[A])(render: A => String): Seq[String] =
     opt.toSeq.flatMap(v => Seq(name, render(v)))
 
-  /** `--model <name>` when `config.model` is set, empty otherwise. Both
-    * supported backends spell the flag the same way; if a future backend
-    * differs, render the model name elsewhere and don't use this helper.
+  /** `--model <name>` when `config.model` is set, empty otherwise. Codex,
+    * gemini and pi spell the flag the same way; claude renders its own because
+    * it rewrites one alias (see `ClaudeArgs.modelArgs`).
     */
   def modelArgs(config: AgentConfig): Seq[String] =
     flag("--model", config.model)(_.name)
