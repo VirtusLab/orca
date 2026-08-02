@@ -110,7 +110,7 @@ Orca answers that prompt automatically:
 So claude reviewers get a shell because orca auto-approves the prompt plan mode
 raises. Measured in the baseline run: ten reviewer sessions, every one recording
 `permissionMode: plan`, issuing **199 Bash calls with zero `is_error`** —
-including session `0483818f`, which ran
+including one which ran
 
 ```
 cd /tmp && cat > dtest.scala <<'EOF' … EOF
@@ -153,10 +153,11 @@ Before #59, reviewers whose work was already committed received the literal
 by hand. 88 reviewer sessions of that are on disk alongside sessions that did get
 a diff — a natural experiment in the variable under question.
 
-Method: every transcript under `~/.claude/projects/-home-adamw-orca/` whose first
-user message carries the `initial-review.md` signature; arms split on the
-no-diff fallback; rounds counted from initial-review + re-review prompts; tool
-calls deduplicated by `tool_use` **block id**; `StructuredOutput` excluded.
+Method: every Claude Code transcript for this project whose first user message
+carries the `initial-review.md` signature, joined to the run manifests by
+`wireId`; arms split on the no-diff fallback; rounds counted from
+initial-review + re-review prompts; tool calls deduplicated by `tool_use`
+**block id**; `StructuredOutput` excluded.
 
 | per **round** | inline diff (n=64) | no diff (n=24) |
 |---|---|---|
