@@ -160,10 +160,9 @@ trait GitTool:
 
   def currentBranch(): String
 
-  /** The commit HEAD resolves to, as a full hash. READ-ONLY. `None` when HEAD
-    * names no commit (a repository with no history yet) or the probe cannot
-    * answer — best-effort, so a caller recording a baseline can carry on
-    * without one.
+  /** The commit HEAD resolves to, as a full hash. READ-ONLY. Best-effort:
+    * `None` when HEAD names no commit (a repository with no history yet) or the
+    * probe cannot answer.
     */
   def headCommit(): Option[String]
 
@@ -247,9 +246,8 @@ trait GitTool:
     *
     * `since` is the commit the working tree is compared against. `None` means
     * HEAD — uncommitted work only, which is empty once the work has been
-    * committed. Pass the commit a unit of work started from (see
-    * [[headCommit]]) to get everything it produced, whether or not the agent
-    * doing the work committed it along the way.
+    * committed; pass the commit a unit of work started from (see
+    * [[headCommit]]) to see everything it produced either way.
     */
   def reviewDiff(since: Option[String] = None): String
 
@@ -501,12 +499,15 @@ private[orca] class OsGitTool(
   def currentBranch(): String =
     git("rev-parse", "--abbrev-ref", "HEAD").trim
 
-  def headCommit(): Option[String] =
-    // `--verify` makes an unborn HEAD (no commits yet) a non-zero exit rather
-    // than an echo of the literal "HEAD"; `--quiet` keeps that off stderr.
+  def headCommit(): Option[String] = revParse("HEAD")
+
+  /** The hash `ref` resolves to, `None` when it doesn't resolve. `--verify`
+    * makes an unresolvable ref a non-zero exit rather than an echo of the ref
+    * itself; `--quiet` keeps that off stderr.
+    */
+  private def revParse(ref: String): Option[String] =
     try
-      val result =
-        gitProc(Seq("git", "rev-parse", "--verify", "--quiet", "HEAD"))
+      val result = gitProc(Seq("git", "rev-parse", "--verify", "--quiet", ref))
       if result.exitCode == 0 then
         Some(result.out.text().trim).filter(_.nonEmpty)
       else None
@@ -661,8 +662,7 @@ private[orca] class OsGitTool(
       Some(result.out.text().trim.stripPrefix("refs/remotes/"))
     else None
 
-  private def refExists(ref: String): Boolean =
-    gitProc(Seq("git", "rev-parse", "--verify", "--quiet", ref)).exitCode == 0
+  private def refExists(ref: String): Boolean = revParse(ref).isDefined
 
   def log(n: Int): List[CommitInfo] =
     // Fields are separated with the ASCII unit separator (0x1F) so commit

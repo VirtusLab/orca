@@ -258,8 +258,8 @@ def reviewAndFixLoop[B <: BackendTag](
       * iteration N sees the earlier fixes too. Reviewers with an existing
       * session resume it and don't get the diff again.
       *
-      * Pass `Some(...)` to pin the diff instead, when the caller knows the
-      * change set better than the stage baseline does.
+      * Pass `Some(...)` to pin the diff instead of sampling it — what the tests
+      * use to skip the git call.
       */
     initialDiff: Option[String] = None
 )(using
@@ -363,14 +363,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   private val roster: List[RosterEntry[?]] = reviewers.map(RosterEntry.wrap)
 
   /** The change set under review: everything the enclosing stage has produced
-    * since `reviewBase`, so work the coding agent committed itself counts too —
-    * against HEAD it would read as empty and every reviewer would be handed
-    * nothing. A constant `initialDiff` override skips the git call; otherwise
-    * the sample is fresh each iteration, so a newly-active reviewer sees the
-    * fixer's later edits and not just the loop-start state.
-    *
-    * With no `reviewBase` (no enclosing stage, or a repository with no commits)
-    * this falls back to the uncommitted-work-only view.
+    * since `reviewBase` (ADR 0018 §2.1). Re-sampled each iteration, so a
+    * newly-active reviewer sees the fixer's later edits; a constant
+    * `initialDiff` override skips the git call entirely.
     */
   private def sampleDiff(): String =
     initialDiff.getOrElse(ctx.git.reviewDiff(reviewBase))

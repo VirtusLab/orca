@@ -530,33 +530,8 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("initialDiff is embedded in the reviewer's first prompt"):
     given FlowControl = control
-    var capturedFirst: Option[String] = None
-    val captureReviewer = new Agent[BackendTag.ClaudeCode.type]:
-      val name = "capturing"
-      def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-      def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-      def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
-        this
-      def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-      def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
-      def resultAs[O: JsonData: Announce]
-          : AgentCall[BackendTag.ClaudeCode.type, O] =
-        new AgentCall[BackendTag.ClaudeCode.type, O]:
-          val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
-            new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-              private[orca] def runWithSession[I: AgentInput](
-                  i: I,
-                  session: SessionId[BackendTag.ClaudeCode.type],
-                  c: Option[AgentConfig],
-                  emitPrompt: Boolean
-              )(using
-                  orca.InStage
-              ): O =
-                capturedFirst = Some(i.toString)
-                ReviewResult.empty.asInstanceOf[O]
-          def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
-            ???
-
+    val captureReviewer =
+      new FakeAgent("capturing", outputs = List(ReviewResult.empty))
     val coder = new FakeAgent("coder")
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
@@ -565,8 +540,8 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("--- a/Foo.scala\n+++ b/Foo.scala\n+ added line")
     )
-    val sent =
-      capturedFirst.getOrElse(fail("the fresh-session run was never called"))
+    val sent = captureReviewer.seenPrompts.headOption
+      .getOrElse(fail("the fresh-session run was never called"))
     assert(sent.contains("--- a/Foo.scala"), s"diff missing from prompt: $sent")
     assert(sent.contains("do thing"), s"task missing from prompt: $sent")
 

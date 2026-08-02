@@ -1,13 +1,6 @@
 package orca.review
 
-import orca.{
-  FlowContext,
-  FlowControl,
-  InStage,
-  TestFlowControl,
-  WorkspaceWrite,
-  stage
-}
+import orca.{FlowContext, FlowControl, InStage, TestFlowControl, stage}
 import orca.plan.Title
 import orca.events.EventDispatcher
 import orca.testkit.TextReplyingAgent
@@ -95,20 +88,29 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val prompt = firstPromptOf(late)
     assert(prompt.contains("fixed.scala"), prompt)
 
-  test("with no stage base the change set is the working tree"):
-    // Outside a stage there is no baseline to diff against; the loop must fall
-    // back to uncommitted work rather than showing the reviewer nothing.
+  test("reviewer selection sees the files of work the agent committed"):
+    // The defect's other half: an empty change set means the file-pattern
+    // pre-filter matches nothing, dropping every file-gated reviewer before the
+    // picker is even asked.
     val (ctx, dir) = stagingControl()
-    os.write(dir / "pending.scala", "object Pending")
-    val reviewer = new FakeAgent("r", outputs = List(ReviewResult.empty))
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[String]](Nil)
+    val recording = new ReviewerSelector:
+      def prepare(
+          all: List[RosterEntry[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using FlowContext, InStage) =
+        seen.set(changedFiles)
+        _ => all
     given FlowControl = ctx
-    given InStage = InStage.unsafe
-    given WorkspaceWrite = WorkspaceWrite.unsafe
-    val _ = reviewAndFixLoop(
-      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
-      reviewers = List(reviewer),
-      task = "build the widget",
-      reviewerSelection = ReviewerSelector.allEveryRound
-    )
-    val prompt = firstPromptOf(reviewer)
-    assert(prompt.contains("pending.scala"), prompt)
+    stage("implement the widget"):
+      commit(dir, "widget.scala", "object Widget")
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+        reviewers =
+          List(new FakeAgent("r", outputs = List(ReviewResult.empty))),
+        task = "build the widget",
+        reviewerSelection = recording
+      )
+    assertEquals(seen.get(), List("widget.scala"))

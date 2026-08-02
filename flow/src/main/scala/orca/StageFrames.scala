@@ -16,9 +16,7 @@ package orca
   * current scope.
   *
   * A frame also records the commit its stage started from, read back as
-  * [[stageBaseCommit]]. That is the baseline for "what has this stage produced
-  * so far" — a question `git diff HEAD` cannot answer, since an agent free to
-  * commit its own work moves HEAD out from under it.
+  * [[stageBaseCommit]] (ADR 0018 §2.1).
   *
   * '''Invariants.'''
   *   - '''Exactly-once bump.''' `enterStage` bumps the parent's occurrence
@@ -79,8 +77,7 @@ private[orca] trait StageFrames:
       counts = counts.updated(name, n + 1)
       n
 
-  // The root frame (path "") is the flow body; it is never popped. It has no
-  // base commit — nothing bounds a change set outside a stage.
+  // The root frame (path "") is the flow body; it is never popped.
   private var frames: List[Frame] = List(new Frame("", None))
 
   /** Bump the current frame's occurrence counter for `name`, push a child frame
