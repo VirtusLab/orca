@@ -247,5 +247,6 @@ def planAndImplementFix[B <: BackendTag](
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(reviewAgent),
-        task = task.title.value
+        task = task.title.value,
+        maxIterations = 3
       )

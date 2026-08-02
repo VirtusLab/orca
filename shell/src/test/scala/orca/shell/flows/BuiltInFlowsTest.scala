@@ -31,6 +31,21 @@ class BuiltInFlowsTest extends munit.FunSuite:
   test("every indexed flow resource is readable and non-empty"):
     indexNames.foreach(name => assert(resourceText(name).trim.nonEmpty, name))
 
+  test("every reviewAndFixLoop call in a flow states the iteration cap"):
+    // A reader of a flow shouldn't have to guess which cap the run used, so
+    // each call states the library default (3, pinned in FixLoopTest) rather
+    // than inheriting it. Counted per call, not per file, so a flow that grows
+    // a second unpinned call is caught.
+    val counted = indexNames.map: name =>
+      val text = resourceText(name)
+      (
+        name,
+        "reviewAndFixLoop\\(".r.findAllIn(text).size,
+        "maxIterations = 3\\b".r.findAllIn(text).size
+      )
+    assert(counted.exists(_._2 > 0), "no flow calls reviewAndFixLoop any more")
+    assertEquals(counted.filter((_, calls, pins) => calls != pins), Nil)
+
   private def withTempHome(body: os.Path => Unit): Unit =
     val home = os.temp.dir(prefix = "orca-built-in-flows-test")
     try body(home)

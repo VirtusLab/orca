@@ -38,6 +38,12 @@ private[review] enum LoopStep:
   /** Issues remain and the cap hasn't been hit — hand them to `fix`. */
   case NeedsFix
 
+/** Fix attempts both loop entry points allow before bailing out, so the two
+  * cannot drift apart. The shipped flows state the same number at their call
+  * sites rather than inheriting it.
+  */
+private[review] val DefaultMaxIterations: Int = 3
+
 /** The fix-loop stop policy, shared by [[fixLoop]] and [[ReviewFixLoop.run]]:
   * done when `issues` is empty; fold `issues` into [[IgnoredIssues]] (reason
   * `"max iterations (N) reached"`) once `iteration >= maxIterations`; otherwise
@@ -74,7 +80,7 @@ private[review] def stopPolicy(
 def fixLoop(
     evaluate: () => ReviewResult,
     fix: List[ReviewIssue] => FixOutcome,
-    maxIterations: Int = 10
+    maxIterations: Int = DefaultMaxIterations
 )(using ctx: FlowContext): IgnoredIssues =
   @scala.annotation.tailrec
   def loop(accumulated: IgnoredIssues, iteration: Int): IgnoredIssues =
@@ -253,7 +259,11 @@ def reviewAndFixLoop[B <: BackendTag](
       * [[ConfidenceGate]] for why the bar varies by severity.
       */
     confidenceGate: ConfidenceGate = ConfidenceGate.default,
-    maxIterations: Int = 10,
+    /** Fix attempts before the loop bails out, folding whatever is still open
+      * into the returned [[IgnoredIssues]]. Counts fixes, not evaluations: the
+      * default of 3 runs up to four review rounds.
+      */
+    maxIterations: Int = DefaultMaxIterations,
     fixInstructions: String = ReviewLoopPrompts.Fix,
     /** Override the diff handed to each reviewer in its initial prompt, and the
       * changed-file list the selector is given.

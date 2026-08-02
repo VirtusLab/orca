@@ -117,6 +117,20 @@ class FixLoopTest extends munit.FunSuite:
       List(IgnoredIssue(Title("infinite"), "max iterations (2) reached"))
     )
 
+  test("the shipped default cap is 3 fix attempts, so 4 evaluations"):
+    given FlowContext = ctx
+    // Never-converging shape with `maxIterations` omitted, so the evaluation
+    // count reads the shared default back.
+    var evaluates = 0
+    val _ = fixLoop(
+      evaluate = () =>
+        evaluates += 1
+        ReviewResult(List(issue("infinite")))
+      ,
+      fix = _ => FixOutcome(List(Title("infinite")), Nil)
+    )
+    assertEquals(evaluates, 4)
+
   test("formatIssue renders severity, title, location, and suggestion"):
     val real = ReviewIssue(
       severity = Severity.Warning,
