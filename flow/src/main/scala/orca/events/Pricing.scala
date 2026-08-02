@@ -7,14 +7,15 @@ import scala.util.matching.Regex
 
 /** Per-model token prices in USD per million tokens.
   *
-  *   - `cachedInput` is the cache-READ rate (Claude `cache_read_input_tokens`,
-  *     OpenAI `cached_input`).
-  *   - `cacheWrite` is the cache-CREATION rate. Where a provider prices writes
-  *     by cache lifetime — Anthropic charges 1.25× base input at the
-  *     five-minute TTL and 2× at the one-hour one — this is a single rate,
-  *     because the CLI picks the TTL per request and orca never sees which tier
-  *     a given write used. The shipped rates follow the tier the CLI in front
-  *     of them actually requests; set your own accordingly.
+  *   - `cacheRead` bills tokens served from cache (Claude
+  *     `cache_read_input_tokens`, OpenAI `cached_input`).
+  *   - `cacheWrite` bills tokens written into it (Claude
+  *     `cache_creation_input_tokens`). Where a provider prices writes by cache
+  *     lifetime — Anthropic charges 1.25× base input at the five-minute TTL and
+  *     2× at the one-hour one — this is a single rate, because the CLI picks
+  *     the TTL per request and orca never sees which tier a given write used.
+  *     The shipped rates follow the tier the CLI in front of them actually
+  *     requests; set your own accordingly.
   *   - `output` covers reasoning tokens too — both Anthropic and OpenAI bill
   *     reasoning at the output rate.
   *
@@ -23,7 +24,7 @@ import scala.util.matching.Regex
   */
 case class ModelPricing(
     inputUsdPerMillion: BigDecimal,
-    cachedInputUsdPerMillion: BigDecimal,
+    cacheReadUsdPerMillion: BigDecimal,
     outputUsdPerMillion: BigDecimal,
     cacheWriteUsdPerMillion: BigDecimal
 )
@@ -87,19 +88,19 @@ object Pricing:
         // Fresh input is what neither cache category claimed. The clamp keeps
         // a backend that over-reports its cache axes from producing a negative
         // charge.
-        val freshInput = (usage.inputTokens - usage.cachedInputTokens -
+        val freshInput = (usage.inputTokens - usage.cacheReadInputTokens -
           usage.cacheWriteInputTokens) max 0L
         val inputCost =
           BigDecimal(freshInput) * p.inputUsdPerMillion / million
-        val cachedCost =
-          BigDecimal(usage.cachedInputTokens) * p.cachedInputUsdPerMillion /
+        val cacheReadCost =
+          BigDecimal(usage.cacheReadInputTokens) * p.cacheReadUsdPerMillion /
             million
         val cacheWriteCost =
           BigDecimal(usage.cacheWriteInputTokens) * p.cacheWriteUsdPerMillion /
             million
         val outputCost =
           BigDecimal(usage.outputTokens) * p.outputUsdPerMillion / million
-        inputCost + cachedCost + cacheWriteCost + outputCost
+        inputCost + cacheReadCost + cacheWriteCost + outputCost
 
   private def lookup(
       table: PricingTable,
@@ -135,7 +136,7 @@ object Pricing:
       // pi-heavy use.
       Model("claude-fable-5") -> ModelPricing(
         inputUsdPerMillion = 10,
-        cachedInputUsdPerMillion = 1.00,
+        cacheReadUsdPerMillion = 1.00,
         outputUsdPerMillion = 50,
         cacheWriteUsdPerMillion = 20
       ),
@@ -144,49 +145,49 @@ object Pricing:
       // own row.
       Model("claude-opus-5") -> ModelPricing(
         inputUsdPerMillion = 5,
-        cachedInputUsdPerMillion = 0.50,
+        cacheReadUsdPerMillion = 0.50,
         outputUsdPerMillion = 25,
         cacheWriteUsdPerMillion = 10
       ),
       Model("claude-opus-5[1m]") -> ModelPricing(
         inputUsdPerMillion = 5,
-        cachedInputUsdPerMillion = 0.50,
+        cacheReadUsdPerMillion = 0.50,
         outputUsdPerMillion = 25,
         cacheWriteUsdPerMillion = 10
       ),
       Model("claude-opus-4-8") -> ModelPricing(
         inputUsdPerMillion = 5,
-        cachedInputUsdPerMillion = 0.50,
+        cacheReadUsdPerMillion = 0.50,
         outputUsdPerMillion = 25,
         cacheWriteUsdPerMillion = 10
       ),
       Model("claude-opus-4-8[1m]") -> ModelPricing(
         inputUsdPerMillion = 5,
-        cachedInputUsdPerMillion = 0.50,
+        cacheReadUsdPerMillion = 0.50,
         outputUsdPerMillion = 25,
         cacheWriteUsdPerMillion = 10
       ),
       Model("claude-opus-4-7") -> ModelPricing(
         inputUsdPerMillion = 5,
-        cachedInputUsdPerMillion = 0.50,
+        cacheReadUsdPerMillion = 0.50,
         outputUsdPerMillion = 25,
         cacheWriteUsdPerMillion = 10
       ),
       Model("claude-opus-4-6") -> ModelPricing(
         inputUsdPerMillion = 5,
-        cachedInputUsdPerMillion = 0.50,
+        cacheReadUsdPerMillion = 0.50,
         outputUsdPerMillion = 25,
         cacheWriteUsdPerMillion = 10
       ),
       Model("claude-opus-4-5") -> ModelPricing(
         inputUsdPerMillion = 5,
-        cachedInputUsdPerMillion = 0.50,
+        cacheReadUsdPerMillion = 0.50,
         outputUsdPerMillion = 25,
         cacheWriteUsdPerMillion = 10
       ),
       Model("claude-opus-4-1") -> ModelPricing(
         inputUsdPerMillion = 15,
-        cachedInputUsdPerMillion = 1.50,
+        cacheReadUsdPerMillion = 1.50,
         outputUsdPerMillion = 75,
         cacheWriteUsdPerMillion = 30
       ),
@@ -194,19 +195,19 @@ object Pricing:
       // rates; Anthropic's published introductory $2/$10 ends 2026-08-31.
       Model("claude-sonnet-5") -> ModelPricing(
         inputUsdPerMillion = 3,
-        cachedInputUsdPerMillion = 0.30,
+        cacheReadUsdPerMillion = 0.30,
         outputUsdPerMillion = 15,
         cacheWriteUsdPerMillion = 6
       ),
       Model("claude-sonnet-4-6") -> ModelPricing(
         inputUsdPerMillion = 3,
-        cachedInputUsdPerMillion = 0.30,
+        cacheReadUsdPerMillion = 0.30,
         outputUsdPerMillion = 15,
         cacheWriteUsdPerMillion = 6
       ),
       Model("claude-sonnet-4-5") -> ModelPricing(
         inputUsdPerMillion = 3,
-        cachedInputUsdPerMillion = 0.30,
+        cacheReadUsdPerMillion = 0.30,
         outputUsdPerMillion = 15,
         cacheWriteUsdPerMillion = 6
       ),
@@ -222,13 +223,13 @@ object Pricing:
       // Revisit when the alias resolves to Haiku again.
       Model("claude-haiku-4-5-20251001") -> ModelPricing(
         inputUsdPerMillion = 3,
-        cachedInputUsdPerMillion = 0.30,
+        cacheReadUsdPerMillion = 0.30,
         outputUsdPerMillion = 15,
         cacheWriteUsdPerMillion = 6
       ),
       Model("claude-haiku-4-5") -> ModelPricing(
         inputUsdPerMillion = 1,
-        cachedInputUsdPerMillion = 0.10,
+        cacheReadUsdPerMillion = 0.10,
         outputUsdPerMillion = 5,
         cacheWriteUsdPerMillion = 2
       ),
@@ -237,44 +238,44 @@ object Pricing:
       // earlier models have no write charge, so their rate is plain input.
       Model("gpt-5.6-sol") -> ModelPricing(
         inputUsdPerMillion = 5,
-        cachedInputUsdPerMillion = 0.50,
+        cacheReadUsdPerMillion = 0.50,
         outputUsdPerMillion = 30,
         cacheWriteUsdPerMillion = 6.25
       ),
       Model("gpt-5.6-terra") -> ModelPricing(
         inputUsdPerMillion = 2.00,
-        cachedInputUsdPerMillion = 0.20,
+        cacheReadUsdPerMillion = 0.20,
         outputUsdPerMillion = 12,
         cacheWriteUsdPerMillion = 2.50
       ),
       Model("gpt-5.6-luna") -> ModelPricing(
         inputUsdPerMillion = 0.20,
-        cachedInputUsdPerMillion = 0.02,
+        cacheReadUsdPerMillion = 0.02,
         outputUsdPerMillion = 1.20,
         cacheWriteUsdPerMillion = 0.25
       ),
       Model("gpt-5") -> ModelPricing(
         inputUsdPerMillion = 1.25,
-        cachedInputUsdPerMillion = 0.125,
+        cacheReadUsdPerMillion = 0.125,
         outputUsdPerMillion = 10,
         cacheWriteUsdPerMillion = 1.25
       ),
       Model("gpt-5-mini") -> ModelPricing(
         inputUsdPerMillion = 0.25,
-        cachedInputUsdPerMillion = 0.025,
+        cacheReadUsdPerMillion = 0.025,
         outputUsdPerMillion = 2,
         cacheWriteUsdPerMillion = 0.25
       ),
       Model("gpt-5-nano") -> ModelPricing(
         inputUsdPerMillion = 0.05,
-        cachedInputUsdPerMillion = 0.005,
+        cacheReadUsdPerMillion = 0.005,
         outputUsdPerMillion = 0.40,
         cacheWriteUsdPerMillion = 0.05
       ),
       // codex CLI 0.125.x default
       Model("gpt-5.4-mini") -> ModelPricing(
         inputUsdPerMillion = 0.75,
-        cachedInputUsdPerMillion = 0.075,
+        cacheReadUsdPerMillion = 0.075,
         outputUsdPerMillion = 4.50,
         cacheWriteUsdPerMillion = 0.75
       ),
@@ -288,13 +289,13 @@ object Pricing:
       // caching bills storage per hour, which a token count can't express.
       Model("gemini-2.5-pro") -> ModelPricing(
         inputUsdPerMillion = 1.25,
-        cachedInputUsdPerMillion = 0.125,
+        cacheReadUsdPerMillion = 0.125,
         outputUsdPerMillion = 10,
         cacheWriteUsdPerMillion = 1.25
       ),
       Model("gemini-2.5-flash") -> ModelPricing(
         inputUsdPerMillion = 0.30,
-        cachedInputUsdPerMillion = 0.03,
+        cacheReadUsdPerMillion = 0.03,
         outputUsdPerMillion = 2.50,
         cacheWriteUsdPerMillion = 0.30
       )

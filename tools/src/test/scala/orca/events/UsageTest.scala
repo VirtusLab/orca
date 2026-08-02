@@ -9,14 +9,14 @@ class UsageTest extends munit.FunSuite:
       inputTokens = 1_000L,
       outputTokens = 100L,
       cost = Some(BigDecimal("0.10")),
-      cachedInputTokens = 600L,
+      cacheReadInputTokens = 600L,
       cacheWriteInputTokens = 300L
     )
     val fewerWrites = Usage(
       inputTokens = 500L,
       outputTokens = 50L,
       cost = None,
-      cachedInputTokens = 200L,
+      cacheReadInputTokens = 200L,
       reasoningOutputTokens = 20L,
       // non-zero, and different from `withWrites`, so a keep-one-side `+`
       // can't produce the expected total on this axis either
@@ -29,7 +29,7 @@ class UsageTest extends munit.FunSuite:
         inputTokens = 1_507L,
         outputTokens = 153L,
         cost = Some(BigDecimal("0.11")),
-        cachedInputTokens = 800L,
+        cacheReadInputTokens = 800L,
         reasoningOutputTokens = 20L,
         cacheWriteInputTokens = 390L
       )

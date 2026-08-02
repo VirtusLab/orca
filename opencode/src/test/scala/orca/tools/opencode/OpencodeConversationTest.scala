@@ -90,7 +90,7 @@ class OpencodeConversationTest extends munit.FunSuite:
       result.usage.inputTokens,
       14L
     ) // input + cache.read + cache.write
-    assertEquals(result.usage.cachedInputTokens, 1L)
+    assertEquals(result.usage.cacheReadInputTokens, 1L)
     assertEquals(result.usage.cacheWriteInputTokens, 3L)
     assertEquals(result.usage.outputTokens, 2L)
     assertEquals(result.model.map(_.name), Some("gpt-4o-mini"))

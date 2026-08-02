@@ -54,7 +54,7 @@ class PiConversationTest extends munit.FunSuite:
         inputTokens = 13L,
         outputTokens = 3L,
         cost = Some(BigDecimal("0.01")),
-        cachedInputTokens = 1L,
+        cacheReadInputTokens = 1L,
         cacheWriteInputTokens = 2L
       )
     )
@@ -181,7 +181,7 @@ class PiConversationTest extends munit.FunSuite:
         inputTokens = 14L,
         outputTokens = 7L,
         cost = None,
-        cachedInputTokens = 3L,
+        cacheReadInputTokens = 3L,
         cacheWriteInputTokens = 6L
       )
     )

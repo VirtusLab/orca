@@ -50,7 +50,7 @@ class InboundMessageTest extends munit.FunSuite:
         inputTokens = 4310L,
         outputTokens = 20L,
         cost = Some(BigDecimal("0.5")),
-        cachedInputTokens = 4000L,
+        cacheReadInputTokens = 4000L,
         cacheWriteInputTokens = 300L
       )
     )

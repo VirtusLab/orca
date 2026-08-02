@@ -75,7 +75,8 @@ private[claude] object InboundMessage:
     // Claude Code splits input across `input_tokens` (new this turn),
     // `cache_creation_input_tokens`, and `cache_read_input_tokens` — three
     // separate categories billed at three different rates, so the total input
-    // is their sum and creation/read stay on their own axes.
+    // is their sum and the two cache categories stay on their own axes. The
+    // wire's "cache creation" is orca's cache write.
     val cacheWrite = u.cache_creation_input_tokens.getOrElse(0L)
     val cacheRead = u.cache_read_input_tokens.getOrElse(0L)
     Result(
@@ -87,7 +88,7 @@ private[claude] object InboundMessage:
         inputTokens = u.input_tokens.getOrElse(0L) + cacheWrite + cacheRead,
         outputTokens = u.output_tokens.getOrElse(0L),
         cost = wire.total_cost_usd,
-        cachedInputTokens = cacheRead,
+        cacheReadInputTokens = cacheRead,
         cacheWriteInputTokens = cacheWrite
       ),
       isError = wire.is_error.getOrElse(false),

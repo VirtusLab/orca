@@ -8,28 +8,34 @@ package orca.events
   *   - `inputTokens` is the TOTAL prompt tokens, **inclusive** of any served
   *     from prompt cache or written into it. `outputTokens` is the total
   *     completion tokens.
-  *   - `cachedInputTokens` (cache reads) and `cacheWriteInputTokens` (cache
-  *     creation) are DISJOINT sub-portions of `inputTokens`, so their sum is
-  *     `<= inputTokens`. They are separate axes because they bill at opposite
-  *     ends of base input — a write costs more, a read far less — and folding
-  *     them together understates a cache-heavy run badly.
+  *   - `cacheReadInputTokens` (tokens served FROM the prompt cache) and
+  *     `cacheWriteInputTokens` (tokens written INTO it — Anthropic spells this
+  *     "cache creation") are DISJOINT sub-portions of `inputTokens`, so
+  *     `cacheReadInputTokens + cacheWriteInputTokens <= inputTokens`. They are
+  *     separate axes because they bill at opposite ends of base input — a write
+  *     costs more, a read far less — and folding them together understates a
+  *     cache-heavy run badly.
   *   - `reasoningOutputTokens` is the internal-reasoning sub-portion of
   *     `outputTokens` (codex / o-series).
   *
   * All three breakdowns are non-cumulative, so callers can report cache-hit,
   * cache-write and reasoning ratios directly.
   *
-  * A new backend must fold cache-served and cache-written tokens INTO
+  * A new backend must fold cache-read and cache-written tokens INTO
   * `inputTokens` rather than report them alongside it, and leave
   * `cacheWriteInputTokens` at zero when the protocol has no write counter
-  * (codex, gemini). The per-backend arithmetic is documented at each driver's
+  * (gemini). The per-backend arithmetic is documented at each driver's
   * `Usage(...)` construction site.
+  *
+  * Destructure by name (`case Usage(inputTokens = in) =>`): the axis list grows
+  * as backends start reporting finer breakdowns, and a positional pattern
+  * silently rebinds or stops compiling when it does.
   */
 case class Usage(
     inputTokens: Long,
     outputTokens: Long,
     cost: Option[BigDecimal],
-    cachedInputTokens: Long = 0L,
+    cacheReadInputTokens: Long = 0L,
     reasoningOutputTokens: Long = 0L,
     cacheWriteInputTokens: Long = 0L
 ):
@@ -39,7 +45,7 @@ case class Usage(
       inputTokens = inputTokens + that.inputTokens,
       outputTokens = outputTokens + that.outputTokens,
       cost = (cost ++ that.cost).reduceOption(_ + _),
-      cachedInputTokens = cachedInputTokens + that.cachedInputTokens,
+      cacheReadInputTokens = cacheReadInputTokens + that.cacheReadInputTokens,
       reasoningOutputTokens =
         reasoningOutputTokens + that.reasoningOutputTokens,
       cacheWriteInputTokens = cacheWriteInputTokens + that.cacheWriteInputTokens

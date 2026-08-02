@@ -207,7 +207,7 @@ private[pi] object InboundEvent:
         inputTokens = input.getOrElse(0L) + read + write,
         outputTokens = output.getOrElse(0L),
         cost = cost.flatMap(_.total),
-        cachedInputTokens = read,
+        cacheReadInputTokens = read,
         cacheWriteInputTokens = write
       )
 

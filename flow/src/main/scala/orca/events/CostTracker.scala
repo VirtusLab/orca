@@ -195,8 +195,8 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
     */
   private def formatUsage(usage: Usage): String =
     val cacheParts = List(
-      Option.when(usage.cachedInputTokens > 0)(
-        s"${formatCount(usage.cachedInputTokens)} cache read"
+      Option.when(usage.cacheReadInputTokens > 0)(
+        s"${formatCount(usage.cacheReadInputTokens)} cache read"
       ),
       Option.when(usage.cacheWriteInputTokens > 0)(
         s"${formatCount(usage.cacheWriteInputTokens)} cache write"

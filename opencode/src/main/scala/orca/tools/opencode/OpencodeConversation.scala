@@ -169,7 +169,7 @@ private[opencode] class OpencodeConversation(
         tokens.map(t => t.input + t.cache.read + t.cache.write).getOrElse(0L),
       outputTokens = tokens.map(_.output).getOrElse(0L),
       cost = info.flatMap(_.cost),
-      cachedInputTokens = tokens.map(_.cache.read).getOrElse(0L),
+      cacheReadInputTokens = tokens.map(_.cache.read).getOrElse(0L),
       reasoningOutputTokens = tokens.map(_.reasoning).getOrElse(0L),
       cacheWriteInputTokens = tokens.map(_.cache.write).getOrElse(0L)
     )

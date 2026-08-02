@@ -84,16 +84,16 @@ class CostTrackerTest extends munit.FunSuite:
     assertEquals(c.estimated, true)
     assertEquals(c.amount, BigDecimal("3.5"))
 
-  test("estimate bills cached input at the cached rate, not the input rate"):
+  test("estimate bills cache reads at the read rate, not the input rate"):
     val tracker = new CostTracker(pricing = testTable)
-    // A backend that reports one undifferentiated cache number (codex,
-    // gemini) leaves the write axis at zero, so nothing is billed twice:
+    // A backend that reports one undifferentiated cache number (gemini) leaves
+    // the write axis at zero, so nothing is billed twice:
     // 1M input total, 800k of which are cache reads:
-    //   200k billable @ $1/M  = $0.20
-    //   800k cached   @ $0.10/M = $0.08
-    //   no output             = $0
+    //   200k billable   @ $1/M    = $0.20
+    //   800k cache read @ $0.10/M = $0.08
+    //   no output                 = $0
     // Total: $0.28. A regression that drops the subtraction would bill
-    // 1M @ $1/M = $1.00; one that swaps rates would bill 200k cached.
+    // 1M @ $1/M = $1.00; one that swaps rates would bill 200k at the read rate.
     tracker.onEvent(
       tokens(
         "claude",
@@ -102,7 +102,7 @@ class CostTrackerTest extends munit.FunSuite:
           inputTokens = 1_000_000L,
           outputTokens = 0L,
           cost = None,
-          cachedInputTokens = 800_000L
+          cacheReadInputTokens = 800_000L
         )
       )
     )
@@ -125,7 +125,7 @@ class CostTrackerTest extends munit.FunSuite:
           inputTokens = 1_000_000L,
           outputTokens = 0L,
           cost = None,
-          cachedInputTokens = 600_000L,
+          cacheReadInputTokens = 600_000L,
           cacheWriteInputTokens = 300_000L
         )
       )
@@ -147,7 +147,7 @@ class CostTrackerTest extends munit.FunSuite:
           inputTokens = 500_000L,
           outputTokens = 0L,
           cost = None,
-          cachedInputTokens = 300_000L,
+          cacheReadInputTokens = 300_000L,
           cacheWriteInputTokens = 250_000L
         )
       )
@@ -205,7 +205,7 @@ class CostTrackerTest extends munit.FunSuite:
           inputTokens = 176_625L,
           outputTokens = 1_083L,
           cost = None,
-          cachedInputTokens = 155_848L,
+          cacheReadInputTokens = 155_848L,
           cacheWriteInputTokens = 20_769L
         )
       )
@@ -320,7 +320,7 @@ class CostTrackerTest extends munit.FunSuite:
           inputTokens = 50_000L,
           outputTokens = 12_500L,
           cost = None,
-          cachedInputTokens = 40_000L,
+          cacheReadInputTokens = 40_000L,
           reasoningOutputTokens = 1_200L,
           cacheWriteInputTokens = 5_000L
         )
@@ -344,7 +344,7 @@ class CostTrackerTest extends munit.FunSuite:
           inputTokens = 50_000L,
           outputTokens = 100L,
           cost = None,
-          cachedInputTokens = 40_000L
+          cacheReadInputTokens = 40_000L
         )
       )
     )

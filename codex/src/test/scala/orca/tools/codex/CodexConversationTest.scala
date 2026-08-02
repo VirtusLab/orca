@@ -41,7 +41,7 @@ class CodexConversationTest extends munit.FunSuite:
         inputTokens = 900L,
         outputTokens = 40L,
         cost = None,
-        cachedInputTokens = 500L,
+        cacheReadInputTokens = 500L,
         reasoningOutputTokens = 12L,
         cacheWriteInputTokens = 300L
       )

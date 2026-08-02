@@ -130,7 +130,7 @@ private[codex] object InboundEvent:
         // table is the only cost signal, and on the GPT-5.6 family a cache
         // write bills 1.25× input.
         inputTokens = u.input_tokens.getOrElse(0L),
-        cachedInputTokens = u.cached_input_tokens.getOrElse(0L),
+        cacheReadInputTokens = u.cached_input_tokens.getOrElse(0L),
         cacheWriteInputTokens = u.cache_write_input_tokens.getOrElse(0L),
         outputTokens = u.output_tokens.getOrElse(0L),
         reasoningOutputTokens = u.reasoning_output_tokens.getOrElse(0L),
