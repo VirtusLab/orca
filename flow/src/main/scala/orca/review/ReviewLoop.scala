@@ -194,8 +194,9 @@ private case class RoundOutcome(
   * ([[ReviewerSelector.default]]) runs a picker LLM on the review-role agent's
   * cheap tier for round one, then narrows to the reviewers that reported last
   * round plus the file-pattern ones. Pass `ReviewerSelector.allEveryRound` to
-  * skip selection and narrowing, or `ReviewerSelector.agentDriven(...)` to
-  * point the picker at a specific model.
+  * skip selection and narrowing, `ReviewerSelector.agentDriven` (no
+  * parentheses) to pick once and replay that pick every round, or
+  * `ReviewerSelector.agentDriven(...)` to point the picker at a specific model.
   *
   * The default picker resolves `reviewAgent`'s cheap variant; a backend with no
   * separate cheap tier (`.cheap` returns `this`, e.g. pi) simply runs the
@@ -220,10 +221,14 @@ def reviewAndFixLoop[B <: BackendTag](
     coderSession: FlowSession[B],
     reviewers: List[Agent[?]],
     task: String,
-    /** Which reviewers run each iteration. Default picks with a LLM on the
-      * review-role agent's cheap tier and narrows the picked set on every later
-      * round ([[ReviewerSelector.default]]); [[ReviewerSelector.allEveryRound]]
-      * runs the whole roster every round,
+    /** Which reviewers run each iteration. The default
+      * ([[ReviewerSelector.default]]) picks with a LLM on the review-role
+      * agent's cheap tier, then from round two keeps only the reviewers that
+      * reported last round plus the file-pattern ones — so a reviewer that goes
+      * quiet won't see the fixes made after it stopped running. For full
+      * coverage every round pass [[ReviewerSelector.allEveryRound]] (whole
+      * roster, no picker) or [[ReviewerSelector.agentDriven]] with no
+      * parentheses (one pick, replayed);
       * [[ReviewerSelector.agentDriven]]`(...)` picks with a specific model.
       */
     reviewerSelection: ReviewerSelector = ReviewerSelector.default,

@@ -364,9 +364,12 @@ class ReviewAndFixTest extends munit.FunSuite:
     // it as quiet and drops it from round two — its reject is never re-reported.
     // Keeping the last-seen set per reviewer is what makes it survive to the
     // result.
+    // Spare outputs so a narrowing regression fails on the session count below
+    // rather than on an exhausted iterator inside the reviewer fan-out.
     val rosterX = new FakeAgent(
       name = "x",
-      outputs = List(ReviewResult(List(issue("flaky", confidence = 0.3))))
+      outputs =
+        List.fill(2)(ReviewResult(List(issue("flaky", confidence = 0.3))))
     )
     val rosterY = new FakeAgent(
       name = "y",
@@ -589,9 +592,9 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
 
   test(
-    "omitting reviewerSelection defaults to an agentDriven picker on the lead's cheap tier"
+    "omitting reviewerSelection defaults to a picker on the lead's cheap tier"
   ):
-    // With no reviewerSelection the default `ReviewerSelector.agentDriven`
+    // With no reviewerSelection the default (`ReviewerSelector.default`)
     // resolves its picker as the review role's cheap tier (`ctx.reviewAgent.cheap`).
     // The control wires the coder as the lead, and FakeAgent.cheap == this, so
     // the default picker draws the reviewer pick from the coder's outputs
@@ -631,10 +634,11 @@ class ReviewAndFixTest extends munit.FunSuite:
   test("the default selection drops a reviewer that reported nothing"):
     // Three evaluation rounds (two fix attempts, then the cap). "quiet" reports
     // nothing in round one, so the default narrowing drops it: it must open
-    // exactly one session, and its single scripted output would run dry —
-    // throwing — if the loop called it again.
+    // exactly one session. Its outputs cover all three rounds, so a regression
+    // is reported by the assertion rather than by an exhausted iterator inside
+    // the fan-out. "loud" keeps reporting, which keeps it — and the loop — in.
     val quiet =
-      new FakeAgent(name = "quiet", outputs = List(ReviewResult.empty))
+      new FakeAgent(name = "quiet", outputs = List.fill(3)(ReviewResult.empty))
     val loud = new FakeAgent(
       name = "loud",
       outputs =
@@ -659,6 +663,39 @@ class ReviewAndFixTest extends munit.FunSuite:
     )
     assertEquals(quiet.seenSessions.size, 1)
     assertEquals(loud.seenSessions.size, 3)
+
+  test("a lint-only round still leaves the next round with reviewers"):
+    // Reviewer silence alone ends the loop, but a lint gate keeps it iterating
+    // through it — and the fixer keeps editing. Narrowing must not strand those
+    // rounds with zero reviewers, so the picked set comes back instead.
+    val quiet =
+      new FakeAgent(name = "quiet", outputs = List.fill(3)(ReviewResult.empty))
+    val summariser = new FakeAgent(
+      name = "summariser",
+      outputs =
+        List.fill(3)(ReviewResult(List(issue("lint-found", confidence = 0.95))))
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        SelectedReviewers(List("quiet")),
+        FixOutcome(List(Title("lint-found")), Nil),
+        FixOutcome(List(Title("lint-found")), Nil)
+      )
+    )
+    given FlowControl =
+      ReviewLoopFixture.control(new EventDispatcher(Nil), lead = Some(coder))
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(quiet),
+      task = "lint keeps the loop going",
+      // `echo` emits output so `lint` doesn't short-circuit before calling the
+      // summariser.
+      lint = Configured.Use(Lint(List("echo lint-output"), summariser)),
+      maxIterations = 2,
+      initialDiff = Some("")
+    )
+    assertEquals(quiet.seenSessions.size, 3)
 
   test(
     "explicit allEveryRound reviewerSelection skips the LLM picker entirely"

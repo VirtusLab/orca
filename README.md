@@ -116,7 +116,8 @@ flow(OrcaArgs(args)):
       reviewAndFixLoop(                  
         coderSession = session,
         reviewers = allReviewers(reviewAgent),
-        // reviewerSelection defaults to agentDriven(reviewAgent.cheap). Format
+        // reviewerSelection defaults to a picker LLM on reviewAgent.cheap,
+        // narrowing each round (see "Review utilities"). Format
         // and lint default to the project's stack settings
         // (`.orca/settings.properties`, auto-discovered on first run) — see
         // "Settings" below.
@@ -660,15 +661,18 @@ which narrows in two steps:
   description plus the changed file paths and narrows the supplied list per task
   (`ReviewerSelector.agentDriven`).
 - **Every later round:** only the reviewers that reported an issue in the
-  previous round re-run, plus any whose `files:` pattern matches the change set
+  previous round re-run, plus any whose `files:` pattern matched the change set
   (`ReviewerSelector.narrowingAcrossRounds`). A reviewer that goes quiet stops
   costing a turn per round; the trade-off is that it won't see the fixes made
-  after it stopped.
+  after it stopped. Narrowing never empties the set — if nobody reported last
+  round, the full picked set runs again and a step says so.
 
-Pass `ReviewerSelector.allEveryRound` to run every reviewer every iteration
-(no picker, no narrowing), `ReviewerSelector.agentDriven(claude.haiku)` to pick
-with a specific model and replay that pick every round, or
-`ReviewerSelector.onlyPreviouslyReporting` to skip the picker but still narrow.
+For full coverage every round, pass `ReviewerSelector.allEveryRound` (whole
+roster, no picker at all) or `ReviewerSelector.agentDriven` with no parentheses
+(pick once, replay that pick every round — the behaviour before narrowing
+shipped). `ReviewerSelector.agentDriven(claude.haiku)` picks with a specific
+model, and `ReviewerSelector.narrowingAcrossRounds(...)` wraps any of them to
+add narrowing back.
 
 To swap or extend the reviewer set, compose your own `List[Reviewer]` from
 `ReviewerPrompts` (the shipped entries, `ReviewerPrompts.all`/`.minimal`, and/or

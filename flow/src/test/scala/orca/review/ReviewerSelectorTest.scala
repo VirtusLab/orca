@@ -84,6 +84,23 @@ class ReviewerSelectorTest extends munit.FunSuite:
   private val filePatterns =
     Map("scala-fp" -> """\.scala$""".r)
 
+  /** Gates the reviewer the shipped map does NOT gate, so a narrowing test can
+    * only pass if the map it was handed is the one being consulted.
+    */
+  private val narrowingPatterns =
+    Map("generic" -> """\.txt$""".r)
+
+  /** Collects the `Step`s emitted through its own [[FlowContext]]. */
+  private class StepCapture:
+    private val steps = new java.util.concurrent.ConcurrentLinkedQueue[String]()
+    private val listener: OrcaListener = (e: OrcaEvent) =>
+      e match
+        case OrcaEvent.Step(msg) => steps.add(msg): Unit
+        case _                   => ()
+    val ctx: FlowContext =
+      new TestFlowContext(new EventDispatcher(List(listener)))
+    def messages: List[String] = steps.toArray.toList.map(_.toString)
+
   private def reported(e: RosterEntry[?]): ReviewBatch =
     ReviewBatch(
       List(
@@ -193,13 +210,7 @@ class ReviewerSelectorTest extends munit.FunSuite:
     assertEquals(picked.map(_.name), List("scala-fp"))
 
   test("an empty diff announces the skipped file-pattern filter"):
-    val steps = new java.util.concurrent.ConcurrentLinkedQueue[String]()
-    val listener: OrcaListener = (e: OrcaEvent) =>
-      e match
-        case OrcaEvent.Step(msg) => steps.add(msg): Unit
-        case _                   => ()
-    val listening: FlowContext =
-      new TestFlowContext(new EventDispatcher(List(listener)))
+    val capture = new StepCapture
     val captured = new AtomicReference[Option[ReviewerSelectionRequest]](None)
     val selector = ReviewerSelector.agentDriven(
       agent =
@@ -207,15 +218,15 @@ class ReviewerSelectorTest extends munit.FunSuite:
       filePatterns = filePatterns
     )
     val _ = selector.prepare(all, Title("any"), Nil)(using
-      listening,
+      capture.ctx,
       summon[orca.InStage]
     )(Nil)
-    assertEquals(
-      steps.toArray.toList.map(_.toString),
-      List(
+    assert(
+      capture.messages.contains(
         "reviewer selection: no changed files to match against; keeping " +
           "1 file-gated reviewer(s) eligible (scala-fp)"
-      )
+      ),
+      capture.messages.mkString("\n")
     )
 
   test("selector skips the picker LLM entirely when no reviewer is eligible"):
@@ -279,27 +290,83 @@ class ReviewerSelectorTest extends munit.FunSuite:
   test("narrowing re-runs only the reviewers that reported last round"):
     val selector = ReviewerSelector.narrowingAcrossRounds(
       ReviewerSelector.allEveryRound,
-      filePatterns
+      narrowingPatterns
     )
-    // A Rust change, so scala-fp has no file claim on the round: only its
-    // silence in round one decides it.
+    // A Rust change, so `generic`'s pattern has no claim on the round: only
+    // who reported in round one decides round two.
     val selectRound = selector.prepare(all, Title("any"), List("src/lib.rs"))
     assertEquals(selectRound(Nil).map(_.name), List("scala-fp", "generic"))
     assertEquals(
-      selectRound(List(reported(generic))).map(_.name),
-      List("generic")
+      selectRound(List(reported(scalaFp))).map(_.name),
+      List("scala-fp")
     )
 
   test("narrowing keeps a file-pattern reviewer whose files are in the diff"):
     val selector = ReviewerSelector.narrowingAcrossRounds(
       ReviewerSelector.allEveryRound,
-      filePatterns
+      narrowingPatterns
     )
-    val selectRound =
-      selector.prepare(all, Title("any"), List("src/main/scala/Foo.scala"))
-    // Neither reviewer reported last round; scala-fp stays on because the
-    // fixer keeps editing files it owns.
+    val selectRound = selector.prepare(all, Title("any"), List("notes.txt"))
+    // `generic` reported nothing, but its pattern matched the change set, so
+    // it keeps re-checking; the ungated scala-fp is dropped for its silence.
+    assertEquals(
+      selectRound(List(reported(scalaFp))).map(_.name),
+      List("scala-fp", "generic")
+    )
+
+  test("an empty change set exempts no reviewer from narrowing"):
+    val selector = ReviewerSelector.narrowingAcrossRounds(
+      ReviewerSelector.allEveryRound,
+      narrowingPatterns
+    )
+    // Eligibility treats an empty change set as "unknown" and keeps file-gated
+    // reviewers; narrowing must not read that as a standing claim, or a
+    // file-gated reviewer would re-run for the whole loop on any empty diff.
+    val selectRound = selector.prepare(all, Title("any"), Nil)
+    assertEquals(
+      selectRound(List(reported(scalaFp))).map(_.name),
+      List("scala-fp")
+    )
+
+  test("narrowing never empties the active set"):
+    val capture = new StepCapture
+    val selector = ReviewerSelector.narrowingAcrossRounds(
+      ReviewerSelector.allEveryRound,
+      narrowingPatterns
+    )
+    val selectRound = selector.prepare(all, Title("any"), List("src/lib.rs"))(
+      using
+      capture.ctx,
+      summon[orca.InStage]
+    )
+    // Nobody reported and nobody has a file claim. A lint gate can keep the fix
+    // loop iterating through that, so the round must not run zero reviewers.
     assertEquals(
       selectRound(List(ReviewBatch(Nil))).map(_.name),
-      List("scala-fp")
+      List("scala-fp", "generic")
+    )
+    assert(
+      capture.messages.contains(
+        "reviewer selection: nothing was reported last round; re-running " +
+          "all 2 selected reviewer(s) rather than reviewing nothing"
+      ),
+      capture.messages.mkString("\n")
+    )
+
+  test("narrowing never resurrects a reviewer the base selector excluded"):
+    val genericOnly = new ReviewerSelector:
+      def prepare(
+          all: List[RosterEntry[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using FlowContext, orca.InStage) =
+        _ => all.filter(_.name == "generic")
+    val selector =
+      ReviewerSelector.narrowingAcrossRounds(genericOnly, narrowingPatterns)
+    val selectRound = selector.prepare(all, Title("any"), List("notes.txt"))
+    // scala-fp reported last round, which would re-admit it if narrowing added
+    // rather than filtered.
+    assertEquals(
+      selectRound(List(reported(scalaFp))).map(_.name),
+      List("generic")
     )
