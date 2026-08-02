@@ -1,0 +1,1 @@
+Git is managed by the runtime. Do NOT run `git commit`, `git push`, or create/switch branches — make your edits and leave them uncommitted in the working tree; the surrounding flow commits, branches, and pushes at the right points.

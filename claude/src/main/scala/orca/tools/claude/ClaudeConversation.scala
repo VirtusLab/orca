@@ -28,7 +28,12 @@ private[claude] class ClaudeConversation(
     config: AgentConfig,
     initialPrompt: String = "",
     val outputSchema: Option[String] = None,
-    override val askUser: Option[orca.backend.mcp.AskUserSession] = None
+    override val askUser: Option[orca.backend.mcp.AskUserSession] = None,
+    /** The temp file backing `--append-system-prompt-file` (if any), owned by
+      * this conversation so it's removed once the turn finalizes rather than
+      * accumulating in `/tmp` for the life of the JVM — see [[onFinalize]].
+      */
+    systemPromptFile: Option[os.Path] = None
 ) extends ForkedConversation[BackendTag.ClaudeCode.type](
       source = StreamSource.fromProcess(process),
       backendName = "claude",
@@ -72,6 +77,18 @@ private[claude] class ClaudeConversation(
   // this subclass just declares `askUser` on the ctor param. Stdin is closed
   // right after the initial prompt, so mid-session input flows through the MCP
   // tool result.
+
+  /** Best-effort delete the `--append-system-prompt-file` temp file, then defer
+    * to the base. `os.temp`'s `deleteOnExit` only fires at JVM shutdown, which
+    * for a flow that runs hundreds of turns means hundreds of live files and
+    * shutdown-hook entries.
+    */
+  override protected def onFinalize(): Unit =
+    try
+      systemPromptFile.foreach(p =>
+        orca.backend.SubprocessSpawn.deleteFileResource(p).close()
+      )
+    finally super.onFinalize()
 
   // --- Reader hook ---
 
