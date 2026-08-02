@@ -38,6 +38,13 @@ private[opencode] object OpencodeArgs:
     * (when set) enforces structured output via `format`. `mode` gates the
     * native `question` tool — disabled on autonomous turns, where nobody can
     * answer.
+    *
+    * `system` AUGMENTS the server's own system prompt rather than replacing it
+    * — measured against opencode 1.17.10 by asking a model to describe its
+    * instructions with and without the field: with it set, the built-in prompt
+    * is intact ("You are opencode, an interactive CLI tool…", tool policy,
+    * environment) and the supplied text is appended at the end. So sending it
+    * unconditionally costs the agent none of its defaults.
     */
   def message(
       config: AgentConfig,

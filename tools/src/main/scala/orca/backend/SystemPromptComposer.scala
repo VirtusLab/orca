@@ -40,61 +40,72 @@ private[orca] object SystemPromptComposer:
     * The rule states the turn boundary rather than a process model, because the
     * two differ per backend: claude, codex, gemini and pi are spawned per turn,
     * while opencode's agent runs inside a `serve` process shared by the whole
-    * run, where a background command genuinely does survive. It also says
-    * "abandoned", not "killed" — teardown destroys the CLI's own PID, not its
-    * process tree (`ForkedConversation.cancel` →
-    * `OsProcCliRunner.destroyForcibly`), so an orphan may outlive the turn.
+    * run, where a background command genuinely does survive.
+    *
+    * It says the abandoned command may be killed OR keep running, which holds
+    * either side of the teardown change in flight: today
+    * `ForkedConversation.cancel` destroys the CLI's own PID and not its process
+    * tree, so a backgrounded build is orphaned and can still write into the
+    * work dir while the flow commits; routing teardown through
+    * `destroyForciblyTree` would make the kill real. Both outcomes lose the
+    * result, which is what the agent needs to know.
     */
   val BackgroundWorkAbandonedAtTurnEnd: String =
     "When this turn ends, orca stops reading your output. Anything left " +
       "running in the background is abandoned: you will never see its result, " +
-      "and it may be killed at any moment. Run any command whose result you " +
-      "need — a build, a test suite — in the foreground and wait for it to " +
-      "finish within this turn; orca itself does not time out a turn. " +
-      "Backgrounding is fine only for something you start, use and stop inside " +
-      "this same turn, such as a server you then test against. If a command " +
-      "hangs, or your tooling cuts it short, stop it and report the result as " +
-      "unverified — never report a result you have not observed."
+      "and it will either be killed or keep running unsupervised where it can " +
+      "corrupt the commit the flow is about to make. Never report a result you " +
+      "have not observed. Run any command whose result you need — a build, a " +
+      "test suite — in the foreground and wait for it to finish within this " +
+      "turn; orca itself does not time out a turn. Backgrounding is fine only " +
+      "for something you start, use and stop inside this same turn, such as a " +
+      "server you then test against. If a command you started produces no " +
+      "output for several minutes, or your tooling cuts it short, stop it and " +
+      "report that result as unverified — an escape valve for a command you " +
+      "ran and waited on, never a substitute for running it."
 
-  /** Since [[BackgroundWorkAbandonedAtTurnEnd]] applies to every turn the
-    * result is currently always `Some`, so each backend's "nothing to send"
-    * path is no longer exercised; the `Option` is kept rather than flipping
-    * every backend's system-prompt flag to unconditional.
+  /** Always `Some`: a standing rule applies to every turn, so there is nothing
+    * to compose that could come out empty. The `Option` is kept because every
+    * backend's delivery path is written around it — narrowing it would flip
+    * each of their system-prompt flags to unconditional.
     */
   def combine(
       config: AgentConfig,
       extraHint: Option[String] = None
-  ): Option[String] =
+  ): Option[String] = Some(composeAll(config, extraHint))
+
+  private def composeAll(
+      config: AgentConfig,
+      extraHint: Option[String]
+  ): String =
     // Only the git rule is tool-gated. It is additionally suppressed by
     // `selfManagedGit`, which says who drives git — a question about the repo,
     // not about what survives the turn boundary.
     val gitRule = Option.when(
       config.tools == ToolSet.Full && !config.selfManagedGit
     )(RuntimeOwnsGit)
-    List(
-      config.systemPrompt,
-      extraHint,
-      gitRule,
-      Some(BackgroundWorkAbandonedAtTurnEnd)
-    ).flatten match
-      case Nil    => None
-      case pieces => Some(pieces.mkString("\n\n"))
+    List(config.systemPrompt, extraHint, gitRule).flatten
+      .appended(BackgroundWorkAbandonedAtTurnEnd)
+      .mkString("\n\n")
 
   /** Fold the composed system prompt into `userPrompt` as a `"System
     * guidance:"` preamble, for backends whose CLI has no
-    * `--append-system-prompt` flag (codex, gemini). Returns `userPrompt`
-    * unchanged when nothing applies.
+    * `--append-system-prompt` flag (codex, gemini).
+    *
+    * Called for every turn of a thread, including resumed ones, so a long
+    * codex/gemini chat carries one copy per turn. That is deliberate: the
+    * guidance is about the turn being executed — [[RuntimeOwnsGit]] and
+    * [[BackgroundWorkAbandonedAtTurnEnd]] both describe what happens at THIS
+    * turn's end — and restating it keeps it recent rather than buried at the
+    * top of the thread.
     */
   def foldIntoPrompt(
       config: AgentConfig,
       userPrompt: String,
       extraHint: Option[String] = None
   ): String =
-    combine(config, extraHint) match
-      case None => userPrompt
-      case Some(text) =>
-        s"""System guidance:
-           |$text
-           |
-           |User request:
-           |$userPrompt""".stripMargin
+    s"""System guidance:
+       |${composeAll(config, extraHint)}
+       |
+       |User request:
+       |$userPrompt""".stripMargin

@@ -70,12 +70,19 @@ class OpencodeArgsTest extends munit.FunSuite:
       None
     )
 
-  test("message carries the composed system prompt"):
-    // What opencode owns is that the composed prompt reaches `system` — the
-    // composition itself is `SystemPromptComposerTest`'s.
-    val body =
-      OpencodeArgs.message(AgentConfig(), "hi", None, interactive)
-    assertEquals(body.system, SystemPromptComposer.combine(AgentConfig()))
+  test("message carries the composed system prompt, config included"):
+    // What opencode owns is that the composed prompt reaches `system`; which
+    // rules compose is `SystemPromptComposerTest`'s. A non-default config, so
+    // the assertion still bites if `message` hardcoded the default one.
+    val config = AgentConfig(systemPrompt = Some("be terse"))
+    val body = OpencodeArgs.message(config, "hi", None, interactive)
+    assert(body.system.exists(_.startsWith("be terse")), body.system)
+    assert(
+      body.system.exists(
+        _.endsWith(SystemPromptComposer.BackgroundWorkAbandonedAtTurnEnd)
+      ),
+      body.system
+    )
 
   test("structured turn sets format=json_schema with the schema verbatim"):
     val body = OpencodeArgs.message(

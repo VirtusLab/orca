@@ -185,12 +185,14 @@ private[orca] class ClaudeBackend(
           List(
             SubprocessSpawn.deleteFileResource(mcpConfigPath(server, workDir))
           )
-    SubprocessSpawn.open("claude stream-json", askUser.toList) {
-      val systemPromptFile =
-        writeSystemPromptIfPresent(
-          config,
-          includeAskUserHint = askUser.isDefined
-        )
+    // Written before `open` so it can join `resources` (failure-path cleanup);
+    // the conversation deletes it on the success path via its `onFinalize`.
+    val systemPromptFile =
+      writeSystemPromptIfPresent(config, includeAskUserHint = askUser.isDefined)
+    SubprocessSpawn.open(
+      "claude stream-json",
+      askUser.toList ++ systemPromptFile.map(SubprocessSpawn.deleteFileResource)
+    ) {
       val effectiveConfig =
         if askUser.isDefined then
           config.autoApproveAlso(ClaudeBackend.AskUserToolName)
@@ -218,7 +220,8 @@ private[orca] class ClaudeBackend(
         config,
         initialPrompt = displayPrompt,
         outputSchema = outputSchema,
-        askUser = askUser
+        askUser = askUser,
+        systemPromptFile = systemPromptFile
       )
     }
 

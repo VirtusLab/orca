@@ -40,13 +40,15 @@ class SpawnStubCliRunner(
     val _ = recorded.updateAndGet(
       SpawnStubCliRunner.SpawnCall(args.toList, env, cwd, pipeStderr) :: _
     )
-    onSpawn(args.toList)
     val next = queue
       .getAndUpdate(_.drop(1))
       .headOption
       .getOrElse(
         throw new IllegalStateException("ran out of prepared processes")
       )
+    // After the queue pop, so a hook that throws can't leave the queue looking
+    // untouched for the next spawn.
+    onSpawn(args.toList)
     next
 
 object SpawnStubCliRunner:

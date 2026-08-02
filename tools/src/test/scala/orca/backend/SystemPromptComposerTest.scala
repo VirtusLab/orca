@@ -28,13 +28,6 @@ class SystemPromptComposerTest extends munit.FunSuite:
     )
     assertEquals(out, Some(backgroundRule))
 
-  test("config systemPrompt precedes the appended standing rules"):
-    val out = SystemPromptComposer.combine(
-      AgentConfig().copy(systemPrompt = Some("be terse")),
-      extraHint = None
-    )
-    assertEquals(out, Some(s"be terse\n\n$gitRule\n\n$backgroundRule"))
-
   test("read-only config keeps its systemPrompt and drops only the git rule"):
     val out = SystemPromptComposer.combine(
       AgentConfig().copy(

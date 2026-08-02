@@ -1,6 +1,6 @@
 package orca.tools.claude
 
-import orca.backend.{Interaction, SupervisedBackend}
+import orca.backend.{Interaction, SupervisedBackend, SystemPromptComposer}
 import orca.agents.{
   BackendTag,
   AgentConfig,
@@ -196,20 +196,61 @@ class ClaudeBackendTest extends munit.FunSuite:
   test(
     "runAutonomous passes a --append-system-prompt-file pointing at the config's prompt"
   ):
-    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    var promptText: Option[String] = None
+    val runner = new SpawnStubCliRunner(
+      List(successfulProcess()),
+      onSpawn = args => promptText = Some(readSystemPrompt(args))
+    )
     withBackend(runner): backend =>
       val config = AgentConfig(systemPrompt = Some("you are a poet"))
       val _ = backend.runAutonomous("x", freshSid, config)
-      val args = runner.calls.head
-      val flagIdx = args.indexOf("--append-system-prompt-file")
-      assert(flagIdx >= 0, s"expected the prompt-file flag in args; got: $args")
-      val path = os.Path(args(flagIdx + 1))
-      // The configured prompt leads; SystemPromptComposer appends the
-      // always-on runtime-owns-git rule on write-capable turns.
-      assert(
-        os.read(path).startsWith("you are a poet"),
-        s"expected the configured prompt first; got: ${os.read(path)}"
+      // The configured prompt leads; SystemPromptComposer appends the standing
+      // rules after it.
+      assert(promptText.exists(_.startsWith("you are a poet")), promptText)
+
+  test("a read-only turn still gets the turn-boundary rule in its prompt file"):
+    // Read-only turns compose no git rule, so this is the one that must arrive.
+    var promptText: Option[String] = None
+    val runner = new SpawnStubCliRunner(
+      List(successfulProcess()),
+      onSpawn = args => promptText = Some(readSystemPrompt(args))
+    )
+    withBackend(runner): backend =>
+      val _ = backend.runAutonomous(
+        "x",
+        freshSid,
+        AgentConfig(tools = ToolSet.ReadOnly)
       )
+      assertEquals(
+        promptText,
+        Some(SystemPromptComposer.BackgroundWorkAbandonedAtTurnEnd)
+      )
+
+  test("the system-prompt temp file is deleted when the turn finalizes"):
+    // `os.temp`'s deleteOnExit only fires at JVM shutdown; a flow runs hundreds
+    // of turns, so the file must go at turn end.
+    var promptFile: Option[os.Path] = None
+    val runner = new SpawnStubCliRunner(
+      List(successfulProcess()),
+      onSpawn = args => promptFile = Some(systemPromptPath(args))
+    )
+    withBackend(runner): backend =>
+      val _ = backend.runAutonomous("x", freshSid, AgentConfig())
+      assert(promptFile.exists(p => !os.exists(p)), promptFile)
+
+  /** Path of the file `--append-system-prompt-file` points at, failing on a
+    * missing flag rather than reading whatever argument sits at index 0.
+    */
+  private def systemPromptPath(args: List[String]): os.Path =
+    val idx = args.indexOf("--append-system-prompt-file")
+    require(idx >= 0, s"no --append-system-prompt-file in $args")
+    os.Path(args(idx + 1))
+
+  /** Read that file at spawn time — the conversation deletes it when the turn
+    * finalizes, so it is gone by the time `runAutonomous` returns.
+    */
+  private def readSystemPrompt(args: List[String]): String =
+    os.read(systemPromptPath(args))
 
   test(
     "first runAutonomous call uses --session-id; second with the same id uses --resume"
