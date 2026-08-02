@@ -1,7 +1,14 @@
 package orca.tools.codex
 
-import orca.backend.SupervisedBackend
-import orca.agents.{BackendTag, AgentConfig, Model, SessionId, WireSessionId}
+import orca.backend.{SupervisedBackend, SystemPromptComposer}
+import orca.agents.{
+  BackendTag,
+  AgentConfig,
+  Model,
+  SessionId,
+  ToolSet,
+  WireSessionId
+}
 import orca.{OrcaFlowException}
 import orca.subprocess.{FakePipedCliProcess, SpawnStubCliRunner}
 import orca.testkit.TempDirs
@@ -353,6 +360,25 @@ class CodexBackendTest extends munit.FunSuite:
       assert(os.exists(schemaFile))
       assertEquals(os.read(schemaFile), """{"type":"object"}""")
       assertEquals(os.list(workDir).toList, Nil)
+
+  test("a read-only turn's user prompt is wrapped in the guidance envelope"):
+    // codex has no --append-system-prompt, so the standing rules ride in the
+    // user prompt — including on read-only turns, which compose no git rule.
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    withBackend(runner): backend =>
+      val _ = backend.runAutonomous(
+        "q",
+        clientSid,
+        AgentConfig(tools = ToolSet.ReadOnly)
+      )
+      val finalPrompt = runner.calls.head.last
+      assert(
+        finalPrompt.contains(
+          SystemPromptComposer.BackgroundWorkAbandonedAtTurnEnd
+        ),
+        finalPrompt
+      )
+      assert(finalPrompt.endsWith("q"), finalPrompt)
 
   test(
     "runInteractive registers an MCP server and folds the ask_user hint"

@@ -43,12 +43,30 @@ private[claude] object ClaudeArgs:
       "--verbose",
       "--include-partial-messages"
     ) ++
-      CliArgs.modelArgs(config) ++
+      modelArgs(config) ++
       systemPromptFileArgs(systemPromptFile) ++
       sessionArgs(dispatch) ++
       autoApproveArgs(config, networkTools) ++
       jsonSchemaArgs(jsonSchema) ++
       mcpConfigArgs(mcpConfig)
+
+  /** `--model`, with the bare `haiku` alias replaced by its fully-qualified id.
+    *
+    * Under `--permission-mode plan` (every read-only turn — see
+    * `autoApproveArgs`) the CLI serves `claude-sonnet-5` for `--model haiku`,
+    * 3x the intended rate for a `claude:haiku` role pin. Its init line still
+    * names haiku, so re-checking this means reading the model off the assistant
+    * messages or the result's `modelUsage`, not off the init line. It honours
+    * `claude-haiku-4-5` in the same mode; verified against claude 2.1.220.
+    *
+    * Only `haiku` is rewritten — the CLI resolves `sonnet`/`opus`/`fable`
+    * correctly in plan mode, and leaving those bare keeps them tracking the
+    * latest model in their tier.
+    */
+  private def modelArgs(config: AgentConfig): Seq[String] =
+    CliArgs.flag("--model", config.model): model =>
+      if model.name == "haiku" then DefaultClaudeAgent.Haiku.name
+      else model.name
 
   private def systemPromptFileArgs(file: Option[os.Path]): Seq[String] =
     CliArgs.flag("--append-system-prompt-file", file)(_.toString)
