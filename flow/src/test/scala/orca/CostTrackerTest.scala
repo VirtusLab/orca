@@ -6,11 +6,13 @@ import orca.events.{
   ModelPricing,
   OrcaEvent,
   PriceList,
+  Pricing,
   Usage
 }
 import orca.agents.Model
 
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 
 class CostTrackerTest extends munit.FunSuite:
 
@@ -133,8 +135,9 @@ class CostTrackerTest extends munit.FunSuite:
   test("cache axes over-reported past the input total never bill negatively"):
     // The invariant says reads + writes <= inputTokens; a backend that breaks
     // it must cost zero fresh input, not a negative charge that eats the rest
-    // of the estimate. Here fresh would be -100k: 300k read @ $0.10/M +
-    // 300k write @ $2/M = $0.63, with nothing subtracted for input.
+    // of the estimate. Here fresh would be -50k: 300k read @ $0.10/M +
+    // 250k write @ $2/M = $0.53, with nothing subtracted for input. The two
+    // cache counts differ so a read/write rate swap can't pass.
     val tracker = new CostTracker(pricing = testTable)
     tracker.onEvent(
       tokens(
@@ -145,32 +148,71 @@ class CostTrackerTest extends munit.FunSuite:
           outputTokens = 0L,
           cost = None,
           cachedInputTokens = 300_000L,
-          cacheWriteInputTokens = 300_000L
+          cacheWriteInputTokens = 250_000L
         )
       )
     )
-    assertEquals(tracker.perAgentCost("claude").amount, BigDecimal("0.63"))
+    assertEquals(tracker.perAgentCost("claude").amount, BigDecimal("0.53"))
 
-  test("a reported cost still renders the read/write breakdown"):
+  test("a reported cost still renders a write-only cache parenthetical"):
+    // A cold first turn writes the whole prompt and reads nothing, which is
+    // the shape every fresh claude session starts with.
     val tracker = new CostTracker(pricing = testTable)
     tracker.onEvent(
       tokens(
         "claude",
         Some("opus"),
         Usage(
-          inputTokens = 1_000_000L,
-          outputTokens = 0L,
+          inputTokens = 30_000L,
+          outputTokens = 500L,
           cost = Some(BigDecimal("0.42")),
-          cachedInputTokens = 600_000L,
-          cacheWriteInputTokens = 300_000L
+          cacheWriteInputTokens = 29_000L
         )
       )
     )
     assert(
       tracker.summary.contains(
-        "claude: 1M in (600K cache read, 300K cache write), 0 out ($0.4200)"
+        "claude: 30K in (29K cache write), 500 out ($0.4200)"
       ),
       tracker.summary
+    )
+
+  test("shipped price list is re-checked at least twice a year"):
+    // The rates are only as good as their last check against provider pricing
+    // pages, and the legend advertises `lastUpdated` to users. Fail once the
+    // snapshot is old enough that shipping it is a claim nobody verified.
+    val age = ChronoUnit.DAYS
+      .between(Pricing.default.lastUpdated, LocalDate.now())
+    assert(
+      age <= 183,
+      s"the shipped pricing table was last checked ${age} days ago " +
+        s"(${Pricing.default.lastUpdated}). Re-check every row against the " +
+        "provider pricing pages, then bump `lastUpdated`."
+    )
+
+  test("shipped table reproduces a captured turn's reported cost"):
+    // Real turn from a claude run, reported by the CLI as $0.1876374. The
+    // shipped rates must reproduce it: this is the one assertion that catches
+    // a whole class of table errors — a wrong cache-write tier, a wrong base
+    // rate, or a model id resolving to the wrong row (this id looks like a
+    // Haiku snapshot but is served, and billed, as Sonnet 5).
+    val tracker = new CostTracker
+    tracker.onEvent(
+      tokens(
+        "reviewer",
+        Some("claude-haiku-4-5-20251001"),
+        Usage(
+          inputTokens = 176_625L,
+          outputTokens = 1_083L,
+          cost = None,
+          cachedInputTokens = 155_848L,
+          cacheWriteInputTokens = 20_769L
+        )
+      )
+    )
+    assertEquals(
+      tracker.perAgentCost("reviewer").amount,
+      BigDecimal("0.1876374")
     )
 
   test("estimate ignores reasoning tokens (already inside output)"):

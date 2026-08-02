@@ -197,7 +197,9 @@ private[pi] object InboundEvent:
     // excludes both cache categories) and subtracts cached tokens on providers
     // that include them, then reports `totalTokens` as the sum of all four
     // axes. The total prompt is therefore the sum of the three input axes, as
-    // for claude and opencode.
+    // for claude and opencode. pi also reports `cacheWrite1h`, the 1h-TTL
+    // subset of `cacheWrite` — unparsed here, since `ModelPricing` carries one
+    // write rate; it is what a per-tier split would key on.
     def toUsage: Usage =
       val read = cacheRead.getOrElse(0L)
       val write = cacheWrite.getOrElse(0L)

@@ -124,11 +124,14 @@ private[codex] object InboundEvent:
       Usage(
         // In codex's wire shape `input_tokens` is the total billed input
         // (cached + non-cached), and `output_tokens` is the total output
-        // (visible + reasoning) — `cached_input_tokens` and
-        // `reasoning_output_tokens` are sub-breakdowns. Keep both axes. There
-        // is no cache-creation counter, so `cacheWriteInputTokens` stays zero.
+        // (visible + reasoning) — `cached_input_tokens`,
+        // `cache_write_input_tokens` and `reasoning_output_tokens` are
+        // sub-breakdowns. Keep every axis: codex emits no cost, so the price
+        // table is the only cost signal, and on the GPT-5.6 family a cache
+        // write bills 1.25× input.
         inputTokens = u.input_tokens.getOrElse(0L),
         cachedInputTokens = u.cached_input_tokens.getOrElse(0L),
+        cacheWriteInputTokens = u.cache_write_input_tokens.getOrElse(0L),
         outputTokens = u.output_tokens.getOrElse(0L),
         reasoningOutputTokens = u.reasoning_output_tokens.getOrElse(0L),
         // codex doesn't emit cost in the JSONL stream; left None.
@@ -222,6 +225,7 @@ private[codex] object InboundEvent:
   private case class UsageWire(
       input_tokens: Option[Long] = None,
       cached_input_tokens: Option[Long] = None,
+      cache_write_input_tokens: Option[Long] = None,
       output_tokens: Option[Long] = None,
       reasoning_output_tokens: Option[Long] = None
   ) derives ConfiguredJsonValueCodec

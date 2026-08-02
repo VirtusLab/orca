@@ -126,6 +126,9 @@ class InboundEventTest extends munit.FunSuite:
     InboundEvent.parse(line) match
       case InboundEvent.Result(usage, _) =>
         assertEquals(usage.cachedInputTokens, 120L)
+        // gemini has no cache-creation counter: the read count must not leak
+        // onto the write axis, which would double-bill it at the write rate.
+        assertEquals(usage.cacheWriteInputTokens, 0L)
       case other => fail(s"expected Result, got $other")
 
   test("result falls back to `cached_input_tokens` when `cached` is absent"):

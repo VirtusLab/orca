@@ -190,12 +190,8 @@ object Pricing:
         outputUsdPerMillion = 75,
         cacheWriteUsdPerMillion = 30
       ),
-      // Sticker rates, deliberately, even though Anthropic publishes an
-      // introductory $2/$10 through 2026-08-31: the CLI computes the
-      // `total_cost_usd` it reports at sticker, matching these rates exactly
-      // on every measured Sonnet 5 turn and never the introductory ones. A
-      // summary mixes reported and estimated figures, so the table follows
-      // the number users reconcile against.
+      // The CLI computes the `total_cost_usd` it reports at these sticker
+      // rates; Anthropic's published introductory $2/$10 ends 2026-08-31.
       Model("claude-sonnet-5") -> ModelPricing(
         inputUsdPerMillion = 3,
         cachedInputUsdPerMillion = 0.30,
@@ -209,6 +205,22 @@ object Pricing:
         cacheWriteUsdPerMillion = 6
       ),
       Model("claude-sonnet-4-5") -> ModelPricing(
+        inputUsdPerMillion = 3,
+        cachedInputUsdPerMillion = 0.30,
+        outputUsdPerMillion = 15,
+        cacheWriteUsdPerMillion = 6
+      ),
+      // Priced as Sonnet 5, which is what this id's traffic actually is.
+      // `claude --model haiku` (the bare alias, what `claude:haiku` config
+      // becomes) is served by Sonnet 5 — the CLI's own transcripts report
+      // `claude-sonnet-5` as the responding model for those sessions — while
+      // the id reaching orca is this dated haiku snapshot, and the turns bill
+      // at Sonnet 5 rates to the cent. Without this row the `-\d{8}` suffix
+      // fallback bridges the id to the haiku snapshot below and under-prices
+      // the traffic 3.14×. Asking for `--model claude-haiku-4-5` (the exact
+      // id) does get Haiku, and reports the undated id, so it prices below.
+      // Revisit when the alias resolves to Haiku again.
+      Model("claude-haiku-4-5-20251001") -> ModelPricing(
         inputUsdPerMillion = 3,
         cachedInputUsdPerMillion = 0.30,
         outputUsdPerMillion = 15,
@@ -267,8 +279,9 @@ object Pricing:
         cacheWriteUsdPerMillion = 0.75
       ),
       // Gemini (paid tier). 2.5 Pro is tiered on prompt size; these are the
-      // ≤200k-token rates (the common case) — prompts above 200k bill more
-      // ($2.50 in / $15 out). gemini emits no cost on the wire, so these
+      // ≤200k-token rates — prompts above 200k bill double ($2.50 in / $15
+      // out), so a long-context flow, which is the usual shape here, is
+      // UNDER-estimated by up to half. gemini emits no cost on the wire, so these
       // table rates × token counts are the only cost signal. The cache-write
       // rate is inert — the adapter never reports writes — and is set to the
       // input rate: implicit caching has no write charge, and explicit

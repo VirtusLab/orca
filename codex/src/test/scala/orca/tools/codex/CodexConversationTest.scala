@@ -16,6 +16,37 @@ class CodexConversationTest extends munit.FunSuite:
   private def convTest(name: String)(body: Ox ?=> Unit): Unit =
     test(name)(supervised(body))
 
+  convTest("turn.completed keeps cache reads and cache writes on own axes"):
+    val process = new FakePipedCliProcess()
+    val conv = new CodexConversation(process)
+
+    process.enqueueStdout("""{"type":"thread.started","thread_id":"thr-c"}""")
+    process.enqueueStdout("""{"type":"turn.started"}""")
+    process.enqueueStdout(
+      """{"type":"item.completed","item":{"id":"item_0","type":"agent_message","text":"ok"}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"turn.completed","usage":{"input_tokens":900,"cached_input_tokens":500,"cache_write_input_tokens":300,"output_tokens":40,"reasoning_output_tokens":12}}"""
+    )
+    process.closeStdout()
+    process.closeStderr()
+
+    val _ = conv.events.toList
+    val Right(result) = conv.awaitResult(): @unchecked
+    assertEquals(
+      result.usage,
+      Usage(
+        // `input_tokens` is already the billed total; reads and writes are
+        // sub-breakdowns of it, so nothing is added on top.
+        inputTokens = 900L,
+        outputTokens = 40L,
+        cost = None,
+        cachedInputTokens = 500L,
+        reasoningOutputTokens = 12L,
+        cacheWriteInputTokens = 300L
+      )
+    )
+
   convTest("agent_message item completes a turn with TextDelta + TurnEnd"):
     val process = new FakePipedCliProcess()
     val conv = new CodexConversation(process)

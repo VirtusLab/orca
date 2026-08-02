@@ -11,9 +11,14 @@ breaking changes ship in minor releases; this file is where they are announced.
   creation is now tracked separately from cache reads: `cachedInputTokens`
   means cache *reads* only, and the two are disjoint sub-portions of
   `inputTokens`. Construction is unaffected (the field is last and defaults to
-  `0`), but the extractor's arity changed from 5 to 6 — a pattern match like
-  `case Usage(in, out, cost) =>` no longer compiles. Match on the fields you
-  need by name, or add the two trailing wildcards.
+  `0`), but the extractor's arity changed from 5 to 6, so a positional pattern
+  match stops compiling:
+
+  ```scala
+  case Usage(in, out, cost, cached, reasoning) =>          // no longer compiles
+  case Usage(in, out, cost, cached, reasoning, written) => // add the field
+  case Usage(inputTokens = in, cacheWriteInputTokens = w) => // or match by name
+  ```
 - **`orca.events.ModelPricing` gained a fourth field,
   `cacheWriteUsdPerMillion`,** with no default. A custom pricing table must now
   state a cache-write rate per model; three-argument constructions no longer
