@@ -199,7 +199,30 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 >   changes it cannot speak to; it is not a priority signal, so it grants no
 >   exemption from narrowing — a quiet `scala-fp` is dropped like any other
 >   quiet reviewer. And an empty change set means the diff didn't say which
->   files changed (it is also empty once the work under review is committed),
->   not that nothing changed: every reviewer stays eligible, since dropping one
->   there removes it from the whole review and nothing downstream can put it
->   back.
+>   files changed, not that nothing changed: every reviewer stays eligible,
+>   since dropping one there removes it from the whole review and nothing
+>   downstream can put it back. Committing the work under review no longer
+>   causes that emptiness — see the amendment below — but a diff that reports
+>   no paths still can.
+
+> **Amendment (2026-08-02).** Selection and review run against **the change set
+> the enclosing stage has produced** — `git.reviewDiff(stageBaseCommit)`, over
+> the baseline ADR 0018 §2.1's 2026-08-02 amendment records. Previously the loop
+> sampled `git diff HEAD`, which is empty once the coding agent has committed
+> its own work: the selector then saw `changedFiles = Nil`, so the `files:`
+> pre-filter matched nothing and dropped every file-gated reviewer, and each
+> reviewer was prompted with "(no diff captured — review the working tree)" and
+> re-derived the change set by hand, every round.
+>
+> It is the **stage**, not the branch, that bounds the change set: a branch-wide
+> base (`git.defaultBase()`) answers a different question and would pull every
+> earlier task of a multi-task plan into one task's review.
+>
+> Re-selection is NOT re-run per round. `prepare`'s pick stays a once-per-loop
+> LLM call (the picker is the cost this ADR exists to bound), and per-round
+> narrowing over `history` — who reported last round — remains the signal the
+> arrow narrows on; a fixer's edits land inside the file set the task already
+> had, so re-picking from them would rarely differ. What the baseline changes is
+> that the once-computed `changedFiles` is the task's real file set rather than
+> empty, and that each round's re-sample carries the fixer's later edits,
+> committed or not, to a reviewer joining that round.

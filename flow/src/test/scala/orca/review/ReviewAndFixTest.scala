@@ -24,15 +24,21 @@ import orca.testkit.TempDirs
 
 /** Fake AgentCall whose `autonomous.run` drains a scripted sequence of outputs
   * in order. `seenSessions` records each call's session id so tests can assert
-  * "fresh on first, same id thereafter."
+  * "fresh on first, same id thereafter."; `seenPrompts` records what the caller
+  * sent. `onRun` fires before each reply, for simulating an agent that touches
+  * the working tree.
   */
-class FakeAgentCall[O](outputs: Iterator[Any])
+class FakeAgentCall[O](outputs: Iterator[Any], onRun: () => Unit)
     extends AgentCall[BackendTag.ClaudeCode.type, O]:
 
   /** Session ids the LLM was called with, in invocation order. */
   val seenSessions = new java.util.concurrent.atomic.AtomicReference[
     List[SessionId[BackendTag.ClaudeCode.type]]
   ](Nil)
+
+  /** Rendered inputs the LLM was called with, in invocation order. */
+  val seenPrompts =
+    new java.util.concurrent.atomic.AtomicReference[List[String]](Nil)
 
   val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
     new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
@@ -43,15 +49,20 @@ class FakeAgentCall[O](outputs: Iterator[Any])
           emitPrompt: Boolean
       )(using orca.InStage): O =
         val _ = seenSessions.updateAndGet(session :: _)
+        val _ = seenPrompts.updateAndGet(
+          summon[AgentInput[I]].serialize(input) :: _
+        )
+        onRun()
         outputs.next().asInstanceOf[O]
   def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] = ???
 
 class FakeAgent(
     override val name: String,
-    outputs: List[Any] = Nil
+    outputs: List[Any] = Nil,
+    onRun: () => Unit = () => ()
 ) extends Agent[BackendTag.ClaudeCode.type]:
   private val it = outputs.iterator
-  val fakeCall: FakeAgentCall[Any] = new FakeAgentCall[Any](it)
+  val fakeCall: FakeAgentCall[Any] = new FakeAgentCall[Any](it, onRun)
 
   def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
 
@@ -64,6 +75,9 @@ class FakeAgent(
     */
   def seenSessions: List[SessionId[BackendTag.ClaudeCode.type]] =
     fakeCall.seenSessions.get().reverse
+
+  /** Rendered inputs this tool was called with, in invocation order. */
+  def seenPrompts: List[String] = fakeCall.seenPrompts.get().reverse
 
   def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
   def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] = this
@@ -516,33 +530,8 @@ class ReviewAndFixTest extends munit.FunSuite:
 
   test("initialDiff is embedded in the reviewer's first prompt"):
     given FlowControl = control
-    var capturedFirst: Option[String] = None
-    val captureReviewer = new Agent[BackendTag.ClaudeCode.type]:
-      val name = "capturing"
-      def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] = ???
-      def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-      def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
-        this
-      def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-      def withTools(tools: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
-      def resultAs[O: JsonData: Announce]
-          : AgentCall[BackendTag.ClaudeCode.type, O] =
-        new AgentCall[BackendTag.ClaudeCode.type, O]:
-          val autonomous: AutonomousAgentCall[BackendTag.ClaudeCode.type, O] =
-            new AutonomousAgentCall[BackendTag.ClaudeCode.type, O]:
-              private[orca] def runWithSession[I: AgentInput](
-                  i: I,
-                  session: SessionId[BackendTag.ClaudeCode.type],
-                  c: Option[AgentConfig],
-                  emitPrompt: Boolean
-              )(using
-                  orca.InStage
-              ): O =
-                capturedFirst = Some(i.toString)
-                ReviewResult.empty.asInstanceOf[O]
-          def interactive: InteractiveAgentCall[BackendTag.ClaudeCode.type, O] =
-            ???
-
+    val captureReviewer =
+      new FakeAgent("capturing", outputs = List(ReviewResult.empty))
     val coder = new FakeAgent("coder")
     val _ = reviewAndFixLoop(
       coderSession = ReviewLoopFixture.coderSession(coder),
@@ -551,8 +540,8 @@ class ReviewAndFixTest extends munit.FunSuite:
       reviewerSelection = ReviewerSelector.allEveryRound,
       initialDiff = Some("--- a/Foo.scala\n+++ b/Foo.scala\n+ added line")
     )
-    val sent =
-      capturedFirst.getOrElse(fail("the fresh-session run was never called"))
+    val sent = captureReviewer.seenPrompts.headOption
+      .getOrElse(fail("the fresh-session run was never called"))
     assert(sent.contains("--- a/Foo.scala"), s"diff missing from prompt: $sent")
     assert(sent.contains("do thing"), s"task missing from prompt: $sent")
 

@@ -1,10 +1,11 @@
 package orca
 
-/** Per-run stage-identity bookkeeping shared by every [[FlowControl]]
-  * implementation (production [[orca.runner.DefaultFlowContext]] and the test
-  * doubles), so a test double can't drift from production semantics and
-  * greenwash a nesting/resume test. Canonical description of the frame-stack
-  * protocol; see ADR 0018 §2.1 for the design rationale.
+/** Per-run stage-identity and stage-baseline bookkeeping shared by every
+  * [[FlowControl]] implementation (production
+  * [[orca.runner.DefaultFlowContext]] and the test doubles), so a test double
+  * can't drift from production semantics and greenwash a nesting/resume test.
+  * Canonical description of the frame-stack protocol; see ADR 0018 §2.1 for the
+  * design rationale.
   *
   * '''Mechanism.''' A stack of frames — one per currently-open stage, plus a
   * root frame (path `""`) for the flow body — scopes occurrence counters
@@ -13,6 +14,9 @@ package orca
   * child's id by joining `name#occurrence` onto the parent path. `enterStage`
   * pushes the child frame, [[exitStage]] pops it, and the head is always the
   * current scope.
+  *
+  * A frame also records the commit its stage started from, read back as
+  * [[stageBaseCommit]] (ADR 0018 §2.1).
   *
   * '''Invariants.'''
   *   - '''Exactly-once bump.''' `enterStage` bumps the parent's occurrence
@@ -62,11 +66,11 @@ private[orca] trait StageFrames:
         s"$what called from a fork — forks get FlowContext only (ADR 0018 R12)"
       )
 
-  /** One open stage's scope: its own path id (the prefix children join under)
-    * and the per-name occurrence counters for stages nested directly beneath
-    * it.
+  /** One open stage's scope: its own path id (the prefix children join under),
+    * the commit the stage started from, and the per-name occurrence counters
+    * for stages nested directly beneath it.
     */
-  private final class Frame(val path: String):
+  private final class Frame(val path: String, val baseCommit: Option[String]):
     private var counts: Map[String, Int] = Map.empty
     def next(name: String): Int =
       val n = counts.getOrElse(name, 0)
@@ -74,19 +78,22 @@ private[orca] trait StageFrames:
       n
 
   // The root frame (path "") is the flow body; it is never popped.
-  private var frames: List[Frame] = List(new Frame(""))
+  private var frames: List[Frame] = List(new Frame("", None))
 
-  /** Bump the current frame's occurrence counter for `name`, push a child
-    * frame, and return its full path id. Must be called exactly once per stage
-    * attempt — see the class doc's "Exactly-once bump" invariant.
+  /** Bump the current frame's occurrence counter for `name`, push a child frame
+    * recording `baseCommit`, and return its full path id. Must be called
+    * exactly once per stage attempt — see the class doc's "Exactly-once bump"
+    * invariant.
     */
-  def enterStage(name: String): String =
+  def enterStage(name: String, baseCommit: Option[String]): String =
     assertOwnerThread("stage(...)")
     val parent = frames.head
     val segment = s"$name#${parent.next(name)}"
     val id = if parent.path.isEmpty then segment else s"${parent.path}/$segment"
-    frames = new Frame(id) :: frames
+    frames = new Frame(id, baseCommit) :: frames
     id
+
+  def stageBaseCommit: Option[String] = frames.head.baseCommit
 
   /** Pop the current stage frame. Balanced with [[enterStage]] by `stage`'s
     * try/finally; never pops the root frame in correct use.

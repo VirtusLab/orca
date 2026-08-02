@@ -156,6 +156,20 @@ that stage's progress entry. Why two stages can't run concurrently — the
 > its own leftovers. See the `stage` scaladoc in Flow.scala for the full
 > rationale.
 
+> **Amendment (2026-08-02).** A stage also records the commit HEAD pointed at
+> when it began, alongside its id (`enterStage(name, baseCommit)`, read back as
+> `FlowControl.stageBaseCommit`). Nothing here forbids a stage's agent from
+> committing its own work, so `git diff HEAD` does not answer "what has this
+> stage produced" — the recorded baseline does, and it must be read at
+> `enterStage` because by the time anything asks, HEAD may have moved. `None`
+> when there was no commit to record. `reviewAndFixLoop` is the consumer (ADR
+> 0011 amendment 2026-08-02).
+>
+> Known limitation, inherited rather than introduced: in a repository with no
+> commits at all there is no baseline AND `git diff HEAD` itself fails, so a
+> review in that state aborts the stage. It predates this amendment and no flow
+> reaches it — setup commits the progress header before any user stage runs.
+
 ### 2.2 Capability gating
 
 **Requirements.**

@@ -42,10 +42,16 @@ trait FlowControl extends FlowContext, caps.ExclusiveCapability:
     * `outer#0/inner#0`). Called once by `stage` before the resume lookup; must
     * be balanced by [[exitStage]]. See [[StageFrames]] for the protocol.
     */
-  def enterStage(name: String): String
+  def enterStage(name: String, baseCommit: Option[String]): String
 
   /** Pop the frame opened by the matching [[enterStage]]. */
   def exitStage(): Unit
+
+  /** The commit the innermost open stage started from — the baseline for the
+    * change set that stage has produced, whether or not it has since been
+    * committed. `None` when no such commit was recorded (ADR 0018 §2.1).
+    */
+  private[orca] def stageBaseCommit: Option[String]
 
   /** Whether execution is currently inside a stage body (any stage frame open).
     * Gates `agent.session(...)` to the flow-body top level.

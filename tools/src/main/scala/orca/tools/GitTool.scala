@@ -160,6 +160,12 @@ trait GitTool:
 
   def currentBranch(): String
 
+  /** The commit HEAD resolves to, as a full hash. READ-ONLY. Best-effort:
+    * `None` when HEAD names no commit (a repository with no history yet) or the
+    * probe cannot answer.
+    */
+  def headCommit(): Option[String]
+
   /** True when git ignores `relPath` relative to the working directory (`git
     * check-ignore`). READ-ONLY. Best-effort: `false` whenever the probe cannot
     * answer (not a git repo, git unavailable) — callers use this for warnings,
@@ -232,16 +238,21 @@ trait GitTool:
     */
   def untrackedPaths(): List[String]
 
-  /** The working-tree change set a reviewer should see: everything [[diff]]
-    * reports, PLUS each untracked non-`.orca/` file rendered as a new-file diff
-    * (`git diff --no-index` against `/dev/null`) — so a freshly-created file is
-    * visible even though it has no tracked history to diff against. Read-only:
+  /** The change set a reviewer should see: everything [[diff]] reports, PLUS
+    * each untracked non-`.orca/` file rendered as a new-file diff (`git diff
+    * --no-index` against `/dev/null`) — so a freshly-created file is visible
+    * even though it has no tracked history to diff against. Read-only:
     * untracked files are diffed, never staged.
+    *
+    * `since` is the commit the working tree is compared against. `None` means
+    * HEAD — uncommitted work only, which is empty once the work has been
+    * committed; pass the commit a unit of work started from (see
+    * [[headCommit]]) to see everything it produced either way.
     *
     * An untracked symlink to a directory is one `--no-index` can't render; it
     * appears as a line naming the path rather than being dropped silently.
     */
-  def reviewDiff(): String
+  def reviewDiff(since: Option[String] = None): String
 
   /** Everything the next `commit` would include, in the three shapes a caller
     * describing it needs: the [[diffStat]] summary, the [[untrackedPaths]]
@@ -491,6 +502,20 @@ private[orca] class OsGitTool(
   def currentBranch(): String =
     git("rev-parse", "--abbrev-ref", "HEAD").trim
 
+  def headCommit(): Option[String] = revParse("HEAD")
+
+  /** The hash `ref` resolves to, `None` when it doesn't resolve. `--verify`
+    * makes an unresolvable ref a non-zero exit rather than an echo of the ref
+    * itself; `--quiet` keeps that off stderr.
+    */
+  private def revParse(ref: String): Option[String] =
+    try
+      val result = gitProc(Seq("git", "rev-parse", "--verify", "--quiet", ref))
+      if result.exitCode == 0 then
+        Some(result.out.text().trim).filter(_.nonEmpty)
+      else None
+    catch case NonFatal(_) => None
+
   def isIgnored(relPath: os.SubPath): Boolean =
     // check-ignore exits 0 when the path is ignored, 1 when it isn't, and 128
     // on error (e.g. not a git repo) — only 0 means ignored, so the error
@@ -535,27 +560,32 @@ private[orca] class OsGitTool(
       OrcaEvent.Step("Discarded uncommitted changes (reset --hard)")
     )
 
-  def diff(): String =
-    git(("diff" +: "HEAD" +: OsGitTool.wholeRepoExceptOrca)*)
+  def diff(): String = trackedDiff("HEAD")
+
+  private def trackedDiff(since: String): String =
+    git(("diff" +: since +: OsGitTool.wholeRepoExceptOrca)*)
 
   // `--stat=<width>` widens the stat line so the name column holds a full path;
   // 200 clears any path this side of pathological.
   def diffStat(): String =
     git(("diff" +: "--stat=200" +: "HEAD" +: OsGitTool.wholeRepoExceptOrca)*)
 
-  def reviewDiff(): String =
-    withNewFileContents(untrackedPaths())
+  def reviewDiff(since: Option[String]): String =
+    withNewFileContents(since.getOrElse("HEAD"), untrackedPaths())
 
   def pendingChanges(): PendingChanges =
     val untracked = untrackedPaths()
     PendingChanges(
       stat = diffStat(),
       newFiles = untracked,
-      diff = withNewFileContents(untracked)
+      diff = withNewFileContents("HEAD", untracked)
     )
 
-  private def withNewFileContents(untracked: List[String]): String =
-    (diff() :: untracked.map(untrackedFileDiff)).mkString
+  private def withNewFileContents(
+      since: String,
+      untracked: List[String]
+  ): String =
+    (trackedDiff(since) :: untracked.map(untrackedFileDiff)).mkString
 
   // `--untracked-files=all` recurses into untracked directories so every file
   // inside is listed individually — the default mode lists only the directory.
@@ -648,8 +678,7 @@ private[orca] class OsGitTool(
       Some(result.out.text().trim.stripPrefix("refs/remotes/"))
     else None
 
-  private def refExists(ref: String): Boolean =
-    gitProc(Seq("git", "rev-parse", "--verify", "--quiet", ref)).exitCode == 0
+  private def refExists(ref: String): Boolean = revParse(ref).isDefined
 
   def log(n: Int): List[CommitInfo] =
     // Fields are separated with the ASCII unit separator (0x1F) so commit

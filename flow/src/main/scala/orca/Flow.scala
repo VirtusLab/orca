@@ -43,7 +43,9 @@ def stage[T: JsonData](
 )(body: (InStage, WorkspaceWrite) ?=> T)(using fc: FlowControl): T =
   // `enterStage`/`exitStage` bracket the frame; see StageFrames scaladoc for
   // the frame-stack protocol and invariants, ADR 0018 §2.1 for rationale.
-  val id = fc.enterStage(name)
+  // HEAD is read HERE, before the body: once the body's agent starts
+  // committing, the commit this stage began from is no longer recoverable.
+  val id = fc.enterStage(name, fc.git.headCommit())
   try resumeFrom(id, name).getOrElse(runStage(id, name, commitMessage)(body))
   finally fc.exitStage()
 

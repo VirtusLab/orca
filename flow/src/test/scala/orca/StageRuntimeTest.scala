@@ -5,6 +5,7 @@ import orca.testkit.TextReplyingAgent
 import orca.util.RawJson
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.progress.StageEntry
+import ox.either.orThrow
 
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 
@@ -292,6 +293,22 @@ class StageRuntimeTest extends munit.FunSuite:
     )
     val ids = ctx2.progressStore.load().get.entries.map(_.id).toSet
     assertEquals(ids, Set("dup#0", "dup#1"), s"sibling ids must be stable")
+
+  test("a stage's base commit is the one it started from, not a live HEAD"):
+    val (ctx, dir) = TestFlowControl.create(
+      new EventDispatcher(Nil),
+      lead = Some(commitMessageAgent)
+    )
+    given FlowControl = ctx
+    val atEntry = ctx.git.headCommit()
+    assert(atEntry.isDefined, "the seeded repo must have a HEAD to record")
+    // The body commits before reading it back, which is what a coding agent
+    // free to commit its own work does.
+    val recorded = stage("moves HEAD"):
+      os.write(dir / "out.txt", "hello")
+      ctx.git.commit("the body's own commit").orThrow
+      ctx.stageBaseCommit
+    assertEquals(recorded, atEntry)
 
   // --- helpers ---
 
