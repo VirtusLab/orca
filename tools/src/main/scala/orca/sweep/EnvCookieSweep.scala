@@ -3,55 +3,51 @@ package orca.sweep
 import orca.events.{OrcaEvent, OrcaListener}
 
 import org.slf4j.LoggerFactory
-import ox.discard
+import ox.{discard, sleep}
 
 import java.nio.charset.StandardCharsets.UTF_8
 import java.nio.file.{Files, Path}
 import java.util.concurrent.atomic.AtomicBoolean
+import scala.concurrent.duration.*
 import scala.jdk.StreamConverters.*
 import scala.util.control.NonFatal
 
-/** Result of one scan of the machine's process table. */
-private[orca] enum SweepOutcome:
-  /** No readable per-process environment on this platform, so nothing can be
-    * found. Distinguished from an empty scan so "we cannot look" is never
-    * reported as "nothing leaked".
-    */
-  case Unsupported
-
-  /** The scan ran; `survivors` are the live processes carrying the cookie,
-    * normally empty.
-    */
-  case Scanned(survivors: List[ProcessHandle])
-
-/** Finds processes still carrying a turn's [[EnvCookie]] after that turn has
+/** Finds processes still carrying a turn's [[EnvCookie]] once that turn has
   * been torn down — the backstop for work an agent detached from orca's process
   * tree (`nohup … &`, `setsid`, a double fork), which parent-link teardown
   * cannot reach at all.
   *
   * '''Report-only by default.''' A survivor is announced (an `OrcaEvent.Step`
-  * plus a WARN log) and left running. `ORCA_SWEEP_KILL=1` turns the same
-  * announcement into a kill; nothing else enables it.
+  * plus a WARN log) and left running; `ORCA_SWEEP_KILL=1` makes the same sweep
+  * kill it.
   *
   * '''Linux only.''' The scan reads `/proc/<pid>/environ`. No equivalent has
-  * been verified on macOS, so the sweep says [[SweepOutcome.Unsupported]] there
-  * rather than guessing and silently finding nothing.
+  * been verified on macOS, so a run there says the sweep is unavailable rather
+  * than silently finding nothing.
   */
 private[orca] object EnvCookieSweep:
 
   private val log = LoggerFactory.getLogger("orca.sweep")
 
-  /** `ORCA_SWEEP_KILL=1` — kill survivors instead of only naming them. Off by
-    * default: this ships as a diagnostic, so a turn's leftovers are reported
-    * and left alone unless the variable is set.
-    */
+  /** `ORCA_SWEEP_KILL=1` — kill survivors instead of only naming them. */
   private val killsSurvivors: Boolean =
     sys.env.get("ORCA_SWEEP_KILL").contains("1")
 
   private val ProcFs: Path = Path.of("/proc")
 
+  /** `environ`'s entry separator. */
+  private val Nul: Char = 0
+
   /** Whether this machine exposes readable per-process environments. */
   val supported: Boolean = Files.isDirectory(ProcFs)
+
+  /** Work the agent was already shutting down — an MCP server noticing stdin
+    * EOF, say — can still be in the process table when teardown returns, and
+    * reporting it every turn would bury the leaks worth seeing. So a first hit
+    * is re-checked after this delay and only the second scan is announced. A
+    * turn that leaked nothing never waits: its first scan comes back empty.
+    */
+  private val SettleDelay: FiniteDuration = 250.millis
 
   /** Latches the one-time "cannot look here" notice: the sweep runs at every
     * turn boundary, and a static platform fact repeated per turn is noise.
@@ -66,69 +62,52 @@ private[orca] object EnvCookieSweep:
   def afterTurn(cookie: Option[EnvCookie], events: OrcaListener): Unit =
     cookie.foreach: c =>
       try
-        sweep(c) match
-          case SweepOutcome.Unsupported        => announceUnsupported(events)
-          case SweepOutcome.Scanned(Nil)       => ()
-          case SweepOutcome.Scanned(survivors) => announce(survivors, events)
-      catch case NonFatal(e) => log.debug("environment-cookie sweep failed", e)
+        if !supported then announceUnsupported(events)
+        else if sweep(c).nonEmpty then
+          sleep(SettleDelay)
+          val settled = sweep(c)
+          if settled.nonEmpty then announce(settled, events)
+      catch
+        // Teardown can be interrupted mid-settle; hand the interrupt back
+        // rather than swallowing it along with the diagnostic.
+        case _: InterruptedException => Thread.currentThread().interrupt()
+        case NonFatal(e) => log.debug("environment-cookie sweep failed", e)
 
-  /** Live processes whose environment carries `cookie`. Orca's own JVM is
-    * skipped, so a sweep can never name — or, with the kill switch on, kill —
-    * the process running it.
+  /** Live processes whose environment carries `cookie`; empty where the scan is
+    * unsupported. Orca's own JVM is skipped, so a sweep can never name — or,
+    * with the kill switch on, kill — the process running it.
     */
-  def sweep(cookie: EnvCookie): SweepOutcome =
-    if !supported then SweepOutcome.Unsupported
+  def sweep(cookie: EnvCookie): List[ProcessHandle] =
+    if !supported then Nil
     else
-      val entry = cookie.environEntry.getBytes(UTF_8)
+      val entry = cookie.environEntry
       val self = ProcessHandle.current().pid
-      SweepOutcome.Scanned(
-        ProcessHandle
-          .allProcesses()
-          .toScala(List)
-          .filter(h => h.pid != self && carriesEntry(h.pid, entry))
-      )
+      ProcessHandle
+        .allProcesses()
+        .toScala(List)
+        .filter(h => h.pid != self && carriesEntry(h.pid, entry))
 
-  /** A process that exited mid-scan and one owned by another user both read as
-    * `false` — the `environ` file is gone or unreadable, which is all this
-    * needs to decide.
+  /** Compares whole NUL-delimited entries, so a variable whose name merely ends
+    * with ours cannot match. A process that exited mid-scan and one owned by
+    * another user both read as `false` — the file is gone or unreadable, which
+    * is all this needs to decide.
     */
-  private def carriesEntry(pid: Long, entry: Array[Byte]): Boolean =
+  private def carriesEntry(pid: Long, entry: String): Boolean =
     try
-      containsEntry(
+      new String(
         Files.readAllBytes(ProcFs.resolve(pid.toString).resolve("environ")),
-        entry
-      )
+        UTF_8
+      ).split(Nul).contains(entry)
     catch case NonFatal(_) => false
-
-  /** Walks the NUL-delimited `environ` blob entry by entry and compares whole
-    * entries, so neither a variable whose name merely ends with ours nor one
-    * whose value merely starts with the cookie can match. Byte-level and
-    * allocation-free: this runs over every process on the machine at every turn
-    * boundary.
-    */
-  private def containsEntry(
-      environ: Array[Byte],
-      entry: Array[Byte]
-  ): Boolean =
-    var start = 0
-    var found = false
-    while !found && start < environ.length do
-      var end = start
-      while end < environ.length && environ(end) != 0 do end += 1
-      found = end - start == entry.length &&
-        java.util.Arrays.equals(environ, start, end, entry, 0, entry.length)
-      start = end + 1
-    found
 
   private def announce(
       survivors: List[ProcessHandle],
       events: OrcaListener
   ): Unit =
+    if killsSurvivors then survivors.foreach(_.destroyForcibly().discard)
     val listed = survivors.map(describe).mkString(", ")
     val message =
-      if killsSurvivors then
-        survivors.foreach(_.destroyForcibly().discard)
-        s"Agent work outlived this turn and was killed: $listed"
+      if killsSurvivors then s"Agent work outlived this turn, killing: $listed"
       else
         s"Agent work outlived this turn: $listed — not killed; set " +
           "ORCA_SWEEP_KILL=1 to have orca reap it"

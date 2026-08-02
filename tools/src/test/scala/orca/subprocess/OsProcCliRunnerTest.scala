@@ -37,12 +37,12 @@ class OsProcCliRunnerTest extends munit.FunSuite:
       "tree kill must terminate the forked descendant"
     )
 
-  /** The spawn's cookie must reach the child ON TOP OF the environment it would
-    * have inherited anyway — os-lib augments rather than replaces, and the
-    * sweep would be useless if adding the cookie stripped the CLI's own
-    * configuration.
+  /** Injecting the cookie must not strip the environment the CLI would
+    * otherwise inherit, nor the caller's own additions.
     */
   test("spawnPiped adds its cookie to the inherited environment"):
+    val home = sys.env.getOrElse("HOME", "")
+    assume(home.nonEmpty, "needs an inherited variable to check against")
     val proc = OsProcCliRunner.spawnPiped(
       Seq("bash", "-c", s"""echo "$$${EnvCookie.VarName}|$$HOME|$$EXTRA""""),
       env = Map("EXTRA" -> "from-caller"),
@@ -53,6 +53,6 @@ class OsProcCliRunnerTest extends munit.FunSuite:
       val cookie = proc.envCookie.getOrElse(fail("no cookie was injected"))
       assertEquals(
         proc.stdoutLines.next(),
-        s"${cookie.value}|${sys.env("HOME")}|from-caller"
+        s"${cookie.value}|$home|from-caller"
       )
     finally proc.destroyForciblyTree()

@@ -319,12 +319,11 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   `Inherit`, which lets subprocess output bypass the renderer's StatusBar
   and tear the spinner row.
 - Every `spawnPiped` child carries a unique `ORCA_TURN_COOKIE`
-  (`orca.sweep.EnvCookie`), which `fork`/`exec` copy unconditionally. At turn
-  teardown `EnvCookieSweep` scans `/proc/*/environ` for it and REPORTS what is
-  still running — the backstop for work an agent detached from orca's process
-  tree, which no parent-link teardown can reach. Report-only unless
-  `ORCA_SWEEP_KILL=1`; Linux only, and it says so rather than finding nothing
-  elsewhere.
+  (`orca.sweep.EnvCookie`). At turn teardown `EnvCookieSweep` scans
+  `/proc/*/environ` for it and REPORTS what is still running — the backstop for
+  work an agent detached from orca's process tree, which no parent-link
+  teardown can reach. Report-only unless `ORCA_SWEEP_KILL=1`; Linux only, and
+  it says so rather than finding nothing elsewhere.
 - Any filesystem write under `.orca/` **must** go through
   `OrcaDir.ensureRoot`/`ensureCache`, which refuse a symlinked `.orca` or
   `.orca/cache` component (`OrcaDir.abortIfOrcaComponentSymlink`) before

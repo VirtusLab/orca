@@ -332,8 +332,6 @@ class DefaultAgentCall[B <: BackendTag, O](
       try interaction.drive(conversation)
       finally
         conversation.cancel()
-        // The cancel reaches only what is still linked to the agent process;
-        // the sweep reports what it detached from orca's process tree.
         orca.sweep.EnvCookieSweep.afterTurn(conversation.envCookie, events)
     // Codex mints its server thread id inside the drain (not at spawn); surface
     // it back so a follow-up call with the same `session` resumes the right

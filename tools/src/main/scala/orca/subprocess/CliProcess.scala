@@ -47,9 +47,8 @@ trait PipedCliProcess extends CliProcess:
     */
   def tryExitCode: Option[Int]
 
-  /** Cookie put in this process's environment at spawn. Everything it forks
-    * inherits it, including anything it detaches from orca's process tree, so
-    * [[orca.sweep.EnvCookieSweep]] can find those once the turn is over. `None`
-    * for a process orca did not spawn itself (test fakes).
+  /** Cookie put in this process's environment at spawn;
+    * [[orca.sweep.EnvCookieSweep]] sweeps for it. `None` for a process orca did
+    * not spawn itself (test fakes).
     */
   def envCookie: Option[EnvCookie] = None

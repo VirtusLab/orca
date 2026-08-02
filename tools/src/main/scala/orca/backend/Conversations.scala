@@ -179,8 +179,7 @@ private[orca] object Conversations:
     * conversation's forks bind to it.
     *
     * The cancel reaches only what is still linked to the agent process; the
-    * sweep that follows it reports whatever the agent detached from orca's
-    * process tree and so survived.
+    * sweep catches what detached.
     */
   def runAutonomous[B <: BackendTag](
       session: SessionId[B],

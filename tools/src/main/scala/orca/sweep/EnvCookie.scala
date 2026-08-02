@@ -6,15 +6,14 @@ import java.util.UUID
   * spawns, so work that process leaves running can still be traced back to the
   * turn that started it.
   *
-  * The environment is what makes this reach where parent links cannot: `fork`
-  * and `exec` copy it unconditionally, so the cookie survives `setsid`, a
-  * double fork and reparenting to init — exactly the moves that take a process
-  * out of `ProcessHandle.descendants`. [[EnvCookieSweep]] finds what still
-  * carries it.
+  * The environment is what makes this reach where parent links cannot: a `fork`
+  * copies it, and an `exec` carries it over unless the caller deliberately
+  * replaces it (`env -i`, `sudo`, a container). So the cookie survives
+  * `setsid`, a double fork and reparenting to init — exactly the moves that
+  * take a process out of `ProcessHandle.descendants`.
   *
-  * One cookie per spawn, minted in [[orca.subprocess.CliRunner.spawnPiped]].
-  * Every agent turn spawns a fresh CLI process, so a survivor names the turn
-  * that started it.
+  * One cookie per spawn, minted in [[orca.subprocess.CliRunner.spawnPiped]];
+  * every agent turn spawns a fresh CLI process.
   */
 opaque type EnvCookie = String
 

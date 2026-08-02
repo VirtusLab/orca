@@ -67,7 +67,6 @@ trait Conversation[B <: BackendTag]:
   def cancel(): Unit
 
   /** Cookie carried by the OS process backing this conversation, if there is
-    * one. The turn's teardown sweeps for it to find work the agent detached
-    * from orca's process tree ([[orca.sweep.EnvCookieSweep]]).
+    * one; the turn's teardown sweeps for it ([[orca.sweep.EnvCookieSweep]]).
     */
   def envCookie: Option[EnvCookie] = None

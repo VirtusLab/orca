@@ -36,10 +36,9 @@ object OsProcCliRunner extends CliRunner:
       pipeStderr: Boolean
   ): PipedCliProcess =
     log.debug("spawn: {} (cwd={})", args.mkString(" "), cwd)
-    // Minted per spawn so anything the child leaves running names the turn that
-    // started it. os-lib's `env` is applied on top of the inherited
-    // environment (it replaces it only with `propagateEnv = false`), so this
-    // adds one variable and changes nothing else the CLI sees.
+    // os-lib applies `env` on top of the inherited environment (replacing it
+    // only with `propagateEnv = false`), so this adds one variable and changes
+    // nothing else the CLI sees.
     val cookie = EnvCookie.mint()
     val sub = os
       .proc(args)
