@@ -715,8 +715,7 @@ Plan.interactive.from(
 
 - `orca.plan.PlanPrompts` — `Planning`, `AssessThenPlan`, `Triage`, `Review`
 - `orca.pr.PrPrompts` — `Summarise`
-- `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummariseLint`,
-  `ReReview`
+- `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummariseLint`
 - `orca.review.ReviewerPrompts` — per-reviewer system prompts (compose your own
   list to swap or extend `allReviewers`/`minimalReviewers`)
 

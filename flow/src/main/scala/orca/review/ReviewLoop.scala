@@ -261,9 +261,9 @@ def reviewAndFixLoop[B <: BackendTag](
       * The default samples everything the enclosing stage has produced —
       * `ctx.git.reviewDiff(fc.stageBaseCommit)`, tracked changes plus
       * newly-created files, `.orca/` bookkeeping excluded — re-sampled at the
-      * start of every iteration, so a reviewer joining the active set on
-      * iteration N sees the earlier fixes too. Reviewers with an existing
-      * session resume it and don't get the diff again.
+      * start of every iteration and sent to every reviewer that runs, resumed
+      * ones included, so each round's reviewers see the fixer's edits whether
+      * or not it committed them.
       *
       * Pass `Some(...)` to pin the diff instead of sampling it — what the tests
       * use to skip the git call.
@@ -370,9 +370,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   private val roster: List[RosterEntry[?]] = reviewers.map(RosterEntry.wrap)
 
   /** The change set under review: everything the enclosing stage has produced
-    * since `reviewBase` (ADR 0018 §2.1). Re-sampled each iteration, so a
-    * newly-active reviewer sees the fixer's later edits; a constant
-    * `initialDiff` override skips the git call entirely.
+    * since `reviewBase` (ADR 0018 §2.1). Re-sampled each iteration, so every
+    * reviewer that round sees the fixer's later edits; a constant `initialDiff`
+    * override skips the git call entirely.
     */
   private def sampleDiff(): String =
     initialDiff.getOrElse(ctx.git.reviewDiff(reviewBase))
@@ -397,7 +397,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * shared-state side effects — so the caller can run many in parallel.
     *
     * `stored` is the reviewer's existing [[SessionEntry]] (found by entry
-    * identity), if any; `currentDiff` is consumed only on the first call.
+    * identity), if any; `currentDiff` frames the call either way.
     */
   private def reviewWithSession(
       e: RosterEntry[?],
@@ -405,18 +405,23 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       currentDiff: String
   ): (ReviewResult, Option[SessionEntry[?]]) =
     stored match
-      case Some(se) => (resumeReview(se), None)
+      case Some(se) => (resumeReview(se, currentDiff), None)
       case None     => firstReview(e, currentDiff)
 
-  /** Resume a reviewer's existing session. The run carries the `reviewer` cost
-    * role ([[ReviewerPrompts.Role]]) so the `TokensUsed` breakdown can subtotal
+  /** Resume a reviewer's existing session, re-stating the change set as it now
+    * stands so the fixer's edits are visible without the reviewer
+    * reconstructing them. The run carries the `reviewer` cost role
+    * ([[ReviewerPrompts.Role]]) so the `TokensUsed` breakdown can subtotal
     * reviewer spend, without renaming the entry's identity.
     */
-  private def resumeReview[B <: BackendTag](se: SessionEntry[B]): ReviewResult =
+  private def resumeReview[B <: BackendTag](
+      se: SessionEntry[B],
+      currentDiff: String
+  ): ReviewResult =
     se.chat
       .resultAs[ReviewResult]
       .autonomous
-      .run(ReviewLoopPrompts.ReReview, emitPrompt = false)
+      .run(ReviewLoopPrompts.reReview(currentDiff), emitPrompt = false)
 
   /** A reviewer's first call: mint a fresh [[Chat]] on the role-tagged agent
     * and pair it back with the entry so a later resume recovers it typed.
@@ -456,10 +461,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * LLM-internal events emit from fork threads; [[OrcaListener]]
     * implementations must be thread-safe.
     *
-    * The diff is sampled once per call so all first-time reviewers see the same
-    * payload. Returns each reviewer's kept findings, the lint's, and the next
-    * state (which carries this round's gate rejects). Reviewer outcomes are
-    * re-ordered to `active` order on the way out: the fan-out completes
+    * The diff is sampled once per call so every reviewer in the round sees the
+    * same payload. Returns each reviewer's kept findings, the lint's, and the
+    * next state (which carries this round's gate rejects). Reviewer outcomes
+    * are re-ordered to `active` order on the way out: the fan-out completes
     * unordered, and downstream output — the merged issue list, the recorded
     * `IgnoredIssues` — should not depend on which agent happened to finish
     * first.
@@ -474,8 +479,12 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   ) =
     def storedFor(e: RosterEntry[?]): Option[SessionEntry[?]] =
       currentState.sessions.find(_.entry eq e)
-    val needsDiff = active.exists(e => storedFor(e).isEmpty)
-    val currentDiff = if needsDiff then sampleDiff() else ""
+    // Sampled whenever a reviewer runs, resumed ones included: a resumed
+    // reviewer that isn't handed the change set falls back to its own
+    // `git diff HEAD`, which is empty as soon as the fixer commits — and an
+    // empty diff reads as "nothing changed", so it reports clean without having
+    // seen the fix. Only the lint needs no diff, hence the empty-`active` skip.
+    val currentDiff = if active.isEmpty then "" else sampleDiff()
 
     val reviewerTasks: List[() => AgentOutcome] = active.map: e =>
       val stored = storedFor(e)

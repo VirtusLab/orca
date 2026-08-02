@@ -56,21 +56,31 @@ object ReviewLoopPrompts:
     * hardcoded guess at them.
     */
   def initialReview(task: String, diff: String, gate: ConfidenceGate): String =
-    val diffBlock =
-      if diff.trim.isEmpty then "(no diff captured — review the working tree)"
-      else s"```diff\n$diff\n```"
     PromptResource.render(
       InitialReviewTemplate,
       "task" -> task,
-      "diffBlock" -> diffBlock,
+      "diffBlock" -> diffBlock(diff),
       "criticalBar" -> gate.critical.toString,
       "warningBar" -> gate.warning.toString,
       "infoBar" -> gate.info.toString
     )
 
-  /** Continuation prompt for a reviewer's session on iterations after the
-    * first. The session already contains the original diff and the reviewer's
-    * earlier findings; the working tree may have changed in response to a fix.
-    */
-  val ReReview: String =
+  private val ReReviewTemplate: String =
     PromptResource.load("/orca/review/prompts/re-review.md")
+
+  /** Continuation prompt for a reviewer's session on iterations after the
+    * first. The session already holds the reviewer's earlier findings and the
+    * diff it first saw; `diff` re-states the change set as it now stands, so
+    * the fixer's edits are visible even when they were committed — the
+    * reviewer's own `git diff HEAD` would report nothing then.
+    */
+  def reReview(diff: String): String =
+    PromptResource.render(ReReviewTemplate, "diffBlock" -> diffBlock(diff))
+
+  /** The diff as a fenced block, or a note to fall back to the working tree
+    * when nothing was captured. Shared by both reviewer prompts so a reviewer
+    * isn't told two different things about the same absence.
+    */
+  private def diffBlock(diff: String): String =
+    if diff.trim.isEmpty then "(no diff captured — review the working tree)"
+    else s"```diff\n$diff\n```"
