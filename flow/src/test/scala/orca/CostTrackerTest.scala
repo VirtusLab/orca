@@ -196,16 +196,16 @@ class CostTrackerTest extends munit.FunSuite:
     )
 
   test("shipped table reproduces a captured turn's reported cost"):
-    // Real turn from a claude run, reported by the CLI as $0.1876374. The
-    // shipped rates must reproduce it: this is the one assertion that catches
-    // a whole class of table errors — a wrong cache-write tier, a wrong base
-    // rate, or a model id resolving to the wrong row (this id looks like a
-    // Haiku snapshot but is served, and billed, as Sonnet 5).
+    // Token counts and expected figure captured from a real Sonnet 5 turn,
+    // whose cost the CLI reported as $0.1876374. Reproducing it end to end is
+    // the one assertion that catches a whole class of table errors: a wrong
+    // cache-write tier, a wrong base rate, or a model id resolving to the
+    // wrong row.
     val tracker = new CostTracker
     tracker.onEvent(
       tokens(
         "reviewer",
-        Some("claude-haiku-4-5-20251001"),
+        Some("claude-sonnet-5"),
         Usage(
           inputTokens = 176_625L,
           outputTokens = 1_083L,

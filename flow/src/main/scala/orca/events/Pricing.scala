@@ -211,22 +211,6 @@ object Pricing:
         outputUsdPerMillion = 15,
         cacheWriteUsdPerMillion = 6
       ),
-      // Priced as Sonnet 5, which is what this id's traffic actually is.
-      // `claude --model haiku` (the bare alias, what `claude:haiku` config
-      // becomes) is served by Sonnet 5 — the CLI's own transcripts report
-      // `claude-sonnet-5` as the responding model for those sessions — while
-      // the id reaching orca is this dated haiku snapshot, and the turns bill
-      // at Sonnet 5 rates to the cent. Without this row the `-\d{8}` suffix
-      // fallback bridges the id to the haiku snapshot below and under-prices
-      // the traffic 3.14×. Asking for `--model claude-haiku-4-5` (the exact
-      // id) does get Haiku, and reports the undated id, so it prices below.
-      // Revisit when the alias resolves to Haiku again.
-      Model("claude-haiku-4-5-20251001") -> ModelPricing(
-        inputUsdPerMillion = 3,
-        cacheReadUsdPerMillion = 0.30,
-        outputUsdPerMillion = 15,
-        cacheWriteUsdPerMillion = 6
-      ),
       Model("claude-haiku-4-5") -> ModelPricing(
         inputUsdPerMillion = 1,
         cacheReadUsdPerMillion = 0.10,
