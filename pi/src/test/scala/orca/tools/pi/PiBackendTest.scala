@@ -127,9 +127,25 @@ class PiBackendTest extends munit.FunSuite:
     assert(args.containsSlice(Seq("--model", "anthropic/claude-sonnet")), args)
     assert(args.containsSlice(Seq("--tools", "read,grep,find,ls")), args)
     assert(!args.contains("--extension"), args)
-    // A read-only autonomous turn composes no system prompt at all, so the
-    // interactive-only ask_user hint can't have leaked onto this path.
-    assert(!args.contains("--append-system-prompt"), args)
+
+  test("an autonomous turn's system prompt carries no ask_user hint"):
+    // The hint and the ask_user extension share one `mode.isInteractive` gate,
+    // so an autonomous turn must get neither. Read at spawn time: the prompt
+    // file is gone once the turn finishes.
+    var hintSeen: Option[Boolean] = None
+    val runner = new SpawnStubCliRunner(
+      List(successfulProcess()),
+      onSpawn = args =>
+        val promptFile = args(args.indexOf("--append-system-prompt") + 1)
+        hintSeen = Some(
+          os.read(os.Path(promptFile)).contains(PiAskUserExtension.Hint)
+        )
+    )
+
+    val _ = backendWith(runner).runAutonomous("q", sid, AgentConfig())
+
+    // `Some(false)`, not `false`: proves the callback ran and read a real file.
+    assertEquals(hintSeen, Some(false))
 
   test("interactive read-only config includes ask_user extension and tool"):
     val process = successfulProcess()

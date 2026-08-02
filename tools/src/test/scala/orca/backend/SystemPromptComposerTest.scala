@@ -12,21 +12,21 @@ class SystemPromptComposerTest extends munit.FunSuite:
     val out = SystemPromptComposer.combine(AgentConfig(), None)
     assertEquals(out, Some(s"$gitRule\n\n$backgroundRule"))
 
-  test("read-only turn with neither config nor hint returns None"):
-    // Read-only turns can't commit, and aren't asked to run builds, so neither
-    // standing rule applies; nothing else to compose.
+  test("read-only turn with nothing else gets the background rule alone"):
+    // Read-only turns can't commit, so the git rule is omitted; the turn
+    // boundary applies to them exactly as it does to a write-capable turn.
     val out = SystemPromptComposer.combine(
       AgentConfig().copy(tools = ToolSet.ReadOnly),
       None
     )
-    assertEquals(out, None)
+    assertEquals(out, Some(backgroundRule))
 
-  test("network-only turn also omits both rules (not Full)"):
+  test("network-only turn also gets the background rule alone"):
     val out = SystemPromptComposer.combine(
       AgentConfig().copy(tools = ToolSet.NetworkOnly),
       None
     )
-    assertEquals(out, None)
+    assertEquals(out, Some(backgroundRule))
 
   test("config systemPrompt precedes the appended standing rules"):
     val out = SystemPromptComposer.combine(
@@ -35,7 +35,7 @@ class SystemPromptComposerTest extends munit.FunSuite:
     )
     assertEquals(out, Some(s"be terse\n\n$gitRule\n\n$backgroundRule"))
 
-  test("read-only config keeps just its systemPrompt (no standing rules)"):
+  test("read-only config keeps its systemPrompt and drops only the git rule"):
     val out = SystemPromptComposer.combine(
       AgentConfig().copy(
         systemPrompt = Some("be terse"),
@@ -43,12 +43,12 @@ class SystemPromptComposerTest extends munit.FunSuite:
       ),
       extraHint = None
     )
-    assertEquals(out, Some("be terse"))
+    assertEquals(out, Some(s"be terse\n\n$backgroundRule"))
 
   test("selfManagedGit omits the git rule but keeps the background rule"):
     // With this flag the runtime stays out of the agent's git, so the agent may
-    // commit/push itself — but who drives git says nothing about process
-    // lifetime, so the background rule still applies.
+    // commit/push itself — but who drives git says nothing about what survives
+    // the turn boundary, so the background rule still applies.
     val out = SystemPromptComposer.combine(
       AgentConfig().copy(selfManagedGit = true),
       extraHint = None

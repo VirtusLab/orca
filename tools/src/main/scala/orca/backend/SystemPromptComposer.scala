@@ -8,9 +8,9 @@ import orca.agents.{AgentConfig, ToolSet}
   * [[RuntimeOwnsGit]] and [[BackgroundWorkAbandonedAtTurnEnd]] rules, joining
   * non-empty pieces with a blank line.
   *
-  * Returns `None` when nothing applies. Each backend delivers the result its
-  * own way — claude writes it to a temp file for `--append-system-prompt-file`;
-  * codex and gemini have no such flag and use [[foldIntoPrompt]].
+  * Each backend delivers the result its own way — claude writes it to a temp
+  * file for `--append-system-prompt-file`; codex and gemini have no such flag
+  * and use [[foldIntoPrompt]].
   */
 private[orca] object SystemPromptComposer:
 
@@ -28,21 +28,22 @@ private[orca] object SystemPromptComposer:
       "the working tree; the surrounding flow commits, branches, and pushes at " +
       "the right points."
 
-  /** Standing rule appended to every write-capable agent turn: orca stops
-    * reading a turn's output once the turn ends, so anything the agent left
-    * running in the background is abandoned. The rule states the turn boundary
-    * rather than a process model, because the two differ per backend: claude,
-    * codex, gemini and pi are spawned per turn, while opencode's agent runs
-    * inside a `serve` process shared by the whole run, where a background
-    * command genuinely does survive. It also says "abandoned", not "killed" —
-    * teardown destroys the CLI's own PID, not its process tree
-    * (`ForkedConversation.cancel` → `OsProcCliRunner.destroyForcibly`), so an
-    * orphan may outlive the turn.
+  /** Standing rule appended to EVERY agent turn, unlike [[RuntimeOwnsGit]]:
+    * orca stops reading a turn's output once the turn ends, so anything the
+    * agent left running in the background is abandoned. That is a property of
+    * the turn boundary, not of the agent's tools — a read-only agent can still
+    * spawn a sub-agent or schedule a wakeup and then wait for a result that can
+    * never arrive, which is what a live run cost $1.44 across two reviewer
+    * turns. Gating it on [[ToolSet.Full]] would have withheld it from exactly
+    * those turns.
     *
-    * Gated on [[ToolSet.Full]] alone, unlike [[RuntimeOwnsGit]]: the read-only
-    * tiers are never asked to run a build (`lint`'s commands are executed by
-    * orca, which hands the agent only their captured output), even though some
-    * backends do leave a shell open there.
+    * The rule states the turn boundary rather than a process model, because the
+    * two differ per backend: claude, codex, gemini and pi are spawned per turn,
+    * while opencode's agent runs inside a `serve` process shared by the whole
+    * run, where a background command genuinely does survive. It also says
+    * "abandoned", not "killed" — teardown destroys the CLI's own PID, not its
+    * process tree (`ForkedConversation.cancel` →
+    * `OsProcCliRunner.destroyForcibly`), so an orphan may outlive the turn.
     */
   val BackgroundWorkAbandonedAtTurnEnd: String =
     "When this turn ends, orca stops reading your output. Anything left " +
@@ -55,18 +56,27 @@ private[orca] object SystemPromptComposer:
       "hangs, or your tooling cuts it short, stop it and report the result as " +
       "unverified — never report a result you have not observed."
 
+  /** Since [[BackgroundWorkAbandonedAtTurnEnd]] applies to every turn the
+    * result is currently always `Some`, so each backend's "nothing to send"
+    * path is no longer exercised; the `Option` is kept rather than flipping
+    * every backend's system-prompt flag to unconditional.
+    */
   def combine(
       config: AgentConfig,
       extraHint: Option[String] = None
   ): Option[String] =
-    val writeCapable = config.tools == ToolSet.Full
-    val gitRule =
-      Option.when(writeCapable && !config.selfManagedGit)(RuntimeOwnsGit)
-    // Deliberately not gated on `selfManagedGit`: that flag says who drives
-    // git, which has no bearing on what happens at the turn boundary.
-    val backgroundRule =
-      Option.when(writeCapable)(BackgroundWorkAbandonedAtTurnEnd)
-    List(config.systemPrompt, extraHint, gitRule, backgroundRule).flatten match
+    // Only the git rule is tool-gated. It is additionally suppressed by
+    // `selfManagedGit`, which says who drives git — a question about the repo,
+    // not about what survives the turn boundary.
+    val gitRule = Option.when(
+      config.tools == ToolSet.Full && !config.selfManagedGit
+    )(RuntimeOwnsGit)
+    List(
+      config.systemPrompt,
+      extraHint,
+      gitRule,
+      Some(BackgroundWorkAbandonedAtTurnEnd)
+    ).flatten match
       case Nil    => None
       case pieces => Some(pieces.mkString("\n\n"))
 

@@ -5,8 +5,14 @@ import java.util.concurrent.atomic.AtomicReference
 /** CliRunner that hands out a pre-scripted [[FakePipedCliProcess]] on each
   * `spawnPiped` call and records the args. Each prepared process is consumed by
   * exactly one spawn; running out throws. `run` is unsupported.
+  *
+  * `onSpawn` runs with that call's args while the spawn is in flight — the only
+  * way to observe a temp file the subject deletes when the turn finishes.
   */
-class SpawnStubCliRunner(prepared: List[FakePipedCliProcess]) extends CliRunner:
+class SpawnStubCliRunner(
+    prepared: List[FakePipedCliProcess],
+    onSpawn: List[String] => Unit = _ => ()
+) extends CliRunner:
   private val queue = new AtomicReference[List[FakePipedCliProcess]](prepared)
   private val recorded =
     new AtomicReference[List[SpawnStubCliRunner.SpawnCall]](Nil)
@@ -34,6 +40,7 @@ class SpawnStubCliRunner(prepared: List[FakePipedCliProcess]) extends CliRunner:
     val _ = recorded.updateAndGet(
       SpawnStubCliRunner.SpawnCall(args.toList, env, cwd, pipeStderr) :: _
     )
+    onSpawn(args.toList)
     val next = queue
       .getAndUpdate(_.drop(1))
       .headOption
