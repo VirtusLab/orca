@@ -155,9 +155,12 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 >   `prepare(all, taskTitle, changedFiles)(using FlowContext, InStage): List[ReviewBatch] -> List[RosterEntry[?]]`
 >   (note `->`, capture checking's pure-arrow type, not `=>`). `prepare` runs
 >   once per loop, inside the loop's own stage, so any gated effect (e.g.
->   `agentDriven`'s picker LLM call) is hoisted there; the arrow it returns is
->   checked to capture nothing — it may only narrow over the `history` argument
->   passed to it each round.
+>   `agentDriven`'s picker LLM call) is hoisted there. What the arrow is checked
+>   for is capturing no *capability* — `InStage` above all, so a round cannot
+>   drive an LLM; untracked values such as `FlowContext` are outside the check
+>   and may be captured. The arrow narrows over the `history` argument it is
+>   passed each round, and may announce that decision (`ctx.emit`), nothing
+>   more.
 > - **Session recovery pairs entry and session existentially, replacing
 >   `Untyped`/`.as`.** `SessionEntry[B <: BackendTag]` (`RosterEntry[B]`,
 >   `SessionId[B]`) binds the reviewer's backend tag once, at first run; a
@@ -176,3 +179,28 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 > `SessionEntry`, `reviewWithSession`, `ReviewFixLoop.evaluate`) for the
 > current implementation. The `resolveAgainstRoster` symbol referenced by the
 > 2026-07-06 amendment above no longer exists.
+
+> **Amendment (2026-08-02).** The shipped selection default composes two
+> selectors instead of one. `ReviewerSelector.default` is
+> `narrowingAcrossRounds(agentDriven)`: `agentDriven` picks the set once, at
+> loop start, and the wrapper narrows that pick every later round to the
+> reviewers that reported an issue in the previous round plus those whose
+> `files:` pattern matched the change set. The wrapper only ever FILTERS its
+> base's per-round result, so the "empty selection is an honest stop" property
+> above is untouched — an empty pick stays empty, and a reviewer the base
+> excluded is never re-admitted.
+>
+> Two bounds make that safe to ship as the default:
+> - **Narrowing never empties a non-empty set.** Reviewer silence alone ends
+>   the loop, but a lint gate keeps it iterating through silence while the
+>   fixer edits; without a floor the narrowed set is absorbing and later rounds
+>   run zero reviewers. When narrowing would leave none, the base's pick runs
+>   again and a `Step` says so. The floor lives in the selector, and falls back
+>   to the base's own pick — never to `all` — so the loop still runs exactly
+>   what the selector returned.
+> - **A file pattern's answer depends on the question.** `FileClaim`
+>   (`Ungated`/`Matches`/`NoMatch`/`Unknown`) separates them: eligibility drops
+>   only a positive `NoMatch`, so an empty diff — which says nothing about
+>   which files changed — cannot remove a file-gated reviewer from the review;
+>   narrowing exempts only a positive `Matches`, so an unproven claim doesn't
+>   grant a reviewer every round for the rest of the loop.

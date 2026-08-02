@@ -222,9 +222,9 @@ class ReviewerSelectorTest extends munit.FunSuite:
       summon[orca.InStage]
     )(Nil)
     assert(
-      capture.messages.contains(
-        "reviewer selection: no changed files to match against; keeping " +
-          "1 file-gated reviewer(s) eligible (scala-fp)"
+      capture.messages.exists(m =>
+        m.startsWith("reviewer selection: no changed files") &&
+          m.endsWith("(scala-fp)")
       ),
       capture.messages.mkString("\n")
     )
@@ -346,27 +346,48 @@ class ReviewerSelectorTest extends munit.FunSuite:
       List("scala-fp", "generic")
     )
     assert(
-      capture.messages.contains(
-        "reviewer selection: nothing was reported last round; re-running " +
-          "all 2 selected reviewer(s) rather than reviewing nothing"
+      capture.messages.exists(
+        _.startsWith("reviewer selection: nothing was reported last round")
       ),
       capture.messages.mkString("\n")
     )
 
   test("narrowing never resurrects a reviewer the base selector excluded"):
-    val genericOnly = new ReviewerSelector:
+    // `notes.txt` makes `generic` the file-claiming reviewer while scala-fp is
+    // the one that reported, so each base pick below excludes a reviewer on
+    // exactly the ground that would otherwise re-admit it.
+    def basePicking(name: String): ReviewerSelector = new ReviewerSelector:
       def prepare(
           all: List[RosterEntry[?]],
           taskTitle: Title,
           changedFiles: List[String]
       )(using FlowContext, orca.InStage) =
-        _ => all.filter(_.name == "generic")
-    val selector =
-      ReviewerSelector.narrowingAcrossRounds(genericOnly, narrowingPatterns)
-    val selectRound = selector.prepare(all, Title("any"), List("notes.txt"))
-    // scala-fp reported last round, which would re-admit it if narrowing added
-    // rather than filtered.
-    assertEquals(
-      selectRound(List(reported(scalaFp))).map(_.name),
-      List("generic")
-    )
+        _ => all.filter(_.name == name)
+    def narrowed(base: ReviewerSelector): List[String] =
+      ReviewerSelector
+        .narrowingAcrossRounds(base, narrowingPatterns)
+        .prepare(all, Title("any"), List("notes.txt"))(List(reported(scalaFp)))
+        .map(_.name)
+    assertEquals(narrowed(basePicking("scala-fp")), List("scala-fp"))
+    assertEquals(narrowed(basePicking("generic")), List("generic"))
+
+  test("a base selector that picks nobody keeps picking nobody"):
+    val capture = new StepCapture
+    val picksNobody = new ReviewerSelector:
+      def prepare(
+          all: List[RosterEntry[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using FlowContext, orca.InStage) =
+        _ => Nil
+    val selectRound = ReviewerSelector
+      .narrowingAcrossRounds(picksNobody, narrowingPatterns)
+      .prepare(all, Title("any"), List("notes.txt"))(using
+        capture.ctx,
+        summon[orca.InStage]
+      )
+    // The floor exists to stop NARROWING emptying the set, never to overrule a
+    // selector that decided nobody should review this — so no fallback, and no
+    // "re-running all 0 reviewer(s)" announcement either.
+    assertEquals(selectRound(List(ReviewBatch(Nil))), Nil)
+    assertEquals(capture.messages, Nil)

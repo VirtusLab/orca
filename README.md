@@ -662,17 +662,21 @@ which narrows in two steps:
   (`ReviewerSelector.agentDriven`).
 - **Every later round:** only the reviewers that reported an issue in the
   previous round re-run, plus any whose `files:` pattern matched the change set
-  (`ReviewerSelector.narrowingAcrossRounds`). A reviewer that goes quiet stops
-  costing a turn per round; the trade-off is that it won't see the fixes made
-  after it stopped. Narrowing never empties the set — if nobody reported last
-  round, the full picked set runs again and a step says so.
+  (`ReviewerSelector.narrowingAcrossRounds`). A reviewer that stays quiet while
+  others report stops costing a turn per round; the trade-off is that it won't
+  see the fixes made after it stopped. Narrowing never runs *no* reviewer,
+  though: if it would leave none at all — every reviewer quiet, while a lint
+  finding keeps the loop going — the round's full selection runs again and a
+  step says so.
 
 For full coverage every round, pass `ReviewerSelector.allEveryRound` (whole
 roster, no picker at all) or `ReviewerSelector.agentDriven` with no parentheses
-(pick once, replay that pick every round — the behaviour before narrowing
-shipped). `ReviewerSelector.agentDriven(claude.haiku)` picks with a specific
-model, and `ReviewerSelector.narrowingAcrossRounds(...)` wraps any of them to
-add narrowing back.
+(pick once, replay that pick every round). `agentDriven(claude.haiku)` picks
+with a specific model, and `ReviewerSelector.narrowingAcrossRounds(...)` wraps
+any of them to add narrowing back: `narrowingAcrossRounds(allEveryRound)` is
+history narrowing over the whole roster, with no picker — the nearest thing to
+the removed `onlyPreviouslyReporting`, differing in that it also keeps
+file-pattern reviewers and never narrows to no reviewer.
 
 To swap or extend the reviewer set, compose your own `List[Reviewer]` from
 `ReviewerPrompts` (the shipped entries, `ReviewerPrompts.all`/`.minimal`, and/or

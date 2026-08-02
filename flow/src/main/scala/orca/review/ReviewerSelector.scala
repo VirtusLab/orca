@@ -25,9 +25,16 @@ import scala.util.matching.Regex
   *
   * A selector can only ever return a subset/permutation of the [[RosterEntry]]
   * handles it was handed (the ctor is `private[review]`), so the loop needs no
-  * runtime roster-membership defence. The returned arrow captures nothing
-  * gated, so selector values are freely reusable across loops. Implementers:
-  * hoist any per-round effect into [[prepare]] itself.
+  * runtime roster-membership defence.
+  *
+  * What `->` enforces on the returned arrow is that it captures no CAPABILITY —
+  * in particular not [[orca.InStage]], so no round can drive an LLM or spend
+  * tokens. Untracked values are outside that check: capturing the
+  * [[orca.FlowContext]] compiles, and the shipped [[ReviewerSelector.default]]
+  * does it to announce a per-round decision with `ctx.emit`. Implementers:
+  * every GATED effect belongs in [[prepare]], which runs once, inside the
+  * loop's stage; the arrow may narrow over `history` and say what it decided,
+  * nothing more. Selector values stay reusable across loops either way.
   */
 trait ReviewerSelector:
   def prepare(
@@ -129,7 +136,8 @@ object ReviewerSelector:
     ): List[ReviewBatch] -> List[RosterEntry[?]] =
       val claims =
         all.map(r => (r, fileClaim(filePatterns, r.name, changedFiles)))
-      val unknown = claims.collect { case (r, FileClaim.Unknown) => r.name }
+      val unknown = claims.collect:
+        case (r, FileClaim.Unknown) => r.name
       if unknown.nonEmpty then
         ctx.emit(
           OrcaEvent.Step(
@@ -139,7 +147,7 @@ object ReviewerSelector:
           )
         )
       val eligible = claims.collect:
-        case (r, FileClaim.Ungated | FileClaim.Matches | FileClaim.Unknown) => r
+        case (r, claim) if offeredToPicker(claim) => r
       val infos = eligible.map: r =>
         ReviewerInfo(
           name = r.name,
@@ -233,8 +241,9 @@ object ReviewerSelector:
             val reported = previous.reviewersWithIssues
             val narrowed = active.filter: e =>
               reported.exists(_ eq e) || claimingReviewers.exists(_ eq e)
-            // An empty `active` is the base selector's own decision, not
-            // narrowing's, so it passes through untouched.
+            // The `active.isEmpty` arm returns the same empty list the
+            // fallback would; it is there to keep a base selector that picked
+            // nobody from being announced as "re-running all 0 reviewer(s)".
             if narrowed.nonEmpty || active.isEmpty then narrowed
             else
               ctx.emit(
@@ -269,6 +278,16 @@ object ReviewerSelector:
       * review is already committed.
       */
     case Unknown
+
+  /** Whether a reviewer with this claim is offered to the picker. Exhaustive on
+    * purpose: only a claim that positively fails ([[FileClaim.NoMatch]]) may
+    * drop a reviewer from the review, so a case added later has to state which
+    * side it falls on instead of defaulting into the ineligible bucket.
+    */
+  private def offeredToPicker(claim: FileClaim): Boolean =
+    claim match
+      case FileClaim.NoMatch                                         => false
+      case FileClaim.Ungated | FileClaim.Matches | FileClaim.Unknown => true
 
   private def fileClaim(
       filePatterns: Map[String, Regex],

@@ -664,6 +664,41 @@ class ReviewAndFixTest extends munit.FunSuite:
     assertEquals(quiet.seenSessions.size, 1)
     assertEquals(loud.seenSessions.size, 3)
 
+  test("a reviewer whose file pattern matches the diff keeps running"):
+    // The other loop-level selection tests pin an empty diff, where no pattern
+    // can match. Here the diff names a `.scala` file, so the shipped `scala-fp`
+    // pattern claims the change set and holds that reviewer in every round
+    // despite its silence — while "loud" reporting each round keeps the loop
+    // going, so it is the claim doing the work and not the never-empty floor.
+    val scalaFp =
+      new FakeAgent(
+        name = "scala-fp",
+        outputs = List.fill(3)(ReviewResult.empty)
+      )
+    val loud = new FakeAgent(
+      name = "loud",
+      outputs =
+        List.fill(3)(ReviewResult(List(issue("stubborn", confidence = 0.95))))
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        SelectedReviewers(List("scala-fp", "loud")),
+        FixOutcome(List(Title("stubborn")), Nil),
+        FixOutcome(List(Title("stubborn")), Nil)
+      )
+    )
+    given FlowControl =
+      ReviewLoopFixture.control(new EventDispatcher(Nil), lead = Some(coder))
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(scalaFp, loud),
+      task = "file-claim check",
+      maxIterations = 2,
+      initialDiff = Some("--- a/Foo.scala\n+++ b/src/main/scala/Foo.scala\n")
+    )
+    assertEquals(scalaFp.seenSessions.size, 3)
+
   test("a lint-only round still leaves the next round with reviewers"):
     // Reviewer silence alone ends the loop, but a lint gate keeps it iterating
     // through it — and the fixer keeps editing. Narrowing must not strand those
