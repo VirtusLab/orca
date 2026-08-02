@@ -21,6 +21,13 @@ Extra Scala 3 warnings are enabled (`-Wunused:all`, `-Wvalue-discard`,
 rather than relying on the compiler to block. `sbt ~test` re-runs tests on
 save.
 
+The build also loads from a linked `git worktree`: `build.sbt` enables
+sbt-git's `useReadableConsoleGit`, without which project load dies in JGit
+with `NoWorkTreeException`. Don't remove it. In exchange, project load now
+needs a usable `git` on the PATH — with git missing, or refusing the
+repository (a `safe.directory` complaint under a bind mount, say), sbt fails
+to load rather than carrying on with a fallback version.
+
 ## Integration tests (gated)
 
 Some tests shell out to real external tools and skip by default:
