@@ -1,7 +1,7 @@
 package orca.review
 
 import orca.plan.Title
-import orca.agents.given
+import orca.agents.{AgentInput, given}
 import com.github.plokhotnyuk.jsoniter_scala.core.{
   readFromString,
   writeToString
@@ -32,6 +32,26 @@ class ReviewTypesTest extends munit.FunSuite:
     val json = writeToString(original)
     val parsed = readFromString[ReviewResult](json)
     assertEquals(parsed, original)
+
+  test("the fix prompt keeps a suggestion line that starts with `|`"):
+    // `formatIssue` wraps a suggestion with its own line breaks and indents
+    // preserved, so a quoted margin block reaches the prompt as a `|` line.
+    val request = FixRequest(
+      "fix these",
+      List(
+        ReviewIssue(
+          severity = Severity.Warning,
+          confidence = 0.9,
+          title = Title("Mangled quote"),
+          description = "ignored by formatIssue",
+          location = None,
+          suggestion = Some("use:\n  |a| b|")
+        )
+      )
+    )
+    assert(
+      summon[AgentInput[FixRequest]].serialize(request).contains("\n  |a| b|")
+    )
 
   test("IgnoredIssues ++ concatenates entries"):
     val a = IgnoredIssues(List(IgnoredIssue(Title("Style nit"), "accepted")))

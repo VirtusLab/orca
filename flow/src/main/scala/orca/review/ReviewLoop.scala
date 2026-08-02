@@ -191,10 +191,12 @@ private case class RoundOutcome(
   * any issues admitted by `confidenceGate` to the coder through
   * `coderSession`'s seeded, structured door, and loop. `reviewerSelection`
   * decides which reviewers run each iteration; the default
-  * ([[ReviewerSelector.agentDriven]]) runs a picker LLM on the review-role
-  * agent's cheap tier. Pass `ReviewerSelector.allEveryRound` to skip selection,
-  * or `ReviewerSelector.agentDriven(...)` to point the picker at a specific
-  * model.
+  * ([[ReviewerSelector.default]]) runs a picker LLM on the review-role agent's
+  * cheap tier for round one, then narrows to the reviewers that reported last
+  * round. Pass `ReviewerSelector.allEveryRound` to skip selection and
+  * narrowing, `ReviewerSelector.agentDriven` (no parentheses) to pick once and
+  * replay that pick every round, or `ReviewerSelector.agentDriven(...)` to
+  * point the picker at a specific model.
   *
   * The default picker resolves `reviewAgent`'s cheap variant; a backend with no
   * separate cheap tier (`.cheap` returns `this`, e.g. pi) simply runs the
@@ -219,12 +221,17 @@ def reviewAndFixLoop[B <: BackendTag](
     coderSession: FlowSession[B],
     reviewers: List[Agent[?]],
     task: String,
-    /** Which reviewers run each iteration. Default runs a picker LLM on the
-      * review-role agent's cheap tier; [[ReviewerSelector.allEveryRound]] skips
-      * selection, [[ReviewerSelector.agentDriven]]`(...)` picks a specific
+    /** Which reviewers run each iteration. The default
+      * ([[ReviewerSelector.default]]) picks with a LLM on the review-role
+      * agent's cheap tier, then from round two keeps only the reviewers that
+      * reported last round — so a reviewer that goes quiet won't see the fixes
+      * made after it stopped running. For full coverage every round pass
+      * [[ReviewerSelector.allEveryRound]] (whole roster, no picker) or
+      * [[ReviewerSelector.agentDriven]] with no parentheses (one pick,
+      * replayed); [[ReviewerSelector.agentDriven]]`(...)` picks with a specific
       * model.
       */
-    reviewerSelection: ReviewerSelector = ReviewerSelector.agentDriven,
+    reviewerSelection: ReviewerSelector = ReviewerSelector.default,
     /** Shell commands run in order before each review round so reviewers and
       * the lint see formatted code and the committed tree stays formatted. Each
       * runs via `bash -c` in `ctx.workDir`, exit status ignored. The default
@@ -370,9 +377,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   private def sampleDiff(): String =
     initialDiff.getOrElse(ctx.git.reviewDiff(reviewBase))
 
-  // Loop-constant context handed to the selector on every iteration: the task's
-  // title plus the file paths from the diff at loop entry. Sampled here so each
-  // iteration's selector call doesn't re-shell-out.
+  // The loop-constant context `ReviewerSelector.prepare` is handed. `prepare`
+  // runs once, at loop start (see `run`), so this diff sample is the one the
+  // selection is made from — later rounds' edits don't revise it.
   private val taskTitle: Title = Title(task)
   private val changedFiles: List[String] =
     ReviewLoop.extractChangedFiles(sampleDiff())
