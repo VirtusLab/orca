@@ -27,14 +27,10 @@ import scala.util.matching.Regex
   * handles it was handed (the ctor is `private[review]`), so the loop needs no
   * runtime roster-membership defence.
   *
-  * What `->` enforces on the returned arrow is that it captures no CAPABILITY —
-  * in particular not [[orca.InStage]], so no round can drive an LLM or spend
-  * tokens. Untracked values are outside that check: capturing the
-  * [[orca.FlowContext]] compiles, and the shipped [[ReviewerSelector.default]]
-  * does it to announce a per-round decision with `ctx.emit`. Implementers:
-  * every GATED effect belongs in [[prepare]], which runs once, inside the
-  * loop's stage; the arrow may narrow over `history` and say what it decided,
-  * nothing more. Selector values stay reusable across loops either way.
+  * The returned arrow is `->`, which rules out capturing [[orca.InStage]]: a
+  * round cannot drive an LLM or spend tokens. Put every gated effect in
+  * [[prepare]]; the arrow narrows over `history` and may emit a `Step` saying
+  * what it decided, nothing more.
   */
 trait ReviewerSelector:
   def prepare(
@@ -47,8 +43,7 @@ object ReviewerSelector:
 
   /** [[reviewAndFixLoop]]'s shipped default: [[agentDriven]] picks the set once
     * at loop start, and [[narrowingAcrossRounds]] then re-runs, each later
-    * round, only the reviewers that reported something in the previous round
-    * plus those whose file pattern matched the change set.
+    * round, only the reviewers that reported something in the previous round.
     *
     * Two ways back to more coverage: [[allEveryRound]] runs the whole roster
     * every round, and the parameterless [[agentDriven]] — no parentheses —
@@ -93,13 +88,11 @@ object ReviewerSelector:
     * and to include a reviewer whenever it is unsure.
     *
     * `filePatterns` is a code-side pre-filter applied before the LLM call:
-    * reviewers whose pattern doesn't match any of the iteration's
-    * `changedFiles` are dropped, so the picker can't pick them. The default
+    * reviewers whose pattern doesn't match any of `changedFiles` are dropped,
+    * so the picker can't pick them. The default
     * ([[ReviewerPrompts.filePatternsBySlug]]) constrains only reviewers that
-    * declared a `files:` frontmatter entry. Only a reviewer whose pattern
-    * positively fails to match is dropped ([[FileClaim.NoMatch]]): an empty
-    * `changedFiles` says nothing about which files changed, and dropping on it
-    * would remove the reviewer from the whole review.
+    * declared a `files:` frontmatter entry. See [[eligibleForPicker]] for what
+    * an empty `changedFiles` means here.
     *
     * Pick a cheap model (e.g. `claude.haiku`) — the decision is small, though
     * the agent does open a few files to make it. Override `instructions` to
@@ -134,20 +127,7 @@ object ReviewerSelector:
         ctx: FlowContext,
         ev: InStage
     ): List[ReviewBatch] -> List[RosterEntry[?]] =
-      val claims =
-        all.map(r => (r, fileClaim(filePatterns, r.name, changedFiles)))
-      val unknown = claims.collect:
-        case (r, FileClaim.Unknown) => r.name
-      if unknown.nonEmpty then
-        ctx.emit(
-          OrcaEvent.Step(
-            s"reviewer selection: no changed files to match against; keeping " +
-              s"${unknown.size} file-gated reviewer(s) eligible " +
-              s"(${unknown.mkString(", ")})"
-          )
-        )
-      val eligible = claims.collect:
-        case (r, claim) if offeredToPicker(claim) => r
+      val eligible = eligibleForPicker(all, filePatterns, changedFiles)
       val infos = eligible.map: r =>
         ReviewerInfo(
           name = r.name,
@@ -199,105 +179,74 @@ object ReviewerSelector:
 
   /** Wraps `base` so its pick narrows as the fix loop iterates: the first round
     * runs whatever `base` selects, and every later round keeps only those of
-    * `base`'s reviewers that either reported an issue in the previous round or
-    * declare a file pattern that matched the change set
-    * ([[FileClaim.Matches]]). It filters `base`'s per-round result and nothing
-    * else, so a reviewer `base` excluded is never resurrected.
+    * `base`'s reviewers that reported an issue in the previous round. It
+    * filters `base`'s per-round result and nothing else, so a reviewer `base`
+    * excluded is never resurrected.
     *
-    * Two limits are deliberate. The match is against the change set sampled at
-    * loop start — the per-round arrow is pure and cannot re-sample the diff —
-    * so a file-pattern reviewer's exemption is decided once, for the whole
-    * loop; when the diff is empty nothing is claimed and nobody is exempt. And
-    * narrowing never empties the set: a round with no reviewer at all would let
-    * the fixer keep editing unreviewed, since a lint gate keeps the loop going
-    * through reviewer silence.
-    *
-    * `filePatterns` must be the map the picker itself pre-filtered on — when
-    * wrapping [[agentDriven]]`(agent, filePatterns = m)`, pass the same `m`
-    * here, or the two disagree about which reviewers are file-gated.
+    * Narrowing never empties a non-empty set: a round with no reviewer at all
+    * would let the fixer keep editing unreviewed, since a lint gate keeps the
+    * loop going through reviewer silence. When narrowing would leave none,
+    * `base`'s pick runs again and a `Step` says so.
     */
-  def narrowingAcrossRounds(
-      base: ReviewerSelector,
-      filePatterns: Map[String, Regex] = ReviewerPrompts.filePatternsBySlug
-  ): ReviewerSelector = new ReviewerSelector:
-    def prepare(
-        all: List[RosterEntry[?]],
-        taskTitle: Title,
-        changedFiles: List[String]
-    )(using
-        ctx: FlowContext,
-        ev: InStage
-    ): List[ReviewBatch] -> List[RosterEntry[?]] =
-      val basePick = base.prepare(all, taskTitle, changedFiles)
-      // Loop-constant: `changedFiles` doesn't change round to round, so the
-      // claims are settled once here rather than recomputed per round.
-      val claimingReviewers = all.filter: e =>
-        fileClaim(filePatterns, e.name, changedFiles) == FileClaim.Matches
-      history =>
-        val active = basePick(history)
-        history.headOption match
-          case None => active
-          case Some(previous) =>
-            val reported = previous.reviewersWithIssues
-            val narrowed = active.filter: e =>
-              reported.exists(_ eq e) || claimingReviewers.exists(_ eq e)
-            // The `active.isEmpty` arm returns the same empty list the
-            // fallback would; it is there to keep a base selector that picked
-            // nobody from being announced as "re-running all 0 reviewer(s)".
-            if narrowed.nonEmpty || active.isEmpty then narrowed
-            else
-              ctx.emit(
-                OrcaEvent.Step(
-                  s"reviewer selection: nothing was reported last round; " +
-                    s"re-running all ${active.size} selected reviewer(s) " +
-                    s"rather than reviewing nothing"
+  def narrowingAcrossRounds(base: ReviewerSelector): ReviewerSelector =
+    new ReviewerSelector:
+      def prepare(
+          all: List[RosterEntry[?]],
+          taskTitle: Title,
+          changedFiles: List[String]
+      )(using
+          ctx: FlowContext,
+          ev: InStage
+      ): List[ReviewBatch] -> List[RosterEntry[?]] =
+        val basePick = base.prepare(all, taskTitle, changedFiles)
+        history =>
+          val active = basePick(history)
+          history.headOption match
+            case None => active
+            case Some(previous) =>
+              val reported = previous.reviewersWithIssues
+              val narrowed = active.filter(e => reported.exists(_ eq e))
+              // The `active.isEmpty` arm returns the same empty list the
+              // fallback would; it is there to keep a base selector that picked
+              // nobody from being announced as "re-running all 0 reviewer(s)".
+              if narrowed.nonEmpty || active.isEmpty then narrowed
+              else
+                ctx.emit(
+                  OrcaEvent.Step(
+                    s"reviewer selection: nothing was reported last round; " +
+                      s"re-running all ${active.size} selected reviewer(s) " +
+                      s"rather than reviewing nothing"
+                  )
                 )
-              )
-              active
+                active
 
-  /** What a reviewer's `files:` frontmatter pattern says about a round's change
-    * set. Named cases because the two questions asked of a pattern want
-    * different answers when the change set is empty: eligibility keeps
-    * [[Unknown]] (dropping there removes the reviewer from the review, and
-    * nothing downstream can put it back), while narrowing exempts only
-    * [[Matches]] (a dropped reviewer has already run, and re-running everything
-    * whose claim is merely unproven is how narrowing stops narrowing).
+  /** The reviewers [[agentDriven]] offers its picker: every reviewer with no
+    * `files:` pattern, plus those whose pattern matches a changed file.
+    *
+    * An empty `changedFiles` means the diff didn't say which files changed —
+    * which is also what it looks like when the work under review is already
+    * committed — not that nothing changed. Every reviewer stays eligible then,
+    * and a `Step` names the file-gated ones that were kept: dropping one here
+    * removes it from the whole review and nothing downstream can put it back.
     */
-  private enum FileClaim:
-    /** No pattern declared: the reviewer applies to any change. */
-    case Ungated
-
-    /** A pattern is declared and a changed file matches it. */
-    case Matches
-
-    /** A pattern is declared and no changed file matches it. */
-    case NoMatch
-
-    /** A pattern is declared but the change set is empty, so the diff says
-      * nothing about which files changed — it is also empty when the work under
-      * review is already committed.
-      */
-    case Unknown
-
-  /** Whether a reviewer with this claim is offered to the picker. Exhaustive on
-    * purpose: only a claim that positively fails ([[FileClaim.NoMatch]]) may
-    * drop a reviewer from the review, so a case added later has to state which
-    * side it falls on instead of defaulting into the ineligible bucket.
-    */
-  private def offeredToPicker(claim: FileClaim): Boolean =
-    claim match
-      case FileClaim.NoMatch                                         => false
-      case FileClaim.Ungated | FileClaim.Matches | FileClaim.Unknown => true
-
-  private def fileClaim(
+  private def eligibleForPicker(
+      all: List[RosterEntry[?]],
       filePatterns: Map[String, Regex],
-      name: String,
       changedFiles: List[String]
-  ): FileClaim =
-    filePatterns.get(name) match
-      case None                            => FileClaim.Ungated
-      case Some(_) if changedFiles.isEmpty => FileClaim.Unknown
-      case Some(rx) =>
-        if changedFiles.exists(rx.findFirstIn(_).isDefined) then
-          FileClaim.Matches
-        else FileClaim.NoMatch
+  )(using ctx: FlowContext): List[RosterEntry[?]] =
+    if changedFiles.isEmpty then
+      val gated = all.map(_.name).filter(filePatterns.contains)
+      if gated.nonEmpty then
+        ctx.emit(
+          OrcaEvent.Step(
+            s"reviewer selection: no changed files to match against; keeping " +
+              s"${gated.size} file-gated reviewer(s) eligible " +
+              s"(${gated.mkString(", ")})"
+          )
+        )
+      all
+    else
+      all.filter: e =>
+        filePatterns
+          .get(e.name)
+          .forall(rx => changedFiles.exists(rx.findFirstIn(_).isDefined))

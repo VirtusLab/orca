@@ -655,28 +655,25 @@ whenever the target project's settings define one; for format-only, pass `lint =
 Configured.Off`.
 
 `reviewAndFixLoop`'s `reviewerSelection` defaults to `ReviewerSelector.default`,
-which narrows in two steps:
+which narrows twice: a picker LLM on `reviewAgent`'s cheap tier chooses from the
+supplied list for round one, seeing each reviewer's description and the changed
+file paths; every later round then re-runs only the reviewers that reported an
+issue in the previous one. A reviewer that stays quiet stops costing a turn per
+round — the trade-off is that it won't see the fixes made after it stopped. If
+narrowing would leave no reviewer at all (everyone quiet, while a lint finding
+keeps the loop going), the round's full selection runs again and a step says so.
 
-- **Round one:** a picker LLM on `reviewAgent`'s cheap tier sees each reviewer's
-  description plus the changed file paths and narrows the supplied list per task
-  (`ReviewerSelector.agentDriven`).
-- **Every later round:** only the reviewers that reported an issue in the
-  previous round re-run, plus any whose `files:` pattern matched the change set
-  (`ReviewerSelector.narrowingAcrossRounds`). A reviewer that stays quiet while
-  others report stops costing a turn per round; the trade-off is that it won't
-  see the fixes made after it stopped. Narrowing never runs *no* reviewer,
-  though: if it would leave none at all — every reviewer quiet, while a lint
-  finding keeps the loop going — the round's full selection runs again and a
-  step says so.
+| Selector | Behaviour |
+|---|---|
+| `default` | The above: `narrowingAcrossRounds(agentDriven)`. |
+| `allEveryRound` | The whole supplied roster, every round; no picker. |
+| `agentDriven` | Pick once with `reviewAgent.cheap`, replay that pick every round. |
+| `agentDriven(agent, instructions?, descriptions?, filePatterns?)` | As above with a chosen picker model and briefs. |
+| `narrowingAcrossRounds(base)` | Adds the per-round narrowing over any `base`. |
 
-For full coverage every round, pass `ReviewerSelector.allEveryRound` (whole
-roster, no picker at all) or `ReviewerSelector.agentDriven` with no parentheses
-(pick once, replay that pick every round). `agentDriven(claude.haiku)` picks
-with a specific model, and `ReviewerSelector.narrowingAcrossRounds(...)` wraps
-any of them to add narrowing back: `narrowingAcrossRounds(allEveryRound)` is
-history narrowing over the whole roster, with no picker — the nearest thing to
-the removed `onlyPreviouslyReporting`, differing in that it also keeps
-file-pattern reviewers and never narrows to no reviewer.
+A reviewer declaring a `files:` pattern in its frontmatter (of the shipped set,
+only `scala-fp`) is offered to the picker only when a changed file matches it —
+unless nothing is known about the change set, in which case it stays eligible.
 
 To swap or extend the reviewer set, compose your own `List[Reviewer]` from
 `ReviewerPrompts` (the shipped entries, `ReviewerPrompts.all`/`.minimal`, and/or
