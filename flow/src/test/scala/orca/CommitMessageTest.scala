@@ -28,38 +28,6 @@ class CommitMessageTest extends munit.FunSuite:
   // Stubs
   // --------------------------------------------------------------------------
 
-  /** Agent stub whose `autonomous.run` records the prompt it was given and
-    * returns a fixed reply. Models both the cheap (via `cheap`) and the full
-    * tool — the commit-message path calls `fc.cheapOneShot`, which runs the
-    * lead's `cheap`, so `cheap` must also return this stub.
-    */
-  private def stubbedAgent(
-      reply: String,
-      prompts: ConcurrentLinkedQueue[String] = ConcurrentLinkedQueue[String]()
-  ): Agent[BackendTag.ClaudeCode.type] =
-    new Agent[BackendTag.ClaudeCode.type]:
-      val name: String = "stubbed"
-      override def cheap: Agent[BackendTag.ClaudeCode.type] = this
-      def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-        new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-          private[orca] def runWithSession(
-              prompt: String,
-              session: SessionId[BackendTag.ClaudeCode.type],
-              config: Option[AgentConfig],
-              emitPrompt: Boolean
-          )(using
-              orca.InStage
-          ): String =
-            prompts.add(prompt): Unit
-            reply
-      def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-      def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
-        this
-      def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-      def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
-      def resultAs[O: JsonData: Announce]
-          : AgentCall[BackendTag.ClaudeCode.type, O] = ???
-
   /** LLM stub that throws on `autonomous.run`. */
   private val throwingAgent: Agent[BackendTag.ClaudeCode.type] =
     new Agent[BackendTag.ClaudeCode.type]:
@@ -158,7 +126,7 @@ class CommitMessageTest extends munit.FunSuite:
   test(
     "stage with no commitMessage and non-empty diff uses agent.cheap message"
   ):
-    withCtx(stubbedAgent("Add feature file")): (ctx, dir) =>
+    withCtx(TextReplyingAgent("Add feature file")): (ctx, dir) =>
       given FlowControl = ctx
       val _ = stage("write file"):
         // Modify the tracked seed file (not a new untracked file) so
@@ -170,7 +138,7 @@ class CommitMessageTest extends munit.FunSuite:
   test("stage with no commitMessage but empty diff falls back to stage:<name>"):
     // An empty working-tree diff (no code changes, only the progress file
     // force-added) triggers the `s"stage: $name"` fallback.
-    withCtx(stubbedAgent("should not appear")): (ctx, dir) =>
+    withCtx(TextReplyingAgent("should not appear")): (ctx, dir) =>
       given FlowControl = ctx
       val _ = stage("no-op"):
         "done"
@@ -188,7 +156,7 @@ class CommitMessageTest extends munit.FunSuite:
 
   test("stage with explicit commitMessage uses it verbatim (no agent call)"):
     val prompts = ConcurrentLinkedQueue[String]()
-    withCtx(stubbedAgent("should not appear", prompts)): (ctx, dir) =>
+    withCtx(TextReplyingAgent("should not appear", prompts)): (ctx, dir) =>
       given FlowControl = ctx
       val _ = stage[String](
         "write file",
@@ -201,7 +169,7 @@ class CommitMessageTest extends munit.FunSuite:
 
   test("a large stage diff reaches the model bounded, with the --stat summary"):
     val prompts = ConcurrentLinkedQueue[String]()
-    withCtx(stubbedAgent("Rewrite seed file", prompts)): (ctx, dir) =>
+    withCtx(TextReplyingAgent("Rewrite seed file", prompts)): (ctx, dir) =>
       given FlowControl = ctx
       val _ = stage("write file"):
         os.write.over(
@@ -219,9 +187,23 @@ class CommitMessageTest extends munit.FunSuite:
       assert(!prompt.contains("+line 5000"), "the diff was not truncated")
       assert(prompt.contains("…(truncated)"), "the cut went unmarked")
 
+  test("a stage whose only change is a new file still describes it"):
+    // An untracked file has no tracked history to diff against, but the stage's
+    // `add -A` commit includes it — so the model has to see it too.
+    val prompts = ConcurrentLinkedQueue[String]()
+    withCtx(TextReplyingAgent("Add ignore rules", prompts)): (ctx, dir) =>
+      given FlowControl = ctx
+      val _ = stage("add file"):
+        os.write(dir / ".gitignore", "target/\n")
+        "done"
+      val prompt = nextPrompt(prompts)
+      assert(prompt.contains(".gitignore"), prompt)
+      assert(prompt.contains("+target/"), "the new file's contents are missing")
+      assertEquals(lastCommitMessage(dir), "Add ignore rules")
+
   test("a later stage's prompt excludes the .orca progress log"):
     val prompts = ConcurrentLinkedQueue[String]()
-    withCtx(stubbedAgent("Update seed", prompts)): (ctx, dir) =>
+    withCtx(TextReplyingAgent("Update seed", prompts)): (ctx, dir) =>
       given FlowControl = ctx
       val _ = stage("first"):
         os.write.over(dir / "seed.txt", "first change")
@@ -250,7 +232,7 @@ class CommitMessageTest extends munit.FunSuite:
   test(
     "stage with no commitMessage and blank agent reply falls back to stage:<name>"
   ):
-    withCtx(stubbedAgent("   ")): (ctx, dir) =>
+    withCtx(TextReplyingAgent("   ")): (ctx, dir) =>
       given FlowControl = ctx
       val _ = stage("write file"):
         os.write.over(dir / "seed.txt", "modified by stage")
@@ -258,7 +240,7 @@ class CommitMessageTest extends munit.FunSuite:
       assertEquals(lastCommitMessage(dir), "stage: write file")
 
   test("stage with no commitMessage uses first line of multi-line agent reply"):
-    withCtx(stubbedAgent("Add feature\n\nSome explanation here.")):
+    withCtx(TextReplyingAgent("Add feature\n\nSome explanation here.")):
       (ctx, dir) =>
         given FlowControl = ctx
         val _ = stage("write file"):

@@ -214,6 +214,15 @@ trait GitTool:
     */
   def diffStat(): String
 
+  /** Untracked, non-`.orca/` paths in the working tree, one entry per file
+    * (untracked directories are recursed into). These are the files [[diff]]
+    * can't report — they have no tracked history to diff against — but that a
+    * `git add -A` commit would include, so anything describing what is about to
+    * be committed needs them alongside the diff. [[reviewDiff]] renders their
+    * contents; this is the list itself. READ-ONLY.
+    */
+  def untrackedPaths(): List[String]
+
   /** The working-tree change set a reviewer should see: everything [[diff]]
     * reports, PLUS each untracked non-`.orca/` file rendered as a new-file diff
     * (`git diff --no-index` against `/dev/null`) — so a freshly-created file is
@@ -516,13 +525,11 @@ private[orca] class OsGitTool(
     val untracked = untrackedPaths().map(untrackedFileDiff)
     (diff() :: untracked).mkString
 
-  /** Untracked, non-`.orca/` paths from `git status --porcelain`.
-    * `--untracked-files=all` recurses into untracked directories so every file
-    * inside is listed individually — the default mode lists only the directory.
-    * `-z` NUL-delimits records so a path containing a space or newline parses
-    * unambiguously.
-    */
-  private def untrackedPaths(): List[String] =
+  // `--untracked-files=all` recurses into untracked directories so every file
+  // inside is listed individually — the default mode lists only the directory.
+  // `-z` NUL-delimits records so a path containing a space or newline parses
+  // unambiguously.
+  def untrackedPaths(): List[String] =
     git("status", "--porcelain", "--untracked-files=all", "-z")
       .split('\u0000')
       .toList

@@ -140,8 +140,9 @@ private def recordAndCommit[T: JsonData](
 /** Generate a commit message from the current working-tree changes via the
   * coding-role agent's cheap model (`fc.codingAgent.cheapOneShot`), which is
   * sent the bounded summary built by [[CommitDiff.payload]] rather than the
-  * whole diff. Both git reads exclude `.orca/`, so the model sees the change
-  * set the commit is about rather than orca's bookkeeping. Falls back to
+  * whole diff. The reads span what the stage is about to commit — tracked edits
+  * and files new to the repo — and all exclude `.orca/`, so the model sees the
+  * change set the commit is about rather than orca's bookkeeping. Falls back to
   * `"stage: <name>"` when there is nothing to describe, the agent returns
   * blank, or any `NonFatal` is thrown — committing must never break, though
   * `cheapOneShot` announces the fallback rather than hiding it. Only called
@@ -155,14 +156,24 @@ private def defaultCommitMessage(
   // never break a stage. The cheap agent call is guarded by `cheapOneShot`
   // itself.
   val payload =
-    try CommitDiff.payload(stat = fc.git.diffStat(), diff = fc.git.diff())
+    try
+      CommitDiff.payload(
+        stat = fc.git.diffStat(),
+        newFiles = fc.git.untrackedPaths(),
+        diff = fc.git.reviewDiff()
+      )
     catch case NonFatal(_) => ""
   if payload.isBlank then fallback
   else
+    // Built by concatenation, not a `stripMargin` block, for the reason given
+    // on `CommitDiff.payload`: the payload must reach the model verbatim.
     fc.codingAgent.cheapOneShot(
       purpose = "commit message",
       prompt =
-        s"Write a concise one-line git commit message (imperative mood, ≤72 chars) for this change:\n\n$payload",
+        "Write a concise one-line git commit message (imperative mood, ≤72 chars) " +
+          "for this change. Describe only what is shown below — it may be " +
+          "truncated, so stay general rather than naming specifics you can't " +
+          "see.\n\n" + payload,
       fallback = fallback
     )
 

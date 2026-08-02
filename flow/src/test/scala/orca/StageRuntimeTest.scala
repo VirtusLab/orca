@@ -9,6 +9,12 @@ import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 /** The stage runtime's resume + commit guarantees (ADR 0018 §2.1/§2.4). */
 class StageRuntimeTest extends munit.FunSuite:
 
+  /** Every stage below that changes a file has its commit message drafted by
+    * the cheap model, so those controls need a lead that answers.
+    */
+  private def commitMessageAgent: TextReplyingAgent =
+    TextReplyingAgent("stage commit message")
+
   private class RecordingListener extends OrcaListener:
     private val seen: AtomicReference[List[OrcaEvent]] = AtomicReference(Nil)
     def onEvent(event: OrcaEvent): Unit =
@@ -16,7 +22,10 @@ class StageRuntimeTest extends munit.FunSuite:
     def events: List[OrcaEvent] = seen.get().reverse
 
   test("a completed stage commits both code changes and the progress log"):
-    val (ctx, dir) = TestFlowControl.create(new EventDispatcher(Nil))
+    val (ctx, dir) = TestFlowControl.create(
+      new EventDispatcher(Nil),
+      lead = Some(commitMessageAgent)
+    )
     given FlowControl = ctx
     val before = commitCount(dir)
     val _ = stage("write file"):
@@ -36,7 +45,10 @@ class StageRuntimeTest extends munit.FunSuite:
 
   test("re-running replays the stored result without running the body again"):
     val listener = new RecordingListener
-    val (ctx, dir) = TestFlowControl.create(new EventDispatcher(List(listener)))
+    val (ctx, dir) = TestFlowControl.create(
+      new EventDispatcher(List(listener)),
+      lead = Some(commitMessageAgent)
+    )
     val runs = new AtomicInteger(0)
 
     def runOnce()(using FlowControl): String =
@@ -61,7 +73,10 @@ class StageRuntimeTest extends munit.FunSuite:
     )
 
   test("a crash in a later stage leaves earlier stages committed and recorded"):
-    val (ctx, dir) = TestFlowControl.create(new EventDispatcher(Nil))
+    val (ctx, dir) = TestFlowControl.create(
+      new EventDispatcher(Nil),
+      lead = Some(commitMessageAgent)
+    )
     given FlowControl = ctx
     val _ = stage("stage one"):
       os.write(dir / "one.txt", "1")
@@ -83,7 +98,10 @@ class StageRuntimeTest extends munit.FunSuite:
     )
 
   test("a nested stage commits and records both the outer and inner stages"):
-    val (ctx, dir) = TestFlowControl.create(new EventDispatcher(Nil))
+    val (ctx, dir) = TestFlowControl.create(
+      new EventDispatcher(Nil),
+      lead = Some(commitMessageAgent)
+    )
     given FlowControl = ctx
     val before = commitCount(dir)
     val _ = stage("outer"):

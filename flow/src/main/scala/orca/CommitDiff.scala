@@ -4,6 +4,10 @@ package orca
   * commit-message prompt carries (see `orca.defaultCommitMessage`). A commit
   * subject needs the file list and the shape of the first hunks; sending a
   * whole stage diff to a model to get one line back is what this bounds.
+  *
+  * The change set described is the one the stage is about to commit — `git
+  * commit`'s own `add -A` — so it spans tracked edits AND files new to the
+  * repo, minus orca's `.orca/` bookkeeping.
   */
 private[orca] object CommitDiff:
 
@@ -15,18 +19,30 @@ private[orca] object CommitDiff:
     */
   val InlineThreshold: Int = 8 * 1024
 
-  /** Share of [[InlineThreshold]] the stat may take. The remainder is reserved
-    * for the diff, so a change touching hundreds of files can't starve the
-    * hunks down to nothing.
+  /** Share of [[InlineThreshold]] the summary sections (stat + new-file list)
+    * may take between them. The remainder is reserved for the diff, so a change
+    * touching hundreds of files can't starve the hunks down to nothing.
     */
-  private val StatBudget: Int = InlineThreshold / 2
+  private val SummaryBudget: Int = InlineThreshold / 2
+
+  /** Share of [[SummaryBudget]] the new-file list may take, leaving the rest
+    * for the stat — a stage that adds a hundred files still shows what it
+    * edited.
+    */
+  private val NewFilesBudget: Int = SummaryBudget / 2
 
   private val TruncationMarker: String = "\n…(truncated)"
 
-  /** `git diff --stat` output followed by as much of the diff as the remaining
-    * [[InlineThreshold]] budget allows; `""` when there is nothing to describe.
-    * The stat goes first because it names every changed file, which a truncated
-    * diff head does not.
+  /** What the stage is about to commit, in three sections: the `git diff
+    * --stat` summary of tracked changes, the paths of files new to the repo
+    * (which no diff of tracked history reports, though the commit includes
+    * them), and as much of the diff — `reviewDiff`, so new files' contents are
+    * in it too — as the remaining [[InlineThreshold]] budget allows. `""` when
+    * there is nothing to describe, which is the caller's cue to skip the model
+    * entirely.
+    *
+    * The summaries go first because they name every changed file, which a
+    * truncated diff head does not.
     *
     * Assembled by plain interpolation, never a `stripMargin` block:
     * `stripMargin` runs over the interpolated result, so it would eat the
@@ -34,12 +50,20 @@ private[orca] object CommitDiff:
     * source`, which every `stripMargin` block and markdown table in a repo
     * produces.
     */
-  def payload(stat: String, diff: String): String =
-    if diff.isBlank then ""
+  def payload(stat: String, newFiles: List[String], diff: String): String =
+    if diff.isBlank && newFiles.isEmpty then ""
     else
-      val files = boundedStat(stat, StatBudget)
-      val hunks = bounded(diff, InlineThreshold - files.length)
-      s"Files changed:\n$files\n\nDiff:\n$hunks"
+      val added = newFilesSection(newFiles)
+      val files = boundedStat(stat, SummaryBudget - added.length)
+      val hunks = bounded(diff, InlineThreshold - files.length - added.length)
+      s"Files changed:\n$files\n$added\nDiff:\n$hunks"
+
+  /** The new-file paths as their own section, empty when there are none — a
+    * heading promising a list and then showing none reads as information.
+    */
+  private def newFilesSection(newFiles: List[String]): String =
+    if newFiles.isEmpty then ""
+    else s"\nNew files:\n${bounded(newFiles.mkString("\n"), NewFilesBudget)}\n"
 
   /** The stat bounded to `maxChars`, always keeping its last line: git prints
     * the ` N files changed, …` summary there, so a plain head cut would drop
