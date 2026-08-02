@@ -299,22 +299,12 @@ private[shell] object FlowAuthoring:
         if proc.waitFor(timeoutMillis) && proc.exitCode() == 0 then
           Some(proc.stdout.text())
         else None
-      finally if proc.isAlive() then destroyQuietly(proc)
+      finally
+        // `shutdownGracePeriod = 0` is the non-deprecated spelling of
+        // `destroyForcibly()`; os-lib's destroy is recursive, so the agent
+        // CLI's own children go with it.
+        if proc.isAlive() then proc.destroy(shutdownGracePeriod = 0)
     catch case NonFatal(_) => None
-
-  /** Force-kills `proc` (`destroy(shutdownGracePeriod = 0)` — the
-    * non-deprecated spelling of `destroyForcibly()`), with stdout muted for the
-    * call itself. os-lib 0.11.4's `SubProcess.destroy` unconditionally
-    * `println`s `"wrapped.destroyForcibly()"` to the real stdout right before
-    * actually forcibly killing (an upstream debug leftover, not gated behind
-    * any flag) — on this timeout path that noise would otherwise land on the
-    * user's terminal mid-prompt. The subprocess's own stdout was captured via
-    * `os.Pipe` above, not `Console.out`, so muting it here can't drop any of
-    * its output.
-    */
-  private def destroyQuietly(proc: os.SubProcess): Unit =
-    val mutedOut = java.io.PrintStream(java.io.OutputStream.nullOutputStream())
-    Console.withOut(mutedOut)(proc.destroy(shutdownGracePeriod = 0))
 
   /** The directory associated with `tier` (see [[CreateTier]]'s scaladoc):
     * `workDir` for Project, `globalFlows`'s parent for Global. Shared by

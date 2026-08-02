@@ -3,7 +3,7 @@ import sbt.*
 object Dependencies {
   object V {
     val scala = "3.8.4"
-    val osLib = "0.11.4"
+    val osLib = "0.11.8"
     val jsoniter = "2.38.17"
     val tapir = "1.13.25"
     val sttpApispec = "0.11.10"
