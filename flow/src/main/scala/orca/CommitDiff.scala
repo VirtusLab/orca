@@ -1,27 +1,23 @@
 package orca
 
-/** The bounded description of a stage's working-tree changes that the default
-  * commit-message prompt carries (see `orca.defaultCommitMessage`). A commit
-  * subject needs the file list and the shape of the first hunks; sending a
-  * whole stage diff to a model to get one line back is what this bounds.
-  *
-  * The change set described is the one the stage is about to commit — `git
-  * commit`'s own `add -A` — so it spans tracked edits AND files new to the
-  * repo, minus orca's `.orca/` bookkeeping.
+import orca.tools.PendingChanges
+
+/** The bounded description of the changes a stage is about to commit, for the
+  * default commit-message prompt (see `orca.defaultCommitMessage`). A commit
+  * subject needs the file list and the shape of the first hunks, so the whole
+  * description is capped at [[InlineThreshold]] rather than sent in full.
   */
 private[orca] object CommitDiff:
 
-  /** Max chars of change text — stat plus diff — inlined into the
-    * commit-message prompt, roughly 2k tokens. Text past the budget is dropped
-    * rather than spilled to a file for the model to read (the route
-    * `orca.review.Lint` takes for lint output): a one-line commit subject
-    * doesn't warrant a second read.
+  /** Max chars [[payload]] ever returns. Text past the budget is dropped rather
+    * than spilled to a file for the model to read (the route `orca.review.Lint`
+    * takes for lint output): a one-line commit subject doesn't warrant a second
+    * read.
     */
   val InlineThreshold: Int = 8 * 1024
 
   /** Share of [[InlineThreshold]] the summary sections (stat + new-file list)
-    * may take between them. The remainder is reserved for the diff, so a change
-    * touching hundreds of files can't starve the hunks down to nothing.
+    * may take between them, leaving the rest for the diff.
     */
   private val SummaryBudget: Int = InlineThreshold / 2
 
@@ -33,16 +29,15 @@ private[orca] object CommitDiff:
 
   private val TruncationMarker: String = "\n…(truncated)"
 
-  /** What the stage is about to commit, in three sections: the `git diff
+  /** What the stage is about to commit, in up to three sections: the `git diff
     * --stat` summary of tracked changes, the paths of files new to the repo
-    * (which no diff of tracked history reports, though the commit includes
-    * them), and as much of the diff — `reviewDiff`, so new files' contents are
-    * in it too — as the remaining [[InlineThreshold]] budget allows. `""` when
-    * there is nothing to describe, which is the caller's cue to skip the model
-    * entirely.
+    * (which no diff of tracked history reports), and as much of the diff as the
+    * rest of the budget allows. `""` when there is nothing to describe, which
+    * is the caller's cue to skip the model entirely.
     *
     * The summaries go first because they name every changed file, which a
-    * truncated diff head does not.
+    * truncated diff head does not. Section headers count against the budget, so
+    * the result is never longer than [[InlineThreshold]].
     *
     * Assembled by plain interpolation, never a `stripMargin` block:
     * `stripMargin` runs over the interpolated result, so it would eat the
@@ -50,20 +45,22 @@ private[orca] object CommitDiff:
     * source`, which every `stripMargin` block and markdown table in a repo
     * produces.
     */
-  def payload(stat: String, newFiles: List[String], diff: String): String =
-    if diff.isBlank && newFiles.isEmpty then ""
+  def payload(changes: PendingChanges): String =
+    if changes.diff.isBlank && changes.newFiles.isEmpty then ""
     else
-      val added = newFilesSection(newFiles)
-      val files = boundedStat(stat, SummaryBudget - added.length)
-      val hunks = bounded(diff, InlineThreshold - files.length - added.length)
-      s"Files changed:\n$files\n$added\nDiff:\n$hunks"
+      val added = newFilesSection(changes.newFiles)
+      val files = statSection(changes.stat, SummaryBudget - added.length)
+      val head =
+        (List(files, added).filter(_.nonEmpty) :+ "Diff:\n").mkString("\n\n")
+      head + bounded(changes.diff, InlineThreshold - head.length)
 
-  /** The new-file paths as their own section, empty when there are none — a
-    * heading promising a list and then showing none reads as information.
-    */
+  private def statSection(stat: String, maxChars: Int): String =
+    if stat.isBlank then ""
+    else s"Files changed:\n${boundedStat(stat, maxChars)}"
+
   private def newFilesSection(newFiles: List[String]): String =
     if newFiles.isEmpty then ""
-    else s"\nNew files:\n${bounded(newFiles.mkString("\n"), NewFilesBudget)}\n"
+    else s"New files:\n${boundedPaths(newFiles, NewFilesBudget)}"
 
   /** The stat bounded to `maxChars`, always keeping its last line: git prints
     * the ` N files changed, …` summary there, so a plain head cut would drop
@@ -72,20 +69,40 @@ private[orca] object CommitDiff:
   private def boundedStat(stat: String, maxChars: Int): String =
     if stat.length <= maxChars then stat
     else
-      val summary = stat.linesIterator.toList.lastOption.getOrElse("")
-      val perFile = bounded(stat, (maxChars - summary.length - 1).max(0))
-      s"$perFile\n$summary"
+      val summary = bounded(lastLine(stat), maxChars - 1)
+      s"${bounded(stat, maxChars - summary.length - 1)}\n$summary"
+
+  private def lastLine(text: String): String =
+    text.linesIterator.toList.lastOption.getOrElse("")
+
+  /** The paths bounded to `maxChars`, cut only between entries: half a path
+    * names a file that doesn't exist.
+    */
+  private def boundedPaths(paths: List[String], maxChars: Int): String =
+    val whole = paths.mkString("\n")
+    if whole.length <= maxChars then whole
+    else
+      val room = maxChars - TruncationMarker.length
+      // +1 per entry for the separator it will be joined with.
+      val kept = paths
+        .scanLeft(0)((used, path) => used + path.length + 1)
+        .drop(1)
+        .zip(paths)
+        .takeWhile(_._1 <= room)
+        .map(_._2)
+      if kept.isEmpty then "" else kept.mkString("\n") + TruncationMarker
 
   /** `text` cut to at most `maxChars`, marked when anything was dropped so the
     * model reads a cut-off hunk as partial rather than as the whole change. The
-    * marker is counted against the budget, and the cut backs off a dangling
-    * high surrogate — half a pair is not valid UTF-16, and the JSON writer that
-    * puts the prompt on the wire rejects it.
+    * marker is counted against the budget; when not even it fits, nothing does.
+    * The cut backs off a dangling high surrogate — half a pair is not valid
+    * UTF-16 and no longer encodes as the character it came from.
     */
   private def bounded(text: String, maxChars: Int): String =
     if text.length <= maxChars then text
+    else if maxChars < TruncationMarker.length then ""
     else
-      val head = text.take((maxChars - TruncationMarker.length).max(0))
+      val head = text.take(maxChars - TruncationMarker.length)
       val whole =
         if head.nonEmpty && Character.isHighSurrogate(head.last) then
           head.dropRight(1)

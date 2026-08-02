@@ -1,5 +1,7 @@
 package orca
 
+import orca.testkit.TextReplyingAgent
+
 import orca.agents.{
   Announce,
   AutonomousTextCall,
@@ -30,31 +32,6 @@ class BranchNamingTest extends munit.FunSuite:
     def resultAs[O: JsonData: Announce]
         : AgentCall[BackendTag.ClaudeCode.type, O] =
       throw new AssertionError("LLM must not be called")
-
-  /** Stub LLM that returns a fixed reply from `autonomous.run`. Used to test
-    * `shortenPrompt` without a real model.
-    */
-  private def stubbedAgent(reply: String): Agent[BackendTag.ClaudeCode.type] =
-    new Agent[BackendTag.ClaudeCode.type]:
-      val name: String = "stubbed"
-      def autonomous: AutonomousTextCall[BackendTag.ClaudeCode.type] =
-        new AutonomousTextCall[BackendTag.ClaudeCode.type]:
-          private[orca] def runWithSession(
-              prompt: String,
-              session: SessionId[BackendTag.ClaudeCode.type],
-              config: Option[AgentConfig],
-              emitPrompt: Boolean
-          )(using
-              orca.InStage
-          ): String =
-            reply
-      def withConfig(c: AgentConfig): Agent[BackendTag.ClaudeCode.type] = this
-      def withSystemPrompt(p: String): Agent[BackendTag.ClaudeCode.type] =
-        this
-      def withName(n: String): Agent[BackendTag.ClaudeCode.type] = this
-      def withTools(t: ToolSet): Agent[BackendTag.ClaudeCode.type] = this
-      def resultAs[O: JsonData: Announce]
-          : AgentCall[BackendTag.ClaudeCode.type, O] = ???
 
   /** Stub LLM that throws on `autonomous.run`. */
   private val throwingAutonomousAgent: Agent[BackendTag.ClaudeCode.type] =
@@ -234,7 +211,7 @@ class BranchNamingTest extends munit.FunSuite:
   // ---------------------------------------------------------------------------
 
   test("shortenPrompt slugs the agent reply"):
-    val agent = stubbedAgent("add multiply function")
+    val agent = TextReplyingAgent("add multiply function")
     val result = BranchNamingStrategy.shortenPrompt.resolve(
       "Add a multiply function to the calc",
       agent
@@ -244,7 +221,7 @@ class BranchNamingTest extends munit.FunSuite:
   test(
     "shortenPrompt: agent returns phrase with extra whitespace, still slugged"
   ):
-    val agent = stubbedAgent("  fix login bug  ")
+    val agent = TextReplyingAgent("  fix login bug  ")
     val result =
       BranchNamingStrategy.shortenPrompt.resolve("Fix the login bug", agent)
     assertEquals(result, "fix-login-bug")
@@ -259,13 +236,13 @@ class BranchNamingTest extends munit.FunSuite:
   test(
     "shortenPrompt: agent returns blank string -> falls back to slug(userPrompt)"
   ):
-    val agent = stubbedAgent("   ")
+    val agent = TextReplyingAgent("   ")
     val result =
       BranchNamingStrategy.shortenPrompt.resolve("fix the login bug", agent)
     assertEquals(result, "fix-the-login-bug")
 
   test("shortenPrompt: agent returns multi-line reply, uses only first line"):
-    val agent = stubbedAgent("fix login bug\nsome extra explanation")
+    val agent = TextReplyingAgent("fix login bug\nsome extra explanation")
     val result =
       BranchNamingStrategy.shortenPrompt.resolve("Fix login bug", agent)
     assertEquals(result, "fix-login-bug")
@@ -273,7 +250,7 @@ class BranchNamingTest extends munit.FunSuite:
   test("shortenPrompt: a markdown-fenced reply is unwrapped (no literal ```)"):
     // The cheap model sometimes wraps its one-line reply in a code fence;
     // cheapOneShot must skip the fence lines, not return a literal "```".
-    val agent = stubbedAgent("```\nfix login bug\n```")
+    val agent = TextReplyingAgent("```\nfix login bug\n```")
     val result =
       BranchNamingStrategy.shortenPrompt.resolve("Fix login bug", agent)
     assertEquals(result, "fix-login-bug")

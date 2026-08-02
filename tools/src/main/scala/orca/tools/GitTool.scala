@@ -25,6 +25,13 @@ enum DiffMode:
   */
 case class Worktree(path: os.Path, branch: String)
 
+/** One consistent sample of what the next commit would include — see
+  * [[GitTool.pendingChanges]]. `newFiles` holds the paths of files new to the
+  * repository, which the stat cannot report and `diff` shows only as new-file
+  * hunks.
+  */
+case class PendingChanges(stat: String, newFiles: List[String], diff: String)
+
 /** Returned in the `Left` of [[GitTool.createBranch]] when a branch by that
   * name already exists. Distinguished from system-level git failures (binary
   * missing, IO error) which surface as thrown `OrcaFlowException`. Subclasses
@@ -192,10 +199,11 @@ trait GitTool:
     */
   def resetHard()(using WorkspaceWrite): Unit
 
-  /** All changes since the last commit (staged and unstaged), excluding
-    * `.orca/` bookkeeping. Tracked files only — an untracked file (nothing to
-    * diff against) is invisible here. A reviewer-facing consumer that also
-    * needs untracked files surfaced wants [[reviewDiff]] instead.
+  /** All changes since the last commit (staged and unstaged) anywhere in the
+    * repository, excluding `.orca/` bookkeeping. Tracked files only — an
+    * untracked file (nothing to diff against) is invisible here. A
+    * reviewer-facing consumer that also needs untracked files surfaced wants
+    * [[reviewDiff]] instead.
     *
     * The `.orca/` exclusion is load-bearing, not tidiness: once a stage has
     * committed the progress log the file is tracked, and later stage bodies
@@ -214,12 +222,13 @@ trait GitTool:
     */
   def diffStat(): String
 
-  /** Untracked, non-`.orca/` paths in the working tree, one entry per file
-    * (untracked directories are recursed into). These are the files [[diff]]
-    * can't report — they have no tracked history to diff against — but that a
-    * `git add -A` commit would include, so anything describing what is about to
-    * be committed needs them alongside the diff. [[reviewDiff]] renders their
-    * contents; this is the list itself. READ-ONLY.
+  /** Untracked, non-`.orca/` paths anywhere in the repository, one entry per
+    * file (untracked directories are recursed into), relative to the tool's
+    * working directory. These are the files [[diff]] can't report — they have
+    * no tracked history to diff against — but that a `git add -A` commit would
+    * include, so anything describing what is about to be committed needs them
+    * alongside the diff. [[reviewDiff]] renders their contents; this is the
+    * list itself.
     */
   def untrackedPaths(): List[String]
 
@@ -230,6 +239,16 @@ trait GitTool:
     * untracked files are diffed, never staged.
     */
   def reviewDiff(): String
+
+  /** Everything the next `commit` would include, in the three shapes a caller
+    * describing it needs: the [[diffStat]] summary, the [[untrackedPaths]]
+    * list, and the [[reviewDiff]] text.
+    *
+    * Sampled in ONE pass over the working tree, which is the point: calling
+    * `untrackedPaths()` and `reviewDiff()` separately samples it twice, and a
+    * file created between the two calls appears in one and not the other.
+    */
+  def pendingChanges(): PendingChanges
 
   /** Diff of the current branch vs `base`.
     *
@@ -514,39 +533,71 @@ private[orca] class OsGitTool(
     )
 
   def diff(): String =
-    git("diff", "HEAD", "--", ".", ":(exclude).orca/*")
+    git(("diff" +: "HEAD" +: OsGitTool.wholeRepoExceptOrca)*)
 
   // `--stat=<width>` widens the stat line so the name column holds a full path;
   // 200 clears any path this side of pathological.
   def diffStat(): String =
-    git("diff", "--stat=200", "HEAD", "--", ".", ":(exclude).orca/*")
+    git(("diff" +: "--stat=200" +: "HEAD" +: OsGitTool.wholeRepoExceptOrca)*)
 
   def reviewDiff(): String =
-    val untracked = untrackedPaths().map(untrackedFileDiff)
-    (diff() :: untracked).mkString
+    withNewFileContents(untrackedPaths())
+
+  def pendingChanges(): PendingChanges =
+    val untracked = untrackedPaths()
+    PendingChanges(
+      stat = diffStat(),
+      newFiles = untracked,
+      diff = withNewFileContents(untracked)
+    )
+
+  private def withNewFileContents(untracked: List[String]): String =
+    (diff() :: untracked.map(untrackedFileDiff)).mkString
 
   // `--untracked-files=all` recurses into untracked directories so every file
   // inside is listed individually — the default mode lists only the directory.
   // `-z` NUL-delimits records so a path containing a space or newline parses
   // unambiguously.
   def untrackedPaths(): List[String] =
+    val orcaDir = s"$workDirPrefix${orca.OrcaDir.Name}"
     git("status", "--porcelain", "--untracked-files=all", "-z")
       .split('\u0000')
       .toList
       .filter(_.startsWith("?? "))
       .map(_.stripPrefix("?? "))
-      .filterNot(p => p == ".orca" || p.startsWith(".orca/"))
+      .filterNot(p => p == orcaDir || p.startsWith(s"$orcaDir/"))
+      .map(asWorkDirRelative)
+
+  /** Where `workDir` sits relative to the repository root (`"sub/"`, or `""`
+    * when it IS the root). `git status --porcelain` reports paths from the
+    * root, while everything else here - the `.orca` exclusion, `--no-index`
+    * arguments - is relative to `workDir`, so the two need translating between.
+    * Probed once per instance.
+    */
+  private lazy val workDirPrefix: String =
+    val result = gitProc(Seq("git", "rev-parse", "--show-prefix"))
+    if result.exitCode == 0 then result.out.text().trim else ""
+
+  /** A repo-root-relative path as `workDir` sees it: inside `workDir` the
+    * prefix comes off, above it the path needs `..` hops back up.
+    */
+  private def asWorkDirRelative(rootRelative: String): String =
+    if rootRelative.startsWith(workDirPrefix) then
+      rootRelative.drop(workDirPrefix.length)
+    else "../" * workDirPrefix.count(_ == '/') + rootRelative
 
   /** Render an untracked file as a new-file unified diff, without staging it
     * (`add -N` would mutate the index — this doesn't). `git diff --no-index`
-    * exits 1 when the two sides differ, which is the expected outcome for any
-    * real file against `/dev/null`; only exit codes above 1 signal a genuine
-    * error.
+    * exits 1 both when the two sides differ — the expected outcome for any real
+    * file against `/dev/null` — and when it cannot read the path at all, so
+    * stderr rather than the exit code tells the two apart. Reporting the second
+    * as success would return an empty diff for a file that does have contents.
     */
   private def untrackedFileDiff(relPath: String): String =
     val result =
       gitProc(Seq("git", "diff", "--no-index", "--", "/dev/null", relPath))
-    if result.exitCode <= 1 then result.out.text()
+    val differs = result.exitCode == 1 && result.err.text().isEmpty
+    if result.exitCode == 0 || differs then result.out.text()
     else fail(s"git diff --no-index -- /dev/null $relPath", result)
 
   def diffVsBase(base: String, mode: DiffMode): String =
@@ -649,9 +700,11 @@ private[orca] class OsGitTool(
       featureBranch: String
   ): String =
     // Two-dot diff (direct) to see all changes the feature branch has vs the
-    // start branch. Pathspec `:(exclude).orca/*` strips the orca bookkeeping
-    // directory so only substantive code changes appear in the result.
-    git("diff", s"$startBranch..$featureBranch", "--", ".", ":(exclude).orca/*")
+    // start branch, minus the orca bookkeeping directory, so only substantive
+    // code changes appear in the result.
+    git(
+      ("diff" +: s"$startBranch..$featureBranch" +: OsGitTool.wholeRepoExceptOrca)*
+    )
 
   private def samePath(left: os.Path, right: os.Path): Boolean =
     def normalised(path: os.Path): java.nio.file.Path =
@@ -691,6 +744,16 @@ private[orca] class OsGitTool(
     result.out.text()
 
 private[orca] object OsGitTool:
+
+  /** Pathspec arguments scoping a diff to "the whole repository, minus orca's
+    * bookkeeping". `:(top)` is what makes it repo-wide: a magic pathspec is
+    * resolved against the process cwd, which is `workDir` — without it a tool
+    * pointed at a subdirectory would silently miss every change above it. The
+    * exclusion stays cwd-relative on purpose, since `.orca/` lives under
+    * `workDir`, not under the repository root.
+    */
+  val wholeRepoExceptOrca: Seq[String] =
+    Seq("--", ":(top)", orca.OrcaDir.ExcludePathspec)
 
   // --- Recoverable-failure stderr predicates ---
   //

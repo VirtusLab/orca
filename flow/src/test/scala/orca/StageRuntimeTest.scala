@@ -1,5 +1,7 @@
 package orca
 
+import orca.testkit.TextReplyingAgent
+
 import orca.util.RawJson
 import orca.events.{EventDispatcher, OrcaEvent, OrcaListener}
 import orca.progress.StageEntry

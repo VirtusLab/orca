@@ -13,7 +13,7 @@ import orca.agents.{
   ToolSet
 }
 import orca.progress.{ProgressStore, SessionRecord}
-import orca.testkit.GitRepo
+import orca.testkit.{GitRepo, TextReplyingAgent}
 import orca.tools.{GitTool, OsGitTool}
 
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -178,10 +178,13 @@ class CommitMessageTest extends munit.FunSuite:
         )
         "done"
       val prompt = nextPrompt(prompts)
+      // The payload, not the whole prompt: its size is the contract, and the
+      // instructions above it are free to change.
+      val payload = prompt.drop(prompt.indexOf("Files changed:"))
       // Bounded, but not to a bare stat: the budget is spent on the diff head,
       // which reaches a few hundred lines in and stops well before the end.
-      assert(clue(prompt.length) < CommitDiff.InlineThreshold + 512)
-      assert(clue(prompt.length) > CommitDiff.InlineThreshold)
+      assert(clue(payload.length) <= CommitDiff.InlineThreshold)
+      assert(clue(payload.length) > CommitDiff.InlineThreshold - 64)
       assert(prompt.contains("file changed"), "the --stat summary is missing")
       assert(prompt.contains("\n+line 300\n"), "the diff head is missing")
       assert(!prompt.contains("+line 5000"), "the diff was not truncated")
@@ -197,7 +200,7 @@ class CommitMessageTest extends munit.FunSuite:
         os.write(dir / ".gitignore", "target/\n")
         "done"
       val prompt = nextPrompt(prompts)
-      assert(prompt.contains(".gitignore"), prompt)
+      assert(prompt.contains("New files:\n.gitignore"), prompt)
       assert(prompt.contains("+target/"), "the new file's contents are missing")
       assertEquals(lastCommitMessage(dir), "Add ignore rules")
 

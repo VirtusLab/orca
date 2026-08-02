@@ -156,17 +156,10 @@ private def defaultCommitMessage(
   // never break a stage. The cheap agent call is guarded by `cheapOneShot`
   // itself.
   val payload =
-    try
-      CommitDiff.payload(
-        stat = fc.git.diffStat(),
-        newFiles = fc.git.untrackedPaths(),
-        diff = fc.git.reviewDiff()
-      )
+    try CommitDiff.payload(fc.git.pendingChanges())
     catch case NonFatal(_) => ""
   if payload.isBlank then fallback
   else
-    // Built by concatenation, not a `stripMargin` block, for the reason given
-    // on `CommitDiff.payload`: the payload must reach the model verbatim.
     fc.codingAgent.cheapOneShot(
       purpose = "commit message",
       prompt =

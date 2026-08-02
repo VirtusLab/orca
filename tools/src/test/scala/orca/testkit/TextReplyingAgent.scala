@@ -1,4 +1,4 @@
-package orca
+package orca.testkit
 
 import orca.agents.{
   Agent,

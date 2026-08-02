@@ -1,5 +1,7 @@
 package orca
 
+import orca.tools.PendingChanges
+
 import java.nio.charset.StandardCharsets.UTF_8
 
 /** How the commit-message payload is shaped and bounded. The end-to-end wiring
@@ -12,7 +14,7 @@ class CommitDiffTest extends munit.FunSuite:
     " seed.txt | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)"
 
   private def payloadOf(diff: String, newFiles: List[String] = Nil): String =
-    CommitDiff.payload(stat = stat, newFiles = newFiles, diff = diff)
+    CommitDiff.payload(PendingChanges(stat, newFiles, diff))
 
   test("a diff line's leading margin character survives verbatim"):
     // A context line is `" " + source`, so any `stripMargin` block or markdown
@@ -23,15 +25,15 @@ class CommitDiffTest extends munit.FunSuite:
   test("an oversized diff is cut to the budget and marked as truncated"):
     val payload = payloadOf("+" + "x" * (CommitDiff.InlineThreshold * 2))
     assert(
-      clue(payload.length) <= CommitDiff.InlineThreshold + 64,
+      clue(payload.length) <= CommitDiff.InlineThreshold,
       "the payload outgrew its budget"
     )
     assert(payload.endsWith("…(truncated)"), "the cut went unmarked")
 
   test("the cut never splits a surrogate pair"):
     // Both parities, since which one lands mid-pair depends on the stat's
-    // length. A lone high surrogate isn't encodable: UTF-8 round-tripping
-    // replaces it, and the JSON writer that puts the prompt on the wire throws.
+    // length. A lone high surrogate isn't encodable — UTF-8 round-tripping
+    // replaces it, which is what this asserts.
     for prefix <- List("+", "++") do
       val payload = payloadOf(prefix + "🙂" * CommitDiff.InlineThreshold)
       assertEquals(String(payload.getBytes(UTF_8), UTF_8), payload)
@@ -41,9 +43,7 @@ class CommitDiffTest extends munit.FunSuite:
     val perFile =
       (1 to 2000).map(i => s" src/File$i.scala | 2 +-").mkString("\n")
     val payload = CommitDiff.payload(
-      stat = s"$perFile\n$summary",
-      newFiles = Nil,
-      diff = "+the real change"
+      PendingChanges(s"$perFile\n$summary", Nil, "+the real change")
     )
     assert(payload.contains("+the real change"), "the stat starved the diff")
     assert(payload.contains(summary), "the stat's summary line was dropped")
@@ -58,10 +58,24 @@ class CommitDiffTest extends munit.FunSuite:
     assert(payload.contains("+the real change"), "the list starved the diff")
     assert(payload.contains(" seed.txt | 2 +-"), "the list starved the stat")
     assert(
-      clue(payload.length) <= CommitDiff.InlineThreshold + 64,
+      clue(payload.length) <= CommitDiff.InlineThreshold,
       "the payload outgrew its budget"
     )
 
+  test("a truncated new-file list is cut between paths, never inside one"):
+    val newFiles = (1 to 2000).map(i => s"src/generated/New$i.scala").toList
+    val listed = payloadOf("+change", newFiles = newFiles).linesIterator
+      .dropWhile(_ != "New files:")
+      .drop(1)
+      .takeWhile(_.startsWith("src/"))
+      .toList
+    assert(listed.nonEmpty && listed.forall(newFiles.contains), listed.last)
+
+  test("a stage that only adds files has no empty stat section"):
+    val payload =
+      CommitDiff.payload(PendingChanges("", List("new.txt"), "+content"))
+    assert(!payload.contains("Files changed:"), payload)
+
   test("nothing to describe yields an empty payload"):
     // The caller's cue to skip the model rather than ask it about no change.
-    assertEquals(CommitDiff.payload(stat = "", newFiles = Nil, diff = ""), "")
+    assertEquals(CommitDiff.payload(PendingChanges("", Nil, "")), "")
