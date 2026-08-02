@@ -523,6 +523,72 @@ class OsGitToolTest extends munit.FunSuite:
       assert(diff.contains("-first"), diff)
       assert(diff.contains("+second"), diff)
 
+  test("diffStat names the changed file and its counts"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "one\n")
+      git.commit("seed").orThrow
+      os.write.over(dir / "seed.txt", "two\n")
+      val stat = git.diffStat()
+      assert(stat.contains("seed.txt"), stat)
+      assert(stat.contains("1 file changed"), stat)
+
+  test("diffStat excludes a modified tracked .orca/ file"):
+    withRepo: (git, dir) =>
+      os.makeDir(dir / ".orca")
+      os.write(dir / ".orca" / "progress-x.json", "{}")
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      os.write.over(dir / ".orca" / "progress-x.json", "{\"a\":1}")
+      assertEquals(git.diffStat().trim, "")
+
+  test("untrackedPaths lists new files and skips .orca/ bookkeeping"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      os.write(dir / "new.txt", "hello")
+      os.makeDir(dir / ".orca")
+      os.write(dir / ".orca" / "progress-x.json", "{}")
+      assertEquals(git.untrackedPaths(), List("new.txt"))
+
+  test("a tool rooted in a subdirectory still sees the whole repository"):
+    // Magic pathspecs resolve against the process cwd, so a scoping mistake
+    // here hides every change above the tool's working directory.
+    withRepo: (_, dir) =>
+      os.makeDir.all(dir / "sub")
+      os.write(dir / "top.txt", "one\n")
+      os.write(dir / "sub" / "inner.txt", "one\n")
+      val root = new OsGitTool(dir)
+      root.commit("seed").orThrow
+      os.write.over(dir / "top.txt", "two\n")
+      val inSub = new OsGitTool(dir / "sub")
+      assert(inSub.diff().contains("top.txt"), inSub.diff())
+      assert(inSub.diffStat().contains("top.txt"), inSub.diffStat())
+
+  test("a tool rooted in a subdirectory renders new files it can reach"):
+    // `git status` reports repo-root-relative paths; used unchanged they name
+    // nothing from the subdirectory, and the file's contents vanish silently.
+    withRepo: (_, dir) =>
+      os.makeDir.all(dir / "sub")
+      os.write(dir / "sub" / "seed.txt", "seed")
+      val root = new OsGitTool(dir)
+      root.commit("seed").orThrow
+      os.write(dir / "sub" / "new.txt", "hello")
+      val inSub = new OsGitTool(dir / "sub")
+      assertEquals(inSub.untrackedPaths(), List("new.txt"))
+      assert(inSub.reviewDiff().contains("+hello"), inSub.reviewDiff())
+
+  test("pendingChanges reports the stat, the new files and the diff together"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "one\n")
+      git.commit("seed").orThrow
+      os.write.over(dir / "seed.txt", "two\n")
+      os.write(dir / "new.txt", "hello\n")
+      val changes = git.pendingChanges()
+      assert(changes.stat.contains("seed.txt"), changes.stat)
+      assertEquals(changes.newFiles, List("new.txt"))
+      assert(changes.diff.contains("+two"), changes.diff)
+      assert(changes.diff.contains("+hello"), changes.diff)
+
   test("reviewDiff excludes a modified tracked .orca/ file"):
     withRepo: (git, dir) =>
       os.makeDir(dir / ".orca")

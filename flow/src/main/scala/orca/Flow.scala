@@ -126,8 +126,6 @@ private def recordAndCommit[T: JsonData](
   // progress-store append + git force-add/commit below.
   given InStage = RuntimeInStage.token()
   given WorkspaceWrite = RuntimeInStage.workspaceToken()
-  // Capture the code diff BEFORE force-adding the progress file so the LLM
-  // sees only the body's substantive changes, not the orca bookkeeping.
   val message =
     commitMessage.map(_(result)).getOrElse(defaultCommitMessage(name))
   fc.progressStore.appendEntry(StageEntry(id, name, RawJson(resultJson)))
@@ -139,31 +137,36 @@ private def recordAndCommit[T: JsonData](
     case Left(_) =>
       log.debug("stage {} commit was empty (already recorded?)", name)
 
-/** Generate a commit message from the current working-tree diff via the
-  * coding-role agent's cheap model (`fc.codingAgent.cheapOneShot`). The diff is
-  * captured before the progress file is force-added, so it reflects only code
-  * changes the stage body produced. Falls back to `"stage: <name>"` when the
-  * diff is empty, the agent returns blank, or any `NonFatal` is thrown —
-  * committing must never break, though `cheapOneShot` announces the fallback
-  * rather than hiding it. Only called when the caller supplied no explicit
-  * `commitMessage`.
+/** Generate a commit message from the current working-tree changes via the
+  * coding-role agent's cheap model (`fc.codingAgent.cheapOneShot`), which is
+  * sent the bounded summary built by [[CommitDiff.payload]] rather than the
+  * whole diff. The reads span what the stage is about to commit — tracked edits
+  * and files new to the repo — and all exclude `.orca/`, so the model sees the
+  * change set the commit is about rather than orca's bookkeeping. Falls back to
+  * `"stage: <name>"` when there is nothing to describe, the agent returns
+  * blank, or any `NonFatal` is thrown — committing must never break, though
+  * `cheapOneShot` announces the fallback rather than hiding it. Only called
+  * when the caller supplied no explicit `commitMessage`.
   */
 private def defaultCommitMessage(
     name: String
 )(using fc: FlowControl, ev: InStage): String =
   val fallback = s"stage: $name"
-  // `git.diff` is a read and shouldn't fail, but stay defensive: a commit
-  // message must never break a stage. The cheap agent call is guarded by
-  // `cheapOneShot` itself.
-  val diff =
-    try fc.git.diff()
+  // The git reads shouldn't fail, but stay defensive: a commit message must
+  // never break a stage. The cheap agent call is guarded by `cheapOneShot`
+  // itself.
+  val payload =
+    try CommitDiff.payload(fc.git.pendingChanges())
     catch case NonFatal(_) => ""
-  if diff.isBlank then fallback
+  if payload.isBlank then fallback
   else
     fc.codingAgent.cheapOneShot(
       purpose = "commit message",
       prompt =
-        s"Write a concise one-line git commit message (imperative mood, ≤72 chars) for this diff:\n\n$diff",
+        "Write a concise one-line git commit message (imperative mood, ≤72 chars) " +
+          "for this change. Describe only what is shown below — it may be " +
+          "truncated, so stay general rather than naming specifics you can't " +
+          "see.\n\n" + payload,
       fallback = fallback
     )
 

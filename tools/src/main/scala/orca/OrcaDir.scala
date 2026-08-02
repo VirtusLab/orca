@@ -17,8 +17,21 @@ private[orca] object OrcaDir:
     "Signature: 8a477f597d28d172789f06886806bc55\n" +
       "# This file marks .orca/cache as a cache directory, so backup tools skip it.\n"
 
+  /** The directory's name. Every path built here and every git-side exclusion
+    * derives from it, so the filesystem side and the git side can't drift into
+    * naming different directories.
+    */
+  val Name: String = ".orca"
+
+  /** Git pathspec excluding everything under the directory, resolved against
+    * the process cwd — which for `OsGitTool` is its `workDir`, the same base
+    * [[rootPath]] uses. It matches the directory's contents, which is all a
+    * diff ever names: git reports files, never the directory itself.
+    */
+  val ExcludePathspec: String = s":(exclude)$Name/*"
+
   /** `<workDir>/.orca` — committed project metadata lives at this root. */
-  private def root(workDir: os.Path): os.Path = workDir / ".orca"
+  private def root(workDir: os.Path): os.Path = workDir / Name
 
   /** `<workDir>/.orca` — the committed-metadata root, for callers that guard it
     * (e.g. the symlink check in `FlowLifecycle.readSettings`) before writing
@@ -29,7 +42,7 @@ private[orca] object OrcaDir:
   /** Repo-relative form of the settings path, for git probes that take a path
     * relative to the repository root.
     */
-  val settingsSubPath: os.SubPath = os.sub / ".orca" / "settings.properties"
+  val settingsSubPath: os.SubPath = os.sub / Name / "settings.properties"
 
   /** `<workDir>/.orca/settings.properties` (ADR 0019). */
   def settingsPath(workDir: os.Path): os.Path = workDir / settingsSubPath
