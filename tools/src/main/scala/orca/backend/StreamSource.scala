@@ -56,7 +56,8 @@ private[orca] object StreamSource:
       def interrupt(): Unit = process.sendSigInt()
       // Tree, not PID: a coding-agent CLI spawns its own children (shell tool
       // calls, MCP servers, a build it backgrounded), which inherit the stdout
-      // pipe write-end. A root-only kill would both orphan that work into the
-      // next stage and leave the pipe un-EOF'd for the reader.
+      // pipe write-end. A root-only kill would orphan that work into the next
+      // stage and can leave the reader waiting for EOF. Work the agent
+      // deliberately detached stays out of reach either way.
       override def destroyForcibly(): Unit = process.destroyForciblyTree()
       def tryExitCode: Option[Int] = process.tryExitCode

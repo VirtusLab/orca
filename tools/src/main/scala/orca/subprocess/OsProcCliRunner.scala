@@ -83,8 +83,7 @@ private final class OsPipedSubProcess(
     * — a turn that settles, or a cancel. A root that exited on its own (an
     * agent crash, a clean exit with no terminal message) was never signalled,
     * so nothing was recorded and a descendant that redirected its own stdio
-    * survives. Covering that too needs a process group established at spawn,
-    * not parent→child links.
+    * survives.
     */
   private val signalledDescendants: AtomicReference[List[ProcessHandle]] =
     new AtomicReference(Nil)
@@ -122,9 +121,14 @@ private final class OsPipedSubProcess(
     // Remembered handles are re-expanded rather than killed flat: by now the
     // root is usually gone, so they are the only reachable branch of the tree,
     // and each may have spawned children since the snapshot was taken.
-    // Reachability is best-effort throughout — a process that double-forked and
-    // got reparented to init (`nohup … &`, `setsid`) appears in neither the walk
-    // nor the snapshot, and would need a dedicated process group at spawn.
+    // Reachability is best-effort throughout — a process that detached itself
+    // (`nohup … &`, `setsid`) appears in neither the walk nor the snapshot. A
+    // process group established here would not extend to it either: every agent
+    // CLI runs its tool calls in a session of their own, so orca's group never
+    // contains them (measured: a claude bash tool call's session id is its own
+    // pid). Reaching a detached process needs a marker it carries — e.g. a
+    // per-turn cookie injected into the environment and swept at teardown — or
+    // an OS-level container such as a cgroup scope.
     val remembered =
       signalledDescendants.get().flatMap(h => h +: descendantsOf(h))
     (liveDescendants() ++ remembered).foreach(_.destroyForcibly().discard)

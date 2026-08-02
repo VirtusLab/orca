@@ -269,7 +269,8 @@ private[orca] abstract class ForkedConversation[B <: BackendTag](
       if !isSettled then onCancelRequested()
       // Escalation: SIGINT the agent process, then the forcible backstop, which
       // for a subprocess source kills the whole process tree — so work the agent
-      // spawned doesn't outlive the turn. The two are back-to-back, with no
+      // spawned, unless it detached itself, doesn't outlive the turn. The two
+      // are back-to-back, with no
       // grace window for the SIGINT: this same path runs in the routine
       // `finally` of every turn, where the process has already exited.
       // The destroy also unblocks a reader stuck on a pipe a descendant still
