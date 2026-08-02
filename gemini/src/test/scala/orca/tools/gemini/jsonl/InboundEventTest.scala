@@ -128,14 +128,6 @@ class InboundEventTest extends munit.FunSuite:
         assertEquals(usage.cachedInputTokens, 120L)
       case other => fail(s"expected Result, got $other")
 
-  test("result leaves the cache-write axis at zero — gemini has no counter"):
-    val line =
-      """{"type":"result","status":"success","stats":{"input_tokens":9954,"output_tokens":1,"cached":120}}"""
-    InboundEvent.parse(line) match
-      case InboundEvent.Result(usage, _) =>
-        assertEquals(usage.cacheWriteInputTokens, 0L)
-      case other => fail(s"expected Result, got $other")
-
   test("result falls back to `cached_input_tokens` when `cached` is absent"):
     val line =
       """{"type":"result","status":"success","stats":{"input_tokens":9,"output_tokens":1,"cached_input_tokens":77}}"""

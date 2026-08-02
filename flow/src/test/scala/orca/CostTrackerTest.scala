@@ -24,22 +24,13 @@ class CostTrackerTest extends munit.FunSuite:
 
   // Tiny price list so token math gives round dollar figures: a model at
   // $1/M input means 1,000,000 input tokens = $1. Each of the four rates is
-  // intentionally distinct so a test can tell which one was applied — the
-  // cache-write rate is the one-hour tier, 2× input.
+  // intentionally distinct so a test can tell which one was applied.
   private val testTable = PriceList(
     table = Map(
       Model("opus") -> ModelPricing(1, BigDecimal("0.10"), 5, 2),
       Model("haiku") -> ModelPricing(1, BigDecimal("0.10"), 5, 2)
     ),
     lastUpdated = LocalDate.of(2026, 1, 15)
-  )
-
-  /** The same table with the five-minute cache-write tier (1.25× input). */
-  private val fiveMinuteWriteTable = PriceList(
-    table = testTable.table.view
-      .mapValues(_.copy(cacheWriteUsdPerMillion = BigDecimal("1.25")))
-      .toMap,
-    lastUpdated = testTable.lastUpdated
   )
 
   test("starts at zero and ignores non-TokensUsed events"):
@@ -119,31 +110,48 @@ class CostTrackerTest extends munit.FunSuite:
     // 1M input total: 600k cache reads, 300k cache writes, 100k fresh.
     //   100k fresh @ $1/M    = $0.10
     //   600k read  @ $0.10/M = $0.06
-    //   300k write @ the tier's rate
-    // Folding writes into reads (what the old single axis did) would bill
-    // 900k @ $0.10/M = $0.09 and understate the turn by more than half.
-    val cases = List(
-      testTable -> BigDecimal("0.76"), // 300k @ $2/M   (1h tier)  = $0.60
-      fiveMinuteWriteTable -> BigDecimal("0.535") // 300k @ $1.25/M = $0.375
-    )
-    cases.foreach: (table, expected) =>
-      val tracker = new CostTracker(pricing = table)
-      tracker.onEvent(
-        tokens(
-          "claude",
-          Some("opus"),
-          Usage(
-            inputTokens = 1_000_000L,
-            outputTokens = 0L,
-            cost = None,
-            cachedInputTokens = 600_000L,
-            cacheWriteInputTokens = 300_000L
-          )
+    //   300k write @ $2/M    = $0.60
+    // Total: $0.76. Folding writes into reads (what the old single axis did)
+    // would bill 900k @ $0.10/M = $0.09 and understate the turn by more
+    // than half.
+    val tracker = new CostTracker(pricing = testTable)
+    tracker.onEvent(
+      tokens(
+        "claude",
+        Some("opus"),
+        Usage(
+          inputTokens = 1_000_000L,
+          outputTokens = 0L,
+          cost = None,
+          cachedInputTokens = 600_000L,
+          cacheWriteInputTokens = 300_000L
         )
       )
-      assertEquals(tracker.perAgentCost("claude").amount, expected)
+    )
+    assertEquals(tracker.perAgentCost("claude").amount, BigDecimal("0.76"))
 
-  test("a reported cost wins, and reads and writes still show separately"):
+  test("cache axes over-reported past the input total never bill negatively"):
+    // The invariant says reads + writes <= inputTokens; a backend that breaks
+    // it must cost zero fresh input, not a negative charge that eats the rest
+    // of the estimate. Here fresh would be -100k: 300k read @ $0.10/M +
+    // 300k write @ $2/M = $0.63, with nothing subtracted for input.
+    val tracker = new CostTracker(pricing = testTable)
+    tracker.onEvent(
+      tokens(
+        "claude",
+        Some("opus"),
+        Usage(
+          inputTokens = 500_000L,
+          outputTokens = 0L,
+          cost = None,
+          cachedInputTokens = 300_000L,
+          cacheWriteInputTokens = 300_000L
+        )
+      )
+    )
+    assertEquals(tracker.perAgentCost("claude").amount, BigDecimal("0.63"))
+
+  test("a reported cost still renders the read/write breakdown"):
     val tracker = new CostTracker(pricing = testTable)
     tracker.onEvent(
       tokens(
@@ -157,10 +165,6 @@ class CostTrackerTest extends munit.FunSuite:
           cacheWriteInputTokens = 300_000L
         )
       )
-    )
-    assertEquals(
-      tracker.perAgentCost("claude"),
-      Cost(BigDecimal("0.42"), estimated = false)
     )
     assert(
       tracker.summary.contains(

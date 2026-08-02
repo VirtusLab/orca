@@ -192,16 +192,21 @@ private[pi] object InboundEvent:
       cacheWrite: Option[Long] = None,
       cost: Option[CostWire] = None
   ) derives ConfiguredJsonValueCodec:
-    // pi's `input` is the total billed prompt; `cacheRead`/`cacheWrite` are
-    // sub-breakdowns of it, and they bill at different rates, so each keeps
-    // its own axis.
+    // pi normalises `input` to the FRESH prompt only, disjoint from
+    // `cacheRead`/`cacheWrite` — it forwards Anthropic's `input_tokens` (which
+    // excludes both cache categories) and subtracts cached tokens on providers
+    // that include them, then reports `totalTokens` as the sum of all four
+    // axes. The total prompt is therefore the sum of the three input axes, as
+    // for claude and opencode.
     def toUsage: Usage =
+      val read = cacheRead.getOrElse(0L)
+      val write = cacheWrite.getOrElse(0L)
       Usage(
-        inputTokens = input.getOrElse(0L),
+        inputTokens = input.getOrElse(0L) + read + write,
         outputTokens = output.getOrElse(0L),
         cost = cost.flatMap(_.total),
-        cachedInputTokens = cacheRead.getOrElse(0L),
-        cacheWriteInputTokens = cacheWrite.getOrElse(0L)
+        cachedInputTokens = read,
+        cacheWriteInputTokens = write
       )
 
   private case class CostWire(total: Option[BigDecimal] = None)

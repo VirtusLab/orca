@@ -2,7 +2,7 @@ package orca.events
 
 class UsageTest extends munit.FunSuite:
 
-  test("+ is associative across usages from different backends"):
+  test("+ adds every axis independently across usages from different backends"):
     // A run mixes backends: one reports both cache axes (claude/pi/opencode),
     // one only reads (codex/gemini), one neither. Every axis must add
     // independently, whatever order the events arrive in.
@@ -21,10 +21,13 @@ class UsageTest extends munit.FunSuite:
       reasoningOutputTokens = 20L
     )
     val plain = Usage(7L, 3L, Some(BigDecimal("0.01")))
+    // Associativity alone would also hold for an implementation that kept one
+    // side and dropped the other, so pin commutativity: it fails for both.
     assertEquals(
       (withWrites + readsOnly) + plain,
       withWrites + (readsOnly + plain)
     )
+    assertEquals(readsOnly + withWrites, withWrites + readsOnly)
     assertEquals(
       (withWrites + readsOnly) + plain,
       Usage(
