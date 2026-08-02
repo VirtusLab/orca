@@ -1,6 +1,7 @@
 package orca.backend
 
 import orca.agents.{AgentConfig, ToolSet}
+import orca.util.PromptResource
 
 /** Assembles a backend-agnostic system-prompt body from the configured
   * [[AgentConfig.systemPrompt]], an optional `extraHint` (typically the
@@ -11,6 +12,11 @@ import orca.agents.{AgentConfig, ToolSet}
   * Each backend delivers the result its own way — claude writes it to a temp
   * file for `--append-system-prompt-file`; codex and gemini have no such flag
   * and use [[foldIntoPrompt]].
+  *
+  * The rule texts live as `.md` resources under
+  * `src/main/resources/orca/backend/prompts/`. Each is a single unwrapped
+  * paragraph: the composed prompt joins pieces with blank lines, so a hard wrap
+  * in the source file would put line breaks inside a rule.
   */
 private[orca] object SystemPromptComposer:
 
@@ -23,10 +29,7 @@ private[orca] object SystemPromptComposer:
     * read-only turns and on [[AgentConfig.selfManagedGit]] turns.
     */
   val RuntimeOwnsGit: String =
-    "Git is managed by the runtime. Do NOT run `git commit`, `git push`, or " +
-      "create/switch branches — make your edits and leave them uncommitted in " +
-      "the working tree; the surrounding flow commits, branches, and pushes at " +
-      "the right points."
+    PromptResource.load("/orca/backend/prompts/runtime-owns-git.md")
 
   /** Standing rule appended to EVERY agent turn, unlike [[RuntimeOwnsGit]]:
     * orca stops reading a turn's output once the turn ends, so anything the
@@ -51,18 +54,9 @@ private[orca] object SystemPromptComposer:
     * result, which is what the agent needs to know.
     */
   val BackgroundWorkAbandonedAtTurnEnd: String =
-    "When this turn ends, orca stops reading your output. Anything left " +
-      "running in the background is abandoned: you will never see its result, " +
-      "and it will either be killed or keep running unsupervised where it can " +
-      "corrupt the commit the flow is about to make. Never report a result you " +
-      "have not observed. Run any command whose result you need — a build, a " +
-      "test suite — in the foreground and wait for it to finish within this " +
-      "turn; orca itself does not time out a turn. Backgrounding is fine only " +
-      "for something you start, use and stop inside this same turn, such as a " +
-      "server you then test against. If a command you started produces no " +
-      "output for several minutes, or your tooling cuts it short, stop it and " +
-      "report that result as unverified — an escape valve for a command you " +
-      "ran and waited on, never a substitute for running it."
+    PromptResource.load(
+      "/orca/backend/prompts/background-work-abandoned-at-turn-end.md"
+    )
 
   /** Always `Some`: a standing rule applies to every turn, so there is nothing
     * to compose that could come out empty. The `Option` is kept because every
