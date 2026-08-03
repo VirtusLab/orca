@@ -34,12 +34,12 @@ class BuiltInFlowsTest extends munit.FunSuite:
     indexNames.foreach(name => assert(resourceText(name).trim.nonEmpty, name))
 
   test("every fix-loop call in a flow states the library's default cap"):
-    // A reader of a flow shouldn't have to guess which cap the run used, so
-    // each call states the number rather than inheriting it — and states THE
-    // default, so raising `DefaultMaxIterations` fails here until the flows
-    // follow. `flows/` is outside scalafmt's scope, so the spacing is loose.
-    // Comparing counts is a heuristic, not a per-call proof: it catches a call
-    // added without a cap, but not two caps stated on one of two calls.
+    // Each call states the cap instead of inheriting it, so a reader of the
+    // flow knows which cap the run used. The stated number must be the default,
+    // so raising `DefaultMaxIterations` fails here until the flows follow.
+    // `flows/` is outside scalafmt's scope, hence the loose spacing allowed in
+    // the regex. Counting per file is a heuristic, not a per-call proof: it
+    // catches a call added without a cap, but not two caps on one of two calls.
     val calls = "\\b(?:reviewAndFixLoop|fixLoop)\\(".r
     val caps = s"maxIterations\\s*=\\s*$DefaultMaxIterations\\b".r
     val counted = indexNames.map: name =>

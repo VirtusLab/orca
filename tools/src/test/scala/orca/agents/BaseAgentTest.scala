@@ -216,9 +216,9 @@ class BaseAgentTest extends munit.FunSuite:
       List(1, 2)
     )
 
-  // The counter's whole invariant: an attempt that dies before the model runs
-  // is retried but records no turn, so it must not push the turn that follows
-  // to `2` and bill a first try as retry overhead.
+  // An attempt that dies before the model runs is retried but records no turn,
+  // so it must not push the turn that follows to `2` and make a first try look
+  // like retry overhead.
   test("an attempt that failed before the model ran doesn't advance the index"):
     val seen =
       new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
@@ -616,10 +616,10 @@ class BaseAgentTest extends munit.FunSuite:
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] =
       val schema = outputSchema
-      // Named, so a test scripted with too few replies says so instead of
-      // surfacing the iterator's bare NoSuchElementException — which it does
-      // only after the retry schedule runs out, since the policy retries
-      // anything but `AgentTurnFailed`.
+      // A test scripted with too few replies should say so, rather than
+      // surface the iterator's NoSuchElementException — and only once the
+      // retry schedule runs out, since the policy retries anything but
+      // `AgentTurnFailed`.
       if !remaining.hasNext then
         throw new IllegalStateException("scripted replies exhausted")
       val reply = remaining.next()

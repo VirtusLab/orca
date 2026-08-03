@@ -507,8 +507,8 @@ class RunManifestWriterTest extends munit.FunSuite:
     // when a turn is recorded, not when the manifest is later written.
     writer.onEvent(OrcaEvent.StageCompleted("code"))
     // The CLI answering from leftover session state: no request went out, so
-    // every counter is zero. Recorded as a retry, so the assertion below shows
-    // the attempt index reaching the manifest rather than being a constant.
+    // every counter is zero. Recorded as a retry so the assertion below shows
+    // the attempt index reaching the manifest, rather than a constant 1.
     writer.onEvent(
       OrcaEvent.TokensUsed(
         "reviewer",

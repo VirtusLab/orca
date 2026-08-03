@@ -119,8 +119,8 @@ class FixLoopTest extends munit.FunSuite:
 
   test("the library default cap is 3 fix attempts, so 4 evaluations"):
     given FlowContext = ctx
-    // Never-converging shape with `maxIterations` omitted, so the evaluation
-    // count reads the shared default back.
+    // The loop never converges and `maxIterations` is omitted, so the
+    // evaluation count reads the shared default back.
     var evaluates = 0
     val _ = fixLoop(
       evaluate = () =>
@@ -132,8 +132,8 @@ class FixLoopTest extends munit.FunSuite:
     assertEquals(evaluates, 4)
 
   test("the cap exit names the issues it leaves open"):
-    // Callers routinely discard the returned IgnoredIssues, so this message is
-    // the only place a too-low cap becomes visible in a run.
+    // Callers discard the returned IgnoredIssues, so this message is the only
+    // place a too-low cap becomes visible in a run.
     val rec = new Recorder
     given FlowContext = new TestFlowContext(new EventDispatcher(List(rec)))
     val _ = fixLoop(
