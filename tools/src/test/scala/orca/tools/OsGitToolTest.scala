@@ -676,6 +676,44 @@ class OsGitToolTest extends munit.FunSuite:
       assert(diff.contains("untracked.txt"), diff)
       assert(diff.contains("+fresh"), diff)
 
+  test("changedFiles names a modified binary file"):
+    withRepo: (git, dir) =>
+      os.write(dir / "logo.png", Array[Byte](0, 1, 2, 3))
+      git.commit("seed").orThrow
+      os.write.over(dir / "logo.png", Array[Byte](4, 5, 6, 7))
+      assertEquals(git.changedFiles(), List("logo.png"))
+
+  test("changedFiles names a committed 100%-similarity rename"):
+    withRepo: (git, dir) =>
+      os.write(dir / "Old.scala", "object A")
+      git.commit("seed").orThrow
+      val base = git.headCommit()
+      os.move(dir / "Old.scala", dir / "New.scala")
+      git.commit("rename").orThrow
+      assertEquals(git.changedFiles(base), List("New.scala"))
+
+  test("changedFiles names a modified path containing a space"):
+    withRepo: (git, dir) =>
+      os.write(dir / "my notes.md", "one")
+      git.commit("seed").orThrow
+      os.write.over(dir / "my notes.md", "two")
+      assertEquals(git.changedFiles(), List("my notes.md"))
+
+  test("changedFiles from a subdirectory is unaffected by diff.relative"):
+    // The setting makes git print paths relative to the subdirectory, which
+    // both hides changes above it and misdirects the workDir translation.
+    withRepo: (_, dir) =>
+      os.makeDir.all(dir / "sub")
+      os.write(dir / "top.txt", "one")
+      os.write(dir / "sub" / "inner.txt", "one")
+      new OsGitTool(dir).commit("seed").orThrow
+      os.write.over(dir / "top.txt", "two")
+      val _ = os.proc("git", "config", "diff.relative", "true").call(cwd = dir)
+      assertEquals(
+        new OsGitTool(dir / "sub").changedFiles(),
+        List("../top.txt")
+      )
+
   test("commit on a corrupted repo throws with status + fsck diagnostics"):
     // Integration check that the formatter is wired into the commit path:
     // corrupt the index so `git add -A` fails, then confirm the thrown message

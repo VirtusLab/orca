@@ -340,8 +340,8 @@ private[review] case class ReviewLoopConfig[B <: BackendTag](
     maxIterations: Int,
     fixInstructions: String,
     initialDiff: Option[String],
-    /** The commit the enclosing stage started from — see
-      * [[ReviewFixLoop.sampleDiff]].
+    /** The commit the enclosing stage started from — the base for both
+      * [[ReviewFixLoop.sampleDiff]] and its changed-file list.
       */
     reviewBase: Option[String]
 )
@@ -378,11 +378,15 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     initialDiff.getOrElse(ctx.git.reviewDiff(reviewBase))
 
   // The loop-constant context `ReviewerSelector.prepare` is handed. `prepare`
-  // runs once, at loop start (see `run`), so this diff sample is the one the
+  // runs once, at loop start (see `run`), so this is the change set the
   // selection is made from — later rounds' edits don't revise it.
   private val taskTitle: Title = Title(task)
   private val changedFiles: List[String] =
-    ReviewLoop.extractChangedFiles(sampleDiff())
+    // A pinned `initialDiff` may describe a change set that isn't the working
+    // tree, so only its own text can name its files.
+    initialDiff.fold(ctx.git.changedFiles(reviewBase))(
+      ReviewLoop.extractChangedFiles
+    )
 
   /** Split one agent's findings on the confidence gate. Rejects are kept, not
     * discarded: the loop records the final round's in its [[IgnoredIssues]].
@@ -715,6 +719,12 @@ private[review] object ReviewLoop:
   /** Parse a unified diff and return the changed file paths (the `b/` side of
     * each `+++ b/<path>` header). Filters out `/dev/null` so deletions don't
     * pollute the list. Order matches first appearance in the diff.
+    *
+    * Only for a caller-pinned `initialDiff`, where the diff text is all there
+    * is. Diff prose can't name every changed file: a binary change and a
+    * 100%-similarity rename carry no `+++` header, and a path with a space gets
+    * git's disambiguating trailing tab captured into it. Anything sampling the
+    * working tree uses `GitTool.changedFiles` instead.
     */
   def extractChangedFiles(diff: String): List[String] =
     val pattern = "(?m)^\\+\\+\\+ b/(.+)$".r
