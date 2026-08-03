@@ -4,7 +4,9 @@ Review the following changes only — do NOT survey unrelated files in the
 project. Focus your findings strictly on what the diff modifies and on code that
 interacts directly with it.
 
-Diff (everything this task has changed since its stage began, committed or not):
+Diff (everything this task has changed since its stage began, committed or not
+— `git diff HEAD` does not show work already committed, so it is not this
+change set):
 
 {{diffBlock}}
 

@@ -114,6 +114,62 @@ class ReviewChangeSetTest extends munit.FunSuite:
       .getOrElse(fail("the reviewer ran once; no resume happened"))
     assert(resumePrompt.contains("fixed.scala"), resumePrompt)
 
+  test("a pinned diff is not re-sent to a resumed reviewer as a fresh sample"):
+    val (ctx, _) = stagingControl()
+    // `initialDiff` pins one constant for the whole loop, so round two's sample
+    // is byte-identical to round one's. Re-sending it would assert the fixer's
+    // edits are inside a diff that predates them.
+    val reviewer = new FakeAgent(
+      "r",
+      outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
+    )
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List(FixOutcome(List(Title("real bug")), Nil))
+    )
+    given FlowControl = ctx
+    stage("implement the widget"):
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(coder),
+        reviewers = List(reviewer),
+        task = "build the widget",
+        reviewerSelection = ReviewerSelector.allEveryRound,
+        initialDiff = Some("+++ b/pinned.scala\n+object Pinned")
+      )
+    val resumePrompt = reviewer.seenPrompts
+      .lift(1)
+      .getOrElse(fail("the reviewer ran once; no resume happened"))
+    assert(!resumePrompt.contains("pinned.scala"), resumePrompt)
+
+  test("a change set too large to inline reaches a resumed reviewer as paths"):
+    val (ctx, dir) = stagingControl()
+    // Past the inline threshold the reviewer gets paths and opens the files
+    // itself, so one resumed conversation can't accumulate round-count copies
+    // of a large diff.
+    val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
+    val reviewer = new FakeAgent(
+      "r",
+      outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
+    )
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List(FixOutcome(List(Title("real bug")), Nil)),
+      onRun = () => commit(dir, "big.scala", big)
+    )
+    given FlowControl = ctx
+    stage("implement the widget"):
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(coder),
+        reviewers = List(reviewer),
+        task = "build the widget",
+        reviewerSelection = ReviewerSelector.allEveryRound
+      )
+    val resumePrompt = reviewer.seenPrompts
+      .lift(1)
+      .getOrElse(fail("the reviewer ran once; no resume happened"))
+    assert(resumePrompt.contains("big.scala"), resumePrompt)
+    assert(!resumePrompt.contains("// line 2999"), resumePrompt)
+
   test("reviewer selection sees the files of work the agent committed"):
     // The defect's other half: an empty change set means the file-pattern
     // pre-filter matches nothing, dropping every file-gated reviewer before the

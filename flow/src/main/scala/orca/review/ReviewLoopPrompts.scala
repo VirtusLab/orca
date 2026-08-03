@@ -69,16 +69,75 @@ object ReviewLoopPrompts:
     PromptResource.load("/orca/review/prompts/re-review.md")
 
   /** Continuation prompt for a reviewer's session on iterations after the
-    * first. The session already holds the reviewer's earlier findings and the
-    * diff it first saw; `diff` re-states the change set as it now stands, so
-    * the fixer's edits are visible even when they were committed.
+    * first. The session already holds the reviewer's earlier findings and every
+    * change set it has been sent, so `changes` carries only what is new to it.
     */
-  def reReview(diff: String): String =
-    PromptResource.render(ReReviewTemplate, "diffBlock" -> diffBlock(diff))
+  private[review] def reReview(changes: ReReviewChanges): String =
+    PromptResource.render(ReReviewTemplate, "changes" -> changesBlock(changes))
 
-  /** The diff as a fenced block, or a note to fall back to the working tree
-    * when nothing was captured.
+  private def changesBlock(changes: ReReviewChanges): String =
+    changes match
+      case ReReviewChanges.Updated(diff) =>
+        "Diff (the change set under review, re-sampled from the same baseline " +
+          "as your initial diff — it includes the fixer's edits whether or not " +
+          "it committed them). `git diff HEAD` is not this change set; it does " +
+          s"not show work already committed:\n\n${diffBlock(diff)}"
+      case ReReviewChanges.TooLarge(paths) =>
+        "The change set under review is too large to include here. These files " +
+          "have changed since the baseline of your initial diff — read them " +
+          "directly, and note that `git diff HEAD` does not show work already " +
+          s"committed:\n\n${paths.map("- " + _).mkString("\n")}"
+      case ReReviewChanges.AlreadySeen =>
+        "No updated change set is available this round — the diff already in " +
+          "this conversation is the one under review. Verify against the code " +
+          "itself whether your earlier findings still stand."
+
+  /** The diff as a fenced block, or — when nothing could be sampled — a note
+    * that says so without implying the change set is empty. An empty sample
+    * means the loop could not describe the change, not that none was made (ADR
+    * 0011).
     */
   private def diffBlock(diff: String): String =
-    if diff.trim.isEmpty then "(no diff captured — review the working tree)"
+    if diff.trim.isEmpty then
+      "(no change set could be sampled — do not conclude that nothing " +
+        "changed; inspect the code the task describes)"
     else s"```diff\n$diff\n```"
+
+/** What a resumed reviewer is told about the change set this round.
+  *
+  * The cases exist because a resumed reviewer already holds every change set it
+  * has been sent. Re-sending one it has — which is what a pinned `initialDiff`
+  * produces every round — under text asserting it was re-sampled would tell the
+  * reviewer the fixer's edits are inside a diff that predates them, and it
+  * would re-report findings that were already addressed.
+  */
+private[review] enum ReReviewChanges:
+  /** Re-sampled, and different from what this reviewer last saw. */
+  case Updated(diff: String)
+
+  /** Re-sampled and changed, but past [[ReReviewChanges.InlineThreshold]]. Only
+    * the paths are sent; the reviewer reads the files itself. Bounds what one
+    * resumed conversation accumulates: the diff is re-sent every round, so an
+    * uncapped payload would grow with the round count on exactly the largest
+    * changes.
+    */
+  case TooLarge(paths: List[String])
+
+  /** Byte-identical to what this reviewer already holds, so nothing is sent. */
+  case AlreadySeen
+
+private[review] object ReReviewChanges:
+  /** Max diff length (chars) inlined into a re-review prompt. Above it the
+    * reviewer gets paths and opens the files, which costs fewer tokens than the
+    * hunks once a change is this large. Bigger than
+    * [[Lint.InlineLintThreshold]] because the diff is the reviewer's primary
+    * evidence, not tool output.
+    */
+  private[review] val InlineThreshold: Int = 16 * 1024
+
+  /** Classify this round's sample against what the reviewer last received. */
+  def of(previous: String, current: String): ReReviewChanges =
+    if current == previous then AlreadySeen
+    else if current.length > InlineThreshold then
+      TooLarge(ReviewLoop.extractChangedFiles(current))
+    else Updated(current)

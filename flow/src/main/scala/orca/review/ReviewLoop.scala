@@ -145,10 +145,15 @@ case class ReviewBatch(outcomes: List[(RosterEntry[?], ReviewResult)]):
 /** One reviewer's live [[Chat]], paired with its entry under a single backend
   * tag `B`. The chat bundles the role-tagged agent with its conversation id, so
   * a resume just calls the chat again.
+  *
+  * `lastDiff` is the change set this reviewer was last SENT, not the last one
+  * sampled — a resume compares against it to decide whether there is anything
+  * new to say ([[ReReviewChanges.of]]).
   */
 private case class SessionEntry[B <: BackendTag](
     entry: RosterEntry[B],
-    chat: Chat[B]
+    chat: Chat[B],
+    lastDiff: String
 )
 
 /** All cross-iteration state for `reviewAndFixLoop`, in one immutable record.
@@ -392,9 +397,11 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     GatedIssues(ReviewResult(kept), dropped)
 
   /** Run one reviewer against an immutable sessions snapshot. Returns the
-    * review result plus, on a reviewer's first call, the new [[SessionEntry]]
-    * the caller folds into the next state. Pure with respect to its inputs — no
-    * shared-state side effects — so the caller can run many in parallel.
+    * review result plus the [[SessionEntry]] the caller folds into the next
+    * state — a new one on the reviewer's first call, an updated one when a
+    * resume advanced its `lastDiff`, `None` when there is nothing to record.
+    * Pure with respect to its inputs — no shared-state side effects — so the
+    * caller can run many in parallel.
     *
     * `stored` is the reviewer's existing [[SessionEntry]] (found by entry
     * identity), if any.
@@ -405,21 +412,30 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       currentDiff: String
   ): (ReviewResult, Option[SessionEntry[?]]) =
     stored match
-      case Some(se) => (resumeReview(se, currentDiff), None)
+      case Some(se) => resumeReview(se, currentDiff)
       case None     => firstReview(e, currentDiff)
 
-  /** Resume a reviewer's existing session. The run carries the `reviewer` cost
+  /** Resume a reviewer's existing session, sending only what is new to it since
+    * its last round ([[ReReviewChanges]]). The run carries the `reviewer` cost
     * role ([[ReviewerPrompts.Role]]) so the `TokensUsed` breakdown can subtotal
     * reviewer spend, without renaming the entry's identity.
     */
   private def resumeReview[B <: BackendTag](
       se: SessionEntry[B],
       currentDiff: String
-  ): ReviewResult =
-    se.chat
-      .resultAs[ReviewResult]
-      .autonomous
-      .run(ReviewLoopPrompts.reReview(currentDiff), emitPrompt = false)
+  ): (ReviewResult, Option[SessionEntry[?]]) =
+    val changes = ReReviewChanges.of(se.lastDiff, currentDiff)
+    val result =
+      se.chat
+        .resultAs[ReviewResult]
+        .autonomous
+        .run(ReviewLoopPrompts.reReview(changes), emitPrompt = false)
+    // Only advance `lastDiff` when something was actually sent, so a reviewer
+    // that skipped a round still compares against what it has seen.
+    val advanced = Option.when(changes != ReReviewChanges.AlreadySeen)(
+      se.copy(lastDiff = currentDiff)
+    )
+    (result, advanced)
 
   /** A reviewer's first call: mint a fresh [[Chat]] on the role-tagged agent
     * and pair it back with the entry so a later resume recovers it typed.
@@ -438,7 +454,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           ReviewLoopPrompts.initialReview(task, currentDiff, confidenceGate),
           emitPrompt = false
         )
-    (result, Some(SessionEntry(e, chat)))
+    (result, Some(SessionEntry(e, chat, currentDiff)))
 
   /** One parallel agent's contribution, gate-split. The `Reviewer` variant
     * carries the roster entry that ran and any new [[SessionEntry]] that needs
@@ -537,9 +553,12 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       val reviewerOutcomes = reviewerGated.map((e, g) => (e, g.kept))
       val lintGated = outcomes.collectFirst:
         case AgentOutcome.Lint(g) => g
+      // Replaces rather than prepends: a resume returns an entry whose
+      // `lastDiff` advanced, and the list holds one entry per reviewer.
       val newSessions = outcomes.foldLeft(currentState.sessions):
-        case (acc, AgentOutcome.Reviewer(_, _, Some(entry))) => entry :: acc
-        case (acc, _)                                        => acc
+        case (acc, AgentOutcome.Reviewer(e, _, Some(entry))) =>
+          entry :: acc.filterNot(_.entry eq e)
+        case (acc, _) => acc
       // Each reviewer that ran REPLACES its recorded rejects; reviewers absent
       // from this round keep theirs (see [[ReviewLoopState]]).
       val ranAgain = reviewerGated.map(_._1)
