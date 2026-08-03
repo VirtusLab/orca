@@ -13,6 +13,9 @@ class RunManifestTest extends munit.FunSuite:
   test("ManifestUsage mirrors every token axis of Usage"):
     assertEquals(
       ManifestUsage.empty.productElementNames.toSet,
-      // `cost` is Usage's one non-token field, deliberately not persisted.
-      Usage.empty.productElementNames.toSet - "cost"
+      // Usage's two non-token fields, deliberately not persisted here: `cost`
+      // at all (see ManifestUsage's scaladoc), and `apiCalls` per turn instead
+      // (ManifestTurn) — a subtotal's summed count would silently under-report
+      // whenever a backend that can't count contributed to it.
+      Usage.empty.productElementNames.toSet - "cost" - "apiCalls"
     )

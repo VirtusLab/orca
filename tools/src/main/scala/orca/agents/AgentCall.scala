@@ -178,6 +178,17 @@ class DefaultAgentCall[B <: BackendTag, O](
       )
     )
 
+  /** The key [[emitSessionCommitted]]'s event will be deduplicated under, so a
+    * turn names the same session the manifest records. Resolved per turn rather
+    * than once per call: the wire id is minted during the first turn, so a
+    * value cached before it would name the session by its client id only.
+    */
+  private def sessionKeyOf(session: SessionId[B]): String =
+    OrcaEvent.sessionKey(
+      session.value,
+      backend.sessions.persistableWireId(session).map(_.value)
+    )
+
   /** THE retry policy — the only place that decides whether an autonomous-turn
     * failure gets retried: parse failures (corrective re-prompt, same session
     * resumed) and pre-spawn open failures (a fresh spawn) are retried;
@@ -219,7 +230,14 @@ class DefaultAgentCall[B <: BackendTag, O](
     def recordTurn(model: Option[Model], usage: Usage): Unit =
       turnsRecorded += 1
       events.onEvent(
-        OrcaEvent.TokensUsed(agentName, model, usage, agentRole, turnsRecorded)
+        OrcaEvent.TokensUsed(
+          agentName,
+          model,
+          usage,
+          agentRole,
+          turnsRecorded,
+          Some(sessionKeyOf(session))
+        )
       )
 
     /** One attempt: build this iteration's prompt (the initial one, or a
@@ -344,7 +362,8 @@ class DefaultAgentCall[B <: BackendTag, O](
         agentName,
         result.model.orElse(effective.model),
         result.usage,
-        agentRole
+        agentRole,
+        session = Some(sessionKeyOf(session))
       )
     )
     val parsed = ResponseParser.parse[O](result.output)

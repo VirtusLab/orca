@@ -108,6 +108,17 @@ private[orca] object ManifestCostSummary:
   * [[orca.events.OrcaEvent.TokensUsed]]); turns with `attempt > 1` are what
   * retries added to the run's spend.
   *
+  * `session` is the key the turn's conversation is recorded under in
+  * [[RunManifest.sessions]] — `ManifestSession.wireId` when there is one, else
+  * the client id. It makes "the first turn of a session" exact; without it the
+  * only way to spot one is a `agent` name that happens to be unique to a single
+  * session, which holds for reviewers and fails for the implementer.
+  *
+  * `apiCalls` is how many model requests the turn made — see
+  * [[orca.events.Usage.apiCalls]], including why `None` is not one. Each of
+  * them re-sends the whole prompt, so `promptTokens / apiCalls` is the per-call
+  * prompt and the rest is what the turn's own work added.
+  *
   * `at` is stamped when the writer records the turn, not when the tokens were
   * spent: the event crosses an actor mailbox first.
   */
@@ -117,10 +128,12 @@ private[orca] case class ManifestTurn(
     role: Option[String],
     stage: Option[String],
     promptTokens: Long,
-    attempt: Int
+    attempt: Int,
+    session: Option[String],
+    apiCalls: Option[Long]
 )
 
-/** Schema v4 (ADR 0021 §8) of a per-run manifest written to
+/** Schema v5 (ADR 0021 §8) of a per-run manifest written to
   * `.orca/cache/runs/<startedAt-epoch-ms>-<pid>.json`, read by the shell to
   * offer "continue a session". `manifestVersion` is a hard gate: a reader
   * checks it before decoding and skips anything it doesn't write itself, rather
@@ -156,7 +169,7 @@ private[orca] object RunManifest:
     * `.orca/cache/runs/` is pruned cache data, so an unreadable run costs a
     * "continue" offer for that run and nothing else.
     */
-  val SupportedVersion = 4
+  val SupportedVersion = 5
 
   // The `outcome` and `ManifestSession.kind` wire strings, named once here so
   // the writer that produces them (RunManifestWriter's Outcome/SessionKind

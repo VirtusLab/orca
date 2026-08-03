@@ -79,6 +79,13 @@ private[claude] object InboundMessage:
     // wire's "cache creation" is orca's cache write.
     val cacheWrite = u.cache_creation_input_tokens.getOrElse(0L)
     val cacheRead = u.cache_read_input_tokens.getOrElse(0L)
+    // `num_turns` counts this turn's agentic iterations — one model request
+    // each, and it resets per turn rather than accumulating over a resumed
+    // session. Verified against claude 2.1.220 by counting the `message_start`
+    // stream events on the same runs (1/2/4 calls, and 2 on a `--resume`):
+    // `num_turns` matched every time. The `assistant` messages did NOT — the
+    // CLI emits several per model response — so counting those would
+    // over-report.
     Result(
       subtype = wire.subtype,
       sessionId = wire.session_id,
@@ -89,7 +96,8 @@ private[claude] object InboundMessage:
         outputTokens = u.output_tokens.getOrElse(0L),
         cost = wire.total_cost_usd,
         cacheReadInputTokens = cacheRead,
-        cacheWriteInputTokens = cacheWrite
+        cacheWriteInputTokens = cacheWrite,
+        apiCalls = wire.num_turns
       ),
       isError = wire.is_error.getOrElse(false),
       model = wire.model
@@ -140,7 +148,8 @@ private[claude] object InboundMessage:
       usage: Option[UsageWire] = None,
       total_cost_usd: Option[BigDecimal] = None,
       is_error: Option[Boolean] = None,
-      model: Option[String] = None
+      model: Option[String] = None,
+      num_turns: Option[Long] = None
   ) derives ConfiguredJsonValueCodec
 
   private case class ControlRequestWire(request_id: String, request: RawJson)

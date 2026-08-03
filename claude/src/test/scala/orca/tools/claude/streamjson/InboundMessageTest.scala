@@ -55,6 +55,25 @@ class InboundMessageTest extends munit.FunSuite:
       )
     )
 
+  // Every one of a turn's iterations re-sends the whole prompt, so the count is
+  // what turns the recorded prompt size into a bill.
+  test("result carries num_turns as the turn's API-call count"):
+    val msg = InboundMessage.parse(
+      """{"type":"result","subtype":"success","session_id":"sid-1","num_turns":4,"usage":{"input_tokens":10,"output_tokens":20}}"""
+    )
+    assertEquals(
+      msg.asInstanceOf[InboundMessage.Result].usage.apiCalls,
+      Some(4L)
+    )
+
+  // A CLI build that stops reporting the count must leave it absent: a silent
+  // fallback to one would read downstream exactly like a measured single call.
+  test("result without num_turns reports no API-call count"):
+    val msg = InboundMessage.parse(
+      """{"type":"result","subtype":"success","session_id":"sid-1","usage":{"input_tokens":10,"output_tokens":20}}"""
+    )
+    assertEquals(msg.asInstanceOf[InboundMessage.Result].usage.apiCalls, None)
+
   test("result surfaces the resolved model id when present"):
     val msg = InboundMessage.parse(
       """{"type":"result","subtype":"success","session_id":"sid-1","model":"claude-opus-4-7"}"""

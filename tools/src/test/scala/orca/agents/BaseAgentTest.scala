@@ -263,6 +263,21 @@ class BaseAgentTest extends munit.FunSuite:
     assertEquals(committed.head.agent, "stub")
     assertEquals(committed.head.role, None)
 
+  // A turn joins to the session that produced it only if it names that session
+  // by the same key `SessionCommitted` is deduplicated under — here the wire id
+  // the backend minted during the call, not the client id orca started with.
+  test("a turn names its session by the wire id the backend committed"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool =
+      new StubTool(new CommittingBackend("wire-joined"), listener = listener)
+    val _ = tool.run("prompt")
+    assertEquals(
+      seen.get().collect { case t: OrcaEvent.TokensUsed => t.session },
+      List(Some("wire-joined"))
+    )
+
   // `quietTextTurn` runs `backend.runAutonomous` directly on a fresh session,
   // bypassing `runWithSession` entirely — it must never surface a session to
   // the manifest writer.
