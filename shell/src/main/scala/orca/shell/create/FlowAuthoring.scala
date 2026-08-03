@@ -106,6 +106,8 @@ private[shell] object FlowAuthoring:
     * [[sanitizeSlug]] has the best chance of a clean answer to sanitize.
     */
   def slugPrompt(goal: String): String =
+    // No `stripMargin` over `goal`: it is the user's typed text, whose
+    // `|`-leading lines it would eat.
     s"""Suggest a short lowercase-kebab-case filename (letters, digits, and
        |hyphens only, no file extension, no explanation) for a script whose
        |goal is:""".stripMargin + "\n" + goal +
@@ -125,6 +127,8 @@ private[shell] object FlowAuthoring:
       changes: String
   ): String =
     val description = sourceDescription.getOrElse("(no description)")
+    // No `stripMargin` over `changes`: it is the user's typed text, whose
+    // `|`-leading lines it would eat.
     s"""Suggest a short lowercase-kebab-case descriptor (1-3 words; letters,
        |digits, and hyphens only; no file extension, no explanation) for the
        |change a fork makes to an existing script. The descriptor will be
@@ -499,8 +503,10 @@ private[shell] object FlowAuthoring:
     // indented as its own block rather than trailing "Goal: " on one line —
     // keeps a multi-paragraph goal visually distinct from the rest of the
     // prompt instead of running the first line on with the label.
-    s"Write a new Orca flow at $targetPath.\n\nGoal:\n" + indentBlock(goal) +
-      "\n\n" +
+    s"""Write a new Orca flow at $targetPath.
+       |
+       |Goal:""".stripMargin +
+      "\n" + indentBlock(goal) + "\n\n" +
       s"""Start the file with this exact header (the pinned version matches the
          |orca release this flow was launched from):
          |${versionPinLines(orcaVersion)}
@@ -621,10 +627,10 @@ private[shell] object FlowAuthoring:
       s"""Create the Orca flow at $targetPath by copying $sourcePath and
          |applying these changes:""".stripMargin +
         "\n" + indentBlock(changes) + "\n\n" +
-        """Keep the copied file's existing version-pinned header (`//> using
-         |scala`/`//> using dep`/`//> using jvm`) and its line-1 `//`
-         |one-line-description convention — update the description line only if
-         |the fork's behavior changes enough to make the original one wrong.""".stripMargin
+        s"""Keep the copied file's existing version-pinned header (`//> using
+           |scala`/`//> using dep`/`//> using jvm`) and its line-1 `//`
+           |one-line-description convention — update the description line only if
+           |the fork's behavior changes enough to make the original one wrong.""".stripMargin
     changePrompt(opening, targetPath, apiDir, orcaVersion)
 
   /** The authoring task for edit-by-agent (ADR 0021 §6/§9 amendment):
@@ -646,10 +652,10 @@ private[shell] object FlowAuthoring:
       s"""Edit the Orca flow: apply these changes to $targetPath, which is a
          |copy of $sourcePath:""".stripMargin +
         "\n" + indentBlock(changes) + "\n\n" +
-        """Keep the file's existing version-pinned header (`//> using
-         |scala`/`//> using dep`/`//> using jvm`) and its line-1 `//`
-         |one-line-description convention — update the description line only if
-         |these changes make the original one wrong.""".stripMargin
+        s"""Keep the file's existing version-pinned header (`//> using
+           |scala`/`//> using dep`/`//> using jvm`) and its line-1 `//`
+           |one-line-description convention — update the description line only if
+           |these changes make the original one wrong.""".stripMargin
     changePrompt(opening, targetPath, apiDir, orcaVersion)
 
   /** A hand-authored flow's starting point (ADR 0021 §9 amendment,

@@ -581,6 +581,19 @@ class FlowAuthoringTest extends munit.FunSuite:
     )
     assert(text.contains("\n  | input | expected |"), text)
 
+  test("no wizard prompt leaks a `|` margin gutter from its static text"):
+    // Each prompt now assembles from several literals, so a misplaced
+    // `.stripMargin` would ship the markers to the authoring agent. None of
+    // these fixtures' inputs contain a `|`, so any `|`-leading line is a leak.
+    List(
+      prompt,
+      fork,
+      edit,
+      FlowAuthoring.slugPrompt("sync issues nightly"),
+      FlowAuthoring.forkSlugPrompt("implement.sc", None, "add logging")
+    ).foreach: text =>
+      assert(!text.linesIterator.exists(_.trim.startsWith("|")), text)
+
   // --- resolveTarget / prepareTarget ---
 
   test("prepareAutoTarget: a free name is used as-is"):
