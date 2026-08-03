@@ -291,10 +291,10 @@ The `superpowers` `using-superpowers` injection pushes the same way — "invoke
 relevant skills BEFORE any response" — which is a better reason to disable that
 hook than its own 925 tokens.
 
-**Measured, and it does not hold up.** Everything above was written from parts
+**Measured, and it only half holds up.** Everything above was written from parts
 measured separately. The second run (§9) ran the real thing — five reviewers, in
-this repository, on a 592-line Scala diff — and it corrects two halves of (A)
-in opposite directions.
+this repository, on a 592-line Scala diff. One part of (A) survives and grows;
+the two that carry the saving do not.
 
 *The doubling is real and is a floor, not a ceiling.* Second calls cost 44,181
 (readability), 44,168 (test), 44,682 (scala-fp), 33,129 (code-structure) and
