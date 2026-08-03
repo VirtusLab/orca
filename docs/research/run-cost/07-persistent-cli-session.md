@@ -30,8 +30,8 @@ inferred, **[U]** unknown.
 
 ## 1. The cost benefit is not supported
 
-This was the load-bearing justification (cache writes were 46% of the baseline
-run), so it was measured rather than argued.
+This was the main justification (cache writes were 46% of the baseline run), so
+it was measured rather than argued.
 
 **Controlled comparison.** Two arms, three turns each, **distinct** ~79k-token
 content per arm, `--resume` arm run first so it could not inherit the other's
@@ -56,7 +56,7 @@ reproduce intra-turn growth. **[M]/[U]**
 
 No mechanism has been identified by which a held-open process would write less in
 that regime — tool results grow the prefix identically either way — but that is an
-argument, not a measurement. The honest position is **"not supported", not
+argument, not a measurement. So this is recorded as **"not supported", not
 "refuted"**, and the experiment that would settle it is in §6.
 
 Either way this points the same direction as the plan's existing conclusion: the
@@ -64,10 +64,10 @@ levers are **prefix size and turn count**, not process lifetime.
 
 It does **not** close T1.5. T1.5 asks what forces 2.0M tokens of cache creation,
 and names per-turn teardown as the likely cause; the regime that produced that
-figure is the implementer at a 213k prefix with real tool calls, which is
-precisely the regime the paragraph above says these probes cannot reach. Ruling
-teardown out there would be reasserting in the regime this section has just
-excluded. T1.5 stays open on the same experiment (§6.2).
+figure is the implementer at a 213k prefix with real tool calls, which is the
+regime the paragraph above says these probes cannot reach. Ruling teardown out
+there would be a claim about a regime this section has just excluded. T1.5 stays
+open on the same experiment (§6.2).
 
 ---
 
@@ -99,8 +99,7 @@ equivalent. **[U]** This is the single question that gates any revival (§6.1).
 
 ## 3. Structural cost in orca's runtime
 
-The reader machinery generalises better than first assumed; the **one-shot
-latches** are the real problem.
+The reader machinery generalises; the **one-shot latches** are the problem.
 
 - **`settledOutcome` is a single-write `Option`** with a first-write-wins
   invariant (`ForkedConversation.scala:105-121`). Under N turns on one stream, a
@@ -115,12 +114,12 @@ latches** are the real problem.
   bindings"* — this change redefines "the conversation" as "the whole flow". **[V]**
 - **`StderrPipeline.onFinalize` joins the stderr fork unboundedly**, and its own
   comment records that the tree kill which would unblock it runs *downstream* of
-  the finalize (`StderrPipeline.scala:60-71`). **[V]** Today the blast radius is
-  one turn's descendants; under this change it is every descendant accumulated
-  over the session — i.e. **exactly the background work the proposal exists to
-  keep alive**. Benefit (a) and this deadlock are the same mechanism. This is the
-  hazard the direct-style-scala subprocess chapter is about, already live in the
-  repo, made structural by the change.
+  the finalize (`StderrPipeline.scala:60-71`). **[V]** Today this reaches one
+  turn's descendants; under this change it reaches every descendant accumulated
+  over the session — **exactly the background work the proposal exists to keep
+  alive**. Benefit (a) and this deadlock are the same mechanism. The
+  direct-style-scala subprocess chapter covers this hazard; it is already live in
+  the repo, and this change makes it structural.
 - **Every successful turn currently SIGINTs the process** — `succeedWith` and
   `failWith` end in `source.interrupt()` (`ForkedConversation.scala:295-329`) and
   `StreamSource.fromProcess.interrupt()` is `process.sendSigInt()`
@@ -211,8 +210,8 @@ conversations are ephemeral by construction — `agent.chat()` mints a **fresh**
 `SessionId` (`Agent.scala:77`), used by the unbounded
 `CheckedPar.mapParUnordered(tasks.size)` fan-out over 8 reviewers plus lint
 (`ReviewLoop.scala:429, 510`; `Reviewers.scala:78-87`) — so they were never
-candidates. Scoping to `FlowSession` and excluding `Chat` is a clean boundary,
-not an inconsistency.
+candidates. Scoping to `FlowSession` and excluding `Chat` is therefore a clean
+boundary.
 
 ---
 
@@ -333,8 +332,7 @@ Only under all of these:
   immediately after writing the opening turn; `ClaudeConversation.respond`
   (`:278-285`) later writes a `control_response` to it, and
   `OsProcCliRunner.scala:159-163` writes to the closed stream. The defect is
-  real, but **the trigger first named for it was wrong**, and it is worth being
-  precise about which path reaches it:
+  real, but **the trigger first named for it was wrong**. Which path reaches it:
   - Not the `Deny` branch. `Conversations.scala:105-116` responds `Deny` to
     `ApproveTool`, but that event is only enqueued when
     `ClaudeConversation.autoApproves(name)` is false (`:243-252`), which under
@@ -348,8 +346,8 @@ Only under all of these:
     `control_request` frame appears in any of the baseline run's ten reviewer
     transcripts. **[M]**
 
-  So the write-after-close is unreachable-in-practice rather than latent-and-
-  waiting, and the code that would exercise it is code that cannot work at all.
+  So the write-after-close is unreachable in practice rather than latent, and
+  the code that would exercise it cannot work at all.
   Unit tests cannot catch it: the fake is lenient about writes after close
   (`FakePipedCliProcessTest.scala:65-69`). Not verified live. **[V]/[I]**
 - **`StderrPipeline.onFinalize`'s unbounded join** (`:60-71`) is a real
