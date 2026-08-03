@@ -9,8 +9,7 @@ Source read at `59597ca5`. Every measurement below is over the baseline run of
 reviewer transcripts it produced.
 
 The short answer: **send the fixer's `ignored` list, not its `fixed` list, and
-prioritise a diff over both.** The reasoning, and the measurement behind it,
-follow.
+prioritise a diff over both.**
 
 **Open PRs this document is written against.** #72 (resumed-reviewer diff) is
 open and changes the ground under §1, §5 and §6(c); the markers below say what
@@ -43,8 +42,8 @@ list of files touched.
 > of what was true before it. Read §1 as history from that point on; §2, §3, §4
 > and §7 are unaffected.
 
-This is the finding that reframes the rest. `runReviewersAndLint` samples the
-diff only when some active reviewer has no session yet:
+`runReviewersAndLint` samples the diff only when some active reviewer has no
+session yet:
 
 ```scala
 val needsDiff = active.exists(e => storedFor(e).isEmpty)   // ReviewLoop.scala:477
@@ -69,7 +68,7 @@ path only a custom selector can reach. The premise the T2.5 hypothesis was built
 on — reviewers rediscovering the change set by hand every round — is still
 exactly true from round 2 on.
 
-Two smaller observations while in the prompt resources:
+Two smaller observations on the prompt resources:
 
 - `initial-review.md:7` still labels its payload "Diff (working tree vs HEAD at
   the start of the review loop)". #59 made that false: the diff is now
@@ -169,10 +168,10 @@ cannot share a key:
 Dollar figures are estimates at the shipped `claude-opus-5` card
 (`Pricing.scala:159-164`; write $10/M, read $0.50/M, output $25/M) — the CLI's
 own `total_cost_usd` is not recorded per assistant message. The three rows sum to
-~$26 across these ten sessions against a $44.64 run, which is the sanity check
-that the reconstruction is in the right range. It is a sanity check and not a
-reconciliation: an estimate at card rates and the CLI's own billed total are not
-the same quantity.
+~$26 across these ten sessions against a $44.64 run, which puts the
+reconstruction in the right range. That is a sanity check, not a reconciliation:
+an estimate at card rates and the CLI's own billed total are not the same
+quantity.
 
 ### Reconciliation with T2.4 (#73)
 
@@ -183,7 +182,7 @@ ids over the same 40 rounds, and this document includes the mandatory
 `StructuredOutput` call while #73 excludes it. The rows here sum to **303**
 blocks (199 `Bash`, 63 `Read`, 40 `StructuredOutput`, 1 `Skill`); #73's sum to
 **263** = 303 − 40, one `StructuredOutput` per round. Either convention is
-defensible; they are the same measurement.
+defensible.
 
 **What the calls are spent on.** Every `Bash` command in the round, sorted into
 the two categories that matter for this question. The columns are **not
@@ -213,12 +212,12 @@ TEXT  "Re-reviewed the current working tree. The only change since my last pass
 StructuredOutput  {"issues": []}
 ```
 
-Two of three calls reconstruct a delta orca already knows, and the reviewer's own
-words name what it wanted: *the change since its last pass*.
+Two of three calls reconstruct a change orca already knows, and the reviewer says
+what it wanted: *the change since its last pass*.
 
 ## 5. Does the original 9.3-vs-4.2 evidence survive?
 
-**It reproduces, and it survives — for the wrong reason — but it is
+**It reproduces and it survives, though not for the expected reason, and it is
 mis-grouped.**
 
 - *Reproduces.* Round 1's median of 9.5 tool calls and rounds ≥3's mean of 4.35
@@ -257,8 +256,8 @@ recommendation is what to ship *pending* that measurement, and it should be
 revisited if the arm comes back clean. Three reasons, in order of weight:
 
 1. It answers the question the round exists to ask. A reviewer told "your finding
-   was fixed" is being handed the conclusion it was convened to reach
-   independently. `initial-review.md:35-40` already has a section — "The plan is
+   was fixed" is handed the conclusion it was asked to reach on its own.
+   `initial-review.md:35-40` already has a section — "The plan is
    not evidence" — establishing that a claim about the code is not evidence about
    the code. A fixer's `fixed` list is the same class of claim, from an agent
    with an interest in the answer.
@@ -278,8 +277,8 @@ revisited if the arm comes back clean. Three reasons, in order of weight:
    title tells it neither which file to open nor what changed. It removes zero of
    the 1.9 git calls per round.
 
-**(b) Do send the `ignored` titles with their reasons.** This is the opposite
-case on every axis. It is small (typically 0–3 entries, ~50–150 tokens), and it
+**(b) Do send the `ignored` titles with their reasons.** The case here is the
+reverse. It is small (typically 0–3 entries, ~50–150 tokens), and it
 is the one thing in the loop that is **not recoverable from the tree at any
 price**: no amount of reading tells a reviewer that the fixer considered a
 finding a deliberate trade-off. Today the reviewer re-reports the finding, the
@@ -287,8 +286,8 @@ fixer re-declines it, and the round is spent — and because the loop keeps
 iterating while `fixed` is non-empty, that exchange can repeat for the life of
 the loop. Frame it as the fixer's position, not a verdict: *"the fixer declined
 these, with its stated reason; if you still think the finding is real, report it
-again and say why the reason is wrong."* That keeps the disagreement possible,
-which is what makes it safe.
+again and say why the reason is wrong."* That keeps disagreement possible, which
+is what makes it safe.
 
 **(c) The larger lever is a diff, not the fix outcome.** Hand the resumed
 reviewer the change since its own previous round. That is what 38 of 56 late-round
@@ -330,7 +329,7 @@ belongs with Epic 2's remaining work — and it must not ship before T2.4 decide
 the diff-size policy, since an uncapped per-round delta can cost more than the
 two tool calls it removes.
 
-> **This rule is in tension with the open PRs, and the tension is unresolved
+> **This rule conflicts with the open PRs, and the conflict is not resolved
 > here.** #72 ships the round-≥2 change set before T2.4 (#73) is merged, which
 > is the order this paragraph says not to take. The mitigation #72 carries is
 > its own 16 KiB `TooLarge` threshold, which bounds the per-round payload
@@ -339,10 +338,10 @@ two tool calls it removes.
 > something this document should decide retroactively: recorded as a conflict
 > rather than silently resolved.
 
-## 7. The risk to review quality, stated plainly
+## 7. The risk to review quality
 
-- **Rubber-stamping** is the real risk, and it is why (a) is a default rather
-  than a coin flip. A reviewer that clears a finding because it was told the
+- **Rubber-stamping** is the real risk, and it is why (a) is a default. A
+  reviewer that clears a finding because it was told the
   finding was fixed produces the same output as one that verified — the loop
   cannot distinguish them, and the failure mode is silent approval of unfixed
   code. **This risk is argued, not measured**; §8's `+fixed` arm is what would
@@ -382,9 +381,8 @@ three questions at once:
   calls per reviewer from rounds ≥3 and nothing from round 2.
 - *Convergence*, for the `ignored` arm: rounds to termination, and the count of
   findings re-reported after being declined. If the reasons work, both fall.
-- *The harm*, which is the measurement that actually matters and is what §6(a)
-  is pending — hence the fourth `+fixed` arm, even though §6(a)'s default is
-  against shipping it:
+- *The harm* — the measurement §6(a) is pending, and the reason for a fourth
+  `+fixed` arm even though §6(a)'s default is against shipping it:
   count how often a reviewer clears one of its own findings **in a round where
   the file it named did not change**. That is a rubber stamp with no innocent
   explanation, it is computable from the delta diff plus the round's issue lists,
