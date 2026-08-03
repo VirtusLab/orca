@@ -38,6 +38,13 @@ private[review] enum LoopStep:
   /** Issues remain and the cap hasn't been hit — hand them to `fix`. */
   case NeedsFix
 
+/** How many fix attempts [[fixLoop]] and [[reviewAndFixLoop]] allow before
+  * bailing out. Named once so the two cannot drift apart, and public because
+  * the shipped flows state the number at their call sites rather than
+  * inheriting it — their agreement with this value is asserted, not assumed.
+  */
+val DefaultMaxIterations: Int = 3
+
 /** The fix-loop stop policy, shared by [[fixLoop]] and [[ReviewFixLoop.run]]:
   * done when `issues` is empty; fold `issues` into [[IgnoredIssues]] (reason
   * `"max iterations (N) reached"`) once `iteration >= maxIterations`; otherwise
@@ -62,6 +69,19 @@ private[review] def stopPolicy(
     )
   else LoopStep.NeedsFix
 
+/** The cap exit's message, naming what it leaves open. Callers routinely
+  * discard the returned [[IgnoredIssues]] — every shipped flow does — so
+  * without the titles here a cap that bound too early leaves no trace a reader
+  * of the run can act on.
+  */
+private[review] def capExitMessage(
+    maxIterations: Int,
+    stillOpen: IgnoredIssues
+): String =
+  val titles = stillOpen.issues.map(i => s"  - ${i.title.value}")
+  (s"Reached max iterations ($maxIterations); still open:" :: titles)
+    .mkString("\n")
+
 /** Evaluate, fix, re-evaluate until the reviewer reports no issues, the fixer
   * reports zero fixes, or `maxIterations` fix attempts have been made. Issues
   * remaining when the cap is hit are folded into the returned `IgnoredIssues`
@@ -74,7 +94,7 @@ private[review] def stopPolicy(
 def fixLoop(
     evaluate: () => ReviewResult,
     fix: List[ReviewIssue] => FixOutcome,
-    maxIterations: Int = 10
+    maxIterations: Int = DefaultMaxIterations
 )(using ctx: FlowContext): IgnoredIssues =
   @scala.annotation.tailrec
   def loop(accumulated: IgnoredIssues, iteration: Int): IgnoredIssues =
@@ -87,7 +107,7 @@ def fixLoop(
         orca.display("No review comments")
         accumulated
       case LoopStep.CapReached(ignored) =>
-        orca.display(s"Reached max iterations ($maxIterations); bailing out")
+        orca.display(capExitMessage(maxIterations, ignored))
         accumulated ++ ignored
       case LoopStep.NeedsFix =>
         val outcome = fix(issues)
@@ -281,7 +301,11 @@ def reviewAndFixLoop[B <: BackendTag](
       * [[ConfidenceGate]] for why the bar varies by severity.
       */
     confidenceGate: ConfidenceGate = ConfidenceGate.default,
-    maxIterations: Int = 10,
+    /** Fix attempts before the loop bails out, folding whatever is still open
+      * into the returned [[IgnoredIssues]]. Counts fixes, not evaluations: the
+      * default of 3 runs up to four review rounds.
+      */
+    maxIterations: Int = DefaultMaxIterations,
     fixInstructions: String = ReviewLoopPrompts.Fix,
     /** Override the diff handed to each reviewer in its initial prompt, and the
       * changed-file list the selector is given.
@@ -747,7 +771,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           orca.display(doneMessage(round.gateRejects.size))
           accumulated ++ gated
         case LoopStep.CapReached(ignored) =>
-          orca.display(s"Reached max iterations ($maxIterations); bailing out")
+          orca.display(capExitMessage(maxIterations, ignored))
           accumulated ++ ignored ++ gated
         case LoopStep.NeedsFix =>
           val outcome = fix(issues)

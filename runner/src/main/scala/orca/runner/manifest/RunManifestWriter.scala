@@ -164,13 +164,14 @@ private[runner] class RunManifestWriterState(
       safeWrite()
     // Accumulate only: a turn fires far more often than a stage or session
     // event, and every write rewrites the whole file.
-    case OrcaEvent.TokensUsed(agent, model, usage, role) =>
+    case OrcaEvent.TokensUsed(agent, model, usage, role, attempt) =>
       val turn = ManifestTurn(
         at = clock().toString,
         agent = agent,
         role = role,
         stage = state.stageStack.headOption,
-        promptTokens = usage.inputTokens
+        promptTokens = usage.inputTokens,
+        attempt = attempt
       )
       state = state.copy(cost =
         state.cost
