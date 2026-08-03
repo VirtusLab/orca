@@ -4,24 +4,22 @@ Epic 6 asserts that ~32.4k tokens ride in every session before any work, from a
 hand-count of agent transcripts. This establishes the figure from measurement
 and attributes it to components, so a trim can be justified and verified.
 
-**Headline: the figure holds.** A single-turn reviewer session measured
-**32,119 prompt tokens** (mean of five, spread 187 — 0.6%), against a claim of
-~32.4k: within 1%. But only **~2.0k of it is orca's** — the standing rules
-(200), the reviewer identity prompt (940) and the review brief inside §4's
-853-token residual. 83% is the backend CLI's own system prompt and tool schemas,
-which orca cannot change, and ~1.6k is the operator's plugin and hook
-configuration.
+**The figure holds.** A single-turn reviewer session measured **32,119 prompt
+tokens** (mean of five, spread 187 — 0.6%), against a claim of ~32.4k: within
+1%. But only **~2.0k of it is orca's** — the standing rules (200), the reviewer
+identity prompt (940) and the review brief inside §4's 853-token residual. 83%
+is the backend CLI's own system prompt and tool schemas, which orca cannot
+change, and ~1.6k is the operator's plugin and hook configuration.
 
-**The framing needs one correction.** The preamble is not per *session*, it is
-per *API call*. `--resume` does not amortise it: the system prompt and tool
-schemas are re-sent on every request. A turn that makes one tool call pays it
-twice. So "340 turns × 32.4k = 11.0M" is a lower bound, not an estimate.
+**The preamble is per API call, not per session.** `--resume` does not amortise
+it: the system prompt and tool schemas are re-sent on every request. A turn that
+makes one tool call pays it twice. So "340 turns × 32.4k = 11.0M" is a lower
+bound, not an estimate.
 
-**Where the money actually is.** Not the preamble's size — its multiplication.
-Each extra API iteration in an otherwise single-call session costs a full
-preamble (32.1k), which is 35× what the `SessionStart` hook that Epic 6
-singles out costs in the first place (925). Anything that turns a one-call
-reviewer into a two-call reviewer is the expensive change.
+**The cost is how often the preamble is re-sent, not its size.** Each extra API
+iteration in an otherwise single-call session costs a full preamble (32.1k), 35×
+what the `SessionStart` hook Epic 6 singles out costs (925). Anything that turns
+a one-call reviewer into a two-call reviewer is the expensive change.
 
 ---
 
@@ -62,8 +60,8 @@ Two independent measurements, which agree.
 post-dates PR #61 — all nine are v2 and carry no `turns`. So a run was
 generated: `implement.sc` against a scratch git repo, task "add a line to
 README.md". It produced a v3 manifest with 11 sessions and 13 turns. Its
-reviewer sessions are single-turn, read-only, and did essentially no work, so
-their prompt *is* the preamble with a small brief attached.
+reviewer sessions are single-turn, read-only, and did almost no work, so their
+prompt *is* the preamble with a small brief attached.
 
 > **That manifest is not reproducible from this repository.** It was written to
 > a scratch repo outside the tree and is neither committed here nor attached to
@@ -124,12 +122,12 @@ Raw ablation totals, for reproduction:
 | \+ plan mode + code-structure reviewer system prompt | 31,268 |
 | \+ `direct-style-scala` SKILL.md as a cwd `CLAUDE.md` | 33,984 |
 
-Two results worth stating plainly:
+Two results:
 
 **Plan mode costs more, not less.** Every read-only agent — every reviewer,
 every lint session — pays a **+1,186** token surcharge. Plan mode removes tool
-*availability*, not tool *schemas*, and adds its own instructions. The intuition
-that read-only sessions are the cheap ones is backwards.
+*availability*, not tool *schemas*, and adds its own instructions. Read-only
+sessions are not the cheap ones.
 
 *The control arm above is wrong, and had to be re-measured.* The +1,186 is
 plan-mode against **no permission flag at all**. That is not what a full-tool
@@ -144,12 +142,11 @@ in the same empty directory:
 | `--permission-mode plan` | 30,238 / 30,239 / 30,237 |
 | `--permission-mode bypassPermissions` | 28,900 / 28,900 / 28,900 |
 
-`bypassPermissions` is indistinguishable from no flag, so the comparison the
-sentence *claims* to make and the one it actually made give the same answer, and
-the surcharge over a real full-tool agent holds at **+1.2k to +1.3k**. The
-figure survives; the arm that establishes it was added afterwards, not measured
-originally. The ~29.4k implementer prediction in §4 inherits this and is
-likewise unaffected.
+`bypassPermissions` is indistinguishable from no flag, so both comparisons give
+the same answer, and the surcharge over a real full-tool agent holds at **+1.2k
+to +1.3k**. The figure survives; the arm that establishes it was measured
+afterwards, not in the original ablation. The ~29.4k implementer prediction in
+§4 is likewise unaffected.
 
 **The `direct-style-scala` skill is 5,025 tokens** for its 18,382 characters,
 confirming the "18k-char" figure in the epic. It enters context as a tool
@@ -165,14 +162,13 @@ neither of which the ablation dirs contained.
 T6.2's done-when is agreement within 5%. The component sum is **2.66%** below
 the measured figure before the brief is counted, and closes once it is.
 
-*What this does and does not check.* The sum itself is not independent evidence:
-26,725 is defined as the residual (baseline 28,940 minus the four operator
-components), so adding the components back cannot disagree with the ablation —
-it reproduces the ablation row "plan mode + code-structure reviewer system
-prompt" by construction. The load-bearing comparison is the one across
-*methods*: an ablation total built in a scratch directory (b) against a prompt
-size recorded by a real orca run (a). Those agree to 2.66%. The internal sum is
-bookkeeping.
+*What this checks.* The sum itself is not independent evidence: 26,725 is
+defined as the residual (baseline 28,940 minus the four operator components), so
+adding the components back cannot disagree with the ablation — it reproduces the
+ablation row "plan mode + code-structure reviewer system prompt" by
+construction. The comparison that counts is across *methods*: an ablation total
+built in a scratch directory (b) against a prompt size recorded by a real orca
+run (a). Those agree to 2.66%. The internal sum is bookkeeping.
 
 The implementer's preamble comes out lower: `main` turns that made a single API
 call recorded 30,366 and 30,524, against a predicted ~29.4k plus brief.
@@ -206,12 +202,11 @@ whole preamble as fresh 1h cache creation, at **$0.32 per session, ~100% of it
 preamble**. Seven reviewers is **~$1.87 per review round** before any reviewer
 reads a line of the diff.
 
-*Read 99.5% as the ceiling of a degenerate case, not as a typical figure.* The
-task was "add a line to README.md" in a scratch repo with a one-line README:
-five of seven reviewers made zero tool calls, so their whole prompt *was* the
-preamble and the ratio is close to circular — it says a session that does
-nothing consists of what it started with. Real reviewers in this repository do
-not look like that. Over the baseline run's ten reviewer sessions (270
+*99.5% is the ceiling of a degenerate case, not a typical figure.* The task was
+"add a line to README.md" in a scratch repo with a one-line README: five of
+seven reviewers made zero tool calls, so their whole prompt *was* the preamble.
+Real reviewers in this repository do not look like that. Over the baseline run's
+ten reviewer sessions (270
 deduplicated API messages, cold-start mean 32,658), the preamble is
 **46.7%** of prompt tokens; the rest is the diff, tool results and the
 conversation. The 99.5% is the bound this measurement can reach, not the number
@@ -220,11 +215,11 @@ to plan against.
 **A multi-turn implementer amortises it slightly better, but not much**, and
 not because of `--resume`: each of its ~19 API calls re-sent the preamble too.
 Its better ratio comes from carrying real conversation alongside it. On a
-trivial task the preamble still floors ~98% of its traffic.
+trivial task the preamble is still ~98% of its traffic.
 
 **Two reviewers cost double because they made one tool call.** `Read` on a
 one-line README turned a 32.1k session into a 64.0k one. This is measured, not
-projected, and it is the mechanism that matters most below.
+projected, and it is the mechanism behind §6's largest trim.
 
 *(The cost column is not monotone in tokens — `simplicity` paid $0.174 for the
 same 32.1k that cost `security` $0.325 — because one hit an existing cache and
@@ -244,9 +239,9 @@ session that writes ~130 tokens of findings.
 
 This is the live risk in this repo. The CLI auto-loads the project `CLAUDE.md`
 into every session in the working tree, reviewers included, and that file
-mandates the skill for *reviewing* Scala as well as writing it. T6.1 correctly
-found the mandate itself legitimate — the fix is not to remove it but to scope
-it away from read-only roles, which write no code and need no style guide.
+mandates the skill for *reviewing* Scala as well as writing it. T6.1 found the
+mandate itself legitimate — the fix is not to remove it but to scope it away
+from read-only roles, which write no code and need no style guide.
 
 Two independent levers, either sufficient:
 
@@ -264,8 +259,8 @@ Two independent levers, either sufficient:
   `CLAUDE.md` orca does not control. Cost: ~40 tokens on every read-only turn.
 
 The `superpowers` `using-superpowers` injection pushes the same way — "invoke
-relevant skills BEFORE any response" — which is the strongest argument for
-disabling that hook, far stronger than its own 925 tokens.
+relevant skills BEFORE any response" — which is a better reason to disable that
+hook than its own 925 tokens.
 
 ### B. Disable the `SessionStart` hook for non-interactive sessions — operator's
 
@@ -273,10 +268,9 @@ disabling that hook, far stronger than its own 925 tokens.
 on `startup|clear|compact` and not on `resume`, so orca pays it once per
 session, not once per turn — which makes it **2.9% of a reviewer's preamble**.
 
-Epic 6 names it as the most obvious candidate. On the numbers it is not: at 925
-against 32,119 it is worth a **thirty-fifth** of one reviewer's extra tool call
-— the reciprocal of the 35× stated at the top of this document. Its real cost is
-indirect, via (A). Owner: `~/.claude/settings.json`.
+Epic 6 names it as the most obvious candidate. On the numbers it is not: 925
+against 32,119 is a **thirty-fifth** of what one extra reviewer tool call costs.
+Its real cost is indirect, via (A). Owner: `~/.claude/settings.json`.
 
 ### C. Leave the reviewer identity prompts alone — confirmed
 
@@ -294,17 +288,16 @@ spread across three owners. Not worth coordinating.
 ~26.7k of every session is the CLI's own system prompt and tool schemas, plus
 1,186 for plan mode. Orca chooses plan mode, but not what plan mode costs.
 
-The honest ceiling on Epic 6 is therefore **11.3%**: user memory 567 + hook 925
-+ skill listings 373 + other plugins 350 + project `CLAUDE.md` 270 + standing
-rules 200 + reviewer identity 940 = **3,625** of 32,119. That is everything
-orca, this repo and the operator can actually change, trimmed perfectly to zero.
+The ceiling on Epic 6 is therefore **11.3%**: user memory 567 + hook 925 + skill
+listings 373 + other plugins 350 + project `CLAUDE.md` 270 + standing rules 200
++ reviewer identity 940 = **3,625** of 32,119. That is everything orca, this
+repo and the operator can actually change, trimmed perfectly to zero.
 
-The larger figure that suggests itself — 32,119 − 26,725 = 5,394, or 16.8% — is
-not a ceiling on trimming. It counts the 1,186 plan-mode surcharge, which the
-paragraph above has just called unavailable, plus §4's 853-token residual, most
-of which is the review brief the loop needs to state the task at all. Anything
-above 11.3% is not reachable by trimming; the last two components are reachable
-only by not running a read-only reviewer, or by not telling it what to review.
+The larger figure — 32,119 − 26,725 = 5,394, or 16.8% — is not a ceiling on
+trimming. It counts the 1,186 plan-mode surcharge, called unavailable above,
+plus §4's 853-token residual, most of which is the review brief the loop needs
+to state the task at all. Those two are reachable only by not running a
+read-only reviewer, or by not telling it what to review.
 
 ## 7. Proposed instrumentation — specced, not built
 
