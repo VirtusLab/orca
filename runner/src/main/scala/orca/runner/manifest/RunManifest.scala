@@ -5,11 +5,12 @@ import orca.agents.JsonData
 import orca.events.{Cost, Usage}
 
 /** One tracked session inside a [[RunManifest]] (ADR 0021 §8). `wireId` is the
-  * persistable id ([[orca.agents.Agent.resumeWireId]]) — `None` for backends
-  * whose sessions don't survive the run (pi), which is exactly when
-  * [[resumable]] is `false` and `reason` explains why. `kind` is `"durable"`
-  * when the writer joins `clientId` to a `SessionRecord` in the progress log
-  * (an `agent.session(...)` call), `"oneShot"` otherwise — a plain
+  * persistable id ([[orca.agents.Agent.resumeWireId]]) — `None` when nothing
+  * durable is known for the session, which is exactly when [[resumable]] is
+  * `false` and `reason` explains why. Every backend is durable today, so this
+  * is the "not learned yet" case, not a per-backend trait. `kind` is
+  * `"durable"` when the writer joins `clientId` to a `SessionRecord` in the
+  * progress log (an `agent.session(...)` call), `"oneShot"` otherwise — a plain
   * `agent.run`/`resultAs` one-shot AND an interactive call both land as
   * `"oneShot"` today, since `SessionCommitted` carries nothing that tells them
   * apart (see [[RunManifestWriterState.durableSessionName]]).

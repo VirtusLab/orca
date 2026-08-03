@@ -13,8 +13,6 @@ import orca.tools.pi.rpc.{
   OutboundMessage
 }
 
-import scala.util.control.NonFatal
-
 /** Drives one `pi --mode rpc` process for a single Orca LLM call: translates Pi
   * RPC events into Orca conversation events, with `agent_end` as the terminal
   * [[AgentResult]].
@@ -191,10 +189,16 @@ private[pi] class PiConversation(
     * typing, so either reply can land on a closed pipe — where the answer is
     * moot anyway. Dropping it keeps a late write from failing the consumer
     * thread, or surfacing on the reader thread as a bogus parse error.
+    *
+    * Narrowed to `IOException`, and traced: a broken pipe from pi dying
+    * mid-turn is indistinguishable here from a moot late reply, so the drop
+    * leaves a record rather than vanishing.
     */
   private def replyToUiRequest(line: String): Unit =
     try sendLine(line)
-    catch case NonFatal(_) => ()
+    catch
+      case e: java.io.IOException =>
+        debugLog("stdin", s"dropped extension UI reply: ${e.getMessage}")
 
 private[pi] object PiConversation:
 

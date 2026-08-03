@@ -109,11 +109,17 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       finally conversation.cancel()
 
   test(
-    "an unapproved tool is refused by the CLI, not negotiated over stdin"
+    "a read the CLI refuses is reported as a failed tool_result, never prompted over stdin"
   ):
     withBackend: backend =>
-      // A future CLI that revives the `can_use_tool` subchannel fails here
-      // first — see `ClaudeConversation.writeOutbound`.
+      // `/etc/hostname` is outside the backend's workDir, which is what makes
+      // the CLI refuse it — an in-workspace read runs fine under this config,
+      // since `--allowedTools` adds to claude's defaults rather than
+      // restricting to them. The refusal is only the vehicle: what is pinned is
+      // that it comes back as a failed tool_result and NOT as a
+      // `can_use_tool` control request. Stdin is closed at spawn, so a control
+      // request could not be answered — a future CLI reviving that subchannel
+      // fails here first (see `ClaudeConversation.respond`).
       val conversation = backend.runInteractive(
         prompt = "Read the file at /etc/hostname and reply with its contents.",
         session = fresh,
@@ -122,18 +128,16 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         outputSchema = None
       )
       try
-        // Wide window: with `--include-partial-messages` a chatty preamble
-        // easily pushes the tool_result past the first handful of events.
-        val firstFew = conversation.events.take(40).toList
+        val events = conversation.events.toList
         assert(
-          !firstFew.exists(_.isInstanceOf[ConversationEvent.ApproveTool]),
-          s"claude routed a tool approval over stdio; stdin is closed at spawn, so the response would throw: $firstFew"
+          !events.exists(_.isInstanceOf[ConversationEvent.ApproveTool]),
+          s"claude routed a tool approval over stdio, which orca cannot answer: $events"
         )
         assert(
-          firstFew.exists:
+          events.exists:
             case ConversationEvent.ToolResult(_, ok, _) => !ok
             case _                                      => false
           ,
-          s"expected the refused Read to surface as a failed tool_result: $firstFew"
+          s"expected the refused Read to surface as a failed tool_result: $events"
         )
       finally conversation.cancel()

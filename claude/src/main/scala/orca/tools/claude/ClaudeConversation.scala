@@ -275,16 +275,31 @@ private[claude] class ClaudeConversation(
     case _ =>
       None // tool-use blocks, block start/stop, unhandled — driver ignores
 
+  /** Answer a control request, or report that the answer can't be delivered.
+    * Stdin is closed right after the opening turn
+    * (`ClaudeBackend.openConversation`), so the write always hits a closed
+    * pipe. Reporting beats throwing: on the reader thread a raw `IOException`
+    * reads as a bogus parse failure, and on the consumer thread — the
+    * interactive `ApproveTool` closure — it escapes and fails the whole turn as
+    * `Stream Closed`, naming nothing.
+    *
+    * Nothing reaches this today: claude 2.1.220 routes no `can_use_tool` over
+    * stdio. Delivering a decision would mean keeping stdin open for the turn.
+    */
   private def respond(requestId: String, decision: ApprovalDecision): Unit =
     val controlDecision = decision match
       case ApprovalDecision.Allow(update) => ControlDecision.Allow(update)
       case ApprovalDecision.Deny(reason)  => ControlDecision.Deny(reason)
-    writeOutbound(OutboundMessage.ControlResponse(requestId, controlDecision))
+    try
+      writeOutbound(OutboundMessage.ControlResponse(requestId, controlDecision))
+    catch
+      case e: java.io.IOException =>
+        eventQueue.enqueue(
+          ConversationEvent.Error(
+            s"could not deliver the tool-approval decision for request " +
+              s"$requestId — claude's stdin is closed: ${e.getMessage}"
+          )
+        )
 
-  // Unreachable today: stdin is closed right after the opening turn
-  // (ClaudeBackend.openConversation), so a write here would throw — and claude
-  // 2.1.220 exposes no flag routing `can_use_tool` over stdio, so
-  // handleControlRequest's approval arm never fires. Serving it would mean
-  // keeping stdin open for the turn.
   private def writeOutbound(msg: OutboundMessage): Unit =
     process.writeLine(OutboundMessage.toJson(msg))

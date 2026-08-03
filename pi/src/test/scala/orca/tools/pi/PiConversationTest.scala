@@ -280,13 +280,11 @@ class PiConversationTest extends munit.FunSuite:
     )
     process.closeStdout()
 
-    val events = conv.events.toList
-    assert(
-      !events.exists:
-        case ConversationEvent.Error(m) => m.contains("Failed to parse")
-        case _                          => false
-      ,
-      events
+    // The exact event, not merely the absence of a parse error: the line must
+    // still be handled, and handled as an unsupported request.
+    assertEquals(
+      conv.events.toList.collect { case ConversationEvent.Error(m) => m },
+      List("Unsupported Pi extension UI request '': hm")
     )
     val _ = conv.awaitResult()
 

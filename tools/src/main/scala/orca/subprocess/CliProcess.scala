@@ -31,13 +31,14 @@ trait CliProcess:
 
 /** A spawned process whose stdin / stdout / stderr are connected to pipes the
   * caller controls. The backend writes input via `writeLine` and consumes
-  * responses from `stdoutLines`; `closeStdin` signals end-of-input, and what
-  * the child makes of EOF is per-CLI. It is never a precondition for output:
+  * responses from `stdoutLines`; `closeStdin` signals end-of-input. Every
+  * backend closes it as soon as its one message is on the wire, but what the
+  * child makes of EOF varies, and it is never a precondition for output:
   * `claude --print --input-format stream-json` answers a turn with stdin open
-  * (measured, claude 2.1.220) and exits on the close; codex `exec --json` reads
-  * its prompt argv-side and ignores stdin once the spawn settles (ADR 0007);
-  * opencode's `serve` has stdin closed at spawn and is ended by a kill, never
-  * by EOF.
+  * (measured, claude 2.1.220) and exits on the close; codex `exec --json` and
+  * gemini take their prompt argv-side, so the close only stops them waiting on
+  * a stream they never read from (ADR 0007); opencode's `serve` is a long-lived
+  * server ended by a kill, never by EOF.
   *
   * Reads on `stdoutLines` / `stderrLines` block until a line is available or
   * the stream closes. Each iterator must be consumed by a single thread;
@@ -46,10 +47,10 @@ trait CliProcess:
   */
 trait PipedCliProcess extends CliProcess:
 
-  /** Write one line to the child's stdin and flush it.
-    *
-    * Throws `java.io.IOException` if called after [[closeStdin]]; fakes must
-    * throw too, so a late stdin write fails in unit tests as well.
+  /** Write one line to the child's stdin and flush it. Throws
+    * `java.io.IOException` if called after [[closeStdin]] — the flush is part
+    * of the contract precisely so a write to a closed pipe surfaces here rather
+    * than sitting in a buffer.
     */
   def writeLine(line: String): Unit
   def closeStdin(): Unit

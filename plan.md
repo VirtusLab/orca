@@ -186,9 +186,10 @@ Task 9.1 decides.
   hangs the subprocess otherwise. `stderrLoop` in `ClaudeConversation`
   shows the drain-as-`ConversationEvent.Error` pattern when you *do*
   need stderr contents.
-- **Close stdin after the opening turn** if `codex exec` batches stdin
-  until EOF the way `claude -p --input-format stream-json` does. A
-  lingering open stdin makes the subprocess wait forever for more input.
+- **Close stdin after the opening turn** when the CLI takes only one message
+  per process. claude answers with stdin open, but exits only on EOF
+  (measured, 2.1.220), and the exit is what ends the reader on a turn that
+  never settles.
 - **Never tell the agent to invoke a tool that isn't in its tool list.**
   Early Claude prompts instructed the model to use a fictional
   `structured-output` tool; it burned turns searching for it. The fix is

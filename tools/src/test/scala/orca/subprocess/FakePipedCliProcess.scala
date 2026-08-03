@@ -56,7 +56,8 @@ class FakePipedCliProcess(
     */
   def envCookie: Option[EnvCookie] = None
 
-  // Mirrors the real pipe: os-lib throws `IOException` once stdin is closed.
+  // Honours the write-after-close contract: the OS-backed process throws from
+  // the flush that follows every write.
   def writeLine(line: String): Unit =
     if stdinClosed.get() then throw new java.io.IOException("Stream Closed")
     val _ = stdinLines.updateAndGet(ls => line :: ls)

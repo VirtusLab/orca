@@ -218,6 +218,8 @@ class ClaudeConversationTest extends munit.FunSuite:
     "can_use_tool with autoApprove=All responds allow without emitting an event"
   ):
     val process = new FakePipedCliProcess()
+    process
+      .closeStdin() // as ClaudeBackend leaves it, before any control request
     val conv = new ClaudeConversation(
       process,
       AgentConfig().copy(autoApprove = AutoApprove.All)
@@ -231,19 +233,23 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     process.closeStdout()
 
-    val events = conv.events.toList
-    assertEquals(events, Nil)
-    val _ = conv.awaitResult()
-    assertEquals(process.writes.size, 1)
-    assert(
-      process.writes.head.contains(""""behavior":"allow""""),
-      s"expected allow response, got: ${process.writes.head}"
+    // Auto-approved, so no ApproveTool for the channel — but the decision can't
+    // reach a closed stdin, and that is reported against its request rather
+    // than surfacing as a parse failure.
+    assertEquals(
+      conv.events.toList
+        .collect { case ConversationEvent.Error(m) => m }
+        .count(_.contains("req-1")),
+      1
     )
+    val _ = conv.awaitResult()
+    assertEquals(process.writes, Nil)
 
   convTest(
     "can_use_tool with autoApprove=Only not matching emits ApproveTool for the channel"
   ):
     val process = new FakePipedCliProcess()
+    process.closeStdin()
     val conv = new ClaudeConversation(
       process,
       AgentConfig().copy(autoApprove = AutoApprove.Only(Set("Read")))
@@ -266,15 +272,18 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     process.closeStdout()
 
-    val _ = conv.events.toList
+    val rest = conv.events.toList
     val _ = conv.awaitResult()
 
-    val denyLine = process.writes.find(_.contains(""""behavior":"deny""""))
+    // The channel's decision can't reach a closed stdin; that is reported
+    // against the request it belongs to, not thrown into the reader.
     assert(
-      denyLine.isDefined,
-      s"expected deny response; writes: ${process.writes}"
+      rest.exists:
+        case ConversationEvent.Error(m) => m.contains("req-2")
+        case _                          => false
+      ,
+      rest
     )
-    assert(denyLine.get.contains("too risky"))
 
   convTest(
     "tool_use surrounding streaming events are ignored; emission comes from the full-turn message"
@@ -396,8 +405,11 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     val _ = conv.awaitResult()
 
-  convTest("autoApprove.Only matches the tool → silent allow"):
+  convTest(
+    "autoApprove.Only matches the tool → no ApproveTool for the channel"
+  ):
     val process = new FakePipedCliProcess()
+    process.closeStdin()
     val conv = new ClaudeConversation(
       process,
       AgentConfig().copy(autoApprove = AutoApprove.Only(Set("Read")))
@@ -412,14 +424,21 @@ class ClaudeConversationTest extends munit.FunSuite:
     process.closeStdout()
 
     val events = conv.events.toList
-    assertEquals(events, Nil)
+    assert(!events.exists(_.isInstanceOf[ConversationEvent.ApproveTool]))
+    assert(
+      events.exists:
+        case ConversationEvent.Error(m) => m.contains("req-ok")
+        case _                          => false
+      ,
+      events
+    )
     val _ = conv.awaitResult()
-    assert(process.writes.head.contains(""""behavior":"allow""""))
 
   convTest(
     "multiple back-to-back ApproveTool events carry distinct respond closures"
   ):
     val process = new FakePipedCliProcess()
+    process.closeStdin()
     val conv = new ClaudeConversation(
       process,
       AgentConfig().copy(autoApprove = AutoApprove.Only(Set.empty))
@@ -448,15 +467,14 @@ class ClaudeConversationTest extends munit.FunSuite:
       """{"type":"result","subtype":"success","session_id":"sid-parallel"}"""
     )
     process.closeStdout()
-    val _ = conv.events.toList
+    val rest = conv.events.toList
     val _ = conv.awaitResult()
 
-    assert(
-      process.writes.exists(w => w.contains("req-A") && w.contains("allow"))
-    )
-    assert(
-      process.writes.exists(w => w.contains("req-B") && w.contains("deny"))
-    )
+    // Each closure carries its own request id: the two undeliverable reports
+    // name req-A and req-B separately, so the closures didn't alias.
+    val reported = rest.collect { case ConversationEvent.Error(m) => m }
+    assert(reported.exists(_.contains("req-A")), reported)
+    assert(reported.exists(_.contains("req-B")), reported)
 
   test(
     "askUserBridge: questions surface as UserQuestion events; respond unblocks ask"
