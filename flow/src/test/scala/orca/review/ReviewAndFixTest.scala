@@ -528,6 +528,115 @@ class ReviewAndFixTest extends munit.FunSuite:
       s"reviewer must reuse one session across iterations; got ${reviewerSessions.map(SessionId.value)}"
     )
 
+  test("a lint summariser that reports nothing is resumed on later rounds"):
+    given FlowControl = control
+    // A reviewer, not the lint, keeps the loop iterating; the lint runs every
+    // round and finds nothing, so its conversation holds no finding to repeat
+    // and carries forward.
+    val loud = new FakeAgent(
+      name = "loud",
+      outputs = List.fill(3)(ReviewResult(List(issue("never ends"))))
+    )
+    val summariser = new FakeAgent(
+      name = "summariser",
+      outputs = List.fill(3)(ReviewResult.empty)
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List.fill(2)(FixOutcome(List(Title("never ends")), Nil))
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(loud),
+      task = "warm lint",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      // `echo` emits output so `lint` doesn't short-circuit before calling the
+      // summariser.
+      lint = Configured.Use(Lint(List("echo lint-output"), summariser)),
+      maxIterations = 2,
+      initialDiff = Some("")
+    )
+    val lintSessions = summariser.seenSessions
+    assertEquals(lintSessions.size, 3)
+    assertEquals(
+      lintSessions.distinct.size,
+      1,
+      s"a silent lint summariser must reuse one session; got ${lintSessions
+          .map(SessionId.value)}"
+    )
+
+  test("a lint summariser that reports findings is not resumed"):
+    given FlowControl = control
+    // The stale-findings guard: once the summariser has reported, its
+    // conversation could repeat those findings on a later round whose commands
+    // no longer show them, so the next round starts a fresh one.
+    val quiet =
+      new FakeAgent(name = "quiet", outputs = List.fill(2)(ReviewResult.empty))
+    val summariser = new FakeAgent(
+      name = "summariser",
+      outputs =
+        List.fill(2)(ReviewResult(List(issue("lint-found", confidence = 0.95))))
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(List(Title("lint-found")), Nil))
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(quiet),
+      task = "reporting lint",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      lint = Configured.Use(Lint(List("echo lint-output"), summariser)),
+      maxIterations = 1,
+      initialDiff = Some("")
+    )
+    val lintSessions = summariser.seenSessions
+    assertEquals(lintSessions.size, 2)
+    assertEquals(
+      lintSessions.distinct.size,
+      2,
+      s"a reporting lint summariser must not be resumed; got ${lintSessions
+          .map(SessionId.value)}"
+    )
+
+  test("a lint summariser whose finding the gate dropped is not resumed"):
+    given FlowControl = control
+    // The gate decides what reaches the fixer, not what the conversation
+    // remembers: a sub-threshold finding is still sitting in the summariser's
+    // context to be repeated, so it retires the conversation too. A reviewer
+    // keeps the loop iterating, since the dropped finding cannot.
+    val loud = new FakeAgent(
+      name = "loud",
+      outputs = List.fill(2)(ReviewResult(List(issue("never ends"))))
+    )
+    val summariser = new FakeAgent(
+      name = "summariser",
+      // Below the default Warning bar of 0.6, so the gate drops it.
+      outputs =
+        List.fill(2)(ReviewResult(List(issue("lint-nit", confidence = 0.3))))
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(List(Title("never ends")), Nil))
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(loud),
+      task = "sub-threshold lint",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      lint = Configured.Use(Lint(List("echo lint-output"), summariser)),
+      maxIterations = 1,
+      initialDiff = Some("")
+    )
+    val lintSessions = summariser.seenSessions
+    assertEquals(lintSessions.size, 2)
+    assertEquals(
+      lintSessions.distinct.size,
+      2,
+      s"a gate-dropped lint finding must still retire the session; got ${lintSessions
+          .map(SessionId.value)}"
+    )
+
   test("initialDiff is embedded in the reviewer's first prompt"):
     given FlowControl = control
     val captureReviewer =
