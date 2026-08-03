@@ -224,10 +224,10 @@ object ReviewerSelector:
     * `files:` pattern, plus those whose pattern matches a changed file.
     *
     * An empty `changedFiles` is read as "unknown", not "nothing changed": a
-    * caller-pinned `initialDiff` can fail to name files its diff text doesn't
-    * carry. Every reviewer stays eligible then, and a `Step` names the
-    * file-gated ones that were kept: dropping one here removes it from the
-    * whole review and nothing downstream can put it back.
+    * caller-pinned `initialDiff` can miss files its diff text doesn't name.
+    * Every reviewer stays eligible then, and a `Step` names the file-gated ones
+    * that were kept: dropping one here removes it from the whole review and
+    * nothing downstream can put it back.
     */
   private def eligibleForPicker(
       all: List[RosterEntry[?]],

@@ -727,7 +727,8 @@ class OsGitToolTest extends munit.FunSuite:
 
   test("changedFiles from a subdirectory is unaffected by diff.relative"):
     // The setting makes git print paths relative to the subdirectory, which
-    // both hides changes above it and misdirects the workDir translation.
+    // hides changes above it and makes the workDir translation name the wrong
+    // files.
     withRepo: (_, dir) =>
       os.makeDir.all(dir / "sub")
       os.write(dir / "top.txt", "one")

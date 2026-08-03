@@ -800,10 +800,10 @@ private[review] object ReviewLoop:
     * pollute the list. Order matches first appearance in the diff.
     *
     * Only for a caller-pinned `initialDiff`, where the diff text is all there
-    * is. Diff prose can't name every changed file: a binary change and a
-    * 100%-similarity rename carry no `+++` header, and a path with a space gets
-    * git's disambiguating trailing tab captured into it. Anything sampling the
-    * working tree uses `GitTool.changedFiles` instead.
+    * is. Diff text can't name every changed file: a binary change and a
+    * 100%-similarity rename carry no `+++` header, and for a path with a space
+    * the capture includes git's disambiguating trailing tab. Anything sampling
+    * the working tree uses `GitTool.changedFiles` instead.
     */
   def extractChangedFiles(diff: String): List[String] =
     val pattern = "(?m)^\\+\\+\\+ b/(.+)$".r
