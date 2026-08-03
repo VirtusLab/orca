@@ -429,6 +429,16 @@ IS a durable harness session on claude/codex/gemini/opencode (research 08
 skeptic §2); internal `quietTextTurn` calls bypass the emission point and
 are excluded automatically.
 
+> **Amendment (2026-08-03).** The schema has moved past the v1 described
+> above; `RunManifest.SupportedVersion` in code is the authority, and the
+> shape is documented on `RunManifest` itself. Since v1 it gained per-run
+> `cost` (token axes plus resolved spend, subtotalled by role, agent and
+> stage) and a per-turn `turns` log, each turn carrying its agent, role,
+> stage, prompt size and `attempt` — the turn's 1-based position among the
+> turns its call produced, so retried spend is separable. Readers gate on an
+> exact version match in both directions, so a manifest from any other build
+> is skipped with a warning rather than misread.
+
 **Shell side**: after a flow run (and on entry, from existing manifests,
 newest first) the "continue a session" item lists one row per durable
 `(agent, sessionName)` lineage — `★ <sessionName> — latest (stage: <stage>)

@@ -216,6 +216,32 @@ class BaseAgentTest extends munit.FunSuite:
       List(1, 2)
     )
 
+  // The counter's whole invariant: an attempt that dies before the model runs
+  // is retried but records no turn, so it must not push the turn that follows
+  // to `2` and bill a first try as retry overhead.
+  test("an attempt that failed before the model ran doesn't advance the index"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(
+      new FailFirstBackend(
+        // Not AgentTurnFailed, so the retry policy retries it — the shape of a
+        // broken pipe before the session was registered.
+        new orca.OrcaFlowException("broken pipe before spawn"),
+        """{"fixed":[],"ignored":[]}"""
+      ),
+      toolConfig = AgentConfig(retrySchedule =
+        Schedule.exponentialBackoff(1.milli).maxRetries(1)
+      ),
+      listener = listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
+    assertEquals(
+      seen.get().reverse.collect { case t: OrcaEvent.TokensUsed => t.attempt },
+      List(1)
+    )
+
   // The manifest writer (ADR 0021 §8) needs the wire id known after the
   // backend call returns, so `SessionCommitted` fires post-`runAutonomous`
   // with whatever that call just committed.
@@ -590,6 +616,12 @@ class BaseAgentTest extends munit.FunSuite:
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] =
       val schema = outputSchema
+      // Named, so a test scripted with too few replies says so instead of
+      // surfacing the iterator's bare NoSuchElementException — which it does
+      // only after the retry schedule runs out, since the policy retries
+      // anything but `AgentTurnFailed`.
+      if !remaining.hasNext then
+        throw new IllegalStateException("scripted replies exhausted")
       val reply = remaining.next()
       Conversations.runAutonomous(session, sessions, events):
         new Conversation[BackendTag.Pi.type]:
@@ -617,6 +649,25 @@ class BaseAgentTest extends munit.FunSuite:
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
+
+  /** Throws `error` on its first turn and scripts the rest — an attempt that
+    * dies before reaching the model, which consumes none of `replies`.
+    */
+  private class FailFirstBackend(error: Throwable, replies: String*)
+      extends ScriptedDrainBackend(replies*):
+    private var thrown = false
+    override def runAutonomous(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        config: AgentConfig,
+        events: OrcaListener,
+        outputSchema: Option[String]
+    ): AgentResult[BackendTag.Pi.type] =
+      if thrown then
+        super.runAutonomous(prompt, session, config, events, outputSchema)
+      else
+        thrown = true
+        throw error
 
   /** Interactive counterpart to [[ScriptedDrainBackend]]: `runInteractive`
     * replays `scripted` verbatim (no drain of its own — the interactive door

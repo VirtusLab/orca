@@ -117,7 +117,7 @@ class FixLoopTest extends munit.FunSuite:
       List(IgnoredIssue(Title("infinite"), "max iterations (2) reached"))
     )
 
-  test("the shipped default cap is 3 fix attempts, so 4 evaluations"):
+  test("the library default cap is 3 fix attempts, so 4 evaluations"):
     given FlowContext = ctx
     // Never-converging shape with `maxIterations` omitted, so the evaluation
     // count reads the shared default back.
@@ -130,6 +130,21 @@ class FixLoopTest extends munit.FunSuite:
       fix = _ => FixOutcome(List(Title("infinite")), Nil)
     )
     assertEquals(evaluates, 4)
+
+  test("the cap exit names the issues it leaves open"):
+    // Callers routinely discard the returned IgnoredIssues, so this message is
+    // the only place a too-low cap becomes visible in a run.
+    val rec = new Recorder
+    given FlowContext = new TestFlowContext(new EventDispatcher(List(rec)))
+    val _ = fixLoop(
+      evaluate = () => ReviewResult(List(issue("still broken"))),
+      fix = _ => FixOutcome(List(Title("still broken")), Nil),
+      maxIterations = 1
+    )
+    assert(
+      rec.steps.exists(_.contains("- still broken")),
+      s"cap exit must name what it left open: ${rec.steps}"
+    )
 
   test("formatIssue renders severity, title, location, and suggestion"):
     val real = ReviewIssue(
