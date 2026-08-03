@@ -48,7 +48,7 @@ private[runner] class TerminalEventListener(
     case OrcaEvent.ToolUse(tool, args) =>
       val line = formatIndented(ToolCallLine.format(tool, args, paint, workDir))
       output.log(line)
-    case OrcaEvent.TokensUsed(_, _, _, _) =>
+    case _: OrcaEvent.TokensUsed =>
       () // Token accounting is owned by CostTracker.
     case OrcaEvent.Step(message) =>
       output.log(formatStepLine(message))

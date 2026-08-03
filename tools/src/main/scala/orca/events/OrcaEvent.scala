@@ -42,12 +42,19 @@ enum OrcaEvent:
     *   - `role` is the [[Agent.role]] tag, set at the emission edge (e.g. the
     *     review loop's `Some("reviewer")`, via `withRole`). `None` for an
     *     ordinary call. Purely a grouping/display hint.
+    *
+    * `attempt` is this turn's 1-based position among the turns ONE call
+    * produced: `2`+ means a retry re-sent the prompt and billed again. It
+    * counts turns, not tries — an attempt that failed before the model ran
+    * emits nothing, so it never inflates the next one's index. Emission sites
+    * that don't retry leave it at the default.
     */
   case TokensUsed(
       agent: String,
       model: Option[Model],
       usage: Usage,
-      role: Option[String] = None
+      role: Option[String] = None,
+      attempt: Int = 1
   )
 
   /** The agent's final structured payload, after parsing succeeded. `raw` is

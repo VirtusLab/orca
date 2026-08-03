@@ -38,6 +38,13 @@ private[review] enum LoopStep:
   /** Issues remain and the cap hasn't been hit — hand them to `fix`. */
   case NeedsFix
 
+/** How many fix attempts [[fixLoop]] and [[reviewAndFixLoop]] allow before
+  * bailing out. Named once so the two cannot drift apart, and public because
+  * the shipped flows state the number at their call sites rather than
+  * inheriting it — their agreement with this value is asserted, not assumed.
+  */
+val DefaultMaxIterations: Int = 3
+
 /** The fix-loop stop policy, shared by [[fixLoop]] and [[ReviewFixLoop.run]]:
   * done when `issues` is empty; fold `issues` into [[IgnoredIssues]] (reason
   * `"max iterations (N) reached"`) once `iteration >= maxIterations`; otherwise
@@ -62,6 +69,19 @@ private[review] def stopPolicy(
     )
   else LoopStep.NeedsFix
 
+/** The cap exit's message, naming what it leaves open. Callers routinely
+  * discard the returned [[IgnoredIssues]] — every shipped flow does — so
+  * without the titles here a cap that bound too early leaves no trace a reader
+  * of the run can act on.
+  */
+private[review] def capExitMessage(
+    maxIterations: Int,
+    stillOpen: IgnoredIssues
+): String =
+  val titles = stillOpen.issues.map(i => s"  - ${i.title.value}")
+  (s"Reached max iterations ($maxIterations); still open:" :: titles)
+    .mkString("\n")
+
 /** Evaluate, fix, re-evaluate until the reviewer reports no issues, the fixer
   * reports zero fixes, or `maxIterations` fix attempts have been made. Issues
   * remaining when the cap is hit are folded into the returned `IgnoredIssues`
@@ -74,7 +94,7 @@ private[review] def stopPolicy(
 def fixLoop(
     evaluate: () => ReviewResult,
     fix: List[ReviewIssue] => FixOutcome,
-    maxIterations: Int = 10
+    maxIterations: Int = DefaultMaxIterations
 )(using ctx: FlowContext): IgnoredIssues =
   @scala.annotation.tailrec
   def loop(accumulated: IgnoredIssues, iteration: Int): IgnoredIssues =
@@ -87,7 +107,7 @@ def fixLoop(
         orca.display("No review comments")
         accumulated
       case LoopStep.CapReached(ignored) =>
-        orca.display(s"Reached max iterations ($maxIterations); bailing out")
+        orca.display(capExitMessage(maxIterations, ignored))
         accumulated ++ ignored
       case LoopStep.NeedsFix =>
         val outcome = fix(issues)
@@ -156,6 +176,22 @@ private case class SessionEntry[B <: BackendTag](
   * [[SessionEntry]] per reviewer that has run at least once, looked up by entry
   * identity (`eq`).
   *
+  * `lintChat` is the lint gate's summariser conversation, carried so later
+  * rounds resume the session rather than re-establish it — but ONLY while it
+  * has reported nothing. A round in which the summariser reported anything,
+  * gate-admitted or not, drops it, so the next round starts fresh: a
+  * conversation holding a finding can repeat it on a later round whose commands
+  * no longer show it, and that phantom costs a fix turn and lands in the
+  * recorded [[IgnoredIssues]] as unfixed. Resuming a conversation that has only
+  * ever said "nothing actionable" carries no such finding.
+  *
+  * That bounds re-reporting rather than eliminating it: a resumed conversation
+  * still holds every earlier round's raw lint output, from which it could newly
+  * derive a finding it previously declined to make. Only the summariser prompt
+  * (`the blocks are this run's output and supersede any earlier ones`) speaks
+  * to that, and by construction the retained output is output the model already
+  * judged non-actionable.
+  *
   * `gateRejects`/`lintGateRejects` hold each agent's LAST-SEEN gate rejects,
   * replaced wholesale whenever that agent runs again and retained when it
   * doesn't. That is what makes the loop's "record what the gate held back"
@@ -166,16 +202,28 @@ private case class SessionEntry[B <: BackendTag](
 private case class ReviewLoopState(
     history: List[ReviewBatch],
     sessions: List[SessionEntry[?]],
+    lintChat: Option[Lint.Summariser],
     gateRejects: List[(RosterEntry[?], List[ReviewIssue])],
     lintGateRejects: List[ReviewIssue]
 )
 private object ReviewLoopState:
-  val empty: ReviewLoopState = ReviewLoopState(Nil, Nil, Nil, Nil)
+  val empty: ReviewLoopState = ReviewLoopState(
+    history = Nil,
+    sessions = Nil,
+    lintChat = None,
+    gateRejects = Nil,
+    lintGateRejects = Nil
+  )
 
 /** One agent's findings split on the [[ConfidenceGate]]: `kept` goes to the
   * fixer and the display, `dropped` is recorded rather than fixed.
   */
 private case class GatedIssues(kept: ReviewResult, dropped: List[ReviewIssue])
+
+/** The lint gate this round, paired with the conversation its summary runs on,
+  * so neither can go missing without the other.
+  */
+private case class LintRound(gate: Lint, summariser: Lint.Summariser)
 
 /** One evaluation round's outcome: the issues that cleared the gate this round,
   * every gate reject still on the books (this round's plus any retained from an
@@ -253,7 +301,11 @@ def reviewAndFixLoop[B <: BackendTag](
       * [[ConfidenceGate]] for why the bar varies by severity.
       */
     confidenceGate: ConfidenceGate = ConfidenceGate.default,
-    maxIterations: Int = 10,
+    /** Fix attempts before the loop bails out, folding whatever is still open
+      * into the returned [[IgnoredIssues]]. Counts fixes, not evaluations: the
+      * default of 3 runs up to four review rounds.
+      */
+    maxIterations: Int = DefaultMaxIterations,
     fixInstructions: String = ReviewLoopPrompts.Fix,
     /** Override the diff handed to each reviewer in its initial prompt, and the
       * changed-file list the selector is given.
@@ -388,6 +440,14 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       ReviewLoop.extractChangedFiles
     )
 
+  /** Did this agent report anything at all — whether or not the gate admitted
+    * it? What decides whether a lint summariser's conversation is safe to
+    * resume (see [[ReviewLoopState]]). Gate-REJECTED findings count: the gate
+    * decides what reaches the fixer, not what the conversation remembers.
+    */
+  private def reported(gated: GatedIssues): Boolean =
+    gated.kept.issues.nonEmpty || gated.dropped.nonEmpty
+
   /** Split one agent's findings on the confidence gate. Rejects are kept, not
     * discarded: the loop records the final round's in its [[IgnoredIssues]].
     */
@@ -487,15 +547,31 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         val (result, newSession) = reviewWithSession(e, stored, currentDiff)
         AgentOutcome.Reviewer(e, applyGate(result), newSession)
 
+    // Resolved outside the fork below so the next state carries the
+    // conversation even on a round that short-circuits before any turn; minting
+    // one reserves an id and contacts nothing.
+    val lintRound: Option[LintRound] = config.lint.map: gate =>
+      val summariser = currentState.lintChat.getOrElse:
+        // Group lint tokens under the same `reviewer` cost role as the
+        // reviewers, under the bare identity "lint"; the tagged copy stays
+        // local to this loop.
+        Lint.summariser(
+          gate.agent.withName("lint").withRole(ReviewerPrompts.Role)
+        )
+      LintRound(gate, summariser)
+
     val lintTaskOpt: Option[() => AgentOutcome] =
-      config.lint.map: l =>
+      lintRound.map: r =>
         () =>
-          // Group lint tokens under the same `reviewer` cost role as the
-          // reviewers, under the bare identity "lint"; the tagged copy stays
-          // local to this call.
-          val labelled =
-            l.agent.withName("lint").withRole(ReviewerPrompts.Role)
-          AgentOutcome.Lint(applyGate(lint(l.commands, labelled)))
+          AgentOutcome.Lint(
+            applyGate(
+              lint(
+                r.gate.commands,
+                r.summariser,
+                ReviewLoopPrompts.SummariseLint
+              )
+            )
+          )
 
     // The explicit type application is CC-forced: it widens both lists' element
     // type to `() => AgentOutcome` so their capture sets unify into the single
@@ -548,6 +624,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       val nextState = ReviewLoopState(
         history = ReviewBatch(reviewerOutcomes) :: currentState.history,
         sessions = newSessions,
+        lintChat =
+          if lintGated.exists(reported) then None
+          else lintRound.map(_.summariser),
         gateRejects = retained ++ thisRound,
         lintGateRejects =
           lintGated.map(_.dropped).getOrElse(currentState.lintGateRejects)
@@ -696,7 +775,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           orca.display(doneMessage(round.gateRejects.size))
           accumulated ++ gated
         case LoopStep.CapReached(ignored) =>
-          orca.display(s"Reached max iterations ($maxIterations); bailing out")
+          orca.display(capExitMessage(maxIterations, ignored))
           accumulated ++ ignored ++ gated
         case LoopStep.NeedsFix =>
           val outcome = fix(issues)

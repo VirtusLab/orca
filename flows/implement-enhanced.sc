@@ -46,7 +46,8 @@ flow(OrcaArgs(args), returnToStartBranch = true):
       reviewAndFixLoop(
         coderSession = session,
         reviewers = allReviewers(reviewAgent),
-        task = task.title.value
+        task = task.title.value,
+        maxIterations = 3
       )
 
   // Docs pass on the implementer session — it already carries the brief and
