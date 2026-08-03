@@ -115,9 +115,11 @@ private[orca] object ManifestCostSummary:
   * session, which holds for reviewers and fails for the implementer.
   *
   * `apiCalls` is how many model requests the turn made — see
-  * [[orca.events.Usage.apiCalls]], including why `None` is not one. Each of
-  * them re-sends the whole prompt, so `promptTokens / apiCalls` is the per-call
-  * prompt and the rest is what the turn's own work added.
+  * [[orca.events.Usage.apiCalls]], including why `None` is not one. Every call
+  * re-sends the conversation so far, so `promptTokens / apiCalls` is the MEAN
+  * prompt per call and no single call matches it: the first is the smallest and
+  * the last the largest. A turn's fixed floor is the first call's prompt, which
+  * this file does not record — only the mean is derivable here.
   *
   * `at` is stamped when the writer records the turn, not when the tokens were
   * spent: the event crosses an actor mailbox first.

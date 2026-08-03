@@ -174,7 +174,7 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
               effective.model,
               usage,
               role,
-              session = Some(sessionKeyOf(session))
+              session = Some(backend.sessions.sessionKey(session))
             )
           )
         throw e
@@ -194,17 +194,9 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         model,
         result.usage,
         role,
-        session = Some(sessionKeyOf(session))
+        session = Some(backend.sessions.sessionKey(session))
       )
     )
-
-  /** The key [[emitSessionCommitted]]'s event will be deduplicated under, so a
-    * turn names the same session the manifest records. Resolved per turn rather
-    * than once per call: the wire id is minted during the first turn, so a
-    * value cached before it would name the session by its client id only.
-    */
-  private def sessionKeyOf(session: SessionId[B]): String =
-    OrcaEvent.sessionKey(session.value, resumeWireId(session).map(_.value))
 
   /** Fires once a session's first turn commits (ADR 0021 §8): reads
     * `resumeWireId` after `backend.runAutonomous` returns, so `wireId` reflects
