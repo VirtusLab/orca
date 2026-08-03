@@ -21,6 +21,14 @@ iteration in an otherwise single-call session costs a full preamble (32.1k), 35�
 what the `SessionStart` hook Epic 6 singles out costs (925). Anything that turns
 a one-call reviewer into a two-call reviewer is the expensive change.
 
+**A second run, inside this repository, replaced the projections with
+measurements** (§9). The preamble size holds again — reviewer first calls came
+in at 32,109–33,022. Two other things did not. Reviewers here made **9 to 20 API
+calls each**, not one or two, so "an extra tool call" understates the cost by an
+order of magnitude. And **no reviewer loaded the `direct-style-scala` skill**,
+in a repository whose `CLAUDE.md` mandates it and is in their context — so
+§6A's 37.1k, which assumes they do, rests on something that did not happen.
+
 ---
 
 ## 1. What orca now records, and what it still cannot answer
@@ -50,7 +58,9 @@ calls, not one turn with a 2× larger prompt. Without a call count the per-call
 preamble cannot be divided out, and the single most expensive effect in this
 report (an extra iteration costing a full preamble) is invisible in the data.
 
-Both are addressed in §6.
+Both are addressed in §6. **Both are now built** — PR #77 adds `session` and
+`apiCalls` to `ManifestTurn` (schema v5). See §7 for what shipped and for the
+counter that looked right and was not.
 
 ## 2. Measurement method
 
@@ -178,6 +188,13 @@ call recorded 30,366 and 30,524, against a predicted ~29.4k plus brief.
 | Reviewer / lint (`ToolSet.ReadOnly`, plan mode) | **~31.3k** | measured, 32,119 incl. brief |
 | Implementer (`ToolSet.Full`) | **~29.4k** | measured, ~30.4k incl. brief |
 
+*Both rows are confirmed by the second run (§9), this time inside this
+repository rather than a scratch one.* Its five reviewers opened at 32,109 /
+32,157 / 32,174 / 32,674 / 33,022 — mean **32,427** against 32,119 here, a 1.0%
+spread. Its three `main` turns opened at 30,202 / 30,787 / 30,819, against
+~30.4k here. The project `CLAUDE.md` those sessions carried and the scratch-repo
+ones did not is worth ~270 (§3), which is about the size of the difference.
+
 ## 5. Amortisation per agent kind
 
 From the measured run. Task: append one line to a README.
@@ -212,6 +229,12 @@ deduplicated API messages, cold-start mean 32,658), the preamble is
 conversation. The 99.5% is the bound this measurement can reach, not the number
 to plan against.
 
+*The second run (§9) settles that.* Its five reviewers, in this repository on a
+592-line diff, spent **4,347,662** prompt tokens over **69** API calls. Charging
+each call its own opening prompt gives **2,240,027** of preamble — **51.5%**,
+against the 46.7% predicted above and the 99.5% of the degenerate case. The
+46.7% was the right number to plan against.
+
 **A multi-turn implementer amortises it slightly better, but not much**, and
 not because of `--resume`: each of its ~19 API calls re-sent the preamble too.
 Its better ratio comes from carrying real conversation alongside it. On a
@@ -220,6 +243,12 @@ trivial task the preamble is still ~98% of its traffic.
 **Two reviewers cost double because they made one tool call.** `Read` on a
 one-line README turned a 32.1k session into a 64.0k one. This is measured, not
 projected, and it is the mechanism behind §6's largest trim.
+
+*The mechanism is right; "one extra call" is the wrong scale.* In the second run
+(§9) no reviewer stopped anywhere near one call — the five made 9, 9, 12, 19 and
+20. The in:out ratio there is **63:1**, not the 258:1 of the table above, and
+one round of five reviewers cost **$7.18**, against $1.87 for seven here. Per
+reviewer that is $1.44 against $0.27.
 
 *(The cost column is not monotone in tokens — `simplicity` paid $0.174 for the
 same 32.1k that cost `security` $0.325 — because one hit an existing cache and
@@ -262,6 +291,42 @@ The `superpowers` `using-superpowers` injection pushes the same way — "invoke
 relevant skills BEFORE any response" — which is a better reason to disable that
 hook than its own 925 tokens.
 
+**Measured, and it does not hold up.** Everything above was written from parts
+measured separately. The second run (§9) ran the real thing — five reviewers, in
+this repository, on a 592-line Scala diff — and it corrects two halves of (A)
+in opposite directions.
+
+*The doubling is real and is a floor, not a ceiling.* Second calls cost 44,181
+(readability), 44,168 (test), 44,682 (scala-fp), 33,129 (code-structure) and
+32,210 (code-functionality). So one extra call costs a full preamble plus
+whatever the first response and its tool result added — 32.2k at the low end,
+44.7k at the high end, against the +32.1k projected here.
+
+*The skill half did not happen.* Across 69 reviewer API calls there were **zero
+`Skill` invocations**. The mandate was in context — a probe in the same
+directory and the same `--permission-mode plan` had the model quote it back
+verbatim ("Before writing, modifying, or reviewing any Scala code in this
+repository, invoke the `direct-style-scala` skill"). Reviewers were told to load
+it and did not. So the 5,025-token skill body, and with it the 37.1k and the
+~260k per round, are savings on a cost that has now been looked for twice and
+found neither time.
+
+*And "one extra call" is the wrong unit.* The five reviewers made 9, 9, 12, 19
+and 20 API calls, using 47 `Bash` and 22 `Read` calls between them, all under
+`ToolSet.ReadOnly` / `--permission-mode plan`. The expensive thing is not a
+reviewer slipping from one call to two. It is a reviewer exploring the
+repository for twenty calls, each re-paying the preamble.
+
+*What that means for the levers.* Both levers target skill loading. On this
+evidence the repo-`CLAUDE.md` lever and the orca standing-rule lever would each
+have saved **nothing** in this run, because the behaviour they suppress did not
+occur. The cost that did occur — 9 to 20 exploration calls per reviewer — is the
+same shape as what PR #73 measured: read-only reviewers making 199 `Bash` calls
+under `permissionMode: plan`. A prompt rule is the instrument that measurement
+found ineffective against exactly this behaviour, so this data gives no reason
+to expect a prompt rule to work here either. It does not show the levers
+failing — they were never triggered — it shows they aim at the smaller number.
+
 ### B. Disable the `SessionStart` hook for non-interactive sessions — operator's
 
 **925 tokens per session**, ~10.2k across this run's 11 sessions. The hook fires
@@ -299,20 +364,44 @@ plus §4's 853-token residual, most of which is the review brief the loop needs
 to state the task at all. Those two are reachable only by not running a
 read-only reviewer, or by not telling it what to review.
 
-## 7. Proposed instrumentation — specced, not built
+## 7. The instrumentation — specced here, built in PR #77
 
 Both gaps in §1 are one field each on `ManifestTurn`:
 
-- `session: String` — the dedup key the writer already computes, making
-  "first turn of each session" exact rather than inferred from a unique agent
-  name.
-- `apiCalls: Long` — iterations inside the turn, making the per-call preamble
+- `session` — the dedup key the writer already computes, making "first turn of
+  each session" exact rather than inferred from a unique agent name.
+- `apiCalls` — model requests inside the turn, making the per-call preamble
   divisible out and an extra tool call visible as what it costs.
 
-Deliberately not implemented here. Either bumps `RunManifest.SupportedVersion`
-to 4, and readers skip any version they do not write — so it invalidates every
-v3 manifest, one commit after v3 shipped. That is the owner's call, not a side
-effect of a measurement task.
+Both shipped in PR #77, at schema v5. Both are `Option`: a backend that cannot
+count leaves `apiCalls` unset, because a guessed count would read downstream
+exactly like a measured one — which is the whole reason this section exists.
+Only claude reports a count; codex, gemini, opencode and pi do not.
+
+**The counter that looked right and was not.** The first implementation read
+`num_turns` off claude's result message. Four probes agreed with the
+`message_start` stream events exactly — 1, 2, 4 calls, and 2 on a `--resume`.
+The second run (§9) broke the agreement: `num_turns` exceeded the number of
+distinct model responses on six of eight turns. `num_turns` is **(tool calls +
+1)**. The probes agreed only because in each of them the model made one tool
+call per response. A follow-up probe confirmed it: one response issuing three
+tool calls at once produces 2 `message_start` events and reports `num_turns: 4`.
+
+The shipped count is the number of **distinct `id`s on the turn's `assistant`
+messages**, which matches `message_start` on every run checked. The ids have to
+be deduplicated — the CLI splits one response into several `assistant` messages
+that repeat the id, so counting messages over-reports as badly as `num_turns`.
+
+Two limits worth carrying:
+
+- A turn that dispatches a subagent counts the subagent's responses too — the
+  CLI forwards them on the same stream. Measured on one such turn: 53 responses
+  counted against 18 in the dispatching session's own transcript. Its token
+  total is the CLI's aggregate and matched neither, so `promptTokens /
+  apiCalls` means little on a turn like that.
+- On every other turn checked — 10 of 11 in a validation run on the shipped
+  build — the manifest's `apiCalls` equalled the transcript's distinct response
+  ids exactly.
 
 ## 8. What could not be measured
 
@@ -322,15 +411,78 @@ effect of a measurement task.
 - **The hook and skill-listing split within `superpowers`** rests on
   `disableAllHooks`, which also disables the `PreToolUse` hook. That hook injects
   no context, so the 925 should be clean, but it was not isolated further.
-- **A reviewer session inside this repository.** The run used a scratch repo, so
-  no project `CLAUDE.md` was present and no reviewer loaded the skill. (A)'s
-  37.1k is computed from separately measured parts — 32.1k preamble, 5,025 skill
-  body — and from the measured doubling when a reviewer made one tool call. It
-  is a projection from measurements, not a single observation.
-- **Whether the ~340-turn baseline's 11.0M holds.** It assumes one API call per
-  turn. Turns in this run averaged ~2.2, so the true figure is higher; by how
-  much cannot be recovered without the per-turn call count in §7.
+- ~~**A reviewer session inside this repository.**~~ **Measured — see §9.** The
+  first run used a scratch repo, so no project `CLAUDE.md` was present and no
+  reviewer loaded the skill. (A)'s 37.1k was a projection from separately
+  measured parts — 32.1k preamble, 5,025 skill body — plus the measured doubling
+  when a reviewer made one tool call. Run inside this repository, the preamble
+  and the doubling both hold and the skill body does not: no reviewer loaded the
+  skill there either.
+- ~~**Whether the ~340-turn baseline's 11.0M holds.**~~ **Corrected — see §9.**
+  It assumed one API call per turn. Turns averaged ~2.2 in the first run and
+  **9.4** in the second, so the product cannot be the way to compute it: 340
+  turns × 32.4k × 9.4 is 103M, roughly three times that baseline's entire prompt
+  traffic. What is recoverable is the share, and it measures about half, not
+  30%. The absolute 11.0M is still unrecoverable — that baseline's per-turn call
+  counts were never recorded, and `apiCalls` only exists from PR #77 onward.
 - **The money.** Preamble tokens bill at three different rates (base, 1h cache
   write at 2×, cache read at 0.1×) and this run's mix was 39% write / 61% read.
   A token saving does not convert to a dollar saving at one rate, so savings are
   quoted in tokens throughout.
+
+## 9. Second run — reviewers inside this repository
+
+The §8 gap that mattered was that everything above came from a scratch repo. So
+`review.sc` was run against a clone of this repository at `b6f1d920`, reviewing
+a 592-line, 16-file Scala diff (PR #77's own change). `reviewAgent` was
+`claude:opus`, the operator's real setting. The flow picked five reviewers.
+**Total cost $7.35**, $7.18 of it the reviewers.
+
+| Reviewer | API calls | Prompt tokens | 1st call | Last call | Out | In:out | Cost |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| readability | 9 | 474,123 | 32,174 | 66,664 | 9.9k | 48:1 | $1.118 |
+| test | 12 | 694,350 | 32,157 | 74,706 | 10.5k | 66:1 | $1.168 |
+| scala-fp | 9 | 478,098 | 32,674 | 64,228 | 11.9k | 40:1 | $0.996 |
+| code-structure | 20 | 1,236,771 | 33,022 | 80,515 | 13.1k | 94:1 | $1.561 |
+| code-functionality | 19 | 1,464,320 | 32,109 | 105,702 | 23.9k | 61:1 | $2.334 |
+| **five reviewers** | **69** | **4,347,662** | | | **69.3k** | **63:1** | **$7.177** |
+| main (haiku, 3 turns) | 6 | 184,523 | | | 4.7k | 39:1 | $0.174 |
+| **run total** | **75** | **4,532,185** | | | **74.0k** | **61:1** | **$7.351** |
+
+Four results.
+
+**The preamble size holds a third time.** First calls 32,109–33,022, mean
+32,427, against §4's 32,119 — 1.0% apart, with a project `CLAUDE.md` present
+this time.
+
+**The preamble is about half the traffic, not 30%.** Every call carries one, so
+charging each of the 75 calls its own opening prompt gives 2,423,611 of
+4,532,185 — **53.5%** (52.1% if the ~853-token review brief is taken out of the
+floor). Reviewers alone are 51.5%; the three haiku `main` sessions are 99.5%.
+The nearest earlier figure is §5's 46.7% for the baseline run's reviewer
+sessions, so the two directly measured shares agree at about half, and the
+30% in `00-research-plan.md` topic 4 — computed as one call per turn — is low
+by roughly a factor of two.
+
+**Turns are not 1 or 2.2 calls.** 75 calls over 8 turns is **9.4 per turn**;
+reviewer turns alone are **13.8**.
+
+**No reviewer loaded the skill.** Zero `Skill` invocations across 69 calls, with
+the mandate in context (verified: a probe in the same directory under the same
+`--permission-mode plan` quoted the sentence back). Tool use was 47 `Bash` and
+22 `Read`.
+
+*Caveat on how the counts were obtained.* The run itself was made with the build
+that still read `num_turns`, so the call counts above are re-derived from the
+same run's CLI transcripts by the corrected rule — distinct response ids, which
+is what the shipped code counts (§7). A separate, cheaper run on the shipped
+build matched transcripts on 10 of 11 turns; the 11th dispatched a subagent.
+
+*Caveat on scope.* One run, one diff, one flow, five reviewers. It says nothing
+about `implement.sc`'s fix loop, and the 592-line diff is a mid-sized one — a
+larger diff would push the exploration calls up and the preamble share down.
+
+> **Like §2(a), this run is not reproducible from this repository.** Its
+> manifest and CLI transcripts were written to a clone outside the tree and are
+> not committed here or attached to any PR. The figures above are reported as
+> measured because they were, not because a reader can re-derive them.
