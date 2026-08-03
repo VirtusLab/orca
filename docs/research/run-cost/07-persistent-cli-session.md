@@ -7,7 +7,11 @@ durable session, instead of today's fresh process per turn with stdin closed.
 
 1. The primary shipped flow **cannot run** on a held-open claude process —
    `--json-schema` is argv-side and a durable session alternates between
-   schema'd and un-schema'd turns (§2).
+   schema'd and un-schema'd turns (§2). **[V]** for the argv encoding and the
+   alternation; **[U]** for "cannot", which holds only if `--json-schema`
+   also cannot be varied per message over claude's control channel. That
+   sub-question is unresolved (§2), and §6.1 calls settling it a ~30-minute
+   experiment that decides the ADR. Ground 1 is contingent on its answer.
 2. The headline cost benefit is **not supported by measurement** (§1), so the
    change would be bought on reliability grounds alone — and its reliability
    benefit shares a mechanism with a deadlock already documented in the code (§3).
@@ -56,9 +60,14 @@ argument, not a measurement. The honest position is **"not supported", not
 "refuted"**, and the experiment that would settle it is in §6.
 
 Either way this points the same direction as the plan's existing conclusion: the
-levers are **prefix size and turn count**, not process lifetime. It also closes
-T1.5 to the extent that per-turn teardown is *not* the cause of the 2.0M
-cache-creation figure.
+levers are **prefix size and turn count**, not process lifetime.
+
+It does **not** close T1.5. T1.5 asks what forces 2.0M tokens of cache creation,
+and names per-turn teardown as the likely cause; the regime that produced that
+figure is the implementer at a 213k prefix with real tool calls, which is
+precisely the regime the paragraph above says these probes cannot reach. Ruling
+teardown out there would be reasserting in the regime this section has just
+excluded. T1.5 stays open on the same experiment (§6.2).
 
 ---
 
@@ -116,8 +125,9 @@ latches** are the real problem.
   `failWith` end in `source.interrupt()` (`ForkedConversation.scala:295-329`) and
   `StreamSource.fromProcess.interrupt()` is `process.sendSigInt()`
   (`StreamSource.scala:68`). But `interrupt()` is a **per-source policy**
-  (`StreamSource.scala:28-33`) and the class already contemplates a source that
-  outlives a turn (`:290-294`, the SSE case), so this is a new `StreamSource`
+  (`StreamSource.scala:28-33`) and the codebase already contemplates a source
+  that outlives a turn (`ForkedConversation.scala:290-294`, the SSE case — not
+  `StreamSource.scala`, which is 76 lines), so this is a new `StreamSource`
   implementation, not a rewrite. **[V]**
 - **`FlowSession` has no lexical span.** It must be minted *outside* any stage
   (`OutsideStage`, `Session.scala:28-30`, runtime throw at `:180-185`) and closed
@@ -152,8 +162,13 @@ latches** are the real problem.
   accommodation (`StreamSource.scala:52-59`). **[V]**
 - **PR #47's shipped system-prompt rule becomes false.** The composed prompt
   tells agents the harness is torn down each turn and long commands must run in
-  the foreground. It and its four string-pinning assertions in
-  `SystemPromptComposerTest` would have to be retracted in the same change. **[V]**
+  the foreground. The rule's *text* would have to be retracted in the same
+  change; the tests would not fight it. `SystemPromptComposerTest` asserts on
+  `BackgroundWorkAbandonedAtTurnEnd` in **six** of its seven tests, but through
+  the symbol, so what they pin is composition — which turns get the rule, and in
+  what order it joins the others — not its wording. Rewording the rule breaks
+  none of them; dropping it from read-only or write-capable turns breaks
+  several. **[V]**
 - **Ox is pinned at 1.0.5** (`project/Dependencies.scala:10`);
   `abandonOnInterruptReads` needs ≥ 1.0.6. A one-line bump, but today
   destroy-then-EOF is the only mitigation and this change removes it from the
@@ -314,11 +329,28 @@ Only under all of these:
 - **`ProgressLog.scala:75-76`** says pi's sessions live in a `deleteOnExit` temp
   dir so a resumed run always re-seeds; `PiBackend.scala:67-68` and ADR 0018's
   2026-07-28 amendment say pi is durable. **[V]**
-- **Latent write-after-close.** `ClaudeBackend.scala:221` closes stdin;
-  `ClaudeConversation.scala:284-285` later writes a `control_response` to it, and
-  `OsProcCliRunner.scala:159-163` writes to the closed stream. Reachable on the
-  autonomous path — `Conversations.scala:105-116` responds `Deny` to
-  `ApproveTool`. Unit tests cannot catch it: the fake is lenient about writes
-  after close (`FakePipedCliProcessTest.scala:65-69`). Not verified live. **[I]**
+- **Latent write-after-close.** `ClaudeBackend.scala:221` closes stdin
+  immediately after writing the opening turn; `ClaudeConversation.respond`
+  (`:278-285`) later writes a `control_response` to it, and
+  `OsProcCliRunner.scala:159-163` writes to the closed stream. The defect is
+  real, but **the trigger first named for it was wrong**, and it is worth being
+  precise about which path reaches it:
+  - Not the `Deny` branch. `Conversations.scala:105-116` responds `Deny` to
+    `ApproveTool`, but that event is only enqueued when
+    `ClaudeConversation.autoApproves(name)` is false (`:243-252`), which under
+    the shipped `AutoApprove.All` (`AgentConfig.scala:21`) it never is. No orca
+    call site sets `AutoApprove.Only`, so the branch is dead in shipped
+    configuration. **[V]**
+  - The live path is the `Allow()` reply at `:244`, which writes to the same
+    closed stdin.
+  - Either way, nothing gets that far: stdin is closed before any
+    `control_request` could arrive, so orca cannot deliver *any* decision. No
+    `control_request` frame appears in any of the baseline run's ten reviewer
+    transcripts. **[M]**
+
+  So the write-after-close is unreachable-in-practice rather than latent-and-
+  waiting, and the code that would exercise it is code that cannot work at all.
+  Unit tests cannot catch it: the fake is lenient about writes after close
+  (`FakePipedCliProcessTest.scala:65-69`). Not verified live. **[V]/[I]**
 - **`StderrPipeline.onFinalize`'s unbounded join** (`:60-71`) is a real
   mis-sequencing today for codex/gemini/pi, independent of this proposal.
