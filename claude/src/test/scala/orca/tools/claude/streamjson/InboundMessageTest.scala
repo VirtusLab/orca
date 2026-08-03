@@ -25,8 +25,20 @@ class InboundMessageTest extends munit.FunSuite:
     assertEquals(
       msg,
       InboundMessage.AssistantTurn(
-        List(ContentBlock.Text("hi"), ContentBlock.Thinking("ponder"))
+        List(ContentBlock.Text("hi"), ContentBlock.Thinking("ponder")),
+        None
       )
+    )
+
+  // The driver counts a turn's model responses by their distinct ids, so the id
+  // has to survive parsing.
+  test("assistant turn carries the id of the response it came from"):
+    val msg = InboundMessage.parse(
+      """{"type":"assistant","message":{"id":"msg_01ab","role":"assistant","content":[{"type":"text","text":"hi"}]}}"""
+    )
+    assertEquals(
+      msg.asInstanceOf[InboundMessage.AssistantTurn].messageId,
+      Some("msg_01ab")
     )
 
   test("result picks up structured_output as raw JSON + tallies usage"):
@@ -55,22 +67,11 @@ class InboundMessageTest extends munit.FunSuite:
       )
     )
 
-  // Every one of a turn's iterations re-sends the whole prompt, so the count is
-  // what turns the recorded prompt size into a bill.
-  test("result carries num_turns as the turn's API-call count"):
+  // `num_turns` is the obvious-looking call count and is the wrong one — it
+  // counts tool calls, not requests. The driver must not pick it up here.
+  test("result ignores num_turns: the call count is not the parser's to set"):
     val msg = InboundMessage.parse(
       """{"type":"result","subtype":"success","session_id":"sid-1","num_turns":4,"usage":{"input_tokens":10,"output_tokens":20}}"""
-    )
-    assertEquals(
-      msg.asInstanceOf[InboundMessage.Result].usage.apiCalls,
-      Some(4L)
-    )
-
-  // A CLI build that stops reporting the count must leave it absent: a silent
-  // fallback to one would read downstream exactly like a measured single call.
-  test("result without num_turns reports no API-call count"):
-    val msg = InboundMessage.parse(
-      """{"type":"result","subtype":"success","session_id":"sid-1","usage":{"input_tokens":10,"output_tokens":20}}"""
     )
     assertEquals(msg.asInstanceOf[InboundMessage.Result].usage.apiCalls, None)
 
@@ -112,7 +113,7 @@ class InboundMessageTest extends munit.FunSuite:
     val msg = InboundMessage.parse(
       """{"type":"assistant","message":{"role":"assistant","content":[]}}"""
     )
-    assertEquals(msg, InboundMessage.AssistantTurn(Nil))
+    assertEquals(msg, InboundMessage.AssistantTurn(Nil, None))
 
   test(
     "result with all optional fields absent defaults usage to zero and isError to false"

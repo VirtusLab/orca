@@ -60,6 +60,34 @@ class ClaudeConversationTest extends munit.FunSuite:
     assertEquals(result.output, "done")
     assertEquals(result.usage, Usage(5L, 7L, None))
 
+  // Nothing on the wire reports how many requests a turn made. The CLI splits
+  // one model response into several `assistant` messages sharing one id, and a
+  // response can carry several tool calls, so neither message count nor tool
+  // count is the answer — only the distinct ids are.
+  convTest("a turn's API-call count is its distinct response ids"):
+    val process = new FakePipedCliProcess()
+    val conv = new ClaudeConversation(process, AgentConfig())
+
+    // One response, split into prose and two parallel tool calls...
+    process.enqueueStdout(
+      """{"type":"assistant","message":{"id":"msg_a","role":"assistant","content":[{"type":"text","text":"checking"}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"assistant","message":{"id":"msg_a","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{}},{"type":"tool_use","id":"t2","name":"Read","input":{}}]}}"""
+    )
+    // ...then a second response.
+    process.enqueueStdout(
+      """{"type":"assistant","message":{"id":"msg_b","role":"assistant","content":[{"type":"text","text":"done"}]}}"""
+    )
+    process.enqueueStdout(
+      """{"type":"result","subtype":"success","session_id":"sid-calls","result":"done","usage":{"input_tokens":9,"output_tokens":4}}"""
+    )
+    process.closeStdout()
+
+    val _ = conv.events.toList
+    val Right(result) = conv.awaitResult(): @unchecked
+    assertEquals(result.usage.apiCalls, Some(2L))
+
   convTest(
     "is_error after streaming deltas emits a short marker, not a duplicate"
   ):
