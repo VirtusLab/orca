@@ -6,9 +6,11 @@ and attributes it to components, so a trim can be justified and verified.
 
 **Headline: the figure holds.** A single-turn reviewer session measured
 **32,119 prompt tokens** (mean of five, spread 187 — 0.6%), against a claim of
-~32.4k: within 1%. But only **~2.0k of it is orca's**. 83% is the backend CLI's
-own system prompt and tool schemas, which orca cannot change, and ~1.6k is the
-operator's plugin and hook configuration.
+~32.4k: within 1%. But only **~2.0k of it is orca's** — the standing rules
+(200), the reviewer identity prompt (940) and the review brief inside §4's
+853-token residual. 83% is the backend CLI's own system prompt and tool schemas,
+which orca cannot change, and ~1.6k is the operator's plugin and hook
+configuration.
 
 **The framing needs one correction.** The preamble is not per *session*, it is
 per *API call*. `--resume` does not amortise it: the system prompt and tool
@@ -63,13 +65,30 @@ README.md". It produced a v3 manifest with 11 sessions and 13 turns. Its
 reviewer sessions are single-turn, read-only, and did essentially no work, so
 their prompt *is* the preamble with a small brief attached.
 
+> **That manifest is not reproducible from this repository.** It was written to
+> a scratch repo outside the tree and is neither committed here nor attached to
+> the PR; the nine manifests under `.orca/cache/runs/` are all v2. So **every
+> figure in §4 and §5 that comes from source (a) — 32,119, the per-agent table,
+> the 290,551 role total — is uncheckable against anything a reader has.** They
+> are reported as measured because they were, not because they can be
+> re-derived. Source (b) below is fully reproducible, and is what the rest of
+> the document leans on.
+
 **(b) CLI ablation.** Each component was switched off and the total prompt
 re-measured, using the same CLI build orca drives (2.1.220) and the same flags
-`ClaudeArgs.streamJson` passes. One `--print --output-format json` call each,
-`--model claude-haiku-4-5` (token counts are model-independent; this only makes
-the probe cheap). Total prompt = `input_tokens + cache_creation_input_tokens +
-cache_read_input_tokens`. The as-configured baseline was run three times:
-28,902 / 29,016 / 28,902 — mean **28,940**, so deltas above ~150 are signal.
+`ClaudeArgs.streamJson` passes. Total prompt = `input_tokens +
+cache_creation_input_tokens + cache_read_input_tokens`. The exact command, one
+per configuration:
+
+```
+claude --print --output-format json --model claude-haiku-4-5 \
+  [ablation flags] "Reply with the single word: ok"
+```
+
+`--model claude-haiku-4-5` only makes the probe cheap; the prompt is one line so
+that the measured total is the preamble and nothing else. The as-configured
+baseline was run three times: 28,902 / 29,016 / 28,902 — mean **28,940**, so
+deltas above ~150 are signal.
 
 All ablations ran in an empty non-repo directory, so they exclude the git
 environment block and any project `CLAUDE.md`; those are added back in §4.
@@ -108,10 +127,29 @@ Raw ablation totals, for reproduction:
 Two results worth stating plainly:
 
 **Plan mode costs more, not less.** Every read-only agent — every reviewer,
-every lint session — pays a **+1,186** token surcharge over a full-tool agent.
-Plan mode removes tool *availability*, not tool *schemas*, and adds its own
-instructions. The intuition that read-only sessions are the cheap ones is
-backwards.
+every lint session — pays a **+1,186** token surcharge. Plan mode removes tool
+*availability*, not tool *schemas*, and adds its own instructions. The intuition
+that read-only sessions are the cheap ones is backwards.
+
+*The control arm above is wrong, and had to be re-measured.* The +1,186 is
+plan-mode against **no permission flag at all**. That is not what a full-tool
+orca agent emits: `ToolSet.Full` + `AutoApprove.All` produces
+`--permission-mode bypassPermissions` (`ClaudeArgs.scala:134`), an arm the
+original ablation never ran. Re-measured, three runs each on the same CLI build
+in the same empty directory:
+
+| arm | total prompt |
+|---|---:|
+| no permission flag | 28,900 / 28,900 / 28,900 |
+| `--permission-mode plan` | 30,238 / 30,239 / 30,237 |
+| `--permission-mode bypassPermissions` | 28,900 / 28,900 / 28,900 |
+
+`bypassPermissions` is indistinguishable from no flag, so the comparison the
+sentence *claims* to make and the one it actually made give the same answer, and
+the surcharge over a real full-tool agent holds at **+1.2k to +1.3k**. The
+figure survives; the arm that establishes it was added afterwards, not measured
+originally. The ~29.4k implementer prediction in §4 inherits this and is
+likewise unaffected.
 
 **The `direct-style-scala` skill is 5,025 tokens** for its 18,382 characters,
 confirming the "18k-char" figure in the epic. It enters context as a tool
@@ -121,11 +159,20 @@ result, not as preamble — which is what makes it expensive (§5).
 
 Summing the components a reviewer session pays: 26,725 + 567 + 925 + 373 + 350
 + 1,186 + 940 + 200 = **31,266**. Measured in the manifest: **32,119**. The
-993-token gap is orca's review brief and the git-repo environment block,
+**853**-token gap is orca's review brief and the git-repo environment block,
 neither of which the ablation dirs contained.
 
-T6.2's done-when is agreement within 5%. The component sum is **3.1%** below
+T6.2's done-when is agreement within 5%. The component sum is **2.66%** below
 the measured figure before the brief is counted, and closes once it is.
+
+*What this does and does not check.* The sum itself is not independent evidence:
+26,725 is defined as the residual (baseline 28,940 minus the four operator
+components), so adding the components back cannot disagree with the ablation —
+it reproduces the ablation row "plan mode + code-structure reviewer system
+prompt" by construction. The load-bearing comparison is the one across
+*methods*: an ablation total built in a scratch directory (b) against a prompt
+size recorded by a real orca run (a). Those agree to 2.66%. The internal sum is
+bookkeeping.
 
 The implementer's preamble comes out lower: `main` turns that made a single API
 call recorded 30,366 and 30,524, against a predicted ~29.4k plus brief.
@@ -152,12 +199,23 @@ From the measured run. Task: append one line to a README.
 | main (implementer) | 6 | ~19 | 569,891 | 4,074 | 140:1 | $1.152 |
 | **run total** | **13** | — | **860,442** | **5,202** | **165:1** | **$3.019** |
 
-**A single-turn reviewer does not amortise the preamble at all.** Nine reviewer
-API calls × ~32.1k = ~289k of the 290,551 tokens the role consumed — **99.5%
-preamble**. Four of the five one-call reviewers ran on opus with the whole
-preamble as fresh 1h cache creation, at **$0.32 per session, ~100% of it
+**A reviewer that makes no tool call does not amortise the preamble at all.**
+Nine reviewer API calls × ~32.1k = ~289k of the 290,551 tokens the role consumed
+— **99.5% preamble**. Four of the five one-call reviewers ran on opus with the
+whole preamble as fresh 1h cache creation, at **$0.32 per session, ~100% of it
 preamble**. Seven reviewers is **~$1.87 per review round** before any reviewer
 reads a line of the diff.
+
+*Read 99.5% as the ceiling of a degenerate case, not as a typical figure.* The
+task was "add a line to README.md" in a scratch repo with a one-line README:
+five of seven reviewers made zero tool calls, so their whole prompt *was* the
+preamble and the ratio is close to circular — it says a session that does
+nothing consists of what it started with. Real reviewers in this repository do
+not look like that. Over the baseline run's ten reviewer sessions (270
+deduplicated API messages, cold-start mean 32,658), the preamble is
+**46.7%** of prompt tokens; the rest is the diff, tool results and the
+conversation. The 99.5% is the bound this measurement can reach, not the number
+to plan against.
 
 **A multi-turn implementer amortises it slightly better, but not much**, and
 not because of `--resume`: each of its ~19 API calls re-sent the preamble too.
@@ -194,7 +252,11 @@ Two independent levers, either sufficient:
 
 - **Repo `CLAUDE.md`** — narrow "writing, modifying, or reviewing" to the roles
   that produce Scala. Owner: this repo. Saving: **up to 37.1k per reviewer
-  session, ~260k per 7-reviewer round.**
+  session, up to ~260k per 7-reviewer round.** Both are ceilings, and the round
+  figure is the looser of the two: it assumes all seven reviewers make an extra
+  call *and* load the skill on the same round. No round like that was observed —
+  in the measured run no reviewer loaded the skill at all (§8), and two of seven
+  made the extra call.
 - **Orca** — a standing rule on `ToolSet.ReadOnly` turns in
   `SystemPromptComposer`, alongside `BackgroundWorkAbandonedAtTurnEnd`: you have
   been given what you need; do not load skills or re-read guidance. Owner: orca.
@@ -211,9 +273,10 @@ disabling that hook, far stronger than its own 925 tokens.
 on `startup|clear|compact` and not on `resume`, so orca pays it once per
 session, not once per turn — which makes it **2.9% of a reviewer's preamble**.
 
-Epic 6 names it as the most obvious candidate. On the numbers it is not: it is
-worth a fifth of one reviewer's extra tool call. Its real cost is indirect, via
-(A). Owner: `~/.claude/settings.json`.
+Epic 6 names it as the most obvious candidate. On the numbers it is not: at 925
+against 32,119 it is worth a **thirty-fifth** of one reviewer's extra tool call
+— the reciprocal of the 35× stated at the top of this document. Its real cost is
+indirect, via (A). Owner: `~/.claude/settings.json`.
 
 ### C. Leave the reviewer identity prompts alone — confirmed
 
@@ -229,9 +292,19 @@ spread across three owners. Not worth coordinating.
 ### E. The 83% is not available
 
 ~26.7k of every session is the CLI's own system prompt and tool schemas, plus
-1,186 for plan mode. Orca chooses plan mode, but not what plan mode costs. This
-is the honest ceiling on Epic 6: **even a perfect trim of everything orca, the
-repo and the operator control removes ~17% of the preamble.**
+1,186 for plan mode. Orca chooses plan mode, but not what plan mode costs.
+
+The honest ceiling on Epic 6 is therefore **11.3%**: user memory 567 + hook 925
++ skill listings 373 + other plugins 350 + project `CLAUDE.md` 270 + standing
+rules 200 + reviewer identity 940 = **3,625** of 32,119. That is everything
+orca, this repo and the operator can actually change, trimmed perfectly to zero.
+
+The larger figure that suggests itself — 32,119 − 26,725 = 5,394, or 16.8% — is
+not a ceiling on trimming. It counts the 1,186 plan-mode surcharge, which the
+paragraph above has just called unavailable, plus §4's 853-token residual, most
+of which is the review brief the loop needs to state the task at all. Anything
+above 11.3% is not reachable by trimming; the last two components are reachable
+only by not running a read-only reviewer, or by not telling it what to review.
 
 ## 7. Proposed instrumentation — specced, not built
 
