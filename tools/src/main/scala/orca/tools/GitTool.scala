@@ -26,9 +26,9 @@ enum DiffMode:
 case class Worktree(path: os.Path, branch: String)
 
 /** One consistent sample of what the next commit would include — see
-  * [[GitTool.pendingChanges]]. `newFiles` holds the paths of files new to the
-  * repository, which the stat cannot report and `diff` shows only as new-file
-  * hunks.
+  * [[GitTool.pendingChanges]]. `newFiles` holds the paths new to the repository
+  * — see [[GitTool.untrackedPaths]] — which the stat cannot report and `diff`
+  * shows only as new-file hunks.
   */
 case class PendingChanges(stat: String, newFiles: List[String], diff: String)
 
@@ -228,11 +228,13 @@ trait GitTool:
     */
   def diffStat(): String
 
-  /** Untracked, non-`.orca/` paths anywhere in the repository, one entry per
-    * file (untracked directories are recursed into), relative to the tool's
-    * working directory. These are the files [[diff]] can't report — they have
-    * no tracked history to diff against — but that a `git add -A` commit would
-    * include, so anything describing what is about to be committed needs them
+  /** Untracked, non-`.orca/` paths anywhere in the repository, relative to the
+    * tool's working directory. Untracked directories are recursed into, so an
+    * entry is normally one file; a directory git refuses to enter — a nested
+    * repository — stays one entry, with a trailing slash. These are the paths
+    * [[diff]] can't report — they have no tracked history to diff against — but
+    * that a `git add -A` commit would include (a nested repository as a
+    * gitlink), so anything describing what is about to be committed needs them
     * alongside the diff. [[reviewDiff]] renders their contents; this is the
     * list itself.
     */

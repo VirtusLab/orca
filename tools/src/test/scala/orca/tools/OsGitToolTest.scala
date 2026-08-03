@@ -666,6 +666,9 @@ class OsGitToolTest extends munit.FunSuite:
       val diff = git.reviewDiff()
       assert(diff.contains("# skipped nested/: nested git repository"), diff)
       assert(diff.contains("+brand new content"), diff)
+      // Skipping the diff must not drop the path from what `add -A` will
+      // commit: git stages a nested repo as a gitlink, so `newFiles` says so.
+      assert(git.pendingChanges().newFiles.contains("nested/"))
 
   // Pins the probe as `os.exists`, not `os.isDir`: a linked worktree's `.git`
   // is a file, not a directory.
@@ -674,7 +677,8 @@ class OsGitToolTest extends munit.FunSuite:
       os.write(dir / "seed.txt", "seed")
       git.commit("seed").orThrow
       val _ =
-        os.proc("git", "worktree", "add", "wt", "-b", "wtb").call(cwd = dir)
+        os.proc("git", "worktree", "add", "-q", "wt", "-b", "wtb")
+          .call(cwd = dir)
       val diff = git.reviewDiff()
       assert(diff.contains("# skipped wt/: nested git repository"), diff)
 
