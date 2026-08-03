@@ -71,9 +71,13 @@ private[claude] class ClaudeConversation(
     * reports directly. A set, not a counter: the CLI emits one `assistant`
     * message per content group, several sharing one response id.
     *
-    * Counts main-loop responses only. A `Task` subagent's requests are folded
-    * into the result's token totals but emit no top-level `assistant` message,
-    * so a turn that dispatches one under-counts.
+    * A turn that dispatches a subagent counts the subagent's responses too —
+    * the CLI forwards them on this stream, even though it files them under a
+    * separate session transcript. Measured on one such turn: 53 responses
+    * counted here against 18 in the dispatching session's own transcript. Its
+    * token total is the CLI's aggregate for the whole turn and did not equal
+    * the sum of either set, so `promptTokens / apiCalls` means little on a turn
+    * like that.
     */
   private var responseIdsThisTurn: Set[String] = Set.empty
 
