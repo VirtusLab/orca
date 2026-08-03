@@ -6,9 +6,8 @@ whole review diff into each reviewer's prompt, or hand over *coordinates* (a
 base commit, a branch, a file list) and let each reviewer run whatever commands
 it needs at its own discretion?
 
-The coordinates idea was raised as an instinct, with an explicit invitation to
-refute it. Method: source reading, measurement over the Claude Code transcripts
-of eight recorded runs, a live CLI probe, and scratch-repo experiments; then an
+Method: source reading, measurement over the Claude Code transcripts of eight
+recorded runs, a live CLI probe, and scratch-repo experiments; then an
 adversarial critique pass that overturned parts of the first analysis. Where the
 two disagree the critique is authoritative, and the correction is recorded
 inline.
@@ -81,11 +80,11 @@ Reviewers are built `.withReadOnly` (`review/Reviewers.scala:139-147`).
 | opencode | `"bash": false` | `OpencodeArgs.scala:84-90` | **no** |
 | gemini | `--approval-mode plan` | `GeminiArgs.scala:78` | untested |
 
-### Why claude reviewers run git — and why that is not a foundation
+### Why claude reviewers run git, and why nothing should be built on it
 
 The first analysis concluded "plan mode simply permits shell reads". The second
 concluded orca auto-approves the prompt plan mode raises. **Both are wrong**, and
-the true mechanism matters, because it is the one orca has no lever on.
+the real mechanism matters, because orca has no control over it.
 
 What is measured, in the baseline run: ten reviewer sessions, every one recording
 `permissionMode: plan`, issuing **199 `Bash` calls with zero permission
@@ -132,8 +131,8 @@ not on opus. Whatever decides that lives inside the CLI.
 **This makes the finding more serious, not less.** An `autoApprove` explanation
 would have located the defect in orca, where a one-line change fixes it. The
 measured explanation locates it in the backend, behind a flag orca passes and a
-model orca selects, with no orca-side control at all — and it means the
-enforcement claim is not merely mis-specified but unenforceable by orca.
+model orca selects, with no orca-side control at all. The enforcement claim is
+not just mis-specified; orca cannot enforce it.
 
 Two consequences:
 
@@ -159,9 +158,9 @@ Two consequences:
 2. **pi and opencode have no shell at all**, and no control-channel escape
    exists. Coordinates-only is simply unimplementable there.
 
-The asymmetry that makes the opposite choice safe: **`Read` is available on every
-read-only tier.** Anything orca puts in a file, every reviewer can get; anything
-orca expects a reviewer to *compute*, only some can.
+**`Read` is available on every read-only tier**, which is what makes the opposite
+choice safe. Anything orca puts in a file, every reviewer can get; anything orca
+expects a reviewer to *compute*, only some can.
 
 ---
 
@@ -196,7 +195,7 @@ Per round, withholding the diff costs **+32% turns, +27% tool calls, 3× the git
 calls**. Per session the gap is larger (+82% turns) because diffless sessions
 also ran **38% more rounds** — plausibly because blind reviews are worse, but
 confounded (different tasks per arm). The per-round figures are the conservative
-ones and the honest headline.
+ones, and the ones to quote.
 
 > **Two corrections to the first analysis.** (a) It reported "round 1 = 32.6
 > tool calls, round 2 = 28.0". Those were whole-**session** totals divided by
@@ -241,8 +240,7 @@ dominated by the implementer at 213k.
 fetched diff arrives as a `tool_result`, is cache-written once and cache-read
 thereafter — identically to an inlined one. The tokens are a wash. What
 coordinates add is one assistant turn per fetch, plus the `status`/`log`/`--stat`
-probes that precede it. Stating it as "the tokens land anyway" invites a correct
-rebuttal; the delta is turns.
+probes that precede it.
 
 Coordinates could only win by fetching *less* than the whole change — exactly
 what `initial-review.md:3-5` forbids ("Review the following changes only … Focus
@@ -256,7 +254,8 @@ baseline run is **$26.16**, against a $44.64 run. Treat $2.50 as an unsourced
 placeholder. (The same plan already revised one estimate down 7× on
 measurement — T4.1.)
 
-*These figures do not tile, and should not be presented as if they did.* $26.16
+*These figures are not the same quantity, and should not be added as if they
+were.* $26.16
 is an estimate at the `claude-opus-5` card rates above, reconstructed from
 transcripts; $44.64 and $42.36 are the CLI's own billed totals. The plan's
 implementer figure is quoted as "$18.17 of $42.36"
@@ -289,11 +288,10 @@ top of a measured 32.7k preamble — several times a 200k context window.
 
 What happens then is **unverified**. Orca has no *handling* for it: nothing
 inspects an error for an oversized-prompt signature, and nothing splits, spills
-or retries smaller. But orca is not unaware of the failure — an earlier grep for
-`prompt is too long` returned nothing only because it was case-sensitive.
-`AgentCall.scala:289` names "Prompt is too long" as the case its error
-attribution exists to make actionable, and `DefaultClaudeAgent.scala:77` names
-it too. So: no handling, but not an unanticipated failure.
+or retries smaller. But the case is named in the code: `AgentCall.scala:289`
+calls out "Prompt is too long" as what its error attribution exists to make
+actionable, and `DefaultClaudeAgent.scala:77` names it too. So: no handling, but
+not an unanticipated failure.
 
 The retry ladder does **not** multiply the cost on claude. `AgentCall.scala:281-283`
 retries everything *except* `AgentTurnFailed`, and an error at the API boundary
@@ -315,7 +313,7 @@ a savings lever; it is a safety valve against a request that cannot be sent.
 | `flow/src/main/scala/orca/review/Lint.scala:78-102` | all-or-nothing spill to `.orca/cache/` | 8 KiB |
 | `flows/review.sc:47,123,196-209` | always spill, prompt points at the file | — |
 
-`CommitDiff` is the decisive one. Its scaladoc (`:38-40`) states precisely the
+`CommitDiff` is the one to reuse. Its scaladoc (`:38-40`) states precisely the
 invariant T2.4's done-when asks for: *"The summaries go first because they name
 every changed file, which a truncated diff head does not."* It already handles
 budget splitting, surrogate-safe cutting, and cutting path lists only between
@@ -323,8 +321,8 @@ entries. **The first analysis proposed a fourth implementation of this; that is
 rejected** — AGENTS.md's "one decision, one home" (lines 277-279) applies
 directly.
 
-`flows/review.sc` is also load-bearing evidence: it ships the diff-on-disk design
-with the comment *"reading the diff off disk, since a read-only reviewer cannot
+`flows/review.sc` is evidence too: it ships the diff-on-disk design with the
+comment *"reading the diff off disk, since a read-only reviewer cannot
 produce one"*. The repo has already concluded, in shipped code, that reviewers
 cannot be asked to produce their own diff.
 
@@ -371,8 +369,7 @@ a strictly larger payload.
 
 ### Position
 
-The instinct **does not hold up as stated**, and holds up in a form nobody
-proposed.
+The instinct **does not hold up as stated**. It holds up in a different form.
 
 It is a reasonable instinct — it assumes a tool call is roughly free and that the
 agent knows best what it needs. Neither holds: a reviewer's tool call is a turn
@@ -489,7 +486,7 @@ Two residual disagreements, both narrower than the original one:
 - #72's `TooLarge` path derives its file list from `ReviewLoop.extractChangedFiles`,
   which this document shows is blind to binary changes and 100 %-similarity
   renames and mis-parses paths containing spaces (§8, below). That puts the
-  buggy parser on the load-bearing path for exactly the large change sets the
+  buggy parser on the path that handles exactly the large change sets the
   threshold exists for. T2.4-a's `--numstat -z` fix should land before or with
   it.
 
@@ -499,7 +496,7 @@ Preferred, in order:
    those files, through the same bounded renderer.
 2. Failing that, send the numstat summary **plus the base SHA** and let a
    shell-capable reviewer fetch what it needs. This *is* the owner's design, and
-   at round ≥2 it is genuinely competitive — small payload, fetch only on demand.
+   at round ≥2 it is competitive — small payload, fetch only on demand.
    Its defect is that pi/opencode reviewers still cannot act on it, which the
    numstat summary partly mitigates.
 
