@@ -83,34 +83,15 @@ Reviewers are built `.withReadOnly` (`review/Reviewers.scala:139-147`).
 
 ### Why claude reviewers run git — and why that is not a foundation
 
-The first analysis concluded "plan mode simply permits shell reads". That is
-wrong, and the true mechanism matters.
+The first analysis concluded "plan mode simply permits shell reads". The second
+concluded orca auto-approves the prompt plan mode raises. **Both are wrong**, and
+the true mechanism matters, because it is the one orca has no lever on.
 
-A live probe (claude 2.1.220) shows plan mode **blocking** Bash pending
-permission, even for a pure read — a bare `claude -p` has nobody to answer, so
-the command never runs:
-
-```
-$ claude -p --permission-mode plan --model claude-haiku-4-5 \
-    "Run exactly this with the Bash tool and show me its output: git --version"
-The permission system is blocking this. You need to approve the Bash command.
-Once you do, I'll run `git --version` and show you the output.
-```
-
-Orca answers that prompt automatically:
-
-- `Agent.withReadOnly` sets only `tools`; it does not touch `autoApprove`
-  (`tools/src/main/scala/orca/agents/Agent.scala:119`).
-- `AgentConfig.autoApprove` defaults to `AutoApprove.All`
-  (`agents/AgentConfig.scala:21`).
-- `ClaudeConversation.handleControlRequest` replies `Allow()` whenever
-  `autoApproves(name)`, unconditionally `true` under `All`
-  (`claude/.../ClaudeConversation.scala:243-259`).
-
-So claude reviewers get a shell because orca auto-approves the prompt plan mode
-raises. Measured in the baseline run: ten reviewer sessions, every one recording
-`permissionMode: plan`, issuing **199 Bash calls with zero `is_error`** —
-including one which ran
+What is measured, in the baseline run: ten reviewer sessions, every one recording
+`permissionMode: plan`, issuing **199 `Bash` calls with zero permission
+denials**. Two of the 199 carry `is_error`, and neither is a denial — both are
+`rtk: search failed` from the operator's shell wrapper. No `control_request`
+frame appears in any of the ten transcripts. One session ran
 
 ```
 cd /tmp && cat > dtest.scala <<'EOF' … EOF
@@ -120,24 +101,62 @@ scala-cli run --scala 3.8.4 dtest.scala
 — a file **write** and arbitrary program execution from a nominally read-only
 reviewer.
 
-Three consequences:
+**It is not `autoApprove`.** That explanation requires orca to answer a
+permission prompt, and orca cannot: `ClaudeBackend` closes stdin immediately
+after writing the opening turn (`ClaudeBackend.scala:221`), and
+`ClaudeConversation.respond` (`:278-285`) writes its decision — `Allow()` or
+`Deny` alike — to that same closed stream. There is no channel to answer on. The
+absence of any `control_request` frame in the transcripts is the corroborating
+observation: no prompt was ever raised, so none had to be answered.
 
-1. **A coordinates design on claude would rest on a defect.** `AGENTS.md`'s
-   enforcement matrix and `EnforcementTableTest` record claude `ReadOnly` as
-   `Hard`; `ClaudeArgs.scala:102-104` claims plan mode "makes Edit/Write/Bash
-   unavailable"; `ReviewerSelector.scala:84-85` claims "claude's plan mode
-   doesn't [run commands]". The tests pin only the flag string
-   (`ClaudeArgsTest.scala:97-133`), never the behaviour. If anyone makes
-   `withReadOnly` narrow `autoApprove` — which the documentation says it already
-   does — every coordinates-only reviewer on claude goes blind in that commit.
-2. **This is a finding in its own right**, larger than T2.4 and deserving its own
-   ticket: a reviewer can write files and execute programs in the flow's tree.
-   Under this repo's trusted-but-fallible threat model it is a *correctness*
-   problem — a reviewer that edits mid-review invalidates the fixer's accounting
-   and the loop's convergence argument. It also falsifies the
-   `("claude", ReadOnly, *) → Hard` row and `AgentConfig.autoApprove`'s scaladoc
-   claim that the field is "only meaningful … when `tools` is `ToolSet.Full`".
-3. **pi and opencode have no shell at all**, and no control-channel escape
+**It is a CLI-side plan-mode gate that varies by model.** The probe that showed
+plan mode blocking Bash ran `--model claude-haiku-4-5`, while every session in
+the fleet ran `claude-opus-5`. Re-probed on 2.1.220, with a bare `claude -p` that
+has nobody to answer either way:
+
+```
+$ claude -p --permission-mode plan --model claude-haiku-4-5 \
+    "Run exactly this with the Bash tool and show me its output: git --version"
+The Bash tool needs your permission to run the command. Please approve it to
+proceed.
+
+$ claude -p --permission-mode plan --model claude-opus-5 \
+    "Run exactly this with the Bash tool and show me its output: git --version"
+Output:
+git version 2.53.0
+```
+
+Same flag, same CLI build, same absent approver; the gate holds on haiku and does
+not on opus. Whatever decides that lives inside the CLI.
+
+**This makes the finding more serious, not less.** An `autoApprove` explanation
+would have located the defect in orca, where a one-line change fixes it. The
+measured explanation locates it in the backend, behind a flag orca passes and a
+model orca selects, with no orca-side control at all — and it means the
+enforcement claim is not merely mis-specified but unenforceable by orca.
+
+Two consequences:
+
+1. **This is a finding in its own right**, larger than T2.4 and deserving its own
+   ticket: under `--permission-mode plan` on opus, a reviewer can write files and
+   execute programs. Under this repo's trusted-but-fallible threat model it is a
+   *correctness* problem — a reviewer that edits mid-review invalidates the
+   fixer's accounting and the loop's convergence argument. **It falsifies the
+   `("claude", ReadOnly, *) → Hard` row**: `AGENTS.md:170` records `Hard`,
+   defined at `:163-164` as "mechanically blocked: permission mode / sandbox /
+   allowlist", and `EnforcementTableTest.scala:47` machine-checks it. Reviewers
+   ran 199 `Bash` calls under `permissionMode: plan`, so the documented
+   guarantee is false. `ClaudeArgs.scala:102-104` ("makes Edit/Write/Bash
+   unavailable") and `ReviewerSelector.scala:84-85` ("claude's plan mode
+   doesn't [run commands]") are wrong for the same reason. The tests pin only
+   the flag string (`ClaudeArgsTest.scala:97-133`), never the behaviour.
+   *`AgentConfig.autoApprove`'s scaladoc is not falsified by this*, and an
+   earlier draft that said so had elided the clauses that matter: in full it
+   reads "Only meaningful for **interactive** sessions consulted only when
+   `tools` is `ToolSet.Full` — autonomous turns have no prompt to answer." The
+   last clause is exactly what the closed stdin implements, and exactly what the
+   transcripts show.
+2. **pi and opencode have no shell at all**, and no control-channel escape
    exists. Coordinates-only is simply unimplementable there.
 
 The asymmetry that makes the opposite choice safe: **`Read` is available on every
@@ -150,8 +169,9 @@ orca expects a reviewer to *compute*, only some can.
 
 Before #59, reviewers whose work was already committed received the literal
 `"(no diff captured — review the working tree)"` and reconstructed the change set
-by hand. 88 reviewer sessions of that are on disk alongside sessions that did get
-a diff — a natural experiment in the variable under question.
+by hand. 88 reviewer sessions are on disk in total — **64 that got an inline
+diff and 24 that got the fallback** — a natural experiment in the variable under
+question.
 
 Method: every Claude Code transcript for this project whose first user message
 carries the `initial-review.md` signature, joined to the run manifests by
@@ -182,12 +202,27 @@ ones and the honest headline.
 > tool calls, round 2 = 28.0". Those were whole-**session** totals divided by
 > session count and mislabelled as rounds — each transcript spans ~5 rounds.
 > Withdrawn; the correct per-round split is round 1 ≈ 10.3, round 2 ≈ 9.3,
-> rounds ≥3 ≈ 3.35 tool calls per reviewer. (b) An earlier pass deduplicated by
-> `message.id`; assistant records repeat that id with *different* content
-> (streaming partials), so it silently drops blocks — 39 Bash calls instead of
-> 199. Deduplicate by `tool_use` block id: those are unique
-> (`by_tool_use_id == raw == 303`). Any figure derived by message-id dedup
-> should be re-derived.
+> rounds ≥3 ≈ 3.35 tool calls per reviewer. (b) An earlier pass counted **tool
+> calls** deduplicated by `message.id`; assistant records repeat that id with
+> *different* content (streaming partials), so it silently drops blocks — 39
+> Bash calls instead of 199. Deduplicate **tool calls** by `tool_use` block id:
+> those are unique (`by_tool_use_id == raw == 303`).
+>
+> **The withdrawal in (b) applies to tool-call counts only.** Message-id dedup
+> is the *correct* key for per-message `usage`, which is repeated identically on
+> every content block of a message and would roughly triple if summed per block.
+> The token figures immediately below depend on it and stand: 270 non-zero
+> assistant messages out of 300 distinct ids, mean prefix 69,948, median 66,045,
+> max 123,615, cold start 32,658. Re-deriving those by block id would make them
+> wrong, not right.
+
+**Reconciliation with T2.5 (#65).** #65's per-round table reads 11.3 / 10.3 /
+4.35 against the 10.3 / 9.3 / 3.35 above — exactly 1.00 higher in all three
+rounds, because #65 counts the mandatory `StructuredOutput` call and this
+document excludes it. Its rows sum to 303 blocks (199 `Bash`, 63 `Read`, 40
+`StructuredOutput`, 1 `Skill`); these sum to 263 = 303 − 40, one per round. Same
+measurement, different inclusion choice — not a disagreement, and #65's table is
+not affected by the withdrawal above.
 
 ### The arithmetic
 
@@ -216,11 +251,20 @@ your findings strictly on what the diff modifies").
 ### On the "~$2.50/run" figure
 
 `00-research-plan.md:66` estimates the diffless rediscovery at ~$2.50/run with no
-derivation; it is labelled "Estimated". Measured reviewer spend in the baseline
-run is **$26.16 — 59% of the $44.64 run** — reconciling with the plan's
-independently derived implementer figure ($18.17). Treat $2.50 as an unsourced
+derivation; it is labelled "Estimated". Reconstructed reviewer spend in the
+baseline run is **$26.16**, against a $44.64 run. Treat $2.50 as an unsourced
 placeholder. (The same plan already revised one estimate down 7× on
 measurement — T4.1.)
+
+*These figures do not tile, and should not be presented as if they did.* $26.16
+is an estimate at the `claude-opus-5` card rates above, reconstructed from
+transcripts; $44.64 and $42.36 are the CLI's own billed totals. The plan's
+implementer figure is quoted as "$18.17 of $42.36"
+(`00-research-plan.md:71`), and $26.16 + $18.17 = $44.33 — **104.7% of that
+$42.36**. Reviewer and implementer are the two large consumers, so the two
+numbers landing near the run total is a sanity check that the reconstruction is
+the right order of magnitude. It is not a reconciliation, and nothing here
+should be read as accounting for the run.
 
 ---
 
@@ -243,11 +287,20 @@ The distribution is bimodal in consequence: the median change is trivially
 inlinable, the top 1% cannot be inlined at all. The maximum is ~526k tokens on
 top of a measured 32.7k preamble — several times a 200k context window.
 
-What happens then is **unverified**: a grep for `prompt is too long`,
-`context_length`, `too_long` across `claude/src/main` and `tools/src/main`
-returns nothing, so orca has no handling; and `AgentCall`'s retry ladder
-(`AgentCall.scala:279-283`) retries everything except `AgentTurnFailed`, so an
-oversized prompt could be paid for up to four times.
+What happens then is **unverified**. Orca has no *handling* for it: nothing
+inspects an error for an oversized-prompt signature, and nothing splits, spills
+or retries smaller. But orca is not unaware of the failure — an earlier grep for
+`prompt is too long` returned nothing only because it was case-sensitive.
+`AgentCall.scala:289` names "Prompt is too long" as the case its error
+attribution exists to make actionable, and `DefaultClaudeAgent.scala:77` names
+it too. So: no handling, but not an unanticipated failure.
+
+The retry ladder does **not** multiply the cost on claude. `AgentCall.scala:281-283`
+retries everything *except* `AgentTurnFailed`, and an error at the API boundary
+arrives as exactly that — `ClaudeConversation.scala:232` builds an
+`AgentTurnFailed` from a failed `result` frame. So an oversized prompt on claude
+is paid once and fails, not paid four times. (Whether every backend surfaces the
+condition as `AgentTurnFailed` was not checked; on claude it does.)
 
 **This, not cost, is the case for a cap.** A cap firing on ~4% of changes is not
 a savings lever; it is a safety valve against a request that cannot be sent.
@@ -293,8 +346,8 @@ Under **every shipped selector** the round-N active set is a subset of round 1's
 
 That is a correctness bug: the resumed reviewer falls back to its own
 `git diff HEAD`, empty once the work is committed, which reads as "nothing
-changed". Being fixed independently; it matters here because it decides what the
-re-review path should carry (§8).
+changed". Being fixed independently, in #72; it matters here because it decides
+what the re-review path should carry (§8).
 
 ---
 
@@ -406,12 +459,39 @@ failure mode, and scales with roster size.
 
 ### Composition with the resumed-reviewer fix
 
-For round 1 nothing above changes. For later rounds, **do not re-send the whole
-change set** — that was the first analysis's proposal and it is its weakest part.
-A new user message on a live session is a fresh cache write at $10/M *and*
-permanently enlarges the prefix every later turn re-reads: a 6k-token diff to 10
-reviewers over 4 extra rounds is ~240k tokens of writes ≈ **$2.40**, against
-$0.60 to send it once — comparable to the entire saving this epic claims.
+For round 1 nothing above changes. For later rounds the concern is amplification:
+a new user message on a live session is a fresh cache write at $10/M *and*
+permanently enlarges the prefix every later turn re-reads. Sizing it at the
+median change set this document measured — 6,196 B, ~1.5k tokens — sending it to
+10 reviewers over 4 extra rounds is ~62k tokens of writes ≈ **$0.62**, against
+~$0.15 to send it once. At the p90 (46,700 B, ~11.7k tokens) the same arithmetic
+gives ~$4.68 against ~$1.17.
+
+*An earlier draft put this at "a 6k-token diff … ~240k writes ≈ $2.40" with no
+stated basis; 6k tokens is roughly the p80 change set, not the median. Corrected
+above, with the percentile named.*
+
+**This is largely addressed by #72 as it now stands.** That PR classifies each
+round's sample against what the reviewer was last **sent**
+(`SessionEntry.lastDiff`, `ReReviewChanges.of`): byte-identical → nothing is
+sent, above a 16 KiB inline threshold → the changed paths only, otherwise the
+diff. So the unbounded re-send this section was written against no longer
+exists, and the worst case is bounded at ~4k tokens per reviewer per round
+(~$1.60 over the 10 × 4 shape above) rather than growing with the change set.
+
+Two residual disagreements, both narrower than the original one:
+
+- #72 re-sends the **whole** change set whenever it changed, not the increment
+  since that reviewer last ran. At the median that is ~$0.62 against ~$0.16 for
+  the increment — real but small, and #72 defers the increment deliberately
+  rather than rejecting it. This section's preference below stands as the next
+  step, not as an objection to #72.
+- #72's `TooLarge` path derives its file list from `ReviewLoop.extractChangedFiles`,
+  which this document shows is blind to binary changes and 100 %-similarity
+  renames and mis-parses paths containing spaces (§8, below). That puts the
+  buggy parser on the load-bearing path for exactly the large change sets the
+  threshold exists for. T2.4-a's `--numstat -z` fix should land before or with
+  it.
 
 Preferred, in order:
 
@@ -428,6 +508,11 @@ round-*N−1* tree, `ReviewLoopState` (`:166-171`) keeps no diff, and ADR 0018 �
 forbids the loop committing. The cheap fix needs no git — store the previous
 round's per-file numstat in `ReviewLoopState` and send only the files whose
 counts moved. Pure immutable data through the existing state record.
+
+*#72 has since built that storage:* `SessionEntry.lastDiff` records, per
+reviewer, the change set it was last sent. The increment therefore needs a
+comparison rather than new plumbing — swap the stored diff text for the numstat
+and diff the two maps.
 
 On whether an increment can be unbounded: `formatCommands` runs before every
 round (`:562`) and this repo's setting is `format = sbt scalafmt`, which formats
@@ -455,5 +540,9 @@ requirement.
    exercised by a real run. Every token figure here comes from Claude Code
    transcripts joined to manifests by `wireId`.
 5. **The permission-bypass finding (§2) is not fully scoped.** It was established
-   for claude; whether codex/gemini/opencode/pi have an analogous gap between
-   documented and actual enforcement was not checked.
+   for claude on `claude-opus-5`, and shown *not* to hold on `claude-haiku-4-5`
+   at the same CLI build and flag. Which models gate and which do not, whether
+   the boundary is stable across CLI releases, and whether
+   codex/gemini/opencode/pi have an analogous gap between documented and actual
+   enforcement, were all not checked. The `Hard` row is falsified either way —
+   one counterexample is enough — but the shape of the gate is unknown.
