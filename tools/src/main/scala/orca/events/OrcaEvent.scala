@@ -43,11 +43,11 @@ enum OrcaEvent:
     *     review loop's `Some("reviewer")`, via `withRole`). `None` for an
     *     ordinary call. Purely a grouping/display hint.
     *
-    * `attempt` is this turn's 1-based position among the turns ONE call
-    * produced: `2`+ means a retry re-sent the prompt and billed again. It
-    * counts turns, not tries — an attempt that failed before the model ran
-    * emits nothing, so it never inflates the next one's index. Emission sites
-    * that don't retry leave it at the default.
+    * `attempt` is this turn's 1-based position among the turns of a single
+    * call: 2 or more means a retry re-sent the prompt and paid for it again. It
+    * counts turns, not tries — an attempt that fails before the model runs
+    * emits no event, so it doesn't shift the index of the turn that follows.
+    * Emission sites that never retry leave the default.
     */
   case TokensUsed(
       agent: String,

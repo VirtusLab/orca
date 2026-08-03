@@ -104,9 +104,9 @@ private[orca] object ManifestCostSummary:
   * to zero when a terminal frame omits them, and claude takes its cost from a
   * separate field — so a zero-token turn can still carry a reported cost.
   *
-  * `attempt` is the turn's 1-based position among the turns its call produced
-  * (see [[orca.events.OrcaEvent.TokensUsed]]), so the spend of turns with
-  * `attempt > 1` is what retries added to the run.
+  * `attempt` is the turn's 1-based position among the turns of its call (see
+  * [[orca.events.OrcaEvent.TokensUsed]]); turns with `attempt > 1` are what
+  * retries added to the run's spend.
   *
   * `at` is stamped when the writer records the turn, not when the tokens were
   * spent: the event crosses an actor mailbox first.

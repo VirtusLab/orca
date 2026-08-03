@@ -39,9 +39,9 @@ private[review] enum LoopStep:
   case NeedsFix
 
 /** How many fix attempts [[fixLoop]] and [[reviewAndFixLoop]] allow before
-  * bailing out. Named once so the two cannot drift apart, and public because
-  * the shipped flows state the number at their call sites rather than
-  * inheriting it — their agreement with this value is asserted, not assumed.
+  * giving up. Named once so the two can't drift apart. Public because the
+  * shipped flows pass the number at their call sites instead of inheriting it,
+  * and a test checks those numbers against this one.
   */
 val DefaultMaxIterations: Int = 3
 
@@ -69,10 +69,9 @@ private[review] def stopPolicy(
     )
   else LoopStep.NeedsFix
 
-/** The cap exit's message, naming what it leaves open. Callers routinely
-  * discard the returned [[IgnoredIssues]] — every shipped flow does — so
-  * without the titles here a cap that bound too early leaves no trace a reader
-  * of the run can act on.
+/** The message shown when the loop gives up at the cap, listing the issues left
+  * open. Every shipped flow discards the returned [[IgnoredIssues]], so this
+  * message is the only place a too-low cap shows up in a run.
   */
 private[review] def capExitMessage(
     maxIterations: Int,
@@ -301,9 +300,9 @@ def reviewAndFixLoop[B <: BackendTag](
       * [[ConfidenceGate]] for why the bar varies by severity.
       */
     confidenceGate: ConfidenceGate = ConfidenceGate.default,
-    /** Fix attempts before the loop bails out, folding whatever is still open
-      * into the returned [[IgnoredIssues]]. Counts fixes, not evaluations: the
-      * default of 3 runs up to four review rounds.
+    /** How many fix attempts before the loop gives up, folding whatever is
+      * still open into the returned [[IgnoredIssues]]. Counts fixes, not
+      * evaluations: the default of 3 allows up to four review rounds.
       */
     maxIterations: Int = DefaultMaxIterations,
     fixInstructions: String = ReviewLoopPrompts.Fix,

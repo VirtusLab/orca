@@ -209,11 +209,11 @@ class DefaultAgentCall[B <: BackendTag, O](
     // re-executes sequentially — never concurrently.
     var lastFailure: Option[FailedAttempt] = None
 
-    // Counts turns EMITTED by this call, not attempts entered: an attempt that
-    // dies before the model runs (a pre-spawn open failure, retried below)
-    // reports no turn, so counting on entry would tag the eventual turn as a
-    // retry of spend that never happened. Same sequential-write contract as
-    // `lastFailure` above.
+    // Counts the turns this call reported, not the attempts it started: an
+    // attempt that dies before the model runs (a pre-spawn open failure,
+    // retried below) reports no turn. Counting on entry would label the first
+    // turn that is actually paid for as a retry. Same sequential-write contract
+    // as `lastFailure` above.
     var turnsRecorded = 0
 
     def recordTurn(model: Option[Model], usage: Usage): Unit =
