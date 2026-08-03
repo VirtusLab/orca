@@ -157,13 +157,20 @@ private case class SessionEntry[B <: BackendTag](
   * identity (`eq`).
   *
   * `lintChat` is the lint gate's summariser conversation, carried so later
-  * rounds resume rather than rebuild the prompt prefix — but ONLY while it has
-  * reported nothing. A round in which the summariser reported findings drops
-  * it, so the next round starts fresh: a conversation holding findings could
-  * repeat them on a later round whose commands no longer show them, and a
-  * phantom finding costs a fix turn and lands in the recorded
-  * [[IgnoredIssues]]. Resuming a conversation that has only ever said "nothing
-  * actionable" carries no such finding to repeat.
+  * rounds resume the session rather than re-establish it — but ONLY while it
+  * has reported nothing. A round in which the summariser reported anything,
+  * gate-admitted or not, drops it, so the next round starts fresh: a
+  * conversation holding a finding can repeat it on a later round whose commands
+  * no longer show it, and that phantom costs a fix turn and lands in the
+  * recorded [[IgnoredIssues]] as unfixed. Resuming a conversation that has only
+  * ever said "nothing actionable" carries no such finding.
+  *
+  * That bounds re-reporting rather than eliminating it: a resumed conversation
+  * still holds every earlier round's raw lint output, from which it could newly
+  * derive a finding it previously declined to make. Only the summariser prompt
+  * (`the blocks are this run's output and supersede any earlier ones`) speaks
+  * to that, and by construction the retained output is output the model already
+  * judged non-actionable.
   *
   * `gateRejects`/`lintGateRejects` hold each agent's LAST-SEEN gate rejects,
   * replaced wholesale whenever that agent runs again and retained when it
@@ -175,17 +182,28 @@ private case class SessionEntry[B <: BackendTag](
 private case class ReviewLoopState(
     history: List[ReviewBatch],
     sessions: List[SessionEntry[?]],
-    lintChat: Option[Chat[?]],
+    lintChat: Option[Lint.Summariser],
     gateRejects: List[(RosterEntry[?], List[ReviewIssue])],
     lintGateRejects: List[ReviewIssue]
 )
 private object ReviewLoopState:
-  val empty: ReviewLoopState = ReviewLoopState(Nil, Nil, None, Nil, Nil)
+  val empty: ReviewLoopState = ReviewLoopState(
+    history = Nil,
+    sessions = Nil,
+    lintChat = None,
+    gateRejects = Nil,
+    lintGateRejects = Nil
+  )
 
 /** One agent's findings split on the [[ConfidenceGate]]: `kept` goes to the
   * fixer and the display, `dropped` is recorded rather than fixed.
   */
 private case class GatedIssues(kept: ReviewResult, dropped: List[ReviewIssue])
+
+/** The lint gate this round, paired with the conversation its summary runs on,
+  * so neither can go missing without the other.
+  */
+private case class LintRound(gate: Lint, summariser: Lint.Summariser)
 
 /** One evaluation round's outcome: the issues that cleared the gate this round,
   * every gate reject still on the books (this round's plus any retained from an
@@ -396,7 +414,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
 
   /** Did this agent report anything at all — whether or not the gate admitted
     * it? What decides whether a lint summariser's conversation is safe to
-    * resume (see [[ReviewLoopState]]).
+    * resume (see [[ReviewLoopState]]). Gate-REJECTED findings count: the gate
+    * decides what reaches the fixer, not what the conversation remembers.
     */
   private def reported(gated: GatedIssues): Boolean =
     gated.kept.issues.nonEmpty || gated.dropped.nonEmpty
@@ -500,26 +519,29 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         val (result, newSession) = reviewWithSession(e, stored, currentDiff)
         AgentOutcome.Reviewer(e, applyGate(result), newSession)
 
-    // The gate and the conversation its summary runs on, paired so neither can
-    // go missing without the other. Minted outside the fork below so the next
-    // state carries the conversation even on a round that short-circuits before
-    // any turn; the mint reserves an id and contacts nothing.
-    val lintRound: Option[(Lint, Chat[?])] = config.lint.map: l =>
+    // Resolved outside the fork below so the next state carries the
+    // conversation even on a round that short-circuits before any turn; minting
+    // one reserves an id and contacts nothing.
+    val lintRound: Option[LintRound] = config.lint.map: gate =>
       val summariser = currentState.lintChat.getOrElse:
         // Group lint tokens under the same `reviewer` cost role as the
         // reviewers, under the bare identity "lint"; the tagged copy stays
         // local to this loop.
-        Lint.summariserChat(
-          l.agent.withName("lint").withRole(ReviewerPrompts.Role)
+        Lint.summariser(
+          gate.agent.withName("lint").withRole(ReviewerPrompts.Role)
         )
-      (l, summariser)
+      LintRound(gate, summariser)
 
     val lintTaskOpt: Option[() => AgentOutcome] =
-      lintRound.map: (l, summariser) =>
+      lintRound.map: r =>
         () =>
           AgentOutcome.Lint(
             applyGate(
-              lint(l.commands, summariser, ReviewLoopPrompts.SummariseLint)
+              lint(
+                r.gate.commands,
+                r.summariser,
+                ReviewLoopPrompts.SummariseLint
+              )
             )
           )
 
@@ -575,7 +597,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         history = ReviewBatch(reviewerOutcomes) :: currentState.history,
         sessions = newSessions,
         lintChat =
-          if lintGated.exists(reported) then None else lintRound.map(_._2),
+          if lintGated.exists(reported) then None
+          else lintRound.map(_.summariser),
         gateRejects = retained ++ thisRound,
         lintGateRejects =
           lintGated.map(_.dropped).getOrElse(currentState.lintGateRejects)

@@ -599,6 +599,44 @@ class ReviewAndFixTest extends munit.FunSuite:
           .map(SessionId.value)}"
     )
 
+  test("a lint summariser whose finding the gate dropped is not resumed"):
+    given FlowControl = control
+    // The gate decides what reaches the fixer, not what the conversation
+    // remembers: a sub-threshold finding is still sitting in the summariser's
+    // context to be repeated, so it retires the conversation too. A reviewer
+    // keeps the loop iterating, since the dropped finding cannot.
+    val loud = new FakeAgent(
+      name = "loud",
+      outputs = List.fill(2)(ReviewResult(List(issue("never ends"))))
+    )
+    val summariser = new FakeAgent(
+      name = "summariser",
+      // Below the default Warning bar of 0.6, so the gate drops it.
+      outputs =
+        List.fill(2)(ReviewResult(List(issue("lint-nit", confidence = 0.3))))
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(FixOutcome(List(Title("never ends")), Nil))
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(loud),
+      task = "sub-threshold lint",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      lint = Configured.Use(Lint(List("echo lint-output"), summariser)),
+      maxIterations = 1,
+      initialDiff = Some("")
+    )
+    val lintSessions = summariser.seenSessions
+    assertEquals(lintSessions.size, 2)
+    assertEquals(
+      lintSessions.distinct.size,
+      2,
+      s"a gate-dropped lint finding must still retire the session; got ${lintSessions
+          .map(SessionId.value)}"
+    )
+
   test("initialDiff is embedded in the reviewer's first prompt"):
     given FlowControl = control
     val captureReviewer =

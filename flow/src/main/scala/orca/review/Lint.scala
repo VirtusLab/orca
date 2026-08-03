@@ -48,30 +48,28 @@ private case class LintRun(command: String, exitCode: Int, output: String):
   * sources it references but must not edit.
   *
   * Each call summarises on a fresh conversation; to reuse one across calls,
-  * pass a [[Lint.summariserChat]] to the overload below.
+  * pass a [[Lint.Summariser]] to the overload below.
   */
 def lint(
     commands: List[String],
     agent: Agent[?],
     instructions: String = ReviewLoopPrompts.SummariseLint
 )(using ctx: FlowContext, ev: InStage): ReviewResult =
-  lint(commands, Lint.summariserChat(agent), instructions)
+  lint(commands, Lint.summariser(agent), instructions)
 
-/** [[lint]] against an existing summariser conversation
-  * ([[Lint.summariserChat]]) rather than a fresh one per call — for a caller
-  * running the gate several times over one stage, where resuming costs a
-  * fraction of rebuilding the prefix.
+/** [[lint]] against an existing [[Lint.Summariser]] rather than a fresh
+  * conversation per call — for a caller running the gate several times over one
+  * stage, where resuming costs a fraction of re-establishing the session.
   *
-  * A conversation that has already reported findings is NOT safe to reuse: it
-  * can repeat them on a later call whose commands no longer show them. Most
-  * linters print on success (`sbt compile` writes `[success] …`), so the
-  * silent-and-successful short-circuit does not cover this — the caller must
-  * decide when to stop reusing. `reviewAndFixLoop` drops the conversation after
-  * any round in which the summariser reported.
+  * STOP reusing a summariser once it has reported: it can repeat those findings
+  * on a later call whose commands no longer show them. The
+  * silent-and-successful short-circuit does not cover this, since most linters
+  * print on success (`sbt compile` writes `[success] …`), so the decision is
+  * the caller's. `reviewAndFixLoop` makes it — see `ReviewLoopState.lintChat`.
   */
 def lint(
     commands: List[String],
-    summariser: Chat[?],
+    summariser: Lint.Summariser,
     instructions: String
 )(using ctx: FlowContext, ev: InStage): ReviewResult =
   val runs = commands.map: command =>
@@ -84,7 +82,7 @@ def lint(
   if allClean then ReviewResult.empty
   else
     def summarise(prompt: String): ReviewResult =
-      summariser
+      summariser.chat
         .resultAs[ReviewResult]
         .autonomous
         .run(prompt, emitPrompt = false)
@@ -129,12 +127,21 @@ def lint(
 // inaccessible outside the package despite the class being public.
 // `InlineLintThreshold` stays package-private on its own member below.
 object Lint:
-  /** The read-only conversation for the [[lint]] overload taking a [[Chat]]:
-    * the summariser may verify a claim against the sources it references but
-    * must not edit.
+  /** A conversation [[lint]] may summarise into. The `private[review]`
+    * constructor makes [[summariser]] the only way to obtain one, so the
+    * read-only restriction it applies can't be bypassed by handing `lint` a
+    * write-enabled conversation — the same guarantee the agent-taking overload
+    * gets from applying `withReadOnly` itself.
     */
-  def summariserChat(agent: Agent[?]): Chat[?] =
-    agent.withReadOnly.chat()
+  final class Summariser private[review] (
+      private[review] val chat: Chat[?]
+  )
+
+  /** A fresh read-only [[Summariser]] over `agent`: it may verify a lint claim
+    * against the sources it references, but must not edit.
+    */
+  def summariser(agent: Agent[?]): Summariser =
+    new Summariser(agent.withReadOnly.chat())
 
   /** Max combined lint-output length (chars) inlined into the summariser
     * prompt; larger output spills to a file (see [[lint]]). Sized so a typical
