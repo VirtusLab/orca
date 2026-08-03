@@ -254,6 +254,18 @@ trait GitTool:
     */
   def reviewDiff(since: Option[String] = None): String
 
+  /** The paths of the change set [[reviewDiff]] renders, named rather than
+    * diffed: every tracked path git reports as changed since `since` (`since`
+    * as in [[reviewDiff]]), plus every [[untrackedPaths]] entry. `.orca/`
+    * bookkeeping is excluded; paths are relative to the tool's working
+    * directory.
+    *
+    * Named from git's path list rather than scraped from diff text, so files a
+    * diff body can't show still appear: a binary change, a 100%-similarity
+    * rename (at its new path), a deletion, and paths git would otherwise quote.
+    */
+  def changedFiles(since: Option[String] = None): List[String]
+
   /** Everything the next `commit` would include, in the three shapes a caller
     * describing it needs: the [[diffStat]] summary, the [[untrackedPaths]]
     * list, and the [[reviewDiff]] text.
@@ -572,6 +584,22 @@ private[orca] class OsGitTool(
 
   def reviewDiff(since: Option[String]): String =
     withNewFileContents(since.getOrElse("HEAD"), untrackedPaths())
+
+  // `-z` NUL-terminates each path and suppresses the C-quoting git otherwise
+  // applies to a tab, newline or non-ASCII byte in a name. `--no-relative`
+  // pins the paths root-relative, which `asWorkDirRelative` assumes: a repo
+  // setting `diff.relative` would otherwise emit them relative to `workDir`,
+  // and the translation would then hoist them out of the repo with `../`.
+  def changedFiles(since: Option[String]): List[String] =
+    val args =
+      "diff" +: "--name-only" +: "-z" +: "--no-relative" +:
+        since.getOrElse("HEAD") +: OsGitTool.wholeRepoExceptOrca
+    val tracked = git(args*)
+      .split('\u0000')
+      .toList
+      .filter(_.nonEmpty)
+      .map(asWorkDirRelative)
+    (tracked ++ untrackedPaths()).distinct
 
   def pendingChanges(): PendingChanges =
     val untracked = untrackedPaths()

@@ -223,11 +223,11 @@ object ReviewerSelector:
   /** The reviewers [[agentDriven]] offers its picker: every reviewer with no
     * `files:` pattern, plus those whose pattern matches a changed file.
     *
-    * An empty `changedFiles` means the diff didn't say which files changed —
-    * which is also what it looks like when the work under review is already
-    * committed — not that nothing changed. Every reviewer stays eligible then,
-    * and a `Step` names the file-gated ones that were kept: dropping one here
-    * removes it from the whole review and nothing downstream can put it back.
+    * An empty `changedFiles` is read as "unknown", not "nothing changed": a
+    * caller-pinned `initialDiff` can fail to name files its diff text doesn't
+    * carry. Every reviewer stays eligible then, and a `Step` names the
+    * file-gated ones that were kept: dropping one here removes it from the
+    * whole review and nothing downstream can put it back.
     */
   private def eligibleForPicker(
       all: List[RosterEntry[?]],
