@@ -118,7 +118,10 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val (ctx, _) = stagingControl()
     // `initialDiff` pins one constant for the whole loop, so round two's sample
     // is byte-identical to round one's. Re-sending it would assert the fixer's
-    // edits are inside a diff that predates them.
+    // edits are inside a diff that predates them. Deliberately past the inline
+    // threshold: equality is tested before size, so a pinned diff never reaches
+    // the path-listing branch either — which is what lets that branch name its
+    // paths from git rather than from the pinned text.
     val reviewer = new FakeAgent(
       "r",
       outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
@@ -134,7 +137,11 @@ class ReviewChangeSetTest extends munit.FunSuite:
         reviewers = List(reviewer),
         task = "build the widget",
         reviewerSelection = ReviewerSelector.allEveryRound,
-        initialDiff = Some("+++ b/pinned.scala\n+object Pinned")
+        initialDiff = Some(
+          "+++ b/pinned.scala\n" + (1 to 3000)
+            .map(i => s"+// line $i")
+            .mkString("\n")
+        )
       )
     val resumePrompt = reviewer.seenPrompts
       .lift(1)

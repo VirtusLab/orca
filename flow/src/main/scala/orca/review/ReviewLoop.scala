@@ -413,10 +413,11 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   private def reviewWithSession(
       e: RosterEntry[?],
       stored: Option[SessionEntry[?]],
-      currentDiff: String
+      currentDiff: String,
+      currentPaths: List[String]
   ): (ReviewResult, Option[SessionEntry[?]]) =
     stored match
-      case Some(se) => resumeReview(se, currentDiff)
+      case Some(se) => resumeReview(se, currentDiff, currentPaths)
       case None     => firstReview(e, currentDiff)
 
   /** Resume a reviewer's existing session, sending only what is new to it since
@@ -426,9 +427,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     */
   private def resumeReview[B <: BackendTag](
       se: SessionEntry[B],
-      currentDiff: String
+      currentDiff: String,
+      currentPaths: List[String]
   ): (ReviewResult, Option[SessionEntry[?]]) =
-    val changes = ReReviewChanges.of(se.lastDiff, currentDiff)
+    val changes = ReReviewChanges.of(se.lastDiff, currentDiff, currentPaths)
     val result =
       se.chat
         .resultAs[ReviewResult]
@@ -502,11 +504,22 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // empty diff reads as "nothing changed", so it reports clean without seeing
     // the fix.
     val currentDiff = if active.isEmpty then "" else sampleDiff()
+    // Names for the over-threshold case, from git rather than scraped from the
+    // diff body — which cannot see a binary change or a pure rename. Sampled
+    // here, beside the diff and on the collecting thread, so the fan-out
+    // receives plain data. Only a sampled diff can reach that case, so querying
+    // the tree answers the same question the diff does (see
+    // [[ReReviewChanges.of]]).
+    val currentPaths =
+      if initialDiff.isEmpty && currentDiff.length > ReReviewChanges.InlineThreshold
+      then ctx.git.changedFiles(reviewBase)
+      else Nil
 
     val reviewerTasks: List[() => AgentOutcome] = active.map: e =>
       val stored = storedFor(e)
       () =>
-        val (result, newSession) = reviewWithSession(e, stored, currentDiff)
+        val (result, newSession) =
+          reviewWithSession(e, stored, currentDiff, currentPaths)
         AgentOutcome.Reviewer(e, applyGate(result), newSession)
 
     val lintTaskOpt: Option[() => AgentOutcome] =
