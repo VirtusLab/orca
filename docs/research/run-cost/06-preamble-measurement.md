@@ -486,3 +486,26 @@ larger diff would push the exploration calls up and the preamble share down.
 > manifest and CLI transcripts were written to a clone outside the tree and are
 > not committed here or attached to any PR. The figures above are reported as
 > measured because they were, not because a reader can re-derive them.
+
+### The correction owed to `00-research-plan.md` topic 4
+
+That file is not on this branch — it exists only as an uncommitted file in the
+working tree — so the correction is recorded here for whoever holds it. Topic 4
+currently reads "Across 340 turns that is 11.0M tokens — **30% of all prompt
+traffic, ~$5.50**". What survives and what does not:
+
+- **~32.4k per session holds.** Three independent measurements land within 1%.
+- **11.0M and 30% do not.** They assume one API call per turn, and the preamble
+  is paid per call. Measured turns averaged 2.2 calls in the first run and 9.4
+  in the second, so the multiplication is not the way to compute it — at 9.4 it
+  exceeds that baseline's whole prompt traffic.
+- **The share is the recoverable quantity**, and it measures 46.7% (§5) and
+  53.5% (§9) in the two runs where it was measured: about half of all prompt
+  traffic, not 30%.
+- **The absolute 11.0M stays unrecoverable.** That baseline's per-turn call
+  counts were never recorded, and the manifest only carries `apiCalls` from PR
+  #77 onward.
+- **The skill half of the question is weaker than it assumes.** Topic 4 rests
+  partly on "the 18k-char `direct-style-scala` skill that `CLAUDE.md` mandates
+  for every subagent". In two runs — including one inside this repository, with
+  the mandate in the reviewers' context — no reviewer ever loaded it.
