@@ -153,9 +153,9 @@ private[orca] class ClaudeBackend(
 
   /** Spawn `claude` in stream-json mode, write the opening user turn, close
     * stdin, and wrap the process in a live [[ClaudeConversation]]. orca sends
-    * one message per process, so stdin closes straight away — the CLI answers
-    * either way; the close is what lets it exit, the backstop that ends the
-    * reader when no result ever settles the turn.
+    * one message per process, so stdin closes straight away. The CLI answers
+    * with stdin open either way; the close is what makes it exit, which ends
+    * the reader on a turn that never settles.
     *
     * `Interactive` mode wires the MCP `ask_user` tool: stand up an
     * [[AskUserMcpServer]] on an ephemeral port, write its config at

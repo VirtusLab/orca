@@ -10,14 +10,14 @@ and resume with the typed answer. The naive routes were each blocked:
   process stdin user turns turn-by-turn, so there is no point at which the
   driver can inject an answer mid-turn.
 
-  > **Correction (claude 2.1.220).** The stronger claim this once made —
-  > that the CLI batches until EOF, so keeping stdin open makes claude wait
-  > forever — is false: measured with orca's own spawn args, the full
-  > `result` arrives with stdin still open and the process exits only after
-  > the later close. What was NOT measured is whether a *second* stdin turn
-  > is picked up mid-session, which is the part this decision actually rests
-  > on. So the premise stands as written above and the MCP choice is
-  > unaffected; only the "waits forever" reasoning is retired.
+  > **Correction (measured against claude 2.1.220).** This decision also used
+  > to say the CLI batches stdin until EOF, so keeping stdin open makes claude
+  > wait forever. That is wrong: with orca's own spawn args the full `result`
+  > arrives while stdin is still open, and the process exits only when stdin is
+  > closed later. What was not measured is whether a *second* stdin turn is
+  > picked up mid-session, and that is the part this decision rests on. The
+  > premise above and the MCP choice therefore stand; only the "waits forever"
+  > reasoning is dropped.
 - **Claude Agent SDK** has a streaming-input mode, but the SDK is
   Python/TypeScript-only — not callable from Scala without a foreign
   sidecar process.

@@ -20,8 +20,8 @@ import orca.tools.claude.streamjson.{
   * lives in [[ForkedConversation]]; this class supplies the claude-specific
   * protocol translation: NDJSON → [[InboundMessage]] → `ConversationEvent`s,
   * plus auto-approve policy for tools listed in `config.autoApprove`. The
-  * opening user turn is written by the backend; the only outbound write here is
-  * a tool-approval response, via `writeOutbound`.
+  * backend writes the opening user turn; the only outbound write here is a
+  * tool-approval response, via `writeOutbound`.
   */
 private[claude] class ClaudeConversation(
     process: PipedCliProcess,
@@ -276,14 +276,13 @@ private[claude] class ClaudeConversation(
       None // tool-use blocks, block start/stop, unhandled — driver ignores
 
   /** Answer a control request, or report that the answer can't be delivered.
-    * Stdin is closed right after the opening turn
-    * (`ClaudeBackend.openConversation`), so the write always hits a closed
-    * pipe. Reporting beats throwing: on the reader thread a raw `IOException`
-    * reads as a bogus parse failure, and on the consumer thread — the
-    * interactive `ApproveTool` closure — it escapes and fails the whole turn as
-    * `Stream Closed`, naming nothing.
+    * `ClaudeBackend.openConversation` closes stdin right after the opening
+    * turn, so the write always hits a closed pipe. The failure is reported
+    * rather than thrown: from the reader thread an `IOException` would look
+    * like a parse failure, and from the interactive `ApproveTool` closure it
+    * would fail the whole turn with a bare `Stream Closed` that names nothing.
     *
-    * Nothing reaches this today: claude 2.1.220 routes no `can_use_tool` over
+    * Nothing reaches this today: claude 2.1.220 sends no `can_use_tool` over
     * stdio. Delivering a decision would mean keeping stdin open for the turn.
     */
   private def respond(requestId: String, decision: ApprovalDecision): Unit =

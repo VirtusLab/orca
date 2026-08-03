@@ -185,14 +185,13 @@ private[pi] class PiConversation(
         replyToUiRequest(OutboundMessage.extensionUiCancelled(id))
 
   /** Answer an extension UI request, best-effort. `agent_end` closes stdin
-    * while the reader is still draining buffered lines and a human may still be
-    * typing, so either reply can land on a closed pipe — where the answer is
-    * moot anyway. Dropping it keeps a late write from failing the consumer
-    * thread, or surfacing on the reader thread as a bogus parse error.
+    * while the reader is still draining buffered lines, and a human may still
+    * be typing, so either reply can land on a closed pipe — by then the answer
+    * no longer matters. Dropping it keeps a late write from failing the
+    * consumer thread, or from showing up on the reader thread as a parse error.
     *
-    * Narrowed to `IOException`, and traced: a broken pipe from pi dying
-    * mid-turn is indistinguishable here from a moot late reply, so the drop
-    * leaves a record rather than vanishing.
+    * The drop is logged because a broken pipe from pi dying mid-turn looks the
+    * same here as a reply that arrived too late.
     */
   private def replyToUiRequest(line: String): Unit =
     try sendLine(line)

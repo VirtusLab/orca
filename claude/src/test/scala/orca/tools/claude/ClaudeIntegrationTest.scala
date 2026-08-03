@@ -112,14 +112,14 @@ class ClaudeIntegrationTest extends munit.FunSuite:
     "a read the CLI refuses is reported as a failed tool_result, never prompted over stdin"
   ):
     withBackend: backend =>
-      // `/etc/hostname` is outside the backend's workDir, which is what makes
-      // the CLI refuse it — an in-workspace read runs fine under this config,
-      // since `--allowedTools` adds to claude's defaults rather than
-      // restricting to them. The refusal is only the vehicle: what is pinned is
-      // that it comes back as a failed tool_result and NOT as a
-      // `can_use_tool` control request. Stdin is closed at spawn, so a control
-      // request could not be answered — a future CLI reviving that subchannel
-      // fails here first (see `ClaudeConversation.respond`).
+      // The CLI refuses `/etc/hostname` because it is outside the backend's
+      // workDir. A read inside the workspace runs fine under this config, since
+      // `--allowedTools` adds to claude's defaults rather than restricting to
+      // them. What is pinned is not the refusal but its shape: it arrives as a
+      // failed tool_result, not as a `can_use_tool` control request. Stdin is
+      // closed at spawn, so orca could not answer such a request — a future CLI
+      // reviving that subchannel fails here first (see
+      // `ClaudeConversation.respond`).
       val conversation = backend.runInteractive(
         prompt = "Read the file at /etc/hostname and reply with its contents.",
         session = fresh,

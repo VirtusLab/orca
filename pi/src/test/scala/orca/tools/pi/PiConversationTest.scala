@@ -280,8 +280,8 @@ class PiConversationTest extends munit.FunSuite:
     )
     process.closeStdout()
 
-    // The exact event, not merely the absence of a parse error: the line must
-    // still be handled, and handled as an unsupported request.
+    // Assert the exact event, not just the absence of a parse error: the line
+    // must still be handled, and handled as an unsupported request.
     assertEquals(
       conv.events.toList.collect { case ConversationEvent.Error(m) => m },
       List("Unsupported Pi extension UI request '': hm")

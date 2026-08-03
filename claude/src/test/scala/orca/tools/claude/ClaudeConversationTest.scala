@@ -233,9 +233,9 @@ class ClaudeConversationTest extends munit.FunSuite:
     )
     process.closeStdout()
 
-    // Auto-approved, so no ApproveTool for the channel — but the decision can't
-    // reach a closed stdin, and that is reported against its request rather
-    // than surfacing as a parse failure.
+    // Auto-approved, so no ApproveTool for the channel. The decision can't reach
+    // a closed stdin, and that is reported against its request instead of
+    // surfacing as a parse failure.
     assertEquals(
       conv.events.toList
         .collect { case ConversationEvent.Error(m) => m }
@@ -471,7 +471,7 @@ class ClaudeConversationTest extends munit.FunSuite:
     val _ = conv.awaitResult()
 
     // Each closure carries its own request id: the two undeliverable reports
-    // name req-A and req-B separately, so the closures didn't alias.
+    // name req-A and req-B separately, so the closures don't alias.
     val reported = rest.collect { case ConversationEvent.Error(m) => m }
     assert(reported.exists(_.contains("req-A")), reported)
     assert(reported.exists(_.contains("req-B")), reported)

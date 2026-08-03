@@ -31,14 +31,14 @@ trait CliProcess:
 
 /** A spawned process whose stdin / stdout / stderr are connected to pipes the
   * caller controls. The backend writes input via `writeLine` and consumes
-  * responses from `stdoutLines`; `closeStdin` signals end-of-input. Every
-  * backend closes it as soon as its one message is on the wire, but what the
-  * child makes of EOF varies, and it is never a precondition for output:
-  * `claude --print --input-format stream-json` answers a turn with stdin open
-  * (measured, claude 2.1.220) and exits on the close; codex `exec --json` and
-  * gemini take their prompt argv-side, so the close only stops them waiting on
-  * a stream they never read from (ADR 0007); opencode's `serve` is a long-lived
-  * server ended by a kill, never by EOF.
+  * responses from `stdoutLines`; `closeStdin` signals end-of-input. Each
+  * backend sends its one message and closes stdin straight away. EOF is never
+  * needed to get output; what it does differs per CLI:
+  *   - `claude --print --input-format stream-json` answers a turn with stdin
+  *     open (measured, claude 2.1.220) and exits on the close;
+  *   - codex `exec --json` and gemini read the prompt from argv, so the close
+  *     only stops them waiting on a stream they never read (ADR 0007);
+  *   - opencode's `serve` is a long-lived server, ended by a kill.
   *
   * Reads on `stdoutLines` / `stderrLines` block until a line is available or
   * the stream closes. Each iterator must be consumed by a single thread;
@@ -48,9 +48,9 @@ trait CliProcess:
 trait PipedCliProcess extends CliProcess:
 
   /** Write one line to the child's stdin and flush it. Throws
-    * `java.io.IOException` if called after [[closeStdin]] — the flush is part
-    * of the contract precisely so a write to a closed pipe surfaces here rather
-    * than sitting in a buffer.
+    * `java.io.IOException` when called after [[closeStdin]]. The flush is part
+    * of the contract so that a write to a closed pipe fails here instead of
+    * sitting in a buffer.
     */
   def writeLine(line: String): Unit
   def closeStdin(): Unit
