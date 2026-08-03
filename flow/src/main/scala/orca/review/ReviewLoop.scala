@@ -146,9 +146,9 @@ case class ReviewBatch(outcomes: List[(RosterEntry[?], ReviewResult)]):
   * tag `B`. The chat bundles the role-tagged agent with its conversation id, so
   * a resume just calls the chat again.
   *
-  * `lastDiff` is the change set this reviewer was last SENT, not the last one
-  * sampled — a resume compares against it to decide whether there is anything
-  * new to say ([[ReReviewChanges.of]]).
+  * `lastDiff` is the change set this reviewer was last sent, not the last one
+  * sampled: a resume compares against it to decide whether there is anything
+  * new to send ([[ReReviewChanges.of]]).
   */
 private case class SessionEntry[B <: BackendTag](
     entry: RosterEntry[B],
@@ -504,12 +504,11 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     // empty diff reads as "nothing changed", so it reports clean without seeing
     // the fix.
     val currentDiff = if active.isEmpty then "" else sampleDiff()
-    // Names for the over-threshold case, from git rather than scraped from the
-    // diff body — which cannot see a binary change or a pure rename. Sampled
-    // here, beside the diff and on the collecting thread, so the fan-out
-    // receives plain data. Only a sampled diff can reach that case, so querying
-    // the tree answers the same question the diff does (see
-    // [[ReReviewChanges.of]]).
+    // Paths for the over-threshold case, taken from git rather than scraped
+    // from the diff body, which can't see a binary change or a pure rename.
+    // Sampled here on the collecting thread, so the fan-out receives plain
+    // data. Only a sampled diff can reach that case, so the tree and the diff
+    // describe the same change set (see [[ReReviewChanges.of]]).
     val currentPaths =
       if initialDiff.isEmpty && currentDiff.length > ReReviewChanges.InlineThreshold
       then ctx.git.changedFiles(reviewBase)

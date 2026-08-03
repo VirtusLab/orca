@@ -79,23 +79,23 @@ object ReviewLoopPrompts:
     changes match
       case ReReviewChanges.Updated(diff) =>
         "Diff (the change set under review, re-sampled from the same baseline " +
-          "as your initial diff — it includes the fixer's edits whether or not " +
-          "it committed them). `git diff HEAD` is not this change set; it does " +
-          s"not show work already committed:\n\n${diffBlock(diff)}"
+          "as your initial diff, so it includes the fixer's edits whether or " +
+          "not they were committed). Do not use `git diff HEAD` instead — it " +
+          s"does not show work that has been committed:\n\n${diffBlock(diff)}"
       case ReReviewChanges.TooLarge(paths) =>
-        "The change set under review is too large to include here. These files " +
-          "have changed since the baseline of your initial diff — read them " +
-          "directly, and note that `git diff HEAD` does not show work already " +
-          s"committed:\n\n${paths.map("- " + _).mkString("\n")}"
+        "The change set under review is too large to include here. These " +
+          "files have changed since the baseline of your initial diff — read " +
+          "them directly. Do not use `git diff HEAD` instead — it does not " +
+          s"show work that has been committed:\n\n" +
+          paths.map("- " + _).mkString("\n")
       case ReReviewChanges.AlreadySeen =>
-        "No updated change set is available this round — the diff already in " +
-          "this conversation is the one under review. Verify against the code " +
-          "itself whether your earlier findings still stand."
+        "No new change set this round — the diff already in this conversation " +
+          "is the one under review. Check the code itself to see whether your " +
+          "earlier findings still stand."
 
-  /** The diff as a fenced block, or — when nothing could be sampled — a note
-    * that says so without implying the change set is empty. An empty sample
-    * means the loop could not describe the change, not that none was made (ADR
-    * 0011).
+  /** The diff as a fenced block, or a note when nothing could be sampled. An
+    * empty sample means the loop couldn't describe the change, not that none
+    * was made (ADR 0011), so the note has to say so.
     */
   private def diffBlock(diff: String): String =
     if diff.trim.isEmpty then
@@ -105,21 +105,19 @@ object ReviewLoopPrompts:
 
 /** What a resumed reviewer is told about the change set this round.
   *
-  * The cases exist because a resumed reviewer already holds every change set it
-  * has been sent. Re-sending one it has — which is what a pinned `initialDiff`
-  * produces every round — under text asserting it was re-sampled would tell the
-  * reviewer the fixer's edits are inside a diff that predates them, and it
-  * would re-report findings that were already addressed.
+  * A resumed reviewer already holds every change set it has been sent. Sending
+  * it the same one again, under text saying it was freshly re-sampled, would
+  * claim the fixer's edits are inside a diff that predates them, and the
+  * reviewer would re-report findings that were already fixed. A pinned
+  * `initialDiff` produces exactly that repeat.
   */
 private[review] enum ReReviewChanges:
   /** Re-sampled, and different from what this reviewer last saw. */
   case Updated(diff: String)
 
-  /** Re-sampled and changed, but past [[ReReviewChanges.InlineThreshold]]. Only
-    * the paths are sent; the reviewer reads the files itself. Bounds what one
-    * resumed conversation accumulates: the diff is re-sent every round, so an
-    * uncapped payload would grow with the round count on exactly the largest
-    * changes.
+  /** Changed, but past [[ReReviewChanges.InlineThreshold]]. Only the paths are
+    * sent and the reviewer reads the files itself, so a resumed conversation
+    * doesn't accumulate one copy of a large diff per round.
     */
   case TooLarge(paths: List[String])
 
@@ -136,12 +134,12 @@ private[review] object ReReviewChanges:
   private[review] val InlineThreshold: Int = 16 * 1024
 
   /** Classify this round's sample against what the reviewer last received.
-    * `paths` is used only past the threshold, and the caller samples it from
-    * git beside the diff — see `ReviewFixLoop.runReviewersAndLint`.
+    * `paths` is used only past the threshold; the caller samples it from git
+    * beside the diff — see `ReviewFixLoop.runReviewersAndLint`.
     *
-    * Equality is tested before size, which is what makes a pinned `initialDiff`
-    * unable to reach [[TooLarge]]: pinned samples are byte-identical every
-    * round, so a resume always classifies [[AlreadySeen]].
+    * Equality is tested before size, so a pinned `initialDiff` never reaches
+    * [[TooLarge]]: pinned samples are byte-identical every round, so a resume
+    * always classifies [[AlreadySeen]].
     */
   def of(
       previous: String,

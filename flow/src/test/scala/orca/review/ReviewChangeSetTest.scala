@@ -117,11 +117,11 @@ class ReviewChangeSetTest extends munit.FunSuite:
   test("a pinned diff is not re-sent to a resumed reviewer as a fresh sample"):
     val (ctx, _) = stagingControl()
     // `initialDiff` pins one constant for the whole loop, so round two's sample
-    // is byte-identical to round one's. Re-sending it would assert the fixer's
-    // edits are inside a diff that predates them. Deliberately past the inline
-    // threshold: equality is tested before size, so a pinned diff never reaches
-    // the path-listing branch either — which is what lets that branch name its
-    // paths from git rather than from the pinned text.
+    // is byte-identical to round one's. Re-sending it would claim the fixer's
+    // edits are inside a diff that predates them. The pinned diff is past the
+    // inline threshold on purpose: equality is tested before size, so a pinned
+    // diff never reaches the path-listing branch either, which is what lets
+    // that branch take its paths from git.
     val reviewer = new FakeAgent(
       "r",
       outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
@@ -151,8 +151,8 @@ class ReviewChangeSetTest extends munit.FunSuite:
   test("a change set too large to inline reaches a resumed reviewer as paths"):
     val (ctx, dir) = stagingControl()
     // Past the inline threshold the reviewer gets paths and opens the files
-    // itself, so one resumed conversation can't accumulate round-count copies
-    // of a large diff.
+    // itself, so a resumed conversation doesn't accumulate one copy of a large
+    // diff per round.
     val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
     val reviewer = new FakeAgent(
       "r",
