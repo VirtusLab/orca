@@ -489,12 +489,21 @@ resume is global, but the resumed context still references that directory):
 >
 > - `<id>.json` — run fields plus sessions, rewritten whole as today. The
 >   shell's file, and the only one it reads.
-> - `<id>-cost.json` — one JSON object per line, appended as the run goes. The
+> - `<id>-cost.jsonl` — one JSON object per line, appended as the run goes. The
 >   debug/measurement record. The shell must not read it; after this change the
 >   `shell` module names no cost type at all, in production **or** test code
 >   (three shell tests currently pass `ManifestCostSummary.empty` to a
 >   `RunManifest` constructor — that coupling disappearing is the acceptance
 >   signal that the split is complete).
+>
+> The `.jsonl` extension is load-bearing, not cosmetic. Both the shell's reader
+> and the writer's pruner select files with `_.ext == "json"`
+> (`ManifestReader.scala:50`, `RunManifestWriter.scala:329`), so a `-cost.json`
+> sibling would land in the shell's listing as a manifest that fails to decode —
+> one spurious warning per run, every redraw. `.jsonl` keeps that filter correct
+> without a name-pattern special case, and matches how pi's transcripts are
+> already named. The pruner, which must now see both files, selects by run id
+> instead.
 >
 > Neither file requires the other. A session manifest with no cost file is a run
 > whose turns weren't recorded; a cost file with no session manifest is a run
@@ -517,6 +526,18 @@ resume is global, but the resumed context still references that directory):
 > displayed at all: `workDir`, `pid`, `startedAt`, `outcome`. A file missing one,
 > or whose `startedAt` doesn't parse, is skipped with a warning naming it —
 > the existing behaviour for a corrupt file, now the only reason to skip one.
+>
+> **This needs a carve-out in the 0.x versioning rule.** AGENTS.md forbids
+> default values on persisted fields and forbids back-compat machinery outright,
+> with one documented exception for `ProgressLog`/`SessionRecord`. The manifest
+> becomes the second, for the same reason the first exists: this is live local
+> data that has to survive an orca upgrade, and invalidating it costs a
+> user-visible feature rather than a re-run. The carve-out is narrow —
+> defaults are permitted on the two `.orca/cache/runs/` shapes and nowhere else,
+> and only on fields added after this change; the required set above keeps its
+> no-default rule, so a call site that forgets `pid` still fails to compile.
+> AGENTS.md is edited to say so in the same change, or the next reviewer
+> correctly flags every optional field added here.
 >
 > **Existing v5 files.** Nothing is migrated and nothing is discarded: a v5
 > manifest already carries every session field at the same path, so the tolerant
@@ -550,7 +571,12 @@ resume is global, but the resumed context still references that directory):
 > **Retention.** The keep-20 prune counts run ids, not files, and deletes a run's
 > two files together — so the budget is 20 runs, as before, not 10. A run id with
 > only one of its two files present still counts as one run and is pruned the
-> same way; the missing half is not an error at any point.
+> same way; the missing half is not an error at any point. Grouping by run id is
+> what the existing filename sort cannot do once a second file per run exists:
+> `<id>.json` and `<id>-cost.jsonl` sort adjacently but as two entries, so a
+> file-counting prune would keep ten runs and, because `.jsonl` fails the `ext ==
+> "json"` filter, would delete session manifests while leaving their cost files
+> behind forever.
 >
 > **Enabled, not scheduled.** Recording each turn's `model` becomes cheap once
 > the cost file is additive, and there is a concrete question waiting for it: a
