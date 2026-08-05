@@ -43,16 +43,17 @@ class EnforcementTableTest extends munit.FunSuite:
       import AutoApprove.All
       // (backend, tools, autoApprove, expected)
       val cases: List[(String, ToolSet, AutoApprove, Enforcement)] = List(
-        // ReadOnly, * — hard no-edit on every backend.
+        // ReadOnly, * — hard no-edit everywhere except gemini, whose plan mode
+        // has never been measured against a write attempt.
         ("claude", ToolSet.ReadOnly, All, Hard),
         ("codex", ToolSet.ReadOnly, All, Hard),
-        ("gemini", ToolSet.ReadOnly, All, Hard),
+        ("gemini", ToolSet.ReadOnly, All, PromptOnly),
         ("opencode", ToolSet.ReadOnly, All, Hard),
         ("pi", ToolSet.ReadOnly, All, Hard),
         // NetworkOnly, * — codex/pi grant network via a writable shell.
         ("claude", ToolSet.NetworkOnly, All, Hard),
         ("codex", ToolSet.NetworkOnly, All, PromptOnly),
-        ("gemini", ToolSet.NetworkOnly, All, Hard),
+        ("gemini", ToolSet.NetworkOnly, All, PromptOnly),
         ("opencode", ToolSet.NetworkOnly, All, Hard),
         ("pi", ToolSet.NetworkOnly, All, PromptOnly),
         // Full, All
