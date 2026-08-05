@@ -60,7 +60,7 @@ gives an `init` list of exactly those six, plus two `mcp__…` tools (task R5).
 ### **[TODO]** R1 — Replace the mechanism
 `ClaudeArgs.scala:123`: `--permission-mode plan` → a `--tools` allowlist.
 Proposed `ReadOnly`: `Read,Grep,Glob,Skill`. Proposed `NetworkOnly`: the same
-plus `WebFetch,WebSearch`.
+plus `WebFetch,WebSearch`, and the two MCP tools settled below.
 
 Verify every name against the installed claude rather than trusting this list.
 Two things already found on 2.1.222: `TodoWrite` no longer exists (it is
@@ -78,18 +78,21 @@ from `--allowedTools` entries that are command-scoped `Bash(gh …)`
 
 - Keeping `Bash` and scoping it with `--allowedTools` does not work. The
   patterns grant; they do not confine. With `Bash(git log:*)` as the only rule,
-  `ls -la`, `wc -l`, `uname -r` and `git status --short` all ran, none matching
-  a rule and none denied (`12-…` §4). That route would end the no-edit tier and
-  buy no real scope for it.
+  `ls -la`, `wc -l` and `git status --short` all ran, none matching a rule and
+  none denied (`12-…` §4). The production `NetworkOnly` flag set behaves the
+  same way: `uname -r` and `git log` ran under it, unlisted and undenied
+  (`12-…` §5). That route would end the no-edit tier and buy no real scope.
 - The planner does not use `gh` anyway: **zero** invocations in 59 `Bash` calls
   across 6 planner sessions, every one of them `grep`, `ls`, `find` or `sed`
   (`12-…` §5). Orca already fetches issues host-side
   (`GitHubTool.readIssue`/`readIssueComments`), so the issue body reaches the
   planner through the prompt.
 - So `NetworkOnly` becomes `--tools Read,Grep,Glob,Skill,WebFetch,WebSearch`
-  plus two MCP tools over `GitHubTool` — `github_issue` and `github_pr`
-  (`12-…` §6). MCP tools pass `--tools` unfiltered and were verified callable
-  with no `Bash` in the session. The tier stays genuinely no-edit; it does not
+  plus two MCP tools — `github_issue` and `github_pr` (`12-…` §6). MCP tools
+  pass `--tools` unfiltered and were verified callable in a session with no
+  `Bash` (`12-…` §4). `github_issue` wraps `GitHubTool.readIssue`;
+  `github_pr` needs a host-side read `GitHubTool` does not have yet (it reads
+  PR comments, not the PR body). The tier stays genuinely no-edit; it does not
   drop to `PromptOnly`.
 
 *Done when:* `ClaudeArgsTest` pins the emitted flags for both tiers.
@@ -103,7 +106,7 @@ call sites; for each, what breaks without a shell:
 | `Reviewers.scala:147` | every shipped reviewer | the bet, below |
 | `ReviewerSelector.scala:149` | reviewer picker | fine — it is handed the task title, the changed file names and the reviewer descriptions; its own brief already hedges on the shell (`ReviewerSelector.scala:83-88`) |
 | `Lint.scala:144` | lint summariser | fine — it reads captured lint output and emits JSON; large output already spills to a file in `.orca/cache/` that it opens with `Read` (`Lint.scala:108-122`) |
-| `Plan.scala:223` | plan self-review | resumes the planning session, created `NetworkOnly` (`Plan.scala:179`); `gh` goes, the two GitHub MCP tools of R1 replace it — measured `gh` use is zero |
+| `Plan.scala:223` | plan self-review | resumes the planning session, created `NetworkOnly` (`Plan.scala:179`), but the turn itself runs `withReadOnly` — so under R1 it gets the reviewer surface: no `gh`, and not the planner's GitHub tools either |
 | `StackDiscovery.scala:91` | stack discovery | **unaffected** — ADR 0019:215-216 already asserts "the discovery agent's read-only toolset has no shell", and orca runs the `command -v` and evidence-file checks itself |
 | `Agent.scala:163` | `cheapOneShot` | fine — one line of text, for branch names and commit messages |
 
