@@ -470,6 +470,201 @@ resume is global, but the resumed context still references that directory):
 > checkout, within the 30-day retention) and reports "no resumable pi transcript at
 > \<dir\>" when it fails.
 
+> **Amendment (2026-08-05).** The manifest splits in two and loses its version
+> gate. The shell's menu behaviour, the session shape, and the resume table are
+> unchanged; only the file layout and the compatibility rule move. This
+> supersedes the 2026-08-03 amendment's "readers gate on an exact version match"
+> sentence.
+>
+> **Why.** Every schema bump since §8 shipped — #61, #64, #71 (v4), #77 (v5) —
+> was cost or turn work; the session half has not changed since #27. Yet the
+> shell decodes the whole file strictly behind an exact-version gate, so a purely
+> additive cost field invalidates the session data it happens to share a file
+> with, and the user loses "continue a session" for every run recorded by the
+> previous build. Second, because every write rewrites the whole file,
+> `write()` re-serialises the entire turn log and recomputes all four aggregates
+> on each of ~40 stage/session writes — O(turns × writes) for data nothing reads
+> back. The two halves have different readers, different rates of change, and
+> different write shapes, so they get different files.
+>
+> **Layout.** `.orca/cache/runs/` holds two files per run, sharing the
+> `<startedAt-epoch-ms>-<pid>` run id:
+>
+> - `<id>.json` — run fields plus sessions, rewritten whole as today. The
+>   shell's file, and the only one it reads.
+> - `<id>-cost.jsonl` — one JSON object per line, appended as the run goes. The
+>   debug/measurement record.
+>
+> The `.jsonl` extension is load-bearing, not cosmetic. The shell's reader and
+> the writer's pruner both select files with `_.ext == "json"`
+> (`ManifestReader.scala:50`, `RunManifestWriter.scala:329`), so a `-cost.json`
+> sibling would land in the shell's listing as a manifest that fails to decode —
+> one spurious warning per run, on every menu redraw and every `orca continue`.
+> `.jsonl` keeps both filters correct with no suffix special-case, is honest
+> about a file that is not a single JSON value, and matches how pi's transcripts
+> are already named.
+>
+> **What replaces the version gate.** `manifestVersion`,
+> `RunManifest.SupportedVersion` and the reader's pre-decode version check are
+> removed. Both files decode with `withRequireCollectionFields(false)`, and every
+> field added from here on is declared `Option` or given a Scala default —
+> jsoniter defaults an absent scalar only when the case class declares one, so
+> the config alone buys nothing for scalars and the declaration is what does the
+> work.
+>
+> That covers additions. It does not cover renames, retypes, or respelled wire
+> vocabulary, and one of those gets *worse*: today `ManifestSession` has no
+> defaults at all, so renaming a field is a loud decode error. Once fields carry
+> defaults, a rename reads as an unknown key skipped plus a defaulted absent key
+> — silent, and wrong in a way the user sees. Rename `sessionName` and every
+> durable lineage collapses onto the agent name in the picker, with no warning
+> anywhere. So the rule is **additive only**: no field is renamed, retyped, or
+> has its wire strings respelled; a changed meaning gets a new field beside the
+> old one. The same applies to the `outcome` and `kind` vocabularies, and to
+> `wireId`'s format — that last one is the only case where losing the gate turns
+> a missing offer into a broken action, since the shell execs `claude --resume
+> <id>` straight from it.
+>
+> **The rule needs a mechanism, and it does not have one yet.** No test in the
+> repo decodes a previous build's bytes: every fixture is either hand-built in
+> the test and edited in lockstep with the schema, or round-tripped through the
+> current case class. An implementer adding a required field would update the
+> fixtures in the same commit and see green. So this change checks in **frozen
+> golden fixtures** — a literal manifest and a literal cost log, committed as
+> test resources, never edited — that must keep decoding. Without them the
+> additive-only rule is a comment. `ManifestReaderTest`'s verbatim v2 JSON is
+> the seed for the first one; it currently exists to prove the gate skips it, and
+> inverts into proving tolerance reads it.
+>
+> **Required fields.** `workDir`, `pid`, `startedAt`, `outcome` and `sessions`
+> stay required with no default. The first four are what the shell dereferences
+> unconditionally. `sessions` is on the list for a different reason: dropping
+> `withRequireCollectionFields(true)` would let an absent array read as empty,
+> and the menu renders the count verbatim — "Continue a session from the last
+> flow run (0 session(s))", leading to an empty picker, with no warning. A file
+> missing any of the five is skipped with a warning naming it. That is not the
+> only way a listing ends early: a symlinked `.orca/cache/runs` still aborts the
+> whole listing rather than skipping a file.
+>
+> **Existing files.** Nothing is migrated and nothing is discarded. Every session
+> field has sat at the same path since #27, so v1–v5 manifests all decode under
+> the tolerant session-only schema, skipping `manifestVersion`, `cost` and
+> `turns` as unknown keys. Their cost data is lost, which is acceptable —
+> `.orca/cache/` is gitignored local cache. Note the behaviour change this
+> implies: manifests the gate currently hides become visible.
+>
+> **The cost file.** JSONL, appended a line at a time with no read-modify-write.
+> A JSON array cannot be appended to — its closing bracket makes every append a
+> rewrite, and an unterminated one is unreadable in full.
+>
+> Each line carries a `type` discriminator, so an unknown record kind is skipped
+> rather than breaking the reader — the additive rule applied to the line
+> vocabulary. Three kinds: a `"run"` header (orca version, flow, work dir),
+> `"turn"` lines, and a `"finish"` trailer carrying the outcome. The trailer is
+> what lets a cost file answer "did this run finish?" on its own; its absence is
+> the crash signal. The header duplicates three fields that also live in
+> `<id>.json` and the two could in principle disagree — accepted, because the
+> alternative is a cost file that cannot be read without its sibling, and the
+> sibling is exactly what a session-less run does not have.
+>
+> **No persisted summary.** `ManifestCostSummary` and its subtotals are dropped
+> from disk; `CostAccumulator` and `Tally` go with them. Each turn line instead
+> carries its own `ManifestUsage` (all five axes), `apiCalls`, and resolved
+> `Option[Cost]`, so total, by-role, by-agent and by-stage all become read-time
+> folds — the algebra survives, since `Usage.+` is componentwise and `Cost.+`
+> ORs `estimated`. `promptTokens` is dropped: it is `usage.inputTokens` verbatim,
+> and keeping both on one line is the same self-disagreeing duplicate this
+> paragraph exists to remove.
+>
+> A turn also carries enough session identity to stand alone. `ManifestTurn.session`
+> is today a foreign key into `RunManifest.sessions`, and it dangles exactly when
+> the sibling was never written or was pruned — so the harness, agent and session
+> name are denormalised onto the line. One more optional field each, which is
+> precisely what the additive rule makes cheap, and it is what the next question
+> below needs.
+>
+> The fold needs somewhere to live: a small `CostLog.read` ships in `runner` as
+> production code. Without it "aggregates become read-time folds" describes code
+> in nobody's repo, and two claims here — that a reader drops a bad line and
+> keeps the rest, and that the golden fixture is decoded by a test — have nothing
+> to call.
+>
+> **Creation gates.** The session manifest keeps its existing gate: it comes into
+> existence on the first `SessionCommitted`, because that gate is the only thing
+> preventing the "(0 session(s))" menu item above. The cost file gets its own,
+> on the first `TokensUsed`. They cannot share one: on the autonomous text path
+> `emitTokens` fires *before* `emitSessionCommitted`, so gating cost on the
+> session event would mean buffering turns until it opens — reintroducing the
+> in-memory turn log this change exists to remove, and discarding it entirely for
+> a `quietTextTurn`-only run.
+>
+> **Writing.** The append opens the file per line rather than holding a handle
+> for the run: a held handle survives neither the directory being replaced
+> underneath it nor `finish`, and would need a close hook on the actor. The
+> append must go through the same `safeWrite` guard as the session write —
+> `TokensUsed` handling is pure in-memory accumulation today and cannot throw,
+> and after this change it does IO on every turn; a throw out of a `tell`
+> handler closes the actor's channel and quarantines the writer for the rest of
+> the run, session writes included.
+>
+> One property is genuinely lost and is not recoverable. Because every session
+> write rewrites the whole file, a swallowed failure today is self-healing — the
+> next successful write restores complete content, which is what
+> `RunManifestWriterTest`'s rug-pull case pins. An append has no such property: a
+> swallowed append is that turn, gone. Accepted; this file is measurement, and
+> the session half keeps its atomic rewrite. The realistic torn-line source is
+> also not a kill (the kernel already has those bytes) but a short write that
+> throws mid-line, after which the next append concatenates onto an unterminated
+> line and costs two records rather than one. The writer terminates the file with
+> a newline before appending again.
+>
+> **Retention.** The keep-20 prune counts run ids, not files, and deletes a run's
+> two files together — 20 runs, as before, not 10. Grouping by run id is what the
+> existing filename sort cannot do once a second file per run exists: `<id>.json`
+> and `<id>-cost.jsonl` sort adjacently but as two entries, and since `.jsonl`
+> fails the `ext == "json"` filter a file-counting prune would delete session
+> manifests while leaving their cost files behind forever. The prune trigger also
+> moves: it fires once, on the first write of *either* file, not from inside the
+> session write — otherwise a workdir where flows keep failing before their first
+> session commit grows without bound, which is the very case this change starts
+> recording.
+>
+> One stated trade-off: a run that spends tokens without committing a session now
+> occupies a retention slot where it previously wrote nothing, so the shell's
+> listing can hold fewer than 20 *continuable* runs. Rare, and preferable to
+> unbounded growth.
+>
+> **This needs a carve-out in the 0.x versioning rule.** AGENTS.md forbids
+> default values on persisted fields and forbids back-compat machinery outright,
+> with one documented exception for `ProgressLog`/`SessionRecord`. The manifest
+> becomes the second, for the same reason the first exists: this is live local
+> data that has to survive an orca upgrade, and invalidating it costs a
+> user-visible feature rather than a re-run. The carve-out is narrow — defaults
+> are permitted on the two `.orca/cache/runs/` shapes and nowhere else, and only
+> on fields added after this change; the five required fields above keep the
+> no-default rule, so a call site that forgets `pid` still fails to compile.
+> AGENTS.md is edited to say so in the same change, or the next reviewer
+> correctly flags every optional field added here.
+>
+> **Done when.** The `shell` module names no `orca.runner.manifest` cost type —
+> `ManifestCostSummary`, `ManifestSubtotal`, `ManifestUsage`, `ManifestTurn` — in
+> production or test code. Four shell test files reference them today; three pass
+> `ManifestCostSummary.empty` to a constructor, and `ManifestRoundTripTest`
+> asserts on `cost.total`, `cost.byRole` and `turns`, so its cost half moves to a
+> `runner` round trip against the cost file rather than being deleted. The
+> criterion is deliberately about `orca.runner.manifest` types and not "cost" in
+> general: `PriceList` stays in `RunManifestWriter.start`'s signature, since the
+> writer resolves each turn's cost.
+>
+> **Enabled, not scheduled.** Recording each turn's `model` becomes cheap once
+> the cost file is additive, and there is a concrete question waiting for it: a
+> dated haiku model id appears on turns billing at Sonnet rates, while a
+> session-id join places that same id in fully-qualified-haiku sessions. Both
+> observations can only hold together if a turn's model id and its tokens come
+> from different sessions — a check that needs `model` on the turn *and* on the
+> session. Not a task here: the parallel claude plan-mode removal may remove the
+> cause.
+
 ### 9. Creating a new flow with a harness
 
 Menu flow (feedback item 9, goal-first): pick global vs project target upfront
