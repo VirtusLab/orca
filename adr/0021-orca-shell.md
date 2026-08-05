@@ -506,11 +506,19 @@ resume is global, but the resumed context still references that directory):
 >
 > **What replaces the version gate.** `manifestVersion`,
 > `RunManifest.SupportedVersion` and the reader's pre-decode version check are
-> removed. Both files decode with `withRequireCollectionFields(false)`, and every
-> field added from here on is declared `Option` or given a Scala default —
-> jsoniter defaults an absent scalar only when the case class declares one, so
-> the config alone buys nothing for scalars and the declaration is what does the
-> work.
+> removed. No codec config change is needed and none is made: jsoniter skips
+> unknown fields under any config, which is the whole of what reading an older
+> build's file requires. What does the work is the declaration — every field
+> added from here on is `Option` or carries a Scala default, since jsoniter
+> defaults an absent scalar only when the case class declares one.
+>
+> The manifest's codec therefore stays STRICT. Switching it to the progress
+> log's `withRequireCollectionFields(false)` — the first draft of this
+> amendment said to — would make `sessions` optional, which is the one thing
+> this format cannot afford (see Required fields). Strictness only constrains
+> collection fields, so it costs nothing else; the consequence is that a
+> collection added later must be wrapped in `Option`, or it lands on every
+> reader as newly required.
 >
 > That covers additions. It does not cover renames, retypes, or respelled wire
 > vocabulary, and one of those gets *worse*: today `ManifestSession` has no
@@ -530,11 +538,18 @@ resume is global, but the resumed context still references that directory):
 > the test and edited in lockstep with the schema, or round-tripped through the
 > current case class. An implementer adding a required field would update the
 > fixtures in the same commit and see green. So this change checks in **frozen
-> golden fixtures** — a literal manifest and a literal cost log, committed as
-> test resources, never edited — that must keep decoding. Without them the
-> additive-only rule is a comment. `ManifestReaderTest`'s verbatim v2 JSON is
-> the seed for the first one; it currently exists to prove the gate skips it, and
-> inverts into proving tolerance reads it.
+> golden fixtures** — committed as test resources, never edited — that must keep
+> decoding. Without them the additive-only rule is a comment.
+>
+> Two manifest fixtures, not one: a finished run and an in-flight one
+> (`outcome: "running"`, `finishedAt` absent). The second is what a crashed run
+> leaves behind, and continuing its sessions is what this format exists for, so
+> retyping `finishedAt` out of `Option` has to fail. Each is compared by WHOLE
+> VALUE, not field by field — a structural comparison cannot forget a field, so
+> renaming an `Option` (which would otherwise decode as a silent `None` and
+> pass) fails too. `ManifestReaderTest`'s verbatim v2 JSON stays as a third
+> case: it currently proves the gate skips it, and inverts into proving
+> tolerance reads it.
 >
 > **Required fields.** `workDir`, `pid`, `startedAt`, `outcome` and `sessions`
 > stay required with no default. The first four are what the shell dereferences
@@ -576,12 +591,16 @@ resume is global, but the resumed context still references that directory):
 > and keeping both on one line is the same self-disagreeing duplicate this
 > paragraph exists to remove.
 >
-> A turn also carries enough session identity to stand alone. `ManifestTurn.session`
-> is today a foreign key into `RunManifest.sessions`, and it dangles exactly when
-> the sibling was never written or was pruned — so the harness, agent and session
-> name are denormalised onto the line. One more optional field each, which is
-> precisely what the additive rule makes cheap, and it is what the next question
-> below needs.
+> A turn keeps only the `session` key, not a denormalised copy of the session's
+> harness and name. The first draft of this amendment called for the copy,
+> reasoning that the key dangles when the sibling manifest was never written or
+> was pruned. Implementation removed both cases: retention deletes a run's two
+> files together, so a cost log cannot outlive its manifest; and a run that
+> never committed a session has no session record to copy from, so the fields
+> would be empty in exactly the case they were meant to cover. They would have
+> been populated only when the manifest existed and already answered the
+> question — and populated from the second turn of a session onward, since the
+> first precedes its own commit.
 >
 > The fold needs somewhere to live: a small `CostLog.read` ships in `runner` as
 > production code. Without it "aggregates become read-time folds" describes code
@@ -615,8 +634,16 @@ resume is global, but the resumed context still references that directory):
 > the session half keeps its atomic rewrite. The realistic torn-line source is
 > also not a kill (the kernel already has those bytes) but a short write that
 > throws mid-line, after which the next append concatenates onto an unterminated
-> line and costs two records rather than one. The writer terminates the file with
-> a newline before appending again.
+> line and costs two records rather than one. Bounded at two, in a file already
+> declared lossy, so the reader simply skips the bad line rather than the writer
+> repairing the tear.
+>
+> The reader must decode with REPLACEMENT, not the JVM default for line reading.
+> A tear can cut a multi-byte UTF-8 sequence — stage and agent names are
+> free-form prose and jsoniter emits them unescaped — and a reporting decoder
+> throws before yielding any line at all, losing the whole file including the
+> lines before the tear. That would defeat the entire reason for choosing a
+> line-oriented format.
 >
 > **Retention.** The keep-20 prune counts run ids, not files, and deletes a run's
 > two files together — 20 runs, as before, not 10. Grouping by run id is what the
