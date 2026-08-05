@@ -39,6 +39,19 @@ lazy val commonSettings = commonSmlBuildSettings ++ ossPublishSettings ++ Seq(
   versionScheme := Some("semver-spec"),
   libraryDependencies ++= Seq(munit),
   testFrameworks += new TestFramework("munit.Framework"),
+  // Tests shell out to `git`, which reads the developer's global and system
+  // config unless told otherwise: a global ignore rule, hooks path,
+  // gitattributes filter, `commit.gpgsign`, `status.showUntrackedFiles` or
+  // `core.autocrlf` all change what a fixture repo does, usually with no hint
+  // why. Pointing both config files at an empty one neutralises the whole
+  // class at once (git 2.32+). Fixtures set `user.name`/`user.email` in the
+  // repo, so commits still work. Env vars can only be set on a new process,
+  // hence the fork.
+  Test / fork := true,
+  Test / envVars ++= Map(
+    "GIT_CONFIG_GLOBAL" -> "/dev/null",
+    "GIT_CONFIG_SYSTEM" -> "/dev/null"
+  ),
   homepage := Some(url("https://github.com/VirtusLab/orca")),
   organizationHomepage := Some(url("https://virtuslab.com")),
   licenses := Seq(
@@ -144,9 +157,9 @@ lazy val flow = (project in file("flow"))
     // The CC negative-compile suite invokes the Scala 3 compiler
     // (`dotty.tools.dotc.Main`) in-process against this
     // module's own test classpath (it needs orca.CheckedPar, orca.FlowControl,
-    // the capability tokens, ox and the Scala library). flow's tests are not
-    // forked, so `java.class.path` is only sbt's launcher classpath — unusable.
-    // Materialise the classpath into a resource the suite reads. It must be
+    // the capability tokens, ox and the Scala library). Materialise the
+    // classpath into a resource the suite reads, rather than depending on the
+    // forked JVM's `java.class.path`. It must be
     // `dependencyClasspath`, NOT `fullClasspath`: the latter includes this
     // module's own Test products, whose task graph depends back on Test
     // resources — a cycle that deadlocks sbt's task engine (observed, not
