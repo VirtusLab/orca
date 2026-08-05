@@ -164,10 +164,15 @@ case class ReviewBatch(outcomes: List[(RosterEntry[?], ReviewResult)]):
 /** One reviewer's live [[Chat]], paired with its entry under a single backend
   * tag `B`. The chat bundles the role-tagged agent with its conversation id, so
   * a resume just calls the chat again.
+  *
+  * `lastDiff` is the change set this reviewer was last sent, not the last one
+  * sampled: a resume compares against it to decide whether there is anything
+  * new to send ([[ReReviewChanges.of]]).
   */
 private case class SessionEntry[B <: BackendTag](
     entry: RosterEntry[B],
-    chat: Chat[B]
+    chat: Chat[B],
+    lastDiff: String
 )
 
 /** All cross-iteration state for `reviewAndFixLoop`, in one immutable record.
@@ -306,15 +311,15 @@ def reviewAndFixLoop[B <: BackendTag](
       */
     maxIterations: Int = DefaultMaxIterations,
     fixInstructions: String = ReviewLoopPrompts.Fix,
-    /** Override the diff handed to each reviewer in its initial prompt, and the
-      * changed-file list the selector is given.
+    /** Override the diff handed to each reviewer, and the changed-file list the
+      * selector is given.
       *
       * The default samples everything the enclosing stage has produced —
       * `ctx.git.reviewDiff(fc.stageBaseCommit)`, tracked changes plus
       * newly-created files, `.orca/` bookkeeping excluded — re-sampled at the
-      * start of every iteration, so a reviewer joining the active set on
-      * iteration N sees the earlier fixes too. Reviewers with an existing
-      * session resume it and don't get the diff again.
+      * start of every iteration and sent to every reviewer that runs, so each
+      * round's reviewers see the fixer's edits whether or not it committed
+      * them.
       *
       * Pass `Some(...)` to pin the diff instead of sampling it — what the tests
       * use to skip the git call.
@@ -421,9 +426,9 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   private val roster: List[RosterEntry[?]] = reviewers.map(RosterEntry.wrap)
 
   /** The change set under review: everything the enclosing stage has produced
-    * since `reviewBase` (ADR 0018 §2.1). Re-sampled each iteration, so a
-    * newly-active reviewer sees the fixer's later edits; a constant
-    * `initialDiff` override skips the git call entirely.
+    * since `reviewBase` (ADR 0018 §2.1). Re-sampled each iteration, so every
+    * reviewer that round sees the fixer's later edits; a constant `initialDiff`
+    * override skips the git call entirely.
     */
   private def sampleDiff(): String =
     initialDiff.getOrElse(ctx.git.reviewDiff(reviewBase))
@@ -455,31 +460,47 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     GatedIssues(ReviewResult(kept), dropped)
 
   /** Run one reviewer against an immutable sessions snapshot. Returns the
-    * review result plus, on a reviewer's first call, the new [[SessionEntry]]
-    * the caller folds into the next state. Pure with respect to its inputs — no
-    * shared-state side effects — so the caller can run many in parallel.
+    * review result plus the [[SessionEntry]] the caller folds into the next
+    * state — a new one on the reviewer's first call, an updated one when a
+    * resume advanced its `lastDiff`, `None` when there is nothing to record.
+    * Pure with respect to its inputs — no shared-state side effects — so the
+    * caller can run many in parallel.
     *
     * `stored` is the reviewer's existing [[SessionEntry]] (found by entry
-    * identity), if any; `currentDiff` is consumed only on the first call.
+    * identity), if any.
     */
   private def reviewWithSession(
       e: RosterEntry[?],
       stored: Option[SessionEntry[?]],
-      currentDiff: String
+      currentDiff: String,
+      currentPaths: List[String]
   ): (ReviewResult, Option[SessionEntry[?]]) =
     stored match
-      case Some(se) => (resumeReview(se), None)
+      case Some(se) => resumeReview(se, currentDiff, currentPaths)
       case None     => firstReview(e, currentDiff)
 
-  /** Resume a reviewer's existing session. The run carries the `reviewer` cost
+  /** Resume a reviewer's existing session, sending only what is new to it since
+    * its last round ([[ReReviewChanges]]). The run carries the `reviewer` cost
     * role ([[ReviewerPrompts.Role]]) so the `TokensUsed` breakdown can subtotal
     * reviewer spend, without renaming the entry's identity.
     */
-  private def resumeReview[B <: BackendTag](se: SessionEntry[B]): ReviewResult =
-    se.chat
-      .resultAs[ReviewResult]
-      .autonomous
-      .run(ReviewLoopPrompts.ReReview, emitPrompt = false)
+  private def resumeReview[B <: BackendTag](
+      se: SessionEntry[B],
+      currentDiff: String,
+      currentPaths: List[String]
+  ): (ReviewResult, Option[SessionEntry[?]]) =
+    val changes = ReReviewChanges.of(se.lastDiff, currentDiff, currentPaths)
+    val result =
+      se.chat
+        .resultAs[ReviewResult]
+        .autonomous
+        .run(ReviewLoopPrompts.reReview(changes), emitPrompt = false)
+    // Only advance `lastDiff` when something was actually sent, so a reviewer
+    // that skipped a round still compares against what it has seen.
+    val advanced = Option.when(changes != ReReviewChanges.AlreadySeen)(
+      se.copy(lastDiff = currentDiff)
+    )
+    (result, advanced)
 
   /** A reviewer's first call: mint a fresh [[Chat]] on the role-tagged agent
     * and pair it back with the entry so a later resume recovers it typed.
@@ -498,7 +519,7 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           ReviewLoopPrompts.initialReview(task, currentDiff, confidenceGate),
           emitPrompt = false
         )
-    (result, Some(SessionEntry(e, chat)))
+    (result, Some(SessionEntry(e, chat, currentDiff)))
 
   /** One parallel agent's contribution, gate-split. The `Reviewer` variant
     * carries the roster entry that ran and any new [[SessionEntry]] that needs
@@ -519,10 +540,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
     * LLM-internal events emit from fork threads; [[OrcaListener]]
     * implementations must be thread-safe.
     *
-    * The diff is sampled once per call so all first-time reviewers see the same
-    * payload. Returns each reviewer's kept findings, the lint's, and the next
-    * state (which carries this round's gate rejects). Reviewer outcomes are
-    * re-ordered to `active` order on the way out: the fan-out completes
+    * The diff is sampled once per call so every reviewer in the round sees the
+    * same payload. Returns each reviewer's kept findings, the lint's, and the
+    * next state (which carries this round's gate rejects). Reviewer outcomes
+    * are re-ordered to `active` order on the way out: the fan-out completes
     * unordered, and downstream output — the merged issue list, the recorded
     * `IgnoredIssues` — should not depend on which agent happened to finish
     * first.
@@ -537,13 +558,26 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   ) =
     def storedFor(e: RosterEntry[?]): Option[SessionEntry[?]] =
       currentState.sessions.find(_.entry eq e)
-    val needsDiff = active.exists(e => storedFor(e).isEmpty)
-    val currentDiff = if needsDiff then sampleDiff() else ""
+    // A resumed reviewer that isn't handed the change set falls back to its own
+    // `git diff HEAD`, which is empty as soon as the fixer commits — and an
+    // empty diff reads as "nothing changed", so it reports clean without seeing
+    // the fix.
+    val currentDiff = if active.isEmpty then "" else sampleDiff()
+    // Paths for the over-threshold case, taken from git rather than scraped
+    // from the diff body, which can't see a binary change or a pure rename.
+    // Sampled here on the collecting thread, so the fan-out receives plain
+    // data. Only a sampled diff can reach that case, so the tree and the diff
+    // describe the same change set (see [[ReReviewChanges.of]]).
+    val currentPaths =
+      if initialDiff.isEmpty && currentDiff.length > ReReviewChanges.InlineThreshold
+      then ctx.git.changedFiles(reviewBase)
+      else Nil
 
     val reviewerTasks: List[() => AgentOutcome] = active.map: e =>
       val stored = storedFor(e)
       () =>
-        val (result, newSession) = reviewWithSession(e, stored, currentDiff)
+        val (result, newSession) =
+          reviewWithSession(e, stored, currentDiff, currentPaths)
         AgentOutcome.Reviewer(e, applyGate(result), newSession)
 
     // Resolved outside the fork below so the next state carries the
@@ -610,9 +644,12 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       val reviewerOutcomes = reviewerGated.map((e, g) => (e, g.kept))
       val lintGated = outcomes.collectFirst:
         case AgentOutcome.Lint(g) => g
+      // Replaces rather than prepends: a resume returns an entry whose
+      // `lastDiff` advanced, and the list holds one entry per reviewer.
       val newSessions = outcomes.foldLeft(currentState.sessions):
-        case (acc, AgentOutcome.Reviewer(_, _, Some(entry))) => entry :: acc
-        case (acc, _)                                        => acc
+        case (acc, AgentOutcome.Reviewer(e, _, Some(entry))) =>
+          entry :: acc.filterNot(_.entry eq e)
+        case (acc, _) => acc
       // Each reviewer that ran REPLACES its recorded rejects; reviewers absent
       // from this round keep theirs (see [[ReviewLoopState]]).
       val ranAgain = reviewerGated.map(_._1)

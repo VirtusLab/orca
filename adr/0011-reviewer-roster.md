@@ -225,4 +225,5 @@ Every reviewer prompt is a `.md` file with YAML frontmatter
 > had, so re-picking from them would rarely differ. What the baseline changes is
 > that the once-computed `changedFiles` is the task's real file set rather than
 > empty, and that each round's re-sample carries the fixer's later edits,
-> committed or not, to a reviewer joining that round.
+> committed or not, to every reviewer that runs that round — a resumed reviewer
+> included, and it receives only what changed since the round it last saw.

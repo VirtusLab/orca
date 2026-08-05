@@ -660,8 +660,9 @@ Configured.Off`.
 The change set reviewers are shown — and that the selector picks from — is
 everything the enclosing `stage` has produced since it began, so it is the same
 whether or not the coding agent committed its own work along the way. It is
-re-sampled each round, so a reviewer joining a later round sees the fixes made
-before it. Pass `initialDiff = Some(...)` to pin it instead.
+re-sampled each round and sent to every reviewer that runs, resumed ones
+included, so each round's reviewers see the fixes made before it. Pass
+`initialDiff = Some(...)` to pin it instead.
 
 `reviewAndFixLoop`'s `reviewerSelection` defaults to `ReviewerSelector.default`,
 which narrows twice: a picker LLM on `reviewAgent`'s cheap tier chooses from the
@@ -716,8 +717,7 @@ Plan.interactive.from(
 
 - `orca.plan.PlanPrompts` — `Planning`, `AssessThenPlan`, `Triage`, `Review`
 - `orca.pr.PrPrompts` — `Summarise`
-- `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummariseLint`,
-  `ReReview`
+- `orca.review.ReviewLoopPrompts` — `Fix`, `SelectReviewers`, `SummariseLint`
 - `orca.review.ReviewerPrompts` — per-reviewer system prompts (compose your own
   list to swap or extend `allReviewers`/`minimalReviewers`)
 

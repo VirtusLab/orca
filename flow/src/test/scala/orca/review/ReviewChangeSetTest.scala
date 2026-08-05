@@ -88,6 +88,95 @@ class ReviewChangeSetTest extends munit.FunSuite:
     val prompt = firstPromptOf(late)
     assert(prompt.contains("fixed.scala"), prompt)
 
+  test("a resumed reviewer sees an edit the fixer committed"):
+    val (ctx, dir) = stagingControl()
+    // The reviewer runs both rounds, so round two resumes its session — and its
+    // own `git diff HEAD` is empty once the fixer commits.
+    val reviewer = new FakeAgent(
+      "r",
+      outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
+    )
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List(FixOutcome(List(Title("real bug")), Nil)),
+      onRun = () => commit(dir, "fixed.scala", "object Fixed")
+    )
+    given FlowControl = ctx
+    stage("implement the widget"):
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(coder),
+        reviewers = List(reviewer),
+        task = "build the widget",
+        reviewerSelection = ReviewerSelector.allEveryRound
+      )
+    val resumePrompt = reviewer.seenPrompts
+      .lift(1)
+      .getOrElse(fail("the reviewer ran once; no resume happened"))
+    assert(resumePrompt.contains("fixed.scala"), resumePrompt)
+
+  test("a pinned diff is not re-sent to a resumed reviewer as a fresh sample"):
+    val (ctx, _) = stagingControl()
+    // `initialDiff` pins one constant for the whole loop, so round two's sample
+    // is byte-identical to round one's. Re-sending it would claim the fixer's
+    // edits are inside a diff that predates them. The pinned diff is past the
+    // inline threshold on purpose: equality is tested before size, so a pinned
+    // diff never reaches the path-listing branch either, which is what lets
+    // that branch take its paths from git.
+    val reviewer = new FakeAgent(
+      "r",
+      outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
+    )
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List(FixOutcome(List(Title("real bug")), Nil))
+    )
+    given FlowControl = ctx
+    stage("implement the widget"):
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(coder),
+        reviewers = List(reviewer),
+        task = "build the widget",
+        reviewerSelection = ReviewerSelector.allEveryRound,
+        initialDiff = Some(
+          "+++ b/pinned.scala\n" + (1 to 3000)
+            .map(i => s"+// line $i")
+            .mkString("\n")
+        )
+      )
+    val resumePrompt = reviewer.seenPrompts
+      .lift(1)
+      .getOrElse(fail("the reviewer ran once; no resume happened"))
+    assert(!resumePrompt.contains("pinned.scala"), resumePrompt)
+
+  test("a change set too large to inline reaches a resumed reviewer as paths"):
+    val (ctx, dir) = stagingControl()
+    // Past the inline threshold the reviewer gets paths and opens the files
+    // itself, so a resumed conversation doesn't accumulate one copy of a large
+    // diff per round.
+    val big = (1 to 3000).map(i => s"// line $i").mkString("\n")
+    val reviewer = new FakeAgent(
+      "r",
+      outputs = List(ReviewResult(List(bug("real bug"))), ReviewResult.empty)
+    )
+    val coder = new FakeAgent(
+      "coder",
+      outputs = List(FixOutcome(List(Title("real bug")), Nil)),
+      onRun = () => commit(dir, "big.scala", big)
+    )
+    given FlowControl = ctx
+    stage("implement the widget"):
+      val _ = reviewAndFixLoop(
+        coderSession = ReviewLoopFixture.coderSession(coder),
+        reviewers = List(reviewer),
+        task = "build the widget",
+        reviewerSelection = ReviewerSelector.allEveryRound
+      )
+    val resumePrompt = reviewer.seenPrompts
+      .lift(1)
+      .getOrElse(fail("the reviewer ran once; no resume happened"))
+    assert(resumePrompt.contains("big.scala"), resumePrompt)
+    assert(!resumePrompt.contains("// line 2999"), resumePrompt)
+
   test("reviewer selection sees the files of work the agent committed"):
     // The defect's other half: an empty change set means the file-pattern
     // pre-filter matches nothing, dropping every file-gated reviewer before the
