@@ -109,9 +109,11 @@ private[claude] object ClaudeArgs:
     * edit; an empty list leaves plain plan mode.
     *
     * `Full` follows [[AgentConfig.autoApprove]]: `All` → `bypassPermissions`;
-    * `Only(_)` → default permission mode plus an `--allowedTools` allowlist, so
-    * only listed tools are pre-approved and everything else (edits included)
-    * still prompts.
+    * `Only(_)` → default permission mode plus `--allowedTools`. The allowlist
+    * adds to claude's defaults; it does not restrict the agent to the listed
+    * tools. Under `--print` nothing is prompted back to orca: a call the CLI
+    * won't run comes back as a failed `tool_result` (pinned by
+    * `ClaudeIntegrationTest`).
     */
   private def autoApproveArgs(
       config: AgentConfig,
@@ -132,9 +134,7 @@ private[claude] object ClaudeArgs:
         config.autoApprove match
           case AutoApprove.All =>
             Seq("--permission-mode", "bypassPermissions")
-          // Default permission mode — nothing pre-approved except the listed
-          // tools. Edits are not implicitly approved; in autonomous mode an
-          // unlisted tool's prompt is auto-denied by the drain.
+          // Nothing pre-approved beyond claude's own defaults.
           case AutoApprove.Only(tools) if tools.isEmpty => Seq.empty
           case AutoApprove.Only(tools) =>
             Seq("--allowedTools", tools.toSeq.sorted.mkString(","))

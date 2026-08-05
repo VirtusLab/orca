@@ -13,8 +13,6 @@ import orca.tools.pi.rpc.{
   OutboundMessage
 }
 
-import scala.util.control.NonFatal
-
 /** Drives one `pi --mode rpc` process for a single Orca LLM call: translates Pi
   * RPC events into Orca conversation events, with `agent_end` as the terminal
   * [[AgentResult]].
@@ -172,11 +170,7 @@ private[pi] class PiConversation(
           ConversationEvent.UserQuestion(
             question,
             answer =>
-              // Stdin may already be closed (agent_end reached) by the time a
-              // human answers; a late reply is moot, so don't let the write
-              // blow up the consumer thread.
-              try sendLine(OutboundMessage.extensionUiValue(id, answer))
-              catch case NonFatal(_) => ()
+              replyToUiRequest(OutboundMessage.extensionUiValue(id, answer))
           )
         )
       case method if FireAndForgetUiMethods.contains(method) =>
@@ -188,7 +182,22 @@ private[pi] class PiConversation(
             s"Unsupported Pi extension UI request '$other': $question"
           )
         )
-        sendLine(OutboundMessage.extensionUiCancelled(id))
+        replyToUiRequest(OutboundMessage.extensionUiCancelled(id))
+
+  /** Answer an extension UI request, best-effort. `agent_end` closes stdin
+    * while the reader is still draining buffered lines, and a human may still
+    * be typing, so either reply can land on a closed pipe — by then the answer
+    * no longer matters. Dropping it keeps a late write from failing the
+    * consumer thread, or from showing up on the reader thread as a parse error.
+    *
+    * The drop is logged because a broken pipe from pi dying mid-turn looks the
+    * same here as a reply that arrived too late.
+    */
+  private def replyToUiRequest(line: String): Unit =
+    try sendLine(line)
+    catch
+      case e: java.io.IOException =>
+        debugLog("stdin", s"dropped extension UI reply: ${e.getMessage}")
 
 private[pi] object PiConversation:
 

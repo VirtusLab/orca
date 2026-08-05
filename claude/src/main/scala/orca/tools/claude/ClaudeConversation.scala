@@ -19,9 +19,9 @@ import orca.tools.claude.streamjson.{
   * Boilerplate (reader fork, event queue, outcome lifecycle, stderr drain)
   * lives in [[ForkedConversation]]; this class supplies the claude-specific
   * protocol translation: NDJSON → [[InboundMessage]] → `ConversationEvent`s,
-  * plus auto-approve policy for tools listed in `config.autoApprove`. Outbound
-  * writes (user turns, tool-approval responses) happen on the channel's thread
-  * via `writeOutbound`.
+  * plus auto-approve policy for tools listed in `config.autoApprove`. The
+  * backend writes the opening user turn; the only outbound write here is a
+  * tool-approval response, via `writeOutbound`.
   */
 private[claude] class ClaudeConversation(
     process: PipedCliProcess,
@@ -275,11 +275,30 @@ private[claude] class ClaudeConversation(
     case _ =>
       None // tool-use blocks, block start/stop, unhandled — driver ignores
 
+  /** Answer a control request, or report that the answer can't be delivered.
+    * `ClaudeBackend.openConversation` closes stdin right after the opening
+    * turn, so the write always hits a closed pipe. The failure is reported
+    * rather than thrown: from the reader thread an `IOException` would look
+    * like a parse failure, and from the interactive `ApproveTool` closure it
+    * would fail the whole turn with a bare `Stream Closed` that names nothing.
+    *
+    * Nothing reaches this today: claude 2.1.220 sends no `can_use_tool` over
+    * stdio. Delivering a decision would mean keeping stdin open for the turn.
+    */
   private def respond(requestId: String, decision: ApprovalDecision): Unit =
     val controlDecision = decision match
       case ApprovalDecision.Allow(update) => ControlDecision.Allow(update)
       case ApprovalDecision.Deny(reason)  => ControlDecision.Deny(reason)
-    writeOutbound(OutboundMessage.ControlResponse(requestId, controlDecision))
+    try
+      writeOutbound(OutboundMessage.ControlResponse(requestId, controlDecision))
+    catch
+      case e: java.io.IOException =>
+        eventQueue.enqueue(
+          ConversationEvent.Error(
+            s"could not deliver the tool-approval decision for request " +
+              s"$requestId — claude's stdin is closed: ${e.getMessage}"
+          )
+        )
 
   private def writeOutbound(msg: OutboundMessage): Unit =
     process.writeLine(OutboundMessage.toJson(msg))

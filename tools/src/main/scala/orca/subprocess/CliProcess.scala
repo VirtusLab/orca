@@ -31,10 +31,14 @@ trait CliProcess:
 
 /** A spawned process whose stdin / stdout / stderr are connected to pipes the
   * caller controls. The backend writes input via `writeLine` and consumes
-  * responses from `stdoutLines`. `closeStdin` signals end-of-input — the agent
-  * CLI then emits its final result and exits. claude (with `--input-format
-  * stream-json`) waits for EOF before flushing the final `result`; codex `exec
-  * --json` reads its prompt argv-side and ignores stdin once the spawn settles.
+  * responses from `stdoutLines`; `closeStdin` signals end-of-input. Each
+  * backend sends its one message and closes stdin straight away. EOF is never
+  * needed to get output; what it does differs per CLI:
+  *   - `claude --print --input-format stream-json` answers a turn with stdin
+  *     open (measured, claude 2.1.220) and exits on the close;
+  *   - codex `exec --json` and gemini read the prompt from argv, so the close
+  *     only stops them waiting on a stream they never read (ADR 0007);
+  *   - opencode's `serve` is a long-lived server, ended by a kill.
   *
   * Reads on `stdoutLines` / `stderrLines` block until a line is available or
   * the stream closes. Each iterator must be consumed by a single thread;
@@ -42,6 +46,12 @@ trait CliProcess:
   * memoise the iterator so repeated accesses return the same stream.
   */
 trait PipedCliProcess extends CliProcess:
+
+  /** Write one line to the child's stdin and flush it. Throws
+    * `java.io.IOException` when called after [[closeStdin]]. The flush is part
+    * of the contract so that a write to a closed pipe fails here instead of
+    * sitting in a buffer.
+    */
   def writeLine(line: String): Unit
   def closeStdin(): Unit
   def stdoutLines: Iterator[String]

@@ -56,7 +56,10 @@ class FakePipedCliProcess(
     */
   def envCookie: Option[EnvCookie] = None
 
+  // The OS-backed process throws from the flush that follows every write, so
+  // the fake rejects a late write too.
   def writeLine(line: String): Unit =
+    if stdinClosed.get() then throw new java.io.IOException("Stream Closed")
     val _ = stdinLines.updateAndGet(ls => line :: ls)
 
   def closeStdin(): Unit = stdinClosed.set(true)

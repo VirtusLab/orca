@@ -7,7 +7,7 @@ import orca.agents.{
   SessionId,
   WireSessionId
 }
-import orca.backend.{ApprovalDecision, ConversationEvent, SupervisedBackend}
+import orca.backend.{ConversationEvent, SupervisedBackend}
 import orca.subprocess.OsProcCliRunner
 import orca.testkit.TempDirs
 
@@ -109,14 +109,17 @@ class ClaudeIntegrationTest extends munit.FunSuite:
       finally conversation.cancel()
 
   test(
-    "ApproveTool fires for a tool call when autoApprove is empty; denying shuts the session cleanly"
+    "a read the CLI refuses is reported as a failed tool_result, never prompted over stdin"
   ):
     withBackend: backend =>
-      // This test assumes claude CLI routes tool-approval through the
-      // control_request subchannel when the caller's permission mode
-      // doesn't pre-authorise. If the installed CLI doesn't expose this
-      // path, the driver simply won't see an ApproveTool event — the
-      // test will then fail with a clearer signal than a silent gap.
+      // The CLI refuses `/etc/hostname` because it is outside the backend's
+      // workDir. A read inside the workspace runs fine under this config, since
+      // `--allowedTools` adds to claude's defaults rather than restricting to
+      // them. What is pinned is not the refusal but its shape: it arrives as a
+      // failed tool_result, not as a `can_use_tool` control request. Stdin is
+      // closed at spawn, so orca could not answer such a request — a future CLI
+      // reviving that subchannel fails here first (see
+      // `ClaudeConversation.respond`).
       val conversation = backend.runInteractive(
         prompt = "Read the file at /etc/hostname and reply with its contents.",
         session = fresh,
@@ -125,19 +128,16 @@ class ClaudeIntegrationTest extends munit.FunSuite:
         outputSchema = None
       )
       try
-        val firstFew = conversation.events.take(10).toList
-        val approval = firstFew.collectFirst {
-          case evt: ConversationEvent.ApproveTool => evt
-        }
-        approval match
-          case Some(ConversationEvent.ApproveTool(name, _, respond)) =>
-            assert(name.nonEmpty)
-            respond(ApprovalDecision.Deny(Some("test denies all tools")))
-            // Drain remaining events and confirm the session finishes.
-            conversation.events.foreach(_ => ())
-            val _ = conversation.awaitResult()
-          case None =>
-            fail(
-              s"no ApproveTool event in first 10 events — CLI may not route tool approvals through stdio: $firstFew"
-            )
+        val events = conversation.events.toList
+        assert(
+          !events.exists(_.isInstanceOf[ConversationEvent.ApproveTool]),
+          s"claude routed a tool approval over stdio, which orca cannot answer: $events"
+        )
+        assert(
+          events.exists:
+            case ConversationEvent.ToolResult(_, ok, _) => !ok
+            case _                                      => false
+          ,
+          s"expected the refused Read to surface as a failed tool_result: $events"
+        )
       finally conversation.cancel()

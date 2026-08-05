@@ -6,9 +6,18 @@ The `Plan.interactive.from` / `claude.resultAs[X].interactive` surface
 promises that the agent can pause to ask the user a clarifying question
 and resume with the typed answer. The naive routes were each blocked:
 
-- **Stdin streaming.** `claude --print --input-format stream-json`
-  batches all stdin user turns until EOF; the agent doesn't process
-  turn-by-turn. Keeping stdin open just makes claude wait forever.
+- **Stdin streaming.** `claude --print --input-format stream-json` doesn't
+  process stdin user turns turn-by-turn, so there is no point at which the
+  driver can inject an answer mid-turn.
+
+  > **Correction (measured against claude 2.1.220).** This decision also used
+  > to say the CLI batches stdin until EOF, so keeping stdin open makes claude
+  > wait forever. That is wrong: with orca's own spawn args the full `result`
+  > arrives while stdin is still open, and the process exits only when stdin is
+  > closed later. What was not measured is whether a *second* stdin turn is
+  > picked up mid-session, and that is the part this decision rests on. The
+  > premise above and the MCP choice therefore stand; only the "waits forever"
+  > reasoning is dropped.
 - **Claude Agent SDK** has a streaming-input mode, but the SDK is
   Python/TypeScript-only — not callable from Scala without a foreign
   sidecar process.
