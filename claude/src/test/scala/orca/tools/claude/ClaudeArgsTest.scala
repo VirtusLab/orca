@@ -119,6 +119,16 @@ class ClaudeArgsTest extends munit.FunSuite:
     val args = streamJson(AgentConfig(tools = ToolSet.NetworkOnly))
     assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
 
+  test("a resumed ReadOnly turn re-emits --tools"):
+    // The CLI does not carry --tools across --resume: resuming without it
+    // restores the full default set, Bash/Edit/Write included. Every turn
+    // rebuilding its own flags is what keeps a resumed reviewer restricted.
+    val args = streamJson(
+      AgentConfig(tools = ToolSet.ReadOnly),
+      dispatch = Dispatch.Resume(testSid)
+    )
+    assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
+
   test("ToolSet.ReadOnly never emits networkTools even when supplied"):
     // Reviewers/triage use ReadOnly and must stay network-free.
     val args = streamJson(

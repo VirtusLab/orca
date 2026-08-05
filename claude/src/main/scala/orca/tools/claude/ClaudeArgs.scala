@@ -96,9 +96,15 @@ private[claude] object ClaudeArgs:
 
   /** Built-in tools a read-only turn keeps. `--tools` is an allowlist that
     * removes every name not on it: the dropped tools are absent from the `init`
-    * frame, `ToolSearch` cannot resurrect them, subagents inherit the list, and
-    * it survives `--resume`. Reviewers and planners therefore have no shell and
-    * no write primitive.
+    * frame and `ToolSearch` cannot resurrect them, so reviewers and planners
+    * have no shell and no write primitive.
+    *
+    * **It does not survive `--resume`.** Measured on 2.1.222: resuming a
+    * session created under this list, without re-passing `--tools`, brings back
+    * the full default set — `Bash`, `Edit`, `Write` and all. [[streamJson]]
+    * rebuilds the flags from each turn's own config, which is what keeps a
+    * resumed reviewer restricted; a resume path that reused stored args would
+    * not.
     *
     * Unknown names are dropped silently (`Read,Grep,NoSuchTool` yields
     * `Grep,Read`, exit 0, no warning), so this list is pinned against a live
@@ -117,7 +123,10 @@ private[claude] object ClaudeArgs:
     * unfiltered. Measured on claude 2.1.222 — an `init` frame under `--tools
     * Read,Grep,Glob,Skill` still carried the `mcp__…` tools of an installed
     * server, so an MCP server that can write is not covered by this allowlist
-    * at all.
+    * at all. The read-only tiers also ignore [[AgentConfig.autoApprove]], so an
+    * MCP tool reaching a read-only turn is advertised but not pre-approved: it
+    * comes back as a failed `tool_result` rather than prompting. No in-repo
+    * flow hits that — every interactive turn is `Full`.
     *
     * `Full` follows [[AgentConfig.autoApprove]]: `All` → `bypassPermissions`;
     * `Only(_)` → default permission mode plus `--allowedTools`. The allowlist
@@ -125,6 +134,10 @@ private[claude] object ClaudeArgs:
     * tools. Under `--print` nothing is prompted back to orca: a call the CLI
     * won't run comes back as a failed `tool_result` (pinned by
     * `ClaudeIntegrationTest`).
+    *
+    * Both flags are variadic (`--tools <tools...>`), so nothing positional may
+    * follow them in the argv — [[streamJson]] emits only flag-value pairs after
+    * this, and the prompt goes over stdin.
     */
   private def permissionArgs(
       config: AgentConfig,
