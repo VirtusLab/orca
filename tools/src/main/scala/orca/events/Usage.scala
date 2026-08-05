@@ -17,9 +17,15 @@ package orca.events
   *     cache-heavy run badly.
   *   - `reasoningOutputTokens` is the internal-reasoning sub-portion of
   *     `outputTokens` (codex / o-series).
+  *   - `apiCalls` is how many model requests the token counts above cover. A
+  *     turn that runs a tool makes at least two, and every one of them re-sends
+  *     the whole prompt — so it is what turns a prompt size into a bill. `None`
+  *     means the backend does not report it, which is not the same as one: an
+  *     inferred count would be indistinguishable from a measured one
+  *     downstream, so backends that cannot count leave it unset.
   *
-  * All three breakdowns are non-cumulative, so callers can report cache-hit,
-  * cache-write and reasoning ratios directly.
+  * All three token breakdowns are non-cumulative, so callers can report
+  * cache-hit, cache-write and reasoning ratios directly.
   *
   * A new backend must fold cache-read and cache-written tokens INTO
   * `inputTokens` rather than report them alongside it, and leave
@@ -37,9 +43,13 @@ case class Usage(
     cost: Option[BigDecimal],
     cacheReadInputTokens: Long = 0L,
     reasoningOutputTokens: Long = 0L,
-    cacheWriteInputTokens: Long = 0L
+    cacheWriteInputTokens: Long = 0L,
+    apiCalls: Option[Long] = None
 ):
-  /** Combine two usages; cost is `Some` iff at least one side reports it. */
+  /** Combine two usages; `cost` and `apiCalls` are `Some` iff at least one side
+    * reports them, so a sum that mixes a reporting backend with a silent one
+    * under-counts rather than dropping the half that was measured.
+    */
   def +(that: Usage): Usage =
     Usage(
       inputTokens = inputTokens + that.inputTokens,
@@ -48,8 +58,10 @@ case class Usage(
       cacheReadInputTokens = cacheReadInputTokens + that.cacheReadInputTokens,
       reasoningOutputTokens =
         reasoningOutputTokens + that.reasoningOutputTokens,
-      cacheWriteInputTokens = cacheWriteInputTokens + that.cacheWriteInputTokens
+      cacheWriteInputTokens =
+        cacheWriteInputTokens + that.cacheWriteInputTokens,
+      apiCalls = (apiCalls ++ that.apiCalls).reduceOption(_ + _)
     )
 
 object Usage:
-  val empty: Usage = Usage(0L, 0L, None, 0L, 0L, 0L)
+  val empty: Usage = Usage(0L, 0L, None, 0L, 0L, 0L, None)

@@ -18,7 +18,15 @@ private[claude] enum InboundMessage:
     * [[Result]] message's own `model` field; when both are present they agree.
     */
   case SystemInit(sessionId: String, model: Option[String])
-  case AssistantTurn(content: List[ContentBlock])
+
+  /** `messageId` is the model response this content came from. The CLI splits
+    * one response across several `assistant` messages (prose, then each tool
+    * call), all repeating the same id — so counting DISTINCT ids counts model
+    * responses, which is what [[orca.events.Usage.apiCalls]] wants. `None` if
+    * the CLI ever omits it, which would make the count an undercount, so the
+    * driver keeps it optional rather than substituting a placeholder.
+    */
+  case AssistantTurn(content: List[ContentBlock], messageId: Option[String])
   case UserTurn(content: List[ContentBlock])
 
   /** Final turn result. When the session ran with `--json-schema`, the
@@ -63,7 +71,7 @@ private[claude] object InboundMessage:
 
   private def parseAssistant(line: String): InboundMessage =
     val wire = readFromString[MessageWire](line)
-    AssistantTurn(wire.message.toBlocks)
+    AssistantTurn(wire.message.toBlocks, wire.message.id)
 
   private def parseUser(line: String): InboundMessage =
     val wire = readFromString[MessageWire](line)
@@ -79,6 +87,11 @@ private[claude] object InboundMessage:
     // wire's "cache creation" is orca's cache write.
     val cacheWrite = u.cache_creation_input_tokens.getOrElse(0L)
     val cacheRead = u.cache_read_input_tokens.getOrElse(0L)
+    // The result message's own `num_turns` looks like a call count and is not
+    // one: measured against claude 2.1.220 it is (tool calls + 1), so a
+    // response issuing three tool calls at once reports three turns where one
+    // request was made. The count comes from the distinct `assistant` message
+    // ids instead — see [[ClaudeConversation]].
     Result(
       subtype = wire.subtype,
       sessionId = wire.session_id,
@@ -117,8 +130,10 @@ private[claude] object InboundMessage:
       model: Option[String] = None
   ) derives ConfiguredJsonValueCodec
 
-  private case class InnerMessage(content: List[RawJson] = Nil)
-      derives ConfiguredJsonValueCodec:
+  private case class InnerMessage(
+      content: List[RawJson] = Nil,
+      id: Option[String] = None
+  ) derives ConfiguredJsonValueCodec:
     def toBlocks: List[ContentBlock] =
       content.map(b => ContentBlock.parse(b.value))
 

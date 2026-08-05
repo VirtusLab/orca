@@ -219,7 +219,14 @@ class DefaultAgentCall[B <: BackendTag, O](
     def recordTurn(model: Option[Model], usage: Usage): Unit =
       turnsRecorded += 1
       events.onEvent(
-        OrcaEvent.TokensUsed(agentName, model, usage, agentRole, turnsRecorded)
+        OrcaEvent.TokensUsed(
+          agentName,
+          model,
+          usage,
+          agentRole,
+          turnsRecorded,
+          Some(backend.sessions.sessionKey(session))
+        )
       )
 
     /** One attempt: build this iteration's prompt (the initial one, or a
@@ -344,7 +351,8 @@ class DefaultAgentCall[B <: BackendTag, O](
         agentName,
         result.model.orElse(effective.model),
         result.usage,
-        agentRole
+        agentRole,
+        session = Some(backend.sessions.sessionKey(session))
       )
     )
     val parsed = ResponseParser.parse[O](result.output)

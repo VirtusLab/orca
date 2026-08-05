@@ -137,6 +137,21 @@ final class SessionSupport[B <: BackendTag] private (
   def persistableWireId(client: SessionId[B]): Option[WireSessionId[B]] =
     if probe.isDefined then resumeWire(client) else None
 
+  /** The one identity this session is known by across events — see
+    * [[orca.events.OrcaEvent.sessionKey]]. Lives next to the client→wire map so
+    * every emitter derives it the same way; a second derivation elsewhere is
+    * how a turn stops joining to the session that produced it.
+    *
+    * Resolve it per turn, not once per call: the wire id is minted during the
+    * first turn, so a value taken before that names the session by its client
+    * id only.
+    */
+  def sessionKey(client: SessionId[B]): String =
+    orca.events.OrcaEvent.sessionKey(
+      SessionId.value(client),
+      persistableWireId(client).map(WireSessionId.value)
+    )
+
   /** Will the next call on `client` continue an already-live conversation
     * (rather than start a fresh one that must be re-seeded)? The
     * durable-session runtime asks this before deciding whether to re-inject the

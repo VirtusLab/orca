@@ -110,9 +110,9 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
         val effective = effectiveConfig(callConfig)
         if emitPrompt then events.onEvent(OrcaEvent.UserPrompt(prompt))
         val result =
-          runAccountingForFailure(effective):
+          runAccountingForFailure(effective, session):
             backend.runAutonomous(prompt, session, effective, events)
-        emitTokens(effective, result)
+        emitTokens(effective, session, result)
         emitSessionCommitted(session)
         result.output
 
@@ -130,15 +130,16 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
       e match
         case _: OrcaEvent.AssistantMessage | _: OrcaEvent.ToolUse => ()
         case other => events.onEvent(other)
+    val session = SessionId.fresh[B]
     val result =
-      runAccountingForFailure(effective):
+      runAccountingForFailure(effective, session):
         backend.runAutonomous(
           prompt,
-          SessionId.fresh[B],
+          session,
           effective,
           quietEvents
         )
-    emitTokens(effective, result)
+    emitTokens(effective, session, result)
     result.output
 
   def resultAs[O: JsonData: Announce]: AgentCall[B, O] =
@@ -160,23 +161,42 @@ abstract class BaseAgent[B <: BackendTag, Self <: Agent[B]](
     * the bucket key is whatever the caller pinned.
     */
   private def runAccountingForFailure(
-      effective: AgentConfig
+      effective: AgentConfig,
+      session: SessionId[B]
   )(turn: => AgentResult[B]): AgentResult[B] =
     try turn
     catch
       case e: AgentTurnFailed =>
         e.usage.foreach: usage =>
           events.onEvent(
-            OrcaEvent.TokensUsed(name, effective.model, usage, role)
+            OrcaEvent.TokensUsed(
+              name,
+              effective.model,
+              usage,
+              role,
+              session = Some(backend.sessions.sessionKey(session))
+            )
           )
         throw e
 
   /** `model` prefers the response-reported model (most precise), falling back
     * to whatever the caller pinned in config, `None` when neither is known.
     */
-  private def emitTokens(effective: AgentConfig, result: AgentResult[B]): Unit =
+  private def emitTokens(
+      effective: AgentConfig,
+      session: SessionId[B],
+      result: AgentResult[B]
+  ): Unit =
     val model = result.model.orElse(effective.model)
-    events.onEvent(OrcaEvent.TokensUsed(name, model, result.usage, role))
+    events.onEvent(
+      OrcaEvent.TokensUsed(
+        name,
+        model,
+        result.usage,
+        role,
+        session = Some(backend.sessions.sessionKey(session))
+      )
+    )
 
   /** Fires once a session's first turn commits (ADR 0021 §8): reads
     * `resumeWireId` after `backend.runAutonomous` returns, so `wireId` reflects

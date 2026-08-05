@@ -66,6 +66,21 @@ private[claude] class ClaudeConversation(
     */
   private var deltasSinceLastFullTurn: Boolean = false
 
+  /** Ids of the model responses seen since the last result message — the turn's
+    * API-call count ([[orca.events.Usage.apiCalls]]), which nothing on the wire
+    * reports directly. A set, not a counter: the CLI emits one `assistant`
+    * message per content group, several sharing one response id.
+    *
+    * A turn that dispatches a subagent counts the subagent's responses too —
+    * the CLI forwards them on this stream, even though it files them under a
+    * separate session transcript. Measured on one such turn: 53 responses
+    * counted here against 18 in the dispatching session's own transcript. Its
+    * token total is the CLI's aggregate for the whole turn and did not equal
+    * the sum of either set, so `promptTokens / apiCalls` means little on a turn
+    * like that.
+    */
+  private var responseIdsThisTurn: Set[String] = Set.empty
+
   /** Tool-use ids suppressed in `handleAssistantTurn` — `ask_user` invocations
     * and (in structured mode) the CLI-injected `StructuredOutput` exit call.
     * `handleUserTurn` drops the matching `tool_result` so the suppressed
@@ -102,8 +117,10 @@ private[claude] class ClaudeConversation(
   private def handle(msg: InboundMessage): Unit = msg match
     case InboundMessage.SystemInit(_, model) =>
       initModel = model
-    case InboundMessage.AssistantTurn(content) => handleAssistantTurn(content)
-    case InboundMessage.UserTurn(content)      => handleUserTurn(content)
+    case InboundMessage.AssistantTurn(content, messageId) =>
+      responseIdsThisTurn ++= messageId
+      handleAssistantTurn(content)
+    case InboundMessage.UserTurn(content) => handleUserTurn(content)
     case result: InboundMessage.Result =>
       if result.isError then handleResultError(result)
       else handleResult(result)
@@ -190,11 +207,25 @@ private[claude] class ClaudeConversation(
     settleSuccess(
       wireId = result.sessionId,
       output = resultBody(result).getOrElse(""),
-      usage = result.usage,
+      usage = withApiCalls(result.usage),
       // Fall back to the model claude announced in system.init when the
       // result message omits it.
       modelId = result.model.orElse(initModel)
     )
+
+  /** Attaches the turn's API-call count to its usage and clears the tally, so
+    * the next turn of a multi-turn conversation counts its own responses.
+    *
+    * Having seen no response id leaves the count absent rather than zero: a
+    * turn that reports tokens made requests, so zero would mean "none happened"
+    * where the truth is "none were observed".
+    */
+  private def withApiCalls(usage: orca.events.Usage): orca.events.Usage =
+    val counted =
+      if responseIdsThisTurn.isEmpty then usage
+      else usage.copy(apiCalls = Some(responseIdsThisTurn.size.toLong))
+    responseIdsThisTurn = Set.empty
+    counted
 
   /** The result message's payload: the `--json-schema` validated value when the
     * session ran structured, else the free-form reply; `None` when the message
@@ -232,7 +263,7 @@ private[claude] class ClaudeConversation(
       new AgentTurnFailed(
         s"claude session failed (subtype ${result.subtype}, " +
           s"session ${result.sessionId}): $message",
-        usage = Some(result.usage)
+        usage = Some(withApiCalls(result.usage))
       )
     )
 

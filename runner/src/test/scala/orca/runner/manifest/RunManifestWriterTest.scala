@@ -490,7 +490,7 @@ class RunManifestWriterTest extends munit.FunSuite:
     )
 
   test(
-    "per-turn log records each turn's identity, stage, prompt size, attempt"
+    "per-turn log records identity, stage, prompt size, attempt, session, API calls"
   ):
     val workDir = TempDirs.dir()
     val writer =
@@ -500,15 +500,24 @@ class RunManifestWriterTest extends munit.FunSuite:
       OrcaEvent
         .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
     )
+    // The session key matches the one `SessionCommitted` above dedups under, so
+    // this turn joins to the session recorded in the manifest.
     writer.onEvent(
-      OrcaEvent.TokensUsed("claude", None, Usage(107_000, 500, None), None)
+      OrcaEvent.TokensUsed(
+        "claude",
+        None,
+        Usage(107_000, 500, None, apiCalls = Some(3L)),
+        None,
+        session = Some("wire-1")
+      )
     )
     // Closing the stage between the two turns pins that the stage is stamped
     // when a turn is recorded, not when the manifest is later written.
     writer.onEvent(OrcaEvent.StageCompleted("code"))
     // The CLI answering from leftover session state: no request went out, so
-    // every counter is zero. Recorded as a retry so the assertion below shows
-    // the attempt index reaching the manifest, rather than a constant 1.
+    // every counter is zero and the backend reported no call count. Recorded as
+    // a retry so the assertion below shows the attempt index reaching the
+    // manifest, rather than a constant 1.
     writer.onEvent(
       OrcaEvent.TokensUsed(
         "reviewer",
@@ -530,7 +539,9 @@ class RunManifestWriterTest extends munit.FunSuite:
           role = None,
           stage = Some("code"),
           promptTokens = 107_000,
-          attempt = 1
+          attempt = 1,
+          session = Some("wire-1"),
+          apiCalls = Some(3L)
         ),
         ManifestTurn(
           at = "2026-07-18T10:00:00Z",
@@ -538,7 +549,9 @@ class RunManifestWriterTest extends munit.FunSuite:
           role = Some("reviewer"),
           stage = None,
           promptTokens = 0,
-          attempt = 2
+          attempt = 2,
+          session = None,
+          apiCalls = None
         )
       )
     )

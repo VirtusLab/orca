@@ -48,13 +48,20 @@ enum OrcaEvent:
     * counts turns, not tries — an attempt that fails before the model runs
     * emits no event, so it doesn't shift the index of the turn that follows.
     * Emission sites that never retry leave the default.
+    *
+    * `session` is [[OrcaEvent.sessionKey]] for the conversation this turn ran
+    * in — the same key [[SessionCommitted]] is deduplicated under, so turns and
+    * sessions join on it. Two turns of one session carry the same value; the
+    * first turn of a session is the earliest turn carrying it. `None` only
+    * where the emitter has no conversation to name (test stubs).
     */
   case TokensUsed(
       agent: String,
       model: Option[Model],
       usage: Usage,
       role: Option[String] = None,
-      attempt: Int = 1
+      attempt: Int = 1,
+      session: Option[String] = None
   )
 
   /** The agent's final structured payload, after parsing succeeded. `raw` is
@@ -106,6 +113,16 @@ enum OrcaEvent:
       agent: String,
       role: Option[String]
   )
+
+object OrcaEvent:
+  /** The one identity a session is known by across events: its wire id once the
+    * backend has minted one, else the client id orca allocated. Named here so
+    * [[OrcaEvent.TokensUsed.session]] and the manifest writer's session dedup
+    * key cannot drift apart — if they did, turns would stop joining to the
+    * sessions that produced them.
+    */
+  def sessionKey(clientId: String, wireId: Option[String]): String =
+    wireId.getOrElse(clientId)
 
 /** Sink for [[OrcaEvent]]s.
   *
