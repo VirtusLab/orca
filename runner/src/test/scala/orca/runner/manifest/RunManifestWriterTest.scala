@@ -3,7 +3,7 @@ package orca.runner.manifest
 import com.github.plokhotnyuk.jsoniter_scala.core.readFromString
 import orca.OrcaDir
 import orca.WorkspaceWrite
-import orca.events.{OrcaEvent, PriceList, Pricing}
+import orca.events.{OrcaEvent, PriceList, Pricing, Usage}
 import orca.progress.{BranchMode, ProgressHeader, ProgressStore, SessionRecord}
 import orca.testkit.TempDirs
 import ox.channels.BufferCapacity
@@ -292,6 +292,69 @@ class RunManifestWriterTest extends munit.FunSuite:
       files.exists(_.last == "1000000000025-1.json"),
       "newest pre-seeded file must survive"
     )
+
+  /** Pruning counts runs, not files. A run owns up to two, so a file count
+    * would silently halve the budget and — since `.jsonl` fails the `ext ==
+    * "json"` filter the old prune used — would delete manifests while orphaning
+    * their cost logs forever.
+    */
+  test("both files of a pruned run are deleted, and the pair counts as one"):
+    val workDir = TempDirs.dir()
+    val runsDir = OrcaDir.cacheRunsPath(workDir)
+    for i <- 1 to 25 do
+      os.write(runsDir / f"1000000000$i%03d-1.json", "{}")
+      os.write(runsDir / f"1000000000$i%03d-1-cost.jsonl", "")
+    val writer =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    writer.onEvent(
+      OrcaEvent
+        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+    )
+    // 25 seeded runs plus this one, kept down to 20 runs — so 20 manifests,
+    // not the 10 a file count would leave.
+    assertEquals(manifestFiles(workDir).size, 20)
+    assert(
+      !os.exists(runsDir / "1000000000001-1.json") &&
+        !os.exists(runsDir / "1000000000001-1-cost.jsonl"),
+      "the oldest run's two files must both be gone"
+    )
+    assert(
+      os.exists(runsDir / "1000000000025-1.json") &&
+        os.exists(runsDir / "1000000000025-1-cost.jsonl"),
+      "the newest seeded run's two files must both survive"
+    )
+
+  test("a run with only one of its two files still prunes as one run"):
+    val workDir = TempDirs.dir()
+    val runsDir = OrcaDir.cacheRunsPath(workDir)
+    // Cost-log-only runs: no manifest ever written, which is what a run that
+    // spends tokens without committing a session leaves behind.
+    for i <- 1 to 25 do os.write(runsDir / f"1000000000$i%03d-1-cost.jsonl", "")
+    val writer =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    writer.onEvent(
+      OrcaEvent
+        .SessionCommitted("claude", "client-1", Some("wire-1"), "claude", None)
+    )
+    assertEquals(
+      os.list(runsDir).count(_.last.endsWith("-cost.jsonl")),
+      19,
+      "26 runs kept to 20 leaves 19 of the orphaned cost logs plus this run"
+    )
+
+  /** The trigger sits on the first write of EITHER file. Left on the manifest
+    * path, a workdir whose runs keep spending tokens without committing a
+    * session would grow without bound — and those runs are exactly what the
+    * cost log added.
+    */
+  test("a run that only ever appends cost lines still prunes"):
+    val workDir = TempDirs.dir()
+    val runsDir = OrcaDir.cacheRunsPath(workDir)
+    for i <- 1 to 25 do os.write(runsDir / f"1000000000$i%03d-1.json", "{}")
+    val writer =
+      newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
+    writer.onEvent(OrcaEvent.TokensUsed("claude", None, Usage(10, 1, None)))
+    assertEquals(manifestFiles(workDir).size, 19)
 
   test("atomic write leaves no temp files behind"):
     val workDir = TempDirs.dir()
