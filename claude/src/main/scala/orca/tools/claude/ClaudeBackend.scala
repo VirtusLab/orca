@@ -295,11 +295,11 @@ object ClaudeBackend:
 
   /** Built-in tools added to `ClaudeArgs.ReadOnlyTools` on
     * [[ToolSet.NetworkOnly]] turns. Bare tool names only — `--tools` takes no
-    * command scoping, so the `Bash(gh …)` entries this list used to carry
-    * cannot appear in it. They are not replaced: measured planner use of `gh`
-    * was zero (`docs/research/run-cost/12-reviewer-tool-surface.md` §5), and
-    * orca reads issues host-side via `GitHubTool.readIssue`. Flows wanting a
-    * different set pass their own via `claude.withNetworkTools(...)`.
+    * command scoping, so there is no `gh` entry. Nothing replaces it: measured
+    * planner use of `gh` was zero
+    * (`docs/research/run-cost/12-reviewer-tool-surface.md` §5) and orca reads
+    * issues host-side via `GitHubTool.readIssue`. Flows wanting a different set
+    * pass their own via `claude.withNetworkTools(...)`.
     */
   private[claude] val DefaultNetworkTools: Seq[String] =
     Seq("WebFetch", "WebSearch")

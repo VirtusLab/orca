@@ -9,8 +9,8 @@ Planning turns run autonomously (stdin closed, no `ask_user` MCP) and
 read-only. On every backend the read-only mode also blocks the network the
 planner needs to read an issue/PR it was pointed at: claude's read-only tier
 withholds `WebFetch`/`WebSearch`, codex's `--sandbox read-only` blocks all
-network, pi's read-only
-`--tools` has no web tool, gemini's `--approval-mode plan` gates web/shell.
+network, pi's read-only `--tools` has no web tool, gemini's `--approval-mode
+plan` gates web/shell.
 
 Capability was previously encoded as a boolean `AgentConfig.readOnly` layered over
 the `AutoApprove` enum, munged together in each backend's args mapping. Two
@@ -70,7 +70,7 @@ measured planner use of `gh` was zero, and orca reads issues host-side via
 
 ## Consequences
 
-- Claude planners get scoped read-only network with the hard no-edit guarantee
+- Claude planners get read-only network with the hard no-edit guarantee
   intact; pi/codex planners get network with a prompt-only guarantee;
   gemini/opencode planners stay network-free and rely on pre-fetching.
 - `withReadOnly` semantics are unchanged for the six non-planner turn kinds.

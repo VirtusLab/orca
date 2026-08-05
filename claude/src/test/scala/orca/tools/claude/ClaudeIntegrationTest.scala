@@ -117,9 +117,9 @@ class ClaudeIntegrationTest extends munit.FunSuite:
   ):
     withBackend: backend =>
       // The CLI refuses `/etc/hostname` because it is outside the backend's
-      // workDir. A read inside the workspace runs fine under this config, since
-      // `--allowedTools` adds to claude's defaults rather than restricting to
-      // them. What is pinned is not the refusal but its shape: it arrives as a
+      // workDir; a read inside the workspace runs fine, since `Only(empty)`
+      // emits no flags at all and default permission mode allows workspace
+      // reads. What is pinned is not the refusal but its shape: it arrives as a
       // failed tool_result, not as a `can_use_tool` control request. Stdin is
       // closed at spawn, so orca could not answer such a request — a future CLI
       // reviving that subchannel fails here first (see

@@ -45,7 +45,7 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(!streamJson(AgentConfig()).contains("--model"))
 
   test("the `haiku` alias — what `claude:haiku` pins — is sent qualified"):
-    // Plan mode serves claude-sonnet-5 for the bare alias — see
+    // Plan mode served claude-sonnet-5 for the bare alias (2.1.220) — see
     // ClaudeArgs.modelArgs.
     val args = streamJson(AgentConfig(model = Some(Model("haiku"))))
     assert(args.containsSlice(Seq("--model", "claude-haiku-4-5")), args)
@@ -115,7 +115,7 @@ class ClaudeArgsTest extends munit.FunSuite:
       args
     )
 
-  test("ToolSet.NetworkOnly with no networkTools is the read-only allowlist"):
+  test("ToolSet.NetworkOnly with no networkTools maps to the read-only list"):
     val args = streamJson(AgentConfig(tools = ToolSet.NetworkOnly))
     assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
 
