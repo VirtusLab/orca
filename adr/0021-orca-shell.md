@@ -591,12 +591,16 @@ resume is global, but the resumed context still references that directory):
 > and keeping both on one line is the same self-disagreeing duplicate this
 > paragraph exists to remove.
 >
-> A turn also carries enough session identity to stand alone. `ManifestTurn.session`
-> is today a foreign key into `RunManifest.sessions`, and it dangles exactly when
-> the sibling was never written or was pruned — so the harness, agent and session
-> name are denormalised onto the line. One more optional field each, which is
-> precisely what the additive rule makes cheap, and it is what the next question
-> below needs.
+> A turn keeps only the `session` key, not a denormalised copy of the session's
+> harness and name. The first draft of this amendment called for the copy,
+> reasoning that the key dangles when the sibling manifest was never written or
+> was pruned. Implementation removed both cases: retention deletes a run's two
+> files together, so a cost log cannot outlive its manifest; and a run that
+> never committed a session has no session record to copy from, so the fields
+> would be empty in exactly the case they were meant to cover. They would have
+> been populated only when the manifest existed and already answered the
+> question — and populated from the second turn of a session onward, since the
+> first precedes its own commit.
 >
 > The fold needs somewhere to live: a small `CostLog.read` ships in `runner` as
 > production code. Without it "aggregates become read-time folds" describes code
@@ -630,8 +634,16 @@ resume is global, but the resumed context still references that directory):
 > the session half keeps its atomic rewrite. The realistic torn-line source is
 > also not a kill (the kernel already has those bytes) but a short write that
 > throws mid-line, after which the next append concatenates onto an unterminated
-> line and costs two records rather than one. The writer terminates the file with
-> a newline before appending again.
+> line and costs two records rather than one. Bounded at two, in a file already
+> declared lossy, so the reader simply skips the bad line rather than the writer
+> repairing the tear.
+>
+> The reader must decode with REPLACEMENT, not the JVM default for line reading.
+> A tear can cut a multi-byte UTF-8 sequence — stage and agent names are
+> free-form prose and jsoniter emits them unescaped — and a reporting decoder
+> throws before yielding any line at all, losing the whole file including the
+> lines before the tear. That would defeat the entire reason for choosing a
+> line-oriented format.
 >
 > **Retention.** The keep-20 prune counts run ids, not files, and deletes a run's
 > two files together — 20 runs, as before, not 10. Grouping by run id is what the
