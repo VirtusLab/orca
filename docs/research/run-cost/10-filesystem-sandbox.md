@@ -6,8 +6,9 @@ it, enforced by the operating system rather than by asking the model?
 Background: `withReadOnly` / `ToolSet.ReadOnly` does not deliver that today. Ten
 reviewer sessions recording `permissionMode: plan` issued 199 `Bash` calls with
 zero permission denials, and one of them wrote a file to `/tmp` and ran
-`scala-cli` (`09-diff-vs-coordinates.md:83-101`). The feature is being removed.
-This asks whether an honest replacement exists.
+`scala-cli` (`09-diff-vs-coordinates.md:83-101`). This asks whether an OS-level
+sandbox is the honest replacement. It is not — the owner's decision is to keep
+the feature and repair claude with `--tools` instead (see the Answer).
 
 ## Answer
 
@@ -38,14 +39,24 @@ on this host it covers `Bash` only — the `Write` and `Edit` tools wrote files
 straight through it — it cannot deny writes to its own working directory, which
 is the configuration orca wants, and off the cwd it did not start at all (§5).
 
-The property is still reachable for claude, just not by a sandbox: a tool
-allowlist (`--allowedTools`, as used in the §2 probe) removes the write tools
-from the process instead of asking the model not to use them. That is the
-`withReadOnly` decision record's ground (`11-drop-read-only.md`, branch
-`research/drop-read-only`), not this document's.
+**And claude does not need one.** `claude --tools <tools...>` sets "the list of
+available tools from the built-in set" (`claude --help`, 2.1.222). Measured with
+`--tools Read,Grep,Glob,WebFetch,WebSearch`: only those five plus MCP tools were
+advertised, seven attempted escape routes — `Bash`, `Write`, `Edit` and `Task`
+among them — failed with `permission_denials: []`, nothing to deny because the
+tools were not there. Subagents inherited it and it survived `--resume`. **[M]**
+That is capability removal, which is what a sandbox was wanted for.
 
-**Whatever is decided, `Enforcement` should stop claiming `Hard` for
-`ReadOnly` on backends where it is not** (§8).
+Not `--allowedTools`: that is a permission rule and #74 measured it as
+**additive** — it does not restrict the agent to the listed tools.
+
+So the feature is being repaired, not removed, and the repair is a flag rather
+than a sandbox. That decision and its plan live in the `ToolSet.ReadOnly` record
+(`11-drop-read-only.md`, branch `research/drop-read-only` — named before the
+decision turned), and are not restated here.
+
+**`Enforcement` should stop claiming `Hard` for `ReadOnly` on backends where it
+is not, until each one is measured** (§8).
 
 Evidence tags: **[V]** read in the code, **[M]** measured by running it here,
 **[I]** inferred, **[U]** unknown.
@@ -442,11 +453,19 @@ Only under all of these:
 ### Correction to make regardless of this proposal's fate
 
 `EnforcementTableTest.scala:46-51` asserts `ReadOnly → Hard` for all five
-backends, and `AGENTS.md` renders that table. For claude that is measurably
-false (`09-diff-vs-coordinates.md:83-101`: 199 `Bash` calls, zero denials, one
-file write and one `scala-cli` run). gemini, opencode and pi were not checked
-here. **[U]** Whether or not a sandbox is ever built, the table should say what
-is true — that is the same reasoning that is retiring `withReadOnly`.
+backends, and `AGENTS.md` renders that table. Per backend:
+
+| backend | `ReadOnly → Hard`? | evidence |
+|---|---|---|
+| codex | yes | `--sandbox read-only`, probed here (§4) **[M]** |
+| opencode | yes | write tools disabled on the message body; a live-server test asserts the turn cannot write (`OpencodeIntegrationTest.scala:94-104`) **[M]** |
+| claude | no | 199 `Bash` calls, zero denials, one file write and one `scala-cli` run (`09-diff-vs-coordinates.md:83-101`) **[M]** |
+| pi | unverified | a `--tools` allowlist with no write tool in it (`PiArgs.scala:52,62`) — flag-level only, never run **[V]** |
+| gemini | unverified | no credentials on this host **[U]** |
+
+So the table is wrong for claude and unproven for two more. It should say what
+is true — with claude repaired by `--tools` (see the Answer), the claude cell
+can go back to `Hard` once that is measured, not before.
 
 ---
 
