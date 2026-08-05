@@ -725,6 +725,36 @@ class OsGitToolTest extends munit.FunSuite:
       os.write.over(dir / "my notes.md", "two")
       assertEquals(git.changedFiles(), List("my notes.md"))
 
+  test("changedFileStats counts the lines a change added and removed"):
+    withRepo: (git, dir) =>
+      os.write(dir / "notes.md", "one\ntwo\n")
+      git.commit("seed").orThrow
+      os.write.over(dir / "notes.md", "one\ntwo\nthree\n")
+      assertEquals(
+        git.changedFileStats(),
+        List(ChangedFile("notes.md", FileChange.Lines(1, 0)))
+      )
+
+  test("changedFileStats reports a binary change without a count"):
+    withRepo: (git, dir) =>
+      os.write(dir / "logo.png", Array[Byte](0, 1, 2, 3))
+      git.commit("seed").orThrow
+      os.write.over(dir / "logo.png", Array[Byte](4, 5, 6, 7))
+      assertEquals(
+        git.changedFileStats(),
+        List(ChangedFile("logo.png", FileChange.Binary))
+      )
+
+  test("changedFileStats reports an untracked file as new"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      os.write(dir / "fresh.txt", "one\ntwo\n")
+      assertEquals(
+        git.changedFileStats(),
+        List(ChangedFile("fresh.txt", FileChange.New))
+      )
+
   test("changedFiles from a subdirectory is unaffected by diff.relative"):
     // The setting makes git print paths relative to the subdirectory, which
     // hides changes above it and makes the workDir translation name the wrong

@@ -183,8 +183,8 @@ class CommitMessageTest extends munit.FunSuite:
       val payload = prompt.drop(prompt.indexOf("Files changed:"))
       // Bounded, but not to a bare stat: the budget is spent on the diff head,
       // which reaches a few hundred lines in and stops well before the end.
-      assert(clue(payload.length) <= CommitDiff.InlineThreshold)
-      assert(clue(payload.length) > CommitDiff.InlineThreshold - 64)
+      assert(clue(payload.length) <= BoundedDiff.CommitThreshold)
+      assert(clue(payload.length) > BoundedDiff.CommitThreshold - 64)
       assert(prompt.contains("file changed"), "the --stat summary is missing")
       assert(prompt.contains("\n+line 300\n"), "the diff head is missing")
       assert(!prompt.contains("+line 5000"), "the diff was not truncated")
