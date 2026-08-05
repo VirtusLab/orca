@@ -110,7 +110,6 @@ class MainTest extends munit.FunSuite:
       sessions: List[ManifestSession]
   ): RunManifest =
     RunManifest(
-      manifestVersion = RunManifest.SupportedVersion,
       orcaVersion = "0.0.test",
       flow = Some("a-flow.sc"),
       workDir = workDir,

@@ -69,7 +69,6 @@ class RunManifestWriterTest extends munit.FunSuite:
     )
     val manifest = soleManifest(workDir)
     assertEquals(manifest.outcome, "running")
-    assertEquals(manifest.manifestVersion, RunManifest.SupportedVersion)
     assertEquals(manifest.sessions.map(_.harness), List("claude"))
 
   test(

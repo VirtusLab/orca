@@ -136,23 +136,26 @@ private[orca] case class ManifestTurn(
     apiCalls: Option[Long]
 )
 
-/** Schema v5 (ADR 0021 §8) of a per-run manifest written to
+/** A per-run manifest written to
   * `.orca/cache/runs/<startedAt-epoch-ms>-<pid>.json`, read by the shell to
-  * offer "continue a session". `manifestVersion` is a hard gate: a reader
-  * checks it before decoding and skips anything it doesn't write itself, rather
-  * than guessing at an unfamiliar schema — that gate is the one place
-  * cross-version tolerance lives, so the codec below doesn't need to be
-  * tolerant too. `outcome` is `"running"` until [[RunManifestWriter.finish]]
-  * finalizes it to `"succeeded"` or `"failed"` — a stale `"running"` with a
-  * dead `pid` means the run crashed, and the shell still offers its recorded
-  * sessions.
+  * offer "continue a session". `outcome` is `"running"` until
+  * [[RunManifestWriter.finish]] finalizes it to `"succeeded"` or `"failed"` — a
+  * stale `"running"` with a dead `pid` means the run crashed, and the shell
+  * still offers its recorded sessions.
+  *
+  * Carries no schema version (ADR 0021 §8 amendment, 2026-08-05). The
+  * compatibility rule is about writing instead: additions are `Option` or carry
+  * a default, and nothing is renamed, retyped, or has its wire strings
+  * respelled. A field this build doesn't declare is skipped, which is what lets
+  * a manifest written by an earlier build still list its sessions. The rule is
+  * only as good as `RunManifestGoldenTest`, which decodes a frozen file no
+  * schema change may edit.
   *
   * `cost` and `turns` make a run's spend answerable from this file alone, with
   * no agent transcript involved — subject to the reporting gaps noted on
   * [[ManifestCostSummary]] and [[ManifestTurn]].
   */
 private[orca] case class RunManifest(
-    manifestVersion: Int,
     orcaVersion: String,
     flow: Option[String],
     workDir: String,
@@ -166,14 +169,6 @@ private[orca] case class RunManifest(
 )
 
 private[orca] object RunManifest:
-  /** The manifest schema version this build reads and writes — bumped whenever
-    * the wire shape changes. Readers skip any file whose version differs, in
-    * either direction: orca owes no compatibility across 0.x shapes, and
-    * `.orca/cache/runs/` is pruned cache data, so an unreadable run costs a
-    * "continue" offer for that run and nothing else.
-    */
-  val SupportedVersion = 5
-
   // The `outcome` and `ManifestSession.kind` wire strings, named once here so
   // the writer that produces them (RunManifestWriter's Outcome/SessionKind
   // enums) and every reader that matches on them share one spelling.
@@ -187,11 +182,19 @@ private[orca] object RunManifest:
   // Only a jsoniter codec — no `JsonData`/`Schema` half, deliberately: the
   // manifest crosses the process/disk boundary to the shell, never an HTTP or
   // LLM boundary, so it needs on-disk (de)serialisation but no tool schema.
-  // Strict, like every other in-process codec (`JsonData.strictCodecConfig`):
-  // a missing collection field fails to parse rather than silently defaulting
-  // to empty. The `manifestVersion` gate above is the only cross-version
-  // tolerance this format needs — a writer bug producing a malformed manifest
-  // should fail loudly, not decode as a plausible-looking empty one.
+  //
+  // Strict (`JsonData.strictCodecConfig`) even with the version gate gone:
+  // strictness only forces COLLECTION fields to be present, and `sessions` is
+  // the one whose absence must not read as empty — the menu renders the count
+  // verbatim, so a silently empty list becomes a "(0 session(s))" row leading
+  // nowhere. Cross-version tolerance is unaffected: jsoniter skips unknown
+  // fields under any config, and an added `Option`/defaulted field is optional
+  // under a strict one. A collection added later must be wrapped in `Option`,
+  // or it lands on every reader as newly required.
+  //
+  // Deliberately NOT the progress log's `withRequireCollectionFields(false)`:
+  // that would make `sessions` optional, which is the one thing this format
+  // cannot afford.
   given codec: ConfiguredJsonValueCodec[RunManifest] =
     ConfiguredJsonValueCodec.derived[RunManifest](using
       JsonData.strictCodecConfig

@@ -1,7 +1,6 @@
 package orca.shell.sessions
 
 import orca.OrcaFlowException
-import orca.runner.manifest.RunManifest
 import orca.testkit.TempDirs
 
 class ManifestReaderTest extends munit.FunSuite:
@@ -16,13 +15,14 @@ class ManifestReaderTest extends munit.FunSuite:
       workDir: os.Path,
       name: String,
       startedAt: String,
-      manifestVersion: Int = RunManifest.SupportedVersion,
       pid: Long = 111,
-      outcome: String = "succeeded"
+      outcome: String = "succeeded",
+      // Spliced in verbatim, to plant a field this build does not declare.
+      extraField: String = ""
   ): Unit =
     val json =
       s"""{
-         |  "manifestVersion": $manifestVersion,
+         |  $extraField
          |  "orcaVersion": "0.0.test",
          |  "workDir": "${workDir.toString}",
          |  "pid": $pid,
@@ -71,18 +71,32 @@ class ManifestReaderTest extends munit.FunSuite:
       )
     )
 
-  test(
-    "an older manifest is skipped by version, leaving the current one listed"
-  ):
+  /** The version gate is gone (ADR 0021 §8 amendment, 2026-08-05), so a
+    * `manifestVersion` on disk is just an unknown field. Manifests predating
+    * `cost`/`turns` list too once those fields leave this schema.
+    */
+  test("a manifest carrying an older manifestVersion is listed, not skipped"):
     val workDir = TempDirs.dir()
-    // A verbatim v2 manifest: it also lacks v3's `cost`/`turns`, so this only
-    // passes if the version is checked before the body is decoded.
+    writeManifest(
+      workDir,
+      "v2.json",
+      startedAt = "2026-07-18T10:00:00Z",
+      extraField = """"manifestVersion": 2,"""
+    )
+    writeManifest(workDir, "current.json", startedAt = "2026-07-18T11:00:00Z")
+    val (runs, warnings) = ManifestReader.list(workDir, alwaysDead)
+    assertEquals(
+      runs.map(_.manifest.startedAt),
+      List("2026-07-18T11:00:00Z", "2026-07-18T10:00:00Z")
+    )
+    assertEquals(warnings, Nil)
+
+  test("list skips a manifest missing a required field, warning by filename"):
+    val workDir = TempDirs.dir()
     os.write(
-      runsDir(workDir) / "v2.json",
+      runsDir(workDir) / "no-workdir.json",
       """{
-        |  "manifestVersion": 2,
         |  "orcaVersion": "0.0.test",
-        |  "workDir": "/work",
         |  "pid": 111,
         |  "startedAt": "2026-07-18T10:00:00Z",
         |  "outcome": "succeeded",
@@ -90,32 +104,35 @@ class ManifestReaderTest extends munit.FunSuite:
         |}""".stripMargin,
       createFolders = true
     )
-    writeManifest(workDir, "current.json", startedAt = "2026-07-18T11:00:00Z")
     val (runs, warnings) = ManifestReader.list(workDir, alwaysDead)
-    assertEquals(runs.map(_.manifest.startedAt), List("2026-07-18T11:00:00Z"))
+    assertEquals(runs, Nil)
     assertEquals(warnings.size, 1)
     assert(
-      warnings.head.contains("v2.json") && warnings.head.contains(
-        "manifestVersion 2"
-      ),
-      s"expected the filename and version in the warning, got: ${warnings.head}"
+      warnings.head.contains("no-workdir.json"),
+      s"expected the filename in the warning, got: ${warnings.head}"
     )
 
-  test(
-    "list skips a manifestVersion newer than this build writes, warning by filename"
-  ):
+  /** `sessions` is the one collection the codec keeps strict: absent must not
+    * read as empty, or the menu offers a "(0 session(s))" row leading nowhere.
+    */
+  test("list skips a manifest with no sessions array, warning by filename"):
     val workDir = TempDirs.dir()
-    writeManifest(
-      workDir,
-      "future.json",
-      startedAt = "2026-07-18T10:00:00Z",
-      manifestVersion = RunManifest.SupportedVersion + 1
+    os.write(
+      runsDir(workDir) / "no-sessions.json",
+      """{
+        |  "orcaVersion": "0.0.test",
+        |  "workDir": "/work",
+        |  "pid": 111,
+        |  "startedAt": "2026-07-18T10:00:00Z",
+        |  "outcome": "succeeded"
+        |}""".stripMargin,
+      createFolders = true
     )
     val (runs, warnings) = ManifestReader.list(workDir, alwaysDead)
     assertEquals(runs, Nil)
     assertEquals(warnings.size, 1)
     assert(
-      warnings.head.contains("future.json"),
+      warnings.head.contains("no-sessions.json"),
       s"expected the filename in the warning, got: ${warnings.head}"
     )
 
