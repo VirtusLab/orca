@@ -37,8 +37,8 @@ case class PendingChanges(stat: String, newFiles: List[String], diff: String)
   */
 enum FileChange:
   /** Lines added and removed, as `git diff --numstat` counts them. Both are
-    * zero when nothing in the content changed — a mode change, a pure rename,
-    * or an empty file.
+    * zero when the content itself did not change — a mode change, a pure
+    * rename, or a file that became tracked while empty.
     */
   case Lines(added: Int, deleted: Int)
 

@@ -166,8 +166,8 @@ class BoundedDiffTest extends munit.FunSuite:
     )
 
   test("the trailer never renders a change as `+0 -0`"):
-    // git counts no lines for a mode change, a pure rename or an empty file,
-    // and "+0 -0" reads as nothing having changed.
+    // "+0 -0" reads as nothing having changed, which is never why a file is in
+    // a change set.
     val (diff, changed) = bigChangeSet(60)
     val payload = BoundedDiff.reviewPayload(
       diff,
