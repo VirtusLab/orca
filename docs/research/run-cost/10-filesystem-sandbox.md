@@ -15,11 +15,13 @@ This asks whether an honest replacement exists.
 
 Two independent mechanisms deliver the guarantee, both verified end to end
 against a real, write-capable `claude` turn that actively tried its `Write` tool
-and then `Bash` (§2, §3). Both cost almost nothing at runtime. But both break
-codex, and codex is the one backend whose `ReadOnly` is genuinely enforced today
-(§4). So a generic wrapper would trade a working guarantee for a new one and
-leave orca maintaining per-backend exemptions and per-backend write allowlists
-anyway.
+and then `Bash` (§2, §3). Per spawn of `/bin/true`: bare 1.3 ms, C Landlock
+helper 1.8 ms, `landrun` 10.7 ms, bubblewrap 13.8 ms.
+
+But both break codex, and codex's own read-only sandbox was probed and holds
+(§4). So a generic wrapper would break the one backend that already has the
+property, and leave orca maintaining per-backend exemptions and per-backend
+write allowlists anyway.
 
 **macOS: possible on paper, unverified, and orca should not own the profile.**
 `sandbox-exec` still works and children inherit it, but it is deprecated with no
@@ -27,9 +29,20 @@ replacement and no removal date, and a wrong profile is a silent no-op — a
 shipping agent product was escaped exactly that way (§6). Everything in §6 is
 read, not run.
 
-**The cheap route already exists: each backend's own sandbox.** codex ships one
-and orca already uses it. claude 2.1.222 ships one too (§5). Both cover Linux
-and macOS with no native code and no profile for orca to get wrong.
+**The cheap route already exists for codex: its own sandbox.** orca already
+uses it and it was probed working (§4). No native code, no profile for orca to
+get wrong, Linux and macOS.
+
+**For claude that route does not work yet.** claude 2.1.222 ships a sandbox, but
+on this host it covers `Bash` only — the `Write` and `Edit` tools wrote files
+straight through it — it cannot deny writes to its own working directory, which
+is the configuration orca wants, and off the cwd it did not start at all (§5).
+
+The property is still reachable for claude, just not by a sandbox: a tool
+allowlist (`--allowedTools`, as used in the §2 probe) removes the write tools
+from the process instead of asking the model not to use them. That is the
+`withReadOnly` decision record's ground (`11-drop-read-only.md`, branch
+`research/drop-read-only`), not this document's.
 
 **Whatever is decided, `Enforcement` should stop claiming `Hard` for
 `ReadOnly` on backends where it is not** (§8).
@@ -106,7 +119,7 @@ the filesystem only, and `https://api.anthropic.com/v1/messages` answered `405`
 | `unshare -Um` inside | denied **[M]** |
 | nested `bwrap` inside | denied **[M]** |
 | network | works **[M]** |
-| spawn cost | ~10.7 ms (321 ms for 30 spawns vs 26 ms bare) **[M]** |
+| spawn cost | ~13.8 ms, against 1.3 ms bare (30 spawns of `/bin/true`) **[M]** |
 
 **End to end.** A `claude -p` turn with `--permission-mode acceptEdits
 --allowedTools "Bash,Write,Read"` — so nothing but the OS was stopping it — was
@@ -177,7 +190,8 @@ Two ways to apply it, both verified:
 | nested Landlock | stacks; inner domain intersects with outer **[M]** |
 | network | works **[M]** |
 | **works in a stock Docker container, default seccomp and AppArmor** | **yes [M]** |
-| spawn cost | ~2.7 ms (80 ms for 30 spawns) **[M]** |
+| spawn cost, C helper | ~1.8 ms, against 1.3 ms bare **[M]** |
+| spawn cost, `landrun` | ~10.7 ms — about the same as bubblewrap's 13.8 ms **[M]** |
 
 **End to end.** The same write-capable `claude` turn as §2, under both the C
 helper and under `landrun`: `EACCES: permission denied` from the `Write` tool,
@@ -189,28 +203,61 @@ including `git status` and `ls` as usually written. Measured: the first probe
 run failed with `cannot create /dev/null: Permission denied` on six separate
 lines before `/dev` was added. **[M]**
 
-**Landlock is strictly better than bubblewrap for this particular job:** nothing
-to configure on Ubuntu, works in containers, ~4× cheaper per spawn, and it
-composes with itself. Its one structural cost is that the restriction must be
-applied in the child between fork and exec, and the JVM gives no hook there — so
-orca must launch through a helper program. `landrun` removes the need to write
-one, at the price of another operator dependency.
+**The second gotcha: `LANDLOCK_ACCESS_FS_REFER`.** The C helper's
+`handled_access_fs` omits it. When REFER is not handled, Landlock denies
+cross-directory rename outright with `EXDEV` — even between two allowlisted
+paths. Anything that renames across directories breaks. **[V]** What `landrun`
+does about it was not checked. **[U]**
+
+**Landlock is better than bubblewrap for this particular job:** nothing to
+configure on Ubuntu, works in containers, and it composes with itself. Not on
+cost — `landrun` measures about the same as bubblewrap. Its one structural cost
+is that the restriction must be applied in the child between fork and exec, and
+the JVM gives no hook there — so orca must launch through a helper program.
+`landrun` removes the need to write one, at the price of another operator
+dependency and of the ~9 ms per spawn the helper avoids.
 
 ---
 
-## 4. The blocker: both mechanisms break codex
+## 4. The blocker: codex's own sandbox works, and both mechanisms break it
 
 codex ships its own bubblewrap-based sandbox and uses it for **every**
 model-generated shell command (`-s read-only | workspace-write |
 danger-full-access`). The strace in §1 shows it creating
 `/tmp/codex-bwrap-synthetic-mount-targets-<uid>/` and a `/newroot` tree. **[M]**
 
-Wrapping it in either sandbox breaks that: **[M]**
+**It holds.** `codex exec --sandbox read-only`, told to create a file in an
+empty directory: `apply_patch` was refused by codex's own policy (`patch
+rejected: writing is blocked by read-only sandbox`), and the shell redirect it
+fell back to failed with the kernel's `EROFS`. The directory was empty
+afterwards. Two layers, codex's policy above and the kernel below. **[M]**
+
+**It uses the system bwrap, not the copy it ships.** `strace` of `codex exec`
+shows it probing first — `bwrap --unshare-user --unshare-net --ro-bind / /
+/bin/true`, then `bwrap --help` — then exec'ing `/usr/bin/bwrap` and layering
+seccomp with `--apply-seccomp-then-exec`. The vendored copy is never exec'd
+(`grep -c 'codex-resources'` over the trace = 0). **[M]** So the vendored binary
+failing when run standalone is a real defect, but a latent one: it would only
+matter on a host with no working system bwrap.
+
+**Landlock is there if bwrap is not.** Forced with `--enable
+use_legacy_landlock`: the write failed `EACCES`, the trace shows real
+`landlock_create_ruleset` / `landlock_add_rule` / `landlock_restrict_self`
+calls, and no bwrap exec at all. **[M]**
+
+So codex's `Enforcement.Hard` for `ReadOnly` is accurate.
+
+**Wrapping it in either orca sandbox breaks it:** **[M]**
 
 | orca wrapper | what codex's shell tool reports |
 |---|---|
 | bubblewrap | `bwrap: No permissions to create a new namespace…` |
-| Landlock | `bwrap: Failed to make / slave: Operation not permitted` |
+| Landlock, `/proc` writable | `bwrap: Failed to make / slave: Operation not permitted` |
+| Landlock, `/proc` not writable | `bwrap: setting up uid map: Permission denied` |
+
+The Landlock message depends on the write allowlist — without `/proc` on it,
+bwrap fails earlier, at the uid map. Anyone reproducing this will see one or the
+other. codex breaks either way. **[M]**
 
 Every shell command fails; the turn continues and reports the error, so this is
 loud rather than silent, but codex is unusable.
@@ -223,10 +270,13 @@ directly: `clone(CLONE_NEWNS|CLONE_NEWUSER)` succeeds, then
 Reproduced inside a Docker container with AppArmor unconfined, which rules out
 AppArmor as the cause. **[M]**
 
-This is the decisive fact. codex's `ReadOnly` is the **only** backend cell where
+This is the decisive fact, and it points the other way from "the wrapper is
+almost good enough". codex's `ReadOnly` is the **only** backend cell where
 `Hard` is currently defensible without qualification (`--sandbox read-only`,
-`CodexArgs.scala:134`). A generic orca wrapper would have to exempt it — and
-once there is one exemption, plus a per-backend write allowlist (§1), plus a
+`CodexArgs.scala:134`), and it was probed here rather than assumed. So a generic
+wrapper would not be adding a guarantee to codex — it would be destroying the
+one guarantee orca actually has, and would have to exempt codex to avoid that.
+Once there is one exemption, plus a per-backend write allowlist (§1), plus a
 per-backend "does this one self-sandbox" question, the generic wrapper is no
 longer generic. It is per-backend work with a native dependency attached.
 
@@ -239,8 +289,8 @@ fine, but it was not tested. **[U]**
 ## 5. What the backends already ship
 
 **codex** — `--sandbox read-only`, already emitted by orca for `ToolSet.ReadOnly`
-(`CodexArgs.scala:134`). bubblewrap on Linux, Seatbelt on macOS. Nothing to do.
-**[V]**
+(`CodexArgs.scala:134`). bubblewrap on Linux, Seatbelt on macOS. Probed and it
+holds (§4). Nothing to do. **[M]**
 
 **claude 2.1.222** — a full sandboxed-Bash feature, configured in
 `settings.json` and settable per invocation with `--settings <file>`: **[V]**
@@ -254,28 +304,31 @@ fine, but it was not tested. **[U]**
 - "These paths are enforced at the OS level, so all commands running inside the
   sandbox, including their child processes, respect them."
 
-Three measured caveats, and they matter:
+Three caveats, all re-probed and all confirmed:
 
-1. **It covers Bash only.** The docs are explicit: "Read, Edit, and Write use
-   the permission system directly rather than running through the sandbox."
-   **[V]** That is not fatal here — Bash escaping `plan` mode is precisely the
-   observed hole — but it means the guarantee is "no shell writes", not "no
-   writes".
-2. **It cannot make its own working directory read-only.** With
-   `denyWrite: ["<cwd>"]`, sandbox startup itself fails:
-   `bwrap: Can't create file at <cwd>/.gitconfig: Read-only file system`, on
-   every command including `ls`. Adding an `allowWrite` carve-out for that exact
-   path did not help. **[M]** Since orca runs agents with `cwd` = the repo, this
-   is the exact configuration orca would want and it does not work as written.
-3. **It did not start at all on this host.** With `denyWrite` on a subdirectory
-   instead, every command failed with `apply-seccomp: write /proc/self/setgroups
-   (nested userns is capability-restricted; caller must provide CAP_SYS_ADMIN)`.
-   **[M]** The likely cause is that the shipped Ubuntu profile is
-   `bwrap-userns-restrict`, while the docs ask for a separate
-   `/etc/apparmor.d/bwrap` with `flags=(unconfined)`; the seccomp helper is its
-   own binary and is not covered by the restricted profile. **Not verified** —
-   installing the documented profile needs root and loosens AppArmor, so it was
-   not done. **[U]**
+1. **It covers Bash only, and that is fatal on its own.** The docs say "Read,
+   Edit, and Write use the permission system directly rather than running
+   through the sandbox." **[V]** Measured: with `sandbox.filesystem.denyWrite`
+   in force on the target directory and `--permission-mode bypassPermissions`,
+   so that only the sandbox could block anything, the **`Write` tool created a
+   file and the `Edit` tool rewrote another** — both verified on disk. Only the
+   `Bash` routes were stopped. **[M]** The sandbox does not sit under the file
+   tools, so the guarantee is "no shell writes", not "no writes". A sandbox
+   applied from outside the process, as in §2 and §3, does cover them.
+2. **`denyWrite` on the cwd breaks Bash entirely.** With `denyWrite: ["<cwd>"]`,
+   every command including `ls` fails at startup:
+   `bwrap: Can't create file at <cwd>/.gitconfig: Read-only file system`. An
+   `allowWrite` carve-out for that exact path changed nothing. **[M]** orca runs
+   agents with `cwd` = the repo, so that is orca's shape, and the result is not
+   read-only Bash — it is no Bash.
+3. **Off the cwd it does not start either, and that is not a host quirk.** With
+   `denyWrite` on a subdirectory instead, every command failed at claude's own
+   seccomp step: `apply-seccomp: write /proc/self/setgroups (nested userns is
+   capability-restricted; caller must provide CAP_SYS_ADMIN)`. **[M]** That is
+   what `/etc/apparmor.d/bwrap-userns-restrict` does, and Ubuntu has shipped it
+   enabled since 24.04. claude's docs ask for a separate `/etc/apparmor.d/bwrap`
+   with `flags=(unconfined)` instead; that was not installed here, since it needs
+   root and loosens AppArmor. **[U]**
 
   One good sign: `failIfUnavailable: true` behaved correctly. With `socat`
   missing, claude refused to start rather than running unsandboxed —
@@ -371,8 +424,12 @@ write allowlist and an opt-out — a new field, not a new `ToolSet` case. **[V]*
 Only under all of these:
 
 1. **Landlock, not bubblewrap** (§3). Via `landrun` if the extra dependency is
-   acceptable, otherwise a small helper orca builds per arch.
-2. **Skipped for codex** (§4), which already has the property natively.
+   acceptable, otherwise a small helper orca builds per arch. `landrun` costs
+   about what bubblewrap costs per spawn; the helper is near-free. Whichever is
+   used, `handled_access_fs` must include `LANDLOCK_ACCESS_FS_REFER` — the
+   helper written here omits it, and unhandled REFER makes Landlock deny
+   cross-directory rename with `EXDEV` even between allowlisted paths (§3).
+2. **Skipped for codex** (§4), whose own sandbox was probed and holds.
 3. **Off by default, on per role**, and failing loudly when unavailable rather
    than silently running unsandboxed — the property claude's
    `failIfUnavailable` gets right (§5).
@@ -397,15 +454,15 @@ is true — that is the same reasoning that is retiring `withReadOnly`.
 
 1. **What gemini and opencode need to write.** *Experiment:* the §1 strace
    recipe, ~10 minutes each.
-2. **Does claude's own sandbox work once the documented AppArmor profile is
-   installed?** (§5 caveat 3.) *Experiment:* install `/etc/apparmor.d/bwrap`
-   with `flags=(unconfined)`, reload, re-run. Needs root. If it works, §5
-   caveat 2 (cwd cannot be denied) is the only remaining blocker and is worth
-   reporting upstream.
+2. **Does claude's own `Bash` sandbox start once the documented AppArmor profile
+   is installed?** (§5 caveat 3.) *Experiment:* install `/etc/apparmor.d/bwrap`
+   with `flags=(unconfined)`, reload, re-run. Needs root. Even if it works,
+   caveats 1 (file tools bypass it) and 2 (cwd cannot be denied) still stand,
+   and both are worth reporting upstream.
 3. **Does bubblewrap's descendant guarantee hold on a host without AppArmor?**
    (§2.) The kernel documentation says yes; not tested. *Experiment:* a
    non-Ubuntu Linux host, repeat the nested-`unshare`/`bwrap` matrix.
-4. **Does `landrun --rox /` cost anything at scale?** The 2.7 ms figure is for
+4. **Does `landrun --rox /` cost more at scale?** The 10.7 ms figure is for
    `/bin/true` with four rules. *Experiment:* time a real reviewer fan-out with
    a full allowlist.
 5. **Everything in §6.** No macOS was available. *Experiment:* on macOS, write a
