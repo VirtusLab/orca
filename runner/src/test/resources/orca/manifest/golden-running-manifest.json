@@ -1,0 +1,30 @@
+{
+  "manifestVersion": 5,
+  "orcaVersion": "0.1.0",
+  "workDir": "/home/user/project",
+  "pid": 5150,
+  "startedAt": "2026-08-04T11:02:00Z",
+  "outcome": "running",
+  "sessions": [
+    {
+      "harness": "gemini",
+      "agent": "planner",
+      "kind": "oneShot",
+      "firstSeenAt": "2026-08-04T11:02:30Z",
+      "lastActiveAt": "2026-08-04T11:02:41Z"
+    }
+  ],
+  "cost": {
+    "total": {
+      "inputTokens": 4100,
+      "outputTokens": 320,
+      "cacheReadInputTokens": 0,
+      "cacheWriteInputTokens": 0,
+      "reasoningOutputTokens": 0
+    },
+    "byRole": [],
+    "byAgent": [],
+    "byStage": []
+  },
+  "turns": []
+}
