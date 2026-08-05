@@ -165,17 +165,44 @@ class BoundedDiffTest extends munit.FunSuite:
       "new file went unlabelled"
     )
 
+  /** A path of exactly `chars` characters, nested the way a real one is. */
+  private def deepPath(chars: Int): String =
+    val leaf = "/Deep.scala"
+    "nested/".repeat(chars / 7 + 1).take(chars - leaf.length) + leaf
+
   test("the payload stays in budget however many files the trailer names"):
     // Both halves have to be sized against each other: a long file list can
     // outweigh the diff, and neither may be allowed to spend the other's room.
-    val (diff, changed) = bigChangeSet(60)
+    //
+    // The trailer's room has to cover every subset of the file list, since
+    // which files it names isn't known until the diff has been cut. Rendering
+    // the whole list is not that bound: `boundedEntries` stops at the first
+    // entry too long to fit, so the one long path here cuts the whole list
+    // short of the budget. Showing the files ahead of it frees that room, and
+    // the shorter list then renders longer than the whole one did. The sizes
+    // are picked so the difference is a few file sections wide — reserving by
+    // the whole list overshoots the threshold by ~3 KB.
+    val inDiff = (1 to 1600).map(i => f"src/generated/G$i%05d.scala").toList
+    val notInDiff = (1 to 900).map(i => f"src/untouched/U$i%05d.scala").toList
+    val diff = inDiff.map(section(_, 2)).mkString
     assert(clue(diff.length) > BoundedDiff.ReviewThreshold, "fixture too small")
-    val extra = (1 to 4000).map(i => f"src/generated/G$i%05d.scala").toList
     val payload = BoundedDiff.reviewPayload(
       diff,
-      changed ++ extra.map(ChangedFile(_, FileChange.Lines(1, 0)))
+      (inDiff ++ (deepPath(3228) :: notInDiff))
+        .map(ChangedFile(_, FileChange.Lines(2, 0)))
     )
     assert(
       clue(payload.length) <= BoundedDiff.ReviewThreshold,
       "the payload outgrew its budget"
     )
+
+  test("a cut diff whose file list names nothing still reports the cut"):
+    // The diff and the file list are two separate git reads, so an edit landing
+    // between them can leave the list empty. The cut is real regardless — the
+    // last file's section never fits — so the note must not introduce a list of
+    // files and then show none.
+    val diff = section("src/Huge.scala", 6000)
+    assert(clue(diff.length) > BoundedDiff.ReviewThreshold, "fixture too small")
+    val payload = BoundedDiff.reviewPayload(diff, Nil)
+    assert(payload.contains("was cut short"), payload)
+    assert(!payload.contains("the files below"), payload)
