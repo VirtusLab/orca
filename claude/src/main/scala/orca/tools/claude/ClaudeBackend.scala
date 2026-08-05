@@ -60,9 +60,9 @@ private[orca] class ClaudeBackend(
     sharedClosedFlag: AtomicBoolean = new AtomicBoolean(false)
 ) extends AgentBackend[BackendTag.ClaudeCode.type](sharedClosedFlag):
 
-  /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns,
-    * pre-approves `tools` (claude `--allowedTools` syntax). Lives on the
-    * backend, not `AgentConfig`, since the strings are claude-specific.
+  /** Return a sibling backend that, on [[ToolSet.NetworkOnly]] turns, adds
+    * `tools` to the read-only `--tools` allowlist. Lives on the backend, not
+    * `AgentConfig`, since the names are claude-specific.
     *
     * Shares `closedFlag` with `this`: the sibling is a genuinely different
     * `AgentBackend` instance, so without threading the SAME flag through, a
@@ -293,21 +293,16 @@ object ClaudeBackend:
   private[claude] def cwdSlug(cwd: os.Path): String =
     cwd.toString.replace('/', '-')
 
-  /** Read-only network tools pre-approved on [[ToolSet.NetworkOnly]] turns.
-    * Command-scoped, so plan mode still blocks general bash and all edits.
-    * `Bash(gh api:*)` is broad GitHub reads — note `gh api -X POST` can mutate
-    * GitHub (not local files); flows wanting a tighter set pass their own via
-    * `claude.withNetworkTools(...)`.
+  /** Built-in tools added to `ClaudeArgs.ReadOnlyTools` on
+    * [[ToolSet.NetworkOnly]] turns. Bare tool names only — `--tools` takes no
+    * command scoping, so the `Bash(gh …)` entries this list used to carry
+    * cannot appear in it. They are not replaced: measured planner use of `gh`
+    * was zero (`docs/research/run-cost/12-reviewer-tool-surface.md` §5), and
+    * orca reads issues host-side via `GitHubTool.readIssue`. Flows wanting a
+    * different set pass their own via `claude.withNetworkTools(...)`.
     */
-  private[claude] val DefaultNetworkTools: Seq[String] = Seq(
-    "WebFetch",
-    "WebSearch",
-    "Bash(gh issue view:*)",
-    "Bash(gh pr view:*)",
-    "Bash(gh search:*)",
-    "Bash(gh repo view:*)",
-    "Bash(gh api:*)"
-  )
+  private[claude] val DefaultNetworkTools: Seq[String] =
+    Seq("WebFetch", "WebSearch")
 
   /** Fully-qualified tool name (MCP server name + tool slug). Always
     * auto-approved on the interactive path — the user is already typing an

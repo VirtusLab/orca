@@ -93,36 +93,31 @@ class ClaudeArgsTest extends munit.FunSuite:
     assert(!args.contains("--permission-mode"), args)
     assert(!args.contains("--allowedTools"), args)
 
-  test(
-    "ToolSet.ReadOnly maps to --permission-mode plan, overriding autoApprove"
-  ):
-    // The read-only tier is the planner/reviewer hard restriction —
-    // Edit/Write/Bash unavailable, not just non-auto-approved. It wins over
-    // `autoApprove` (the agent is verifying claims, not editing).
+  test("ToolSet.ReadOnly maps to --tools, overriding autoApprove"):
+    // The read-only tier is the planner/reviewer hard restriction, and it wins
+    // over `autoApprove` (the agent is verifying claims, not editing).
     val args = streamJson(
       AgentConfig(autoApprove = AutoApprove.All, tools = ToolSet.ReadOnly)
     )
-    assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
+    assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
     assert(!args.contains("bypassPermissions"), args)
-    assert(!args.contains("--allowedTools"), args)
+    assert(!args.contains("--permission-mode"), args)
 
-  test(
-    "ToolSet.NetworkOnly layers networkTools onto plan mode via --allowedTools"
-  ):
+  test("ToolSet.NetworkOnly appends networkTools to the read-only allowlist"):
     val args = streamJson(
       AgentConfig(tools = ToolSet.NetworkOnly),
-      networkTools = Seq("WebFetch", "Bash(gh api:*)")
+      networkTools = Seq("WebFetch", "WebSearch")
     )
-    assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
     assert(
-      args.containsSlice(Seq("--allowedTools", "WebFetch,Bash(gh api:*)")),
+      args.containsSlice(
+        Seq("--tools", "Read,Grep,Glob,Skill,WebFetch,WebSearch")
+      ),
       args
     )
 
-  test("ToolSet.NetworkOnly with no networkTools stays plain plan mode"):
+  test("ToolSet.NetworkOnly with no networkTools is the read-only allowlist"):
     val args = streamJson(AgentConfig(tools = ToolSet.NetworkOnly))
-    assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
-    assert(!args.contains("--allowedTools"), args)
+    assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
 
   test("ToolSet.ReadOnly never emits networkTools even when supplied"):
     // Reviewers/triage use ReadOnly and must stay network-free.
@@ -130,8 +125,8 @@ class ClaudeArgsTest extends munit.FunSuite:
       AgentConfig(tools = ToolSet.ReadOnly),
       networkTools = Seq("WebFetch")
     )
-    assert(args.containsSlice(Seq("--permission-mode", "plan")), args)
-    assert(!args.contains("--allowedTools"), args)
+    assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
+    assert(!args.contains("WebFetch"), args)
 
   test("Dispatch.Fresh emits --session-id <uuid>"):
     val args =

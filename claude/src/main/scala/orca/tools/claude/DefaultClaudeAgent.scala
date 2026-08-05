@@ -64,10 +64,10 @@ private[orca] class DefaultClaudeAgent(
     )
 
 private[orca] object DefaultClaudeAgent:
-  /** The cheap tier. Spelled out rather than the `haiku` alias, which plan mode
-    * mis-resolves — see `ClaudeArgs.modelArgs`. That rewrite covers a
-    * `claude:haiku` pin too, so neither spelling tracks a new haiku generation:
-    * this constant is the one place to bump when one ships.
+  /** The cheap tier. Spelled out rather than the `haiku` alias, which the CLI
+    * mis-resolved under plan mode — see `ClaudeArgs.modelArgs`. That rewrite
+    * covers a `claude:haiku` pin too, so neither spelling tracks a new haiku
+    * generation: this constant is the one place to bump when one ships.
     */
   val Haiku: Model = Model("claude-haiku-4-5")
 
