@@ -5,7 +5,6 @@ import io.circe.Codec
 import orca.tools.{GitReadFailed, GitTool, ShowDetail}
 import ox.Ox
 import sttp.tapir.Schema
-import sttp.tapir.server.netty.sync.NettySyncServer
 
 import scala.concurrent.duration.{DurationInt, FiniteDuration}
 
@@ -20,25 +19,14 @@ private[mcp] case class GitFileAtInput(rev: String, path: String)
     derives Codec,
       Schema
 
-/** MCP server giving read-only turns the git reads they lose with the shell.
-  * Two tools, both structured — the agent names a revision and paths, never a
+/** MCP tools giving read-only turns the git reads they lose with the shell. Two
+  * tools, both structured — the agent names a revision and paths, never a
   * command string, and orca builds the argv.
   *
   * Deliberately not `git_diff` / `git_status`, which were 82% of measured
   * reviewer git use: both re-derive the change set the prompt already carries
   * (`docs/research/run-cost/12-reviewer-tool-surface.md` §6).
-  *
-  * Bound on `127.0.0.1` at an ephemeral port; lifecycle is caller-owned, as for
-  * [[AskUserMcpServer]].
   */
-private[orca] class RepoMcpServer private[mcp] (
-    val port: Int,
-    stopFn: () => Unit
-) extends AutoCloseable:
-  val url: String = s"http://127.0.0.1:$port/mcp"
-
-  override def close(): Unit = stopFn()
-
 private[orca] object RepoMcpServer:
 
   /** MCP server name advertised to the backend. Distinct from
@@ -68,11 +56,8 @@ private[orca] object RepoMcpServer:
     */
   private[orca] val ToolSlugs: Seq[String] = Seq(ShowSlug, FileAtSlug)
 
-  /** Mount both tools on a fresh Netty binding in the enclosing Ox scope,
-    * reading through `git`. The caller calls `close()` (or relies on scope
-    * tear-down).
-    */
-  def start(git: GitTool)(using Ox): RepoMcpServer =
+  /** Mount both tools on a fresh [[McpHost]], reading through `git`. */
+  def start(git: GitTool)(using Ox): McpHost =
     val showTool = tool(ShowSlug)
       .description(
         "Show a commit: its message and diff, or with stat=true just which " +
@@ -90,14 +75,7 @@ private[orca] object RepoMcpServer:
       )
       .input[GitFileAtInput]
       .handle(in => render(git.fileAt(in.rev, in.path)))
-    val binding = NettySyncServer()
-      .port(0)
-      .modifyConfig(
-        _.requestTimeout(ToolTimeout).idleTimeout(ToolTimeout + 1.minute)
-      )
-      .addEndpoint(mcpEndpoint(List(showTool, fileAtTool), List("mcp")))
-      .start()
-    new RepoMcpServer(binding.port, () => binding.stop())
+    McpHost.start(List(showTool, fileAtTool), ToolTimeout)
 
   /** Map a read outcome onto MCP's success/error channels, bounding the success
     * payload.
@@ -117,7 +95,7 @@ private[orca] object RepoMcpServer:
   /** System-prompt hint naming the tools. Read-only turns have no shell, so
     * without this the agent has no reason to look for them.
     */
-  val Hint: String =
+  private[orca] val Hint: String =
     """You have no shell. Two MCP tools cover the git reads you would
       |otherwise run: `git_show` for a commit's message and diff (pass
       |`stat: true` for just the file list, `paths` to narrow it), and

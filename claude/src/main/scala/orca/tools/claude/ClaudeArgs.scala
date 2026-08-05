@@ -160,6 +160,15 @@ private[claude] object ClaudeArgs:
           case AutoApprove.Only(tools) =>
             Seq("--allowedTools", tools.toSeq.sorted.mkString(","))
 
+  /** Whether a tier's `--tools` list withholds `Bash`, and so needs the host to
+    * hand back the reads it would otherwise shell out for. Matched exhaustively
+    * so a new `ToolSet` case has to answer the question here rather than
+    * silently defaulting.
+    */
+  private[claude] def losesShell(tools: ToolSet): Boolean = tools match
+    case ToolSet.ReadOnly | ToolSet.NetworkOnly => true
+    case ToolSet.Full                           => false
+
   private def approveMcp(mcpTools: Seq[String]): Seq[String] =
     if mcpTools.isEmpty then Nil
     else Seq("--allowedTools", mcpTools.mkString(","))

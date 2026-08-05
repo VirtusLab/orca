@@ -64,7 +64,7 @@ object GitReadFailed:
   * only thing to defend against is an argument that git would read as something
   * other than a value.
   */
-object GitRead:
+private[tools] object GitRead:
   // `..` and `...` are legal in a ref (`main...HEAD`), so they are allowed
   // here; the leading-dash rejection is what stops a ref position being read as
   // a flag, and callers additionally pass `--end-of-options`.

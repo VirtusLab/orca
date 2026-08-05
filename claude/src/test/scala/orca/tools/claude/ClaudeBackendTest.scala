@@ -92,20 +92,55 @@ class ClaudeBackendTest extends munit.FunSuite:
     assertEquals(staged, "", "the MCP config must be unstageable")
 
   test("a read-only autonomous call wires the repo-read MCP server"):
-    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    // The config is read at spawn, not after: the conversation deletes it when
+    // the turn finalizes.
+    var mcpConfig: Option[String] = None
+    val runner = new SpawnStubCliRunner(
+      List(successfulProcess()),
+      onSpawn = args =>
+        mcpConfig =
+          Some(os.read(os.Path(args(args.indexOf("--mcp-config") + 1))))
+    )
     withBackend(runner): backend =>
       val _ = backend.runAutonomous(
         "x",
         freshSid,
         AgentConfig(tools = ToolSet.ReadOnly)
       )
+      assert(mcpConfig.exists(_.contains(RepoMcpServer.ServerName)), mcpConfig)
       val args = runner.calls.head
-      val config = os.Path(args(args.indexOf("--mcp-config") + 1))
-      assert(os.read(config).contains(RepoMcpServer.ServerName), config)
       assertEquals(
         args(args.indexOf("--allowedTools") + 1),
         ClaudeBackend.RepoToolNames.mkString(",")
       )
+
+  test("the repo-read MCP binding and its config go when the turn finalizes"):
+    // A leaked binding holds its Netty event-loop threads and its port for the
+    // life of the JVM, and a flow runs hundreds of read-only turns.
+    var probe: Option[(String, os.Path)] = None
+    val runner = new SpawnStubCliRunner(
+      List(successfulProcess()),
+      onSpawn = args =>
+        val config = os.Path(args(args.indexOf("--mcp-config") + 1))
+        probe = Some((os.read(config), config))
+    )
+    withBackend(runner): backend =>
+      val _ = backend.runAutonomous(
+        "x",
+        freshSid,
+        AgentConfig(tools = ToolSet.ReadOnly)
+      )
+    val (configText, configPath) = probe.get
+    assert(!os.exists(configPath), configPath)
+    val port = """127\.0\.0\.1:(\d+)""".r.findFirstMatchIn(configText).get
+    intercept[java.net.ConnectException]:
+      val socket = new java.net.Socket()
+      try
+        socket.connect(
+          new java.net.InetSocketAddress("127.0.0.1", port.group(1).toInt),
+          1000
+        )
+      finally socket.close()
 
   test("a Full autonomous call stands up no MCP server"):
     // The repo reads exist to replace the shell a read-only turn loses; a Full

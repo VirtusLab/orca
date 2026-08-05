@@ -26,7 +26,12 @@ import orca.backend.{
   SystemPromptComposer
 }
 import orca.subprocess.CliRunner
-import orca.backend.mcp.{AskUserMcpServer, AskUserSession, RepoMcpServer}
+import orca.backend.mcp.{
+  AskUserMcpServer,
+  AskUserSession,
+  McpHost,
+  RepoMcpServer
+}
 import orca.tools.{GitTool, OsGitTool}
 import orca.tools.claude.streamjson.OutboundMessage
 import ox.Ox
@@ -190,24 +195,25 @@ private[orca] class ClaudeBackend(
     val displayPrompt = mode.displayPrompt
     val askUser: Option[AskUserSession] =
       Option.when(mode.isInteractive)(AskUserSession.allocate())
-    val repoReads: Option[RepoMcpServer] =
-      Option.when(config.tools != ToolSet.Full)(RepoMcpServer.start(git))
+    val repoReads: Option[McpHost] =
+      Option.when(ClaudeArgs.losesShell(config.tools))(RepoMcpServer.start(git))
     val mcpConfig = Option
       .when(askUser.isDefined || repoReads.isDefined):
         writeMcpConfig(askUser.map(_.server), repoReads, session)
-    // Written before `open` so it can join `resources` (failure-path cleanup);
-    // the conversation deletes it on the success path via its `onFinalize`.
     val systemPromptFile = writeSystemPromptIfPresent(
       config,
       includeAskUserHint = askUser.isDefined,
       includeRepoHint = repoReads.isDefined
     )
-    SubprocessSpawn.open(
-      "claude stream-json",
-      askUser.toList ++ repoReads.toList ++
+    // One list, handed to both sides: `open` releases it if the spawn or the
+    // build fails, the conversation's `onFinalize` releases it on the happy
+    // path. `askUser` stays separate — `ForkedConversation` owns it, because
+    // the bridge must be errored before the read loop is torn down.
+    val perTurn: List[AutoCloseable] =
+      repoReads.toList ++
         mcpConfig.map(SubprocessSpawn.deleteFileResource) ++
         systemPromptFile.map(SubprocessSpawn.deleteFileResource)
-    ) {
+    SubprocessSpawn.open("claude stream-json", askUser.toList ++ perTurn) {
       val effectiveConfig =
         if askUser.isDefined then
           config.autoApproveAlso(ClaudeBackend.AskUserToolName)
@@ -237,7 +243,7 @@ private[orca] class ClaudeBackend(
         initialPrompt = displayPrompt,
         outputSchema = outputSchema,
         askUser = askUser,
-        systemPromptFile = systemPromptFile
+        resources = perTurn
       )
     }
 
@@ -252,8 +258,8 @@ private[orca] class ClaudeBackend(
     * them in sync.
     */
   private def writeMcpConfig(
-      askUser: Option[AskUserMcpServer],
-      repoReads: Option[RepoMcpServer],
+      askUser: Option[McpHost],
+      repoReads: Option[McpHost],
       session: SessionId[BackendTag.ClaudeCode.type]
   ): os.Path =
     val entries =
@@ -342,16 +348,18 @@ object ClaudeBackend:
     * answer, no need for a y/n prompt first.
     */
   private[claude] val AskUserToolName: String =
-    s"mcp__${AskUserMcpServer.ServerName}__${AskUserMcpServer.ToolSlug}"
+    qualifiedToolName(AskUserMcpServer.ServerName, AskUserMcpServer.ToolSlug)
 
   /** The repo-read tools, qualified the way claude advertises them. Read-only
     * turns pass these to `--allowedTools`: `--tools` bounds what exists, but an
     * MCP call still needs approval, which an autonomous turn cannot give.
     */
   private[claude] val RepoToolNames: Seq[String] =
-    RepoMcpServer.ToolSlugs.map(slug =>
-      s"mcp__${RepoMcpServer.ServerName}__$slug"
-    )
+    RepoMcpServer.ToolSlugs.map(qualifiedToolName(RepoMcpServer.ServerName, _))
+
+  /** How claude names an MCP tool once its server is registered. */
+  private def qualifiedToolName(server: String, slug: String): String =
+    s"mcp__${server}__$slug"
 
   /** Tool name the claude CLI injects for `--json-schema` structured output:
     * the model "exits" the turn by calling this tool with the payload as its
