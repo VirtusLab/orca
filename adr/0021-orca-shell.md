@@ -506,11 +506,19 @@ resume is global, but the resumed context still references that directory):
 >
 > **What replaces the version gate.** `manifestVersion`,
 > `RunManifest.SupportedVersion` and the reader's pre-decode version check are
-> removed. Both files decode with `withRequireCollectionFields(false)`, and every
-> field added from here on is declared `Option` or given a Scala default —
-> jsoniter defaults an absent scalar only when the case class declares one, so
-> the config alone buys nothing for scalars and the declaration is what does the
-> work.
+> removed. No codec config change is needed and none is made: jsoniter skips
+> unknown fields under any config, which is the whole of what reading an older
+> build's file requires. What does the work is the declaration — every field
+> added from here on is `Option` or carries a Scala default, since jsoniter
+> defaults an absent scalar only when the case class declares one.
+>
+> The manifest's codec therefore stays STRICT. Switching it to the progress
+> log's `withRequireCollectionFields(false)` — the first draft of this
+> amendment said to — would make `sessions` optional, which is the one thing
+> this format cannot afford (see Required fields). Strictness only constrains
+> collection fields, so it costs nothing else; the consequence is that a
+> collection added later must be wrapped in `Option`, or it lands on every
+> reader as newly required.
 >
 > That covers additions. It does not cover renames, retypes, or respelled wire
 > vocabulary, and one of those gets *worse*: today `ManifestSession` has no
@@ -530,11 +538,18 @@ resume is global, but the resumed context still references that directory):
 > the test and edited in lockstep with the schema, or round-tripped through the
 > current case class. An implementer adding a required field would update the
 > fixtures in the same commit and see green. So this change checks in **frozen
-> golden fixtures** — a literal manifest and a literal cost log, committed as
-> test resources, never edited — that must keep decoding. Without them the
-> additive-only rule is a comment. `ManifestReaderTest`'s verbatim v2 JSON is
-> the seed for the first one; it currently exists to prove the gate skips it, and
-> inverts into proving tolerance reads it.
+> golden fixtures** — committed as test resources, never edited — that must keep
+> decoding. Without them the additive-only rule is a comment.
+>
+> Two manifest fixtures, not one: a finished run and an in-flight one
+> (`outcome: "running"`, `finishedAt` absent). The second is what a crashed run
+> leaves behind, and continuing its sessions is what this format exists for, so
+> retyping `finishedAt` out of `Option` has to fail. Each is compared by WHOLE
+> VALUE, not field by field — a structural comparison cannot forget a field, so
+> renaming an `Option` (which would otherwise decode as a silent `None` and
+> pass) fails too. `ManifestReaderTest`'s verbatim v2 JSON stays as a third
+> case: it currently proves the gate skips it, and inverts into proving
+> tolerance reads it.
 >
 > **Required fields.** `workDir`, `pid`, `startedAt`, `outcome` and `sessions`
 > stay required with no default. The first four are what the shell dereferences
