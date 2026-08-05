@@ -3,6 +3,8 @@ package orca.tools
 import orca.{OrcaFlowException, WorkspaceWrite}
 import orca.events.{OrcaEvent, OrcaListener}
 import orca.subprocess.QuietProc
+import ox.either
+import ox.either.ok
 
 import scala.util.control.NonFatal
 
@@ -24,6 +26,62 @@ enum DiffMode:
   * specific branch, sharing the main repository's object store.
   */
 case class Worktree(path: os.Path, branch: String)
+
+/** How much of a commit [[GitTool.show]] renders. */
+enum ShowDetail:
+  /** Message plus the full diff. */
+  case Full
+
+  /** Message plus `--stat`: which files changed and by how much, no hunks. */
+  case StatOnly
+
+/** Why a [[GitTool.show]] / [[GitTool.fileAt]] read did not happen. Returned in
+  * a `Left` rather than thrown: these reads take agent-supplied arguments, and
+  * a bad one is an answer to relay, not a flow failure. Subclasses
+  * `OrcaFlowException` so a caller that considers the case unexpected can
+  * `.orThrow`, matching [[PushFailure]].
+  */
+sealed abstract class GitReadFailed(message: String)
+    extends OrcaFlowException(message)
+
+object GitReadFailed:
+  final class InvalidRev(rev: String)
+      extends GitReadFailed(
+        s"'$rev' is not a revision name (letters, digits, '.', '_', '/', '-', " +
+          "not starting with a dash)"
+      )
+
+  final class InvalidPath(path: String)
+      extends GitReadFailed(s"'$path' is not a repository-relative path")
+
+  /** git ran and refused — unknown revision, or a path not in that commit.
+    * Carries git's own message.
+    */
+  final class Refused(detail: String) extends GitReadFailed(detail)
+
+/** Argument validation for the agent-facing git reads ([[GitTool.show]],
+  * [[GitTool.fileAt]]). Both build an argv orca hands to git directly, so the
+  * only thing to defend against is an argument that git would read as something
+  * other than a value.
+  */
+object GitRead:
+  // `..` and `...` are legal in a ref (`main...HEAD`), so they are allowed
+  // here; the leading-dash rejection is what stops a ref position being read as
+  // a flag, and callers additionally pass `--end-of-options`.
+  private val RevPattern = """[A-Za-z0-9._/-]+""".r
+
+  /** A ref, sha or range git may be handed in a revision position. */
+  def rev(value: String): Either[GitReadFailed, String] =
+    if RevPattern.matches(value) && !value.startsWith("-") then Right(value)
+    else Left(new GitReadFailed.InvalidRev(value))
+
+  /** A repository-relative path: neither absolute nor climbing out via `..`. */
+  def path(value: String): Either[GitReadFailed, String] =
+    val segments = value.split('/').toList
+    if value.nonEmpty && !value.startsWith("/") && !value.startsWith("-") &&
+      !segments.contains("..")
+    then Right(value)
+    else Left(new GitReadFailed.InvalidPath(value))
 
 /** One consistent sample of what the next commit would include — see
   * [[GitTool.pendingChanges]]. `newFiles` holds the paths new to the repository
@@ -331,6 +389,25 @@ trait GitTool:
   def defaultBase(): String
 
   def log(n: Int = 10): List[CommitInfo]
+
+  /** `git show [--stat] <rev> [-- <paths>]` — a commit's message plus its diff,
+    * or, under [[ShowDetail.StatOnly]], just its changed-file summary. `paths`
+    * narrows the diff; empty means the whole commit.
+    *
+    * Built for agent-supplied arguments, so `rev` and `paths` are validated
+    * before they reach git ([[GitRead.rev]], [[GitRead.path]]) and cannot be
+    * read as flags or escape the repository.
+    */
+  def show(
+      rev: String,
+      paths: List[String] = Nil,
+      detail: ShowDetail = ShowDetail.Full
+  ): Either[GitReadFailed, String]
+
+  /** `git show <rev>:<path>` — one file's full contents as of `rev`. Same
+    * argument validation as [[show]].
+    */
+  def fileAt(rev: String, path: String): Either[GitReadFailed, String]
 
   /** Verify the working tree is clean. If it isn't, `git stash push` with the
     * supplied message and emit a `Step` event so the user can recover the
@@ -773,6 +850,40 @@ private[orca] class OsGitTool(
           case _ =>
             throw OrcaFlowException(s"Unexpected git log line: $line")
       .toList
+
+  def show(
+      rev: String,
+      paths: List[String],
+      detail: ShowDetail
+  ): Either[GitReadFailed, String] = either:
+    val checkedRev = GitRead.rev(rev).ok()
+    val checkedPaths = paths.map(GitRead.path(_).ok())
+    val statFlag = detail match
+      case ShowDetail.StatOnly => Seq("--stat")
+      case ShowDetail.Full     => Nil
+    val pathspec =
+      if checkedPaths.isEmpty then Nil else "--" +: checkedPaths
+    // `--end-of-options` after the flags, so git cannot read `checkedRev` as
+    // one however it is spelled.
+    gitRead(
+      Seq("show") ++ statFlag ++ Seq("--end-of-options", checkedRev) ++ pathspec
+    ).ok()
+
+  def fileAt(rev: String, path: String): Either[GitReadFailed, String] = either:
+    val checkedRev = GitRead.rev(rev).ok()
+    val checkedPath = GitRead.path(path).ok()
+    gitRead(
+      Seq("show", "--end-of-options", s"$checkedRev:$checkedPath")
+    ).ok()
+
+  /** Run a read-only git command, mapping a non-zero exit to
+    * [[GitReadFailed.Refused]] instead of aborting the flow — an agent asking
+    * for a revision that does not exist gets an answer, not a crash.
+    */
+  private def gitRead(args: Seq[String]): Either[GitReadFailed, String] =
+    val result = gitProc("git" +: args)
+    if result.exitCode == 0 then Right(result.out.text())
+    else Left(new GitReadFailed.Refused(result.err.text().trim))
 
   def addWorktree(
       path: os.Path,

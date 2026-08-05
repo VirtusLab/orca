@@ -794,3 +794,61 @@ class OsGitToolTest extends munit.FunSuite:
       assert(ex.getMessage.contains("git add -A failed"), ex.getMessage)
       assert(ex.getMessage.contains("git status --porcelain:"), ex.getMessage)
       assert(ex.getMessage.contains("git fsck --no-progress:"), ex.getMessage)
+
+  test("show renders a commit's message and diff"):
+    withRepo: (git, dir) =>
+      os.write(dir / "a.txt", "one")
+      git.commit("add a").orThrow
+      val out = git.show("HEAD").orThrow
+      assert(out.contains("add a"), out)
+      assert(out.contains("+one"), out)
+
+  test("show with StatOnly reports files without hunks"):
+    withRepo: (git, dir) =>
+      os.write(dir / "a.txt", "one")
+      git.commit("add a").orThrow
+      val out = git.show("HEAD", detail = ShowDetail.StatOnly).orThrow
+      assert(out.contains("a.txt"), out)
+      assert(!out.contains("+one"), out)
+
+  test("show narrows the diff to the paths it is given"):
+    withRepo: (git, dir) =>
+      os.write(dir / "a.txt", "one")
+      os.write(dir / "b.txt", "two")
+      git.commit("add both").orThrow
+      val out = git.show("HEAD", paths = List("a.txt")).orThrow
+      assert(out.contains("a.txt"), out)
+      assert(!out.contains("b.txt"), out)
+
+  test("fileAt returns a file's contents as of a commit"):
+    withRepo: (git, dir) =>
+      os.write(dir / "a.txt", "before")
+      git.commit("first").orThrow
+      val first = git.headCommit().get
+      os.write.over(dir / "a.txt", "after")
+      git.commit("second").orThrow
+      assertEquals(git.fileAt(first, "a.txt"), Right("before"))
+
+  test("a revision git does not know comes back as Refused, not a throw"):
+    withRepo: (git, dir) =>
+      os.write(dir / "a.txt", "one")
+      git.commit("add a").orThrow
+      assert(
+        git
+          .show("nosuchref")
+          .left
+          .exists(_.isInstanceOf[GitReadFailed.Refused]),
+        git.show("nosuchref")
+      )
+
+  test("a revision that could be read as a flag is rejected before git runs"):
+    // The rev reaches git in a revision position, so a leading dash must not
+    // survive validation — `--end-of-options` is the second line of defence.
+    withRepo: (git, _) =>
+      val failure = git.show("--upload-pack=touch pwned").left.toOption.get
+      assert(failure.isInstanceOf[GitReadFailed.InvalidRev], failure)
+
+  test("a path climbing out of the repository is rejected"):
+    withRepo: (git, _) =>
+      val failure = git.fileAt("HEAD", "../outside.txt").left.toOption.get
+      assert(failure.isInstanceOf[GitReadFailed.InvalidPath], failure)

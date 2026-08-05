@@ -119,6 +119,20 @@ class ClaudeArgsTest extends munit.FunSuite:
     val args = streamJson(AgentConfig(tools = ToolSet.NetworkOnly))
     assert(args.containsSlice(Seq("--tools", "Read,Grep,Glob,Skill")), args)
 
+  test("read-only tiers pre-approve the MCP tools they are handed"):
+    // --tools bounds what exists; an MCP call still needs approval, which an
+    // autonomous turn cannot give, so the names must also reach --allowedTools.
+    val args = ClaudeArgs.streamJson(
+      config = AgentConfig(tools = ToolSet.ReadOnly),
+      systemPromptFile = None,
+      dispatch = Dispatch.Fresh(Some(testSid)),
+      mcpTools = Seq("mcp__orca_repo__git_show")
+    )
+    assert(
+      args.containsSlice(Seq("--allowedTools", "mcp__orca_repo__git_show")),
+      args
+    )
+
   test("a resumed ReadOnly turn re-emits --tools"):
     // The CLI does not carry --tools across --resume: resuming without it
     // restores the full default set, Bash/Edit/Write included. Every turn

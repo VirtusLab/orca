@@ -31,7 +31,8 @@ private[claude] object ClaudeArgs:
       dispatch: Dispatch[BackendTag.ClaudeCode.type],
       jsonSchema: Option[String] = None,
       mcpConfig: Option[os.Path] = None,
-      networkTools: Seq[String] = Seq.empty
+      networkTools: Seq[String] = Seq.empty,
+      mcpTools: Seq[String] = Seq.empty
   ): Seq[String] =
     Seq(
       "claude",
@@ -46,7 +47,7 @@ private[claude] object ClaudeArgs:
       modelArgs(config) ++
       systemPromptFileArgs(systemPromptFile) ++
       sessionArgs(dispatch) ++
-      permissionArgs(config, networkTools) ++
+      permissionArgs(config, networkTools, mcpTools) ++
       jsonSchemaArgs(jsonSchema) ++
       mcpConfigArgs(mcpConfig)
 
@@ -123,10 +124,10 @@ private[claude] object ClaudeArgs:
     * unfiltered. Measured on claude 2.1.222 — an `init` frame under `--tools
     * Read,Grep,Glob,Skill` still carried the `mcp__…` tools of an installed
     * server, so an MCP server that can write is not covered by this allowlist
-    * at all. The read-only tiers also ignore [[AgentConfig.autoApprove]], so an
-    * MCP tool reaching a read-only turn is advertised but not pre-approved: it
-    * comes back as a failed `tool_result` rather than prompting. No in-repo
-    * flow hits that — every interactive turn is `Full`.
+    * at all. Advertised is not callable, though: the read-only tiers ignore
+    * [[AgentConfig.autoApprove]], so an MCP tool they are meant to use must be
+    * named in `mcpTools`, which they pre-approve via `--allowedTools`. An
+    * un-named one comes back as a failed `tool_result` rather than prompting.
     *
     * `Full` follows [[AgentConfig.autoApprove]]: `All` → `bypassPermissions`;
     * `Only(_)` → default permission mode plus `--allowedTools`. The allowlist
@@ -141,13 +142,15 @@ private[claude] object ClaudeArgs:
     */
   private def permissionArgs(
       config: AgentConfig,
-      networkTools: Seq[String]
+      networkTools: Seq[String],
+      mcpTools: Seq[String]
   ): Seq[String] =
     config.tools match
       case ToolSet.ReadOnly =>
-        Seq("--tools", ReadOnlyTools.mkString(","))
+        Seq("--tools", ReadOnlyTools.mkString(",")) ++ approveMcp(mcpTools)
       case ToolSet.NetworkOnly =>
-        Seq("--tools", (ReadOnlyTools ++ networkTools).mkString(","))
+        Seq("--tools", (ReadOnlyTools ++ networkTools).mkString(",")) ++
+          approveMcp(mcpTools)
       case ToolSet.Full =>
         config.autoApprove match
           case AutoApprove.All =>
@@ -156,6 +159,10 @@ private[claude] object ClaudeArgs:
           case AutoApprove.Only(tools) if tools.isEmpty => Seq.empty
           case AutoApprove.Only(tools) =>
             Seq("--allowedTools", tools.toSeq.sorted.mkString(","))
+
+  private def approveMcp(mcpTools: Seq[String]): Seq[String] =
+    if mcpTools.isEmpty then Nil
+    else Seq("--allowedTools", mcpTools.mkString(","))
 
   /** How strongly claude enforces each `(tools, autoApprove)` combination — see
     * [[permissionArgs]] for the flags this classifies. Every combination is

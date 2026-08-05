@@ -26,7 +26,8 @@ import orca.backend.{
   SystemPromptComposer
 }
 import orca.subprocess.CliRunner
-import orca.backend.mcp.{AskUserMcpServer, AskUserSession}
+import orca.backend.mcp.{AskUserMcpServer, AskUserSession, RepoMcpServer}
+import orca.tools.{GitTool, OsGitTool}
 import orca.tools.claude.streamjson.OutboundMessage
 import ox.Ox
 
@@ -81,6 +82,12 @@ private[orca] class ClaudeBackend(
     * never-claimed id reports `false`, which is safe since the caller re-seeds.
     */
   val tag: BackendTag.ClaudeCode.type = BackendTag.ClaudeCode
+
+  /** Backs the repo-read MCP tools. Derived from `workDir` rather than injected
+    * so it cannot disagree with the directory claude is spawned in — the whole
+    * point of the tools is to read the repository the agent is looking at.
+    */
+  private val git: GitTool = new OsGitTool(workDir)
 
   override def enforcement(
       tools: ToolSet,
@@ -176,26 +183,30 @@ private[orca] class ClaudeBackend(
       config: AgentConfig,
       outputSchema: Option[String]
   )(using Ox): Conversation[BackendTag.ClaudeCode.type] =
-    // Allocate ask_user resources up front so a downstream failure can close
-    // them deterministically. `None` for autonomous — those calls don't expose
-    // the tool.
+    // Allocate MCP resources up front so a downstream failure can close them
+    // deterministically. `ask_user` is interactive-only (an autonomous call has
+    // no renderer to answer it); the repo reads are the reverse — they exist to
+    // give read-only turns back what `--tools` takes away.
     val displayPrompt = mode.displayPrompt
     val askUser: Option[AskUserSession] =
-      Option.when(mode.isInteractive):
-        AskUserSession.allocate: server =>
-          writeMcpConfig(server, workDir)
-          List(
-            SubprocessSpawn.deleteFileResource(
-              ClaudeBackend.mcpConfigPath(workDir, server.port)
-            )
-          )
+      Option.when(mode.isInteractive)(AskUserSession.allocate())
+    val repoReads: Option[RepoMcpServer] =
+      Option.when(config.tools != ToolSet.Full)(RepoMcpServer.start(git))
+    val mcpConfig = Option
+      .when(askUser.isDefined || repoReads.isDefined):
+        writeMcpConfig(askUser.map(_.server), repoReads, session)
     // Written before `open` so it can join `resources` (failure-path cleanup);
     // the conversation deletes it on the success path via its `onFinalize`.
-    val systemPromptFile =
-      writeSystemPromptIfPresent(config, includeAskUserHint = askUser.isDefined)
+    val systemPromptFile = writeSystemPromptIfPresent(
+      config,
+      includeAskUserHint = askUser.isDefined,
+      includeRepoHint = repoReads.isDefined
+    )
     SubprocessSpawn.open(
       "claude stream-json",
-      askUser.toList ++ systemPromptFile.map(SubprocessSpawn.deleteFileResource)
+      askUser.toList ++ repoReads.toList ++
+        mcpConfig.map(SubprocessSpawn.deleteFileResource) ++
+        systemPromptFile.map(SubprocessSpawn.deleteFileResource)
     ) {
       val effectiveConfig =
         if askUser.isDefined then
@@ -210,9 +221,9 @@ private[orca] class ClaudeBackend(
         systemPromptFile,
         dispatch = sessions.dispatchFor(session),
         outputSchema,
-        mcpConfig =
-          askUser.map(r => ClaudeBackend.mcpConfigPath(workDir, r.server.port)),
-        networkTools = networkTools
+        mcpConfig = mcpConfig,
+        networkTools = networkTools,
+        mcpTools = repoReads.toSeq.flatMap(_ => ClaudeBackend.RepoToolNames)
       )
       cli.spawnPiped(args, cwd = workDir)
     } { process =>
@@ -230,61 +241,83 @@ private[orca] class ClaudeBackend(
       )
     }
 
-  /** Write the MCP config file at [[ClaudeBackend.mcpConfigPath]].
+  /** Write this conversation's MCP config, listing whichever host servers it
+    * stood up, and return its path.
     *
-    * The `timeout` field extends claude's per-server tool-call timeout from its
-    * 60s default to [[AskUserMcpServer.ToolTimeout]]. Without it, claude gives
-    * up on `ask_user` if the human takes more than 60s to answer, then fires a
-    * follow-up `ask_user` and the user answers twice.
-    *
-    * One of three renderings of `AskUserMcpServer.ToolTimeout` (claude JSON ms
-    * / codex TOML sec / gemini settings.json ms); keep in sync.
+    * Each `timeout` raises claude's per-server tool-call limit from its 60s
+    * default. For `ask_user` that is load-bearing: without it claude gives up
+    * if the human takes more than 60s to answer, then fires a follow-up and the
+    * user answers twice. `AskUserMcpServer.ToolTimeout` is rendered in three
+    * places (claude JSON ms / codex TOML sec / gemini settings.json ms); keep
+    * them in sync.
     */
   private def writeMcpConfig(
-      server: AskUserMcpServer,
-      workDir: os.Path
-  ): Unit =
-    val timeoutMs = AskUserMcpServer.ToolTimeout.toMillis
+      askUser: Option[AskUserMcpServer],
+      repoReads: Option[RepoMcpServer],
+      session: SessionId[BackendTag.ClaudeCode.type]
+  ): os.Path =
+    val entries =
+      askUser.map(s =>
+        entryJson(
+          AskUserMcpServer.ServerName,
+          s.url,
+          AskUserMcpServer.ToolTimeout.toMillis
+        )
+      ) ++
+        repoReads.map(s =>
+          entryJson(
+            RepoMcpServer.ServerName,
+            s.url,
+            RepoMcpServer.ToolTimeout.toMillis
+          )
+        )
     val _ = OrcaDir.ensureCache(workDir)
-    val path = ClaudeBackend.mcpConfigPath(workDir, server.port)
+    val path = ClaudeBackend.mcpConfigPath(workDir, session)
     // `os.write` is CREATE_NEW — it refuses a leaf symlink, which
-    // `os.write.over` would follow — so a same-port leftover from an earlier
-    // hard kill has to be removed first. `os.remove` unlinks a symlink rather
-    // than following it.
+    // `os.write.over` would follow — so a leftover from an earlier hard kill
+    // has to be removed first. `os.remove` unlinks a symlink rather than
+    // following it.
     val _ = os.remove(path)
-    os.write(
-      path,
-      s"""{"mcpServers":{"${AskUserMcpServer.ServerName}":{"type":"http","url":"${server.url}","timeout":$timeoutMs}}}"""
-    )
+    os.write(path, s"""{"mcpServers":{${entries.mkString(",")}}}""")
+    path
+
+  private def entryJson(name: String, url: String, timeoutMs: Long): String =
+    s""""$name":{"type":"http","url":"$url","timeout":$timeoutMs}"""
 
   /** Build the per-session system-prompt file: compose `config.systemPrompt`
-    * with the ask_user hint (interactive only), then write to a JVM temp file
+    * with whichever MCP hints apply, then write to a JVM temp file
     * (auto-cleaned on exit) rather than the user's workDir — it's purely an IPC
     * mechanism, read once via `--append-system-prompt-file`.
     */
   private def writeSystemPromptIfPresent(
       config: AgentConfig,
-      includeAskUserHint: Boolean
+      includeAskUserHint: Boolean,
+      includeRepoHint: Boolean
   ): Option[os.Path] =
-    val hint = Option.when(includeAskUserHint)(AskUserMcpServer.Hint)
+    val hints =
+      Option.when(includeAskUserHint)(AskUserMcpServer.Hint) ++
+        Option.when(includeRepoHint)(RepoMcpServer.Hint)
     SystemPromptComposer
-      .combine(config, hint)
+      .combine(config, hints.reduceOption(_ + "\n\n" + _))
       .map: text =>
         os.temp(prefix = "orca-system-prompt-", suffix = ".md", contents = text)
 
 object ClaudeBackend:
 
-  /** Path of the MCP config file advertising the host's `ask_user` server.
-    * Named with the bound port so two interactive conversations sharing a
-    * `workDir` don't overwrite each other's config.
+  /** Path of the MCP config file advertising this conversation's host servers.
+    * Named with the session id so two conversations sharing a `workDir` don't
+    * overwrite each other's config.
     *
     * Under the self-ignoring `.orca/cache/` rather than at the workDir root: a
     * hard kill skips the deletion resource, and a leftover at the root is swept
     * into the next stage's `git add -A`. Still inside the working tree, so a
     * sandboxed claude that denies reads outside its worktree can read it.
     */
-  private[claude] def mcpConfigPath(workDir: os.Path, port: Int): os.Path =
-    OrcaDir.cachePath(workDir) / s"mcp-$port.json"
+  private[claude] def mcpConfigPath(
+      workDir: os.Path,
+      session: SessionId[BackendTag.ClaudeCode.type]
+  ): os.Path =
+    OrcaDir.cachePath(workDir) / s"mcp-${session.value}.json"
 
   /** Derives the project-directory slug that claude uses under
     * `~/.claude/projects/`: replaces every `/` in the absolute path with `-`.
@@ -310,6 +343,15 @@ object ClaudeBackend:
     */
   private[claude] val AskUserToolName: String =
     s"mcp__${AskUserMcpServer.ServerName}__${AskUserMcpServer.ToolSlug}"
+
+  /** The repo-read tools, qualified the way claude advertises them. Read-only
+    * turns pass these to `--allowedTools`: `--tools` bounds what exists, but an
+    * MCP call still needs approval, which an autonomous turn cannot give.
+    */
+  private[claude] val RepoToolNames: Seq[String] =
+    RepoMcpServer.ToolSlugs.map(slug =>
+      s"mcp__${RepoMcpServer.ServerName}__$slug"
+    )
 
   /** Tool name the claude CLI injects for `--json-schema` structured output:
     * the model "exits" the turn by calling this tool with the payload as its

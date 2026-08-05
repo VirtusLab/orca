@@ -1,6 +1,7 @@
 package orca.tools.claude
 
 import orca.backend.{Interaction, SupervisedBackend, SystemPromptComposer}
+import orca.backend.mcp.RepoMcpServer
 import orca.agents.{
   BackendTag,
   AgentConfig,
@@ -81,7 +82,7 @@ class ClaudeBackendTest extends munit.FunSuite:
   test("an MCP config left behind by a hard kill can't reach a commit"):
     val repo = GitRepo.seeded()
     val _ = orca.OrcaDir.ensureCache(repo)
-    os.write(ClaudeBackend.mcpConfigPath(repo, port = 45123), "{}")
+    os.write(ClaudeBackend.mcpConfigPath(repo, freshSid), "{}")
     val _ = os.proc("git", "add", "-A").call(cwd = repo)
     val staged =
       os.proc("git", "diff", "--cached", "--name-only")
@@ -89,6 +90,30 @@ class ClaudeBackendTest extends munit.FunSuite:
         .out
         .text()
     assertEquals(staged, "", "the MCP config must be unstageable")
+
+  test("a read-only autonomous call wires the repo-read MCP server"):
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    withBackend(runner): backend =>
+      val _ = backend.runAutonomous(
+        "x",
+        freshSid,
+        AgentConfig(tools = ToolSet.ReadOnly)
+      )
+      val args = runner.calls.head
+      val config = os.Path(args(args.indexOf("--mcp-config") + 1))
+      assert(os.read(config).contains(RepoMcpServer.ServerName), config)
+      assertEquals(
+        args(args.indexOf("--allowedTools") + 1),
+        ClaudeBackend.RepoToolNames.mkString(",")
+      )
+
+  test("a Full autonomous call stands up no MCP server"):
+    // The repo reads exist to replace the shell a read-only turn loses; a Full
+    // turn still has Bash, so it should pay neither the binding nor the tokens.
+    val runner = new SpawnStubCliRunner(List(successfulProcess()))
+    withBackend(runner): backend =>
+      val _ = backend.runAutonomous("x", freshSid, AgentConfig())
+      assert(!runner.calls.head.contains("--mcp-config"), runner.calls.head)
 
   test("NetworkOnly autonomous call allows the default network tools"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
@@ -225,6 +250,28 @@ class ClaudeBackendTest extends munit.FunSuite:
 
   test("a read-only turn still gets the turn-boundary rule in its prompt file"):
     // Read-only turns compose no git rule, so this is the one that must arrive.
+    val promptText = readOnlySystemPrompt()
+    assert(
+      promptText.exists(
+        _.contains(SystemPromptComposer.BackgroundWorkAbandonedAtTurnEnd)
+      ),
+      promptText
+    )
+    assert(
+      !promptText.exists(_.contains(SystemPromptComposer.RuntimeOwnsGit)),
+      promptText
+    )
+
+  test("a read-only turn is told about the repo-read MCP tools"):
+    // Without the hint the agent has no reason to look for tools that replace
+    // the shell it no longer has.
+    val promptText = readOnlySystemPrompt()
+    assert(promptText.exists(_.contains(RepoMcpServer.Hint)), promptText)
+
+  /** The system-prompt file text a `ToolSet.ReadOnly` autonomous turn spawns
+    * with.
+    */
+  private def readOnlySystemPrompt(): Option[String] =
     var promptText: Option[String] = None
     val runner = new SpawnStubCliRunner(
       List(successfulProcess()),
@@ -236,10 +283,7 @@ class ClaudeBackendTest extends munit.FunSuite:
         freshSid,
         AgentConfig(tools = ToolSet.ReadOnly)
       )
-      assertEquals(
-        promptText,
-        Some(SystemPromptComposer.BackgroundWorkAbandonedAtTurnEnd)
-      )
+    promptText
 
   test("the system-prompt temp file is deleted when the turn finalizes"):
     // `os.temp`'s deleteOnExit only fires at JVM shutdown; a flow runs hundreds
