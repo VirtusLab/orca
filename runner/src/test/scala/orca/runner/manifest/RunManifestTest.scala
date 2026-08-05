@@ -14,7 +14,7 @@ class RunManifestTest extends munit.FunSuite:
   // recomputable.
   test("ManifestUsage mirrors every token axis of Usage"):
     assertEquals(
-      ManifestUsage.empty.productElementNames.toSet,
+      ManifestUsage.of(Usage.empty).productElementNames.toSet,
       // Usage's two non-token fields, deliberately not carried here: `cost` at
       // all (see ManifestUsage's scaladoc), and `apiCalls` beside the usage on
       // each turn line rather than inside it.

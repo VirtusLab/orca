@@ -2,7 +2,6 @@ package orca.runner.manifest
 
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import orca.agents.JsonData
-import orca.events.Usage
 
 /** One tracked session inside a [[RunManifest]] (ADR 0021 §8). `wireId` is the
   * persistable id ([[orca.agents.Agent.resumeWireId]]) — `None` when nothing
@@ -31,38 +30,6 @@ private[orca] case class ManifestSession(
     * wire id, so there is nothing here that could drift from [[wireId]].
     */
   def resumable: Boolean = wireId.isDefined
-
-/** The persisted projection of [[orca.events.Usage]]'s token axes, sharing its
-  * normalisation contract — including that cache reads and cache writes are
-  * disjoint sub-portions of `inputTokens`, carried separately because they bill
-  * at opposite ends of base input.
-  *
-  * The field names are `Usage`'s, verbatim, and so are the JSON keys: every
-  * axis persisted here has to be traceable to the one it mirrors, or the two
-  * drift and a reader silently reports the wrong money.
-  *
-  * Deliberately carries no money, unlike `Usage`: `Usage.cost` is only the
-  * portion backends reported, and an unlabelled figure next to a resolved
-  * [[orca.events.Cost]] is how reported and estimated spend get mixed.
-  */
-private[orca] case class ManifestUsage(
-    inputTokens: Long,
-    outputTokens: Long,
-    cacheReadInputTokens: Long,
-    cacheWriteInputTokens: Long,
-    reasoningOutputTokens: Long
-)
-
-private[orca] object ManifestUsage:
-  val empty: ManifestUsage = of(Usage.empty)
-
-  def of(usage: Usage): ManifestUsage = ManifestUsage(
-    inputTokens = usage.inputTokens,
-    outputTokens = usage.outputTokens,
-    cacheReadInputTokens = usage.cacheReadInputTokens,
-    cacheWriteInputTokens = usage.cacheWriteInputTokens,
-    reasoningOutputTokens = usage.reasoningOutputTokens
-  )
 
 /** A per-run manifest written to
   * `.orca/cache/runs/<startedAt-epoch-ms>-<pid>.json`, read by the shell to
@@ -108,18 +75,14 @@ private[orca] object RunManifest:
   // manifest crosses the process/disk boundary to the shell, never an HTTP or
   // LLM boundary, so it needs on-disk (de)serialisation but no tool schema.
   //
-  // Strict (`JsonData.strictCodecConfig`) even with the version gate gone:
-  // strictness only forces COLLECTION fields to be present, and `sessions` is
-  // the one whose absence must not read as empty — the menu renders the count
-  // verbatim, so a silently empty list becomes a "(0 session(s))" row leading
-  // nowhere. Cross-version tolerance is unaffected: jsoniter skips unknown
-  // fields under any config, and an added `Option`/defaulted field is optional
-  // under a strict one. A collection added later must be wrapped in `Option`,
-  // or it lands on every reader as newly required.
-  //
-  // Deliberately NOT the progress log's `withRequireCollectionFields(false)`:
-  // that would make `sessions` optional, which is the one thing this format
-  // cannot afford.
+  // Strict (`JsonData.strictCodecConfig`) even with the version gate gone.
+  // Strictness constrains only collection fields, and `sessions` is the one
+  // whose absence must not read as empty: the menu renders the count verbatim,
+  // so a silently empty list becomes a "(0 session(s))" row leading nowhere.
+  // Reading an older build's file is unaffected — jsoniter skips unknown fields
+  // under any config, and an `Option`/defaulted field stays optional under a
+  // strict one. The cost is that a collection added later must be wrapped in
+  // `Option`, or it lands on every reader as newly required.
   given codec: ConfiguredJsonValueCodec[RunManifest] =
     ConfiguredJsonValueCodec.derived[RunManifest](using
       JsonData.strictCodecConfig
