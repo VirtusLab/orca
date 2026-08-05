@@ -1,7 +1,7 @@
 package orca.tools.claude
 
 import orca.backend.{Interaction, SupervisedBackend, SystemPromptComposer}
-import orca.backend.mcp.RepoMcpServer
+import orca.backend.mcp.{GitHubMcpServer, RepoMcpServer}
 import orca.agents.{
   BackendTag,
   AgentConfig,
@@ -149,6 +149,52 @@ class ClaudeBackendTest extends munit.FunSuite:
     withBackend(runner): backend =>
       val _ = backend.runAutonomous("x", freshSid, AgentConfig())
       assert(!runner.calls.head.contains("--mcp-config"), runner.calls.head)
+
+  test("a NetworkOnly call also wires the GitHub reads"):
+    var mcpConfig: Option[String] = None
+    val runner = new SpawnStubCliRunner(
+      List(successfulProcess()),
+      onSpawn = args =>
+        mcpConfig =
+          Some(os.read(os.Path(args(args.indexOf("--mcp-config") + 1))))
+    )
+    withBackend(runner): backend =>
+      val _ = backend.runAutonomous(
+        "x",
+        freshSid,
+        AgentConfig(tools = ToolSet.NetworkOnly)
+      )
+      assert(
+        mcpConfig.exists(_.contains(GitHubMcpServer.ServerName)),
+        mcpConfig
+      )
+      val args = runner.calls.head
+      assertEquals(
+        args(args.indexOf("--allowedTools") + 1),
+        (ClaudeBackend.RepoToolNames ++ ClaudeBackend.GitHubToolNames)
+          .mkString(",")
+      )
+
+  test("a ReadOnly call gets no GitHub reads"):
+    // ReadOnly is the reviewers' tier and must stay network-free; the GitHub
+    // tools reach the network host-side.
+    var mcpConfig: Option[String] = None
+    val runner = new SpawnStubCliRunner(
+      List(successfulProcess()),
+      onSpawn = args =>
+        mcpConfig =
+          Some(os.read(os.Path(args(args.indexOf("--mcp-config") + 1))))
+    )
+    withBackend(runner): backend =>
+      val _ = backend.runAutonomous(
+        "x",
+        freshSid,
+        AgentConfig(tools = ToolSet.ReadOnly)
+      )
+      assert(
+        !mcpConfig.exists(_.contains(GitHubMcpServer.ServerName)),
+        mcpConfig
+      )
 
   test("NetworkOnly autonomous call allows the default network tools"):
     val runner = new SpawnStubCliRunner(List(successfulProcess()))
