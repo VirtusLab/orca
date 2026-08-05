@@ -323,17 +323,22 @@ the real index or the working tree, and `reviewDiff(Some(previousTree))` then
 reads as "everything that changed since your last round". The snapshot half is
 fine. The `reviewDiff` half is not:
 
-- `git diff <tree>` walks the **real index** to decide what is tracked, so a
-  file that is untracked there but present in the snapshot comes out as a
-  **deletion**. Measured: snapshot taken with an untracked `untracked.txt` in
-  it, working tree then untouched, `git diff <tree>` reports `D untracked.txt`.
-- `reviewDiff` also splices every current untracked file in as a new-file diff
-  (`GitTool.scala:573-574`), so the same file arrives a second time, in full.
+- `git diff <tree>` decides what is tracked from the **real index**, so an
+  untracked file is invisible to it both ways: one that is in the snapshot
+  comes out as a **deletion**, and one created since the snapshot is not
+  reported at all. Measured: snapshot taken with an untracked `untracked.txt`
+  in it, working tree then untouched, `git diff <tree>` reports `D
+  untracked.txt`; `git add -N` on that path, with no content change, makes the
+  deletion go away.
+- `reviewDiff` also splices the current untracked files in as new-file diffs
+  (`GitTool.scala:618-619,652-656`), so a file already in the snapshot arrives
+  a second time, in full.
 
-A resumed reviewer would therefore be told, every round, that each new file was
-deleted and re-added. Ignore rules — the thing this note flagged as unchecked —
-are not the problem: `git add -A` and `untrackedPaths()` (`git status -uall`,
-no `--ignored`) both skip ignored files, so those two do agree.
+A resumed reviewer would therefore be told, every round, that each file still
+untracked from an earlier round was deleted and re-added. Ignore rules — the
+thing this note flagged as unchecked — are not the problem: `git add -A` and
+`untrackedPaths()` (`git status -uall`, no `--ignored`) both skip ignored
+files, so those two do agree.
 
 What does produce the increment is a **tree-to-tree** diff between two
 snapshots. Measured: `git diff <prevTree> <nowTree>` reports exactly the
