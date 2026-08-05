@@ -16,13 +16,10 @@ class ManifestReaderTest extends munit.FunSuite:
       name: String,
       startedAt: String,
       pid: Long = 111,
-      outcome: String = "succeeded",
-      // Spliced in verbatim, to plant a field this build does not declare.
-      extraField: String = ""
+      outcome: String = "succeeded"
   ): Unit =
     val json =
       s"""{
-         |  $extraField
          |  "orcaVersion": "0.0.test",
          |  "workDir": "${workDir.toString}",
          |  "pid": $pid,
@@ -71,24 +68,28 @@ class ManifestReaderTest extends munit.FunSuite:
       )
     )
 
-  /** The version gate is gone (ADR 0021 §8 amendment, 2026-08-05), so a
-    * `manifestVersion` on disk is just an unknown field. Manifests predating
-    * `cost`/`turns` list too once those fields leave this schema.
+  /** A verbatim v2 manifest, unedited since that build wrote it: it predates
+    * `cost`/`turns` and still carries `manifestVersion`. It only lists because
+    * the version gate is gone (ADR 0021 §8 amendment, 2026-08-05) and because
+    * the fields it lacks are no longer part of this schema.
     */
-  test("a manifest carrying an older manifestVersion is listed, not skipped"):
+  test("a manifest body from an older build is listed, not skipped"):
     val workDir = TempDirs.dir()
-    writeManifest(
-      workDir,
-      "v2.json",
-      startedAt = "2026-07-18T10:00:00Z",
-      extraField = """"manifestVersion": 2,"""
+    os.write(
+      runsDir(workDir) / "v2.json",
+      """{
+        |  "manifestVersion": 2,
+        |  "orcaVersion": "0.0.test",
+        |  "workDir": "/work",
+        |  "pid": 111,
+        |  "startedAt": "2026-07-18T10:00:00Z",
+        |  "outcome": "succeeded",
+        |  "sessions": []
+        |}""".stripMargin,
+      createFolders = true
     )
-    writeManifest(workDir, "current.json", startedAt = "2026-07-18T11:00:00Z")
     val (runs, warnings) = ManifestReader.list(workDir, alwaysDead)
-    assertEquals(
-      runs.map(_.manifest.startedAt),
-      List("2026-07-18T11:00:00Z", "2026-07-18T10:00:00Z")
-    )
+    assertEquals(runs.map(_.manifest.startedAt), List("2026-07-18T10:00:00Z"))
     assertEquals(warnings, Nil)
 
   test("a skipped manifest is warned about without sinking the listing"):
