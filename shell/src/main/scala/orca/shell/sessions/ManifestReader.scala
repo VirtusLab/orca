@@ -69,11 +69,22 @@ private[shell] object ManifestReader:
   /** A manifest from any build decodes here: unknown fields are skipped, so
     * only a file missing something this build requires — or unreadable — is
     * refused (ADR 0021 §8 amendment, 2026-08-05).
+    *
+    * Only the first line of a decode failure is reported. jsoniter appends a
+    * multi-line hex dump of the buffer to its message, and `Main`'s loop
+    * reprints every warning on each menu redraw, for up to 20 kept manifests —
+    * so the untrimmed message paints the menu over. Same trimming, and same
+    * reason, as `ProgressStore.parseLog`.
     */
   private def readManifest(file: os.Path): Either[String, RunManifest] =
     try
       Right(readFromString[RunManifest](os.read(file))(using RunManifest.codec))
-    catch case NonFatal(e) => Left(s"skipping $file: ${e.getMessage}")
+    catch case NonFatal(e) => Left(s"skipping $file: ${firstLine(e)}")
+
+  private def firstLine(e: Throwable): String =
+    Option(e.getMessage)
+      .flatMap(_.linesIterator.nextOption())
+      .getOrElse(e.getClass.getSimpleName)
 
   /** The production value of [[list]]'s `pidAlive` parameter (ADR 0021 §8):
     * `ProcessHandle.of` finds nothing for a pid that's been reaped — treated as

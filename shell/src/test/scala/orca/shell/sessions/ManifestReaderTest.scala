@@ -91,8 +91,9 @@ class ManifestReaderTest extends munit.FunSuite:
     )
     assertEquals(warnings, Nil)
 
-  test("list skips a manifest missing a required field, warning by filename"):
+  test("a skipped manifest is warned about without sinking the listing"):
     val workDir = TempDirs.dir()
+    writeManifest(workDir, "good.json", startedAt = "2026-07-18T11:00:00Z")
     os.write(
       runsDir(workDir) / "no-workdir.json",
       """{
@@ -105,7 +106,7 @@ class ManifestReaderTest extends munit.FunSuite:
       createFolders = true
     )
     val (runs, warnings) = ManifestReader.list(workDir, alwaysDead)
-    assertEquals(runs, Nil)
+    assertEquals(runs.map(_.manifest.startedAt), List("2026-07-18T11:00:00Z"))
     assertEquals(warnings.size, 1)
     assert(
       warnings.head.contains("no-workdir.json"),
@@ -117,6 +118,8 @@ class ManifestReaderTest extends munit.FunSuite:
     */
   test("list skips a manifest with no sessions array, warning by filename"):
     val workDir = TempDirs.dir()
+    // `sessions` is the ONLY field omitted, so this fails for that reason and
+    // no other — the point being that it must not read as an empty list.
     os.write(
       runsDir(workDir) / "no-sessions.json",
       """{
@@ -124,7 +127,20 @@ class ManifestReaderTest extends munit.FunSuite:
         |  "workDir": "/work",
         |  "pid": 111,
         |  "startedAt": "2026-07-18T10:00:00Z",
-        |  "outcome": "succeeded"
+        |  "outcome": "succeeded",
+        |  "cost": {
+        |    "total": {
+        |      "inputTokens": 0,
+        |      "outputTokens": 0,
+        |      "cacheReadInputTokens": 0,
+        |      "cacheWriteInputTokens": 0,
+        |      "reasoningOutputTokens": 0
+        |    },
+        |    "byRole": [],
+        |    "byAgent": [],
+        |    "byStage": []
+        |  },
+        |  "turns": []
         |}""".stripMargin,
       createFolders = true
     )
@@ -132,8 +148,9 @@ class ManifestReaderTest extends munit.FunSuite:
     assertEquals(runs, Nil)
     assertEquals(warnings.size, 1)
     assert(
-      warnings.head.contains("no-sessions.json"),
-      s"expected the filename in the warning, got: ${warnings.head}"
+      warnings.head.contains("no-sessions.json") &&
+        warnings.head.contains("sessions"),
+      s"expected the filename and field in the warning, got: ${warnings.head}"
     )
 
   test("a running manifest with a dead pid is included and marked crashed"):
