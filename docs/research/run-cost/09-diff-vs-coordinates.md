@@ -128,6 +128,22 @@ git version 2.53.0
 Same flag, same CLI build, same absent approver; the gate holds on haiku and does
 not on opus. Whatever decides that lives inside the CLI.
 
+**Plan mode removes nothing.** Measured since, on 2.1.222: the `init` message's
+tool list under `--permission-mode plan` is byte-identical to the same command's
+in the default mode — `Bash`, `Write`, `Edit` and `NotebookEdit` all still
+advertised. So plan mode is not capability removal, and the model can still ask
+for any of them.
+
+What blocking does happen is the approval layer, which the default mode has too:
+under `--print` there is no approver, so anything not auto-approved is denied.
+`echo HELLO > CTRL.txt` was denied identically in both modes. Above that layer it
+is model judgement — in one turn opus ran `ls`, `git log`, `wc`, `findmnt`,
+`stat` and `uname` with zero denials, and `git status` writes `.git/index`. Plan
+mode also writes `~/.claude/plans/<slug>.md` itself.
+
+This changes nothing above; it names the mechanism. Plan mode is the wrong
+instrument for a no-edit guarantee, not a broken instance of the right one.
+
 **This makes the finding more serious, not less.** An `autoApprove` explanation
 would have located the defect in orca, where a one-line change fixes it. The
 measured explanation locates it in the backend, behind a flag orca passes and a
@@ -147,8 +163,9 @@ Two consequences:
    ran 199 `Bash` calls under `permissionMode: plan`, so the documented
    guarantee is false. `ClaudeArgs.scala:102-104` ("makes Edit/Write/Bash
    unavailable") and `ReviewerSelector.scala:84-85` ("claude's plan mode
-   doesn't [run commands]") are wrong for the same reason. The tests pin only
-   the flag string (`ClaudeArgsTest.scala:97-133`), never the behaviour.
+   doesn't [run commands]") were wrong for the same reason; both scaladocs have
+   since been corrected. The tests pin only the flag string
+   (`ClaudeArgsTest.scala:97-133`), never the behaviour.
    *`AgentConfig.autoApprove`'s scaladoc is not falsified by this*, and an
    earlier draft that said so had elided the clauses that matter: in full it
    reads "Only meaningful for **interactive** sessions consulted only when

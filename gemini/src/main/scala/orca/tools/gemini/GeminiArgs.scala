@@ -58,9 +58,9 @@ private[gemini] object GeminiArgs:
 
   /** Web tools pre-approved on [[ToolSet.NetworkOnly]] turns. Plan mode gates
     * `web_fetch` behind an approval no autonomous turn can answer; listing it
-    * in `--allowed-tools` pre-approves it, so the planner gets web reads while
-    * plan mode still blocks edits and shell. (`--allowed-tools` is deprecated
-    * for a `settings.json` Policy Engine in gemini 1.0.)
+    * in `--allowed-tools` pre-approves it, so the planner gets web reads.
+    * (`--allowed-tools` is deprecated for a `settings.json` Policy Engine in
+    * gemini 1.0.)
     */
   private val NetworkTools: Seq[String] = Seq("web_fetch")
 
@@ -91,8 +91,12 @@ private[gemini] object GeminiArgs:
   /** How strongly gemini enforces each `(tools, autoApprove)` combination — see
     * [[approvalArgs]] for the flags this classifies.
     *
-    *   - `ReadOnly` / `NetworkOnly` → `Hard`: `plan` makes writes and shell
-    *     mechanically unavailable.
+    *   - `ReadOnly` / `NetworkOnly` → `Hard`, on the assumption that `plan`
+    *     makes writes and shell mechanically unavailable. Unverified: no
+    *     headless `plan` turn has been run against a write attempt. claude's
+    *     `--permission-mode plan`, the same class of mechanism, was measured
+    *     and removes no tools
+    *     (`docs/research/run-cost/09-diff-vs-coordinates.md` §2).
     *   - `Full` + `AutoApprove.All` → `Hard`: `yolo` honours "approve
     *     everything" verbatim.
     *   - `Full` + `AutoApprove.Only(_)` → `Ignored`: no per-tool allowlist, so

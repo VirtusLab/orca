@@ -100,13 +100,18 @@ private[claude] object ClaudeArgs:
     CliArgs.flag("--mcp-config", file)(_.toString)
 
   /** Maps [[AgentConfig.tools]] to claude's permission flags. Both read-only
-    * tiers use `--permission-mode plan`, which makes Edit/Write/Bash
-    * unavailable (not just non-auto-approved) — a hard no-edit guarantee.
+    * tiers use `--permission-mode plan`, which is not a no-edit guarantee: plan
+    * mode removes no tools. The `init` message's tool list under
+    * `--permission-mode plan` is byte-identical to the default mode's, `Bash`,
+    * `Write`, `Edit` and `NotebookEdit` included. What blocking happens comes
+    * from the approval layer, which the default mode applies too, and above
+    * that it is model judgement — opus reviewers ran 199 `Bash` calls under
+    * plan mode with zero denials
+    * (`docs/research/run-cost/09-diff-vs-coordinates.md` §2).
     *
     * `NetworkOnly` additionally pre-approves `networkTools` via
-    * `--allowedTools`, layering read-only network access onto plan mode. The
-    * list is command-scoped, so plan mode still blocks general bash and every
-    * edit; an empty list leaves plain plan mode.
+    * `--allowedTools`, layering network access onto plan mode. The list is
+    * command-scoped (`Bash(gh api:*)`); an empty list leaves plain plan mode.
     *
     * `Full` follows [[AgentConfig.autoApprove]]: `All` → `bypassPermissions`;
     * `Only(_)` → default permission mode plus `--allowedTools`. The allowlist
@@ -141,9 +146,9 @@ private[claude] object ClaudeArgs:
 
   /** How strongly claude enforces each `(tools, autoApprove)` combination — see
     * [[autoApproveArgs]] for the flags this classifies. Every combination is
-    * `Hard`: plan mode makes edits/shell mechanically unavailable, and every
-    * `--allowedTools`/`bypassPermissions` variant is a mechanical per-tool
-    * gate.
+    * `Hard`. The read-only tiers rest on plan mode, which [[autoApproveArgs]]
+    * records as removing no tools; the `--allowedTools`/`bypassPermissions`
+    * variants are mechanical per-tool gates.
     *
     * Written as an exhaustive match (all arms `Hard`) rather than a bare
     * constant so a future `ToolSet`/`AutoApprove` case fails compilation here.
