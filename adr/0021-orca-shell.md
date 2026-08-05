@@ -470,6 +470,97 @@ resume is global, but the resumed context still references that directory):
 > checkout, within the 30-day retention) and reports "no resumable pi transcript at
 > \<dir\>" when it fails.
 
+> **Amendment (2026-08-05).** The manifest splits in two and loses its version
+> gate. The shell's menu behaviour, the session shape, and the resume table are
+> unchanged; only the file layout and the compatibility rule move. This
+> supersedes the 2026-08-03 amendment's "readers gate on an exact version match"
+> sentence.
+>
+> **Why.** Every schema bump since §8 shipped — #61, #64, #71 (v4), #77 (v5) —
+> was cost or turn work; the session half has not changed since #27. Yet the
+> shell decodes the whole file strictly behind an exact-version gate, so a purely
+> additive cost field invalidates the session data it happens to share a file
+> with, and the user loses "continue a session" for every run recorded by the
+> previous build. The two halves have different rates of change and different
+> readers, so they get different files.
+>
+> **Layout.** `.orca/cache/runs/` holds two files per run, sharing the
+> `<startedAt-epoch-ms>-<pid>` run id:
+>
+> - `<id>.json` — run fields plus sessions, rewritten whole as today. The
+>   shell's file, and the only one it reads.
+> - `<id>-cost.json` — one JSON object per line, appended as the run goes. The
+>   debug/measurement record. The shell must not read it; after this change the
+>   `shell` module names no cost type at all, in production **or** test code
+>   (three shell tests currently pass `ManifestCostSummary.empty` to a
+>   `RunManifest` constructor — that coupling disappearing is the acceptance
+>   signal that the split is complete).
+>
+> Neither file requires the other. A session manifest with no cost file is a run
+> whose turns weren't recorded; a cost file with no session manifest is a run
+> that spent tokens without committing a session — which today writes nothing at
+> all, so this is new coverage, not a gap. Each reader treats the other's absence
+> as ordinary.
+>
+> **No version gate.** `manifestVersion`, `RunManifest.SupportedVersion` and the
+> reader's pre-decode version check are removed outright. Both files decode with
+> the tolerant config the progress log already uses
+> (`withRequireCollectionFields(false)`): unknown fields are skipped, absent
+> collections read as empty, and absent scalars take their declared default. The
+> rule that replaces the gate is a rule about writing, not reading: **every field
+> added from here on is optional with a default.** That is what makes an additive
+> change unable to invalidate anything, and the codec enforces it — a new
+> required field without a default fails to decode the previous build's files, in
+> the writer's own tests, before it ships.
+>
+> A small set of fields stays required, because a file missing them cannot be
+> displayed at all: `workDir`, `pid`, `startedAt`, `outcome`. A file missing one,
+> or whose `startedAt` doesn't parse, is skipped with a warning naming it —
+> the existing behaviour for a corrupt file, now the only reason to skip one.
+>
+> **Existing v5 files.** Nothing is migrated and nothing is discarded: a v5
+> manifest already carries every session field at the same path, so the tolerant
+> session-only schema reads it as-is, skipping `manifestVersion`, `cost` and
+> `turns` as unknown fields. Its cost data is not carried into a `-cost.json` and
+> is simply lost — acceptable, since `.orca/cache/` is gitignored local cache
+> that already prunes to 20 runs, and no code reads the old `cost`/`turns` fields
+> anyway. This is the last schema change that gets to be careless about them.
+>
+> **JSONL, not a JSON array.** The cost file is appended a line at a time with no
+> read-modify-write, so a run's turns cost one small write each instead of a
+> whole-file rewrite, and the writer holds no growing in-memory turn buffer. A
+> crash mid-write loses at most the final partial line; a reader drops an
+> unparseable line and keeps the rest. A JSON array cannot do either — its
+> closing bracket makes every append a rewrite, and an unterminated one is
+> unreadable in full.
+>
+> Each line carries a `type` discriminator: `"run"` for the single header record
+> (orca version, flow, work dir — the run-level context the session manifest
+> would otherwise be the only home for), `"turn"` for a turn. A reader skips a
+> `type` it does not know, so a later record kind is a non-event for existing
+> readers — the same additive rule as above, applied to the line vocabulary.
+>
+> **No persisted summary.** `ManifestCostSummary` and its subtotals are dropped
+> from disk. Each turn line instead carries its own full `usage` and resolved
+> `cost`, making every aggregate — total, by role, by agent, by stage — a
+> read-time fold over the lines. Persisting a fold alongside the values it folds
+> is what forced the whole-file rewrite, and it is the one thing in this file
+> that could disagree with itself.
+>
+> **Retention.** The keep-20 prune counts run ids, not files, and deletes a run's
+> two files together — so the budget is 20 runs, as before, not 10. A run id with
+> only one of its two files present still counts as one run and is pruned the
+> same way; the missing half is not an error at any point.
+>
+> **Enabled, not scheduled.** Recording each turn's `model` becomes cheap once
+> the cost file is additive, and there is a concrete question waiting for it: a
+> dated haiku model id appears on turns billing at Sonnet rates, while a
+> session-id join places that same id in fully-qualified-haiku sessions. Both
+> observations can only hold together if a turn's model id and its tokens come
+> from different sessions — a check that needs `model` on the turn *and* on the
+> session. Not a task here: the parallel claude plan-mode removal may remove the
+> cause.
+
 ### 9. Creating a new flow with a harness
 
 Menu flow (feedback item 9, goal-first): pick global vs project target upfront
