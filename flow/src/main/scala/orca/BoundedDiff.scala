@@ -183,6 +183,11 @@ private[orca] object BoundedDiff:
 
   private def entryLine(file: ChangedFile): String =
     val size = file.change match
+      // `+0 -0` reads as "nothing changed", which is never why a file is in a
+      // change set. Not narrowed further: git reports no counts for a mode
+      // change, a pure rename and an empty file alike, and telling them apart
+      // needs a second read (`git diff --raw`) of a tree that has moved on.
+      case FileChange.Lines(0, 0)           => "no lines changed"
       case FileChange.Lines(added, deleted) => s"+$added -$deleted"
       case FileChange.Binary                => "binary"
       case FileChange.New                   => "new file"
