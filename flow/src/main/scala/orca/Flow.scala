@@ -141,14 +141,14 @@ private def recordAndCommit[T: JsonData](
 
 /** Generate a commit message from the current working-tree changes via the
   * coding-role agent's cheap model (`fc.codingAgent.cheapOneShot`), which is
-  * sent the bounded summary built by [[CommitDiff.payload]] rather than the
-  * whole diff. The reads span what the stage is about to commit — tracked edits
-  * and files new to the repo — and all exclude `.orca/`, so the model sees the
-  * change set the commit is about rather than orca's bookkeeping. Falls back to
-  * `"stage: <name>"` when there is nothing to describe, the agent returns
-  * blank, or any `NonFatal` is thrown — committing must never break, though
-  * `cheapOneShot` announces the fallback rather than hiding it. Only called
-  * when the caller supplied no explicit `commitMessage`.
+  * sent the bounded summary built by [[BoundedDiff.commitPayload]] rather than
+  * the whole diff. The reads span what the stage is about to commit — tracked
+  * edits and files new to the repo — and all exclude `.orca/`, so the model
+  * sees the change set the commit is about rather than orca's bookkeeping.
+  * Falls back to `"stage: <name>"` when there is nothing to describe, the agent
+  * returns blank, or any `NonFatal` is thrown — committing must never break,
+  * though `cheapOneShot` announces the fallback rather than hiding it. Only
+  * called when the caller supplied no explicit `commitMessage`.
   */
 private def defaultCommitMessage(
     name: String
@@ -158,7 +158,7 @@ private def defaultCommitMessage(
   // never break a stage. The cheap agent call is guarded by `cheapOneShot`
   // itself.
   val payload =
-    try CommitDiff.payload(fc.git.pendingChanges())
+    try BoundedDiff.commitPayload(fc.git.pendingChanges())
     catch case NonFatal(_) => ""
   if payload.isBlank then fallback
   else
