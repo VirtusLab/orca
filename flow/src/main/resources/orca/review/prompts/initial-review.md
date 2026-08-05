@@ -8,7 +8,7 @@ Diff (everything this task has changed since its stage began, committed or
 not). Do not use `git diff HEAD` instead — it does not show work that has been
 committed:
 
-{{diffBlock}}
+{{diffBlock}}{{baseNote}}
 
 Report each finding with: severity (Critical / Warning / Info), a one-line
 title, a longer description with enough context for a fixer to act, the file and

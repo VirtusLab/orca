@@ -654,6 +654,89 @@ class ReviewAndFixTest extends munit.FunSuite:
     assert(sent.contains("--- a/Foo.scala"), s"diff missing from prompt: $sent")
     assert(sent.contains("do thing"), s"task missing from prompt: $sent")
 
+  test("the reviewer's first prompt names the stage's base commit"):
+    // The base is sent alongside the diff, from the same `stageBaseCommit` the
+    // diff is sampled against — not a second notion of "base".
+    val fc = ReviewLoopFixture.control(new EventDispatcher(Nil))
+    given FlowControl = fc
+    val base =
+      fc.git.headCommit().getOrElse(fail("the fixture repo has no HEAD"))
+    val _ = fc.enterStage("review", Some(base))
+    val reviewer =
+      new FakeAgent("capturing", outputs = List(ReviewResult.empty))
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = "do thing",
+      reviewerSelection = ReviewerSelector.allEveryRound
+    )
+    val sent = reviewer.seenPrompts.headOption
+      .getOrElse(fail("the fresh-session run was never called"))
+    assert(sent.contains(s"since commit $base"), s"base missing: $sent")
+
+  test("a pinned initialDiff is not told the stage's base commit"):
+    // The pinned diff may describe a change set that isn't stage-base-to-tree,
+    // so naming that commit as its base would send the reviewer to the wrong
+    // history.
+    val fc = ReviewLoopFixture.control(new EventDispatcher(Nil))
+    given FlowControl = fc
+    val base =
+      fc.git.headCommit().getOrElse(fail("the fixture repo has no HEAD"))
+    val _ = fc.enterStage("review", Some(base))
+    val reviewer =
+      new FakeAgent("capturing", outputs = List(ReviewResult.empty))
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(new FakeAgent("coder")),
+      reviewers = List(reviewer),
+      task = "do thing",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("--- a/Foo.scala\n+++ b/Foo.scala\n+ added line")
+    )
+    val sent = reviewer.seenPrompts.headOption
+      .getOrElse(fail("the fresh-session run was never called"))
+    assert(!sent.contains("since commit"), s"base leaked into prompt: $sent")
+
+  test("the fixer's declines reach the next round's reviewer, its fixes don't"):
+    // A decline is the one thing a reviewer cannot recover by reading the tree:
+    // nothing in the code says a finding was considered and refused. A "fixed"
+    // title is the opposite — it answers the question the round exists to ask,
+    // so it is deliberately withheld.
+    given FlowControl = control
+    val reviewer = new FakeAgent(
+      name = "loud",
+      outputs = List(
+        ReviewResult(List(issue("real bug"), issue("nit"))),
+        ReviewResult.empty
+      )
+    )
+    val coder = new FakeAgent(
+      name = "coder",
+      outputs = List(
+        FixOutcome(
+          List(Title("real bug")),
+          List(IgnoredIssue(Title("nit"), "the shape is deliberate"))
+        )
+      )
+    )
+    val _ = reviewAndFixLoop(
+      coderSession = ReviewLoopFixture.coderSession(coder),
+      reviewers = List(reviewer),
+      task = "build the widget",
+      reviewerSelection = ReviewerSelector.allEveryRound,
+      initialDiff = Some("")
+    )
+    val resumed = reviewer.seenPrompts
+      .lift(1)
+      .getOrElse(fail("the reviewer was never resumed"))
+    assert(
+      resumed.contains("- nit: the shape is deliberate"),
+      s"decline missing from re-review prompt: $resumed"
+    )
+    assert(
+      !resumed.contains("real bug"),
+      s"fixed title leaked into re-review prompt: $resumed"
+    )
+
   test(
     "an agentDriven reviewerSelection narrows the active set via its picker LLM"
   ):

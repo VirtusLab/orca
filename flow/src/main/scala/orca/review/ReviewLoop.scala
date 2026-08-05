@@ -202,13 +202,22 @@ private case class SessionEntry[B <: BackendTag](
   * guarantee survive both a shrinking active set (a reviewer dropped from later
   * rounds keeps its rejects) and re-reporting across rounds (a reviewer that
   * runs again overwrites rather than appends, so one finding yields one entry).
+  *
+  * `declinedByFixer` is what the last fix turn refused to fix, with the reason
+  * it gave, on its way to the next round's resumed reviewers. Replaced each
+  * round rather than accumulated: a reviewer that re-reports a declined finding
+  * gets it declined again, so the list stays current on its own, and a resumed
+  * reviewer still holds every earlier round's message in its session. Not split
+  * per reviewer either — a [[FixOutcome]] doesn't say which reviewer reported
+  * what — so every resumed reviewer is sent the whole list.
   */
 private case class ReviewLoopState(
     history: List[ReviewBatch],
     sessions: List[SessionEntry[?]],
     lintChat: Option[Lint.Summariser],
     gateRejects: List[(RosterEntry[?], List[ReviewIssue])],
-    lintGateRejects: List[ReviewIssue]
+    lintGateRejects: List[ReviewIssue],
+    declinedByFixer: List[IgnoredIssue]
 )
 private object ReviewLoopState:
   val empty: ReviewLoopState = ReviewLoopState(
@@ -216,7 +225,8 @@ private object ReviewLoopState:
     sessions = Nil,
     lintChat = None,
     gateRejects = Nil,
-    lintGateRejects = Nil
+    lintGateRejects = Nil,
+    declinedByFixer = Nil
   )
 
 /** One agent's findings split on the [[ConfidenceGate]]: `kept` goes to the
@@ -264,6 +274,12 @@ private case class RoundOutcome(
   * actually fixed under `fixed`, anything not addressed under `ignored` with a
   * reason. The loop only re-evaluates when something was fixed — an empty
   * `fixed` means nothing new for the reviewers to find, so the loop halts.
+  *
+  * The `ignored` entries go to the next round's reviewers, so a reviewer knows
+  * a finding was considered and refused rather than missed — the one thing in
+  * the loop it could not have worked out by reading the code. The `fixed`
+  * titles do not: a reviewer told its finding was fixed is handed the answer it
+  * exists to work out for itself.
   *
   * Nothing still open is lost at any exit: whatever the fixer left unaccounted
   * for, and whatever the confidence gate held back, come back in the returned
@@ -322,7 +338,9 @@ def reviewAndFixLoop[B <: BackendTag](
       * them.
       *
       * Pass `Some(...)` to pin the diff instead of sampling it — what the tests
-      * use to skip the git call.
+      * use to skip the git call. A pinned diff is also not told its base
+      * commit, since it may describe a change set the stage base doesn't
+      * bracket (see [[ReviewFixLoop.diffBase]]).
       */
     initialDiff: Option[String] = None
 )(using
@@ -433,6 +451,16 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   private def sampleDiff(): String =
     initialDiff.getOrElse(ctx.git.reviewDiff(reviewBase))
 
+  /** The commit reviewers are told their diff was sampled against, sent
+    * alongside the diff so a shell-capable reviewer can read past it.
+    *
+    * `None` for a pinned `initialDiff`: that diff may describe a change set
+    * that isn't `reviewBase`-to-working-tree, so naming `reviewBase` as its
+    * base would send the reviewer to the wrong history.
+    */
+  private val diffBase: Option[String] =
+    if initialDiff.isDefined then None else reviewBase
+
   // The loop-constant context `ReviewerSelector.prepare` is handed. `prepare`
   // runs once, at loop start (see `run`), so this is the change set the
   // selection is made from — later rounds' edits don't revise it.
@@ -473,28 +501,35 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       e: RosterEntry[?],
       stored: Option[SessionEntry[?]],
       currentDiff: String,
-      currentPaths: List[String]
+      currentPaths: List[String],
+      declined: List[IgnoredIssue]
   ): (ReviewResult, Option[SessionEntry[?]]) =
     stored match
-      case Some(se) => resumeReview(se, currentDiff, currentPaths)
+      case Some(se) => resumeReview(se, currentDiff, currentPaths, declined)
       case None     => firstReview(e, currentDiff)
 
-  /** Resume a reviewer's existing session, sending only what is new to it since
-    * its last round ([[ReReviewChanges]]). The run carries the `reviewer` cost
-    * role ([[ReviewerPrompts.Role]]) so the `TokensUsed` breakdown can subtotal
+  /** Resume a reviewer's existing session, sending what is new to it since its
+    * last round: the change set ([[ReReviewChanges]]) and what the fixer
+    * declined to fix. The run carries the `reviewer` cost role
+    * ([[ReviewerPrompts.Role]]) so the `TokensUsed` breakdown can subtotal
     * reviewer spend, without renaming the entry's identity.
+    *
+    * The fixer's `fixed` titles are deliberately NOT sent: a reviewer told its
+    * finding was fixed is handed the answer to the question the round exists to
+    * ask, and it still has to open the code either way.
     */
   private def resumeReview[B <: BackendTag](
       se: SessionEntry[B],
       currentDiff: String,
-      currentPaths: List[String]
+      currentPaths: List[String],
+      declined: List[IgnoredIssue]
   ): (ReviewResult, Option[SessionEntry[?]]) =
     val changes = ReReviewChanges.of(se.lastDiff, currentDiff, currentPaths)
     val result =
       se.chat
         .resultAs[ReviewResult]
         .autonomous
-        .run(ReviewLoopPrompts.reReview(changes), emitPrompt = false)
+        .run(ReviewLoopPrompts.reReview(changes, declined), emitPrompt = false)
     // Only advance `lastDiff` when something was actually sent, so a reviewer
     // that skipped a round still compares against what it has seen.
     val advanced = Option.when(changes != ReReviewChanges.AlreadySeen)(
@@ -516,7 +551,8 @@ private[review] class ReviewFixLoop[B <: BackendTag](
         .resultAs[ReviewResult]
         .autonomous
         .run(
-          ReviewLoopPrompts.initialReview(task, currentDiff, confidenceGate),
+          ReviewLoopPrompts
+            .initialReview(task, currentDiff, confidenceGate, diffBase),
           emitPrompt = false
         )
     (result, Some(SessionEntry(e, chat, currentDiff)))
@@ -573,11 +609,12 @@ private[review] class ReviewFixLoop[B <: BackendTag](
       then ctx.git.changedFiles(reviewBase)
       else Nil
 
+    val declined = currentState.declinedByFixer
     val reviewerTasks: List[() => AgentOutcome] = active.map: e =>
       val stored = storedFor(e)
       () =>
         val (result, newSession) =
-          reviewWithSession(e, stored, currentDiff, currentPaths)
+          reviewWithSession(e, stored, currentDiff, currentPaths, declined)
         AgentOutcome.Reviewer(e, applyGate(result), newSession)
 
     // Resolved outside the fork below so the next state carries the
@@ -665,7 +702,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
           else lintRound.map(_.summariser),
         gateRejects = retained ++ thisRound,
         lintGateRejects =
-          lintGated.map(_.dropped).getOrElse(currentState.lintGateRejects)
+          lintGated.map(_.dropped).getOrElse(currentState.lintGateRejects),
+        // Delivered to this round's reviewers; `run` refills it from this
+        // round's fix turn.
+        declinedByFixer = Nil
       )
       (reviewerOutcomes, lintGated.map(_.kept), nextState)
 
@@ -826,7 +866,10 @@ private[review] class ReviewFixLoop[B <: BackendTag](
             loop(
               accumulated ++ IgnoredIssues(outcome.ignored),
               iteration + 1,
-              round.state
+              // Carried into the next round's re-review prompts: without it a
+              // reviewer re-reports what the fixer deliberately declined, the
+              // fixer declines it again, and the round is spent.
+              round.state.copy(declinedByFixer = outcome.ignored)
             )
     loop(IgnoredIssues(Nil), 0, ReviewLoopState.empty)
 

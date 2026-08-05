@@ -54,26 +54,78 @@ object ReviewLoopPrompts:
     * `gate` is rendered into the prompt's confidence section, so reviewers are
     * told the actual bars their findings are measured against rather than a
     * hardcoded guess at them.
+    *
+    * `base` is the commit `diff` was sampled against, when the loop knows it
+    * describes this diff (see [[ReviewFixLoop.diffBase]]). It is sent alongside
+    * the diff, never instead of it: a reviewer that can run a shell can read
+    * past the diff from there, and one that can't is unaffected.
     */
-  def initialReview(task: String, diff: String, gate: ConfidenceGate): String =
+  def initialReview(
+      task: String,
+      diff: String,
+      gate: ConfidenceGate,
+      base: Option[String]
+  ): String =
     PromptResource.render(
       InitialReviewTemplate,
       "task" -> task,
       "diffBlock" -> diffBlock(diff),
+      "baseNote" -> baseNote(base),
       "criticalBar" -> gate.critical.toString,
       "warningBar" -> gate.warning.toString,
       "infoBar" -> gate.info.toString
     )
+
+  /** The base commit as a paragraph after the diff, carrying its own leading
+    * blank line so the section disappears without a trace when there is no base
+    * — the template writes `{{diffBlock}}{{baseNote}}` with no separator of its
+    * own.
+    */
+  private def baseNote(base: Option[String]): String =
+    base.fold(""): sha =>
+      s"\n\nThe diff above is everything that changed since commit $sha. If " +
+        "you can run shell commands, use that commit to see what the diff " +
+        s"doesn't show — `git show $sha:<path>` for a file as it was before " +
+        "the change, for example. What you review is still the diff; the base " +
+        "commit is there for evidence, not for widening your scope."
 
   private val ReReviewTemplate: String =
     PromptResource.load("/orca/review/prompts/re-review.md")
 
   /** Continuation prompt for a reviewer's session on iterations after the
     * first. The session already holds the reviewer's earlier findings and every
-    * change set it has been sent, so `changes` carries only what is new to it.
+    * change set it has been sent, so `changes` carries only what is new to it —
+    * including the base commit, which the initial prompt named and this one
+    * therefore doesn't repeat.
+    *
+    * `declined` is what the fixer refused to fix last round, which is the one
+    * thing a reviewer cannot recover by reading the code.
     */
-  private[review] def reReview(changes: ReReviewChanges): String =
-    PromptResource.render(ReReviewTemplate, "changes" -> changesBlock(changes))
+  private[review] def reReview(
+      changes: ReReviewChanges,
+      declined: List[IgnoredIssue]
+  ): String =
+    PromptResource.render(
+      ReReviewTemplate,
+      "changes" -> changesBlock(changes),
+      "declined" -> declinedBlock(declined)
+    )
+
+  /** The fixer's declines as a paragraph after the change set, carrying its own
+    * leading blank line for the same reason as [[baseNote]].
+    *
+    * Worded as the fixer's position rather than a verdict on the finding. A
+    * reviewer told "this was settled" would stop checking, which is the failure
+    * this block exists to avoid — the point is to save a round on findings the
+    * fixer has already answered, not to withdraw them.
+    */
+  private def declinedBlock(declined: List[IgnoredIssue]): String =
+    if declined.isEmpty then ""
+    else
+      "\n\nThe fixer declined to fix these findings, and gave this reason " +
+        s"for each:\n\n${IgnoredIssues(declined).format}\n\nThat is the " +
+        "fixer's position, not a ruling. If you still think a finding is " +
+        "real, report it again and say why the reason is wrong."
 
   private def changesBlock(changes: ReReviewChanges): String =
     changes match
