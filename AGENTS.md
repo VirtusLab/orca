@@ -299,10 +299,23 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
 - Never carry back-compat machinery — no defaulting-old-shape codec configs,
   no dual parse paths, no fixture tests pinned to a prior wire format. Change
   the shape and update every call site instead.
-- One deliberate exception: `ProgressLog`/`SessionRecord`'s tolerant decoding
-  (documented at its definition) exists so a mid-run resume survives an orca
-  upgrade — an in-flight run's log written by an older orca must still load.
-  That live-data tolerance stays; don't "fix" it under this rule.
+- Two deliberate exceptions, both live local data that has to survive an orca
+  upgrade, where invalidating it costs a user-visible feature rather than a
+  re-run. Don't "fix" either under this rule:
+  - `ProgressLog`/`SessionRecord`'s tolerant decoding (documented at its
+    definition), so a mid-run resume survives the upgrade — an in-flight run's
+    log written by an older orca must still load.
+  - The two `.orca/cache/runs/` shapes, `RunManifest` and `CostRecord` (ADR
+    0021 §8 amendment, 2026-08-05). They carry no schema version, so the rule
+    is **additive only**: a new field is `Option` or carries a default, and
+    nothing is renamed, retyped, or has its wire strings respelled — a rename
+    reads as an unknown key skipped plus a defaulted absent one, which is
+    silent and wrong. `RunManifestGoldenTest`'s frozen fixtures are what hold
+    this, and are the one place a fixture pinned to a prior wire format is
+    correct. The exception is narrow: it does NOT extend to
+    `RunManifest`'s required fields (`workDir`, `pid`, `startedAt`, `outcome`,
+    `sessions`), which keep the no-default rule so a call site that forgets one
+    still fails to compile.
 - Comments (see Code style above) never narrate this either: no "was
   previously", "renamed from", "kept for compat" — state what the field/type
   means now, not its history.
