@@ -195,6 +195,10 @@ private[orca] object BoundedDiff:
 
   private def entryLine(file: ChangedFile): String =
     val size = file.change match
+      // `+0 -0` reads as "nothing changed", which is never why a file is in a
+      // change set. Left this vague because the counts are all this side has:
+      // see `FileChange.Lines` for the causes they cannot tell apart.
+      case FileChange.Lines(0, 0)           => "no lines changed"
       case FileChange.Lines(added, deleted) => s"+$added -$deleted"
       case FileChange.Binary                => "binary"
       case FileChange.New                   => "new file"

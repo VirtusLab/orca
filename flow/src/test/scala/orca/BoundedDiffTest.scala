@@ -165,6 +165,16 @@ class BoundedDiffTest extends munit.FunSuite:
       "new file went unlabelled"
     )
 
+  test("the trailer never renders a change as `+0 -0`"):
+    // "+0 -0" reads as nothing having changed, which is never why a file is in
+    // a change set.
+    val (diff, changed) = bigChangeSet(60)
+    val payload = BoundedDiff.reviewPayload(
+      diff,
+      changed :+ ChangedFile("script.sh", FileChange.Lines(0, 0))
+    )
+    assert(payload.contains("#   script.sh (no lines changed)"), payload)
+
   /** A path of exactly `chars` characters, nested the way a real one is. */
   private def deepPath(chars: Int): String =
     val leaf = "/Deep.scala"
