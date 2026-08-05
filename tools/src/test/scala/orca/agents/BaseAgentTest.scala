@@ -11,6 +11,9 @@ import orca.backend.{
   SessionSupport
 }
 import orca.events.{OrcaEvent, OrcaListener, Usage}
+import ox.scheduling.Schedule
+
+import scala.concurrent.duration.DurationInt
 
 /** Unsupported `resultAs[O]` output shape: OpenAI's strict structured-output
   * mode can't express a Map's unbounded key set. See the "Map field throws...
@@ -189,6 +192,54 @@ class BaseAgentTest extends munit.FunSuite:
     assertEquals(
       seen.get().collect { case t: OrcaEvent.TokensUsed => t.usage },
       List(spent)
+    )
+
+  test("a retried structured turn reports the next attempt index"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(
+      // The first reply doesn't parse as FixOutcome, so the call re-prompts.
+      new ScriptedDrainBackend(
+        "not json at all",
+        """{"fixed":[],"ignored":[]}"""
+      ),
+      toolConfig = AgentConfig(retrySchedule =
+        Schedule.exponentialBackoff(1.milli).maxRetries(1)
+      ),
+      listener = listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
+    assertEquals(
+      seen.get().reverse.collect { case t: OrcaEvent.TokensUsed => t.attempt },
+      List(1, 2)
+    )
+
+  // An attempt that dies before the model runs is retried but records no turn,
+  // so it must not push the turn that follows to `2` and make a first try look
+  // like retry overhead.
+  test("an attempt that failed before the model ran doesn't advance the index"):
+    val seen =
+      new java.util.concurrent.atomic.AtomicReference[List[OrcaEvent]](Nil)
+    val listener: OrcaListener = e => { val _ = seen.updateAndGet(e :: _) }
+    val tool = new StubTool(
+      new FailFirstBackend(
+        // Not AgentTurnFailed, so the retry policy retries it — the shape of a
+        // broken pipe before the session was registered.
+        new orca.OrcaFlowException("broken pipe before spawn"),
+        """{"fixed":[],"ignored":[]}"""
+      ),
+      toolConfig = AgentConfig(retrySchedule =
+        Schedule.exponentialBackoff(1.milli).maxRetries(1)
+      ),
+      listener = listener,
+      prompts = DefaultPrompts
+    )
+    val _ = tool.resultAs[FixOutcome].autonomous.run("fix compile errors")
+    assertEquals(
+      seen.get().reverse.collect { case t: OrcaEvent.TokensUsed => t.attempt },
+      List(1)
     )
 
   // The manifest writer (ADR 0021 §8) needs the wire id known after the
@@ -536,15 +587,19 @@ class BaseAgentTest extends munit.FunSuite:
 
   /** Drives a real `Conversations.runAutonomous` (rather than returning a
     * canned `AgentResult` directly, as the other stub backends do) so the
-    * TurnBuffer withholding logic actually runs: `finalText` streams as a
-    * single completed assistant turn, exactly the shape a real backend produces
-    * for a one-turn structured reply. Threads the caller's `outputSchema`
-    * through unchanged, so a plain `run()` call (which passes `None`) exercises
+    * TurnBuffer withholding logic actually runs: each reply streams as a single
+    * completed assistant turn, exactly the shape a real backend produces for a
+    * one-turn structured reply. Threads the caller's `outputSchema` through
+    * unchanged, so a plain `run()` call (which passes `None`) exercises
     * non-structured mode and a `resultAs[O]` call (which passes `Some(...)`)
     * exercises structured mode.
+    *
+    * `replies` are answered one per call, so a retried call can be scripted
+    * with an output that won't parse followed by one that will.
     */
-  private class ScriptedDrainBackend(finalText: String)
+  private class ScriptedDrainBackend(replies: String*)
       extends AgentBackend[BackendTag.Pi.type]:
+    private val remaining = replies.iterator
     val workDir: os.Path = os.pwd
     val sessions: SessionSupport[BackendTag.Pi.type] =
       SessionSupport.ephemeral(IdScheme.ClientClaimed)
@@ -561,19 +616,26 @@ class BaseAgentTest extends munit.FunSuite:
         outputSchema: Option[String]
     ): AgentResult[BackendTag.Pi.type] =
       val schema = outputSchema
+      // A test scripted with too few replies should say so, rather than
+      // surface the iterator's NoSuchElementException — and only once the
+      // retry schedule runs out, since the policy retries anything but
+      // `AgentTurnFailed`.
+      if !remaining.hasNext then
+        throw new IllegalStateException("scripted replies exhausted")
+      val reply = remaining.next()
       Conversations.runAutonomous(session, sessions, events):
         new Conversation[BackendTag.Pi.type]:
           val outputSchema: Option[String] = schema
           def events(using ox.Ox): Iterator[ConversationEvent] =
             Iterator(
-              ConversationEvent.AssistantTextDelta(finalText),
+              ConversationEvent.AssistantTextDelta(reply),
               ConversationEvent.AssistantTurnEnd
             )
           def awaitResult()(using ox.Ox) =
             Right(
               AgentResult(
                 WireSessionId[BackendTag.Pi.type]("scripted-wire"),
-                finalText,
+                reply,
                 Usage.empty
               )
             )
@@ -587,6 +649,25 @@ class BaseAgentTest extends munit.FunSuite:
         outputSchema: Option[String]
     )(using ox.Ox): Conversation[BackendTag.Pi.type] =
       throw new UnsupportedOperationException
+
+  /** Throws `error` on its first turn and scripts the rest — an attempt that
+    * dies before reaching the model, which consumes none of `replies`.
+    */
+  private class FailFirstBackend(error: Throwable, replies: String*)
+      extends ScriptedDrainBackend(replies*):
+    private var thrown = false
+    override def runAutonomous(
+        prompt: String,
+        session: SessionId[BackendTag.Pi.type],
+        config: AgentConfig,
+        events: OrcaListener,
+        outputSchema: Option[String]
+    ): AgentResult[BackendTag.Pi.type] =
+      if thrown then
+        super.runAutonomous(prompt, session, config, events, outputSchema)
+      else
+        thrown = true
+        throw error
 
   /** Interactive counterpart to [[ScriptedDrainBackend]]: `runInteractive`
     * replays `scripted` verbatim (no drain of its own — the interactive door

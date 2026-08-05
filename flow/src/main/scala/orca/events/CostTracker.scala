@@ -65,7 +65,9 @@ class CostTracker(pricing: PriceList = Pricing.default) extends OrcaListener:
   private val state: AtomicReference[State] = AtomicReference(State())
 
   def onEvent(event: OrcaEvent): Unit = event match
-    case OrcaEvent.TokensUsed(agent, model, usage, role) =>
+    // `attempt` is ignored: a retry's tokens count toward the run's spend like
+    // any other turn's.
+    case OrcaEvent.TokensUsed(agent, model, usage, role, _) =>
       val cost = Pricing.resolve(pricing.table, model, usage)
       val _ = state.updateAndGet(_.record(agent, model, usage, cost, role))
     case _ => ()

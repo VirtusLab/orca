@@ -225,7 +225,7 @@ object FlowCanary:
         val tracker = new CostTracker()
         val _: Option[Cost] = tracker.totalCost
         val listener: OrcaListener =
-          case OrcaEvent.TokensUsed(_, _, usage, _) =>
+          case OrcaEvent.TokensUsed(_, _, usage, _, _) =>
             val _: Usage = usage
           case _ => ()
         val _ = listener

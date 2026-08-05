@@ -26,9 +26,9 @@ enum DiffMode:
 case class Worktree(path: os.Path, branch: String)
 
 /** One consistent sample of what the next commit would include — see
-  * [[GitTool.pendingChanges]]. `newFiles` holds the paths of files new to the
-  * repository, which the stat cannot report and `diff` shows only as new-file
-  * hunks.
+  * [[GitTool.pendingChanges]]. `newFiles` holds the paths new to the repository
+  * — see [[GitTool.untrackedPaths]] — which the stat cannot report and `diff`
+  * shows only as new-file hunks.
   */
 case class PendingChanges(stat: String, newFiles: List[String], diff: String)
 
@@ -228,11 +228,13 @@ trait GitTool:
     */
   def diffStat(): String
 
-  /** Untracked, non-`.orca/` paths anywhere in the repository, one entry per
-    * file (untracked directories are recursed into), relative to the tool's
-    * working directory. These are the files [[diff]] can't report — they have
-    * no tracked history to diff against — but that a `git add -A` commit would
-    * include, so anything describing what is about to be committed needs them
+  /** Untracked, non-`.orca/` paths anywhere in the repository, relative to the
+    * tool's working directory. Untracked directories are recursed into, so an
+    * entry is normally one file; a directory git refuses to enter — a nested
+    * repository — stays one entry, with a trailing slash. These are the paths
+    * [[diff]] can't report — they have no tracked history to diff against — but
+    * that a `git add -A` commit would include (a nested repository as a
+    * gitlink), so anything describing what is about to be committed needs them
     * alongside the diff. [[reviewDiff]] renders their contents; this is the
     * list itself.
     */
@@ -249,20 +251,20 @@ trait GitTool:
     * committed; pass the commit a unit of work started from (see
     * [[headCommit]]) to see everything it produced either way.
     *
-    * An untracked symlink to a directory is one `--no-index` can't render; it
-    * appears as a line naming the path rather than being dropped silently.
+    * A path `--no-index` can't render — a symlink to a directory, or a nested
+    * git repository — appears as a line naming the path rather than being
+    * dropped silently.
     */
   def reviewDiff(since: Option[String] = None): String
 
-  /** The paths of the change set [[reviewDiff]] renders, named rather than
-    * diffed: every tracked path git reports as changed since `since` (`since`
-    * as in [[reviewDiff]]), plus every [[untrackedPaths]] entry. `.orca/`
-    * bookkeeping is excluded; paths are relative to the tool's working
-    * directory.
+  /** The file paths in the change set [[reviewDiff]] renders: every tracked
+    * path git reports as changed since `since` (`since` as in [[reviewDiff]]),
+    * plus every [[untrackedPaths]] entry. `.orca/` bookkeeping is excluded;
+    * paths are relative to the tool's working directory.
     *
-    * Named from git's path list rather than scraped from diff text, so files a
-    * diff body can't show still appear: a binary change, a 100%-similarity
-    * rename (at its new path), a deletion, and paths git would otherwise quote.
+    * The list comes from git, not from parsing diff text, so files a diff body
+    * can't show still appear: a binary change, a 100%-similarity rename (at its
+    * new path), a deletion, and paths git would otherwise quote.
     */
   def changedFiles(since: Option[String] = None): List[String]
 
@@ -585,11 +587,12 @@ private[orca] class OsGitTool(
   def reviewDiff(since: Option[String]): String =
     withNewFileContents(since.getOrElse("HEAD"), untrackedPaths())
 
-  // `-z` NUL-terminates each path and suppresses the C-quoting git otherwise
-  // applies to a tab, newline or non-ASCII byte in a name. `--no-relative`
-  // pins the paths root-relative, which `asWorkDirRelative` assumes: a repo
-  // setting `diff.relative` would otherwise emit them relative to `workDir`,
-  // and the translation would then hoist them out of the repo with `../`.
+  // `-z` NUL-terminates each path and turns off the C-quoting git otherwise
+  // applies to a tab, newline or non-ASCII byte in a name. `--no-relative` keeps
+  // the paths relative to the repository root, which `asWorkDirRelative`
+  // assumes: with `diff.relative` set in the repo git prints them relative to
+  // `workDir` instead, and the translation then adds `../` hops and names the
+  // wrong files.
   def changedFiles(since: Option[String]): List[String] =
     val args =
       "diff" +: "--name-only" +: "-z" +: "--no-relative" +:
@@ -654,25 +657,36 @@ private[orca] class OsGitTool(
     * stderr rather than the exit code tells the two apart. Reporting the second
     * as success would return an empty diff for a file that does have contents.
     *
-    * A symlink to a directory is named rather than diffed: `--no-index` walks
-    * into it and pairs `/dev/null` with a path inside (`error: Could not access
-    * 'link/null'`), which takes the failure branch above. Symlinks to a file or
-    * to nothing diff fine, as mode 120000 carrying the link target, not the
-    * target's contents.
+    * A path [[undiffableReason]] names is announced rather than diffed, so that
+    * one such path does not abort the whole review.
     */
   private def untrackedFileDiff(relPath: String): String =
-    if isSymlinkToDirectory(relPath) then
-      s"# skipped $relPath: symlink to a directory\n"
-    else
-      val result =
-        gitProc(Seq("git", "diff", "--no-index", "--", "/dev/null", relPath))
-      val differs = result.exitCode == 1 && result.err.text().isEmpty
-      if result.exitCode == 0 || differs then result.out.text()
-      else fail(s"git diff --no-index -- /dev/null $relPath", result)
+    undiffableReason(relPath) match
+      case Some(reason) => s"# skipped $relPath: $reason\n"
+      case None =>
+        val result =
+          gitProc(Seq("git", "diff", "--no-index", "--", "/dev/null", relPath))
+        val differs = result.exitCode == 1 && result.err.text().isEmpty
+        if result.exitCode == 0 || differs then result.out.text()
+        else fail(s"git diff --no-index -- /dev/null $relPath", result)
 
-  private def isSymlinkToDirectory(relPath: String): Boolean =
+  /** Why `git diff --no-index` cannot render this untracked path, or `None` if
+    * it can.
+    *
+    * `git status -uall` reports each of these as a single entry instead of
+    * recursing into it. `--no-index` then walks in and pairs `/dev/null` with a
+    * path inside (`error: Could not access 'x/null'`), which takes
+    * [[untrackedFileDiff]]'s failure branch. A nested repository is recognised
+    * by its `.git` entry — a directory in a clone, a file in a linked worktree,
+    * hence `os.exists` rather than `os.isDir`.
+    *
+    * Symlinks to a file or to nothing are diffable, as mode 120000.
+    */
+  private def undiffableReason(relPath: String): Option[String] =
     val path = workDir / os.RelPath(relPath)
-    os.isLink(path) && os.isDir(path)
+    if os.isLink(path) && os.isDir(path) then Some("symlink to a directory")
+    else if os.exists(path / ".git") then Some("nested git repository")
+    else None
 
   def diffVsBase(base: String, mode: DiffMode): String =
     val spec = mode match

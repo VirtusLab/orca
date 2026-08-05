@@ -2,7 +2,7 @@ package orca.agents
 
 import orca.AgentTurnFailed
 import orca.backend.{Conversations, Interaction, AgentBackend}
-import orca.events.{OrcaEvent, OrcaListener}
+import orca.events.{OrcaEvent, OrcaListener, Usage}
 import orca.util.JsonSchemaGen
 import ox.resilience.{ResultPolicy, RetryConfig, retry}
 
@@ -209,6 +209,19 @@ class DefaultAgentCall[B <: BackendTag, O](
     // re-executes sequentially — never concurrently.
     var lastFailure: Option[FailedAttempt] = None
 
+    // Counts the turns this call reported, not the attempts it started: an
+    // attempt that dies before the model runs (a pre-spawn open failure,
+    // retried below) reports no turn. Counting on entry would label the first
+    // turn that is actually paid for as a retry. Same sequential-write contract
+    // as `lastFailure` above.
+    var turnsRecorded = 0
+
+    def recordTurn(model: Option[Model], usage: Usage): Unit =
+      turnsRecorded += 1
+      events.onEvent(
+        OrcaEvent.TokensUsed(agentName, model, usage, agentRole, turnsRecorded)
+      )
+
     /** One attempt: build this iteration's prompt (the initial one, or a
       * corrective re-prompt carrying the prior parse failure), run the turn,
       * and parse its output as `O`. A `MalformedAgentOutputException` records
@@ -237,15 +250,7 @@ class DefaultAgentCall[B <: BackendTag, O](
           // never reach the cost summary. Fires at most once per call —
           // `AgentTurnFailed` is never retried.
           case e: AgentTurnFailed =>
-            e.usage.foreach: usage =>
-              events.onEvent(
-                OrcaEvent.TokensUsed(
-                  agentName,
-                  effective.model,
-                  usage,
-                  agentRole
-                )
-              )
+            e.usage.foreach(recordTurn(effective.model, _))
             throw e
       // Fire as soon as the backend drain commits — before the fallible
       // parse below — so a session that later exhausts its retries (parse
@@ -254,14 +259,7 @@ class DefaultAgentCall[B <: BackendTag, O](
       // session re-fires with the same payload; listeners dedup on
       // (backend, clientId, wireId) per the event's scaladoc.
       emitSessionCommitted(session)
-      events.onEvent(
-        OrcaEvent.TokensUsed(
-          agentName,
-          result.model.orElse(effective.model),
-          result.usage,
-          agentRole
-        )
-      )
+      recordTurn(result.model.orElse(effective.model), result.usage)
       try
         val parsed = ResponseParser.parse[O](result.output)
         emitStructuredResult(result.output, parsed)

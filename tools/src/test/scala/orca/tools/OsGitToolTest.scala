@@ -656,6 +656,32 @@ class OsGitToolTest extends munit.FunSuite:
       assert(diff.contains("+++ b/linkfile"), diff)
       assert(diff.contains("new file mode 120000"), diff)
 
+  test("reviewDiff names an untracked nested git repository, and carries on"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      os.makeDir(dir / "nested")
+      val _ = os.proc("git", "init").call(cwd = dir / "nested")
+      os.write(dir / "new.txt", "brand new content")
+      val diff = git.reviewDiff()
+      assert(diff.contains("# skipped nested/: nested git repository"), diff)
+      assert(diff.contains("+brand new content"), diff)
+      // Skipping the diff must not drop the path from what `add -A` will
+      // commit: git stages a nested repo as a gitlink, so `newFiles` says so.
+      assert(git.pendingChanges().newFiles.contains("nested/"))
+
+  // Pins the probe as `os.exists`, not `os.isDir`: a linked worktree's `.git`
+  // is a file, not a directory.
+  test("reviewDiff names an untracked linked worktree"):
+    withRepo: (git, dir) =>
+      os.write(dir / "seed.txt", "seed")
+      git.commit("seed").orThrow
+      val _ =
+        os.proc("git", "worktree", "add", "-q", "wt", "-b", "wtb")
+          .call(cwd = dir)
+      val diff = git.reviewDiff()
+      assert(diff.contains("# skipped wt/: nested git repository"), diff)
+
   test("reviewDiff includes an untracked file whose name has spaces"):
     withRepo: (git, dir) =>
       os.write(dir / "seed.txt", "seed")
@@ -701,7 +727,8 @@ class OsGitToolTest extends munit.FunSuite:
 
   test("changedFiles from a subdirectory is unaffected by diff.relative"):
     // The setting makes git print paths relative to the subdirectory, which
-    // both hides changes above it and misdirects the workDir translation.
+    // hides changes above it and makes the workDir translation name the wrong
+    // files.
     withRepo: (_, dir) =>
       os.makeDir.all(dir / "sub")
       os.write(dir / "top.txt", "one")

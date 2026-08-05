@@ -489,7 +489,9 @@ class RunManifestWriterTest extends munit.FunSuite:
       List((None, 125_000L))
     )
 
-  test("per-turn log records each turn's identity, stage and prompt size"):
+  test(
+    "per-turn log records each turn's identity, stage, prompt size, attempt"
+  ):
     val workDir = TempDirs.dir()
     val writer =
       newWriter(workDir, fixedClock(Instant.parse("2026-07-18T10:00:00Z")))
@@ -505,13 +507,15 @@ class RunManifestWriterTest extends munit.FunSuite:
     // when a turn is recorded, not when the manifest is later written.
     writer.onEvent(OrcaEvent.StageCompleted("code"))
     // The CLI answering from leftover session state: no request went out, so
-    // every counter is zero.
+    // every counter is zero. Recorded as a retry so the assertion below shows
+    // the attempt index reaching the manifest, rather than a constant 1.
     writer.onEvent(
       OrcaEvent.TokensUsed(
         "reviewer",
         None,
         Usage(0, 0, None),
-        Some("reviewer")
+        Some("reviewer"),
+        attempt = 2
       )
     )
     writer.finish(RunOutcome.Succeeded)
@@ -525,14 +529,16 @@ class RunManifestWriterTest extends munit.FunSuite:
           agent = "claude",
           role = None,
           stage = Some("code"),
-          promptTokens = 107_000
+          promptTokens = 107_000,
+          attempt = 1
         ),
         ManifestTurn(
           at = "2026-07-18T10:00:00Z",
           agent = "reviewer",
           role = Some("reviewer"),
           stage = None,
-          promptTokens = 0
+          promptTokens = 0,
+          attempt = 2
         )
       )
     )

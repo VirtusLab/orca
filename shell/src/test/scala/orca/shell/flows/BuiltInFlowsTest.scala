@@ -1,5 +1,7 @@
 package orca.shell.flows
 
+import orca.review.DefaultMaxIterations
+
 class BuiltInFlowsTest extends munit.FunSuite:
 
   private val resourcePrefix = "/orca/shell/flows/"
@@ -30,6 +32,21 @@ class BuiltInFlowsTest extends munit.FunSuite:
 
   test("every indexed flow resource is readable and non-empty"):
     indexNames.foreach(name => assert(resourceText(name).trim.nonEmpty, name))
+
+  test("every fix-loop call in a flow states the library's default cap"):
+    // Each call states the cap instead of inheriting it, so a reader of the
+    // flow knows which cap the run used. The stated number must be the default,
+    // so raising `DefaultMaxIterations` fails here until the flows follow.
+    // `flows/` is outside scalafmt's scope, hence the loose spacing allowed in
+    // the regex. Counting per file is a heuristic, not a per-call proof: it
+    // catches a call added without a cap, but not two caps on one of two calls.
+    val calls = "\\b(?:reviewAndFixLoop|fixLoop)\\(".r
+    val caps = s"maxIterations\\s*=\\s*$DefaultMaxIterations\\b".r
+    val counted = indexNames.map: name =>
+      val text = resourceText(name)
+      (name, calls.findAllIn(text).size, caps.findAllIn(text).size)
+    assert(counted.exists(_._2 > 0), "no flow calls the fix loop any more")
+    assertEquals(counted.filter((_, calls, caps) => calls != caps), Nil)
 
   private def withTempHome(body: os.Path => Unit): Unit =
     val home = os.temp.dir(prefix = "orca-built-in-flows-test")
