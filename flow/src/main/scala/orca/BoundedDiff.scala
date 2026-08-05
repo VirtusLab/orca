@@ -144,24 +144,42 @@ private[orca] object BoundedDiff:
       "does not show\n# the changes to the files below — read those files " +
       "directly.\n"
 
+  /** The note closing a cut-short diff whose file list names nothing to add.
+    * Reachable because the diff and the file list are two separate git reads
+    * (see `orca.review.ReviewFixLoop`), so an edit landing between them can
+    * leave every cut file unnamed. The cut is stated anyway: a reviewer that
+    * isn't told the diff is partial judges a fragment as if it were the whole.
+    */
+  private val UnnamedTrailer: String =
+    s"\n# The diff above was cut short at $ReviewThreshold characters. Part of " +
+      "the change\n# is not shown, and the file list needed to name it was not " +
+      "available.\n"
+
   /** The note closing a cut-short review diff: that it was cut, and every file
     * the rendered part doesn't show. Every line is a `#` comment so none of it
     * can read as part of a hunk — `- path` would look like a deleted line of
     * source — and the entries are indented under the sentence introducing them.
     */
   private def trailer(omitted: List[ChangedFile]): String =
-    TrailerHead + boundedEntries(omitted.map(entryLine), TrailerBudget)
+    if omitted.isEmpty then UnnamedTrailer
+    else TrailerHead + boundedEntries(omitted.map(entryLine), TrailerBudget)
 
   /** The longest [[trailer]] any subset of `all` can produce, which is what the
     * diff has to be sized against — the omitted set isn't known until the diff
     * has been cut. Rendering a subset is not always shorter than rendering the
     * whole list: once the entries are past [[TrailerBudget]] both fill it, and
-    * dropping short entries from the front can let longer ones in.
+    * dropping short entries from the front can let longer ones in. So the bound
+    * is the unbounded entry length, capped at the budget — not what rendering
+    * `all` happens to produce, which [[boundedEntries]] can cut short at the
+    * first entry too long to fit while a subset of it renders longer.
     */
   private def trailerMax(all: List[ChangedFile]): Int =
     // +1 per entry for the separator `boundedEntries` joins them with.
     val entries = all.map(entryLine(_).length + 1).sum
-    TrailerHead.length + math.min(entries, TrailerBudget)
+    math.max(
+      UnnamedTrailer.length,
+      TrailerHead.length + math.min(entries, TrailerBudget)
+    )
 
   private def entryLine(file: ChangedFile): String =
     val size = file.change match

@@ -725,6 +725,16 @@ class OsGitToolTest extends munit.FunSuite:
       os.write.over(dir / "my notes.md", "two")
       assertEquals(git.changedFiles(), List("my notes.md"))
 
+  // A tab is what separates `--numstat`'s own fields, and `-z` turns off the
+  // quoting that would otherwise hide one inside a name — so a tabbed path
+  // arrives looking like an extra field.
+  test("changedFiles names a modified path containing a tab"):
+    withRepo: (git, dir) =>
+      os.write(dir / "tab\there.md", "one")
+      git.commit("seed").orThrow
+      os.write.over(dir / "tab\there.md", "two")
+      assertEquals(git.changedFiles(), List("tab\there.md"))
+
   test("changedFileStats counts the lines a change added and removed"):
     withRepo: (git, dir) =>
       os.write(dir / "notes.md", "one\ntwo\n")

@@ -621,12 +621,16 @@ private[orca] class OsGitTool(
   def changedFiles(since: Option[String]): List[String] =
     changedFileStats(since).map(_.path)
 
-  // `-z` NUL-terminates each record and turns off the C-quoting git otherwise
-  // applies to a tab, newline or non-ASCII byte in a name. `--no-relative` keeps
-  // the paths relative to the repository root, which `asWorkDirRelative`
-  // assumes: with `diff.relative` set in the repo git prints them relative to
-  // `workDir` instead, and the translation then adds `../` hops and names the
-  // wrong files.
+  // `-z` NUL-terminates each record, so a newline or a non-ASCII byte in a name
+  // parses unambiguously. It also turns off the C-quoting git would otherwise
+  // apply to a tab in a name — and `--numstat` separates its own fields with
+  // tabs, so a tabbed path arrives looking like extra fields and only
+  // `OsGitTool.parseNumstat` capping the split keeps it whole.
+  //
+  // `--no-relative` keeps the paths relative to the repository root, which
+  // `asWorkDirRelative` assumes: with `diff.relative` set in the repo git prints
+  // them relative to `workDir` instead, and the translation then adds `../` hops
+  // and names the wrong files.
   def changedFileStats(since: Option[String]): List[ChangedFile] =
     val args =
       "diff" +: "--numstat" +: "-z" +: "--no-relative" +:
@@ -887,6 +891,10 @@ private[orca] object OsGitTool:
     * of a count marks a binary file, which git reports as differing without
     * saying by how much.
     *
+    * The path is everything after the second tab, splitting no further: `-z`
+    * turns off the quoting git would otherwise apply to a tab in a name, so a
+    * tabbed path arrives raw and would otherwise look like extra fields.
+    *
     * Anything that doesn't parse as a record is skipped rather than failing the
     * call: a file list is worth having even if one entry of it is unreadable.
     */
@@ -897,20 +905,23 @@ private[orca] object OsGitTool:
         acc: List[ChangedFile]
     ): List[ChangedFile] =
       fields match
-        case Nil => acc.reverse
+        case Nil            => acc.reverse
         case record :: rest =>
-          record.split('\t').toList match
-            case added :: deleted :: path :: Nil =>
-              loop(rest, ChangedFile(path, change(added, deleted)) :: acc)
-            // Rename: the paths are the next two fields, old then new.
-            case added :: deleted :: Nil =>
+          // The limit stops the split at the path, and keeps the empty third
+          // field a rename's record ends with — which is what tells the two
+          // shapes apart, since git never names an empty path.
+          record.split("\t", 3).toList match
+            // Rename: the paths are the next two records, old then new.
+            case added :: deleted :: "" :: Nil =>
               rest match
                 case _ :: renamedTo :: tail =>
                   loop(
                     tail,
                     ChangedFile(renamedTo, change(added, deleted)) :: acc
                   )
-                case _ => acc.reverse
+                case _ => loop(rest, acc)
+            case added :: deleted :: path :: Nil =>
+              loop(rest, ChangedFile(path, change(added, deleted)) :: acc)
             case _ => loop(rest, acc)
     loop(raw.split(NUL).toList.filter(_.nonEmpty), Nil)
 
