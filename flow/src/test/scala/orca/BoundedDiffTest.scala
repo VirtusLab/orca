@@ -196,6 +196,14 @@ class BoundedDiffTest extends munit.FunSuite:
       "the payload outgrew its budget"
     )
 
+  test("the trailer reports how much diff the reviewer actually got"):
+    // Not the threshold: the head is cut to leave the trailer its room.
+    val (diff, changed) = bigChangeSet(60)
+    val payload = BoundedDiff.reviewPayload(diff, changed)
+    val shownChars = payload.indexOf("\n# The diff above was cut short at ")
+    assert(shownChars > 0, payload)
+    assert(payload.contains(s"cut short at $shownChars characters"), payload)
+
   test("a cut diff whose file list names nothing still reports the cut"):
     // The diff and the file list are two separate git reads, so an edit landing
     // between them can leave the list empty. The cut is real regardless — the
