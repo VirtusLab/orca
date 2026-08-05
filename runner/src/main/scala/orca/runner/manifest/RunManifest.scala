@@ -2,7 +2,7 @@ package orca.runner.manifest
 
 import com.github.plokhotnyuk.jsoniter_scala.macros.ConfiguredJsonValueCodec
 import orca.agents.JsonData
-import orca.events.{Cost, Usage}
+import orca.events.Usage
 
 /** One tracked session inside a [[RunManifest]] (ADR 0021 §8). `wireId` is the
   * persistable id ([[orca.agents.Agent.resumeWireId]]) — `None` when nothing
@@ -64,78 +64,6 @@ private[orca] object ManifestUsage:
     reasoningOutputTokens = usage.reasoningOutputTokens
   )
 
-/** One breakdown bucket of [[ManifestCostSummary]]. `key` is `None` for the
-  * untagged bucket — calls from an agent with no role, or tokens spent outside
-  * any stage.
-  */
-private[orca] case class ManifestSubtotal(
-    key: Option[String],
-    usage: ManifestUsage,
-    cost: Option[Cost]
-)
-
-/** A run's spend, folded from `TokensUsed`. The three breakdowns are the same
-  * calls grouped three ways, so each sums back to `total`.
-  *
-  * `usage` covers every call; `cost` covers only the calls that had one to
-  * resolve, so a run using a model absent from the pricing table shows tokens
-  * against no dollars. A failed turn contributes nothing on any backend but
-  * claude, which is the only one that attaches usage to a turn failure.
-  */
-private[orca] case class ManifestCostSummary(
-    total: ManifestUsage,
-    cost: Option[Cost],
-    byRole: List[ManifestSubtotal],
-    byAgent: List[ManifestSubtotal],
-    byStage: List[ManifestSubtotal]
-)
-
-private[orca] object ManifestCostSummary:
-  val empty: ManifestCostSummary =
-    ManifestCostSummary(ManifestUsage.empty, None, Nil, Nil, Nil)
-
-/** One LLM turn: what it belonged to and how large its prompt was. The prompt
-  * size is what makes per-turn prefix growth measurable across a run; the
-  * `agent`/`role`/`stage` keys match [[ManifestCostSummary]]'s breakdowns so a
-  * subtotal can be traced back to the turns that produced it.
-  *
-  * `promptTokens` of zero reads as "no request observed", not "no request": it
-  * is the signature of a turn the CLI settles from leftover session state
-  * without calling the API, but every backend also defaults its usage counters
-  * to zero when a terminal frame omits them, and claude takes its cost from a
-  * separate field — so a zero-token turn can still carry a reported cost.
-  *
-  * `attempt` is the turn's 1-based position among the turns of its call (see
-  * [[orca.events.OrcaEvent.TokensUsed]]); turns with `attempt > 1` are what
-  * retries added to the run's spend.
-  *
-  * `session` is the key the turn's conversation is recorded under in
-  * [[RunManifest.sessions]] — `ManifestSession.wireId` when there is one, else
-  * the client id. It makes "the first turn of a session" exact; without it the
-  * only way to spot one is a `agent` name that happens to be unique to a single
-  * session, which holds for reviewers and fails for the implementer.
-  *
-  * `apiCalls` is how many model requests the turn made — see
-  * [[orca.events.Usage.apiCalls]], including why `None` is not one. Every call
-  * re-sends the conversation so far, so `promptTokens / apiCalls` is the MEAN
-  * prompt per call and no single call matches it: the first is the smallest and
-  * the last the largest. A turn's fixed floor is the first call's prompt, which
-  * this file does not record — only the mean is derivable here.
-  *
-  * `at` is stamped when the writer records the turn, not when the tokens were
-  * spent: the event crosses an actor mailbox first.
-  */
-private[orca] case class ManifestTurn(
-    at: String,
-    agent: String,
-    role: Option[String],
-    stage: Option[String],
-    promptTokens: Long,
-    attempt: Int,
-    session: Option[String],
-    apiCalls: Option[Long]
-)
-
 /** A per-run manifest written to
   * `.orca/cache/runs/<startedAt-epoch-ms>-<pid>.json`, read by the shell to
   * offer "continue a session". `outcome` is `"running"` until
@@ -151,9 +79,8 @@ private[orca] case class ManifestTurn(
   * only as good as `RunManifestGoldenTest`, which decodes a frozen file no
   * schema change may edit.
   *
-  * `cost` and `turns` make a run's spend answerable from this file alone, with
-  * no agent transcript involved — subject to the reporting gaps noted on
-  * [[ManifestCostSummary]] and [[ManifestTurn]].
+  * Carries no cost or turn data: that lives in the run's `<id>-cost.jsonl`
+  * ([[CostLog]]), which this file neither references nor requires.
   */
 private[orca] case class RunManifest(
     orcaVersion: String,
@@ -163,9 +90,7 @@ private[orca] case class RunManifest(
     startedAt: String,
     finishedAt: Option[String],
     outcome: String,
-    sessions: List[ManifestSession],
-    cost: ManifestCostSummary,
-    turns: List[ManifestTurn]
+    sessions: List[ManifestSession]
 )
 
 private[orca] object RunManifest:
