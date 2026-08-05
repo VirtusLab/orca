@@ -32,6 +32,27 @@ case class Worktree(path: os.Path, branch: String)
   */
 case class PendingChanges(stat: String, newFiles: List[String], diff: String)
 
+/** How much of one file a change set touched — see
+  * [[GitTool.changedFileStats]].
+  */
+enum FileChange:
+  /** Lines added and removed, as `git diff --numstat` counts them. */
+  case Lines(added: Int, deleted: Int)
+
+  /** A binary file: git reports that it differs, never by how many lines. */
+  case Binary
+
+  /** A file new to the repository, so all of its content is added. Git reports
+    * no counts for these — an untracked file has no tracked history to count
+    * against.
+    */
+  case New
+
+/** One path in a change set, with how much of it changed — see
+  * [[GitTool.changedFileStats]].
+  */
+case class ChangedFile(path: String, change: FileChange)
+
 /** Returned in the `Left` of [[GitTool.createBranch]] when a branch by that
   * name already exists. Distinguished from system-level git failures (binary
   * missing, IO error) which surface as thrown `OrcaFlowException`. Subclasses
@@ -267,6 +288,16 @@ trait GitTool:
     * new path), a deletion, and paths git would otherwise quote.
     */
   def changedFiles(since: Option[String] = None): List[String]
+
+  /** [[changedFiles]], each path carrying how much of it changed. What a caller
+    * that has to leave part of a change set out of a prompt tells the reader
+    * about the files it left out (see `orca.BoundedDiff`).
+    *
+    * Untracked paths report [[FileChange.New]] rather than a count: they have
+    * no tracked history to count against, and all of their content is new
+    * anyway.
+    */
+  def changedFileStats(since: Option[String] = None): List[ChangedFile]
 
   /** Everything the next `commit` would include, in the three shapes a caller
     * describing it needs: the [[diffStat]] summary, the [[untrackedPaths]]
@@ -587,22 +618,24 @@ private[orca] class OsGitTool(
   def reviewDiff(since: Option[String]): String =
     withNewFileContents(since.getOrElse("HEAD"), untrackedPaths())
 
-  // `-z` NUL-terminates each path and turns off the C-quoting git otherwise
+  def changedFiles(since: Option[String]): List[String] =
+    changedFileStats(since).map(_.path)
+
+  // `-z` NUL-terminates each record and turns off the C-quoting git otherwise
   // applies to a tab, newline or non-ASCII byte in a name. `--no-relative` keeps
   // the paths relative to the repository root, which `asWorkDirRelative`
   // assumes: with `diff.relative` set in the repo git prints them relative to
   // `workDir` instead, and the translation then adds `../` hops and names the
   // wrong files.
-  def changedFiles(since: Option[String]): List[String] =
+  def changedFileStats(since: Option[String]): List[ChangedFile] =
     val args =
-      "diff" +: "--name-only" +: "-z" +: "--no-relative" +:
+      "diff" +: "--numstat" +: "-z" +: "--no-relative" +:
         since.getOrElse("HEAD") +: OsGitTool.wholeRepoExceptOrca
-    val tracked = git(args*)
-      .split('\u0000')
-      .toList
-      .filter(_.nonEmpty)
-      .map(asWorkDirRelative)
-    (tracked ++ untrackedPaths()).distinct
+    val tracked = OsGitTool
+      .parseNumstat(git(args*))
+      .map(f => f.copy(path = asWorkDirRelative(f.path)))
+    val untracked = untrackedPaths().map(ChangedFile(_, FileChange.New))
+    (tracked ++ untracked).distinctBy(_.path)
 
   def pendingChanges(): PendingChanges =
     val untracked = untrackedPaths()
@@ -841,6 +874,50 @@ private[orca] object OsGitTool:
     */
   val wholeRepoExceptOrca: Seq[String] =
     Seq("--", ":(top)", orca.OrcaDir.ExcludePathspec)
+
+  /** The record separator git's `-z` output modes use. */
+  private val NUL: Char = '\u0000'
+
+  /** The records of a `git diff --numstat -z`, in git's order.
+    *
+    * A record is `<added>\t<deleted>\t<path>`, NUL-terminated. A rename ends
+    * the record after the tabs and follows it with the old and the new path as
+    * two more NUL-terminated fields; the new one is the path the change now
+    * lives at, which is what [[GitTool.changedFiles]] reports. A `-` in place
+    * of a count marks a binary file, which git reports as differing without
+    * saying by how much.
+    *
+    * Anything that doesn't parse as a record is skipped rather than failing the
+    * call: a file list is worth having even if one entry of it is unreadable.
+    */
+  private[tools] def parseNumstat(raw: String): List[ChangedFile] =
+    @scala.annotation.tailrec
+    def loop(
+        fields: List[String],
+        acc: List[ChangedFile]
+    ): List[ChangedFile] =
+      fields match
+        case Nil => acc.reverse
+        case record :: rest =>
+          record.split('\t').toList match
+            case added :: deleted :: path :: Nil =>
+              loop(rest, ChangedFile(path, change(added, deleted)) :: acc)
+            // Rename: the paths are the next two fields, old then new.
+            case added :: deleted :: Nil =>
+              rest match
+                case _ :: renamedTo :: tail =>
+                  loop(
+                    tail,
+                    ChangedFile(renamedTo, change(added, deleted)) :: acc
+                  )
+                case _ => acc.reverse
+            case _ => loop(rest, acc)
+    loop(raw.split(NUL).toList.filter(_.nonEmpty), Nil)
+
+  private def change(added: String, deleted: String): FileChange =
+    (added.toIntOption, deleted.toIntOption) match
+      case (Some(a), Some(d)) => FileChange.Lines(a, d)
+      case _                  => FileChange.Binary
 
   // --- Recoverable-failure stderr predicates ---
   //

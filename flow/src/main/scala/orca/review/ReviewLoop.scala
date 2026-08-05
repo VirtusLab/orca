@@ -8,6 +8,7 @@ import language.experimental.captureChecking
 import language.experimental.separationChecking
 
 import orca.{
+  BoundedDiff,
   CheckedPar,
   Configured,
   FlowContext,
@@ -335,7 +336,9 @@ def reviewAndFixLoop[B <: BackendTag](
       * newly-created files, `.orca/` bookkeeping excluded — re-sampled at the
       * start of every iteration and sent to every reviewer that runs, so each
       * round's reviewers see the fixer's edits whether or not it committed
-      * them.
+      * them. A sample past [[BoundedDiff.ReviewThreshold]] is cut down to the
+      * files that fit plus a list of the ones that didn't, so an outsized
+      * change set still produces a prompt that can be sent.
       *
       * Pass `Some(...)` to pin the diff instead of sampling it — what the tests
       * use to skip the git call. A pinned diff is also not told its base
@@ -444,12 +447,19 @@ private[review] class ReviewFixLoop[B <: BackendTag](
   private val roster: List[RosterEntry[?]] = reviewers.map(RosterEntry.wrap)
 
   /** The change set under review: everything the enclosing stage has produced
-    * since `reviewBase` (ADR 0018 §2.1). Re-sampled each iteration, so every
+    * since `reviewBase` (ADR 0018 §2.1), bounded to
+    * [[BoundedDiff.ReviewThreshold]]. Re-sampled each iteration, so every
     * reviewer that round sees the fixer's later edits; a constant `initialDiff`
-    * override skips the git call entirely.
+    * override skips the git call entirely, and is sent as given — a caller that
+    * pins the diff has already decided what a reviewer should see.
     */
   private def sampleDiff(): String =
-    initialDiff.getOrElse(ctx.git.reviewDiff(reviewBase))
+    initialDiff.getOrElse:
+      val diff = ctx.git.reviewDiff(reviewBase)
+      // The file list costs another git call, and only the bounded rendering
+      // needs it, so it is sampled only once the diff is over the threshold.
+      if diff.length <= BoundedDiff.ReviewThreshold then diff
+      else BoundedDiff.reviewPayload(diff, ctx.git.changedFileStats(reviewBase))
 
   /** The commit reviewers are told their diff was sampled against, sent
     * alongside the diff so a shell-capable reviewer can read past it.
