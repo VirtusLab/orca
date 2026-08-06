@@ -42,3 +42,54 @@ private[orca] object QuietProc:
         stderr = os.Pipe,
         check = false
       )
+
+  /** Run `args` to completion, keeping at most `maxOutBytes` of stdout: the
+    * rest is drained and dropped, so the exit code and stderr are still the
+    * ones [[call]] would report and the child never blocks on a full pipe.
+    *
+    * For commands whose output size is set by what they are reading rather than
+    * by their arguments — [[call]] would put all of it on the heap as a
+    * `String` before the caller could react.
+    */
+  def callCapped(
+      args: Seq[String],
+      maxOutBytes: Int,
+      cwd: os.Path = os.pwd,
+      env: Map[String, String] = Map.empty
+  ): CappedResult =
+    log.debug("exec: {}", args.mkString(" "))
+    val kept = new java.io.ByteArrayOutputStream()
+    var produced = 0L
+    // os-lib runs this on a pump thread of its own and joins it before `call`
+    // returns; that join is what publishes `kept` and `produced` here.
+    val capture = os.ProcessOutput: (buf, n) =>
+      produced += n
+      val room = maxOutBytes - kept.size()
+      if room > 0 then kept.write(buf, 0, math.min(n, room))
+    val result = os
+      .proc(args)
+      .call(
+        cwd = cwd,
+        env = env,
+        stdin = os.Pipe,
+        stdout = capture,
+        stderr = os.Pipe,
+        check = false
+      )
+    CappedResult(
+      exitCode = result.exitCode,
+      out = String(kept.toByteArray, java.nio.charset.StandardCharsets.UTF_8),
+      truncated = produced > maxOutBytes,
+      err = result.err.text()
+    )
+
+/** Outcome of [[QuietProc.callCapped]]. `out` is a prefix of what the child
+  * wrote whenever `truncated` — and, being a prefix of bytes rather than of
+  * characters, can end in a replacement character where the cut split one.
+  */
+private[orca] case class CappedResult(
+    exitCode: Int,
+    out: String,
+    truncated: Boolean,
+    err: String
+)

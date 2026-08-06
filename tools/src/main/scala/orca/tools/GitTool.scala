@@ -404,7 +404,8 @@ trait GitTool:
     *
     * Built for agent-supplied arguments, so `rev` and `paths` are validated
     * before they reach git ([[GitRead.rev]], [[GitRead.path]]) and cannot be
-    * read as flags or escape the repository.
+    * read as flags or escape the repository. The result is capped at
+    * `OsGitTool.MaxReadBytes` and says so where it was cut.
     */
   def show(
       rev: String,
@@ -413,7 +414,9 @@ trait GitTool:
   ): Either[GitReadFailed, String]
 
   /** `git show <rev>:<path>` — one file's full contents as of `rev`. Same
-    * argument validation as [[show]].
+    * argument validation as [[show]]. A file over `OsGitTool.MaxReadBytes` is
+    * refused rather than cut: the size is known before the read, so naming the
+    * limit beats a truncated file.
     */
   def fileAt(rev: String, path: String): Either[GitReadFailed, String]
 
@@ -886,11 +889,11 @@ private[orca] class OsGitTool(
     // binary, a checked-in dataset) would otherwise be an OOM rather than an
     // answer.
     val size = gitRead(Seq("cat-file", "-s", "--end-of-options", blob)).ok()
-    if size.trim.toLongOption.exists(_ > OsGitTool.MaxFileAtBytes) then
+    if size.trim.toLongOption.exists(_ > OsGitTool.MaxReadBytes) then
       Left(
         new GitReadFailed.Refused(
           s"'$path' is ${size.trim} bytes at $rev, over the " +
-            s"${OsGitTool.MaxFileAtBytes}-byte limit for a whole-file read"
+            s"${OsGitTool.MaxReadBytes}-byte limit for a whole-file read"
         )
       ).ok()
     else gitRead(Seq("show", "--end-of-options", blob)).ok()
@@ -898,11 +901,25 @@ private[orca] class OsGitTool(
   /** Run a read-only git command, mapping a non-zero exit to
     * [[GitReadFailed.Refused]] instead of aborting the flow — an agent asking
     * for a revision that does not exist gets an answer, not a crash.
+    *
+    * Capped at [[OsGitTool.MaxReadBytes]] and marked when cut: `rev` names a
+    * commit, so the output is as large as whatever was committed there.
     */
   private def gitRead(args: Seq[String]): Either[GitReadFailed, String] =
-    val result = gitProc("git" +: args)
-    if result.exitCode == 0 then Right(result.out.text())
-    else Left(new GitReadFailed.Refused(result.err.text().trim))
+    val result = QuietProc.callCapped(
+      "git" +: args,
+      OsGitTool.MaxReadBytes,
+      cwd = workDir,
+      env = OsGitTool.nonInteractiveEnv
+    )
+    if result.exitCode != 0 then
+      Left(new GitReadFailed.Refused(result.err.trim))
+    else if result.truncated then
+      Right(
+        result.out +
+          s"\n\n[cut after ${OsGitTool.MaxReadBytes} bytes — narrow the request]"
+      )
+    else Right(result.out)
 
   def addWorktree(
       path: os.Path,
@@ -966,9 +983,10 @@ private[orca] class OsGitTool(
       catch case NonFatal(_) => path.toNIO.toAbsolutePath.normalize()
     normalised(left) == normalised(right)
 
-  /** Run a git subprocess. Every git invocation routes through here so they all
-    * carry [[OsGitTool.nonInteractiveEnv]] — no git (or ssh it spawns) can
-    * block the flow on an interactive credential or passphrase prompt.
+  /** Run a git subprocess. Every git invocation routes through here or
+    * [[gitRead]], so they all carry [[OsGitTool.nonInteractiveEnv]] — no git
+    * (or ssh it spawns) can block the flow on an interactive credential or
+    * passphrase prompt.
     */
   private def gitProc(args: Seq[String]): os.CommandResult =
     QuietProc.call(args, cwd = workDir, env = OsGitTool.nonInteractiveEnv)
@@ -999,10 +1017,15 @@ private[orca] class OsGitTool(
 
 private[orca] object OsGitTool:
 
-  /** Largest blob [[OsGitTool.fileAt]] will read whole. Comfortably above any
-    * source file; a request over it is a wrong path, not a big one.
+  /** Most stdout an agent-facing read yields. Comfortably above any source
+    * file; past it the request is a wrong one, not a big one.
+    *
+    * Held to in whichever of two ways the command allows: [[OsGitTool.fileAt]]
+    * knows the size before reading (`cat-file -s`) so it refuses and says why,
+    * while a commit's diff has no such query, leaving `gitRead` to drop the
+    * tail of whatever a command produces past it.
     */
-  private[tools] val MaxFileAtBytes: Long = 2 * 1024 * 1024
+  private[tools] val MaxReadBytes: Int = 2 * 1024 * 1024
 
   /** Pathspec arguments scoping a diff to "the whole repository, minus orca's
     * bookkeeping". `:(top)` is what makes it repo-wide: a magic pathspec is

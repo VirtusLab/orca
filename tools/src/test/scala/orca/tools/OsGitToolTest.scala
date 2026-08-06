@@ -860,7 +860,21 @@ class OsGitToolTest extends munit.FunSuite:
 
   test("fileAt refuses a blob past the whole-file limit"):
     withRepo: (git, dir) =>
-      os.write(dir / "big.bin", "x" * (OsGitTool.MaxFileAtBytes.toInt + 1))
+      os.write(dir / "big.bin", "x" * (OsGitTool.MaxReadBytes + 1))
       git.commit("add big").orThrow
       val failure = git.fileAt("HEAD", "big.bin").left.toOption.get
       assert(failure.getMessage.contains("whole-file read"), failure.getMessage)
+
+  test("show cuts a commit whose diff is past the read limit, and says so"):
+    // No size query answers "how big is this commit's diff?", so the cut
+    // happens as the output is read rather than before it: what git wrote past
+    // the limit never reaches the heap.
+    withRepo: (git, dir) =>
+      os.write(
+        dir / "big.txt",
+        ("x" * 99 + "\n") * (OsGitTool.MaxReadBytes / 50)
+      )
+      git.commit("add big").orThrow
+      val out = git.show("HEAD").orThrow
+      assert(clue(out.length) < OsGitTool.MaxReadBytes + 100)
+      assert(out.endsWith("bytes — narrow the request]"), out.takeRight(80))
