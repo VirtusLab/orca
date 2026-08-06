@@ -310,17 +310,13 @@ Orca is 0.x: no backwards compatibility is owed anywhere.
   - `ProgressLog`/`SessionRecord`'s tolerant decoding (documented at its
     definition), so a mid-run resume survives the upgrade — an in-flight run's
     log written by an older orca must still load.
-  - The two `.orca/cache/runs/` shapes, `RunManifest` and `CostRecord` (ADR
-    0021 §8 amendment, 2026-08-05). They carry no schema version, so the rule
-    is **additive only**: a new field is `Option` or carries a default, and
-    nothing is renamed, retyped, or has its wire strings respelled — a rename
-    reads as an unknown key skipped plus a defaulted absent one, which is
-    silent and wrong. `RunManifestGoldenTest`'s frozen fixtures are what hold
-    this, and are the one place a fixture pinned to a prior wire format is
-    correct. The exception is narrow: it does NOT extend to
-    `RunManifest`'s required fields (`workDir`, `pid`, `startedAt`, `outcome`,
-    `sessions`), which keep the no-default rule so a call site that forgets one
-    still fails to compile.
+  - `RunManifest` (documented at its definition; ADR 0021 §8 amendment,
+    2026-08-05), so the shell still offers "continue a session" from a manifest
+    an older orca wrote. Changes to it are additive only, still with no
+    defaults; the fixtures that hold that — `RunManifestGoldenTest`'s frozen
+    files, and `ManifestReaderTest`'s verbatim older manifest body — are
+    sanctioned, not violations of the no-fixtures rule above. `CostRecord` is
+    not covered: nothing reads a cost log, and no fixture pins it.
 - Comments (see Code style above) never narrate this either: no "was
   previously", "renamed from", "kept for compat" — state what the field/type
   means now, not its history.
