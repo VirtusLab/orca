@@ -49,7 +49,7 @@ object GitReadFailed:
       extends GitReadFailed(
         s"'$rev' is not a single revision (letters, digits, '.', '_', '/', " +
           "'-', '@', '^', '~', '{', '}', no range '..' / '^-' / '^@', not " +
-          "starting with a dash)"
+          "starting with a dash or a '^')"
       )
 
   final class InvalidPath(path: String)
@@ -68,25 +68,32 @@ object GitReadFailed:
 private[tools] object GitRead:
   private val RevPattern = """[A-Za-z0-9._/@^~{}-]+""".r
 
-  /** Every way of spelling a range that [[RevPattern]] admits. `git show` on
-    * one prints a commit per member, where a single revision prints what
-    * somebody committed: `x^-` is `x^..x` — on a merge, the whole merged branch
-    * — and `x^@` is every parent. `git` forbids all three in a refname, so
-    * rejecting them costs nothing.
+  /** Range operators [[RevPattern]] admits, in the middle of a revision: `x^-`
+    * is `x^..x` — on a merge, the whole merged branch — and `x^@` is every
+    * parent. `git` forbids all three in a refname, so rejecting them costs
+    * nothing.
     */
   private val RangeOperators = List("..", "^-", "^@")
+
+  /** True when `value` names anything other than one commit. A leading `^`
+    * excludes rather than names: `git show ^HEAD` exits 0 having printed
+    * nothing, so without this an agent gets a blank answer it cannot tell from
+    * an empty commit.
+    */
+  private def isRange(value: String): Boolean =
+    value.startsWith("^") || RangeOperators.exists(value.contains)
 
   /** A single ref or sha, in any of the spellings the tools advertise:
     * `HEAD~1`, `HEAD^`, `@` and `HEAD@{1}` all name one commit, and
     * `git_file_at`'s description asks for a file "before the change under
-    * review", which is what `HEAD~1` is for.
+    * review", which is what `HEAD~1` is for. `x^{/text}` searches history but
+    * still resolves to one commit, so it is allowed.
     *
     * The leading-dash rejection stops a revision position being read as a flag;
     * callers additionally pass `--end-of-options`.
     */
   def rev(value: String): Either[GitReadFailed, String] =
-    if RevPattern.matches(value) && !value.startsWith("-") &&
-      !RangeOperators.exists(value.contains)
+    if RevPattern.matches(value) && !value.startsWith("-") && !isRange(value)
     then Right(value)
     else Left(new GitReadFailed.InvalidRev(value))
 

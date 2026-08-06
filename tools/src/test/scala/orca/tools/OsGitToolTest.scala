@@ -895,6 +895,10 @@ class OsGitToolTest extends munit.FunSuite:
       assert(rejected(git.show("main..HEAD")))
       assert(rejected(git.show("HEAD^-")))
       assert(rejected(git.show("HEAD^@")))
+      // A leading `^` excludes instead of naming, and git exits 0 having
+      // printed nothing — an empty answer the agent cannot tell from a commit
+      // that changed nothing.
+      assert(rejected(git.show("^HEAD")))
 
   test("a whole-file read can never outgrow what one read holds"):
     // Above this, `fileAt`'s size check admits a file the read then cuts. The
